@@ -19,6 +19,7 @@ import {
 import {
   type ReleaseArtifactManifest
 } from "./release-artifact-manifest.js";
+import { verifyRemoteReleaseTag } from "./release-github-tag.js";
 import {
   GitHubNpmPublicationLedger
 } from "./release-npm-ledger.js";
@@ -168,7 +169,7 @@ async function run(command: "publish" | "verify", argv: readonly string[]): Prom
     throw new Error("GitHub source commit differs from the release artifact manifest");
   }
   if (sourceRef !== `refs/tags/v${publication.manifest.productVersion}`) {
-    throw new Error("GitHub source ref is not the signed tag for the released version");
+    throw new Error("GitHub source ref is not the release tag for the released version");
   }
   const registry = new NpmReleaseRegistry({
     npm: { npmCli, nodeExecutable },
@@ -181,7 +182,16 @@ async function run(command: "publish" | "verify", argv: readonly string[]): Prom
       sourceCommit: sourceSha,
       token: authority.token
     });
-    await publishNpmRelease(publication.packages, registry, ledger);
+    const writeGuard = {
+      assertWritable: async (packageToPublish: NpmPublicationPackage) => {
+        await verifyRemoteReleaseTag({
+          version: packageToPublish.version,
+          sourceCommit: sourceSha,
+          environment: process.env
+        });
+      }
+    };
+    await publishNpmRelease(publication.packages, registry, ledger, writeGuard);
   } else {
     await registry.waitUntilVerified(publication.packages);
   }

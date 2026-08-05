@@ -121,10 +121,10 @@ export function createReleaseArtifactManifest(
   const manifest = deepFreeze({
     schemaVersion: 1 as const,
     product: "1667" as const,
-    productVersion: identities.evidence.productVersion,
-    sourceTag: identities.evidence.tagName,
-    sourceCommit: identities.evidence.sourceCommit,
-    buildTimestamp: identities.evidence.buildTimestamp,
+    productVersion: identities.source.productVersion,
+    sourceTag: identities.source.tagName,
+    sourceCommit: identities.source.sourceCommit,
+    buildTimestamp: identities.source.buildTimestamp,
     artifacts
   });
   const text = canonicalJson(manifest);

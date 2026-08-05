@@ -13,7 +13,7 @@ import {
 import {
   releaseIdentityForTarget,
   type ReleaseBuildIdentity,
-  type ReleaseIdentitySet
+  type ReleaseBuildIdentitySet
 } from "./release-identity.js";
 import {
   createReleaseLauncherManifest,
@@ -58,7 +58,7 @@ export interface ReleasePackageTemplates {
  * a held target for local verification.
  */
 export function createReleasePackageTemplates(
-  identities: ReleaseIdentitySet
+  identities: ReleaseBuildIdentitySet
 ): ReleasePackageTemplates {
   const launcher = createReleaseLauncherPackageTemplate(identities);
   const platforms = PUBLISHED_ARTIFACT_TARGETS.map((target) => {
@@ -68,14 +68,14 @@ export function createReleasePackageTemplates(
 }
 
 export function createReleaseLauncherPackageTemplate(
-  identities: ReleaseIdentitySet
+  identities: ReleaseBuildIdentitySet
 ): ReleaseLauncherPackageTemplate {
-  const version = identities.evidence.productVersion;
+  const version = identities.source.productVersion;
   return Object.freeze({
     kind: "launcher" as const,
     packageManifest: releasePackageJson(createReleaseLauncherManifest(version)),
     buildManifest: createReleasePackageBuildManifest(
-      identities.evidence,
+      identities.source,
       RELEASE_LAUNCHER_PACKAGE,
       "launcher"
     ),
@@ -84,18 +84,18 @@ export function createReleaseLauncherPackageTemplate(
 }
 
 export function createReleasePlatformPackageTemplate(
-  identities: ReleaseIdentitySet,
+  identities: ReleaseBuildIdentitySet,
   target: BuiltArtifactTarget
 ): ReleasePlatformPackageTemplate {
   const manifest = createReleasePlatformManifest(
     target,
-    identities.evidence.productVersion
+    identities.source.productVersion
   );
   return Object.freeze({
     kind: "platform" as const,
     packageManifest: releasePackageJson(manifest),
     buildManifest: createReleasePackageBuildManifest(
-      identities.evidence,
+      identities.source,
       manifest.name,
       target
     ),

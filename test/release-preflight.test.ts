@@ -32,25 +32,46 @@ const REPOSITORY_ROOT = path.resolve(
   ".."
 );
 const execFileAsync = promisify(execFile);
-const sourceEvidence = {
-  schemaVersion: 1,
-  productVersion: VERSION,
-  sourceCommit: COMMIT,
-  sourceDirty: false,
-  tagName: `v${VERSION}`,
-  tagObjectType: "annotated",
-  tagSignature: "verified",
-  tagTargetCommit: COMMIT,
-  buildTimestamp: TIMESTAMP,
-  packageVersions: {
-    root: VERSION,
-    tui: VERSION,
-    rootLock: VERSION,
-    rootLockPackage: VERSION
-  }
-} as const;
+const PACKAGE_VERSIONS = Object.freeze({
+  root: VERSION,
+  tui: VERSION,
+  rootLock: VERSION,
+  rootLockPackage: VERSION
+});
 
-test("local release preflight CLI validates every tarball and emits canonical evidence", async (t) => {
+/**
+ * The evidence document accepts unsigned annotated and lightweight tags.
+ * Preflight must run the whole pipeline through both shapes. Thus, both shapes
+ * run through the same test body.
+ */
+const SOURCE_EVIDENCE_SCENARIOS = [
+  {
+    label: "an unsigned, annotated tag",
+    tagObjectType: "annotated",
+    tagSignature: "unsigned"
+  },
+  {
+    label: "an unsigned, lightweight tag",
+    tagObjectType: "lightweight",
+    tagSignature: "unsigned"
+  }
+] as const;
+
+for (const scenario of SOURCE_EVIDENCE_SCENARIOS) {
+  const sourceEvidence = {
+    schemaVersion: 1,
+    productVersion: VERSION,
+    sourceCommit: COMMIT,
+    sourceDirty: false,
+    tagName: `v${VERSION}`,
+    tagObjectType: scenario.tagObjectType,
+    tagSignature: scenario.tagSignature,
+    tagTargetCommit: COMMIT,
+    buildTimestamp: TIMESTAMP,
+    packageVersions: PACKAGE_VERSIONS
+  } as const;
+
+test(`local release preflight CLI validates every tarball and emits canonical evidence for ${scenario.label}`, async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-preflight-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const identities = createReleaseIdentitySet(sourceEvidence);
@@ -141,7 +162,12 @@ test("local release preflight CLI validates every tarball and emits canonical ev
     createHash("sha256").update(stdout).digest("hex"),
     stderr.match(/^release-manifest-sha256 ([0-9a-f]{64})\n$/)?.[1]
   );
+});
+}
 
+test("local release preflight CLI refuses a plan with a duplicate object key", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-release-preflight-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
   const duplicatePlan = path.join(root, "duplicate.json");
   await writeFile(duplicatePlan, '{"schemaVersion":1,"schemaVersion":1}');
   await assert.rejects(
@@ -154,6 +180,43 @@ test("local release preflight CLI validates every tarball and emits canonical ev
     (error: unknown) => {
       const stderr = (error as { stderr?: string }).stderr ?? "";
       return /duplicate object key/.test(stderr);
+    }
+  );
+});
+
+test("local release preflight refuses a verified signature claim", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-release-preflight-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const planPath = path.join(root, "impossible-evidence.json");
+  await writeFile(planPath, JSON.stringify({
+    schemaVersion: 1,
+    sourceEvidence: {
+      schemaVersion: 1,
+      productVersion: VERSION,
+      sourceCommit: COMMIT,
+      sourceDirty: false,
+      tagName: `v${VERSION}`,
+      tagObjectType: "annotated",
+      tagSignature: "verified",
+      tagTargetCommit: COMMIT,
+      buildTimestamp: TIMESTAMP,
+      packageVersions: PACKAGE_VERSIONS
+    },
+    artifacts: Array.from({ length: PUBLISHED_PACKAGE_COUNT }, (_, index) => ({
+      tarballPath: `artifact-${index}.tgz`,
+      buildIdentity: null
+    }))
+  }));
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      "--import",
+      "tsx",
+      path.join(REPOSITORY_ROOT, "scripts", "release-preflight.ts"),
+      planPath
+    ], { cwd: REPOSITORY_ROOT, encoding: "utf8" }),
+    (error: unknown) => {
+      const stderr = (error as { stderr?: string }).stderr ?? "";
+      return /Release tag signature must be unsigned/.test(stderr);
     }
   );
 });

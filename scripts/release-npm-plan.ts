@@ -54,7 +54,7 @@ export async function createReleasePreflightPlan(
   const identities = createReleaseIdentitySet(sourceEvidence);
   const tarballs = await releaseTarballs(
     tarballDirectory,
-    identities.evidence.productVersion
+    identities.source.productVersion
   );
   const observations = releaseObservations(observationDirectory);
   const artifacts: {
@@ -94,7 +94,7 @@ export async function createReleasePreflightPlan(
   }
   return Object.freeze({
     schemaVersion: 1 as const,
-    sourceEvidence: identities.evidence,
+    sourceEvidence: identities.source,
     artifacts: Object.freeze(artifacts)
   });
 }

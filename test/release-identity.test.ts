@@ -14,7 +14,7 @@ const evidence = {
   sourceDirty: false,
   tagName: "v1.2.3-beta.1",
   tagObjectType: "annotated",
-  tagSignature: "verified",
+  tagSignature: "unsigned",
   tagTargetCommit: "0123456789abcdef0123456789abcdef01234567",
   buildTimestamp: "2026-07-23T10:20:30.000Z",
   packageVersions: {
@@ -42,7 +42,7 @@ for (const field of [
   });
 }
 
-test("signed clean tag evidence produces one immutable release identity per target", () => {
+test("unsigned annotated tag evidence produces one immutable release identity per target", () => {
   const release = createReleaseIdentitySet(evidence);
   assert.deepEqual(
     release.identities.map((identity) => identity.artifactTarget),
@@ -57,14 +57,36 @@ test("signed clean tag evidence produces one immutable release identity per targ
     assert.ok(Object.isFrozen(identity));
   }
   assert.ok(Object.isFrozen(release.identities));
-  assert.ok(Object.isFrozen(release.evidence.packageVersions));
+  assert.equal("evidence" in release, false);
+  assert.deepEqual(release.source, evidence);
+  assert.ok(Object.isFrozen(release.source.packageVersions));
 });
 
-test("release identity rejects mutable, unsigned, detached, or version-skewed inputs", () => {
+test("an unsigned lightweight tag produces a release identity too", () => {
+  // There is no user of this product yet. The signing-key requirement returns
+  // before there is one. Preflight must accept an unsigned lightweight tag
+  // deliberately.
+  const release = createReleaseIdentitySet({
+    ...evidence,
+    tagObjectType: "lightweight",
+    tagSignature: "unsigned"
+  });
+  assert.deepEqual(
+    release.identities.map((identity) => identity.artifactTarget),
+    BUILT_ARTIFACT_TARGETS
+  );
+  assert.equal(release.source.tagObjectType, "lightweight");
+  assert.equal(release.source.tagSignature, "unsigned");
+});
+
+test("release identity rejects mutable, detached, or version-skewed inputs", () => {
   const invalid: unknown[] = [
     { ...evidence, sourceDirty: true },
+    // "commit" is git's own raw object-type name, not this document's
+    // descriptive value — the accepted values are "annotated"/"lightweight".
     { ...evidence, tagObjectType: "commit" },
     { ...evidence, tagSignature: "unverified" },
+    { ...evidence, tagSignature: "verified" },
     { ...evidence, tagName: "1.2.3-beta.1" },
     {
       ...evidence,

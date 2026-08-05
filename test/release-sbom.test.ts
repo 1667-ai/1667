@@ -558,14 +558,13 @@ test("the generator and the staged-entry policy enforce the same size bound", ()
 
 /**
  * Every workflow that compiles an executable with `bun build --compile`.
- * `release-github.yml` is the pin that compiles what a user downloads;
- * `ci.yml` is the pin that compiles what every change is tested against. Both
- * must install the same Bun, because one declared runtime goes into the SBOM
+ * `release-npm.yml` is the pin that compiles what a user downloads; `ci.yml`
+ * is the pin that compiles what every change is tested against. Both must
+ * install the same Bun, because one declared runtime goes into the SBOM
  * inside every archive.
  */
 const BUN_COMPILING_WORKFLOWS = [
   "ci.yml",
-  "release-github.yml",
   "release-npm.yml"
 ] as const;
 

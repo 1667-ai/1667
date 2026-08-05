@@ -46,7 +46,7 @@ export interface ReleaseComponentSources {
  * embedded version is a property of the pinned toolchain rather than of any
  * lockfile. The fact that decides it is the `bun-version` the workflows that
  * compile install; a guard test reads that pin out of both
- * `.github/workflows/ci.yml` and `.github/workflows/release-github.yml`, and
+ * `.github/workflows/ci.yml` and `.github/workflows/release-npm.yml`, and
  * requires a single distinct pin equal to this constant, so bumping either
  * toolchain — or bumping one and not the other — fails the build. Bumping the
  * release workflow alone would ship archives whose SBOM names a runtime they

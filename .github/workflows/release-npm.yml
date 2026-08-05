@@ -8,7 +8,8 @@ on:
       version:
         description: >-
           Version to publish without a leading v. The dispatch ref must be the
-          signed v<version> tag.
+          v<version> tag. The tag needs no signature: there is no user of this
+          product yet, and that protection returns before there is one.
         required: true
         type: string
 
@@ -82,11 +83,13 @@ jobs:
       contents: read
       id-token: write
     steps:
-      # The dispatch ref is the signed tag, so GITHUB_SHA is the immutable tag
-      # commit. A merge to the default branch cannot move it after a maintainer
-      # signs the tag. release-evidence.ts still refuses a commit that is not
-      # reachable from the protected default branch.
-      - name: Refuse a dispatch that is not the signed release tag
+      # The dispatch ref is the tag, so GITHUB_SHA records the selected commit.
+      # The tag ruleset blocks updates and deletions. The publish job checks the
+      # exact tag before it prepares the draft and before each npm write.
+      # The tag needs no signature — release-evidence.ts still refuses a commit
+      # that is not reachable from the protected default branch, which is what
+      # keeps an unmerged commit out of a release.
+      - name: Refuse a dispatch that is not the release tag
         env:
           VERSION: ${{ inputs.version }}
         run: |
@@ -102,13 +105,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Fetch the protected signer policy and completion tags
+      - name: Fetch the protected default branch and completion tags
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin \
-            '+refs/heads/release-policy:refs/remotes/origin/release-policy'
           git fetch --no-tags origin \
             "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
@@ -132,19 +133,11 @@ jobs:
             echo "::error::GitHub CLI is not a regular executable"
             exit 1
           fi
-          posix_ssh_keygen_path="$(realpath "$(command -v ssh-keygen)")"
-          if [ ! -f "$posix_ssh_keygen_path" ] || [ ! -x "$posix_ssh_keygen_path" ] || [ -L "$posix_ssh_keygen_path" ]; then
-            echo "::error::ssh-keygen is not a regular executable"
-            exit 1
-          fi
           gh_path="$posix_gh_path"
-          ssh_keygen_path="$posix_ssh_keygen_path"
           if [ "$RUNNER_OS" = Windows ]; then
             gh_path="$(cygpath -w "$posix_gh_path")"
-            ssh_keygen_path="$(cygpath -w "$posix_ssh_keygen_path")"
           fi
           printf 'RELEASE_GH_PATH=%s\n' "$gh_path" >> "$GITHUB_ENV"
-          printf 'RELEASE_SSH_KEYGEN_PATH=%s\n' "$ssh_keygen_path" >> "$GITHUB_ENV"
 
       # This job can mint native provenance. It does not run dependency
       # lifecycle scripts and has no publication environment.
@@ -157,6 +150,7 @@ jobs:
 
       - name: Verify source authority and pin the build identity
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
           TARGET: ${{ matrix.target }}
@@ -165,8 +159,9 @@ jobs:
           timestamp="$(node --import tsx scripts/release-npm-ci.ts timestamp)"
           node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
           node --import tsx scripts/release-evidence.ts \
-            --tag "v$VERSION" --build-timestamp "$timestamp" \
-            --ssh-keygen "$RELEASE_SSH_KEYGEN_PATH" > /dev/null
+            --tag "v$VERSION" \
+            --protected-ref "refs/remotes/origin/$DEFAULT_BRANCH" \
+            --build-timestamp "$timestamp" > /dev/null
           identity="$(node --import tsx scripts/release-github-assets.ts identity \
             "$VERSION" "$GITHUB_SHA" "$timestamp" "$TARGET")"
           printf 'AI_1667_BUILD_IDENTITY_JSON=%s\n' "$identity" >> "$GITHUB_ENV"
@@ -229,13 +224,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Fetch the protected signer policy and completion tags
+      - name: Fetch the protected default branch and completion tags
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin \
-            '+refs/heads/release-policy:refs/remotes/origin/release-policy'
           git fetch --no-tags origin \
             "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
@@ -269,6 +262,7 @@ jobs:
 
       - name: Verify source authority
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
         run: |
@@ -276,7 +270,9 @@ jobs:
           timestamp="$(node --import tsx scripts/release-npm-ci.ts timestamp)"
           node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
           node --import tsx scripts/release-evidence.ts \
-            --tag "v$VERSION" --build-timestamp "$timestamp" > /dev/null
+            --tag "v$VERSION" \
+            --protected-ref "refs/remotes/origin/$DEFAULT_BRANCH" \
+            --build-timestamp "$timestamp" > /dev/null
           printf 'RELEASE_TIMESTAMP=%s\n' "$timestamp" >> "$GITHUB_ENV"
 
       - name: Download every native result
@@ -398,13 +394,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Fetch the protected signer policy and completion tags
+      - name: Fetch the protected default branch and completion tags
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin \
-            '+refs/heads/release-policy:refs/remotes/origin/release-policy'
           git fetch --no-tags origin \
             "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
@@ -430,6 +424,7 @@ jobs:
 
       - name: Collect source evidence before artifact download
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
         run: |
@@ -438,7 +433,9 @@ jobs:
           node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
           node --import tsx scripts/release-completion.ts ready
           node --import tsx scripts/release-evidence.ts \
-            --tag "v$VERSION" --build-timestamp "$timestamp" \
+            --tag "v$VERSION" \
+            --protected-ref "refs/remotes/origin/$DEFAULT_BRANCH" \
+            --build-timestamp "$timestamp" \
             > "$RUNNER_TEMP/source-evidence.json"
           chmod 0600 "$RUNNER_TEMP/source-evidence.json"
 
@@ -524,11 +521,13 @@ jobs:
       contents: write
       id-token: write
     steps:
-      # The dispatch ref is the signed tag, so GITHUB_SHA is the immutable tag
-      # commit. A merge to the default branch cannot move it after a maintainer
-      # signs the tag. release-evidence.ts still refuses a commit that is not
-      # reachable from the protected default branch.
-      - name: Refuse a dispatch that is not the signed release tag
+      # The dispatch ref is the tag, so GITHUB_SHA records the selected commit.
+      # The tag ruleset blocks updates and deletions. This job resolves the tag
+      # again before npm publication starts.
+      # The tag needs no signature — release-evidence.ts still refuses a commit
+      # that is not reachable from the protected default branch, which is what
+      # keeps an unmerged commit out of a release.
+      - name: Refuse a dispatch that is not the release tag
         env:
           VERSION: ${{ inputs.version }}
         run: |
@@ -544,13 +543,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Fetch the protected signer policy and completion tags
+      - name: Fetch the protected default branch and completion tags
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin \
-            '+refs/heads/release-policy:refs/remotes/origin/release-policy'
           git fetch --no-tags origin \
             "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
@@ -584,15 +581,18 @@ jobs:
 
       - name: Collect source evidence before artifact download
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           timestamp="$(node --import tsx scripts/release-npm-ci.ts timestamp)"
-          node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
+          node --import tsx scripts/release-completion.ts replay "$VERSION" "$GITHUB_SHA"
           node --import tsx scripts/release-completion.ts ready
           node --import tsx scripts/release-evidence.ts \
-            --tag "v$VERSION" --build-timestamp "$timestamp" \
+            --tag "v$VERSION" \
+            --protected-ref "refs/remotes/origin/$DEFAULT_BRANCH" \
+            --build-timestamp "$timestamp" \
             > "$RUNNER_TEMP/source-evidence.json"
           chmod 0600 "$RUNNER_TEMP/source-evidence.json"
 
@@ -634,138 +634,22 @@ jobs:
             dist/publication/observations \
             dist/plan.json
 
-      - name: Publish platforms, then the launcher
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          git fetch origin '+refs/tags/released/*:refs/tags/released/*'
-          node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
-          npm run release:publish -- publish \
-            dist/plan.json \
-            dist/publication/artifact-manifest.json \
-            dist/publication/tarballs
-
-  release:
-    needs: [preflight, publish]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions:
-      actions: read
-      attestations: read
-      contents: write
-    steps:
-      - name: Check out the dispatch commit and release policy
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Fetch the protected signer policy and completion tags
-        env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          set -euo pipefail
-          git fetch --no-tags origin \
-            '+refs/heads/release-policy:refs/remotes/origin/release-policy'
-          git fetch --no-tags origin \
-            "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
-          git fetch origin '+refs/tags/released/*:refs/tags/released/*'
-
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          package-manager-cache: false
-
-      - name: Pin the hosted GitHub CLI
-        run: |
-          set -euo pipefail
-          gh_path="$(realpath "$(command -v gh)")"
-          if [ ! -f "$gh_path" ] || [ ! -x "$gh_path" ] || [ -L "$gh_path" ]; then
-            echo "::error::GitHub CLI is not a regular executable"
-            exit 1
-          fi
-          printf 'RELEASE_GH_PATH=%s\n' "$gh_path" >> "$GITHUB_ENV"
-
-      - name: Pin npm
-        run: |
-          set -euo pipefail
-          npm install --global "npm@$NPM_VERSION" --ignore-scripts --no-audit --no-fund
-          test "$(node --version)" = "v$NODE_VERSION"
-          test "$(npm --version)" = "$NPM_VERSION"
-
-      - name: Install script-free runtime dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Collect source evidence before artifact download
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          timestamp="$(node --import tsx scripts/release-npm-ci.ts timestamp)"
-          node --import tsx scripts/release-completion.ts replay "$VERSION" "$GITHUB_SHA"
-          node --import tsx scripts/release-completion.ts ready
-          node --import tsx scripts/release-evidence.ts \
-            --tag "v$VERSION" --build-timestamp "$timestamp" \
-            > "$RUNNER_TEMP/source-evidence.json"
-          chmod 0600 "$RUNNER_TEMP/source-evidence.json"
-
-      - name: Download the retained publication inputs
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: release-publication
-          path: dist/publication
-
-      - name: Verify every retained input
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          count="$(node --import tsx --input-type=module -e '
-            import { expectedPublicationFileCount } from "./scripts/release-publication-assets.ts";
-            process.stdout.write(String(expectedPublicationFileCount(process.env.VERSION)));
-          ')"
-          found="$(find dist/publication -type f | wc -l | tr -d ' ')"
-          if [ "$found" != "$count" ]; then
-            echo "::error::Expected $count publication files, found $found"
-            find dist/publication -type f | sort
-            exit 1
-          fi
-          node --import tsx scripts/release-npm-ci.ts \
-            verify-attestations dist/publication "$count"
-
-      - name: Rebuild preflight and verify the published matrix
-        run: |
-          set -euo pipefail
-          node --import tsx scripts/release-npm-plan.ts \
-            "$RUNNER_TEMP/source-evidence.json" \
-            dist/publication/tarballs \
-            dist/publication/observations \
-            dist/plan.json
-          npm run release:publish -- verify \
-            dist/plan.json \
-            dist/publication/artifact-manifest.json \
-            dist/publication/tarballs
-
       - name: Assemble the GitHub release assets
         env:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          mkdir -p dist/assets
-          cp dist/publication/tarballs/*.tgz dist/assets/
-          cp dist/publication/observations/*.json dist/assets/
-          cp dist/publication/sboms/*.spdx.json dist/assets/
-          cp dist/publication/archives/*.tar.gz dist/assets/
-          cp dist/publication/installers/* dist/assets/
-          cp dist/publication/artifact-manifest.json dist/assets/
-          cp dist/publication/artifact-manifest.sha256 dist/assets/
-          node --import tsx scripts/release-github-assets.ts checksums dist/assets \
-            > dist/assets/checksums.txt
+          mkdir -p dist/github-release/assets
+          cp dist/publication/tarballs/*.tgz dist/github-release/assets/
+          cp dist/publication/observations/*.json dist/github-release/assets/
+          cp dist/publication/sboms/*.spdx.json dist/github-release/assets/
+          cp dist/publication/archives/*.tar.gz dist/github-release/assets/
+          cp dist/publication/installers/* dist/github-release/assets/
+          cp dist/publication/artifact-manifest.json dist/github-release/assets/
+          cp dist/publication/artifact-manifest.sha256 dist/github-release/assets/
+          node --import tsx scripts/release-github-assets.ts \
+            checksums dist/github-release/assets \
+            > dist/github-release/assets/checksums.txt
           {
             printf '# 1667 v%s\n\n' "$VERSION"
             printf 'This release retains all npm packages and native Release Archives.\n'
@@ -777,15 +661,31 @@ jobs:
             printf 'npm publication uses the `%s` tag. The version selects it:\n' "$channel"
             printf 'a prerelease publishes to `beta`, and every other version to `latest`.\n'
             printf 'The homepage serves the selected Installers after a separate promotion gate.\n'
-          } > dist/release-notes.md
+          } > dist/github-release/release-notes.md
 
-      - name: Publish or verify the immutable GitHub release
+      # Lock the exact release assets before the first irreversible npm write.
+      # A failed npm write can resume from this run's retained inputs and ledger.
+      - name: Create or verify the immutable GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
         run: >-
-          node --import tsx scripts/release-npm-github.ts
-          "$VERSION" dist/assets dist/release-notes.md
+          node --import tsx scripts/release-npm-github.ts publish
+          "$VERSION" "$GITHUB_SHA"
+          dist/github-release/assets dist/github-release/release-notes.md
+
+      - name: Publish platforms, then the launcher
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/tags/released/*:refs/tags/released/*'
+          node --import tsx scripts/release-completion.ts replay "$VERSION" "$GITHUB_SHA"
+          npm run release:publish -- publish \
+            dist/plan.json \
+            dist/publication/artifact-manifest.json \
+            dist/publication/tarballs
 
       # This protected tag is the monotonic release record. Create it last.
       - name: Record complete publication
@@ -794,6 +694,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          git fetch origin '+refs/tags/released/*:refs/tags/released/*'
           status="$(node --import tsx scripts/release-completion.ts \
             status "$VERSION" "$GITHUB_SHA")"
           if [ "$status" = missing ]; then

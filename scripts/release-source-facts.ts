@@ -1,13 +1,14 @@
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isCanonicalTimestamp } from "../shared/build-identity.js";
 import { isSemVer } from "../shared/semver.js";
 import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
 import {
   assertReleasePackageVersions,
-  createReleaseIdentitySet,
-  type ReleaseIdentitySet,
-  type ReleaseSourceEvidence
+  createReleaseBuildIdentitySet,
+  type ReleaseBuildIdentitySet,
+  type ReleasePackageVersions
 } from "./release-identity.js";
 import {
   createReleaseSbomSource,
@@ -16,14 +17,16 @@ import {
 
 const MAX_PACKAGE_MANIFEST_BYTES = 1024 * 1024;
 const MAX_LOCKFILE_BYTES = 8 * 1024 * 1024;
+const SOURCE_COMMIT = /^[0-9a-f]{40}$/u;
+const RELEASE_ARTIFACT_INPUTS: unique symbol = Symbol("release-artifact-inputs");
 
 /**
  * The whole of what one release run has to agree on: the version being
  * released, the commit it is built from, and the single timestamp the run
  * stamps on every artifact.
  *
- * Three strings, and deliberately nothing larger. See
- * `releaseIdentitiesForSource` for why nothing larger may cross a job boundary.
+ * Three strings, and deliberately nothing larger. A collector validates these
+ * facts before a producer uses them.
  */
 export interface ReleaseSourceFacts {
   readonly version: string;
@@ -31,17 +34,85 @@ export interface ReleaseSourceFacts {
   readonly buildTimestamp: string;
 }
 
-export interface ReleaseSourceEvidenceInput extends ReleaseSourceFacts {
-  readonly packageVersions: {
-    readonly root: string;
-    readonly tui: string;
-    readonly rootLock: string;
-    readonly rootLockPackage: string;
-  };
+export interface ReleaseArtifactInputs {
+  readonly identities: ReleaseBuildIdentitySet;
+  readonly sbomSource: ReleaseSbomSource;
 }
 
-/** Builds the exact, authorization-free source record that an SBOM uses. */
-export function releaseSbomSourceForFacts(facts: ReleaseSourceFacts): ReleaseSbomSource {
+/** One opaque and frozen source snapshot for all artifact producers. */
+export interface CollectedReleaseSource {
+  readonly [RELEASE_ARTIFACT_INPUTS]: true;
+  readonly facts: Readonly<ReleaseSourceFacts>;
+}
+
+/** Collects source facts against the package versions in one repository. */
+export function collectReleaseSourceFromRepository(
+  facts: ReleaseSourceFacts,
+  repositoryRoot: string
+): CollectedReleaseSource {
+  const root = boundedRepositoryRoot(repositoryRoot);
+  const snapshot = validateReleaseSource(facts, repositoryPackageVersions(root));
+  const collected = { facts: snapshot } as CollectedReleaseSource;
+  Object.defineProperty(collected, RELEASE_ARTIFACT_INPUTS, { value: true });
+  return Object.freeze(collected);
+}
+
+/** Derives all producer views from one collected source record. */
+export function releaseArtifactInputs(
+  source: CollectedReleaseSource
+): ReleaseArtifactInputs {
+  if (source[RELEASE_ARTIFACT_INPUTS] !== true
+    || !Object.isFrozen(source) || !Object.isFrozen(source.facts)) {
+    throw new Error("Release artifact source was not collected");
+  }
+  const facts = source.facts;
+  return Object.freeze({
+    identities: createReleaseBuildIdentitySet({
+      productVersion: facts.version,
+      sourceCommit: facts.sourceCommit,
+      buildTimestamp: facts.buildTimestamp
+    }),
+    sbomSource: sbomSourceFromFacts(facts)
+  });
+}
+
+function validateReleaseSource(
+  facts: ReleaseSourceFacts,
+  packageVersions: ReleasePackageVersions
+): Readonly<ReleaseSourceFacts> {
+  const snapshot = Object.freeze({
+    version: facts.version,
+    sourceCommit: facts.sourceCommit,
+    buildTimestamp: facts.buildTimestamp
+  });
+  assertReleasePackageVersions(snapshot.version, packageVersions);
+  if (!isSemVer(snapshot.version)) throw new Error("Release source version is not SemVer");
+  if (!SOURCE_COMMIT.test(snapshot.sourceCommit)) {
+    throw new Error("Release source commit is not canonical");
+  }
+  if (!isCanonicalTimestamp(snapshot.buildTimestamp)) {
+    throw new Error("Release source timestamp is not canonical");
+  }
+  return snapshot;
+}
+
+/** Collects source facts against the package versions in this checkout. */
+export function collectRepositoryReleaseSource(
+  facts: ReleaseSourceFacts
+): CollectedReleaseSource {
+  return collectReleaseSourceFromRepository(facts, currentRepositoryRoot());
+}
+
+/** Collects only the validated source that the standalone SBOM command uses. */
+export function collectRepositoryReleaseSbomSource(
+  facts: ReleaseSourceFacts
+): ReleaseSbomSource {
+  return sbomSourceFromFacts(
+    validateReleaseSource(facts, repositoryPackageVersions(currentRepositoryRoot()))
+  );
+}
+
+function sbomSourceFromFacts(facts: ReleaseSourceFacts): ReleaseSbomSource {
   return createReleaseSbomSource({
     productVersion: facts.version,
     sourceCommit: facts.sourceCommit,
@@ -50,117 +121,11 @@ export function releaseSbomSourceForFacts(facts: ReleaseSourceFacts): ReleaseSbo
   });
 }
 
-export interface ReleaseDescriptionInputs {
-  readonly identities: ReleaseIdentitySet;
-  readonly sbomSource: ReleaseSbomSource;
-}
-
 /**
- * Derives build identities and the SBOM source from one immutable read of the
- * source facts.
+ * The versions this checkout declares. Each staging boundary requires all four
+ * versions to equal the dispatched version.
  */
-export function releaseDescriptionInputsForSource(
-  facts: ReleaseSourceFacts
-): ReleaseDescriptionInputs {
-  const snapshot = Object.freeze({
-    version: facts.version,
-    sourceCommit: facts.sourceCommit,
-    buildTimestamp: facts.buildTimestamp
-  });
-  return Object.freeze({
-    identities: releaseIdentitiesForSource(snapshot),
-    sbomSource: releaseSbomSourceForFacts(snapshot)
-  });
-}
-
-/**
- * Refuses a product version that does not describe all package inputs in this
- * checkout.
- */
-export function assertRepositoryPackageVersions(productVersion: string): void {
-  assertReleasePackageVersions(productVersion, repositoryPackageVersions());
-}
-
-/**
- * Source evidence for a GitHub pre-release build, constructed in memory and
- * never written to disk by anything in this repository.
- *
- * The evidence codec is shared with npm preflight, where publication cannot be
- * withdrawn and the trust anchor is a maintainer who ran `git verify-tag`
- * themselves; it therefore accepts `tagObjectType: "annotated"` with
- * `tagSignature: "verified"` and no other value. A GitHub pre-release anchors
- * somewhere else: the build-provenance attestation GitHub's Sigstore instance
- * issues over each archive, which binds the bytes to this workflow, this
- * repository, and this commit, and which `gh attestation verify` checks.
- *
- * Exactly what escapes this process, and what does not: no shipped file and no
- * line of the release notes carries `tagSignature` or `tagObjectType`, so the
- * signature claim never leaves memory. `tagName` does ship — the SPDX document
- * comments each package with `Built from tag <tagName> at a clean working
- * tree` — and that is not a signature claim: it names the tag the release job
- * creates at `sourceCommit`, which is true once `gh release create` runs. npm
- * publication still requires the signed-tag evidence documented in
- * docs/RELEASING.md, obtained by a maintainer rather than by this workflow.
- */
-export function githubReleaseSourceEvidence(
-  input: ReleaseSourceEvidenceInput
-): ReleaseSourceEvidence {
-  if (!isSemVer(input.version)) {
-    throw new Error(`Release evidence needs a SemVer version, not ${input.version}`);
-  }
-  return Object.freeze({
-    schemaVersion: 1 as const,
-    productVersion: input.version,
-    sourceCommit: input.sourceCommit,
-    sourceDirty: false as const,
-    tagName: `v${input.version}`,
-    tagObjectType: "annotated" as const,
-    tagSignature: "verified" as const,
-    tagTargetCommit: input.sourceCommit,
-    buildTimestamp: input.buildTimestamp,
-    packageVersions: Object.freeze({ ...input.packageVersions })
-  });
-}
-
-/**
- * The release identities for one run, built in the process that needs them from
- * the three source facts and the package versions in this checkout.
- *
- * Every job in the release workflow calls this with the three strings the
- * `prepare` job published as job outputs. Do not "simplify" that into building
- * the evidence once, writing it to a file, and uploading the file for the build
- * matrix to download. `ReleaseSourceEvidence` types `tagObjectType` and
- * `tagSignature` as the literals `"annotated"` and `"verified"`, so every copy
- * of that document asserts a verified signed tag. Nothing in this workflow
- * verifies a signature, and when the facts are known the tag does not exist yet
- * — the release job creates it last. `scripts/release-preflight.ts` accepts
- * exactly this document as its signed-tag evidence, and that is the gate in
- * front of npm publication, which cannot be withdrawn. A downloadable artifact
- * would therefore hand anyone who can read a workflow run a ready-made
- * credential for that gate. The three strings assert nothing, so they may cross
- * a job boundary; the document they build may not.
- *
- * The facts come from `prepare` rather than being recomputed on each runner so
- * that every target in a run writes the same version, commit and timestamp into
- * its `build-manifest.json`: one build described once, not one build per runner
- * minutes apart.
- */
-export function releaseIdentitiesForSource(facts: ReleaseSourceFacts): ReleaseIdentitySet {
-  return createReleaseIdentitySet(githubReleaseSourceEvidence({
-    version: facts.version,
-    sourceCommit: facts.sourceCommit,
-    buildTimestamp: facts.buildTimestamp,
-    packageVersions: repositoryPackageVersions()
-  }));
-}
-
-/**
- * The versions this checkout declares. The identity codec requires all four to
- * equal the dispatched version, which is what makes a mistyped dispatch fail in
- * `prepare` instead of shipping four archives that disagree with the source.
- */
-export function repositoryPackageVersions(): ReleaseSourceEvidenceInput["packageVersions"] {
-  const root = repositoryRoot();
+function repositoryPackageVersions(root: string): ReleasePackageVersions {
   const rootPackage = readJsonFile(path.join(root, "package.json"), MAX_PACKAGE_MANIFEST_BYTES);
   const tuiPackage = readJsonFile(
     path.join(root, "tui", "package.json"),
@@ -199,6 +164,15 @@ function stringProperty(value: unknown, key: string): string {
   return member;
 }
 
-function repositoryRoot(): string {
+function currentRepositoryRoot(): string {
   return path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+}
+
+function boundedRepositoryRoot(value: string): string {
+  const resolved = path.resolve(value);
+  const stat = lstatSync(resolved);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new Error("Release repository root must be a real directory");
+  }
+  return realpathSync(resolved);
 }

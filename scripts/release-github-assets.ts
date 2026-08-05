@@ -15,7 +15,6 @@ import {
   type BuiltArtifactTarget,
   type CanonicalReleaseTarget
 } from "../shared/release-targets.js";
-import { parseSemVer } from "../shared/semver.js";
 import {
   releaseArchiveStem,
   RELEASE_CHECKSUMS_FILE
@@ -28,7 +27,6 @@ import {
   stageReleaseContent,
   type StagedReleaseFile
 } from "./release-content.js";
-import { releaseNotesMarkdown } from "./release-github-notes.js";
 import { releaseIdentityForTarget } from "./release-identity.js";
 import { createReleasePlatformPackageTemplate } from "./release-package-templates.js";
 import {
@@ -37,8 +35,9 @@ import {
   repositoryReleaseComponentSources
 } from "./release-sbom.js";
 import {
-  releaseDescriptionInputsForSource,
-  releaseIdentitiesForSource,
+  collectRepositoryReleaseSource,
+  releaseArtifactInputs,
+  type CollectedReleaseSource,
   type ReleaseSourceFacts
 } from "./release-source-facts.js";
 
@@ -65,8 +64,9 @@ export interface ReleaseAssetDigest {
 /**
  * `checksums.txt`, in the `sha256sum -c` format: one `<hex>  <name>` line per
  * uploaded asset, sorted by name. The file cannot cover itself, so an entry
- * for it is dropped rather than rejected — the release job creates the file by
- * redirection before this runs, and a rerun must not fail on its own output.
+ * for it is dropped rather than rejected. The draft preparation job creates
+ * the file by redirection before this runs. A rerun must not fail on its own
+ * output.
  */
 export function formatReleaseChecksums(assets: readonly ReleaseAssetDigest[]): string {
   const covered = assets.filter((asset) => asset.name !== RELEASE_CHECKSUMS_FILE);
@@ -93,7 +93,8 @@ export interface StagedReleaseArchive {
 }
 
 /** The three source facts, plus where to read the build from and write to. */
-export interface StageReleaseArchiveOptions extends ReleaseSourceFacts {
+export interface StageReleaseArchiveOptions {
+  readonly source: CollectedReleaseSource;
   readonly target: BuiltArtifactTarget;
   /** Directory holding the freshly built executable, normally `tui/dist`. */
   readonly buildDirectory: string;
@@ -107,9 +108,11 @@ export interface StageReleaseArchiveOptions extends ReleaseSourceFacts {
  * a missing file, and the assembled directory is compared against the file set
  * afterwards so a stray file cannot ride along either.
  */
-export function stageReleaseArchive(options: StageReleaseArchiveOptions): StagedReleaseArchive {
-  const { identities, sbomSource } = releaseDescriptionInputsForSource(options);
-  const version = identities.evidence.productVersion;
+export function stageReleaseArchive(
+  options: StageReleaseArchiveOptions
+): StagedReleaseArchive {
+  const { identities, sbomSource } = releaseArtifactInputs(options.source);
+  const version = identities.source.productVersion;
   const target = options.target;
   const descriptor = releaseTargetForArtifact(target);
   const stem = releaseArchiveStem(version, target);
@@ -185,13 +188,6 @@ export function assertRunnerBuildsTarget(
   return host;
 }
 
-function assertArchivePrereleaseVersion(version: string): void {
-  const parsed = parseSemVer(version);
-  if (parsed === null || parsed.prerelease.length === 0) {
-    throw new Error(`GitHub archive release ${version} must be a prerelease`);
-  }
-}
-
 function builtTarget(value: string | undefined): BuiltArtifactTarget {
   const target = BUILT_ARTIFACT_TARGETS.find((candidate) => candidate === value);
   if (target === undefined) throw new Error(`Unsupported release target ${String(value)}`);
@@ -199,17 +195,13 @@ function builtTarget(value: string | undefined): BuiltArtifactTarget {
 }
 
 /**
- * Every command below that needs a release identity takes the three source
- * facts and builds one in memory. None of them accepts or produces a source
- * evidence document: see `releaseIdentitiesForSource` for why that document
- * must never become a file.
+ * Each command that needs a release identity collects one validated source in
+ * memory. No command accepts or produces a source evidence document.
  */
 const USAGE = [
   "usage: release-github-assets.ts <command>",
   "  targets",
   "      the published targets, as JSON",
-  "  check <version> <commit> <timestamp>",
-  "      accept or reject the release source; writes no file",
   "  runner <target>",
   "      accept or reject this machine as that target's build host",
   "  identity <version> <commit> <timestamp> <target>",
@@ -217,9 +209,7 @@ const USAGE = [
   "  stage <version> <commit> <timestamp> <target> <build-dir> <out>",
   "      the archive directory; prints its name",
   "  checksums <directory>",
-  "      checksums.txt for every asset there",
-  "  notes <version>",
-  "      the release notes, as Markdown"
+  "      checksums.txt for every asset there"
 ].join("\n");
 
 function sourceFacts(rest: readonly string[]): ReleaseSourceFacts {
@@ -236,18 +226,6 @@ function runCommand(argv: readonly string[]): string {
     if (rest.length !== 0) throw new Error(USAGE);
     return `${JSON.stringify(PUBLISHED_ARTIFACT_TARGETS)}\n`;
   }
-  if (command === "check") {
-    if (rest.length !== 3) throw new Error(USAGE);
-    const facts = sourceFacts(rest);
-    assertArchivePrereleaseVersion(facts.version);
-    // Built and discarded. This rejects a version the release identity codec
-    // would reject, a stable version reserved for npm, and one the repository's
-    // own package versions disagree with, in the job that dispatches rather
-    // than on four runners at once.
-    const identities = releaseIdentitiesForSource(facts);
-    return `release source accepted: ${identities.evidence.productVersion} at ${
-      facts.sourceCommit} built ${facts.buildTimestamp}\n`;
-  }
   if (command === "runner") {
     const [target] = rest;
     if (rest.length !== 1 || target === undefined) throw new Error(USAGE);
@@ -256,7 +234,9 @@ function runCommand(argv: readonly string[]): string {
   }
   if (command === "identity") {
     if (rest.length !== 4) throw new Error(USAGE);
-    const identities = releaseIdentitiesForSource(sourceFacts(rest));
+    const { identities } = releaseArtifactInputs(
+      collectRepositoryReleaseSource(sourceFacts(rest))
+    );
     return `${canonicalJson(releaseIdentityForTarget(identities, builtTarget(rest[3])))}\n`;
   }
   if (command === "stage") {
@@ -265,7 +245,7 @@ function runCommand(argv: readonly string[]): string {
       throw new Error(USAGE);
     }
     const staged = stageReleaseArchive({
-      ...sourceFacts(rest),
+      source: collectRepositoryReleaseSource(sourceFacts(rest)),
       target: builtTarget(rest[3]),
       buildDirectory,
       outputDirectory
@@ -279,11 +259,6 @@ function runCommand(argv: readonly string[]): string {
     const [directory] = rest;
     if (rest.length !== 1 || directory === undefined) throw new Error(USAGE);
     return formatReleaseChecksums(directoryAssetDigests(directory));
-  }
-  if (command === "notes") {
-    const [version] = rest;
-    if (rest.length !== 1 || version === undefined) throw new Error(USAGE);
-    return releaseNotesMarkdown(version);
   }
   throw new Error(USAGE);
 }

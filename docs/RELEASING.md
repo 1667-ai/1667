@@ -9,11 +9,16 @@ read_when:
 # Release packages for 1667
 
 This repository contains a hosted npm publication workflow. The
-prepublication registry controls are complete. SBOM generation rejects
-signed-tag authorization fields.
+prepublication registry controls are complete. SBOM generation rejects tag
+authorization fields.
+
+This product has no user yet. A release tag needs no signature now. The
+signature requirement will return before this product has a user. This
+document says so plainly at each place a signature was required before.
 
 The repository supports local release package production and preflight. It
-publishes native archives as a GitHub pre-release.
+publishes native archives as a GitHub release. A prerelease version publishes
+a prerelease. Every other version publishes a release.
 
 Maintainers reserved the package names. Publish release packages only through
 the hosted workflow. Do not publish held targets. Do not move registry tags
@@ -162,12 +167,13 @@ package must contain this content before publication.
 Collect these inputs before preflight:
 
 1. Use a clean source commit.
-2. Create an annotated `v<SemVer>` tag that targets the source commit.
-3. Run trusted signature verification with `git verify-tag <tag>`.
-4. Select one millisecond-precision UTC build timestamp for all targets.
-5. Use the same version in the root package, TUI package, and root lockfile.
-6. Run `--version --json` on each of the five published native executables.
-7. Pack the launcher package and the five published platform packages.
+2. Create a `v<SemVer>` tag that targets the source commit. The tag can be
+   annotated or lightweight. An annotated tag must point directly at the
+   source commit.
+3. Select one millisecond-precision UTC build timestamp for all targets.
+4. Use the same version in the root package, TUI package, and root lockfile.
+5. Run `--version --json` on each of the five published native executables.
+6. Pack the launcher package and the five published platform packages.
 
 If you verify a held target, its identity has no slot in the release plan. The
 release plan has one entry per release package.
@@ -176,8 +182,40 @@ Each release package must contain `build-manifest.json`, `sbom.spdx.json`,
 `LICENSE`, and `NOTICE`. Each platform package must also contain its native
 executable.
 
-The release plan uses `tagSignature: "verified"` for step 3. Each native
-`buildIdentity` records the result from step 6. Preflight trusts both fields.
+`scripts/release-evidence.ts` collects the tag's real shape. It records
+`tagObjectType` as `"annotated"` or `"lightweight"`. It records `tagSignature`
+as `"unsigned"`. It rejects an annotated tag that contains signature armor.
+It resolves the tag object once. It refuses the release if the tag moves during
+collection. It verifies no signature. This product has no user yet, so a
+release tag needs no signature. The signature requirement will return before
+this product has a user.
+
+`scripts/release-evidence.ts` still checks these facts about the source:
+
+- The source commit is reachable from the protected default branch.
+- The tag targets the source commit.
+- The root package, TUI package, and root lockfile agree on one version.
+- The tag name matches that version.
+
+The `tag: v* immutable` ruleset must be active. It blocks tag updates and tag
+deletions. It has no bypass actor. It does not block tag creation. The workflow
+pins the ruleset ID and revision. A ruleset change stops the release.
+
+The `publish` job resolves the remote release tag before it creates a draft
+release. The tag must target the dispatch commit. The job verifies the draft
+title, notes, channel, and assets. It reuses a matching draft. It refuses a
+draft that does not match. It publishes the draft and verifies the immutable
+release. It then writes to npm. It resolves the locked tag before each npm
+write. It creates the completion record last.
+
+The workflow makes the GitHub release immutable before the first npm write.
+This action prevents a change to the release assets during npm publication. If
+npm publication stops, rerun the failed `publish` job in the same workflow run.
+The retained inputs and the publication ledger resume the exact npm writes.
+
+The release plan carries the collected `tagObjectType` and `tagSignature`
+values. Each native `buildIdentity` records the result from step 5. Preflight
+trusts all these fields.
 
 Preflight checks agreement between the claims and package contents. Preflight
 also binds the claims to the tarball digests.
@@ -267,8 +305,8 @@ not a complete release plan.
     "sourceCommit": "0123456789abcdef0123456789abcdef01234567",
     "sourceDirty": false,
     "tagName": "v1.2.3",
-    "tagObjectType": "annotated",
-    "tagSignature": "verified",
+    "tagObjectType": "lightweight",
+    "tagSignature": "unsigned",
     "tagTargetCommit": "0123456789abcdef0123456789abcdef01234567",
     "buildTimestamp": "2026-07-23T10:20:30.000Z",
     "packageVersions": {
@@ -290,6 +328,10 @@ not a complete release plan.
 Use `buildIdentity: null` only for the launcher package. Each platform entry
 must contain the trusted build identity from its native executable.
 
+`tagObjectType` also accepts `"annotated"`. The current collector accepts an
+annotated tag only when the tag contains no signature armor. `tagSignature`
+accepts only `"unsigned"`. No current component verifies a tag signature.
+
 Preflight rejects missing, duplicate, extra, or unsupported packages. It also
 rejects package identities that do not agree with the source evidence.
 
@@ -299,9 +341,11 @@ rejects package identities that do not agree with the source evidence.
 Trusted Publishing trusts this exact workflow path for the six release
 packages.
 
-The workflow accepts a manual dispatch on the signed `v<version>` tag. The input
-is one version without a leading `v`. The dispatch ref must be
-`refs/tags/v<version>`. The workflow refuses every other ref.
+The workflow accepts a manual dispatch on the `v<version>` tag. The tag needs no
+signature: this product has no user yet, and the signature requirement will
+return before it has one. The input is one version without a leading `v`. The
+dispatch ref must be `refs/tags/v<version>`. The workflow refuses every other
+ref.
 
 Dispatch the workflow with this command:
 
@@ -309,26 +353,36 @@ Dispatch the workflow with this command:
 gh workflow run release-npm.yml --ref "v<version>" -f version=<version>
 ```
 
-The tag commit is the release source commit. A merge to the default branch
-cannot change that commit after a maintainer signs the tag. The workflow refuses
-a release commit that the default branch cannot reach. The completion and replay
-records also bind to that one commit.
+The dispatch records the tag commit as the release source commit. The tag
+ruleset prevents a later change to that tag. The workflow resolves the tag
+before it creates the draft. It checks the tag before it writes to npm. It
+checks the tag before and after it makes the release immutable. The workflow
+refuses a release commit that the default branch cannot reach. The completion
+record also binds to that commit.
 
-The workflow has these jobs:
+The workflow has five jobs:
 
 1. `authorize` verifies the dispatcher before it starts release work.
 2. `build` builds and observes the five published native executables.
 3. `launcher` stages and packs the six release packages.
 4. `preflight` verifies the package set and retains the result.
-5. `publish` publishes the five platform packages before the launcher package.
-6. `release` verifies publication and publishes the GitHub pre-release.
+5. `publish` completes the publication.
 
-A failed job can use the retained inputs from the same workflow run. The registry check
-accepts an existing version only when its digest and provenance are correct.
+The `publish` job completes these phases:
+
+1. It creates and verifies the GitHub release draft.
+2. It makes the GitHub release immutable.
+3. It publishes the five platform packages before the launcher package.
+4. It records completion.
+
+A failed job can use the retained inputs from the same workflow run. The
+registry check accepts an existing version only when its digest and provenance
+are correct.
 It binds the provenance certificate to this repository, workflow, and ref.
-The `release-publication` Actions artifact supports job handoff and same-run retries.
-The immutable GitHub prerelease retains the tarballs, native observations, and artifact manifest.
-Promotion does not depend on the Actions artifact retention period.
+The `release-publication` Actions artifact supports the preflight handoff.
+The immutable GitHub release retains the tarballs, native observations, and
+artifact manifest. Promotion does not depend on the Actions artifact retention
+period.
 
 The publish job creates a publication attempt ref before each npm write. The ref
 binds the package target and tarball digest to the release commit. A retry does
@@ -353,9 +407,9 @@ The workflow does not accept an npm token. The jobs with OIDC authority disable
 dependency lifecycle scripts. Each job verifies retained inputs before it uses
 them.
 
-The `preflight`, `publish`, and `release` jobs run the publication readiness
-check before they create signed-tag evidence. The check permits publication
-because the prepublication controls are complete.
+The `preflight` and `publish` jobs run the publication readiness check before
+they collect the tag's evidence. The check permits publication because the
+prepublication controls are complete.
 
 A release reaches users when the workflow finishes. There is no promotion step.
 ## Local gates
@@ -443,12 +497,12 @@ Each script embeds these values:
 The script never resolves the latest GitHub release. The script never reads npm
 tags.
 
-`scripts/release-install-script.ts` renders the scripts from those digests.
-Both release workflows call that generator. They do not keep a second target
-list or a second script template.
+`scripts/release-install-script.ts` renders the scripts from those digests. The
+release workflow calls that generator. It does not keep a second target list or
+a second script template.
 
-The release workflows write each Release Archive in POSIX ustar format. They
-disable macOS metadata copies. Each Installer bounds the compressed archive.
+The release workflow writes each Release Archive in POSIX ustar format. It
+disables macOS metadata copies. Each Installer bounds the compressed archive.
 The Shell Installer also bounds the complete decompressed archive. Each
 Installer validates the Release Archive layout. Each Installer rejects links,
 special files, duplicate paths, and unknown paths. The Shell Installer extracts
@@ -460,15 +514,11 @@ The canonical hosted path is `.github/workflows/release-npm.yml`:
 2. The launcher job stages Release Archives from those same executable bytes.
 3. The launcher job renders the Shell and PowerShell Installers from the archive
    digests.
-4. The release job retains npm packages, archives, Installers, checksums,
-   and attestations in the immutable GitHub release.
+4. The `publish` job creates and verifies the GitHub release draft.
+5. The `publish` job makes the release immutable before npm publication.
 
-The launcher job does not rebuild native executables. The release job does not
-rebuild them either.
-
-`.github/workflows/release-github.yml` reuses the same generator and archive
-policy. That path always publishes a prerelease SemVer. It includes
-`install-beta.sh` and `install-beta.ps1` only.
+The launcher job does not rebuild native executables. The `publish` job does
+not rebuild them either.
 
 A Managed Installation writes `.1667-install.json` next to the executable. Only
 a valid Ownership Record grants installation authority. npm, source, and copied
@@ -582,44 +632,23 @@ downloaded script to PowerShell. It verifies these cases:
 9. The Installer refuses a root that holds a file it does not own.
 10. The Installer rejects an incorrect build identity.
 
-## GitHub pre-release of native archives
+## Native archives
 
-`.github/workflows/release-github.yml` publishes one archive per published
-release target. A maintainer dispatches it from the default branch and supplies
-the version. The version must include a prerelease identifier. The workflow
-refuses every other ref, and refuses a dirty checkout.
+`.github/workflows/release-npm.yml` builds one Release Archive per published
+release target, alongside the npm packages. `shared/release-targets.ts` decides
+which targets it publishes. The `heldFromPublication` field contains this
+decision. The current release publishes `windows-x64`. Routine CI builds and
+tests this target.
 
-`shared/release-targets.ts` decides which targets the GitHub workflow
-publishes. The `heldFromPublication` field contains this decision. The current
-release publishes `windows-x64`. Routine CI builds and tests this target.
-
-Clearing the field returns a target to the GitHub build matrix, notes table,
-held-target paragraph, and archive set. The npm workflow has a separate,
-explicit runner matrix. Add and verify that runner before you clear the field.
-
-The dispatched version must match the root package, the TUI package, and the
-lockfile. The `check` command refuses any other value, in the `prepare` job.
-
-Exactly three strings cross a job boundary: the version, the source commit, and
-one build timestamp. The `prepare` job publishes them as job outputs, and every
-later job rebuilds its release identity in memory from them. That is why every
-archive in a run carries the same `build-manifest.json` identity.
-
-The workflow never writes a source evidence document and never uploads one. A
-`ReleaseSourceEvidence` value types `tagObjectType` as `"annotated"` and
-`tagSignature` as `"verified"`, so any copy of it asserts a verified signed tag
-that this workflow neither obtains nor checks — and the tag does not exist until
-the release job creates it. Preflight accepts that same document as the
-signed-tag evidence for npm publication, which cannot be withdrawn, so a
-downloadable copy would be a ready-made credential for that gate. The signature
-claim stays in memory: no file the release ships carries `tagSignature` or
-`tagObjectType`. `tagName` does ship, in the SPDX package comment, where it
-names the tag the release creates at the source commit.
+The workflow uses three source facts to stage each archive. The facts are the
+version, the source commit, and the build timestamp. They make no tag
+authorization claim. Only `scripts/release-evidence.ts` creates
+`ReleaseSourceEvidence`.
 
 SBOM generation does not consume `ReleaseSourceEvidence`. It consumes an exact
 `ReleaseSbomSource` record. This record contains the product version, source
 commit, build timestamp, and tag name. The SBOM input rejects additional
-fields. SBOM generation cannot accept a signed-tag authorization claim.
+fields. SBOM generation cannot accept a tag authorization claim.
 
 Each archive is named `1667_<version>_<target>.tar.gz`. It contains one
 directory with the same name. Underscores separate the three fields because a
@@ -632,12 +661,10 @@ apply to it exactly as they apply to an npm tarball. Both files travel inside
 the archive, at the same reviewed digests preflight pins.
 
 `scripts/release-github-assets.ts` holds the file set, the staging command, and
-the checksum format. `scripts/release-source-facts.ts` holds the three source
-facts and turns them into release identities. `scripts/release-archive.ts` holds
-the archive names and the checksum file name. `scripts/release-github-notes.ts`
-holds the release notes. `test/release-github-assets.test.ts` covers all four,
-including the absence of any uploaded evidence document. The workflow contains
-no file list and no target list.
+the checksum format. `scripts/release-source-facts.ts` holds the source facts
+and turns them into release identities. `scripts/release-archive.ts` holds the
+archive names and the checksum file name. `test/release-github-assets.test.ts`
+covers all three.
 
 Staging refuses to assemble an archive that lacks `LICENSE` or `NOTICE`. The
 release workflow runs `node --import tsx`, which strips types without checking
@@ -646,16 +673,13 @@ is, and it names the missing file and the target.
 
 `checksums.txt` lists the SHA-256 of every uploaded asset except itself.
 
-The workflow attests every uploaded file with
-`actions/attest-build-provenance`, using `id-token: write` and
-`attestations: write` in that job alone. A reader verifies one archive with
+The workflow attests each release asset except `checksums.txt` with
+`actions/attest-build-provenance`. The workflow makes `checksums.txt` after the
+final attestation. Only the jobs that make an attestation get `id-token: write`
+and `attestations: write`. A reader verifies one attested archive with
 `gh attestation verify <file> --repo 1667-ai/1667`.
-
-This path does not verify a tag signature, and the release notes claim none.
-The attestation is the evidence a GitHub pre-release offers. npm publication
-still requires the trusted inputs above.
 
 ## Retain release evidence
 
-Retain the artifact manifest, its SHA-256 value, the tag-verification evidence,
-and the native build-identity observations.
+Retain the artifact manifest, its SHA-256 value, the tag's evidence, and the
+native build-identity observations.

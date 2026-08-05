@@ -10,8 +10,6 @@ import { promisify } from "node:util";
 import { canonicalJson } from "../server/canonical-json.js";
 import {
   collectReleaseEvidence,
-  collectReleaseTagAuthorization,
-  defaultSignatureVerifiers,
   type ReleaseEvidenceRequest
 } from "../scripts/release-evidence.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
@@ -22,20 +20,11 @@ const COLLECTOR_SOURCE = path.join(REPOSITORY_ROOT, "scripts", "release-evidence
 const VERSION = "9.8.7";
 const TAG = `v${VERSION}`;
 const TIMESTAMP = "2026-07-27T08:09:10.011Z";
-/**
- * The certificate fixture's validity window, fixed rather than relative to the
- * run. Every commit and tag this fixture makes carries a pinned date, and Git
- * verifies a tag signature at that date, so a window anchored to "now" stops
- * containing it as soon as the calendar moves on.
- */
-const CERTIFICATE_VALID_FROM = "20200101000000";
-const CERTIFICATE_VALID_TO = "20400101000000";
-const FINGERPRINT = "SHA256:LtYSV9KYHYXvf8qGwf/HQDPsMehEsIQckR3N+wRB72k";
 
 /**
  * The environment for the commands that *build* a fixture, which are ordinary
- * child processes of this test and would otherwise inherit a developer's signing
- * key, commit hooks and `gpg.format`. `collectReleaseEvidence` needs no
+ * child processes of this test and would otherwise inherit a developer's
+ * commit hooks and Git configuration. `collectReleaseEvidence` needs no
  * counterpart: it constructs its own hermetic environment, so nothing here is
  * neutralising a variable on production's behalf.
  */
@@ -54,30 +43,22 @@ const FIXTURE_GIT_ENVIRONMENT: NodeJS.ProcessEnv = Object.freeze({
   GIT_COMMITTER_DATE: "2026-07-27T00:00:00+0000"
 });
 
-type SignerName = "release" | "attacker" | "authority";
-
 interface FixtureOptions {
   readonly rootVersion?: string;
   readonly tuiVersion?: string;
   readonly lockVersion?: string;
   readonly lockPackageVersion?: string;
-  readonly tag?: "release-key" | "attacker-key" | "unsigned" | "lightweight";
-  /**
-   * `principals` names each signer's key directly. `certificate-authority`
-   * names a CA and a principal pattern instead, and signs the tag with a
-   * certificate — a form where the principal `ssh-keygen` reports appears
-   * nowhere in the policy file.
-   */
-  readonly policy?: "principals" | "certificate-authority";
-  /** Signers carried by the independently protected ref. */
-  readonly policySigners?: readonly SignerName[];
-  /**
-   * Signers carried by `allowed-signers` in the released commit and working
-   * tree. Every fixture ships the attacker's key here, so a collector that read
-   * the policy off disk instead of from the protected ref would accept a tag the
-   * protected ref never authorised.
-   */
-  readonly workingTreeSigners?: readonly SignerName[];
+  /** No release tag needs a signature — there is no user of this product yet,
+   *  and that protection returns before there is one. `"lightweight"` and
+   *  `"annotated"` are both accepted release sources; this fixture never signs
+   *  either. */
+  readonly tag?: "annotated" | "lightweight";
+  readonly signatureArmor?:
+    | "PGP MESSAGE"
+    | "PGP SIGNATURE"
+    | "SIGNED MESSAGE"
+    | "SSH SIGNATURE";
+  readonly nestedSignedTag?: boolean;
   readonly commitAfterTag?: boolean;
   readonly protectedRefBehind?: boolean;
   readonly dirty?: boolean;
@@ -85,38 +66,23 @@ interface FixtureOptions {
 
 interface Fixture {
   readonly repository: string;
+  readonly baseCommit: string;
 }
 
-/**
- * Builds a real repository with real SSH-signed tags, because a mock cannot show
- * that signature verification works.
- */
+/** Builds a real repository with a real tag, because a mock cannot show that
+ *  Git's own answers about tag shape and reachability are read correctly. */
 async function createFixture(t: TestContext, options: FixtureOptions = {}): Promise<Fixture> {
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-evidence-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const repository = path.join(root, "repository");
-  const git = async (
-    args: readonly string[],
-    extra: NodeJS.ProcessEnv = {}
-  ): Promise<string> => {
+  const git = async (args: readonly string[]): Promise<string> => {
     const { stdout } = await execFileAsync("git", [...args], {
       cwd: repository,
       encoding: "utf8",
-      env: { ...FIXTURE_GIT_ENVIRONMENT, ...extra }
+      env: FIXTURE_GIT_ENVIRONMENT
     });
     return stdout.trim();
   };
-  const keygen = async (args: readonly string[]): Promise<void> => {
-    await execFileAsync("ssh-keygen", [...args], { env: FIXTURE_GIT_ENVIRONMENT });
-  };
-
-  const keyPath = (name: SignerName): string => path.join(root, name);
-  for (const name of ["release", "attacker", "authority"] as const) {
-    await keygen(["-t", "ed25519", "-N", "", "-C", `${name}@1667.test`, "-f", keyPath(name), "-q"]);
-  }
-  const publicKey = (name: SignerName): string =>
-    readFileSync(`${keyPath(name)}.pub`, "utf8").trim();
-  const signerLine = (name: SignerName): string => `${name}@1667.test ${publicKey(name)}`;
 
   await mkdir(path.join(repository, "tui"), { recursive: true });
   await git(["init", "-q", "-b", "main", "."]);
@@ -125,7 +91,6 @@ async function createFixture(t: TestContext, options: FixtureOptions = {}): Prom
   await git(["commit", "-q", "-m", "base"]);
   const baseCommit = await git(["rev-parse", "HEAD"]);
 
-  const workingTreeSigners = options.workingTreeSigners ?? ["release", "attacker"];
   await writeFile(
     path.join(repository, "package.json"),
     `${JSON.stringify({ name: "1667-workspace", version: options.rootVersion ?? VERSION }, null, 2)}\n`
@@ -143,55 +108,27 @@ async function createFixture(t: TestContext, options: FixtureOptions = {}): Prom
       packages: { "": { name: "1667-workspace", version: options.lockPackageVersion ?? VERSION } }
     }, null, 2)}\n`
   );
-  const certified = options.policy === "certificate-authority";
-  const certificateAuthorityLine = (): string =>
-    `*@1667.test cert-authority ${publicKey("authority")}`;
-  await writeFile(
-    path.join(repository, "allowed-signers"),
-    `${[
-      ...workingTreeSigners.map(signerLine),
-      // A certified fixture mirrors the protected policy here too, so the one
-      // thing it varies is where the principal comes from — not whether the
-      // released commit happens to describe the same trust.
-      ...(certified ? [certificateAuthorityLine()] : [])
-    ].join("\n")}\n`
-  );
   await git(["add", "-A"]);
   await git(["commit", "-q", "-m", "release candidate"]);
   const releaseCommit = await git(["rev-parse", "HEAD"]);
 
-  if (certified) {
-    await keygen([
-      "-s", keyPath("authority"),
-      "-I", "release-bot",
-      "-n", "release@1667.test",
-      // Absolute, and wide. Git verifies a tag signature at the tag's own
-      // timestamp, which this fixture pins to a fixed date; a window relative
-      // to now drifts past that date and the certificate silently stops being
-      // valid, so the test would pass on the day it was written and fail the
-      // next morning having changed nothing.
-      "-V", `${CERTIFICATE_VALID_FROM}:${CERTIFICATE_VALID_TO}`,
-      `${keyPath("release")}.pub`
-    ]);
-  }
-  const releaseSigningKey = certified
-    ? `${keyPath("release")}-cert.pub`
-    : `${keyPath("release")}.pub`;
-
-  const tagKind = options.tag ?? "release-key";
-  if (tagKind === "lightweight") {
+  if (options.tag === "lightweight") {
     await git(["tag", TAG]);
-  } else if (tagKind === "unsigned") {
-    await git(["tag", "-a", "-m", TAG, TAG]);
-  } else {
-    const signingKey = tagKind === "release-key"
-      ? releaseSigningKey
-      : `${keyPath("attacker")}.pub`;
+  } else if (options.nestedSignedTag === true) {
+    const innerTag = `${TAG}-inner`;
     await git([
-      "-c", "gpg.format=ssh",
-      "-c", `user.signingkey=${signingKey}`,
-      "tag", "-s", "-m", TAG, TAG
+      "tag",
+      "-a",
+      "-m",
+      `${innerTag}\n-----BEGIN SSH SIGNATURE-----\nZmFrZQ==\n-----END SSH SIGNATURE-----`,
+      innerTag
     ]);
+    await git(["tag", "-a", "-m", TAG, TAG, innerTag]);
+  } else {
+    const message = options.signatureArmor !== undefined
+      ? `${TAG}\n-----BEGIN ${options.signatureArmor}-----\nZmFrZQ==\n-----END ${options.signatureArmor}-----`
+      : TAG;
+    await git(["tag", "-a", "-m", message, TAG]);
   }
 
   if (options.commitAfterTag === true) {
@@ -206,26 +143,10 @@ async function createFixture(t: TestContext, options: FixtureOptions = {}): Prom
   ]);
   assert.notEqual(releaseCommit, baseCommit);
 
-  const policyPath = path.join(root, "protected-allowed-signers");
-  await writeFile(
-    policyPath,
-    certified
-      ? `${certificateAuthorityLine()}\n`
-      : `${(options.policySigners ?? ["release"]).map(signerLine).join("\n")}\n`
-  );
-  const blob = await git(["hash-object", "-w", "--", policyPath]);
-  const indexFile = path.join(root, "policy.index");
-  await git(["update-index", "--add", "--cacheinfo", `100644,${blob},allowed-signers`], {
-    GIT_INDEX_FILE: indexFile
-  });
-  const tree = await git(["write-tree"], { GIT_INDEX_FILE: indexFile });
-  const policyCommit = await git(["commit-tree", tree, "-m", "signer policy"]);
-  await git(["update-ref", "refs/remotes/origin/release-policy", policyCommit]);
-
   if (options.dirty === true) {
     await appendFile(path.join(repository, "README.md"), "uncommitted\n");
   }
-  return Object.freeze({ repository });
+  return Object.freeze({ repository, baseCommit });
 }
 
 function collect(
@@ -240,201 +161,116 @@ function collect(
   });
 }
 
-function collectAuthorization(fixture: Fixture) {
-  return collectReleaseTagAuthorization({
-    repositoryRoot: fixture.repository,
-    tagName: TAG
-  });
-}
-
-/**
- * Writes a program that answers `ssh-keygen -Y` without verifying anything: it
- * echoes back the principal Git asked about and exits zero. Git believes it, and
- * so would this module's interpreter — the only thing that keeps it out is that
- * the verifier is named by absolute path rather than resolved through `PATH`.
- */
-async function plantForgedVerifier(t: TestContext): Promise<string> {
-  const directory = await mkdtemp(path.join(tmpdir(), "1667-forged-verifier-"));
-  t.after(() => rm(directory, { recursive: true, force: true }));
-  const program = path.join(directory, "ssh-keygen");
-  await writeFile(program, [
-    "#!/bin/sh",
-    "for argument in \"$@\"; do",
-    "  case \"$argument\" in",
-    "    find-principals) echo 'release@1667.test'; exit 0 ;;",
-    `    verify) cat >/dev/null; echo 'Good "git" signature for release@1667.test`
-      + ` with ED25519 key ${FINGERPRINT}'; exit 0 ;;`,
-    "  esac",
-    "done",
-    "exit 0",
-    ""
-  ].join("\n"));
-  await chmod(program, 0o755);
-  return directory;
-}
-
-/**
- * Fixture repositories need `ssh-keygen` to mint signing keys, and on the
- * Windows runner it exits 255 before writing one when Node passes the empty
- * passphrase argument through `execFile`. Evidence is collected once per
- * release on the host that runs the release, which is not Windows, so these
- * integration fixtures are gated rather than the collector being reshaped
- * around a platform it does not run on. The interpretation they exercise —
- * including every adversarial signature-status form — is covered on all
- * platforms by `test/release-evidence-inspection.test.ts`, and the source scan
- * below is unconditional.
- */
-const FIXTURE_ONLY = { skip: process.platform === "win32" } as const;
-
-test("evidence from a signed tag on a protected branch satisfies the release validator", FIXTURE_ONLY, async (t) => {
+test("evidence from an annotated tag on a protected branch satisfies the release validator", async (t) => {
   const fixture = await createFixture(t);
-  const document = await collect(fixture);
-  assert.equal(document.evidence.tagName, TAG);
-  assert.equal(document.evidence.productVersion, VERSION);
-  assert.equal(document.evidence.sourceDirty, false);
-  assert.equal(document.evidence.tagObjectType, "annotated");
-  assert.equal(document.evidence.tagSignature, "verified");
-  assert.equal(document.evidence.buildTimestamp, TIMESTAMP);
-  assert.equal(document.evidence.tagTargetCommit, document.evidence.sourceCommit);
-  assert.match(document.evidence.sourceCommit, /^[0-9a-f]{40}$/);
-  assert.deepEqual({ ...document.evidence.packageVersions }, {
+  const evidence = await collect(fixture);
+  assert.equal(evidence.tagName, TAG);
+  assert.equal(evidence.productVersion, VERSION);
+  assert.equal(evidence.sourceDirty, false);
+  assert.equal(evidence.tagObjectType, "annotated");
+  assert.equal(evidence.tagSignature, "unsigned");
+  assert.equal(evidence.buildTimestamp, TIMESTAMP);
+  assert.equal(evidence.tagTargetCommit, evidence.sourceCommit);
+  assert.match(evidence.sourceCommit, /^[0-9a-f]{40}$/);
+  assert.deepEqual({ ...evidence.packageVersions }, {
     root: VERSION,
     tui: VERSION,
     rootLock: VERSION,
     rootLockPackage: VERSION
   });
-  assert.equal(document.signature.principal, "release@1667.test");
-  assert.equal(document.signature.keyType, "ED25519");
-  assert.match(document.signature.keyFingerprint, /^SHA256:[A-Za-z0-9+/]{43}$/);
 
   // Producer and validator cannot drift: the emitted document is exactly what a
   // release build consumes.
-  const identities = createReleaseIdentitySet(
-    JSON.parse(canonicalJson(document.evidence)) as unknown
-  );
-  assert.deepEqual(identities.evidence, document.evidence);
+  const identities = createReleaseIdentitySet(JSON.parse(canonicalJson(evidence)) as unknown);
+  assert.deepEqual(identities.source, evidence);
 });
 
-test("tag authorization verifies the protected signer without build facts", FIXTURE_ONLY, async (t) => {
-  const fixture = await createFixture(t);
-  const document = await collectAuthorization(fixture);
-  assert.equal(document.tagName, TAG);
-  assert.equal(document.tagSignature, "verified");
-  assert.equal(document.tagObjectType, "annotated");
-  assert.equal(document.tagTargetCommit, document.sourceCommit);
-  assert.equal("buildTimestamp" in document, false);
-  assert.equal(document.signature.principal, "release@1667.test");
+test("evidence from a lightweight tag on a protected branch satisfies the release validator", async (t) => {
+  const fixture = await createFixture(t, { tag: "lightweight" });
+  const evidence = await collect(fixture);
+  assert.equal(evidence.tagObjectType, "lightweight");
+  assert.equal(evidence.tagSignature, "unsigned");
+  assert.equal(evidence.tagTargetCommit, evidence.sourceCommit);
+
+  const identities = createReleaseIdentitySet(JSON.parse(canonicalJson(evidence)) as unknown);
+  assert.deepEqual(identities.source, evidence);
 });
 
-test("tag authorization refuses a signer absent from the protected policy", FIXTURE_ONLY, async (t) => {
-  const fixture = await createFixture(t, {
-    tag: "attacker-key",
-    policySigners: ["release"],
-    workingTreeSigners: ["release", "attacker"]
-  });
-  await assert.rejects(
-    collectAuthorization(fixture),
-    /is not from an allowed signer/
-  );
-});
-
-test("evidence refuses a tag signed by a key the protected ref never authorised", FIXTURE_ONLY, async (t) => {
-  // The attacker key is valid, correctly formed, and listed in the repository's
-  // own `allowed-signers` at the released commit. Only the protected ref decides
-  // who may sign, so this must still be refused.
-  const fixture = await createFixture(t, {
-    tag: "attacker-key",
-    policySigners: ["release"],
-    workingTreeSigners: ["release", "attacker"]
-  });
-  const workingTreePolicy = readFileSync(
-    path.join(fixture.repository, "allowed-signers"),
-    "utf8"
-  );
-  assert.match(workingTreePolicy, /attacker@1667\.test/);
-  await assert.rejects(collect(fixture), /is not from an allowed signer/);
-});
-
-test("evidence refuses a tag signed by a key absent from every allowed-signers file", FIXTURE_ONLY, async (t) => {
-  const fixture = await createFixture(t, {
-    tag: "attacker-key",
-    policySigners: ["release"],
-    workingTreeSigners: ["release"]
-  });
-  await assert.rejects(collect(fixture), /is not from an allowed signer/);
-});
-
-test("evidence accepts a certificate-authority policy, whose principal is not in the file", FIXTURE_ONLY, async (t) => {
-  // `ssh-keygen` matches principals; this module does not. The policy names the
-  // CA and the pattern `*@1667.test`, and the principal that comes back —
-  // `release@1667.test`, carried by the certificate — appears nowhere in it.
-  const fixture = await createFixture(t, { policy: "certificate-authority" });
-  const document = await collect(fixture);
-  assert.equal(document.signature.principal, "release@1667.test");
-  assert.equal(document.signature.keyType, "ED25519-CERT");
-  assert.equal(document.evidence.tagSignature, "verified");
-});
-
-test("evidence verifies with the pinned verifier, not one planted on PATH", FIXTURE_ONLY, async (t) => {
-  // No attacker key anywhere in the repository: the only way this tag can be
-  // accepted is by asking a program that does not verify.
-  const fixture = await createFixture(t, {
-    tag: "attacker-key",
-    workingTreeSigners: ["release"]
-  });
-  const planted = await plantForgedVerifier(t);
-
-  // Reached only through `PATH`, the forgery is never run: the collector names
-  // an absolute verifier, so the real one refuses the attacker's tag.
-  await assert.rejects(
-    collect(fixture, {
-      environment: { PATH: `${planted}${path.delimiter}${process.env["PATH"] ?? ""}` }
-    }),
-    /is not from an allowed signer/
-  );
-
-  // And it is a forgery that works. Named outright, it is believed all the way
-  // through — Git exits zero, the status line is the accepting form, and an
-  // attacker-signed tag becomes a verified release. That is what a runner would
-  // gain by choosing the verifier, which is why the assertion above is the
-  // security property and `--ssh-keygen` is trusted input.
-  const forged = await collect(fixture, { sshKeygenPath: path.join(planted, "ssh-keygen") });
-  assert.equal(forged.signature.principal, "release@1667.test");
-});
-
-test("evidence refuses a verifier that is missing or not named absolutely", FIXTURE_ONLY, async (t) => {
-  const fixture = await createFixture(t);
-  await assert.rejects(
-    collect(fixture, { sshKeygenPath: "ssh-keygen" }),
-    /must be an absolute path/
-  );
-  await assert.rejects(
-    collect(fixture, { sshKeygenPath: path.join(tmpdir(), "1667-absent-ssh-keygen") }),
-    /Release signature verifier was not found/
-  );
-});
-
-test("evidence refuses a dirty working tree", FIXTURE_ONLY, async (t) => {
+test("evidence refuses a dirty working tree", async (t) => {
   const fixture = await createFixture(t, { dirty: true });
   await assert.rejects(collect(fixture), /Release source tree is dirty/);
 });
 
-test("evidence refuses a lightweight tag", FIXTURE_ONLY, async (t) => {
-  const fixture = await createFixture(t, { tag: "lightweight" });
-  await assert.rejects(collect(fixture), /is not an annotated tag object/);
-});
-
-test("evidence refuses an unsigned annotated tag", FIXTURE_ONLY, async (t) => {
-  const fixture = await createFixture(t, { tag: "unsigned" });
-  await assert.rejects(collect(fixture), /carries no signature/);
-});
-
-test("evidence refuses a tag that does not point at the release commit", FIXTURE_ONLY, async (t) => {
+test("evidence refuses a tag that does not point at the release commit", async (t) => {
   const fixture = await createFixture(t, { commitAfterTag: true });
   await assert.rejects(collect(fixture), /does not point at the release commit/);
 });
 
-test("evidence refuses a release commit unreachable from the protected ref", FIXTURE_ONLY, async (t) => {
+test("evidence refuses a tag that moves during package fact collection", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("the Git wrapper fixture uses a POSIX executable path");
+    return;
+  }
+  const fixture = await createFixture(t);
+  const wrapperRoot = await mkdtemp(path.join(tmpdir(), "1667-release-git-wrapper-"));
+  t.after(() => rm(wrapperRoot, { recursive: true, force: true }));
+  const realGit = (await execFileAsync("which", ["git"], { encoding: "utf8" })).stdout.trim();
+  const marker = path.join(wrapperRoot, "moved");
+  const wrapper = path.join(wrapperRoot, "git");
+  await writeFile(wrapper, [
+    `#!${process.execPath}`,
+    'const { existsSync, writeFileSync } = require("node:fs");',
+    'const { spawnSync } = require("node:child_process");',
+    `const git = ${JSON.stringify(realGit)};`,
+    `const marker = ${JSON.stringify(marker)};`,
+    "const args = process.argv.slice(2);",
+    "const result = spawnSync(git, args);",
+    "if (result.error) throw result.error;",
+    "if (result.status === 0 && args[0] === \"show\" && !existsSync(marker)) {",
+    "  writeFileSync(marker, \"moved\");",
+    `  const moved = spawnSync(git, ["update-ref", ${JSON.stringify(`refs/tags/${TAG}`)}, ${JSON.stringify(fixture.baseCommit)}]);`,
+    "  if (moved.status !== 0) process.exit(moved.status ?? 1);",
+    "}",
+    "process.stdout.write(result.stdout);",
+    "process.stderr.write(result.stderr);",
+    "process.exit(result.status ?? 1);",
+    ""
+  ].join("\n"));
+  await chmod(wrapper, 0o755);
+  await assert.rejects(
+    collect(fixture, {
+      environment: {
+        PATH: `${wrapperRoot}${path.delimiter}${process.env["PATH"] ?? "/usr/bin:/bin"}`
+      }
+    }),
+    /moved while source evidence was collected/
+  );
+});
+
+test("evidence refuses every Git signature armor that it does not verify", async (t) => {
+  for (const signatureArmor of [
+    "PGP MESSAGE",
+    "PGP SIGNATURE",
+    "SIGNED MESSAGE",
+    "SSH SIGNATURE"
+  ] as const) {
+    const fixture = await createFixture(t, { signatureArmor });
+    await assert.rejects(
+      collect(fixture),
+      /contains a signature that this collector does not verify/
+    );
+  }
+});
+
+test("evidence refuses a nested signed tag", async (t) => {
+  const fixture = await createFixture(t, { nestedSignedTag: true });
+  await assert.rejects(
+    collect(fixture),
+    /must point directly at a commit/u
+  );
+});
+
+test("evidence refuses a release commit unreachable from the protected ref", async (t) => {
   const fixture = await createFixture(t, { protectedRefBehind: true });
   await assert.rejects(
     collect(fixture),
@@ -442,7 +278,7 @@ test("evidence refuses a release commit unreachable from the protected ref", FIX
   );
 });
 
-test("evidence refuses disagreeing versions across manifests and the lockfile", FIXTURE_ONLY, async (t) => {
+test("evidence refuses disagreeing versions across manifests and the lockfile", async (t) => {
   for (const skew of [
     { rootVersion: "9.8.6" },
     { tuiVersion: "9.8.6" },
@@ -454,7 +290,7 @@ test("evidence refuses disagreeing versions across manifests and the lockfile", 
   }
 });
 
-test("the evidence CLI emits canonical JSON the release validator accepts", FIXTURE_ONLY, async (t) => {
+test("the evidence CLI emits canonical JSON the release validator accepts", async (t) => {
   // No environment is handed to the child on purpose: the collector builds its
   // own, so a developer's Git configuration must not be able to reach it.
   const fixture = await createFixture(t);
@@ -467,15 +303,14 @@ test("the evidence CLI emits canonical JSON the release validator accepts", FIXT
   ], { cwd: REPOSITORY_ROOT, encoding: "utf8" });
   const evidence: unknown = JSON.parse(stdout);
   assert.equal(canonicalJson(evidence), stdout.trim());
-  assert.equal(createReleaseIdentitySet(evidence).evidence.tagName, TAG);
-  assert.match(stderr, /release-tag-signer release@1667\.test SHA256:/);
+  assert.equal(createReleaseIdentitySet(evidence).source.tagName, TAG);
+  assert.match(stderr, new RegExp(`release-tag ${TAG} annotated unsigned`));
 });
 
 test("the evidence collector reads no file", () => {
-  // The fixtures above are the stronger guard — each writes the attacker's key
-  // into the released commit, so a collector that read the policy off disk fails
-  // them. This is the cheap one that names the mistake directly, since nothing
-  // in this repository lints for it.
+  // The fixtures above are the stronger guard — each asks Git rather than
+  // reading a file directly. This is the cheap one that names the mistake
+  // directly, since nothing in this repository lints for it.
   const source = readFileSync(COLLECTOR_SOURCE, "utf8");
   for (const reader of ["readFile", "readFileSync", "createReadStream"]) {
     assert.equal(
@@ -484,18 +319,4 @@ test("the evidence collector reads no file", () => {
       `scripts/release-evidence.ts must learn nothing from ${reader}; ask Git instead`
     );
   }
-});
-
-// POSIX system paths are constants. Windows paths depend on mutable runner
-// environment, so the release workflow must pass its independently pinned
-// verifier explicitly rather than this collector deriving one.
-test("signature verifier defaults are fixed on POSIX and fail closed on Windows", () => {
-  for (const candidate of defaultSignatureVerifiers("linux")) {
-    assert.match(candidate, /^\/(?:usr\/)?bin\/ssh-keygen$/u);
-  }
-  assert.deepEqual(defaultSignatureVerifiers("darwin"), [
-    "/usr/bin/ssh-keygen",
-    "/bin/ssh-keygen"
-  ]);
-  assert.deepEqual(defaultSignatureVerifiers("win32"), []);
 });

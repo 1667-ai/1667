@@ -7,6 +7,7 @@ import {
   type BuildIdentity,
   type BuiltArtifactTarget
 } from "../shared/build-identity.js";
+import { type PackageBuildEvidence } from "../shared/package-build-manifest.js";
 import { exactRecord } from "./release-boundary-validation.js";
 
 export type ReleaseBuildIdentity = Extract<BuildIdentity, { buildKind: "release" }>;
@@ -29,24 +30,39 @@ export function assertReleasePackageVersions(
   }
 }
 
-export interface ReleaseSourceEvidence {
+/**
+ * `tagObjectType` and `tagSignature` describe the release tag as it actually
+ * is, not as a fixed claim. There is no user of this product yet, and the
+ * signing-key requirement will return before there is a user. An annotated or
+ * lightweight tag is accepted now, but no collector verifies a signature.
+ */
+interface ReleaseSourceEvidenceBase {
   schemaVersion: 1;
   productVersion: string;
   sourceCommit: string;
   sourceDirty: false;
   tagName: string;
-  tagObjectType: "annotated";
-  tagSignature: "verified";
   tagTargetCommit: string;
   buildTimestamp: string;
   packageVersions: ReleasePackageVersions;
 }
 
-export interface ReleaseIdentitySet {
+interface ReleaseTagEvidence {
+  readonly tagObjectType: "annotated" | "lightweight";
+  readonly tagSignature: "unsigned";
+}
+
+export type ReleaseSourceEvidence = ReleaseSourceEvidenceBase & ReleaseTagEvidence;
+
+export interface ReleaseBuildIdentitySet<
+  Source extends PackageBuildEvidence = PackageBuildEvidence
+> {
   schemaVersion: 1;
-  evidence: ReleaseSourceEvidence;
+  source: Source;
   identities: readonly ReleaseBuildIdentity[];
 }
+
+export type ReleaseIdentitySet = ReleaseBuildIdentitySet<ReleaseSourceEvidence>;
 
 const EVIDENCE_KEYS = new Set([
   "schemaVersion",
@@ -67,25 +83,38 @@ const PACKAGE_VERSION_KEYS = new Set([
   "rootLockPackage"
 ]);
 
-/**
- * Converts separately collected Git/package evidence into the only identities
- * release builds may embed. The caller remains responsible for obtaining
- * `tagSignature: "verified"` from a trusted `git verify-tag` invocation.
- */
+/** Converts collected Git/package evidence into release build identities. */
 export function createReleaseIdentitySet(value: unknown): ReleaseIdentitySet {
-  const evidence = parseSourceEvidence(value);
+  return createIdentitySet(parseSourceEvidence(value));
+}
+
+/** Builds release identities from facts that make no tag-authorization claim. */
+export function createReleaseBuildIdentitySet(
+  value: PackageBuildEvidence
+): ReleaseBuildIdentitySet {
+  const source = Object.freeze({
+    productVersion: value.productVersion,
+    sourceCommit: value.sourceCommit,
+    buildTimestamp: value.buildTimestamp
+  });
+  return createIdentitySet(source);
+}
+
+function createIdentitySet<Source extends PackageBuildEvidence>(
+  source: Source
+): ReleaseBuildIdentitySet<Source> {
   const identities = BUILT_ARTIFACT_TARGETS.map((artifactTarget) => {
-    return releaseBuildIdentity(evidence, artifactTarget);
+    return releaseBuildIdentity(source, artifactTarget);
   });
   return Object.freeze({
     schemaVersion: 1 as const,
-    evidence,
+    source,
     identities: Object.freeze(identities)
   });
 }
 
 export function releaseIdentityForTarget(
-  set: ReleaseIdentitySet,
+  set: ReleaseBuildIdentitySet,
   target: BuiltArtifactTarget
 ): ReleaseBuildIdentity {
   const identity = set.identities.find((candidate) => candidate.artifactTarget === target);
@@ -97,12 +126,7 @@ function parseSourceEvidence(value: unknown): ReleaseSourceEvidence {
   const input = exactRecord(value, EVIDENCE_KEYS, "Release source evidence");
   if (input.schemaVersion !== 1) throw new Error("Release source evidence has an unsupported schema");
   if (input.sourceDirty !== false) throw new Error("Release source must be clean");
-  if (input.tagObjectType !== "annotated") {
-    throw new Error("Release source must use an annotated tag");
-  }
-  if (input.tagSignature !== "verified") {
-    throw new Error("Release tag signature must be verified");
-  }
+  const tagEvidence = parseTagEvidence(input.tagObjectType, input.tagSignature);
 
   const productVersion = stringField(input.productVersion, "productVersion");
   const sourceCommit = stringField(input.sourceCommit, "sourceCommit");
@@ -132,47 +156,41 @@ function parseSourceEvidence(value: unknown): ReleaseSourceEvidence {
   });
   assertReleasePackageVersions(productVersion, packageVersions);
 
-  // Reuse the product's strict identity codec for SemVer, commit, timestamp,
-  // and protocol-range validation before accepting the evidence.
-  releaseBuildIdentity({
-    schemaVersion: 1,
-    productVersion,
-    sourceCommit,
-    sourceDirty: false,
-    tagName,
-    tagObjectType: "annotated",
-    tagSignature: "verified",
-    tagTargetCommit,
-    buildTimestamp,
-    packageVersions
-  }, BUILT_ARTIFACT_TARGETS[0]);
-
   return Object.freeze({
     schemaVersion: 1 as const,
     productVersion,
     sourceCommit,
     sourceDirty: false as const,
     tagName,
-    tagObjectType: "annotated" as const,
-    tagSignature: "verified" as const,
+    ...tagEvidence,
     tagTargetCommit,
     buildTimestamp,
     packageVersions
   });
 }
 
+function parseTagEvidence(objectType: unknown, signature: unknown): ReleaseTagEvidence {
+  if (objectType !== "annotated" && objectType !== "lightweight") {
+    throw new Error("Release source tag must be annotated or lightweight");
+  }
+  if (signature !== "unsigned") {
+    throw new Error("Release tag signature must be unsigned");
+  }
+  return Object.freeze({ tagObjectType: objectType, tagSignature: signature });
+}
+
 function releaseBuildIdentity(
-  evidence: ReleaseSourceEvidence,
+  source: PackageBuildEvidence,
   artifactTarget: BuiltArtifactTarget
 ): ReleaseBuildIdentity {
   const identity = parseBuildIdentity({
     schemaVersion: 1,
     product: "1667",
-    productVersion: evidence.productVersion,
+    productVersion: source.productVersion,
     buildKind: "release",
-    sourceCommit: evidence.sourceCommit,
+    sourceCommit: source.sourceCommit,
     sourceDirty: false,
-    buildTimestamp: evidence.buildTimestamp,
+    buildTimestamp: source.buildTimestamp,
     artifactTarget,
     apiProtocolVersion: HTTP_API_PROTOCOL_VERSION,
     minClientProtocolVersion: HTTP_MIN_CLIENT_PROTOCOL_VERSION,

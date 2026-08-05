@@ -1,6 +1,5 @@
 #!/usr/bin/env -S node --import tsx
 
-import { execFile } from "node:child_process";
 import {
   lstatSync,
   readdirSync,
@@ -11,12 +10,16 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import { isSemVer } from "../shared/semver.js";
 import { PUBLISHED_ARTIFACT_TARGETS } from "../shared/release-targets.js";
 import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
 import { releaseArchiveFileName } from "./release-archive.js";
-import { isExecutableFile } from "./release-boundary-validation.js";
+import {
+  boundedGhExecutable,
+  runReleaseGh as runGh,
+  type GitHubReleaseEnvironment
+} from "./release-github-client.js";
+import { verifyRemoteReleaseTag } from "./release-github-tag.js";
 import {
   directoryAssetDigests,
   formatReleaseChecksums
@@ -28,42 +31,137 @@ import {
   isPrereleaseVersion
 } from "./release-publication-assets.js";
 
-const execFileAsync = promisify(execFile);
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
-const MAX_GH_OUTPUT_BYTES = 8 * 1024 * 1024;
+const COMMIT = /^[0-9a-f]{40}$/u;
 const MAX_NOTES_BYTES = 64 * 1024;
 
-export interface GitHubReleaseEnvironment {
-  readonly GITHUB_REPOSITORY?: string;
-  readonly RELEASE_GH_PATH?: string;
-  readonly GH_TOKEN?: string;
-  readonly HOME?: string;
-}
-
-export interface PublishGitHubReleaseOptions {
+export interface GitHubReleaseOptions {
   readonly version: string;
+  readonly sourceCommit: string;
   readonly assetsDirectory: string;
   readonly notesFile: string;
   readonly environment: GitHubReleaseEnvironment;
   readonly ghExecutable?: string;
 }
 
-interface ReleaseState {
-  readonly isDraft: boolean;
-  readonly isImmutable: boolean;
-  readonly isPrerelease: boolean;
+interface ReleaseDescription {
+  readonly body: string;
+  readonly name: string;
 }
 
+type ReleaseState =
+  | (ReleaseDescription & { readonly phase: "draft" })
+  | (ReleaseDescription & { readonly phase: "published" });
+
 export async function publishOrVerifyGitHubRelease(
-  options: PublishGitHubReleaseOptions
+  options: GitHubReleaseOptions
 ): Promise<void> {
+  const context = releaseContext(options);
+  const { gh, repository, tag } = context;
+  const state = await prepareReleaseState(context);
+  if (state.phase === "published") return;
+  try {
+    await runGh(
+      gh,
+      [
+        "release",
+        "edit",
+        tag,
+        "--repo",
+        repository,
+        "--draft=false",
+        "--latest=false"
+      ],
+      context.environment
+    );
+  } catch (error) {
+    const observed = await releaseState(context);
+    if (observed?.phase !== "published") throw error;
+  }
+  const published = await preparedReleaseState(context);
+  if (published.phase !== "published") {
+    throw new Error("Published GitHub release is still a draft");
+  }
+}
+
+/** Creates or verifies the release state before the immutable transition. */
+async function prepareReleaseState(context: ReleaseContext): Promise<ReleaseState> {
+  const { assets, gh, notes, prerelease, repository, tag, title, verifyTag } = context;
+  const state = await releaseState(context);
+  if (state !== null) {
+    if (state.phase === "draft") {
+      await verifyTag();
+      requireReleaseContents(state, context);
+      await runGh(
+        gh,
+        ["release", "upload", tag, ...assets, "--clobber", "--repo", repository],
+        context.environment
+      );
+    }
+    return await preparedReleaseState(context);
+  }
+  await verifyTag();
+  await runGh(gh, [
+    "release",
+    "create",
+    tag,
+    ...assets,
+    "--repo",
+    repository,
+    "--draft",
+    "--verify-tag",
+    ...(prerelease ? ["--prerelease"] : []),
+    "--latest=false",
+    "--title",
+    title,
+    "--notes-file",
+    notes
+  ], context.environment);
+  return await preparedReleaseState(context);
+}
+
+async function preparedReleaseState(context: ReleaseContext): Promise<ReleaseState> {
+  const { assets, environment, gh, repository, tag, verifyTag } = context;
+  await verifyTag();
+  const state = await releaseState(context);
+  if (state === null) throw new Error("Prepared GitHub release does not exist");
+  requireReleaseContents(state, context);
+  await verifyDownloadedRelease(gh, tag, repository, assets, environment);
+  await verifyTag();
+  return state;
+}
+
+interface ReleaseContext {
+  readonly assets: readonly string[];
+  readonly environment: GitHubReleaseEnvironment;
+  readonly gh: string;
+  readonly notes: string;
+  readonly notesBody: string;
+  readonly prerelease: boolean;
+  readonly repository: string;
+  readonly tag: string;
+  readonly title: string;
+  readonly verifyTag: () => Promise<void>;
+}
+
+function releaseContext(
+  options: GitHubReleaseOptions
+): ReleaseContext {
   if (!isSemVer(options.version)) throw new Error("GitHub release version is not SemVer");
+  if (!COMMIT.test(options.sourceCommit)) {
+    throw new Error("GitHub release source commit is not canonical");
+  }
+  // The one place this module decides prerelease vs. stable. Every check below
+  // reads this value rather than assuming a channel, so a stable version's
+  // release is required to be a stable release and a prerelease version's
+  // release is required to stay a prerelease, in both directions.
+  const prerelease = isPrereleaseVersion(options.version);
   const repository = requiredMatch(
     options.environment.GITHUB_REPOSITORY,
     REPOSITORY,
     "GITHUB_REPOSITORY"
   );
-  const gh = boundedExecutable(
+  const gh = boundedGhExecutable(
     options.ghExecutable
       ?? requiredValue(options.environment.RELEASE_GH_PATH, "RELEASE_GH_PATH")
   );
@@ -73,45 +171,27 @@ export async function publishOrVerifyGitHubRelease(
     repository
   );
   const notes = boundedFile(options.notesFile, "GitHub release notes", MAX_NOTES_BYTES);
+  const notesBody = readFileSync(notes, "utf8");
   const tag = `v${options.version}`;
-  let state = await releaseState(gh, tag, repository, options.environment);
-  if (state?.isDraft === true) {
-    await runGh(gh, ["release", "delete", tag, "--repo", repository, "--yes"], options.environment);
-    state = null;
-  }
-  let created = false;
-  if (state === null) {
-    await runGh(gh, [
-      "release",
-      "create",
-      tag,
-      ...assets,
-      "--repo",
-      repository,
-      "--draft",
-      "--verify-tag",
-      "--prerelease",
-      "--latest=false",
-      "--title",
-      `1667 v${options.version}`,
-      "--notes-file",
-      notes
-    ], options.environment);
-    created = true;
-  } else {
-    requireImmutablePrerelease(state, "Existing");
-  }
-  await verifyDownloadedRelease(gh, tag, repository, assets, options.environment);
-  if (!created) return;
-  await runGh(
+  const title = `1667 v${options.version}`;
+  const verifyTag = async (): Promise<void> => await verifyRemoteReleaseTag({
+    version: options.version,
+    sourceCommit: options.sourceCommit,
+    environment: options.environment,
+    ghExecutable: gh
+  });
+  return Object.freeze({
+    assets,
+    environment: options.environment,
     gh,
-    ["release", "edit", tag, "--repo", repository, "--draft=false"],
-    options.environment
-  );
-  const published = await releaseState(gh, tag, repository, options.environment);
-  if (published === null) throw new Error("Published GitHub release disappeared");
-  requireImmutablePrerelease(published, "Published");
-  if (published.isDraft) throw new Error("Published GitHub release is still a draft");
+    notes,
+    notesBody,
+    prerelease,
+    repository,
+    tag,
+    title,
+    verifyTag
+  });
 }
 
 export function verifyNpmReleaseAssetDirectory(
@@ -224,11 +304,9 @@ async function verifyDownloadedRelease(
 }
 
 async function releaseState(
-  gh: string,
-  tag: string,
-  repository: string,
-  environment: GitHubReleaseEnvironment
+  context: ReleaseContext
 ): Promise<ReleaseState | null> {
+  const { environment, gh, prerelease, repository, tag } = context;
   let stdout: string;
   try {
     ({ stdout } = await runGh(gh, [
@@ -238,7 +316,7 @@ async function releaseState(
       "--repo",
       repository,
       "--json",
-      "isDraft,isImmutable,isPrerelease"
+      "body,isDraft,isImmutable,isPrerelease,name"
     ], environment));
   } catch (error) {
     if (isMissingRelease(error)) return null;
@@ -249,42 +327,43 @@ async function releaseState(
     throw new Error("GitHub release state is not an object");
   }
   const record = value as Record<string, unknown>;
-  if (Object.keys(record).sort().join(",") !== "isDraft,isImmutable,isPrerelease"
+  if (Object.keys(record).sort().join(",") !== "body,isDraft,isImmutable,isPrerelease,name"
+    || typeof record.body !== "string"
     || typeof record.isDraft !== "boolean"
     || typeof record.isImmutable !== "boolean"
-    || typeof record.isPrerelease !== "boolean") {
+    || typeof record.isPrerelease !== "boolean"
+    || typeof record.name !== "string") {
     throw new Error("GitHub release state is invalid");
   }
-  return Object.freeze({
-    isDraft: record.isDraft,
-    isImmutable: record.isImmutable,
-    isPrerelease: record.isPrerelease
-  });
-}
-
-function requireImmutablePrerelease(state: ReleaseState, label: string): void {
-  if (state.isDraft || !state.isImmutable || !state.isPrerelease) {
-    throw new Error(`${label} GitHub release is not an immutable prerelease`);
+  if (record.isDraft === record.isImmutable) {
+    throw new Error("GitHub release has an invalid lifecycle state");
   }
+  const phase = record.isDraft ? "draft" : "published";
+  if (record.isPrerelease !== prerelease) {
+    if (phase === "draft") {
+      throw new Error(
+        `Uploaded GitHub release is not a draft ${prerelease ? "prerelease" : "release"}`
+      );
+    }
+    throw new Error(
+      `Existing GitHub release is not an immutable ${
+        prerelease ? "prerelease" : "release"
+      }`
+    );
+  }
+  const description = {
+    body: record.body,
+    name: record.name
+  };
+  return phase === "draft"
+    ? Object.freeze({ ...description, phase: "draft" as const })
+    : Object.freeze({ ...description, phase: "published" as const });
 }
 
-async function runGh(
-  gh: string,
-  args: readonly string[],
-  environment: GitHubReleaseEnvironment
-): Promise<{ readonly stdout: string; readonly stderr: string }> {
-  return await execFileAsync(gh, [...args], {
-    encoding: "utf8",
-    env: {
-      GH_TOKEN: environment.GH_TOKEN,
-      HOME: environment.HOME,
-      LANG: "C",
-      LC_ALL: "C"
-    },
-    maxBuffer: MAX_GH_OUTPUT_BYTES,
-    timeout: 5 * 60_000,
-    windowsHide: true
-  });
+function requireReleaseContents(state: ReleaseState, context: ReleaseContext): void {
+  if (state.name !== context.title || state.body !== context.notesBody) {
+    throw new Error("GitHub release title or notes do not match the prepared release");
+  }
 }
 
 function isMissingRelease(error: unknown): boolean {
@@ -295,20 +374,10 @@ function isMissingRelease(error: unknown): boolean {
   return /release not found|HTTP 404/iu.test(detail);
 }
 
-function boundedExecutable(value: string): string {
-  if (!path.isAbsolute(value)) throw new Error("GitHub CLI path must be absolute");
-  const stat = lstatSync(value);
-  if (!stat.isFile() || stat.isSymbolicLink() || !isExecutableFile(value, stat.mode)) {
-    throw new Error("GitHub CLI must be an executable regular file");
-  }
-  return boundedFile(value, "GitHub CLI", Number.MAX_SAFE_INTEGER, true);
-}
-
 function boundedFile(
   value: string,
   label: string,
-  maximumBytes: number,
-  executable = false
+  maximumBytes: number
 ): string {
   const requested = lstatSync(value);
   if (!requested.isFile() || requested.isSymbolicLink()) {
@@ -316,8 +385,7 @@ function boundedFile(
   }
   const file = realpathSync(value);
   const stat = lstatSync(file);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > maximumBytes
-    || (executable && (stat.mode & 0o111) === 0)) {
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > maximumBytes) {
     throw new Error(`${label} must be a bounded regular file`);
   }
   return file;
@@ -348,7 +416,7 @@ function isMainModule(): boolean {
 
 if (isMainModule()) {
   try {
-    const [command, assetsDirectory, notesFile] = process.argv.slice(2);
+    const command = process.argv[2];
     if (command === "verify-assets" && process.argv.length === 6) {
       const version = process.argv[3];
       const repository = process.argv[4];
@@ -359,18 +427,29 @@ if (isMainModule()) {
         );
       }
       verifyNpmReleaseAssetDirectory(directory, version, repository);
-    } else if (process.argv.length === 5 && command !== undefined
-      && assetsDirectory !== undefined && notesFile !== undefined) {
-      await publishOrVerifyGitHubRelease({
-        version: command,
-        assetsDirectory,
-        notesFile,
+    } else if (process.argv.length === 7 && command === "publish") {
+      const version = process.argv[3];
+      const sourceCommit = process.argv[4];
+      const releaseAssets = process.argv[5];
+      const releaseNotes = process.argv[6];
+      if (version === undefined
+        || sourceCommit === undefined || releaseAssets === undefined
+        || releaseNotes === undefined) {
+        throw new Error("GitHub release arguments are incomplete");
+      }
+      const options = {
+        version,
+        sourceCommit,
+        assetsDirectory: releaseAssets,
+        notesFile: releaseNotes,
         environment: process.env
-      });
+      };
+      await publishOrVerifyGitHubRelease(options);
     } else {
       throw new Error(
         "usage: release-npm-github.ts verify-assets <version> <repository> <assets>"
-        + " | release-npm-github.ts <version> <assets> <notes>"
+        + " | release-npm-github.ts publish"
+        + " <version> <source-commit> <assets> <notes>"
       );
     }
   } catch (error) {

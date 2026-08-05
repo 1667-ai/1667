@@ -10,10 +10,6 @@ const WORKFLOW = readFileSync(
   path.join(ROOT, ".github", "workflows", "release-npm.yml"),
   "utf8"
 );
-const GITHUB_RELEASE_WORKFLOW = readFileSync(
-  path.join(ROOT, ".github", "workflows", "release-github.yml"),
-  "utf8"
-);
 const CI_HELPER = readFileSync(path.join(ROOT, "scripts", "release-npm-ci.ts"), "utf8");
 
 test("the npm workflow authorizes one dispatcher before the publication stages", () => {
@@ -37,28 +33,28 @@ test("the npm workflow authorizes one dispatcher before the publication stages",
   assert.match(authorize, /test "\$permission" = admin/u);
   assert.deepEqual([...WORKFLOW.matchAll(/^  ([a-z][a-z-]*):$/gmu)].map((match) => {
     return match[1];
-  }).filter((name) => ["build", "launcher", "preflight", "publish", "release"].includes(name!)), [
+  }).filter((name) => ["build", "launcher", "preflight", "publish"].includes(name!)), [
     "build",
     "launcher",
     "preflight",
-    "publish",
-    "release"
+    "publish"
   ]);
   assert.match(job("build"), /^    needs: authorize$/mu);
+  assert.match(job("publish"), /^    needs: preflight$/mu);
   assert.match(job("publish"), /^    environment: publish$/mu);
   assert.match(job("publish"), /^    timeout-minutes: 180$/mu);
   assert.match(job("publish"), /^      id-token: write$/mu);
-  assert.match(job("release"), /refs\/tags\/released\/v\$VERSION/u);
+  assert.match(job("publish"), /refs\/tags\/released\/v\$VERSION/u);
   for (const name of ["build", "publish"] as const) {
     assert.match(job(name), /GITHUB_REF.*refs\/tags\/v\$VERSION/u);
   }
 });
 
-test("the npm release dispatch binds to the signed tag commit", () => {
+test("the npm release dispatch binds to the tag commit", () => {
   // A dispatch on the default branch takes GITHUB_SHA from the branch tip, so a
-  // merge after the maintainer signs the tag moves the source commit. The
-  // dispatch ref is the signed tag, which no later merge can move.
-  assert.match(WORKFLOW, /The dispatch ref must be the\n\s+signed v<version> tag\./u);
+  // merge after the tag is created changes the source commit. A tag dispatch
+  // records the tagged commit. Later jobs also check the locked remote tag.
+  assert.match(WORKFLOW, /The dispatch ref must be the\n\s+v<version> tag\./u);
   for (const name of ["build", "publish"] as const) {
     const body = job(name);
     assert.match(body, /VERSION: \$\{\{ inputs\.version \}\}/u);
@@ -68,9 +64,17 @@ test("the npm release dispatch binds to the signed tag commit", () => {
   // Reachability from the protected default branch is now the only control that
   // keeps an unmerged tag out of a release, so every job that collects source
   // evidence must fetch that branch.
-  for (const name of ["build", "launcher", "preflight", "publish", "release"] as const) {
+  for (const name of ["build", "launcher", "preflight", "publish"] as const) {
     const body = job(name);
     assert.match(body, /release-evidence\.ts/u);
+    assert.match(
+      body,
+      /DEFAULT_BRANCH: \$\{\{ github\.event\.repository\.default_branch \}\}/u
+    );
+    assert.match(
+      body,
+      /--protected-ref "refs\/remotes\/origin\/\$DEFAULT_BRANCH"/u
+    );
     assert.match(
       body,
       /\+refs\/heads\/\$DEFAULT_BRANCH:refs\/remotes\/origin\/\$DEFAULT_BRANCH/u
@@ -98,11 +102,10 @@ test("every retained release input is attested and verified before use", () => {
   assert.match(job("preflight"), /Verify every package attestation before preflight/u);
   assert.match(job("preflight"), /Attest the preflight result/u);
   assert.match(job("publish"), /Verify every retained input before publication/u);
-  assert.match(job("release"), /Verify every retained input/u);
   // Native matrix results stay a fixed 10-file handoff. Later jobs derive the
   // exact retained count from the version and canonical release policy.
   assert.match(job("launcher"), /verify-attestations dist\/native 10/u);
-  for (const name of ["preflight", "publish", "release"] as const) {
+  for (const name of ["preflight", "publish"] as const) {
     assert.match(job(name), /expected(?:LauncherPackage|Publication)FileCount/u);
     assert.match(
       job(name),
@@ -113,8 +116,8 @@ test("every retained release input is attested and verified before use", () => {
   assert.match(job("launcher"), /release-install-script\.ts render/u);
   assert.match(job("launcher"), /dist\/archives\/\*\.tar\.gz/u);
   assert.match(job("launcher"), /dist\/installers\/\*/u);
-  assert.match(job("release"), /dist\/publication\/archives\/\*\.tar\.gz/u);
-  assert.match(job("release"), /dist\/publication\/installers\/\*/u);
+  assert.match(job("publish"), /dist\/publication\/archives\/\*\.tar\.gz/u);
+  assert.match(job("publish"), /dist\/publication\/installers\/\*/u);
   assert.match(CI_HELPER, /"--signer-workflow"/u);
   assert.match(CI_HELPER, /"--source-digest"/u);
   assert.match(CI_HELPER, /"--deny-self-hosted-runners"/u);
@@ -153,13 +156,13 @@ test("every retained release input is attested and verified before use", () => {
 });
 
 test("pack and publish jobs pin tools and publication has no npm token", () => {
-  for (const name of ["launcher", "publish", "release"] as const) {
+  for (const name of ["launcher", "publish"] as const) {
     const body = job(name);
     assert.match(body, /npm install --global "npm@\$NPM_VERSION" --ignore-scripts/u);
     assert.match(body, /test "\$\(node --version\)" = "v\$NODE_VERSION"/u);
     assert.match(body, /test "\$\(npm --version\)" = "\$NPM_VERSION"/u);
   }
-  for (const name of ["build", "launcher", "preflight", "publish", "release"] as const) {
+  for (const name of ["build", "launcher", "preflight", "publish"] as const) {
     assert.match(job(name), /package-manager-cache: false/u);
     assert.doesNotMatch(job(name), /^\s+cache:/mu);
   }
@@ -182,10 +185,8 @@ test("JSON-producing workflow commands suppress npm lifecycle output", () => {
 });
 
 test("inline TypeScript workflow programs run as ES modules", () => {
-  for (const workflow of [WORKFLOW, GITHUB_RELEASE_WORKFLOW]) {
-    assert.match(workflow, /\bnode --import tsx --input-type=module -e '/u);
-    assert.doesNotMatch(workflow, /\bnode --import tsx -e '/u);
-  }
+  assert.match(WORKFLOW, /\bnode --import tsx --input-type=module -e '/u);
+  assert.doesNotMatch(WORKFLOW, /\bnode --import tsx -e '/u);
 });
 
 test("archive producers force canonical ustar and disable macOS metadata copies", () => {
@@ -211,36 +212,46 @@ test("the retained layout and completion record support an exact rerun", () => {
   assert.match(job("launcher"), /cp dist\/native\/observations\/\*\.json dist\/observations\//u);
   assert.match(job("launcher"), /dist\/observations\/\*\.json/u);
   assert.doesNotMatch(WORKFLOW, /dist\/work\/plan\.json/u);
-  for (const name of ["preflight", "publish", "release"] as const) {
+  for (const name of ["preflight", "publish"] as const) {
     assert.match(job(name), /dist\/plan\.json/u);
   }
   assert.match(
     job("preflight"),
     /wc -l < dist\/work\/preflight\.log[\s\S]+!= 1[\s\S]+\^\[0-9a-f\]\{64\}\$/u
   );
-  for (const name of ["build", "launcher", "preflight", "publish"] as const) {
+  for (const name of ["build", "launcher", "preflight"] as const) {
     assert.match(job(name), /release-completion\.ts gate/u);
     assert.doesNotMatch(job(name), /release-completion\.ts replay/u);
   }
-  assert.match(job("release"), /release-completion\.ts replay/u);
-  assert.match(job("release"), /release-completion\.ts[\s\\]*status "\$VERSION"/u);
-  assert.match(job("release"), /scripts\/release-npm-github\.ts/u);
-  const record = job("release").indexOf("- name: Record complete publication");
-  assert.ok(record > job("release").indexOf("scripts/release-npm-github.ts"));
-  assert.equal(job("release").indexOf("- name:", record + 1), -1);
+  assert.doesNotMatch(job("publish"), /release-completion\.ts gate/u);
+  assert.equal(
+    [...job("publish").matchAll(/release-completion\.ts replay/gmu)].length,
+    2
+  );
+  assert.match(job("publish"), /release-completion\.ts[\s\\]*status "\$VERSION"/u);
+  const publish = job("publish");
+  assert.doesNotMatch(publish, /scripts\/release-npm-github\.ts prepare/u);
+  assert.doesNotMatch(WORKFLOW, /^\s+name: github-release$/mu);
+  assert.doesNotMatch(publish, /scripts\/release-npm-github\.ts verify/u);
+  const npmPublish = publish.indexOf("npm run release:publish -- publish");
+  const releasePublish = publish.indexOf("scripts/release-npm-github.ts publish");
+  const record = publish.indexOf("- name: Record complete publication");
+  assert.ok(releasePublish !== -1);
+  assert.ok(releasePublish < npmPublish && npmPublish < record);
+  assert.equal(publish.indexOf("- name:", record + 1), -1);
 });
 
 test("the immutable prerelease retains the durable promotion inputs", () => {
-  const release = job("release");
+  const release = job("publish");
   const observations = release.indexOf(
-    "cp dist/publication/observations/*.json dist/assets/"
+    "cp dist/publication/observations/*.json dist/github-release/assets/"
   );
-  const publish = release.indexOf("scripts/release-npm-github.ts");
+  const publish = release.indexOf("scripts/release-npm-github.ts publish");
   assert.ok(observations !== -1 && observations < publish);
 });
 
-test("the safety interlock runs before signed source evidence is materialized", () => {
-  for (const name of ["preflight", "publish", "release"] as const) {
+test("the safety interlock runs before source evidence is materialized", () => {
+  for (const name of ["preflight", "publish"] as const) {
     const body = job(name);
     const ready = body.indexOf("release-completion.ts ready");
     const evidence = body.indexOf("scripts/release-evidence.ts");
@@ -249,7 +260,7 @@ test("the safety interlock runs before signed source evidence is materialized", 
 });
 
 test("source evidence is collected before release artifacts dirty the checkout", () => {
-  for (const name of ["launcher", "preflight", "publish", "release"] as const) {
+  for (const name of ["launcher", "preflight", "publish"] as const) {
     const body = job(name);
     const evidence = body.indexOf("scripts/release-evidence.ts");
     const download = body.indexOf("actions/download-artifact@");
@@ -259,13 +270,11 @@ test("source evidence is collected before release artifacts dirty the checkout",
 
 test("GitHub API and attestation reads have explicit authority", () => {
   assert.match(WORKFLOW, /^  actions: read$/mu);
-  for (const name of ["launcher", "preflight", "publish", "release"] as const) {
+  for (const name of ["launcher", "preflight", "publish"] as const) {
     assert.match(job(name), /^      actions: read$/mu);
   }
-  for (const name of ["publish", "release"] as const) {
-    assert.match(job(name), /^      attestations: read$/mu);
-  }
-  for (const name of ["launcher", "preflight", "publish", "release"] as const) {
+  assert.match(job("publish"), /^      attestations: read$/mu);
+  for (const name of ["launcher", "preflight", "publish"] as const) {
     const body = job(name);
     for (const match of body.matchAll(/verify-attestations/gmu)) {
       // Multiline steps keep GH_TOKEN in the step env block above the run body.
@@ -278,7 +287,7 @@ test("GitHub API and attestation reads have explicit authority", () => {
 test("the workflow pins the hosted GitHub CLI before project installs", () => {
   assert.doesNotMatch(WORKFLOW, /\/usr\/bin\/gh/u);
   assert.doesNotMatch(CI_HELPER, /ghExecutable = "\/usr\/bin\/gh"/u);
-  for (const name of ["build", "launcher", "preflight", "publish", "release"] as const) {
+  for (const name of ["build", "launcher", "preflight", "publish"] as const) {
     const body = job(name);
     const pin = body.indexOf("Pin the hosted GitHub CLI");
     const install = body.indexOf("npm ci");
@@ -288,11 +297,8 @@ test("the workflow pins the hosted GitHub CLI before project installs", () => {
     job("build"),
     /if \[ "\$RUNNER_OS" = Windows \]; then\s+gh_path="\$\(cygpath -w "\$posix_gh_path"\)"/u
   );
-  assert.match(job("build"), /ssh_keygen_path="\$\(cygpath -w "\$posix_ssh_keygen_path"\)"/u);
-  assert.match(
-    job("build"),
-    /--ssh-keygen "\$RELEASE_SSH_KEYGEN_PATH"/u
-  );
+  // No signing key, no ssh-keygen: this workflow verifies no tag signature.
+  assert.doesNotMatch(WORKFLOW, /ssh-keygen|ssh_keygen|RELEASE_SSH_KEYGEN_PATH/u);
 });
 
 test("publication grants the publish job immutable-attempt authority", () => {
@@ -300,25 +306,34 @@ test("publication grants the publish job immutable-attempt authority", () => {
   assert.match(job("publish"), /npm run release:publish -- publish/u);
 });
 
-test("publication rechecks protected state immediately before npm writes", () => {
+test("publication replays protected state before npm and completion writes", () => {
   const publish = job("publish");
   const command = publish.indexOf("npm run release:publish -- publish");
-  const completionFetch = publish.lastIndexOf(
+  const prePublishFetch = publish.lastIndexOf(
     "git fetch origin '+refs/tags/released/*:refs/tags/released/*'",
     command
   );
-  const completionGate = publish.lastIndexOf(
-    "release-completion.ts gate",
+  const prePublishReplay = publish.lastIndexOf(
+    "release-completion.ts replay",
     command
   );
   assert.ok(
-    completionFetch !== -1 && completionFetch < completionGate
-      && completionGate < command
+    prePublishFetch !== -1 && prePublishFetch < prePublishReplay
+      && prePublishReplay < command
   );
+  const completionStatus = publish.indexOf('status "$VERSION" "$GITHUB_SHA"');
+  const preCompletionFetch = publish.lastIndexOf(
+    "git fetch origin '+refs/tags/released/*:refs/tags/released/*'",
+    completionStatus
+  );
+  assert.ok(
+    command < preCompletionFetch && preCompletionFetch < completionStatus
+  );
+  assert.doesNotMatch(publish, /release-github-tag\.ts|verify-tag/u);
 });
 
 function job(
-  name: "authorize" | "build" | "launcher" | "preflight" | "publish" | "release"
+  name: "authorize" | "build" | "launcher" | "preflight" | "publish"
 ): string {
   const start = WORKFLOW.indexOf(`  ${name}:\n`);
   assert.notEqual(start, -1);
@@ -329,7 +344,7 @@ function job(
 }
 
 function workflowStep(
-  jobName: "build" | "launcher" | "preflight" | "publish" | "release",
+  jobName: "build" | "launcher" | "preflight" | "publish",
   stepName: string
 ): string {
   const body = job(jobName);

@@ -16,7 +16,7 @@ import {
 } from "../shared/release-targets.js";
 import {
   releaseIdentityForTarget,
-  type ReleaseIdentitySet
+  type ReleaseBuildIdentitySet
 } from "./release-identity.js";
 import {
   createReleaseLauncherManifest,
@@ -83,14 +83,14 @@ const ENTRY_KEYS = new Set(["path", "type", "mode", "size", "sha256"]);
  */
 export function validateReleasePackageMatrix(
   values: readonly unknown[],
-  identities: ReleaseIdentitySet
+  identities: ReleaseBuildIdentitySet
 ): ReleasePackageMatrix {
   if (values.length !== PUBLISHED_PACKAGE_COUNT) {
     throw new Error("Release package matrix must contain one launcher and every published platform");
   }
   const parsed = values.map((value) => parseReleasePackageManifest(
     value,
-    identities.evidence.productVersion
+    identities.source.productVersion
   ));
   const byName = new Map<string, ReleasePackageManifest>();
   for (const manifest of parsed) {
@@ -116,7 +116,7 @@ export function validateReleasePackageMatrix(
     throw new Error("Release package matrix contains an unsupported package");
   }
   return Object.freeze({
-    version: identities.evidence.productVersion,
+    version: identities.source.productVersion,
     launcher,
     platforms: Object.freeze(platforms)
   });
@@ -370,7 +370,7 @@ function exactStringRecord(
 }
 
 export function assertPackageIdentityAgreement(
-  set: ReleaseIdentitySet,
+  set: ReleaseBuildIdentitySet,
   target: BuiltArtifactTarget,
   observed: ReleaseBuildIdentityLike
 ): void {

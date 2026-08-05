@@ -27,7 +27,7 @@ import {
   type ReleaseContentArtifact,
   type StagedReleaseFile
 } from "./release-content.js";
-import { type ReleaseIdentitySet } from "./release-identity.js";
+import { type ReleaseBuildIdentitySet } from "./release-identity.js";
 import {
   type ReleasePackageJson
 } from "./release-package-manifests.js";
@@ -43,8 +43,9 @@ import {
   type ReleaseSbomSet
 } from "./release-sbom.js";
 import {
-  releaseDescriptionInputsForSource,
-  type ReleaseSourceFacts
+  collectRepositoryReleaseSource,
+  releaseArtifactInputs,
+  type CollectedReleaseSource
 } from "./release-source-facts.js";
 
 export interface StagedReleasePackage {
@@ -57,13 +58,15 @@ export interface StagedReleasePackage {
   readonly files: readonly StagedReleaseFile[];
 }
 
-export interface StageReleasePackageOptions extends ReleaseSourceFacts {
+export interface StageReleasePackageOptions {
+  readonly source: CollectedReleaseSource;
   readonly artifactTarget: ReleaseContentArtifact;
   readonly executable: string;
   readonly outputDirectory: string;
 }
 
-export interface StagePublishedReleasePackagesOptions extends ReleaseSourceFacts {
+export interface StagePublishedReleasePackagesOptions {
+  readonly source: CollectedReleaseSource;
   readonly buildDirectories: Readonly<Record<PublishedArtifactTarget, string>>;
   readonly outputDirectory: string;
 }
@@ -78,7 +81,7 @@ export function stageReleasePackage(
   const finalRoot = freshOutputPath(options.outputDirectory, options.artifactTarget);
   const temporaryRoot = freshSiblingDirectory(finalRoot);
   try {
-    const { identities, sbomSource } = releaseDescriptionInputsForSource(options);
+    const { identities, sbomSource } = releaseArtifactInputs(options.source);
     const sboms = createReleaseSboms(
       sbomSource,
       repositoryReleaseComponentSources()
@@ -88,7 +91,7 @@ export function stageReleasePackage(
       sboms,
       executable: options.executable,
       outputDirectory: temporaryRoot,
-      buildTimestamp: identities.evidence.buildTimestamp
+      buildTimestamp: identities.source.buildTimestamp
     });
     renameSync(staged.directory, finalRoot);
     rmSync(temporaryRoot, { recursive: true, force: true });
@@ -100,8 +103,8 @@ export function stageReleasePackage(
 }
 
 /**
- * Stages the exact npm publication matrix. The final directory appears only
- * after every package passes validation.
+ * Stages the exact npm publication matrix from one validated source. The final
+ * directory appears only after all packages pass.
  */
 export function stagePublishedReleasePackages(
   options: StagePublishedReleasePackagesOptions
@@ -109,7 +112,7 @@ export function stagePublishedReleasePackages(
   const finalRoot = freshOutputPath(options.outputDirectory);
   const temporaryRoot = freshSiblingDirectory(finalRoot);
   try {
-    const { identities, sbomSource } = releaseDescriptionInputsForSource(options);
+    const { identities, sbomSource } = releaseArtifactInputs(options.source);
     const sboms = createReleaseSboms(
       sbomSource,
       repositoryReleaseComponentSources()
@@ -119,7 +122,7 @@ export function stagePublishedReleasePackages(
       sboms,
       executable: repositoryLauncher(),
       outputDirectory: temporaryRoot,
-      buildTimestamp: identities.evidence.buildTimestamp
+      buildTimestamp: identities.source.buildTimestamp
     });
     const platforms = PUBLISHED_ARTIFACT_TARGETS.map((artifactTarget) => {
       const descriptor = releaseTargetForArtifact(artifactTarget);
@@ -131,7 +134,7 @@ export function stagePublishedReleasePackages(
           path.posix.basename(descriptor.executable)
         ),
         outputDirectory: temporaryRoot,
-        buildTimestamp: identities.evidence.buildTimestamp
+        buildTimestamp: identities.source.buildTimestamp
       });
     });
     const packages = [launcher, ...platforms];
@@ -191,7 +194,7 @@ function stagePreparedPackage(options: PreparedPackageOptions): StagedReleasePac
 }
 
 function packageTemplate(
-  identities: ReleaseIdentitySet,
+  identities: ReleaseBuildIdentitySet,
   artifactTarget: ReleaseContentArtifact
 ): ReleasePackageTemplate {
   return artifactTarget === "launcher"
@@ -289,9 +292,7 @@ if (isMainModule()) {
       return [target, path.join(buildRoot, target)];
     })) as Record<PublishedArtifactTarget, string>;
     const packages = stagePublishedReleasePackages({
-      version,
-      sourceCommit,
-      buildTimestamp,
+      source: collectRepositoryReleaseSource({ version, sourceCommit, buildTimestamp }),
       buildDirectories,
       outputDirectory
     });

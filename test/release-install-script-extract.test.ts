@@ -266,7 +266,7 @@ test(
     const { stdout, prefix } = await harness.run(
       "host-ustar",
       async (archivePath) => {
-        // Exact producer flags from release-npm.yml and release-github.yml.
+        // Exact producer flags from release-npm.yml.
         await execFileAsync(
           "tar",
           ["--format=ustar", "-czf", archivePath, "-C", stage, stem],
