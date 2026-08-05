@@ -82,6 +82,8 @@ export function fakeReleaseGh(paths: {
   readonly log: string;
 }, options: {
   readonly tagCommit?: string;
+  readonly branchCommit?: string;
+  readonly tagObjectSha?: string;
   readonly moveTagAfterDownloadTo?: string;
 } = {}): string {
   const initialTagCommit = options.tagCommit
@@ -95,14 +97,28 @@ export function fakeReleaseGh(paths: {
     `const state = ${JSON.stringify(paths.state)};`,
     `const tagState = ${JSON.stringify(`${paths.state}.tag`)};`,
     `const initialTagCommit = ${JSON.stringify(initialTagCommit)};`,
+    `const branchCommit = ${JSON.stringify(options.branchCommit)};`,
+    `const tagObjectSha = ${JSON.stringify(options.tagObjectSha)};`,
     `const moveTagAfterDownloadTo = ${JSON.stringify(options.moveTagAfterDownloadTo)};`,
     `fs.appendFileSync(${JSON.stringify(paths.log)}, \`\${JSON.stringify(args)}\\n\`);`,
     "const command = args[1];",
-    "if (args[0] === \"api\") {",
+    "if (args[0] === \"api\" && args[1].includes(\"/git/ref/tags/\")) {",
     "  const sha = fs.existsSync(tagState)",
     "    ? fs.readFileSync(tagState, \"utf8\")",
     "    : initialTagCommit;",
-    "  process.stdout.write(JSON.stringify({sha}));",
+    "  const tag = decodeURIComponent(args[1].split(\"/\").at(-1));",
+    "  process.stdout.write(JSON.stringify({",
+    "    ref: \"refs/tags/\" + tag,",
+    "    object: {type: tagObjectSha === undefined ? \"commit\" : \"tag\",",
+    "      sha: tagObjectSha === undefined ? sha : tagObjectSha}",
+    "  }));",
+    "} else if (args[0] === \"api\" && args[1].includes(\"/git/tags/\")) {",
+    "  const sha = fs.existsSync(tagState)",
+    "    ? fs.readFileSync(tagState, \"utf8\")",
+    "    : initialTagCommit;",
+    "  process.stdout.write(JSON.stringify({object:{type:\"commit\",sha}}));",
+    "} else if (args[0] === \"api\" && args[1].includes(\"/commits/\")) {",
+    "  process.stdout.write(JSON.stringify({sha: branchCommit ?? initialTagCommit}));",
     "} else if (command === \"view\") {",
     "  if (!fs.existsSync(state)) { process.stderr.write(\"release not found\\n\"); process.exit(1); }",
     "  const current = JSON.parse(fs.readFileSync(state, \"utf8\"));",

@@ -31,6 +31,7 @@ import {
 } from "../scripts/release-npm-ci.js";
 import {
   publishOrVerifyGitHubRelease,
+  verifyRemoteReleaseTag,
   verifyNpmReleaseAssetDirectory
 } from "../scripts/release-npm-github.js";
 import {
@@ -132,7 +133,10 @@ test("GitHub release publication verifies exact assets before and after upload",
   );
   await writeFile(observation, observationBytes);
   await writeFile(notes, "# Release\n");
-  await writeFile(gh, fakeReleaseGh({ remote, state, log }));
+  await writeFile(
+    gh,
+    fakeReleaseGh({ remote, state, log }, { tagObjectSha: "a".repeat(40) })
+  );
   await chmod(gh, 0o755);
   const options = {
     version: VERSION,
@@ -230,6 +234,41 @@ test("GitHub release publication refuses a tag that moves during asset verificat
     return JSON.parse(line) as string[];
   });
   assert.equal(calls.some((args) => args[1] === "edit"), false);
+});
+
+test("remote tag verification ignores a colliding branch", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-npm-github-tag-ref-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const gh = path.join(root, "gh");
+  const log = path.join(root, "gh.log");
+  await writeFile(gh, fakeReleaseGh({
+    remote: path.join(root, "remote"),
+    state: path.join(root, "state.json"),
+    log
+  }, {
+    branchCommit: COMMIT,
+    tagCommit: "f".repeat(40)
+  }));
+  await chmod(gh, 0o755);
+
+  await assert.rejects(
+    verifyRemoteReleaseTag({
+      version: VERSION,
+      sourceCommit: COMMIT,
+      environment: {
+        GITHUB_REPOSITORY: REPOSITORY,
+        GH_TOKEN: "test-token",
+        HOME: root
+      },
+      ghExecutable: gh
+    }),
+    /does not target the dispatch commit/u
+  );
+  const calls = (await readFile(log, "utf8")).trimEnd().split("\n").map((line) => {
+    return JSON.parse(line) as string[];
+  });
+  assert.equal(calls[0]?.[1], `repos/${REPOSITORY}/git/ref/tags/v${VERSION}`);
+  assert.equal(calls.some((args) => args[1]?.includes("/commits/")), false);
 });
 
 test("GitHub release verification binds installers to channel digests and rejects prerelease stable", async (t) => {

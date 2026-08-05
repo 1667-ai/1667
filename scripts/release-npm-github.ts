@@ -334,22 +334,72 @@ async function requireRemoteTagCommit(
   expectedCommit: string,
   environment: GitHubReleaseEnvironment
 ): Promise<void> {
-  const { stdout } = await runGh(
-    gh,
-    ["api", `repos/${repository}/commits/${encodeURIComponent(tag)}`],
-    environment
-  );
-  const value = parseJsonRejectingDuplicateKeys(stdout);
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`Remote release tag ${tag} did not resolve to a commit`);
-  }
-  const commit = (value as Record<string, unknown>).sha;
-  if (typeof commit !== "string" || !COMMIT.test(commit)) {
-    throw new Error(`Remote release tag ${tag} did not resolve to a canonical commit`);
-  }
+  const commit = await remoteTagCommit(gh, tag, repository, environment);
   if (commit !== expectedCommit) {
     throw new Error(`Remote release tag ${tag} does not target the dispatch commit`);
   }
+}
+
+async function remoteTagCommit(
+  gh: string,
+  tag: string,
+  repository: string,
+  environment: GitHubReleaseEnvironment
+): Promise<string> {
+  const refName = `refs/tags/${tag}`;
+  const { stdout } = await runGh(
+    gh,
+    ["api", `repos/${repository}/git/ref/tags/${encodeURIComponent(tag)}`],
+    environment
+  );
+  const response = jsonObject(stdout, `Remote release tag ${tag}`);
+  if (response.ref !== refName) {
+    throw new Error(`Remote release tag ${tag} returned the wrong ref`);
+  }
+  let object = gitObject(response.object, `Remote release tag ${tag}`);
+  const visited = new Set<string>();
+  while (object.type === "tag") {
+    if (visited.size >= 8 || visited.has(object.sha)) {
+      throw new Error(`Remote release tag ${tag} has an invalid tag chain`);
+    }
+    visited.add(object.sha);
+    const tagged = await runGh(
+      gh,
+      ["api", `repos/${repository}/git/tags/${object.sha}`],
+      environment
+    );
+    object = gitObject(
+      jsonObject(tagged.stdout, `Remote release tag object ${object.sha}`).object,
+      `Remote release tag object ${object.sha}`
+    );
+  }
+  if (object.type !== "commit") {
+    throw new Error(`Remote release tag ${tag} did not resolve to a commit`);
+  }
+  return object.sha;
+}
+
+function jsonObject(stdout: string, label: string): Record<string, unknown> {
+  const value = parseJsonRejectingDuplicateKeys(stdout);
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} is not an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function gitObject(value: unknown, label: string): {
+  readonly type: string;
+  readonly sha: string;
+} {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} has no Git object`);
+  }
+  const object = value as Record<string, unknown>;
+  if (typeof object.type !== "string"
+    || typeof object.sha !== "string" || !COMMIT.test(object.sha)) {
+    throw new Error(`${label} has an invalid Git object`);
+  }
+  return Object.freeze({ type: object.type, sha: object.sha });
 }
 
 /**
