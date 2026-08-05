@@ -107,7 +107,7 @@ async function runUnsignedReleaseHandoff(
   const npm = npmPackInvocationFromEnvironment();
   const packageVersions = versionsFor(scenario.version);
   const builds = path.join(root, "builds");
-  const buildDirectories = await stageBuildInputs(builds, releaseFacts, packageVersions);
+  const buildDirectories = await stageBuildInputs(builds, releaseFacts);
   const firstStage = path.join(root, "stage-a");
   let first: readonly StagedReleasePackage[];
   let publishedSourceCommitReads = 0;
@@ -581,8 +581,7 @@ async function collectUnsignedReleaseEvidence(root: string, version: string) {
 
 async function stageBuildInputs(
   root: string,
-  sourceFacts: ReleaseSourceFacts = facts,
-  packageVersions: ReleasePackageVersions = versionsFor(sourceFacts.version)
+  sourceFacts: ReleaseSourceFacts = facts
 ): Promise<Record<PublishedArtifactTarget, string>> {
   const entries = await Promise.all(PUBLISHED_ARTIFACT_TARGETS.map(async (target) => {
     const directory = path.join(root, target);
@@ -591,8 +590,7 @@ async function stageBuildInputs(
     await writeExecutable(
       path.join(directory, path.posix.basename(descriptor.executable)),
       target,
-      sourceFacts,
-      packageVersions
+      sourceFacts
     );
     return [target, directory] as const;
   }));
@@ -602,11 +600,10 @@ async function stageBuildInputs(
 async function writeExecutable(
   file: string,
   target: BuiltArtifactTarget,
-  sourceFacts: ReleaseSourceFacts = facts,
-  packageVersions: ReleasePackageVersions = versionsFor(sourceFacts.version)
+  sourceFacts: ReleaseSourceFacts = facts
 ): Promise<void> {
   const identity = releaseIdentityForTarget(
-    releaseIdentitiesForSource(sourceFacts, packageVersions),
+    releaseIdentitiesForSource(sourceFacts),
     target
   );
   await writeFile(file, [

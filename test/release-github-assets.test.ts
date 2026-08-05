@@ -299,7 +299,7 @@ test("the three source facts build an identity the release codec accepts", () =>
     version: "0.1",
     sourceCommit: SOURCE_COMMIT,
     buildTimestamp: BUILD_TIMESTAMP
-  }, { root: "0.1", tui: "0.1", rootLock: "0.1", rootLockPackage: "0.1" }), /version/);
+  }), /version/);
 });
 
 test("staging writes the whole file set and nothing else", (t) => {

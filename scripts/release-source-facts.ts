@@ -50,8 +50,7 @@ export interface ReleaseDescriptionInputs {
  * source facts.
  */
 export function releaseDescriptionInputsForSource(
-  facts: ReleaseSourceFacts,
-  packageVersions: ReleasePackageVersions = repositoryPackageVersions()
+  facts: ReleaseSourceFacts
 ): ReleaseDescriptionInputs {
   const snapshot = Object.freeze({
     version: facts.version,
@@ -59,7 +58,7 @@ export function releaseDescriptionInputsForSource(
     buildTimestamp: facts.buildTimestamp
   });
   return Object.freeze({
-    identities: releaseIdentitiesForSource(snapshot, packageVersions),
+    identities: releaseIdentitiesForSource(snapshot),
     sbomSource: releaseSbomSourceForFacts(snapshot)
   });
 }
@@ -73,8 +72,7 @@ export function assertRepositoryPackageVersions(productVersion: string): void {
 }
 
 /**
- * The release identities for one run, built in the process that needs them from
- * the three source facts and the package versions in this checkout.
+ * The release identities for one run, built from the three source facts.
  *
  * The facts come from `prepare` rather than being recomputed on each runner so
  * that every target in a run writes the same version, commit and timestamp into
@@ -82,10 +80,8 @@ export function assertRepositoryPackageVersions(productVersion: string): void {
  * minutes apart.
  */
 export function releaseIdentitiesForSource(
-  facts: ReleaseSourceFacts,
-  packageVersions: ReleasePackageVersions = repositoryPackageVersions()
+  facts: ReleaseSourceFacts
 ): ReleaseBuildIdentitySet {
-  assertReleasePackageVersions(facts.version, packageVersions);
   return createReleaseBuildIdentitySet({
     productVersion: facts.version,
     sourceCommit: facts.sourceCommit,
@@ -94,9 +90,8 @@ export function releaseIdentitiesForSource(
 }
 
 /**
- * The versions this checkout declares. The identity codec requires all four to
- * equal the dispatched version, which is what makes a mistyped dispatch fail in
- * `prepare` instead of shipping four archives that disagree with the source.
+ * The versions this checkout declares. Each staging boundary requires all four
+ * versions to equal the dispatched version.
  */
 export function repositoryPackageVersions(): ReleasePackageVersions {
   const root = repositoryRoot();

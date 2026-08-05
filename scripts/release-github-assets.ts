@@ -35,12 +35,11 @@ import {
   repositoryReleaseComponentSources
 } from "./release-sbom.js";
 import {
+  assertRepositoryPackageVersions,
   releaseDescriptionInputsForSource,
   releaseIdentitiesForSource,
-  repositoryPackageVersions,
   type ReleaseSourceFacts
 } from "./release-source-facts.js";
-import { type ReleasePackageVersions } from "./release-identity.js";
 
 /** Release asset basenames: a version may carry `+` build metadata. */
 const ASSET_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/u;
@@ -108,10 +107,10 @@ export interface StageReleaseArchiveOptions extends ReleaseSourceFacts {
  * afterwards so a stray file cannot ride along either.
  */
 export function stageReleaseArchive(
-  options: StageReleaseArchiveOptions,
-  packageVersions: ReleasePackageVersions = repositoryPackageVersions()
+  options: StageReleaseArchiveOptions
 ): StagedReleaseArchive {
-  const { identities, sbomSource } = releaseDescriptionInputsForSource(options, packageVersions);
+  assertRepositoryPackageVersions(options.version);
+  const { identities, sbomSource } = releaseDescriptionInputsForSource(options);
   const version = identities.source.productVersion;
   const target = options.target;
   const descriptor = releaseTargetForArtifact(target);

@@ -28,6 +28,7 @@ import {
   type StagedReleaseFile
 } from "./release-content.js";
 import {
+  assertReleasePackageVersions,
   type ReleaseBuildIdentitySet,
   type ReleasePackageVersions
 } from "./release-identity.js";
@@ -46,8 +47,8 @@ import {
   type ReleaseSbomSet
 } from "./release-sbom.js";
 import {
+  assertRepositoryPackageVersions,
   releaseDescriptionInputsForSource,
-  repositoryPackageVersions,
   type ReleaseSourceFacts
 } from "./release-source-facts.js";
 
@@ -86,6 +87,7 @@ export interface StagePublishedReleasePackagesFromSourceOptions
 export function stageReleasePackage(
   options: StageReleasePackageOptions
 ): StagedReleasePackage {
+  assertRepositoryPackageVersions(options.version);
   const finalRoot = freshOutputPath(options.outputDirectory, options.artifactTarget);
   const temporaryRoot = freshSiblingDirectory(finalRoot);
   try {
@@ -117,25 +119,31 @@ export function stageReleasePackage(
 export function stagePublishedReleasePackages(
   options: StagePublishedReleasePackagesOptions
 ): readonly StagedReleasePackage[] {
-  return stagePublishedReleasePackagesFromSource({
-    ...options,
-    buildDirectories: options.buildDirectories,
-    outputDirectory: options.outputDirectory,
-    packageVersions: repositoryPackageVersions()
-  });
+  assertRepositoryPackageVersions(options.version);
+  return stagePublishedReleasePackagesCore(options);
 }
 
 /** Stages a package set from one source record and its version declarations. */
 export function stagePublishedReleasePackagesFromSource(
   options: StagePublishedReleasePackagesFromSourceOptions
 ): readonly StagedReleasePackage[] {
+  assertReleasePackageVersions(options.version, options.packageVersions);
+  return stagePublishedReleasePackagesCore({
+    version: options.version,
+    sourceCommit: options.sourceCommit,
+    buildTimestamp: options.buildTimestamp,
+    buildDirectories: options.buildDirectories,
+    outputDirectory: options.outputDirectory
+  });
+}
+
+function stagePublishedReleasePackagesCore(
+  options: StagePublishedReleasePackagesOptions
+): readonly StagedReleasePackage[] {
   const finalRoot = freshOutputPath(options.outputDirectory);
   const temporaryRoot = freshSiblingDirectory(finalRoot);
   try {
-    const { identities, sbomSource } = releaseDescriptionInputsForSource(
-      options,
-      options.packageVersions
-    );
+    const { identities, sbomSource } = releaseDescriptionInputsForSource(options);
     const sboms = createReleaseSboms(
       sbomSource,
       repositoryReleaseComponentSources()
