@@ -13,7 +13,7 @@ import {
   requireObjectName,
   requireReleaseTagName,
   type CommandOutcome,
-  type ReleaseTagObservations
+  type ReleaseEvidenceObservations
 } from "./release-evidence-inspection.js";
 import { type ReleaseSourceEvidence } from "./release-identity.js";
 
@@ -63,31 +63,6 @@ export async function collectReleaseEvidence(
   request: ReleaseEvidenceRequest
 ): Promise<ReleaseSourceEvidence> {
   const buildTimestamp = requireCanonicalTimestamp(request.buildTimestamp);
-  return collectWithPinnedTag(
-    request,
-    async (tag, git, sourceCommit) => {
-      return assembleReleaseSourceEvidence({
-        ...tag,
-        buildTimestamp,
-        // Product facts come from the released commit.
-        rootManifest: await git(["show", `${sourceCommit}:package.json`]),
-        tuiManifest: await git(["show", `${sourceCommit}:tui/package.json`]),
-        rootLock: await git(["show", `${sourceCommit}:package-lock.json`])
-      });
-    }
-  );
-}
-
-type GitRunner = (args: readonly string[]) => Promise<CommandOutcome>;
-
-async function collectWithPinnedTag<T>(
-  request: ReleaseEvidenceRequest,
-  consume: (
-    observations: ReleaseTagObservations,
-    git: GitRunner,
-    sourceCommit: string
-  ) => Promise<T> | T
-): Promise<T> {
   const tagName = requireReleaseTagName(request.tagName);
   const protectedRef = gitRefName(
     request.protectedRef ?? DEFAULT_PROTECTED_REF,
@@ -113,36 +88,30 @@ async function collectWithPinnedTag<T>(
     const environment = hermeticEnvironment(request.environment, emptyConfig);
     const git = (args: readonly string[]): Promise<CommandOutcome> =>
       runGit(repositoryRoot, args, environment);
-    return await collectPinnedTag({
+    return await collectFromPinnedTag({
       git,
-      repositoryRoot,
       tagName,
       tagRef,
       protectedRef,
-      consume
+      buildTimestamp
     });
   } finally {
     await rm(scratchDirectory, { recursive: true, force: true });
   }
 }
 
-type PinnedTagConsumer<T> = (
-  observations: ReleaseTagObservations,
-  git: GitRunner,
-  sourceCommit: string
-) => Promise<T> | T;
+type GitRunner = (args: readonly string[]) => Promise<CommandOutcome>;
 
-interface PinnedTagRun<T> {
-  readonly git: (args: readonly string[]) => Promise<CommandOutcome>;
-  readonly repositoryRoot: string;
+interface EvidenceCollection {
+  readonly git: GitRunner;
   readonly tagName: string;
   readonly tagRef: string;
   readonly protectedRef: string;
-  readonly consume: PinnedTagConsumer<T>;
+  readonly buildTimestamp: string;
 }
 
-async function collectPinnedTag<T>(run: PinnedTagRun<T>): Promise<T> {
-  const { git, tagName, tagRef, protectedRef, consume } = run;
+async function collectFromPinnedTag(run: EvidenceCollection): Promise<ReleaseSourceEvidence> {
+  const { git, tagName, tagRef, protectedRef, buildTimestamp } = run;
 
   // Resolved once, then named explicitly by every read below. `HEAD` is
   // symbolic: re-resolving it per command lets a branch that moves mid-run
@@ -156,9 +125,10 @@ async function collectPinnedTag<T>(run: PinnedTagRun<T>): Promise<T> {
     `Release tag ${tagName} object`
   );
 
-  const observations: ReleaseTagObservations = {
+  const observations: ReleaseEvidenceObservations = {
     tagName,
     protectedRef,
+    buildTimestamp,
     headCommit,
     workingTreeStatus: await git(["status", "--porcelain=v1", "--untracked-files=all"]),
     // "tag" for an annotated tag object, "commit" for a lightweight tag. Use
@@ -172,9 +142,13 @@ async function collectPinnedTag<T>(run: PinnedTagRun<T>): Promise<T> {
     tagObjectContents: await git(["cat-file", "tag", resolvedTagObject]),
     // Peels either tag form to the commit it names.
     tagTargetCommit: await git(["rev-parse", "--verify", `${resolvedTagObject}^{commit}`]),
-    protectedReachability: await git(["merge-base", "--is-ancestor", sourceCommit, protectedRef])
+    protectedReachability: await git(["merge-base", "--is-ancestor", sourceCommit, protectedRef]),
+    // Product facts come from the released commit.
+    rootManifest: await git(["show", `${sourceCommit}:package.json`]),
+    tuiManifest: await git(["show", `${sourceCommit}:tui/package.json`]),
+    rootLock: await git(["show", `${sourceCommit}:package-lock.json`])
   };
-  const result = await consume(observations, git, sourceCommit);
+  const evidence = assembleReleaseSourceEvidence(observations);
   const finalTagObject = requireObjectName(
     await git(["rev-parse", "--verify", tagRef]),
     `Release tag ${tagName} final object`
@@ -182,7 +156,7 @@ async function collectPinnedTag<T>(run: PinnedTagRun<T>): Promise<T> {
   if (finalTagObject !== resolvedTagObject) {
     throw new Error(`Release tag ${tagName} moved while source evidence was collected`);
   }
-  return result;
+  return evidence;
 }
 
 /**

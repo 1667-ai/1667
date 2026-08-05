@@ -64,13 +64,11 @@ export interface ReleaseEvidenceObservations
  * this value states an observed absence instead of the absence of a check.
  */
 interface InspectedReleaseTag {
-  readonly schemaVersion: 1;
   readonly tagName: string;
   readonly sourceCommit: string;
   readonly tagObjectType: "annotated" | "lightweight";
   readonly tagSignature: "unsigned";
   readonly tagTargetCommit: string;
-  readonly protectedRef: string;
 }
 
 /**
@@ -140,13 +138,11 @@ function inspectReleaseTag(
     observations.protectedRef
   );
   return Object.freeze({
-    schemaVersion: 1,
     tagName,
     sourceCommit,
     tagObjectType,
     tagSignature: "unsigned",
-    tagTargetCommit,
-    protectedRef: observations.protectedRef
+    tagTargetCommit
   });
 }
 
