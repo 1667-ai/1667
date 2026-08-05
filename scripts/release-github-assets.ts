@@ -36,8 +36,6 @@ import {
 } from "./release-sbom.js";
 import {
   collectRepositoryReleaseSource,
-  releaseIdentitiesForSource,
-  releaseSbomSourceForSource,
   type CollectedReleaseSource,
   type ReleaseSourceFacts
 } from "./release-source-facts.js";
@@ -65,8 +63,9 @@ export interface ReleaseAssetDigest {
 /**
  * `checksums.txt`, in the `sha256sum -c` format: one `<hex>  <name>` line per
  * uploaded asset, sorted by name. The file cannot cover itself, so an entry
- * for it is dropped rather than rejected — the release job creates the file by
- * redirection before this runs, and a rerun must not fail on its own output.
+ * for it is dropped rather than rejected. The draft preparation job creates
+ * the file by redirection before this runs. A rerun must not fail on its own
+ * output.
  */
 export function formatReleaseChecksums(assets: readonly ReleaseAssetDigest[]): string {
   const covered = assets.filter((asset) => asset.name !== RELEASE_CHECKSUMS_FILE);
@@ -111,8 +110,7 @@ export interface StageReleaseArchiveOptions {
 export function stageReleaseArchive(
   options: StageReleaseArchiveOptions
 ): StagedReleaseArchive {
-  const identities = releaseIdentitiesForSource(options.source);
-  const sbomSource = releaseSbomSourceForSource(options.source);
+  const { identities, sbomSource } = options.source;
   const version = identities.source.productVersion;
   const target = options.target;
   const descriptor = releaseTargetForArtifact(target);
@@ -235,9 +233,7 @@ function runCommand(argv: readonly string[]): string {
   }
   if (command === "identity") {
     if (rest.length !== 4) throw new Error(USAGE);
-    const identities = releaseIdentitiesForSource(
-      collectRepositoryReleaseSource(sourceFacts(rest))
-    );
+    const { identities } = collectRepositoryReleaseSource(sourceFacts(rest));
     return `${canonicalJson(releaseIdentityForTarget(identities, builtTarget(rest[3])))}\n`;
   }
   if (command === "stage") {

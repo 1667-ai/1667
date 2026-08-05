@@ -6,6 +6,7 @@ import { isExecutableFile } from "./release-boundary-validation.js";
 
 const execFileAsync = promisify(execFile);
 const MAX_GH_OUTPUT_BYTES = 8 * 1024 * 1024;
+const GH_TIMEOUT_MS = 5 * 60_000;
 
 export interface GitHubReleaseEnvironment {
   readonly GITHUB_REPOSITORY?: string;
@@ -14,12 +15,28 @@ export interface GitHubReleaseEnvironment {
   readonly HOME?: string;
 }
 
+export interface ReleaseGhLimits {
+  readonly maximumOutputBytes?: number;
+  readonly timeoutMs?: number;
+}
+
 export async function runReleaseGh(
   gh: string,
   args: readonly string[],
-  environment: GitHubReleaseEnvironment
+  environment: GitHubReleaseEnvironment,
+  limits: ReleaseGhLimits = {}
 ): Promise<{ readonly stdout: string; readonly stderr: string }> {
-  return await execFileAsync(gh, [...args], {
+  const maximumOutputBytes = limits.maximumOutputBytes ?? MAX_GH_OUTPUT_BYTES;
+  const timeoutMs = limits.timeoutMs ?? GH_TIMEOUT_MS;
+  if (!Number.isSafeInteger(maximumOutputBytes) || maximumOutputBytes <= 0
+    || maximumOutputBytes > MAX_GH_OUTPUT_BYTES) {
+    throw new Error("GitHub CLI output limit is invalid");
+  }
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > GH_TIMEOUT_MS) {
+    throw new Error("GitHub CLI timeout is invalid");
+  }
+  const executable = boundedGhExecutable(gh);
+  return await execFileAsync(executable, [...args], {
     encoding: "utf8",
     env: {
       GH_TOKEN: environment.GH_TOKEN,
@@ -27,8 +44,8 @@ export async function runReleaseGh(
       LANG: "C",
       LC_ALL: "C"
     },
-    maxBuffer: MAX_GH_OUTPUT_BYTES,
-    timeout: 5 * 60_000,
+    maxBuffer: maximumOutputBytes,
+    timeout: timeoutMs,
     windowsHide: true
   });
 }

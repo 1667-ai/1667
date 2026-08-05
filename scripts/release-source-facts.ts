@@ -17,8 +17,6 @@ import {
 
 const MAX_PACKAGE_MANIFEST_BYTES = 1024 * 1024;
 const MAX_LOCKFILE_BYTES = 8 * 1024 * 1024;
-const COLLECTED_RELEASE_SOURCE: unique symbol = Symbol("CollectedReleaseSource");
-const COLLECTED_RELEASE_SOURCES = new WeakSet<object>();
 const SOURCE_COMMIT = /^[0-9a-f]{40}$/u;
 
 /**
@@ -35,9 +33,10 @@ export interface ReleaseSourceFacts {
   readonly buildTimestamp: string;
 }
 
-/** One validated source value for all release artifact producers. */
-export interface CollectedReleaseSource extends ReleaseSourceFacts {
-  readonly [COLLECTED_RELEASE_SOURCE]: true;
+/** Validated producer inputs from one release source. */
+export interface CollectedReleaseSource {
+  readonly identities: ReleaseBuildIdentitySet;
+  readonly sbomSource: ReleaseSbomSource;
 }
 
 /** Collects source facts after it checks supplied package-version observations. */
@@ -58,10 +57,18 @@ export function collectReleaseSource(
   if (!isCanonicalTimestamp(snapshot.buildTimestamp)) {
     throw new Error("Release source timestamp is not canonical");
   }
-  const collected = { ...snapshot } as CollectedReleaseSource;
-  Object.defineProperty(collected, COLLECTED_RELEASE_SOURCE, { value: true });
-  COLLECTED_RELEASE_SOURCES.add(collected);
-  return Object.freeze(collected);
+  const identities = createReleaseBuildIdentitySet({
+    productVersion: snapshot.version,
+    sourceCommit: snapshot.sourceCommit,
+    buildTimestamp: snapshot.buildTimestamp
+  });
+  const sbomSource = createReleaseSbomSource({
+    productVersion: snapshot.version,
+    sourceCommit: snapshot.sourceCommit,
+    buildTimestamp: snapshot.buildTimestamp,
+    tagName: `v${snapshot.version}`
+  });
+  return Object.freeze({ identities, sbomSource });
 }
 
 /** Collects source facts against the package versions in this checkout. */
@@ -69,37 +76,6 @@ export function collectRepositoryReleaseSource(
   facts: ReleaseSourceFacts
 ): CollectedReleaseSource {
   return collectReleaseSource(facts, repositoryPackageVersions());
-}
-
-/** Builds release identities from one collected source. */
-export function releaseIdentitiesForSource(
-  source: CollectedReleaseSource
-): ReleaseBuildIdentitySet {
-  requireCollectedReleaseSource(source);
-  return createReleaseBuildIdentitySet({
-    productVersion: source.version,
-    sourceCommit: source.sourceCommit,
-    buildTimestamp: source.buildTimestamp
-  });
-}
-
-/** Builds the authorization-free SBOM source from one collected source. */
-export function releaseSbomSourceForSource(
-  source: CollectedReleaseSource
-): ReleaseSbomSource {
-  requireCollectedReleaseSource(source);
-  return createReleaseSbomSource({
-    productVersion: source.version,
-    sourceCommit: source.sourceCommit,
-    buildTimestamp: source.buildTimestamp,
-    tagName: `v${source.version}`
-  });
-}
-
-function requireCollectedReleaseSource(source: CollectedReleaseSource): void {
-  if (!COLLECTED_RELEASE_SOURCES.has(source)) {
-    throw new Error("Release source was not collected by this process");
-  }
 }
 
 /**

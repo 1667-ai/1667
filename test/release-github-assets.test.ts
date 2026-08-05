@@ -40,11 +40,7 @@ import {
   RELEASE_BUILD_MANIFEST_FILE,
   RELEASE_SBOM_FILE
 } from "../scripts/release-github-assets.js";
-import {
-  collectRepositoryReleaseSource,
-  releaseIdentitiesForSource,
-  type CollectedReleaseSource
-} from "../scripts/release-source-facts.js";
+import { collectRepositoryReleaseSource } from "../scripts/release-source-facts.js";
 import {
   MAX_RELEASE_ARCHIVE_STEM_BYTES,
   releaseArchiveFileName,
@@ -285,7 +281,7 @@ test("checksums cover every asset, sorted, and never the checksum file itself", 
 });
 
 test("the three source facts build an identity the release codec accepts", () => {
-  const identities = releaseIdentitiesForSource(collectRepositoryReleaseSource(FACTS));
+  const { identities } = collectRepositoryReleaseSource(FACTS);
   assert.equal(identities.source.productVersion, VERSION);
   assert.equal(identities.source.sourceCommit, SOURCE_COMMIT);
   assert.equal(identities.source.buildTimestamp, BUILD_TIMESTAMP);
@@ -302,11 +298,6 @@ test("the three source facts build an identity the release codec accepts", () =>
     sourceCommit: SOURCE_COMMIT,
     buildTimestamp: BUILD_TIMESTAMP
   }), /version/);
-  const spread = {
-    ...collectRepositoryReleaseSource(FACTS),
-    version: "9.9.9"
-  } as CollectedReleaseSource;
-  assert.throws(() => releaseIdentitiesForSource(spread), /was not collected/u);
 });
 
 test("staging writes the whole file set and nothing else", (t) => {
@@ -371,7 +362,7 @@ test("staging writes the whole file set and nothing else", (t) => {
   assert.equal(
     buildManifestText,
     `${canonicalJson(createReleasePackageBuildManifest(
-      releaseIdentitiesForSource(collectRepositoryReleaseSource(FACTS)).source,
+      collectRepositoryReleaseSource(FACTS).identities.source,
       releaseTargetForArtifact("linux-x64").packageName,
       "linux-x64"
     ))}\n`

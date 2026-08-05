@@ -55,7 +55,6 @@ import {
 import { AI_1667_PRODUCT_VERSION } from "../shared/build-identity.js";
 import {
   collectReleaseSource,
-  releaseIdentitiesForSource,
   type CollectedReleaseSource,
   type ReleaseSourceFacts
 } from "../scripts/release-source-facts.js";
@@ -609,7 +608,7 @@ async function writeExecutable(
   source: CollectedReleaseSource = collectedFacts
 ): Promise<void> {
   const identity = releaseIdentityForTarget(
-    releaseIdentitiesForSource(source),
+    source.identities,
     target
   );
   await writeFile(file, [

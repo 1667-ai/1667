@@ -35,7 +35,7 @@ const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const COMMIT = /^[0-9a-f]{40}$/u;
 const MAX_NOTES_BYTES = 64 * 1024;
 
-export interface PublishGitHubReleaseOptions {
+export interface GitHubReleaseOptions {
   readonly version: string;
   readonly sourceCommit: string;
   readonly assetsDirectory: string;
@@ -51,8 +51,109 @@ interface ReleaseState {
 }
 
 export async function publishOrVerifyGitHubRelease(
-  options: PublishGitHubReleaseOptions
+  options: GitHubReleaseOptions
 ): Promise<void> {
+  const context = releaseContext(options);
+  const { gh, prerelease, repository, tag, verifyTag } = context;
+  const state = await preparedReleaseState(context);
+  if (!state.isDraft) return;
+  try {
+    await runGh(
+      gh,
+      ["release", "edit", tag, "--repo", repository, "--draft=false"],
+      context.environment
+    );
+  } catch (error) {
+    const observed = await releaseState(gh, tag, repository, context.environment);
+    if (observed === null || observed.isDraft || !observed.isImmutable
+      || observed.isPrerelease !== prerelease) {
+      throw error;
+    }
+  }
+  const published = await releaseState(gh, tag, repository, context.environment);
+  if (published === null) throw new Error("Published GitHub release disappeared");
+  requireImmutableReleaseChannel(published, prerelease, "Published");
+  await verifyTag();
+}
+
+/** Verifies the prepared draft without changing it. */
+export async function verifyPreparedGitHubRelease(
+  options: GitHubReleaseOptions
+): Promise<void> {
+  await preparedReleaseState(releaseContext(options));
+}
+
+/** Creates and validates a draft before npm publication starts. */
+export async function prepareOrVerifyGitHubRelease(
+  options: GitHubReleaseOptions
+): Promise<void> {
+  const context = releaseContext(options);
+  const { assets, gh, notes, prerelease, repository, tag, verifyTag } = context;
+  await verifyTag();
+  let state = await releaseState(gh, tag, repository, context.environment);
+  if (state?.isDraft === true) {
+    await runGh(
+      gh,
+      ["release", "delete", tag, "--repo", repository, "--yes"],
+      context.environment
+    );
+    state = null;
+  }
+  let created = false;
+  if (state === null) {
+    await runGh(gh, [
+      "release",
+      "create",
+      tag,
+      ...assets,
+      "--repo",
+      repository,
+      "--draft",
+      "--verify-tag",
+      ...(prerelease ? ["--prerelease"] : []),
+      "--latest=false",
+      "--title",
+      `1667 v${options.version}`,
+      "--notes-file",
+      notes
+    ], context.environment);
+    created = true;
+  } else {
+    requireImmutableReleaseChannel(state, prerelease, "Existing");
+  }
+  const uploaded = await releaseState(gh, tag, repository, context.environment);
+  if (uploaded === null) throw new Error("Uploaded GitHub release disappeared");
+  if (created) requireDraftReleaseChannel(uploaded, prerelease);
+  await verifyDownloadedRelease(gh, tag, repository, assets, context.environment);
+  await verifyTag();
+}
+
+async function preparedReleaseState(context: ReleaseContext): Promise<ReleaseState> {
+  const { assets, environment, gh, prerelease, repository, tag, verifyTag } = context;
+  await verifyTag();
+  const state = await releaseState(gh, tag, repository, environment);
+  if (state === null) throw new Error("Prepared GitHub release does not exist");
+  if (state.isDraft) requireDraftReleaseChannel(state, prerelease);
+  else requireImmutableReleaseChannel(state, prerelease, "Existing");
+  await verifyDownloadedRelease(gh, tag, repository, assets, environment);
+  await verifyTag();
+  return state;
+}
+
+interface ReleaseContext {
+  readonly assets: readonly string[];
+  readonly environment: GitHubReleaseEnvironment;
+  readonly gh: string;
+  readonly notes: string;
+  readonly prerelease: boolean;
+  readonly repository: string;
+  readonly tag: string;
+  readonly verifyTag: () => Promise<void>;
+}
+
+function releaseContext(
+  options: GitHubReleaseOptions
+): ReleaseContext {
   if (!isSemVer(options.version)) throw new Error("GitHub release version is not SemVer");
   if (!COMMIT.test(options.sourceCommit)) {
     throw new Error("GitHub release source commit is not canonical");
@@ -84,50 +185,16 @@ export async function publishOrVerifyGitHubRelease(
     environment: options.environment,
     ghExecutable: gh
   });
-  await verifyTag();
-  let state = await releaseState(gh, tag, repository, options.environment);
-  if (state?.isDraft === true) {
-    await runGh(gh, ["release", "delete", tag, "--repo", repository, "--yes"], options.environment);
-    state = null;
-  }
-  let created = false;
-  if (state === null) {
-    await runGh(gh, [
-      "release",
-      "create",
-      tag,
-      ...assets,
-      "--repo",
-      repository,
-      "--draft",
-      "--verify-tag",
-      ...(prerelease ? ["--prerelease"] : []),
-      "--latest=false",
-      "--title",
-      `1667 v${options.version}`,
-      "--notes-file",
-      notes
-    ], options.environment);
-    created = true;
-  } else {
-    requireImmutableReleaseChannel(state, prerelease, "Existing");
-  }
-  const uploaded = await releaseState(gh, tag, repository, options.environment);
-  if (uploaded === null) throw new Error("Uploaded GitHub release disappeared");
-  if (created) requireDraftReleaseChannel(uploaded, prerelease);
-  await verifyDownloadedRelease(gh, tag, repository, assets, options.environment);
-  if (!created) return;
-  await verifyTag();
-  await runGh(
+  return Object.freeze({
+    assets,
+    environment: options.environment,
     gh,
-    ["release", "edit", tag, "--repo", repository, "--draft=false"],
-    options.environment
-  );
-  const published = await releaseState(gh, tag, repository, options.environment);
-  if (published === null) throw new Error("Published GitHub release disappeared");
-  requireImmutableReleaseChannel(published, prerelease, "Published");
-  if (published.isDraft) throw new Error("Published GitHub release is still a draft");
-  await verifyTag();
+    notes,
+    prerelease,
+    repository,
+    tag,
+    verifyTag
+  });
 }
 
 export function verifyNpmReleaseAssetDirectory(
@@ -373,24 +440,32 @@ if (isMainModule()) {
         );
       }
       verifyNpmReleaseAssetDirectory(directory, version, repository);
-    } else if (process.argv.length === 6 && command !== undefined) {
-      const sourceCommit = process.argv[3];
-      const releaseAssets = process.argv[4];
-      const releaseNotes = process.argv[5];
-      if (sourceCommit === undefined || releaseAssets === undefined || releaseNotes === undefined) {
+    } else if (process.argv.length === 7
+      && (command === "prepare" || command === "verify" || command === "publish")) {
+      const version = process.argv[3];
+      const sourceCommit = process.argv[4];
+      const releaseAssets = process.argv[5];
+      const releaseNotes = process.argv[6];
+      if (version === undefined
+        || sourceCommit === undefined || releaseAssets === undefined
+        || releaseNotes === undefined) {
         throw new Error("GitHub release arguments are incomplete");
       }
-      await publishOrVerifyGitHubRelease({
-        version: command,
+      const options = {
+        version,
         sourceCommit,
         assetsDirectory: releaseAssets,
         notesFile: releaseNotes,
         environment: process.env
-      });
+      };
+      if (command === "prepare") await prepareOrVerifyGitHubRelease(options);
+      else if (command === "verify") await verifyPreparedGitHubRelease(options);
+      else await publishOrVerifyGitHubRelease(options);
     } else {
       throw new Error(
         "usage: release-npm-github.ts verify-assets <version> <repository> <assets>"
-        + " | release-npm-github.ts <version> <source-commit> <assets> <notes>"
+        + " | release-npm-github.ts <prepare|verify|publish>"
+        + " <version> <source-commit> <assets> <notes>"
       );
     }
   } catch (error) {

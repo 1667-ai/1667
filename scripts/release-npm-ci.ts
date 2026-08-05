@@ -1,6 +1,5 @@
 #!/usr/bin/env -S node --import tsx
 
-import { execFile } from "node:child_process";
 import {
   lstatSync,
   readdirSync,
@@ -8,17 +7,18 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
-import { isExecutableFile } from "./release-boundary-validation.js";
 import { RELEASE_TAG_REF } from "./release-evidence-inspection.js";
+import { runReleaseGh } from "./release-github-client.js";
 
-const execFileAsync = promisify(execFile);
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const RUN_ID = /^[1-9][0-9]*$/u;
 const COMMIT = /^[0-9a-f]{40}$/u;
 const SIGNER_WORKFLOW =
   /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/u;
-const MAX_GH_OUTPUT_BYTES = 1024 * 1024;
+const CI_GH_LIMITS = Object.freeze({
+  maximumOutputBytes: 1024 * 1024,
+  timeoutMs: 2 * 60_000
+});
 
 export interface ReleaseCiEnvironment {
   readonly GITHUB_REPOSITORY?: string;
@@ -41,10 +41,11 @@ export async function releaseRunTimestamp(
     "GITHUB_REPOSITORY"
   );
   const runId = requiredMatch(environment.GITHUB_RUN_ID, RUN_ID, "GITHUB_RUN_ID");
-  const { stdout, stderr } = await runGh(
+  const { stdout, stderr } = await runReleaseGh(
     ghExecutable,
     ["api", `repos/${repository}/actions/runs/${runId}`, "--jq", ".created_at"],
-    environment
+    environment,
+    CI_GH_LIMITS
   );
   if (stderr !== "") throw new Error("GitHub CLI wrote timestamp diagnostics");
   const raw = stdout.trim();
@@ -89,7 +90,7 @@ export async function verifyReleaseAttestations(
     );
   }
   for (const file of files) {
-    await runGh(ghExecutable, [
+    await runReleaseGh(ghExecutable, [
       "attestation",
       "verify",
       file,
@@ -102,7 +103,7 @@ export async function verifyReleaseAttestations(
       "--source-digest",
       sourceCommit,
       "--deny-self-hosted-runners"
-    ], environment);
+    ], environment, CI_GH_LIMITS);
   }
   return Object.freeze(files);
 }
@@ -135,34 +136,6 @@ function releaseInputFiles(root: string): readonly string[] {
   visit(root);
   files.sort();
   return Object.freeze(files);
-}
-
-async function runGh(
-  executable: string,
-  args: readonly string[],
-  environment: ReleaseCiEnvironment
-): Promise<{ readonly stdout: string; readonly stderr: string }> {
-  if (!path.isAbsolute(executable)) {
-    throw new Error("GitHub CLI must use an absolute path");
-  }
-  const stat = lstatSync(executable);
-  if (!stat.isFile() || stat.isSymbolicLink()
-    || !isExecutableFile(executable, stat.mode)) {
-    throw new Error("GitHub CLI must be an absolute executable file");
-  }
-  const gh = realpathSync(executable);
-  return await execFileAsync(gh, [...args], {
-    encoding: "utf8",
-    env: {
-      GH_TOKEN: environment.GH_TOKEN,
-      HOME: environment.HOME,
-      LANG: "C",
-      LC_ALL: "C"
-    },
-    maxBuffer: MAX_GH_OUTPUT_BYTES,
-    timeout: 2 * 60_000,
-    windowsHide: true
-  });
 }
 
 function requiredMatch(

@@ -14,7 +14,9 @@ import path from "node:path";
 import test from "node:test";
 import { RELEASE_LAUNCHER_PACKAGE } from "../shared/release-targets.js";
 import {
+  prepareOrVerifyGitHubRelease,
   publishOrVerifyGitHubRelease,
+  verifyPreparedGitHubRelease,
   verifyNpmReleaseAssetDirectory
 } from "../scripts/release-npm-github.js";
 import {
@@ -86,8 +88,7 @@ for (const scenario of [
       .map((file) => path.basename(file));
     assertInstallerSet(staged, scenario, `${scenario.label}: staged assets`);
 
-    // -- GitHub release: create and verify it through a fake `gh`, the same
-    // call the release-npm.yml `release` job makes.
+    // Create and verify the GitHub release through the production functions.
     const remote = path.join(root, "remote");
     const state = path.join(root, "state.json");
     const ghLog = path.join(root, "gh.log");
@@ -96,14 +97,17 @@ for (const scenario of [
     await writeFile(notes, `# 1667 v${scenario.version}\n`);
     await writeFile(gh, fakeReleaseGh({ remote, state, log: ghLog }));
     await chmod(gh, 0o755);
-    await publishOrVerifyGitHubRelease({
+    const releaseOptions = {
       version: scenario.version,
       sourceCommit: COMMIT,
       assetsDirectory: assets,
       notesFile: notes,
       environment: { GITHUB_REPOSITORY, GH_TOKEN: "test-token", HOME: root },
       ghExecutable: gh
-    });
+    };
+    await prepareOrVerifyGitHubRelease(releaseOptions);
+    await verifyPreparedGitHubRelease(releaseOptions);
+    await publishOrVerifyGitHubRelease(releaseOptions);
     const published = JSON.parse(await readFile(state, "utf8")) as { isPrerelease: boolean };
     assert.equal(
       published.isPrerelease,

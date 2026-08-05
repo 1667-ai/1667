@@ -44,8 +44,6 @@ import {
 } from "./release-sbom.js";
 import {
   collectRepositoryReleaseSource,
-  releaseIdentitiesForSource,
-  releaseSbomSourceForSource,
   type CollectedReleaseSource
 } from "./release-source-facts.js";
 
@@ -82,8 +80,7 @@ export function stageReleasePackage(
   const finalRoot = freshOutputPath(options.outputDirectory, options.artifactTarget);
   const temporaryRoot = freshSiblingDirectory(finalRoot);
   try {
-    const identities = releaseIdentitiesForSource(options.source);
-    const sbomSource = releaseSbomSourceForSource(options.source);
+    const { identities, sbomSource } = options.source;
     const sboms = createReleaseSboms(
       sbomSource,
       repositoryReleaseComponentSources()
@@ -114,8 +111,7 @@ export function stagePublishedReleasePackages(
   const finalRoot = freshOutputPath(options.outputDirectory);
   const temporaryRoot = freshSiblingDirectory(finalRoot);
   try {
-    const identities = releaseIdentitiesForSource(options.source);
-    const sbomSource = releaseSbomSourceForSource(options.source);
+    const { identities, sbomSource } = options.source;
     const sboms = createReleaseSboms(
       sbomSource,
       repositoryReleaseComponentSources()

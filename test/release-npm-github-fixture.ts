@@ -16,7 +16,7 @@ import { expectedGitHubReleaseAssetNames, expectedInstallerNames } from "../scri
 /**
  * Shared fixture infrastructure for the GitHub-release side of the release
  * pipeline — split out of test/release-npm-ci.test.ts so test/release-npm-ci.test.ts
- * and test/release-channel-policy.test.ts both drive `publishOrVerifyGitHubRelease`
+ * and test/release-channel-policy.test.ts both drive the GitHub release functions
  * and `verifyNpmReleaseAssetDirectory` against the same fake `gh` and the same
  * asset-directory builder, following the split-fixture pattern
  * test/sampling-e2e-fixtures.ts already established.
@@ -89,6 +89,7 @@ export function fakeReleaseGh(paths: {
   readonly rulesetUpdatedAt?: string;
   readonly createdPrerelease?: boolean;
   readonly moveTagAfterDownloadTo?: string;
+  readonly failEditAfterWrite?: boolean;
 } = {}): string {
   const initialTagCommit = options.tagCommit
     ?? "0123456789abcdef0123456789abcdef01234567";
@@ -108,6 +109,7 @@ export function fakeReleaseGh(paths: {
     `const rulesetUpdatedAt = ${JSON.stringify(options.rulesetUpdatedAt ?? "2026-08-05T10:12:37.419Z")};`,
     `const createdPrerelease = ${JSON.stringify(options.createdPrerelease)};`,
     `const moveTagAfterDownloadTo = ${JSON.stringify(options.moveTagAfterDownloadTo)};`,
+    `const failEditAfterWrite = ${JSON.stringify(options.failEditAfterWrite ?? false)};`,
     `fs.appendFileSync(${JSON.stringify(paths.log)}, \`\${JSON.stringify(args)}\\n\`);`,
     "const command = args[1];",
     "if (args[0] === \"api\" && args[1].endsWith(\"/rulesets/20399162\")) {",
@@ -176,6 +178,7 @@ export function fakeReleaseGh(paths: {
     "    state,",
     "    JSON.stringify({...current,isDraft:false,isImmutable:true})",
     "  );",
+    "  if (failEditAfterWrite) { process.stderr.write(\"ambiguous edit failure\\n\"); process.exit(1); }",
     "} else if (command === \"delete\") {",
     "  fs.rmSync(remote, { recursive: true, force: true });",
     "  fs.rmSync(state, { force: true });",
