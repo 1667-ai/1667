@@ -502,7 +502,7 @@ jobs:
           retention-days: 90
 
   publish:
-    needs: prepare-release
+    needs: preflight
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     environment: publish
@@ -590,12 +590,6 @@ jobs:
           name: release-publication
           path: dist/publication
 
-      - name: Download the prepared GitHub release inputs
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: github-release
-          path: dist/github-release
-
       - name: Verify every retained input before publication
         env:
           GH_TOKEN: ${{ github.token }}
@@ -628,12 +622,41 @@ jobs:
             dist/publication/observations \
             dist/plan.json
 
-      - name: Verify the GitHub release draft before npm publication
+      - name: Assemble the GitHub release assets
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/github-release/assets
+          cp dist/publication/tarballs/*.tgz dist/github-release/assets/
+          cp dist/publication/observations/*.json dist/github-release/assets/
+          cp dist/publication/sboms/*.spdx.json dist/github-release/assets/
+          cp dist/publication/archives/*.tar.gz dist/github-release/assets/
+          cp dist/publication/installers/* dist/github-release/assets/
+          cp dist/publication/artifact-manifest.json dist/github-release/assets/
+          cp dist/publication/artifact-manifest.sha256 dist/github-release/assets/
+          node --import tsx scripts/release-github-assets.ts \
+            checksums dist/github-release/assets \
+            > dist/github-release/assets/checksums.txt
+          {
+            printf '# 1667 v%s\n\n' "$VERSION"
+            printf 'This release retains all npm packages and native Release Archives.\n'
+            printf 'It also retains the channel-specific Shell and PowerShell Installers.\n\n'
+            channel="$(node --import tsx --input-type=module -e '
+              import { npmDistTagForVersion } from "./scripts/release-npm-registry.ts";
+              process.stdout.write(npmDistTagForVersion(process.argv[1]));
+            ' "$VERSION")"
+            printf 'npm publication uses the `%s` tag. The version selects it:\n' "$channel"
+            printf 'a prerelease publishes to `beta`, and every other version to `latest`.\n'
+            printf 'The homepage serves the selected Installers after a separate promotion gate.\n'
+          } > dist/github-release/release-notes.md
+
+      - name: Prepare or verify the GitHub release draft
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
         run: >-
-          node --import tsx scripts/release-npm-github.ts verify
+          node --import tsx scripts/release-npm-github.ts prepare
           "$VERSION" "$GITHUB_SHA"
           dist/github-release/assets dist/github-release/release-notes.md
 
@@ -675,137 +698,3 @@ jobs:
               -f ref="refs/tags/released/v$VERSION" \
               -f sha="$GITHUB_SHA"
           fi
-
-  prepare-release:
-    needs: preflight
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions:
-      actions: read
-      attestations: read
-      contents: write
-    steps:
-      - name: Check out the dispatch commit and release policy
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Fetch the protected default branch and completion tags
-        env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          set -euo pipefail
-          git fetch --no-tags origin \
-            "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
-          git fetch origin '+refs/tags/released/*:refs/tags/released/*'
-
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          package-manager-cache: false
-
-      - name: Pin the hosted GitHub CLI
-        run: |
-          set -euo pipefail
-          gh_path="$(realpath "$(command -v gh)")"
-          if [ ! -f "$gh_path" ] || [ ! -x "$gh_path" ] || [ -L "$gh_path" ]; then
-            echo "::error::GitHub CLI is not a regular executable"
-            exit 1
-          fi
-          printf 'RELEASE_GH_PATH=%s\n' "$gh_path" >> "$GITHUB_ENV"
-
-      - name: Pin npm
-        run: |
-          set -euo pipefail
-          npm install --global "npm@$NPM_VERSION" --ignore-scripts --no-audit --no-fund
-          test "$(node --version)" = "v$NODE_VERSION"
-          test "$(npm --version)" = "$NPM_VERSION"
-
-      - name: Install script-free runtime dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Validate source evidence before artifact download
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          timestamp="$(node --import tsx scripts/release-npm-ci.ts timestamp)"
-          node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
-          node --import tsx scripts/release-completion.ts ready
-          node --import tsx scripts/release-evidence.ts \
-            --tag "v$VERSION" --build-timestamp "$timestamp" \
-            > /dev/null
-
-      - name: Download the retained publication inputs
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: release-publication
-          path: dist/publication
-
-      - name: Verify every retained input
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          count="$(node --import tsx --input-type=module -e '
-            import { expectedPublicationFileCount } from "./scripts/release-publication-assets.ts";
-            process.stdout.write(String(expectedPublicationFileCount(process.env.VERSION)));
-          ')"
-          found="$(find dist/publication -type f | wc -l | tr -d ' ')"
-          if [ "$found" != "$count" ]; then
-            echo "::error::Expected $count publication files, found $found"
-            find dist/publication -type f | sort
-            exit 1
-          fi
-          node --import tsx scripts/release-npm-ci.ts \
-            verify-attestations dist/publication "$count"
-
-      - name: Assemble the GitHub release assets
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          mkdir -p dist/github-release/assets
-          cp dist/publication/tarballs/*.tgz dist/github-release/assets/
-          cp dist/publication/observations/*.json dist/github-release/assets/
-          cp dist/publication/sboms/*.spdx.json dist/github-release/assets/
-          cp dist/publication/archives/*.tar.gz dist/github-release/assets/
-          cp dist/publication/installers/* dist/github-release/assets/
-          cp dist/publication/artifact-manifest.json dist/github-release/assets/
-          cp dist/publication/artifact-manifest.sha256 dist/github-release/assets/
-          node --import tsx scripts/release-github-assets.ts \
-            checksums dist/github-release/assets \
-            > dist/github-release/assets/checksums.txt
-          {
-            printf '# 1667 v%s\n\n' "$VERSION"
-            printf 'This release retains all npm packages and native Release Archives.\n'
-            printf 'It also retains the channel-specific Shell and PowerShell Installers.\n\n'
-            channel="$(node --import tsx --input-type=module -e '
-              import { npmDistTagForVersion } from "./scripts/release-npm-registry.ts";
-              process.stdout.write(npmDistTagForVersion(process.argv[1]));
-            ' "$VERSION")"
-            printf 'npm publication uses the `%s` tag. The version selects it:\n' "$channel"
-            printf 'a prerelease publishes to `beta`, and every other version to `latest`.\n'
-            printf 'The homepage serves the selected Installers after a separate promotion gate.\n'
-          } > dist/github-release/release-notes.md
-
-      - name: Prepare or verify the GitHub release draft
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-        run: >-
-          node --import tsx scripts/release-npm-github.ts prepare
-          "$VERSION" "$GITHUB_SHA"
-          dist/github-release/assets dist/github-release/release-notes.md
-
-      - name: Upload the prepared GitHub release inputs
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: github-release
-          path: dist/github-release
-          if-no-files-found: error
-          retention-days: 90

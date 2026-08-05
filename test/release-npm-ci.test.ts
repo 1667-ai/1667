@@ -32,7 +32,6 @@ import {
 import {
   prepareOrVerifyGitHubRelease,
   publishOrVerifyGitHubRelease,
-  verifyPreparedGitHubRelease,
   verifyNpmReleaseAssetDirectory
 } from "../scripts/release-npm-github.js";
 import { verifyRemoteReleaseTag } from "../scripts/release-github-tag.js";
@@ -166,11 +165,11 @@ test("GitHub release publication verifies exact assets before and after upload",
   tamperedState.body = "tampered notes\n";
   await writeFile(state, JSON.stringify(tamperedState));
   await assert.rejects(
-    verifyPreparedGitHubRelease(options),
+    prepareOrVerifyGitHubRelease(options),
     /title or notes do not match/u
   );
   await writeFile(state, preparedState);
-  await verifyPreparedGitHubRelease(options);
+  await prepareOrVerifyGitHubRelease(options);
   await publishOrVerifyGitHubRelease(options);
   await prepareOrVerifyGitHubRelease(options);
   await publishOrVerifyGitHubRelease(options);

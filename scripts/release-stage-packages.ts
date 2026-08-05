@@ -80,7 +80,7 @@ export function stageReleasePackage(
   const finalRoot = freshOutputPath(options.outputDirectory, options.artifactTarget);
   const temporaryRoot = freshSiblingDirectory(finalRoot);
   try {
-    const { identities, sbomSource } = options.source;
+    const { identities, sbomSource } = options.source.artifactInputs();
     const sboms = createReleaseSboms(
       sbomSource,
       repositoryReleaseComponentSources()
@@ -111,7 +111,7 @@ export function stagePublishedReleasePackages(
   const finalRoot = freshOutputPath(options.outputDirectory);
   const temporaryRoot = freshSiblingDirectory(finalRoot);
   try {
-    const { identities, sbomSource } = options.source;
+    const { identities, sbomSource } = options.source.artifactInputs();
     const sboms = createReleaseSboms(
       sbomSource,
       repositoryReleaseComponentSources()

@@ -201,13 +201,13 @@ The `tag: v* immutable` ruleset must be active. It blocks tag updates and tag
 deletions. It has no bypass actor. It does not block tag creation. The workflow
 pins the ruleset ID and revision. A ruleset change stops the release.
 
-The `prepare-release` job resolves the remote release tag before it creates a
-draft release. The tag must target the dispatch commit. The job verifies the
-draft title, notes, channel, and assets. It reuses a matching draft. It refuses
-a draft that does not match. The `publish` job verifies the draft again before
-it writes to npm. It resolves the locked tag before each npm write. It
-publishes the draft after npm publication. It verifies the tag again after
-GitHub makes the release immutable. It creates the completion record last.
+The `publish` job resolves the remote release tag before it creates a draft
+release. The tag must target the dispatch commit. The job verifies the draft
+title, notes, channel, and assets. It reuses a matching draft. It refuses a
+draft that does not match. It then writes to npm. It resolves the locked tag
+before each npm write. It publishes the draft after npm publication. It
+verifies the tag again after GitHub makes the release immutable. It creates the
+completion record last.
 
 The release plan carries the collected `tagObjectType` and `tagSignature`
 values. Each native `buildIdentity` records the result from step 5. Preflight
@@ -363,19 +363,19 @@ The workflow has these jobs:
 2. `build` builds and observes the five published native executables.
 3. `launcher` stages and packs the six release packages.
 4. `preflight` verifies the package set and retains the result.
-5. `prepare-release` creates and verifies the GitHub release draft.
-6. `publish` verifies the draft before it publishes to npm.
-7. `publish` publishes the five platform packages before the launcher package.
-8. `publish` makes the GitHub release immutable.
-9. `publish` records completion.
+5. `publish` creates and verifies the GitHub release draft.
+6. `publish` publishes the five platform packages before the launcher package.
+7. `publish` makes the GitHub release immutable.
+8. `publish` records completion.
 
-A failed job can use the retained inputs from the same workflow run. The registry check
-accepts an existing version only when its digest and provenance are correct.
+A failed job can use the retained inputs from the same workflow run. The
+registry check accepts an existing version only when its digest and provenance
+are correct.
 It binds the provenance certificate to this repository, workflow, and ref.
 The `release-publication` Actions artifact supports the preflight handoff.
-The `github-release` Actions artifact supports the draft handoff. The immutable
-GitHub release retains the tarballs, native observations, and artifact
-manifest. Promotion does not depend on the Actions artifact retention period.
+The immutable GitHub release retains the tarballs, native observations, and
+artifact manifest. Promotion does not depend on the Actions artifact retention
+period.
 
 The publish job creates a publication attempt ref before each npm write. The ref
 binds the package target and tarball digest to the release commit. A retry does
@@ -507,11 +507,11 @@ The canonical hosted path is `.github/workflows/release-npm.yml`:
 2. The launcher job stages Release Archives from those same executable bytes.
 3. The launcher job renders the Shell and PowerShell Installers from the archive
    digests.
-4. The `prepare-release` job creates and verifies the GitHub release draft.
+4. The `publish` job creates and verifies the GitHub release draft.
 5. The `publish` job makes the release immutable after npm publication.
 
-The launcher job does not rebuild native executables. The `prepare-release`
-job does not rebuild them either.
+The launcher job does not rebuild native executables. The `publish` job does
+not rebuild them either.
 
 A Managed Installation writes `.1667-install.json` next to the executable. Only
 a valid Ownership Record grants installation authority. npm, source, and copied

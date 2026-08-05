@@ -281,7 +281,7 @@ test("checksums cover every asset, sorted, and never the checksum file itself", 
 });
 
 test("the three source facts build an identity the release codec accepts", () => {
-  const { identities } = collectRepositoryReleaseSource(FACTS);
+  const { identities } = collectRepositoryReleaseSource(FACTS).artifactInputs();
   assert.equal(identities.source.productVersion, VERSION);
   assert.equal(identities.source.sourceCommit, SOURCE_COMMIT);
   assert.equal(identities.source.buildTimestamp, BUILD_TIMESTAMP);
@@ -362,7 +362,7 @@ test("staging writes the whole file set and nothing else", (t) => {
   assert.equal(
     buildManifestText,
     `${canonicalJson(createReleasePackageBuildManifest(
-      collectRepositoryReleaseSource(FACTS).identities.source,
+      collectRepositoryReleaseSource(FACTS).artifactInputs().identities.source,
       releaseTargetForArtifact("linux-x64").packageName,
       "linux-x64"
     ))}\n`

@@ -110,7 +110,7 @@ export interface StageReleaseArchiveOptions {
 export function stageReleaseArchive(
   options: StageReleaseArchiveOptions
 ): StagedReleaseArchive {
-  const { identities, sbomSource } = options.source;
+  const { identities, sbomSource } = options.source.artifactInputs();
   const version = identities.source.productVersion;
   const target = options.target;
   const descriptor = releaseTargetForArtifact(target);
@@ -233,7 +233,7 @@ function runCommand(argv: readonly string[]): string {
   }
   if (command === "identity") {
     if (rest.length !== 4) throw new Error(USAGE);
-    const { identities } = collectRepositoryReleaseSource(sourceFacts(rest));
+    const { identities } = collectRepositoryReleaseSource(sourceFacts(rest)).artifactInputs();
     return `${canonicalJson(releaseIdentityForTarget(identities, builtTarget(rest[3])))}\n`;
   }
   if (command === "stage") {

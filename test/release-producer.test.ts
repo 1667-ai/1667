@@ -608,7 +608,7 @@ async function writeExecutable(
   source: CollectedReleaseSource = collectedFacts
 ): Promise<void> {
   const identity = releaseIdentityForTarget(
-    source.identities,
+    source.artifactInputs().identities,
     target
   );
   await writeFile(file, [

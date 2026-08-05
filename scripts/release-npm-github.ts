@@ -76,13 +76,6 @@ export async function publishOrVerifyGitHubRelease(
   requireImmutableReleaseChannel(published, prerelease, "Published");
 }
 
-/** Verifies the prepared draft without changing it. */
-export async function verifyPreparedGitHubRelease(
-  options: GitHubReleaseOptions
-): Promise<void> {
-  await preparedReleaseState(releaseContext(options));
-}
-
 /** Creates and validates a draft before npm publication starts. */
 export async function prepareOrVerifyGitHubRelease(
   options: GitHubReleaseOptions
@@ -444,7 +437,7 @@ if (isMainModule()) {
       }
       verifyNpmReleaseAssetDirectory(directory, version, repository);
     } else if (process.argv.length === 7
-      && (command === "prepare" || command === "verify" || command === "publish")) {
+      && (command === "prepare" || command === "publish")) {
       const version = process.argv[3];
       const sourceCommit = process.argv[4];
       const releaseAssets = process.argv[5];
@@ -462,12 +455,11 @@ if (isMainModule()) {
         environment: process.env
       };
       if (command === "prepare") await prepareOrVerifyGitHubRelease(options);
-      else if (command === "verify") await verifyPreparedGitHubRelease(options);
       else await publishOrVerifyGitHubRelease(options);
     } else {
       throw new Error(
         "usage: release-npm-github.ts verify-assets <version> <repository> <assets>"
-        + " | release-npm-github.ts <prepare|verify|publish>"
+        + " | release-npm-github.ts <prepare|publish>"
         + " <version> <source-commit> <assets> <notes>"
       );
     }

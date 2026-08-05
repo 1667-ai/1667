@@ -33,10 +33,34 @@ export interface ReleaseSourceFacts {
   readonly buildTimestamp: string;
 }
 
-/** Validated producer inputs from one release source. */
-export interface CollectedReleaseSource {
+export interface ReleaseArtifactInputs {
   readonly identities: ReleaseBuildIdentitySet;
   readonly sbomSource: ReleaseSbomSource;
+}
+
+/** One validated fact snapshot for all release artifact producers. */
+export class CollectedReleaseSource {
+  readonly #facts: Readonly<ReleaseSourceFacts>;
+
+  public constructor(
+    facts: ReleaseSourceFacts,
+    packageVersions: ReleasePackageVersions
+  ) {
+    this.#facts = validateReleaseSource(facts, packageVersions);
+    Object.freeze(this);
+  }
+
+  public artifactInputs(): ReleaseArtifactInputs {
+    const facts = this.#facts;
+    return Object.freeze({
+      identities: createReleaseBuildIdentitySet({
+        productVersion: facts.version,
+        sourceCommit: facts.sourceCommit,
+        buildTimestamp: facts.buildTimestamp
+      }),
+      sbomSource: sbomSourceFromFacts(facts)
+    });
+  }
 }
 
 /** Collects source facts after it checks supplied package-version observations. */
@@ -44,14 +68,7 @@ export function collectReleaseSource(
   facts: ReleaseSourceFacts,
   packageVersions: ReleasePackageVersions
 ): CollectedReleaseSource {
-  const snapshot = validateReleaseSource(facts, packageVersions);
-  const identities = createReleaseBuildIdentitySet({
-    productVersion: snapshot.version,
-    sourceCommit: snapshot.sourceCommit,
-    buildTimestamp: snapshot.buildTimestamp
-  });
-  const sbomSource = sbomSourceFromFacts(snapshot);
-  return Object.freeze({ identities, sbomSource });
+  return new CollectedReleaseSource(facts, packageVersions);
 }
 
 function validateReleaseSource(

@@ -16,7 +16,6 @@ import { RELEASE_LAUNCHER_PACKAGE } from "../shared/release-targets.js";
 import {
   prepareOrVerifyGitHubRelease,
   publishOrVerifyGitHubRelease,
-  verifyPreparedGitHubRelease,
   verifyNpmReleaseAssetDirectory
 } from "../scripts/release-npm-github.js";
 import {
@@ -106,7 +105,6 @@ for (const scenario of [
       ghExecutable: gh
     };
     await prepareOrVerifyGitHubRelease(releaseOptions);
-    await verifyPreparedGitHubRelease(releaseOptions);
     await publishOrVerifyGitHubRelease(releaseOptions);
     const published = JSON.parse(await readFile(state, "utf8")) as { isPrerelease: boolean };
     assert.equal(

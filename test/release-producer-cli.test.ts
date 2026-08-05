@@ -47,7 +47,7 @@ test("the npm stage and pack commands redirect valid JSON for the complete matri
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-cli-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const builds = path.join(root, "builds");
-  const { identities } = collectRepositoryReleaseSource(FACTS);
+  const { identities } = collectRepositoryReleaseSource(FACTS).artifactInputs();
   for (const target of PUBLISHED_ARTIFACT_TARGETS) {
     const descriptor = releaseTargetForArtifact(target);
     const directory = path.join(builds, target);
