@@ -48,14 +48,13 @@ import {
 import { type NpmPublicationPackage } from "../scripts/release-npm-publisher.js";
 import { runReleasePreflight } from "../scripts/release-preflight.js";
 import {
-  stagePreparedPublishedReleasePackages,
+  stagePublishedReleasePackagesFromSource,
   stagePublishedReleasePackages,
   stageReleasePackage,
   type StagedReleasePackage
 } from "../scripts/release-stage-packages.js";
 import { AI_1667_PRODUCT_VERSION } from "../shared/build-identity.js";
 import {
-  releaseDescriptionInputsForSource,
   releaseIdentitiesForSource,
   type ReleaseSourceFacts
 } from "../scripts/release-source-facts.js";
@@ -786,9 +785,10 @@ function stageHandoffPackages(
   if (options.version === VERSION) {
     return stagePublishedReleasePackages({ ...source, ...files });
   }
-  return stagePreparedPublishedReleasePackages({
-    ...releaseDescriptionInputsForSource(source, options.packageVersions),
-    ...files
+  return stagePublishedReleasePackagesFromSource({
+    ...source,
+    ...files,
+    packageVersions: options.packageVersions
   });
 }
 

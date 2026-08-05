@@ -27,7 +27,10 @@ import {
   type ReleaseContentArtifact,
   type StagedReleaseFile
 } from "./release-content.js";
-import { type ReleaseBuildIdentitySet } from "./release-identity.js";
+import {
+  type ReleaseBuildIdentitySet,
+  type ReleasePackageVersions
+} from "./release-identity.js";
 import {
   type ReleasePackageJson
 } from "./release-package-manifests.js";
@@ -44,7 +47,7 @@ import {
 } from "./release-sbom.js";
 import {
   releaseDescriptionInputsForSource,
-  type ReleaseDescriptionInputs,
+  repositoryPackageVersions,
   type ReleaseSourceFacts
 } from "./release-source-facts.js";
 
@@ -69,10 +72,11 @@ export interface StagePublishedReleasePackagesOptions extends ReleaseSourceFacts
   readonly outputDirectory: string;
 }
 
-export interface StagePreparedPublishedReleasePackagesOptions
-  extends ReleaseDescriptionInputs {
+export interface StagePublishedReleasePackagesFromSourceOptions
+  extends ReleaseSourceFacts {
   readonly buildDirectories: Readonly<Record<PublishedArtifactTarget, string>>;
   readonly outputDirectory: string;
+  readonly packageVersions: ReleasePackageVersions;
 }
 
 /**
@@ -113,42 +117,47 @@ export function stageReleasePackage(
 export function stagePublishedReleasePackages(
   options: StagePublishedReleasePackagesOptions
 ): readonly StagedReleasePackage[] {
-  return stagePreparedPublishedReleasePackages({
-    ...releaseDescriptionInputsForSource(options),
+  return stagePublishedReleasePackagesFromSource({
+    ...options,
     buildDirectories: options.buildDirectories,
-    outputDirectory: options.outputDirectory
+    outputDirectory: options.outputDirectory,
+    packageVersions: repositoryPackageVersions()
   });
 }
 
-/** Stages a package set from source data that a higher boundary prepared. */
-export function stagePreparedPublishedReleasePackages(
-  options: StagePreparedPublishedReleasePackagesOptions
+/** Stages a package set from one source record and its version declarations. */
+export function stagePublishedReleasePackagesFromSource(
+  options: StagePublishedReleasePackagesFromSourceOptions
 ): readonly StagedReleasePackage[] {
   const finalRoot = freshOutputPath(options.outputDirectory);
   const temporaryRoot = freshSiblingDirectory(finalRoot);
   try {
+    const { identities, sbomSource } = releaseDescriptionInputsForSource(
+      options,
+      options.packageVersions
+    );
     const sboms = createReleaseSboms(
-      options.sbomSource,
+      sbomSource,
       repositoryReleaseComponentSources()
     );
     const launcher = stagePreparedPackage({
-      template: createReleaseLauncherPackageTemplate(options.identities),
+      template: createReleaseLauncherPackageTemplate(identities),
       sboms,
       executable: repositoryLauncher(),
       outputDirectory: temporaryRoot,
-      buildTimestamp: options.identities.source.buildTimestamp
+      buildTimestamp: identities.source.buildTimestamp
     });
     const platforms = PUBLISHED_ARTIFACT_TARGETS.map((artifactTarget) => {
       const descriptor = releaseTargetForArtifact(artifactTarget);
       return stagePreparedPackage({
-        template: createReleasePlatformPackageTemplate(options.identities, artifactTarget),
+        template: createReleasePlatformPackageTemplate(identities, artifactTarget),
         sboms,
         executable: path.join(
           path.resolve(options.buildDirectories[artifactTarget]),
           path.posix.basename(descriptor.executable)
         ),
         outputDirectory: temporaryRoot,
-        buildTimestamp: options.identities.source.buildTimestamp
+        buildTimestamp: identities.source.buildTimestamp
       });
     });
     const packages = [launcher, ...platforms];
