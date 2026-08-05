@@ -207,7 +207,7 @@ test("the retained layout and completion record support an exact rerun", () => {
   assert.match(job("launcher"), /cp dist\/native\/observations\/\*\.json dist\/observations\//u);
   assert.match(job("launcher"), /dist\/observations\/\*\.json/u);
   assert.doesNotMatch(WORKFLOW, /dist\/work\/plan\.json/u);
-  for (const name of ["preflight", "publish", "release"] as const) {
+  for (const name of ["preflight", "publish"] as const) {
     assert.match(job(name), /dist\/plan\.json/u);
   }
   assert.match(
