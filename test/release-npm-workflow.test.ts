@@ -306,7 +306,7 @@ test("publication grants the publish job immutable-attempt authority", () => {
   assert.match(job("publish"), /npm run release:publish -- publish/u);
 });
 
-test("publication rechecks protected state immediately before npm writes", () => {
+test("publication replays protected state before the npm orchestrator", () => {
   const publish = job("publish");
   const command = publish.indexOf("npm run release:publish -- publish");
   const completionFetch = publish.lastIndexOf(
@@ -317,14 +317,11 @@ test("publication rechecks protected state immediately before npm writes", () =>
     "release-completion.ts replay",
     command
   );
-  const releaseTag = publish.lastIndexOf(
-    "verify-tag \"$VERSION\" \"$GITHUB_SHA\"",
-    command
-  );
   assert.ok(
     completionFetch !== -1 && completionFetch < completionReplay
-      && completionReplay < releaseTag && releaseTag < command
+      && completionReplay < command
   );
+  assert.doesNotMatch(publish, /release-github-tag\.ts|verify-tag/u);
 });
 
 function job(

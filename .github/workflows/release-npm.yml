@@ -682,8 +682,6 @@ jobs:
           set -euo pipefail
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
           node --import tsx scripts/release-completion.ts replay "$VERSION" "$GITHUB_SHA"
-          node --import tsx scripts/release-github-tag.ts \
-            verify-tag "$VERSION" "$GITHUB_SHA"
           npm run release:publish -- publish \
             dist/plan.json \
             dist/publication/artifact-manifest.json \

@@ -43,7 +43,8 @@ import {
   publishNpmRelease,
   type NpmPublicationLedger,
   type NpmPublicationPackage,
-  type NpmPublicationRegistry
+  type NpmPublicationRegistry,
+  type NpmPublicationWriteGuard
 } from "../scripts/release-npm-publisher.js";
 
 const VERSION = "1.2.3";
@@ -186,7 +187,7 @@ test("publication resumes platforms in order and publishes the launcher last", a
       calls.push(`wait:${entries.map((entry) => entry.name).join(",")}`);
     }
   };
-  await publishNpmRelease(packages, registry, publicationLedger());
+  await publishNpmRelease(packages, registry, publicationLedger(), publicationWriteGuard());
   const expectedCalls: string[] = [];
   for (const [index, entry] of packages.slice(1).entries()) {
     expectedCalls.push(`inspect:${entry.name}`);
@@ -221,7 +222,7 @@ test("a present platform is fully verified before later npm writes", async () =>
     }
   };
   await assert.rejects(
-    publishNpmRelease(packages, registry, publicationLedger()),
+    publishNpmRelease(packages, registry, publicationLedger(), publicationWriteGuard()),
     /wrong provenance/u
   );
   assert.deepEqual(published, []);
@@ -243,7 +244,7 @@ test("a platform digest refusal stops before launcher publication", async () => 
     async waitUntilVerified() {}
   };
   await assert.rejects(
-    publishNpmRelease(packages, registry, publicationLedger()),
+    publishNpmRelease(packages, registry, publicationLedger(), publicationWriteGuard()),
     /different registry digest/u
   );
   assert.deepEqual(published, [packages[1]!.name]);
@@ -500,7 +501,6 @@ function publicationMatrix(): readonly NpmPublicationPackage[] {
 
 function publicationLedger(): NpmPublicationLedger {
   return {
-    async assertWritable() {},
     async status() {
       return "fresh";
     },
@@ -508,6 +508,10 @@ function publicationLedger(): NpmPublicationLedger {
       return "created";
     }
   };
+}
+
+function publicationWriteGuard(): NpmPublicationWriteGuard {
+  return { async assertWritable() {} };
 }
 
 function publicationPackage(

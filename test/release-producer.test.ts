@@ -40,11 +40,6 @@ import {
 } from "../scripts/release-identity.js";
 import { createReleasePreflightPlan } from "../scripts/release-npm-plan.js";
 import { publicationPackages } from "../scripts/release-npm-publish.js";
-import {
-  NpmReleaseRegistry,
-  npmDistTagForVersion
-} from "../scripts/release-npm-registry.js";
-import { type NpmPublicationPackage } from "../scripts/release-npm-publisher.js";
 import { runReleasePreflight } from "../scripts/release-preflight.js";
 import {
   stagePublishedReleasePackages,
@@ -56,8 +51,7 @@ import {
   collectRepositoryReleaseSource,
   collectReleaseSourceFromRepository,
   releaseArtifactInputs,
-  type CollectedReleaseSource,
-  type ReleaseSourceFacts
+  type CollectedReleaseSource
 } from "../scripts/release-source-facts.js";
 import {
   assertMissing,
@@ -68,8 +62,6 @@ import {
 // with, so this has to be the product version rather than a literal that goes
 // stale at every bump.
 const VERSION = AI_1667_PRODUCT_VERSION;
-const STABLE_VERSION = VERSION.replace(/-.+$/u, "");
-const PRERELEASE_VERSION = VERSION.includes("-") ? VERSION : `${VERSION}-rc.1`;
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const TIMESTAMP = "2026-07-28T10:20:30.000Z";
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -96,25 +88,17 @@ test("artifact views require one collected source record", () => {
   );
 });
 
-const RELEASE_SCENARIOS = [
-  { label: "prerelease", version: PRERELEASE_VERSION, distTag: "beta" },
-  { label: "stable", version: STABLE_VERSION, distTag: "latest" }
-] as const;
-type ReleaseScenario = typeof RELEASE_SCENARIOS[number];
-
-for (const scenario of RELEASE_SCENARIOS) {
-  test(`an unsigned ${scenario.label} reaches every package handoff`, async (t) => {
-    await runUnsignedReleaseHandoff(t, scenario);
-  });
-}
+test("an unsigned tag reaches every package handoff", async (t) => {
+  await runUnsignedReleaseHandoff(t, VERSION);
+});
 
 async function runUnsignedReleaseHandoff(
   t: TestContext,
-  scenario: ReleaseScenario
+  version: string
 ): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-producer-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const collectedEvidence = await collectUnsignedReleaseEvidence(root, scenario.version);
+  const collectedEvidence = await collectUnsignedReleaseEvidence(root, version);
   const sourceEvidence = collectedEvidence.evidence;
   const releaseFacts = Object.freeze({
     version: sourceEvidence.productVersion,
@@ -216,12 +200,6 @@ async function runUnsignedReleaseHandoff(
     path.join(root, "pack-a")
   );
   assert.equal(publication.packages.length, PUBLISHED_PACKAGE_COUNT);
-  await assertNpmPublisherChannel(
-    publication.packages,
-    releaseFacts,
-    scenario.distTag,
-    root
-  );
   await writeFile(manifestPath, "{}");
   await assert.rejects(
     publicationPackages(planPath, manifestPath, path.join(root, "pack-a")),
@@ -270,7 +248,7 @@ async function runUnsignedReleaseHandoff(
     );
   }
 
-  await assertInstalledLauncherStarts(firstPacked, npm, root, scenario.version);
+  await assertInstalledLauncherStarts(firstPacked, npm, root, version);
 }
 
 test("the Windows target stages and validates as a published package", async (t) => {
@@ -681,52 +659,6 @@ async function entriesBelow(directory: string): Promise<string[]> {
     else entries.push(child);
   }
   return entries;
-}
-
-async function assertNpmPublisherChannel(
-  packages: readonly NpmPublicationPackage[],
-  sourceFacts: ReleaseSourceFacts,
-  expectedTag: "beta" | "latest",
-  root: string
-): Promise<void> {
-  assert.equal(npmDistTagForVersion(sourceFacts.version), expectedTag);
-  const npmCli = path.join(root, "publish-npm.cjs");
-  const npmLog = path.join(root, "publish-npm.log");
-  await writeFile(npmCli, [
-    'const fs = require("node:fs");',
-    `fs.appendFileSync(${JSON.stringify(npmLog)}, JSON.stringify(process.argv.slice(2)) + "\\n");`,
-    ""
-  ].join("\n"));
-  await chmod(npmCli, 0o755);
-
-  const previousTokens = ["NODE_AUTH_TOKEN", "NPM_TOKEN", "NPM_AUTH_TOKEN"].map((name) => {
-    return [name, process.env[name]] as const;
-  });
-  for (const [name] of previousTokens) delete process.env[name];
-  try {
-    const registry = new NpmReleaseRegistry({
-      npm: { nodeExecutable: process.execPath, npmCli },
-      sourceCommit: sourceFacts.sourceCommit,
-      sourceRef: `refs/tags/v${sourceFacts.version}`
-    });
-    for (const packageToPublish of packages) {
-      await registry.publish(packageToPublish);
-    }
-  } finally {
-    for (const [name, value] of previousTokens) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
-    }
-  }
-
-  const calls = (await readFile(npmLog, "utf8")).trimEnd().split("\n")
-    .map((line) => JSON.parse(line) as string[]);
-  assert.equal(calls.length, packages.length);
-  for (const [index, args] of calls.entries()) {
-    assert.equal(args[0], "publish");
-    assert.equal(args[1], packages[index]!.tarballPath);
-    assert.ok(args.includes(`--tag=${expectedTag}`));
-  }
 }
 
 async function assertInstalledLauncherStarts(

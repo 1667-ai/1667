@@ -63,7 +63,15 @@ export async function publishOrVerifyGitHubRelease(
   try {
     await runGh(
       gh,
-      ["release", "edit", tag, "--repo", repository, "--draft=false"],
+      [
+        "release",
+        "edit",
+        tag,
+        "--repo",
+        repository,
+        "--draft=false",
+        "--latest=false"
+      ],
       context.environment
     );
   } catch (error) {

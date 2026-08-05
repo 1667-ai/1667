@@ -21,7 +21,6 @@ export interface GitHubNpmPublicationLedgerOptions {
   readonly repository: string;
   readonly sourceCommit: string;
   readonly token: string;
-  readonly verifyReleaseTag: (version: string) => Promise<void>;
   readonly apiUrl?: string;
   readonly fetch?: typeof fetch;
 }
@@ -37,7 +36,6 @@ export class GitHubNpmPublicationLedger implements NpmPublicationLedger {
   readonly #repository: string;
   readonly #sourceCommit: string;
   readonly #store: GitHubRefStore;
-  readonly #verifyReleaseTag: (version: string) => Promise<void>;
 
   constructor(options: GitHubNpmPublicationLedgerOptions) {
     if (!REPOSITORY.test(options.repository)) {
@@ -47,18 +45,9 @@ export class GitHubNpmPublicationLedger implements NpmPublicationLedger {
       throw new Error("Publication ledger commit is not canonical");
     }
     if (options.token === "") throw new Error("Publication ledger token is required");
-    if (typeof options.verifyReleaseTag !== "function") {
-      throw new Error("Publication ledger tag verifier is required");
-    }
     this.#repository = options.repository;
     this.#sourceCommit = options.sourceCommit;
     this.#store = new GitHubRefStore(options);
-    this.#verifyReleaseTag = options.verifyReleaseTag;
-  }
-
-  async assertWritable(packageToPublish: NpmPublicationPackage): Promise<void> {
-    await this.status(packageToPublish);
-    await this.#verifyReleaseTag(packageToPublish.version);
   }
 
   async status(

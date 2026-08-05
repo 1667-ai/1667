@@ -13,7 +13,8 @@ import {
   publishNpmRelease,
   type NpmPublicationLedger,
   type NpmPublicationPackage,
-  type NpmPublicationRegistry
+  type NpmPublicationRegistry,
+  type NpmPublicationWriteGuard
 } from "../scripts/release-npm-publisher.js";
 import {
   PUBLISHED_ARTIFACT_TARGETS,
@@ -30,7 +31,6 @@ test("an attempted package is not republished while its registry wait succeeds",
   const present = new Set<string>();
   const published: string[] = [];
   const ledger: NpmPublicationLedger = {
-    async assertWritable() {},
     async status(entry) {
       return entry.name === attempted.name ? "attempted" : "fresh";
     },
@@ -50,7 +50,7 @@ test("an attempted package is not republished while its registry wait succeeds",
       for (const entry of entries) present.add(entry.name);
     }
   };
-  await publishNpmRelease(packages, registry, ledger);
+  await publishNpmRelease(packages, registry, ledger, publicationWriteGuard());
   assert.ok(!published.includes(attempted.name));
   assert.deepEqual(published, [
     ...packages.slice(2).map((entry) => entry.name),
@@ -64,9 +64,6 @@ test("the publisher records fresh package bytes before the npm write", async () 
   const present = new Set(packages.slice(2).map((entry) => entry.name));
   present.add(packages[0]!.name);
   const ledger: NpmPublicationLedger = {
-    async assertWritable() {
-      events.push("writable");
-    },
     async status() {
       return "fresh";
     },
@@ -85,26 +82,32 @@ test("the publisher records fresh package bytes before the npm write", async () 
     },
     async waitUntilVerified() {}
   };
-  await publishNpmRelease(packages, registry, ledger);
+  const writeGuard: NpmPublicationWriteGuard = {
+    async assertWritable(entry) {
+      events.push(`guard:${entry.name}`);
+    }
+  };
+  await publishNpmRelease(packages, registry, ledger, writeGuard);
   assert.deepEqual(events, [
+    `guard:${packages[0]!.name}`,
+    `guard:${packages[1]!.name}`,
     `record:${packages[1]!.name}`,
-    "writable",
+    `guard:${packages[1]!.name}`,
     `publish:${packages[1]!.name}`
   ]);
 });
 
-test("an active operation lease stops immediately before an npm write", async () => {
+test("the initial write guard stops before publication state changes", async () => {
   const packages = publicationMatrix();
   const missing = packages[1]!;
   const published: string[] = [];
+  const recorded: string[] = [];
   const ledger: NpmPublicationLedger = {
-    async assertWritable() {
-      throw new Error("npm operation lease is active");
-    },
     async status() {
       return "fresh";
     },
-    async recordAttempt() {
+    async recordAttempt(entry) {
+      recorded.push(entry.name);
       return "created";
     }
   };
@@ -118,9 +121,14 @@ test("an active operation lease stops immediately before an npm write", async ()
     async waitUntilVerified() {}
   };
   await assert.rejects(
-    publishNpmRelease(packages, registry, ledger),
-    /operation lease is active/u
+    publishNpmRelease(packages, registry, ledger, {
+      async assertWritable() {
+        throw new Error("release tag moved");
+      }
+    }),
+    /release tag moved/u
   );
+  assert.deepEqual(recorded, []);
   assert.deepEqual(published, []);
 });
 
@@ -133,7 +141,6 @@ test("a retry recovers when the process stopped after recording an attempt", asy
   const events: string[] = [];
   let waits = 0;
   const ledger: NpmPublicationLedger = {
-    async assertWritable() {},
     async status(entry) {
       return entry.name === recovering.name ? "attempted" : "fresh";
     },
@@ -159,7 +166,7 @@ test("a retry recovers when the process stopped after recording an attempt", asy
       }
     }
   };
-  await publishNpmRelease(packages, registry, ledger);
+  await publishNpmRelease(packages, registry, ledger, publicationWriteGuard());
   assert.deepEqual(events, [
     "wait:1",
     `publish:${recovering.name}`,
@@ -176,18 +183,14 @@ test("a protected quarantine marker overrides stale clean registry metadata", as
   }], expected, COMMIT), /quarantined/u);
 });
 
-test("the GitHub ledger records exact bytes before it authorizes publication", async () => {
+test("the GitHub ledger records exact package bytes", async () => {
   const expected = publicationMatrix()[0]!;
   const calls: { method: string; body: unknown }[] = [];
-  const verifiedVersions: string[] = [];
   let refs: unknown[] = [];
   const ledger = new GitHubNpmPublicationLedger({
     repository: "1667-ai/1667",
     sourceCommit: COMMIT,
     token: "test-token",
-    verifyReleaseTag: async (version) => {
-      verifiedVersions.push(version);
-    },
     fetch: async (_input, init) => {
       calls.push({
         method: init?.method ?? "GET",
@@ -203,16 +206,14 @@ test("the GitHub ledger records exact bytes before it authorizes publication", a
     }
   });
   assert.equal(await ledger.recordAttempt(expected), "created");
-  await ledger.assertWritable(expected);
-  assert.deepEqual(verifiedVersions, [VERSION]);
-  assert.deepEqual(calls.map((call) => call.method), ["GET", "POST", "GET"]);
+  assert.deepEqual(calls.map((call) => call.method), ["GET", "POST"]);
   assert.deepEqual(calls[1]?.body, {
     ref: `refs/tags/released/v${VERSION}_attempt_launcher_${expected.sha256}`,
     sha: COMMIT
   });
 });
 
-test("the release tag is verified at each npm write boundary", async () => {
+test("a failed pre-record tag check creates no publication attempt", async () => {
   const packages = publicationMatrix();
   const missing = new Set(packages.slice(1, 3).map((entry) => entry.name));
   const present = new Set(packages.filter((entry) => !missing.has(entry.name)).map((entry) => {
@@ -225,10 +226,6 @@ test("the release tag is verified at each npm write boundary", async () => {
     repository: "1667-ai/1667",
     sourceCommit: COMMIT,
     token: "test-token",
-    verifyReleaseTag: async () => {
-      verifications += 1;
-      if (verifications === 2) throw new Error("release tag moved");
-    },
     fetch: async (_input, init) => {
       if (init?.method === "POST") {
         const body = JSON.parse(String(init.body)) as { ref: string; sha: string };
@@ -251,10 +248,16 @@ test("the release tag is verified at each npm write boundary", async () => {
   };
 
   await assert.rejects(
-    publishNpmRelease(packages, registry, ledger),
+    publishNpmRelease(packages, registry, ledger, {
+      async assertWritable() {
+        verifications += 1;
+        if (verifications === 2) throw new Error("release tag moved");
+      }
+    }),
     /release tag moved/u
   );
-  assert.deepEqual(published, [packages[1]!.name]);
+  assert.deepEqual(published, []);
+  assert.deepEqual(refs, []);
   assert.equal(verifications, 2);
 });
 
@@ -264,7 +267,6 @@ test("the GitHub ledger refuses a different created attempt ref", async () => {
     repository: "1667-ai/1667",
     sourceCommit: COMMIT,
     token: "test-token",
-    verifyReleaseTag: async () => {},
     fetch: async (_input, init) => {
       if (init?.method === "POST") {
         return jsonResponse({
@@ -281,14 +283,13 @@ test("the GitHub ledger refuses a different created attempt ref", async () => {
   );
 });
 
-test("the workflow write gate does not require repository administration", async () => {
+test("the GitHub ledger does not require repository administration", async () => {
   const expected = publicationMatrix()[0]!;
   const requested: string[] = [];
   const ledger = new GitHubNpmPublicationLedger({
     repository: "1667-ai/1667",
     sourceCommit: COMMIT,
     token: "workflow-token",
-    verifyReleaseTag: async () => {},
     fetch: async (input) => {
       const url = String(input);
       requested.push(url);
@@ -299,17 +300,16 @@ test("the workflow write gate does not require repository administration", async
     }
   });
 
-  await ledger.assertWritable(expected);
+  await ledger.status(expected);
   assert.equal(requested.some((url) => url.includes("/rulesets")), false);
 });
 
-test("the GitHub write gate freshly rejects a quarantine marker", async () => {
+test("the GitHub ledger freshly rejects a quarantine marker", async () => {
   const expected = publicationMatrix()[0]!;
   const ledger = new GitHubNpmPublicationLedger({
     repository: "1667-ai/1667",
     sourceCommit: COMMIT,
     token: "test-token",
-    verifyReleaseTag: async () => {},
     fetch: async (input) => {
       const pathname = new URL(String(input)).pathname;
       return jsonResponse(pathname.includes("/tags/released/")
@@ -320,7 +320,7 @@ test("the GitHub write gate freshly rejects a quarantine marker", async () => {
         : [], 200);
     }
   });
-  await assert.rejects(ledger.assertWritable(expected), /quarantined/u);
+  await assert.rejects(ledger.status(expected), /quarantined/u);
 });
 
 test("a conflicting publication attempt cannot authorize different bytes", () => {
@@ -372,6 +372,10 @@ function publicationPackage(
     sha256: "a".repeat(64),
     integrity: `sha512-${Buffer.alloc(64, 1).toString("base64")}`
   };
+}
+
+function publicationWriteGuard(): NpmPublicationWriteGuard {
+  return { async assertWritable() {} };
 }
 
 function releaseRef(ref: string): ReleaseCompletionRef {

@@ -22,11 +22,14 @@ export interface NpmPublicationRegistry {
 }
 
 export interface NpmPublicationLedger {
-  assertWritable(packageToPublish: NpmPublicationPackage): Promise<void>;
   status(packageToPublish: NpmPublicationPackage): Promise<"fresh" | "attempted">;
   recordAttempt(
     packageToPublish: NpmPublicationPackage
   ): Promise<"created" | "attempted">;
+}
+
+export interface NpmPublicationWriteGuard {
+  assertWritable(packageToPublish: NpmPublicationPackage): Promise<void>;
 }
 
 export class NpmPublicationPendingTimeoutError extends Error {
@@ -50,29 +53,35 @@ export class NpmPublicationAlreadyExistsError extends Error {
 export async function publishNpmRelease(
   packages: readonly NpmPublicationPackage[],
   registry: NpmPublicationRegistry,
-  ledger: NpmPublicationLedger
+  ledger: NpmPublicationLedger,
+  writeGuard: NpmPublicationWriteGuard
 ): Promise<void> {
   const matrix = validatePublicationMatrix(packages);
+  await writeGuard.assertWritable(matrix.launcher);
   for (const platform of matrix.platforms) {
-    await publishMissingPackage(platform, registry, ledger);
+    await publishMissingPackage(platform, registry, ledger, writeGuard);
   }
   await registry.waitUntilVerified(matrix.platforms);
-  await publishMissingPackage(matrix.launcher, registry, ledger);
+  await publishMissingPackage(matrix.launcher, registry, ledger, writeGuard);
   await registry.waitUntilVerified([matrix.launcher, ...matrix.platforms]);
 }
 
 async function publishMissingPackage(
   packageToPublish: NpmPublicationPackage,
   registry: NpmPublicationRegistry,
-  ledger: NpmPublicationLedger
+  ledger: NpmPublicationLedger,
+  writeGuard: NpmPublicationWriteGuard
 ): Promise<void> {
   const ledgerStatus = await ledger.status(packageToPublish);
   if (await registry.inspect(packageToPublish) === "present") {
     await registry.waitUntilVerified([packageToPublish]);
     return;
   }
-  const recovering = ledgerStatus === "attempted"
-    || await ledger.recordAttempt(packageToPublish) === "attempted";
+  let recovering = ledgerStatus === "attempted";
+  if (!recovering) {
+    await writeGuard.assertWritable(packageToPublish);
+    recovering = await ledger.recordAttempt(packageToPublish) === "attempted";
+  }
   if (recovering) {
     try {
       await registry.waitUntilVerified([packageToPublish]);
@@ -82,7 +91,7 @@ async function publishMissingPackage(
     }
   }
   try {
-    await ledger.assertWritable(packageToPublish);
+    await writeGuard.assertWritable(packageToPublish);
     await registry.publish(packageToPublish);
   } catch (error) {
     if (!(error instanceof NpmPublicationAlreadyExistsError)) throw error;

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { verifyRemoteReleaseTag } from "../scripts/release-github-tag.js";
-import { fakeReleaseGh } from "./release-npm-github-fixture.js";
+import { writeFakeReleaseGh } from "./release-npm-github-fixture.js";
 
 const VERSION = "1.2.3";
 const REPOSITORY = "1667-ai/1667";
@@ -15,15 +15,14 @@ test("remote tag verification ignores a colliding branch", async (t) => {
   t.after(() => rm(root, { recursive: true, force: true }));
   const gh = path.join(root, "gh");
   const log = path.join(root, "gh.log");
-  await writeFile(gh, fakeReleaseGh({
+  await writeFakeReleaseGh(gh, {
     remote: path.join(root, "remote"),
     state: path.join(root, "state.json"),
     log
   }, {
     branchCommit: COMMIT,
     tagCommit: "f".repeat(40)
-  }));
-  await chmod(gh, 0o755);
+  });
 
   await assert.rejects(
     verifyRemoteReleaseTag({
@@ -52,15 +51,14 @@ test("remote tag verification refuses a nested annotated tag", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-npm-github-tag-chain-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const gh = path.join(root, "gh");
-  await writeFile(gh, fakeReleaseGh({
+  await writeFakeReleaseGh(gh, {
     remote: path.join(root, "remote"),
     state: path.join(root, "state.json"),
     log: path.join(root, "gh.log")
   }, {
     tagObjectSha: "e".repeat(40),
     tagObjectTargetType: "tag"
-  }));
-  await chmod(gh, 0o755);
+  });
 
   await assert.rejects(
     verifyRemoteReleaseTag({
@@ -81,12 +79,11 @@ test("remote tag verification requires the approved immutable tag rule", async (
   const root = await mkdtemp(path.join(tmpdir(), "1667-npm-github-tag-rule-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const gh = path.join(root, "gh");
-  await writeFile(gh, fakeReleaseGh({
+  await writeFakeReleaseGh(gh, {
     remote: path.join(root, "remote"),
     state: path.join(root, "state.json"),
     log: path.join(root, "gh.log")
-  }, { immutableTagRuleset: false }));
-  await chmod(gh, 0o755);
+  }, { immutableTagRuleset: false });
 
   await assert.rejects(
     verifyRemoteReleaseTag({
@@ -101,11 +98,11 @@ test("remote tag verification requires the approved immutable tag rule", async (
     }),
     /tag: v\* immutable is not the approved revision/u
   );
-  await writeFile(gh, fakeReleaseGh({
+  await writeFakeReleaseGh(gh, {
     remote: path.join(root, "remote"),
     state: path.join(root, "state.json"),
     log: path.join(root, "gh.log")
-  }, { rulesetUpdatedAt: "2026-08-05T10:12:37.420Z" }));
+  }, { rulesetUpdatedAt: "2026-08-05T10:12:37.420Z" });
   await assert.rejects(
     verifyRemoteReleaseTag({
       version: VERSION,

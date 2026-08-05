@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import {
-  chmod,
   copyFile,
   mkdir,
   mkdtemp,
@@ -29,7 +28,7 @@ import {
   verifyNpmReleaseAssetDirectory
 } from "../scripts/release-npm-github.js";
 import {
-  fakeReleaseGh,
+  writeFakeReleaseGh,
   writeReleaseAssetFixture
 } from "./release-npm-github-fixture.js";
 
@@ -71,14 +70,10 @@ test("GitHub release publication verifies exact assets before and after upload",
   );
   await writeFile(observation, observationBytes);
   await writeFile(notes, "# Release\n");
-  await writeFile(
-    gh,
-    fakeReleaseGh({ remote, state, log }, {
-      tagObjectSha: "a".repeat(40),
-      omitBypassActors: true
-    })
-  );
-  await chmod(gh, 0o755);
+  await writeFakeReleaseGh(gh, { remote, state, log }, {
+    tagObjectSha: "a".repeat(40),
+    omitBypassActors: true
+  });
   const options = {
     version: VERSION,
     sourceCommit: COMMIT,
@@ -130,6 +125,10 @@ test("GitHub release publication verifies exact assets before and after upload",
   assert.equal(calls.filter((args) => args[1] === "create").length, 1);
   assert.equal(calls.filter((args) => args[1] === "delete").length, 0);
   assert.equal(calls.filter((args) => args[1] === "edit").length, 1);
+  assert.equal(
+    calls.find((args) => args[1] === "edit")?.includes("--latest=false"),
+    true
+  );
   assert.equal(calls.filter((args) => args[1] === "download").length, 6);
   const localTarball = (await readdirNames(assets)).find((name) => name.endsWith(".tgz"));
   assert.ok(localTarball !== undefined);
@@ -171,11 +170,10 @@ test("GitHub release publication refuses a tag that moves during asset verificat
   await mkdir(assets);
   await writeReleaseAssetFixture(assets, VERSION, REPOSITORY);
   await writeFile(notes, "# Release\n");
-  await writeFile(gh, fakeReleaseGh(
+  await writeFakeReleaseGh(gh,
     { remote, state, log },
     { tagCommit: COMMIT, moveTagAfterDownloadTo: "f".repeat(40) }
-  ));
-  await chmod(gh, 0o755);
+  );
 
   await assert.rejects(
     publishOrVerifyGitHubRelease({
@@ -220,8 +218,7 @@ test("GitHub release publication repairs a partial matching draft", async (t) =>
     isPrerelease: false,
     name: `1667 v${VERSION}`
   }));
-  await writeFile(gh, fakeReleaseGh({ remote, state, log }));
-  await chmod(gh, 0o755);
+  await writeFakeReleaseGh(gh, { remote, state, log });
 
   await publishOrVerifyGitHubRelease({
     version: VERSION,
@@ -254,12 +251,11 @@ test("GitHub release publication refuses a wrong-channel draft before publish", 
   await mkdir(assets);
   await writeReleaseAssetFixture(assets, VERSION, REPOSITORY);
   await writeFile(notes, "# Release\n");
-  await writeFile(gh, fakeReleaseGh({
+  await writeFakeReleaseGh(gh, {
     remote: path.join(root, "remote"),
     state: path.join(root, "state.json"),
     log
-  }, { createdPrerelease: true }));
-  await chmod(gh, 0o755);
+  }, { createdPrerelease: true });
 
   await assert.rejects(
     publishOrVerifyGitHubRelease({
@@ -291,12 +287,11 @@ test("GitHub release publication resolves an ambiguous immutable transition", as
   await mkdir(assets);
   await writeReleaseAssetFixture(assets, VERSION, REPOSITORY);
   await writeFile(notes, "# Release\n");
-  await writeFile(gh, fakeReleaseGh({
+  await writeFakeReleaseGh(gh, {
     remote: path.join(root, "remote"),
     state: path.join(root, "state.json"),
     log: path.join(root, "gh.log")
-  }, { failEditAfterWrite: true }));
-  await chmod(gh, 0o755);
+  }, { failEditAfterWrite: true });
   const options = {
     version: VERSION,
     sourceCommit: COMMIT,
@@ -323,12 +318,11 @@ test("GitHub release publication verifies contents after the immutable transitio
   await mkdir(assets);
   await writeReleaseAssetFixture(assets, VERSION, REPOSITORY);
   await writeFile(notes, "# Release\n");
-  await writeFile(gh, fakeReleaseGh({
+  await writeFakeReleaseGh(gh, {
     remote: path.join(root, "remote"),
     state: path.join(root, "state.json"),
     log: path.join(root, "gh.log")
-  }, { tamperBodyOnEdit: true }));
-  await chmod(gh, 0o755);
+  }, { tamperBodyOnEdit: true });
   const options = {
     version: VERSION,
     sourceCommit: COMMIT,

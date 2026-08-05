@@ -180,14 +180,18 @@ async function run(command: "publish" | "verify", argv: readonly string[]): Prom
     const ledger = new GitHubNpmPublicationLedger({
       repository: authority.repository,
       sourceCommit: sourceSha,
-      token: authority.token,
-      verifyReleaseTag: async (version) => await verifyRemoteReleaseTag({
-        version,
-        sourceCommit: sourceSha,
-        environment: process.env
-      })
+      token: authority.token
     });
-    await publishNpmRelease(publication.packages, registry, ledger);
+    const writeGuard = {
+      assertWritable: async (packageToPublish: NpmPublicationPackage) => {
+        await verifyRemoteReleaseTag({
+          version: packageToPublish.version,
+          sourceCommit: sourceSha,
+          environment: process.env
+        });
+      }
+    };
+    await publishNpmRelease(publication.packages, registry, ledger, writeGuard);
   } else {
     await registry.waitUntilVerified(publication.packages);
   }
