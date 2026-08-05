@@ -38,10 +38,12 @@ function observations(
     protectedRef: "refs/remotes/origin/main",
     headCommit: ok(`${RELEASE_COMMIT}\n`),
     workingTreeStatus: ok(""),
+    tagObjectName: ok(`${RELEASE_COMMIT}\n`),
     tagObjectType: ok("tag\n"),
     tagObjectContents: ok("object release\n\nrelease tag\n"),
     tagTargetCommit: ok(`${RELEASE_COMMIT}\n`),
     protectedReachability: ok(""),
+    finalTagObjectName: ok(`${RELEASE_COMMIT}\n`),
     rootManifest: ok(manifest),
     tuiManifest: ok(manifest),
     rootLock: ok(`${JSON.stringify({
@@ -72,6 +74,9 @@ test("assembled evidence refuses every structural defect from captured output al
   const defects: readonly (readonly [RegExp, Partial<ReleaseEvidenceObservations>])[] = [
     [/Release source tree is dirty/, { workingTreeStatus: ok(" M README.md\n") }],
     [/Release source tree is dirty/, { workingTreeStatus: ok("?? secrets.env\n") }],
+    [/moved while source evidence was collected/, {
+      finalTagObjectName: ok(`${OTHER_COMMIT}\n`)
+    }],
     [/is not a tag or commit object/, { tagObjectType: ok("blob\n") }],
     [/could not be resolved/, { tagObjectType: failed("fatal: Not a valid object name\n") }],
     [/contains a signature that this collector does not verify/, {

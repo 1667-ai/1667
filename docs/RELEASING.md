@@ -184,9 +184,10 @@ executable.
 `scripts/release-evidence.ts` collects the tag's real shape. It records
 `tagObjectType` as `"annotated"` or `"lightweight"`. It records `tagSignature`
 as `"unsigned"`. It rejects an annotated tag that contains signature armor.
-It verifies no signature. This product has no user yet, so a release tag needs
-no signature. The signature requirement will return before this product has a
-user.
+It resolves the tag object once. It refuses the release if the tag moves during
+collection. It verifies no signature. This product has no user yet, so a
+release tag needs no signature. The signature requirement will return before
+this product has a user.
 
 `scripts/release-evidence.ts` still checks these facts about the source:
 
@@ -613,13 +614,10 @@ which targets it publishes. The `heldFromPublication` field contains this
 decision. The current release publishes `windows-x64`. Routine CI builds and
 tests this target.
 
-The workflow builds one `githubReleaseSourceEvidence` value in memory to stage
-each archive. This value uses `tagObjectType: "annotated"` as a fixed
-placeholder. It is not an observation of the real tag. The value uses
-`tagSignature: "unsigned"` because this path checks no signature. The workflow
-does not write this value to a file. The workflow does not upload this value.
-See the comment on `githubReleaseSourceEvidence` in
-`scripts/release-source-facts.ts` for the boundary details.
+The workflow uses three source facts to stage each archive. The facts are the
+version, the source commit, and the build timestamp. They make no tag
+authorization claim. Only `scripts/release-evidence.ts` creates
+`ReleaseSourceEvidence`.
 
 SBOM generation does not consume `ReleaseSourceEvidence`. It consumes an exact
 `ReleaseSbomSource` record. This record contains the product version, source

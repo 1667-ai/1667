@@ -1,13 +1,12 @@
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isSemVer } from "../shared/semver.js";
 import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
 import {
   assertReleasePackageVersions,
-  createReleaseIdentitySet,
-  type ReleaseIdentitySet,
-  type ReleaseSourceEvidence
+  createReleaseBuildIdentitySet,
+  type ReleaseBuildIdentitySet,
+  type ReleasePackageVersions
 } from "./release-identity.js";
 import {
   createReleaseSbomSource,
@@ -31,15 +30,6 @@ export interface ReleaseSourceFacts {
   readonly buildTimestamp: string;
 }
 
-export interface ReleaseSourceEvidenceInput extends ReleaseSourceFacts {
-  readonly packageVersions: {
-    readonly root: string;
-    readonly tui: string;
-    readonly rootLock: string;
-    readonly rootLockPackage: string;
-  };
-}
-
 /** Builds the exact, authorization-free source record that an SBOM uses. */
 export function releaseSbomSourceForFacts(facts: ReleaseSourceFacts): ReleaseSbomSource {
   return createReleaseSbomSource({
@@ -51,7 +41,7 @@ export function releaseSbomSourceForFacts(facts: ReleaseSourceFacts): ReleaseSbo
 }
 
 export interface ReleaseDescriptionInputs {
-  readonly identities: ReleaseIdentitySet;
+  readonly identities: ReleaseBuildIdentitySet;
   readonly sbomSource: ReleaseSbomSource;
 }
 
@@ -60,7 +50,8 @@ export interface ReleaseDescriptionInputs {
  * source facts.
  */
 export function releaseDescriptionInputsForSource(
-  facts: ReleaseSourceFacts
+  facts: ReleaseSourceFacts,
+  packageVersions: ReleasePackageVersions = repositoryPackageVersions()
 ): ReleaseDescriptionInputs {
   const snapshot = Object.freeze({
     version: facts.version,
@@ -68,7 +59,7 @@ export function releaseDescriptionInputsForSource(
     buildTimestamp: facts.buildTimestamp
   });
   return Object.freeze({
-    identities: releaseIdentitiesForSource(snapshot),
+    identities: releaseIdentitiesForSource(snapshot, packageVersions),
     sbomSource: releaseSbomSourceForFacts(snapshot)
   });
 }
@@ -82,76 +73,24 @@ export function assertRepositoryPackageVersions(productVersion: string): void {
 }
 
 /**
- * Source evidence for a GitHub pre-release build, constructed in memory and
- * never written to disk by anything in this repository.
- *
- * The evidence codec is shared with npm preflight, where the trust anchor is
- * `scripts/release-evidence.ts` actually walking the repository: it checks the
- * release commit against the protected default branch, checks the tag against
- * the commit, and reads the four package manifests at that commit. Nothing
- * here does any of that. `input.sourceCommit` is asserted, not verified, so
- * `tagObjectType: "annotated"` is a fixed placeholder rather than a claim
- * about this commit. `tagSignature: "unsigned"` states that this path checks
- * no signature. A GitHub release anchors somewhere else: the build-provenance
- * attestation GitHub's Sigstore instance issues over each archive, which binds
- * the bytes to this workflow, this repository, and this commit, and which
- * `gh attestation verify` checks.
- *
- * Exactly what escapes this process, and what does not: no shipped file and no
- * line of the release notes carries `tagSignature` or `tagObjectType`, so this
- * placeholder never leaves memory. `tagName` does ship — the SPDX document
- * comments each package with `Built from tag <tagName> at a clean working
- * tree` — and that is not the same claim: it names the tag the release job
- * creates at `sourceCommit`, which is true once `gh release create` runs.
- */
-export function githubReleaseSourceEvidence(
-  input: ReleaseSourceEvidenceInput
-): ReleaseSourceEvidence {
-  if (!isSemVer(input.version)) {
-    throw new Error(`Release evidence needs a SemVer version, not ${input.version}`);
-  }
-  return Object.freeze({
-    schemaVersion: 1 as const,
-    productVersion: input.version,
-    sourceCommit: input.sourceCommit,
-    sourceDirty: false as const,
-    tagName: `v${input.version}`,
-    tagObjectType: "annotated" as const,
-    tagSignature: "unsigned" as const,
-    tagTargetCommit: input.sourceCommit,
-    buildTimestamp: input.buildTimestamp,
-    packageVersions: Object.freeze({ ...input.packageVersions })
-  });
-}
-
-/**
  * The release identities for one run, built in the process that needs them from
  * the three source facts and the package versions in this checkout.
- *
- * Every job in the release workflow calls this with the three strings the
- * `prepare` job published as job outputs. Do not "simplify" that into building
- * the evidence once, writing it to a file, and uploading the file for the build
- * matrix to download. This document's `sourceCommit` is whatever the three
- * strings say, never checked against the protected default branch, and its
- * `tagObjectType` is the fixed placeholder above rather than an observation.
- * `tagSignature` states that this path checks no signature.
- * `scripts/release-preflight.ts` accepts this document as release evidence.
- * A downloadable copy would let a reader feed preflight a commit and a tag
- * name that this path did not check. The three strings assert nothing, so they
- * can cross a job boundary. The document that they build cannot cross one.
  *
  * The facts come from `prepare` rather than being recomputed on each runner so
  * that every target in a run writes the same version, commit and timestamp into
  * its `build-manifest.json`: one build described once, not one build per runner
  * minutes apart.
  */
-export function releaseIdentitiesForSource(facts: ReleaseSourceFacts): ReleaseIdentitySet {
-  return createReleaseIdentitySet(githubReleaseSourceEvidence({
-    version: facts.version,
+export function releaseIdentitiesForSource(
+  facts: ReleaseSourceFacts,
+  packageVersions: ReleasePackageVersions = repositoryPackageVersions()
+): ReleaseBuildIdentitySet {
+  assertReleasePackageVersions(facts.version, packageVersions);
+  return createReleaseBuildIdentitySet({
+    productVersion: facts.version,
     sourceCommit: facts.sourceCommit,
-    buildTimestamp: facts.buildTimestamp,
-    packageVersions: repositoryPackageVersions()
-  }));
+    buildTimestamp: facts.buildTimestamp
+  });
 }
 
 /**
@@ -159,7 +98,7 @@ export function releaseIdentitiesForSource(facts: ReleaseSourceFacts): ReleaseId
  * equal the dispatched version, which is what makes a mistyped dispatch fail in
  * `prepare` instead of shipping four archives that disagree with the source.
  */
-export function repositoryPackageVersions(): ReleaseSourceEvidenceInput["packageVersions"] {
+export function repositoryPackageVersions(): ReleasePackageVersions {
   const root = repositoryRoot();
   const rootPackage = readJsonFile(path.join(root, "package.json"), MAX_PACKAGE_MANIFEST_BYTES);
   const tuiPackage = readJsonFile(

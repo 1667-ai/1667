@@ -42,10 +42,12 @@ export interface ReleaseTagAuthorizationObservations {
   readonly protectedRef: string;
   readonly headCommit: CommandOutcome;
   readonly workingTreeStatus: CommandOutcome;
+  readonly tagObjectName: CommandOutcome;
   readonly tagObjectType: CommandOutcome;
   readonly tagObjectContents: CommandOutcome;
   readonly tagTargetCommit: CommandOutcome;
   readonly protectedReachability: CommandOutcome;
+  readonly finalTagObjectName: CommandOutcome;
 }
 
 export interface ReleaseEvidenceObservations
@@ -118,14 +120,18 @@ export function assembleReleaseTagAuthorization(
   observations: ReleaseTagAuthorizationObservations
 ): ReleaseTagAuthorizationDocument {
   const tagName = requireReleaseTagName(observations.tagName);
-  const sourceCommit = requireCommitObjectName(
+  const sourceCommit = requireObjectName(
     observations.headCommit,
     "Release source commit"
   );
   requireCleanWorkingTree(observations.workingTreeStatus);
+  const tagObjectName = requireObjectName(
+    observations.tagObjectName,
+    `Release tag ${tagName} object`
+  );
   const tagObjectType = releaseTagObjectType(observations.tagObjectType, tagName);
   requireUnsignedTagObject(tagObjectType, observations.tagObjectContents, tagName);
-  const tagTargetCommit = requireCommitObjectName(
+  const tagTargetCommit = requireObjectName(
     observations.tagTargetCommit,
     `Release tag ${tagName} target commit`
   );
@@ -139,6 +145,13 @@ export function assembleReleaseTagAuthorization(
     sourceCommit,
     observations.protectedRef
   );
+  const finalTagObjectName = requireObjectName(
+    observations.finalTagObjectName,
+    `Release tag ${tagName} final object`
+  );
+  if (finalTagObjectName !== tagObjectName) {
+    throw new Error(`Release tag ${tagName} moved while source evidence was collected`);
+  }
   return Object.freeze({
     schemaVersion: 1,
     tagName,
@@ -247,7 +260,7 @@ export function requireCanonicalTimestamp(value: string): string {
 
 /** A full object name from a successful `rev-parse`, so a short or symbolic
  *  answer never reaches the document or a later command line. */
-export function requireCommitObjectName(outcome: CommandOutcome, label: string): string {
+export function requireObjectName(outcome: CommandOutcome, label: string): string {
   const value = successfulOutput(outcome, label).trim();
   if (!COMMIT.test(value)) throw new Error(`${label} is not a full object name`);
   return value;

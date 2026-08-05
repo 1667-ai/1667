@@ -37,8 +37,10 @@ import {
 import {
   releaseDescriptionInputsForSource,
   releaseIdentitiesForSource,
+  repositoryPackageVersions,
   type ReleaseSourceFacts
 } from "./release-source-facts.js";
+import { type ReleasePackageVersions } from "./release-identity.js";
 
 /** Release asset basenames: a version may carry `+` build metadata. */
 const ASSET_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/u;
@@ -105,9 +107,12 @@ export interface StageReleaseArchiveOptions extends ReleaseSourceFacts {
  * a missing file, and the assembled directory is compared against the file set
  * afterwards so a stray file cannot ride along either.
  */
-export function stageReleaseArchive(options: StageReleaseArchiveOptions): StagedReleaseArchive {
-  const { identities, sbomSource } = releaseDescriptionInputsForSource(options);
-  const version = identities.evidence.productVersion;
+export function stageReleaseArchive(
+  options: StageReleaseArchiveOptions,
+  packageVersions: ReleasePackageVersions = repositoryPackageVersions()
+): StagedReleaseArchive {
+  const { identities, sbomSource } = releaseDescriptionInputsForSource(options, packageVersions);
+  const version = identities.source.productVersion;
   const target = options.target;
   const descriptor = releaseTargetForArtifact(target);
   const stem = releaseArchiveStem(version, target);

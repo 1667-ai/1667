@@ -27,7 +27,7 @@ import {
   type ReleaseContentArtifact,
   type StagedReleaseFile
 } from "./release-content.js";
-import { type ReleaseIdentitySet } from "./release-identity.js";
+import { type ReleaseBuildIdentitySet } from "./release-identity.js";
 import {
   type ReleasePackageJson
 } from "./release-package-manifests.js";
@@ -88,7 +88,7 @@ export function stageReleasePackage(
       sboms,
       executable: options.executable,
       outputDirectory: temporaryRoot,
-      buildTimestamp: identities.evidence.buildTimestamp
+      buildTimestamp: identities.source.buildTimestamp
     });
     renameSync(staged.directory, finalRoot);
     rmSync(temporaryRoot, { recursive: true, force: true });
@@ -119,7 +119,7 @@ export function stagePublishedReleasePackages(
       sboms,
       executable: repositoryLauncher(),
       outputDirectory: temporaryRoot,
-      buildTimestamp: identities.evidence.buildTimestamp
+      buildTimestamp: identities.source.buildTimestamp
     });
     const platforms = PUBLISHED_ARTIFACT_TARGETS.map((artifactTarget) => {
       const descriptor = releaseTargetForArtifact(artifactTarget);
@@ -131,7 +131,7 @@ export function stagePublishedReleasePackages(
           path.posix.basename(descriptor.executable)
         ),
         outputDirectory: temporaryRoot,
-        buildTimestamp: identities.evidence.buildTimestamp
+        buildTimestamp: identities.source.buildTimestamp
       });
     });
     const packages = [launcher, ...platforms];
@@ -191,7 +191,7 @@ function stagePreparedPackage(options: PreparedPackageOptions): StagedReleasePac
 }
 
 function packageTemplate(
-  identities: ReleaseIdentitySet,
+  identities: ReleaseBuildIdentitySet,
   artifactTarget: ReleaseContentArtifact
 ): ReleasePackageTemplate {
   return artifactTarget === "launcher"

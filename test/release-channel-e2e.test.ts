@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import {
   chmod,
@@ -13,8 +12,10 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { promisify } from "node:util";
 import { RELEASE_LAUNCHER_PACKAGE } from "../shared/release-targets.js";
+import {
+  stageReleaseArchive
+} from "../scripts/release-github-assets.js";
 import {
   publishOrVerifyGitHubRelease,
   verifyNpmReleaseAssetDirectory
@@ -25,12 +26,10 @@ import {
 } from "../scripts/release-npm-registry.js";
 import type { NpmPublicationPackage } from "../scripts/release-npm-publisher.js";
 import {
-  createStandaloneReleaseCheckout,
   fakeReleaseGh,
   writeReleaseAssetFixture
 } from "./release-npm-github-fixture.js";
 
-const execFileAsync = promisify(execFile);
 const GITHUB_REPOSITORY = "1667-ai/1667";
 const REPOSITORY_URL = "https://github.com/1667-ai/1667";
 const WORKFLOW_PATH = ".github/workflows/release-npm.yml";
@@ -55,12 +54,9 @@ const STABLE_ONLY_INSTALLERS = ["install-stable.sh", "install-stable.ps1"] as co
  * carry the stable Installers, and a prerelease, which must land on `beta` and
  * carry only the beta Installers.
  *
- * It first exercises `scripts/release-github-assets.ts`'s real `stage`
- * command against a real, standalone checkout copy whose package manifests
- * genuinely say this version — `stage` cross-checks the version it is given
- * against those manifests the same way every other release identity does, so
- * a version-mismatch refusal can never stand in for a channel-specific one. It
- * then continues with staged release assets built the same way
+ * It first exercises the real archive staging function with explicit package
+ * versions. The hosted command reads the same versions from the repository.
+ * The test then continues with staged release assets built the same way
  * test/release-npm-ci.test.ts's asset-directory tests build them, a GitHub
  * release created and verified through a fake `gh` (same fixture), and npm
  * publication driven through a fake `npm` CLI and a fake registry — the
@@ -90,27 +86,27 @@ for (const scenario of [
     const root = await mkdtemp(path.join(tmpdir(), "1667-channel-e2e-"));
     t.after(() => rm(root, { recursive: true, force: true }));
 
-    // -- Real archive producer: scripts/release-github-assets.ts's `stage`
-    // command, run against a standalone checkout copy whose package.json,
-    // tui/package.json, and package-lock.json genuinely carry
-    // scenario.version. This checkout's own manifests stay untouched — the
-    // real stage command locates its repository root from its own file's
-    // location, so this is the only way to make it see a version this
-    // checkout is not currently on. A version-mismatch refusal from the real
-    // checkout cannot masquerade as acceptance here: this checkout matches on
-    // every field the release identity cross-checks.
-    const checkout = await createStandaloneReleaseCheckout(root, scenario.version);
-    const archiveCli = path.join(checkout, "scripts", "release-github-assets.ts");
+    // -- Real archive producer. Explicit package versions let this channel
+    // test use a small fixture instead of copying the checkout dependency
+    // graph. The hosted command supplies the same values from the repository.
     const buildDirectory = path.join(root, "build");
     await mkdir(buildDirectory, { recursive: true });
     await writeFile(path.join(buildDirectory, "1667"), "#!/bin/sh\necho stub\n", { mode: 0o755 });
     const stageOutput = path.join(root, "staged");
-    const stageResult = await execFileAsync(process.execPath, [
-      "--import", "tsx", archiveCli, "stage", scenario.version, COMMIT, BUILD_TIMESTAMP,
-      ARCHIVE_PROOF_TARGET, buildDirectory, stageOutput
-    ]);
-    const stagedStem = stageResult.stdout.trim();
-    const stagedFiles = await readdir(path.join(stageOutput, stagedStem));
+    const stagedArchive = stageReleaseArchive({
+      version: scenario.version,
+      sourceCommit: COMMIT,
+      buildTimestamp: BUILD_TIMESTAMP,
+      target: ARCHIVE_PROOF_TARGET,
+      buildDirectory,
+      outputDirectory: stageOutput
+    }, {
+      root: scenario.version,
+      tui: scenario.version,
+      rootLock: scenario.version,
+      rootLockPackage: scenario.version
+    });
+    const stagedFiles = await readdir(stagedArchive.directory);
     assert.deepEqual(
       [...stagedFiles].sort(),
       ["1667", "LICENSE", "NOTICE", "build-manifest.json", "sbom.spdx.json"],
@@ -120,7 +116,7 @@ for (const scenario of [
     // -- Archive production leg for the rest of the pipeline: the exact
     // asset directory the release workflows stage — archives, SBOMs,
     // observations, and the channel-appropriate Installers the real renderer
-    // produces for this version. check and stage above already proved the
+    // produces for this version. The stage above already proved the
     // real producer accepts this version; this fixture (the same one
     // test/release-npm-ci.test.ts's asset-directory tests use) stands in for
     // the remaining four targets' native builds so the rest of this test can

@@ -41,7 +41,6 @@ import {
   RELEASE_SBOM_FILE
 } from "../scripts/release-github-assets.js";
 import {
-  githubReleaseSourceEvidence,
   releaseIdentitiesForSource
 } from "../scripts/release-source-facts.js";
 import {
@@ -285,10 +284,10 @@ test("checksums cover every asset, sorted, and never the checksum file itself", 
 
 test("the three source facts build an identity the release codec accepts", () => {
   const identities = releaseIdentitiesForSource(FACTS);
-  assert.equal(identities.evidence.productVersion, VERSION);
-  assert.equal(identities.evidence.tagName, `v${VERSION}`);
-  assert.equal(identities.evidence.tagSignature, "unsigned");
-  assert.equal(identities.evidence.tagTargetCommit, SOURCE_COMMIT);
+  assert.equal(identities.source.productVersion, VERSION);
+  assert.equal(identities.source.sourceCommit, SOURCE_COMMIT);
+  assert.equal(identities.source.buildTimestamp, BUILD_TIMESTAMP);
+  assert.equal("evidence" in identities, false);
   for (const target of PUBLISHED_ARTIFACT_TARGETS) {
     const identity = releaseIdentityForTarget(identities, target);
     assert.equal(identity.buildKind, "release");
@@ -296,12 +295,11 @@ test("the three source facts build an identity the release codec accepts", () =>
     assert.equal(identity.sourceCommit, SOURCE_COMMIT);
     assert.equal(identity.artifactTarget, target);
   }
-  assert.throws(() => githubReleaseSourceEvidence({
+  assert.throws(() => releaseIdentitiesForSource({
     version: "0.1",
     sourceCommit: SOURCE_COMMIT,
-    buildTimestamp: BUILD_TIMESTAMP,
-    packageVersions: { root: "0.1", tui: "0.1", rootLock: "0.1", rootLockPackage: "0.1" }
-  }), /SemVer/);
+    buildTimestamp: BUILD_TIMESTAMP
+  }, { root: "0.1", tui: "0.1", rootLock: "0.1", rootLockPackage: "0.1" }), /version/);
 });
 
 test("staging writes the whole file set and nothing else", (t) => {
@@ -363,7 +361,7 @@ test("staging writes the whole file set and nothing else", (t) => {
   assert.equal(
     buildManifestText,
     `${canonicalJson(createReleasePackageBuildManifest(
-      releaseIdentitiesForSource(FACTS).evidence,
+      releaseIdentitiesForSource(FACTS).source,
       releaseTargetForArtifact("linux-x64").packageName,
       "linux-x64"
     ))}\n`
@@ -376,9 +374,8 @@ test("staging writes the whole file set and nothing else", (t) => {
   assert.equal(sbom.spdxVersion, "SPDX-2.3");
   assert.equal(sbom.name, `@1667-ai/linux-x64@${VERSION}`);
 
-  // The in-memory evidence states that this path checks no signature. No
-  // staged file needs the tag authorization fields. `tagName` can ship because
-  // it only names the release tag.
+  // Archive staging uses build facts, not tag authorization evidence. No
+  // staged file can carry tag authorization fields.
   for (const shipped of [buildManifestText, sbomText]) {
     assert.doesNotMatch(shipped, /tagSignature|tagObjectType|"verified"/u);
   }

@@ -7,6 +7,7 @@ import {
   type BuildIdentity,
   type BuiltArtifactTarget
 } from "../shared/build-identity.js";
+import { type PackageBuildEvidence } from "../shared/package-build-manifest.js";
 import { exactRecord } from "./release-boundary-validation.js";
 
 export type ReleaseBuildIdentity = Extract<BuildIdentity, { buildKind: "release" }>;
@@ -50,10 +51,14 @@ export interface ReleaseSourceEvidence {
   packageVersions: ReleasePackageVersions;
 }
 
-export interface ReleaseIdentitySet {
+export interface ReleaseBuildIdentitySet {
   schemaVersion: 1;
-  evidence: ReleaseSourceEvidence;
+  source: PackageBuildEvidence;
   identities: readonly ReleaseBuildIdentity[];
+}
+
+export interface ReleaseIdentitySet extends ReleaseBuildIdentitySet {
+  evidence: ReleaseSourceEvidence;
 }
 
 const EVIDENCE_KEYS = new Set([
@@ -82,18 +87,34 @@ const PACKAGE_VERSION_KEYS = new Set([
  */
 export function createReleaseIdentitySet(value: unknown): ReleaseIdentitySet {
   const evidence = parseSourceEvidence(value);
+  const build = createReleaseBuildIdentitySet(evidence);
+  return Object.freeze({
+    ...build,
+    evidence
+  });
+}
+
+/** Builds release identities from facts that make no tag-authorization claim. */
+export function createReleaseBuildIdentitySet(
+  value: PackageBuildEvidence
+): ReleaseBuildIdentitySet {
+  const source = Object.freeze({
+    productVersion: value.productVersion,
+    sourceCommit: value.sourceCommit,
+    buildTimestamp: value.buildTimestamp
+  });
   const identities = BUILT_ARTIFACT_TARGETS.map((artifactTarget) => {
-    return releaseBuildIdentity(evidence, artifactTarget);
+    return releaseBuildIdentity(source, artifactTarget);
   });
   return Object.freeze({
     schemaVersion: 1 as const,
-    evidence,
+    source,
     identities: Object.freeze(identities)
   });
 }
 
 export function releaseIdentityForTarget(
-  set: ReleaseIdentitySet,
+  set: ReleaseBuildIdentitySet,
   target: BuiltArtifactTarget
 ): ReleaseBuildIdentity {
   const identity = set.identities.find((candidate) => candidate.artifactTarget === target);
@@ -145,21 +166,6 @@ function parseSourceEvidence(value: unknown): ReleaseSourceEvidence {
   });
   assertReleasePackageVersions(productVersion, packageVersions);
 
-  // Reuse the product's strict identity codec for SemVer, commit, timestamp,
-  // and protocol-range validation before accepting the evidence.
-  releaseBuildIdentity({
-    schemaVersion: 1,
-    productVersion,
-    sourceCommit,
-    sourceDirty: false,
-    tagName,
-    tagObjectType,
-    tagSignature,
-    tagTargetCommit,
-    buildTimestamp,
-    packageVersions
-  }, BUILT_ARTIFACT_TARGETS[0]);
-
   return Object.freeze({
     schemaVersion: 1 as const,
     productVersion,
@@ -175,17 +181,17 @@ function parseSourceEvidence(value: unknown): ReleaseSourceEvidence {
 }
 
 function releaseBuildIdentity(
-  evidence: ReleaseSourceEvidence,
+  source: PackageBuildEvidence,
   artifactTarget: BuiltArtifactTarget
 ): ReleaseBuildIdentity {
   const identity = parseBuildIdentity({
     schemaVersion: 1,
     product: "1667",
-    productVersion: evidence.productVersion,
+    productVersion: source.productVersion,
     buildKind: "release",
-    sourceCommit: evidence.sourceCommit,
+    sourceCommit: source.sourceCommit,
     sourceDirty: false,
-    buildTimestamp: evidence.buildTimestamp,
+    buildTimestamp: source.buildTimestamp,
     artifactTarget,
     apiProtocolVersion: HTTP_API_PROTOCOL_VERSION,
     minClientProtocolVersion: HTTP_MIN_CLIENT_PROTOCOL_VERSION,

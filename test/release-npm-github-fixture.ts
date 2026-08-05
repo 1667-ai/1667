@@ -1,14 +1,9 @@
 import { createHash } from "node:crypto";
 import {
-  cp,
-  copyFile,
-  mkdir,
   readFile,
-  symlink,
   writeFile
 } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { PUBLISHED_ARTIFACT_TARGETS } from "../shared/release-targets.js";
 import { releaseArchiveFileName } from "../scripts/release-archive.js";
 import {
@@ -17,12 +12,6 @@ import {
 } from "../scripts/release-github-assets.js";
 import { renderInstallScriptsForVersion } from "../scripts/release-install-script.js";
 import { expectedGitHubReleaseAssetNames, expectedInstallerNames } from "../scripts/release-publication-assets.js";
-
-/** This repository's own root, two directories above this fixture file
- * (test/release-npm-github-fixture.ts -> test/ -> repository root) — the
- * same `fileURLToPath(import.meta.url)` pattern release-source-facts.ts,
- * release-content.ts, and release-sbom.ts each use for their own file. */
-const REPOSITORY_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 /**
  * Shared fixture infrastructure for the GitHub-release side of the release
@@ -72,92 +61,6 @@ async function writeArchiveDependentAssets(
     path.join(directory, "checksums.txt"),
     formatReleaseChecksums(directoryAssetDigests(directory))
   );
-}
-
-/**
- * A standalone copy of the checkout `scripts/release-github-assets.ts`
- * itself needs to run `check` and `stage` for real: `release-source-facts.ts`,
- * `release-content.ts`, and `release-sbom.ts` each locate the repository root
- * from their own file's `import.meta.url`, not from an argument, so the only
- * way to make the real `check`/`stage` commands see a stable version's own
- * package manifests is to give them a real checkout whose manifests actually
- * say so. Copying `scripts/`, `shared/`, `server/`, `schema/`, `LICENSE`,
- * `NOTICE`, and the two lockfiles reproduces every file that call graph
- * reads (`schema/` is the SBOM JSON Schema release-sbom-schema.ts loads by
- * relative path), and
- * rewriting only the version fields in the three manifests leaves everything
- * else (including the pinned LICENSE and NOTICE digests) byte-identical to
- * this checkout. `node_modules` is symlinked rather than copied: Node
- * resolves a bare specifier like `ajv` (release-sbom-schema.ts) by walking up
- * from the importing file's own location, not from the process's cwd, so the
- * copied scripts need a `node_modules` to find under them.
- */
-export async function createStandaloneReleaseCheckout(
-  root: string,
-  version: string
-): Promise<string> {
-  const checkout = path.join(root, "checkout");
-  await mkdir(checkout, { recursive: true });
-  await Promise.all([
-    cp(path.join(REPOSITORY_ROOT, "scripts"), path.join(checkout, "scripts"), { recursive: true }),
-    cp(path.join(REPOSITORY_ROOT, "shared"), path.join(checkout, "shared"), { recursive: true }),
-    cp(path.join(REPOSITORY_ROOT, "server"), path.join(checkout, "server"), { recursive: true }),
-    cp(path.join(REPOSITORY_ROOT, "schema"), path.join(checkout, "schema"), { recursive: true }),
-    copyFile(path.join(REPOSITORY_ROOT, "LICENSE"), path.join(checkout, "LICENSE")),
-    copyFile(path.join(REPOSITORY_ROOT, "NOTICE"), path.join(checkout, "NOTICE")),
-    symlink(
-      path.join(REPOSITORY_ROOT, "node_modules"),
-      path.join(checkout, "node_modules"),
-      "dir"
-    )
-  ]);
-  await mkdir(path.join(checkout, "tui"), { recursive: true });
-  await copyFile(
-    path.join(REPOSITORY_ROOT, "tui", "bun.lockb"),
-    path.join(checkout, "tui", "bun.lockb")
-  );
-  await Promise.all([
-    writeVersionedPackageManifest(
-      path.join(REPOSITORY_ROOT, "package.json"),
-      path.join(checkout, "package.json"),
-      version
-    ),
-    writeVersionedPackageManifest(
-      path.join(REPOSITORY_ROOT, "tui", "package.json"),
-      path.join(checkout, "tui", "package.json"),
-      version
-    ),
-    writeVersionedLockfile(
-      path.join(REPOSITORY_ROOT, "package-lock.json"),
-      path.join(checkout, "package-lock.json"),
-      version
-    )
-  ]);
-  return checkout;
-}
-
-async function writeVersionedPackageManifest(
-  source: string,
-  destination: string,
-  version: string
-): Promise<void> {
-  const manifest = JSON.parse(await readFile(source, "utf8")) as Record<string, unknown>;
-  manifest.version = version;
-  await writeFile(destination, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-}
-
-async function writeVersionedLockfile(
-  source: string,
-  destination: string,
-  version: string
-): Promise<void> {
-  const lockfile = JSON.parse(await readFile(source, "utf8")) as Record<string, unknown>;
-  lockfile.version = version;
-  const packages = lockfile.packages as Record<string, unknown> | undefined;
-  const rootPackage = packages?.[""] as Record<string, unknown> | undefined;
-  if (rootPackage === undefined) throw new Error("package-lock.json has no root package entry");
-  rootPackage.version = version;
-  await writeFile(destination, `${JSON.stringify(lockfile, null, 2)}\n`, "utf8");
 }
 
 /**

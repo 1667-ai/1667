@@ -11,7 +11,7 @@ import {
   assembleReleaseSourceEvidence,
   assembleReleaseTagAuthorization,
   requireCanonicalTimestamp,
-  requireCommitObjectName,
+  requireObjectName,
   requireReleaseTagName,
   type CommandOutcome,
   type ReleaseTagAuthorizationDocument,
@@ -163,25 +163,32 @@ async function collectTagAuthorization<T>(run: TagAuthorizationRun<T>): Promise<
   // splice one commit's identity onto another's manifests, and every downstream
   // check would still pass because they only compare versions to each other.
   const headCommit = await git(["rev-parse", "--verify", "HEAD"]);
-  const sourceCommit = requireCommitObjectName(headCommit, "Release source commit");
+  const sourceCommit = requireObjectName(headCommit, "Release source commit");
+  const tagObjectName = await git(["rev-parse", "--verify", tagRef]);
+  const resolvedTagObject = requireObjectName(
+    tagObjectName,
+    `Release tag ${tagName} object`
+  );
 
   const observations: ReleaseTagAuthorizationObservations = {
     tagName,
     protectedRef,
     headCommit,
     workingTreeStatus: await git(["status", "--porcelain=v1", "--untracked-files=all"]),
-    // "tag" for an annotated tag object, "commit" for a lightweight tag: both
-    // are accepted release tags now, and the document records which one this
-    // was rather than refusing the lightweight form.
-    tagObjectType: await git(["cat-file", "-t", tagRef]),
+    tagObjectName,
+    // "tag" for an annotated tag object, "commit" for a lightweight tag. Use
+    // the pinned object name for each read so a moving ref cannot splice two
+    // objects into one evidence document.
+    tagObjectType: await git(["cat-file", "-t", resolvedTagObject]),
     // An annotated tag must contain no supported signature armor before the
     // evidence can state that it is unsigned. This command fails for a
     // lightweight tag, which has no tag object. The interpreter ignores that
     // expected failure after it observes the lightweight shape.
-    tagObjectContents: await git(["cat-file", "tag", tagRef]),
+    tagObjectContents: await git(["cat-file", "tag", resolvedTagObject]),
     // Peels either tag form to the commit it names.
-    tagTargetCommit: await git(["rev-parse", "--verify", `${tagRef}^{commit}`]),
-    protectedReachability: await git(["merge-base", "--is-ancestor", sourceCommit, protectedRef])
+    tagTargetCommit: await git(["rev-parse", "--verify", `${resolvedTagObject}^{commit}`]),
+    protectedReachability: await git(["merge-base", "--is-ancestor", sourceCommit, protectedRef]),
+    finalTagObjectName: await git(["rev-parse", "--verify", tagRef])
   };
   return await consume(observations, git, sourceCommit);
 }

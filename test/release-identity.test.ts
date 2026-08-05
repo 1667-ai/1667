@@ -57,6 +57,11 @@ test("annotated clean tag evidence produces one immutable release identity per t
     assert.ok(Object.isFrozen(identity));
   }
   assert.ok(Object.isFrozen(release.identities));
+  assert.deepEqual(release.source, {
+    productVersion: evidence.productVersion,
+    sourceCommit: evidence.sourceCommit,
+    buildTimestamp: evidence.buildTimestamp
+  });
   assert.ok(Object.isFrozen(release.evidence.packageVersions));
 });
 
