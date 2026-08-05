@@ -612,13 +612,12 @@ decision. The current release publishes `windows-x64`. Routine CI builds and
 tests this target.
 
 The workflow builds one `githubReleaseSourceEvidence` value in memory to stage
-each archive. This value types `tagObjectType` as `"annotated"` and
-`tagSignature` as `"verified"`. This is a fixed placeholder. It is not an
-observation of the real tag. `scripts/release-preflight.ts` also accepts this
-same placeholder value, so nothing here writes it to a file or uploads it. See
-the comment on `githubReleaseSourceEvidence` in `scripts/release-source-facts.ts`
-for why an uploaded copy would give anyone a ready-made credential for the
-preflight gate.
+each archive. This value uses `tagObjectType: "annotated"` as a fixed
+placeholder. It is not an observation of the real tag. The value uses
+`tagSignature: "unsigned"` because this path checks no signature. The workflow
+does not write this value to a file. The workflow does not upload this value.
+See the comment on `githubReleaseSourceEvidence` in
+`scripts/release-source-facts.ts` for the boundary details.
 
 SBOM generation does not consume `ReleaseSourceEvidence`. It consumes an exact
 `ReleaseSbomSource` record. This record contains the product version, source

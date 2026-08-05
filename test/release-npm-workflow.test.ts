@@ -233,7 +233,7 @@ test("the immutable prerelease retains the durable promotion inputs", () => {
   assert.ok(observations !== -1 && observations < publish);
 });
 
-test("the safety interlock runs before signed source evidence is materialized", () => {
+test("the safety interlock runs before source evidence is materialized", () => {
   for (const name of ["preflight", "publish", "release"] as const) {
     const body = job(name);
     const ready = body.indexOf("release-completion.ts ready");

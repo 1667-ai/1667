@@ -287,6 +287,7 @@ test("the three source facts build an identity the release codec accepts", () =>
   const identities = releaseIdentitiesForSource(FACTS);
   assert.equal(identities.evidence.productVersion, VERSION);
   assert.equal(identities.evidence.tagName, `v${VERSION}`);
+  assert.equal(identities.evidence.tagSignature, "unsigned");
   assert.equal(identities.evidence.tagTargetCommit, SOURCE_COMMIT);
   for (const target of PUBLISHED_ARTIFACT_TARGETS) {
     const identity = releaseIdentityForTarget(identities, target);
@@ -375,12 +376,9 @@ test("staging writes the whole file set and nothing else", (t) => {
   assert.equal(sbom.spdxVersion, "SPDX-2.3");
   assert.equal(sbom.name, `@1667-ai/linux-x64@${VERSION}`);
 
-  // The accepted wart, held to memory. The evidence codec types
-  // `tagSignature: "verified"` as a literal, so the identity every job builds
-  // asserts a signature nothing verified. That is tolerable only while the
-  // claim never reaches a file, so no staged file may carry either tag field.
-  // `tagName` is a different thing and may ship: it names the tag the release
-  // job creates at this commit and claims nothing about a signature.
+  // The in-memory evidence states that this path checks no signature. No
+  // staged file needs the tag authorization fields. `tagName` can ship because
+  // it only names the release tag.
   for (const shipped of [buildManifestText, sbomText]) {
     assert.doesNotMatch(shipped, /tagSignature|tagObjectType|"verified"/u);
   }

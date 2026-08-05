@@ -90,11 +90,9 @@ export function assertRepositoryPackageVersions(productVersion: string): void {
  * release commit against the protected default branch, checks the tag against
  * the commit, and reads the four package manifests at that commit. Nothing
  * here does any of that. `input.sourceCommit` is asserted, not verified, so
- * `tagObjectType: "annotated"` and `tagSignature: "verified"` are a fixed,
- * accepted placeholder rather than a claim about this commit — the same
- * literal choice `scripts/release-evidence.ts` would make of a real signed,
- * annotated tag, chosen so the two paths cannot be told apart by identity
- * alone. A GitHub pre-release anchors somewhere else: the build-provenance
+ * `tagObjectType: "annotated"` is a fixed placeholder rather than a claim
+ * about this commit. `tagSignature: "unsigned"` states that this path checks
+ * no signature. A GitHub release anchors somewhere else: the build-provenance
  * attestation GitHub's Sigstore instance issues over each archive, which binds
  * the bytes to this workflow, this repository, and this commit, and which
  * `gh attestation verify` checks.
@@ -119,7 +117,7 @@ export function githubReleaseSourceEvidence(
     sourceDirty: false as const,
     tagName: `v${input.version}`,
     tagObjectType: "annotated" as const,
-    tagSignature: "verified" as const,
+    tagSignature: "unsigned" as const,
     tagTargetCommit: input.sourceCommit,
     buildTimestamp: input.buildTimestamp,
     packageVersions: Object.freeze({ ...input.packageVersions })
@@ -135,13 +133,12 @@ export function githubReleaseSourceEvidence(
  * the evidence once, writing it to a file, and uploading the file for the build
  * matrix to download. This document's `sourceCommit` is whatever the three
  * strings say, never checked against the protected default branch, and its
- * `tagObjectType`/`tagSignature` are the fixed placeholder above rather than an
- * observation. `scripts/release-preflight.ts` accepts exactly this document's
- * shape as release evidence, and that is the gate in front of npm publication,
- * which cannot be withdrawn. A downloadable copy would therefore let anyone who
- * can read a workflow run feed preflight a commit and a tag name it never
- * checked reachability or existence for. The three strings assert nothing, so
- * they may cross a job boundary; the document they build may not.
+ * `tagObjectType` is the fixed placeholder above rather than an observation.
+ * `tagSignature` states that this path checks no signature.
+ * `scripts/release-preflight.ts` accepts this document as release evidence.
+ * A downloadable copy would let a reader feed preflight a commit and a tag
+ * name that this path did not check. The three strings assert nothing, so they
+ * can cross a job boundary. The document that they build cannot cross one.
  *
  * The facts come from `prepare` rather than being recomputed on each runner so
  * that every target in a run writes the same version, commit and timestamp into

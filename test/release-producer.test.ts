@@ -14,8 +14,9 @@ import {
   utimes,
   writeFile
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import test from "node:test";
 import { parseBuildIdentity } from "../shared/build-identity.js";
@@ -33,6 +34,7 @@ import {
   packReleasePackages,
   type NpmPackInvocation
 } from "../scripts/release-pack.js";
+import { collectReleaseEvidence } from "../scripts/release-evidence.js";
 import { releaseIdentityForTarget } from "../scripts/release-identity.js";
 import { createReleasePreflightPlan } from "../scripts/release-npm-plan.js";
 import { publicationPackages } from "../scripts/release-npm-publish.js";
@@ -43,7 +45,10 @@ import {
   type StagedReleasePackage
 } from "../scripts/release-stage-packages.js";
 import { AI_1667_PRODUCT_VERSION } from "../shared/build-identity.js";
-import { releaseIdentitiesForSource } from "../scripts/release-source-facts.js";
+import {
+  releaseIdentitiesForSource,
+  type ReleaseSourceFacts
+} from "../scripts/release-source-facts.js";
 import {
   assertMissing,
   tarModificationTimes
@@ -55,6 +60,7 @@ import {
 const VERSION = AI_1667_PRODUCT_VERSION;
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const TIMESTAMP = "2026-07-28T10:20:30.000Z";
+const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const execFileAsync = promisify(execFile);
 const facts = Object.freeze({
   version: VERSION,
@@ -62,24 +68,34 @@ const facts = Object.freeze({
   buildTimestamp: TIMESTAMP
 });
 
-test("real staging and packing feed preflight reproducibly and launch locally", async (t) => {
+test("a real unsigned tag feeds staging, packing, preflight, and a local launch", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-producer-"));
   t.after(() => rm(root, { recursive: true, force: true }));
+  const sourceEvidence = await collectUnsignedReleaseEvidence(root);
+  const releaseFacts = Object.freeze({
+    version: sourceEvidence.productVersion,
+    sourceCommit: sourceEvidence.sourceCommit,
+    buildTimestamp: sourceEvidence.buildTimestamp
+  });
+  assert.equal(sourceEvidence.tagObjectType, "lightweight");
+  assert.equal(sourceEvidence.tagSignature, "unsigned");
   const npm = npmPackInvocationFromEnvironment();
   const builds = path.join(root, "builds");
-  const buildDirectories = await stageBuildInputs(builds);
+  const buildDirectories = await stageBuildInputs(builds, releaseFacts);
   const firstStage = path.join(root, "stage-a");
   let first: readonly StagedReleasePackage[];
   let publishedSourceCommitReads = 0;
   const previousUmask = process.umask(0o077);
   try {
     first = stagePublishedReleasePackages({
-      version: facts.version,
+      version: releaseFacts.version,
       get sourceCommit(): string {
         publishedSourceCommitReads += 1;
-        return publishedSourceCommitReads === 1 ? COMMIT : "f".repeat(40);
+        return publishedSourceCommitReads === 1
+          ? releaseFacts.sourceCommit
+          : "f".repeat(40);
       },
-      buildTimestamp: facts.buildTimestamp,
+      buildTimestamp: releaseFacts.buildTimestamp,
       buildDirectories,
       outputDirectory: firstStage
     });
@@ -100,7 +116,6 @@ test("real staging and packing feed preflight reproducibly and launch locally", 
     outputDirectory: path.join(root, "pack-a"),
     npm
   });
-  const identities = releaseIdentitiesForSource(facts);
   const observedIdentities = new Map(await Promise.all(first
     .filter((entry) => entry.artifactTarget !== "launcher")
     .map(async (entry) => {
@@ -131,11 +146,12 @@ test("real staging and packing feed preflight reproducibly and launch locally", 
     }));
   }
   const plan = await createReleasePreflightPlan(
-    identities.evidence,
+    sourceEvidence,
     path.join(root, "pack-a"),
     observations,
     await realpath(root)
   );
+  assert.deepEqual(plan.sourceEvidence, sourceEvidence);
   const preflight = await runReleasePreflight(plan, root);
   assert.equal(preflight.manifest.artifacts.length, PUBLISHED_PACKAGE_COUNT);
   assert.deepEqual(
@@ -165,7 +181,7 @@ test("real staging and packing feed preflight reproducibly and launch locally", 
   await writeFile(mutationFile, JSON.stringify(mutation));
   await assert.rejects(
     createReleasePreflightPlan(
-      identities.evidence,
+      sourceEvidence,
       path.join(root, "pack-a"),
       observations,
       await realpath(root)
@@ -175,7 +191,7 @@ test("real staging and packing feed preflight reproducibly and launch locally", 
 
   await varyBuildMtimes(buildDirectories);
   const second = stagePublishedReleasePackages({
-    ...facts,
+    ...releaseFacts,
     buildDirectories,
     outputDirectory: path.join(root, "stage-b")
   });
@@ -459,8 +475,64 @@ test("release pack cannot run package lifecycle scripts", async (t) => {
   });
 });
 
+/**
+ * Creates the source boundary that the hosted release uses. The tag is a real
+ * lightweight Git tag. The protected branch is a real ref. The collector must
+ * return this source as unsigned before the package pipeline can use it.
+ */
+async function collectUnsignedReleaseEvidence(root: string) {
+  const repository = path.join(root, "source");
+  await mkdir(path.join(repository, "tui"), { recursive: true });
+  await Promise.all([
+    writeFile(
+      path.join(repository, "package.json"),
+      await readFile(path.join(REPOSITORY_ROOT, "package.json"))
+    ),
+    writeFile(
+      path.join(repository, "package-lock.json"),
+      await readFile(path.join(REPOSITORY_ROOT, "package-lock.json"))
+    ),
+    writeFile(
+      path.join(repository, "tui", "package.json"),
+      await readFile(path.join(REPOSITORY_ROOT, "tui", "package.json"))
+    )
+  ]);
+  const environment: NodeJS.ProcessEnv = {
+    PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+    LC_ALL: "C",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: devNull,
+    GIT_CONFIG_SYSTEM: devNull,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_AUTHOR_NAME: "Release Test",
+    GIT_AUTHOR_EMAIL: "release@1667.test",
+    GIT_AUTHOR_DATE: "2026-07-28T00:00:00+0000",
+    GIT_COMMITTER_NAME: "Release Test",
+    GIT_COMMITTER_EMAIL: "release@1667.test",
+    GIT_COMMITTER_DATE: "2026-07-28T00:00:00+0000"
+  };
+  const git = async (args: readonly string[]): Promise<void> => {
+    await execFileAsync("git", [...args], {
+      cwd: repository,
+      env: environment,
+      encoding: "utf8"
+    });
+  };
+  await git(["init", "-q", "-b", "main", "."]);
+  await git(["add", "-A"]);
+  await git(["commit", "-q", "-m", "release source"]);
+  await git(["tag", `v${VERSION}`]);
+  await git(["update-ref", "refs/remotes/origin/main", "HEAD"]);
+  return collectReleaseEvidence({
+    repositoryRoot: repository,
+    tagName: `v${VERSION}`,
+    buildTimestamp: TIMESTAMP
+  });
+}
+
 async function stageBuildInputs(
-  root: string
+  root: string,
+  sourceFacts: ReleaseSourceFacts = facts
 ): Promise<Record<PublishedArtifactTarget, string>> {
   const entries = await Promise.all(PUBLISHED_ARTIFACT_TARGETS.map(async (target) => {
     const directory = path.join(root, target);
@@ -468,15 +540,20 @@ async function stageBuildInputs(
     await mkdir(directory, { recursive: true });
     await writeExecutable(
       path.join(directory, path.posix.basename(descriptor.executable)),
-      target
+      target,
+      sourceFacts
     );
     return [target, directory] as const;
   }));
   return Object.fromEntries(entries) as Record<PublishedArtifactTarget, string>;
 }
 
-async function writeExecutable(file: string, target: BuiltArtifactTarget): Promise<void> {
-  const identity = releaseIdentityForTarget(releaseIdentitiesForSource(facts), target);
+async function writeExecutable(
+  file: string,
+  target: BuiltArtifactTarget,
+  sourceFacts: ReleaseSourceFacts = facts
+): Promise<void> {
+  const identity = releaseIdentityForTarget(releaseIdentitiesForSource(sourceFacts), target);
   await writeFile(file, [
     "#!/usr/bin/env node",
     `const identity = ${JSON.stringify(identity)};`,
