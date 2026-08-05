@@ -326,8 +326,7 @@ must contain the trusted build identity from its native executable.
 
 `tagObjectType` also accepts `"annotated"`. The current collector accepts an
 annotated tag only when the tag contains no signature armor. `tagSignature`
-also accepts `"verified"`. A different collector can produce that value after
-it verifies the signature. Only an annotated tag can use `"verified"`.
+accepts only `"unsigned"`. No current component verifies a tag signature.
 
 Preflight rejects missing, duplicate, extra, or unsupported packages. It also
 rejects package identities that do not agree with the source evidence.

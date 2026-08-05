@@ -13,7 +13,7 @@ const identities = createReleaseIdentitySet({
   sourceDirty: false,
   tagName: "v3.0.0",
   tagObjectType: "annotated",
-  tagSignature: "verified",
+  tagSignature: "unsigned",
   tagTargetCommit: "0123456789abcdef0123456789abcdef01234567",
   buildTimestamp: "2026-07-23T10:20:30.000Z",
   packageVersions: {

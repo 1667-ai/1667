@@ -40,19 +40,15 @@ const PACKAGE_VERSIONS = Object.freeze({
 });
 
 /**
- * The evidence document's `tagObjectType`/`tagSignature` come in two accepted
- * shapes now: a signed, annotated tag verified by a maintainer, and an
- * unsigned or lightweight tag accepted deliberately because there is no user
- * of this product yet — see docs/RELEASING.md. Preflight must run the whole
- * pipeline through either shape identically, so both run through the exact
- * same body below rather than one being asserted only at the identity-codec
- * level.
+ * The evidence document accepts unsigned annotated and lightweight tags.
+ * Preflight must run the whole pipeline through both shapes. Thus, both shapes
+ * run through the same test body.
  */
 const SOURCE_EVIDENCE_SCENARIOS = [
   {
-    label: "a signed, annotated tag",
+    label: "an unsigned, annotated tag",
     tagObjectType: "annotated",
-    tagSignature: "verified"
+    tagSignature: "unsigned"
   },
   {
     label: "an unsigned, lightweight tag",
@@ -188,7 +184,7 @@ test("local release preflight CLI refuses a plan with a duplicate object key", a
   );
 });
 
-test("local release preflight refuses verified evidence for a lightweight tag", async (t) => {
+test("local release preflight refuses a verified signature claim", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-preflight-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const planPath = path.join(root, "impossible-evidence.json");
@@ -200,7 +196,7 @@ test("local release preflight refuses verified evidence for a lightweight tag", 
       sourceCommit: COMMIT,
       sourceDirty: false,
       tagName: `v${VERSION}`,
-      tagObjectType: "lightweight",
+      tagObjectType: "annotated",
       tagSignature: "verified",
       tagTargetCommit: COMMIT,
       buildTimestamp: TIMESTAMP,
@@ -220,7 +216,7 @@ test("local release preflight refuses verified evidence for a lightweight tag", 
     ], { cwd: REPOSITORY_ROOT, encoding: "utf8" }),
     (error: unknown) => {
       const stderr = (error as { stderr?: string }).stderr ?? "";
-      return /verified release tag signature requires an annotated tag/.test(stderr);
+      return /Release tag signature must be unsigned/.test(stderr);
     }
   );
 });

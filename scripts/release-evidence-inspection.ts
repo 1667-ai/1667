@@ -158,7 +158,10 @@ function requireUnsignedTagObject(
 ): void {
   if (objectType === "lightweight") return;
   const tagObject = successfulOutput(contents, `Release tag ${tagName} object`);
-  if (!/^type commit$/mu.test(tagObject)) {
+  const headerEnd = tagObject.indexOf("\n\n");
+  const header = headerEnd === -1 ? tagObject : tagObject.slice(0, headerEnd);
+  const targetTypes = header.split("\n").filter((line) => line.startsWith("type "));
+  if (targetTypes.length !== 1 || targetTypes[0] !== "type commit") {
     throw new Error(`Release tag ${tagName} must point directly at a commit`);
   }
   if (TAG_SIGNATURE_ARMOR.test(tagObject)) {

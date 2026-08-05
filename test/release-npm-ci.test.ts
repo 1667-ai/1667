@@ -402,6 +402,35 @@ test("remote tag verification ignores a colliding branch", async (t) => {
   assert.equal(calls.some((args) => args[1]?.includes("/commits/")), false);
 });
 
+test("remote tag verification refuses a nested annotated tag", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-npm-github-tag-chain-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const gh = path.join(root, "gh");
+  await writeFile(gh, fakeReleaseGh({
+    remote: path.join(root, "remote"),
+    state: path.join(root, "state.json"),
+    log: path.join(root, "gh.log")
+  }, {
+    tagObjectSha: "e".repeat(40),
+    tagObjectTargetType: "tag"
+  }));
+  await chmod(gh, 0o755);
+
+  await assert.rejects(
+    verifyRemoteReleaseTag({
+      version: VERSION,
+      sourceCommit: COMMIT,
+      environment: {
+        GITHUB_REPOSITORY: REPOSITORY,
+        GH_TOKEN: "test-token",
+        HOME: root
+      },
+      ghExecutable: gh
+    }),
+    /did not resolve to a commit/u
+  );
+});
+
 test("remote tag verification requires the approved immutable tag rule", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-npm-github-tag-rule-"));
   t.after(() => rm(root, { recursive: true, force: true }));

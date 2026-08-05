@@ -87,6 +87,11 @@ test("assembled evidence refuses every structural defect from captured output al
     [/must point directly at a commit/, {
       tagObjectContents: ok(`object ${OTHER_COMMIT}\ntype tag\ntag ${TAG}\n`)
     }],
+    [/must point directly at a commit/, {
+      tagObjectContents: ok(
+        `object ${OTHER_COMMIT}\ntype tag\ntag ${TAG}\n\nmessage\ntype commit\n`
+      )
+    }],
     [/object could not be read/, { tagObjectContents: failed("fatal: bad object\n") }],
     [/does not point at the release commit/, { tagTargetCommit: ok(`${OTHER_COMMIT}\n`) }],
     [/is not reachable from protected ref/, { protectedReachability: failed("") }],

@@ -33,10 +33,8 @@ export function assertReleasePackageVersions(
 /**
  * `tagObjectType` and `tagSignature` describe the release tag as it actually
  * is, not as a fixed claim. There is no user of this product yet, and the
- * signing-key requirement that once forced `"annotated"` and `"verified"`
- * returns before there is one — see docs/RELEASING.md. A lightweight tag and
- * an unsigned tag are accepted release sources now, so both fields carry a
- * real answer instead of a literal that could describe a check nobody ran.
+ * signing-key requirement will return before there is a user. An annotated or
+ * lightweight tag is accepted now, but no collector verifies a signature.
  */
 interface ReleaseSourceEvidenceBase {
   schemaVersion: 1;
@@ -49,9 +47,10 @@ interface ReleaseSourceEvidenceBase {
   packageVersions: ReleasePackageVersions;
 }
 
-type ReleaseTagEvidence =
-  | { tagObjectType: "annotated"; tagSignature: "verified" | "unsigned" }
-  | { tagObjectType: "lightweight"; tagSignature: "unsigned" };
+interface ReleaseTagEvidence {
+  readonly tagObjectType: "annotated" | "lightweight";
+  readonly tagSignature: "unsigned";
+}
 
 export type ReleaseSourceEvidence = ReleaseSourceEvidenceBase & ReleaseTagEvidence;
 
@@ -84,11 +83,7 @@ const PACKAGE_VERSION_KEYS = new Set([
   "rootLockPackage"
 ]);
 
-/**
- * Converts separately collected Git/package evidence into the only identities
- * release builds may embed. The caller remains responsible for obtaining
- * `tagSignature: "verified"` from a trusted `git verify-tag` invocation.
- */
+/** Converts collected Git/package evidence into release build identities. */
 export function createReleaseIdentitySet(value: unknown): ReleaseIdentitySet {
   return createIdentitySet(parseSourceEvidence(value));
 }
@@ -175,20 +170,11 @@ function parseSourceEvidence(value: unknown): ReleaseSourceEvidence {
 }
 
 function parseTagEvidence(objectType: unknown, signature: unknown): ReleaseTagEvidence {
-  if (objectType === "lightweight") {
-    if (signature !== "unsigned") {
-      if (signature === "verified") {
-        throw new Error("A verified release tag signature requires an annotated tag");
-      }
-      throw new Error("Release tag signature must be verified or unsigned");
-    }
-    return Object.freeze({ tagObjectType: objectType, tagSignature: signature });
-  }
-  if (objectType !== "annotated") {
+  if (objectType !== "annotated" && objectType !== "lightweight") {
     throw new Error("Release source tag must be annotated or lightweight");
   }
-  if (signature !== "verified" && signature !== "unsigned") {
-    throw new Error("Release tag signature must be verified or unsigned");
+  if (signature !== "unsigned") {
+    throw new Error("Release tag signature must be unsigned");
   }
   return Object.freeze({ tagObjectType: objectType, tagSignature: signature });
 }

@@ -110,12 +110,7 @@ async function remoteTagCommit(
     throw new Error(`Remote release tag ${tag} returned the wrong ref`);
   }
   let object = gitObject(response.object, `Remote release tag ${tag}`);
-  const visited = new Set<string>();
-  while (object.type === "tag") {
-    if (visited.size >= 8 || visited.has(object.sha)) {
-      throw new Error(`Remote release tag ${tag} has an invalid tag chain`);
-    }
-    visited.add(object.sha);
+  if (object.type === "tag") {
     const tagged = await runReleaseGh(
       gh,
       ["api", `repos/${repository}/git/tags/${object.sha}`],

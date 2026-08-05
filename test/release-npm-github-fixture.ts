@@ -84,6 +84,7 @@ export function fakeReleaseGh(paths: {
   readonly tagCommit?: string;
   readonly branchCommit?: string;
   readonly tagObjectSha?: string;
+  readonly tagObjectTargetType?: "commit" | "tag";
   readonly immutableTagRuleset?: boolean;
   readonly omitBypassActors?: boolean;
   readonly rulesetUpdatedAt?: string;
@@ -105,6 +106,7 @@ export function fakeReleaseGh(paths: {
     `const initialTagCommit = ${JSON.stringify(initialTagCommit)};`,
     `const branchCommit = ${JSON.stringify(options.branchCommit)};`,
     `const tagObjectSha = ${JSON.stringify(options.tagObjectSha)};`,
+    `const tagObjectTargetType = ${JSON.stringify(options.tagObjectTargetType ?? "commit")};`,
     `const immutableTagRuleset = ${JSON.stringify(options.immutableTagRuleset ?? true)};`,
     `const omitBypassActors = ${JSON.stringify(options.omitBypassActors ?? false)};`,
     `const rulesetUpdatedAt = ${JSON.stringify(options.rulesetUpdatedAt ?? "2026-08-05T10:12:37.419Z")};`,
@@ -137,7 +139,7 @@ export function fakeReleaseGh(paths: {
     "  const sha = fs.existsSync(tagState)",
     "    ? fs.readFileSync(tagState, \"utf8\")",
     "    : initialTagCommit;",
-    "  process.stdout.write(JSON.stringify({object:{type:\"commit\",sha}}));",
+    "  process.stdout.write(JSON.stringify({object:{type:tagObjectTargetType,sha}}));",
     "} else if (args[0] === \"api\" && args[1].includes(\"/commits/\")) {",
     "  process.stdout.write(JSON.stringify({sha: branchCommit ?? initialTagCommit}));",
     "} else if (command === \"view\") {",
