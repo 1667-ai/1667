@@ -196,6 +196,9 @@ this product has a user.
 - The root package, TUI package, and root lockfile agree on one version.
 - The tag name matches that version.
 
+The `tag: v* immutable` ruleset must be active. It blocks tag updates and tag
+deletions. It has no bypass actor. It does not block tag creation.
+
 The release job resolves the remote release tag before it creates a draft
 release. The tag must still target the dispatch commit. The job repeats the
 check before it publishes the draft. It resolves the tag again after GitHub
@@ -343,11 +346,11 @@ Dispatch the workflow with this command:
 gh workflow run release-npm.yml --ref "v<version>" -f version=<version>
 ```
 
-The dispatch records the tag commit as the release source commit. The remote
-tag stays mutable until GitHub publishes the release. The workflow resolves the
-remote tag before it makes the release immutable. It checks the locked tag
-before it writes to npm. The workflow refuses a release commit that the default
-branch cannot reach. The completion record also binds to that commit.
+The dispatch records the tag commit as the release source commit. The tag
+ruleset prevents a later change to that tag. The workflow resolves the tag
+before it makes the release immutable. It checks the tag before it writes to
+npm. The workflow refuses a release commit that the default branch cannot
+reach. The completion record also binds to that commit.
 
 The workflow has these jobs:
 
@@ -355,7 +358,7 @@ The workflow has these jobs:
 2. `build` builds and observes the five published native executables.
 3. `launcher` stages and packs the six release packages.
 4. `preflight` verifies the package set and retains the result.
-5. `release` publishes the immutable GitHub release and locks its tag.
+5. `release` publishes the immutable GitHub release for the locked tag.
 6. `publish` publishes the five platform packages before the launcher package.
    It then records completion.
 

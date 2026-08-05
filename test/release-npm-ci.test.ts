@@ -31,9 +31,9 @@ import {
 } from "../scripts/release-npm-ci.js";
 import {
   publishOrVerifyGitHubRelease,
-  verifyRemoteReleaseTag,
   verifyNpmReleaseAssetDirectory
 } from "../scripts/release-npm-github.js";
+import { verifyRemoteReleaseTag } from "../scripts/release-github-tag.js";
 import {
   fakeReleaseGh,
   writeReleaseAssetFixture
@@ -267,8 +267,37 @@ test("remote tag verification ignores a colliding branch", async (t) => {
   const calls = (await readFile(log, "utf8")).trimEnd().split("\n").map((line) => {
     return JSON.parse(line) as string[];
   });
-  assert.equal(calls[0]?.[1], `repos/${REPOSITORY}/git/ref/tags/v${VERSION}`);
+  assert.equal(
+    calls.some((args) => args[1] === `repos/${REPOSITORY}/git/ref/tags/v${VERSION}`),
+    true
+  );
   assert.equal(calls.some((args) => args[1]?.includes("/commits/")), false);
+});
+
+test("remote tag verification requires an immutable tag rule", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-npm-github-tag-rule-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const gh = path.join(root, "gh");
+  await writeFile(gh, fakeReleaseGh({
+    remote: path.join(root, "remote"),
+    state: path.join(root, "state.json"),
+    log: path.join(root, "gh.log")
+  }, { immutableTagRuleset: false }));
+  await chmod(gh, 0o755);
+
+  await assert.rejects(
+    verifyRemoteReleaseTag({
+      version: VERSION,
+      sourceCommit: COMMIT,
+      environment: {
+        GITHUB_REPOSITORY: REPOSITORY,
+        GH_TOKEN: "test-token",
+        HOME: root
+      },
+      ghExecutable: gh
+    }),
+    /tag: v\* immutable is not active/u
+  );
 });
 
 test("GitHub release verification binds installers to channel digests and rejects prerelease stable", async (t) => {

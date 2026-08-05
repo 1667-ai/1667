@@ -55,7 +55,7 @@ test("the npm workflow authorizes one dispatcher before the publication stages",
 test("the npm release dispatch binds to the tag commit", () => {
   // A dispatch on the default branch takes GITHUB_SHA from the branch tip, so a
   // merge after the tag is created changes the source commit. A tag dispatch
-  // records the tagged commit. Later jobs also check the mutable remote tag.
+  // records the tagged commit. Later jobs also check the locked remote tag.
   assert.match(WORKFLOW, /The dispatch ref must be the\n\s+v<version> tag\./u);
   for (const name of ["build", "publish"] as const) {
     const body = job(name);

@@ -1,6 +1,5 @@
 #!/usr/bin/env -S node --import tsx
 
-import { execFile } from "node:child_process";
 import {
   lstatSync,
   readdirSync,
@@ -11,12 +10,16 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import { isSemVer } from "../shared/semver.js";
 import { PUBLISHED_ARTIFACT_TARGETS } from "../shared/release-targets.js";
 import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
 import { releaseArchiveFileName } from "./release-archive.js";
-import { isExecutableFile } from "./release-boundary-validation.js";
+import {
+  boundedGhExecutable,
+  runReleaseGh as runGh,
+  type GitHubReleaseEnvironment
+} from "./release-github-client.js";
+import { verifyRemoteReleaseTag } from "./release-github-tag.js";
 import {
   directoryAssetDigests,
   formatReleaseChecksums
@@ -28,18 +31,9 @@ import {
   isPrereleaseVersion
 } from "./release-publication-assets.js";
 
-const execFileAsync = promisify(execFile);
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const COMMIT = /^[0-9a-f]{40}$/u;
-const MAX_GH_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_NOTES_BYTES = 64 * 1024;
-
-export interface GitHubReleaseEnvironment {
-  readonly GITHUB_REPOSITORY?: string;
-  readonly RELEASE_GH_PATH?: string;
-  readonly GH_TOKEN?: string;
-  readonly HOME?: string;
-}
 
 export interface PublishGitHubReleaseOptions {
   readonly version: string;
@@ -50,42 +44,10 @@ export interface PublishGitHubReleaseOptions {
   readonly ghExecutable?: string;
 }
 
-export interface VerifyRemoteReleaseTagOptions {
-  readonly version: string;
-  readonly sourceCommit: string;
-  readonly environment: GitHubReleaseEnvironment;
-  readonly ghExecutable?: string;
-}
-
 interface ReleaseState {
   readonly isDraft: boolean;
   readonly isImmutable: boolean;
   readonly isPrerelease: boolean;
-}
-
-export async function verifyRemoteReleaseTag(
-  options: VerifyRemoteReleaseTagOptions
-): Promise<void> {
-  if (!isSemVer(options.version)) throw new Error("GitHub release version is not SemVer");
-  if (!COMMIT.test(options.sourceCommit)) {
-    throw new Error("GitHub release source commit is not canonical");
-  }
-  const repository = requiredMatch(
-    options.environment.GITHUB_REPOSITORY,
-    REPOSITORY,
-    "GITHUB_REPOSITORY"
-  );
-  const gh = boundedExecutable(
-    options.ghExecutable
-      ?? requiredValue(options.environment.RELEASE_GH_PATH, "RELEASE_GH_PATH")
-  );
-  await requireRemoteTagCommit(
-    gh,
-    `v${options.version}`,
-    repository,
-    options.sourceCommit,
-    options.environment
-  );
 }
 
 export async function publishOrVerifyGitHubRelease(
@@ -105,7 +67,7 @@ export async function publishOrVerifyGitHubRelease(
     REPOSITORY,
     "GITHUB_REPOSITORY"
   );
-  const gh = boundedExecutable(
+  const gh = boundedGhExecutable(
     options.ghExecutable
       ?? requiredValue(options.environment.RELEASE_GH_PATH, "RELEASE_GH_PATH")
   );
@@ -116,13 +78,13 @@ export async function publishOrVerifyGitHubRelease(
   );
   const notes = boundedFile(options.notesFile, "GitHub release notes", MAX_NOTES_BYTES);
   const tag = `v${options.version}`;
-  await requireRemoteTagCommit(
-    gh,
-    tag,
-    repository,
-    options.sourceCommit,
-    options.environment
-  );
+  const verifyTag = async (): Promise<void> => await verifyRemoteReleaseTag({
+    version: options.version,
+    sourceCommit: options.sourceCommit,
+    environment: options.environment,
+    ghExecutable: gh
+  });
+  await verifyTag();
   let state = await releaseState(gh, tag, repository, options.environment);
   if (state?.isDraft === true) {
     await runGh(gh, ["release", "delete", tag, "--repo", repository, "--yes"], options.environment);
@@ -154,13 +116,7 @@ export async function publishOrVerifyGitHubRelease(
   if (uploaded === null) throw new Error("Uploaded GitHub release disappeared");
   await verifyDownloadedRelease(gh, tag, repository, assets, options.environment);
   if (!created) return;
-  await requireRemoteTagCommit(
-    gh,
-    tag,
-    repository,
-    options.sourceCommit,
-    options.environment
-  );
+  await verifyTag();
   await runGh(
     gh,
     ["release", "edit", tag, "--repo", repository, "--draft=false"],
@@ -170,13 +126,7 @@ export async function publishOrVerifyGitHubRelease(
   if (published === null) throw new Error("Published GitHub release disappeared");
   requireImmutableReleaseChannel(published, prerelease, "Published");
   if (published.isDraft) throw new Error("Published GitHub release is still a draft");
-  await requireRemoteTagCommit(
-    gh,
-    tag,
-    repository,
-    options.sourceCommit,
-    options.environment
-  );
+  await verifyTag();
 }
 
 export function verifyNpmReleaseAssetDirectory(
@@ -327,81 +277,6 @@ async function releaseState(
   });
 }
 
-async function requireRemoteTagCommit(
-  gh: string,
-  tag: string,
-  repository: string,
-  expectedCommit: string,
-  environment: GitHubReleaseEnvironment
-): Promise<void> {
-  const commit = await remoteTagCommit(gh, tag, repository, environment);
-  if (commit !== expectedCommit) {
-    throw new Error(`Remote release tag ${tag} does not target the dispatch commit`);
-  }
-}
-
-async function remoteTagCommit(
-  gh: string,
-  tag: string,
-  repository: string,
-  environment: GitHubReleaseEnvironment
-): Promise<string> {
-  const refName = `refs/tags/${tag}`;
-  const { stdout } = await runGh(
-    gh,
-    ["api", `repos/${repository}/git/ref/tags/${encodeURIComponent(tag)}`],
-    environment
-  );
-  const response = jsonObject(stdout, `Remote release tag ${tag}`);
-  if (response.ref !== refName) {
-    throw new Error(`Remote release tag ${tag} returned the wrong ref`);
-  }
-  let object = gitObject(response.object, `Remote release tag ${tag}`);
-  const visited = new Set<string>();
-  while (object.type === "tag") {
-    if (visited.size >= 8 || visited.has(object.sha)) {
-      throw new Error(`Remote release tag ${tag} has an invalid tag chain`);
-    }
-    visited.add(object.sha);
-    const tagged = await runGh(
-      gh,
-      ["api", `repos/${repository}/git/tags/${object.sha}`],
-      environment
-    );
-    object = gitObject(
-      jsonObject(tagged.stdout, `Remote release tag object ${object.sha}`).object,
-      `Remote release tag object ${object.sha}`
-    );
-  }
-  if (object.type !== "commit") {
-    throw new Error(`Remote release tag ${tag} did not resolve to a commit`);
-  }
-  return object.sha;
-}
-
-function jsonObject(stdout: string, label: string): Record<string, unknown> {
-  const value = parseJsonRejectingDuplicateKeys(stdout);
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${label} is not an object`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function gitObject(value: unknown, label: string): {
-  readonly type: string;
-  readonly sha: string;
-} {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${label} has no Git object`);
-  }
-  const object = value as Record<string, unknown>;
-  if (typeof object.type !== "string"
-    || typeof object.sha !== "string" || !COMMIT.test(object.sha)) {
-    throw new Error(`${label} has an invalid Git object`);
-  }
-  return Object.freeze({ type: object.type, sha: object.sha });
-}
-
 /**
  * Refuses a release that is not immutable, and refuses a release whose
  * `isPrerelease` flag disagrees with the version's own channel — in either
@@ -423,25 +298,6 @@ function requireImmutableReleaseChannel(
   }
 }
 
-async function runGh(
-  gh: string,
-  args: readonly string[],
-  environment: GitHubReleaseEnvironment
-): Promise<{ readonly stdout: string; readonly stderr: string }> {
-  return await execFileAsync(gh, [...args], {
-    encoding: "utf8",
-    env: {
-      GH_TOKEN: environment.GH_TOKEN,
-      HOME: environment.HOME,
-      LANG: "C",
-      LC_ALL: "C"
-    },
-    maxBuffer: MAX_GH_OUTPUT_BYTES,
-    timeout: 5 * 60_000,
-    windowsHide: true
-  });
-}
-
 function isMissingRelease(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const detail = `${error.message}\n${
@@ -450,20 +306,10 @@ function isMissingRelease(error: unknown): boolean {
   return /release not found|HTTP 404/iu.test(detail);
 }
 
-function boundedExecutable(value: string): string {
-  if (!path.isAbsolute(value)) throw new Error("GitHub CLI path must be absolute");
-  const stat = lstatSync(value);
-  if (!stat.isFile() || stat.isSymbolicLink() || !isExecutableFile(value, stat.mode)) {
-    throw new Error("GitHub CLI must be an executable regular file");
-  }
-  return boundedFile(value, "GitHub CLI", Number.MAX_SAFE_INTEGER, true);
-}
-
 function boundedFile(
   value: string,
   label: string,
-  maximumBytes: number,
-  executable = false
+  maximumBytes: number
 ): string {
   const requested = lstatSync(value);
   if (!requested.isFile() || requested.isSymbolicLink()) {
@@ -471,8 +317,7 @@ function boundedFile(
   }
   const file = realpathSync(value);
   const stat = lstatSync(file);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > maximumBytes
-    || (executable && (stat.mode & 0o111) === 0)) {
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > maximumBytes) {
     throw new Error(`${label} must be a bounded regular file`);
   }
   return file;
@@ -514,17 +359,6 @@ if (isMainModule()) {
         );
       }
       verifyNpmReleaseAssetDirectory(directory, version, repository);
-    } else if (command === "verify-tag" && process.argv.length === 5) {
-      const version = process.argv[3];
-      const sourceCommit = process.argv[4];
-      if (version === undefined || sourceCommit === undefined) {
-        throw new Error("usage: release-npm-github.ts verify-tag <version> <source-commit>");
-      }
-      await verifyRemoteReleaseTag({
-        version,
-        sourceCommit,
-        environment: process.env
-      });
     } else if (process.argv.length === 6 && command !== undefined) {
       const sourceCommit = process.argv[3];
       const releaseAssets = process.argv[4];
@@ -542,7 +376,6 @@ if (isMainModule()) {
     } else {
       throw new Error(
         "usage: release-npm-github.ts verify-assets <version> <repository> <assets>"
-        + " | release-npm-github.ts verify-tag <version> <source-commit>"
         + " | release-npm-github.ts <version> <source-commit> <assets> <notes>"
       );
     }

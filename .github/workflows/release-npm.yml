@@ -84,8 +84,8 @@ jobs:
       id-token: write
     steps:
       # The dispatch ref is the tag, so GITHUB_SHA records the selected commit.
-      # The remote tag stays mutable until GitHub publishes the release. The
-      # publish job checks it before npm. The release job checks it again.
+      # The tag ruleset blocks updates and deletions. The publish job checks the
+      # exact tag before npm. The release job also checks it.
       # The tag needs no signature — release-evidence.ts still refuses a commit
       # that is not reachable from the protected default branch, which is what
       # keeps an unmerged commit out of a release.
@@ -513,8 +513,8 @@ jobs:
       id-token: write
     steps:
       # The dispatch ref is the tag, so GITHUB_SHA records the selected commit.
-      # The release job locks the remote tag. This job resolves it again before
-      # npm publication starts.
+      # The tag ruleset blocks updates and deletions. This job resolves the tag
+      # again before npm publication starts.
       # The tag needs no signature — release-evidence.ts still refuses a commit
       # that is not reachable from the protected default branch, which is what
       # keeps an unmerged commit out of a release.
@@ -630,7 +630,7 @@ jobs:
           set -euo pipefail
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
           node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
-          node --import tsx scripts/release-npm-github.ts \
+          node --import tsx scripts/release-github-tag.ts \
             verify-tag "$VERSION" "$GITHUB_SHA"
           npm run release:publish -- publish \
             dist/plan.json \

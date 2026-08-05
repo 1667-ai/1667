@@ -84,6 +84,7 @@ export function fakeReleaseGh(paths: {
   readonly tagCommit?: string;
   readonly branchCommit?: string;
   readonly tagObjectSha?: string;
+  readonly immutableTagRuleset?: boolean;
   readonly moveTagAfterDownloadTo?: string;
 } = {}): string {
   const initialTagCommit = options.tagCommit
@@ -99,10 +100,24 @@ export function fakeReleaseGh(paths: {
     `const initialTagCommit = ${JSON.stringify(initialTagCommit)};`,
     `const branchCommit = ${JSON.stringify(options.branchCommit)};`,
     `const tagObjectSha = ${JSON.stringify(options.tagObjectSha)};`,
+    `const immutableTagRuleset = ${JSON.stringify(options.immutableTagRuleset ?? true)};`,
     `const moveTagAfterDownloadTo = ${JSON.stringify(options.moveTagAfterDownloadTo)};`,
     `fs.appendFileSync(${JSON.stringify(paths.log)}, \`\${JSON.stringify(args)}\\n\`);`,
     "const command = args[1];",
-    "if (args[0] === \"api\" && args[1].includes(\"/git/ref/tags/\")) {",
+    "if (args[0] === \"api\" && args[1].endsWith(\"/rulesets?per_page=100\")) {",
+    "  process.stdout.write(JSON.stringify([{",
+    "    id: 1, name: \"tag: v* immutable\", target: \"tag\",",
+    "    enforcement: immutableTagRuleset ? \"active\" : \"disabled\"",
+    "  }]));",
+    "} else if (args[0] === \"api\" && args[1].endsWith(\"/rulesets/1\")) {",
+    "  process.stdout.write(JSON.stringify({",
+    "    id: 1, name: \"tag: v* immutable\", target: \"tag\",",
+    "    enforcement: immutableTagRuleset ? \"active\" : \"disabled\",",
+    "    bypass_actors: [],",
+    "    conditions: {ref_name: {include: [\"refs/tags/v*\"], exclude: []}},",
+    "    rules: [{type:\"update\"},{type:\"deletion\"},{type:\"non_fast_forward\"}]",
+    "  }));",
+    "} else if (args[0] === \"api\" && args[1].includes(\"/git/ref/tags/\")) {",
     "  const sha = fs.existsSync(tagState)",
     "    ? fs.readFileSync(tagState, \"utf8\")",
     "    : initialTagCommit;",
