@@ -113,6 +113,9 @@ function parseSourceEvidence(value: unknown): ReleaseSourceEvidence {
   }
   const tagObjectType = input.tagObjectType;
   const tagSignature = input.tagSignature;
+  if (tagSignature === "verified" && tagObjectType !== "annotated") {
+    throw new Error("A verified release tag signature requires an annotated tag");
+  }
 
   const productVersion = stringField(input.productVersion, "productVersion");
   const sourceCommit = stringField(input.sourceCommit, "sourceCommit");

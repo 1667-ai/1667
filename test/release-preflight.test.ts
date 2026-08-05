@@ -188,6 +188,43 @@ test("local release preflight CLI refuses a plan with a duplicate object key", a
   );
 });
 
+test("local release preflight refuses verified evidence for a lightweight tag", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-release-preflight-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const planPath = path.join(root, "impossible-evidence.json");
+  await writeFile(planPath, JSON.stringify({
+    schemaVersion: 1,
+    sourceEvidence: {
+      schemaVersion: 1,
+      productVersion: VERSION,
+      sourceCommit: COMMIT,
+      sourceDirty: false,
+      tagName: `v${VERSION}`,
+      tagObjectType: "lightweight",
+      tagSignature: "verified",
+      tagTargetCommit: COMMIT,
+      buildTimestamp: TIMESTAMP,
+      packageVersions: PACKAGE_VERSIONS
+    },
+    artifacts: Array.from({ length: PUBLISHED_PACKAGE_COUNT }, (_, index) => ({
+      tarballPath: `artifact-${index}.tgz`,
+      buildIdentity: null
+    }))
+  }));
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      "--import",
+      "tsx",
+      path.join(REPOSITORY_ROOT, "scripts", "release-preflight.ts"),
+      planPath
+    ], { cwd: REPOSITORY_ROOT, encoding: "utf8" }),
+    (error: unknown) => {
+      const stderr = (error as { stderr?: string }).stderr ?? "";
+      return /verified release tag signature requires an annotated tag/.test(stderr);
+    }
+  );
+});
+
 interface TarEntryFixture {
   header: Buffer;
   body: Buffer;

@@ -84,6 +84,7 @@ test("release identity rejects mutable, detached, or version-skewed inputs", () 
     // descriptive value — the accepted values are "annotated"/"lightweight".
     { ...evidence, tagObjectType: "commit" },
     { ...evidence, tagSignature: "unverified" },
+    { ...evidence, tagObjectType: "lightweight", tagSignature: "verified" },
     { ...evidence, tagName: "1.2.3-beta.1" },
     {
       ...evidence,
