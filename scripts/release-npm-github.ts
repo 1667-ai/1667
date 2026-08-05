@@ -114,6 +114,7 @@ export async function publishOrVerifyGitHubRelease(
   }
   const uploaded = await releaseState(gh, tag, repository, options.environment);
   if (uploaded === null) throw new Error("Uploaded GitHub release disappeared");
+  if (created) requireDraftReleaseChannel(uploaded, prerelease);
   await verifyDownloadedRelease(gh, tag, repository, assets, options.environment);
   if (!created) return;
   await verifyTag();
@@ -294,6 +295,19 @@ function requireImmutableReleaseChannel(
   if (state.isDraft || !state.isImmutable || state.isPrerelease !== expectedPrerelease) {
     throw new Error(
       `${label} GitHub release is not an immutable ${expectedPrerelease ? "prerelease" : "release"}`
+    );
+  }
+}
+
+function requireDraftReleaseChannel(
+  state: ReleaseState,
+  expectedPrerelease: boolean
+): void {
+  if (!state.isDraft || state.isImmutable || state.isPrerelease !== expectedPrerelease) {
+    throw new Error(
+      `Uploaded GitHub release is not a draft ${
+        expectedPrerelease ? "prerelease" : "release"
+      }`
     );
   }
 }

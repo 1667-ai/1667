@@ -87,6 +87,7 @@ export function fakeReleaseGh(paths: {
   readonly immutableTagRuleset?: boolean;
   readonly omitBypassActors?: boolean;
   readonly rulesetUpdatedAt?: string;
+  readonly createdPrerelease?: boolean;
   readonly moveTagAfterDownloadTo?: string;
 } = {}): string {
   const initialTagCommit = options.tagCommit
@@ -105,6 +106,7 @@ export function fakeReleaseGh(paths: {
     `const immutableTagRuleset = ${JSON.stringify(options.immutableTagRuleset ?? true)};`,
     `const omitBypassActors = ${JSON.stringify(options.omitBypassActors ?? false)};`,
     `const rulesetUpdatedAt = ${JSON.stringify(options.rulesetUpdatedAt ?? "2026-08-05T10:12:37.419Z")};`,
+    `const createdPrerelease = ${JSON.stringify(options.createdPrerelease)};`,
     `const moveTagAfterDownloadTo = ${JSON.stringify(options.moveTagAfterDownloadTo)};`,
     `fs.appendFileSync(${JSON.stringify(paths.log)}, \`\${JSON.stringify(args)}\\n\`);`,
     "const command = args[1];",
@@ -156,7 +158,7 @@ export function fakeReleaseGh(paths: {
     "    if (file.startsWith(\"--\")) break;",
     "    fs.copyFileSync(file, path.join(remote, path.basename(file)));",
     "  }",
-    "  const prerelease = args.includes(\"--prerelease\");",
+    "  const prerelease = createdPrerelease ?? args.includes(\"--prerelease\");",
     "  fs.writeFileSync(state, JSON.stringify({",
     "    isDraft:true,isImmutable:false,isPrerelease:prerelease",
     "  }));",
