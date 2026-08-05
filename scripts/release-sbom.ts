@@ -28,8 +28,7 @@ import {
   type ReleaseSbomSource
 } from "./release-sbom-source.js";
 import {
-  assertRepositoryPackageVersions,
-  releaseSbomSourceForFacts
+  collectRepositoryReleaseSource
 } from "./release-source-facts.js";
 
 const MAX_NPM_LOCKFILE_BYTES = 8 * 1024 * 1024;
@@ -178,9 +177,9 @@ if (isMainModule()) {
       || buildTimestamp === undefined || packageName === undefined) {
       throw new Error(USAGE);
     }
-    assertRepositoryPackageVersions(version);
+    const source = collectRepositoryReleaseSource({ version, sourceCommit, buildTimestamp });
     const set = createReleaseSboms(
-      releaseSbomSourceForFacts({ version, sourceCommit, buildTimestamp }),
+      source.sbomSource,
       repositoryReleaseComponentSources()
     );
     const sbom = releaseSbomForPackage(set, packageName);

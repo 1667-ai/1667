@@ -35,9 +35,8 @@ import {
   repositoryReleaseComponentSources
 } from "./release-sbom.js";
 import {
-  assertRepositoryPackageVersions,
-  releaseDescriptionInputsForSource,
-  releaseIdentitiesForSource,
+  collectRepositoryReleaseSource,
+  type CollectedReleaseSource,
   type ReleaseSourceFacts
 } from "./release-source-facts.js";
 
@@ -92,7 +91,8 @@ export interface StagedReleaseArchive {
 }
 
 /** The three source facts, plus where to read the build from and write to. */
-export interface StageReleaseArchiveOptions extends ReleaseSourceFacts {
+export interface StageReleaseArchiveOptions {
+  readonly source: CollectedReleaseSource;
   readonly target: BuiltArtifactTarget;
   /** Directory holding the freshly built executable, normally `tui/dist`. */
   readonly buildDirectory: string;
@@ -109,8 +109,7 @@ export interface StageReleaseArchiveOptions extends ReleaseSourceFacts {
 export function stageReleaseArchive(
   options: StageReleaseArchiveOptions
 ): StagedReleaseArchive {
-  assertRepositoryPackageVersions(options.version);
-  const { identities, sbomSource } = releaseDescriptionInputsForSource(options);
+  const { identities, sbomSource } = options.source;
   const version = identities.source.productVersion;
   const target = options.target;
   const descriptor = releaseTargetForArtifact(target);
@@ -194,10 +193,8 @@ function builtTarget(value: string | undefined): BuiltArtifactTarget {
 }
 
 /**
- * Every command below that needs a release identity takes the three source
- * facts and builds one in memory. None of them accepts or produces a source
- * evidence document: see `releaseIdentitiesForSource` for why that document
- * must never become a file.
+ * Each command that needs a release identity collects one validated source in
+ * memory. No command accepts or produces a source evidence document.
  */
 const USAGE = [
   "usage: release-github-assets.ts <command>",
@@ -235,7 +232,7 @@ function runCommand(argv: readonly string[]): string {
   }
   if (command === "identity") {
     if (rest.length !== 4) throw new Error(USAGE);
-    const identities = releaseIdentitiesForSource(sourceFacts(rest));
+    const identities = collectRepositoryReleaseSource(sourceFacts(rest)).identities;
     return `${canonicalJson(releaseIdentityForTarget(identities, builtTarget(rest[3])))}\n`;
   }
   if (command === "stage") {
@@ -244,7 +241,7 @@ function runCommand(argv: readonly string[]): string {
       throw new Error(USAGE);
     }
     const staged = stageReleaseArchive({
-      ...sourceFacts(rest),
+      source: collectRepositoryReleaseSource(sourceFacts(rest)),
       target: builtTarget(rest[3]),
       buildDirectory,
       outputDirectory

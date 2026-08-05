@@ -41,7 +41,7 @@ import {
   RELEASE_SBOM_FILE
 } from "../scripts/release-github-assets.js";
 import {
-  releaseIdentitiesForSource
+  collectRepositoryReleaseSource
 } from "../scripts/release-source-facts.js";
 import {
   MAX_RELEASE_ARCHIVE_STEM_BYTES,
@@ -283,7 +283,7 @@ test("checksums cover every asset, sorted, and never the checksum file itself", 
 });
 
 test("the three source facts build an identity the release codec accepts", () => {
-  const identities = releaseIdentitiesForSource(FACTS);
+  const identities = collectRepositoryReleaseSource(FACTS).identities;
   assert.equal(identities.source.productVersion, VERSION);
   assert.equal(identities.source.sourceCommit, SOURCE_COMMIT);
   assert.equal(identities.source.buildTimestamp, BUILD_TIMESTAMP);
@@ -295,7 +295,7 @@ test("the three source facts build an identity the release codec accepts", () =>
     assert.equal(identity.sourceCommit, SOURCE_COMMIT);
     assert.equal(identity.artifactTarget, target);
   }
-  assert.throws(() => releaseIdentitiesForSource({
+  assert.throws(() => collectRepositoryReleaseSource({
     version: "0.1",
     sourceCommit: SOURCE_COMMIT,
     buildTimestamp: BUILD_TIMESTAMP
@@ -315,13 +315,16 @@ test("staging writes the whole file set and nothing else", (t) => {
   });
 
   let sourceCommitReads = 0;
-  const staged = stageReleaseArchive({
+  const source = collectRepositoryReleaseSource({
     version: FACTS.version,
     get sourceCommit(): string {
       sourceCommitReads += 1;
       return sourceCommitReads === 1 ? SOURCE_COMMIT : "f".repeat(40);
     },
-    buildTimestamp: FACTS.buildTimestamp,
+    buildTimestamp: FACTS.buildTimestamp
+  });
+  const staged = stageReleaseArchive({
+    source,
     target: "linux-x64",
     buildDirectory,
     outputDirectory: path.join(scratch, "stage")
@@ -361,7 +364,7 @@ test("staging writes the whole file set and nothing else", (t) => {
   assert.equal(
     buildManifestText,
     `${canonicalJson(createReleasePackageBuildManifest(
-      releaseIdentitiesForSource(FACTS).source,
+      collectRepositoryReleaseSource(FACTS).identities.source,
       releaseTargetForArtifact("linux-x64").packageName,
       "linux-x64"
     ))}\n`
@@ -396,7 +399,7 @@ test("every target in one run stamps the same version, commit and timestamp", (t
   const stems = new Set<string>();
   for (const target of PUBLISHED_ARTIFACT_TARGETS) {
     const staged = stageReleaseArchive({
-      ...FACTS,
+      source: collectRepositoryReleaseSource(FACTS),
       target,
       buildDirectory,
       outputDirectory: path.join(scratch, "stage")
@@ -422,7 +425,7 @@ test("staging fails on a missing executable rather than writing a partial archiv
   // No stub executable: staging must fail on a missing input rather than write
   // a partial archive.
   assert.throws(() => stageReleaseArchive({
-    ...FACTS,
+    source: collectRepositoryReleaseSource(FACTS),
     target: "linux-x64",
     buildDirectory: path.join(scratch, "dist"),
     outputDirectory

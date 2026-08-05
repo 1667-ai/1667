@@ -13,7 +13,7 @@ import {
 import { npmPackInvocationFromEnvironment } from "../scripts/release-pack.js";
 import { AI_1667_PRODUCT_VERSION } from "../shared/build-identity.js";
 import { releaseIdentityForTarget } from "../scripts/release-identity.js";
-import { releaseIdentitiesForSource } from "../scripts/release-source-facts.js";
+import { collectRepositoryReleaseSource } from "../scripts/release-source-facts.js";
 
 const REPOSITORY_ROOT = path.dirname(path.dirname(import.meta.filename));
 const FACTS = Object.freeze({
@@ -45,7 +45,7 @@ test("the npm stage and pack commands redirect valid JSON for the complete matri
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-cli-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const builds = path.join(root, "builds");
-  const identities = releaseIdentitiesForSource(FACTS);
+  const identities = collectRepositoryReleaseSource(FACTS).identities;
   for (const target of PUBLISHED_ARTIFACT_TARGETS) {
     const descriptor = releaseTargetForArtifact(target);
     const directory = path.join(builds, target);

@@ -15,14 +15,15 @@ import {
 
 const MAX_PACKAGE_MANIFEST_BYTES = 1024 * 1024;
 const MAX_LOCKFILE_BYTES = 8 * 1024 * 1024;
+const COLLECTED_RELEASE_SOURCE: unique symbol = Symbol("CollectedReleaseSource");
 
 /**
  * The whole of what one release run has to agree on: the version being
  * released, the commit it is built from, and the single timestamp the run
  * stamps on every artifact.
  *
- * Three strings, and deliberately nothing larger. See
- * `releaseIdentitiesForSource` for why nothing larger may cross a job boundary.
+ * Three strings, and deliberately nothing larger. A collector validates these
+ * facts before a producer uses them.
  */
 export interface ReleaseSourceFacts {
   readonly version: string;
@@ -30,70 +31,55 @@ export interface ReleaseSourceFacts {
   readonly buildTimestamp: string;
 }
 
-/** Builds the exact, authorization-free source record that an SBOM uses. */
-export function releaseSbomSourceForFacts(facts: ReleaseSourceFacts): ReleaseSbomSource {
-  return createReleaseSbomSource({
-    productVersion: facts.version,
-    sourceCommit: facts.sourceCommit,
-    buildTimestamp: facts.buildTimestamp,
-    tagName: `v${facts.version}`
-  });
-}
-
-export interface ReleaseDescriptionInputs {
+/** One validated source value for all release artifact producers. */
+export interface CollectedReleaseSource extends ReleaseSourceFacts {
+  readonly [COLLECTED_RELEASE_SOURCE]: true;
   readonly identities: ReleaseBuildIdentitySet;
   readonly sbomSource: ReleaseSbomSource;
 }
 
-/**
- * Derives build identities and the SBOM source from one immutable read of the
- * source facts.
- */
-export function releaseDescriptionInputsForSource(
-  facts: ReleaseSourceFacts
-): ReleaseDescriptionInputs {
+/** Collects source facts after it checks supplied package-version observations. */
+export function collectReleaseSource(
+  facts: ReleaseSourceFacts,
+  packageVersions: ReleasePackageVersions
+): CollectedReleaseSource {
   const snapshot = Object.freeze({
     version: facts.version,
     sourceCommit: facts.sourceCommit,
     buildTimestamp: facts.buildTimestamp
   });
+  assertReleasePackageVersions(snapshot.version, packageVersions);
+  const identities = createReleaseBuildIdentitySet({
+    productVersion: snapshot.version,
+    sourceCommit: snapshot.sourceCommit,
+    buildTimestamp: snapshot.buildTimestamp
+  });
+  const sbomSource = createReleaseSbomSource({
+    productVersion: snapshot.version,
+    sourceCommit: snapshot.sourceCommit,
+    buildTimestamp: snapshot.buildTimestamp,
+    tagName: `v${snapshot.version}`
+  });
   return Object.freeze({
-    identities: releaseIdentitiesForSource(snapshot),
-    sbomSource: releaseSbomSourceForFacts(snapshot)
+    ...snapshot,
+    [COLLECTED_RELEASE_SOURCE]: true as const,
+    identities,
+    sbomSource
   });
 }
 
-/**
- * Refuses a product version that does not describe all package inputs in this
- * checkout.
- */
-export function assertRepositoryPackageVersions(productVersion: string): void {
-  assertReleasePackageVersions(productVersion, repositoryPackageVersions());
-}
-
-/**
- * The release identities for one run, built from the three source facts.
- *
- * The facts come from `prepare` rather than being recomputed on each runner so
- * that every target in a run writes the same version, commit and timestamp into
- * its `build-manifest.json`: one build described once, not one build per runner
- * minutes apart.
- */
-export function releaseIdentitiesForSource(
+/** Collects source facts against the package versions in this checkout. */
+export function collectRepositoryReleaseSource(
   facts: ReleaseSourceFacts
-): ReleaseBuildIdentitySet {
-  return createReleaseBuildIdentitySet({
-    productVersion: facts.version,
-    sourceCommit: facts.sourceCommit,
-    buildTimestamp: facts.buildTimestamp
-  });
+): CollectedReleaseSource {
+  return collectReleaseSource(facts, repositoryPackageVersions());
 }
 
 /**
  * The versions this checkout declares. Each staging boundary requires all four
  * versions to equal the dispatched version.
  */
-export function repositoryPackageVersions(): ReleasePackageVersions {
+function repositoryPackageVersions(): ReleasePackageVersions {
   const root = repositoryRoot();
   const rootPackage = readJsonFile(path.join(root, "package.json"), MAX_PACKAGE_MANIFEST_BYTES);
   const tuiPackage = readJsonFile(

@@ -48,14 +48,14 @@ import {
 import { type NpmPublicationPackage } from "../scripts/release-npm-publisher.js";
 import { runReleasePreflight } from "../scripts/release-preflight.js";
 import {
-  stagePublishedReleasePackagesFromSource,
   stagePublishedReleasePackages,
   stageReleasePackage,
   type StagedReleasePackage
 } from "../scripts/release-stage-packages.js";
 import { AI_1667_PRODUCT_VERSION } from "../shared/build-identity.js";
 import {
-  releaseIdentitiesForSource,
+  collectReleaseSource,
+  type CollectedReleaseSource,
   type ReleaseSourceFacts
 } from "../scripts/release-source-facts.js";
 import {
@@ -77,6 +77,7 @@ const facts = Object.freeze({
   sourceCommit: COMMIT,
   buildTimestamp: TIMESTAMP
 });
+const collectedFacts = collectReleaseSource(facts, versionsFor(VERSION));
 
 const RELEASE_SCENARIOS = [
   { label: "prerelease", version: VERSION, distTag: "beta" },
@@ -106,25 +107,27 @@ async function runUnsignedReleaseHandoff(
   assert.equal(sourceEvidence.tagSignature, "unsigned");
   const npm = npmPackInvocationFromEnvironment();
   const packageVersions = versionsFor(scenario.version);
+  let publishedSourceCommitReads = 0;
+  const releaseSource = collectReleaseSource({
+    version: releaseFacts.version,
+    get sourceCommit(): string {
+      publishedSourceCommitReads += 1;
+      return publishedSourceCommitReads === 1
+        ? releaseFacts.sourceCommit
+        : "f".repeat(40);
+    },
+    buildTimestamp: releaseFacts.buildTimestamp
+  }, packageVersions);
   const builds = path.join(root, "builds");
-  const buildDirectories = await stageBuildInputs(builds, releaseFacts);
+  const buildDirectories = await stageBuildInputs(builds, releaseSource);
   const firstStage = path.join(root, "stage-a");
   let first: readonly StagedReleasePackage[];
-  let publishedSourceCommitReads = 0;
   const previousUmask = process.umask(0o077);
   try {
-    first = stageHandoffPackages({
-      version: releaseFacts.version,
-      get sourceCommit(): string {
-        publishedSourceCommitReads += 1;
-        return publishedSourceCommitReads === 1
-          ? releaseFacts.sourceCommit
-          : "f".repeat(40);
-      },
-      buildTimestamp: releaseFacts.buildTimestamp,
+    first = stagePublishedReleasePackages({
+      source: releaseSource,
       buildDirectories,
-      outputDirectory: firstStage,
-      packageVersions
+      outputDirectory: firstStage
     });
   } finally {
     process.umask(previousUmask);
@@ -224,11 +227,10 @@ async function runUnsignedReleaseHandoff(
   );
 
   await varyBuildMtimes(buildDirectories);
-  const second = stageHandoffPackages({
-    ...releaseFacts,
+  const second = stagePublishedReleasePackages({
+    source: releaseSource,
     buildDirectories,
-    outputDirectory: path.join(root, "stage-b"),
-    packageVersions
+    outputDirectory: path.join(root, "stage-b")
   });
   const secondPacked = await packReleasePackages({
     packages: second,
@@ -260,13 +262,16 @@ test("the Windows target stages and validates as a published package", async (t)
   const executable = path.join(root, path.posix.basename(windows.executable));
   await writeExecutable(executable, windows.artifactTarget);
   let sourceCommitReads = 0;
-  const staged = stageReleasePackage({
+  const source = collectReleaseSource({
     version: facts.version,
     get sourceCommit(): string {
       sourceCommitReads += 1;
       return sourceCommitReads === 1 ? COMMIT : "f".repeat(40);
     },
-    buildTimestamp: facts.buildTimestamp,
+    buildTimestamp: facts.buildTimestamp
+  }, versionsFor(VERSION));
+  const staged = stageReleasePackage({
+    source,
     artifactTarget: windows.artifactTarget,
     executable,
     outputDirectory: path.join(root, "stage")
@@ -364,7 +369,7 @@ test("staging and batch packing do not publish partial output", async (t) => {
   await rm(brokenExecutable);
   const staging = path.join(root, "staging");
   assert.throws(() => stagePublishedReleasePackages({
-    ...facts,
+    source: collectedFacts,
     buildDirectories,
     outputDirectory: staging
   }));
@@ -372,7 +377,7 @@ test("staging and batch packing do not publish partial output", async (t) => {
 
   await writeExecutable(brokenExecutable, brokenTarget);
   const staged = stagePublishedReleasePackages({
-    ...facts,
+    source: collectedFacts,
     buildDirectories,
     outputDirectory: staging
   });
@@ -443,7 +448,7 @@ test("staging refuses an existing package path without following it", async (t) 
   const marker = path.join(outside, "keep");
   await writeFile(marker, "unchanged");
   assert.throws(() => stageReleasePackage({
-    ...facts,
+    source: collectedFacts,
     artifactTarget: windows.artifactTarget,
     executable,
     outputDirectory: staging
@@ -458,7 +463,7 @@ test("release pack cannot run package lifecycle scripts", async (t) => {
   const executable = path.join(root, path.posix.basename(windows.executable));
   await writeExecutable(executable, windows.artifactTarget);
   const staged = stageReleasePackage({
-    ...facts,
+    source: collectedFacts,
     artifactTarget: windows.artifactTarget,
     executable,
     outputDirectory: path.join(root, "staging")
@@ -581,7 +586,7 @@ async function collectUnsignedReleaseEvidence(root: string, version: string) {
 
 async function stageBuildInputs(
   root: string,
-  sourceFacts: ReleaseSourceFacts = facts
+  source: CollectedReleaseSource = collectedFacts
 ): Promise<Record<PublishedArtifactTarget, string>> {
   const entries = await Promise.all(PUBLISHED_ARTIFACT_TARGETS.map(async (target) => {
     const directory = path.join(root, target);
@@ -590,7 +595,7 @@ async function stageBuildInputs(
     await writeExecutable(
       path.join(directory, path.posix.basename(descriptor.executable)),
       target,
-      sourceFacts
+      source
     );
     return [target, directory] as const;
   }));
@@ -600,10 +605,10 @@ async function stageBuildInputs(
 async function writeExecutable(
   file: string,
   target: BuiltArtifactTarget,
-  sourceFacts: ReleaseSourceFacts = facts
+  source: CollectedReleaseSource = collectedFacts
 ): Promise<void> {
   const identity = releaseIdentityForTarget(
-    releaseIdentitiesForSource(sourceFacts),
+    source.identities,
     target
   );
   await writeFile(file, [
@@ -758,34 +763,6 @@ function versionsFor(version: string): ReleasePackageVersions {
     tui: version,
     rootLock: version,
     rootLockPackage: version
-  });
-}
-
-interface HandoffStageOptions extends ReleaseSourceFacts {
-  readonly buildDirectories: Readonly<Record<PublishedArtifactTarget, string>>;
-  readonly outputDirectory: string;
-  readonly packageVersions: ReleasePackageVersions;
-}
-
-function stageHandoffPackages(
-  options: HandoffStageOptions
-): readonly StagedReleasePackage[] {
-  const source = {
-    version: options.version,
-    sourceCommit: options.sourceCommit,
-    buildTimestamp: options.buildTimestamp
-  };
-  const files = {
-    buildDirectories: options.buildDirectories,
-    outputDirectory: options.outputDirectory
-  };
-  if (options.version === VERSION) {
-    return stagePublishedReleasePackages({ ...source, ...files });
-  }
-  return stagePublishedReleasePackagesFromSource({
-    ...source,
-    ...files,
-    packageVersions: options.packageVersions
   });
 }
 

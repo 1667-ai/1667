@@ -27,11 +27,7 @@ import {
   type ReleaseContentArtifact,
   type StagedReleaseFile
 } from "./release-content.js";
-import {
-  assertReleasePackageVersions,
-  type ReleaseBuildIdentitySet,
-  type ReleasePackageVersions
-} from "./release-identity.js";
+import { type ReleaseBuildIdentitySet } from "./release-identity.js";
 import {
   type ReleasePackageJson
 } from "./release-package-manifests.js";
@@ -47,9 +43,8 @@ import {
   type ReleaseSbomSet
 } from "./release-sbom.js";
 import {
-  assertRepositoryPackageVersions,
-  releaseDescriptionInputsForSource,
-  type ReleaseSourceFacts
+  collectRepositoryReleaseSource,
+  type CollectedReleaseSource
 } from "./release-source-facts.js";
 
 export interface StagedReleasePackage {
@@ -62,22 +57,17 @@ export interface StagedReleasePackage {
   readonly files: readonly StagedReleaseFile[];
 }
 
-export interface StageReleasePackageOptions extends ReleaseSourceFacts {
+export interface StageReleasePackageOptions {
+  readonly source: CollectedReleaseSource;
   readonly artifactTarget: ReleaseContentArtifact;
   readonly executable: string;
   readonly outputDirectory: string;
 }
 
-export interface StagePublishedReleasePackagesOptions extends ReleaseSourceFacts {
+export interface StagePublishedReleasePackagesOptions {
+  readonly source: CollectedReleaseSource;
   readonly buildDirectories: Readonly<Record<PublishedArtifactTarget, string>>;
   readonly outputDirectory: string;
-}
-
-export interface StagePublishedReleasePackagesFromSourceOptions
-  extends ReleaseSourceFacts {
-  readonly buildDirectories: Readonly<Record<PublishedArtifactTarget, string>>;
-  readonly outputDirectory: string;
-  readonly packageVersions: ReleasePackageVersions;
 }
 
 /**
@@ -87,11 +77,10 @@ export interface StagePublishedReleasePackagesFromSourceOptions
 export function stageReleasePackage(
   options: StageReleasePackageOptions
 ): StagedReleasePackage {
-  assertRepositoryPackageVersions(options.version);
   const finalRoot = freshOutputPath(options.outputDirectory, options.artifactTarget);
   const temporaryRoot = freshSiblingDirectory(finalRoot);
   try {
-    const { identities, sbomSource } = releaseDescriptionInputsForSource(options);
+    const { identities, sbomSource } = options.source;
     const sboms = createReleaseSboms(
       sbomSource,
       repositoryReleaseComponentSources()
@@ -113,37 +102,16 @@ export function stageReleasePackage(
 }
 
 /**
- * Stages the exact npm publication matrix from the checked-out package
- * versions. The final directory appears only after all packages pass.
+ * Stages the exact npm publication matrix from one validated source. The final
+ * directory appears only after all packages pass.
  */
 export function stagePublishedReleasePackages(
-  options: StagePublishedReleasePackagesOptions
-): readonly StagedReleasePackage[] {
-  assertRepositoryPackageVersions(options.version);
-  return stagePublishedReleasePackagesCore(options);
-}
-
-/** Stages a package set from one source record and its version declarations. */
-export function stagePublishedReleasePackagesFromSource(
-  options: StagePublishedReleasePackagesFromSourceOptions
-): readonly StagedReleasePackage[] {
-  assertReleasePackageVersions(options.version, options.packageVersions);
-  return stagePublishedReleasePackagesCore({
-    version: options.version,
-    sourceCommit: options.sourceCommit,
-    buildTimestamp: options.buildTimestamp,
-    buildDirectories: options.buildDirectories,
-    outputDirectory: options.outputDirectory
-  });
-}
-
-function stagePublishedReleasePackagesCore(
   options: StagePublishedReleasePackagesOptions
 ): readonly StagedReleasePackage[] {
   const finalRoot = freshOutputPath(options.outputDirectory);
   const temporaryRoot = freshSiblingDirectory(finalRoot);
   try {
-    const { identities, sbomSource } = releaseDescriptionInputsForSource(options);
+    const { identities, sbomSource } = options.source;
     const sboms = createReleaseSboms(
       sbomSource,
       repositoryReleaseComponentSources()
@@ -323,9 +291,7 @@ if (isMainModule()) {
       return [target, path.join(buildRoot, target)];
     })) as Record<PublishedArtifactTarget, string>;
     const packages = stagePublishedReleasePackages({
-      version,
-      sourceCommit,
-      buildTimestamp,
+      source: collectRepositoryReleaseSource({ version, sourceCommit, buildTimestamp }),
       buildDirectories,
       outputDirectory
     });
