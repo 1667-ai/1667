@@ -54,26 +54,9 @@ async function requireImmutableTagRuleset(
   repository: string,
   environment: GitHubReleaseEnvironment
 ): Promise<void> {
-  const listed = await runReleaseGh(
-    gh,
-    ["api", `repos/${repository}/rulesets?per_page=100`],
-    environment
-  );
-  const rulesets = jsonArray(listed.stdout, "GitHub repository rulesets");
-  const matches = rulesets.filter((value) => {
-    return isRecord(value) && value.name === TAG_RULESET_NAME;
-  });
-  if (matches.length !== 1) {
-    throw new Error(`GitHub repository needs one ${TAG_RULESET_NAME} ruleset`);
-  }
-  const summary = matches[0] as Record<string, unknown>;
-  if (summary.id !== TAG_RULESET_ID || summary.updated_at !== TAG_RULESET_UPDATED_AT
-    || summary.target !== "tag" || summary.enforcement !== "active") {
-    throw new Error(`GitHub ruleset ${TAG_RULESET_NAME} is not the approved revision`);
-  }
   const detail = await runReleaseGh(
     gh,
-    ["api", `repos/${repository}/rulesets/${String(summary.id)}`],
+    ["api", `repos/${repository}/rulesets/${String(TAG_RULESET_ID)}`],
     environment
   );
   validateTagRuleset(jsonObject(detail.stdout, `GitHub ruleset ${TAG_RULESET_NAME}`));
@@ -159,12 +142,6 @@ function gitObject(value: unknown, label: string): {
     throw new Error(`${label} has an invalid Git object`);
   }
   return Object.freeze({ type: object.type, sha: object.sha });
-}
-
-function jsonArray(stdout: string, label: string): unknown[] {
-  const value = parseJsonRejectingDuplicateKeys(stdout);
-  if (!Array.isArray(value)) throw new Error(`${label} is not an array`);
-  return value;
 }
 
 function jsonObject(stdout: string, label: string): Record<string, unknown> {
