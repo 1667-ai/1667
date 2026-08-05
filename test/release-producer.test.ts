@@ -68,7 +68,7 @@ const facts = Object.freeze({
   buildTimestamp: TIMESTAMP
 });
 
-test("a real unsigned tag feeds staging, packing, preflight, and a local launch", async (t) => {
+test("an unsigned release handoff reaches staging, packing, preflight, and launch", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-producer-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const sourceEvidence = await collectUnsignedReleaseEvidence(root);

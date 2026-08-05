@@ -10,7 +10,6 @@ import { promisify } from "node:util";
 import { canonicalJson } from "../server/canonical-json.js";
 import {
   collectReleaseEvidence,
-  collectReleaseTagAuthorization,
   type ReleaseEvidenceRequest
 } from "../scripts/release-evidence.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
@@ -151,13 +150,6 @@ function collect(
   });
 }
 
-function collectAuthorization(fixture: Fixture) {
-  return collectReleaseTagAuthorization({
-    repositoryRoot: fixture.repository,
-    tagName: TAG
-  });
-}
-
 test("evidence from an annotated tag on a protected branch satisfies the release validator", async (t) => {
   const fixture = await createFixture(t);
   const evidence = await collect(fixture);
@@ -191,21 +183,6 @@ test("evidence from a lightweight tag on a protected branch satisfies the releas
 
   const identities = createReleaseIdentitySet(JSON.parse(canonicalJson(evidence)) as unknown);
   assert.deepEqual(identities.evidence, evidence);
-});
-
-test("tag authorization reports the tag's real shape without build facts", async (t) => {
-  const fixture = await createFixture(t);
-  const document = await collectAuthorization(fixture);
-  assert.equal(document.tagName, TAG);
-  assert.equal(document.tagObjectType, "annotated");
-  assert.equal(document.tagSignature, "unsigned");
-  assert.equal(document.tagTargetCommit, document.sourceCommit);
-  assert.equal("buildTimestamp" in document, false);
-
-  const lightweight = await createFixture(t, { tag: "lightweight" });
-  const lightweightDocument = await collectAuthorization(lightweight);
-  assert.equal(lightweightDocument.tagObjectType, "lightweight");
-  assert.equal(lightweightDocument.tagSignature, "unsigned");
 });
 
 test("evidence refuses a dirty working tree", async (t) => {

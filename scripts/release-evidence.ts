@@ -9,13 +9,11 @@ import { fileURLToPath } from "node:url";
 import { canonicalJson } from "../server/canonical-json.js";
 import {
   assembleReleaseSourceEvidence,
-  assembleReleaseTagAuthorization,
   requireCanonicalTimestamp,
   requireObjectName,
   requireReleaseTagName,
   type CommandOutcome,
-  type ReleaseTagAuthorizationDocument,
-  type ReleaseTagAuthorizationObservations
+  type ReleaseTagObservations
 } from "./release-evidence-inspection.js";
 import { type ReleaseSourceEvidence } from "./release-identity.js";
 
@@ -49,16 +47,13 @@ const GIT_REF_NAME = /^[A-Za-z0-9][A-Za-z0-9._\/-]{0,200}$/;
 const MAX_GIT_OUTPUT_BYTES = 8 * 1024 * 1024;
 const GIT_TIMEOUT_MS = 120_000;
 
-export interface ReleaseTagAuthorizationRequest {
+export interface ReleaseEvidenceRequest {
   readonly repositoryRoot: string;
   readonly tagName: string;
   readonly protectedRef?: string;
   /** Extra variables merged over the hermetic environment below. Callers extend
    *  it; nothing that matters has to be subtracted from it. */
   readonly environment?: NodeJS.ProcessEnv;
-}
-
-export interface ReleaseEvidenceRequest extends ReleaseTagAuthorizationRequest {
   /** Millisecond-precision UTC instant shared by every target in a release; an
    *  input rather than something this module invents. */
   readonly buildTimestamp: string;
@@ -68,11 +63,11 @@ export async function collectReleaseEvidence(
   request: ReleaseEvidenceRequest
 ): Promise<ReleaseSourceEvidence> {
   const buildTimestamp = requireCanonicalTimestamp(request.buildTimestamp);
-  return collectWithTagAuthorization(
+  return collectWithPinnedTag(
     request,
-    async (authorization, git, sourceCommit) => {
+    async (tag, git, sourceCommit) => {
       return assembleReleaseSourceEvidence({
-        ...authorization,
+        ...tag,
         buildTimestamp,
         // Product facts come from the released commit.
         rootManifest: await git(["show", `${sourceCommit}:package.json`]),
@@ -83,21 +78,12 @@ export async function collectReleaseEvidence(
   );
 }
 
-export async function collectReleaseTagAuthorization(
-  request: ReleaseTagAuthorizationRequest
-): Promise<ReleaseTagAuthorizationDocument> {
-  return collectWithTagAuthorization(
-    request,
-    (observations) => assembleReleaseTagAuthorization(observations)
-  );
-}
-
 type GitRunner = (args: readonly string[]) => Promise<CommandOutcome>;
 
-async function collectWithTagAuthorization<T>(
-  request: ReleaseTagAuthorizationRequest,
+async function collectWithPinnedTag<T>(
+  request: ReleaseEvidenceRequest,
   consume: (
-    observations: ReleaseTagAuthorizationObservations,
+    observations: ReleaseTagObservations,
     git: GitRunner,
     sourceCommit: string
   ) => Promise<T> | T
@@ -127,7 +113,7 @@ async function collectWithTagAuthorization<T>(
     const environment = hermeticEnvironment(request.environment, emptyConfig);
     const git = (args: readonly string[]): Promise<CommandOutcome> =>
       runGit(repositoryRoot, args, environment);
-    return await collectTagAuthorization({
+    return await collectPinnedTag({
       git,
       repositoryRoot,
       tagName,
@@ -140,22 +126,22 @@ async function collectWithTagAuthorization<T>(
   }
 }
 
-type TagAuthorizationConsumer<T> = (
-  observations: ReleaseTagAuthorizationObservations,
+type PinnedTagConsumer<T> = (
+  observations: ReleaseTagObservations,
   git: GitRunner,
   sourceCommit: string
 ) => Promise<T> | T;
 
-interface TagAuthorizationRun<T> {
+interface PinnedTagRun<T> {
   readonly git: (args: readonly string[]) => Promise<CommandOutcome>;
   readonly repositoryRoot: string;
   readonly tagName: string;
   readonly tagRef: string;
   readonly protectedRef: string;
-  readonly consume: TagAuthorizationConsumer<T>;
+  readonly consume: PinnedTagConsumer<T>;
 }
 
-async function collectTagAuthorization<T>(run: TagAuthorizationRun<T>): Promise<T> {
+async function collectPinnedTag<T>(run: PinnedTagRun<T>): Promise<T> {
   const { git, tagName, tagRef, protectedRef, consume } = run;
 
   // Resolved once, then named explicitly by every read below. `HEAD` is
@@ -170,7 +156,7 @@ async function collectTagAuthorization<T>(run: TagAuthorizationRun<T>): Promise<
     `Release tag ${tagName} object`
   );
 
-  const observations: ReleaseTagAuthorizationObservations = {
+  const observations: ReleaseTagObservations = {
     tagName,
     protectedRef,
     headCommit,

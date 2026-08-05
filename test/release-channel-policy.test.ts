@@ -14,9 +14,6 @@ import path from "node:path";
 import test from "node:test";
 import { RELEASE_LAUNCHER_PACKAGE } from "../shared/release-targets.js";
 import {
-  stageReleaseArchive
-} from "../scripts/release-github-assets.js";
-import {
   publishOrVerifyGitHubRelease,
   verifyNpmReleaseAssetDirectory
 } from "../scripts/release-npm-github.js";
@@ -34,8 +31,6 @@ const GITHUB_REPOSITORY = "1667-ai/1667";
 const REPOSITORY_URL = "https://github.com/1667-ai/1667";
 const WORKFLOW_PATH = ".github/workflows/release-npm.yml";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
-const BUILD_TIMESTAMP = "2026-07-23T10:20:30.000Z";
-const ARCHIVE_PROOF_TARGET = "linux-x64";
 // The npm provenance certificate fixture is signed for this exact ref. It
 // binds only the *build* identity (repository, workflow, ref) — the package
 // name, version, and digest it attests to live in the DSSE payload this file
@@ -49,19 +44,15 @@ const PROVENANCE_CERTIFICATE = readFileSync(
 const STABLE_ONLY_INSTALLERS = ["install-stable.sh", "install-stable.ps1"] as const;
 
 /**
- * Drives one version through the whole release route this repository offers,
- * for two cases: a stable version, which must land on the npm `latest` tag and
- * carry the stable Installers, and a prerelease, which must land on `beta` and
- * carry only the beta Installers.
+ * Applies the release channel policy at the GitHub asset, GitHub release, and
+ * npm publication boundaries. A stable version must use the npm `latest` tag.
+ * It must include the stable Installers. A prerelease version must use the npm
+ * `beta` tag. It must include only the beta Installers.
  *
- * It first exercises the real archive staging function with explicit package
- * versions. The hosted command reads the same versions from the repository.
- * The test then continues with staged release assets built the same way
- * test/release-npm-ci.test.ts's asset-directory tests build them, a GitHub
- * release created and verified through a fake `gh` (same fixture), and npm
- * publication driven through a fake `npm` CLI and a fake registry — the
- * harness test/release-npm.test.ts's "a prerelease publishes to beta" case
- * already uses.
+ * These components do not pass one artifact between them. Thus, this test does
+ * not claim to test that handoff. The unsigned-tag integration in
+ * test/release-producer.test.ts passes real output through staging, packing,
+ * preflight, installation, and launch.
  */
 for (const scenario of [
   {
@@ -82,45 +73,12 @@ for (const scenario of [
     installers: ["install-beta.sh", "install-beta.ps1"]
   }
 ] as const) {
-  test(`${scenario.label} reaches archive, GitHub release, and npm dist-tag "${scenario.tag}"`, async (t) => {
-    const root = await mkdtemp(path.join(tmpdir(), "1667-channel-e2e-"));
+  test(`${scenario.label} applies channel policy to GitHub and npm`, async (t) => {
+    const root = await mkdtemp(path.join(tmpdir(), "1667-channel-policy-"));
     t.after(() => rm(root, { recursive: true, force: true }));
 
-    // -- Real archive producer. Explicit package versions let this channel
-    // test use a small fixture instead of copying the checkout dependency
-    // graph. The hosted command supplies the same values from the repository.
-    const buildDirectory = path.join(root, "build");
-    await mkdir(buildDirectory, { recursive: true });
-    await writeFile(path.join(buildDirectory, "1667"), "#!/bin/sh\necho stub\n", { mode: 0o755 });
-    const stageOutput = path.join(root, "staged");
-    const stagedArchive = stageReleaseArchive({
-      version: scenario.version,
-      sourceCommit: COMMIT,
-      buildTimestamp: BUILD_TIMESTAMP,
-      target: ARCHIVE_PROOF_TARGET,
-      buildDirectory,
-      outputDirectory: stageOutput
-    }, {
-      root: scenario.version,
-      tui: scenario.version,
-      rootLock: scenario.version,
-      rootLockPackage: scenario.version
-    });
-    const stagedFiles = await readdir(stagedArchive.directory);
-    assert.deepEqual(
-      [...stagedFiles].sort(),
-      ["1667", "LICENSE", "NOTICE", "build-manifest.json", "sbom.spdx.json"],
-      `${scenario.label}: the real archive stage command wrote the wrong file set`
-    );
-
-    // -- Archive production leg for the rest of the pipeline: the exact
-    // asset directory the release workflows stage — archives, SBOMs,
-    // observations, and the channel-appropriate Installers the real renderer
-    // produces for this version. The stage above already proved the
-    // real producer accepts this version; this fixture (the same one
-    // test/release-npm-ci.test.ts's asset-directory tests use) stands in for
-    // the remaining four targets' native builds so the rest of this test can
-    // run without compiling five real executables.
+    // Build the complete asset directory with the production name and
+    // Installer renderers. Use fixture bytes for the native archives.
     const assets = path.join(root, "assets");
     await mkdir(assets);
     await writeReleaseAssetFixture(assets, scenario.version, GITHUB_REPOSITORY);

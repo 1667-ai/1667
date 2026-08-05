@@ -37,7 +37,7 @@ export interface CommandOutcome {
   readonly stderr: string;
 }
 
-export interface ReleaseTagAuthorizationObservations {
+export interface ReleaseTagObservations {
   readonly tagName: string;
   readonly protectedRef: string;
   readonly headCommit: CommandOutcome;
@@ -49,7 +49,7 @@ export interface ReleaseTagAuthorizationObservations {
 }
 
 export interface ReleaseEvidenceObservations
-  extends ReleaseTagAuthorizationObservations {
+  extends ReleaseTagObservations {
   readonly buildTimestamp: string;
   readonly rootManifest: CommandOutcome;
   readonly tuiManifest: CommandOutcome;
@@ -63,7 +63,7 @@ export interface ReleaseEvidenceObservations
  * The collector rejects an annotated tag that contains signature armor. Thus,
  * this value states an observed absence instead of the absence of a check.
  */
-export interface ReleaseTagAuthorizationDocument {
+interface InspectedReleaseTag {
   readonly schemaVersion: 1;
   readonly tagName: string;
   readonly sourceCommit: string;
@@ -82,11 +82,11 @@ export interface ReleaseTagAuthorizationDocument {
 export function assembleReleaseSourceEvidence(
   observations: ReleaseEvidenceObservations
 ): ReleaseSourceEvidence {
-  const authorization = assembleReleaseTagAuthorization(observations);
-  const tagName = authorization.tagName;
+  const tag = inspectReleaseTag(observations);
+  const tagName = tag.tagName;
   const buildTimestamp = requireCanonicalTimestamp(observations.buildTimestamp);
-  const sourceCommit = authorization.sourceCommit;
-  const tagTargetCommit = authorization.tagTargetCommit;
+  const sourceCommit = tag.sourceCommit;
+  const tagTargetCommit = tag.tagTargetCommit;
 
   const packageVersions = parseReleasePackageVersions({
     rootManifest: successfulOutput(observations.rootManifest, "Release root package manifest"),
@@ -105,8 +105,8 @@ export function assembleReleaseSourceEvidence(
     sourceCommit,
     sourceDirty: false,
     tagName,
-    tagObjectType: authorization.tagObjectType,
-    tagSignature: authorization.tagSignature,
+    tagObjectType: tag.tagObjectType,
+    tagSignature: tag.tagSignature,
     tagTargetCommit,
     buildTimestamp,
     packageVersions
@@ -114,9 +114,9 @@ export function assembleReleaseSourceEvidence(
   return identities.evidence;
 }
 
-export function assembleReleaseTagAuthorization(
-  observations: ReleaseTagAuthorizationObservations
-): ReleaseTagAuthorizationDocument {
+function inspectReleaseTag(
+  observations: ReleaseTagObservations
+): InspectedReleaseTag {
   const tagName = requireReleaseTagName(observations.tagName);
   const sourceCommit = requireObjectName(
     observations.headCommit,

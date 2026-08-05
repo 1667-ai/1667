@@ -16,7 +16,7 @@ import { expectedGitHubReleaseAssetNames, expectedInstallerNames } from "../scri
 /**
  * Shared fixture infrastructure for the GitHub-release side of the release
  * pipeline — split out of test/release-npm-ci.test.ts so test/release-npm-ci.test.ts
- * and test/release-channel-e2e.test.ts both drive `publishOrVerifyGitHubRelease`
+ * and test/release-channel-policy.test.ts both drive `publishOrVerifyGitHubRelease`
  * and `verifyNpmReleaseAssetDirectory` against the same fake `gh` and the same
  * asset-directory builder, following the split-fixture pattern
  * test/sampling-e2e-fixtures.ts already established.
