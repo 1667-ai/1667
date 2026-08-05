@@ -197,7 +197,8 @@ this product has a user.
 - The tag name matches that version.
 
 The `tag: v* immutable` ruleset must be active. It blocks tag updates and tag
-deletions. It has no bypass actor. It does not block tag creation.
+deletions. It has no bypass actor. It does not block tag creation. The workflow
+pins the ruleset ID and revision. A ruleset change stops the release.
 
 The release job resolves the remote release tag before it creates a draft
 release. The tag must still target the dispatch commit. The job repeats the

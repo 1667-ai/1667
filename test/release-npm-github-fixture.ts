@@ -86,6 +86,7 @@ export function fakeReleaseGh(paths: {
   readonly tagObjectSha?: string;
   readonly immutableTagRuleset?: boolean;
   readonly omitBypassActors?: boolean;
+  readonly rulesetUpdatedAt?: string;
   readonly moveTagAfterDownloadTo?: string;
 } = {}): string {
   const initialTagCommit = options.tagCommit
@@ -103,17 +104,20 @@ export function fakeReleaseGh(paths: {
     `const tagObjectSha = ${JSON.stringify(options.tagObjectSha)};`,
     `const immutableTagRuleset = ${JSON.stringify(options.immutableTagRuleset ?? true)};`,
     `const omitBypassActors = ${JSON.stringify(options.omitBypassActors ?? false)};`,
+    `const rulesetUpdatedAt = ${JSON.stringify(options.rulesetUpdatedAt ?? "2026-08-05T10:12:37.419Z")};`,
     `const moveTagAfterDownloadTo = ${JSON.stringify(options.moveTagAfterDownloadTo)};`,
     `fs.appendFileSync(${JSON.stringify(paths.log)}, \`\${JSON.stringify(args)}\\n\`);`,
     "const command = args[1];",
     "if (args[0] === \"api\" && args[1].endsWith(\"/rulesets?per_page=100\")) {",
     "  process.stdout.write(JSON.stringify([{",
-    "    id: 1, name: \"tag: v* immutable\", target: \"tag\",",
+    "    id: 20399162, name: \"tag: v* immutable\", target: \"tag\",",
+    "    updated_at: rulesetUpdatedAt,",
     "    enforcement: immutableTagRuleset ? \"active\" : \"disabled\"",
     "  }]));",
-    "} else if (args[0] === \"api\" && args[1].endsWith(\"/rulesets/1\")) {",
+    "} else if (args[0] === \"api\" && args[1].endsWith(\"/rulesets/20399162\")) {",
     "  process.stdout.write(JSON.stringify({",
-    "    id: 1, name: \"tag: v* immutable\", target: \"tag\",",
+    "    id: 20399162, name: \"tag: v* immutable\", target: \"tag\",",
+    "    updated_at: rulesetUpdatedAt,",
     "    enforcement: immutableTagRuleset ? \"active\" : \"disabled\",",
     "    ...(omitBypassActors ? {} : {bypass_actors: []}),",
     "    conditions: {ref_name: {include: [\"refs/tags/v*\"], exclude: []}},",

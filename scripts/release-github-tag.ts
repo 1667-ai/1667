@@ -12,7 +12,9 @@ import {
 
 const COMMIT = /^[0-9a-f]{40}$/u;
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
+const TAG_RULESET_ID = 20_399_162;
 const TAG_RULESET_NAME = "tag: v* immutable";
+const TAG_RULESET_UPDATED_AT = "2026-08-05T10:12:37.419Z";
 const REQUIRED_TAG_RULES = new Set(["deletion", "non_fast_forward", "update"]);
 
 export interface VerifyRemoteReleaseTagOptions {
@@ -65,9 +67,9 @@ async function requireImmutableTagRuleset(
     throw new Error(`GitHub repository needs one ${TAG_RULESET_NAME} ruleset`);
   }
   const summary = matches[0] as Record<string, unknown>;
-  if (!Number.isSafeInteger(summary.id) || summary.target !== "tag"
-    || summary.enforcement !== "active") {
-    throw new Error(`GitHub ruleset ${TAG_RULESET_NAME} is not active`);
+  if (summary.id !== TAG_RULESET_ID || summary.updated_at !== TAG_RULESET_UPDATED_AT
+    || summary.target !== "tag" || summary.enforcement !== "active") {
+    throw new Error(`GitHub ruleset ${TAG_RULESET_NAME} is not the approved revision`);
   }
   const detail = await runReleaseGh(
     gh,
@@ -78,13 +80,14 @@ async function requireImmutableTagRuleset(
 }
 
 function validateTagRuleset(ruleset: Record<string, unknown>): void {
-  if (ruleset.name !== TAG_RULESET_NAME || ruleset.target !== "tag"
+  if (ruleset.id !== TAG_RULESET_ID || ruleset.updated_at !== TAG_RULESET_UPDATED_AT
+    || ruleset.name !== TAG_RULESET_NAME || ruleset.target !== "tag"
     || ruleset.enforcement !== "active") {
-    throw new Error(`GitHub ruleset ${TAG_RULESET_NAME} is not active`);
+    throw new Error(`GitHub ruleset ${TAG_RULESET_NAME} is not the approved revision`);
   }
-  // GitHub omits this field from responses to the workflow token. Repository
-  // administration remains trusted because an administrator can also disable
-  // the ruleset. Refuse a bypass when the API discloses one.
+  // The pinned GitHub revision was inspected with repository Administration
+  // authority and has no bypass actor. GitHub hides this field from the
+  // workflow token. A policy change creates a new revision and stops release.
   if (ruleset.bypass_actors !== undefined) {
     const bypass = arrayValue(ruleset.bypass_actors, "bypass actors");
     if (bypass.length !== 0) {
