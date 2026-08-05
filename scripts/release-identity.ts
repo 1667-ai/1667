@@ -38,18 +38,22 @@ export function assertReleasePackageVersions(
  * an unsigned tag are accepted release sources now, so both fields carry a
  * real answer instead of a literal that could describe a check nobody ran.
  */
-export interface ReleaseSourceEvidence {
+interface ReleaseSourceEvidenceBase {
   schemaVersion: 1;
   productVersion: string;
   sourceCommit: string;
   sourceDirty: false;
   tagName: string;
-  tagObjectType: "annotated" | "lightweight";
-  tagSignature: "verified" | "unsigned";
   tagTargetCommit: string;
   buildTimestamp: string;
   packageVersions: ReleasePackageVersions;
 }
+
+type ReleaseTagEvidence =
+  | { tagObjectType: "annotated"; tagSignature: "verified" | "unsigned" }
+  | { tagObjectType: "lightweight"; tagSignature: "unsigned" };
+
+export type ReleaseSourceEvidence = ReleaseSourceEvidenceBase & ReleaseTagEvidence;
 
 export interface ReleaseBuildIdentitySet {
   schemaVersion: 1;
@@ -126,17 +130,7 @@ function parseSourceEvidence(value: unknown): ReleaseSourceEvidence {
   const input = exactRecord(value, EVIDENCE_KEYS, "Release source evidence");
   if (input.schemaVersion !== 1) throw new Error("Release source evidence has an unsupported schema");
   if (input.sourceDirty !== false) throw new Error("Release source must be clean");
-  if (input.tagObjectType !== "annotated" && input.tagObjectType !== "lightweight") {
-    throw new Error("Release source tag must be annotated or lightweight");
-  }
-  if (input.tagSignature !== "verified" && input.tagSignature !== "unsigned") {
-    throw new Error("Release tag signature must be verified or unsigned");
-  }
-  const tagObjectType = input.tagObjectType;
-  const tagSignature = input.tagSignature;
-  if (tagSignature === "verified" && tagObjectType !== "annotated") {
-    throw new Error("A verified release tag signature requires an annotated tag");
-  }
+  const tagEvidence = parseTagEvidence(input.tagObjectType, input.tagSignature);
 
   const productVersion = stringField(input.productVersion, "productVersion");
   const sourceCommit = stringField(input.sourceCommit, "sourceCommit");
@@ -172,12 +166,30 @@ function parseSourceEvidence(value: unknown): ReleaseSourceEvidence {
     sourceCommit,
     sourceDirty: false as const,
     tagName,
-    tagObjectType,
-    tagSignature,
+    ...tagEvidence,
     tagTargetCommit,
     buildTimestamp,
     packageVersions
   });
+}
+
+function parseTagEvidence(objectType: unknown, signature: unknown): ReleaseTagEvidence {
+  if (objectType === "lightweight") {
+    if (signature !== "unsigned") {
+      if (signature === "verified") {
+        throw new Error("A verified release tag signature requires an annotated tag");
+      }
+      throw new Error("Release tag signature must be verified or unsigned");
+    }
+    return Object.freeze({ tagObjectType: objectType, tagSignature: signature });
+  }
+  if (objectType !== "annotated") {
+    throw new Error("Release source tag must be annotated or lightweight");
+  }
+  if (signature !== "verified" && signature !== "unsigned") {
+    throw new Error("Release tag signature must be verified or unsigned");
+  }
+  return Object.freeze({ tagObjectType: objectType, tagSignature: signature });
 }
 
 function releaseBuildIdentity(

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import path from "node:path";
@@ -66,6 +66,7 @@ interface FixtureOptions {
 
 interface Fixture {
   readonly repository: string;
+  readonly baseCommit: string;
 }
 
 /** Builds a real repository with a real tag, because a mock cannot show that
@@ -135,7 +136,7 @@ async function createFixture(t: TestContext, options: FixtureOptions = {}): Prom
   if (options.dirty === true) {
     await appendFile(path.join(repository, "README.md"), "uncommitted\n");
   }
-  return Object.freeze({ repository });
+  return Object.freeze({ repository, baseCommit });
 }
 
 function collect(
@@ -215,6 +216,47 @@ test("evidence refuses a dirty working tree", async (t) => {
 test("evidence refuses a tag that does not point at the release commit", async (t) => {
   const fixture = await createFixture(t, { commitAfterTag: true });
   await assert.rejects(collect(fixture), /does not point at the release commit/);
+});
+
+test("evidence refuses a tag that moves during package fact collection", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("the Git wrapper fixture uses a POSIX executable path");
+    return;
+  }
+  const fixture = await createFixture(t);
+  const wrapperRoot = await mkdtemp(path.join(tmpdir(), "1667-release-git-wrapper-"));
+  t.after(() => rm(wrapperRoot, { recursive: true, force: true }));
+  const realGit = (await execFileAsync("which", ["git"], { encoding: "utf8" })).stdout.trim();
+  const marker = path.join(wrapperRoot, "moved");
+  const wrapper = path.join(wrapperRoot, "git");
+  await writeFile(wrapper, [
+    `#!${process.execPath}`,
+    'const { existsSync, writeFileSync } = require("node:fs");',
+    'const { spawnSync } = require("node:child_process");',
+    `const git = ${JSON.stringify(realGit)};`,
+    `const marker = ${JSON.stringify(marker)};`,
+    "const args = process.argv.slice(2);",
+    "const result = spawnSync(git, args);",
+    "if (result.error) throw result.error;",
+    "if (result.status === 0 && args[0] === \"show\" && !existsSync(marker)) {",
+    "  writeFileSync(marker, \"moved\");",
+    `  const moved = spawnSync(git, ["update-ref", ${JSON.stringify(`refs/tags/${TAG}`)}, ${JSON.stringify(fixture.baseCommit)}]);`,
+    "  if (moved.status !== 0) process.exit(moved.status ?? 1);",
+    "}",
+    "process.stdout.write(result.stdout);",
+    "process.stderr.write(result.stderr);",
+    "process.exit(result.status ?? 1);",
+    ""
+  ].join("\n"));
+  await chmod(wrapper, 0o755);
+  await assert.rejects(
+    collect(fixture, {
+      environment: {
+        PATH: `${wrapperRoot}${path.delimiter}${process.env["PATH"] ?? "/usr/bin:/bin"}`
+      }
+    }),
+    /moved while source evidence was collected/
+  );
 });
 
 test("evidence refuses every Git signature armor that it does not verify", async (t) => {

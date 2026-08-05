@@ -175,7 +175,6 @@ async function collectTagAuthorization<T>(run: TagAuthorizationRun<T>): Promise<
     protectedRef,
     headCommit,
     workingTreeStatus: await git(["status", "--porcelain=v1", "--untracked-files=all"]),
-    tagObjectName,
     // "tag" for an annotated tag object, "commit" for a lightweight tag. Use
     // the pinned object name for each read so a moving ref cannot splice two
     // objects into one evidence document.
@@ -187,10 +186,17 @@ async function collectTagAuthorization<T>(run: TagAuthorizationRun<T>): Promise<
     tagObjectContents: await git(["cat-file", "tag", resolvedTagObject]),
     // Peels either tag form to the commit it names.
     tagTargetCommit: await git(["rev-parse", "--verify", `${resolvedTagObject}^{commit}`]),
-    protectedReachability: await git(["merge-base", "--is-ancestor", sourceCommit, protectedRef]),
-    finalTagObjectName: await git(["rev-parse", "--verify", tagRef])
+    protectedReachability: await git(["merge-base", "--is-ancestor", sourceCommit, protectedRef])
   };
-  return await consume(observations, git, sourceCommit);
+  const result = await consume(observations, git, sourceCommit);
+  const finalTagObject = requireObjectName(
+    await git(["rev-parse", "--verify", tagRef]),
+    `Release tag ${tagName} final object`
+  );
+  if (finalTagObject !== resolvedTagObject) {
+    throw new Error(`Release tag ${tagName} moved while source evidence was collected`);
+  }
+  return result;
 }
 
 /**

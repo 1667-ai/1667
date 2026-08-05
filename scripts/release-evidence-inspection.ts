@@ -42,12 +42,10 @@ export interface ReleaseTagAuthorizationObservations {
   readonly protectedRef: string;
   readonly headCommit: CommandOutcome;
   readonly workingTreeStatus: CommandOutcome;
-  readonly tagObjectName: CommandOutcome;
   readonly tagObjectType: CommandOutcome;
   readonly tagObjectContents: CommandOutcome;
   readonly tagTargetCommit: CommandOutcome;
   readonly protectedReachability: CommandOutcome;
-  readonly finalTagObjectName: CommandOutcome;
 }
 
 export interface ReleaseEvidenceObservations
@@ -125,10 +123,6 @@ export function assembleReleaseTagAuthorization(
     "Release source commit"
   );
   requireCleanWorkingTree(observations.workingTreeStatus);
-  const tagObjectName = requireObjectName(
-    observations.tagObjectName,
-    `Release tag ${tagName} object`
-  );
   const tagObjectType = releaseTagObjectType(observations.tagObjectType, tagName);
   requireUnsignedTagObject(tagObjectType, observations.tagObjectContents, tagName);
   const tagTargetCommit = requireObjectName(
@@ -145,13 +139,6 @@ export function assembleReleaseTagAuthorization(
     sourceCommit,
     observations.protectedRef
   );
-  const finalTagObjectName = requireObjectName(
-    observations.finalTagObjectName,
-    `Release tag ${tagName} final object`
-  );
-  if (finalTagObjectName !== tagObjectName) {
-    throw new Error(`Release tag ${tagName} moved while source evidence was collected`);
-  }
   return Object.freeze({
     schemaVersion: 1,
     tagName,
