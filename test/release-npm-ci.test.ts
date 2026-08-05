@@ -160,6 +160,7 @@ test("GitHub release publication verifies exact assets before and after upload",
     /Prepared GitHub release does not exist/u
   );
   await prepareOrVerifyGitHubRelease(options);
+  await prepareOrVerifyGitHubRelease(options);
   const preparedState = await readFile(state, "utf8");
   const tamperedState = JSON.parse(preparedState) as Record<string, unknown>;
   tamperedState.body = "tampered notes\n";
@@ -188,8 +189,9 @@ test("GitHub release publication verifies exact assets before and after upload",
     return JSON.parse(line) as string[];
   });
   assert.equal(calls.filter((args) => args[1] === "create").length, 1);
+  assert.equal(calls.filter((args) => args[1] === "delete").length, 0);
   assert.equal(calls.filter((args) => args[1] === "edit").length, 1);
-  assert.equal(calls.filter((args) => args[1] === "download").length, 6);
+  assert.equal(calls.filter((args) => args[1] === "download").length, 7);
   const localTarball = (await readdirNames(assets)).find((name) => name.endsWith(".tgz"));
   assert.ok(localTarball !== undefined);
   const localBytes = await readFile(path.join(assets, localTarball));

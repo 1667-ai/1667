@@ -91,45 +91,29 @@ export async function prepareOrVerifyGitHubRelease(
 ): Promise<void> {
   const context = releaseContext(options);
   const { assets, gh, notes, prerelease, repository, tag, title, verifyTag } = context;
-  await verifyTag();
-  let state = await releaseState(gh, tag, repository, context.environment);
-  if (state?.isDraft === true) {
-    await runGh(
-      gh,
-      ["release", "delete", tag, "--repo", repository, "--yes"],
-      context.environment
-    );
-    state = null;
+  const state = await releaseState(gh, tag, repository, context.environment);
+  if (state !== null) {
+    await preparedReleaseState(context);
+    return;
   }
-  let created = false;
-  if (state === null) {
-    await runGh(gh, [
-      "release",
-      "create",
-      tag,
-      ...assets,
-      "--repo",
-      repository,
-      "--draft",
-      "--verify-tag",
-      ...(prerelease ? ["--prerelease"] : []),
-      "--latest=false",
-      "--title",
-      title,
-      "--notes-file",
-      notes
-    ], context.environment);
-    created = true;
-  } else {
-    requireImmutableReleaseChannel(state, prerelease, "Existing");
-  }
-  const uploaded = await releaseState(gh, tag, repository, context.environment);
-  if (uploaded === null) throw new Error("Uploaded GitHub release disappeared");
-  if (created) requireDraftReleaseChannel(uploaded, prerelease);
-  else requireImmutableReleaseChannel(uploaded, prerelease, "Existing");
-  requireReleaseContents(uploaded, context);
-  await verifyDownloadedRelease(gh, tag, repository, assets, context.environment);
   await verifyTag();
+  await runGh(gh, [
+    "release",
+    "create",
+    tag,
+    ...assets,
+    "--repo",
+    repository,
+    "--draft",
+    "--verify-tag",
+    ...(prerelease ? ["--prerelease"] : []),
+    "--latest=false",
+    "--title",
+    title,
+    "--notes-file",
+    notes
+  ], context.environment);
+  await preparedReleaseState(context);
 }
 
 async function preparedReleaseState(context: ReleaseContext): Promise<ReleaseState> {
