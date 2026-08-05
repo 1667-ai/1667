@@ -179,11 +179,15 @@ test("a protected quarantine marker overrides stale clean registry metadata", as
 test("the GitHub ledger records exact bytes before it authorizes publication", async () => {
   const expected = publicationMatrix()[0]!;
   const calls: { method: string; body: unknown }[] = [];
+  const verifiedVersions: string[] = [];
   let refs: unknown[] = [];
   const ledger = new GitHubNpmPublicationLedger({
     repository: "1667-ai/1667",
     sourceCommit: COMMIT,
     token: "test-token",
+    verifyReleaseTag: async (version) => {
+      verifiedVersions.push(version);
+    },
     fetch: async (_input, init) => {
       calls.push({
         method: init?.method ?? "GET",
@@ -199,12 +203,59 @@ test("the GitHub ledger records exact bytes before it authorizes publication", a
     }
   });
   assert.equal(await ledger.recordAttempt(expected), "created");
-  assert.equal(await ledger.status(expected), "attempted");
+  await ledger.assertWritable(expected);
+  assert.deepEqual(verifiedVersions, [VERSION]);
   assert.deepEqual(calls.map((call) => call.method), ["GET", "POST", "GET"]);
   assert.deepEqual(calls[1]?.body, {
     ref: `refs/tags/released/v${VERSION}_attempt_launcher_${expected.sha256}`,
     sha: COMMIT
   });
+});
+
+test("the release tag is verified at each npm write boundary", async () => {
+  const packages = publicationMatrix();
+  const missing = new Set(packages.slice(1, 3).map((entry) => entry.name));
+  const present = new Set(packages.filter((entry) => !missing.has(entry.name)).map((entry) => {
+    return entry.name;
+  }));
+  const published: string[] = [];
+  let refs: unknown[] = [];
+  let verifications = 0;
+  const ledger = new GitHubNpmPublicationLedger({
+    repository: "1667-ai/1667",
+    sourceCommit: COMMIT,
+    token: "test-token",
+    verifyReleaseTag: async () => {
+      verifications += 1;
+      if (verifications === 2) throw new Error("release tag moved");
+    },
+    fetch: async (_input, init) => {
+      if (init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as { ref: string; sha: string };
+        const created = { ref: body.ref, object: { type: "commit", sha: body.sha } };
+        refs = [...refs, created];
+        return jsonResponse(created, 201);
+      }
+      return jsonResponse(refs, 200);
+    }
+  });
+  const registry: NpmPublicationRegistry = {
+    async inspect(entry) {
+      return present.has(entry.name) ? "present" : "missing";
+    },
+    async publish(entry) {
+      published.push(entry.name);
+      present.add(entry.name);
+    },
+    async waitUntilVerified() {}
+  };
+
+  await assert.rejects(
+    publishNpmRelease(packages, registry, ledger),
+    /release tag moved/u
+  );
+  assert.deepEqual(published, [packages[1]!.name]);
+  assert.equal(verifications, 2);
 });
 
 test("the GitHub ledger refuses a different created attempt ref", async () => {
@@ -213,6 +264,7 @@ test("the GitHub ledger refuses a different created attempt ref", async () => {
     repository: "1667-ai/1667",
     sourceCommit: COMMIT,
     token: "test-token",
+    verifyReleaseTag: async () => {},
     fetch: async (_input, init) => {
       if (init?.method === "POST") {
         return jsonResponse({
@@ -236,6 +288,7 @@ test("the workflow write gate does not require repository administration", async
     repository: "1667-ai/1667",
     sourceCommit: COMMIT,
     token: "workflow-token",
+    verifyReleaseTag: async () => {},
     fetch: async (input) => {
       const url = String(input);
       requested.push(url);
@@ -256,6 +309,7 @@ test("the GitHub write gate freshly rejects a quarantine marker", async () => {
     repository: "1667-ai/1667",
     sourceCommit: COMMIT,
     token: "test-token",
+    verifyReleaseTag: async () => {},
     fetch: async (input) => {
       const pathname = new URL(String(input)).pathname;
       return jsonResponse(pathname.includes("/tags/released/")

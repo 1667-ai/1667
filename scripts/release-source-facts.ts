@@ -39,19 +39,24 @@ export interface ReleaseArtifactInputs {
 }
 
 /** One validated fact snapshot for all release artifact producers. */
-export class CollectedReleaseSource {
+class RepositoryReleaseSource {
   readonly #facts: Readonly<ReleaseSourceFacts>;
+  readonly #repositoryRoot: string;
 
-  public constructor(
-    facts: ReleaseSourceFacts,
-    packageVersions: ReleasePackageVersions
-  ) {
-    this.#facts = validateReleaseSource(facts, packageVersions);
+  public constructor(facts: ReleaseSourceFacts, repositoryRoot: string) {
+    this.#repositoryRoot = boundedRepositoryRoot(repositoryRoot);
+    this.#facts = validateReleaseSource(
+      facts,
+      repositoryPackageVersions(this.#repositoryRoot)
+    );
     Object.freeze(this);
   }
 
   public artifactInputs(): ReleaseArtifactInputs {
-    const facts = this.#facts;
+    const facts = validateReleaseSource(
+      this.#facts,
+      repositoryPackageVersions(this.#repositoryRoot)
+    );
     return Object.freeze({
       identities: createReleaseBuildIdentitySet({
         productVersion: facts.version,
@@ -63,12 +68,15 @@ export class CollectedReleaseSource {
   }
 }
 
-/** Collects source facts after it checks supplied package-version observations. */
-export function collectReleaseSource(
+/** Opaque source proof that staging can consume. */
+export type CollectedReleaseSource = RepositoryReleaseSource;
+
+/** Collects source facts against the package versions in one repository. */
+export function collectReleaseSourceFromRepository(
   facts: ReleaseSourceFacts,
-  packageVersions: ReleasePackageVersions
+  repositoryRoot: string
 ): CollectedReleaseSource {
-  return new CollectedReleaseSource(facts, packageVersions);
+  return new RepositoryReleaseSource(facts, repositoryRoot);
 }
 
 function validateReleaseSource(
@@ -95,14 +103,16 @@ function validateReleaseSource(
 export function collectRepositoryReleaseSource(
   facts: ReleaseSourceFacts
 ): CollectedReleaseSource {
-  return collectReleaseSource(facts, repositoryPackageVersions());
+  return collectReleaseSourceFromRepository(facts, currentRepositoryRoot());
 }
 
 /** Collects only the validated source that the standalone SBOM command uses. */
 export function collectRepositoryReleaseSbomSource(
   facts: ReleaseSourceFacts
 ): ReleaseSbomSource {
-  return sbomSourceFromFacts(validateReleaseSource(facts, repositoryPackageVersions()));
+  return sbomSourceFromFacts(
+    validateReleaseSource(facts, repositoryPackageVersions(currentRepositoryRoot()))
+  );
 }
 
 function sbomSourceFromFacts(facts: ReleaseSourceFacts): ReleaseSbomSource {
@@ -118,8 +128,7 @@ function sbomSourceFromFacts(facts: ReleaseSourceFacts): ReleaseSbomSource {
  * The versions this checkout declares. Each staging boundary requires all four
  * versions to equal the dispatched version.
  */
-function repositoryPackageVersions(): ReleasePackageVersions {
-  const root = repositoryRoot();
+function repositoryPackageVersions(root: string): ReleasePackageVersions {
   const rootPackage = readJsonFile(path.join(root, "package.json"), MAX_PACKAGE_MANIFEST_BYTES);
   const tuiPackage = readJsonFile(
     path.join(root, "tui", "package.json"),
@@ -158,6 +167,15 @@ function stringProperty(value: unknown, key: string): string {
   return member;
 }
 
-function repositoryRoot(): string {
+function currentRepositoryRoot(): string {
   return path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+}
+
+function boundedRepositoryRoot(value: string): string {
+  const resolved = path.resolve(value);
+  const stat = lstatSync(resolved);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new Error("Release repository root must be a real directory");
+  }
+  return realpathSync(resolved);
 }

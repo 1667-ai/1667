@@ -36,8 +36,7 @@ import {
 } from "../scripts/release-pack.js";
 import { collectReleaseEvidence } from "../scripts/release-evidence.js";
 import {
-  releaseIdentityForTarget,
-  type ReleasePackageVersions
+  releaseIdentityForTarget
 } from "../scripts/release-identity.js";
 import { createReleasePreflightPlan } from "../scripts/release-npm-plan.js";
 import { publicationPackages } from "../scripts/release-npm-publish.js";
@@ -54,7 +53,8 @@ import {
 } from "../scripts/release-stage-packages.js";
 import { AI_1667_PRODUCT_VERSION } from "../shared/build-identity.js";
 import {
-  collectReleaseSource,
+  collectRepositoryReleaseSource,
+  collectReleaseSourceFromRepository,
   type CollectedReleaseSource,
   type ReleaseSourceFacts
 } from "../scripts/release-source-facts.js";
@@ -68,6 +68,7 @@ import {
 // stale at every bump.
 const VERSION = AI_1667_PRODUCT_VERSION;
 const STABLE_VERSION = VERSION.replace(/-.+$/u, "");
+const PRERELEASE_VERSION = VERSION.includes("-") ? VERSION : `${VERSION}-rc.1`;
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const TIMESTAMP = "2026-07-28T10:20:30.000Z";
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -77,16 +78,16 @@ const facts = Object.freeze({
   sourceCommit: COMMIT,
   buildTimestamp: TIMESTAMP
 });
-const collectedFacts = collectReleaseSource(facts, versionsFor(VERSION));
+const collectedFacts = collectRepositoryReleaseSource(facts);
 
 const RELEASE_SCENARIOS = [
-  { label: "prerelease", version: VERSION, distTag: "beta" },
+  { label: "prerelease", version: PRERELEASE_VERSION, distTag: "beta" },
   { label: "stable", version: STABLE_VERSION, distTag: "latest" }
 ] as const;
 type ReleaseScenario = typeof RELEASE_SCENARIOS[number];
 
 for (const scenario of RELEASE_SCENARIOS) {
-  test(`an unsigned ${scenario.label} release reaches every package handoff`, async (t) => {
+  test(`an unsigned ${scenario.label} reaches every package handoff`, async (t) => {
     await runUnsignedReleaseHandoff(t, scenario);
   });
 }
@@ -97,7 +98,8 @@ async function runUnsignedReleaseHandoff(
 ): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-producer-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const sourceEvidence = await collectUnsignedReleaseEvidence(root, scenario.version);
+  const collectedEvidence = await collectUnsignedReleaseEvidence(root, scenario.version);
+  const sourceEvidence = collectedEvidence.evidence;
   const releaseFacts = Object.freeze({
     version: sourceEvidence.productVersion,
     sourceCommit: sourceEvidence.sourceCommit,
@@ -106,9 +108,8 @@ async function runUnsignedReleaseHandoff(
   assert.equal(sourceEvidence.tagObjectType, "lightweight");
   assert.equal(sourceEvidence.tagSignature, "unsigned");
   const npm = npmPackInvocationFromEnvironment();
-  const packageVersions = versionsFor(scenario.version);
   let publishedSourceCommitReads = 0;
-  const releaseSource = collectReleaseSource({
+  const releaseSource = collectReleaseSourceFromRepository({
     version: releaseFacts.version,
     get sourceCommit(): string {
       publishedSourceCommitReads += 1;
@@ -117,7 +118,7 @@ async function runUnsignedReleaseHandoff(
         : "f".repeat(40);
     },
     buildTimestamp: releaseFacts.buildTimestamp
-  }, packageVersions);
+  }, collectedEvidence.repository);
   const builds = path.join(root, "builds");
   const buildDirectories = await stageBuildInputs(builds, releaseSource);
   const firstStage = path.join(root, "stage-a");
@@ -255,6 +256,24 @@ async function runUnsignedReleaseHandoff(
   await assertInstalledLauncherStarts(firstPacked, npm, root, scenario.version);
 }
 
+test("a collected source rechecks repository versions before staging", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-release-source-recheck-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const collected = await collectUnsignedReleaseEvidence(root, VERSION);
+  const evidence = collected.evidence;
+  const source = collectReleaseSourceFromRepository({
+    version: evidence.productVersion,
+    sourceCommit: evidence.sourceCommit,
+    buildTimestamp: evidence.buildTimestamp
+  }, collected.repository);
+  await writeFile(
+    path.join(collected.repository, "tui", "package.json"),
+    JSON.stringify({ version: "9.9.9" })
+  );
+
+  assert.throws(() => source.artifactInputs(), /tui version does not match/u);
+});
+
 test("the Windows target stages and validates as a published package", async (t) => {
   const windows = releaseTargetForArtifact("windows-x64");
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-windows-"));
@@ -262,14 +281,14 @@ test("the Windows target stages and validates as a published package", async (t)
   const executable = path.join(root, path.posix.basename(windows.executable));
   await writeExecutable(executable, windows.artifactTarget);
   let sourceCommitReads = 0;
-  const source = collectReleaseSource({
+  const source = collectRepositoryReleaseSource({
     version: facts.version,
     get sourceCommit(): string {
       sourceCommitReads += 1;
       return sourceCommitReads === 1 ? COMMIT : "f".repeat(40);
     },
     buildTimestamp: facts.buildTimestamp
-  }, versionsFor(VERSION));
+  });
   const staged = stageReleasePackage({
     source,
     artifactTarget: windows.artifactTarget,
@@ -577,10 +596,13 @@ async function collectUnsignedReleaseEvidence(root: string, version: string) {
   await git(["commit", "-q", "-m", "release source"]);
   await git(["tag", `v${version}`]);
   await git(["update-ref", "refs/remotes/origin/main", "HEAD"]);
-  return collectReleaseEvidence({
-    repositoryRoot: repository,
-    tagName: `v${version}`,
-    buildTimestamp: TIMESTAMP
+  return Object.freeze({
+    repository,
+    evidence: await collectReleaseEvidence({
+      repositoryRoot: repository,
+      tagName: `v${version}`,
+      buildTimestamp: TIMESTAMP
+    })
   });
 }
 
@@ -755,15 +777,6 @@ async function assertInstalledLauncherStarts(
   );
   assert.equal(stderr, "");
   assert.equal(stdout, `producer-ok:${host.artifactTarget}`);
-}
-
-function versionsFor(version: string): ReleasePackageVersions {
-  return Object.freeze({
-    root: version,
-    tui: version,
-    rootLock: version,
-    rootLockPackage: version
-  });
 }
 
 async function runNpm(

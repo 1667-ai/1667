@@ -19,6 +19,7 @@ import {
 import {
   type ReleaseArtifactManifest
 } from "./release-artifact-manifest.js";
+import { verifyRemoteReleaseTag } from "./release-github-tag.js";
 import {
   GitHubNpmPublicationLedger
 } from "./release-npm-ledger.js";
@@ -179,7 +180,12 @@ async function run(command: "publish" | "verify", argv: readonly string[]): Prom
     const ledger = new GitHubNpmPublicationLedger({
       repository: authority.repository,
       sourceCommit: sourceSha,
-      token: authority.token
+      token: authority.token,
+      verifyReleaseTag: async (version) => await verifyRemoteReleaseTag({
+        version,
+        sourceCommit: sourceSha,
+        environment: process.env
+      })
     });
     await publishNpmRelease(publication.packages, registry, ledger);
   } else {
