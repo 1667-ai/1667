@@ -577,7 +577,7 @@ jobs:
         run: |
           set -euo pipefail
           timestamp="$(node --import tsx scripts/release-npm-ci.ts timestamp)"
-          node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
+          node --import tsx scripts/release-completion.ts replay "$VERSION" "$GITHUB_SHA"
           node --import tsx scripts/release-completion.ts ready
           node --import tsx scripts/release-evidence.ts \
             --tag "v$VERSION" --build-timestamp "$timestamp" \
@@ -629,7 +629,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
-          node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
+          node --import tsx scripts/release-completion.ts replay "$VERSION" "$GITHUB_SHA"
           node --import tsx scripts/release-github-tag.ts \
             verify-tag "$VERSION" "$GITHUB_SHA"
           npm run release:publish -- publish \

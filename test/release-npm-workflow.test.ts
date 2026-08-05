@@ -214,10 +214,15 @@ test("the retained layout and completion record support an exact rerun", () => {
     job("preflight"),
     /wc -l < dist\/work\/preflight\.log[\s\S]+!= 1[\s\S]+\^\[0-9a-f\]\{64\}\$/u
   );
-  for (const name of ["build", "launcher", "preflight", "release", "publish"] as const) {
+  for (const name of ["build", "launcher", "preflight", "release"] as const) {
     assert.match(job(name), /release-completion\.ts gate/u);
     assert.doesNotMatch(job(name), /release-completion\.ts replay/u);
   }
+  assert.doesNotMatch(job("publish"), /release-completion\.ts gate/u);
+  assert.equal(
+    [...job("publish").matchAll(/release-completion\.ts replay/gmu)].length,
+    2
+  );
   assert.match(job("publish"), /release-completion\.ts[\s\\]*status "\$VERSION"/u);
   assert.match(job("release"), /scripts\/release-npm-github\.ts/u);
   assert.doesNotMatch(job("release"), /release:publish -- verify/u);
@@ -305,8 +310,8 @@ test("publication rechecks protected state immediately before npm writes", () =>
     "git fetch origin '+refs/tags/released/*:refs/tags/released/*'",
     command
   );
-  const completionGate = publish.lastIndexOf(
-    "release-completion.ts gate",
+  const completionReplay = publish.lastIndexOf(
+    "release-completion.ts replay",
     command
   );
   const releaseTag = publish.lastIndexOf(
@@ -314,8 +319,8 @@ test("publication rechecks protected state immediately before npm writes", () =>
     command
   );
   assert.ok(
-    completionFetch !== -1 && completionFetch < completionGate
-      && completionGate < releaseTag && releaseTag < command
+    completionFetch !== -1 && completionFetch < completionReplay
+      && completionReplay < releaseTag && releaseTag < command
   );
 });
 
