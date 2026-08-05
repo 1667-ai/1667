@@ -1,6 +1,8 @@
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isCanonicalTimestamp } from "../shared/build-identity.js";
+import { isSemVer } from "../shared/semver.js";
 import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
 import {
   assertReleasePackageVersions,
@@ -16,6 +18,7 @@ import {
 const MAX_PACKAGE_MANIFEST_BYTES = 1024 * 1024;
 const MAX_LOCKFILE_BYTES = 8 * 1024 * 1024;
 const COLLECTED_RELEASE_SOURCE: unique symbol = Symbol("CollectedReleaseSource");
+const SOURCE_COMMIT = /^[0-9a-f]{40}$/u;
 
 /**
  * The whole of what one release run has to agree on: the version being
@@ -34,8 +37,6 @@ export interface ReleaseSourceFacts {
 /** One validated source value for all release artifact producers. */
 export interface CollectedReleaseSource extends ReleaseSourceFacts {
   readonly [COLLECTED_RELEASE_SOURCE]: true;
-  readonly identities: ReleaseBuildIdentitySet;
-  readonly sbomSource: ReleaseSbomSource;
 }
 
 /** Collects source facts after it checks supplied package-version observations. */
@@ -49,22 +50,16 @@ export function collectReleaseSource(
     buildTimestamp: facts.buildTimestamp
   });
   assertReleasePackageVersions(snapshot.version, packageVersions);
-  const identities = createReleaseBuildIdentitySet({
-    productVersion: snapshot.version,
-    sourceCommit: snapshot.sourceCommit,
-    buildTimestamp: snapshot.buildTimestamp
-  });
-  const sbomSource = createReleaseSbomSource({
-    productVersion: snapshot.version,
-    sourceCommit: snapshot.sourceCommit,
-    buildTimestamp: snapshot.buildTimestamp,
-    tagName: `v${snapshot.version}`
-  });
+  if (!isSemVer(snapshot.version)) throw new Error("Release source version is not SemVer");
+  if (!SOURCE_COMMIT.test(snapshot.sourceCommit)) {
+    throw new Error("Release source commit is not canonical");
+  }
+  if (!isCanonicalTimestamp(snapshot.buildTimestamp)) {
+    throw new Error("Release source timestamp is not canonical");
+  }
   return Object.freeze({
     ...snapshot,
-    [COLLECTED_RELEASE_SOURCE]: true as const,
-    identities,
-    sbomSource
+    [COLLECTED_RELEASE_SOURCE]: true as const
   });
 }
 
@@ -73,6 +68,29 @@ export function collectRepositoryReleaseSource(
   facts: ReleaseSourceFacts
 ): CollectedReleaseSource {
   return collectReleaseSource(facts, repositoryPackageVersions());
+}
+
+/** Builds release identities from one collected source. */
+export function releaseIdentitiesForSource(
+  source: CollectedReleaseSource
+): ReleaseBuildIdentitySet {
+  return createReleaseBuildIdentitySet({
+    productVersion: source.version,
+    sourceCommit: source.sourceCommit,
+    buildTimestamp: source.buildTimestamp
+  });
+}
+
+/** Builds the authorization-free SBOM source from one collected source. */
+export function releaseSbomSourceForSource(
+  source: CollectedReleaseSource
+): ReleaseSbomSource {
+  return createReleaseSbomSource({
+    productVersion: source.version,
+    sourceCommit: source.sourceCommit,
+    buildTimestamp: source.buildTimestamp,
+    tagName: `v${source.version}`
+  });
 }
 
 /**

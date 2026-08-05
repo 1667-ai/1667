@@ -41,7 +41,8 @@ import {
   RELEASE_SBOM_FILE
 } from "../scripts/release-github-assets.js";
 import {
-  collectRepositoryReleaseSource
+  collectRepositoryReleaseSource,
+  releaseIdentitiesForSource
 } from "../scripts/release-source-facts.js";
 import {
   MAX_RELEASE_ARCHIVE_STEM_BYTES,
@@ -283,7 +284,7 @@ test("checksums cover every asset, sorted, and never the checksum file itself", 
 });
 
 test("the three source facts build an identity the release codec accepts", () => {
-  const identities = collectRepositoryReleaseSource(FACTS).identities;
+  const identities = releaseIdentitiesForSource(collectRepositoryReleaseSource(FACTS));
   assert.equal(identities.source.productVersion, VERSION);
   assert.equal(identities.source.sourceCommit, SOURCE_COMMIT);
   assert.equal(identities.source.buildTimestamp, BUILD_TIMESTAMP);
@@ -364,7 +365,7 @@ test("staging writes the whole file set and nothing else", (t) => {
   assert.equal(
     buildManifestText,
     `${canonicalJson(createReleasePackageBuildManifest(
-      collectRepositoryReleaseSource(FACTS).identities.source,
+      releaseIdentitiesForSource(collectRepositoryReleaseSource(FACTS)).source,
       releaseTargetForArtifact("linux-x64").packageName,
       "linux-x64"
     ))}\n`

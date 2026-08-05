@@ -36,6 +36,8 @@ import {
 } from "./release-sbom.js";
 import {
   collectRepositoryReleaseSource,
+  releaseIdentitiesForSource,
+  releaseSbomSourceForSource,
   type CollectedReleaseSource,
   type ReleaseSourceFacts
 } from "./release-source-facts.js";
@@ -109,7 +111,8 @@ export interface StageReleaseArchiveOptions {
 export function stageReleaseArchive(
   options: StageReleaseArchiveOptions
 ): StagedReleaseArchive {
-  const { identities, sbomSource } = options.source;
+  const identities = releaseIdentitiesForSource(options.source);
+  const sbomSource = releaseSbomSourceForSource(options.source);
   const version = identities.source.productVersion;
   const target = options.target;
   const descriptor = releaseTargetForArtifact(target);
@@ -232,7 +235,9 @@ function runCommand(argv: readonly string[]): string {
   }
   if (command === "identity") {
     if (rest.length !== 4) throw new Error(USAGE);
-    const identities = collectRepositoryReleaseSource(sourceFacts(rest)).identities;
+    const identities = releaseIdentitiesForSource(
+      collectRepositoryReleaseSource(sourceFacts(rest))
+    );
     return `${canonicalJson(releaseIdentityForTarget(identities, builtTarget(rest[3])))}\n`;
   }
   if (command === "stage") {

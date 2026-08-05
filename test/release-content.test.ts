@@ -17,7 +17,9 @@ import {
   repositoryReleaseComponentSources
 } from "../scripts/release-sbom.js";
 import {
-  collectRepositoryReleaseSource
+  collectRepositoryReleaseSource,
+  releaseIdentitiesForSource,
+  releaseSbomSourceForSource
 } from "../scripts/release-source-facts.js";
 
 const FACTS = Object.freeze({
@@ -31,7 +33,7 @@ test("the content assembler refuses entries that differ from the template", (t) 
   const root = mkdtempSync(path.join(tmpdir(), "1667-release-content-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const source = collectRepositoryReleaseSource(FACTS);
-  const identities = source.identities;
+  const identities = releaseIdentitiesForSource(source);
   const template = createReleaseLauncherPackageTemplate(identities);
   const entries = releasePackageContentFileSet(
     template,
@@ -41,7 +43,7 @@ test("the content assembler refuses entries that differ from the template", (t) 
   assert.throws(() => stageReleaseContent({
     template,
     sbom: releaseSbomForPackage(
-      createReleaseSboms(source.sbomSource, repositoryReleaseComponentSources()),
+      createReleaseSboms(releaseSbomSourceForSource(source), repositoryReleaseComponentSources()),
       template.packageManifest.name
     ),
     entries,
