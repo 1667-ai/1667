@@ -151,7 +151,7 @@ export function assembleReleaseTagAuthorization(
 }
 
 const TAG_SIGNATURE_ARMOR =
-  /-----BEGIN (?:PGP SIGNATURE|SSH SIGNATURE|SIGNED MESSAGE)-----/u;
+  /-----BEGIN (?:PGP (?:MESSAGE|SIGNATURE)|SSH SIGNATURE|SIGNED MESSAGE)-----/u;
 
 /** Refuses signature-bearing annotated tags because this collector does not
  *  verify them. A lightweight tag has no tag object to inspect. */

@@ -54,7 +54,11 @@ interface FixtureOptions {
    *  `"annotated"` are both accepted release sources; this fixture never signs
    *  either. */
   readonly tag?: "annotated" | "lightweight";
-  readonly signatureArmor?: boolean;
+  readonly signatureArmor?:
+    | "PGP MESSAGE"
+    | "PGP SIGNATURE"
+    | "SIGNED MESSAGE"
+    | "SSH SIGNATURE";
   readonly commitAfterTag?: boolean;
   readonly protectedRefBehind?: boolean;
   readonly dirty?: boolean;
@@ -110,8 +114,8 @@ async function createFixture(t: TestContext, options: FixtureOptions = {}): Prom
   if (options.tag === "lightweight") {
     await git(["tag", TAG]);
   } else {
-    const message = options.signatureArmor === true
-      ? `${TAG}\n-----BEGIN SSH SIGNATURE-----\nZmFrZQ==\n-----END SSH SIGNATURE-----`
+    const message = options.signatureArmor !== undefined
+      ? `${TAG}\n-----BEGIN ${options.signatureArmor}-----\nZmFrZQ==\n-----END ${options.signatureArmor}-----`
       : TAG;
     await git(["tag", "-a", "-m", message, TAG]);
   }
@@ -213,12 +217,19 @@ test("evidence refuses a tag that does not point at the release commit", async (
   await assert.rejects(collect(fixture), /does not point at the release commit/);
 });
 
-test("evidence refuses signature armor that it does not verify", async (t) => {
-  const fixture = await createFixture(t, { signatureArmor: true });
-  await assert.rejects(
-    collect(fixture),
-    /contains a signature that this collector does not verify/
-  );
+test("evidence refuses every Git signature armor that it does not verify", async (t) => {
+  for (const signatureArmor of [
+    "PGP MESSAGE",
+    "PGP SIGNATURE",
+    "SIGNED MESSAGE",
+    "SSH SIGNATURE"
+  ] as const) {
+    const fixture = await createFixture(t, { signatureArmor });
+    await assert.rejects(
+      collect(fixture),
+      /contains a signature that this collector does not verify/
+    );
+  }
 });
 
 test("evidence refuses a release commit unreachable from the protected ref", async (t) => {
