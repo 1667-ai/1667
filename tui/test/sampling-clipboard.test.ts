@@ -4,10 +4,14 @@ import {
   basicSettingsFromDocument
 } from "../../shared/settings-basic-draft.js";
 import type { SettingsView } from "../../shared/settings-v2-types.js";
-import { composerSelection, setComposerText } from "../src/composer-model.js";
+import {
+  composerSelection,
+  setComposerText,
+  type ComposerState
+} from "../src/composer-model.js";
 
 type ClipboardReader = () => Promise<string | null>;
-type ClipboardWriter = (text: string) => Promise<"internal">;
+type ClipboardWriter = (text: string) => Promise<"command" | "internal">;
 
 const bunTest = await import("bun:test") as unknown as {
   mock: {
@@ -41,6 +45,102 @@ const { buildComposerSelectionProjection } = await import("../src/selection-proj
 const { fitLine } = await import("../src/screens/story/frame.js");
 
 describe("Direct clipboard ownership", () => {
+  test("an unconfirmed cut needs two consecutive presses", async () => {
+    const { state, press } = settingsHarness();
+    state.mode = "COMPOSE";
+    setComposerText(state.composer, "alpha beta");
+    state.composer.anchor = 6;
+    clipboardWriter = async () => "internal";
+
+    await press(key("x", { ctrl: true }));
+    expect(state.composer.text).toBe("alpha beta");
+    expect(state.toast).toBe("clipboard write unconfirmed · cut again to confirm");
+
+    await press(key("escape"));
+    await press(key("return"));
+    await press(key("x", { ctrl: true }));
+    expect(state.composer.text).toBe("alpha beta");
+    expect(state.toast).toBe("clipboard write unconfirmed · cut again to confirm");
+
+    await press(key("x", { ctrl: true }));
+    expect(state.composer.text).toBe("alpha ");
+    expect(state.toast).toBe("selection cut");
+  });
+
+  test("cut, undo, and redo operate every composer-backed editor", async () => {
+    clipboardWriter = async () => "command";
+    const cases: {
+      name: string;
+      open: () => Promise<{
+        composer: ComposerState;
+        press: ReturnType<typeof settingsHarness>["press"];
+      }>;
+      cut: ReturnType<typeof key>;
+    }[] = [
+      {
+        name: "Direct",
+        open: async () => {
+          const harness = settingsHarness();
+          harness.state.mode = "COMPOSE";
+          return { composer: harness.state.composer, press: harness.press };
+        },
+        cut: key("x", { ctrl: true })
+      },
+      {
+        name: "full editor",
+        open: async () => {
+          const harness = settingsHarness();
+          await harness.press(key("f"));
+          await harness.press(key("return"));
+          if (harness.state.editor === null) throw new Error("editor did not open");
+          return { composer: harness.state.editor.composer, press: harness.press };
+        },
+        cut: key("x", { super: true })
+      },
+      {
+        name: "Settings field",
+        open: async () => {
+          const harness = settingsHarness();
+          await openSettings(harness.press);
+          await selectRow(harness.press, harness.state, "base-url");
+          await harness.press(key("return"));
+          const edit = harness.state.settings?.edit;
+          if (edit?.kind !== "inline") throw new Error("Settings field did not open");
+          return { composer: edit.composer, press: harness.press };
+        },
+        cut: key("x", { ctrl: true })
+      },
+      {
+        name: "Sampling field",
+        open: async () => {
+          const harness = await openSamplingEdit();
+          const edit = harness.state.settings?.sampling?.edit;
+          if (edit === null || edit === undefined) throw new Error("Sampling field did not open");
+          return { composer: edit.composer, press: harness.press };
+        },
+        cut: key("x", { super: true })
+      }
+    ];
+
+    for (const editorCase of cases) {
+      const { composer, press } = await editorCase.open();
+      setComposerText(composer, "alpha beta");
+      composer.anchor = 6;
+
+      await press(editorCase.cut);
+      expect({ name: editorCase.name, text: composer.text })
+        .toEqual({ name: editorCase.name, text: "alpha " });
+
+      await press(key("z", { ctrl: true }));
+      expect({ name: editorCase.name, text: composer.text })
+        .toEqual({ name: editorCase.name, text: "alpha beta" });
+
+      await press(key("z", { super: true, shift: true }));
+      expect({ name: editorCase.name, text: composer.text })
+        .toEqual({ name: editorCase.name, text: "alpha " });
+    }
+  });
+
   test("Command+C without a selection does not quit", async () => {
     let quits = 0;
     const { state, press } = settingsHarness(() => { quits += 1; });

@@ -201,8 +201,7 @@ describe("review regressions", () => {
         title: "edit part",
         placeholder: "",
         returnMode: "NAV",
-        conflict: null,
-        cutConfirmation: null
+        conflict: null
       }
     }, { width: 80, height: 24 });
 

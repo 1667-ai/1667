@@ -65,8 +65,7 @@ test("paste inserts at the composer cursor and flattens single-line prompts", ()
         row: "model" as const,
         mode: "text" as const,
         composer: settingsComposer,
-        initial: "ab",
-        cutConfirmation: null
+        initial: "ab"
       },
       conflict: null
     }
@@ -111,11 +110,7 @@ test("paste inserts at the composer cursor and flattens single-line prompts", ()
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS" as const,
-      conflict: { message: "changed", resolution: "overwrite" as const, armed: true },
-      cutConfirmation: null,
-      tagCutConfirmation: null,
-      keysCutConfirmation: null,
-      budgetCutConfirmation: null
+      conflict: { message: "changed", resolution: "overwrite" as const, armed: true }
     }
   };
   expect(pasteInto(editor, "line one\r\nline two")).toBeTrue();

@@ -28,9 +28,14 @@ import {
 import {
   deleteComposerLine,
   moveComposerBufferBoundary,
+  moveComposerPage,
   moveComposerWord
 } from "../src/composer-editing.js";
-import { moveComposerVisualVertical } from "../src/composer-visual-movement.js";
+import {
+  moveComposerVisualRows,
+  moveComposerVisualVertical
+} from "../src/composer-visual-movement.js";
+import { composerPageRows } from "../src/composer-viewport.js";
 import { wrappedComposerLayout } from "../src/composer-wrapping.js";
 import {
   applyComposeMode,
@@ -66,6 +71,27 @@ describe("composer renderer", () => {
     expect(composerHeightCap(24)).toBe(8);
     expect(composerHeightCap(10)).toBe(6);
     expect(composerHeightCap(36, 4)).toBe(4);
+  });
+
+  test("moves by the visible page in inline and full-screen editors", () => {
+    const text = Array.from({ length: 30 }, (_, line) => `line ${line}`).join("\n");
+    const inline = createComposer(text);
+    moveComposerTo(inline, 0);
+    const inlineRows = composerPageRows(24, false);
+    expect(inlineRows).toBe(8);
+    moveComposerPage(inline, 1, inlineRows);
+    expect(composerPosition(inline)).toEqual({ line: 8, column: 0 });
+    moveComposerPage(inline, -1, inlineRows);
+    expect(composerPosition(inline)).toEqual({ line: 0, column: 0 });
+
+    const fullscreen = createComposer(text);
+    moveComposerTo(fullscreen, 0);
+    const fullscreenRows = composerPageRows(24, true);
+    expect(fullscreenRows).toBe(21);
+    expect(moveComposerVisualRows(fullscreen, fullscreenRows, 76)).toBeTrue();
+    expect(composerPosition(fullscreen)).toEqual({ line: 21, column: 0 });
+    expect(moveComposerVisualRows(fullscreen, -fullscreenRows, 76)).toBeTrue();
+    expect(composerPosition(fullscreen)).toEqual({ line: 0, column: 0 });
   });
 
   test("frames the composer on entry and places the solid caret at its grapheme offset", () => {

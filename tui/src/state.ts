@@ -358,8 +358,6 @@ interface EditorSessionBase {
   composer: ComposerState;
   title: string;
   placeholder: string;
-  /** Explicit second-press consent when OSC 52 cannot confirm a destructive cut. */
-  cutConfirmation: { start: number; end: number; text: string } | null;
 }
 
 export interface InlineEditorSession extends EditorSessionBase {
@@ -390,9 +388,6 @@ export interface FactEditorSession extends EditorSessionBase {
   /** Draft-of-Fact: what the editor would already match if nothing changed —
    *  see shared/fact-draft.ts. Rebased on a clean reconcile, replaced on save. */
   initialFact: FactDraft;
-  tagCutConfirmation: EditorSessionBase["cutConfirmation"];
-  keysCutConfirmation: EditorSessionBase["cutConfirmation"];
-  budgetCutConfirmation: EditorSessionBase["cutConfirmation"];
 }
 
 export type DocumentEditorSession =

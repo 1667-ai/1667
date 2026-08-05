@@ -7,9 +7,15 @@ export interface ComposerState {
   /** Fixed end of the active selection; null when movement owns only a caret. */
   anchor: number | null;
   fullscreen: boolean;
+  /** Explicit second-press consent when OSC 52 cannot confirm a cut. */
+  cutConfirmation: ComposerCutConfirmation | null;
 }
 
 export interface ComposerSelection { start: number; end: number }
+
+export interface ComposerCutConfirmation extends ComposerSelection {
+  text: string;
+}
 
 export interface ComposerLineSelection extends ComposerSelection {
   lineBreak: boolean;
@@ -114,7 +120,13 @@ interface EditHistory {
 }
 
 export function createComposer(text = ""): ComposerState {
-  const composer: ComposerState = { text, cursor: 0, anchor: null, fullscreen: false };
+  const composer: ComposerState = {
+    text,
+    cursor: 0,
+    anchor: null,
+    fullscreen: false,
+    cutConfirmation: null
+  };
   const document = buildDocument(text);
   DOCUMENTS.set(composer, document);
   setCursor(composer, document, totalGraphemes(document), false);
@@ -125,6 +137,7 @@ export function setComposerText(composer: ComposerState, text: string): void {
   const previous = documentFor(composer);
   composer.text = text;
   composer.anchor = null;
+  composer.cutConfirmation = null;
   const document = rebuildDocument(text, previous);
   DOCUMENTS.set(composer, document);
   setCursor(composer, document, totalGraphemes(document), false);
@@ -272,6 +285,7 @@ export function resetComposerEditHistory(composer: ComposerState): void {
   history.undo = [];
   history.redo = [];
   history.retainedCodeUnits = 0;
+  composer.cutConfirmation = null;
 }
 
 /** Low-level grapheme document primitives used by the editor command layer. */
@@ -454,6 +468,7 @@ function replaceComposerCodeUnits(
     editStartCodeUnit, Math.min(composer.text.length, endCodeUnit)
   );
   if (editStartCodeUnit === editEndCodeUnit && inserted.length === 0) return;
+  composer.cutConfirmation = null;
   const total = totalGraphemes(document);
   const editStart = knownGraphemeRange?.start
     ?? graphemeBoundaryAtCodeUnit(document, editStartCodeUnit, "before");

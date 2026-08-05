@@ -85,6 +85,7 @@ import {
 import type { BackgroundUpdateStarter } from "./update-runtime.js";
 import { startPromptTokenCountLane, type PromptTokenCountLane } from "./prompt-token-count.js";
 import {
+  activeTextComposer,
   openTextActions,
   textActionsMenuAction
 } from "./text-actions.js";
@@ -646,6 +647,10 @@ export async function dispatch(
 ): Promise<void> {
   const previousMode = state.mode;
   beginInteraction(state);
+  if (resolved.action !== "cut-selection") {
+    const composer = activeTextComposer(state);
+    if (composer !== null) composer.cutConfirmation = null;
+  }
   if (generationBusy(state) && resolved.action === "cancel" && isPlainNavigation(state)) return await cancelStream();
   if (state.toast !== null) state.toast = null;
   state.quitArmed = false;

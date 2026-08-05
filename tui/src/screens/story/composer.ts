@@ -33,6 +33,12 @@ import {
   type DisplayRole,
   type FrameLine
 } from "./frame.js";
+import {
+  composerHeightCap,
+  composerPageRows
+} from "../../composer-viewport.js";
+
+export { composerHeightCap } from "../../composer-viewport.js";
 
 /** Where the writer's insertion point is, and whether this field has it.
  *
@@ -90,14 +96,6 @@ export interface ComposerLayout {
   dimsStory: boolean;
 }
 
-/** The default cap from design §11. A valid override is taken literally. */
-export function composerHeightCap(terminalHeight: number, override?: number | null): number {
-  if (override !== null && override !== undefined && Number.isFinite(override) && override >= 1) {
-    return Math.floor(override);
-  }
-  return Math.max(6, Math.floor(Math.max(0, terminalHeight) / 3));
-}
-
 /**
  * Pure COMPOSE field renderer. Its lines exclude the app status row: inline
  * callers subtract `lines.length` from the prose viewport; fullscreen callers
@@ -136,9 +134,11 @@ export function renderComposerLayout(options: ComposerLayoutOptions): ComposerLa
     options.promptKind ?? null
   ).slice(0, footerCapacity);
   // Inline always leaves one row of story visible plus the status row.
-  const bodyCapacity = fullscreen
-    ? Math.max(1, terminalHeight - 2 - footer.length)
-    : Math.max(1, Math.min(cap, terminalHeight - 3 - footer.length));
+  const bodyCapacity = footer.length === 1
+    ? composerPageRows(terminalHeight, fullscreen, options.composeMaxHeight)
+    : fullscreen
+      ? Math.max(1, terminalHeight - 2 - footer.length)
+      : Math.max(1, Math.min(cap, terminalHeight - 3 - footer.length));
   const bodyRows = fullscreen ? bodyCapacity : Math.min(rowCount, bodyCapacity);
   const scrollTop = retainedScrollTop(rowCount, bodyRows, cursorRow, options.scrollTop);
   const title = options.title ?? composerTitle(fullscreen, options.directingPart);

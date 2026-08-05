@@ -409,11 +409,7 @@ describe("active selection copy", () => {
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
-      conflict: null,
-      cutConfirmation: null,
-      tagCutConfirmation: null,
-      keysCutConfirmation: null,
-      budgetCutConfirmation: null
+      conflict: null
     };
     const frame = renderStoryScreen(state, { width: 20, height: 12 });
     state.composerSelectionProjection = frame.derived.composerSelectionProjection;
@@ -462,11 +458,7 @@ describe("active selection copy", () => {
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
-      conflict: null,
-      cutConfirmation: null,
-      tagCutConfirmation: null,
-      keysCutConfirmation: null,
-      budgetCutConfirmation: null
+      conflict: null
     };
     const frame = renderStoryScreen(state, { width: 40, height: 12 });
     const projection = frame.derived.composerSelectionProjection!;
@@ -513,11 +505,7 @@ describe("active selection copy", () => {
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
-      conflict: null,
-      cutConfirmation: null,
-      tagCutConfirmation: null,
-      keysCutConfirmation: null,
-      budgetCutConfirmation: null
+      conflict: null
     };
     const frame = renderStoryScreen(state, { width: 40, height: 12 });
     const projection = frame.derived.composerSelectionProjection!;
@@ -566,11 +554,7 @@ describe("active selection copy", () => {
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
-      conflict: null,
-      cutConfirmation: null,
-      tagCutConfirmation: null,
-      keysCutConfirmation: null,
-      budgetCutConfirmation: null
+      conflict: null
     };
     const frame = renderStoryScreen(state, { width: 40, height: 12 });
     const projection = frame.derived.composerSelectionProjection!;
@@ -623,11 +607,7 @@ describe("active selection copy", () => {
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
-      conflict: null,
-      cutConfirmation: null,
-      tagCutConfirmation: null,
-      keysCutConfirmation: null,
-      budgetCutConfirmation: null
+      conflict: null
     };
     const frame = renderStoryScreen(state, { width: 40, height: 12 });
     const projection = frame.derived.composerSelectionProjection!;
@@ -677,11 +657,7 @@ describe("active selection copy", () => {
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
-      conflict: null,
-      cutConfirmation: null,
-      tagCutConfirmation: null,
-      keysCutConfirmation: null,
-      budgetCutConfirmation: null
+      conflict: null
     };
     const width = 50;
     const frame = renderStoryScreen(state, { width, height: 12 });
@@ -753,11 +729,7 @@ describe("active selection copy", () => {
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
-      conflict: null,
-      cutConfirmation: null,
-      tagCutConfirmation: null,
-      keysCutConfirmation: null,
-      budgetCutConfirmation: null
+      conflict: null
     };
     const width = 40;
     const frame = renderStoryScreen(state, { width, height: 12 });

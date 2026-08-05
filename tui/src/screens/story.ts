@@ -708,16 +708,16 @@ function renderFullscreenComposer(
 function editorFooterHints(editor: DocumentEditorSession): string {
   if (editor.kind === "document"
     && editor.target.kind === "settings-prompt") {
-    return "shift+arrows select · ctrl+c/v · ctrl+s keep draft · esc cancel";
+    return "shift+arrows select · ctrl+c/x/v · ctrl+s keep draft · esc cancel";
   }
   // Part editors offer dual save; other targets and incomplete fixtures keep
   // the single-save footer (tests may stub a minimal session without target).
   if (editor.kind === "document" && editor.target.kind === "part") {
     // ctrl+o is the portable same-take chord; ctrl+shift+s is an alias where
     // the terminal reports modified keys.
-    return "shift+arrows select · ctrl+c/v · ctrl+s new take · ctrl+o same take · esc cancel";
+    return "shift+arrows select · ctrl+c/x/v · ctrl+s new take · ctrl+o same take · esc cancel";
   }
-  return "shift+arrows select · ctrl+c/v · ctrl+s save · esc cancel";
+  return "shift+arrows select · ctrl+c/x/v · ctrl+s save · esc cancel";
 }
 
 function renderInlineEditor(

@@ -562,39 +562,39 @@ describe("Fact editor", () => {
     await press(key("t", { sequence: "\u0014", ctrl: true }));
     editor.tag.anchor = 0;
     editor.tag.cursor = 3;
-    editor.tagCutConfirmation = { start: 0, end: 3, text: "peo" };
+    editor.tag.cutConfirmation = { start: 0, end: 3, text: "peo" };
 
     // Move focus through activation, keys, priority, and budget to the body.
     await press(key("down"));
     expect(editor.focus).toBe("activation");
     await press(key("down"));
     expect(editor.focus).toBe("keys");
-    editor.keysCutConfirmation = { start: 0, end: 1, text: "x" };
+    editor.keys.cutConfirmation = { start: 0, end: 1, text: "x" };
     await press(key("down"));
     expect(editor.focus).toBe("priority");
     // Priority borrows budget's buffer identity, same as activation borrows
     // keys' — leaving keys for priority still clears keys' own confirmation.
-    expect(editor.keysCutConfirmation).toBe(null);
-    editor.budgetCutConfirmation = { start: 0, end: 1, text: "5" };
+    expect(editor.keys.cutConfirmation).toBe(null);
+    editor.budget.cutConfirmation = { start: 0, end: 1, text: "5" };
     await press(key("down"));
     expect(editor.focus).toBe("budget");
-    expect(editor.budgetCutConfirmation).toEqual({ start: 0, end: 1, text: "5" });
+    expect(editor.budget.cutConfirmation).toEqual({ start: 0, end: 1, text: "5" });
     await press(key("down"));
     expect(editor.focus).toBe("body");
     expect(editor.tag.anchor).toBe(null);
-    expect(editor.tagCutConfirmation).toBe(null);
-    expect(editor.budgetCutConfirmation).toBe(null);
+    expect(editor.tag.cutConfirmation).toBe(null);
+    expect(editor.budget.cutConfirmation).toBe(null);
 
     // In body field, set selection and cut confirmation
     editor.composer.anchor = 0;
     editor.composer.cursor = 5;
-    editor.cutConfirmation = { start: 0, end: 5, text: "Maren" };
+    editor.composer.cutConfirmation = { start: 0, end: 5, text: "Maren" };
 
     // Move focus to budget. The body selection ownership clears immediately.
     await press(key("up"));
     expect(editor.focus).toBe("budget");
     expect(editor.composer.anchor).toBe(null);
-    expect(editor.cutConfirmation).toBe(null);
+    expect(editor.composer.cutConfirmation).toBe(null);
   });
 
   test("renders activation and keys and rejects duplicate normalized keys", async () => {

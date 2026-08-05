@@ -216,6 +216,7 @@ export function copyActiveSelection(
     ? draft ?? ""
     : story ?? rendered;
   if (text.length === 0) return null;
+  if (composer !== null) composer.cutConfirmation = null;
   return { text, outcome: copy(text) };
 }
 

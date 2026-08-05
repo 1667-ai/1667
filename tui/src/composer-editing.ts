@@ -8,7 +8,10 @@ import {
   deleteComposerForward,
   moveComposerHorizontal,
   moveComposerTo,
+  moveComposerVertical,
+  redoComposerEdit,
   replaceComposerTextRange,
+  undoComposerEdit,
   type ComposerState
 } from "./composer-model.js";
 import type { KeyAction } from "./keys.js";
@@ -76,6 +79,19 @@ export function deleteComposerToLineBoundary(composer: ComposerState, end: boole
     Math.min(composer.cursor, boundary), Math.max(composer.cursor, boundary), "");
 }
 
+/** Move by logical rows. Direct and one-line Settings editors do not soft-wrap. */
+export function moveComposerPage(
+  composer: ComposerState,
+  direction: -1 | 1,
+  rows: number,
+  selecting = false
+): void {
+  const count = Math.max(1, Math.floor(rows));
+  for (let row = 0; row < count; row += 1) {
+    if (!moveComposerVertical(composer, direction, selecting)) break;
+  }
+}
+
 function wordBoundary(composer: ComposerState, cursor: number, direction: -1 | 1): number {
   const total = composerLength(composer);
   if (direction > 0) {
@@ -138,4 +154,14 @@ export function applyComposerEdit(
     case "delete-line-end": deleteComposerToLineBoundary(composer, true); return "delete";
     default: return null;
   }
+}
+
+/** Apply local text history. Null means that the action is not undo or redo. */
+export function applyComposerHistoryEdit(
+  composer: ComposerState,
+  action: KeyAction
+): boolean | null {
+  if (action === "undo-edit") return undoComposerEdit(composer);
+  if (action === "redo-edit") return redoComposerEdit(composer);
+  return null;
 }
