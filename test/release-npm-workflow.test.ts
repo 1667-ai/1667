@@ -221,6 +221,7 @@ test("the retained layout and completion record support an exact rerun", () => {
   assert.match(job("publish"), /release-completion\.ts[\s\\]*status "\$VERSION"/u);
   assert.match(job("release"), /scripts\/release-npm-github\.ts/u);
   assert.doesNotMatch(job("release"), /release:publish -- verify/u);
+  assert.doesNotMatch(job("release"), /source-evidence\.json/u);
   assert.match(
     job("release"),
     /scripts\/release-npm-github\.ts[\s\S]+"\$VERSION" "\$GITHUB_SHA"/u
