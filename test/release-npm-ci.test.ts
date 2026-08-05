@@ -160,6 +160,15 @@ test("GitHub release publication verifies exact assets before and after upload",
     /Prepared GitHub release does not exist/u
   );
   await prepareOrVerifyGitHubRelease(options);
+  const preparedState = await readFile(state, "utf8");
+  const tamperedState = JSON.parse(preparedState) as Record<string, unknown>;
+  tamperedState.body = "tampered notes\n";
+  await writeFile(state, JSON.stringify(tamperedState));
+  await assert.rejects(
+    verifyPreparedGitHubRelease(options),
+    /title or notes do not match/u
+  );
+  await writeFile(state, preparedState);
   await verifyPreparedGitHubRelease(options);
   await publishOrVerifyGitHubRelease(options);
   await prepareOrVerifyGitHubRelease(options);

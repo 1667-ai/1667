@@ -45,9 +45,11 @@ export interface GitHubReleaseOptions {
 }
 
 interface ReleaseState {
+  readonly body: string;
   readonly isDraft: boolean;
   readonly isImmutable: boolean;
   readonly isPrerelease: boolean;
+  readonly name: string;
 }
 
 export async function publishOrVerifyGitHubRelease(
@@ -88,7 +90,7 @@ export async function prepareOrVerifyGitHubRelease(
   options: GitHubReleaseOptions
 ): Promise<void> {
   const context = releaseContext(options);
-  const { assets, gh, notes, prerelease, repository, tag, verifyTag } = context;
+  const { assets, gh, notes, prerelease, repository, tag, title, verifyTag } = context;
   await verifyTag();
   let state = await releaseState(gh, tag, repository, context.environment);
   if (state?.isDraft === true) {
@@ -113,7 +115,7 @@ export async function prepareOrVerifyGitHubRelease(
       ...(prerelease ? ["--prerelease"] : []),
       "--latest=false",
       "--title",
-      `1667 v${options.version}`,
+      title,
       "--notes-file",
       notes
     ], context.environment);
@@ -124,6 +126,8 @@ export async function prepareOrVerifyGitHubRelease(
   const uploaded = await releaseState(gh, tag, repository, context.environment);
   if (uploaded === null) throw new Error("Uploaded GitHub release disappeared");
   if (created) requireDraftReleaseChannel(uploaded, prerelease);
+  else requireImmutableReleaseChannel(uploaded, prerelease, "Existing");
+  requireReleaseContents(uploaded, context);
   await verifyDownloadedRelease(gh, tag, repository, assets, context.environment);
   await verifyTag();
 }
@@ -135,6 +139,7 @@ async function preparedReleaseState(context: ReleaseContext): Promise<ReleaseSta
   if (state === null) throw new Error("Prepared GitHub release does not exist");
   if (state.isDraft) requireDraftReleaseChannel(state, prerelease);
   else requireImmutableReleaseChannel(state, prerelease, "Existing");
+  requireReleaseContents(state, context);
   await verifyDownloadedRelease(gh, tag, repository, assets, environment);
   await verifyTag();
   return state;
@@ -145,9 +150,11 @@ interface ReleaseContext {
   readonly environment: GitHubReleaseEnvironment;
   readonly gh: string;
   readonly notes: string;
+  readonly notesBody: string;
   readonly prerelease: boolean;
   readonly repository: string;
   readonly tag: string;
+  readonly title: string;
   readonly verifyTag: () => Promise<void>;
 }
 
@@ -178,7 +185,9 @@ function releaseContext(
     repository
   );
   const notes = boundedFile(options.notesFile, "GitHub release notes", MAX_NOTES_BYTES);
+  const notesBody = readFileSync(notes, "utf8");
   const tag = `v${options.version}`;
+  const title = `1667 v${options.version}`;
   const verifyTag = async (): Promise<void> => await verifyRemoteReleaseTag({
     version: options.version,
     sourceCommit: options.sourceCommit,
@@ -190,9 +199,11 @@ function releaseContext(
     environment: options.environment,
     gh,
     notes,
+    notesBody,
     prerelease,
     repository,
     tag,
+    title,
     verifyTag
   });
 }
@@ -321,7 +332,7 @@ async function releaseState(
       "--repo",
       repository,
       "--json",
-      "isDraft,isImmutable,isPrerelease"
+      "body,isDraft,isImmutable,isPrerelease,name"
     ], environment));
   } catch (error) {
     if (isMissingRelease(error)) return null;
@@ -332,17 +343,27 @@ async function releaseState(
     throw new Error("GitHub release state is not an object");
   }
   const record = value as Record<string, unknown>;
-  if (Object.keys(record).sort().join(",") !== "isDraft,isImmutable,isPrerelease"
+  if (Object.keys(record).sort().join(",") !== "body,isDraft,isImmutable,isPrerelease,name"
+    || typeof record.body !== "string"
     || typeof record.isDraft !== "boolean"
     || typeof record.isImmutable !== "boolean"
-    || typeof record.isPrerelease !== "boolean") {
+    || typeof record.isPrerelease !== "boolean"
+    || typeof record.name !== "string") {
     throw new Error("GitHub release state is invalid");
   }
   return Object.freeze({
+    body: record.body,
     isDraft: record.isDraft,
     isImmutable: record.isImmutable,
-    isPrerelease: record.isPrerelease
+    isPrerelease: record.isPrerelease,
+    name: record.name
   });
+}
+
+function requireReleaseContents(state: ReleaseState, context: ReleaseContext): void {
+  if (state.name !== context.title || state.body !== context.notesBody) {
+    throw new Error("GitHub release title or notes do not match the prepared release");
+  }
 }
 
 /**

@@ -202,10 +202,11 @@ pins the ruleset ID and revision. A ruleset change stops the release.
 
 The `prepare-release` job resolves the remote release tag before it creates a
 draft release. The tag must target the dispatch commit. The job verifies the
-draft assets. The `publish` job verifies the draft again before it writes to
-npm. It resolves the locked tag before each npm write. It publishes the draft
-after npm publication. It verifies the tag again after GitHub makes the release
-immutable. It creates the completion record last.
+draft title, notes, channel, and assets. The `publish` job verifies the draft
+again before it writes to npm. It resolves the locked tag before each npm
+write. It publishes the draft after npm publication. It verifies the tag again
+after GitHub makes the release immutable. It creates the completion record
+last.
 
 The release plan carries the collected `tagObjectType` and `tagSignature`
 values. Each native `buildIdentity` records the result from step 5. Preflight
