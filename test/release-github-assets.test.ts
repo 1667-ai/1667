@@ -42,7 +42,8 @@ import {
 } from "../scripts/release-github-assets.js";
 import {
   collectRepositoryReleaseSource,
-  releaseIdentitiesForSource
+  releaseIdentitiesForSource,
+  type CollectedReleaseSource
 } from "../scripts/release-source-facts.js";
 import {
   MAX_RELEASE_ARCHIVE_STEM_BYTES,
@@ -301,6 +302,11 @@ test("the three source facts build an identity the release codec accepts", () =>
     sourceCommit: SOURCE_COMMIT,
     buildTimestamp: BUILD_TIMESTAMP
   }), /version/);
+  const spread = {
+    ...collectRepositoryReleaseSource(FACTS),
+    version: "9.9.9"
+  } as CollectedReleaseSource;
+  assert.throws(() => releaseIdentitiesForSource(spread), /was not collected/u);
 });
 
 test("staging writes the whole file set and nothing else", (t) => {

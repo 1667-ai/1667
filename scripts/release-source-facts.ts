@@ -18,6 +18,7 @@ import {
 const MAX_PACKAGE_MANIFEST_BYTES = 1024 * 1024;
 const MAX_LOCKFILE_BYTES = 8 * 1024 * 1024;
 const COLLECTED_RELEASE_SOURCE: unique symbol = Symbol("CollectedReleaseSource");
+const COLLECTED_RELEASE_SOURCES = new WeakSet<object>();
 const SOURCE_COMMIT = /^[0-9a-f]{40}$/u;
 
 /**
@@ -57,10 +58,10 @@ export function collectReleaseSource(
   if (!isCanonicalTimestamp(snapshot.buildTimestamp)) {
     throw new Error("Release source timestamp is not canonical");
   }
-  return Object.freeze({
-    ...snapshot,
-    [COLLECTED_RELEASE_SOURCE]: true as const
-  });
+  const collected = { ...snapshot } as CollectedReleaseSource;
+  Object.defineProperty(collected, COLLECTED_RELEASE_SOURCE, { value: true });
+  COLLECTED_RELEASE_SOURCES.add(collected);
+  return Object.freeze(collected);
 }
 
 /** Collects source facts against the package versions in this checkout. */
@@ -74,6 +75,7 @@ export function collectRepositoryReleaseSource(
 export function releaseIdentitiesForSource(
   source: CollectedReleaseSource
 ): ReleaseBuildIdentitySet {
+  requireCollectedReleaseSource(source);
   return createReleaseBuildIdentitySet({
     productVersion: source.version,
     sourceCommit: source.sourceCommit,
@@ -85,12 +87,19 @@ export function releaseIdentitiesForSource(
 export function releaseSbomSourceForSource(
   source: CollectedReleaseSource
 ): ReleaseSbomSource {
+  requireCollectedReleaseSource(source);
   return createReleaseSbomSource({
     productVersion: source.version,
     sourceCommit: source.sourceCommit,
     buildTimestamp: source.buildTimestamp,
     tagName: `v${source.version}`
   });
+}
+
+function requireCollectedReleaseSource(source: CollectedReleaseSource): void {
+  if (!COLLECTED_RELEASE_SOURCES.has(source)) {
+    throw new Error("Release source was not collected by this process");
+  }
 }
 
 /**
