@@ -1,6 +1,6 @@
 import type { AppSource } from "./app.js";
 import { insertComposerText } from "./composer-model.js";
-import { applyComposerEdit } from "./composer-editing.js";
+import { composerSurfaceAction } from "./composer-surface-action.js";
 import { readFromClipboard } from "./clipboard.js";
 import { applyTextKey, sanitizePastedText, type ResolvedKey } from "./keys.js";
 import {
@@ -154,15 +154,13 @@ export async function settingsInlineEditAction(
     insertComposerText(edit.composer, resolved.text ?? "");
     return;
   }
-  const kind = applyComposerEdit(
-    edit.composer,
-    resolved.action,
-    resolved.extendSelection
-  );
-  if (kind !== null) {
-    if (kind === "delete") disarmSettingsConflict(overlay);
-    return;
-  }
+  await composerSurfaceAction(resolved, state, edit.composer, {
+    isCurrent: () => state.settings === overlay && overlay.edit === edit,
+    pageRows: 1,
+    onEdit: (kind) => {
+      if (kind !== "move") disarmSettingsConflict(overlay);
+    }
+  });
 }
 
 function pasteSettingsInlineEdit(
@@ -177,4 +175,3 @@ function pasteSettingsInlineEdit(
   insertComposerText(edit.composer, clean.replace(/\n+/g, " "));
   return true;
 }
-

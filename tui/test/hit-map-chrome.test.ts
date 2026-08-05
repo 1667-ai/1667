@@ -385,8 +385,7 @@ describe("hit map clickable chrome", () => {
       composer: createComposer("prose"),
       initial: "prose",
       returnMode: "NAV",
-      conflict: null,
-      cutConfirmation: null
+      conflict: null
     };
     const frame = render(state, 120, 30);
     const row = frame.findIndex((line) => plainLine(line).includes(state.model));
@@ -984,8 +983,7 @@ describe("hit map clickable chrome", () => {
       composer: createComposer("editor text"),
       initial: "editor text",
       returnMode: "NAV",
-      conflict: null,
-      cutConfirmation: null
+      conflict: null
     };
     render(state);
     const editorRow = state.hitRows.findIndex((row) => row?.target.kind === "composer");

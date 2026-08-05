@@ -419,8 +419,7 @@ describe("sliced story wrap build", () => {
             title: "edit part",
             placeholder: "",
             returnMode: "NAV",
-            conflict: null,
-            cutConfirmation: null
+            conflict: null
           };
         } else if (surface === "system prompt") {
           state.mode = "EDITOR";

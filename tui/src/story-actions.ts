@@ -5,7 +5,8 @@ import { openFactFromSelection, openPartEditor } from "./editor-action.js";
 import { applyTextKey, type ResolvedKey } from "./keys.js";
 import { copyToClipboard } from "./clipboard.js";
 import { pasteClipboardIntoComposer } from "./compose-clipboard.js";
-import { applyComposerEdit } from "./composer-editing.js";
+import { composerSurfaceAction } from "./composer-surface-action.js";
+import { composerPageRows } from "./composer-viewport.js";
 import { copyStoryText } from "./copy-actions.js";
 import { recordHumanWords, saveConfig } from "./config.js";
 import { rememberFocus } from "./reading-position-persist.js";
@@ -422,11 +423,15 @@ export async function composeAction(
     }
     return;
   }
-  if (applyComposerEdit(
-    state.composer,
-    resolved.action,
-    resolved.extendSelection
-  ) !== null) return;
+  const composer = state.composer;
+  if (await composerSurfaceAction(resolved, state, composer, {
+    isCurrent: () => state.mode === "COMPOSE" && state.composer === composer,
+    pageRows: composerPageRows(
+      context.renderer?.height ?? 24,
+      composer.fullscreen,
+      state.config.composeMaxHeight
+    )
+  })) return;
   if (resolved.action === "history-previous") return historyMove(state, -1);
   if (resolved.action === "history-next") return historyMove(state, 1);
   if (resolved.action === "send" || resolved.action === "send-as-take") {

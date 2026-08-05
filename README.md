@@ -79,9 +79,14 @@ Git manages this installation.
 | Go to the previous or next chapter | `[` and `]` |
 | Continue the story | `Space` |
 | Open the composer | `Enter` or `i` |
-| Copy selected composer text | `Ctrl+C` |
-| Paste text into the composer | `Ctrl+V` |
+| Copy selected editor text | `Ctrl+C` or `Command+C` |
+| Cut selected editor text | `Ctrl+X` or `Command+X` |
+| Paste text into an editor | `Ctrl+V` or `Command+V` |
 | Select all text in an editor | `Ctrl+A` or `Command+A` |
+| Undo or redo an editor change | `Ctrl+Z` and `Ctrl+Shift+Z`, or `Command+Z` and `Command+Shift+Z` |
+| Go to the start or end of an editor line or buffer | `Command+Arrow` |
+| Delete to the start of an editor line | `Command+Backspace` |
+| Move by one editor page | `Page Up` or `Page Down` |
 | Open the editor action menu | Right-click an editor |
 | Add a manual take | `w` |
 | Edit the selected story part | `e` |

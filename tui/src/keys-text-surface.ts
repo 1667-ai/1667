@@ -4,7 +4,8 @@ import type { ResolvedKey } from "./keys.js";
 /**
  * The three composer-backed surfaces use these editing gestures.
  * They are Direct, the full-screen editor, and the settings fields.
- * They move and delete by character, word, and line.
+ * They move and delete by character, word, line, buffer, and page.
+ * They also share cut, undo, and redo.
  *
  * Four other surfaces hold a plain string, not a composer: the LIBRARY
  * prompt, the FACTS filter, the CHAPTERS rename field, and the TAG name.
@@ -26,6 +27,21 @@ export function textSurfaceKey(key: KeyEvent): ResolvedKey | null {
   const byWord = key.ctrl || alt;
   const extend = key.shift ? { extendSelection: true } : {};
 
+  // Enhanced keyboard reporting exposes Command as `super`. Its arrows use
+  // macOS text conventions: horizontal means line, vertical means buffer.
+  if (key.super && (name === "left" || name === "right")) {
+    return {
+      action: name === "left" ? "cursor-line-start" : "cursor-line-end",
+      ...extend
+    };
+  }
+  if (key.super && (name === "up" || name === "down")) {
+    return {
+      action: name === "up" ? "cursor-buffer-start" : "cursor-buffer-end",
+      ...extend
+    };
+  }
+
   if (key.name === "left") {
     return { action: byWord ? "cursor-word-left" : "cursor-left", ...extend };
   }
@@ -43,6 +59,7 @@ export function textSurfaceKey(key: KeyEvent): ResolvedKey | null {
   // cannot be told from plain backspace. alt does arrive, and ctrl+w is the
   // word delete that lands in every terminal.
   if (key.name === "backspace") {
+    if (key.super) return { action: "delete-line-start" };
     return { action: byWord ? "delete-word-left" : "backspace" };
   }
   if (key.name === "delete") {
@@ -52,8 +69,22 @@ export function textSurfaceKey(key: KeyEvent): ResolvedKey | null {
   if (key.ctrl && name === "k") return { action: "delete-line-end" };
   if (key.ctrl && name === "u") return { action: "delete-line-start" };
 
+  if (name === "pageup" || name === "pagedown") {
+    return {
+      action: name === "pageup" ? "cursor-page-up" : "cursor-page-down",
+      ...extend
+    };
+  }
+
   // Ctrl+A and Command+A use the platform-wide Select All convention.
   if ((key.ctrl || key.super) && name === "a") return { action: "select-all" };
+  if ((key.ctrl || key.super) && name === "x") return { action: "cut-selection" };
+  if ((key.ctrl && name === "z" && !key.shift) || key.ctrl && name === "-"
+    || key.super && name === "z" && !key.shift) return { action: "undo-edit" };
+  if ((key.ctrl && name === "z" && key.shift) || key.ctrl && (name === "y" || name === ".")
+    || key.super && name === "z" && key.shift) {
+    return { action: "redo-edit" };
+  }
   // Alt+A keeps a terminal-safe line-start chord for Emacs-style motion.
   if (key.ctrl && name === "e") return { action: "cursor-line-end", ...extend };
   if (alt && name === "a") return { action: "cursor-line-start", ...extend };

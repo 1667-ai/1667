@@ -29,6 +29,10 @@ export type ComposerSurface = (typeof COMPOSER_SURFACES)[number];
 const TEXT_SURFACE_KEY_NAMES = [
   "left",
   "right",
+  "up",
+  "down",
+  "pageup",
+  "pagedown",
   "home",
   "end",
   "backspace",
@@ -39,7 +43,12 @@ const TEXT_SURFACE_KEY_NAMES = [
   "f",
   "k",
   "u",
-  "w"
+  "w",
+  "x",
+  "y",
+  "z",
+  "-",
+  "."
 ] as const;
 
 const MODIFIER_COMBINATIONS = Array.from({ length: 32 }, (_, bits) => ({
@@ -115,11 +124,7 @@ export async function composerChangedThroughSurface(
       title: "Edit fact",
       placeholder: "Fact text",
       returnMode: "FACTS",
-      conflict: null,
-      cutConfirmation: null,
-      tagCutConfirmation: null,
-      keysCutConfirmation: null,
-      budgetCutConfirmation: null
+      conflict: null
     };
     await inlineEditorAction(resolved, state, source, context);
   } else {

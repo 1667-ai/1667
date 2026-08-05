@@ -4,7 +4,6 @@ import type { DocumentEditorSession } from "./state.js";
 
 export interface EditorTextBuffer {
   composer: ComposerState;
-  cutConfirmation: { start: number; end: number; text: string } | null;
 }
 
 export interface EditorTextHost {
@@ -52,7 +51,7 @@ export function insertEditorText(
   source: EditorTextSource
 ): void {
   policy.disarmConflict();
-  buffer.cutConfirmation = null;
+  buffer.composer.cutConfirmation = null;
   const admitted = policy.insert(raw, source);
   if ("blocked" in admitted) {
     host.toast = admitted.blocked;

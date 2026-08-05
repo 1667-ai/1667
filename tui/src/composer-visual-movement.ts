@@ -19,10 +19,21 @@ export function moveComposerVisualVertical(
   width: number,
   selecting = false
 ): boolean {
+  return moveComposerVisualRows(composer, direction, width, selecting);
+}
+
+/** Move through a page of soft-wrapped rows while retaining the visual column. */
+export function moveComposerVisualRows(
+  composer: ComposerState,
+  rows: number,
+  width: number,
+  selecting = false
+): boolean {
   const layout = wrappedComposerLayout(composer, width);
+  const direction = rows < 0 ? -1 : 1;
   const nextRow = Math.max(
     0,
-    Math.min(layout.rowCount - 1, layout.cursorRow + direction)
+    Math.min(layout.rowCount - 1, layout.cursorRow + Math.trunc(rows))
   );
   const current = layout.rowAt(layout.cursorRow)!;
   if (nextRow === layout.cursorRow) {

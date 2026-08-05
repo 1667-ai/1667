@@ -19,7 +19,6 @@ export function openSystemPromptEditor(state: RuntimeState): void {
     initial,
     title: "system prompt",
     placeholder: "Write the default model instructions…",
-    cutConfirmation: null,
     conflict: null,
     returnMode: "SETTINGS",
     target: { kind: "settings-prompt", owner: overlay, scope: "global" }

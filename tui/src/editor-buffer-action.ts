@@ -1,12 +1,10 @@
+import { applyComposerEdit, applyComposerHistoryEdit } from "./composer-editing.js";
 import {
-  composerSelection,
-  redoComposerEdit,
-  selectedComposerText,
-  undoComposerEdit
-} from "./composer-model.js";
-import { applyComposerEdit } from "./composer-editing.js";
-import { moveComposerVisualVertical } from "./composer-visual-movement.js";
-import { copyToClipboard, readFromClipboard } from "./clipboard.js";
+  moveComposerVisualRows,
+  moveComposerVisualVertical
+} from "./composer-visual-movement.js";
+import { readFromClipboard } from "./clipboard.js";
+import { composerClipboardAction } from "./composer-clipboard-action.js";
 import {
   insertEditorText,
   type EditorTextBuffer,
@@ -31,6 +29,7 @@ export type EditorBufferOutcome =
 export interface EditorBufferActionOptions extends EditorTextInsertionPolicy {
   readonly isCurrent: () => boolean;
   readonly wrapWidth: number;
+  readonly pageRows: number;
 }
 
 /** Shared multiline-buffer reducer. Target owners keep save, cancel, conflict,
@@ -45,11 +44,11 @@ export async function editorBufferAction(
   if (resolved.action === "save-edit") return "save";
   if (resolved.action === "save-edit-inplace") return "save-inplace";
   if (resolved.action === "copy-selection") {
-    await copySelection(host, buffer, options, false);
+    await selectionClipboardAction(host, buffer, options, false);
     return "handled";
   }
   if (resolved.action === "cut-selection") {
-    await copySelection(host, buffer, options, true);
+    await selectionClipboardAction(host, buffer, options, true);
     return "handled";
   }
   if (resolved.action === "paste-clipboard") {
@@ -69,6 +68,15 @@ export async function editorBufferAction(
     );
     return "handled";
   }
+  if (resolved.action === "cursor-page-up" || resolved.action === "cursor-page-down") {
+    moveComposerVisualRows(
+      buffer.composer,
+      (resolved.action === "cursor-page-up" ? -1 : 1) * options.pageRows,
+      options.wrapWidth,
+      resolved.extendSelection
+    );
+    return "handled";
+  }
   const kind = applyComposerEdit(
     buffer.composer,
     resolved.action,
@@ -78,11 +86,9 @@ export async function editorBufferAction(
     if (kind === "delete") disarm(buffer, options);
     return "handled";
   }
-  if (resolved.action === "undo-edit" || resolved.action === "redo-edit") {
-    const changed = resolved.action === "undo-edit"
-      ? undoComposerEdit(buffer.composer)
-      : redoComposerEdit(buffer.composer);
-    if (changed) disarm(buffer, options);
+  const history = applyComposerHistoryEdit(buffer.composer, resolved.action);
+  if (history !== null) {
+    if (history) disarm(buffer, options);
     else host.toast = resolved.action === "undo-edit"
       ? "nothing to undo"
       : "nothing to redo";
@@ -115,55 +121,19 @@ async function pasteClipboard(
   insertEditorText(host, buffer, options, clean, "paste");
 }
 
-async function copySelection(
+async function selectionClipboardAction(
   host: EditorBufferHost,
   buffer: EditorBuffer,
   options: EditorBufferActionOptions,
   cut: boolean
 ): Promise<void> {
-  const selection = composerSelection(buffer.composer);
-  const text = selectedComposerText(buffer.composer);
-  if (selection === null || text === null) {
-    buffer.cutConfirmation = null;
-    host.toast = "nothing selected";
-    return;
-  }
-  if (!cut) buffer.cutConfirmation = null;
-  const interactionVersion = host.interactionVersion;
-  const outcome = await copyToClipboard(text);
-  if (!options.isCurrent() || host.interactionVersion !== interactionVersion) {
-    return;
-  }
-  if (outcome === "unavailable") {
-    buffer.cutConfirmation = null;
-    host.toast = "no clipboard available · selection kept";
-    return;
-  }
-  if (cut) {
-    if (outcome !== "command") {
-      const confirmation = buffer.cutConfirmation;
-      if (confirmation?.start !== selection.start
-        || confirmation.end !== selection.end
-        || confirmation.text !== text) {
-        buffer.cutConfirmation = { ...selection, text };
-        host.toast = "clipboard write unconfirmed · ctrl+x again cuts anyway";
-        return;
-      }
-    }
-    const current = composerSelection(buffer.composer);
-    if (current?.start !== selection.start
-      || current.end !== selection.end
-      || selectedComposerText(buffer.composer) !== text) {
-      host.toast = "selection changed · copied without cutting";
-      return;
-    }
-    insertEditorText(host, buffer, {
+  await composerClipboardAction(host, buffer.composer, cut, {
+    isCurrent: options.isCurrent,
+    deleteSelection: () => insertEditorText(host, buffer, {
       ...options,
       insert: () => ({ text: "" })
-    }, "", "input");
-  }
-  buffer.cutConfirmation = null;
-  host.toast = cut ? "selection cut" : "selection copied";
+    }, "", "input")
+  });
 }
 
 function disarm(
@@ -171,7 +141,7 @@ function disarm(
   options: EditorBufferActionOptions
 ): void {
   options.disarmConflict();
-  buffer.cutConfirmation = null;
+  buffer.composer.cutConfirmation = null;
 }
 
 function inputClaim(

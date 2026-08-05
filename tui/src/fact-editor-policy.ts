@@ -29,75 +29,47 @@ interface FactEditorRowSpec {
   readonly row: FactEditorRow;
   readonly sourceId: string;
   /** A choice row has no text composer of its own — it borrows a neighbor's
-   *  buffer identity only for cut-confirmation and undo grouping, never for
+   *  buffer identity only for undo grouping, never for
    *  actual text input, so a click there gets no composer to type into. Only
    *  a "text" row is that buffer's real owner: focusing a "choice" row always
    *  resets the buffer it borrows (see setFactEditorFocus), because a choice
    *  row never has a selection or cut of its own to preserve there. */
   readonly kind: "text" | "choice";
   readonly composer: (editor: FactEditorSession) => ComposerState;
-  readonly cutConfirmation: {
-    get(editor: FactEditorSession): FactEditorSession["cutConfirmation"];
-    set(editor: FactEditorSession, value: FactEditorSession["cutConfirmation"]): void;
-  };
 }
 
 /** One entry per FACT_EDITOR_ROWS row, typed as a record so every row has one
  *  — an array looked up with `.find(...)!` let a row be added to
  *  FACT_EDITOR_ROWS without a table entry and fail only at runtime, the
  *  first time focus reached it (issue #281 review finding C). Every "which
- *  buffer backs this row", "which row does this click source belong to", and
- *  "which cut-confirmation belongs to this row" lookup derives from here —
+ *  buffer backs this row" and "which row does this click source belong to"
+ *  lookup derives from here —
  *  see setFactEditorFocus and handleFactEditorHistory below, which used to
  *  re-encode this same mapping by hand. */
 const FACT_EDITOR_ROW_TABLE: Record<FactEditorRow, FactEditorRowSpec> = {
   tag: {
     row: "tag", sourceId: FACT_TAG_COMPOSER_SOURCE, kind: "text",
-    composer: (editor) => editor.tag,
-    cutConfirmation: {
-      get: (editor) => editor.tagCutConfirmation,
-      set: (editor, value) => { editor.tagCutConfirmation = value; }
-    }
+    composer: (editor) => editor.tag
   },
   activation: {
     row: "activation", sourceId: FACT_ACTIVATION_COMPOSER_SOURCE, kind: "choice",
-    composer: (editor) => editor.keys,
-    cutConfirmation: {
-      get: (editor) => editor.keysCutConfirmation,
-      set: (editor, value) => { editor.keysCutConfirmation = value; }
-    }
+    composer: (editor) => editor.keys
   },
   keys: {
     row: "keys", sourceId: FACT_KEYS_COMPOSER_SOURCE, kind: "text",
-    composer: (editor) => editor.keys,
-    cutConfirmation: {
-      get: (editor) => editor.keysCutConfirmation,
-      set: (editor, value) => { editor.keysCutConfirmation = value; }
-    }
+    composer: (editor) => editor.keys
   },
   priority: {
     row: "priority", sourceId: FACT_PRIORITY_COMPOSER_SOURCE, kind: "choice",
-    composer: (editor) => editor.budget,
-    cutConfirmation: {
-      get: (editor) => editor.budgetCutConfirmation,
-      set: (editor, value) => { editor.budgetCutConfirmation = value; }
-    }
+    composer: (editor) => editor.budget
   },
   budget: {
     row: "budget", sourceId: FACT_BUDGET_COMPOSER_SOURCE, kind: "text",
-    composer: (editor) => editor.budget,
-    cutConfirmation: {
-      get: (editor) => editor.budgetCutConfirmation,
-      set: (editor, value) => { editor.budgetCutConfirmation = value; }
-    }
+    composer: (editor) => editor.budget
   },
   body: {
     row: "body", sourceId: FACT_BODY_COMPOSER_SOURCE, kind: "text",
-    composer: (editor) => editor.composer,
-    cutConfirmation: {
-      get: (editor) => editor.cutConfirmation,
-      set: (editor, value) => { editor.cutConfirmation = value; }
-    }
+    composer: (editor) => editor.composer
   }
 };
 
@@ -105,7 +77,8 @@ const ACTIVATION_TEXT_ACTIONS = new Set<ResolvedKey["action"]>([
   "input", "backspace", "delete-forward", "delete-word-left", "delete-word-right",
   "delete-line", "delete-line-start", "delete-line-end", "paste-clipboard",
   "cut-selection", "select-all", "cursor-word-left", "cursor-word-right",
-  "cursor-line-start", "cursor-line-end", "cursor-buffer-start", "cursor-buffer-end"
+  "cursor-line-start", "cursor-line-end", "cursor-buffer-start", "cursor-buffer-end",
+  "cursor-page-up", "cursor-page-down"
 ]);
 
 /** Fact-only editor commands. */
@@ -219,7 +192,7 @@ export function setFactEditorFocus(
     if (spec.kind !== "text") continue;
     if (focusSpec.kind === "text" && spec.composer(editor) === focusedComposer) continue;
     spec.composer(editor).anchor = null;
-    spec.cutConfirmation.set(editor, null);
+    spec.composer(editor).cutConfirmation = null;
   }
 }
 
@@ -332,25 +305,10 @@ export function resetFactEditorHistory(editor: FactEditorSession): void {
   resetComposerEditHistory(editor.composer);
 }
 
-/** Share cut-confirmation ownership while the active Fact field changes.
- *  Reads and writes through FACT_EDITOR_ROW_TABLE's cutConfirmation accessors
- *  rather than re-encoding the row-to-buffer mapping as a conditional chain —
- *  a chain like that fell back to the body's cut confirmation for any row a
- *  future edit added without updating it here too (issue #316). */
-export function factEditorBuffer(editor: FactEditorSession): {
-  composer: ComposerState;
-  cutConfirmation: FactEditorSession["cutConfirmation"];
-} {
+/** Return the buffer that owns the focused Fact row. */
+export function factEditorBuffer(editor: FactEditorSession): { composer: ComposerState } {
   const spec = factEditorRowSpec(editor.focus);
-  return {
-    composer: spec.composer(editor),
-    get cutConfirmation() {
-      return spec.cutConfirmation.get(editor);
-    },
-    set cutConfirmation(value) {
-      spec.cutConfirmation.set(editor, value);
-    }
-  };
+  return { composer: spec.composer(editor) };
 }
 
 /** Move through the Fact fields and the first body visual row. Every row but
@@ -415,11 +373,8 @@ function tagLength(text: string): number {
 
 function disarmFactEditor(editor: FactEditorSession): void {
   if (editor.conflict !== null) editor.conflict.armed = false;
-  // Reads FACT_EDITOR_ROW_TABLE rather than the four buffers by name, for the
-  // same reason factEditorBuffer does above: a hand-listed reset would leave
-  // a future row's own cut-confirmation buffer armed after the user believes
-  // a cut was cancelled, since nothing would force this list to grow with it.
+  // Read FACT_EDITOR_ROW_TABLE so a future text row joins this reset by default.
   for (const spec of Object.values(FACT_EDITOR_ROW_TABLE)) {
-    spec.cutConfirmation.set(editor, null);
+    spec.composer(editor).cutConfirmation = null;
   }
 }
