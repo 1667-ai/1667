@@ -183,9 +183,10 @@ executable.
 
 `scripts/release-evidence.ts` collects the tag's real shape. It records
 `tagObjectType` as `"annotated"` or `"lightweight"`. It records `tagSignature`
-as `"unsigned"`. It verifies no signature. This product has no user yet, so a
-release tag needs no signature. The signature requirement will return before
-this product has a user.
+as `"unsigned"`. It rejects an annotated tag that contains signature armor.
+It verifies no signature. This product has no user yet, so a release tag needs
+no signature. The signature requirement will return before this product has a
+user.
 
 `scripts/release-evidence.ts` still checks these facts about the source:
 
@@ -309,9 +310,10 @@ not a complete release plan.
 Use `buildIdentity: null` only for the launcher package. Each platform entry
 must contain the trusted build identity from its native executable.
 
-`tagObjectType` also accepts `"annotated"`. `tagSignature` also accepts
-`"verified"`. A signed, annotated tag is still a valid release source. It
-needs a signature check this repository does not run today.
+`tagObjectType` also accepts `"annotated"`. The current collector accepts an
+annotated tag only when the tag contains no signature armor. `tagSignature`
+also accepts `"verified"`. A different collector can produce that value after
+it verifies the signature.
 
 Preflight rejects missing, duplicate, extra, or unsupported packages. It also
 rejects package identities that do not agree with the source evidence.

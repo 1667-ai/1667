@@ -43,6 +43,7 @@ export interface ReleaseTagAuthorizationObservations {
   readonly headCommit: CommandOutcome;
   readonly workingTreeStatus: CommandOutcome;
   readonly tagObjectType: CommandOutcome;
+  readonly tagObjectContents: CommandOutcome;
   readonly tagTargetCommit: CommandOutcome;
   readonly protectedReachability: CommandOutcome;
 }
@@ -58,9 +59,9 @@ export interface ReleaseEvidenceObservations
 /**
  * What this module can honestly say about a release tag without a signing key:
  * its shape, the commit it names, and that the release commit descends from
- * the protected default branch. `tagSignature` is always `"unsigned"` here —
- * this collector performs no verification, so it never has grounds to claim
- * otherwise.
+ * the protected default branch. `tagSignature` is always `"unsigned"` here.
+ * The collector rejects an annotated tag that contains signature armor. Thus,
+ * this value states an observed absence instead of the absence of a check.
  */
 export interface ReleaseTagAuthorizationDocument {
   readonly schemaVersion: 1;
@@ -123,6 +124,7 @@ export function assembleReleaseTagAuthorization(
   );
   requireCleanWorkingTree(observations.workingTreeStatus);
   const tagObjectType = releaseTagObjectType(observations.tagObjectType, tagName);
+  requireUnsignedTagObject(tagObjectType, observations.tagObjectContents, tagName);
   const tagTargetCommit = requireCommitObjectName(
     observations.tagTargetCommit,
     `Release tag ${tagName} target commit`
@@ -146,6 +148,25 @@ export function assembleReleaseTagAuthorization(
     tagTargetCommit,
     protectedRef: observations.protectedRef
   });
+}
+
+const TAG_SIGNATURE_ARMOR =
+  /-----BEGIN (?:PGP SIGNATURE|SSH SIGNATURE|SIGNED MESSAGE)-----/u;
+
+/** Refuses signature-bearing annotated tags because this collector does not
+ *  verify them. A lightweight tag has no tag object to inspect. */
+function requireUnsignedTagObject(
+  objectType: "annotated" | "lightweight",
+  contents: CommandOutcome,
+  tagName: string
+): void {
+  if (objectType === "lightweight") return;
+  const tagObject = successfulOutput(contents, `Release tag ${tagName} object`);
+  if (TAG_SIGNATURE_ARMOR.test(tagObject)) {
+    throw new Error(
+      `Release tag ${tagName} contains a signature that this collector does not verify`
+    );
+  }
 }
 
 /** Reads the tag's real shape instead of refusing anything but an annotated

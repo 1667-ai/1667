@@ -39,6 +39,7 @@ function observations(
     headCommit: ok(`${RELEASE_COMMIT}\n`),
     workingTreeStatus: ok(""),
     tagObjectType: ok("tag\n"),
+    tagObjectContents: ok("object release\n\nrelease tag\n"),
     tagTargetCommit: ok(`${RELEASE_COMMIT}\n`),
     protectedReachability: ok(""),
     rootManifest: ok(manifest),
@@ -73,6 +74,10 @@ test("assembled evidence refuses every structural defect from captured output al
     [/Release source tree is dirty/, { workingTreeStatus: ok("?? secrets.env\n") }],
     [/is not a tag or commit object/, { tagObjectType: ok("blob\n") }],
     [/could not be resolved/, { tagObjectType: failed("fatal: Not a valid object name\n") }],
+    [/contains a signature that this collector does not verify/, {
+      tagObjectContents: ok("release tag\n-----BEGIN SSH SIGNATURE-----\n")
+    }],
+    [/object could not be read/, { tagObjectContents: failed("fatal: bad object\n") }],
     [/does not point at the release commit/, { tagTargetCommit: ok(`${OTHER_COMMIT}\n`) }],
     [/is not reachable from protected ref/, { protectedReachability: failed("") }],
     [/Release source commit is not a full object name/, { headCommit: ok("1c9ac1d\n") }],

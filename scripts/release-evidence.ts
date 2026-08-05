@@ -36,8 +36,9 @@ import { type ReleaseSourceEvidence } from "./release-identity.js";
  * This module verifies no tag signature. There is no user of this product yet,
  * and the signing-key requirement that once gated a release here returns
  * before there is one — see docs/RELEASING.md. An annotated or a lightweight
- * tag is accepted equally, and the evidence records which one it was and that
- * neither was verified.
+ * unsigned tag is accepted equally, and the evidence records which shape it
+ * has. A signature-bearing annotated tag is refused because this collector
+ * does not verify it.
  */
 
 /** The release commit must be reachable from this ref, so a tag on a side
@@ -173,6 +174,11 @@ async function collectTagAuthorization<T>(run: TagAuthorizationRun<T>): Promise<
     // are accepted release tags now, and the document records which one this
     // was rather than refusing the lightweight form.
     tagObjectType: await git(["cat-file", "-t", tagRef]),
+    // An annotated tag must contain no supported signature armor before the
+    // evidence can state that it is unsigned. This command fails for a
+    // lightweight tag, which has no tag object. The interpreter ignores that
+    // expected failure after it observes the lightweight shape.
+    tagObjectContents: await git(["cat-file", "tag", tagRef]),
     // Peels either tag form to the commit it names.
     tagTargetCommit: await git(["rev-parse", "--verify", `${tagRef}^{commit}`]),
     protectedReachability: await git(["merge-base", "--is-ancestor", sourceCommit, protectedRef])

@@ -54,6 +54,7 @@ interface FixtureOptions {
    *  `"annotated"` are both accepted release sources; this fixture never signs
    *  either. */
   readonly tag?: "annotated" | "lightweight";
+  readonly signatureArmor?: boolean;
   readonly commitAfterTag?: boolean;
   readonly protectedRefBehind?: boolean;
   readonly dirty?: boolean;
@@ -109,7 +110,10 @@ async function createFixture(t: TestContext, options: FixtureOptions = {}): Prom
   if (options.tag === "lightweight") {
     await git(["tag", TAG]);
   } else {
-    await git(["tag", "-a", "-m", TAG, TAG]);
+    const message = options.signatureArmor === true
+      ? `${TAG}\n-----BEGIN SSH SIGNATURE-----\nZmFrZQ==\n-----END SSH SIGNATURE-----`
+      : TAG;
+    await git(["tag", "-a", "-m", message, TAG]);
   }
 
   if (options.commitAfterTag === true) {
@@ -207,6 +211,14 @@ test("evidence refuses a dirty working tree", async (t) => {
 test("evidence refuses a tag that does not point at the release commit", async (t) => {
   const fixture = await createFixture(t, { commitAfterTag: true });
   await assert.rejects(collect(fixture), /does not point at the release commit/);
+});
+
+test("evidence refuses signature armor that it does not verify", async (t) => {
+  const fixture = await createFixture(t, { signatureArmor: true });
+  await assert.rejects(
+    collect(fixture),
+    /contains a signature that this collector does not verify/
+  );
 });
 
 test("evidence refuses a release commit unreachable from the protected ref", async (t) => {
