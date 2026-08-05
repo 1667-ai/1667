@@ -32,25 +32,50 @@ const REPOSITORY_ROOT = path.resolve(
   ".."
 );
 const execFileAsync = promisify(execFile);
-const sourceEvidence = {
-  schemaVersion: 1,
-  productVersion: VERSION,
-  sourceCommit: COMMIT,
-  sourceDirty: false,
-  tagName: `v${VERSION}`,
-  tagObjectType: "annotated",
-  tagSignature: "verified",
-  tagTargetCommit: COMMIT,
-  buildTimestamp: TIMESTAMP,
-  packageVersions: {
-    root: VERSION,
-    tui: VERSION,
-    rootLock: VERSION,
-    rootLockPackage: VERSION
-  }
-} as const;
+const PACKAGE_VERSIONS = Object.freeze({
+  root: VERSION,
+  tui: VERSION,
+  rootLock: VERSION,
+  rootLockPackage: VERSION
+});
 
-test("local release preflight CLI validates every tarball and emits canonical evidence", async (t) => {
+/**
+ * The evidence document's `tagObjectType`/`tagSignature` come in two accepted
+ * shapes now: a signed, annotated tag verified by a maintainer, and an
+ * unsigned or lightweight tag accepted deliberately because there is no user
+ * of this product yet — see docs/RELEASING.md. Preflight must run the whole
+ * pipeline through either shape identically, so both run through the exact
+ * same body below rather than one being asserted only at the identity-codec
+ * level.
+ */
+const SOURCE_EVIDENCE_SCENARIOS = [
+  {
+    label: "a signed, annotated tag",
+    tagObjectType: "annotated",
+    tagSignature: "verified"
+  },
+  {
+    label: "an unsigned, lightweight tag",
+    tagObjectType: "lightweight",
+    tagSignature: "unsigned"
+  }
+] as const;
+
+for (const scenario of SOURCE_EVIDENCE_SCENARIOS) {
+  const sourceEvidence = {
+    schemaVersion: 1,
+    productVersion: VERSION,
+    sourceCommit: COMMIT,
+    sourceDirty: false,
+    tagName: `v${VERSION}`,
+    tagObjectType: scenario.tagObjectType,
+    tagSignature: scenario.tagSignature,
+    tagTargetCommit: COMMIT,
+    buildTimestamp: TIMESTAMP,
+    packageVersions: PACKAGE_VERSIONS
+  } as const;
+
+test(`local release preflight CLI validates every tarball and emits canonical evidence for ${scenario.label}`, async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-preflight-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const identities = createReleaseIdentitySet(sourceEvidence);
@@ -141,7 +166,12 @@ test("local release preflight CLI validates every tarball and emits canonical ev
     createHash("sha256").update(stdout).digest("hex"),
     stderr.match(/^release-manifest-sha256 ([0-9a-f]{64})\n$/)?.[1]
   );
+});
+}
 
+test("local release preflight CLI refuses a plan with a duplicate object key", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-release-preflight-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
   const duplicatePlan = path.join(root, "duplicate.json");
   await writeFile(duplicatePlan, '{"schemaVersion":1,"schemaVersion":1}');
   await assert.rejects(

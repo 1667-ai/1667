@@ -10,10 +10,6 @@ const WORKFLOW = readFileSync(
   path.join(ROOT, ".github", "workflows", "release-npm.yml"),
   "utf8"
 );
-const GITHUB_RELEASE_WORKFLOW = readFileSync(
-  path.join(ROOT, ".github", "workflows", "release-github.yml"),
-  "utf8"
-);
 const CI_HELPER = readFileSync(path.join(ROOT, "scripts", "release-npm-ci.ts"), "utf8");
 
 test("the npm workflow authorizes one dispatcher before the publication stages", () => {
@@ -54,11 +50,11 @@ test("the npm workflow authorizes one dispatcher before the publication stages",
   }
 });
 
-test("the npm release dispatch binds to the signed tag commit", () => {
+test("the npm release dispatch binds to the tag commit", () => {
   // A dispatch on the default branch takes GITHUB_SHA from the branch tip, so a
-  // merge after the maintainer signs the tag moves the source commit. The
-  // dispatch ref is the signed tag, which no later merge can move.
-  assert.match(WORKFLOW, /The dispatch ref must be the\n\s+signed v<version> tag\./u);
+  // merge after the tag is created moves the source commit. The dispatch ref
+  // is the tag, which no later merge can move.
+  assert.match(WORKFLOW, /The dispatch ref must be the\n\s+v<version> tag\./u);
   for (const name of ["build", "publish"] as const) {
     const body = job(name);
     assert.match(body, /VERSION: \$\{\{ inputs\.version \}\}/u);
@@ -182,10 +178,8 @@ test("JSON-producing workflow commands suppress npm lifecycle output", () => {
 });
 
 test("inline TypeScript workflow programs run as ES modules", () => {
-  for (const workflow of [WORKFLOW, GITHUB_RELEASE_WORKFLOW]) {
-    assert.match(workflow, /\bnode --import tsx --input-type=module -e '/u);
-    assert.doesNotMatch(workflow, /\bnode --import tsx -e '/u);
-  }
+  assert.match(WORKFLOW, /\bnode --import tsx --input-type=module -e '/u);
+  assert.doesNotMatch(WORKFLOW, /\bnode --import tsx -e '/u);
 });
 
 test("archive producers force canonical ustar and disable macOS metadata copies", () => {
@@ -288,11 +282,8 @@ test("the workflow pins the hosted GitHub CLI before project installs", () => {
     job("build"),
     /if \[ "\$RUNNER_OS" = Windows \]; then\s+gh_path="\$\(cygpath -w "\$posix_gh_path"\)"/u
   );
-  assert.match(job("build"), /ssh_keygen_path="\$\(cygpath -w "\$posix_ssh_keygen_path"\)"/u);
-  assert.match(
-    job("build"),
-    /--ssh-keygen "\$RELEASE_SSH_KEYGEN_PATH"/u
-  );
+  // No signing key, no ssh-keygen: this workflow verifies no tag signature.
+  assert.doesNotMatch(WORKFLOW, /ssh-keygen|ssh_keygen|RELEASE_SSH_KEYGEN_PATH/u);
 });
 
 test("publication grants the publish job immutable-attempt authority", () => {
@@ -315,29 +306,6 @@ test("publication rechecks protected state immediately before npm writes", () =>
     completionFetch !== -1 && completionFetch < completionGate
       && completionGate < command
   );
-});
-
-// Issue #5 review: release-github.yml can now create a GitHub release for a
-// stable version too, in a concurrency group this workflow never shares.
-// publishOrVerifyGitHubRelease (in the `release` job) already refuses an
-// incompatible existing release, but only after `publish` has already
-// written to npm. The check has to run in `preflight` — which `publish`
-// `needs`, so it always completes first — for that refusal to be survivable.
-test("an incompatible existing GitHub release is discovered in preflight, before publish can run", () => {
-  const preflight = job("preflight");
-  assert.match(preflight, /release-npm-github\.ts check-existing "\$VERSION"/u);
-  const install = preflight.indexOf("Install script-free runtime dependencies");
-  const checkExisting = preflight.indexOf(
-    "Refuse to publish over an incompatible existing GitHub release"
-  );
-  const evidence = preflight.indexOf("Collect source evidence before artifact download");
-  assert.ok(install !== -1 && checkExisting !== -1 && evidence !== -1);
-  assert.ok(install < checkExisting, "check-existing ran before tsx was installed");
-  assert.ok(checkExisting < evidence, "check-existing ran after preflight moved on");
-  assert.match(job("publish"), /^    needs: preflight$/mu);
-  // Nothing else in this workflow runs the compatibility check — a second
-  // call site could silently move behind an irreversible write again.
-  assert.equal((WORKFLOW.match(/check-existing/gu) ?? []).length, 1);
 });
 
 function job(

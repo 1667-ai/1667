@@ -50,28 +50,22 @@ const PROVENANCE_CERTIFICATE = readFileSync(
 const STABLE_ONLY_INSTALLERS = ["install-stable.sh", "install-stable.ps1"] as const;
 
 /**
- * Issue #5: every route a non-prerelease version had to take to publish
- * refused it outright — the archive path's `check` command asserted every
- * version was a prerelease, the GitHub-release gate npm publication reads
- * required the release to be a prerelease, and only the beta Installers were
- * ever rendered. `latest` was consequently unreachable through any command
- * here.
+ * Drives one version through the whole release route this repository offers,
+ * for two cases: a stable version, which must land on the npm `latest` tag and
+ * carry the stable Installers, and a prerelease, which must land on `beta` and
+ * carry only the beta Installers.
  *
- * This drives one version through the whole route this repository offers.
- * First it exercises `scripts/release-github-assets.ts`'s real `check` and
- * `stage` commands — the exact route `assertArchivePrereleaseVersion` used to
- * block — against a real, standalone checkout copy whose package manifests
- * genuinely say this version, so a version-mismatch refusal can never stand
- * in for the specific refusal this issue was about. It then continues with
- * staged release assets built the same way test/release-npm-ci.test.ts's
- * asset-directory tests build them, a GitHub release created and verified
- * through a fake `gh` (same fixture), and npm publication driven through a
- * fake `npm` CLI and a fake registry — the harness
- * test/release-npm.test.ts's "a prerelease publishes to beta" case already
- * uses. Two cases share this body: a stable version, the one issue #5 is
- * about, which must land on `latest` and carry the stable Installers; and a
- * prerelease, proving the live path this fix must not touch still behaves
- * exactly as before, at the archive-producer level too.
+ * It first exercises `scripts/release-github-assets.ts`'s real `stage`
+ * command against a real, standalone checkout copy whose package manifests
+ * genuinely say this version — `stage` cross-checks the version it is given
+ * against those manifests the same way every other release identity does, so
+ * a version-mismatch refusal can never stand in for a channel-specific one. It
+ * then continues with staged release assets built the same way
+ * test/release-npm-ci.test.ts's asset-directory tests build them, a GitHub
+ * release created and verified through a fake `gh` (same fixture), and npm
+ * publication driven through a fake `npm` CLI and a fake registry — the
+ * harness test/release-npm.test.ts's "a prerelease publishes to beta" case
+ * already uses.
  */
 for (const scenario of [
   {
@@ -96,25 +90,17 @@ for (const scenario of [
     const root = await mkdtemp(path.join(tmpdir(), "1667-channel-e2e-"));
     t.after(() => rm(root, { recursive: true, force: true }));
 
-    // -- Real archive producer: scripts/release-github-assets.ts's `check`
-    // and `stage` commands, run against a standalone checkout copy whose
-    // package.json, tui/package.json, and package-lock.json genuinely carry
+    // -- Real archive producer: scripts/release-github-assets.ts's `stage`
+    // command, run against a standalone checkout copy whose package.json,
+    // tui/package.json, and package-lock.json genuinely carry
     // scenario.version. This checkout's own manifests stay untouched — the
-    // real check/stage commands locate their repository root from their own
-    // file's location, so this is the only way to make them see a version
-    // this checkout is not currently on. A version-mismatch refusal from
-    // the real checkout cannot masquerade as acceptance here: this checkout
-    // matches on every field check reads.
+    // real stage command locates its repository root from its own file's
+    // location, so this is the only way to make it see a version this
+    // checkout is not currently on. A version-mismatch refusal from the real
+    // checkout cannot masquerade as acceptance here: this checkout matches on
+    // every field the release identity cross-checks.
     const checkout = await createStandaloneReleaseCheckout(root, scenario.version);
     const archiveCli = path.join(checkout, "scripts", "release-github-assets.ts");
-    const checkResult = await execFileAsync(process.execPath, [
-      "--import", "tsx", archiveCli, "check", scenario.version, COMMIT, BUILD_TIMESTAMP
-    ]);
-    assert.match(
-      checkResult.stdout,
-      new RegExp(`^release source accepted: ${scenario.version.replaceAll(".", "\\.")} `, "u"),
-      `${scenario.label}: the real archive check command refused it`
-    );
     const buildDirectory = path.join(root, "build");
     await mkdir(buildDirectory, { recursive: true });
     await writeFile(path.join(buildDirectory, "1667"), "#!/bin/sh\necho stub\n", { mode: 0o755 });

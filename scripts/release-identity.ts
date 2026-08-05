@@ -29,14 +29,22 @@ export function assertReleasePackageVersions(
   }
 }
 
+/**
+ * `tagObjectType` and `tagSignature` describe the release tag as it actually
+ * is, not as a fixed claim. There is no user of this product yet, and the
+ * signing-key requirement that once forced `"annotated"` and `"verified"`
+ * returns before there is one — see docs/RELEASING.md. A lightweight tag and
+ * an unsigned tag are accepted release sources now, so both fields carry a
+ * real answer instead of a literal that could describe a check nobody ran.
+ */
 export interface ReleaseSourceEvidence {
   schemaVersion: 1;
   productVersion: string;
   sourceCommit: string;
   sourceDirty: false;
   tagName: string;
-  tagObjectType: "annotated";
-  tagSignature: "verified";
+  tagObjectType: "annotated" | "lightweight";
+  tagSignature: "verified" | "unsigned";
   tagTargetCommit: string;
   buildTimestamp: string;
   packageVersions: ReleasePackageVersions;
@@ -97,12 +105,14 @@ function parseSourceEvidence(value: unknown): ReleaseSourceEvidence {
   const input = exactRecord(value, EVIDENCE_KEYS, "Release source evidence");
   if (input.schemaVersion !== 1) throw new Error("Release source evidence has an unsupported schema");
   if (input.sourceDirty !== false) throw new Error("Release source must be clean");
-  if (input.tagObjectType !== "annotated") {
-    throw new Error("Release source must use an annotated tag");
+  if (input.tagObjectType !== "annotated" && input.tagObjectType !== "lightweight") {
+    throw new Error("Release source tag must be annotated or lightweight");
   }
-  if (input.tagSignature !== "verified") {
-    throw new Error("Release tag signature must be verified");
+  if (input.tagSignature !== "verified" && input.tagSignature !== "unsigned") {
+    throw new Error("Release tag signature must be verified or unsigned");
   }
+  const tagObjectType = input.tagObjectType;
+  const tagSignature = input.tagSignature;
 
   const productVersion = stringField(input.productVersion, "productVersion");
   const sourceCommit = stringField(input.sourceCommit, "sourceCommit");
@@ -140,8 +150,8 @@ function parseSourceEvidence(value: unknown): ReleaseSourceEvidence {
     sourceCommit,
     sourceDirty: false,
     tagName,
-    tagObjectType: "annotated",
-    tagSignature: "verified",
+    tagObjectType,
+    tagSignature,
     tagTargetCommit,
     buildTimestamp,
     packageVersions
@@ -153,8 +163,8 @@ function parseSourceEvidence(value: unknown): ReleaseSourceEvidence {
     sourceCommit,
     sourceDirty: false as const,
     tagName,
-    tagObjectType: "annotated" as const,
-    tagSignature: "verified" as const,
+    tagObjectType,
+    tagSignature,
     tagTargetCommit,
     buildTimestamp,
     packageVersions

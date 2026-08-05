@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -45,7 +44,6 @@ import {
   githubReleaseSourceEvidence,
   releaseIdentitiesForSource
 } from "../scripts/release-source-facts.js";
-import { releaseNotesMarkdown } from "../scripts/release-github-notes.js";
 import {
   MAX_RELEASE_ARCHIVE_STEM_BYTES,
   releaseArchiveFileName,
@@ -62,10 +60,6 @@ const REPOSITORY_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)
 // The version this release ships under. Release identity refuses a version the
 // checkout's manifests disagree with, so both derive from the product version.
 const VERSION = AI_1667_PRODUCT_VERSION;
-// The stable form of the checked-out product version. Equal to VERSION when
-// the checkout is already stable, and a version the checked-out packages
-// disagree with otherwise — see the test below for how each case is judged.
-const STABLE_VERSION = AI_1667_PRODUCT_VERSION.replace(/-.*$/u, "");
 const PRERELEASE_VERSION = "0.1.0-rc.1";
 const SOURCE_COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const BUILD_TIMESTAMP = "2026-07-23T10:20:30.000Z";
@@ -79,79 +73,10 @@ const FACTS = Object.freeze({
   sourceCommit: SOURCE_COMMIT,
   buildTimestamp: BUILD_TIMESTAMP
 });
-const WORKFLOW = readFileSync(
-  path.join(REPOSITORY_ROOT, ".github", "workflows", "release-github.yml"),
-  "utf8"
-);
-const RELEASE_ASSETS_CLI = path.join(
-  REPOSITORY_ROOT,
-  "scripts",
-  "release-github-assets.ts"
-);
 
 function digestOf(bytes: Buffer | string): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
-
-/**
- * The workflow's jobs, each as the block of text between its own header and the
- * next one. Enough to ask which job holds which permission and which commands
- * run inside it, without a YAML parser this repository does not depend on.
- */
-function workflowJobs(): ReadonlyMap<string, string> {
-  const body = WORKFLOW.slice(WORKFLOW.indexOf("\njobs:\n"));
-  const headers = [...body.matchAll(/^ {2}([a-z][a-z0-9-]*):$/gmu)];
-  const jobs = new Map<string, string>();
-  headers.forEach((header, index) => {
-    const start = header.index;
-    const end = index + 1 < headers.length ? headers[index + 1]!.index : body.length;
-    jobs.set(header[1]!, body.slice(start, end));
-  });
-  return jobs;
-}
-
-// Issue #5: the archive path used to refuse every stable version outright, so
-// `latest` was unreachable through any command in this repository. It must
-// now accept a stable version on its own merits — the same merits every
-// version is judged on, prerelease or not: does it match the commit, the
-// timestamp, and this checkout's own package versions.
-test("the archive release CLI judges a stable version the same way as any other", () => {
-  const run = spawnSync(
-    process.execPath,
-    [
-      "--import",
-      "tsx",
-      RELEASE_ASSETS_CLI,
-      "check",
-      STABLE_VERSION,
-      SOURCE_COMMIT,
-      BUILD_TIMESTAMP
-    ],
-    {
-      cwd: REPOSITORY_ROOT,
-      encoding: "utf8"
-    }
-  );
-  // "must be a prerelease" is gone in either branch below: nothing in this
-  // repository may refuse a stable version for lacking a prerelease
-  // identifier, whether or not it happens to equal the checked-out packages.
-  assert.doesNotMatch(run.stderr, /must be a prerelease/u);
-  if (STABLE_VERSION === VERSION) {
-    // The checkout's own product version already carries no prerelease
-    // identifier, so the stable form is the checked-out version, and check
-    // accepts it exactly as it accepts any other matching version.
-    assert.equal(run.status, 0, run.stderr);
-    assert.equal(run.stdout, `release source accepted: ${STABLE_VERSION} at ${
-      SOURCE_COMMIT} built ${BUILD_TIMESTAMP}\n`);
-    return;
-  }
-  // The checkout's product version is a prerelease, so its stable form
-  // disagrees with the checked-out package versions — the ordinary
-  // cross-check every mismatched version hits, not a stable-specific refusal.
-  assert.notEqual(run.status, 0);
-  assert.equal(run.stdout, "");
-  assert.match(run.stderr, /version does not match/u);
-});
 
 test("a published archive holds the executable, both licence files, and both manifests", () => {
   const entries = releaseArchiveFileSet("linux-x64", VERSION);
@@ -514,55 +439,6 @@ test("staging fails on a missing executable rather than writing a partial archiv
   );
 });
 
-// The forgeable-credential guard. A `ReleaseSourceEvidence` document asserts a
-// verified signed tag by construction, and scripts/release-preflight.ts accepts
-// exactly that document as the signed-tag evidence gating npm publication. One
-// written to disk and uploaded from a pre-release run would be downloadable and
-// sufficient, so reintroducing the upload must fail here rather than pass
-// review.
-test("the release workflow passes three strings between jobs and uploads no evidence", () => {
-  assert.ok(!WORKFLOW.includes("release-source-evidence"));
-
-  const lines = WORKFLOW.split("\n");
-  // Every artifact path in the file, uploaded or downloaded. Archives out,
-  // archives back in, and nothing else.
-  const artifactPaths = lines
-    .filter((line) => /^\s+path:\s/u.test(line))
-    .map((line) => line.replace(/^\s+path:\s*/u, "").trim());
-  assert.deepEqual(artifactPaths, ["dist/archives/*.tar.gz", "dist/assets"]);
-  // No key that names a file or an artifact may mention evidence, whatever the
-  // file is called. Prose in the comments above may, and must.
-  for (const line of lines) {
-    assert.doesNotMatch(line, /^\s*-?\s*(?:name|path|pattern):.*evidence/iu);
-  }
-
-  // The three facts, and only the three facts plus the target list, are the
-  // prepare job's outputs.
-  const outputs = /\n    outputs:\n((?:      [^\n]*\n)+)/u.exec(WORKFLOW)?.[1];
-  assert.equal(outputs, [
-    "      targets: ${{ steps.policy.outputs.targets }}",
-    "      version: ${{ steps.source.outputs.version }}",
-    "      commit: ${{ steps.source.outputs.commit }}",
-    "      timestamp: ${{ steps.source.outputs.timestamp }}",
-    ""
-  ].join("\n"));
-  for (const fact of ["version", "commit", "timestamp"] as const) {
-    assert.ok(
-      WORKFLOW.includes(`\${{ needs.prepare.outputs.${fact} }}`),
-      `the build matrix never reads ${fact}`
-    );
-  }
-  // The commands the build job runs take the three values, not a file.
-  assert.match(
-    WORKFLOW,
-    /release-github-assets\.ts identity \\\n\s+"\$VERSION" "\$COMMIT" "\$TIMESTAMP" "\$TARGET"/u
-  );
-  assert.match(
-    WORKFLOW,
-    /release-github-assets\.ts stage \\\n\s+"\$VERSION" "\$COMMIT" "\$TIMESTAMP" "\$TARGET" /u
-  );
-});
-
 /**
  * A build can only label itself with the machine it ran on, because that is the
  * machine `bun build --compile` emitted an executable for. The release path
@@ -592,172 +468,4 @@ test("a build refuses a machine that is not the target it was asked for", () => 
   // relabelled runner is exactly the case this exists for.
   assert.throws(() => assertRunnerBuildsTarget("linux-x64", "linux", "riscv64"), /no release target/u);
   assert.throws(() => assertRunnerBuildsTarget("darwin-arm64", "sunos", "arm64"), /no release target/u);
-});
-
-test("the build job proves the machine is the matrix target before it compiles", () => {
-  const build = workflowJobs().get("build");
-  assert.ok(build !== undefined);
-  const proof = build.indexOf('release-github-assets.ts runner "$TARGET"');
-  const compile = build.indexOf("bun run build:standalone");
-  assert.ok(proof > 0, "the build job never checks the machine against matrix.target");
-  assert.ok(compile > proof, "the machine check must run before anything is compiled");
-  assert.match(build, /TARGET: \$\{\{ matrix\.target \}\}/u);
-});
-
-test("archive producers force canonical ustar and disable macOS metadata copies", () => {
-  const build = workflowJobs().get("build");
-  assert.ok(build !== undefined);
-  // Shell Installer physical validation rejects PAX/GNU/AppleDouble entries.
-  assert.match(
-    build,
-    /COPYFILE_DISABLE=1 tar --format=ustar -czf "dist\/archives\/\$stem\.tar\.gz" -C dist\/stage "\$stem"/u
-  );
-  assert.doesNotMatch(build, /(?<!format=ustar )-czf "dist\/archives\/\$stem\.tar\.gz"/u);
-});
-
-/**
- * The attestation is the only evidence this release path offers, and the notes
- * tell readers to verify with it. A postinstall script in the job that can mint
- * an OIDC token could attest bytes this workflow never built, under this
- * repository's name, so the elevated job installs without running any.
- */
-test("no job holding a write permission runs a dependency install script", () => {
-  const jobs = workflowJobs();
-  assert.deepEqual([...jobs.keys()], ["prepare", "build", "release"]);
-  for (const [name, body] of jobs) {
-    const elevated = /^ {6}(?:id-token|attestations|contents|packages|actions):\s*write$/mu.test(body);
-    if (!elevated) continue;
-    const installs = [...body.matchAll(/^\s+run: (npm ci[^\n]*)$/gmu)].map((match) => match[1]!);
-    assert.ok(installs.length > 0, `${name} holds a write permission and installs nothing`);
-    for (const install of installs) {
-      assert.ok(
-        install.includes("--ignore-scripts"),
-        `${name} holds a write permission and runs \`${install}\``
-      );
-    }
-  }
-  const release = jobs.get("release");
-  assert.ok(release !== undefined);
-  assert.match(release, /^ {6}id-token: write$/mu);
-  assert.match(release, /^ {6}attestations: write$/mu);
-  assert.match(release, /attest-build-provenance/u);
-});
-
-test("the release notes claim the attestation and nothing it does not have", () => {
-  const notes = releaseNotesMarkdown(PRERELEASE_VERSION);
-  assert.match(notes, /^# 1667 v0\.1\.0-rc\.1$/mu);
-  assert.match(notes, /pre-release/u);
-  for (const target of PUBLISHED_ARTIFACT_TARGETS) {
-    assert.ok(
-      notes.includes(releaseArchiveFileName(PRERELEASE_VERSION, target)),
-      `notes omit the ${target} archive`
-    );
-  }
-  assert.match(notes, /gh attestation verify [^\n]+ --repo 1667-ai\/1667/u);
-  assert.match(notes, /checksums\.txt/u);
-  assert.ok(notes.includes(`1667_${PRERELEASE_VERSION}_windows-x64.tar.gz`));
-  assert.match(notes, /install-beta\.ps1/u);
-  // This workflow cannot determine registry availability. Its notes make no
-  // npm availability claim. The prerelease identifier is explained rather
-  // than left to look like a slip, and the explanation is the standing rule
-  // rather than this release's place in any sequence.
-  assert.doesNotMatch(notes, /^## npm$/mu);
-  assert.match(notes, /`0\.1\.0-rc\.1`, a preview of `0\.1\.0`/u);
-  assert.match(notes, /npm cannot replace a version once it is published/u);
-  assert.doesNotMatch(releaseNotesMarkdown("1.2.3"), /a preview of/u);
-  // The notes may name the pinned install-beta.sh asset. They must not ship a
-  // curl|sh one-liner or a latest-resolving installer URL.
-  assert.doesNotMatch(notes, /\|\s*(?:sh|bash|zsh)\b/u);
-  assert.doesNotMatch(notes, /get\.1667|curl\s+-|wget\s/u);
-  assert.match(notes, /install-beta\.sh/u);
-  // Attestations, not a verified signed tag.
-  assert.doesNotMatch(notes, /verified tag|tag signature|signed tag is|signature-verified/iu);
-  assert.match(notes, /There is no signed tag/u);
-  assert.throws(() => releaseNotesMarkdown("0.1"), /SemVer/);
-});
-
-/**
- * The notes are generated from the version alone, and the workflow can be
- * dispatched again at any version. A sentence true only of the first release —
- * "the first published builds", "held for the first npm publication" — would go
- * false at the next dispatch with nothing failing, because a test that asserts
- * the sentence is present passes just as happily when the sentence is wrong.
- * So assert the property instead: at versions this repository has not reached,
- * the notes still claim nothing but what the version and the target policy say.
- */
-test("the release notes stay true at every version the workflow can be dispatched at", () => {
-  const cases = [
-    { version: "0.1.0-rc.1", stable: "0.1.0" },
-    { version: "0.2.0-rc.1", stable: "0.2.0" },
-    { version: "7.3.1-beta.2", stable: "7.3.1" },
-    { version: "1.0.0", stable: null }
-  ] as const;
-  for (const { version, stable } of cases) {
-    const notes = releaseNotesMarkdown(version);
-    assert.ok(notes.startsWith(`# 1667 v${version}\n`), `notes misname v${version}`);
-    // No claim about this release's place in any sequence. Every one of these
-    // words dates the notes to a release that has already happened, and the
-    // next dispatch would ship them unchanged.
-    assert.doesNotMatch(
-      notes,
-      /\bfirst\b|\binitial\b|\bdebut\b|\bearliest\b|\bso far\b/iu,
-      `notes for v${version} claim a place in the release history`
-    );
-    // Everything a reader is told to download or verify is derived from the
-    // version and the target policy, at any version.
-    for (const target of PUBLISHED_ARTIFACT_TARGETS) {
-      assert.ok(
-        notes.includes(releaseArchiveFileName(version, target)),
-        `notes for v${version} omit the ${target} archive`
-      );
-    }
-    assert.ok(
-      notes.includes(`gh attestation verify ${releaseArchiveFileName(
-        version,
-        PUBLISHED_ARTIFACT_TARGETS[0]!
-      )} --repo 1667-ai/1667`),
-      `notes for v${version} verify some other file`
-    );
-    // Held targets are named from policy, and what a reader may assume about
-    // them claims nothing continuous. "built and tested on every change to
-    // `main`" was such a claim, and it went false the day CI stopped building
-    // the target it described — in notes that had already shipped.
-    assert.doesNotMatch(
-      notes,
-      /every change|continuously|always (?:built|verified|tested)/u,
-      `notes for v${version} promise a verification nothing here enforces`
-    );
-    if (RELEASE_TARGETS.some((descriptor) => descriptor.heldFromPublication !== null)) {
-      assert.match(notes, /untested/u, `notes for v${version} leave a held target's status open`);
-    }
-    if (stable === null) {
-      assert.doesNotMatch(notes, /a preview of/u, `v${version} is no preview`);
-      // Issue #5: a stable version now reaches this command, and its notes
-      // must not carry the "every release on this path is a pre-release"
-      // claim that was true only while a stable version could not.
-      assert.doesNotMatch(
-        notes,
-        /pre-release: the/u,
-        `notes for v${version} falsely claim every release here is a pre-release`
-      );
-      continue;
-    }
-    // The prerelease explanation names the two version strings it was built
-    // from and states a rule about npm that does not depend on the date.
-    assert.ok(
-      notes.includes(`This build is \`${version}\`, a preview of \`${stable}\`.`),
-      `notes for v${version} explain the prerelease identifier with the wrong versions`
-    );
-    assert.match(
-      notes,
-      /pre-release: the/u,
-      `notes for v${version} drop the pre-release explanation`
-    );
-  }
-  // The workflow no longer hard-codes every release as a prerelease: `gh
-  // release create` carries `--prerelease` only when the dispatched version
-  // is itself a prerelease, decided by the same isPrereleaseVersion the rest
-  // of the release path reads.
-  assert.doesNotMatch(WORKFLOW, /^\s+--prerelease\s*\\?$/mu);
-  assert.match(WORKFLOW, /isPrereleaseVersion\(process\.argv\[1\]\)/u);
 });

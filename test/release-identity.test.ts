@@ -42,7 +42,7 @@ for (const field of [
   });
 }
 
-test("signed clean tag evidence produces one immutable release identity per target", () => {
+test("annotated clean tag evidence produces one immutable release identity per target", () => {
   const release = createReleaseIdentitySet(evidence);
   assert.deepEqual(
     release.identities.map((identity) => identity.artifactTarget),
@@ -60,9 +60,28 @@ test("signed clean tag evidence produces one immutable release identity per targ
   assert.ok(Object.isFrozen(release.evidence.packageVersions));
 });
 
-test("release identity rejects mutable, unsigned, detached, or version-skewed inputs", () => {
+test("an unsigned lightweight tag produces a release identity too", () => {
+  // There is no user of this product yet, and the signing-key requirement that
+  // once forced "annotated"/"verified" returns before there is one. A
+  // lightweight, unsigned tag must be accepted deliberately, not by accident.
+  const release = createReleaseIdentitySet({
+    ...evidence,
+    tagObjectType: "lightweight",
+    tagSignature: "unsigned"
+  });
+  assert.deepEqual(
+    release.identities.map((identity) => identity.artifactTarget),
+    BUILT_ARTIFACT_TARGETS
+  );
+  assert.equal(release.evidence.tagObjectType, "lightweight");
+  assert.equal(release.evidence.tagSignature, "unsigned");
+});
+
+test("release identity rejects mutable, detached, or version-skewed inputs", () => {
   const invalid: unknown[] = [
     { ...evidence, sourceDirty: true },
+    // "commit" is git's own raw object-type name, not this document's
+    // descriptive value — the accepted values are "annotated"/"lightweight".
     { ...evidence, tagObjectType: "commit" },
     { ...evidence, tagSignature: "unverified" },
     { ...evidence, tagName: "1.2.3-beta.1" },

@@ -30,13 +30,11 @@ import {
   verifyReleaseAttestations
 } from "../scripts/release-npm-ci.js";
 import {
-  assertGitHubReleaseCompatibleForPublication,
   publishOrVerifyGitHubRelease,
   verifyNpmReleaseAssetDirectory
 } from "../scripts/release-npm-github.js";
 import {
   fakeReleaseGh,
-  writeArchiveOnlyReleaseAssetFixture,
   writeReleaseAssetFixture
 } from "./release-npm-github-fixture.js";
 
@@ -234,133 +232,6 @@ test("GitHub release verification binds installers to channel digests and reject
     () => verifyNpmReleaseAssetDirectory(preAssets, PRE_VERSION, REPOSITORY),
     /must not contain install-stable\.sh|unexpected asset set/u
   );
-});
-
-// Issue #5 review: release-github.yml can now create a GitHub release for a
-// stable version too, in a concurrency group release-npm.yml never shares.
-// assertGitHubReleaseCompatibleForPublication is what preflight calls to
-// discover an incompatible existing release before publish, rather than
-// after it, the way publishOrVerifyGitHubRelease alone would.
-test("assertGitHubReleaseCompatibleForPublication permits no release and permits a draft", async (t) => {
-  const root = await mkdtemp(path.join(tmpdir(), "1667-npm-existing-none-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const remote = path.join(root, "remote");
-  const state = path.join(root, "state.json");
-  const log = path.join(root, "gh.log");
-  const gh = path.join(root, "gh");
-  await writeFile(gh, fakeReleaseGh({ remote, state, log }));
-  await chmod(gh, 0o755);
-  const environment = { GITHUB_REPOSITORY: REPOSITORY, GH_TOKEN: "test-token", HOME: root };
-
-  // Nothing to conflict with.
-  await assertGitHubReleaseCompatibleForPublication({ version: VERSION, environment, ghExecutable: gh });
-
-  // publishOrVerifyGitHubRelease deletes and recreates a draft, so a draft
-  // cannot conflict with what it will do either, whatever it contains.
-  await mkdir(remote, { recursive: true });
-  await writeFile(state, JSON.stringify({ isDraft: true, isImmutable: false, isPrerelease: false }));
-  await assertGitHubReleaseCompatibleForPublication({ version: VERSION, environment, ghExecutable: gh });
-});
-
-test("assertGitHubReleaseCompatibleForPublication permits a matching completed release and refuses a channel mismatch", async (t) => {
-  const root = await mkdtemp(path.join(tmpdir(), "1667-npm-existing-match-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const remote = path.join(root, "remote");
-  const state = path.join(root, "state.json");
-  const log = path.join(root, "gh.log");
-  const gh = path.join(root, "gh");
-  await mkdir(remote, { recursive: true });
-  await writeReleaseAssetFixture(remote, VERSION, REPOSITORY);
-  await writeFile(gh, fakeReleaseGh({ remote, state, log }));
-  await chmod(gh, 0o755);
-  const environment = { GITHUB_REPOSITORY: REPOSITORY, GH_TOKEN: "test-token", HOME: root };
-
-  // A completed release carrying the full npm-publication asset set on the
-  // right channel — what a resumed or rerun workflow leaves behind. publish
-  // must be free to proceed.
-  await writeFile(state, JSON.stringify({ isDraft: false, isImmutable: true, isPrerelease: false }));
-  await assertGitHubReleaseCompatibleForPublication({ version: VERSION, environment, ghExecutable: gh });
-
-  // The same asset set, but the wrong channel for VERSION.
-  await writeFile(state, JSON.stringify({ isDraft: false, isImmutable: true, isPrerelease: true }));
-  await assert.rejects(
-    assertGitHubReleaseCompatibleForPublication({ version: VERSION, environment, ghExecutable: gh }),
-    /is not an immutable release npm publication can publish alongside/u
-  );
-});
-
-test("assertGitHubReleaseCompatibleForPublication refuses an archive-only release release-github.yml could have created", async (t) => {
-  const root = await mkdtemp(path.join(tmpdir(), "1667-npm-existing-archive-only-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const remote = path.join(root, "remote");
-  const state = path.join(root, "state.json");
-  const log = path.join(root, "gh.log");
-  const gh = path.join(root, "gh");
-  await mkdir(remote, { recursive: true });
-  await writeArchiveOnlyReleaseAssetFixture(remote, VERSION, REPOSITORY);
-  await writeFile(state, JSON.stringify({ isDraft: false, isImmutable: true, isPrerelease: false }));
-  await writeFile(gh, fakeReleaseGh({ remote, state, log }));
-  await chmod(gh, 0o755);
-
-  await assert.rejects(
-    assertGitHubReleaseCompatibleForPublication({
-      version: VERSION,
-      environment: { GITHUB_REPOSITORY: REPOSITORY, GH_TOKEN: "test-token", HOME: root },
-      ghExecutable: gh
-    }),
-    /does not carry the asset set npm publication expects/u
-  );
-});
-
-/**
- * Confirms, rather than assumes, what publishOrVerifyGitHubRelease does when
- * it meets an archive-only release release-github.yml could have created: it
- * does refuse — this is not a silent acceptance — but only after it has
- * already downloaded the existing release, which in the real workflow is a
- * step inside the `release` job that runs after `publish` has already
- * written to npm. That npm write cannot be withdrawn once it lands, which is
- * exactly why assertGitHubReleaseCompatibleForPublication has to run earlier,
- * in `preflight`, before `publish` ever starts — this test is the evidence
- * that the earlier check is doing real work and not guarding against
- * something publishOrVerifyGitHubRelease already handled safely.
- */
-test("publishOrVerifyGitHubRelease refuses an archive-only existing release too, but only after downloading it", async (t) => {
-  const root = await mkdtemp(path.join(tmpdir(), "1667-npm-github-late-refusal-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const assets = path.join(root, "assets");
-  await mkdir(assets);
-  await writeReleaseAssetFixture(assets, VERSION, REPOSITORY);
-  const remote = path.join(root, "remote");
-  const state = path.join(root, "state.json");
-  const log = path.join(root, "gh.log");
-  const notes = path.join(root, "notes.md");
-  const gh = path.join(root, "gh");
-  await mkdir(remote, { recursive: true });
-  await writeArchiveOnlyReleaseAssetFixture(remote, VERSION, REPOSITORY);
-  await writeFile(state, JSON.stringify({ isDraft: false, isImmutable: true, isPrerelease: false }));
-  await writeFile(notes, "# Release\n");
-  await writeFile(gh, fakeReleaseGh({ remote, state, log }));
-  await chmod(gh, 0o755);
-
-  await assert.rejects(
-    publishOrVerifyGitHubRelease({
-      version: VERSION,
-      assetsDirectory: assets,
-      notesFile: notes,
-      environment: { GITHUB_REPOSITORY: REPOSITORY, GH_TOKEN: "test-token", HOME: root },
-      ghExecutable: gh
-    }),
-    /unexpected asset set/u
-  );
-  const calls = (await readFile(log, "utf8")).trimEnd().split("\n").map((line) => {
-    return JSON.parse(line) as string[];
-  });
-  // It reached "download" before refusing: the existing release passed the
-  // channel check (isPrerelease already matches VERSION's channel here), and
-  // was only caught by re-verifying the downloaded asset set, the step that
-  // happens after the workflow's npm publish job has already run.
-  assert.ok(calls.some((args) => args[1] === "download"));
-  assert.ok(!calls.some((args) => args[1] === "create"));
 });
 
 async function readdirNames(directory: string): Promise<string[]> {

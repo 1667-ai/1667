@@ -8,7 +8,8 @@ on:
       version:
         description: >-
           Version to publish without a leading v. The dispatch ref must be the
-          signed v<version> tag.
+          v<version> tag. The tag needs no signature: there is no user of this
+          product yet, and that protection returns before there is one.
         required: true
         type: string
 
@@ -82,11 +83,12 @@ jobs:
       contents: read
       id-token: write
     steps:
-      # The dispatch ref is the signed tag, so GITHUB_SHA is the immutable tag
-      # commit. A merge to the default branch cannot move it after a maintainer
-      # signs the tag. release-evidence.ts still refuses a commit that is not
-      # reachable from the protected default branch.
-      - name: Refuse a dispatch that is not the signed release tag
+      # The dispatch ref is the tag, so GITHUB_SHA is the immutable tag commit.
+      # A merge to the default branch cannot move it after the tag is created.
+      # The tag needs no signature — release-evidence.ts still refuses a commit
+      # that is not reachable from the protected default branch, which is what
+      # keeps an unmerged commit out of a release.
+      - name: Refuse a dispatch that is not the release tag
         env:
           VERSION: ${{ inputs.version }}
         run: |
@@ -102,13 +104,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Fetch the protected signer policy and completion tags
+      - name: Fetch the protected default branch and completion tags
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin \
-            '+refs/heads/release-policy:refs/remotes/origin/release-policy'
           git fetch --no-tags origin \
             "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
@@ -132,19 +132,11 @@ jobs:
             echo "::error::GitHub CLI is not a regular executable"
             exit 1
           fi
-          posix_ssh_keygen_path="$(realpath "$(command -v ssh-keygen)")"
-          if [ ! -f "$posix_ssh_keygen_path" ] || [ ! -x "$posix_ssh_keygen_path" ] || [ -L "$posix_ssh_keygen_path" ]; then
-            echo "::error::ssh-keygen is not a regular executable"
-            exit 1
-          fi
           gh_path="$posix_gh_path"
-          ssh_keygen_path="$posix_ssh_keygen_path"
           if [ "$RUNNER_OS" = Windows ]; then
             gh_path="$(cygpath -w "$posix_gh_path")"
-            ssh_keygen_path="$(cygpath -w "$posix_ssh_keygen_path")"
           fi
           printf 'RELEASE_GH_PATH=%s\n' "$gh_path" >> "$GITHUB_ENV"
-          printf 'RELEASE_SSH_KEYGEN_PATH=%s\n' "$ssh_keygen_path" >> "$GITHUB_ENV"
 
       # This job can mint native provenance. It does not run dependency
       # lifecycle scripts and has no publication environment.
@@ -165,8 +157,7 @@ jobs:
           timestamp="$(node --import tsx scripts/release-npm-ci.ts timestamp)"
           node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
           node --import tsx scripts/release-evidence.ts \
-            --tag "v$VERSION" --build-timestamp "$timestamp" \
-            --ssh-keygen "$RELEASE_SSH_KEYGEN_PATH" > /dev/null
+            --tag "v$VERSION" --build-timestamp "$timestamp" > /dev/null
           identity="$(node --import tsx scripts/release-github-assets.ts identity \
             "$VERSION" "$GITHUB_SHA" "$timestamp" "$TARGET")"
           printf 'AI_1667_BUILD_IDENTITY_JSON=%s\n' "$identity" >> "$GITHUB_ENV"
@@ -229,13 +220,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Fetch the protected signer policy and completion tags
+      - name: Fetch the protected default branch and completion tags
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin \
-            '+refs/heads/release-policy:refs/remotes/origin/release-policy'
           git fetch --no-tags origin \
             "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
@@ -398,13 +387,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Fetch the protected signer policy and completion tags
+      - name: Fetch the protected default branch and completion tags
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin \
-            '+refs/heads/release-policy:refs/remotes/origin/release-policy'
           git fetch --no-tags origin \
             "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
@@ -427,22 +414,6 @@ jobs:
 
       - name: Install script-free runtime dependencies
         run: npm ci --ignore-scripts
-
-      # release-github.yml can also create a GitHub release for this same
-      # `v<version>` tag, in a separate concurrency group nothing here
-      # serializes against. publishOrVerifyGitHubRelease (the release job,
-      # below) already refuses a channel mismatch and an archive-only release
-      # missing the npm tarballs and artifact manifest, but only after
-      # `publish` has already written to npm — a write that cannot be taken
-      # back. Discover that same incompatibility here instead, before
-      # `publish` ever runs.
-      - name: Refuse to publish over an incompatible existing GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          node --import tsx scripts/release-npm-github.ts check-existing "$VERSION"
 
       - name: Collect source evidence before artifact download
         env:
@@ -540,11 +511,12 @@ jobs:
       contents: write
       id-token: write
     steps:
-      # The dispatch ref is the signed tag, so GITHUB_SHA is the immutable tag
-      # commit. A merge to the default branch cannot move it after a maintainer
-      # signs the tag. release-evidence.ts still refuses a commit that is not
-      # reachable from the protected default branch.
-      - name: Refuse a dispatch that is not the signed release tag
+      # The dispatch ref is the tag, so GITHUB_SHA is the immutable tag commit.
+      # A merge to the default branch cannot move it after the tag is created.
+      # The tag needs no signature — release-evidence.ts still refuses a commit
+      # that is not reachable from the protected default branch, which is what
+      # keeps an unmerged commit out of a release.
+      - name: Refuse a dispatch that is not the release tag
         env:
           VERSION: ${{ inputs.version }}
         run: |
@@ -560,13 +532,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Fetch the protected signer policy and completion tags
+      - name: Fetch the protected default branch and completion tags
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin \
-            '+refs/heads/release-policy:refs/remotes/origin/release-policy'
           git fetch --no-tags origin \
             "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
@@ -678,13 +648,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Fetch the protected signer policy and completion tags
+      - name: Fetch the protected default branch and completion tags
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin \
-            '+refs/heads/release-policy:refs/remotes/origin/release-policy'
           git fetch --no-tags origin \
             "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'

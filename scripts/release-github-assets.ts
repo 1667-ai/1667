@@ -27,7 +27,6 @@ import {
   stageReleaseContent,
   type StagedReleaseFile
 } from "./release-content.js";
-import { releaseNotesMarkdown } from "./release-github-notes.js";
 import { releaseIdentityForTarget } from "./release-identity.js";
 import { createReleasePlatformPackageTemplate } from "./release-package-templates.js";
 import {
@@ -200,8 +199,6 @@ const USAGE = [
   "usage: release-github-assets.ts <command>",
   "  targets",
   "      the published targets, as JSON",
-  "  check <version> <commit> <timestamp>",
-  "      accept or reject the release source; writes no file",
   "  runner <target>",
   "      accept or reject this machine as that target's build host",
   "  identity <version> <commit> <timestamp> <target>",
@@ -209,9 +206,7 @@ const USAGE = [
   "  stage <version> <commit> <timestamp> <target> <build-dir> <out>",
   "      the archive directory; prints its name",
   "  checksums <directory>",
-  "      checksums.txt for every asset there",
-  "  notes <version>",
-  "      the release notes, as Markdown"
+  "      checksums.txt for every asset there"
 ].join("\n");
 
 function sourceFacts(rest: readonly string[]): ReleaseSourceFacts {
@@ -227,16 +222,6 @@ function runCommand(argv: readonly string[]): string {
   if (command === "targets") {
     if (rest.length !== 0) throw new Error(USAGE);
     return `${JSON.stringify(PUBLISHED_ARTIFACT_TARGETS)}\n`;
-  }
-  if (command === "check") {
-    if (rest.length !== 3) throw new Error(USAGE);
-    const facts = sourceFacts(rest);
-    // Built and discarded. This rejects a version the release identity codec
-    // would reject, and one the repository's own package versions disagree
-    // with, in the job that dispatches rather than on four runners at once.
-    const identities = releaseIdentitiesForSource(facts);
-    return `release source accepted: ${identities.evidence.productVersion} at ${
-      facts.sourceCommit} built ${facts.buildTimestamp}\n`;
   }
   if (command === "runner") {
     const [target] = rest;
@@ -269,11 +254,6 @@ function runCommand(argv: readonly string[]): string {
     const [directory] = rest;
     if (rest.length !== 1 || directory === undefined) throw new Error(USAGE);
     return formatReleaseChecksums(directoryAssetDigests(directory));
-  }
-  if (command === "notes") {
-    const [version] = rest;
-    if (rest.length !== 1 || version === undefined) throw new Error(USAGE);
-    return releaseNotesMarkdown(version);
   }
   throw new Error(USAGE);
 }

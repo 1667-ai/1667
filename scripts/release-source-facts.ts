@@ -85,22 +85,26 @@ export function assertRepositoryPackageVersions(productVersion: string): void {
  * Source evidence for a GitHub pre-release build, constructed in memory and
  * never written to disk by anything in this repository.
  *
- * The evidence codec is shared with npm preflight, where publication cannot be
- * withdrawn and the trust anchor is a maintainer who ran `git verify-tag`
- * themselves; it therefore accepts `tagObjectType: "annotated"` with
- * `tagSignature: "verified"` and no other value. A GitHub pre-release anchors
- * somewhere else: the build-provenance attestation GitHub's Sigstore instance
- * issues over each archive, which binds the bytes to this workflow, this
- * repository, and this commit, and which `gh attestation verify` checks.
+ * The evidence codec is shared with npm preflight, where the trust anchor is
+ * `scripts/release-evidence.ts` actually walking the repository: it checks the
+ * release commit against the protected default branch, checks the tag against
+ * the commit, and reads the four package manifests at that commit. Nothing
+ * here does any of that. `input.sourceCommit` is asserted, not verified, so
+ * `tagObjectType: "annotated"` and `tagSignature: "verified"` are a fixed,
+ * accepted placeholder rather than a claim about this commit — the same
+ * literal choice `scripts/release-evidence.ts` would make of a real signed,
+ * annotated tag, chosen so the two paths cannot be told apart by identity
+ * alone. A GitHub pre-release anchors somewhere else: the build-provenance
+ * attestation GitHub's Sigstore instance issues over each archive, which binds
+ * the bytes to this workflow, this repository, and this commit, and which
+ * `gh attestation verify` checks.
  *
  * Exactly what escapes this process, and what does not: no shipped file and no
- * line of the release notes carries `tagSignature` or `tagObjectType`, so the
- * signature claim never leaves memory. `tagName` does ship — the SPDX document
+ * line of the release notes carries `tagSignature` or `tagObjectType`, so this
+ * placeholder never leaves memory. `tagName` does ship — the SPDX document
  * comments each package with `Built from tag <tagName> at a clean working
- * tree` — and that is not a signature claim: it names the tag the release job
- * creates at `sourceCommit`, which is true once `gh release create` runs. npm
- * publication still requires the signed-tag evidence documented in
- * docs/RELEASING.md, obtained by a maintainer rather than by this workflow.
+ * tree` — and that is not the same claim: it names the tag the release job
+ * creates at `sourceCommit`, which is true once `gh release create` runs.
  */
 export function githubReleaseSourceEvidence(
   input: ReleaseSourceEvidenceInput
@@ -129,16 +133,15 @@ export function githubReleaseSourceEvidence(
  * Every job in the release workflow calls this with the three strings the
  * `prepare` job published as job outputs. Do not "simplify" that into building
  * the evidence once, writing it to a file, and uploading the file for the build
- * matrix to download. `ReleaseSourceEvidence` types `tagObjectType` and
- * `tagSignature` as the literals `"annotated"` and `"verified"`, so every copy
- * of that document asserts a verified signed tag. Nothing in this workflow
- * verifies a signature, and when the facts are known the tag does not exist yet
- * — the release job creates it last. `scripts/release-preflight.ts` accepts
- * exactly this document as its signed-tag evidence, and that is the gate in
- * front of npm publication, which cannot be withdrawn. A downloadable artifact
- * would therefore hand anyone who can read a workflow run a ready-made
- * credential for that gate. The three strings assert nothing, so they may cross
- * a job boundary; the document they build may not.
+ * matrix to download. This document's `sourceCommit` is whatever the three
+ * strings say, never checked against the protected default branch, and its
+ * `tagObjectType`/`tagSignature` are the fixed placeholder above rather than an
+ * observation. `scripts/release-preflight.ts` accepts exactly this document's
+ * shape as release evidence, and that is the gate in front of npm publication,
+ * which cannot be withdrawn. A downloadable copy would therefore let anyone who
+ * can read a workflow run feed preflight a commit and a tag name it never
+ * checked reachability or existence for. The three strings assert nothing, so
+ * they may cross a job boundary; the document they build may not.
  *
  * The facts come from `prepare` rather than being recomputed on each runner so
  * that every target in a run writes the same version, commit and timestamp into

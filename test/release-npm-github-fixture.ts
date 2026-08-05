@@ -53,25 +53,6 @@ export async function writeReleaseAssetFixture(
   await writeArchiveDependentAssets(directory, version, repository);
 }
 
-/**
- * The asset directory `release-github.yml`'s archive path produces: native
- * archives, the channel-appropriate Installers, and checksums.txt — no npm
- * tarballs, no observations, no SBOMs, no artifact manifest. Issue #5 review:
- * this is what `assertGitHubReleaseCompatibleForPublication` (and, later and
- * too late, `publishOrVerifyGitHubRelease`) has to refuse to publish npm
- * packages alongside, because it is missing everything npm publication's own
- * asset set requires.
- */
-export async function writeArchiveOnlyReleaseAssetFixture(
-  directory: string,
-  version: string,
-  repository: string
-): Promise<void> {
-  const archiveNames = PUBLISHED_ARTIFACT_TARGETS.map((target) => releaseArchiveFileName(version, target));
-  await Promise.all(archiveNames.map((name) => writeFile(path.join(directory, name), `${name}\n`)));
-  await writeArchiveDependentAssets(directory, version, repository);
-}
-
 async function writeArchiveDependentAssets(
   directory: string,
   version: string,

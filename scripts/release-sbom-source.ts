@@ -23,8 +23,8 @@ export interface ReleaseSbomSource {
 
 /**
  * Accepts only the source facts that an SBOM uses. The exact record check
- * rejects a signed-tag evidence document instead of silently discarding its
- * authorization fields.
+ * rejects a full release evidence document instead of silently discarding its
+ * tag authorization fields.
  */
 export function createReleaseSbomSource(value: unknown): ReleaseSbomSource {
   const input = exactRecord(value, SOURCE_KEYS, "Release SBOM source");

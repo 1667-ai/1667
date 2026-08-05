@@ -9,10 +9,7 @@ import {
 const OPTIONS = new Map<string, keyof ReleaseTagAuthorizationRequest>([
   ["--repository", "repositoryRoot"],
   ["--tag", "tagName"],
-  ["--signer-policy-ref", "signerPolicyRef"],
-  ["--signer-policy-path", "signerPolicyPath"],
-  ["--protected-ref", "protectedRef"],
-  ["--ssh-keygen", "sshKeygenPath"]
+  ["--protected-ref", "protectedRef"]
 ]);
 
 try {
@@ -20,8 +17,7 @@ try {
   const document = await collectReleaseTagAuthorization(request);
   process.stdout.write(`${canonicalJson(document)}\n`);
   process.stderr.write(
-    `release-tag-signer ${document.signature.principal}`
-    + ` ${document.signature.keyFingerprint}\n`
+    `release-tag ${document.tagName} ${document.tagObjectType} ${document.tagSignature}\n`
   );
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
@@ -46,16 +42,11 @@ function parseArguments(argv: readonly string[]): ReleaseTagAuthorizationRequest
   return Object.freeze({
     repositoryRoot: parsed.get("repositoryRoot") ?? process.cwd(),
     tagName,
-    signerPolicyRef: parsed.get("signerPolicyRef"),
-    signerPolicyPath: parsed.get("signerPolicyPath"),
-    protectedRef: parsed.get("protectedRef"),
-    sshKeygenPath: parsed.get("sshKeygenPath")
+    protectedRef: parsed.get("protectedRef")
   });
 }
 
 function usage(): string {
   return "usage: release-tag-authorization.ts --tag <v1.2.3>"
-    + " [--repository <dir>] [--signer-policy-ref <ref>]"
-    + " [--signer-policy-path <path>] [--protected-ref <ref>]"
-    + " [--ssh-keygen <absolute path>]";
+    + " [--repository <dir>] [--protected-ref <ref>]";
 }
