@@ -694,6 +694,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          git fetch origin '+refs/tags/released/*:refs/tags/released/*'
           status="$(node --import tsx scripts/release-completion.ts \
             status "$VERSION" "$GITHUB_SHA")"
           if [ "$status" = missing ]; then
