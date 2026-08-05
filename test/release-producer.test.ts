@@ -48,12 +48,14 @@ import {
 import { type NpmPublicationPackage } from "../scripts/release-npm-publisher.js";
 import { runReleasePreflight } from "../scripts/release-preflight.js";
 import {
+  stagePreparedPublishedReleasePackages,
   stagePublishedReleasePackages,
   stageReleasePackage,
   type StagedReleasePackage
 } from "../scripts/release-stage-packages.js";
 import { AI_1667_PRODUCT_VERSION } from "../shared/build-identity.js";
 import {
+  releaseDescriptionInputsForSource,
   releaseIdentitiesForSource,
   type ReleaseSourceFacts
 } from "../scripts/release-source-facts.js";
@@ -112,7 +114,7 @@ async function runUnsignedReleaseHandoff(
   let publishedSourceCommitReads = 0;
   const previousUmask = process.umask(0o077);
   try {
-    first = stagePublishedReleasePackages({
+    first = stageHandoffPackages({
       version: releaseFacts.version,
       get sourceCommit(): string {
         publishedSourceCommitReads += 1;
@@ -122,8 +124,9 @@ async function runUnsignedReleaseHandoff(
       },
       buildTimestamp: releaseFacts.buildTimestamp,
       buildDirectories,
-      outputDirectory: firstStage
-    }, packageVersions);
+      outputDirectory: firstStage,
+      packageVersions
+    });
   } finally {
     process.umask(previousUmask);
   }
@@ -222,11 +225,12 @@ async function runUnsignedReleaseHandoff(
   );
 
   await varyBuildMtimes(buildDirectories);
-  const second = stagePublishedReleasePackages({
+  const second = stageHandoffPackages({
     ...releaseFacts,
     buildDirectories,
-    outputDirectory: path.join(root, "stage-b")
-  }, packageVersions);
+    outputDirectory: path.join(root, "stage-b"),
+    packageVersions
+  });
   const secondPacked = await packReleasePackages({
     packages: second,
     outputDirectory: path.join(root, "pack-b"),
@@ -758,6 +762,33 @@ function versionsFor(version: string): ReleasePackageVersions {
     tui: version,
     rootLock: version,
     rootLockPackage: version
+  });
+}
+
+interface HandoffStageOptions extends ReleaseSourceFacts {
+  readonly buildDirectories: Readonly<Record<PublishedArtifactTarget, string>>;
+  readonly outputDirectory: string;
+  readonly packageVersions: ReleasePackageVersions;
+}
+
+function stageHandoffPackages(
+  options: HandoffStageOptions
+): readonly StagedReleasePackage[] {
+  const source = {
+    version: options.version,
+    sourceCommit: options.sourceCommit,
+    buildTimestamp: options.buildTimestamp
+  };
+  const files = {
+    buildDirectories: options.buildDirectories,
+    outputDirectory: options.outputDirectory
+  };
+  if (options.version === VERSION) {
+    return stagePublishedReleasePackages({ ...source, ...files });
+  }
+  return stagePreparedPublishedReleasePackages({
+    ...releaseDescriptionInputsForSource(source, options.packageVersions),
+    ...files
   });
 }
 

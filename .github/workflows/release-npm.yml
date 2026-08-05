@@ -502,7 +502,7 @@ jobs:
           retention-days: 90
 
   publish:
-    needs: preflight
+    needs: release
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     environment: publish
@@ -513,7 +513,8 @@ jobs:
       id-token: write
     steps:
       # The dispatch ref is the tag, so GITHUB_SHA records the selected commit.
-      # This job resolves the mutable remote tag again immediately before npm.
+      # The release job locks the remote tag. This job resolves it again before
+      # npm publication starts.
       # The tag needs no signature — release-evidence.ts still refuses a commit
       # that is not reachable from the protected default branch, which is what
       # keeps an unmerged commit out of a release.
@@ -636,8 +637,23 @@ jobs:
             dist/publication/artifact-manifest.json \
             dist/publication/tarballs
 
+      # This protected tag is the monotonic release record. Create it last.
+      - name: Record complete publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          status="$(node --import tsx scripts/release-completion.ts \
+            status "$VERSION" "$GITHUB_SHA")"
+          if [ "$status" = missing ]; then
+            "$RELEASE_GH_PATH" api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/released/v$VERSION" \
+              -f sha="$GITHUB_SHA"
+          fi
+
   release:
-    needs: [preflight, publish]
+    needs: preflight
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -693,7 +709,7 @@ jobs:
         run: |
           set -euo pipefail
           timestamp="$(node --import tsx scripts/release-npm-ci.ts timestamp)"
-          node --import tsx scripts/release-completion.ts replay "$VERSION" "$GITHUB_SHA"
+          node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
           node --import tsx scripts/release-completion.ts ready
           node --import tsx scripts/release-evidence.ts \
             --tag "v$VERSION" --build-timestamp "$timestamp" \
@@ -724,19 +740,6 @@ jobs:
           fi
           node --import tsx scripts/release-npm-ci.ts \
             verify-attestations dist/publication "$count"
-
-      - name: Rebuild preflight and verify the published matrix
-        run: |
-          set -euo pipefail
-          node --import tsx scripts/release-npm-plan.ts \
-            "$RUNNER_TEMP/source-evidence.json" \
-            dist/publication/tarballs \
-            dist/publication/observations \
-            dist/plan.json
-          npm run release:publish -- verify \
-            dist/plan.json \
-            dist/publication/artifact-manifest.json \
-            dist/publication/tarballs
 
       - name: Assemble the GitHub release assets
         env:
@@ -773,18 +776,3 @@ jobs:
         run: >-
           node --import tsx scripts/release-npm-github.ts
           "$VERSION" "$GITHUB_SHA" dist/assets dist/release-notes.md
-
-      # This protected tag is the monotonic release record. Create it last.
-      - name: Record complete publication
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          status="$(node --import tsx scripts/release-completion.ts \
-            status "$VERSION" "$GITHUB_SHA")"
-          if [ "$status" = missing ]; then
-            "$RELEASE_GH_PATH" api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
-              -f ref="refs/tags/released/v$VERSION" \
-              -f sha="$GITHUB_SHA"
-          fi

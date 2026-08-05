@@ -61,7 +61,6 @@ interface ReleaseState {
   readonly isDraft: boolean;
   readonly isImmutable: boolean;
   readonly isPrerelease: boolean;
-  readonly targetCommitish: string;
 }
 
 export async function verifyRemoteReleaseTag(
@@ -140,8 +139,6 @@ export async function publishOrVerifyGitHubRelease(
       repository,
       "--draft",
       "--verify-tag",
-      "--target",
-      options.sourceCommit,
       ...(prerelease ? ["--prerelease"] : []),
       "--latest=false",
       "--title",
@@ -152,11 +149,9 @@ export async function publishOrVerifyGitHubRelease(
     created = true;
   } else {
     requireImmutableReleaseChannel(state, prerelease, "Existing");
-    requireReleaseTarget(state, options.sourceCommit, "Existing");
   }
   const uploaded = await releaseState(gh, tag, repository, options.environment);
   if (uploaded === null) throw new Error("Uploaded GitHub release disappeared");
-  requireReleaseTarget(uploaded, options.sourceCommit, "Uploaded");
   await verifyDownloadedRelease(gh, tag, repository, assets, options.environment);
   if (!created) return;
   await requireRemoteTagCommit(
@@ -174,7 +169,6 @@ export async function publishOrVerifyGitHubRelease(
   const published = await releaseState(gh, tag, repository, options.environment);
   if (published === null) throw new Error("Published GitHub release disappeared");
   requireImmutableReleaseChannel(published, prerelease, "Published");
-  requireReleaseTarget(published, options.sourceCommit, "Published");
   if (published.isDraft) throw new Error("Published GitHub release is still a draft");
   await requireRemoteTagCommit(
     gh,
@@ -309,7 +303,7 @@ async function releaseState(
       "--repo",
       repository,
       "--json",
-      "isDraft,isImmutable,isPrerelease,targetCommitish"
+      "isDraft,isImmutable,isPrerelease"
     ], environment));
   } catch (error) {
     if (isMissingRelease(error)) return null;
@@ -320,31 +314,17 @@ async function releaseState(
     throw new Error("GitHub release state is not an object");
   }
   const record = value as Record<string, unknown>;
-  if (Object.keys(record).sort().join(",")
-      !== "isDraft,isImmutable,isPrerelease,targetCommitish"
+  if (Object.keys(record).sort().join(",") !== "isDraft,isImmutable,isPrerelease"
     || typeof record.isDraft !== "boolean"
     || typeof record.isImmutable !== "boolean"
-    || typeof record.isPrerelease !== "boolean"
-    || typeof record.targetCommitish !== "string"
-    || !COMMIT.test(record.targetCommitish)) {
+    || typeof record.isPrerelease !== "boolean") {
     throw new Error("GitHub release state is invalid");
   }
   return Object.freeze({
     isDraft: record.isDraft,
     isImmutable: record.isImmutable,
-    isPrerelease: record.isPrerelease,
-    targetCommitish: record.targetCommitish
+    isPrerelease: record.isPrerelease
   });
-}
-
-function requireReleaseTarget(
-  state: ReleaseState,
-  expectedCommit: string,
-  label: string
-): void {
-  if (state.targetCommitish !== expectedCommit) {
-    throw new Error(`${label} GitHub release targets the wrong commit`);
-  }
 }
 
 async function requireRemoteTagCommit(

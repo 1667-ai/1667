@@ -41,10 +41,12 @@ test("the npm workflow authorizes one dispatcher before the publication stages",
     "release"
   ]);
   assert.match(job("build"), /^    needs: authorize$/mu);
+  assert.match(job("release"), /^    needs: preflight$/mu);
+  assert.match(job("publish"), /^    needs: release$/mu);
   assert.match(job("publish"), /^    environment: publish$/mu);
   assert.match(job("publish"), /^    timeout-minutes: 180$/mu);
   assert.match(job("publish"), /^      id-token: write$/mu);
-  assert.match(job("release"), /refs\/tags\/released\/v\$VERSION/u);
+  assert.match(job("publish"), /refs\/tags\/released\/v\$VERSION/u);
   for (const name of ["build", "publish"] as const) {
     assert.match(job(name), /GITHUB_REF.*refs\/tags\/v\$VERSION/u);
   }
@@ -212,20 +214,20 @@ test("the retained layout and completion record support an exact rerun", () => {
     job("preflight"),
     /wc -l < dist\/work\/preflight\.log[\s\S]+!= 1[\s\S]+\^\[0-9a-f\]\{64\}\$/u
   );
-  for (const name of ["build", "launcher", "preflight", "publish"] as const) {
+  for (const name of ["build", "launcher", "preflight", "release", "publish"] as const) {
     assert.match(job(name), /release-completion\.ts gate/u);
     assert.doesNotMatch(job(name), /release-completion\.ts replay/u);
   }
-  assert.match(job("release"), /release-completion\.ts replay/u);
-  assert.match(job("release"), /release-completion\.ts[\s\\]*status "\$VERSION"/u);
+  assert.match(job("publish"), /release-completion\.ts[\s\\]*status "\$VERSION"/u);
   assert.match(job("release"), /scripts\/release-npm-github\.ts/u);
+  assert.doesNotMatch(job("release"), /release:publish -- verify/u);
   assert.match(
     job("release"),
     /scripts\/release-npm-github\.ts[\s\S]+"\$VERSION" "\$GITHUB_SHA"/u
   );
-  const record = job("release").indexOf("- name: Record complete publication");
-  assert.ok(record > job("release").indexOf("scripts/release-npm-github.ts"));
-  assert.equal(job("release").indexOf("- name:", record + 1), -1);
+  const record = job("publish").indexOf("- name: Record complete publication");
+  assert.ok(record > job("publish").indexOf("npm run release:publish -- publish"));
+  assert.equal(job("publish").indexOf("- name:", record + 1), -1);
 });
 
 test("the immutable prerelease retains the durable promotion inputs", () => {

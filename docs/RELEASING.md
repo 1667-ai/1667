@@ -196,11 +196,11 @@ this product has a user.
 - The root package, TUI package, and root lockfile agree on one version.
 - The tag name matches that version.
 
-The publish job resolves the remote release tag before it writes to npm. The
-tag must still target the dispatch commit. The release job repeats this check
-before it creates a draft release. It repeats the check before it publishes the
-draft. It checks the published release target. It then resolves the remote tag
-again. An immutable GitHub release prevents a later change to its tag.
+The release job resolves the remote release tag before it creates a draft
+release. The tag must still target the dispatch commit. The job repeats the
+check before it publishes the draft. It resolves the tag again after GitHub
+makes the release immutable. The publish job runs only after this step. It
+resolves the locked tag before it writes to npm.
 
 The release plan carries the collected `tagObjectType` and `tagSignature`
 values. Each native `buildIdentity` records the result from step 5. Preflight
@@ -343,10 +343,11 @@ Dispatch the workflow with this command:
 gh workflow run release-npm.yml --ref "v<version>" -f version=<version>
 ```
 
-The tag commit is the release source commit. A merge to the default branch
-cannot change that commit after the tag is created. The workflow refuses a
-release commit that the default branch cannot reach. The completion and replay
-records also bind to that one commit.
+The dispatch records the tag commit as the release source commit. The remote
+tag stays mutable until GitHub publishes the release. The workflow resolves the
+remote tag before it makes the release immutable. It checks the locked tag
+before it writes to npm. The workflow refuses a release commit that the default
+branch cannot reach. The completion record also binds to that commit.
 
 The workflow has these jobs:
 
@@ -354,8 +355,9 @@ The workflow has these jobs:
 2. `build` builds and observes the five published native executables.
 3. `launcher` stages and packs the six release packages.
 4. `preflight` verifies the package set and retains the result.
-5. `publish` publishes the five platform packages before the launcher package.
-6. `release` verifies publication and publishes the GitHub release.
+5. `release` publishes the immutable GitHub release and locks its tag.
+6. `publish` publishes the five platform packages before the launcher package.
+   It then records completion.
 
 A failed job can use the retained inputs from the same workflow run. The registry check
 accepts an existing version only when its digest and provenance are correct.

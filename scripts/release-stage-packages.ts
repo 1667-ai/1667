@@ -27,10 +27,7 @@ import {
   type ReleaseContentArtifact,
   type StagedReleaseFile
 } from "./release-content.js";
-import {
-  type ReleaseBuildIdentitySet,
-  type ReleasePackageVersions
-} from "./release-identity.js";
+import { type ReleaseBuildIdentitySet } from "./release-identity.js";
 import {
   type ReleasePackageJson
 } from "./release-package-manifests.js";
@@ -47,6 +44,7 @@ import {
 } from "./release-sbom.js";
 import {
   releaseDescriptionInputsForSource,
+  type ReleaseDescriptionInputs,
   type ReleaseSourceFacts
 } from "./release-source-facts.js";
 
@@ -67,6 +65,12 @@ export interface StageReleasePackageOptions extends ReleaseSourceFacts {
 }
 
 export interface StagePublishedReleasePackagesOptions extends ReleaseSourceFacts {
+  readonly buildDirectories: Readonly<Record<PublishedArtifactTarget, string>>;
+  readonly outputDirectory: string;
+}
+
+export interface StagePreparedPublishedReleasePackagesOptions
+  extends ReleaseDescriptionInputs {
   readonly buildDirectories: Readonly<Record<PublishedArtifactTarget, string>>;
   readonly outputDirectory: string;
 }
@@ -103,43 +107,48 @@ export function stageReleasePackage(
 }
 
 /**
- * Stages the exact npm publication matrix. The final directory appears only
- * after every package passes validation. Hosted callers read package versions
- * from the checkout. An integration test can supply its fixture versions.
+ * Stages the exact npm publication matrix from the checked-out package
+ * versions. The final directory appears only after all packages pass.
  */
 export function stagePublishedReleasePackages(
-  options: StagePublishedReleasePackagesOptions,
-  packageVersions?: ReleasePackageVersions
+  options: StagePublishedReleasePackagesOptions
+): readonly StagedReleasePackage[] {
+  return stagePreparedPublishedReleasePackages({
+    ...releaseDescriptionInputsForSource(options),
+    buildDirectories: options.buildDirectories,
+    outputDirectory: options.outputDirectory
+  });
+}
+
+/** Stages a package set from source data that a higher boundary prepared. */
+export function stagePreparedPublishedReleasePackages(
+  options: StagePreparedPublishedReleasePackagesOptions
 ): readonly StagedReleasePackage[] {
   const finalRoot = freshOutputPath(options.outputDirectory);
   const temporaryRoot = freshSiblingDirectory(finalRoot);
   try {
-    const { identities, sbomSource } = releaseDescriptionInputsForSource(
-      options,
-      packageVersions
-    );
     const sboms = createReleaseSboms(
-      sbomSource,
+      options.sbomSource,
       repositoryReleaseComponentSources()
     );
     const launcher = stagePreparedPackage({
-      template: createReleaseLauncherPackageTemplate(identities),
+      template: createReleaseLauncherPackageTemplate(options.identities),
       sboms,
       executable: repositoryLauncher(),
       outputDirectory: temporaryRoot,
-      buildTimestamp: identities.source.buildTimestamp
+      buildTimestamp: options.identities.source.buildTimestamp
     });
     const platforms = PUBLISHED_ARTIFACT_TARGETS.map((artifactTarget) => {
       const descriptor = releaseTargetForArtifact(artifactTarget);
       return stagePreparedPackage({
-        template: createReleasePlatformPackageTemplate(identities, artifactTarget),
+        template: createReleasePlatformPackageTemplate(options.identities, artifactTarget),
         sboms,
         executable: path.join(
           path.resolve(options.buildDirectories[artifactTarget]),
           path.posix.basename(descriptor.executable)
         ),
         outputDirectory: temporaryRoot,
-        buildTimestamp: identities.source.buildTimestamp
+        buildTimestamp: options.identities.source.buildTimestamp
       });
     });
     const packages = [launcher, ...platforms];
