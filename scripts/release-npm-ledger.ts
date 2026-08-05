@@ -50,6 +50,10 @@ export class GitHubNpmPublicationLedger implements NpmPublicationLedger {
     this.#store = new GitHubRefStore(options);
   }
 
+  async assertWritable(packageToPublish: NpmPublicationPackage): Promise<void> {
+    await this.status(packageToPublish);
+  }
+
   async status(
     packageToPublish: NpmPublicationPackage
   ): Promise<"fresh" | "attempted"> {

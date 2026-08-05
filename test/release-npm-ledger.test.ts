@@ -31,6 +31,7 @@ test("an attempted package is not republished while its registry wait succeeds",
   const present = new Set<string>();
   const published: string[] = [];
   const ledger: NpmPublicationLedger = {
+    async assertWritable() {},
     async status(entry) {
       return entry.name === attempted.name ? "attempted" : "fresh";
     },
@@ -64,6 +65,9 @@ test("the publisher records fresh package bytes before the npm write", async () 
   const present = new Set(packages.slice(2).map((entry) => entry.name));
   present.add(packages[0]!.name);
   const ledger: NpmPublicationLedger = {
+    async assertWritable(entry) {
+      events.push(`ledger-guard:${entry.name}`);
+    },
     async status() {
       return "fresh";
     },
@@ -93,6 +97,7 @@ test("the publisher records fresh package bytes before the npm write", async () 
     `guard:${packages[1]!.name}`,
     `record:${packages[1]!.name}`,
     `guard:${packages[1]!.name}`,
+    `ledger-guard:${packages[1]!.name}`,
     `publish:${packages[1]!.name}`
   ]);
 });
@@ -103,6 +108,7 @@ test("the initial write guard stops before publication state changes", async () 
   const published: string[] = [];
   const recorded: string[] = [];
   const ledger: NpmPublicationLedger = {
+    async assertWritable() {},
     async status() {
       return "fresh";
     },
@@ -141,6 +147,7 @@ test("a retry recovers when the process stopped after recording an attempt", asy
   const events: string[] = [];
   let waits = 0;
   const ledger: NpmPublicationLedger = {
+    async assertWritable() {},
     async status(entry) {
       return entry.name === recovering.name ? "attempted" : "fresh";
     },
@@ -172,6 +179,46 @@ test("a retry recovers when the process stopped after recording an attempt", asy
     `publish:${recovering.name}`,
     "wait:2"
   ]);
+});
+
+test("a quarantine created during recovery stops the npm write", async () => {
+  const packages = publicationMatrix();
+  const recovering = packages[1]!;
+  const attempt = {
+    ref: `refs/tags/released/v${VERSION}_attempt_${recovering.artifactTarget}`
+      + `_${recovering.sha256}`,
+    object: { type: "commit", sha: COMMIT }
+  };
+  let refs: unknown[] = [attempt];
+  const published: string[] = [];
+  const ledger = new GitHubNpmPublicationLedger({
+    repository: "1667-ai/1667",
+    sourceCommit: COMMIT,
+    token: "test-token",
+    fetch: async () => jsonResponse(refs, 200)
+  });
+  const registry: NpmPublicationRegistry = {
+    async inspect(entry) {
+      return entry.name === recovering.name ? "missing" : "present";
+    },
+    async publish(entry) {
+      published.push(entry.name);
+    },
+    async waitUntilVerified(entries) {
+      if (entries.length !== 1 || entries[0]?.name !== recovering.name) return;
+      refs = [...refs, {
+        ref: `refs/tags/released/v${VERSION}_quarantined`,
+        object: { type: "commit", sha: COMMIT }
+      }];
+      throw new NpmPublicationPendingTimeoutError("not visible");
+    }
+  };
+
+  await assert.rejects(
+    publishNpmRelease(packages, registry, ledger, publicationWriteGuard()),
+    /quarantined/u
+  );
+  assert.deepEqual(published, []);
 });
 
 test("a protected quarantine marker overrides stale clean registry metadata", async () => {

@@ -501,6 +501,7 @@ function publicationMatrix(): readonly NpmPublicationPackage[] {
 
 function publicationLedger(): NpmPublicationLedger {
   return {
+    async assertWritable() {},
     async status() {
       return "fresh";
     },
