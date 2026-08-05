@@ -663,18 +663,9 @@ jobs:
             printf 'The homepage serves the selected Installers after a separate promotion gate.\n'
           } > dist/github-release/release-notes.md
 
-      - name: Prepare or verify the GitHub release draft
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-        run: >-
-          node --import tsx scripts/release-npm-github.ts prepare
-          "$VERSION" "$GITHUB_SHA"
-          dist/github-release/assets dist/github-release/release-notes.md
-
       # Lock the exact release assets before the first irreversible npm write.
       # A failed npm write can resume from this run's retained inputs and ledger.
-      - name: Publish or verify the immutable GitHub release
+      - name: Create or verify the immutable GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}

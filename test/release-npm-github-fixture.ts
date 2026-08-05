@@ -15,11 +15,9 @@ import { expectedGitHubReleaseAssetNames, expectedInstallerNames } from "../scri
 
 /**
  * Shared fixture infrastructure for the GitHub-release side of the release
- * pipeline — split out of test/release-npm-ci.test.ts so test/release-npm-ci.test.ts
- * and test/release-channel-policy.test.ts both drive the GitHub release functions
- * and `verifyNpmReleaseAssetDirectory` against the same fake `gh` and the same
- * asset-directory builder, following the split-fixture pattern
- * test/sampling-e2e-fixtures.ts already established.
+ * pipeline. The GitHub release, tag, and channel tests use this fixture.
+ * They drive the GitHub release functions against the same fake `gh`.
+ * They also use the same asset-directory builder.
  */
 
 /** A release asset directory a real workflow run would hand to npm
@@ -170,6 +168,12 @@ export function fakeReleaseGh(paths: {
     "  fs.writeFileSync(state, JSON.stringify({",
     "    body:notes,isDraft:true,isImmutable:false,isPrerelease:prerelease,name:title",
     "  }));",
+    "} else if (command === \"upload\") {",
+    "  fs.mkdirSync(remote, { recursive: true });",
+    "  for (const file of args.slice(3)) {",
+    "    if (file.startsWith(\"--\")) break;",
+    "    fs.copyFileSync(file, path.join(remote, path.basename(file)));",
+    "  }",
     "} else if (command === \"download\") {",
     "  const destination = args[args.indexOf(\"--dir\") + 1];",
     "  for (const name of fs.readdirSync(remote)) {",

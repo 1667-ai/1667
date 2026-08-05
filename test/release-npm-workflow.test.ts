@@ -230,14 +230,13 @@ test("the retained layout and completion record support an exact rerun", () => {
   );
   assert.match(job("publish"), /release-completion\.ts[\s\\]*status "\$VERSION"/u);
   const publish = job("publish");
-  assert.match(publish, /scripts\/release-npm-github\.ts prepare/u);
+  assert.doesNotMatch(publish, /scripts\/release-npm-github\.ts prepare/u);
   assert.doesNotMatch(WORKFLOW, /^\s+name: github-release$/mu);
   assert.doesNotMatch(publish, /scripts\/release-npm-github\.ts verify/u);
   const npmPublish = publish.indexOf("npm run release:publish -- publish");
-  const draftCheck = publish.indexOf("scripts/release-npm-github.ts prepare");
   const releasePublish = publish.indexOf("scripts/release-npm-github.ts publish");
   const record = publish.indexOf("- name: Record complete publication");
-  assert.ok(draftCheck !== -1 && draftCheck < releasePublish);
+  assert.ok(releasePublish !== -1);
   assert.ok(releasePublish < npmPublish && npmPublish < record);
   assert.equal(publish.indexOf("- name:", record + 1), -1);
 });
@@ -247,7 +246,7 @@ test("the immutable prerelease retains the durable promotion inputs", () => {
   const observations = release.indexOf(
     "cp dist/publication/observations/*.json dist/github-release/assets/"
   );
-  const publish = release.indexOf("scripts/release-npm-github.ts prepare");
+  const publish = release.indexOf("scripts/release-npm-github.ts publish");
   assert.ok(observations !== -1 && observations < publish);
 });
 

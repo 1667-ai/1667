@@ -14,7 +14,6 @@ import path from "node:path";
 import test from "node:test";
 import { RELEASE_LAUNCHER_PACKAGE } from "../shared/release-targets.js";
 import {
-  prepareOrVerifyGitHubRelease,
   publishOrVerifyGitHubRelease,
   verifyNpmReleaseAssetDirectory
 } from "../scripts/release-npm-github.js";
@@ -104,7 +103,6 @@ for (const scenario of [
       environment: { GITHUB_REPOSITORY, GH_TOKEN: "test-token", HOME: root },
       ghExecutable: gh
     };
-    await prepareOrVerifyGitHubRelease(releaseOptions);
     await publishOrVerifyGitHubRelease(releaseOptions);
     const published = JSON.parse(await readFile(state, "utf8")) as { isPrerelease: boolean };
     assert.equal(

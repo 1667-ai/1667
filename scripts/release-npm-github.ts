@@ -58,7 +58,7 @@ export async function publishOrVerifyGitHubRelease(
 ): Promise<void> {
   const context = releaseContext(options);
   const { gh, repository, tag } = context;
-  const state = await preparedReleaseState(context);
+  const state = await prepareReleaseState(context);
   if (state.phase === "published") return;
   try {
     await runGh(
@@ -76,16 +76,21 @@ export async function publishOrVerifyGitHubRelease(
   }
 }
 
-/** Creates and validates a draft before npm publication starts. */
-export async function prepareOrVerifyGitHubRelease(
-  options: GitHubReleaseOptions
-): Promise<void> {
-  const context = releaseContext(options);
+/** Creates or verifies the release state before the immutable transition. */
+async function prepareReleaseState(context: ReleaseContext): Promise<ReleaseState> {
   const { assets, gh, notes, prerelease, repository, tag, title, verifyTag } = context;
   const state = await releaseState(context);
   if (state !== null) {
-    await preparedReleaseState(context);
-    return;
+    if (state.phase === "draft") {
+      await verifyTag();
+      requireReleaseContents(state, context);
+      await runGh(
+        gh,
+        ["release", "upload", tag, ...assets, "--clobber", "--repo", repository],
+        context.environment
+      );
+    }
+    return await preparedReleaseState(context);
   }
   await verifyTag();
   await runGh(gh, [
@@ -104,7 +109,7 @@ export async function prepareOrVerifyGitHubRelease(
     "--notes-file",
     notes
   ], context.environment);
-  await preparedReleaseState(context);
+  return await preparedReleaseState(context);
 }
 
 async function preparedReleaseState(context: ReleaseContext): Promise<ReleaseState> {
@@ -414,8 +419,7 @@ if (isMainModule()) {
         );
       }
       verifyNpmReleaseAssetDirectory(directory, version, repository);
-    } else if (process.argv.length === 7
-      && (command === "prepare" || command === "publish")) {
+    } else if (process.argv.length === 7 && command === "publish") {
       const version = process.argv[3];
       const sourceCommit = process.argv[4];
       const releaseAssets = process.argv[5];
@@ -432,12 +436,11 @@ if (isMainModule()) {
         notesFile: releaseNotes,
         environment: process.env
       };
-      if (command === "prepare") await prepareOrVerifyGitHubRelease(options);
-      else await publishOrVerifyGitHubRelease(options);
+      await publishOrVerifyGitHubRelease(options);
     } else {
       throw new Error(
         "usage: release-npm-github.ts verify-assets <version> <repository> <assets>"
-        + " | release-npm-github.ts <prepare|publish>"
+        + " | release-npm-github.ts publish"
         + " <version> <source-commit> <assets> <notes>"
       );
     }
