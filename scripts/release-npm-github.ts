@@ -30,6 +30,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
+const COMMIT = /^[0-9a-f]{40}$/u;
 const MAX_GH_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_NOTES_BYTES = 64 * 1024;
 
@@ -42,8 +43,16 @@ export interface GitHubReleaseEnvironment {
 
 export interface PublishGitHubReleaseOptions {
   readonly version: string;
+  readonly sourceCommit: string;
   readonly assetsDirectory: string;
   readonly notesFile: string;
+  readonly environment: GitHubReleaseEnvironment;
+  readonly ghExecutable?: string;
+}
+
+export interface VerifyRemoteReleaseTagOptions {
+  readonly version: string;
+  readonly sourceCommit: string;
   readonly environment: GitHubReleaseEnvironment;
   readonly ghExecutable?: string;
 }
@@ -52,12 +61,41 @@ interface ReleaseState {
   readonly isDraft: boolean;
   readonly isImmutable: boolean;
   readonly isPrerelease: boolean;
+  readonly targetCommitish: string;
+}
+
+export async function verifyRemoteReleaseTag(
+  options: VerifyRemoteReleaseTagOptions
+): Promise<void> {
+  if (!isSemVer(options.version)) throw new Error("GitHub release version is not SemVer");
+  if (!COMMIT.test(options.sourceCommit)) {
+    throw new Error("GitHub release source commit is not canonical");
+  }
+  const repository = requiredMatch(
+    options.environment.GITHUB_REPOSITORY,
+    REPOSITORY,
+    "GITHUB_REPOSITORY"
+  );
+  const gh = boundedExecutable(
+    options.ghExecutable
+      ?? requiredValue(options.environment.RELEASE_GH_PATH, "RELEASE_GH_PATH")
+  );
+  await requireRemoteTagCommit(
+    gh,
+    `v${options.version}`,
+    repository,
+    options.sourceCommit,
+    options.environment
+  );
 }
 
 export async function publishOrVerifyGitHubRelease(
   options: PublishGitHubReleaseOptions
 ): Promise<void> {
   if (!isSemVer(options.version)) throw new Error("GitHub release version is not SemVer");
+  if (!COMMIT.test(options.sourceCommit)) {
+    throw new Error("GitHub release source commit is not canonical");
+  }
   // The one place this module decides prerelease vs. stable. Every check below
   // reads this value rather than assuming a channel, so a stable version's
   // release is required to be a stable release and a prerelease version's
@@ -79,6 +117,13 @@ export async function publishOrVerifyGitHubRelease(
   );
   const notes = boundedFile(options.notesFile, "GitHub release notes", MAX_NOTES_BYTES);
   const tag = `v${options.version}`;
+  await requireRemoteTagCommit(
+    gh,
+    tag,
+    repository,
+    options.sourceCommit,
+    options.environment
+  );
   let state = await releaseState(gh, tag, repository, options.environment);
   if (state?.isDraft === true) {
     await runGh(gh, ["release", "delete", tag, "--repo", repository, "--yes"], options.environment);
@@ -95,6 +140,8 @@ export async function publishOrVerifyGitHubRelease(
       repository,
       "--draft",
       "--verify-tag",
+      "--target",
+      options.sourceCommit,
       ...(prerelease ? ["--prerelease"] : []),
       "--latest=false",
       "--title",
@@ -105,9 +152,20 @@ export async function publishOrVerifyGitHubRelease(
     created = true;
   } else {
     requireImmutableReleaseChannel(state, prerelease, "Existing");
+    requireReleaseTarget(state, options.sourceCommit, "Existing");
   }
+  const uploaded = await releaseState(gh, tag, repository, options.environment);
+  if (uploaded === null) throw new Error("Uploaded GitHub release disappeared");
+  requireReleaseTarget(uploaded, options.sourceCommit, "Uploaded");
   await verifyDownloadedRelease(gh, tag, repository, assets, options.environment);
   if (!created) return;
+  await requireRemoteTagCommit(
+    gh,
+    tag,
+    repository,
+    options.sourceCommit,
+    options.environment
+  );
   await runGh(
     gh,
     ["release", "edit", tag, "--repo", repository, "--draft=false"],
@@ -116,7 +174,15 @@ export async function publishOrVerifyGitHubRelease(
   const published = await releaseState(gh, tag, repository, options.environment);
   if (published === null) throw new Error("Published GitHub release disappeared");
   requireImmutableReleaseChannel(published, prerelease, "Published");
+  requireReleaseTarget(published, options.sourceCommit, "Published");
   if (published.isDraft) throw new Error("Published GitHub release is still a draft");
+  await requireRemoteTagCommit(
+    gh,
+    tag,
+    repository,
+    options.sourceCommit,
+    options.environment
+  );
 }
 
 export function verifyNpmReleaseAssetDirectory(
@@ -243,7 +309,7 @@ async function releaseState(
       "--repo",
       repository,
       "--json",
-      "isDraft,isImmutable,isPrerelease"
+      "isDraft,isImmutable,isPrerelease,targetCommitish"
     ], environment));
   } catch (error) {
     if (isMissingRelease(error)) return null;
@@ -254,17 +320,56 @@ async function releaseState(
     throw new Error("GitHub release state is not an object");
   }
   const record = value as Record<string, unknown>;
-  if (Object.keys(record).sort().join(",") !== "isDraft,isImmutable,isPrerelease"
+  if (Object.keys(record).sort().join(",")
+      !== "isDraft,isImmutable,isPrerelease,targetCommitish"
     || typeof record.isDraft !== "boolean"
     || typeof record.isImmutable !== "boolean"
-    || typeof record.isPrerelease !== "boolean") {
+    || typeof record.isPrerelease !== "boolean"
+    || typeof record.targetCommitish !== "string"
+    || !COMMIT.test(record.targetCommitish)) {
     throw new Error("GitHub release state is invalid");
   }
   return Object.freeze({
     isDraft: record.isDraft,
     isImmutable: record.isImmutable,
-    isPrerelease: record.isPrerelease
+    isPrerelease: record.isPrerelease,
+    targetCommitish: record.targetCommitish
   });
+}
+
+function requireReleaseTarget(
+  state: ReleaseState,
+  expectedCommit: string,
+  label: string
+): void {
+  if (state.targetCommitish !== expectedCommit) {
+    throw new Error(`${label} GitHub release targets the wrong commit`);
+  }
+}
+
+async function requireRemoteTagCommit(
+  gh: string,
+  tag: string,
+  repository: string,
+  expectedCommit: string,
+  environment: GitHubReleaseEnvironment
+): Promise<void> {
+  const { stdout } = await runGh(
+    gh,
+    ["api", `repos/${repository}/commits/${encodeURIComponent(tag)}`],
+    environment
+  );
+  const value = parseJsonRejectingDuplicateKeys(stdout);
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Remote release tag ${tag} did not resolve to a commit`);
+  }
+  const commit = (value as Record<string, unknown>).sha;
+  if (typeof commit !== "string" || !COMMIT.test(commit)) {
+    throw new Error(`Remote release tag ${tag} did not resolve to a canonical commit`);
+  }
+  if (commit !== expectedCommit) {
+    throw new Error(`Remote release tag ${tag} does not target the dispatch commit`);
+  }
 }
 
 /**
@@ -368,7 +473,7 @@ function isMainModule(): boolean {
 
 if (isMainModule()) {
   try {
-    const [command, assetsDirectory, notesFile] = process.argv.slice(2);
+    const command = process.argv[2];
     if (command === "verify-assets" && process.argv.length === 6) {
       const version = process.argv[3];
       const repository = process.argv[4];
@@ -379,18 +484,36 @@ if (isMainModule()) {
         );
       }
       verifyNpmReleaseAssetDirectory(directory, version, repository);
-    } else if (process.argv.length === 5 && command !== undefined
-      && assetsDirectory !== undefined && notesFile !== undefined) {
+    } else if (command === "verify-tag" && process.argv.length === 5) {
+      const version = process.argv[3];
+      const sourceCommit = process.argv[4];
+      if (version === undefined || sourceCommit === undefined) {
+        throw new Error("usage: release-npm-github.ts verify-tag <version> <source-commit>");
+      }
+      await verifyRemoteReleaseTag({
+        version,
+        sourceCommit,
+        environment: process.env
+      });
+    } else if (process.argv.length === 6 && command !== undefined) {
+      const sourceCommit = process.argv[3];
+      const releaseAssets = process.argv[4];
+      const releaseNotes = process.argv[5];
+      if (sourceCommit === undefined || releaseAssets === undefined || releaseNotes === undefined) {
+        throw new Error("GitHub release arguments are incomplete");
+      }
       await publishOrVerifyGitHubRelease({
         version: command,
-        assetsDirectory,
-        notesFile,
+        sourceCommit,
+        assetsDirectory: releaseAssets,
+        notesFile: releaseNotes,
         environment: process.env
       });
     } else {
       throw new Error(
         "usage: release-npm-github.ts verify-assets <version> <repository> <assets>"
-        + " | release-npm-github.ts <version> <assets> <notes>"
+        + " | release-npm-github.ts verify-tag <version> <source-commit>"
+        + " | release-npm-github.ts <version> <source-commit> <assets> <notes>"
       );
     }
   } catch (error) {

@@ -83,8 +83,9 @@ jobs:
       contents: read
       id-token: write
     steps:
-      # The dispatch ref is the tag, so GITHUB_SHA is the immutable tag commit.
-      # A merge to the default branch cannot move it after the tag is created.
+      # The dispatch ref is the tag, so GITHUB_SHA records the selected commit.
+      # The remote tag stays mutable until GitHub publishes the release. The
+      # publish job checks it before npm. The release job checks it again.
       # The tag needs no signature — release-evidence.ts still refuses a commit
       # that is not reachable from the protected default branch, which is what
       # keeps an unmerged commit out of a release.
@@ -511,8 +512,8 @@ jobs:
       contents: write
       id-token: write
     steps:
-      # The dispatch ref is the tag, so GITHUB_SHA is the immutable tag commit.
-      # A merge to the default branch cannot move it after the tag is created.
+      # The dispatch ref is the tag, so GITHUB_SHA records the selected commit.
+      # This job resolves the mutable remote tag again immediately before npm.
       # The tag needs no signature — release-evidence.ts still refuses a commit
       # that is not reachable from the protected default branch, which is what
       # keeps an unmerged commit out of a release.
@@ -628,6 +629,8 @@ jobs:
           set -euo pipefail
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
           node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
+          node --import tsx scripts/release-npm-github.ts \
+            verify-tag "$VERSION" "$GITHUB_SHA"
           npm run release:publish -- publish \
             dist/plan.json \
             dist/publication/artifact-manifest.json \
@@ -769,7 +772,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: >-
           node --import tsx scripts/release-npm-github.ts
-          "$VERSION" dist/assets dist/release-notes.md
+          "$VERSION" "$GITHUB_SHA" dist/assets dist/release-notes.md
 
       # This protected tag is the monotonic release record. Create it last.
       - name: Record complete publication

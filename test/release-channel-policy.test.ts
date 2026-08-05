@@ -98,6 +98,7 @@ for (const scenario of [
     await chmod(gh, 0o755);
     await publishOrVerifyGitHubRelease({
       version: scenario.version,
+      sourceCommit: COMMIT,
       assetsDirectory: assets,
       notesFile: notes,
       environment: { GITHUB_REPOSITORY, GH_TOKEN: "test-token", HOME: root },

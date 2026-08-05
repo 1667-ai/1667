@@ -52,8 +52,8 @@ test("the npm workflow authorizes one dispatcher before the publication stages",
 
 test("the npm release dispatch binds to the tag commit", () => {
   // A dispatch on the default branch takes GITHUB_SHA from the branch tip, so a
-  // merge after the tag is created moves the source commit. The dispatch ref
-  // is the tag, which no later merge can move.
+  // merge after the tag is created changes the source commit. A tag dispatch
+  // records the tagged commit. Later jobs also check the mutable remote tag.
   assert.match(WORKFLOW, /The dispatch ref must be the\n\s+v<version> tag\./u);
   for (const name of ["build", "publish"] as const) {
     const body = job(name);
@@ -219,6 +219,10 @@ test("the retained layout and completion record support an exact rerun", () => {
   assert.match(job("release"), /release-completion\.ts replay/u);
   assert.match(job("release"), /release-completion\.ts[\s\\]*status "\$VERSION"/u);
   assert.match(job("release"), /scripts\/release-npm-github\.ts/u);
+  assert.match(
+    job("release"),
+    /scripts\/release-npm-github\.ts[\s\S]+"\$VERSION" "\$GITHUB_SHA"/u
+  );
   const record = job("release").indexOf("- name: Record complete publication");
   assert.ok(record > job("release").indexOf("scripts/release-npm-github.ts"));
   assert.equal(job("release").indexOf("- name:", record + 1), -1);
@@ -302,9 +306,13 @@ test("publication rechecks protected state immediately before npm writes", () =>
     "release-completion.ts gate",
     command
   );
+  const releaseTag = publish.lastIndexOf(
+    "verify-tag \"$VERSION\" \"$GITHUB_SHA\"",
+    command
+  );
   assert.ok(
     completionFetch !== -1 && completionFetch < completionGate
-      && completionGate < command
+      && completionGate < releaseTag && releaseTag < command
   );
 });
 

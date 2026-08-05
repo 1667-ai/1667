@@ -196,6 +196,12 @@ this product has a user.
 - The root package, TUI package, and root lockfile agree on one version.
 - The tag name matches that version.
 
+The publish job resolves the remote release tag before it writes to npm. The
+tag must still target the dispatch commit. The release job repeats this check
+before it creates a draft release. It repeats the check before it publishes the
+draft. It checks the published release target. It then resolves the remote tag
+again. An immutable GitHub release prevents a later change to its tag.
+
 The release plan carries the collected `tagObjectType` and `tagSignature`
 values. Each native `buildIdentity` records the result from step 5. Preflight
 trusts all these fields.

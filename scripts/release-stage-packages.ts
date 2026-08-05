@@ -27,7 +27,10 @@ import {
   type ReleaseContentArtifact,
   type StagedReleaseFile
 } from "./release-content.js";
-import { type ReleaseBuildIdentitySet } from "./release-identity.js";
+import {
+  type ReleaseBuildIdentitySet,
+  type ReleasePackageVersions
+} from "./release-identity.js";
 import {
   type ReleasePackageJson
 } from "./release-package-manifests.js";
@@ -101,15 +104,20 @@ export function stageReleasePackage(
 
 /**
  * Stages the exact npm publication matrix. The final directory appears only
- * after every package passes validation.
+ * after every package passes validation. Hosted callers read package versions
+ * from the checkout. An integration test can supply its fixture versions.
  */
 export function stagePublishedReleasePackages(
-  options: StagePublishedReleasePackagesOptions
+  options: StagePublishedReleasePackagesOptions,
+  packageVersions?: ReleasePackageVersions
 ): readonly StagedReleasePackage[] {
   const finalRoot = freshOutputPath(options.outputDirectory);
   const temporaryRoot = freshSiblingDirectory(finalRoot);
   try {
-    const { identities, sbomSource } = releaseDescriptionInputsForSource(options);
+    const { identities, sbomSource } = releaseDescriptionInputsForSource(
+      options,
+      packageVersions
+    );
     const sboms = createReleaseSboms(
       sbomSource,
       repositoryReleaseComponentSources()

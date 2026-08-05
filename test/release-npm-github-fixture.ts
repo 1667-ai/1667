@@ -73,16 +73,19 @@ async function writeArchiveDependentAssets(
  * either about what state a real `gh` would report.
  *
  * `view` answers only the fields named after `--json`, the same as the real
- * CLI: two callers ask for different field sets (`releaseState` asks for
- * three fields; `existingReleaseAssets` also asks for `assets`), and a fixture
- * that always returned every field would let a caller's exact-key validation
- * pass on a response the real CLI would never send it.
+ * CLI. A fixture that always returned every field would let exact-key
+ * validation pass on a response the real CLI would never send.
  */
 export function fakeReleaseGh(paths: {
   readonly remote: string;
   readonly state: string;
   readonly log: string;
-}): string {
+}, options: {
+  readonly tagCommit?: string;
+  readonly moveTagAfterDownloadTo?: string;
+} = {}): string {
+  const initialTagCommit = options.tagCommit
+    ?? "0123456789abcdef0123456789abcdef01234567";
   return [
     `#!${process.execPath}`,
     'const fs = require("node:fs");',
@@ -90,9 +93,17 @@ export function fakeReleaseGh(paths: {
     "const args = process.argv.slice(2);",
     `const remote = ${JSON.stringify(paths.remote)};`,
     `const state = ${JSON.stringify(paths.state)};`,
+    `const tagState = ${JSON.stringify(`${paths.state}.tag`)};`,
+    `const initialTagCommit = ${JSON.stringify(initialTagCommit)};`,
+    `const moveTagAfterDownloadTo = ${JSON.stringify(options.moveTagAfterDownloadTo)};`,
     `fs.appendFileSync(${JSON.stringify(paths.log)}, \`\${JSON.stringify(args)}\\n\`);`,
     "const command = args[1];",
-    "if (command === \"view\") {",
+    "if (args[0] === \"api\") {",
+    "  const sha = fs.existsSync(tagState)",
+    "    ? fs.readFileSync(tagState, \"utf8\")",
+    "    : initialTagCommit;",
+    "  process.stdout.write(JSON.stringify({sha}));",
+    "} else if (command === \"view\") {",
     "  if (!fs.existsSync(state)) { process.stderr.write(\"release not found\\n\"); process.exit(1); }",
     "  const current = JSON.parse(fs.readFileSync(state, \"utf8\"));",
     "  const jsonIndex = args.indexOf(\"--json\");",
@@ -115,17 +126,23 @@ export function fakeReleaseGh(paths: {
     "    fs.copyFileSync(file, path.join(remote, path.basename(file)));",
     "  }",
     "  const prerelease = args.includes(\"--prerelease\");",
-    "  fs.writeFileSync(state, JSON.stringify({isDraft:true,isImmutable:false,isPrerelease:prerelease}));",
+    "  const targetCommitish = args[args.indexOf(\"--target\") + 1];",
+    "  fs.writeFileSync(state, JSON.stringify({",
+    "    isDraft:true,isImmutable:false,isPrerelease:prerelease,targetCommitish",
+    "  }));",
     "} else if (command === \"download\") {",
     "  const destination = args[args.indexOf(\"--dir\") + 1];",
     "  for (const name of fs.readdirSync(remote)) {",
     "    fs.copyFileSync(path.join(remote, name), path.join(destination, name));",
     "  }",
+    "  if (moveTagAfterDownloadTo !== undefined) {",
+    "    fs.writeFileSync(tagState, moveTagAfterDownloadTo);",
+    "  }",
     "} else if (command === \"edit\") {",
     "  const current = JSON.parse(fs.readFileSync(state));",
     "  fs.writeFileSync(",
     "    state,",
-    "    JSON.stringify({isDraft:false,isImmutable:true,isPrerelease:current.isPrerelease})",
+    "    JSON.stringify({...current,isDraft:false,isImmutable:true})",
     "  );",
     "} else if (command === \"delete\") {",
     "  fs.rmSync(remote, { recursive: true, force: true });",

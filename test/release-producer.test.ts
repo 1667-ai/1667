@@ -18,7 +18,7 @@ import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { parseBuildIdentity } from "../shared/build-identity.js";
 import {
   PUBLISHED_ARTIFACT_TARGETS,
@@ -35,9 +35,17 @@ import {
   type NpmPackInvocation
 } from "../scripts/release-pack.js";
 import { collectReleaseEvidence } from "../scripts/release-evidence.js";
-import { releaseIdentityForTarget } from "../scripts/release-identity.js";
+import {
+  releaseIdentityForTarget,
+  type ReleasePackageVersions
+} from "../scripts/release-identity.js";
 import { createReleasePreflightPlan } from "../scripts/release-npm-plan.js";
 import { publicationPackages } from "../scripts/release-npm-publish.js";
+import {
+  NpmReleaseRegistry,
+  npmDistTagForVersion
+} from "../scripts/release-npm-registry.js";
+import { type NpmPublicationPackage } from "../scripts/release-npm-publisher.js";
 import { runReleasePreflight } from "../scripts/release-preflight.js";
 import {
   stagePublishedReleasePackages,
@@ -58,6 +66,7 @@ import {
 // with, so this has to be the product version rather than a literal that goes
 // stale at every bump.
 const VERSION = AI_1667_PRODUCT_VERSION;
+const STABLE_VERSION = VERSION.replace(/-.+$/u, "");
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const TIMESTAMP = "2026-07-28T10:20:30.000Z";
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -68,10 +77,25 @@ const facts = Object.freeze({
   buildTimestamp: TIMESTAMP
 });
 
-test("an unsigned release handoff reaches staging, packing, preflight, and launch", async (t) => {
+const RELEASE_SCENARIOS = [
+  { label: "prerelease", version: VERSION, distTag: "beta" },
+  { label: "stable", version: STABLE_VERSION, distTag: "latest" }
+] as const;
+type ReleaseScenario = typeof RELEASE_SCENARIOS[number];
+
+for (const scenario of RELEASE_SCENARIOS) {
+  test(`an unsigned ${scenario.label} release reaches every package handoff`, async (t) => {
+    await runUnsignedReleaseHandoff(t, scenario);
+  });
+}
+
+async function runUnsignedReleaseHandoff(
+  t: TestContext,
+  scenario: ReleaseScenario
+): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-producer-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const sourceEvidence = await collectUnsignedReleaseEvidence(root);
+  const sourceEvidence = await collectUnsignedReleaseEvidence(root, scenario.version);
   const releaseFacts = Object.freeze({
     version: sourceEvidence.productVersion,
     sourceCommit: sourceEvidence.sourceCommit,
@@ -80,8 +104,9 @@ test("an unsigned release handoff reaches staging, packing, preflight, and launc
   assert.equal(sourceEvidence.tagObjectType, "lightweight");
   assert.equal(sourceEvidence.tagSignature, "unsigned");
   const npm = npmPackInvocationFromEnvironment();
+  const packageVersions = versionsFor(scenario.version);
   const builds = path.join(root, "builds");
-  const buildDirectories = await stageBuildInputs(builds, releaseFacts);
+  const buildDirectories = await stageBuildInputs(builds, releaseFacts, packageVersions);
   const firstStage = path.join(root, "stage-a");
   let first: readonly StagedReleasePackage[];
   let publishedSourceCommitReads = 0;
@@ -98,7 +123,7 @@ test("an unsigned release handoff reaches staging, packing, preflight, and launc
       buildTimestamp: releaseFacts.buildTimestamp,
       buildDirectories,
       outputDirectory: firstStage
-    });
+    }, packageVersions);
   } finally {
     process.umask(previousUmask);
   }
@@ -162,10 +187,17 @@ test("an unsigned release handoff reaches staging, packing, preflight, and launc
   const manifestPath = path.join(root, "artifact-manifest.json");
   await writeFile(planPath, JSON.stringify(plan));
   await writeFile(manifestPath, preflight.text);
-  assert.equal(
-    (await publicationPackages(planPath, manifestPath, path.join(root, "pack-a")))
-      .packages.length,
-    PUBLISHED_PACKAGE_COUNT
+  const publication = await publicationPackages(
+    planPath,
+    manifestPath,
+    path.join(root, "pack-a")
+  );
+  assert.equal(publication.packages.length, PUBLISHED_PACKAGE_COUNT);
+  await assertNpmPublisherChannel(
+    publication.packages,
+    releaseFacts,
+    scenario.distTag,
+    root
   );
   await writeFile(manifestPath, "{}");
   await assert.rejects(
@@ -194,7 +226,7 @@ test("an unsigned release handoff reaches staging, packing, preflight, and launc
     ...releaseFacts,
     buildDirectories,
     outputDirectory: path.join(root, "stage-b")
-  });
+  }, packageVersions);
   const secondPacked = await packReleasePackages({
     packages: second,
     outputDirectory: path.join(root, "pack-b"),
@@ -215,8 +247,8 @@ test("an unsigned release handoff reaches staging, packing, preflight, and launc
     );
   }
 
-  await assertInstalledLauncherStarts(firstPacked, npm, root);
-});
+  await assertInstalledLauncherStarts(firstPacked, npm, root, scenario.version);
+}
 
 test("the Windows target stages and validates as a published package", async (t) => {
   const windows = releaseTargetForArtifact("windows-x64");
@@ -480,21 +512,35 @@ test("release pack cannot run package lifecycle scripts", async (t) => {
  * lightweight Git tag. The protected branch is a real ref. The collector must
  * return this source as unsigned before the package pipeline can use it.
  */
-async function collectUnsignedReleaseEvidence(root: string) {
+async function collectUnsignedReleaseEvidence(root: string, version: string) {
   const repository = path.join(root, "source");
   await mkdir(path.join(repository, "tui"), { recursive: true });
+  const rootManifest = JSON.parse(
+    await readFile(path.join(REPOSITORY_ROOT, "package.json"), "utf8")
+  ) as Record<string, unknown>;
+  const rootLock = JSON.parse(
+    await readFile(path.join(REPOSITORY_ROOT, "package-lock.json"), "utf8")
+  ) as Record<string, unknown>;
+  const tuiManifest = JSON.parse(
+    await readFile(path.join(REPOSITORY_ROOT, "tui", "package.json"), "utf8")
+  ) as Record<string, unknown>;
+  rootManifest.version = version;
+  rootLock.version = version;
+  const lockPackages = rootLock.packages as Record<string, Record<string, unknown>>;
+  lockPackages[""]!.version = version;
+  tuiManifest.version = version;
   await Promise.all([
     writeFile(
       path.join(repository, "package.json"),
-      await readFile(path.join(REPOSITORY_ROOT, "package.json"))
+      JSON.stringify(rootManifest)
     ),
     writeFile(
       path.join(repository, "package-lock.json"),
-      await readFile(path.join(REPOSITORY_ROOT, "package-lock.json"))
+      JSON.stringify(rootLock)
     ),
     writeFile(
       path.join(repository, "tui", "package.json"),
-      await readFile(path.join(REPOSITORY_ROOT, "tui", "package.json"))
+      JSON.stringify(tuiManifest)
     )
   ]);
   const environment: NodeJS.ProcessEnv = {
@@ -521,18 +567,19 @@ async function collectUnsignedReleaseEvidence(root: string) {
   await git(["init", "-q", "-b", "main", "."]);
   await git(["add", "-A"]);
   await git(["commit", "-q", "-m", "release source"]);
-  await git(["tag", `v${VERSION}`]);
+  await git(["tag", `v${version}`]);
   await git(["update-ref", "refs/remotes/origin/main", "HEAD"]);
   return collectReleaseEvidence({
     repositoryRoot: repository,
-    tagName: `v${VERSION}`,
+    tagName: `v${version}`,
     buildTimestamp: TIMESTAMP
   });
 }
 
 async function stageBuildInputs(
   root: string,
-  sourceFacts: ReleaseSourceFacts = facts
+  sourceFacts: ReleaseSourceFacts = facts,
+  packageVersions: ReleasePackageVersions = versionsFor(sourceFacts.version)
 ): Promise<Record<PublishedArtifactTarget, string>> {
   const entries = await Promise.all(PUBLISHED_ARTIFACT_TARGETS.map(async (target) => {
     const directory = path.join(root, target);
@@ -541,7 +588,8 @@ async function stageBuildInputs(
     await writeExecutable(
       path.join(directory, path.posix.basename(descriptor.executable)),
       target,
-      sourceFacts
+      sourceFacts,
+      packageVersions
     );
     return [target, directory] as const;
   }));
@@ -551,9 +599,13 @@ async function stageBuildInputs(
 async function writeExecutable(
   file: string,
   target: BuiltArtifactTarget,
-  sourceFacts: ReleaseSourceFacts = facts
+  sourceFacts: ReleaseSourceFacts = facts,
+  packageVersions: ReleasePackageVersions = versionsFor(sourceFacts.version)
 ): Promise<void> {
-  const identity = releaseIdentityForTarget(releaseIdentitiesForSource(sourceFacts), target);
+  const identity = releaseIdentityForTarget(
+    releaseIdentitiesForSource(sourceFacts, packageVersions),
+    target
+  );
   await writeFile(file, [
     "#!/usr/bin/env node",
     `const identity = ${JSON.stringify(identity)};`,
@@ -605,13 +657,60 @@ async function entriesBelow(directory: string): Promise<string[]> {
   return entries;
 }
 
+async function assertNpmPublisherChannel(
+  packages: readonly NpmPublicationPackage[],
+  sourceFacts: ReleaseSourceFacts,
+  expectedTag: "beta" | "latest",
+  root: string
+): Promise<void> {
+  assert.equal(npmDistTagForVersion(sourceFacts.version), expectedTag);
+  const npmCli = path.join(root, "publish-npm.cjs");
+  const npmLog = path.join(root, "publish-npm.log");
+  await writeFile(npmCli, [
+    'const fs = require("node:fs");',
+    `fs.appendFileSync(${JSON.stringify(npmLog)}, JSON.stringify(process.argv.slice(2)) + "\\n");`,
+    ""
+  ].join("\n"));
+  await chmod(npmCli, 0o755);
+
+  const previousTokens = ["NODE_AUTH_TOKEN", "NPM_TOKEN", "NPM_AUTH_TOKEN"].map((name) => {
+    return [name, process.env[name]] as const;
+  });
+  for (const [name] of previousTokens) delete process.env[name];
+  try {
+    const registry = new NpmReleaseRegistry({
+      npm: { nodeExecutable: process.execPath, npmCli },
+      sourceCommit: sourceFacts.sourceCommit,
+      sourceRef: `refs/tags/v${sourceFacts.version}`
+    });
+    for (const packageToPublish of packages) {
+      await registry.publish(packageToPublish);
+    }
+  } finally {
+    for (const [name, value] of previousTokens) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+
+  const calls = (await readFile(npmLog, "utf8")).trimEnd().split("\n")
+    .map((line) => JSON.parse(line) as string[]);
+  assert.equal(calls.length, packages.length);
+  for (const [index, args] of calls.entries()) {
+    assert.equal(args[0], "publish");
+    assert.equal(args[1], packages[index]!.tarballPath);
+    assert.ok(args.includes(`--tag=${expectedTag}`));
+  }
+}
+
 async function assertInstalledLauncherStarts(
   packed: readonly {
     artifactTarget: "launcher" | BuiltArtifactTarget;
     tarballPath: string;
   }[],
   npm: NpmPackInvocation,
-  root: string
+  root: string,
+  version: string
 ): Promise<void> {
   const host = releaseTargetForRuntime(process.platform, process.arch);
   assert.ok(host !== null && host.heldFromPublication === null);
@@ -623,7 +722,7 @@ async function assertInstalledLauncherStarts(
   await mkdir(install);
   await writeFile(path.join(install, "package.json"), JSON.stringify({
     name: "release-producer-integration",
-    version: VERSION,
+    version,
     private: true
   }));
   await runNpm(npm, [
@@ -651,6 +750,15 @@ async function assertInstalledLauncherStarts(
   );
   assert.equal(stderr, "");
   assert.equal(stdout, `producer-ok:${host.artifactTarget}`);
+}
+
+function versionsFor(version: string): ReleasePackageVersions {
+  return Object.freeze({
+    root: version,
+    tui: version,
+    rootLock: version,
+    rootLockPackage: version
+  });
 }
 
 async function runNpm(
