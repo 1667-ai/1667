@@ -161,6 +161,14 @@ test("GitHub release publication verifies exact assets before and after upload",
   await prepareOrVerifyGitHubRelease(options);
   await prepareOrVerifyGitHubRelease(options);
   const preparedState = await readFile(state, "utf8");
+  const invalidState = JSON.parse(preparedState) as Record<string, unknown>;
+  invalidState.isImmutable = true;
+  await writeFile(state, JSON.stringify(invalidState));
+  await assert.rejects(
+    prepareOrVerifyGitHubRelease(options),
+    /invalid lifecycle state/u
+  );
+  await writeFile(state, preparedState);
   const tamperedState = JSON.parse(preparedState) as Record<string, unknown>;
   tamperedState.body = "tampered notes\n";
   await writeFile(state, JSON.stringify(tamperedState));

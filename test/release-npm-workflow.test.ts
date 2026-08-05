@@ -229,8 +229,8 @@ test("the retained layout and completion record support an exact rerun", () => {
   const draftCheck = publish.indexOf("scripts/release-npm-github.ts prepare");
   const releasePublish = publish.indexOf("scripts/release-npm-github.ts publish");
   const record = publish.indexOf("- name: Record complete publication");
-  assert.ok(draftCheck !== -1 && draftCheck < npmPublish);
-  assert.ok(npmPublish < releasePublish && releasePublish < record);
+  assert.ok(draftCheck !== -1 && draftCheck < releasePublish);
+  assert.ok(releasePublish < npmPublish && npmPublish < record);
   assert.equal(publish.indexOf("- name:", record + 1), -1);
 });
 

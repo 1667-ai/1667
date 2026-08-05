@@ -44,21 +44,22 @@ export interface GitHubReleaseOptions {
   readonly ghExecutable?: string;
 }
 
-interface ReleaseState {
+interface ReleaseDescription {
   readonly body: string;
-  readonly isDraft: boolean;
-  readonly isImmutable: boolean;
-  readonly isPrerelease: boolean;
   readonly name: string;
 }
+
+type ReleaseState =
+  | (ReleaseDescription & { readonly phase: "draft" })
+  | (ReleaseDescription & { readonly phase: "published" });
 
 export async function publishOrVerifyGitHubRelease(
   options: GitHubReleaseOptions
 ): Promise<void> {
   const context = releaseContext(options);
-  const { gh, prerelease, repository, tag } = context;
+  const { gh, repository, tag } = context;
   const state = await preparedReleaseState(context);
-  if (!state.isDraft) return;
+  if (state.phase === "published") return;
   try {
     await runGh(
       gh,
@@ -66,14 +67,13 @@ export async function publishOrVerifyGitHubRelease(
       context.environment
     );
   } catch (error) {
-    const observed = await releaseState(gh, tag, repository, context.environment);
-    if (observed === null || observed.isDraft || !observed.isImmutable
-      || observed.isPrerelease !== prerelease) {
-      throw error;
-    }
+    const observed = await releaseState(context);
+    if (observed?.phase !== "published") throw error;
   }
   const published = await preparedReleaseState(context);
-  requireImmutableReleaseChannel(published, prerelease, "Published");
+  if (published.phase !== "published") {
+    throw new Error("Published GitHub release is still a draft");
+  }
 }
 
 /** Creates and validates a draft before npm publication starts. */
@@ -82,7 +82,7 @@ export async function prepareOrVerifyGitHubRelease(
 ): Promise<void> {
   const context = releaseContext(options);
   const { assets, gh, notes, prerelease, repository, tag, title, verifyTag } = context;
-  const state = await releaseState(gh, tag, repository, context.environment);
+  const state = await releaseState(context);
   if (state !== null) {
     await preparedReleaseState(context);
     return;
@@ -108,12 +108,10 @@ export async function prepareOrVerifyGitHubRelease(
 }
 
 async function preparedReleaseState(context: ReleaseContext): Promise<ReleaseState> {
-  const { assets, environment, gh, prerelease, repository, tag, verifyTag } = context;
+  const { assets, environment, gh, repository, tag, verifyTag } = context;
   await verifyTag();
-  const state = await releaseState(gh, tag, repository, environment);
+  const state = await releaseState(context);
   if (state === null) throw new Error("Prepared GitHub release does not exist");
-  if (state.isDraft) requireDraftReleaseChannel(state, prerelease);
-  else requireImmutableReleaseChannel(state, prerelease, "Existing");
   requireReleaseContents(state, context);
   await verifyDownloadedRelease(gh, tag, repository, assets, environment);
   await verifyTag();
@@ -293,11 +291,9 @@ async function verifyDownloadedRelease(
 }
 
 async function releaseState(
-  gh: string,
-  tag: string,
-  repository: string,
-  environment: GitHubReleaseEnvironment
+  context: ReleaseContext
 ): Promise<ReleaseState | null> {
+  const { environment, gh, prerelease, repository, tag } = context;
   let stdout: string;
   try {
     ({ stdout } = await runGh(gh, [
@@ -326,52 +322,34 @@ async function releaseState(
     || typeof record.name !== "string") {
     throw new Error("GitHub release state is invalid");
   }
-  return Object.freeze({
+  if (record.isDraft === record.isImmutable) {
+    throw new Error("GitHub release has an invalid lifecycle state");
+  }
+  const phase = record.isDraft ? "draft" : "published";
+  if (record.isPrerelease !== prerelease) {
+    if (phase === "draft") {
+      throw new Error(
+        `Uploaded GitHub release is not a draft ${prerelease ? "prerelease" : "release"}`
+      );
+    }
+    throw new Error(
+      `Existing GitHub release is not an immutable ${
+        prerelease ? "prerelease" : "release"
+      }`
+    );
+  }
+  const description = {
     body: record.body,
-    isDraft: record.isDraft,
-    isImmutable: record.isImmutable,
-    isPrerelease: record.isPrerelease,
     name: record.name
-  });
+  };
+  return phase === "draft"
+    ? Object.freeze({ ...description, phase: "draft" as const })
+    : Object.freeze({ ...description, phase: "published" as const });
 }
 
 function requireReleaseContents(state: ReleaseState, context: ReleaseContext): void {
   if (state.name !== context.title || state.body !== context.notesBody) {
     throw new Error("GitHub release title or notes do not match the prepared release");
-  }
-}
-
-/**
- * Refuses a release that is not immutable, and refuses a release whose
- * `isPrerelease` flag disagrees with the version's own channel — in either
- * direction. A prerelease version publishing over a stable release, or a
- * stable version publishing over a prerelease, is a channel mismatch this
- * repository must never paper over: npm cannot move a dist-tag once it
- * publishes, so the GitHub release has to name the same channel npm just
- * used.
- */
-function requireImmutableReleaseChannel(
-  state: ReleaseState,
-  expectedPrerelease: boolean,
-  label: string
-): void {
-  if (state.isDraft || !state.isImmutable || state.isPrerelease !== expectedPrerelease) {
-    throw new Error(
-      `${label} GitHub release is not an immutable ${expectedPrerelease ? "prerelease" : "release"}`
-    );
-  }
-}
-
-function requireDraftReleaseChannel(
-  state: ReleaseState,
-  expectedPrerelease: boolean
-): void {
-  if (!state.isDraft || state.isImmutable || state.isPrerelease !== expectedPrerelease) {
-    throw new Error(
-      `Uploaded GitHub release is not a draft ${
-        expectedPrerelease ? "prerelease" : "release"
-      }`
-    );
   }
 }
 

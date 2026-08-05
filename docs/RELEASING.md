@@ -204,10 +204,9 @@ pins the ruleset ID and revision. A ruleset change stops the release.
 The `publish` job resolves the remote release tag before it creates a draft
 release. The tag must target the dispatch commit. The job verifies the draft
 title, notes, channel, and assets. It reuses a matching draft. It refuses a
-draft that does not match. It then writes to npm. It resolves the locked tag
-before each npm write. It publishes the draft after npm publication. It
-verifies the tag again after GitHub makes the release immutable. It creates the
-completion record last.
+draft that does not match. It publishes the draft and verifies the immutable
+release. It then writes to npm. It resolves the locked tag before each npm
+write. It creates the completion record last.
 
 The release plan carries the collected `tagObjectType` and `tagSignature`
 values. Each native `buildIdentity` records the result from step 5. Preflight
@@ -356,16 +355,20 @@ checks the tag before and after it makes the release immutable. The workflow
 refuses a release commit that the default branch cannot reach. The completion
 record also binds to that commit.
 
-The workflow has these jobs:
+The workflow has five jobs:
 
 1. `authorize` verifies the dispatcher before it starts release work.
 2. `build` builds and observes the five published native executables.
 3. `launcher` stages and packs the six release packages.
 4. `preflight` verifies the package set and retains the result.
-5. `publish` creates and verifies the GitHub release draft.
-6. `publish` publishes the five platform packages before the launcher package.
-7. `publish` makes the GitHub release immutable.
-8. `publish` records completion.
+5. `publish` completes the publication.
+
+The `publish` job completes these phases:
+
+1. It creates and verifies the GitHub release draft.
+2. It makes the GitHub release immutable.
+3. It publishes the five platform packages before the launcher package.
+4. It records completion.
 
 A failed job can use the retained inputs from the same workflow run. The
 registry check accepts an existing version only when its digest and provenance
@@ -399,9 +402,9 @@ The workflow does not accept an npm token. The jobs with OIDC authority disable
 dependency lifecycle scripts. Each job verifies retained inputs before it uses
 them.
 
-The `preflight`, `publish`, and `release` jobs run the publication readiness
-check before they collect the tag's evidence. The check permits publication
-because the prepublication controls are complete.
+The `preflight` and `publish` jobs run the publication readiness check before
+they collect the tag's evidence. The check permits publication because the
+prepublication controls are complete.
 
 A release reaches users when the workflow finishes. There is no promotion step.
 ## Local gates
@@ -507,7 +510,7 @@ The canonical hosted path is `.github/workflows/release-npm.yml`:
 3. The launcher job renders the Shell and PowerShell Installers from the archive
    digests.
 4. The `publish` job creates and verifies the GitHub release draft.
-5. The `publish` job makes the release immutable after npm publication.
+5. The `publish` job makes the release immutable before npm publication.
 
 The launcher job does not rebuild native executables. The `publish` job does
 not rebuild them either.
