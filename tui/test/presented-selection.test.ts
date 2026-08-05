@@ -272,11 +272,7 @@ test("copying an uneditable selection clears before the next key capture", () =>
     title: "edit fact",
     placeholder: "fact text…",
     returnMode: "FACTS",
-    conflict: null,
-    cutConfirmation: null,
-    tagCutConfirmation: null,
-    keysCutConfirmation: null,
-    budgetCutConfirmation: null
+    conflict: null
   };
   const selected = nativeSelection("weather", 0, 7);
   let current: typeof selected | null = selected;

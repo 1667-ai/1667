@@ -316,6 +316,7 @@ function reconcileStoryBoundIntent(
       || target.kind === "authors-note"
       || target.kind === "story-scalar";
     if (!targetExists) {
+      state.textActions = null;
       state.editor = null;
       state.editorScrollTop = 0;
       if (state.mode === "EDITOR") {
@@ -361,6 +362,7 @@ export function adoptStoryState(state: RuntimeState, payload: StoryPayload): voi
   state.expandedPromptIds = new Set();
   state.chapterDeleteArmedId = null;
   state.actions = null;
+  state.textActions = null;
   state.library = null;
   state.facts = null;
   state.commands = null;

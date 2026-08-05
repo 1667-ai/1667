@@ -21,6 +21,7 @@ import {
   type MouseGesture
 } from "./mouse-actions.js";
 import type { RuntimeState } from "./state.js";
+import { availableTextActions } from "./text-actions.js";
 
 export interface PresentedInteraction {
   version: number;
@@ -104,7 +105,11 @@ export function reconcilePresentedMouseAction({
   return {
     ...latest,
     ...(action.selectionText === undefined ? {} : { selectionText: action.selectionText }),
-    ...(action.selectionSpans === undefined ? {} : { selectionSpans: action.selectionSpans })
+    ...(action.selectionSpans === undefined ? {} : { selectionSpans: action.selectionSpans }),
+    ...(action.nativeSelection === undefined ? {} : { nativeSelection: action.nativeSelection }),
+    ...(action.composerSelectionProjection === undefined
+      ? {}
+      : { composerSelectionProjection: action.composerSelectionProjection })
   };
 }
 
@@ -188,7 +193,9 @@ function sameMouseTarget(
     && before.take === after.take
     && before.view === after.view
     && before.settingsRow === after.settingsRow
-    && before.text === after.text;
+    && before.text === after.text
+    && before.composerSourceId === after.composerSourceId
+    && before.composerEditable === after.composerEditable;
 }
 
 function mapRowAt(
@@ -223,6 +230,7 @@ function mapRowId(state: MouseActionState, index: number | undefined): string | 
  *  Null means the row cannot be named, which reconciliation refuses. */
 function listRowIdentity(state: MouseActionState, index: number | undefined): string | null {
   if (index === undefined) return null;
+  if (state.textActions !== null) return availableTextActions(state.textActions)[index]?.id ?? null;
   if (state.request !== null) return requestRowIdentity(state, index);
   if (state.mode === "MAP" && state.map !== null) return mapRowId(state, index);
   if (state.search !== null) {
@@ -295,12 +303,16 @@ const NO_SELECTION = "none";
 
 /** Whether the open surface has rows a click could land on the wrong one of. */
 function selectableRowsOpen(state: MouseActionState): boolean {
-  return state.map !== null || state.actions !== null || state.library !== null
+  return state.map !== null || state.actions !== null || state.textActions !== null || state.library !== null
     || state.facts !== null || state.commands !== null || state.chapters !== null
     || state.settings !== null || state.search !== null || state.request !== null;
 }
 
 function selectedListIdentity(state: MouseActionState): string | null {
+  if (state.textActions !== null) {
+    const entry = availableTextActions(state.textActions)[state.textActions.cursor];
+    return entry === undefined ? null : `text-actions:${entry.id}`;
+  }
   if (state.request !== null) return requestRowIdentity(state, state.request.cursor);
   if (state.search !== null) {
     return searchRowIdentity(state, state.search.cursor);

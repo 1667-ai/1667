@@ -10,6 +10,7 @@ import { handleAuthorsNoteCommand } from "./authors-note-editor-policy.js";
 import { recordHumanWords } from "./config.js";
 import { parsePartFile, stripGuidance } from "./editor.js";
 import { editorBufferAction } from "./editor-buffer-action.js";
+import { composerPageRows } from "./composer-viewport.js";
 import { editorInsertionPolicy } from "./editor-text-insertion.js";
 import { factEditorChanged, factEditorSavePayload } from "./fact-editor-draft.js";
 import {
@@ -76,7 +77,8 @@ export async function inlineEditorAction(
   const reduceBuffer = () => editorBufferAction(resolved, state, buffer, {
     isCurrent: () => state.mode === "EDITOR" && state.editor === editor,
     ...editorInsertionPolicy(editor),
-    wrapWidth
+    wrapWidth,
+    pageRows: composerPageRows(context.renderer?.height ?? 24, true)
   });
   const outcome = await reduceBuffer();
   if (outcome === "cancel") return closeInlineEditor(state, editor);
@@ -95,6 +97,7 @@ function closeInlineEditor(
   toast?: string
 ): void {
   if (state.editor !== editor) return;
+  state.textActions = null;
   state.editor = null;
   state.editorScrollTop = 0;
   if (editor.returnMode === "FACTS" && state.facts !== null) {
@@ -424,11 +427,11 @@ function disarmEditorConfirmations(
   editor: DocumentEditorSession
 ): void {
   if (editor.conflict !== null) editor.conflict.armed = false;
-  editor.cutConfirmation = null;
+  editor.composer.cutConfirmation = null;
   if (editor.kind === "fact") {
-    editor.tagCutConfirmation = null;
-    editor.keysCutConfirmation = null;
-    editor.budgetCutConfirmation = null;
+    editor.tag.cutConfirmation = null;
+    editor.keys.cutConfirmation = null;
+    editor.budget.cutConfirmation = null;
   }
 }
 

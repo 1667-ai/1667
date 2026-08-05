@@ -5,6 +5,14 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Editors now have standard clipboard actions.** Right-click an editable
+  text field to open Copy, Paste, and Select all. Press `Ctrl+A` or
+  `Command+A` to select all text. Direct supports these actions in its inline
+  and full-screen forms. Use `Ctrl+X` or `Command+X` to cut selected text. Use
+  `Ctrl+Z` or `Command+Z` to undo an edit. Add `Shift` to redo the edit. Use
+  `Command+Arrow` to move to a line end or a buffer end. Use
+  `Command+Backspace` to delete to the start of a line. Use `Page Up` or
+  `Page Down` to move by one editor page. Thanks @10fra for the request.
 - **A token probability viewer shows the alternative tokens the model
   weighed.** Press `l` on a story part to open it. The viewer shows the
   take's prose with the selected token marked, and below it the alternative

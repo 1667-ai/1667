@@ -14,7 +14,10 @@ import { textSurfaceKey } from "./keys-text-surface.js";
 import { openDirectComposer } from "./composer-ownership.js";
 import type { MapView } from "./map-state.js";
 import { resolveReferenceBinding } from "./reference-bindings.js";
-import type { StorySelectionSpan } from "./selection-projection.js";
+import type {
+  ComposerSelectionProjection,
+  StorySelectionSpan
+} from "./selection-projection.js";
 import type {
   DocumentEditorSession,
   PendingGenerationDraft,
@@ -42,6 +45,7 @@ export type KeyAction =
   | "cursor-word-left" | "cursor-word-right"
   | "cursor-line-start" | "cursor-line-end"
   | "cursor-buffer-start" | "cursor-buffer-end"
+  | "cursor-page-up" | "cursor-page-down"
   | "delete-forward" | "delete-word-left" | "delete-word-right" | "delete-line"
   | "delete-line-start" | "delete-line-end" | "select-all"
   | "copy-selection" | "cut-selection" | "paste-clipboard" | "undo-edit" | "redo-edit"
@@ -57,7 +61,7 @@ export type KeyAction =
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
   | "toggle-context-meter" | "open-search" | "toggle-search-case" | "open-request"
   | "complete" | "open-log" | "clear-log" | "row-action"
-  | "open-probs" | "next-part";
+  | "open-probs" | "next-part" | "open-text-actions";
 
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
@@ -70,6 +74,18 @@ export interface ResolvedKey {
   selectionText?: string;
   /** Story-source selection retained without tinting the menu overlay. */
   selectionSpans?: readonly StorySelectionSpan[];
+  /** Native editor selection captured before a context-menu repaint. */
+  nativeSelection?: {
+    identity: object | null;
+    text: string;
+    range: { start: number; end: number } | null;
+    backward: boolean;
+  };
+  /** Projection paired with nativeSelection at event arrival. */
+  composerSelectionProjection?: ComposerSelectionProjection;
+  /** Exact field under a context-menu click in a multi-buffer editor. */
+  composerSourceId?: string;
+  composerEditable?: boolean;
   /** Extend an editor/composer selection instead of only moving its caret. */
   extendSelection?: boolean;
   /** Absolute cursor placement (mouse clicks). */
@@ -164,7 +180,7 @@ function composerBackedInput(key: KeyEvent): ResolvedKey {
 }
 
 function multilineInput(key: KeyEvent): ResolvedKey {
-  if (key.name === "up" || key.name === "down") {
+  if ((key.name === "up" || key.name === "down") && !key.super) {
     return {
       action: key.name === "up" ? "cursor-up" : "cursor-down",
       ...(key.shift ? { extendSelection: true } : {})
@@ -327,6 +343,8 @@ export interface ResolveOptions {
   /** The open document editor targets the Author's Note, so its depth chord
    *  applies. No other editor target binds `⌥-`/`⌥=`. */
   authorsNoteEditor?: boolean;
+  /** The editor context menu owns all keys until it closes. */
+  textActionsOpen?: boolean;
   mapView?: MapView;
 }
 
@@ -365,10 +383,17 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   const { confirmingPrune = false, tagChoosingStatus = false, connectionDown = false,
     overlayTyping = false, settingsSampling = false, commandsTags = false,
     factEditor = false, authorsNoteEditor = false, settingsPicker = false,
+    textActionsOpen = false,
     mapView = "path" } = options;
   const globalReference = resolveReferenceBinding("global", key, mode, mapView);
   if (globalReference !== null || key.name === "escape") {
     return { action: "cancel" };
+  }
+  if (textActionsOpen) {
+    if (key.name === "down") return { action: "focus-next" };
+    if (key.name === "up") return { action: "focus-previous" };
+    if (key.name === "return") return { action: "apply" };
+    return { action: "none" };
   }
   const ownsText = textOwnsKeyboard(mode, {
     overlayTyping, commandsTags, tagChoosingStatus
@@ -395,6 +420,13 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   if (navChord !== null) return { action: navChord.action };
   if (mode === "COMPOSE") {
     const name = key.name.toLowerCase();
+    // Command arrows stay text motion even when a terminal also reports the
+    // Control bit. The compose history chords must not shadow them.
+    if (key.super && (name === "left" || name === "right"
+      || name === "up" || name === "down" || name === "backspace")) {
+      const commandMotion = textSurfaceKey(key);
+      if (commandMotion !== null) return commandMotion;
+    }
     const composeChord = resolveReferenceBinding("compose-chord", key, mode, mapView);
     if (composeChord !== null) return { action: composeChord.action };
     if ((key.ctrl || key.super) && name === "v") return { action: "paste-clipboard" };
@@ -439,14 +471,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.ctrl && key.shift && name === "s") return { action: "save-edit-inplace" };
     if (key.ctrl && name === "s") return { action: "save-edit" };
     if ((key.ctrl || key.super) && name === "c") return { action: "copy-selection" };
-    if ((key.ctrl || key.super) && name === "x") return { action: "cut-selection" };
     if ((key.ctrl || key.super) && name === "v") return { action: "paste-clipboard" };
-    if ((key.ctrl && name === "z" && !key.shift) || key.ctrl && name === "-"
-      || key.super && name === "z" && !key.shift) return { action: "undo-edit" };
-    if ((key.ctrl && name === "z" && key.shift) || key.ctrl && (name === "y" || name === ".")
-      || key.super && name === "z" && key.shift) {
-      return { action: "redo-edit" };
-    }
     if (key.super && name === "a") return { action: "select-all" };
     if (key.ctrl && key.shift && name === "d") return { action: "delete-line" };
     // The editor's own chords: emacs character motion, and ctrl+d forward
@@ -458,7 +483,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
       };
     }
     if (key.name === "return" || isLinefeedKey(key)) return { action: "newline" };
-    if (key.name === "up" || key.name === "down") {
+    if ((key.name === "up" || key.name === "down") && !key.super) {
       return {
         action: key.name === "up" ? "cursor-up" : "cursor-down",
         ...(key.shift ? { extendSelection: true } : {})

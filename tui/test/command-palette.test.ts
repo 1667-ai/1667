@@ -212,6 +212,7 @@ function renderCommands(
     stream: null,
     abort: null,
     actions: null,
+    textActions: null,
     config: source.config,
     readingPositions: source.readingPositions,
     demo: false,

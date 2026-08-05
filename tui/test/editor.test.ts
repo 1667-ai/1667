@@ -6,6 +6,7 @@ import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { adoptSameStoryPayload } from "../src/story-adoption.js";
 import { frameText } from "../src/screens/story/frame.js";
+import { openTextActions } from "../src/text-actions.js";
 import type { CommandSelectionId } from "../src/command-model.js";
 import type { InlineEditorSession, RuntimeState } from "../src/state.js";
 import { editorHarness, key } from "./editor-harness.js";
@@ -170,6 +171,31 @@ describe("inline editor", () => {
     const forked = state.payload.nodes.filter(({ id, parentId: nodeParentId }) =>
       !beforeIds.has(id) && nodeParentId === parentId);
     expect(forked.length).toBe(2);
+  });
+
+  test("an asynchronous save closes its editor action menu with the editor", async () => {
+    const { source, state, press } = editorHarness();
+    state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");
+    await press(key("e"));
+    setComposerText(state.editor!.composer, "saved direction\n---\nsaved prose");
+    const originalCreate = source.api.createNode;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    source.api.createNode = async (...args) => {
+      await gate;
+      return originalCreate(...args);
+    };
+
+    const saving = press(key("s", { sequence: "\u0013", ctrl: true }));
+    await Promise.resolve();
+    openTextActions(state);
+    expect(state.textActions).not.toBe(null);
+    release();
+    await saving;
+
+    expect(state.mode).toBe("NAV");
+    expect(state.editor).toBe(null);
+    expect(state.textActions).toBe(null);
   });
 
   test("demo edited takes preserve earlier human spans and mark only the new edit", async () => {

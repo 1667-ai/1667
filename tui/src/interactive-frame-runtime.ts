@@ -219,7 +219,8 @@ export function createInteractiveFrameRuntime(
       options.palette(),
       layout,
       frame.selectable,
-      state.mode === "SETTINGS" && state.settings?.edit !== null
+      state.mode === "SETTINGS"
+        && (state.settings?.edit != null || state.settings?.sampling?.edit != null)
         ? { singleSelectionBuffer: true }
         : undefined
     );

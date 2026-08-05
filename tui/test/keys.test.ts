@@ -45,11 +45,6 @@ const DECLARED_DIVERGENCES = [
     actions: ["toggle-compose-fullscreen", "cursor-right", "cursor-word-right"],
     shadowsShared: (event: KeyEvent) => event.name.toLowerCase() === "f"
       && event.ctrl === true && (event.meta === true || event.option === true) },
-  { label: "ctrl+cmd+a", event: key("a", { ctrl: true, super: true }),
-    actions: ["cursor-line-start", "select-all", "select-all"],
-    shadowsShared: (event: KeyEvent) => event.name.toLowerCase() === "a"
-      && event.super === true
-      && (event.ctrl === true || event.meta === true || event.option === true) },
   { label: "ctrl+f", event: key("f", { ctrl: true }),
     actions: ["toggle-compose-fullscreen", "cursor-right", "none"] },
   { label: "ctrl+b", event: key("b", { ctrl: true }),
@@ -74,22 +69,14 @@ const DECLARED_DIVERGENCES = [
     actions: ["send-as-take", "save-edit-inplace", "commit-field"] },
   { label: "ctrl+c", event: key("c", { ctrl: true }),
     actions: ["none", "copy-selection", "none"] },
-  { label: "ctrl+x", event: key("x", { ctrl: true }),
-    actions: ["none", "cut-selection", "none"] },
   { label: "ctrl+v", event: key("v", { ctrl: true }),
     actions: ["paste-clipboard", "paste-clipboard", "paste-clipboard"] },
   { label: "cmd+v", event: key("v", { super: true }),
     actions: ["paste-clipboard", "paste-clipboard", "paste-clipboard"] },
-  { label: "cmd+a", event: key("a", { super: true }),
-    actions: ["input", "select-all", "select-all"] },
   { label: "ctrl+d", event: key("d", { ctrl: true }),
     actions: ["none", "delete-forward", "none"] },
   { label: "ctrl+shift+d", event: key("d", { ctrl: true, shift: true }),
     actions: ["none", "delete-line", "none"] },
-  { label: "ctrl+z", event: key("z", { ctrl: true }),
-    actions: ["none", "undo-edit", "none"] },
-  { label: "ctrl+shift+z", event: key("z", { ctrl: true, shift: true }),
-    actions: ["none", "redo-edit", "none"] },
   { label: "up", event: key("up"), actions: ["cursor-up", "cursor-up", "none"] },
   { label: "down", event: key("down"), actions: ["cursor-down", "cursor-down", "none"] },
   { label: "ctrl+up", event: key("up", { ctrl: true }),
@@ -256,6 +243,9 @@ describe("text surfaces and palette", () => {
         }
       }
       for (const [action, resolved] of emitted) {
+        if (action === "cut-selection"
+          || action === "undo-edit"
+          || action === "redo-edit") continue;
         expect({
           surface,
           action,
@@ -397,7 +387,10 @@ describe("text surfaces and palette", () => {
     expect(resolveKey(key("backspace", { meta: true }), "EDITOR").action).toBe("delete-word-left");
     expect(resolveKey(key("backspace", { ctrl: true }), "EDITOR").action).toBe("delete-word-left");
     expect(resolveKey(key("k", { ctrl: true }), "EDITOR").action).toBe("delete-line-end");
-    expect(resolveKey(key("a", { ctrl: true }), "EDITOR").action).toBe("cursor-line-start");
+    expect(resolveKey(key("a", { ctrl: true }), "EDITOR").action).toBe("select-all");
+    expect(resolveKey(key("a", { ctrl: true }), "COMPOSE").action).toBe("select-all");
+    expect(resolveKey(key("a", { ctrl: true }), "SETTINGS", { overlayTyping: true }).action)
+      .toBe("select-all");
     expect(resolveKey(key("home", { shift: true }), "EDITOR"))
       .toEqual({ action: "cursor-line-start", extendSelection: true });
     expect(resolveKey(key("home", { ctrl: true, shift: true }), "EDITOR"))
@@ -406,6 +399,26 @@ describe("text surfaces and palette", () => {
     expect(resolveKey(key("end", { ctrl: true }), "EDITOR").action).toBe("cursor-buffer-end");
     expect(resolveKey(key("z", { ctrl: true }), "EDITOR").action).toBe("undo-edit");
     expect(resolveKey(key("z", { ctrl: true, shift: true }), "EDITOR").action).toBe("redo-edit");
+  });
+
+  test("every editor supports cut, history, Command navigation, and page movement", () => {
+    const expected = [
+      [key("x", { ctrl: true }), "cut-selection"],
+      [key("x", { super: true }), "cut-selection"],
+      [key("z", { ctrl: true }), "undo-edit"],
+      [key("z", { super: true }), "undo-edit"],
+      [key("z", { super: true, shift: true }), "redo-edit"],
+      [key("left", { super: true }), "cursor-line-start"],
+      [key("right", { super: true, shift: true }), "cursor-line-end"],
+      [key("up", { super: true }), "cursor-buffer-start"],
+      [key("down", { super: true, shift: true }), "cursor-buffer-end"],
+      [key("backspace", { super: true }), "delete-line-start"],
+      [key("pageup"), "cursor-page-up"],
+      [key("pagedown", { shift: true }), "cursor-page-down"]
+    ] as const;
+    for (const [event, action] of expected) {
+      expect(surfaceActions(event)).toEqual([action, action, action]);
+    }
   });
 
   test("Ctrl+P and colon open commands; Ctrl+G opens context details", () => {

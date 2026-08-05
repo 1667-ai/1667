@@ -35,8 +35,7 @@ export function openPartEditor(state: RuntimeState, humanSibling: boolean): void
       : `edit ¶ ${part.number} · direction above --- · prose below`,
     placeholder: humanSibling ? "write the sibling take…" : "direction\n---\nprose",
     returnMode: "NAV",
-    conflict: null,
-    cutConfirmation: null
+    conflict: null
   });
 }
 
@@ -56,11 +55,7 @@ export function openFactEditor(state: RuntimeState, fact: StoryFact | null): voi
     title: `${fact === null ? "new" : "edit"} fact`,
     placeholder: "fact text…",
     returnMode: "FACTS",
-    conflict: null,
-    cutConfirmation: null,
-    tagCutConfirmation: null,
-    keysCutConfirmation: null,
-    budgetCutConfirmation: null
+    conflict: null
   };
   initializeFactEditorHistory(editor);
   openFactSession(state, editor);
@@ -83,11 +78,7 @@ export function openFactFromSelection(state: RuntimeState, text: string): void {
     title: "new fact from selection",
     placeholder: "fact text…",
     returnMode: "NAV",
-    conflict: null,
-    cutConfirmation: null,
-    tagCutConfirmation: null,
-    keysCutConfirmation: null,
-    budgetCutConfirmation: null
+    conflict: null
   };
   initializeFactEditorHistory(editor);
   openFactSession(state, editor);
@@ -106,8 +97,7 @@ export function openChapterSummaryEditor(
     title: `edit chapter ${chapterNumber} summary`,
     placeholder: "chapter summary…",
     returnMode: "NAV",
-    conflict: null,
-    cutConfirmation: null
+    conflict: null
   });
 }
 
@@ -121,8 +111,7 @@ export function openAuthorsNoteEditor(state: RuntimeState): void {
     title: "author's note",
     placeholder: "Steer the next passage. Style, tone, what is true right now. ⌃s keeps it.",
     returnMode: "NAV",
-    conflict: null,
-    cutConfirmation: null
+    conflict: null
   });
 }
 
@@ -160,8 +149,7 @@ function openStoryScalarEditor(state: RuntimeState, field: StoryScalarField): vo
     title: spec.title,
     placeholder: spec.placeholder,
     returnMode: "NAV",
-    conflict: null,
-    cutConfirmation: null
+    conflict: null
   });
 }
 
@@ -169,6 +157,7 @@ function openInlineEditor(
   state: RuntimeState,
   editor: Omit<InlineEditorSession, "kind">
 ): void {
+  state.textActions = null;
   state.editor = { kind: "document", ...editor };
   state.editorScrollTop = 0;
   state.mode = "EDITOR";
@@ -178,6 +167,7 @@ function openFactSession(
   state: RuntimeState,
   editor: Omit<FactEditorSession, "kind">
 ): void {
+  state.textActions = null;
   state.editor = { kind: "fact", ...editor };
   state.editorScrollTop = 0;
   state.mode = "EDITOR";

@@ -1,4 +1,4 @@
-import { applyComposerEdit } from "./composer-editing.js";
+import { composerSurfaceAction } from "./composer-surface-action.js";
 import { insertComposerText } from "./composer-model.js";
 import { readFromClipboard } from "./clipboard.js";
 import { sanitizePastedText, type ResolvedKey } from "./keys.js";
@@ -50,7 +50,7 @@ export async function samplingOverlayAction(
     return;
   }
   if (nested.edit !== null) {
-    samplingEditAction(resolved, state, source, context);
+    await samplingEditAction(resolved, state, source, context);
     return;
   }
   if (resolved.action === "focus-next" || resolved.action === "focus-previous") {
@@ -161,12 +161,12 @@ function roundSamplingValue(value: number, precision: number): number {
   return Object.is(rounded, -0) ? 0 : rounded;
 }
 
-function samplingEditAction(
+async function samplingEditAction(
   resolved: ResolvedKey,
   state: RuntimeState,
   source: AppSource,
   context: ActionContext
-): void {
+): Promise<void> {
   const settings = state.settings;
   if (settings === null || settings.sampling === null) return;
   const nested = settings.sampling;
@@ -193,9 +193,13 @@ function samplingEditAction(
     insertComposerText(edit.composer, resolved.text ?? "");
     return;
   }
-  if (applyComposerEdit(edit.composer, resolved.action, resolved.extendSelection) !== null) {
-    if (settings.conflict !== null) settings.conflict.armed = false;
-  }
+  await composerSurfaceAction(resolved, state, edit.composer, {
+    isCurrent: () => state.settings === settings
+      && settings.sampling === nested
+      && nested.edit === edit,
+    pageRows: 1,
+    onEdit: () => disarmSettingsConflict(settings)
+  });
 }
 
 /** The phrase text a phrase-bias/banned-strings commit resolves against,

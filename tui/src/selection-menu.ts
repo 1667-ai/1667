@@ -1,7 +1,14 @@
 import type { CliRenderer, MouseEvent } from "@opentui/core";
-import { storySelectionFromRendererSelection } from "./copy-actions.js";
+import {
+  captureNativeSelection,
+  storySelectionFromRendererSelection
+} from "./copy-actions.js";
 import type { ResolvedKey } from "./keys.js";
-import type { StorySelectionProjection } from "./selection-projection.js";
+import type {
+  ComposerSelectionProjection,
+  StorySelectionProjection
+} from "./selection-projection.js";
+import { composerRangeFromProjection } from "./selection-projection.js";
 
 type SelectionReader = Pick<CliRenderer, "clearSelection" | "getSelection">;
 
@@ -28,5 +35,45 @@ export function selectionAwarePartMenuAction(
     ...resolved,
     selectionText,
     ...(selection === null ? {} : { selectionSpans: selection.spans })
+  };
+}
+
+/** Preserve a native editor selection before the context menu replaces it. */
+export function selectionAwareTextMenuAction(
+  event: MouseEvent,
+  resolved: ResolvedKey | null,
+  renderer: SelectionReader,
+  projection: ComposerSelectionProjection | null = null
+): ResolvedKey | null {
+  if (resolved?.action !== "open-text-actions"
+    || event.type !== "down"
+    || event.button !== 2) {
+    return resolved;
+  }
+  const selection = captureNativeSelection(renderer);
+  if (selection === null || selection.text.length === 0) return resolved;
+  if (projection === null || selection.range === null) {
+    event.preventDefault();
+    return resolved;
+  }
+  const projected = composerRangeFromProjection(
+    projection,
+    selection.range.start,
+    selection.range.end
+  );
+  if (projected === null) {
+    event.preventDefault();
+    return resolved;
+  }
+  if (projected.kind === "mixed") {
+    event.preventDefault();
+    return null;
+  }
+  event.preventDefault();
+  renderer.clearSelection();
+  return {
+    ...resolved,
+    nativeSelection: selection,
+    ...(projection === null ? {} : { composerSelectionProjection: projection })
   };
 }

@@ -61,7 +61,10 @@ import { startRecoveryOrchestration } from "./recovery-orchestration.js";
 import { inlineEditorAction } from "./editor-action.js";
 import { requestRewriteStop } from "./rewrite-action.js";
 import { emptyStreamText } from "./stream-text.js";
-import { selectionAwarePartMenuAction } from "./selection-menu.js";
+import {
+  selectionAwarePartMenuAction,
+  selectionAwareTextMenuAction
+} from "./selection-menu.js";
 import {
   EMPTY_NATIVE_SELECTION,
   clearNativeSelectionIfMatches,
@@ -81,6 +84,12 @@ import {
 } from "./presented-selection.js";
 import type { BackgroundUpdateStarter } from "./update-runtime.js";
 import { startPromptTokenCountLane, type PromptTokenCountLane } from "./prompt-token-count.js";
+import {
+  activeTextComposer,
+  openTextActions,
+  textActionsMenuAction
+} from "./text-actions.js";
+import { composerRangeFromProjection } from "./selection-projection.js";
 
 export { recoveryNotice } from "./recovery-orchestration.js";
 
@@ -520,12 +529,21 @@ export async function runInteractive(source: AppSource): Promise<void> {
       frameFailed: frames.failed,
       requestInputRecovery: () => frames.requestInputRecovery(),
       stillPresented: (captured) => captured === presentedInteraction,
-      decorate: (resolved, gesture, presented) => selectionAwarePartMenuAction(
-        gesture as never,
-        resolved,
-        renderer,
-        (presented as InteractivePresentedInteraction).storySelectionProjection
-      ),
+      decorate: (resolved, gesture, presented) => {
+        const interaction = presented as InteractivePresentedInteraction;
+        const partAction = selectionAwarePartMenuAction(
+          gesture as never,
+          resolved,
+          renderer,
+          interaction.storySelectionProjection
+        );
+        return selectionAwareTextMenuAction(
+          gesture as never,
+          partAction,
+          renderer,
+          interaction.composerSelectionProjection
+        );
+      },
       run: (action, queuedEvent, captured) => {
         const reconciled = reconcilePresentedMouseAction({
           action, event: queuedEvent, captured,
@@ -604,6 +622,7 @@ export async function handleKey(
     settingsSampling: state.settings !== null && state.settings.sampling !== null,
     commandsTags: state.commands?.view === "tags",
     settingsPicker: state.settings?.modelPicker != null,
+    textActionsOpen: state.textActions !== null,
     factEditor: state.editor?.kind === "fact",
     authorsNoteEditor: state.editor?.kind === "document" && state.editor.target.kind === "authors-note",
     mapView: state.map?.view
@@ -628,12 +647,16 @@ export async function dispatch(
 ): Promise<void> {
   const previousMode = state.mode;
   beginInteraction(state);
+  if (resolved.action !== "cut-selection") {
+    const composer = activeTextComposer(state);
+    if (composer !== null) composer.cutConfirmation = null;
+  }
   if (generationBusy(state) && resolved.action === "cancel" && isPlainNavigation(state)) return await cancelStream();
   if (state.toast !== null) state.toast = null;
   state.quitArmed = false;
   // The part menu carries its own per-action guard (Copy stays legal during a
   // stream), so the blanket one would wrongly refuse it here.
-  if (generationBusy(state) && state.actions === null
+  if (generationBusy(state) && state.actions === null && state.textActions === null
     && actionConflictsWithGeneration(resolved.action, state)) {
     state.toast = "stream running · esc stops it first";
     return repaint();
@@ -645,6 +668,67 @@ export async function dispatch(
   // and confirmations. Those surfaces stay open while retry runs; otherwise
   // their reducers would swallow the banner's advertised keyboard/click action.
   if (resolved.action === "retry") await handleOverlayAction(resolved, state, source, context);
+  else if (resolved.action === "open-text-actions") {
+    if (resolved.nativeSelection === undefined && resolved.composerEditable === false) return;
+    let sync: ReturnType<typeof syncMouseComposerSelection> = "none";
+    const projectedSelection = resolved.nativeSelection?.range === null
+      || resolved.nativeSelection?.range === undefined
+      || resolved.composerSelectionProjection === undefined
+      ? null
+      : composerRangeFromProjection(
+          resolved.composerSelectionProjection,
+          resolved.nativeSelection.range.start,
+          resolved.nativeSelection.range.end
+        );
+    const selectionMatchesClickedSource = resolved.composerSourceId === undefined
+      || projectedSelection !== null && projectedSelection.kind !== "mixed"
+        && projectedSelection.sourceId === resolved.composerSourceId;
+    if (resolved.nativeSelection !== undefined && selectionMatchesClickedSource) {
+      sync = syncMouseComposerSelection(
+        resolved.nativeSelection,
+        state,
+        resolved.composerSelectionProjection ?? null
+      );
+      if (sync === "mixed") {
+        state.toast = mouseComposerSelectionMessage(state, sync);
+        return repaint();
+      }
+      if (sync === "uneditable") {
+        state.toast = mouseComposerSelectionMessage(state, sync);
+      }
+    }
+    openTextActions(
+      state,
+      sync === "none" ? undefined : resolved.nativeSelection,
+      sync === "none" ? null : resolved.composerSelectionProjection ?? null,
+      sync === "none" ? resolved.composerSourceId : undefined,
+      sync === "uneditable"
+    );
+  }
+  else if (state.textActions !== null) {
+    const overlay = state.textActions;
+    const action = textActionsMenuAction(resolved, state);
+    if (action !== null) {
+      const copied = action.action === "copy-selection"
+        && handleMainCopyShortcut(
+          overlay.nativeSelection ?? EMPTY_NATIVE_SELECTION,
+          state,
+          repaint,
+          () => undefined,
+          {
+            composer: overlay.composerSelectionProjection,
+            story: null
+          }
+        );
+      if (!copied && state.mode === "COMPOSE") {
+        await composeAction(action, state, source, context);
+      } else if (!copied && state.mode === "EDITOR") {
+        await inlineEditorAction(action, state, source, context);
+      } else if (!copied && state.mode === "SETTINGS") {
+        await handleOverlayAction(action, state, source, context);
+      }
+    }
+  }
   else if (state.prune !== null) await pruneAction(resolved, state, source, context);
   else if (state.actions !== null) await actionsMenuAction(resolved, state, source, context);
   else if (await handleOverlayAction(resolved, state, source, context)) { /* handled */ }
@@ -712,6 +796,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     chapterDeleteArmedId: null,
     typewriter: false,
     actions: null,
+    textActions: null,
     hitRows: [],
     viewScroll: null,
     viewScrollDelta: 0,

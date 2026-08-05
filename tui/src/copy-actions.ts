@@ -147,7 +147,8 @@ export function consumesEmptyCopyShortcut(
 ): boolean {
   return state.mode === "COMPOSE"
     || state.mode === "EDITOR"
-    || state.mode === "SETTINGS" && state.settings?.edit != null;
+    || state.mode === "SETTINGS"
+      && (state.settings?.edit != null || state.settings?.sampling?.edit != null);
 }
 
 /** Convert OpenTUI's painted-cell range into the same raw document selection
@@ -215,6 +216,7 @@ export function copyActiveSelection(
     ? draft ?? ""
     : story ?? rendered;
   if (text.length === 0) return null;
+  if (composer !== null) composer.cutConfirmation = null;
   return { text, outcome: copy(text) };
 }
 
@@ -273,7 +275,11 @@ function activeComposer(
     : state.mode === "COMPOSE"
       ? sourceId === undefined ? state.composer : null
       : state.mode === "SETTINGS"
-        ? sourceId === undefined ? state.settings?.edit?.composer ?? null : null
+        ? sourceId === undefined
+          ? state.settings?.sampling?.edit?.composer
+            ?? state.settings?.edit?.composer
+            ?? null
+          : null
         : null;
 }
 

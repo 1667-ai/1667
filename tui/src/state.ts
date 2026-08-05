@@ -15,7 +15,7 @@ import type { NoticeLog } from "./notice-log.js";
 import type { HitRows } from "./hit.js";
 import type { UserConfig } from "./config.js";
 import type { ReadingPositions } from "./reading-position.js";
-import type { AppMode } from "./keys.js";
+import type { AppMode, ResolvedKey } from "./keys.js";
 import type { UndoEntry } from "./model.js";
 import type { PrunePlan } from "./prune-model.js";
 import type { ComposerState } from "./composer-model.js";
@@ -358,8 +358,6 @@ interface EditorSessionBase {
   composer: ComposerState;
   title: string;
   placeholder: string;
-  /** Explicit second-press consent when OSC 52 cannot confirm a destructive cut. */
-  cutConfirmation: { start: number; end: number; text: string } | null;
 }
 
 export interface InlineEditorSession extends EditorSessionBase {
@@ -390,9 +388,6 @@ export interface FactEditorSession extends EditorSessionBase {
   /** Draft-of-Fact: what the editor would already match if nothing changed —
    *  see shared/fact-draft.ts. Rebased on a clean reconcile, replaced on save. */
   initialFact: FactDraft;
-  tagCutConfirmation: EditorSessionBase["cutConfirmation"];
-  keysCutConfirmation: EditorSessionBase["cutConfirmation"];
-  budgetCutConfirmation: EditorSessionBase["cutConfirmation"];
 }
 
 export type DocumentEditorSession =
@@ -407,10 +402,21 @@ export interface PartActionsOverlay {
   selectionSpans?: readonly StorySelectionSpan[];
 }
 
+export interface TextActionsOverlay {
+  cursor: number;
+  owner: ComposerState | null;
+  ownerSnapshot: Pick<ComposerState, "text" | "cursor" | "anchor" | "fullscreen"> | null;
+  nativeSelection: ResolvedKey["nativeSelection"];
+  composerSelectionProjection: ComposerSelectionProjection | null;
+  copyOnly: boolean;
+}
+
 /** Everything the overlay panels render from. */
 export interface OverlayState {
   /** Part-actions menu (right-click a part, or press x). */
   actions: PartActionsOverlay | null;
+  /** Copy and paste menu for the active composer-backed field. */
+  textActions: TextActionsOverlay | null;
   /** Row→target map from the last render; mouse handling reads it. */
   hitRows: HitRows;
   config: UserConfig;
