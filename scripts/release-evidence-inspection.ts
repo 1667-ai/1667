@@ -158,6 +158,9 @@ function requireUnsignedTagObject(
 ): void {
   if (objectType === "lightweight") return;
   const tagObject = successfulOutput(contents, `Release tag ${tagName} object`);
+  if (!/^type commit$/mu.test(tagObject)) {
+    throw new Error(`Release tag ${tagName} must point directly at a commit`);
+  }
   if (TAG_SIGNATURE_ARMOR.test(tagObject)) {
     throw new Error(
       `Release tag ${tagName} contains a signature that this collector does not verify`

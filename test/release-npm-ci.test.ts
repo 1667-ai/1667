@@ -191,7 +191,7 @@ test("GitHub release publication verifies exact assets before and after upload",
   assert.equal(calls.filter((args) => args[1] === "create").length, 1);
   assert.equal(calls.filter((args) => args[1] === "delete").length, 0);
   assert.equal(calls.filter((args) => args[1] === "edit").length, 1);
-  assert.equal(calls.filter((args) => args[1] === "download").length, 7);
+  assert.equal(calls.filter((args) => args[1] === "download").length, 8);
   const localTarball = (await readdirNames(assets)).find((name) => name.endsWith(".tgz"));
   assert.ok(localTarball !== undefined);
   const localBytes = await readFile(path.join(assets, localTarball));
@@ -328,6 +328,41 @@ test("GitHub release publication resolves an ambiguous immutable transition", as
   await prepareOrVerifyGitHubRelease(options);
   await publishOrVerifyGitHubRelease(options);
   await publishOrVerifyGitHubRelease(options);
+});
+
+test("GitHub release publication verifies contents after the immutable transition", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-npm-github-final-content-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const assets = path.join(root, "assets");
+  const notes = path.join(root, "notes.md");
+  const gh = path.join(root, "gh");
+  await mkdir(assets);
+  await writeReleaseAssetFixture(assets, VERSION, REPOSITORY);
+  await writeFile(notes, "# Release\n");
+  await writeFile(gh, fakeReleaseGh({
+    remote: path.join(root, "remote"),
+    state: path.join(root, "state.json"),
+    log: path.join(root, "gh.log")
+  }, { tamperBodyOnEdit: true }));
+  await chmod(gh, 0o755);
+  const options = {
+    version: VERSION,
+    sourceCommit: COMMIT,
+    assetsDirectory: assets,
+    notesFile: notes,
+    environment: {
+      GITHUB_REPOSITORY: REPOSITORY,
+      GH_TOKEN: "test-token",
+      HOME: root
+    },
+    ghExecutable: gh
+  };
+
+  await prepareOrVerifyGitHubRelease(options);
+  await assert.rejects(
+    publishOrVerifyGitHubRelease(options),
+    /title or notes do not match/u
+  );
 });
 
 test("remote tag verification ignores a colliding branch", async (t) => {

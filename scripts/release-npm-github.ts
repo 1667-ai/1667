@@ -56,7 +56,7 @@ export async function publishOrVerifyGitHubRelease(
   options: GitHubReleaseOptions
 ): Promise<void> {
   const context = releaseContext(options);
-  const { gh, prerelease, repository, tag, verifyTag } = context;
+  const { gh, prerelease, repository, tag } = context;
   const state = await preparedReleaseState(context);
   if (!state.isDraft) return;
   try {
@@ -72,10 +72,8 @@ export async function publishOrVerifyGitHubRelease(
       throw error;
     }
   }
-  const published = await releaseState(gh, tag, repository, context.environment);
-  if (published === null) throw new Error("Published GitHub release disappeared");
+  const published = await preparedReleaseState(context);
   requireImmutableReleaseChannel(published, prerelease, "Published");
-  await verifyTag();
 }
 
 /** Verifies the prepared draft without changing it. */

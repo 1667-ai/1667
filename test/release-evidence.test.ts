@@ -58,6 +58,7 @@ interface FixtureOptions {
     | "PGP SIGNATURE"
     | "SIGNED MESSAGE"
     | "SSH SIGNATURE";
+  readonly nestedSignedTag?: boolean;
   readonly commitAfterTag?: boolean;
   readonly protectedRefBehind?: boolean;
   readonly dirty?: boolean;
@@ -113,6 +114,16 @@ async function createFixture(t: TestContext, options: FixtureOptions = {}): Prom
 
   if (options.tag === "lightweight") {
     await git(["tag", TAG]);
+  } else if (options.nestedSignedTag === true) {
+    const innerTag = `${TAG}-inner`;
+    await git([
+      "tag",
+      "-a",
+      "-m",
+      `${innerTag}\n-----BEGIN SSH SIGNATURE-----\nZmFrZQ==\n-----END SSH SIGNATURE-----`,
+      innerTag
+    ]);
+    await git(["tag", "-a", "-m", TAG, TAG, innerTag]);
   } else {
     const message = options.signatureArmor !== undefined
       ? `${TAG}\n-----BEGIN ${options.signatureArmor}-----\nZmFrZQ==\n-----END ${options.signatureArmor}-----`
@@ -249,6 +260,14 @@ test("evidence refuses every Git signature armor that it does not verify", async
       /contains a signature that this collector does not verify/
     );
   }
+});
+
+test("evidence refuses a nested signed tag", async (t) => {
+  const fixture = await createFixture(t, { nestedSignedTag: true });
+  await assert.rejects(
+    collect(fixture),
+    /must point directly at a commit/u
+  );
 });
 
 test("evidence refuses a release commit unreachable from the protected ref", async (t) => {

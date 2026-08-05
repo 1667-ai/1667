@@ -168,7 +168,8 @@ Collect these inputs before preflight:
 
 1. Use a clean source commit.
 2. Create a `v<SemVer>` tag that targets the source commit. The tag can be
-   annotated or lightweight.
+   annotated or lightweight. An annotated tag must point directly at the
+   source commit.
 3. Select one millisecond-precision UTC build timestamp for all targets.
 4. Use the same version in the root package, TUI package, and root lockfile.
 5. Run `--version --json` on each of the five published native executables.

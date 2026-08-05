@@ -90,6 +90,7 @@ export function fakeReleaseGh(paths: {
   readonly createdPrerelease?: boolean;
   readonly moveTagAfterDownloadTo?: string;
   readonly failEditAfterWrite?: boolean;
+  readonly tamperBodyOnEdit?: boolean;
 } = {}): string {
   const initialTagCommit = options.tagCommit
     ?? "0123456789abcdef0123456789abcdef01234567";
@@ -110,6 +111,7 @@ export function fakeReleaseGh(paths: {
     `const createdPrerelease = ${JSON.stringify(options.createdPrerelease)};`,
     `const moveTagAfterDownloadTo = ${JSON.stringify(options.moveTagAfterDownloadTo)};`,
     `const failEditAfterWrite = ${JSON.stringify(options.failEditAfterWrite ?? false)};`,
+    `const tamperBodyOnEdit = ${JSON.stringify(options.tamperBodyOnEdit ?? false)};`,
     `fs.appendFileSync(${JSON.stringify(paths.log)}, \`\${JSON.stringify(args)}\\n\`);`,
     "const command = args[1];",
     "if (args[0] === \"api\" && args[1].endsWith(\"/rulesets/20399162\")) {",
@@ -178,7 +180,12 @@ export function fakeReleaseGh(paths: {
     "  const current = JSON.parse(fs.readFileSync(state));",
     "  fs.writeFileSync(",
     "    state,",
-    "    JSON.stringify({...current,isDraft:false,isImmutable:true})",
+    "    JSON.stringify({",
+    "      ...current,",
+    "      ...(tamperBodyOnEdit ? {body:\"tampered during publication\\n\"} : {}),",
+    "      isDraft:false,",
+    "      isImmutable:true",
+    "    })",
     "  );",
     "  if (failEditAfterWrite) { process.stderr.write(\"ambiguous edit failure\\n\"); process.exit(1); }",
     "} else if (command === \"delete\") {",

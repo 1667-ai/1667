@@ -39,7 +39,7 @@ function observations(
     headCommit: ok(`${RELEASE_COMMIT}\n`),
     workingTreeStatus: ok(""),
     tagObjectType: ok("tag\n"),
-    tagObjectContents: ok("object release\n\nrelease tag\n"),
+    tagObjectContents: ok(`object ${RELEASE_COMMIT}\ntype commit\n\nrelease tag\n`),
     tagTargetCommit: ok(`${RELEASE_COMMIT}\n`),
     protectedReachability: ok(""),
     rootManifest: ok(manifest),
@@ -75,10 +75,17 @@ test("assembled evidence refuses every structural defect from captured output al
     [/is not a tag or commit object/, { tagObjectType: ok("blob\n") }],
     [/could not be resolved/, { tagObjectType: failed("fatal: Not a valid object name\n") }],
     [/contains a signature that this collector does not verify/, {
-      tagObjectContents: ok("release tag\n-----BEGIN SSH SIGNATURE-----\n")
+      tagObjectContents: ok(
+        `object ${RELEASE_COMMIT}\ntype commit\n\n-----BEGIN SSH SIGNATURE-----\n`
+      )
     }],
     [/contains a signature that this collector does not verify/, {
-      tagObjectContents: ok("release tag\n-----BEGIN PGP MESSAGE-----\n")
+      tagObjectContents: ok(
+        `object ${RELEASE_COMMIT}\ntype commit\n\n-----BEGIN PGP MESSAGE-----\n`
+      )
+    }],
+    [/must point directly at a commit/, {
+      tagObjectContents: ok(`object ${OTHER_COMMIT}\ntype tag\ntag ${TAG}\n`)
     }],
     [/object could not be read/, { tagObjectContents: failed("fatal: bad object\n") }],
     [/does not point at the release commit/, { tagTargetCommit: ok(`${OTHER_COMMIT}\n`) }],

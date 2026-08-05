@@ -44,6 +44,20 @@ export function collectReleaseSource(
   facts: ReleaseSourceFacts,
   packageVersions: ReleasePackageVersions
 ): CollectedReleaseSource {
+  const snapshot = validateReleaseSource(facts, packageVersions);
+  const identities = createReleaseBuildIdentitySet({
+    productVersion: snapshot.version,
+    sourceCommit: snapshot.sourceCommit,
+    buildTimestamp: snapshot.buildTimestamp
+  });
+  const sbomSource = sbomSourceFromFacts(snapshot);
+  return Object.freeze({ identities, sbomSource });
+}
+
+function validateReleaseSource(
+  facts: ReleaseSourceFacts,
+  packageVersions: ReleasePackageVersions
+): Readonly<ReleaseSourceFacts> {
   const snapshot = Object.freeze({
     version: facts.version,
     sourceCommit: facts.sourceCommit,
@@ -57,18 +71,7 @@ export function collectReleaseSource(
   if (!isCanonicalTimestamp(snapshot.buildTimestamp)) {
     throw new Error("Release source timestamp is not canonical");
   }
-  const identities = createReleaseBuildIdentitySet({
-    productVersion: snapshot.version,
-    sourceCommit: snapshot.sourceCommit,
-    buildTimestamp: snapshot.buildTimestamp
-  });
-  const sbomSource = createReleaseSbomSource({
-    productVersion: snapshot.version,
-    sourceCommit: snapshot.sourceCommit,
-    buildTimestamp: snapshot.buildTimestamp,
-    tagName: `v${snapshot.version}`
-  });
-  return Object.freeze({ identities, sbomSource });
+  return snapshot;
 }
 
 /** Collects source facts against the package versions in this checkout. */
@@ -76,6 +79,22 @@ export function collectRepositoryReleaseSource(
   facts: ReleaseSourceFacts
 ): CollectedReleaseSource {
   return collectReleaseSource(facts, repositoryPackageVersions());
+}
+
+/** Collects only the validated source that the standalone SBOM command uses. */
+export function collectRepositoryReleaseSbomSource(
+  facts: ReleaseSourceFacts
+): ReleaseSbomSource {
+  return sbomSourceFromFacts(validateReleaseSource(facts, repositoryPackageVersions()));
+}
+
+function sbomSourceFromFacts(facts: ReleaseSourceFacts): ReleaseSbomSource {
+  return createReleaseSbomSource({
+    productVersion: facts.version,
+    sourceCommit: facts.sourceCommit,
+    buildTimestamp: facts.buildTimestamp,
+    tagName: `v${facts.version}`
+  });
 }
 
 /**
