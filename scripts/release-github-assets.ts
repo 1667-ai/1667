@@ -36,7 +36,7 @@ import {
 } from "./release-sbom.js";
 import {
   collectRepositoryReleaseSource,
-  type CollectedReleaseSource,
+  type ReleaseArtifactInputs,
   type ReleaseSourceFacts
 } from "./release-source-facts.js";
 
@@ -93,7 +93,7 @@ export interface StagedReleaseArchive {
 
 /** The three source facts, plus where to read the build from and write to. */
 export interface StageReleaseArchiveOptions {
-  readonly source: CollectedReleaseSource;
+  readonly source: ReleaseArtifactInputs;
   readonly target: BuiltArtifactTarget;
   /** Directory holding the freshly built executable, normally `tui/dist`. */
   readonly buildDirectory: string;
@@ -110,7 +110,7 @@ export interface StageReleaseArchiveOptions {
 export function stageReleaseArchive(
   options: StageReleaseArchiveOptions
 ): StagedReleaseArchive {
-  const { identities, sbomSource } = options.source.artifactInputs();
+  const { identities, sbomSource } = options.source;
   const version = identities.source.productVersion;
   const target = options.target;
   const descriptor = releaseTargetForArtifact(target);
@@ -233,7 +233,7 @@ function runCommand(argv: readonly string[]): string {
   }
   if (command === "identity") {
     if (rest.length !== 4) throw new Error(USAGE);
-    const { identities } = collectRepositoryReleaseSource(sourceFacts(rest)).artifactInputs();
+    const { identities } = collectRepositoryReleaseSource(sourceFacts(rest));
     return `${canonicalJson(releaseIdentityForTarget(identities, builtTarget(rest[3])))}\n`;
   }
   if (command === "stage") {

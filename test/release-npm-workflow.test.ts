@@ -69,6 +69,14 @@ test("the npm release dispatch binds to the tag commit", () => {
     assert.match(body, /release-evidence\.ts/u);
     assert.match(
       body,
+      /DEFAULT_BRANCH: \$\{\{ github\.event\.repository\.default_branch \}\}/u
+    );
+    assert.match(
+      body,
+      /--protected-ref "refs\/remotes\/origin\/\$DEFAULT_BRANCH"/u
+    );
+    assert.match(
+      body,
       /\+refs\/heads\/\$DEFAULT_BRANCH:refs\/remotes\/origin\/\$DEFAULT_BRANCH/u
     );
   }

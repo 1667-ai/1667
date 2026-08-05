@@ -18,6 +18,7 @@ import {
 const MAX_PACKAGE_MANIFEST_BYTES = 1024 * 1024;
 const MAX_LOCKFILE_BYTES = 8 * 1024 * 1024;
 const SOURCE_COMMIT = /^[0-9a-f]{40}$/u;
+const RELEASE_ARTIFACT_INPUTS: unique symbol = Symbol("release-artifact-inputs");
 
 /**
  * The whole of what one release run has to agree on: the version being
@@ -33,50 +34,29 @@ export interface ReleaseSourceFacts {
   readonly buildTimestamp: string;
 }
 
+/** One frozen source snapshot for all release artifact producers. */
 export interface ReleaseArtifactInputs {
+  readonly [RELEASE_ARTIFACT_INPUTS]: true;
   readonly identities: ReleaseBuildIdentitySet;
   readonly sbomSource: ReleaseSbomSource;
 }
-
-/** One validated fact snapshot for all release artifact producers. */
-class RepositoryReleaseSource {
-  readonly #facts: Readonly<ReleaseSourceFacts>;
-  readonly #repositoryRoot: string;
-
-  public constructor(facts: ReleaseSourceFacts, repositoryRoot: string) {
-    this.#repositoryRoot = boundedRepositoryRoot(repositoryRoot);
-    this.#facts = validateReleaseSource(
-      facts,
-      repositoryPackageVersions(this.#repositoryRoot)
-    );
-    Object.freeze(this);
-  }
-
-  public artifactInputs(): ReleaseArtifactInputs {
-    const facts = validateReleaseSource(
-      this.#facts,
-      repositoryPackageVersions(this.#repositoryRoot)
-    );
-    return Object.freeze({
-      identities: createReleaseBuildIdentitySet({
-        productVersion: facts.version,
-        sourceCommit: facts.sourceCommit,
-        buildTimestamp: facts.buildTimestamp
-      }),
-      sbomSource: sbomSourceFromFacts(facts)
-    });
-  }
-}
-
-/** Opaque source proof that staging can consume. */
-export type CollectedReleaseSource = RepositoryReleaseSource;
 
 /** Collects source facts against the package versions in one repository. */
 export function collectReleaseSourceFromRepository(
   facts: ReleaseSourceFacts,
   repositoryRoot: string
-): CollectedReleaseSource {
-  return new RepositoryReleaseSource(facts, repositoryRoot);
+): ReleaseArtifactInputs {
+  const root = boundedRepositoryRoot(repositoryRoot);
+  const snapshot = validateReleaseSource(facts, repositoryPackageVersions(root));
+  return Object.freeze({
+    [RELEASE_ARTIFACT_INPUTS]: true as const,
+    identities: createReleaseBuildIdentitySet({
+      productVersion: snapshot.version,
+      sourceCommit: snapshot.sourceCommit,
+      buildTimestamp: snapshot.buildTimestamp
+    }),
+    sbomSource: sbomSourceFromFacts(snapshot)
+  });
 }
 
 function validateReleaseSource(
@@ -102,7 +82,7 @@ function validateReleaseSource(
 /** Collects source facts against the package versions in this checkout. */
 export function collectRepositoryReleaseSource(
   facts: ReleaseSourceFacts
-): CollectedReleaseSource {
+): ReleaseArtifactInputs {
   return collectReleaseSourceFromRepository(facts, currentRepositoryRoot());
 }
 

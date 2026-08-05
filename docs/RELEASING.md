@@ -208,6 +208,11 @@ draft that does not match. It publishes the draft and verifies the immutable
 release. It then writes to npm. It resolves the locked tag before each npm
 write. It creates the completion record last.
 
+The workflow makes the GitHub release immutable before the first npm write.
+This action prevents a change to the release assets during npm publication. If
+npm publication stops, rerun the failed `publish` job in the same workflow run.
+The retained inputs and the publication ledger resume the exact npm writes.
+
 The release plan carries the collected `tagObjectType` and `tagSignature`
 values. Each native `buildIdentity` records the result from step 5. Preflight
 trusts all these fields.

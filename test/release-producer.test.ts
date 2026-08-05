@@ -55,7 +55,7 @@ import { AI_1667_PRODUCT_VERSION } from "../shared/build-identity.js";
 import {
   collectRepositoryReleaseSource,
   collectReleaseSourceFromRepository,
-  type CollectedReleaseSource,
+  type ReleaseArtifactInputs,
   type ReleaseSourceFacts
 } from "../scripts/release-source-facts.js";
 import {
@@ -119,6 +119,7 @@ async function runUnsignedReleaseHandoff(
     },
     buildTimestamp: releaseFacts.buildTimestamp
   }, collectedEvidence.repository);
+  assert.ok(Object.isFrozen(releaseSource));
   const builds = path.join(root, "builds");
   const buildDirectories = await stageBuildInputs(builds, releaseSource);
   const firstStage = path.join(root, "stage-a");
@@ -255,24 +256,6 @@ async function runUnsignedReleaseHandoff(
 
   await assertInstalledLauncherStarts(firstPacked, npm, root, scenario.version);
 }
-
-test("a collected source rechecks repository versions before staging", async (t) => {
-  const root = await mkdtemp(path.join(tmpdir(), "1667-release-source-recheck-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const collected = await collectUnsignedReleaseEvidence(root, VERSION);
-  const evidence = collected.evidence;
-  const source = collectReleaseSourceFromRepository({
-    version: evidence.productVersion,
-    sourceCommit: evidence.sourceCommit,
-    buildTimestamp: evidence.buildTimestamp
-  }, collected.repository);
-  await writeFile(
-    path.join(collected.repository, "tui", "package.json"),
-    JSON.stringify({ version: "9.9.9" })
-  );
-
-  assert.throws(() => source.artifactInputs(), /tui version does not match/u);
-});
 
 test("the Windows target stages and validates as a published package", async (t) => {
   const windows = releaseTargetForArtifact("windows-x64");
@@ -608,7 +591,7 @@ async function collectUnsignedReleaseEvidence(root: string, version: string) {
 
 async function stageBuildInputs(
   root: string,
-  source: CollectedReleaseSource = collectedFacts
+  source: ReleaseArtifactInputs = collectedFacts
 ): Promise<Record<PublishedArtifactTarget, string>> {
   const entries = await Promise.all(PUBLISHED_ARTIFACT_TARGETS.map(async (target) => {
     const directory = path.join(root, target);
@@ -627,10 +610,10 @@ async function stageBuildInputs(
 async function writeExecutable(
   file: string,
   target: BuiltArtifactTarget,
-  source: CollectedReleaseSource = collectedFacts
+  source: ReleaseArtifactInputs = collectedFacts
 ): Promise<void> {
   const identity = releaseIdentityForTarget(
-    source.artifactInputs().identities,
+    source.identities,
     target
   );
   await writeFile(file, [

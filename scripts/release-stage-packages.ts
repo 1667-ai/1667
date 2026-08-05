@@ -44,7 +44,7 @@ import {
 } from "./release-sbom.js";
 import {
   collectRepositoryReleaseSource,
-  type CollectedReleaseSource
+  type ReleaseArtifactInputs
 } from "./release-source-facts.js";
 
 export interface StagedReleasePackage {
@@ -58,14 +58,14 @@ export interface StagedReleasePackage {
 }
 
 export interface StageReleasePackageOptions {
-  readonly source: CollectedReleaseSource;
+  readonly source: ReleaseArtifactInputs;
   readonly artifactTarget: ReleaseContentArtifact;
   readonly executable: string;
   readonly outputDirectory: string;
 }
 
 export interface StagePublishedReleasePackagesOptions {
-  readonly source: CollectedReleaseSource;
+  readonly source: ReleaseArtifactInputs;
   readonly buildDirectories: Readonly<Record<PublishedArtifactTarget, string>>;
   readonly outputDirectory: string;
 }
@@ -80,7 +80,7 @@ export function stageReleasePackage(
   const finalRoot = freshOutputPath(options.outputDirectory, options.artifactTarget);
   const temporaryRoot = freshSiblingDirectory(finalRoot);
   try {
-    const { identities, sbomSource } = options.source.artifactInputs();
+    const { identities, sbomSource } = options.source;
     const sboms = createReleaseSboms(
       sbomSource,
       repositoryReleaseComponentSources()
@@ -111,7 +111,7 @@ export function stagePublishedReleasePackages(
   const finalRoot = freshOutputPath(options.outputDirectory);
   const temporaryRoot = freshSiblingDirectory(finalRoot);
   try {
-    const { identities, sbomSource } = options.source.artifactInputs();
+    const { identities, sbomSource } = options.source;
     const sboms = createReleaseSboms(
       sbomSource,
       repositoryReleaseComponentSources()
