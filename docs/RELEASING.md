@@ -673,10 +673,11 @@ is, and it names the missing file and the target.
 
 `checksums.txt` lists the SHA-256 of every uploaded asset except itself.
 
-The workflow attests every uploaded file with
-`actions/attest-build-provenance`, using `id-token: write` and
-`attestations: write` only in the jobs that mint an attestation. A reader
-verifies one archive with `gh attestation verify <file> --repo 1667-ai/1667`.
+The workflow attests each release asset except `checksums.txt` with
+`actions/attest-build-provenance`. The workflow makes `checksums.txt` after the
+final attestation. Only the jobs that make an attestation get `id-token: write`
+and `attestations: write`. A reader verifies one attested archive with
+`gh attestation verify <file> --repo 1667-ai/1667`.
 
 ## Retain release evidence
 
