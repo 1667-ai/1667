@@ -135,7 +135,10 @@ test("GitHub release publication verifies exact assets before and after upload",
   await writeFile(notes, "# Release\n");
   await writeFile(
     gh,
-    fakeReleaseGh({ remote, state, log }, { tagObjectSha: "a".repeat(40) })
+    fakeReleaseGh({ remote, state, log }, {
+      tagObjectSha: "a".repeat(40),
+      omitBypassActors: true
+    })
   );
   await chmod(gh, 0o755);
   const options = {

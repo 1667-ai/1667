@@ -85,6 +85,7 @@ export function fakeReleaseGh(paths: {
   readonly branchCommit?: string;
   readonly tagObjectSha?: string;
   readonly immutableTagRuleset?: boolean;
+  readonly omitBypassActors?: boolean;
   readonly moveTagAfterDownloadTo?: string;
 } = {}): string {
   const initialTagCommit = options.tagCommit
@@ -101,6 +102,7 @@ export function fakeReleaseGh(paths: {
     `const branchCommit = ${JSON.stringify(options.branchCommit)};`,
     `const tagObjectSha = ${JSON.stringify(options.tagObjectSha)};`,
     `const immutableTagRuleset = ${JSON.stringify(options.immutableTagRuleset ?? true)};`,
+    `const omitBypassActors = ${JSON.stringify(options.omitBypassActors ?? false)};`,
     `const moveTagAfterDownloadTo = ${JSON.stringify(options.moveTagAfterDownloadTo)};`,
     `fs.appendFileSync(${JSON.stringify(paths.log)}, \`\${JSON.stringify(args)}\\n\`);`,
     "const command = args[1];",
@@ -113,7 +115,7 @@ export function fakeReleaseGh(paths: {
     "  process.stdout.write(JSON.stringify({",
     "    id: 1, name: \"tag: v* immutable\", target: \"tag\",",
     "    enforcement: immutableTagRuleset ? \"active\" : \"disabled\",",
-    "    bypass_actors: [],",
+    "    ...(omitBypassActors ? {} : {bypass_actors: []}),",
     "    conditions: {ref_name: {include: [\"refs/tags/v*\"], exclude: []}},",
     "    rules: [{type:\"update\"},{type:\"deletion\"},{type:\"non_fast_forward\"}]",
     "  }));",

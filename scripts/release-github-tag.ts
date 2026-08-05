@@ -82,9 +82,14 @@ function validateTagRuleset(ruleset: Record<string, unknown>): void {
     || ruleset.enforcement !== "active") {
     throw new Error(`GitHub ruleset ${TAG_RULESET_NAME} is not active`);
   }
-  const bypass = arrayValue(ruleset.bypass_actors, "bypass actors");
-  if (bypass.length !== 0) {
-    throw new Error(`GitHub ruleset ${TAG_RULESET_NAME} permits a bypass`);
+  // GitHub omits this field from responses to the workflow token. Repository
+  // administration remains trusted because an administrator can also disable
+  // the ruleset. Refuse a bypass when the API discloses one.
+  if (ruleset.bypass_actors !== undefined) {
+    const bypass = arrayValue(ruleset.bypass_actors, "bypass actors");
+    if (bypass.length !== 0) {
+      throw new Error(`GitHub ruleset ${TAG_RULESET_NAME} permits a bypass`);
+    }
   }
   const conditions = recordValue(ruleset.conditions, "conditions");
   const refName = recordValue(conditions.ref_name, "ref-name conditions");
