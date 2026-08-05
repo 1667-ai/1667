@@ -55,7 +55,8 @@ import { AI_1667_PRODUCT_VERSION } from "../shared/build-identity.js";
 import {
   collectRepositoryReleaseSource,
   collectReleaseSourceFromRepository,
-  type ReleaseArtifactInputs,
+  releaseArtifactInputs,
+  type CollectedReleaseSource,
   type ReleaseSourceFacts
 } from "../scripts/release-source-facts.js";
 import {
@@ -79,6 +80,21 @@ const facts = Object.freeze({
   buildTimestamp: TIMESTAMP
 });
 const collectedFacts = collectRepositoryReleaseSource(facts);
+
+test("artifact views require one collected source record", () => {
+  const otherSource = collectRepositoryReleaseSource({
+    ...facts,
+    sourceCommit: "f".repeat(40)
+  });
+  const mixedSource = {
+    ...collectedFacts,
+    facts: otherSource.facts
+  } as unknown as CollectedReleaseSource;
+  assert.throws(
+    () => releaseArtifactInputs(mixedSource),
+    /source was not collected/u
+  );
+});
 
 const RELEASE_SCENARIOS = [
   { label: "prerelease", version: PRERELEASE_VERSION, distTag: "beta" },
@@ -591,7 +607,7 @@ async function collectUnsignedReleaseEvidence(root: string, version: string) {
 
 async function stageBuildInputs(
   root: string,
-  source: ReleaseArtifactInputs = collectedFacts
+  source: CollectedReleaseSource = collectedFacts
 ): Promise<Record<PublishedArtifactTarget, string>> {
   const entries = await Promise.all(PUBLISHED_ARTIFACT_TARGETS.map(async (target) => {
     const directory = path.join(root, target);
@@ -610,10 +626,10 @@ async function stageBuildInputs(
 async function writeExecutable(
   file: string,
   target: BuiltArtifactTarget,
-  source: ReleaseArtifactInputs = collectedFacts
+  source: CollectedReleaseSource = collectedFacts
 ): Promise<void> {
   const identity = releaseIdentityForTarget(
-    source.identities,
+    releaseArtifactInputs(source).identities,
     target
   );
   await writeFile(file, [

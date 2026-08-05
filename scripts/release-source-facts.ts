@@ -34,28 +34,45 @@ export interface ReleaseSourceFacts {
   readonly buildTimestamp: string;
 }
 
-/** One frozen source snapshot for all release artifact producers. */
 export interface ReleaseArtifactInputs {
-  readonly [RELEASE_ARTIFACT_INPUTS]: true;
   readonly identities: ReleaseBuildIdentitySet;
   readonly sbomSource: ReleaseSbomSource;
+}
+
+/** One opaque and frozen source snapshot for all artifact producers. */
+export interface CollectedReleaseSource {
+  readonly [RELEASE_ARTIFACT_INPUTS]: true;
+  readonly facts: Readonly<ReleaseSourceFacts>;
 }
 
 /** Collects source facts against the package versions in one repository. */
 export function collectReleaseSourceFromRepository(
   facts: ReleaseSourceFacts,
   repositoryRoot: string
-): ReleaseArtifactInputs {
+): CollectedReleaseSource {
   const root = boundedRepositoryRoot(repositoryRoot);
   const snapshot = validateReleaseSource(facts, repositoryPackageVersions(root));
+  const collected = { facts: snapshot } as CollectedReleaseSource;
+  Object.defineProperty(collected, RELEASE_ARTIFACT_INPUTS, { value: true });
+  return Object.freeze(collected);
+}
+
+/** Derives all producer views from one collected source record. */
+export function releaseArtifactInputs(
+  source: CollectedReleaseSource
+): ReleaseArtifactInputs {
+  if (source[RELEASE_ARTIFACT_INPUTS] !== true
+    || !Object.isFrozen(source) || !Object.isFrozen(source.facts)) {
+    throw new Error("Release artifact source was not collected");
+  }
+  const facts = source.facts;
   return Object.freeze({
-    [RELEASE_ARTIFACT_INPUTS]: true as const,
     identities: createReleaseBuildIdentitySet({
-      productVersion: snapshot.version,
-      sourceCommit: snapshot.sourceCommit,
-      buildTimestamp: snapshot.buildTimestamp
+      productVersion: facts.version,
+      sourceCommit: facts.sourceCommit,
+      buildTimestamp: facts.buildTimestamp
     }),
-    sbomSource: sbomSourceFromFacts(snapshot)
+    sbomSource: sbomSourceFromFacts(facts)
   });
 }
 
@@ -82,7 +99,7 @@ function validateReleaseSource(
 /** Collects source facts against the package versions in this checkout. */
 export function collectRepositoryReleaseSource(
   facts: ReleaseSourceFacts
-): ReleaseArtifactInputs {
+): CollectedReleaseSource {
   return collectReleaseSourceFromRepository(facts, currentRepositoryRoot());
 }
 
