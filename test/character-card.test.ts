@@ -6,6 +6,7 @@ import {
   parseCharacterCard
 } from "../shared/character-card.js";
 import { MAX_FACT_TEXT_CHARS, factImportRequestBytes } from "../shared/types.js";
+import { unicodeScalarLength } from "../shared/unicode.js";
 
 const encoder = new TextEncoder();
 const PNG_SIGNATURE = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -311,7 +312,7 @@ test("character card mapping packs fields and splits long prose without loss", (
   const facts = factsFromCharacterCard({ name: "Mira", description, personality });
   assert.ok(facts.length >= 3);
   assert.ok(facts.every((fact) => fact.tag === "Character"));
-  assert.ok(facts.every((fact) => fact.text.length <= MAX_FACT_TEXT_CHARS));
+  assert.ok(facts.every((fact) => unicodeScalarLength(fact.text) <= MAX_FACT_TEXT_CHARS));
   assert.ok(facts.every((fact) => wellFormed(fact.text)));
   assert.equal(joinSection(facts.map((fact) => fact.text), "Description"), description);
   assert.equal(joinSection(facts.map((fact) => fact.text), "Personality"), personality);
@@ -319,7 +320,7 @@ test("character card mapping packs fields and splits long prose without loss", (
   const hard = "x".repeat(MAX_FACT_TEXT_CHARS * 3);
   const hardFacts = factsFromCharacterCard({ name: "M", description: hard });
   assert.ok(hardFacts.length > 3);
-  assert.ok(hardFacts.every((fact) => fact.text.length <= MAX_FACT_TEXT_CHARS));
+  assert.ok(hardFacts.every((fact) => unicodeScalarLength(fact.text) <= MAX_FACT_TEXT_CHARS));
   assert.equal(joinSection(hardFacts.map((fact) => fact.text), "Description"), hard);
 });
 

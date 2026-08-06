@@ -8,7 +8,8 @@ import {
   mkdtemp,
   open,
   rm,
-  writeFile
+  writeFile,
+  type FileHandle
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -121,6 +122,26 @@ posixTest("a batch reserved reader and a live publication both succeed", async (
     assert.equal((await lstat(file)).nlink, 1);
     assert.equal((await lstat(sibling)).nlink, 1);
   }
+});
+
+posixTest("a batch read recovers residue created after directory validation starts", async (t) => {
+  const directory = await privateDirectory(t, "1667-publication-batch-residue-");
+  const file = path.join(directory, "late-residue");
+  const scratch = privatePublicationScratchPath(file);
+  const bytes = Buffer.from("late committed bytes\n", "utf8");
+  const pause = await pauseNextFileHandleStat(t);
+
+  const reading = readOptionalPrivateFiles([file], POLICY);
+  await pause.entered;
+  await writeFile(scratch, bytes, { mode: 0o600 });
+  await link(scratch, file);
+  pause.release();
+
+  const observed = await reading;
+  const observedFile = observed[0] ?? null;
+  assert.ok(observedFile !== null && observedFile.equals(bytes));
+  assert.equal((await lstat(file)).nlink, 1);
+  await assert.rejects(lstat(scratch), hasFsCode("ENOENT"));
 });
 
 posixTest("a competing publisher fails with EEXIST after the live publication commits", async (t) => {
@@ -310,3 +331,34 @@ posixTest("a distinct malicious scratch beside a linked final fails immediately"
   assert.equal((await lstat(file)).nlink, 2);
   assert.equal((await lstat(alias)).nlink, 2);
 });
+
+interface StatPause {
+  readonly entered: Promise<void>;
+  release(): void;
+}
+
+async function pauseNextFileHandleStat(
+  t: Pick<TestContext, "mock">
+): Promise<StatPause> {
+  const probe = await open(import.meta.filename, "r");
+  const prototype = Object.getPrototypeOf(probe) as {
+    stat: FileHandle["stat"];
+  };
+  await probe.close();
+  const originalStat = prototype.stat;
+  let enteredResolve!: () => void;
+  let releaseResolve!: () => void;
+  const entered = new Promise<void>((resolve) => { enteredResolve = resolve; });
+  const released = new Promise<void>((resolve) => { releaseResolve = resolve; });
+  let paused = false;
+
+  t.mock.method(prototype, "stat", async function (this: FileHandle) {
+    if (!paused) {
+      paused = true;
+      enteredResolve();
+      await released;
+    }
+    return await originalStat.call(this);
+  });
+  return { entered, release: releaseResolve };
+}

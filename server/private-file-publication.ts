@@ -209,9 +209,9 @@ async function readOptionalOwned(
   }
 }
 
-/** Batch immutable siblings under one validated private directory. Receipt
- * reads use this to recover every typed publication first, then validate the
- * shared directory once more before bounded no-follow reads. */
+/** Batch immutable siblings under one validated private directory. Each file
+ * recovers typed publication residue and completes its bounded no-follow read
+ * under one ownership interval. */
 export async function readOptionalPrivateFiles(
   files: readonly string[],
   policy: PrivateFilePolicy
@@ -221,16 +221,12 @@ export async function readOptionalPrivateFiles(
   if (files.some((file) => path.dirname(file) !== directory)) {
     throw new Error(`${policy.label} batch crossed directories`);
   }
-  await Promise.all(files.map(
+  await inspectPrivateDirectory(directory, policy.label);
+  return await Promise.all(files.map(
     async (file) => await withReservedPathOwnership(file, async () => {
       if (await optionalPathInfo(privatePublicationScratchPath(file)) !== null) {
         await recoverOwned(file, policy);
       }
-    })
-  ));
-  await inspectPrivateDirectory(directory, policy.label);
-  return await Promise.all(files.map(
-    async (file) => await withReservedPathOwnership(file, async () => {
       try {
         return await readBoundedRegularFile(
           file,
