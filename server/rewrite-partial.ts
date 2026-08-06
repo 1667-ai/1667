@@ -148,6 +148,7 @@ export interface PartialRewriteReservation {
  */
 export class PartialRewriteStash {
   private readonly entries = new Map<string, PartialRewriteReservation>();
+  private readonly claims = new Set<PartialRewriteReservation>();
 
   /** Reserve before provider work can emit text. A full stash refuses the
    * next rewrite instead of evicting prose that another writer can settle. */
@@ -182,11 +183,41 @@ export class PartialRewriteStash {
     reservation.record = record;
   }
 
-  /** Read without consuming. The durable commit clears the record only
-   * after it succeeds, so a transport or storage retry can use it again. */
+  /** Read without consuming. Generation tests and diagnostics use this to
+   * inspect the verified record; settlement uses `claim` instead. */
   get(storyId: string, nodeId: string, attemptId: string): PartialRewriteRecord | null {
     const key = stashKey(storyId, nodeId, attemptId);
     return this.entries.get(key)?.record ?? null;
+  }
+
+  /** Atomically grant one settlement exclusive use of the record. A failed
+   * durable commit releases the claim, while success clears the record. */
+  claim(
+    storyId: string,
+    nodeId: string,
+    attemptId: string
+  ): PartialRewriteRecord | null {
+    const reservation = this.entries.get(stashKey(
+      storyId,
+      nodeId,
+      attemptId
+    ));
+    if (reservation === undefined
+      || reservation.record === null
+      || this.claims.has(reservation)) {
+      return null;
+    }
+    this.claims.add(reservation);
+    return reservation.record;
+  }
+
+  releaseClaim(record: PartialRewriteRecord): void {
+    const reservation = this.entries.get(stashKey(
+      record.storyId,
+      record.nodeId,
+      record.attemptId
+    ));
+    if (reservation?.record === record) this.claims.delete(reservation);
   }
 
   /** Clear only the exact record a caller used. A delayed attempt cannot
@@ -194,7 +225,10 @@ export class PartialRewriteStash {
   clear(record: PartialRewriteRecord): void {
     const key = stashKey(record.storyId, record.nodeId, record.attemptId);
     const reservation = this.entries.get(key);
-    if (reservation?.record === record) this.entries.delete(key);
+    if (reservation?.record === record) {
+      this.claims.delete(reservation);
+      this.entries.delete(key);
+    }
   }
 
   releaseEmpty(reservation: PartialRewriteReservation): void {

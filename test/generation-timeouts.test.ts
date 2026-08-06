@@ -8,6 +8,7 @@ import {
   ServiceError
 } from "../server/errors.js";
 import { GenerationAdmissionRegistry } from "../server/generation-admission.js";
+import { streamModel } from "../server/generation-stream.js";
 import { LEGACY_PROMPT_CACHE_CONTEXT, PromptCacheRuntime } from "../server/provider-cache-policy.js";
 import { attachProviderRuntime } from "../server/provider-runtime.js";
 import { PartialRewriteStash } from "../server/rewrite-partial.js";
@@ -24,6 +25,7 @@ import { createHttpOperationLease } from "../shared/http-operation-lease.js";
 import { rewriteStreamDigest } from "../shared/rewrite-partial-contract.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings, Story } from "../shared/types.js";
+import type { PromptPlan } from "../shared/prompt-plan.js";
 import {
   fakeModel,
   modelSettings,
@@ -46,11 +48,18 @@ function timedSettings(
   options: {
     assistantPrefill: "supported" | "unsupported";
     timeouts?: typeof FAST_TIMEOUTS;
+    authEnv?: string;
   }
 ): GenerationSettings {
   return attachProviderRuntime(modelSettings(baseUrl), {
     preset: "custom",
-    auth: { type: "none" },
+    auth: options.authEnv === undefined
+      ? { type: "none" }
+      : {
+          type: "header-env",
+          name: "authorization",
+          env: options.authEnv
+        },
     headers: [],
     timeouts: options.timeouts ?? FAST_TIMEOUTS,
     allowInsecureHttp: true,
@@ -74,6 +83,18 @@ function stubSettingsStore(settings: GenerationSettings): SettingsStore {
 
 const STORY_TEXT = "A grey cat slept on the warm stone by the door.";
 const SELECTION = "slept on the warm stone";
+const SIMPLE_PROMPT: PromptPlan = {
+  operation: "continue",
+  turns: [{
+    role: "user",
+    blocks: [{
+      stability: "volatile",
+      kind: "request",
+      text: "Continue.",
+      boundaryAfter: "none"
+    }]
+  }]
+};
 
 function fixtureStory(): { story: Story; nodeId: string; start: number; end: number } {
   const nodeId = "timeout-root";
@@ -215,6 +236,49 @@ providerTest("generation timeouts: a provider total timeout carries provider-tot
   assert.equal(story.nodes.length, 1);
 });
 
+providerTest("a provider terminal without finish_reason survives a late Stop", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response([
+    `data: ${JSON.stringify({
+      choices: [{
+        delta: { content: "Terminal prose without a finish reason." },
+        finish_reason: null
+      }]
+    })}`,
+    "data: [DONE]",
+    ""
+  ].join("\n\n"), {
+    headers: { "content-type": "text/event-stream" }
+  })) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const env = "AI_1667_TEST_TERMINAL_TAIL_SECRET";
+  const previous = process.env[env];
+  process.env[env] = "terminal-tail-secret-that-holds-the-final-delta";
+  t.after(() => {
+    if (previous === undefined) delete process.env[env];
+    else process.env[env] = previous;
+  });
+  const controller = new AbortController();
+  let streamed = "";
+
+  const result = await streamModel(
+    timedSettings("https://fixture.invalid", {
+      assistantPrefill: "supported",
+      authEnv: env
+    }),
+    SIMPLE_PROMPT,
+    controller.signal,
+    async (delta) => {
+      streamed += delta;
+      controller.abort();
+      await Promise.resolve();
+    }
+  );
+
+  assert.equal(streamed, "Terminal prose without a finish reason.");
+  assert.equal(result, streamed);
+});
+
 providerTest("generation timeouts: an idle timeout after a rejected continuation echo is the rejection, not a timeout", async (t) => {
   const model = await fakeModel(t, (_body, response) => {
     // Never echoes the required left boundary, then stalls into the idle
@@ -319,6 +383,22 @@ providerTest("generation timeouts: a stopped rewrite stashes the streamed partia
     record.streamedDigest,
     rewriteStreamDigest("rested on the cool step")
   );
+  assert.equal(
+    partials.claim(story.id, nodeId, "stopped-attempt"),
+    record
+  );
+  assert.equal(
+    partials.claim(story.id, nodeId, "stopped-attempt"),
+    null,
+    "one verified partial must have only one active settlement"
+  );
+  partials.releaseClaim(record);
+  assert.equal(
+    partials.claim(story.id, nodeId, "stopped-attempt"),
+    record,
+    "a retry must reclaim a partial after its failed settlement releases it"
+  );
+  partials.releaseClaim(record);
   // The settle path commits the stash through the same rewrite effect a full
   // commit uses: exact splice, exact recorded span, in-place destination.
   const applied = await applyProviderStoryEffect(

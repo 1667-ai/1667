@@ -336,11 +336,17 @@ export class StoryServiceLocal {
   ): Promise<{ payload: StoryPayload; nodeId: string } | null> {
     this.dependencies.ensureOpen();
     const body = parseCommitPartialRewrite(value);
-    const record = this.dependencies.rewritePartials.get(
+    const claimedRecord = this.dependencies.rewritePartials.claim(
       id,
       nodeId,
       body.attemptId
     );
+    const record = claimedRecord?.streamedDigest === body.streamedDigest
+      ? claimedRecord
+      : null;
+    if (claimedRecord !== null && record === null) {
+      this.dependencies.rewritePartials.releaseClaim(claimedRecord);
+    }
     if (mutationRequest !== undefined) {
       let consumedRecord = false;
       try {
@@ -375,8 +381,9 @@ export class StoryServiceLocal {
             return applied.changed ? undefined : STORY_UNCHANGED;
           }
         );
-        if (record !== null && consumedRecord) {
-          this.dependencies.rewritePartials.clear(record);
+        if (record !== null) {
+          if (consumedRecord) this.dependencies.rewritePartials.clear(record);
+          else this.dependencies.rewritePartials.releaseClaim(record);
         }
         const committedNodeId = settleTakeId !== undefined
           && committed.story.nodes.some((node) => node.id === settleTakeId)
@@ -398,28 +405,33 @@ export class StoryServiceLocal {
           && error instanceof ServiceError
           && isPreparedDomainError(error.code)) {
           this.dependencies.rewritePartials.clear(record);
+        } else if (record !== null) {
+          this.dependencies.rewritePartials.releaseClaim(record);
         }
         throw error;
       }
     }
-    if (record === null || record.streamedDigest !== body.streamedDigest) {
-      return null;
-    }
+    if (record === null) return null;
     const effect = {
       ...record.effect,
       updatedAt: new Date().toISOString()
     };
-    const node = await this.dependencies.stories.commitProviderEffect(
-      id,
-      effect
-    );
-    this.dependencies.rewritePartials.clear(record);
-    return {
-      payload: buildStoryPayload(
-        await this.dependencies.stories.loadForMutation(id)
-      ),
-      nodeId: node.id
-    };
+    try {
+      const node = await this.dependencies.stories.commitProviderEffect(
+        id,
+        effect
+      );
+      this.dependencies.rewritePartials.clear(record);
+      return {
+        payload: buildStoryPayload(
+          await this.dependencies.stories.loadForMutation(id)
+        ),
+        nodeId: node.id
+      };
+    } catch (error) {
+      this.dependencies.rewritePartials.releaseClaim(record);
+      throw error;
+    }
   }
 
   async editNode(

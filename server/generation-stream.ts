@@ -1,5 +1,10 @@
 import { GenerationResultError, ProviderError } from "./errors.js";
-import { streamCompletion, type PromptPlan, type TokenProbabilityCollector } from "./providers.js";
+import {
+  streamCompletion,
+  type PromptPlan,
+  type StreamOutcome,
+  type TokenProbabilityCollector
+} from "./providers.js";
 import type { GenerationSettings } from "../shared/types.js";
 import type { PromptCacheRequest } from "./provider-cache-policy.js";
 import type { StorySamplingBias } from "./sampling-phrase-bias.js";
@@ -35,8 +40,9 @@ export async function streamModel(
   options: StreamModelOptions = {}
 ): Promise<string | null> {
   const { output, providerStarted, promptCache, storySampling, tokenProbabilities } = options;
-  const outcome: { finishReason: "stop" | "length" | null } = {
-    finishReason: null
+  const outcome: StreamOutcome = {
+    finishReason: null,
+    providerTerminal: false
   };
   let text = "";
   const emit = async (delta: string) => {
@@ -57,7 +63,7 @@ export async function streamModel(
     // Some transports, including dry-run, end their iterator normally on
     // cancellation. Only a provider terminal marks that normal return as a
     // completed response; otherwise the streamed prefix remains partial.
-    if (signal.aborted && outcome.finishReason === null) return null;
+    if (signal.aborted && !outcome.providerTerminal) return null;
     if (output !== undefined) await emit(output.finish());
   } catch (error) {
     // The provider already classified this failure. A caller abort that races

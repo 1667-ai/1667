@@ -37,11 +37,11 @@ export type { ChatMessage, PromptPlan } from "../shared/prompt-plan.js";
 export { forgetRefusedTokenProbabilities } from "./token-probability-capture.js";
 export type { TokenProbabilityCollector } from "./token-probability-capture.js";
 
-/** Why the stream ended, when the provider said so: "length" means the output
- *  limit cut generation short; "stop" means the model finished on its own.
- *  Callers that need it pass a box the provider fills as the stream closes. */
+/** The provider terminal and its optional finish reason. A protocol terminal
+ * can occur without a finish reason. */
 export interface StreamOutcome {
   finishReason: "stop" | "length" | null;
+  providerTerminal: boolean;
 }
 
 const MAX_DECODED_OUTPUT_BYTES = 16 * 1024 * 1024;
@@ -142,6 +142,7 @@ async function* streamOpenAiCompatible(
         )) {
           streamed = true;
           if (data === "[DONE]") {
+            if (outcome !== undefined) outcome.providerTerminal = true;
             const tail = outputRedactor.finish();
             if (tail.length > 0) yield tail;
             capture.finish();
@@ -300,6 +301,7 @@ async function* streamAnthropic(
             throw new ProviderError(`Anthropic stream error: ${detail}`);
           }
           if (parsed.type === "message_stop") {
+            if (outcome !== undefined) outcome.providerTerminal = true;
             const tail = outputRedactor.finish();
             if (tail.length > 0) yield tail;
             return;
@@ -480,7 +482,10 @@ async function* streamDryRun(
     stepIndex += 1;
     await new Promise((resolve) => setTimeout(resolve, 15));
   }
-  if (outcome !== undefined) outcome.finishReason = "stop";
+  if (outcome !== undefined) {
+    outcome.finishReason = "stop";
+    outcome.providerTerminal = true;
+  }
   capture.finish();
 }
 
