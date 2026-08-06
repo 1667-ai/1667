@@ -336,7 +336,7 @@ export class StoryServiceLocal {
   ): Promise<{ payload: StoryPayload; nodeId: string } | null> {
     this.dependencies.ensureOpen();
     const body = parseCommitPartialRewrite(value);
-    const claimedRecord = this.dependencies.rewritePartials.claim(
+    const claimedRecord = await this.dependencies.rewritePartials.claim(
       id,
       nodeId,
       body.attemptId

@@ -4,6 +4,13 @@ import { redactProviderSecrets } from "./provider-runtime.js";
 
 const MAX_DECODED_OUTPUT_BYTES = 16 * 1024 * 1024;
 
+export function providerOutputByteLimit(settings: GenerationSettings): number {
+  return Math.min(
+    MAX_DECODED_OUTPUT_BYTES,
+    settings.maxTokens * 32 + 64 * 1024
+  );
+}
+
 export function parseProviderStreamEvent(
   data: string,
   secrets: readonly string[]
@@ -23,10 +30,7 @@ export function requireProviderOutputWithinLimit(
   delta: string
 ): number {
   const next = currentBytes + Buffer.byteLength(delta);
-  const tokenDerived = Math.min(
-    MAX_DECODED_OUTPUT_BYTES,
-    settings.maxTokens * 32 + 64 * 1024
-  );
+  const tokenDerived = providerOutputByteLimit(settings);
   if (next > tokenDerived) {
     throw new ProviderError(
       "provider_response_too_large: decoded model output exceeded its safety limit."

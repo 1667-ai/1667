@@ -11,6 +11,7 @@ import type {
 import { mutationFingerprint } from "../server/mutation-receipts.js";
 import {
   PartialRewriteStash,
+  partialRewriteRecordRetainedBytes,
   type PartialRewriteRecord
 } from "../server/rewrite-partial.js";
 import { ServiceError } from "../server/errors.js";
@@ -125,6 +126,107 @@ test("partial settlement replay retires the record after post-publish failure", 
   }
 });
 
+test("partial settlement waits for an active rewrite to publish its record", async (t) => {
+  const dataDir = await mkdtemp(path.join(
+    tmpdir(),
+    "1667-partial-active-settlement-"
+  ));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    let story = await service.createStory("Active partial settlement");
+    const original = "The blue door opened onto the courtyard.";
+    story = await service.createNode(story.id, {
+      parentId: null,
+      text: original
+    });
+    const node = story.path[0]!;
+    const attemptId = "active-settlement-attempt";
+    const streamedDigest = rewriteStreamDigest("green door");
+    const record: PartialRewriteRecord = {
+      storyId: story.id,
+      nodeId: node.id,
+      attemptId,
+      streamedDigest,
+      effect: {
+        kind: "rewrite",
+        nodeId: node.id,
+        expectedText: node.text,
+        expectedInstruction: node.instruction,
+        expectedUpdatedAt: node.updatedAt,
+        text: "The green door opened onto the courtyard.",
+        rewriteId: "active-settlement-rewrite"
+      }
+    };
+    const partials = partialRewriteStash(service);
+    const reservation = partials.reserve(
+      story.id,
+      node.id,
+      attemptId,
+      partialRewriteRecordRetainedBytes(record)
+    );
+    const input = {
+      storyId: story.id,
+      nodeId: node.id,
+      streamedDigest,
+      attemptId
+    };
+    const settlementId = createDurableMutationId();
+    let finished = false;
+    const settlement = service.commitPartialRewrite(
+      story.id,
+      node.id,
+      input,
+      settlementRequest(
+        settlementId,
+        input,
+        (await service.stories.loadVersioned(story.id)).aggregateVersion!
+      )
+    );
+    void settlement.then(
+      () => { finished = true; },
+      () => { finished = true; }
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(finished, false, "settlement must not report a miss while the attempt is active");
+
+    partials.remember(reservation, record);
+    const committed = await settlement;
+    assert.ok(committed);
+    assert.equal(committed.payload.path[0]!.text, record.effect.text);
+
+    const emptyAttemptId = "active-empty-attempt";
+    const emptyReservation = partials.reserve(
+      story.id,
+      node.id,
+      emptyAttemptId,
+      1_024
+    );
+    const emptyInput = {
+      storyId: story.id,
+      nodeId: node.id,
+      streamedDigest: rewriteStreamDigest("unverified prose"),
+      attemptId: emptyAttemptId
+    };
+    const emptySettlement = service.commitPartialRewrite(
+      story.id,
+      node.id,
+      emptyInput,
+      settlementRequest(
+        createDurableMutationId(),
+        emptyInput,
+        (await service.stories.loadVersioned(story.id)).aggregateVersion!
+      )
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    partials.releaseEmpty(emptyReservation);
+    assert.equal(await emptySettlement, null);
+  } finally {
+    await service.dispose();
+  }
+});
+
 test("terminal settlement replay releases a newer record with reused identity", async (t) => {
   const dataDir = await mkdtemp(path.join(
     tmpdir(),
@@ -216,7 +318,12 @@ test("terminal settlement replay releases a newer record with reused identity", 
         text: `${currentNode.text} Settled.`
       }
     };
-    const reservation = partials.reserve(story.id, nodeId, attemptId);
+    const reservation = partials.reserve(
+      story.id,
+      nodeId,
+      attemptId,
+      partialRewriteRecordRetainedBytes(newerRecord)
+    );
     partials.remember(reservation, newerRecord);
 
     await assert.rejects(

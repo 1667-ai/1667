@@ -11,7 +11,11 @@ import { GenerationAdmissionRegistry } from "../server/generation-admission.js";
 import { streamModel } from "../server/generation-stream.js";
 import { LEGACY_PROMPT_CACHE_CONTEXT, PromptCacheRuntime } from "../server/provider-cache-policy.js";
 import { attachProviderRuntime } from "../server/provider-runtime.js";
-import { PartialRewriteStash } from "../server/rewrite-partial.js";
+import {
+  MAX_STASHED_PARTIAL_BYTES,
+  PartialRewriteStash,
+  partialRewriteRecordRetainedBytes
+} from "../server/rewrite-partial.js";
 import { classifyServiceError } from "../server/service-error-policy.js";
 import type { SettingsStore } from "../server/settings.js";
 import { sha256 } from "../server/story-format.js";
@@ -384,17 +388,17 @@ providerTest("generation timeouts: a stopped rewrite stashes the streamed partia
     rewriteStreamDigest("rested on the cool step")
   );
   assert.equal(
-    partials.claim(story.id, nodeId, "stopped-attempt"),
+    await partials.claim(story.id, nodeId, "stopped-attempt"),
     record
   );
   assert.equal(
-    partials.claim(story.id, nodeId, "stopped-attempt"),
+    await partials.claim(story.id, nodeId, "stopped-attempt"),
     null,
     "one verified partial must have only one active settlement"
   );
   partials.releaseClaim(record);
   assert.equal(
-    partials.claim(story.id, nodeId, "stopped-attempt"),
+    await partials.claim(story.id, nodeId, "stopped-attempt"),
     record,
     "a retry must reclaim a partial after its failed settlement releases it"
   );
@@ -516,7 +520,7 @@ providerTest("rewrite stash capacity refuses provider work before it can emit pr
   const { story, nodeId, start, end } = fixtureStory();
   const partials = new PartialRewriteStash();
   for (let index = 0; index < 64; index += 1) {
-    partials.reserve(story.id, nodeId, `waiting-${index}`);
+    partials.reserve(story.id, nodeId, `waiting-${index}`, 1);
   }
   const settings: GenerationSettings = {
     provider: "dry-run",
@@ -555,6 +559,97 @@ providerTest("rewrite stash capacity refuses provider work before it can emit pr
     (error: unknown) => error instanceof ServiceError && error.status === 429
   );
   assert.equal(deltas, 0);
+});
+
+providerTest("rewrite stash byte capacity refuses provider work before it can emit prose", async () => {
+  const { story, nodeId, start, end } = fixtureStory();
+  const partials = new PartialRewriteStash();
+  partials.reserve(
+    story.id,
+    nodeId,
+    "large-waiting-record",
+    MAX_STASHED_PARTIAL_BYTES - 1
+  );
+  const settings: GenerationSettings = {
+    provider: "dry-run",
+    baseUrl: "",
+    model: "dry-run",
+    apiKeyEnv: null,
+    temperature: null,
+    maxTokens: 256,
+    systemPrompt: "Write.",
+    contextWindow: null
+  };
+  let deltas = 0;
+
+  await assert.rejects(
+    rewriteNode(
+      story.id,
+      nodeId,
+      {
+        start,
+        end,
+        expected: SELECTION,
+        instruction: "",
+        attemptId: "over-byte-capacity"
+      },
+      refusingStories<"rewriteNode">(story),
+      stubSettingsStore(settings),
+      new PromptCacheRuntime(),
+      () => { deltas += 1; },
+      new AbortController().signal,
+      undefined,
+      "over-byte-capacity-rewrite",
+      "over-byte-capacity-take",
+      undefined,
+      partials
+    ),
+    (error: unknown) => error instanceof ServiceError && error.status === 429
+  );
+  assert.equal(deltas, 0);
+});
+
+providerTest("rewrite stash byte accounting returns unused reservation and released records", () => {
+  const partials = new PartialRewriteStash();
+  const record = {
+    storyId: "byte-story",
+    nodeId: "byte-node",
+    attemptId: "byte-attempt",
+    streamedDigest: rewriteStreamDigest("saved prose"),
+    effect: {
+      kind: "rewrite" as const,
+      nodeId: "byte-node",
+      expectedText: "old prose",
+      expectedInstruction: "",
+      text: "saved prose"
+    }
+  };
+  const recordBytes = partialRewriteRecordRetainedBytes(record);
+  const recordReservation = partials.reserve(
+    record.storyId,
+    record.nodeId,
+    record.attemptId,
+    MAX_STASHED_PARTIAL_BYTES
+  );
+  partials.remember(recordReservation, record);
+  partials.reserve(
+    record.storyId,
+    record.nodeId,
+    "fills-returned-capacity",
+    MAX_STASHED_PARTIAL_BYTES - recordBytes
+  );
+  assert.throws(
+    () => partials.reserve(record.storyId, record.nodeId, "no-capacity", 1),
+    (error: unknown) => error instanceof ServiceError && error.status === 429
+  );
+
+  partials.clear(record);
+  partials.reserve(
+    record.storyId,
+    record.nodeId,
+    "uses-released-capacity",
+    recordBytes
+  );
 });
 
 providerTest("generation timeouts: a rewrite idle timeout stashes the partial for a new take when the writer asked for one", async (t) => {

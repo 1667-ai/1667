@@ -11,6 +11,7 @@ import {
 } from "./errors.js";
 import {
   countWordsForTarget,
+  maximumPartialRewriteRecordRetainedBytes,
   rewriteReplacement,
   wordBand,
   type PartialRewriteStash
@@ -43,6 +44,7 @@ import {
   createPromptCacheRequest,
   type PromptCacheRuntime
 } from "./provider-cache-policy.js";
+import { providerOutputByteLimit } from "./provider-stream-output.js";
 
 export type BindGenerationIntent = (settings: GenerationSettings, context: unknown) => Promise<void>;
 
@@ -494,7 +496,20 @@ export async function rewriteNode(
   // finds nothing and changes nothing.
   const reservation = partials === undefined || attemptId === undefined
     ? null
-    : partials.reserve(id, partId, attemptId);
+    : partials.reserve(
+        id,
+        partId,
+        attemptId,
+        maximumPartialRewriteRecordRetainedBytes({
+          storyId: id,
+          nodeId: partId,
+          attemptId,
+          streamedDigest: rewriteStreamDigest(""),
+          // The complete original keeps every byte that can survive outside
+          // the replacement. The provider limit below covers all new text.
+          effect: rewriteEffect(originalText.slice(start, end))
+        }, providerOutputByteLimit(rewriteSettings))
+      );
   try {
     let streamed = "";
     const stashPartial = () => {

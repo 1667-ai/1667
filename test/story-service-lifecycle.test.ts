@@ -75,7 +75,7 @@ test("story service disposal releases verified partial rewrite prose", async (t)
   });
   await service.init();
   const partials = service.partialRewriteStash();
-  const reservation = partials.reserve("story", "node", "attempt");
+  const reservation = partials.reserve("story", "node", "attempt", 4_096);
   partials.remember(reservation, {
     storyId: "story",
     nodeId: "node",
