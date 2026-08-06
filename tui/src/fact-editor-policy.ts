@@ -7,7 +7,7 @@ import {
   undoComposerEditOwner,
   type ComposerState
 } from "./composer-model.js";
-import { FACT_PRIORITIES, FACT_RECURSIONS, FACT_SECONDARY_MODES } from "../../shared/fact-activation.js";
+import { FACT_PRIORITIES, FACT_RECURSIONS, FACT_SECONDARY_MODES } from "../../shared/fact-metadata.js";
 import { graphemeCells } from "./cell-width.js";
 import { wrappedComposerLayout } from "./composer-wrapping.js";
 import { factEditorTag } from "./fact-editor-draft.js";

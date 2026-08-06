@@ -2,8 +2,9 @@ import { assertStoryAggregateVersion } from "./story-aggregate-version.js";
 import { isValidAuthorsNoteDepth, MAX_AUTHORS_NOTE_CHARS, MAX_AUTHORS_NOTE_DEPTH } from "./authors-note.js";
 import { MAX_AUTHOR_BRIEF_CHARS } from "./author-brief.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "./unicode.js";
-import { FactActivationError, parseFactMetadata } from "./fact-activation.js";
-import type { FactActivation, FactPriority, FactRecursion, FactSecondaryMode } from "./fact-activation.js";
+import { FactActivationError } from "./fact-metadata.js";
+import { parseFactMetadata } from "./fact-validation.js";
+import type { FactActivation, FactPriority, FactRecursion, FactSecondaryMode } from "./fact-metadata.js";
 import {
   SamplingValidationError,
   validateSamplingBannedStrings,
@@ -386,7 +387,7 @@ function assertStoryFact(value: unknown): void {
   if (fact.activation !== "always" && fact.activation !== "keyed") invalidField("fact", "activation");
   if (!Array.isArray(fact.keys)) invalidField("fact", "keys");
   try {
-    parseFactMetadata(fact.activation, fact.keys, "fact", fact.priority, fact.secondaryKeys, fact.secondaryMode, fact.scanDepth, fact.recursion);
+    parseFactMetadata(fact, "fact");
   } catch (error) {
     if (error instanceof FactActivationError) throw new Error(`The server returned an invalid fact: ${error.message}`);
     throw error;

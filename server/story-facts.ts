@@ -2,15 +2,17 @@ import { randomUUID } from "node:crypto";
 import { ServiceError as HttpError } from "./errors.js";
 import {
   FactActivationError,
+  DEFAULT_FACT_SCAN_PARTS,
+  factMetadataOverrides,
   parseFactActivation,
-  parseFactKeys,
-  parseFactMetadata,
   parseFactPriority,
   parseFactRecursion,
   parseFactScanDepth,
   parseFactSecondaryMode,
   type FactPriority
-} from "../shared/fact-activation.js";
+} from "../shared/fact-metadata.js";
+import { parseFactKeys } from "../shared/fact-keys.js";
+import { parseFactMetadata } from "../shared/fact-validation.js";
 import { FactBudgetError, parseFactBudgetTokens } from "../shared/fact-budget.js";
 import { isChapterSummary } from "../shared/story-tree.js";
 import { hasUnpairedSurrogate } from "./story-format.js";
@@ -42,15 +44,15 @@ export function createFacts(
     text: parseText(input.text),
     sourcePartId: parseSourcePartId(story, input.sourcePartId),
     budgetTokens: parseCreateBudgetTokens(input.budgetTokens),
-    ...parseMetadata(
-      input.activation,
-      input.keys,
-      input.priority,
-      input.secondaryKeys,
-      input.secondaryMode,
-      input.scanDepth,
-      input.recursion
-    )
+    ...parseMetadata({
+      activation: input.activation,
+      keys: input.keys,
+      priority: input.priority,
+      secondaryKeys: input.secondaryKeys,
+      secondaryMode: input.secondaryMode,
+      scanDepth: input.scanDepth,
+      recursion: input.recursion
+    })
   }));
   const ids = parsed.map((_, index) => idForIndex(index));
   const existingIds = new Set(story.facts.map((fact) => fact.id));
@@ -74,11 +76,7 @@ export function createFacts(
     keys: input.keys,
     createdAt: now,
     updatedAt: now,
-    ...(input.priority === "normal" ? {} : { priority: input.priority }),
-    ...(input.secondaryKeys.length === 0 ? {} : { secondaryKeys: input.secondaryKeys }),
-    ...(input.secondaryMode === "and" ? {} : { secondaryMode: input.secondaryMode }),
-    ...(input.scanDepth === 3 ? {} : { scanDepth: input.scanDepth }),
-    ...(input.recursion === "on" ? {} : { recursion: input.recursion }),
+    ...factMetadataOverrides(input),
     ...(input.budgetTokens === undefined ? {} : { budgetTokens: input.budgetTokens }),
     ...(input.sourcePartId === undefined ? {} : { sourcePartId: input.sourcePartId })
   })));
@@ -158,7 +156,7 @@ export function patchFact(story: Story, factId: string, value: unknown): void {
     if (body.scanDepth === null) delete fact.scanDepth;
     else {
       const depth = parseScanDepth(body.scanDepth);
-      if (depth === 3) delete fact.scanDepth;
+      if (depth === DEFAULT_FACT_SCAN_PARTS) delete fact.scanDepth;
       else fact.scanDepth = depth;
     }
   }
@@ -179,6 +177,7 @@ export function patchFact(story: Story, factId: string, value: unknown): void {
     if (body.budgetTokens === null) delete fact.budgetTokens;
     else fact.budgetTokens = parseCreateBudgetTokens(body.budgetTokens);
   }
+  normalizeFactMetadata(fact);
   fact.updatedAt = new Date().toISOString();
 }
 
@@ -254,13 +253,7 @@ function assertWellFormed(value: string, label: string): void {
 }
 
 function parseMetadata(
-  activation: unknown,
-  keys: unknown,
-  priority: unknown,
-  secondaryKeys: unknown,
-  secondaryMode: unknown,
-  scanDepth: unknown,
-  recursion: unknown
+  values: Parameters<typeof parseFactMetadata>[0]
 ): {
   activation: StoryFact["activation"];
   keys: string[];
@@ -271,20 +264,27 @@ function parseMetadata(
   recursion: NonNullable<StoryFact["recursion"]>;
 } {
   try {
-    return parseFactMetadata(
-      activation,
-      keys,
-      "Fact",
-      priority,
-      secondaryKeys,
-      secondaryMode,
-      scanDepth,
-      recursion
-    );
+    return parseFactMetadata(values, "Fact");
   } catch (error) {
     if (error instanceof FactActivationError) throw new HttpError(400, error.message);
     throw error;
   }
+}
+
+function normalizeFactMetadata(fact: StoryFact): void {
+  const metadata = factMetadataOverrides({
+    secondaryKeys: fact.secondaryKeys ?? [],
+    secondaryMode: fact.secondaryMode ?? "and",
+    scanDepth: fact.scanDepth ?? DEFAULT_FACT_SCAN_PARTS,
+    recursion: fact.recursion ?? "on",
+    priority: fact.priority ?? "normal"
+  });
+  delete fact.secondaryKeys;
+  delete fact.secondaryMode;
+  delete fact.scanDepth;
+  delete fact.recursion;
+  delete fact.priority;
+  Object.assign(fact, metadata);
 }
 
 function parseActivation(value: unknown): StoryFact["activation"] {

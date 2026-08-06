@@ -1,6 +1,7 @@
 import { countNoun, lossLines, type LossPhrases } from "./fidelity.js";
 import type { LorebookEntry, LorebookRead } from "./lorebook-entry.js";
 import { readLeadingDecorators } from "./entry-decorators.js";
+import { DEFAULT_FACT_SCAN_PARTS } from "./fact-metadata.js";
 import { isRecord } from "./types.js";
 
 /** A World Info file can hold far more entries than a story has room for. The
@@ -217,9 +218,11 @@ function convertWorldInfoEntry(item: Record<string, unknown>): ConvertedEntry {
       text: decorated.content,
       displayName: typeof item.comment === "string" ? item.comment : "",
       keys,
-      secondaryKeys: selective && Array.isArray(item.keysecondary) ? item.keysecondary : [],
+      secondaryKeys: selective && logic !== null && Array.isArray(item.keysecondary)
+        ? item.keysecondary
+        : [],
       ...(logic === null || logic === "and" ? {} : { secondaryMode: logic }),
-      ...(scanDepth === null || scanDepth === 3 ? {} : { scanDepth }),
+      ...(scanDepth === null || scanDepth === DEFAULT_FACT_SCAN_PARTS ? {} : { scanDepth }),
       ...(item.excludeRecursion === true ? { recursion: "off" as const } : {}),
       forceActivation: item.constant === true || forced,
       // World Info switches an entry off with `disable`; a Lorebook switches it
@@ -236,7 +239,7 @@ function worldInfoLogic(value: unknown): "and" | "not" | null {
   return null;
 }
 function worldInfoScanDepth(value: unknown): number | null {
-  if (value === undefined) return 3;
+  if (value === undefined) return DEFAULT_FACT_SCAN_PARTS;
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 20 ? value : null;
 }
 

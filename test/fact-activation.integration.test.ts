@@ -216,6 +216,42 @@ test("stored keyed Facts keep depth, gates, and bounded chains at request bounda
   }
 });
 
+test("continuation and rewrite ignore whitespace-only story parts in scan windows", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-fact-activation-whitespace-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    const story = await service.createStory("Fact scan whitespace");
+    await service.createFact(story.id, {
+      text: "window hit",
+      activation: "keyed",
+      keys: ["signal"],
+      scanDepth: 3
+    });
+    const contextParts: StoryNode[] = [
+      { id: "first", parentId: null, instruction: "", text: "older", model: "test", createdAt: "2026-01-01T00:00:00.000Z", activeChildId: "signal" },
+      { id: "signal", parentId: "first", instruction: "", text: "signal", model: "test", createdAt: "2026-01-01T00:01:00.000Z", activeChildId: "middle" },
+      { id: "middle", parentId: "signal", instruction: "", text: "middle", model: "test", createdAt: "2026-01-01T00:02:00.000Z", activeChildId: "blank" },
+      { id: "blank", parentId: "middle", instruction: "", text: "   ", model: "test", createdAt: "2026-01-01T00:03:00.000Z", activeChildId: "latest" },
+      { id: "latest", parentId: "blank", instruction: "", text: "latest", model: "test", createdAt: "2026-01-01T00:04:00.000Z", activeChildId: null }
+    ];
+    const loaded = await service.loadStory(story.id);
+    const continuation = activeBudgetedFacts(loaded, { contextParts, chapterBreaks: [], nodes: [] });
+    const rewrite = activeBudgetedFactsForRewrite(
+      { ...loaded, nodes: contextParts, activeRootId: "first" },
+      "latest",
+      "",
+      ""
+    );
+
+    assert.deepEqual(continuation.kept.map((fact) => fact.text), ["window hit"]);
+    assert.deepEqual(rewrite.kept.map((fact) => fact.text), ["window hit"]);
+  } finally {
+    await service.dispose();
+  }
+});
+
 function node(id: string, text: string): StoryNode {
   return {
     id,

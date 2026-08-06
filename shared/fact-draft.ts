@@ -1,4 +1,4 @@
-import type { FactActivation, FactPriority, FactRecursion, FactSecondaryMode } from "./fact-activation.js";
+import type { FactActivation, FactPriority, FactRecursion, FactSecondaryMode } from "./fact-metadata.js";
 import type { StoryFact } from "./types.js";
 
 /**

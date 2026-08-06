@@ -7,7 +7,12 @@ import {
 } from "../shared/types.js";
 import { MAX_AUTHORS_NOTE_CHARS, storedAuthorsNoteDepth } from "../shared/authors-note.js";
 import { MAX_AUTHOR_BRIEF_CHARS, storedAuthorBrief } from "../shared/author-brief.js";
-import { FactActivationError, parseFactMetadata } from "../shared/fact-activation.js";
+import {
+  DEFAULT_FACT_SCAN_PARTS,
+  FactActivationError,
+  factMetadataOverrides
+} from "../shared/fact-metadata.js";
+import { parseFactMetadata } from "../shared/fact-validation.js";
 import { activePath } from "../shared/story-tree.js";
 import { countWords } from "../shared/story-text.js";
 import {
@@ -140,11 +145,13 @@ export async function encodeStoryBundle(
     tag: fact.tag,
     ...(fact.activation === "always" ? {} : { activation: fact.activation }),
     ...(fact.keys.length === 0 ? {} : { keys: [...fact.keys] }),
-    ...(fact.secondaryKeys === undefined || fact.secondaryKeys.length === 0 ? {} : { secondaryKeys: [...fact.secondaryKeys] }),
-    ...(fact.secondaryMode === undefined || fact.secondaryMode === "and" ? {} : { secondaryMode: fact.secondaryMode }),
-    ...(fact.scanDepth === undefined || fact.scanDepth === 3 ? {} : { scanDepth: fact.scanDepth }),
-    ...(fact.recursion === undefined || fact.recursion === "on" ? {} : { recursion: fact.recursion }),
-    ...(fact.priority === undefined || fact.priority === "normal" ? {} : { priority: fact.priority }),
+    ...factMetadataOverrides({
+      secondaryKeys: fact.secondaryKeys ?? [],
+      secondaryMode: fact.secondaryMode ?? "and",
+      scanDepth: fact.scanDepth ?? DEFAULT_FACT_SCAN_PARTS,
+      recursion: fact.recursion ?? "on",
+      priority: fact.priority ?? "normal"
+    }),
     ...(fact.budgetTokens === undefined ? {} : { budgetTokens: fact.budgetTokens }),
     revisionId: factRevisionIds[index]!,
     createdAt: fact.createdAt,
@@ -247,11 +254,13 @@ export async function decodeStoryBundle(
     tag: stored.tag,
     activation: stored.activation ?? "always",
     keys: stored.keys === undefined ? [] : [...stored.keys],
-    ...(stored.secondaryKeys === undefined || stored.secondaryKeys.length === 0 ? {} : { secondaryKeys: [...stored.secondaryKeys] }),
-    ...(stored.secondaryMode === undefined || stored.secondaryMode === "and" ? {} : { secondaryMode: stored.secondaryMode }),
-    ...(stored.scanDepth === undefined || stored.scanDepth === 3 ? {} : { scanDepth: stored.scanDepth }),
-    ...(stored.recursion === undefined || stored.recursion === "on" ? {} : { recursion: stored.recursion }),
-    ...(stored.priority === undefined || stored.priority === "normal" ? {} : { priority: stored.priority }),
+    ...factMetadataOverrides({
+      secondaryKeys: stored.secondaryKeys ?? [],
+      secondaryMode: stored.secondaryMode ?? "and",
+      scanDepth: stored.scanDepth ?? DEFAULT_FACT_SCAN_PARTS,
+      recursion: stored.recursion ?? "on",
+      priority: stored.priority ?? "normal"
+    }),
     ...(stored.budgetTokens === undefined ? {} : { budgetTokens: stored.budgetTokens }),
     text: texts[cursor++]!,
     createdAt: stored.createdAt,
@@ -339,7 +348,7 @@ function requireEncodedRevision(value: ObjectHash | undefined, nodeId: string): 
 function validateFactBodies(facts: readonly StoryFact[]): void {
   for (const fact of facts) {
     try {
-      parseFactMetadata(fact.activation, fact.keys, `Fact ${fact.id}`, fact.priority, fact.secondaryKeys, fact.secondaryMode, fact.scanDepth, fact.recursion);
+      parseFactMetadata(fact, `Fact ${fact.id}`);
     } catch (error) {
       if (error instanceof FactActivationError) throw new StoryFormatError(error.message);
       throw error;

@@ -10,7 +10,6 @@ export const FACT_RECURSIONS = ["on", "off"] as const;
 export type FactRecursion = (typeof FACT_RECURSIONS)[number];
 
 export const MAX_FACT_KEYS = 32;
-export const MAX_FACT_SECONDARY_KEYS = MAX_FACT_KEYS;
 export const MAX_FACT_KEY_SCALARS = 64;
 export const DEFAULT_FACT_SCAN_PARTS = 3;
 export const MAX_FACT_SCAN_PARTS = 20;
@@ -60,4 +59,29 @@ export function assertFactKeyText(value: string, label: string): void {
   if (unicodeScalarLength(value, MAX_FACT_KEY_SCALARS + 1) > MAX_FACT_KEY_SCALARS) {
     throw new FactActivationError(`${label} exceeds the ${MAX_FACT_KEY_SCALARS}-character limit`);
   }
+}
+
+export interface FactMetadataValues {
+  readonly secondaryKeys: readonly string[];
+  readonly secondaryMode: FactSecondaryMode;
+  readonly scanDepth: number;
+  readonly recursion: FactRecursion;
+  readonly priority: FactPriority;
+}
+
+/** Return only values that must be written because they differ from defaults. */
+export function factMetadataOverrides(metadata: FactMetadataValues): {
+  secondaryKeys?: string[];
+  secondaryMode?: FactSecondaryMode;
+  scanDepth?: number;
+  recursion?: FactRecursion;
+  priority?: FactPriority;
+} {
+  return {
+    ...(metadata.secondaryKeys.length === 0 ? {} : { secondaryKeys: [...metadata.secondaryKeys] }),
+    ...(metadata.secondaryMode === "and" ? {} : { secondaryMode: metadata.secondaryMode }),
+    ...(metadata.scanDepth === DEFAULT_FACT_SCAN_PARTS ? {} : { scanDepth: metadata.scanDepth }),
+    ...(metadata.recursion === "on" ? {} : { recursion: metadata.recursion }),
+    ...(metadata.priority === "normal" ? {} : { priority: metadata.priority })
+  };
 }

@@ -6,7 +6,7 @@ import type {
   StorySummary,
   TextRange
 } from "../../shared/types.js";
-import type { FactPriority, FactRecursion, FactSecondaryMode } from "../../shared/fact-activation.js";
+import type { FactPriority, FactRecursion, FactSecondaryMode } from "../../shared/fact-metadata.js";
 import type { FactDraft } from "../../shared/fact-draft.js";
 import type { FactEditorRow } from "./fact-editor-rows.js";
 import type { ConnectionState } from "./connection.js";

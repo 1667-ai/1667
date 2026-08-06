@@ -1,4 +1,5 @@
-import type { FactActivation, FactActivationTrace } from "../../shared/fact-activation.js";
+import type { FactActivation } from "../../shared/fact-metadata.js";
+import type { FactActivationTrace } from "../../shared/fact-activation.js";
 import type { FactBudgetDrop, FactDropReason } from "../../shared/fact-budget.js";
 import { countNoun } from "../../shared/fidelity.js";
 import type { StoryFact } from "../../shared/types.js";

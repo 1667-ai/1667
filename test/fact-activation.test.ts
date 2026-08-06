@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  MAX_FACT_SCAN_UTF16,
-  selectActiveFacts,
-  selectActiveFactsWithTrace
-} from "../shared/fact-activation.js";
+import { selectActiveFactsWithTrace } from "../shared/fact-activation.js";
+import { MAX_FACT_SCAN_UTF16 } from "../shared/fact-metadata.js";
 import { parseFactKeys, splitFactKeyLine } from "../shared/fact-keys.js";
 import { compileFactPattern, factPatternMatches } from "../shared/fact-pattern.js";
 import type { StoryFact, StoryNode } from "../shared/types.js";
@@ -31,10 +28,10 @@ test("fact activation uses Unicode-aware whole-key boundaries", () => {
   ];
 
   for (const item of cases) {
-    const selected = selectActiveFacts(
+    const selected = selectActiveFactsWithTrace(
       [fact(item.key)],
       context(item.text)
-    );
+    ).facts;
     assert.equal(selected.length === 1, item.active, `${item.key} in ${item.text}`);
   }
 });
@@ -48,7 +45,7 @@ test("fact activation scans only the last three assembled parts and the instruct
     fact("recent"),
     { ...fact("unused"), keys: [] }
   ];
-  const selected = selectActiveFacts(facts, {
+  const selected = selectActiveFactsWithTrace(facts, {
     contextParts: [
       part("one", "forgotten"),
       part("two", "alpha"),
@@ -58,7 +55,7 @@ test("fact activation scans only the last three assembled parts and the instruct
     chapterBreaks: [],
     nodes: [],
     instruction: "Use the instruction key now."
-  });
+  }).facts;
 
   assert.deepEqual(selected.map(({ id }) => id), [
     "fact-standing",
@@ -67,27 +64,27 @@ test("fact activation scans only the last three assembled parts and the instruct
     "fact-recent"
   ]);
   assert.deepEqual(
-    selectActiveFacts(facts).map(({ id }) => id),
+    selectActiveFactsWithTrace(facts).facts.map(({ id }) => id),
     ["fact-standing"]
   );
 });
 
 test("the scan cap does not create a false word boundary", () => {
   const text = `xcat ${"z".repeat(MAX_FACT_SCAN_UTF16 - 4)}`;
-  assert.equal(selectActiveFacts([fact("cat")], context(text)).length, 0);
+  assert.equal(selectActiveFactsWithTrace([fact("cat")], context(text)).facts.length, 0);
   assert.equal(
-    selectActiveFacts(
+    selectActiveFactsWithTrace(
       [fact("a")],
       context(`z${" ".repeat(MAX_FACT_SCAN_UTF16)}`)
-    ).length,
+    ).facts.length,
     0,
     "the omitted boundary scalar must not become searchable text"
   );
   assert.equal(
-    selectActiveFacts(
+    selectActiveFactsWithTrace(
       [fact("tail key")],
       context(`${"z".repeat(MAX_FACT_SCAN_UTF16)} tail key`)
-    ).length,
+    ).facts.length,
     1
   );
 });
@@ -169,7 +166,7 @@ test("an adversarial regex stays bounded across a full scan window", () => {
 
 test("regex word boundaries retain the scalar before a capped scan suffix", () => {
   const text = `xcat${" ".repeat(MAX_FACT_SCAN_UTF16 - 3)}`;
-  assert.equal(selectActiveFacts([fact("/\\bcat/")], context(text)).length, 0);
+  assert.equal(selectActiveFactsWithTrace([fact("/\\bcat/")], context(text)).facts.length, 0);
 });
 
 test("secondary gates, scan depth, and recursion select Facts in stored order", () => {

@@ -6,10 +6,12 @@ import {
   type FactInput
 } from "./types.js";
 import {
+  DEFAULT_FACT_SCAN_PARTS,
   MAX_FACT_KEYS,
   MAX_FACT_KEY_SCALARS,
-  normalizeFactText
-} from "./fact-activation.js";
+  factMetadataOverrides
+} from "./fact-metadata.js";
+import { normalizeFactText } from "./fact-scan.js";
 import { countNoun, lossLines, type LossPhrases } from "./fidelity.js";
 import {
   alignUtf16Boundary,
@@ -17,7 +19,7 @@ import {
   sliceUnicodeScalarPrefix,
   unicodeScalarLength
 } from "./unicode.js";
-import { parseFactKeys, splitRegexKey } from "./fact-keys.js";
+import { assertFactKey, splitRegexKey } from "./fact-keys.js";
 import type { FactRecursion, FactSecondaryMode } from "./types.js";
 
 /** The canonical entry shape every archive reader converts into, so one Entry
@@ -169,10 +171,13 @@ export function factsFromEntries(
       text,
       activation,
       keys,
-      ...(secondaryKeys.length === 0 ? {} : { secondaryKeys }),
-      ...(item.secondaryMode === undefined || item.secondaryMode === "and" ? {} : { secondaryMode: item.secondaryMode }),
-      ...(item.scanDepth === undefined || item.scanDepth === 3 ? {} : { scanDepth: item.scanDepth }),
-      ...(item.recursion === undefined || item.recursion === "on" ? {} : { recursion: item.recursion })
+      ...factMetadataOverrides({
+        secondaryKeys,
+        secondaryMode: item.secondaryMode ?? "and",
+        scanDepth: item.scanDepth ?? DEFAULT_FACT_SCAN_PARTS,
+        recursion: item.recursion ?? "on",
+        priority: "normal"
+      })
     });
   }
 
@@ -246,8 +251,13 @@ function normalizeImportedKeys(source: readonly unknown[], losses: EntryLoss[]):
       continue;
     }
 
+    const isRegex = splitRegexKey(trimmedKey) !== null;
     let key = trimmedKey;
     if (unicodeScalarLength(key, MAX_FACT_KEY_SCALARS + 1) > MAX_FACT_KEY_SCALARS) {
+      if (isRegex) {
+        losses.push("keysDropped");
+        continue;
+      }
       key = sliceUnicodeScalarPrefix(key, MAX_FACT_KEY_SCALARS);
       losses.push("keysTruncated");
     }
@@ -264,10 +274,9 @@ function normalizeImportedKeys(source: readonly unknown[], losses: EntryLoss[]):
       continue;
     }
 
-    // This also compiles marked regex keys. Do it with the accumulated list
-    // because duplicate validation belongs to the same server contract.
+    // This also compiles marked regex keys, without rechecking prior keys.
     try {
-      parseFactKeys([...keys, key], "import key");
+      assertFactKey(key, "import key");
     } catch {
       losses.push("keysDropped");
       continue;

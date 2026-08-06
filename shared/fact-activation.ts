@@ -2,99 +2,22 @@ import { assembleChapterContext, type ChapterPartLike } from "./chapters.js";
 import { splitRegexKey } from "./fact-keys.js";
 import {
   DEFAULT_FACT_SCAN_PARTS,
-  FACT_ACTIVATIONS,
-  FACT_PRIORITIES,
-  FACT_RECURSIONS,
-  FACT_SECONDARY_MODES,
-  MAX_FACT_KEY_SCALARS,
-  MAX_FACT_KEYS,
   MAX_FACT_PATTERN_STEPS,
   MAX_FACT_RECURSION_ROUNDS,
-  MAX_FACT_SCAN_PARTS,
-  MAX_FACT_SCAN_UTF16,
-  FactActivationError,
-  parseFactActivation,
-  parseFactPriority,
-  parseFactRecursion,
-  parseFactScanDepth,
-  parseFactSecondaryMode,
-  type FactActivation,
-  type FactPriority,
-  type FactRecursion,
   type FactSecondaryMode
 } from "./fact-metadata.js";
-import { parseFactKeys } from "./fact-keys.js";
 import { compileFactPattern, factPatternMatches, type FactPatternBudget } from "./fact-pattern.js";
 import {
   literalFactKeyMatches,
-  normalizeFactText,
   recursionScanSegment,
-  scanSegments,
+  factScanSource,
+  factScanSourceFromTexts,
   windowScanSegments,
   type FactScanContext,
+  type FactScanSource,
   type FactScanSegment
 } from "./fact-scan.js";
 import type { ChapterBreak, StoryFact, StoryNode } from "./types.js";
-
-export {
-  DEFAULT_FACT_SCAN_PARTS,
-  FACT_ACTIVATIONS,
-  FACT_PRIORITIES,
-  FACT_RECURSIONS,
-  FACT_SECONDARY_MODES,
-  MAX_FACT_KEY_SCALARS,
-  MAX_FACT_KEYS,
-  MAX_FACT_PATTERN_STEPS,
-  MAX_FACT_RECURSION_ROUNDS,
-  MAX_FACT_SCAN_PARTS,
-  MAX_FACT_SCAN_UTF16,
-  FactActivationError,
-  normalizeFactText,
-  parseFactActivation,
-  parseFactKeys,
-  parseFactPriority,
-  parseFactRecursion,
-  parseFactScanDepth,
-  parseFactSecondaryMode
-};
-export type { FactActivation, FactPriority, FactRecursion, FactSecondaryMode, FactScanContext };
-
-export interface FactMetadata {
-  activation: FactActivation;
-  keys: string[];
-  priority: FactPriority;
-  secondaryKeys: string[];
-  secondaryMode: FactSecondaryMode;
-  scanDepth: number;
-  recursion: FactRecursion;
-}
-
-export function parseFactMetadata(
-  activationValue: unknown,
-  keysValue: unknown,
-  label = "Fact",
-  priorityValue?: unknown,
-  secondaryKeysValue?: unknown,
-  secondaryModeValue?: unknown,
-  scanDepthValue?: unknown,
-  recursionValue?: unknown
-): FactMetadata {
-  return {
-    activation: activationValue === undefined ? "always" : parseFactActivation(activationValue, `${label} activation`),
-    keys: keysValue === undefined ? [] : parseFactKeys(keysValue, `${label} keys`),
-    priority: priorityValue === undefined ? "normal" : parseFactPriority(priorityValue, `${label} priority`),
-    secondaryKeys: secondaryKeysValue === undefined
-      ? []
-      : parseFactKeys(secondaryKeysValue, `${label} secondaryKeys`),
-    secondaryMode: secondaryModeValue === undefined
-      ? "and"
-      : parseFactSecondaryMode(secondaryModeValue, `${label} secondaryMode`),
-    scanDepth: scanDepthValue === undefined
-      ? DEFAULT_FACT_SCAN_PARTS
-      : parseFactScanDepth(scanDepthValue, `${label} scanDepth`),
-    recursion: recursionValue === undefined ? "on" : parseFactRecursion(recursionValue, `${label} recursion`)
-  };
-}
 
 export type FactMatchKind = "always" | "literal" | "regex";
 
@@ -111,51 +34,25 @@ export interface FactActivationResult {
   readonly unevaluated: readonly string[];
 }
 
+type FactKeyMatch =
+  | { readonly state: "matched"; readonly kind: "literal" | "regex"; readonly key: string }
+  | { readonly state: "not-matched" }
+  | { readonly state: "unevaluated" };
+
 const COMPILED_PATTERN_CACHE_LIMIT = 64;
 const compiledPatterns = new Map<string, ReturnType<typeof compileFactPattern>>();
-const ACTIVATION_CACHE_LIMIT = 2;
-const activationCache: Array<{
-  readonly facts: readonly StoryFact[];
-  readonly factKey: string;
-  readonly segmentKey: string;
-  readonly result: FactActivationResult;
-}> = [];
-
-/** Compatibility selection. New callers use `selectActiveFactsWithTrace`. */
-export function selectActiveFacts(
-  facts: readonly StoryFact[],
-  context?: FactScanContext
-): StoryFact[] {
-  return selectActiveFactsWithTrace(facts, context).facts.slice();
-}
 export function selectActiveFactsWithTrace(
   facts: readonly StoryFact[],
   context?: FactScanContext
 ): FactActivationResult {
-  const parts = context === undefined ? [] : scanSegments(context);
-  const segmentKey = JSON.stringify(parts);
-  const factKey = JSON.stringify(facts.map((fact) => [
-    fact.id,
-    fact.text,
-    fact.activation,
-    fact.keys,
-    fact.secondaryKeys,
-    fact.secondaryMode,
-    fact.scanDepth,
-    fact.recursion
-  ]));
-  const cached = activationCache.find((entry) =>
-    entry.facts === facts && entry.factKey === factKey && entry.segmentKey === segmentKey
+  return selectActiveFactsForSource(
+    facts,
+    context === undefined ? factScanSourceFromTexts([]) : factScanSource(context)
   );
-  if (cached !== undefined) return cached.result;
-  const result = selectActiveFactsForSegments(facts, parts);
-  if (activationCache.length === ACTIVATION_CACHE_LIMIT) activationCache.shift();
-  activationCache.push({ facts, factKey, segmentKey, result });
-  return result;
 }
-function selectActiveFactsForSegments(
+function selectActiveFactsForSource(
   facts: readonly StoryFact[],
-  parts: readonly string[]
+  source: FactScanSource
 ): FactActivationResult {
   const traces = new Map<string, FactActivationTrace>();
   const active = new Set<string>();
@@ -168,7 +65,7 @@ function selectActiveFactsForSegments(
   const budget: FactPatternBudget = { steps: MAX_FACT_PATTERN_STEPS, exhausted: false };
   const windows = new Map<number, FactScanSegment | null>();
   const window = (depth: number): FactScanSegment | null => {
-    if (!windows.has(depth)) windows.set(depth, windowScanSegments(parts, depth));
+    if (!windows.has(depth)) windows.set(depth, windowScanSegments(source, depth));
     return windows.get(depth)!;
   };
   let recursion: FactScanSegment | null = null;
@@ -181,19 +78,20 @@ function selectActiveFactsForSegments(
         ...(round === 0 ? [] : [recursion])
       ].filter((item): item is FactScanSegment => item !== null);
       const primary = matchAny(fact.keys, scans, budget);
-      if (primary === false || primary === undefined) {
-        if (primary === undefined) unevaluated.add(fact.id);
+      if (primary.state !== "matched") {
+        if (primary.state === "unevaluated") unevaluated.add(fact.id);
         continue;
       }
       const secondary = fact.secondaryKeys ?? [];
       const mode = fact.secondaryMode ?? "and";
       if (secondary.length > 0) {
         const gate = matchAny(secondary, scans, budget);
-        if (gate === undefined) {
+        if (gate.state === "unevaluated") {
           unevaluated.add(fact.id);
           continue;
         }
-        if ((mode === "and") !== (gate !== false)) continue;
+        const gateMatched = gate.state === "matched";
+        if (gateMatched !== (mode === "and")) continue;
       }
       fresh.push(fact);
       active.add(fact.id);
@@ -221,13 +119,13 @@ function matchAny(
   keys: readonly string[],
   scans: readonly FactScanSegment[],
   budget: FactPatternBudget
-): { kind: "literal" | "regex"; key: string } | false | undefined {
+): FactKeyMatch {
   let skipped = false;
   for (const key of keys) {
     const pattern = splitRegexKey(key);
     if (pattern === null) {
       if (scans.some((scan) => literalFactKeyMatches(scan, key))) {
-        return { kind: "literal", key };
+        return { state: "matched", kind: "literal", key };
       }
       continue;
     }
@@ -237,14 +135,14 @@ function matchAny(
     }
     const compiled = compiledFactPattern(pattern.source, pattern.flags);
     if (scans.some((scan) => factPatternMatches(compiled, scan.text, budget, scan.before))) {
-      return { kind: "regex", key };
+      return { state: "matched", kind: "regex", key };
     }
     if (budget.exhausted) {
       skipped = true;
       break;
     }
   }
-  return skipped ? undefined : false;
+  return skipped ? { state: "unevaluated" } : { state: "not-matched" };
 }
 function compiledFactPattern(source: string, flags: string): ReturnType<typeof compileFactPattern> {
   const key = `${source}/${flags}`;
@@ -282,29 +180,9 @@ export function selectActiveFactsForRewriteWithTrace<Node extends ChapterPartLik
   selectedText: string
 ): FactActivationResult {
   const assembled = assembleRewriteContext(path, partId, chapterBreaks, nodes);
-  return selectActiveFactsForSegments(facts, [
-    ...assembled.map((part) => part.text ?? ""),
+  return selectActiveFactsForSource(facts, factScanSourceFromTexts(
+    assembled.map((part) => part.text ?? ""),
     instruction,
     selectedText
-  ]);
-}
-
-export function selectActiveFactsForRewrite<Node extends ChapterPartLike>(
-  facts: readonly StoryFact[],
-  path: readonly StoryNode[],
-  partId: string,
-  chapterBreaks: readonly ChapterBreak[],
-  nodes: readonly Node[],
-  instruction: string,
-  selectedText: string
-): StoryFact[] {
-  return selectActiveFactsForRewriteWithTrace(
-    facts,
-    path,
-    partId,
-    chapterBreaks,
-    nodes,
-    instruction,
-    selectedText
-  ).facts.slice();
+  ));
 }

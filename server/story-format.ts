@@ -10,7 +10,7 @@ import {
   type StoryOrigin,
   type TextRange,
 } from "../shared/types.js";
-import type { FactActivation, FactPriority, FactRecursion, FactSecondaryMode } from "../shared/fact-activation.js";
+import type { FactActivation, FactPriority, FactRecursion, FactSecondaryMode } from "../shared/fact-metadata.js";
 import { FactBudgetError, parseStoryFactsBudgetTokens } from "../shared/fact-budget.js";
 import {
   SamplingValidationError,

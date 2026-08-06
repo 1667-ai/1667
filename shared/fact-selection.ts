@@ -1,8 +1,8 @@
 import {
   selectActiveFactsWithTrace,
-  selectActiveFactsForRewriteWithTrace,
-  type FactScanContext
+  selectActiveFactsForRewriteWithTrace
 } from "./fact-activation.js";
+import type { FactScanContext } from "./fact-scan.js";
 import { selectFactsWithinBudget, type FactBudgetSelection } from "./fact-budget.js";
 import { formatFactsMessage } from "./story-facts.js";
 import { activePath } from "./story-tree.js";

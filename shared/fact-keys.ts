@@ -45,7 +45,7 @@ export function parseFactKeys(value: unknown, label = "Fact keys"): string[] {
     if (typeof candidate !== "string") {
       throw new FactActivationError(`${itemLabel} must be a string`);
     }
-    assertFactKeyText(candidate, itemLabel);
+    assertFactKey(candidate, itemLabel);
     const pattern = splitRegexKey(candidate);
     if (pattern === null) {
       if (candidate.includes(",")) {
@@ -66,6 +66,12 @@ export function parseFactKeys(value: unknown, label = "Fact keys"): string[] {
     }
     return candidate;
   });
+}
+/** Validate one key without re-validating an already checked list. */
+export function assertFactKey(value: string, label: string): void {
+  assertFactKeyText(value, label);
+  const pattern = splitRegexKey(value);
+  if (pattern !== null) compileFactPattern(pattern.source, pattern.flags, label);
 }
 /** Split editor text without treating commas inside a closed slash pattern as separators. */
 export function splitFactKeyLine(value: string): string[] {

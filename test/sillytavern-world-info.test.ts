@@ -104,12 +104,14 @@ test("World Info maps supported selective logic and scan depth", () => {
   const archive = parseLorebookArchive(Buffer.from(worldInfo([
     { comment: "and", content: "a", key: ["a"], world_info_logic: 0, scanDepth: 4 },
     { comment: "not", content: "b", key: ["b"], world_info_logic: 2, scanDepth: 20 },
-    { comment: "not-all", content: "c", key: ["c"], world_info_logic: 1 },
-    { comment: "and-all", content: "d", key: ["d"], world_info_logic: 3, scanDepth: 0 }
+    { comment: "not-all", content: "c", key: ["c"], keysecondary: ["night"], world_info_logic: 1 },
+    { comment: "and-all", content: "d", key: ["d"], keysecondary: ["night"], world_info_logic: 3, scanDepth: 0 }
   ])));
   const result = factsFromArchive(archive, 128);
   assert.equal(result.facts[0]!.scanDepth, 4);
   assert.equal(result.facts[1]!.secondaryMode, "not");
+  assert.equal(result.facts[2]!.secondaryKeys, undefined, "unsupported logic must not retain a misleading AND gate");
+  assert.equal(result.facts[3]!.secondaryKeys, undefined, "unsupported logic must not retain a misleading AND gate");
   const report = fidelityReport(result.fidelity);
   assert.ok(report.includes("2 selective logic modes omitted"), report);
   assert.ok(report.includes("1 invalid scan depth omitted"), report);

@@ -105,6 +105,19 @@ test("a regex-marked entry keeps valid keys and drops invalid patterns", () => {
   assert.ok(report.includes("1 key dropped"), report);
 });
 
+test("an overlength regex key is dropped rather than truncated", () => {
+  const book = entriesFromCharacterBook({
+    entries: [{ content: "Body.", keys: ["a".repeat(62)], use_regex: true }]
+  }, "Mira");
+
+  const result = factsFromEntries(book.entries, 128);
+  const report = fidelityReport(result.fidelity);
+
+  assert.deepEqual(result.facts[0]?.keys, []);
+  assert.ok(report.includes("1 key dropped"), report);
+  assert.ok(!report.includes("key cut to 64 characters"), report);
+});
+
 test("secondary keys use the primary-key import validation path", () => {
   const book = entriesFromCharacterBook({
     entries: [{

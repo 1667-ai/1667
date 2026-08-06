@@ -17,7 +17,7 @@ import {
 } from "../shared/types.js";
 import { MAX_AUTHORS_NOTE_CHARS, MAX_AUTHORS_NOTE_DEPTH } from "../shared/authors-note.js";
 import { MAX_AUTHOR_BRIEF_CHARS } from "../shared/author-brief.js";
-import { FACT_PRIORITIES, MAX_FACT_KEY_SCALARS, MAX_FACT_KEYS } from "../shared/fact-activation.js";
+import { FACT_PRIORITIES, MAX_FACT_KEY_SCALARS, MAX_FACT_KEYS } from "../shared/fact-metadata.js";
 import { MAX_FACT_BUDGET_TOKENS, MAX_STORY_FACTS_BUDGET_TOKENS } from "../shared/fact-budget.js";
 import {
   SAMPLING_BANNED_STRINGS_POLICY,

@@ -18,27 +18,47 @@ export interface FactScanSegment {
   readonly folded: string;
   readonly before: string | null;
 }
+export interface FactScanSource {
+  readonly story: readonly string[];
+  readonly instruction: string;
+  readonly selectedText: string;
+}
 
 export function normalizeFactText(value: string): string {
   return value.normalize("NFC").toLowerCase();
 }
 
-export function scanSegments(context: FactScanContext): readonly string[] {
+export function factScanSource(context: FactScanContext): FactScanSource {
   const assembled = assembleChapterContext(context.contextParts, context.chapterBreaks, context.nodes);
-  return [
-    ...assembled
-      .filter((part) => (part.text ?? "").trim().length > 0)
-      .map((part) => part.text ?? ""),
+  return factScanSourceFromTexts(
+    assembled.map((part) => part.text ?? ""),
     context.instruction ?? "",
     context.selectedText ?? ""
-  ];
+  );
 }
-export function windowScanSegments(parts: readonly string[], depth = DEFAULT_FACT_SCAN_PARTS): FactScanSegment | null {
-  const story = parts.slice(0, -2).filter((part) => part.length > 0).slice(-depth);
-  return boundedSegment([...story, ...parts.slice(-2)]);
+export function factScanSourceFromTexts(
+  story: readonly string[],
+  instruction = "",
+  selectedText = ""
+): FactScanSource {
+  return {
+    story: story.filter(hasFactScanText),
+    instruction,
+    selectedText
+  };
+}
+export function windowScanSegments(
+  source: FactScanSource,
+  depth = DEFAULT_FACT_SCAN_PARTS
+): FactScanSegment | null {
+  return boundedSegment([
+    ...source.story.slice(-depth),
+    source.instruction,
+    source.selectedText
+  ]);
 }
 export function boundedSegment(parts: readonly string[], max = MAX_FACT_SCAN_UTF16): FactScanSegment | null {
-  const source = parts.filter((part) => part.length > 0).join("\n\n");
+  const source = parts.filter(hasFactScanText).join("\n\n");
   if (source.length === 0) return null;
   if (source.length <= max) return segment(source, null);
   const start = suffixStart(source, source.length - max);
@@ -49,6 +69,9 @@ export function recursionScanSegment(texts: readonly string[]): FactScanSegment 
 }
 function segment(text: string, before: string | null): FactScanSegment {
   return { text: text.normalize("NFC"), folded: normalizeFactText(text), before };
+}
+function hasFactScanText(text: string): boolean {
+  return text.trim().length > 0;
 }
 export function literalFactKeyMatches(scan: FactScanSegment, key: string): boolean {
   const foldedKey = normalizeFactText(key);

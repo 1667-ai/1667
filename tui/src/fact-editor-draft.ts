@@ -1,5 +1,6 @@
 import { setComposerText } from "./composer-model.js";
-import { FactActivationError, parseFactKeys, parseFactScanDepth } from "../../shared/fact-activation.js";
+import { FactActivationError, parseFactScanDepth } from "../../shared/fact-metadata.js";
+import { parseFactKeys } from "../../shared/fact-keys.js";
 import { splitFactKeyLine } from "../../shared/fact-keys.js";
 import { MAX_FACT_BUDGET_TOKENS } from "../../shared/fact-budget.js";
 import { FACT_DRAFT_FIELDS, type FactDraft } from "../../shared/fact-draft.js";

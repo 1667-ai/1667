@@ -1,4 +1,4 @@
-import type { FactPriority } from "./fact-activation.js";
+import type { FactPriority } from "./fact-metadata.js";
 import { estimateTokens } from "./tokens.js";
 import type { StoryFact } from "./types.js";
 

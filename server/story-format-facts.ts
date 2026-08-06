@@ -8,12 +8,12 @@ import {
 } from "../shared/types.js";
 import {
   FactActivationError,
-  parseFactMetadata,
   type FactActivation,
   type FactPriority,
   type FactRecursion,
   type FactSecondaryMode
-} from "../shared/fact-activation.js";
+} from "../shared/fact-metadata.js";
+import { parseFactMetadata } from "../shared/fact-validation.js";
 import { FactBudgetError, parseFactBudgetTokens } from "../shared/fact-budget.js";
 import type { ObjectHash, StoredFactV1 } from "./story-format.js";
 import { unicodeScalarLength } from "../shared/unicode.js";
@@ -137,16 +137,7 @@ function parseStoredFactMetadata(
   recursion?: FactRecursion;
 } {
   try {
-    const metadata = parseFactMetadata(
-      fact.activation,
-      fact.keys,
-      `facts[${factIndex}]`,
-      fact.priority,
-      fact.secondaryKeys,
-      fact.secondaryMode,
-      fact.scanDepth,
-      fact.recursion
-    );
+    const metadata = parseFactMetadata(fact, `facts[${factIndex}]`);
     return {
       ...(fact.activation === undefined ? {} : { activation: metadata.activation }),
       ...(fact.keys === undefined ? {} : { keys: metadata.keys }),

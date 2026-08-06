@@ -40,6 +40,7 @@ export function renderFactEditorLayout(
   editor: FactEditorSession,
   options: FactEditorLayoutOptions
 ): ComposerLayout {
+  const headerRows = FACT_EDITOR_ROWS.length - 1;
   const body = renderComposerLayout({
     composer: editor.composer,
     fullscreen: true,
@@ -126,13 +127,13 @@ export function renderFactEditorLayout(
           : sourced;
       })
     ],
-    lineCount: body.lineCount + 9,
-    bodyRows: body.bodyRows + 9,
-    // Every row but the body sits at its FACT_EDITOR_ROWS index, in the nine
+    lineCount: body.lineCount + headerRows,
+    bodyRows: body.bodyRows + headerRows,
+    // Every row but the body sits at its FACT_EDITOR_ROWS index, in the
     // header lines inserted above; the body's own viewport row shifts down
-    // by that same nine.
+    // same number of inserted header rows.
     cursorViewportRow: editor.focus === "body"
-      ? body.cursorViewportRow + 9
+      ? body.cursorViewportRow + headerRows
       : FACT_EDITOR_ROWS.indexOf(editor.focus)
   };
 }
