@@ -146,8 +146,9 @@ export async function* providerSseEvents(
           if (phaseTimer !== null) clearTimeout(phaseTimer);
           phaseTimer = null;
         }
-        if (!await events.push(event)) return false;
-        if (isTerminalEvent(event)) {
+        const terminal = isTerminalEvent(event);
+        if (!await events.push(event, terminal)) return false;
+        if (terminal) {
           terminalQueued = true;
           break;
         }
@@ -206,9 +207,9 @@ export async function* providerSseEvents(
     })();
     try {
       for (;;) {
-        if (signal.aborted) throw signal.reason;
+        events.throwIfCancellationWins(signal);
         const next = await events.next();
-        if (signal.aborted) throw signal.reason;
+        events.throwIfCancellationWins(signal);
         if (next.done) break;
         yield next.value;
       }
@@ -296,12 +297,14 @@ class ProviderEventQueue {
   private closed = false;
   private failed = false;
   private failure: unknown;
+  private terminalQueued = false;
 
-  async push(value: string): Promise<boolean> {
+  async push(value: string, terminal: boolean): Promise<boolean> {
     if (this.failed) throw this.failure;
     if (this.closed) return false;
     const waiter = this.waiters.shift();
     if (waiter !== undefined) {
+      if (terminal) this.terminalQueued = true;
       waiter.resolve({ done: false, value });
       return true;
     }
@@ -315,6 +318,7 @@ class ProviderEventQueue {
       if (this.failed) throw this.failure;
       if (this.closed) return false;
     }
+    if (terminal) this.terminalQueued = true;
     this.values.push({ value, memoryBytes });
     this.queuedMemoryBytes += memoryBytes;
     return true;
@@ -370,6 +374,13 @@ class ProviderEventQueue {
     return await new Promise<IteratorResult<string>>((resolve, reject) => {
       this.waiters.push({ resolve, reject });
     });
+  }
+
+  /** Preserve recorded provider failure and terminal evidence before a later
+   * caller cancellation. Cancellation can still discard ordinary deltas. */
+  throwIfCancellationWins(signal: AbortSignal): void {
+    if (this.failed) throw this.failure;
+    if (!this.terminalQueued && signal.aborted) throw signal.reason;
   }
 
   private releaseCapacityWaiters(): void {
