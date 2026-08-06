@@ -15,6 +15,7 @@ Commands:
   import           Make a new story from a file
   import-card      Add Facts from a character card to a story that exists
   import-lorebook  Add Facts from a NovelAI lorebook to a story that exists
+  profile          Import or export a Generation Profile
   serve            Run the HTTP server
   auth             Show an access record
   upgrade          Update this program
@@ -26,7 +27,6 @@ Options:
   --url [base-url]   Connect to a loopback 1667 HTTP server; bare reads run.json
   --auth-file <path> Use the canonical private auth record for --url
   --version [--json] Print embedded build identity
-
 Run '1667 <command> --help' for one command, or read docs/development.md.`;
 
 export const EXPORT_HELP = `1667 export — write a story to a file
@@ -131,6 +131,24 @@ Options:
   --data <path>          Open this project root instead of discovering one
   --global               Open the machine-wide project instead of a folder`;
 
+export const PROFILE_HELP = `1667 profile — import or export a Generation Profile
+
+Usage: 1667 profile import [--profile <name>] [--data <path>|--global] <file...>
+       1667 profile export [--profile <name>] [--force] [--data <path>|--global]
+
+Import reads a NovelAI Sampler Preset or a Profile Export. It creates a new
+Generation Profile and does not change the selected profile. 1667 reports
+parameters that the selected route cannot use on standard error.
+
+Export writes a shareable Profile Export JSON file in the project root. It
+does not include a connection, credentials, headers, or private endpoint data.
+
+Options:
+  --profile <name>  Select a profile ID or unique profile name
+  --force           Replace the export file
+  --data <path>     Open this project root instead of discovering one
+  --global          Open the machine-wide project instead of a folder`;
+
 export const INIT_HELP = `1667 init — make a project in this directory
 
 Usage: 1667 init [--adopt [--from <legacy-data-dir>]]
@@ -167,7 +185,8 @@ const COMMAND_HELP: ReadonlyMap<string, string> = new Map([
   ["export", EXPORT_HELP],
   ["import", IMPORT_HELP],
   ["import-card", IMPORT_CARD_HELP],
-  ["import-lorebook", IMPORT_LOREBOOK_HELP]
+  ["import-lorebook", IMPORT_LOREBOOK_HELP],
+  ["profile", PROFILE_HELP]
 ]);
 
 /** The help page for a command, or null when the command has none. */

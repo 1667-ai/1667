@@ -2,12 +2,15 @@ import type { GenerationSettings, Provider } from "../shared/types.js";
 import { applyBasicSettingsDraft } from "../shared/settings-basic-draft.js";
 import type {
   ModelConnectionV2,
-  ModelDefinitionV2,
-  ModelScalarMetadataV2,
   SettingsDocumentV2,
   SettingsPresetV2,
   SettingsRoutePurpose
 } from "../shared/settings-v2-types.js";
+import {
+  clampMaxOutputTokensToModel,
+  resolveModelScalar,
+  type ModelScalarMetadataSourcesV2
+} from "../shared/model-scalar-resolution.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import {
   defaultConnectionTimeouts,
@@ -22,6 +25,7 @@ import {
 import {
   promptCacheContextForRoute
 } from "../shared/prompt-cache-capabilities.js";
+import { generationEffortAvailabilityForRoute } from "../shared/generation-effort-capabilities.js";
 import { selectSettingsRoute } from "../shared/settings-route.js";
 import { parseGenerationSettingsV1 } from "./settings-v1-codec.js";
 import { parseSettingsDocumentV2 } from "./settings-v2-codec.js";
@@ -35,10 +39,7 @@ import {
   type ProviderRuntime
 } from "./provider-runtime.js";
 
-export interface EffectiveMetadataV2 {
-  readonly runtime?: ModelScalarMetadataV2;
-  readonly builtin?: ModelScalarMetadataV2;
-}
+export interface EffectiveMetadataV2 extends ModelScalarMetadataSourcesV2 {}
 
 export interface EffectiveGenerationRuntime {
   readonly settings: GenerationSettings;
@@ -114,19 +115,17 @@ export function effectiveGenerationRuntime(
   if (promptCachePlan.kind === "blocked") {
     throw new SettingsFormatError(promptCacheBlockMessage(promptCachePlan.reason));
   }
-  const provider = providerForProtocol(connection.protocol);
-  if (provider === "anthropic" && profile.effort === "off") {
-    throw new SettingsFormatError(
-      "Anthropic does not support generation effort set to off."
-    );
+  const effortAvailability = generationEffortAvailabilityForRoute(route, profile.effort);
+  if (effortAvailability.kind === "unavailable") {
+    throw new SettingsFormatError(`${effortAvailability.reason}.`);
   }
+  const provider = providerForProtocol(connection.protocol);
   const remoteId = effectiveRemoteId(
     provider,
     model.remoteId,
     options.allowBlankModel === true
   );
   const contextWindow = resolveModelScalar(model, metadata, "contextWindow");
-  const modelMaxOutputTokens = resolveModelScalar(model, metadata, "maxOutputTokens");
   const providerRuntime = providerRuntimeFromV2(
     connection,
     profile.effort,
@@ -142,9 +141,7 @@ export function effectiveGenerationRuntime(
       model: remoteId,
       apiKeyEnv: effectiveApiKeyEnv(connection),
       temperature: profile.temperature,
-      maxTokens: modelMaxOutputTokens === undefined
-        ? profile.maxOutputTokens
-        : Math.min(profile.maxOutputTokens, modelMaxOutputTokens),
+      maxTokens: clampMaxOutputTokensToModel(profile.maxOutputTokens, model, metadata),
       systemPrompt: document.writing.defaultAuthorBrief,
       contextWindow: contextWindow ?? null
     }, providerRuntime);
@@ -255,17 +252,6 @@ function effectiveRemoteId(
     throw new SettingsFormatError("Network runtime lowering requires a nonblank model remote ID");
   }
   return remoteId;
-}
-
-function resolveModelScalar(
-  model: ModelDefinitionV2,
-  metadata: EffectiveMetadataV2,
-  scalar: keyof ModelScalarMetadataV2
-): number | undefined {
-  return model.overrides[scalar]
-    ?? metadata.runtime?.[scalar]
-    ?? model.discovered[scalar]
-    ?? metadata.builtin?.[scalar];
 }
 
 export function effectiveApiKeyEnv(connection: ModelConnectionV2): string | null {

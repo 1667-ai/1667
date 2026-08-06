@@ -51,7 +51,7 @@ export type KeyAction =
   | "copy-selection" | "cut-selection" | "paste-clipboard" | "undo-edit" | "redo-edit"
   | "edit-tag"
   | "open-keys" | "prune" | "tag" | "delete-tag"
-  | "typewriter" | "edit" | "write" | "regenerate" | "retake-with-prompt" | "apply"
+  | "typewriter" | "edit" | "write" | "regenerate" | "retake-with-prompt" | "apply" | "apply-profile-transfer"
   | "open-library" | "open-facts" | "open-commands" | "open-settings"
   | "open-selected" | "new-item" | "duplicate-item" | "rename-item" | "delete-item"
   | "move-item-up" | "move-item-down"
@@ -61,7 +61,7 @@ export type KeyAction =
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
   | "toggle-context-meter" | "open-search" | "toggle-search-case" | "open-request"
   | "complete" | "open-log" | "clear-log" | "row-action"
-  | "open-probs" | "next-part" | "open-text-actions";
+  | "open-probs" | "next-part" | "open-text-actions" | "import-profile";
 
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
@@ -223,6 +223,15 @@ export function pasteInto(
     settings: {
       edit: SettingsInlineEditState | null;
       sampling?: { edit: { composer: ComposerState } | null } | null;
+      profileTransfer?: {
+        phase: "source";
+        error: string | null;
+      } | {
+        phase: "file";
+        path: string;
+        candidates: string[];
+        error: string | null;
+      } | null;
       conflict: { armed: boolean } | null;
     } | null;
     card: CardImportPrompt | null;
@@ -271,6 +280,13 @@ export function pasteInto(
     state.archive.path += line;
     state.archive.error = null;
     state.archive.candidates = [];
+    return true;
+  }
+  const profileTransfer = state.settings?.profileTransfer;
+  if (state.mode === "SETTINGS" && profileTransfer?.phase === "file") {
+    profileTransfer.path += line;
+    profileTransfer.error = null;
+    profileTransfer.candidates = [];
     return true;
   }
   if (state.mode === "LIBRARY" && state.library?.prompt != null) {
@@ -338,6 +354,8 @@ export interface ResolveOptions {
   commandsTags?: boolean;
   /** Settings has its C-15 option column open, which owns `↑↓` and letters. */
   settingsPicker?: boolean;
+  /** The Settings-owned Generation Profile import phase. */
+  settingsProfileTransfer?: "source" | "file" | null;
   /** The full-screen editor owns a Fact tag slider above its text body. */
   factEditor?: boolean;
   /** The open document editor targets the Author's Note, so its depth chord
@@ -362,7 +380,8 @@ export function overlayTextInputActive(state: OverlayTextInputState): boolean {
   if (state.mode === "ARCHIVE") return state.archive != null;
   if (state.mode === "CHAPTERS") return state.chapters?.rename != null;
   if (state.mode === "SETTINGS") {
-    return state.settings?.edit != null
+    return state.settings?.profileTransfer?.phase === "file"
+      || state.settings?.edit != null
       || state.settings?.modelPicker != null
       || state.settings?.sampling?.edit != null;
   }
@@ -383,6 +402,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   const { confirmingPrune = false, tagChoosingStatus = false, connectionDown = false,
     overlayTyping = false, settingsSampling = false, commandsTags = false,
     factEditor = false, authorsNoteEditor = false, settingsPicker = false,
+    settingsProfileTransfer = null,
     textActionsOpen = false,
     mapView = "path" } = options;
   const globalReference = resolveReferenceBinding("global", key, mode, mapView);
@@ -492,6 +512,22 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.ctrl && name === "d") return { action: "delete-forward" };
     return composerBackedInput(key);
   }
+  if (mode === "SETTINGS"
+    && (key.ctrl || key.super)
+    && key.name.toLowerCase() === "v") {
+    return { action: "paste-clipboard" };
+  }
+  if (mode === "SETTINGS" && settingsProfileTransfer !== null) {
+    if (key.name === "return") return { action: "apply-profile-transfer" };
+    if (key.name === "tab") return { action: "complete" };
+    if (key.name === "backspace") return { action: "backspace" };
+    if (settingsProfileTransfer === "source") {
+      if (key.name === "down") return { action: "focus-next" };
+      if (key.name === "up") return { action: "focus-previous" };
+      return { action: "none" };
+    }
+    return textInput(key) ?? { action: "none" };
+  }
   // C-15 owns `↑↓` and every plain letter while it is open, so it is resolved
   // ahead of the row editor and ahead of the field list.
   if (mode === "SETTINGS" && settingsPicker) {
@@ -511,11 +547,6 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.super && name === "a") return { action: "select-all" };
     // A settings field holds a base URL. It edits like every other surface.
     return composerBackedInput(key);
-  }
-  if (mode === "SETTINGS"
-    && (key.ctrl || key.super)
-    && key.name.toLowerCase() === "v") {
-    return { action: "paste-clipboard" };
   }
   if (mode === "SETTINGS" && settingsSampling) {
     // A modified key is a chord, never a plain Sampling hotkey. The Settings
@@ -568,6 +599,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "n") return { action: "new-item" };
     if (key.name === "d") return { action: "delete-item" };
     if (key.name === "x") return { action: "discard-pending" };
+    if (key.name === "i") return { action: "import-profile" };
     // C-08 stepping: `←→` by one, `⇧←→` by ten, home/end to the ends. A cycler
     // on the same keys ignores the distance and steps once either way.
     if (key.name === "left") {

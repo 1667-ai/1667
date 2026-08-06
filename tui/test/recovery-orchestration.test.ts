@@ -1171,6 +1171,21 @@ describe("backend recovery orchestration", () => {
     expect(emptyState.prune).toBe(null);
   });
 
+  test("reconciliation drops a stale Generation Profile import prompt", () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    state.mode = "SETTINGS";
+    state.settings = initialSettingsOverlay(source.settingsView, state.config);
+    state.settings.profileTransfer = {
+      phase: "file", path: "/tmp/stale.preset", candidates: [], error: null
+    };
+
+    adoptReconciliationSnapshot(state, { ...state.payload, id: "recovered-story" });
+
+    expect(state.settings).toBe(null);
+    expect(state.mode).toBe("NAV");
+  });
+
   test("direct chapter deletion remains armed only on the surviving focused divider", () => {
     const source = demoAppSource();
     const state = initialState(source, false);

@@ -146,6 +146,17 @@ export function renameSettingsProfile(
       };
 }
 
+/** Allocate an unambiguous name for a profile that arrives from an import. */
+export function uniqueSettingsProfileName(
+  document: SettingsDocumentV2,
+  rawName: string
+): string {
+  const name = rawName.trim();
+  return name.length === 0 || [...name].length > MAX_PROFILE_NAME_SCALARS
+    ? rawName
+    : freshProfileName(document, name);
+}
+
 /** Delete the selected profile and resources that only it can reach. Preserve
  * shared and unrelated imported records. */
 export function deleteSettingsProfile(

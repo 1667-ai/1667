@@ -1,6 +1,6 @@
 import type { HitRows } from "../hit.js";
 import type { KeyAction } from "../keys.js";
-import type { FilePathPrompt } from "../path-completion.js";
+import type { FilePathCompletionPrompt } from "../path-completion.js";
 import { wrapText } from "../wrap.js";
 import { boundedContent } from "./panel-table-layout.js";
 import {
@@ -36,7 +36,7 @@ export interface FilePromptPanelText {
  * exact path the filesystem needs and adds no projection of its own. */
 export function renderFilePromptPanel(
   base: FrameLine[],
-  prompt: FilePathPrompt,
+  prompt: FilePathCompletionPrompt,
   text: FilePromptPanelText,
   hitRows: HitRows,
   width: number,

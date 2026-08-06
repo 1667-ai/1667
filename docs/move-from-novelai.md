@@ -138,9 +138,9 @@ NovelAI conditions:
 world.lorebook: 14 entries read; 12 facts imported; search range, bias groups, and advanced conditions omitted
 ```
 
-1667 does not read the sampling settings or the retry history from a NovelAI
-file. Set the sampling parameters in Settings. Refer to
-[Facts, context, and model providers](model-providers.md).
+1667 does not read sampling settings from a NovelAI `.story` or `.scenario`
+file. Import a NovelAI `.preset` file with `1667 profile import`. Refer to
+[Generation Profile transfer](generation-profile-transfer.md).
 
 The report adds one item, after a semicolon, for each other change that
 occurred:
@@ -177,11 +177,6 @@ stories.
   requests to the NovelAI models. Use an OpenAI-compatible host, Anthropic,
   or a local server. Refer to
   [issue 286](https://github.com/1667-ai/1667-archive2/issues/286).
-- 1667 does not import `.preset` files, and it ships no starter
-  [Generation Profiles](technical-terms.md). Make and name your own
-  Generation Profiles in Settings. Refer to
-  [issue 290](https://github.com/1667-ai/1667-archive2/issues/290) and
-  [Facts, context, and model providers](model-providers.md).
 - A Fact key is literal text on one list. 1667 has no regex keys, no
   secondary-key logic, and no recursion. Refer to
   [issue 289](https://github.com/1667-ai/1667-archive2/issues/289).

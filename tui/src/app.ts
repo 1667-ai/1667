@@ -620,6 +620,7 @@ export async function handleKey(
     connectionDown: state.connection.down,
     overlayTyping: overlayTextInputActive(state),
     settingsSampling: state.settings !== null && state.settings.sampling !== null,
+    settingsProfileTransfer: state.settings?.profileTransfer?.phase ?? null,
     commandsTags: state.commands?.view === "tags",
     settingsPicker: state.settings?.modelPicker != null,
     textActionsOpen: state.textActions !== null,

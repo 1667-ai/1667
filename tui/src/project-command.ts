@@ -1,34 +1,56 @@
 import {
   resolveProject,
+  type ProjectOutcome,
   type ProjectRequest,
   type ResolvedProject
 } from "../../server/project-discovery.js";
 import { PROJECT_DIRECTORY_NAME } from "../../server/project-layout.js";
 import { terminalLineText as plain } from "../../shared/terminal-text.js";
 
-/** The project selection every import command accepts. */
+/** The project selection every import and export command accepts. */
 export interface ProjectSelection {
   readonly data: string | null;
   readonly global: boolean;
 }
 
-/** Find the project an import command writes to, or refuse with the reason.
- * Both import commands share this wording, so neither can drift from it. */
-export async function resolveImportProject(
-  selection: ProjectSelection
+export type ExistingProjectOperation = "import" | "export";
+
+export interface ExistingProjectRequirement {
+  /** Text after "so there is" for an absent or uninitialized project. */
+  readonly unavailable: string;
+  /** Terminal-safe path text for commands that print paths from their input. */
+  readonly displayPath?: (path: string) => string;
+}
+
+/** Resolve an existing project for a command that must not create one. */
+export async function resolveExistingProject(
+  selection: ProjectSelection,
+  operation: ExistingProjectOperation
 ): Promise<ResolvedProject> {
   const outcome = await resolveProject(projectRequest(selection));
+  return requireExistingProject(outcome, {
+    unavailable: operation === "import" ? "nowhere to import" : "nothing to export",
+    displayPath: plain
+  });
+}
+
+/** Reject absent and uninitialized projects without creating either one. */
+export function requireExistingProject(
+  outcome: ProjectOutcome,
+  requirement: ExistingProjectRequirement
+): ResolvedProject {
+  const displayPath = requirement.displayPath ?? ((path: string) => path);
   if (outcome.kind === "absent") {
     throw new Error(
-      `no ${PROJECT_DIRECTORY_NAME} story project in ${plain(outcome.cwd)} or any parent, `
-        + "so there is nowhere to import. Run '1667 init' first."
+      `no ${PROJECT_DIRECTORY_NAME} story project in ${displayPath(outcome.cwd)} or any parent, `
+        + `so there is ${requirement.unavailable}. Run '1667 init' first.`
     );
   }
   const project = outcome.project;
   if (!project.exists) {
     throw new Error(
-      `${plain(project.directory)} is not a 1667 story project yet, so there is `
-        + "nowhere to import. Run '1667 init' there first."
+      `${displayPath(project.directory)} is not a 1667 story project yet, so there is `
+        + `${requirement.unavailable}. Run '1667 init' there first.`
     );
   }
   return project;

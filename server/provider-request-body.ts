@@ -13,6 +13,7 @@ import { ProviderError } from "./errors.js";
 import { applySamplingFields } from "./provider-sampling.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
 import { resolveTokenProbabilities } from "../shared/token-probability-capabilities.js";
+import { generationEffortAvailabilityForTarget } from "../shared/generation-effort-capabilities.js";
 import type { StorySamplingRequest } from "./sampling-phrase-bias.js";
 
 type TextContentBlock = Record<string, unknown> & {
@@ -210,10 +211,16 @@ function applyGenerationEffort(
   adapter: "openai" | "anthropic"
 ): void {
   const runtime = providerRuntimeFor(settings);
-  if (runtime.effort === "default") return;
-  if (runtime.capabilities.reasoningEffort !== "supported") {
-    throw new ProviderError("Generation effort is not supported by the selected model.");
+  const effortAvailability = generationEffortAvailabilityForTarget({
+    protocol: adapter === "anthropic" ? "anthropic-messages" : "openai-chat-completions",
+    reasoningEffort: runtime.capabilities.reasoningEffort
+  }, runtime.effort);
+  if (effortAvailability.kind === "unavailable") {
+    throw new ProviderError(effortAvailability.code === "model-unsupported"
+      ? "Generation effort is not supported by the selected model."
+      : `${effortAvailability.reason}.`);
   }
+  if (runtime.effort === "default") return;
   if (adapter === "openai") {
     body.reasoning_effort = runtime.effort === "off" ? "none" : runtime.effort;
     return;

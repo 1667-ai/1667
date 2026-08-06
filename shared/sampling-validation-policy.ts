@@ -97,6 +97,16 @@ export function maxResolvedLogitBiasEntries(preset: SettingsPresetV2): number {
     ?? SAMPLING_RESOLVED_LOGIT_BIAS_POLICY.maxEntries;
 }
 
+/** Raw token IDs resolve one-to-one, so this part of the wire bound is exact. */
+export function rawLogitBiasLimit(
+  logitBias: Readonly<Record<string, number>>,
+  preset: SettingsPresetV2
+): { readonly entries: number; readonly limit: number; readonly exceeds: boolean } {
+  const entries = Object.keys(logitBias).length;
+  const limit = maxResolvedLogitBiasEntries(preset);
+  return { entries, limit, exceeds: entries > limit };
+}
+
 // KoboldCpp's `banned_tokens` carries no per-request count limit in its own
 // API document (see the field description quoted in
 // shared/sampling-capabilities.ts) — unlike logit_bias, there is no
@@ -117,6 +127,17 @@ export function maxResolvedLogitBiasEntries(preset: SettingsPresetV2): number {
 export const SAMPLING_NATIVE_BANNED_STRINGS_POLICY = {
   maxEntries: SAMPLING_RESOLVED_LOGIT_BIAS_POLICY.maxEntries
 } as const;
+
+/** Only KoboldCpp sends literal banned strings on the wire. The other presets
+ * resolve them into logit bias, which has its own route-aware limit above. */
+export function nativeBannedStringsLimit(
+  bannedStrings: readonly string[],
+  preset: SettingsPresetV2
+): { readonly entries: number; readonly limit: number; readonly exceeds: boolean } {
+  const entries = preset === "koboldcpp" ? new Set(bannedStrings).size : 0;
+  const limit = SAMPLING_NATIVE_BANNED_STRINGS_POLICY.maxEntries;
+  return { entries, limit, exceeds: entries > limit };
+}
 
 // The JSON schema still needs a structural, preset-agnostic ceiling on the
 // raw wire object — ajv has no way to see which preset a document targets.

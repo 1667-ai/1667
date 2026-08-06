@@ -6,7 +6,9 @@ import {
   type PaletteCommand
 } from "./command-model.js";
 import { connectionFailed, connectionSucceeded } from "./connection.js";
-import { writeStoryExport } from "./export-file.js";
+import { writeExportFile, writeStoryExport } from "./export-file.js";
+import { exportGenerationProfile } from "../../server/import-profile-export.js";
+import { selectSettingsRoute } from "../../shared/settings-route.js";
 import { boundedFactCursor, boundedFactSelection, factRows, factTags } from "./facts-model.js";
 import { applyTextKey, type ResolvedKey } from "./keys.js";
 import {
@@ -40,7 +42,7 @@ import {
 } from "./settings-overlay-actions.js";
 import { synchronizeSettingsModelDiscovery } from "./settings-model-discovery.js";
 import { panelContentRows } from "./screens/overlay.js";
-import { boundedNoticeCursor, clearNoticeLog } from "./notice-log.js";
+import { boundedNoticeCursor, clearNoticeLog, recordNotice } from "./notice-log.js";
 import { copyToClipboard } from "./clipboard.js";
 import {
   openRequestViewer,
@@ -470,6 +472,31 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
         markdown
       });
       if (task.interactionCurrent()) state.toast = `exported ${file}`;
+    });
+  } else if (command.id === "export-profile") {
+    if (!source.settingsView.editable) {
+      state.toast = "Generation Profiles require settings format 2";
+      return;
+    }
+    const document = source.settingsView.document;
+    const profileId = selectSettingsRoute(document, "prose").profileId;
+    await context.backend.run("exporting Generation Profile", async (task) => {
+      try {
+        const archive = exportGenerationProfile(document, profileId);
+        const file = await writeExportFile({
+          directory: source.exportDirectory,
+          title: document.profiles[profileId]!.name,
+          extension: archive.extension,
+          content: archive.text
+        });
+        if (!task.interactionCurrent()) return;
+        state.toast = `exported ${file} · connection data omitted`;
+        recordNotice(state.notices, "toast", `exported Generation Profile · ${archive.fidelity.join("; ")}`);
+      } catch (error) {
+        if (task.interactionCurrent()) {
+          state.toast = `could not export Generation Profile · ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }
     });
   } else if (command.id === "summary") await startSummary(state, source, context);
   else if (command.id === "chapters") openChapters(state);

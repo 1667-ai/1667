@@ -34,11 +34,13 @@ test("import refuses a directory that is not a project rather than making one", 
 
   // Importing into a directory with no project would create one, import into
   // it, and leave the starter stories it had just invented beside the result.
-  expect(await failure(() => runStoryImport(
+  const error = await failure(() => runStoryImport(
     [file, "--data", root],
     sink(),
     sink()
-  ))).toMatch(/not a 1667 story project yet/u);
+  ));
+  expect(error).toMatch(/not a 1667 story project yet/u);
+  expect(error).toContain("nowhere to import");
 });
 
 test("import reads a SillyTavern chat into one new story", async () => {

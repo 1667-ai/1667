@@ -1,4 +1,4 @@
-import { inlineValue, resolveImportProject, separatedValue } from "./import-project.js";
+import { inlineValue, resolveExistingProject, separatedValue } from "./project-command.js";
 import type { StorySummary } from "../../shared/types.js";
 import { readImportBytes } from "../../server/import-file.js";
 import { selectStory } from "./story-selector.js";
@@ -53,7 +53,7 @@ export async function runCardImport(
   errorOutput: Pick<NodeJS.WriteStream, "write"> = process.stderr
 ): Promise<void> {
   const command = parseCardImportCommand(argv);
-  const project = await resolveImportProject(command);
+  const project = await resolveExistingProject(command, "import");
   const backend = await createWorkerStoryApi({ dataDir: project.directory });
   let failed = false;
   try {
@@ -87,7 +87,6 @@ export async function runCardImport(
   }
   if (failed) process.exitCode = 1;
 }
-
 
 
 

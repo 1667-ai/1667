@@ -49,6 +49,9 @@ read_when:
 | token estimate | A token count of four characters for each token |
 | Generation Profile | One named set of model behavior settings |
 | Generation Route | The selection of a Generation Profile for one type of work |
+| Sampler Preset | A NovelAI `.preset` file |
+| Profile Export | A shareable JSON file that holds one Generation Profile |
+| Starter Profile | One named Generation Profile that 1667 ships |
 | Sampling group | The Settings group for sampling parameters |
 | sampling parameter | One provider request field that changes how the model selects tokens |
 | stop sequence | One text sequence that stops generation |

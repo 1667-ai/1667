@@ -22,8 +22,9 @@ import type { SamplingUnavailableReason } from "../shared/sampling-capabilities.
 import type { SelectedSettingsRouteV2 } from "../shared/settings-route.js";
 import {
   maxResolvedLogitBiasEntries,
+  nativeBannedStringsLimit,
+  rawLogitBiasLimit,
   SamplingValidationError,
-  SAMPLING_NATIVE_BANNED_STRINGS_POLICY,
   validateSamplingBannedStrings,
   validateSamplingDryBreakers,
   validateSamplingLogitBias,
@@ -157,6 +158,14 @@ export function validateSamplingRoute(
   if (context.protocol === "legacy-v1" || context.preset === "legacy-v1") return;
   if (!configured.some(({ knob }) => isLogitBiasFamilyKnob(knob))) return;
   const preset = context.preset;
+  const bound = maxResolvedLogitBiasEntries(preset);
+  const rawLogitBias = rawLogitBiasLimit(profile.sampling.logitBias, preset);
+  if (rawLogitBias.exceeds) {
+    throw new SettingsFormatError(
+      `profile ${profileId} has ${rawLogitBias.entries} raw logit-bias entries, `
+      + `exceeding the ${bound}-entry limit for preset ${preset}`
+    );
+  }
   const resolved = precomputedResolution ?? (
     preset === "llama-cpp" || preset === "koboldcpp"
       ? undefined
@@ -190,7 +199,6 @@ export function validateSamplingRoute(
       + samplingBiasNativeBlockedMessage(blockedNative)
     );
   }
-  const bound = maxResolvedLogitBiasEntries(preset);
   if (resolved.resolvedEntryCount > bound) {
     throw new SettingsFormatError(
       `profile ${profileId} resolves to ${resolved.resolvedEntryCount} logit-bias entries, `
@@ -204,13 +212,14 @@ export function validateSamplingRoute(
   // Counts only "native" entries — an "overridden" one (issue #311 review,
   // third pass, finding G) never reaches `banned_tokens` at all, so it
   // never counts against what the wire actually carries.
-  const nativeCount = new Set(
-    resolved.nativeBannedStrings.flatMap((entry) => entry.kind === "native" ? [entry.phrase] : [])
-  ).size;
-  if (nativeCount > SAMPLING_NATIVE_BANNED_STRINGS_POLICY.maxEntries) {
+  const nativeBannedStrings = resolved.nativeBannedStrings.flatMap((entry) =>
+    entry.kind === "native" ? [entry.phrase] : []
+  );
+  const nativeLimit = nativeBannedStringsLimit(nativeBannedStrings, preset);
+  if (nativeLimit.exceeds) {
     throw new SettingsFormatError(
-      `profile ${profileId} resolves to ${nativeCount} banned-string entries, exceeding the `
-      + `${SAMPLING_NATIVE_BANNED_STRINGS_POLICY.maxEntries}-entry limit`
+      `profile ${profileId} resolves to ${nativeLimit.entries} banned-string entries, exceeding the `
+      + `${nativeLimit.limit}-entry limit`
     );
   }
 }

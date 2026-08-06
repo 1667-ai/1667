@@ -17,8 +17,11 @@ export interface FilePathPrompt {
   returnMode: "NAV" | "COMPOSE";
 }
 
+/** The filesystem completion fields shared by every file-path prompt. */
+export type FilePathCompletionPrompt = Pick<FilePathPrompt, "path" | "candidates" | "error">;
+
 /** Extend the typed path to the longest match, and name the rest. */
-export async function completeFilePath(prompt: FilePathPrompt): Promise<void> {
+export async function completeFilePath(prompt: FilePathCompletionPrompt): Promise<void> {
   const target = completionTarget(prompt.path);
   prompt.candidates = [];
   prompt.error = null;

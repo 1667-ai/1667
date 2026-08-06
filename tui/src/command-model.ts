@@ -10,7 +10,7 @@ export type CommandId =
   | "direct-take" | "retake" | "rewrite-selection" | "prune"
   | "tags" | "chapters" | "chapter" | "prompts"
   | "next-request" | "token-probabilities"
-  | "settings" | "reconnect" | "disconnect" | "theme";
+  | "settings" | "reconnect" | "disconnect" | "export-profile" | "theme";
 
 export type CommandSelectionId = Exclude<CommandId, "theme"> | `theme:${ThemeName}`;
 
@@ -124,6 +124,7 @@ const COMMANDS: readonly PaletteCommand[] = [
     id: "theme", section: "system", theme, name: `theme: ${theme}`,
     description: "switch the palette · persists per user"
   })),
+  { id: "export-profile", section: "system", name: "export generation profile", description: "write the routed profile as shareable JSON" },
   { id: "disconnect", section: "system", name: "simulate disconnect", description: "demo-only connection banner fixture", demoOnly: true }
 ];
 

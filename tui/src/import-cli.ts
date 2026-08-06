@@ -1,5 +1,5 @@
 import path from "node:path";
-import { inlineValue, resolveImportProject, separatedValue } from "./import-project.js";
+import { inlineValue, resolveExistingProject, separatedValue } from "./project-command.js";
 import { readImportBytes } from "../../server/import-file.js";
 import { terminalLineText as plain } from "../../shared/terminal-text.js";
 import { createWorkerStoryApi } from "./worker-api.js";
@@ -47,7 +47,7 @@ export async function runStoryImport(
   errorOutput: Pick<NodeJS.WriteStream, "write"> = process.stderr
 ): Promise<void> {
   const command = parseImportCommand(argv);
-  const project = await resolveImportProject(command);
+  const project = await resolveExistingProject(command, "import");
   const backend = await createWorkerStoryApi({ dataDir: project.directory });
   let failed = false;
   try {
@@ -110,4 +110,3 @@ export async function runStoryImport(
 async function readImportFile(file: string): Promise<string> {
   return new TextDecoder("utf-8").decode(await readImportBytes(file));
 }
-

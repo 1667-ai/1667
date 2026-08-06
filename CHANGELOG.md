@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Generation Profiles can move between projects.** Import a NovelAI Sampler
+  Preset or a Profile Export with `1667 profile import`. Export a shareable
+  Profile Export with `1667 profile export`. The command creates a new profile
+  and reports values that the selected route cannot use. 1667 also provides
+  conservative, balanced, and adventurous prose Starter Profiles.
+
 - **Editors now have standard clipboard actions.** Right-click an editable
   text field to open Copy, Paste, and Select all. Press `Ctrl+A` or
   `Command+A` to select all text. Direct supports these actions in its inline
