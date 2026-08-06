@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { exportGenerationProfile, importProfileExport } from "../../server/import-profile-export.js";
 import type { SaveSettingsCommand } from "../../shared/settings-v2-types.js";
 import { applyProfileTransfer } from "../src/profile-transfer-apply.js";
 import { profileTransferAction } from "../src/profile-transfer-actions.js";
@@ -64,6 +65,34 @@ describe("Generation Profile transfer", () => {
     const collided = applyProfileTransfer(retained, "default", { name: "Default copy" });
     if ("error" in collided) throw new Error(collided.error);
     expect(collided.document.profiles[collided.profileId]!.name).toBe("Default copy 2");
+  });
+
+  test("Profile Export imports preserve valid whitespace names and suffix only collisions", () => {
+    const { source } = settingsHarness();
+    if (!source.settingsView.editable) throw new Error("editable settings missing");
+    const document = source.settingsView.document;
+    for (const name of ["   ", "  surrounding whitespace  "]) {
+      const exportedDocument = {
+        ...document,
+        profiles: { ...document.profiles, default: { ...document.profiles.default!, name } }
+      };
+      const candidate = importProfileExport(exportGenerationProfile(exportedDocument, "default").text);
+      const imported = applyProfileTransfer(document, "default", candidate);
+      if ("error" in imported) throw new Error(imported.error);
+      expect(imported.document.profiles[imported.profileId]!.name).toBe(name);
+    }
+
+    const name = "  surrounding whitespace  ";
+    const collidingDocument = {
+      ...document,
+      profiles: {
+        ...document.profiles,
+        retained: { ...document.profiles.default!, name }
+      }
+    };
+    const collided = applyProfileTransfer(collidingDocument, "default", { name });
+    if ("error" in collided) throw new Error(collided.error);
+    expect(collided.document.profiles[collided.profileId]!.name).toBe("  surrounding whitespace   2");
   });
 
   test("Generation Profile file keyboard edits clear stale errors and candidates", async () => {

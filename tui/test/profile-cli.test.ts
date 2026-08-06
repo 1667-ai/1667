@@ -70,6 +70,29 @@ test("profile import makes untrusted fidelity report text safe for the terminal"
   expect(errors.text()).not.toContain("\u009b");
 });
 
+test("profile import preserves whitespace Profile Export names and suffixes collisions", async () => {
+  const root = await project();
+  const whitespace = path.join(root, "whitespace.profile.json");
+  const surrounding = path.join(root, "surrounding.profile.json");
+  await writeFile(whitespace, JSON.stringify({
+    profileExportVersion: 1, name: "   ", generation: {}, sampling: {}
+  }), "utf8");
+  await writeFile(surrounding, JSON.stringify({
+    profileExportVersion: 1, name: "  surrounding whitespace  ", generation: {}, sampling: {}
+  }), "utf8");
+
+  await runProfileCommand(
+    ["import", "--data", root, whitespace, whitespace, surrounding, surrounding],
+    sink(), sink()
+  );
+
+  const document = await settings(root);
+  expect(document.profiles["profile.1"]?.name).toBe("   ");
+  expect(document.profiles["profile.2"]?.name).toBe("    2");
+  expect(document.profiles["profile.3"]?.name).toBe("  surrounding whitespace  ");
+  expect(document.profiles["profile.4"]?.name).toBe("  surrounding whitespace   2");
+});
+
 test("profile export round trips, omits secrets, and allocates or replaces files as requested", async () => {
   const root = await project();
   const first = collector();

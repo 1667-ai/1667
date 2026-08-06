@@ -7,7 +7,7 @@ import {
 import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
 import {
   duplicateSettingsProfile,
-  renameSettingsProfile,
+  renameImportedSettingsProfile,
   uniqueSettingsProfileName
 } from "./settings-profile-draft.js";
 
@@ -21,7 +21,7 @@ export function applyProfileTransfer(
   const name = uniqueSettingsProfileName(document, candidate.name);
   const duplicate = duplicateSettingsProfile(document, sourceProfileId);
   if ("error" in duplicate) return duplicate;
-  const renamed = renameSettingsProfile(duplicate.document, duplicate.profileId, name);
+  const renamed = renameImportedSettingsProfile(duplicate.document, duplicate.profileId, name);
   if ("error" in renamed) return renamed;
   return fitProfileToRoute(renamed, duplicate.profileId, { ...candidate, name }, options);
 }

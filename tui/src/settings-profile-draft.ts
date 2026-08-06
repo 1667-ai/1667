@@ -126,6 +126,25 @@ export function renameSettingsProfile(
 ): SettingsDocumentV2 | { readonly error: string } {
   const name = rawName.trim();
   if (name.length === 0) return { error: "profile name cannot be blank" };
+  return renameSettingsProfileTo(document, profileId, name);
+}
+
+/** Apply a Profile Export name exactly when Settings v2 permits it. The
+ * interactive rename control keeps its own trimmed-name rule above. */
+export function renameImportedSettingsProfile(
+  document: SettingsDocumentV2,
+  profileId: string,
+  name: string
+): SettingsDocumentV2 | { readonly error: string } {
+  if ([...name].length === 0) return { error: "profile name cannot be blank" };
+  return renameSettingsProfileTo(document, profileId, name);
+}
+
+function renameSettingsProfileTo(
+  document: SettingsDocumentV2,
+  profileId: string,
+  name: string
+): SettingsDocumentV2 | { readonly error: string } {
   if ([...name].length > MAX_PROFILE_NAME_SCALARS) {
     return { error: "profile name must be at most 256 characters" };
   }
@@ -151,10 +170,9 @@ export function uniqueSettingsProfileName(
   document: SettingsDocumentV2,
   rawName: string
 ): string {
-  const name = rawName.trim();
-  return name.length === 0 || [...name].length > MAX_PROFILE_NAME_SCALARS
+  return rawName.length === 0 || [...rawName].length > MAX_PROFILE_NAME_SCALARS
     ? rawName
-    : freshProfileName(document, name);
+    : freshProfileName(document, rawName);
 }
 
 /** Delete the selected profile and resources that only it can reach. Preserve

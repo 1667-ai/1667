@@ -41,6 +41,10 @@ export async function profileTransferAction(
     prompt.cursor = (prompt.cursor + (resolved.action === "focus-next" ? 1 : PROFILE_TRANSFER_SOURCE_COUNT - 1)) % PROFILE_TRANSFER_SOURCE_COUNT;
     return;
   }
+  if (prompt.phase === "source" && resolved.action === "focus-index") {
+    prompt.cursor = Math.max(0, Math.min(PROFILE_TRANSFER_SOURCE_COUNT - 1, resolved.index ?? prompt.cursor));
+    return;
+  }
   if (prompt.phase === "file") {
     if (resolved.action === "input" || resolved.action === "backspace") {
       prompt.path = resolved.action === "input"

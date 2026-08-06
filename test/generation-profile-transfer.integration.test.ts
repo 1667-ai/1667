@@ -241,6 +241,22 @@ test("Sampler Preset clears a selected temperature when order disables it", () =
   assert.match(fitted.fidelity.join("; "), /temperature disabled in the Sampler Preset skipped/u);
 });
 
+test("Profile Export preserves Settings v2 whitespace names", () => {
+  for (const name of ["   ", "  surrounding whitespace  "]) {
+    const exportedDocument = {
+      ...openAiDocument(),
+      profiles: {
+        default: { ...openAiDocument().profiles.default!, name }
+      }
+    };
+    const candidate = importProfileExport(exportGenerationProfile(exportedDocument, "default").text);
+    assert.equal(candidate.name, name);
+
+    const fitted = fitProfileToRoute(openAiDocument(), "default", candidate);
+    assert.equal(fitted.document.profiles.default?.name, name);
+  }
+});
+
 test("Profile transfer resolves prompt caching by exact route and policy", () => {
   const official = {
     ...openAiDocument(),
