@@ -1,4 +1,5 @@
 import type { HttpCapabilityScope } from "../shared/http-auth.js";
+import type { FailureEnvelope } from "../shared/failure-envelope.js";
 import {
   isTerminalHttpOperationState,
   type HttpOperationReservationResponse,
@@ -48,6 +49,7 @@ export interface HttpOperationRecord {
   readonly abort: AbortController;
   state: HttpOperationState;
   cancelRequested: boolean;
+  failure: FailureEnvelope | null;
   terminalAt: number | null;
   timer: ReturnType<typeof setTimeout> | null;
   hardTimer: ReturnType<typeof setTimeout> | null;
@@ -170,7 +172,8 @@ export function httpOperationStatusResponse(
     sequence: operation.sequence.toString(),
     state: operation.state,
     terminal: isTerminalHttpOperationState(operation.state),
-    cancelRequested: operation.cancelRequested
+    cancelRequested: operation.cancelRequested,
+    ...(operation.failure === null ? {} : { failure: operation.failure })
   };
 }
 

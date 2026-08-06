@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { stat } from "node:fs/promises";
+import { statSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -29,7 +29,9 @@ export async function withReservedPathOwnership<T>(
   file: string,
   work: () => Promise<T>
 ): Promise<T> {
-  const key = await ownershipKey(file);
+  // Resolve identity synchronously. The caller joins the FIFO before its
+  // first await, so metadata scheduling cannot reverse invocation order.
+  const key = ownershipKey(file);
   const alreadyHeld = held.getStore();
   if (alreadyHeld?.has(key)) {
     throw new Error(`Reserved pathname ownership is not reentrant: ${file}`);
@@ -51,9 +53,9 @@ export async function withReservedPathOwnership<T>(
  * directory inode, so a retained `/proc/self/fd/N` authority path and the
  * canonical path it aliases own the same gate. A missing directory keys by
  * resolved pathname; every operation on it fails on the absent parent. */
-async function ownershipKey(file: string): Promise<string> {
+function ownershipKey(file: string): string {
   try {
-    const info = await stat(path.dirname(file), { bigint: true });
+    const info = statSync(path.dirname(file), { bigint: true });
     return `inode:${info.dev}:${info.ino}:${path.basename(file)}`;
   } catch {
     return `path:${path.resolve(file)}`;

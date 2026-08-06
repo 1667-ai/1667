@@ -4,7 +4,8 @@ import {
   GenerationCancelledError,
   GenerationStoppedError,
   ProviderRecoveryRequiredError,
-  ServiceError
+  ServiceError,
+  timeoutProvenanceOf
 } from "./errors.js";
 import { classifyProviderAbort } from "./provider-abort.js";
 
@@ -93,7 +94,11 @@ function isExpectedDeadlineCancellation(
 ): boolean {
   return error === deadlineFailure
     || error === signal.reason
-    || (error instanceof Error && error.name === "AbortError");
+    || (error instanceof Error && error.name === "AbortError")
+    // A provider timeout is already positive evidence that cancellation,
+    // not rejection, ended the stream. If the worker deadline races that
+    // unwind, keep the worker's recovery code and its timeout provenance.
+    || timeoutProvenanceOf(error) !== null;
 }
 
 function deadlineError(

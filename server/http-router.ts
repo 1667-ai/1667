@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { createFailureEnvelope } from "../shared/failure-envelope.js";
 import type { HttpAuthRecord } from "../shared/http-auth.js";
 import { resolveHttpApiRoute } from "../shared/http-operation-policy.js";
 import { ServiceError } from "./errors.js";
@@ -57,6 +58,7 @@ import type { InternalErrorReporter } from "./internal-error-reporter.js";
 import type {
   HttpDataDirectoryIdentity
 } from "./data-directory-id.js";
+import { toPublicServiceError } from "./service-error-policy.js";
 export interface HttpRouterContext {
   readonly authRecord: HttpAuthRecord;
   readonly dataDirectoryIdentity: HttpDataDirectoryIdentity | null;
@@ -198,12 +200,16 @@ async function handleApi(
     pathname
   );
   if (operation.scope !== protectedRoute.scope) {
-    operation.finish("failed");
-    throw new ServiceError(
+    const error = new ServiceError(
       403,
       `The ${protectedRoute.scope} operation-session scope is required`,
       "forbidden"
     );
+    operation.finish({
+      state: "failed",
+      failure: createFailureEnvelope(toPublicServiceError(error))
+    });
+    throw error;
   }
 
   const route = async (): Promise<void> => {
@@ -475,7 +481,8 @@ async function handleApi(
       (result) => ({ type: "done", story: result.payload, droppedFacts: result.droppedFacts }),
       operation.signal,
       context.errorReporter,
-      "continueStory");
+      "continueStory",
+      (failure) => operation.finish({ state: "failed", failure }));
   }
   if (head === "stories" && id !== undefined && sub === "summary-take" && method === "POST") {
     const body = await jsonBody();
@@ -492,7 +499,8 @@ async function handleApi(
       (nodeId) => ({ type: "done", nodeId }),
       operation.signal,
       context.errorReporter,
-      "createSummaryTake");
+      "createSummaryTake",
+      (failure) => operation.finish({ state: "failed", failure }));
   }
   if (head === "stories" && id !== undefined && sub === "chapter-breaks") {
     if (subId === undefined && method === "POST") {
@@ -602,7 +610,8 @@ async function handleApi(
       (nodeId) => ({ type: "done", nodeId }),
       operation.signal,
       context.errorReporter,
-      "rewriteNode");
+      "rewriteNode",
+      (failure) => operation.finish({ state: "failed", failure }));
   }
   if (head === "stories" && id !== undefined && sub === "nodes" && subId !== undefined && action === "rewrite-partial" && method === "POST") {
     const body = await jsonBody() as Record<string, unknown>;
@@ -762,13 +771,31 @@ async function handleApi(
       await route();
     }
     const settlement = await waitForResponseSettlement(response);
-    operation.finish(
-      settlement === "finished" ? "completed" : "canceled"
-    );
+    operation.finish({
+      state: settlement === "finished" ? "completed" : "canceled"
+    });
   } catch (error) {
-    operation.finish(operation.signal.aborted ? "canceled" : "failed");
+    if (operation.signal.aborted && isOperationCancellation(
+      error,
+      operation.signal
+    )) {
+      operation.finish({ state: "canceled" });
+    } else {
+      operation.finish({
+        state: "failed",
+        failure: createFailureEnvelope(toPublicServiceError(error))
+      });
+    }
     throw error;
   }
+}
+
+function isOperationCancellation(
+  error: unknown,
+  signal: AbortSignal
+): boolean {
+  return error === signal.reason
+    || (error instanceof Error && error.name === "AbortError");
 }
 
 function requireCommandMutationId(

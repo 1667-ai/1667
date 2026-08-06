@@ -35,6 +35,9 @@ export async function streamModel(
   options: StreamModelOptions = {}
 ): Promise<string | null> {
   const { output, providerStarted, promptCache, storySampling, tokenProbabilities } = options;
+  const outcome: { finishReason: "stop" | "length" | null } = {
+    finishReason: null
+  };
   let text = "";
   const emit = async (delta: string) => {
     if (delta.length === 0) return;
@@ -46,10 +49,15 @@ export async function streamModel(
       providerStarted,
       promptCache,
       storySampling,
-      tokenProbabilities
+      tokenProbabilities,
+      outcome
     })) {
       await emit(output?.push(delta) ?? delta);
     }
+    // Some transports, including dry-run, end their iterator normally on
+    // cancellation. Only a provider terminal marks that normal return as a
+    // completed response; otherwise the streamed prefix remains partial.
+    if (signal.aborted && outcome.finishReason === null) return null;
     if (output !== undefined) await emit(output.finish());
   } catch (error) {
     // The provider already classified this failure. A caller abort that races

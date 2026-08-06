@@ -155,6 +155,60 @@ test("operation admission errors preserve HTTP status and service code", async (
       && error.code === "resource_busy");
 });
 
+test("terminal operation failure wins a racing lease deadline", async () => {
+  const failure = createFailureEnvelope({
+    code: "idempotency_conflict",
+    message: "The continuation did not match its required boundary.",
+    status: 409
+  });
+  const client = operationClient(operationFixture(async (pathname, init) => {
+    if (pathname !== "/api/operations/status") {
+      return Response.json({ ok: true });
+    }
+    const [sessionId, sequence] = (
+      new Headers(init?.headers).get(HTTP_OPERATION_TICKET_HEADER) ?? ""
+    ).split(".");
+    return Response.json({
+      listenerInstanceId: INSTANCE_ID,
+      sessionId,
+      sequence,
+      state: "failed",
+      terminal: true,
+      cancelRequested: true,
+      failure
+    });
+  }, 20));
+
+  const keepAlive = setTimeout(() => {}, 100);
+  try {
+    await assert.rejects(client.run({
+      method: "POST",
+      path: "/api/stories/story/continue",
+      binding: client.binding,
+      requestedLifetimeMs: 20,
+      expectedAggregateVersion: {
+        kind: "v6",
+        revision: "00000000000000000001"
+      },
+      execute: async (lease) => await new Promise<never>((_resolve, reject) => {
+        lease.signal.addEventListener(
+          "abort",
+          () => reject(lease.signal.reason),
+          { once: true }
+        );
+      })
+    }), (error: unknown) => {
+      assert.ok(error instanceof HttpOperationError);
+      assert.equal(error.code, "idempotency_conflict");
+      assert.equal(error.message, failure.message);
+      assert.equal(error.failure.timeout, undefined);
+      return true;
+    });
+  } finally {
+    clearTimeout(keepAlive);
+  }
+});
+
 test("operation admission errors use the canonical flat payload fallback", async () => {
   const client = operationClient(async (input) => {
     const pathname = new URL(String(input)).pathname;

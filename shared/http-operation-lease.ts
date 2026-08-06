@@ -19,12 +19,14 @@ import {
 import type {
   HttpCallerCancellationStrategy
 } from "./http-operation-policy.js";
+import type { FailureEnvelope } from "./failure-envelope.js";
 
 const GENERATION_CANCEL_HANDOFF_MS = 150;
 const GENERATION_SETTLEMENT_HANDOFF_MS = 500;
 
 export type HttpOperationSettlement =
   | { readonly kind: "settled" }
+  | { readonly kind: "failed"; readonly failure: FailureEnvelope }
   | Extract<HttpListenerReplacementOutcome, { readonly kind: "rebound" }>
   | Extract<HttpListenerReplacementOutcome, { readonly kind: "replaced" }>;
 
@@ -221,7 +223,9 @@ async function acknowledgeWhenTerminal(
           headers,
           AbortSignal.timeout(HTTP_OPERATION_LIFETIME_MS.control)
         ).catch(() => undefined);
-        return { kind: "settled" };
+        return status.state === "failed" && status.failure !== undefined
+          ? { kind: "failed", failure: status.failure }
+          : { kind: "settled" };
       }
     }
     const remainingUntilUnavailable =

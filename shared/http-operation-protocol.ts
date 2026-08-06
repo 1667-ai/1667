@@ -1,4 +1,5 @@
 import type { HttpCapabilityScope } from "./http-auth.js";
+import type { FailureEnvelope } from "./failure-envelope.js";
 import type { HttpRecoveryWarning } from "./http-protocol.js";
 import type { StoryAggregateVersion } from "./story-aggregate-version.js";
 import type { WorkerMethod } from "./worker-protocol.js";
@@ -94,4 +95,5 @@ export interface HttpOperationStatusResponse {
   readonly state: HttpOperationState;
   readonly terminal: boolean;
   readonly cancelRequested: boolean;
+  readonly failure?: FailureEnvelope;
 }

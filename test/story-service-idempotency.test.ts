@@ -21,6 +21,9 @@ import { unusedTakePruneSelection } from "../shared/story-tree.js";
 import { createDurableMutationId } from "../shared/durable-mutation-id.js";
 import { rewriteStreamDigest } from "../shared/rewrite-partial-contract.js";
 import { applyEffectiveGenerationSettings } from "../server/settings-v2-conversion.js";
+import { ServiceError } from "../server/errors.js";
+import { sha256 } from "../server/story-format.js";
+import type { StoryAggregateVersion } from "../shared/story-aggregate-version.js";
 
 test("pending receipts recover committed entity creation without duplicates after restart", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-idempotency-"));
@@ -647,6 +650,99 @@ test("a completed partial-rewrite replay does not consume a later attempt", asyn
   }
 });
 
+test("a terminal partial-rewrite conflict releases its exact stash slot", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-partial-rewrite-terminal-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    let story = await service.createStory("Partial rewrite conflict");
+    const original = "The blue door opened into a long and quiet stone corridor.";
+    story = await service.createNode(story.id, { parentId: null, text: original });
+    const nodeId = story.nodes[0]!.id;
+    const expected = "blue door opened into a long and quiet stone corridor";
+    const start = original.indexOf(expected);
+    const controller = new AbortController();
+    let streamedText = "";
+    const stopped = await service.rewriteNode(
+      story.id,
+      nodeId,
+      {
+        start,
+        end: start + expected.length,
+        expected,
+        instruction: "",
+        attemptId: "terminal-attempt"
+      },
+      (delta) => {
+        streamedText += delta;
+        controller.abort();
+      },
+      controller.signal,
+      { rewriteId: "terminal-rewrite", takeId: "terminal-unused-take" }
+    );
+    assert.equal(stopped, null);
+    assert.notEqual(streamedText.trim(), "");
+
+    await service.editNode(story.id, nodeId, {
+      text: `${original} Changed.`,
+      expectedTextHash: sha256(original)
+    });
+    const expectedAggregateVersion = (
+      await service.stories.loadVersioned(story.id)
+    ).aggregateVersion!;
+    const input = {
+      storyId: story.id,
+      nodeId,
+      streamedDigest: rewriteStreamDigest(streamedText),
+      attemptId: "terminal-attempt"
+    };
+    const settleId = createDurableMutationId();
+    const terminalConflict = (error: unknown) =>
+      error instanceof ServiceError && error.status === 409;
+    await assert.rejects(
+      runWorkerMutation(
+        service,
+        settleId,
+        "commitPartialRewrite",
+        input,
+        () => {},
+        new AbortController().signal,
+        expectedAggregateVersion
+      ),
+      terminalConflict
+    );
+    await assert.rejects(
+      runWorkerMutation(
+        service,
+        settleId,
+        "commitPartialRewrite",
+        input,
+        () => {},
+        new AbortController().signal,
+        expectedAggregateVersion
+      ),
+      terminalConflict
+    );
+
+    assert.equal(
+      await runWorkerMutation(
+        service,
+        createDurableMutationId(),
+        "commitPartialRewrite",
+        input,
+        () => {},
+        new AbortController().signal,
+        expectedAggregateVersion
+      ),
+      null,
+      "a new request must not find a terminally unusable partial"
+    );
+  } finally {
+    await service.dispose();
+  }
+});
+
 test("pending autoname resumes before admission and reconciles after commit", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-autoname-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
@@ -803,14 +899,29 @@ async function runWorkerMutation<M extends MutatingWorkerMethod>(
   method: M,
   value: unknown,
   onDelta: (text: string) => void = () => {},
-  signal: AbortSignal = new AbortController().signal
+  signal: AbortSignal = new AbortController().signal,
+  expectedAggregateVersion?: StoryAggregateVersion
 ): Promise<WorkerOutput<M>> {
   const input = parseWorkerMutation(method, value);
   return await service.runMutation(
     mutationIdValue,
     method,
     input,
-    (plan) => executeWorkerMutation(service, input, plan, { onDelta, signal }),
+    (plan) => executeWorkerMutation(service, input, plan, {
+      onDelta,
+      signal,
+      ...(expectedAggregateVersion === undefined
+        ? {}
+        : {
+            storyMutationRequest: {
+              transportOperationId: `idempotency:${mutationIdValue}`,
+              mutationId: mutationIdValue,
+              fingerprint: mutationFingerprint(method, input),
+              scope: `story:${(input as { storyId: string }).storyId}` as const,
+              expectedAggregateVersion
+            }
+          })
+    }),
     undefined,
     (plan) => preflightWorkerMutation(service, input, plan)
   );

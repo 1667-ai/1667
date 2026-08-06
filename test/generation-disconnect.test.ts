@@ -16,6 +16,7 @@ import type { SettingsStore } from "../server/settings.js";
 import { createSummaryTake } from "../server/summary-take.js";
 import type { StoryStore } from "../server/stories.js";
 import type { Story } from "../shared/types.js";
+import type { FailureEnvelope } from "../shared/failure-envelope.js";
 import { streamResponse } from "../server/stream-response.js";
 import { PromptCacheRuntime } from "../server/provider-cache-policy.js";
 import { MAX_DELTA_BATCH_BYTES } from "../shared/worker-protocol.js";
@@ -371,6 +372,7 @@ test("aborted HTTP streams still persist private failures", async (t) => {
   const request = Readable.from([]) as unknown as IncomingMessage;
   const response = new FakeResponse();
   const operation = new AbortController();
+  const terminalFailures: FailureEnvelope[] = [];
 
   await streamResponse(
     request,
@@ -382,7 +384,8 @@ test("aborted HTTP streams still persist private failures", async (t) => {
     (value) => value as Record<string, unknown>,
     operation.signal,
     reporter,
-    "continueStory"
+    "continueStory",
+    (failure) => { terminalFailures.push(failure); }
   );
 
   assert.equal(response.ends, 1);
@@ -390,6 +393,8 @@ test("aborted HTTP streams still persist private failures", async (t) => {
   const stored = await readFile(internalErrorLogPath(machineDir), "utf8");
   assert.match(stored, /private failure after stream abort/);
   assert.match(stored, /continueStory/);
+  assert.equal(terminalFailures[0]?.code, "internal");
+  assert.equal(terminalFailures[0]?.kind, "diagnostic");
 });
 
 test("routine HTTP stream cancellation does not create an incident", async (t) => {

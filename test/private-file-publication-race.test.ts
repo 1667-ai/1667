@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { constants } from "node:fs";
 import {
   chmod,
   link,
   lstat,
   mkdtemp,
+  open,
   rm,
   writeFile
 } from "node:fs/promises";
@@ -32,6 +34,7 @@ const POLICY: PrivateFilePolicy = Object.freeze({
   maxBytes: 1024 * 1024
 });
 const posixTest = process.platform === "win32" ? test.skip : test;
+const linuxTest = process.platform === "linux" ? test : test.skip;
 
 interface TrackedPublication<T> {
   readonly promise: Promise<T>;
@@ -138,6 +141,28 @@ posixTest("a competing publisher fails with EEXIST after the live publication co
     const settled = await readOptionalPrivateFile(file, POLICY);
     assert.ok(settled !== null && settled.equals(bytes));
     assert.equal((await lstat(file)).nlink, 1);
+  }
+});
+
+linuxTest("same-turn publishers keep invocation order through a retained directory alias", async (t) => {
+  const directory = await privateDirectory(t, "1667-publication-alias-fifo-");
+  const handle = await open(directory, constants.O_RDONLY | constants.O_DIRECTORY);
+  t.after(() => handle.close());
+  const retainedDirectory = `/proc/self/fd/${handle.fd}`;
+
+  for (let round = 0; round < 16; round += 1) {
+    const name = `alias-fifo-${round}`;
+    const canonical = path.join(directory, name);
+    const retained = path.join(retainedDirectory, name);
+    const firstBytes = Buffer.from(`first ${round}\n`, "utf8");
+    const secondBytes = Buffer.from(`second ${round}\n`, "utf8");
+    const first = publishPrivateFileNoReplace(retained, firstBytes, POLICY);
+    const second = publishPrivateFileNoReplace(canonical, secondBytes, POLICY);
+
+    await first;
+    await assert.rejects(second, hasFsCode("EEXIST"));
+    const settled = await readOptionalPrivateFile(canonical, POLICY);
+    assert.ok(settled !== null && settled.equals(firstBytes));
   }
 });
 

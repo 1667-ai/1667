@@ -30,6 +30,7 @@ import type {
   LocalStoryMutationMethod,
   StoryMutationStore
 } from "./story-mutation-store.js";
+import { isPreparedDomainError } from "./mutation-ledger-types.js";
 import {
   applyHumanEdit,
   commitTake,
@@ -389,6 +390,15 @@ export class StoryServiceLocal {
         };
       } catch (error) {
         if (error === PARTIAL_REWRITE_UNAVAILABLE) return null;
+        // runLocal returns a prepared domain error only after its terminal
+        // receipt is durable. The exact partial can never succeed afterward,
+        // so release its bounded slot. Storage and implementation failures
+        // stay retryable and retain the record.
+        if (record !== null
+          && error instanceof ServiceError
+          && isPreparedDomainError(error.code)) {
+          this.dependencies.rewritePartials.clear(record);
+        }
         throw error;
       }
     }
