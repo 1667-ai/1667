@@ -1153,6 +1153,53 @@ test("a queued terminal event wins over a later caller cancellation", async (t) 
   assert.equal(outcome.providerTerminal, true);
 });
 
+test("terminal evidence blocked on queue capacity wins over later caller cancellation", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const firstEvent = JSON.stringify({
+    choices: [{ delta: { content: "first" } }]
+  });
+  const emptyEvent = JSON.stringify({ choices: [{ delta: { content: "" } }] });
+  const queuedEvent = JSON.stringify({
+    choices: [{ delta: {
+      content: "x".repeat(1_048_570 - emptyEvent.length)
+    } }]
+  });
+  assert.equal(queuedEvent.length, 1_048_570);
+  globalThis.fetch = (async () => new Response([
+    `data: ${firstEvent}\n\n`,
+    `data: ${queuedEvent}\n\n`,
+    "data: [DONE]\n\n"
+  ].join(""), {
+    headers: { "content-type": "text/event-stream" }
+  })) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const controller = new AbortController();
+  const iterator = providerSseEvents(
+    attached(),
+    "https://models.example/v1/chat/completions",
+    {},
+    {},
+    [],
+    controller.signal,
+    (value) => value,
+    undefined,
+    undefined,
+    (event) => event !== "[DONE]",
+    (event) => event === "[DONE]"
+  );
+
+  assert.deepEqual(await iterator.next(), { done: false, value: firstEvent });
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  controller.abort(new Error("late Stop"));
+
+  assert.deepEqual(await iterator.next(), {
+    done: false,
+    value: queuedEvent
+  });
+  assert.deepEqual(await iterator.next(), { done: false, value: "[DONE]" });
+  assert.deepEqual(await iterator.next(), { done: true, value: undefined });
+});
+
 test("provider failures discard buffered nonterminal deltas", async (t) => {
   const originalFetch = globalThis.fetch;
   let failureTimer: ReturnType<typeof setTimeout> | null = null;

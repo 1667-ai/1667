@@ -360,6 +360,46 @@ test("HTTP streams persist private failures and return their reference", async (
   assert.match(stored, /private streaming detail/);
 });
 
+test("HTTP streams publish a known failure before blocked delta cleanup", async () => {
+  const request = Readable.from([]) as unknown as IncomingMessage;
+  const response = new FakeResponse();
+  response.acceptWrites = false;
+  const terminalFailures: FailureEnvelope[] = [];
+  const failure = new ServiceError(
+    409,
+    "The continuation did not match its required boundary.",
+    "idempotency_conflict"
+  );
+
+  const running = streamResponse(
+    request,
+    response as unknown as ServerResponse,
+    async (onDelta) => {
+      await onDelta("accepted tail");
+      throw failure;
+    },
+    (value) => value as Record<string, unknown>,
+    undefined,
+    undefined,
+    "continueStory",
+    (knownFailure) => { terminalFailures.push(knownFailure); }
+  );
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(terminalFailures, [{
+    kind: "plain",
+    code: "idempotency_conflict",
+    message: failure.message,
+    status: 409
+  }]);
+  assert.equal(response.ends, 0);
+
+  response.acceptWrites = true;
+  response.emit("drain");
+  await running;
+  assert.equal(response.ends, 1);
+});
+
 test("aborted HTTP streams still persist private failures", async (t) => {
   const machineDir = await realpath(
     await mkdtemp(path.join(tmpdir(), "1667-http-aborted-stream-log-"))
@@ -394,7 +434,7 @@ test("aborted HTTP streams still persist private failures", async (t) => {
   assert.match(stored, /private failure after stream abort/);
   assert.match(stored, /continueStory/);
   assert.equal(terminalFailures[0]?.code, "internal");
-  assert.equal(terminalFailures[0]?.kind, "diagnostic");
+  assert.equal(terminalFailures[0]?.kind, "plain");
 });
 
 test("routine HTTP stream cancellation does not create an incident", async (t) => {

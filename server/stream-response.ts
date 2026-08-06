@@ -56,21 +56,28 @@ export async function streamResponse<T>(
     await open().send(done(value));
     response.end();
   } catch (error) {
+    const expectedCancellation = signal.aborted
+      && isExpectedCancellation(error, signal);
+    // The operation record owns the known public failure before delta
+    // cleanup, diagnostics, or SSE backpressure can cross its hard deadline.
+    if (!expectedCancellation) {
+      onTerminalFailure?.(
+        createFailureEnvelope(toPublicServiceError(error))
+      );
+    }
     await deltas.flush().catch(() => undefined);
     if (signal.aborted) {
-      if (!isExpectedCancellation(error, signal)) {
-        const failure = await reportStreamFailure(
+      if (!expectedCancellation) {
+        await reportStreamFailure(
           error,
           errorReporter,
           operation
         );
-        onTerminalFailure?.(failure);
       }
       return void response.end();
     }
     if (session === null) throw error;
     const failure = await reportStreamFailure(error, errorReporter, operation);
-    onTerminalFailure?.(failure);
     await (session as ReturnType<typeof openSse>).send({
       type: "error",
       ...failureWireFields(failure)

@@ -302,9 +302,12 @@ class ProviderEventQueue {
   async push(value: string, terminal: boolean): Promise<boolean> {
     if (this.failed) throw this.failure;
     if (this.closed) return false;
+    // Terminal evidence belongs to the provider as soon as parsing finds it.
+    // Record it before capacity wait. A later Stop must drain queued deltas
+    // to release that wait and receive the terminal event.
+    if (terminal) this.terminalQueued = true;
     const waiter = this.waiters.shift();
     if (waiter !== undefined) {
-      if (terminal) this.terminalQueued = true;
       waiter.resolve({ done: false, value });
       return true;
     }
@@ -318,7 +321,6 @@ class ProviderEventQueue {
       if (this.failed) throw this.failure;
       if (this.closed) return false;
     }
-    if (terminal) this.terminalQueued = true;
     this.values.push({ value, memoryBytes });
     this.queuedMemoryBytes += memoryBytes;
     return true;
