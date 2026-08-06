@@ -22,6 +22,10 @@ export function importNovelAiSamplerPresetRecord(raw: Record<string, unknown>): 
   const sampling: MutableSampling = {};
   const fidelity: string[] = [];
   let omittedCount = 0;
+  for (const samplerId of enabled.unknownNumericIds) {
+    omittedCount += 1;
+    fidelity.push(`Sampler Preset sampler ID ${samplerId} not imported; it is unknown`);
+  }
   const mapping: ReadonlyArray<readonly [string, "topP" | "topK" | "minP" | "frequencyPenalty" | "presencePenalty"]> = [
     ["top_p", "topP"], ["top_k", "topK"], ["min_p", "minP"],
     ["repetition_penalty_frequency", "frequencyPenalty"],
@@ -152,12 +156,54 @@ function setMappedSamplingValue(
   sampling[target] = value;
 }
 
-function enabledOrder(value: unknown): ReadonlyMap<string, boolean> {
-  if (!Array.isArray(value)) return new Map();
-  return new Map(value.flatMap((item) => {
-    if (item === null || typeof item !== "object") return [];
-    const entry = item as Record<string, unknown>;
-    return typeof entry.id === "string" && typeof entry.enabled === "boolean" ? [[entry.id, entry.enabled] as const] : [];
-  }));
+// NovelAI's historical numeric `parameters.order` format removes disabled
+// samplers from the array. The numeric IDs come from the public preset-format
+// `Order` enum: https://aedial.github.io/novelai-api/novelai_api/novelai_api.Preset.html
+const NUMERIC_SAMPLER_ORDER_IDS: ReadonlyMap<number, string> = new Map([
+  [0, "temperature"], [1, "top_k"], [2, "top_p"], [3, "tfs"], [4, "top_a"],
+  [5, "typical_p"], [6, "cfg"], [7, "top_g"], [8, "mirostat"], [9, "math1"], [10, "min_p"]
+]);
+const NUMERIC_SAMPLER_ORDER_NAMES: ReadonlySet<string> = new Set(NUMERIC_SAMPLER_ORDER_IDS.values());
+
+interface SamplerOrder {
+  readonly enabled: ReadonlyMap<string, boolean>;
+  readonly numeric: boolean;
+  readonly unknownNumericIds: readonly number[];
 }
-function isEnabled(order: ReadonlyMap<string, boolean>, id: string): boolean { return order.get(id) !== false; }
+
+function enabledOrder(value: unknown): SamplerOrder {
+  if (value === undefined) return { enabled: new Map(), numeric: false, unknownNumericIds: [] };
+  if (!Array.isArray(value)) throw new Error("Sampler Preset has an invalid order");
+  if (value.every((item) => typeof item === "number" && Number.isInteger(item))) {
+    const enabled = new Map<string, boolean>();
+    const unknownNumericIds: number[] = [];
+    for (const samplerId of value) {
+      const sampler = NUMERIC_SAMPLER_ORDER_IDS.get(samplerId);
+      if (sampler === undefined) {
+        if (!unknownNumericIds.includes(samplerId)) unknownNumericIds.push(samplerId);
+      } else {
+        enabled.set(sampler, true);
+      }
+    }
+    return { enabled, numeric: true, unknownNumericIds };
+  }
+  if (!value.every(isObjectSamplerOrderEntry)) throw new Error("Sampler Preset has an invalid order");
+  return {
+    enabled: new Map(value.map((entry) => [entry.id, entry.enabled] as const)),
+    numeric: false,
+    unknownNumericIds: []
+  };
+}
+
+function isObjectSamplerOrderEntry(value: unknown): value is { readonly id: string; readonly enabled: boolean } {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const entry = value as Record<string, unknown>;
+  return typeof entry.id === "string" && typeof entry.enabled === "boolean";
+}
+
+function isEnabled(order: SamplerOrder, id: string): boolean {
+  if (order.numeric && NUMERIC_SAMPLER_ORDER_NAMES.has(id)) {
+    return order.enabled.has(id);
+  }
+  return order.enabled.get(id) !== false;
+}

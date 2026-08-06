@@ -82,6 +82,92 @@ test("Sampler Preset uses order, protects foreign token IDs, and fits the select
   );
 });
 
+test("Sampler Preset v3 numeric order enables only its listed samplers", () => {
+  const candidate = importNovelAiSamplerPreset(JSON.stringify({
+    presetVersion: 3,
+    name: "Numeric order",
+    parameters: {
+      temperature: 0.7,
+      top_k: 40,
+      top_p: 0.9,
+      min_p: 0.08,
+      tail_free_sampling: 0.95,
+      top_a: 0.04,
+      repetition_penalty_frequency: 0.3,
+      repetition_penalty_presence: 0.2,
+      mirostat: true,
+      mirostat_tau: 5,
+      mirostat_lr: 0.1,
+      order: [0, 10]
+    }
+  }));
+
+  assert.equal(candidate.temperature, 0.7);
+  assert.deepEqual(candidate.sampling, {
+    minP: 0.08,
+    frequencyPenalty: 0.3,
+    presencePenalty: 0.2
+  });
+  assert.match(candidate.fidelity?.join("; ") ?? "", /top p disabled in the Sampler Preset skipped/u);
+  assert.match(candidate.fidelity?.join("; ") ?? "", /top k disabled in the Sampler Preset skipped/u);
+
+  const fitted = fitProfileToRoute(openAiDocument(), "default", candidate);
+  assert.equal(fitted.document.profiles.default?.temperature, 0.7);
+  assert.equal(fitted.document.profiles.default?.sampling?.minP, 0.08);
+  assert.equal(fitted.document.profiles.default?.sampling?.frequencyPenalty, 0.3);
+  assert.equal(fitted.document.profiles.default?.sampling?.presencePenalty, 0.2);
+  assert.equal(fitted.document.profiles.default?.sampling?.topP, null);
+  assert.equal(fitted.document.profiles.default?.sampling?.topK, null);
+});
+
+test("Sampler Preset numeric order ignores unknown sampler IDs", () => {
+  const candidate = importNovelAiSamplerPreset(JSON.stringify({
+    presetVersion: 3,
+    parameters: {
+      temperature: 0.7,
+      top_p: 0.9,
+      order: [0, 99]
+    }
+  }));
+
+  assert.equal(candidate.temperature, 0.7);
+  assert.equal(candidate.sampling?.topP, undefined);
+  assert.equal(candidate.omittedCount, 1);
+  assert.match(candidate.fidelity?.join("; ") ?? "", /sampler ID 99 not imported; it is unknown/u);
+});
+
+test("Sampler Preset rejects malformed numeric orders without enabling stored samplers", () => {
+  for (const order of [
+    [0, { id: "top_p", enabled: true }],
+    [0, 1.5]
+  ]) {
+    assert.throws(
+      () => importNovelAiSamplerPreset(JSON.stringify({
+        presetVersion: 3,
+        parameters: { top_p: 0.9, top_k: 40, order }
+      })),
+      /Sampler Preset has an invalid order/u
+    );
+  }
+});
+
+test("Sampler Preset object order keeps unlisted samplers enabled", () => {
+  const candidate = importNovelAiSamplerPreset(JSON.stringify({
+    presetVersion: 7,
+    parameters: {
+      temperature: 0.7,
+      top_k: 40,
+      top_p: 0.9,
+      order: [{ id: "top_p", enabled: false }]
+    }
+  }));
+
+  assert.equal(candidate.temperature, 0.7);
+  assert.equal(candidate.sampling?.topK, 40);
+  assert.equal(candidate.sampling?.topP, undefined);
+  assert.match(candidate.fidelity?.join("; ") ?? "", /top p disabled in the Sampler Preset skipped/u);
+});
+
 test("Sampler Preset counts active omissions and ignores envelope metadata", () => {
   const candidate = importNovelAiSamplerPreset(JSON.stringify({
     presetVersion: 7,
