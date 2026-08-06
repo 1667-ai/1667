@@ -17,6 +17,8 @@ import {
   sliceUnicodeScalarPrefix,
   unicodeScalarLength
 } from "./unicode.js";
+import { parseFactKeys, splitRegexKey } from "./fact-keys.js";
+import type { FactRecursion, FactSecondaryMode } from "./types.js";
 
 /** The canonical entry shape every archive reader converts into, so one Entry
  * Mapping below is the only place an entry becomes a Fact. */
@@ -26,6 +28,10 @@ export interface LorebookEntry {
   readonly keys: readonly unknown[];
   readonly forceActivation: boolean;
   readonly enabled: boolean;
+  readonly secondaryKeys?: readonly unknown[];
+  readonly secondaryMode?: FactSecondaryMode;
+  readonly scanDepth?: number;
+  readonly recursion?: FactRecursion;
 }
 
 export interface LorebookImport {
@@ -150,72 +156,23 @@ export function factsFromEntries(
       }
     }
 
-    const keys: string[] = [];
-    const seenKeys = new Set<string>();
-
-    // `parseFactKeys` throws on a comma, a line break, a duplicate, or a key
-    // past the ceiling, so every one of those is settled here. A dropped key
-    // costs the entry an activation trigger, so the report names the count.
-    for (const keyCandidate of item.keys) {
-      if (keys.length === MAX_FACT_KEYS) {
-        losses.push("keysDropped");
-        continue;
-      }
-      if (typeof keyCandidate !== "string") {
-        losses.push("keysDropped");
-        continue;
-      }
-      const trimmedKey = keyCandidate.trim();
-      if (trimmedKey.length === 0) {
-        losses.push("keysDropped");
-        continue;
-      }
-      if (
-        trimmedKey.includes(",")
-        || /[\r\n\u2028\u2029]/u.test(trimmedKey)
-        || hasUnpairedSurrogate(trimmedKey)
-      ) {
-        losses.push("keysDropped");
-        continue;
-      }
-
-      let key = trimmedKey;
-      if (unicodeScalarLength(key, MAX_FACT_KEY_SCALARS + 1) > MAX_FACT_KEY_SCALARS) {
-        key = sliceUnicodeScalarPrefix(key, MAX_FACT_KEY_SCALARS);
-        losses.push("keysTruncated");
-      }
-
-      // `parseFactKeys` measures the key again after case folding, and folding
-      // can grow it: 33 dotted capital I fold to 66 scalars. A key that passes
-      // here and fails there would abort the whole import, so it goes now.
-      const normalizedKey = normalizeFactText(key);
-      if (unicodeScalarLength(normalizedKey, MAX_FACT_KEY_SCALARS + 1) > MAX_FACT_KEY_SCALARS) {
-        losses.push("keysDropped");
-        continue;
-      }
-      if (seenKeys.has(normalizedKey)) {
-        losses.push("keysDropped");
-        continue;
-      }
-      seenKeys.add(normalizedKey);
-
-      // A key is matched literally inside the scanned text, and the match
-      // normalizes case but not spacing. So " storm " and "storm" activate at
-      // different moments, and trimming one into the other is a real change.
-      if (trimmedKey !== keyCandidate) losses.push("keysTrimmed");
-      keys.push(key);
-    }
+    const keys = normalizeImportedKeys(item.keys, losses);
 
     const activation = item.forceActivation ? "always" : "keyed";
     if (activation === "keyed" && keys.length === 0) {
       losses.push("keyedNoKeys");
     }
 
+    const secondaryKeys = normalizeImportedKeys(item.secondaryKeys ?? [], losses);
     facts.push({
       tag,
       text,
       activation,
-      keys
+      keys,
+      ...(secondaryKeys.length === 0 ? {} : { secondaryKeys }),
+      ...(item.secondaryMode === undefined || item.secondaryMode === "and" ? {} : { secondaryMode: item.secondaryMode }),
+      ...(item.scanDepth === undefined || item.scanDepth === 3 ? {} : { scanDepth: item.scanDepth }),
+      ...(item.recursion === undefined || item.recursion === "on" ? {} : { recursion: item.recursion })
     });
   }
 
@@ -256,9 +213,71 @@ export function factsFromEntries(
       `${bodyDroppedCount} ${countNoun(bodyDroppedCount, "fact")} dropped to fit the 1 MB request limit`
     );
   }
-  fidelity.push("search range, bias groups, and advanced conditions omitted");
+  fidelity.push("unsupported search ranges, bias groups, and advanced conditions omitted");
 
   return { facts, fidelity };
+}
+
+/** Normalize one imported key list before it reaches a FactInput.
+ *
+ * Primary and secondary keys use exactly the same storage and activation
+ * grammar. Keeping this path shared prevents a secondary key from surviving
+ * import but failing the server's Fact validation later. */
+function normalizeImportedKeys(source: readonly unknown[], losses: EntryLoss[]): string[] {
+  const keys: string[] = [];
+  const seenKeys = new Set<string>();
+  for (const value of source) {
+    if (keys.length === MAX_FACT_KEYS || typeof value !== "string") {
+      losses.push("keysDropped");
+      continue;
+    }
+
+    const trimmedKey = value.trim();
+    if (trimmedKey.length === 0) {
+      losses.push("keysDropped");
+      continue;
+    }
+    if (
+      (trimmedKey.includes(",") && splitRegexKey(trimmedKey) === null)
+      || /[\r\n\u2028\u2029]/u.test(trimmedKey)
+      || hasUnpairedSurrogate(trimmedKey)
+    ) {
+      losses.push("keysDropped");
+      continue;
+    }
+
+    let key = trimmedKey;
+    if (unicodeScalarLength(key, MAX_FACT_KEY_SCALARS + 1) > MAX_FACT_KEY_SCALARS) {
+      key = sliceUnicodeScalarPrefix(key, MAX_FACT_KEY_SCALARS);
+      losses.push("keysTruncated");
+    }
+
+    // Case folding can grow a literal key. Validate the folded identity before
+    // it can make the full Fact key list invalid.
+    const identity = splitRegexKey(key) === null ? normalizeFactText(key) : key;
+    if (unicodeScalarLength(identity, MAX_FACT_KEY_SCALARS + 1) > MAX_FACT_KEY_SCALARS) {
+      losses.push("keysDropped");
+      continue;
+    }
+    if (seenKeys.has(identity)) {
+      losses.push("keysDropped");
+      continue;
+    }
+
+    // This also compiles marked regex keys. Do it with the accumulated list
+    // because duplicate validation belongs to the same server contract.
+    try {
+      parseFactKeys([...keys, key], "import key");
+    } catch {
+      losses.push("keysDropped");
+      continue;
+    }
+
+    if (trimmedKey !== value) losses.push("keysTrimmed");
+    seenKeys.add(identity);
+    keys.push(key);
+  }
+  return keys;
 }
 
 /** Turn one archive reader's result into Facts: the fidelity ordering rule

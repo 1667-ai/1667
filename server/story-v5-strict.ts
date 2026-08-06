@@ -60,7 +60,7 @@ const ATTRIBUTION = closedShape(["source", "ranges"], ["deletedCharacters"]);
 const RANGE = closedShape(["start", "end"]);
 const FACT = closedShape(
   ["id", "tag", "revisionId", "createdAt", "updatedAt"],
-  ["sourcePartId", "activation", "keys", "priority", "budgetTokens"]
+  ["sourcePartId", "activation", "keys", "secondaryKeys", "secondaryMode", "scanDepth", "recursion", "priority", "budgetTokens"]
 );
 const TAG = closedShape(["nodeId", "name", "label", "color", "createdAt"]);
 const CHAPTER_BREAK = closedShape(["id", "parentPartId", "title", "createdAt"]);
@@ -207,7 +207,7 @@ function assertFact(value: unknown, label: string): void {
   timestamp(fact.updatedAt, `${label}.updatedAt`);
   optionalIdentifier(fact.sourcePartId, `${label}.sourcePartId`);
   try {
-    parseFactMetadata(fact.activation, fact.keys, label, fact.priority);
+    parseFactMetadata(fact.activation, fact.keys, label, fact.priority, fact.secondaryKeys, fact.secondaryMode, fact.scanDepth, fact.recursion);
   } catch (error) {
     if (error instanceof FactActivationError) throw new StoryFormatError(error.message);
     throw error;

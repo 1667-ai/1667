@@ -6,6 +6,9 @@ import {
   parseFactKeys,
   parseFactMetadata,
   parseFactPriority,
+  parseFactRecursion,
+  parseFactScanDepth,
+  parseFactSecondaryMode,
   type FactPriority
 } from "../shared/fact-activation.js";
 import { FactBudgetError, parseFactBudgetTokens } from "../shared/fact-budget.js";
@@ -39,7 +42,15 @@ export function createFacts(
     text: parseText(input.text),
     sourcePartId: parseSourcePartId(story, input.sourcePartId),
     budgetTokens: parseCreateBudgetTokens(input.budgetTokens),
-    ...parseMetadata(input.activation, input.keys, input.priority)
+    ...parseMetadata(
+      input.activation,
+      input.keys,
+      input.priority,
+      input.secondaryKeys,
+      input.secondaryMode,
+      input.scanDepth,
+      input.recursion
+    )
   }));
   const ids = parsed.map((_, index) => idForIndex(index));
   const existingIds = new Set(story.facts.map((fact) => fact.id));
@@ -55,21 +66,40 @@ export function createFacts(
     throw new HttpError(409, `This story has room for ${remaining} more facts; the import contains ${inputs.length}.`);
   }
   const now = new Date().toISOString();
-  story.facts.push(...parsed.map(({ tag, text, sourcePartId, activation, keys, priority, budgetTokens }, index) => ({
-    id: ids[index]!, tag, text, activation, keys, createdAt: now, updatedAt: now,
-    ...(priority === "normal" ? {} : { priority }),
-    ...(budgetTokens === undefined ? {} : { budgetTokens }),
-    ...(sourcePartId === undefined ? {} : { sourcePartId })
+  story.facts.push(...parsed.map((input, index) => ({
+    id: ids[index]!,
+    tag: input.tag,
+    text: input.text,
+    activation: input.activation,
+    keys: input.keys,
+    createdAt: now,
+    updatedAt: now,
+    ...(input.priority === "normal" ? {} : { priority: input.priority }),
+    ...(input.secondaryKeys.length === 0 ? {} : { secondaryKeys: input.secondaryKeys }),
+    ...(input.secondaryMode === "and" ? {} : { secondaryMode: input.secondaryMode }),
+    ...(input.scanDepth === 3 ? {} : { scanDepth: input.scanDepth }),
+    ...(input.recursion === "on" ? {} : { recursion: input.recursion }),
+    ...(input.budgetTokens === undefined ? {} : { budgetTokens: input.budgetTokens }),
+    ...(input.sourcePartId === undefined ? {} : { sourcePartId: input.sourcePartId })
   })));
   return true;
 }
 
 function factInputs(body: Body): Body[] {
   const hasBatch = hasDefinedProperty(body, "facts");
-  const hasSingle = hasDefinedProperty(body, "tag") || hasDefinedProperty(body, "text")
-    || hasDefinedProperty(body, "sourcePartId") || hasDefinedProperty(body, "activation")
-    || hasDefinedProperty(body, "keys") || hasDefinedProperty(body, "priority")
-    || hasDefinedProperty(body, "budgetTokens");
+  const hasSingle = [
+    "tag",
+    "text",
+    "sourcePartId",
+    "activation",
+    "keys",
+    "secondaryKeys",
+    "secondaryMode",
+    "scanDepth",
+    "recursion",
+    "priority",
+    "budgetTokens"
+  ].some((key) => hasDefinedProperty(body, key));
   if (!hasBatch) return [body];
   if (hasSingle) throw new HttpError(400, "Provide one fact or a facts batch, not both.");
   if (!Array.isArray(body.facts)) throw new HttpError(400, "Facts batch must be an array.");
@@ -92,15 +122,54 @@ export function patchFact(story: Story, factId: string, value: unknown): void {
   const hasText = hasDefinedProperty(body, "text");
   const hasActivation = hasDefinedProperty(body, "activation");
   const hasKeys = hasDefinedProperty(body, "keys");
+  const hasSecondaryKeys = hasDefinedProperty(body, "secondaryKeys");
+  const hasSecondaryMode = hasDefinedProperty(body, "secondaryMode");
+  const hasScanDepth = hasDefinedProperty(body, "scanDepth");
+  const hasRecursion = hasDefinedProperty(body, "recursion");
   const hasPriority = hasDefinedProperty(body, "priority");
   const hasBudgetTokens = hasDefinedProperty(body, "budgetTokens");
-  if (!hasTag && !hasText && !hasActivation && !hasKeys && !hasPriority && !hasBudgetTokens) {
+  const hasPatch = hasTag || hasText || hasActivation || hasKeys
+    || hasSecondaryKeys || hasSecondaryMode || hasScanDepth || hasRecursion
+    || hasPriority || hasBudgetTokens;
+  if (!hasPatch) {
     throw new HttpError(400, "Provide fact fields to update the fact.");
   }
   if (hasTag) fact.tag = parseTag(body.tag);
   if (hasText) fact.text = parseText(body.text);
   if (hasActivation) fact.activation = parseActivation(body.activation);
   if (hasKeys) fact.keys = parseKeys(body.keys);
+  if (hasSecondaryKeys) {
+    if (body.secondaryKeys === null) delete fact.secondaryKeys;
+    else {
+      const secondaryKeys = parseKeys(body.secondaryKeys);
+      if (secondaryKeys.length === 0) delete fact.secondaryKeys;
+      else fact.secondaryKeys = secondaryKeys;
+    }
+  }
+  if (hasSecondaryMode) {
+    if (body.secondaryMode === null) delete fact.secondaryMode;
+    else {
+      const mode = parseSecondaryMode(body.secondaryMode);
+      if (mode === "and") delete fact.secondaryMode;
+      else fact.secondaryMode = mode;
+    }
+  }
+  if (hasScanDepth) {
+    if (body.scanDepth === null) delete fact.scanDepth;
+    else {
+      const depth = parseScanDepth(body.scanDepth);
+      if (depth === 3) delete fact.scanDepth;
+      else fact.scanDepth = depth;
+    }
+  }
+  if (hasRecursion) {
+    if (body.recursion === null) delete fact.recursion;
+    else {
+      const recursion = parseRecursion(body.recursion);
+      if (recursion === "on") delete fact.recursion;
+      else fact.recursion = recursion;
+    }
+  }
   if (hasPriority) {
     const priority = parsePriority(body.priority);
     if (priority === "normal") delete fact.priority;
@@ -187,10 +256,31 @@ function assertWellFormed(value: string, label: string): void {
 function parseMetadata(
   activation: unknown,
   keys: unknown,
-  priority: unknown
-): { activation: StoryFact["activation"], keys: string[], priority: FactPriority } {
+  priority: unknown,
+  secondaryKeys: unknown,
+  secondaryMode: unknown,
+  scanDepth: unknown,
+  recursion: unknown
+): {
+  activation: StoryFact["activation"];
+  keys: string[];
+  priority: FactPriority;
+  secondaryKeys: string[];
+  secondaryMode: NonNullable<StoryFact["secondaryMode"]>;
+  scanDepth: number;
+  recursion: NonNullable<StoryFact["recursion"]>;
+} {
   try {
-    return parseFactMetadata(activation, keys, "Fact", priority);
+    return parseFactMetadata(
+      activation,
+      keys,
+      "Fact",
+      priority,
+      secondaryKeys,
+      secondaryMode,
+      scanDepth,
+      recursion
+    );
   } catch (error) {
     if (error instanceof FactActivationError) throw new HttpError(400, error.message);
     throw error;
@@ -218,6 +308,32 @@ function parseKeys(value: unknown): string[] {
 function parsePriority(value: unknown): FactPriority {
   try {
     return parseFactPriority(value);
+  } catch (error) {
+    if (error instanceof FactActivationError) throw new HttpError(400, error.message);
+    throw error;
+  }
+}
+function parseSecondaryMode(value: unknown): NonNullable<StoryFact["secondaryMode"]> {
+  try {
+    return parseFactSecondaryMode(value);
+  } catch (error) {
+    if (error instanceof FactActivationError) throw new HttpError(400, error.message);
+    throw error;
+  }
+}
+
+function parseScanDepth(value: unknown): number {
+  try {
+    return parseFactScanDepth(value);
+  } catch (error) {
+    if (error instanceof FactActivationError) throw new HttpError(400, error.message);
+    throw error;
+  }
+}
+
+function parseRecursion(value: unknown): NonNullable<StoryFact["recursion"]> {
+  try {
+    return parseFactRecursion(value);
   } catch (error) {
     if (error instanceof FactActivationError) throw new HttpError(400, error.message);
     throw error;

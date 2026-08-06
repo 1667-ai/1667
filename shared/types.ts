@@ -3,7 +3,7 @@ import { isValidAuthorsNoteDepth, MAX_AUTHORS_NOTE_CHARS, MAX_AUTHORS_NOTE_DEPTH
 import { MAX_AUTHOR_BRIEF_CHARS } from "./author-brief.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "./unicode.js";
 import { FactActivationError, parseFactMetadata } from "./fact-activation.js";
-import type { FactActivation, FactPriority } from "./fact-activation.js";
+import type { FactActivation, FactPriority, FactRecursion, FactSecondaryMode } from "./fact-activation.js";
 import {
   SamplingValidationError,
   validateSamplingBannedStrings,
@@ -38,13 +38,17 @@ export const MAX_FACTS = 128;
 export const MAX_FACT_TEXT_CHARS = 4_000;
 export const MAX_FACT_TAG_CHARS = 48;
 
-export type { FactActivation, FactPriority };
+export type { FactActivation, FactPriority, FactRecursion, FactSecondaryMode };
 
 export interface FactInput {
   tag?: string | null;
   text: string;
   activation?: FactActivation;
   keys?: string[];
+  secondaryKeys?: string[];
+  secondaryMode?: FactSecondaryMode;
+  scanDepth?: number;
+  recursion?: FactRecursion;
   /** Default "normal" when omitted. */
   priority?: FactPriority;
   /** Positive estimated-token cap; a Fact over its own cap is dropped, never truncated. */
@@ -57,6 +61,10 @@ export interface FactPatch {
   text?: string;
   activation?: FactActivation;
   keys?: string[];
+  secondaryKeys?: string[] | null;
+  secondaryMode?: FactSecondaryMode | null;
+  scanDepth?: number | null;
+  recursion?: FactRecursion | null;
   priority?: FactPriority;
   /** null clears a previously set per-Fact budget. */
   budgetTokens?: number | null;
@@ -77,6 +85,11 @@ export interface StoryFact {
   text: string;
   activation: FactActivation;
   keys: string[];
+  /** Gate keys. Empty or absent means no gate. */
+  secondaryKeys?: string[];
+  secondaryMode?: FactSecondaryMode;
+  scanDepth?: number;
+  recursion?: FactRecursion;
   createdAt: string;
   updatedAt: string;
   /** Shedding rank under window pressure; absent means "normal". */
@@ -373,9 +386,9 @@ function assertStoryFact(value: unknown): void {
   if (fact.activation !== "always" && fact.activation !== "keyed") invalidField("fact", "activation");
   if (!Array.isArray(fact.keys)) invalidField("fact", "keys");
   try {
-    parseFactMetadata(fact.activation, fact.keys, "fact", fact.priority);
+    parseFactMetadata(fact.activation, fact.keys, "fact", fact.priority, fact.secondaryKeys, fact.secondaryMode, fact.scanDepth, fact.recursion);
   } catch (error) {
-    if (error instanceof FactActivationError) throw new Error(`The server returned an invalid fact.keys: ${error.message}`);
+    if (error instanceof FactActivationError) throw new Error(`The server returned an invalid fact: ${error.message}`);
     throw error;
   }
   if (fact.budgetTokens !== undefined) requirePositiveInteger(fact.budgetTokens, "fact", "budgetTokens");

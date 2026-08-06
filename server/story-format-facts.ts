@@ -10,7 +10,9 @@ import {
   FactActivationError,
   parseFactMetadata,
   type FactActivation,
-  type FactPriority
+  type FactPriority,
+  type FactRecursion,
+  type FactSecondaryMode
 } from "../shared/fact-activation.js";
 import { FactBudgetError, parseFactBudgetTokens } from "../shared/fact-budget.js";
 import type { ObjectHash, StoredFactV1 } from "./story-format.js";
@@ -125,13 +127,34 @@ export function parseStoredFacts(value: unknown, partIds: readonly string[]): St
 function parseStoredFactMetadata(
   fact: Record<string, unknown>,
   factIndex: number
-): { activation?: FactActivation; keys?: string[]; priority?: FactPriority } {
+): {
+  activation?: FactActivation;
+  keys?: string[];
+  priority?: FactPriority;
+  secondaryKeys?: string[];
+  secondaryMode?: FactSecondaryMode;
+  scanDepth?: number;
+  recursion?: FactRecursion;
+} {
   try {
-    const metadata = parseFactMetadata(fact.activation, fact.keys, `facts[${factIndex}]`, fact.priority);
+    const metadata = parseFactMetadata(
+      fact.activation,
+      fact.keys,
+      `facts[${factIndex}]`,
+      fact.priority,
+      fact.secondaryKeys,
+      fact.secondaryMode,
+      fact.scanDepth,
+      fact.recursion
+    );
     return {
       ...(fact.activation === undefined ? {} : { activation: metadata.activation }),
       ...(fact.keys === undefined ? {} : { keys: metadata.keys }),
-      ...(fact.priority === undefined ? {} : { priority: metadata.priority })
+      ...(fact.priority === undefined ? {} : { priority: metadata.priority }),
+      ...(fact.secondaryKeys === undefined ? {} : { secondaryKeys: metadata.secondaryKeys }),
+      ...(fact.secondaryMode === undefined ? {} : { secondaryMode: metadata.secondaryMode }),
+      ...(fact.scanDepth === undefined ? {} : { scanDepth: metadata.scanDepth }),
+      ...(fact.recursion === undefined ? {} : { recursion: metadata.recursion })
     };
   } catch (error) {
     if (error instanceof FactActivationError) throw new StoryFormatError(error.message);

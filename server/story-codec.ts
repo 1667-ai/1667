@@ -140,6 +140,10 @@ export async function encodeStoryBundle(
     tag: fact.tag,
     ...(fact.activation === "always" ? {} : { activation: fact.activation }),
     ...(fact.keys.length === 0 ? {} : { keys: [...fact.keys] }),
+    ...(fact.secondaryKeys === undefined || fact.secondaryKeys.length === 0 ? {} : { secondaryKeys: [...fact.secondaryKeys] }),
+    ...(fact.secondaryMode === undefined || fact.secondaryMode === "and" ? {} : { secondaryMode: fact.secondaryMode }),
+    ...(fact.scanDepth === undefined || fact.scanDepth === 3 ? {} : { scanDepth: fact.scanDepth }),
+    ...(fact.recursion === undefined || fact.recursion === "on" ? {} : { recursion: fact.recursion }),
     ...(fact.priority === undefined || fact.priority === "normal" ? {} : { priority: fact.priority }),
     ...(fact.budgetTokens === undefined ? {} : { budgetTokens: fact.budgetTokens }),
     revisionId: factRevisionIds[index]!,
@@ -243,6 +247,10 @@ export async function decodeStoryBundle(
     tag: stored.tag,
     activation: stored.activation ?? "always",
     keys: stored.keys === undefined ? [] : [...stored.keys],
+    ...(stored.secondaryKeys === undefined || stored.secondaryKeys.length === 0 ? {} : { secondaryKeys: [...stored.secondaryKeys] }),
+    ...(stored.secondaryMode === undefined || stored.secondaryMode === "and" ? {} : { secondaryMode: stored.secondaryMode }),
+    ...(stored.scanDepth === undefined || stored.scanDepth === 3 ? {} : { scanDepth: stored.scanDepth }),
+    ...(stored.recursion === undefined || stored.recursion === "on" ? {} : { recursion: stored.recursion }),
     ...(stored.priority === undefined || stored.priority === "normal" ? {} : { priority: stored.priority }),
     ...(stored.budgetTokens === undefined ? {} : { budgetTokens: stored.budgetTokens }),
     text: texts[cursor++]!,
@@ -331,7 +339,7 @@ function requireEncodedRevision(value: ObjectHash | undefined, nodeId: string): 
 function validateFactBodies(facts: readonly StoryFact[]): void {
   for (const fact of facts) {
     try {
-      parseFactMetadata(fact.activation, fact.keys, `Fact ${fact.id}`, fact.priority);
+      parseFactMetadata(fact.activation, fact.keys, `Fact ${fact.id}`, fact.priority, fact.secondaryKeys, fact.secondaryMode, fact.scanDepth, fact.recursion);
     } catch (error) {
       if (error instanceof FactActivationError) throw new StoryFormatError(error.message);
       throw error;

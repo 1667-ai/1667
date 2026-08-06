@@ -1,152 +1,292 @@
+import { assembleChapterContext, type ChapterPartLike } from "./chapters.js";
+import { splitRegexKey } from "./fact-keys.js";
 import {
-  assembleChapterContext,
-  type ChapterPartLike
-} from "./chapters.js";
-import { hasUnpairedSurrogate, unicodeScalarLength } from "./unicode.js";
+  DEFAULT_FACT_SCAN_PARTS,
+  FACT_ACTIVATIONS,
+  FACT_PRIORITIES,
+  FACT_RECURSIONS,
+  FACT_SECONDARY_MODES,
+  MAX_FACT_KEY_SCALARS,
+  MAX_FACT_KEYS,
+  MAX_FACT_PATTERN_STEPS,
+  MAX_FACT_RECURSION_ROUNDS,
+  MAX_FACT_SCAN_PARTS,
+  MAX_FACT_SCAN_UTF16,
+  FactActivationError,
+  parseFactActivation,
+  parseFactPriority,
+  parseFactRecursion,
+  parseFactScanDepth,
+  parseFactSecondaryMode,
+  type FactActivation,
+  type FactPriority,
+  type FactRecursion,
+  type FactSecondaryMode
+} from "./fact-metadata.js";
+import { parseFactKeys } from "./fact-keys.js";
+import { compileFactPattern, factPatternMatches, type FactPatternBudget } from "./fact-pattern.js";
+import {
+  literalFactKeyMatches,
+  normalizeFactText,
+  recursionScanSegment,
+  scanSegments,
+  windowScanSegments,
+  type FactScanContext,
+  type FactScanSegment
+} from "./fact-scan.js";
 import type { ChapterBreak, StoryFact, StoryNode } from "./types.js";
 
-export const FACT_ACTIVATIONS = ["always", "keyed"] as const;
-export type FactActivation = (typeof FACT_ACTIVATIONS)[number];
-
-/** Shedding rank under window pressure, lowest first: see shared/fact-budget.ts.
- * `normal` is the default and is never written to disk. */
-export const FACT_PRIORITIES = ["low", "normal", "high"] as const;
-export type FactPriority = (typeof FACT_PRIORITIES)[number];
-
-export const MAX_FACT_KEYS = 32;
-export const MAX_FACT_KEY_SCALARS = 64;
-export const MAX_FACT_SCAN_PARTS = 3;
-export const MAX_FACT_SCAN_UTF16 = 20_000;
-
-export class FactActivationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "FactActivationError";
-  }
-}
+export {
+  DEFAULT_FACT_SCAN_PARTS,
+  FACT_ACTIVATIONS,
+  FACT_PRIORITIES,
+  FACT_RECURSIONS,
+  FACT_SECONDARY_MODES,
+  MAX_FACT_KEY_SCALARS,
+  MAX_FACT_KEYS,
+  MAX_FACT_PATTERN_STEPS,
+  MAX_FACT_RECURSION_ROUNDS,
+  MAX_FACT_SCAN_PARTS,
+  MAX_FACT_SCAN_UTF16,
+  FactActivationError,
+  normalizeFactText,
+  parseFactActivation,
+  parseFactKeys,
+  parseFactPriority,
+  parseFactRecursion,
+  parseFactScanDepth,
+  parseFactSecondaryMode
+};
+export type { FactActivation, FactPriority, FactRecursion, FactSecondaryMode, FactScanContext };
 
 export interface FactMetadata {
   activation: FactActivation;
   keys: string[];
   priority: FactPriority;
+  secondaryKeys: string[];
+  secondaryMode: FactSecondaryMode;
+  scanDepth: number;
+  recursion: FactRecursion;
 }
 
-/** Parse metadata at a boundary that accepts legacy omission. */
 export function parseFactMetadata(
   activationValue: unknown,
   keysValue: unknown,
   label = "Fact",
-  priorityValue?: unknown
+  priorityValue?: unknown,
+  secondaryKeysValue?: unknown,
+  secondaryModeValue?: unknown,
+  scanDepthValue?: unknown,
+  recursionValue?: unknown
 ): FactMetadata {
-  const activation = activationValue === undefined
-    ? "always"
-    : parseFactActivation(activationValue, `${label} activation`);
-  const keys = keysValue === undefined
-    ? []
-    : parseFactKeys(keysValue, `${label} keys`);
-  const priority = priorityValue === undefined
-    ? "normal"
-    : parseFactPriority(priorityValue, `${label} priority`);
-  return { activation, keys, priority };
+  return {
+    activation: activationValue === undefined ? "always" : parseFactActivation(activationValue, `${label} activation`),
+    keys: keysValue === undefined ? [] : parseFactKeys(keysValue, `${label} keys`),
+    priority: priorityValue === undefined ? "normal" : parseFactPriority(priorityValue, `${label} priority`),
+    secondaryKeys: secondaryKeysValue === undefined
+      ? []
+      : parseFactKeys(secondaryKeysValue, `${label} secondaryKeys`),
+    secondaryMode: secondaryModeValue === undefined
+      ? "and"
+      : parseFactSecondaryMode(secondaryModeValue, `${label} secondaryMode`),
+    scanDepth: scanDepthValue === undefined
+      ? DEFAULT_FACT_SCAN_PARTS
+      : parseFactScanDepth(scanDepthValue, `${label} scanDepth`),
+    recursion: recursionValue === undefined ? "on" : parseFactRecursion(recursionValue, `${label} recursion`)
+  };
 }
 
-export function parseFactActivation(value: unknown, label = "Fact activation"): FactActivation {
-  if (value !== "always" && value !== "keyed") {
-    throw new FactActivationError(`${label} must be "always" or "keyed"`);
-  }
-  return value;
+export type FactMatchKind = "always" | "literal" | "regex";
+
+export interface FactActivationTrace {
+  readonly kind: FactMatchKind;
+  readonly key?: string;
+  readonly round: number;
+  readonly gate: FactSecondaryMode | null;
 }
 
-export function parseFactPriority(value: unknown, label = "Fact priority"): FactPriority {
-  if (!isFactPriority(value)) {
-    throw new FactActivationError(`${label} must be "low", "normal", or "high"`);
-  }
-  return value;
+export interface FactActivationResult {
+  readonly facts: readonly StoryFact[];
+  readonly traces: ReadonlyMap<string, FactActivationTrace>;
+  readonly unevaluated: readonly string[];
 }
 
-function isFactPriority(value: unknown): value is FactPriority {
-  return (FACT_PRIORITIES as readonly unknown[]).includes(value);
-}
+const COMPILED_PATTERN_CACHE_LIMIT = 64;
+const compiledPatterns = new Map<string, ReturnType<typeof compileFactPattern>>();
+const ACTIVATION_CACHE_LIMIT = 2;
+const activationCache: Array<{
+  readonly facts: readonly StoryFact[];
+  readonly factKey: string;
+  readonly segmentKey: string;
+  readonly result: FactActivationResult;
+}> = [];
 
-export function parseFactKeys(value: unknown, label = "Fact keys"): string[] {
-  if (!Array.isArray(value)) throw new FactActivationError(`${label} must be an array`);
-  if (value.length > MAX_FACT_KEYS) {
-    throw new FactActivationError(`${label} exceeds the ${MAX_FACT_KEYS}-key limit`);
-  }
-  const seen = new Set<string>();
-  return value.map((candidate, index) => {
-    if (typeof candidate !== "string") {
-      throw new FactActivationError(`${label}[${index}] must be a string`);
-    }
-    if (candidate.length === 0 || candidate.trim().length === 0) {
-      throw new FactActivationError(`${label}[${index}] must not be empty`);
-    }
-    if (candidate.includes(",")) {
-      throw new FactActivationError(`${label}[${index}] must not contain a comma`);
-    }
-    if (/[\r\n\u2028\u2029]/u.test(candidate)) {
-      throw new FactActivationError(`${label}[${index}] must be a single line`);
-    }
-    if (hasUnpairedSurrogate(candidate)) {
-      throw new FactActivationError(`${label}[${index}] contains invalid Unicode`);
-    }
-    if (unicodeScalarLength(candidate, MAX_FACT_KEY_SCALARS + 1) > MAX_FACT_KEY_SCALARS) {
-      throw new FactActivationError(
-        `${label}[${index}] exceeds the ${MAX_FACT_KEY_SCALARS}-character limit`
-      );
-    }
-    const normalized = normalizeFactText(candidate);
-    if (unicodeScalarLength(normalized, MAX_FACT_KEY_SCALARS + 1) > MAX_FACT_KEY_SCALARS) {
-      throw new FactActivationError(
-        `${label}[${index}] exceeds the ${MAX_FACT_KEY_SCALARS}-character limit after normalization`
-      );
-    }
-    if (seen.has(normalized)) {
-      throw new FactActivationError(`${label}[${index}] duplicates another key`);
-    }
-    seen.add(normalized);
-    return candidate;
-  });
-}
-
-export interface FactScanContext {
-  /** The exact path passed to the request's context assembler. */
-  contextParts: readonly StoryNode[];
-  chapterBreaks: readonly ChapterBreak[];
-  nodes: readonly ChapterPartLike[];
-  instruction?: string;
-  selectedText?: string;
-}
-
-interface FactScan {
-  text: string;
-  /** Scalar immediately before a capped suffix, kept outside searchable text. */
-  before: string | null;
-}
-
-/** Select Facts in stored insertion order. Omitted context means always-only. */
+/** Compatibility selection. New callers use `selectActiveFactsWithTrace`. */
 export function selectActiveFacts(
   facts: readonly StoryFact[],
   context?: FactScanContext
 ): StoryFact[] {
-  const scan = context === undefined ? null : factScanText(context);
-  return selectFactsForScan(facts, scan);
+  return selectActiveFactsWithTrace(facts, context).facts.slice();
 }
-
-/** Build the exact assembled context used for a rewrite's activation scan. */
+export function selectActiveFactsWithTrace(
+  facts: readonly StoryFact[],
+  context?: FactScanContext
+): FactActivationResult {
+  const parts = context === undefined ? [] : scanSegments(context);
+  const segmentKey = JSON.stringify(parts);
+  const factKey = JSON.stringify(facts.map((fact) => [
+    fact.id,
+    fact.text,
+    fact.activation,
+    fact.keys,
+    fact.secondaryKeys,
+    fact.secondaryMode,
+    fact.scanDepth,
+    fact.recursion
+  ]));
+  const cached = activationCache.find((entry) =>
+    entry.facts === facts && entry.factKey === factKey && entry.segmentKey === segmentKey
+  );
+  if (cached !== undefined) return cached.result;
+  const result = selectActiveFactsForSegments(facts, parts);
+  if (activationCache.length === ACTIVATION_CACHE_LIMIT) activationCache.shift();
+  activationCache.push({ facts, factKey, segmentKey, result });
+  return result;
+}
+function selectActiveFactsForSegments(
+  facts: readonly StoryFact[],
+  parts: readonly string[]
+): FactActivationResult {
+  const traces = new Map<string, FactActivationTrace>();
+  const active = new Set<string>();
+  const unevaluated = new Set<string>();
+  for (const fact of facts) {
+    if (fact.activation !== "always") continue;
+    active.add(fact.id);
+    traces.set(fact.id, { kind: "always", round: 0, gate: null });
+  }
+  const budget: FactPatternBudget = { steps: MAX_FACT_PATTERN_STEPS, exhausted: false };
+  const windows = new Map<number, FactScanSegment | null>();
+  const window = (depth: number): FactScanSegment | null => {
+    if (!windows.has(depth)) windows.set(depth, windowScanSegments(parts, depth));
+    return windows.get(depth)!;
+  };
+  let recursion: FactScanSegment | null = null;
+  for (let round = 0; round <= MAX_FACT_RECURSION_ROUNDS; round += 1) {
+    const fresh: StoryFact[] = [];
+    for (const fact of facts) {
+      if (fact.activation !== "keyed" || active.has(fact.id)) continue;
+      const scans = [
+        window(fact.scanDepth ?? DEFAULT_FACT_SCAN_PARTS),
+        ...(round === 0 ? [] : [recursion])
+      ].filter((item): item is FactScanSegment => item !== null);
+      const primary = matchAny(fact.keys, scans, budget);
+      if (primary === false || primary === undefined) {
+        if (primary === undefined) unevaluated.add(fact.id);
+        continue;
+      }
+      const secondary = fact.secondaryKeys ?? [];
+      const mode = fact.secondaryMode ?? "and";
+      if (secondary.length > 0) {
+        const gate = matchAny(secondary, scans, budget);
+        if (gate === undefined) {
+          unevaluated.add(fact.id);
+          continue;
+        }
+        if ((mode === "and") !== (gate !== false)) continue;
+      }
+      fresh.push(fact);
+      active.add(fact.id);
+      traces.set(fact.id, {
+        kind: primary.kind,
+        key: primary.key,
+        round,
+        gate: secondary.length === 0 ? null : mode
+      });
+    }
+    recursion = recursionScanSegment(
+      facts
+        .filter((fact) => active.has(fact.id) && fact.recursion !== "off")
+        .map((fact) => fact.text)
+    );
+    // Always-active Facts seed recursion even when no keyed Fact matches the
+    // external scan. A first empty round is therefore only terminal when no
+    // recursive source exists.
+    if (fresh.length === 0 && recursion === null) break;
+    if (fresh.length === 0 && round > 0) break;
+  }
+  return { facts: facts.filter((fact) => active.has(fact.id)), traces, unevaluated: [...unevaluated] };
+}
+function matchAny(
+  keys: readonly string[],
+  scans: readonly FactScanSegment[],
+  budget: FactPatternBudget
+): { kind: "literal" | "regex"; key: string } | false | undefined {
+  let skipped = false;
+  for (const key of keys) {
+    const pattern = splitRegexKey(key);
+    if (pattern === null) {
+      if (scans.some((scan) => literalFactKeyMatches(scan, key))) {
+        return { kind: "literal", key };
+      }
+      continue;
+    }
+    if (budget.exhausted) {
+      skipped = true;
+      continue;
+    }
+    const compiled = compiledFactPattern(pattern.source, pattern.flags);
+    if (scans.some((scan) => factPatternMatches(compiled, scan.text, budget, scan.before))) {
+      return { kind: "regex", key };
+    }
+    if (budget.exhausted) {
+      skipped = true;
+      break;
+    }
+  }
+  return skipped ? undefined : false;
+}
+function compiledFactPattern(source: string, flags: string): ReturnType<typeof compileFactPattern> {
+  const key = `${source}/${flags}`;
+  const cached = compiledPatterns.get(key);
+  if (cached !== undefined) return cached;
+  const compiled = compileFactPattern(source, flags);
+  if (compiledPatterns.size >= COMPILED_PATTERN_CACHE_LIMIT) {
+    compiledPatterns.delete(compiledPatterns.keys().next().value!);
+  }
+  compiledPatterns.set(key, compiled);
+  return compiled;
+}
 export function assembleRewriteContext<Node extends ChapterPartLike>(
   path: readonly StoryNode[],
   partId: string,
   chapterBreaks: readonly ChapterBreak[],
   nodes: readonly Node[]
 ): Array<StoryNode | Node> {
-  const targetIndex = path.findIndex((part) => part.id === partId);
-  if (targetIndex < 0) throw new Error(`Unknown rewrite part: ${partId}`);
+  const target = path.findIndex((part) => part.id === partId);
+  if (target < 0) throw new Error(`Unknown rewrite part: ${partId}`);
   return assembleChapterContext(
-    path.slice(0, targetIndex + 1),
-    chapterBreaks.filter((chapterBreak) => chapterBreak.parentPartId !== partId),
+    path.slice(0, target + 1),
+    chapterBreaks.filter((chapter) => chapter.parentPartId !== partId),
     nodes
   );
+}
+
+export function selectActiveFactsForRewriteWithTrace<Node extends ChapterPartLike>(
+  facts: readonly StoryFact[],
+  path: readonly StoryNode[],
+  partId: string,
+  chapterBreaks: readonly ChapterBreak[],
+  nodes: readonly Node[],
+  instruction: string,
+  selectedText: string
+): FactActivationResult {
+  const assembled = assembleRewriteContext(path, partId, chapterBreaks, nodes);
+  return selectActiveFactsForSegments(facts, [
+    ...assembled.map((part) => part.text ?? ""),
+    instruction,
+    selectedText
+  ]);
 }
 
 export function selectActiveFactsForRewrite<Node extends ChapterPartLike>(
@@ -158,124 +298,13 @@ export function selectActiveFactsForRewrite<Node extends ChapterPartLike>(
   instruction: string,
   selectedText: string
 ): StoryFact[] {
-  const assembled = assembleRewriteContext(path, partId, chapterBreaks, nodes);
-  const scan = boundedScanText([
-    ...lastNonEmptyPartTexts(assembled),
+  return selectActiveFactsForRewriteWithTrace(
+    facts,
+    path,
+    partId,
+    chapterBreaks,
+    nodes,
     instruction,
     selectedText
-  ]);
-  return selectFactsForScan(facts, scan);
-}
-
-function selectFactsForScan(
-  facts: readonly StoryFact[],
-  scan: FactScan | null
-): StoryFact[] {
-  return facts.filter((fact) => fact.activation === "always"
-    || (scan !== null && fact.keys.some((key) => containsFactKey(scan, key))));
-}
-
-function factScanText(context: FactScanContext): FactScan | null {
-  const assembled = assembleChapterContext(context.contextParts, context.chapterBreaks, context.nodes);
-  return boundedScanText([
-    ...lastNonEmptyPartTexts(assembled),
-    context.instruction ?? "",
-    context.selectedText ?? ""
-  ]);
-}
-
-function lastNonEmptyPartTexts(parts: readonly ChapterPartLike[]): string[] {
-  return parts
-    .filter((part) => (part.text ?? "").trim().length > 0)
-    .slice(-MAX_FACT_SCAN_PARTS)
-    .map((part) => part.text ?? "");
-}
-
-function boundedScanText(parts: readonly string[]): FactScan | null {
-  const source = parts.filter((part) => part.length > 0).join("\n\n");
-  if (source.length === 0) return null;
-  if (source.length <= MAX_FACT_SCAN_UTF16) {
-    return { text: normalizeFactText(source), before: null };
-  }
-  const start = suffixStart(source, source.length - MAX_FACT_SCAN_UTF16);
-  return {
-    text: normalizeFactText(source.slice(start)),
-    before: scalarBefore(source, start)
-  };
-}
-
-function containsFactKey(scan: FactScan, key: string): boolean {
-  const text = scan.text;
-  const normalizedKey = normalizeFactText(key);
-  let offset = 0;
-  while (offset <= text.length - normalizedKey.length) {
-    const match = text.indexOf(normalizedKey, offset);
-    if (match < 0) return false;
-    if (hasFactBoundaries(
-      text,
-      match,
-      match + normalizedKey.length,
-      normalizedKey,
-      match === 0 ? scan.before : undefined
-    )) return true;
-    offset = match + Math.max(1, normalizedKey.length);
-  }
-  return false;
-}
-
-function hasFactBoundaries(
-  text: string,
-  start: number,
-  end: number,
-  key: string,
-  precedingScalar?: string | null
-): boolean {
-  const before = precedingScalar === undefined
-    ? scalarBefore(text, start)
-    : precedingScalar;
-  const after = scalarAt(text, end);
-  const keyHasCjk = [...key].some(isCjkScalar);
-  const keyIsCjkPhrase = keyHasCjk
-    && [...key].filter(isWordScalar).every(isCjkScalar);
-  const leftAllowed = before === null || !isWordScalar(before)
-    || (keyIsCjkPhrase && isCjkScalar(before));
-  const rightAllowed = after === null || !isWordScalar(after)
-    || (keyIsCjkPhrase && isCjkScalar(after));
-  return leftAllowed && rightAllowed;
-}
-
-export function normalizeFactText(value: string): string {
-  return value.normalize("NFC").toLowerCase();
-}
-
-function suffixStart(value: string, start: number): number {
-  const unit = value.charCodeAt(start);
-  return isLowSurrogate(unit) ? start + 1 : start;
-}
-
-function scalarBefore(value: string, offset: number): string | null {
-  if (offset <= 0) return null;
-  const unit = value.charCodeAt(offset - 1);
-  const codePoint = isLowSurrogate(unit) && offset > 1
-    ? value.codePointAt(offset - 2)
-    : value.codePointAt(offset - 1);
-  if (codePoint === undefined) return null;
-  return String.fromCodePoint(codePoint);
-}
-
-function scalarAt(value: string, offset: number): string | null {
-  const codePoint = value.codePointAt(offset);
-  return codePoint === undefined ? null : String.fromCodePoint(codePoint);
-}
-
-function isWordScalar(value: string): boolean {
-  return /^[\p{L}\p{N}\p{M}_]$/u.test(value);
-}
-
-function isCjkScalar(value: string): boolean {
-  return /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]$/u.test(value);
-}
-
-function isLowSurrogate(value: number): boolean {
-  return value >= 0xdc00 && value <= 0xdfff;
+  ).facts.slice();
 }

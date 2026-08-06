@@ -6,7 +6,7 @@ import type {
   StorySummary,
   TextRange
 } from "../../shared/types.js";
-import type { FactPriority } from "../../shared/fact-activation.js";
+import type { FactPriority, FactRecursion, FactSecondaryMode } from "../../shared/fact-activation.js";
 import type { FactDraft } from "../../shared/fact-draft.js";
 import type { FactEditorRow } from "./fact-editor-rows.js";
 import type { ConnectionState } from "./connection.js";
@@ -381,6 +381,10 @@ export interface FactEditorSession extends EditorSessionBase {
   tag: ComposerState;
   activation: StoryFact["activation"];
   keys: ComposerState;
+  secondary: ComposerState;
+  secondaryMode: FactSecondaryMode;
+  scan: ComposerState;
+  recursion: FactRecursion;
   priority: FactPriority;
   /** Budget as typed text; empty means "no budget set". Parsed on commit,
    *  the same way authorsNote and Fact keys already are. */

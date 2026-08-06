@@ -46,11 +46,16 @@ export function storyManifestSchema(): Schema {
     Hash256: { type: "string", pattern: HASH_PATTERN.source },
     FactActivation: { enum: ["always", "keyed"] },
     FactPriority: { enum: [...FACT_PRIORITIES] },
+    FactSecondaryMode: { enum: ["and", "not"] },
+    FactRecursion: { enum: ["on", "off"] },
     FactKey: {
-      type: "string",
-      minLength: 1,
-      maxLength: MAX_FACT_KEY_SCALARS,
-      pattern: exactStringPatternSource("[^,\\r\\n\\u2028\\u2029]+")
+      oneOf: [
+        { allOf: [
+          { type: "string", minLength: 1, maxLength: MAX_FACT_KEY_SCALARS, pattern: exactStringPatternSource("[^,\\r\\n\\u2028\\u2029]+") },
+          { not: { type: "string", pattern: exactStringPatternSource("/(?:\\\\.|[^/\\r\\n\\u2028\\u2029])*/[dgimsuvy]*") } }
+        ] },
+        { type: "string", minLength: 2, maxLength: MAX_FACT_KEY_SCALARS, pattern: exactStringPatternSource("/(?:\\\\.|[^/\\r\\n\\u2028\\u2029])*/[is]*") }
+      ]
     },
     V5Timestamp: { type: "string", maxLength: MAX_STORY_TIMESTAMP_CHARS },
     TimeMs: { type: "string", pattern: exactStringPatternSource(TIME_MS_PATTERN_SOURCE) },
@@ -87,6 +92,10 @@ export function storyManifestSchema(): Schema {
         maxItems: MAX_FACT_KEYS,
         items: ref("FactKey")
       },
+      secondaryKeys: { type: "array", maxItems: MAX_FACT_KEYS, items: ref("FactKey") },
+      secondaryMode: ref("FactSecondaryMode"),
+      scanDepth: boundedInteger(1, 20),
+      recursion: ref("FactRecursion"),
       priority: ref("FactPriority"),
       budgetTokens: boundedInteger(1, MAX_FACT_BUDGET_TOKENS)
     }, ["id", "tag", "revisionId", "createdAt", "updatedAt"]),

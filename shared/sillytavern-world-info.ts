@@ -18,17 +18,16 @@ const SCAN_SOURCE_FIELDS = [
 ] as const;
 
 type WorldInfoLoss =
-  | "secondaryKey"
   | "positioned"
   | "chance"
   | "recursive"
-  | "regexKey"
+  | "logic"
+  | "scanDepth"
   | "timed"
   | "matchRule"
   | "grouped"
   | "decorated"
   | "refused"
-  | "paddedPatternKey"
   | "scanSource"
   | "macro"
   | "vector"
@@ -42,24 +41,20 @@ const WORLD_INFO_LOSS_PHRASES: LossPhrases<WorldInfoLoss> = {
       + " lost a prompt role; a fact speaks as the system",
   unreadable: (count) =>
     `${count} ${countNoun(count, "entry", "entries")} could not be read`,
-  secondaryKey: (count) =>
-    `${count} ${countNoun(count, "entry", "entries")} lost secondary keys; a fact keys on one list`,
   positioned: (count) => `${count} insertion ${countNoun(count, "position")} omitted`,
   chance: (count) =>
     `${count} ${countNoun(count, "entry", "entries")} will always fire; a fact has no probability`,
   recursive: (count) => `${count} recursion ${countNoun(count, "setting")} omitted`,
-  regexKey: (count) =>
-    `${count} regular expression ${countNoun(count, "key")} dropped; a fact key is literal`,
+  logic: (count) => `${count} selective logic ${countNoun(count, "mode")} omitted`,
+  scanDepth: (count) => `${count} invalid scan ${countNoun(count, "depth")} omitted`,
   timed: (count) =>
     `${count} ${countNoun(count, "entry", "entries")} lost a timed effect; a fact is judged on every request`,
   matchRule: (count) =>
-    `${count} ${countNoun(count, "entry", "entries")} lost a matching rule; a fact key matches a whole key without case`,
+    `${count} ${countNoun(count, "entry", "entries")} lost a literal-key matching rule; a literal fact key matches a whole key without case`,
   grouped: (count) =>
     `${count} grouped ${countNoun(count, "entry", "entries")} can now be active together; a group chose one`,
   decorated: (count) => `${count} activation ${countNoun(count, "decorator")} read and removed`,
   refused: (count) => `${count} ${countNoun(count, "entry", "entries")} skipped for @@dont_activate`,
-  paddedPatternKey: (count) =>
-    `${count} spaced ${countNoun(count, "key")} looks like a pattern and imports as literal text`,
   scanSource: (count) =>
     `${count} ${countNoun(count, "entry", "entries")} lost an extra scan source; a fact scans the story`,
   macro: (count) =>
@@ -90,11 +85,8 @@ interface ConvertedEntry {
  * Turn a SillyTavern World Info file into the Lorebook entry shape the Entry
  * Mapping already reads.
  *
- * World Info carries retrieval machinery that 1667 has no place for: secondary
- * keys with their own AND and NOT logic, an insertion position and depth, a
- * firing probability, and recursion controls. A Fact is either always in
- * context or keyed on its own list, so those mechanisms are counted and named
- * rather than approximated into something that would fire at the wrong time.
+ * World Info carries retrieval machinery. Facts keep regex keys, secondary
+ * keys, supported selective logic, scan depth, and recursion opt-out.
  */
 export function lorebookFromWorldInfo(value: unknown): LorebookRead {
   if (!isRecord(value) || !isRecord(value.entries)) {
@@ -126,8 +118,8 @@ export function lorebookFromWorldInfo(value: unknown): LorebookRead {
   const fidelity = lossLines(losses, WORLD_INFO_LOSS_PHRASES);
   // True of every entry, whatever the file asked for, so it is stated once
   // rather than counted.
-  fidelity.push("a fact key matches a whole key and ignores letter case");
-  fidelity.push("scan depth, order, and other World Info settings omitted");
+  fidelity.push("a literal fact key matches a whole key and ignores letter case");
+  fidelity.push("insertion order and unsupported World Info settings omitted");
 
   return { entries, fidelity, sourceCount: source.length };
 }
@@ -160,9 +152,6 @@ function convertWorldInfoEntry(item: Record<string, unknown>): ConvertedEntry {
     };
   }
 
-  if (Array.isArray(item.keysecondary) && item.keysecondary.length > 0) {
-    losses.push("secondaryKey");
-  }
   // Position 4 is "at depth"; the rest name a place in the prompt that a Fact
   // does not choose. Either way the Fact lands where 1667 puts Facts.
   if (item.position !== undefined && item.position !== null) losses.push("positioned");
@@ -180,7 +169,7 @@ function convertWorldInfoEntry(item: Record<string, unknown>): ConvertedEntry {
   // Current files write numeric 0 for "no delay", so only true or a positive
   // level counts. Otherwise an ordinary file reports a loss it never had.
   const delayed = isPositive(item.delayUntilRecursion);
-  if (item.recursion === true || item.excludeRecursion === true
+  if (item.recursion === true
     || item.preventRecursion === true || delayed) {
     losses.push("recursive");
   }
@@ -189,9 +178,11 @@ function convertWorldInfoEntry(item: Record<string, unknown>): ConvertedEntry {
   if (isPositive(item.sticky) || isPositive(item.cooldown) || isPositive(item.delay)) {
     losses.push("timed");
   }
-  // A Fact key matches case-insensitively on a whole key. An entry that asked
-  // for something else will fire at different moments.
-  if (item.caseSensitive === true || item.matchWholeWords === false) {
+  // A literal Fact key matches case-insensitively on a whole key. An entry
+  // that asked for something else will fire at different moments. Regex keys
+  // preserve their flags, so their case setting is not a loss.
+  const usesRegex = item.useRegex === true;
+  if ((!usesRegex && item.caseSensitive === true) || item.matchWholeWords === false) {
     losses.push("matchRule");
   }
   // These add places upstream looks for a key. A Fact scans the story
@@ -209,33 +200,27 @@ function convertWorldInfoEntry(item: Record<string, unknown>): ConvertedEntry {
   // Independent Facts have no such contest, so they can all be active.
   if (typeof item.group === "string" && item.group.trim().length > 0) losses.push("grouped");
 
-  // SillyTavern reads a key written as /pattern/flags as a regular
-  // expression. A Fact key is literal, so keeping one would leave a key that
-  // fires only on the pattern's own text. Drop it and say so.
   const sourceKeys = Array.isArray(item.key) ? item.key : [];
   // SillyTavern expands {{macros}} against a character and a chat before the
   // text is used. A World Info file carries neither, so the braces stay as
   // the writer wrote them and a macro key cannot match.
   if (hasMacro(rawContent) || sourceKeys.some(hasMacro)) losses.push("macro");
-  const literalKeys = sourceKeys.filter((key) => {
-    if (typeof key !== "string") return true;
-    // An exact pattern is a pattern. A padded one is ambiguous: it is
-    // slash-delimited but not anchored, so upstream may read it either way.
-    // Keep it, because a dropped key can cost an entry its only trigger, and
-    // name it so the writer is not left with a key that quietly never fires.
-    if (isRegexKey(key)) {
-      losses.push("regexKey");
-      return false;
-    }
-    if (key !== key.trim() && isRegexKey(key.trim())) losses.push("paddedPatternKey");
-    return true;
-  });
+  const keys = sourceKeys;
+  const selective = item.selective === true;
+  const logic = selective ? worldInfoLogic(item.world_info_logic) : "and";
+  if (selective && logic === null && item.world_info_logic !== undefined) losses.push("logic");
+  const scanDepth = worldInfoScanDepth(item.scanDepth);
+  if (scanDepth === null && item.scanDepth !== undefined) losses.push("scanDepth");
 
   return {
     entry: {
       text: decorated.content,
       displayName: typeof item.comment === "string" ? item.comment : "",
-      keys: literalKeys,
+      keys,
+      secondaryKeys: selective && Array.isArray(item.keysecondary) ? item.keysecondary : [],
+      ...(logic === null || logic === "and" ? {} : { secondaryMode: logic }),
+      ...(scanDepth === null || scanDepth === 3 ? {} : { scanDepth }),
+      ...(item.excludeRecursion === true ? { recursion: "off" as const } : {}),
       forceActivation: item.constant === true || forced,
       // World Info switches an entry off with `disable`; a Lorebook switches it
       // on with `enabled`. Read both so neither file loses the writer's choice.
@@ -245,39 +230,14 @@ function convertWorldInfoEntry(item: Record<string, unknown>): ConvertedEntry {
   };
 }
 
-/** `/pattern/flags`, the form SillyTavern reads as a regular expression.
- *
- * A key is only a pattern when the pattern compiles. `/(/` looks like one and
- * is literal text upstream, so treating it as a pattern would delete a key that
- * works. When in doubt the key stays. */
-function isRegexKey(key: string): boolean {
-  const match = /^\/([\s\S]+)\/([a-z]*)$/u.exec(key);
-  if (match === null) return false;
-  const pattern = match[1]!;
-  const flags = match[2]!;
-  // A pattern ends at its first unescaped delimiter, so `/foo/bar/` is not one
-  // pattern. Upstream reads it as literal text, and so does this.
-  if (hasUnescapedSlash(pattern)) return false;
-  // Only the flags SillyTavern accepts. A host that supports more, such as `d`,
-  // must not make a literal key look like a pattern.
-  if (!/^[gimsuy]*$/u.test(flags) || new Set(flags).size !== flags.length) return false;
-  try {
-    new RegExp(pattern, flags);
-    return true;
-  } catch {
-    return false;
-  }
+function worldInfoLogic(value: unknown): "and" | "not" | null {
+  if (value === undefined || value === 0) return "and";
+  if (value === 2) return "not";
+  return null;
 }
-
-function hasUnescapedSlash(pattern: string): boolean {
-  for (let index = 0; index < pattern.length; index += 1) {
-    if (pattern[index] === "\\") {
-      index += 1;
-      continue;
-    }
-    if (pattern[index] === "/") return true;
-  }
-  return false;
+function worldInfoScanDepth(value: unknown): number | null {
+  if (value === undefined) return 3;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 20 ? value : null;
 }
 
 function isNonEmptyArray(value: unknown): boolean {

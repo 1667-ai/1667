@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   MAX_FACT_SCAN_UTF16,
-  selectActiveFacts
+  selectActiveFacts,
+  selectActiveFactsWithTrace
 } from "../shared/fact-activation.js";
+import { parseFactKeys, splitFactKeyLine } from "../shared/fact-keys.js";
+import { compileFactPattern, factPatternMatches } from "../shared/fact-pattern.js";
 import type { StoryFact, StoryNode } from "../shared/types.js";
 
 const NOW = "2026-01-01T00:00:00.000Z";
@@ -89,6 +92,104 @@ test("the scan cap does not create a false word boundary", () => {
   );
 });
 
+test("regex keys use scalar-safe patterns and slash-aware editor parsing", () => {
+  assert.deepEqual(splitFactKeyLine("/a/, /b{2,4}/, brass"), ["/a/", "/b{2,4}/", "brass"]);
+  assert.deepEqual(splitFactKeyLine("/a{2,4}/, /oops, salt"), ["/a{2,4}/", "/oops", "salt"]);
+  assert.deepEqual(parseFactKeys(["/😀/", "/a{2,4}/i"]), ["/😀/", "/a{2,4}/i"]);
+  assert.deepEqual(parseFactKeys(["/home/user"]), ["/home/user"], "prose slash keys remain literal");
+  const result = selectActiveFactsWithTrace([
+    fact("/😀/"), fact("/[A-Z][a-z]+/"), fact("/[a-z]/i"), fact("/cat|dog/")
+  ], context("😀 Brass, no animal."));
+  assert.deepEqual(result.facts.map(({ id }) => id), ["fact-/😀/", "fact-/[A-Z][a-z]+/", "fact-/[a-z]/i"]);
+  assert.equal(result.traces.get("fact-/😀/")?.kind, "regex");
+});
+
+test("regex quantifiers and character classes have bounded NFA semantics", () => {
+  for (const [source, matching, nonMatching] of [
+    ["a*b", "aaab", "c"],
+    ["a+b", "aaab", "b"],
+    ["a{2,}b", "aaab", "ab"],
+    ["[a-]", "-", "b"]
+  ] as const) {
+    assert.equal(patternMatches(source, matching), true, `${source} matches ${matching}`);
+    assert.equal(patternMatches(source, nonMatching), false, `${source} rejects ${nonMatching}`);
+  }
+  assert.throws(() => compileFactPattern("[z-a]", ""), /descending character range/);
+  assert.throws(
+    () => compileFactPattern("(?:a(?:b(?:c(?:d(?:e)))))", ""),
+    /4-group nesting limit/
+  );
+  assert.equal(patternMatches("\\p{Lu}", "a", "i"), true);
+});
+
+test("always Facts seed recursion without an external context", () => {
+  const facts: StoryFact[] = [
+    { ...alwaysFact("seed"), id: "seed", text: "chain" },
+    { ...fact("chain"), id: "chain", text: "leaf" },
+    { ...fact("leaf"), id: "leaf" }
+  ];
+  const selected = selectActiveFactsWithTrace(facts);
+  assert.deepEqual(selected.facts.map(({ id }) => id), ["seed", "chain", "leaf"]);
+  assert.equal(selected.traces.get("chain")?.round, 1);
+  assert.equal(selected.traces.get("leaf")?.round, 2);
+});
+
+test("regex matching reports work cut off by the shared step budget", () => {
+  const facts = Array.from({ length: 50 }, (_, index) => ({
+    ...fact(`/z${index}/`),
+    id: `regex-${index}`,
+    keys: ["/z/"]
+  }));
+  const result = selectActiveFactsWithTrace(facts, context("a".repeat(MAX_FACT_SCAN_UTF16)));
+  assert.equal(result.facts.length, 0);
+  assert.ok(result.unevaluated.length > 0);
+  assert.ok(result.unevaluated.includes("regex-49"));
+});
+
+test("boundary-only regexes also use the shared operation budget", () => {
+  const facts = Array.from({ length: 50 }, (_, index) => ({
+    ...fact(`/\\b\\B${index}/`),
+    id: `boundary-${index}`,
+    keys: ["/\\b\\B/"]
+  }));
+  const result = selectActiveFactsWithTrace(facts, context("a".repeat(MAX_FACT_SCAN_UTF16)));
+  assert.equal(result.facts.length, 0);
+  assert.ok(result.unevaluated.length > 0);
+});
+
+test("an adversarial regex stays bounded across a full scan window", () => {
+  const started = performance.now();
+  const result = selectActiveFactsWithTrace(
+    [fact("/(?:a|aa)*b/")],
+    context("a".repeat(MAX_FACT_SCAN_UTF16))
+  );
+  assert.equal(result.facts.length, 0);
+  assert.ok(performance.now() - started < 2_000);
+});
+
+test("regex word boundaries retain the scalar before a capped scan suffix", () => {
+  const text = `xcat${" ".repeat(MAX_FACT_SCAN_UTF16 - 3)}`;
+  assert.equal(selectActiveFacts([fact("/\\bcat/")], context(text)).length, 0);
+});
+
+test("secondary gates, scan depth, and recursion select Facts in stored order", () => {
+  const facts: StoryFact[] = [
+    { ...fact("hero"), id: "and", secondaryKeys: ["brass"], secondaryMode: "and" },
+    { ...fact("hero"), id: "not", secondaryKeys: ["enemy"], secondaryMode: "not" },
+    { ...fact("old"), id: "deep", recursion: "off" },
+    { ...fact("old"), id: "shallow", scanDepth: 1 },
+    { ...alwaysFact("seed"), id: "seed", text: "chain" },
+    { ...fact("chain"), id: "chain", text: "leaf" },
+    { ...fact("leaf"), id: "leaf" }
+  ];
+  const selected = selectActiveFactsWithTrace(facts, {
+    contextParts: [part("one", "old"), part("two", "hero brass")], chapterBreaks: [], nodes: []
+  });
+  assert.deepEqual(selected.facts.map(({ id }) => id), ["and", "not", "deep", "seed", "chain", "leaf"]);
+  assert.equal(selected.traces.get("chain")?.round, 1);
+  assert.equal(selected.traces.get("leaf")?.round, 2);
+});
+
 function fact(key: string): StoryFact {
   return {
     id: `fact-${key}`,
@@ -127,4 +228,12 @@ function context(text: string): {
     chapterBreaks: [],
     nodes: []
   };
+}
+
+function patternMatches(source: string, text: string, flags = ""): boolean {
+  return factPatternMatches(
+    compileFactPattern(source, flags),
+    text,
+    { steps: 1_000_000, exhausted: false }
+  );
 }

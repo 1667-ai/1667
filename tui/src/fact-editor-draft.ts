@@ -1,5 +1,6 @@
 import { setComposerText } from "./composer-model.js";
-import { FactActivationError, parseFactKeys } from "../../shared/fact-activation.js";
+import { FactActivationError, parseFactKeys, parseFactScanDepth } from "../../shared/fact-activation.js";
+import { splitFactKeyLine } from "../../shared/fact-keys.js";
 import { MAX_FACT_BUDGET_TOKENS } from "../../shared/fact-budget.js";
 import { FACT_DRAFT_FIELDS, type FactDraft } from "../../shared/fact-draft.js";
 import type { FactEditorSession } from "./state.js";
@@ -26,6 +27,10 @@ export function factEditorChanged(editor: FactEditorSession): boolean {
   return factEditorTagChanged(editor)
     || editor.activation !== editor.initialFact.activation
     || factEditorKeysChanged(editor)
+    || editor.secondary.text !== formatFactKeys(editor.initialFact.secondaryKeys)
+    || editor.secondaryMode !== editor.initialFact.secondaryMode
+    || editor.scan.text !== formatFactScanDepth(editor.initialFact.scanDepth)
+    || editor.recursion !== editor.initialFact.recursion
     || editor.priority !== editor.initialFact.priority
     || editor.budget.text !== formatFactBudget(editor.initialFact.budgetTokens)
     || editor.composer.text !== editor.initialFact.text;
@@ -51,12 +56,20 @@ export function factEditorSavePayload(
   if (!parsedKeys.ok) return parsedKeys;
   const parsedBudget = factEditorBudget(editor);
   if (!parsedBudget.ok) return parsedBudget;
+  const secondary = factEditorSecondaryKeys(editor);
+  if (!secondary.ok) return secondary;
+  const scan = factEditorScanDepth(editor);
+  if (!scan.ok) return scan;
   return {
     ok: true,
     draft: {
       tag: factEditorPersistedTag(editor),
       activation: editor.activation,
       keys: factEditorKeysChanged(editor) ? parsedKeys.keys : [...editor.initialFact.keys],
+      secondaryKeys: secondary.keys,
+      secondaryMode: editor.secondaryMode,
+      scanDepth: scan.scanDepth,
+      recursion: editor.recursion,
       priority: editor.priority,
       budgetTokens: parsedBudget.budgetTokens,
       text: editor.composer.text
@@ -87,9 +100,21 @@ const FACT_DRAFT_WRITERS: {
   [K in keyof FactDraft]: (editor: FactEditorSession, value: FactDraft[K]) => void
 } = {
   tag: (editor, value) => setComposerText(editor.tag, value ?? ""),
-  activation: (editor, value) => { editor.activation = value; },
+  activation: (editor, value) => {
+    editor.activation = value;
+  },
   keys: (editor, value) => setComposerText(editor.keys, formatFactKeys(value)),
-  priority: (editor, value) => { editor.priority = value; },
+  secondaryKeys: (editor, value) => setComposerText(editor.secondary, formatFactKeys(value)),
+  secondaryMode: (editor, value) => {
+    editor.secondaryMode = value;
+  },
+  scanDepth: (editor, value) => setComposerText(editor.scan, formatFactScanDepth(value)),
+  recursion: (editor, value) => {
+    editor.recursion = value;
+  },
+  priority: (editor, value) => {
+    editor.priority = value;
+  },
   budgetTokens: (editor, value) => setComposerText(editor.budget, formatFactBudget(value)),
   text: (editor, value) => setComposerText(editor.composer, value)
 };
@@ -99,7 +124,7 @@ function writeFactDraftField<K extends keyof FactDraft>(
   editor: FactEditorSession,
   draft: FactDraft
 ): void {
-  FACT_DRAFT_WRITERS[field](editor, draft[field]);
+  FACT_DRAFT_WRITERS[field]!(editor, draft[field]);
 }
 
 /** Apply-draft: copy a `FactDraft` into an editor's live buffers — the
@@ -113,6 +138,9 @@ export function applyFactDraftToEditor(editor: FactEditorSession, draft: FactDra
 
 export function formatFactKeys(keys: readonly string[]): string {
   return keys.join(", ");
+}
+export function formatFactScanDepth(value: number | undefined): string {
+  return value === undefined ? "" : String(value);
 }
 
 /** Empty text means "no budget set" — the same convention the wire uses
@@ -134,7 +162,7 @@ function factEditorKeys(
   editor: FactEditorSession
 ): { ok: true; keys: string[] } | { ok: false; toast: string } {
   if (editor.keys.text.trim().length === 0) return { ok: true, keys: [] };
-  const keys = editor.keys.text.split(",").map((key) => key.trim());
+  const keys = splitFactKeyLine(editor.keys.text);
   if (keys.some((key) => key.length === 0)) {
     return { ok: false, toast: "fact keys cannot contain an empty entry" };
   }
@@ -145,6 +173,37 @@ function factEditorKeys(
       return { ok: false, toast: error.message };
     }
     throw error;
+  }
+}
+function factEditorSecondaryKeys(
+  editor: FactEditorSession
+): { ok: true; keys: string[] } | { ok: false; toast: string } {
+  if (editor.secondary.text.trim().length === 0) return { ok: true, keys: [] };
+  try {
+    return {
+      ok: true,
+      keys: parseFactKeys(splitFactKeyLine(editor.secondary.text), "Fact secondary keys")
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      toast: error instanceof FactActivationError ? error.message : "invalid Fact secondary keys"
+    };
+  }
+}
+function factEditorScanDepth(
+  editor: FactEditorSession
+): { ok: true; scanDepth: number | undefined } | { ok: false; toast: string } {
+  if (editor.scan.text.trim().length === 0) return { ok: true, scanDepth: undefined };
+  if (!/^\d+$/u.test(editor.scan.text)) return { ok: false, toast: "Fact scan depth must be a whole number" };
+  const number = Number(editor.scan.text);
+  try {
+    return { ok: true, scanDepth: parseFactScanDepth(number, "Fact scan depth") };
+  } catch (error) {
+    return {
+      ok: false,
+      toast: error instanceof FactActivationError ? error.message : "invalid Fact scan depth"
+    };
   }
 }
 

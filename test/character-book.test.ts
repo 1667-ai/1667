@@ -57,10 +57,10 @@ test("name is preferred over comment for the display name", () => {
   assert.equal(book.entries[1]?.displayName, "FromComment");
 });
 
-test("the mechanisms a Fact has no place for are named, not approximated", () => {
+test("secondary keys and selective AND carry through while unsupported settings are named", () => {
   const book = entriesFromCharacterBook({
     entries: [
-      { content: "Fires on two lists.", keys: ["storm"], secondary_keys: ["night"] },
+      { content: "Fires on two lists.", keys: ["storm"], selective: true, secondary_keys: ["night"] },
       { content: "Fires early.", keys: ["a"], insertion_order: 0 },
       { content: "Needs both.", keys: ["b"], selective: true, secondary_keys: ["c"] },
       { content: "Case matters.", keys: ["D"], case_sensitive: true }
@@ -69,10 +69,12 @@ test("the mechanisms a Fact has no place for are named, not approximated", () =>
 
   const report = fidelityReport([...factsFromEntries(book.entries, 128).fidelity, ...book.fidelity]);
 
+  const facts = factsFromEntries(book.entries, 128).facts;
+  assert.deepEqual(facts[0]?.secondaryKeys, ["night"]);
+  assert.deepEqual(facts[2]?.secondaryKeys, ["c"]);
+  assert.equal(facts[2]?.secondaryMode, undefined, "AND is the stored default");
   for (const reason of [
-    "2 entries lost secondary keys; a fact keys on one list",
     "1 entry lost a position; a fact lands where 1667 puts facts",
-    "1 entry lost selective matching; a fact has no AND/NOT logic",
     "1 entry lost case-sensitive matching; a fact key ignores letter case"
   ]) assert.ok(report.includes(reason), `${reason} missing from: ${report}`);
 });
@@ -91,23 +93,38 @@ test("position, insertion_order, and priority are one loss, not three", () => {
   assert.ok(report.includes("3 entries lost a position"), report);
 });
 
-test("a regex-marked entry drops its keys instead of keeping a pattern as literal text", () => {
+test("a regex-marked entry keeps valid keys and drops invalid patterns", () => {
   const book = entriesFromCharacterBook({
-    entries: [{ content: "Body.", keys: ["/storm(s)?/i"], use_regex: true }]
+    entries: [{ content: "Body.", keys: ["/storm(?:s)?/i", "/storm/d"], use_regex: true }]
   }, "Mira");
 
   const result = factsFromEntries(book.entries, 128);
   const report = fidelityReport([...result.fidelity, ...book.fidelity]);
 
-  assert.deepEqual(result.facts[0]?.keys, []);
-  assert.ok(
-    report.includes("1 entry marked their keys as a regular expression; a fact key is literal"),
-    report
-  );
-  assert.ok(report.includes("keyed entry has no keys and will not activate"), report);
+  assert.deepEqual(result.facts[0]?.keys, ["/storm(?:s)?/i"]);
+  assert.ok(report.includes("1 key dropped"), report);
 });
 
-test("use_regex on an entry with no keys reports nothing; there was nothing to lose", () => {
+test("secondary keys use the primary-key import validation path", () => {
+  const book = entriesFromCharacterBook({
+    entries: [{
+      content: "Body.",
+      keys: ["primary"],
+      selective: true,
+      secondary_keys: ["  permit  ", "permit", "/(/", "x".repeat(65)]
+    }]
+  }, "Mira");
+
+  const result = factsFromEntries(book.entries, 128);
+  const report = fidelityReport(result.fidelity);
+
+  assert.deepEqual(result.facts[0]?.secondaryKeys, ["permit", "x".repeat(64)]);
+  assert.ok(report.includes("1 key trimmed of surrounding whitespace"), report);
+  assert.ok(report.includes("1 key cut to 64 characters"), report);
+  assert.ok(report.includes("2 keys dropped"), report);
+});
+
+test("use_regex on an entry with no keys has no report line", () => {
   const book = entriesFromCharacterBook({
     entries: [{ content: "Body.", keys: [], use_regex: true, constant: true }]
   }, "Mira");
@@ -269,8 +286,6 @@ test("a disabled entry does not report what it would have lost, mirroring World 
   for (const absent of [
     "lost a position",
     "lost a prompt role",
-    "lost secondary keys",
-    "lost selective matching",
     "lost case-sensitive matching",
     "regular expression",
     "V3 decorator"
@@ -299,9 +314,9 @@ test("book-level scan_depth, token_budget, and recursive_scanning are each named
   }, "Mira");
   const report = fidelityReport(withSettings.fidelity);
 
-  assert.ok(report.includes("scan depth omitted"), report);
+  assert.equal(factsFromEntries(withSettings.entries, 128).facts[0]?.scanDepth, 4);
   assert.ok(report.includes("token budget omitted"), report);
-  assert.ok(report.includes("recursive scanning omitted"), report);
+  assert.ok(!report.includes("recursive scanning"), report);
 
   const withoutSettings = entriesFromCharacterBook({
     entries: [{ content: "Body.", keys: ["k"] }]
@@ -320,7 +335,7 @@ test("key-changing decorators are named as a key loss, not the generic one", () 
 
   const report = fidelityReport(book.fidelity);
 
-  assert.ok(report.includes("1 entry lost added or excluded keys; a fact keys on one list"), report);
+  assert.ok(report.includes("1 entry lost added or excluded decorator keys"), report);
   assert.ok(!report.includes("V3 decorator"), report);
 });
 
@@ -331,7 +346,10 @@ test("a per-entry scan depth is named as a search-range loss", () => {
 
   const report = fidelityReport(book.fidelity);
 
-  assert.ok(report.includes("1 entry lost a search range; a fact is judged on every request"), report);
+  assert.ok(
+    report.includes("1 entry lost a per-entry search range; the fact uses the book scan depth or the default"),
+    report
+  );
   assert.ok(!report.includes("V3 decorator"), report);
 });
 

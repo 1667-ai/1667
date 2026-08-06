@@ -1,4 +1,4 @@
-import type { FactActivation } from "../../shared/fact-activation.js";
+import type { FactActivation, FactActivationTrace } from "../../shared/fact-activation.js";
 import type { FactBudgetDrop, FactDropReason } from "../../shared/fact-budget.js";
 import { countNoun } from "../../shared/fidelity.js";
 import type { StoryFact } from "../../shared/types.js";
@@ -92,6 +92,7 @@ function reusableFactTag(tag: string | null): tag is string {
 export type FactRequestStatus =
   | { readonly kind: "sent" }
   | { readonly kind: "not-matched" }
+  | { readonly kind: "unevaluated" }
   | { readonly kind: "dropped"; readonly reason: FactDropReason };
 
 /** Classify every Fact in `facts` against the sets a request projection
@@ -100,14 +101,16 @@ export type FactRequestStatus =
 export function factRequestStatuses(
   facts: readonly StoryFact[],
   matchedIds: ReadonlySet<string>,
-  dropped: readonly FactBudgetDrop[]
+  dropped: readonly FactBudgetDrop[],
+  unevaluatedIds: ReadonlySet<string> = new Set()
 ): ReadonlyMap<string, FactRequestStatus> {
   const droppedReasons = new Map(dropped.map((drop) => [drop.factId, drop.reason]));
   return new Map(facts.map((fact) => {
     const reason = droppedReasons.get(fact.id);
     const status: FactRequestStatus = reason !== undefined
       ? { kind: "dropped", reason }
-      : matchedIds.has(fact.id) ? { kind: "sent" } : { kind: "not-matched" };
+      : matchedIds.has(fact.id) ? { kind: "sent" }
+        : unevaluatedIds.has(fact.id) ? { kind: "unevaluated" } : { kind: "not-matched" };
     return [fact.id, status];
   }));
 }
@@ -125,7 +128,8 @@ export interface FactStatusDisplay {
 
 export function factStatusDisplay(
   activation: FactActivation,
-  status: FactRequestStatus
+  status: FactRequestStatus,
+  trace?: FactActivationTrace
 ): FactStatusDisplay {
   if (activation === "always") {
     // An `always` Fact has no "not matched" state \u2014 it always matches by
@@ -135,8 +139,9 @@ export function factStatusDisplay(
       : { glyph: "", word: "always", emphasis: "focus / accent" };
   }
   switch (status.kind) {
-    case "sent": return { glyph: "\u2713", word: "keyed", emphasis: "focus / accent" };
+    case "sent": return { glyph: "\u2713", word: trace?.round && trace.round > 0 ? "chain" : trace?.kind === "regex" ? "regex" : "keyed", emphasis: "focus / accent" };
     case "dropped": return { glyph: "\u2715", word: "keyed", emphasis: "context warning" };
+    case "unevaluated": return { glyph: "\u26a0", word: "keyed", emphasis: "context warning" };
     case "not-matched": return { glyph: "\u00b7", word: "keyed", emphasis: "chrome" };
   }
 }

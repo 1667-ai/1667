@@ -356,6 +356,16 @@ export function createDemoController(dense = false): DemoController {
         keys: input.keys === undefined ? [] : [...input.keys],
         createdAt: CREATED,
         updatedAt: CREATED,
+        ...(input.secondaryKeys === undefined || input.secondaryKeys.length === 0
+          ? {}
+          : { secondaryKeys: [...input.secondaryKeys] }),
+        ...(input.secondaryMode === undefined || input.secondaryMode === "and"
+          ? {}
+          : { secondaryMode: input.secondaryMode }),
+        ...(input.scanDepth === undefined || input.scanDepth === 3 ? {} : { scanDepth: input.scanDepth }),
+        ...(input.recursion === undefined || input.recursion === "on"
+          ? {}
+          : { recursion: input.recursion }),
         ...(input.priority === undefined || input.priority === "normal" ? {} : { priority: input.priority }),
         ...(input.budgetTokens === undefined ? {} : { budgetTokens: input.budgetTokens })
       });
@@ -368,6 +378,32 @@ export function createDemoController(dense = false): DemoController {
       if (input.text !== undefined) fact.text = input.text;
       if (input.activation !== undefined) fact.activation = input.activation;
       if (input.keys !== undefined) fact.keys = [...input.keys];
+      if (input.secondaryKeys !== undefined) {
+        if (input.secondaryKeys === null || input.secondaryKeys.length === 0) {
+          delete fact.secondaryKeys;
+        } else {
+          fact.secondaryKeys = [...input.secondaryKeys];
+        }
+      }
+      if (input.secondaryMode !== undefined) {
+        if (input.secondaryMode === null || input.secondaryMode === "and") {
+          delete fact.secondaryMode;
+        } else {
+          fact.secondaryMode = input.secondaryMode;
+        }
+      }
+      if (input.scanDepth !== undefined) {
+        if (input.scanDepth === null) delete fact.scanDepth;
+        else if (input.scanDepth === 3) delete fact.scanDepth;
+        else fact.scanDepth = input.scanDepth;
+      }
+      if (input.recursion !== undefined) {
+        if (input.recursion === null || input.recursion === "on") {
+          delete fact.recursion;
+        } else {
+          fact.recursion = input.recursion;
+        }
+      }
       if (input.priority !== undefined) {
         if (input.priority === "normal") delete fact.priority;
         else fact.priority = input.priority;

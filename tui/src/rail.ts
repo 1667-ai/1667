@@ -1,4 +1,5 @@
 import type { FactBudgetDrop } from "../../shared/fact-budget.js";
+import type { FactActivationTrace } from "../../shared/fact-activation.js";
 import { countWords } from "../../shared/story-text.js";
 import type { StoryFact, StoryPayload } from "../../shared/types.js";
 import type { PromptTokenCount, TokenCountGrade } from "../../shared/tokenize-source.js";
@@ -25,6 +26,7 @@ export interface RailFact {
   activation: StoryFact["activation"];
   /** Sent, not-matched, or dropped-with-reason — see tui/src/facts-model.ts. */
   status: FactRequestStatus;
+  trace: FactActivationTrace | undefined;
   body: string;
   /** Shedding rank under window pressure; "normal" is the default. */
   priority: NonNullable<StoryFact["priority"]>;
@@ -153,6 +155,7 @@ export function buildRailModel(
       tag: fact.tag ?? "",
       activation: fact.activation,
       status: estimate.factStatuses.get(fact.id) ?? { kind: "not-matched" },
+      trace: estimate.activation.traces.get(fact.id),
       body: factBody(fact),
       priority: fact.priority ?? "normal"
     };

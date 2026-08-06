@@ -67,7 +67,7 @@ test("World Info entries become Facts through the one Entry Mapping", () => {
   assert.match(fidelityReport(result.fidelity), /1 disabled entry skipped/u);
 });
 
-test("the mechanisms a Fact has no place for are named, not approximated", () => {
+test("World Info secondary keys are kept while unsupported mechanisms are named", () => {
   const archive = parseLorebookArchive(Buffer.from(worldInfo([
     {
       comment: "Secondary",
@@ -93,12 +93,26 @@ test("the mechanisms a Fact has no place for are named, not approximated", () =>
   const report = fidelityReport(factsFromArchive(archive, 128).fidelity);
 
   for (const reason of [
-    "1 entry lost secondary keys; a fact keys on one list",
     "3 insertion positions omitted",
     "1 entry will always fire; a fact has no probability",
     "1 recursion setting omitted",
-    "scan depth, order, and other World Info settings omitted"
+    "insertion order and unsupported World Info settings omitted"
   ]) assert.ok(report.includes(reason), `${reason} missing from: ${report}`);
+});
+
+test("World Info maps supported selective logic and scan depth", () => {
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([
+    { comment: "and", content: "a", key: ["a"], world_info_logic: 0, scanDepth: 4 },
+    { comment: "not", content: "b", key: ["b"], world_info_logic: 2, scanDepth: 20 },
+    { comment: "not-all", content: "c", key: ["c"], world_info_logic: 1 },
+    { comment: "and-all", content: "d", key: ["d"], world_info_logic: 3, scanDepth: 0 }
+  ])));
+  const result = factsFromArchive(archive, 128);
+  assert.equal(result.facts[0]!.scanDepth, 4);
+  assert.equal(result.facts[1]!.secondaryMode, "not");
+  const report = fidelityReport(result.fidelity);
+  assert.ok(report.includes("2 selective logic modes omitted"), report);
+  assert.ok(report.includes("1 invalid scan depth omitted"), report);
 });
 
 test("a World Info entry keeps the caps and the reporting every archive gets", () => {
@@ -151,38 +165,28 @@ test("an unknown JSON object names both archives it could have been", () => {
   );
 });
 
-test("a regular expression key is dropped and named, not kept as literal text", () => {
+test("a regular expression key imports as a regex key", () => {
   // SillyTavern reads /pattern/flags as a regex. Kept as a literal key it would
   // fire only on the pattern's own text, which is worse than not being there.
   const archive = parseLorebookArchive(Buffer.from(worldInfo([{
     comment: "Weather",
     content: "The pass closes.",
-    key: ["/storm(s|y)?/i", "snow"]
+    key: ["/storm(?:s|y)?/i", "snow"]
   }])));
 
   const result = factsFromArchive(archive, 128);
 
-  assert.deepEqual(result.facts[0]?.keys, ["snow"]);
-  assert.ok(
-    fidelityReport(result.fidelity).includes(
-      "1 regular expression key dropped; a fact key is literal"
-    ),
-    fidelityReport(result.fidelity)
-  );
+  assert.deepEqual(result.facts[0]?.keys, ["/storm(?:s|y)?/i", "snow"]);
 });
 
-test("an entry whose keys are all regular expressions says it will not activate", () => {
+test("an entry whose keys are all regular expressions remains keyed", () => {
   const archive = parseLorebookArchive(Buffer.from(worldInfo([{
     comment: "Weather",
     content: "The pass closes.",
     key: ["/storm/i"]
   }])));
 
-  const report = fidelityReport(factsFromArchive(archive, 128).fidelity);
-
-  assert.ok(report.includes("1 regular expression key dropped"), report);
-  assert.ok(report.includes("keyed entries have no keys and will not activate")
-    || report.includes("keyed entry has no keys and will not activate"), report);
+  assert.deepEqual(factsFromArchive(archive, 128).facts[0]?.keys, ["/storm/i"]);
 });
 
 test("delayed recursion counts as a recursion setting", () => {
@@ -207,12 +211,10 @@ test("timed effects and matching rules are named", () => {
   const report = fidelityReport(factsFromArchive(archive, 128).fidelity);
 
   assert.ok(report.includes("2 entries lost a timed effect"), report);
-  assert.ok(report.includes("2 entries lost a matching rule"), report);
+  assert.ok(report.includes("2 entries lost a literal-key matching rule"), report);
 });
 
-test("a key that only looks like a pattern stays a key", () => {
-  // `/(/` does not compile, so SillyTavern reads it as literal text. Deleting
-  // it would take away a key that works.
+test("an invalid marked pattern is dropped before it can make an invalid Fact request", () => {
   const archive = parseLorebookArchive(Buffer.from(worldInfo([{
     comment: "Odd",
     content: "Still a key.",
@@ -221,11 +223,8 @@ test("a key that only looks like a pattern stays a key", () => {
 
   const result = factsFromArchive(archive, 128);
 
-  assert.deepEqual(result.facts[0]?.keys, ["/(/"]);
-  assert.ok(
-    fidelityReport(result.fidelity).includes("1 regular expression key dropped"),
-    fidelityReport(result.fidelity)
-  );
+  assert.deepEqual(result.facts[0]?.keys, ["/storm/i"]);
+  assert.ok(fidelityReport(result.fidelity).includes("1 key dropped"));
 });
 
 test("an activation decorator is read and kept out of the fact text", () => {
@@ -281,12 +280,12 @@ test("the report states the matching rule for every World Info import", () => {
   // Upstream matching depends on a global setting this file does not carry, so
   // the rule 1667 uses is stated rather than guessed at per entry.
   assert.ok(
-    report.includes("a fact key matches a whole key and ignores letter case"),
+    report.includes("a literal fact key matches a whole key and ignores letter case"),
     report
   );
 });
 
-test("a key with a second delimiter or an unsupported flag stays a key", () => {
+test("a literal slash key stays while an unsupported regex flag is dropped", () => {
   // A pattern ends at its first unescaped delimiter, so `/foo/bar/` is literal
   // text upstream. `d` is a host flag SillyTavern does not accept.
   const archive = parseLorebookArchive(Buffer.from(worldInfo([{
@@ -297,11 +296,8 @@ test("a key with a second delimiter or an unsupported flag stays a key", () => {
 
   const result = factsFromArchive(archive, 128);
 
-  assert.deepEqual(result.facts[0]?.keys, ["/foo/bar/", "/storm/d"]);
-  assert.ok(
-    fidelityReport(result.fidelity).includes("2 regular expression keys dropped"),
-    fidelityReport(result.fidelity)
-  );
+  assert.deepEqual(result.facts[0]?.keys, ["/foo/bar/", "/storm/i", "/a\\/b/i"]);
+  assert.ok(fidelityReport(result.fidelity).includes("1 key dropped"));
 });
 
 test("a vectorized entry says it lost retrieval by meaning", () => {
@@ -336,7 +332,7 @@ test("an entry limited to a character says it now applies everywhere", () => {
   );
 });
 
-test("a spaced key that looks like a pattern is kept and named", () => {
+test("a spaced key that looks like a pattern is normalized for import", () => {
   // An exact pattern is dropped. A padded one is ambiguous, so it is kept —
   // losing a key can cost an entry its only trigger — and named, so the writer
   // is not left with a key that quietly never fires.
@@ -350,7 +346,6 @@ test("a spaced key that looks like a pattern is kept and named", () => {
 
   assert.deepEqual(result.facts[0]?.keys, ["/storm/i", "snow"]);
   const report = fidelityReport(result.fidelity);
-  assert.ok(report.includes("1 spaced key looks like a pattern"), report);
   assert.ok(!report.includes("regular expression key dropped"), report);
 });
 
@@ -523,7 +518,7 @@ test("a refused entry still counts as one the file held", () => {
   assert.ok(!report.includes("0 entries read"), report);
 });
 
-test("a pattern that spans lines is named as a pattern", () => {
+test("a pattern that spans lines is rejected as an invalid key", () => {
   // A slash-delimited key can hold a line break, and the loss reason has to say
   // what it was rather than fall through to the generic key drop.
   const archive = parseLorebookArchive(Buffer.from(worldInfo([{
@@ -535,10 +530,7 @@ test("a pattern that spans lines is named as a pattern", () => {
   const result = factsFromArchive(archive, 128);
 
   assert.deepEqual(result.facts[0]?.keys, ["snow"]);
-  assert.ok(
-    fidelityReport(result.fidelity).includes("1 regular expression key dropped"),
-    fidelityReport(result.fidelity)
-  );
+  assert.ok(fidelityReport(result.fidelity).includes("1 key dropped"));
 });
 
 test("an entry that never becomes a Fact does not report what it would have lost", () => {

@@ -1,4 +1,4 @@
-import type { FactActivation, FactPriority } from "./fact-activation.js";
+import type { FactActivation, FactPriority, FactRecursion, FactSecondaryMode } from "./fact-activation.js";
 import type { StoryFact } from "./types.js";
 
 /**
@@ -13,6 +13,10 @@ export interface FactDraft {
   readonly tag: string | null;
   readonly activation: FactActivation;
   readonly keys: readonly string[];
+  readonly secondaryKeys: readonly string[];
+  readonly secondaryMode: FactSecondaryMode;
+  readonly scanDepth: number | undefined;
+  readonly recursion: FactRecursion;
   readonly priority: FactPriority;
   readonly budgetTokens: number | undefined;
   readonly text: string;
@@ -23,6 +27,10 @@ export const EMPTY_FACT_DRAFT: FactDraft = {
   tag: null,
   activation: "always",
   keys: [],
+  secondaryKeys: [],
+  secondaryMode: "and",
+  scanDepth: undefined,
+  recursion: "on",
   priority: "normal",
   budgetTokens: undefined,
   text: ""
@@ -35,6 +43,10 @@ export function factDraftOf(fact: StoryFact): FactDraft {
     tag: fact.tag,
     activation: fact.activation,
     keys: [...fact.keys],
+    secondaryKeys: [...(fact.secondaryKeys ?? [])],
+    secondaryMode: fact.secondaryMode ?? "and",
+    scanDepth: fact.scanDepth,
+    recursion: fact.recursion ?? "on",
     priority: fact.priority ?? "normal",
     budgetTokens: fact.budgetTokens,
     text: fact.text
@@ -56,6 +68,10 @@ const FACT_DRAFT_EQUALITY: { [K in keyof FactDraft]: FieldEquality<FactDraft[K]>
   tag: (left, right) => left === right,
   activation: (left, right) => left === right,
   keys: sameFactKeys,
+  secondaryKeys: sameFactKeys,
+  secondaryMode: (left, right) => left === right,
+  scanDepth: (left, right) => left === right,
+  recursion: (left, right) => left === right,
   priority: (left, right) => left === right,
   budgetTokens: (left, right) => left === right,
   text: (left, right) => left === right
@@ -75,7 +91,7 @@ function factDraftFieldEqual<K extends keyof FactDraft>(
   left: FactDraft,
   right: FactDraft
 ): boolean {
-  return FACT_DRAFT_EQUALITY[field](left[field], right[field]);
+  return FACT_DRAFT_EQUALITY[field]!(left[field], right[field]);
 }
 
 /** Field-wise equality over every `FactDraft` field, folded from
