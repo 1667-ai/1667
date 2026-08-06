@@ -1,4 +1,4 @@
-import { GenerationResultError } from "./errors.js";
+import { GenerationResultError, ProviderError } from "./errors.js";
 import { streamCompletion, type PromptPlan, type TokenProbabilityCollector } from "./providers.js";
 import type { GenerationSettings } from "../shared/types.js";
 import type { PromptCacheRequest } from "./provider-cache-policy.js";
@@ -24,7 +24,9 @@ export interface StreamModelOptions {
   readonly tokenProbabilities?: TokenProbabilityCollector;
 }
 
-/** Transport-neutral model stream. null means cancellation; failures throw. */
+/** Transport-neutral model stream. null means the stream was interrupted by
+ * cancellation; a completed stream and a classified provider failure keep
+ * their result even when the signal changes in the same turn. */
 export async function streamModel(
   settings: GenerationSettings,
   prompt: PromptPlan,
@@ -50,10 +52,14 @@ export async function streamModel(
     }
     if (output !== undefined) await emit(output.finish());
   } catch (error) {
+    // The provider already classified this failure. A caller abort that races
+    // the throw cannot turn rejected output into settleable cancellation.
+    if (error instanceof ProviderError) throw error;
     if (signal.aborted) return null;
     throw error;
   }
-  if (signal.aborted) return null;
+  // The provider and the output filter both finished. Validate their completed
+  // output even if Stop arrived during the final consumer backpressure wait.
   if (text.trim().length === 0) throw new GenerationResultError(502, "The model returned no text.");
   return text;
 }

@@ -27,7 +27,8 @@ import type { GenerationSettings, Story } from "../shared/types.js";
 import {
   fakeModel,
   modelSettings,
-  providerTest
+  providerTest,
+  stream
 } from "./provider-http-fixture.js";
 
 // Small enough that a stalled fake model trips the idle or total deadline in
@@ -334,6 +335,48 @@ providerTest("generation timeouts: a stopped rewrite stashes the streamed partia
     { start, end: start + "rested on the cool step".length }
   ]);
   assert.equal(story.nodes.length, 1);
+});
+
+providerTest("generation timeouts: Stop during the completed rewrite tail cannot settle a missing end marker", async (t) => {
+  const controller = new AbortController();
+  const model = await fakeModel(t, (_body, response) => {
+    // The short invalid reply stays in the rewrite filter until finish().
+    // Stop arrives while that completed tail waits for its consumer.
+    stream(response, ["rested on the cool step"]);
+  });
+  const { story, nodeId, start, end } = fixtureStory();
+  const partials = new PartialRewriteStash();
+
+  await assert.rejects(
+    rewriteNode(
+      story.id,
+      nodeId,
+      {
+        start,
+        end,
+        expected: SELECTION,
+        instruction: "Make the image colder.",
+        attemptId: "missing-marker-attempt"
+      },
+      refusingStories<"rewriteNode">(story),
+      stubSettingsStore(timedSettings(model.baseUrl, { assistantPrefill: "supported" })),
+      new PromptCacheRuntime(),
+      async () => {
+        controller.abort();
+        await Promise.resolve();
+      },
+      controller.signal,
+      undefined,
+      "missing-marker-rewrite",
+      "missing-marker-take",
+      undefined,
+      partials
+    ),
+    (error: unknown) => error instanceof GenerationResultError
+      && /did not reconnect the replacement/.test(error.message)
+  );
+  assert.equal(partials.get(story.id, nodeId, "missing-marker-attempt"), null);
+  assert.equal(story.nodes[0]!.text, STORY_TEXT);
 });
 
 providerTest("a verified rewrite is stashed before its cancellable commit", async () => {
