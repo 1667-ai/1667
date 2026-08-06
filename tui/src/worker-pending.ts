@@ -19,7 +19,13 @@ export interface PendingCall {
   cancelled: boolean;
   settling: boolean;
   expectedSequence: number;
+  /** Stream text that arrived after this call's signal aborted. The
+   * transport never calls `onDelta` past that point; it collects the text
+   * here and hands the whole tail to `onStopped` at terminal settlement,
+   * so a Stop save still receives every byte the server delivered. */
+  stoppedTail: string;
   onDelta?: (text: string) => void;
+  onStopped?: (text: string) => void;
   resolve(value: unknown): void;
   reject(error: unknown): void;
   startCancellationGrace(timeoutMs: number, onTimeout: () => void): void;
@@ -34,6 +40,7 @@ interface OpenPendingCall {
   /** Required so no call site can imply a durable intent it never wrote. */
   durableIntent: boolean;
   onDelta?: (text: string) => void;
+  onStopped?: (text: string) => void;
   signal?: AbortSignal;
   timeoutMs: number;
   onAbort?(id: WorkerOperationId): void;
@@ -115,8 +122,10 @@ export class PendingRequestRegistry {
       cancelled: false,
       settling: false,
       expectedSequence: 0,
+      stoppedTail: "",
       ...(options.mutationId === undefined ? {} : { mutationId: options.mutationId }),
       ...(options.onDelta === undefined ? {} : { onDelta: options.onDelta }),
+      ...(options.onStopped === undefined ? {} : { onStopped: options.onStopped }),
       resolve: (value) => resolvePromise(value as T),
       reject: rejectPromise,
       startCancellationGrace,

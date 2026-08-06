@@ -217,7 +217,16 @@ export async function generate(
         // entry remains available for resumable append-prefix reuse.
         if (state.stream === stream) repaint();
       },
-      signal
+      signal,
+      // Text that arrived after Stop: the transport withholds it from
+      // onDelta and hands the whole tail here at terminal settlement, so
+      // the stopped-generation commit below still saves every byte the
+      // server delivered.
+      (tail) => {
+        if (!owns() || !storyCurrent()) return;
+        appendStreamText(stream, tail);
+        if (state.stream === stream) repaint();
+      }
     );
     if (result !== null && storyCurrent()) {
       const updated = result.payload;

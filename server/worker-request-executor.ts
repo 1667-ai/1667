@@ -120,11 +120,20 @@ export async function executeWorkerRequest(
     const outcome = isWorkerMutationMethod(message.method)
       ? mutationOutcome(failure.error)
       : undefined;
+    // A deadline terminal carries the stream tail the batcher accepted but
+    // never posted — the same `takeUnsent` reclaim a user Stop performs —
+    // instead of flushing it as live deltas after the request already
+    // failed. The failure itself is untouched: an uncertain outcome stays
+    // uncertain and is never converted into a stop-style success.
+    const unsentText = stream && failure.deadline
+      ? deltas?.takeUnsent() ?? ""
+      : "";
     if (outcome === "uncertain") deltas?.dispose();
     else await deltas?.flush();
     await failures.tracked(
       failure.error,
-      outcome
+      outcome,
+      unsentText
     );
   } finally {
     deltas?.dispose();

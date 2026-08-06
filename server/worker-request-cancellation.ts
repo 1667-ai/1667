@@ -10,6 +10,10 @@ import { classifyProviderAbort } from "./provider-abort.js";
 
 export interface WorkerCancellationFailure {
   readonly error: unknown;
+  /** True when this request's deadline is what publishes the error
+   * terminal. The executor attaches a stream's reclaimed unsent tail to
+   * exactly these terminals and to no others. */
+  readonly deadline: boolean;
 }
 
 /** Owns cooperative abort state without letting a late success erase deadline
@@ -59,24 +63,25 @@ export class WorkerRequestCancellation {
 
   failure(error: unknown): WorkerCancellationFailure {
     const deadlineFailure = this.deadlineFailure;
-    if (deadlineFailure === null) return { error };
+    if (deadlineFailure === null) return { error, deadline: false };
     // A different target proves that the current request did not reach the
     // provider. Its older story fence must survive this request's deadline.
     if (error instanceof ProviderRecoveryRequiredError
       && error.providerMutationId !== this.mutationId) {
-      return { error };
+      return { error, deadline: false };
     }
     if (isExpectedDeadlineCancellation(
       error,
       deadlineFailure,
       this.controller.signal
     )) {
-      return { error: deadlineFailure };
+      return { error: deadlineFailure, deadline: true };
     }
     return {
       error: deadlineError(this.mutation, {
         diagnosticCause: error
-      })
+      }),
+      deadline: true
     };
   }
 }

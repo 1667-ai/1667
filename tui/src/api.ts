@@ -210,7 +210,13 @@ export interface StoryApi {
     genId: string,
     target: ContinueTarget,
     onDelta: (text: string) => void,
-    signal: AbortSignal
+    signal: AbortSignal,
+    /** Receives, exactly once at terminal settlement, stream text that
+     * arrived after `signal` aborted. `onDelta` never fires after the
+     * abort, so a caller that saves stopped text must take this tail too.
+     * Only the embedded worker transport produces it; the HTTP backend
+     * saves text that arrived after a Stop on its own side. */
+    onStopped?: (text: string) => void
   ): Promise<{ payload: StoryPayload; droppedFacts: readonly FactBudgetDrop[] } | null>;
   rewriteNode(
     storyId: string,
@@ -854,6 +860,8 @@ export function createApi(
       ),
     ...providerMethods({ request }),
     ...importMethods({ runAbsentImportMutation, request, versions, expectedVersion }),
+    // The HTTP backend needs no `onStopped`: text that arrives at the server
+    // after a Stop is saved server-side under the same generation ID.
     continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {
       const done = await stream(
         storyId,

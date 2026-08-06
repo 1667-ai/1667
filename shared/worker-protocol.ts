@@ -491,6 +491,13 @@ export type WorkerToMainMessage =
       failure: FailureEnvelope;
       mutationOutcome?: "terminal" | "uncertain";
       providerMutationId?: string;
+      /** Stream text the worker accepted but never posted as a delta,
+       * reclaimed with the same `takeUnsent` semantics a user Stop uses
+       * (server/worker-delta-batcher.ts). Present only when a request
+       * deadline publishes this error terminal for a stream method. The
+       * failure itself is unchanged: an uncertain mutation outcome stays
+       * uncertain. */
+      unsentText?: string;
     }
   | { type: "delta"; id: WorkerOperationId; sequence: number; text: string }
   | {

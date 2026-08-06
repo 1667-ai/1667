@@ -62,6 +62,7 @@ async function settleOwnedWorkerTerminal(
   if (pending.settling) return;
   pending.settling = true;
   pending.cleanup();
+  deliverStreamTail(pending, message);
   const uncertainMutation = message.type === "error"
     && (pending.mutationId !== undefined
       || isServiceOwnedSettingsMutation(pending.method))
@@ -146,12 +147,31 @@ async function settleOwnedWorkerTerminal(
     pending.reject(workerError(message));
     return;
   }
-  if (message.type === "complete"
-    && pending.cancelled
-    && message.stoppedText !== undefined) {
-    pending.onDelta?.(message.stoppedText);
-  }
   pending.resolve(message.value);
+}
+
+/** Deliver terminal-carried stream text before any failure handling or
+ * settlement, exactly once. After the caller's signal has aborted, the
+ * transport never calls `onDelta` again: the withheld post-abort deltas
+ * plus the worker's reclaimed tail reach the caller through `onStopped`
+ * instead, so a Stop save still receives every byte the server delivered.
+ * A deadline's unsent tail arrives on an error terminal with the signal
+ * never aborted, so it flows through `onDelta` before the failure is
+ * released — the failure itself stays a failure. */
+function deliverStreamTail(
+  pending: PendingCall,
+  message: TerminalMessage
+): void {
+  if (!pending.stream) return;
+  const stopped = message.type === "complete" ? message.stoppedText : undefined;
+  const unsent = message.type === "error" ? message.unsentText : undefined;
+  if (pending.cancelled) {
+    const tail = pending.stoppedTail + (stopped ?? "") + (unsent ?? "");
+    pending.stoppedTail = "";
+    if (tail.length > 0) pending.onStopped?.(tail);
+    return;
+  }
+  if (unsent !== undefined) pending.onDelta?.(unsent);
 }
 
 function workerError(

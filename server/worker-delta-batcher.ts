@@ -29,6 +29,10 @@ export class WorkerDeltaBatcher {
    *  `send` checks the field is still its own text before it posts, so a
    *  reclaimed batch can never reach `post`. */
   private inFlight: string | null = null;
+  /** Tail reclaimed by `sealUnsent` and held for `takeUnsent`. A deadline
+   *  cancel reclaims at receipt (to release parked producers immediately)
+   *  while its error terminal is published later by the request executor. */
+  private sealed = "";
 
   constructor(
     private readonly id: WorkerOperationId,
@@ -52,9 +56,21 @@ export class WorkerDeltaBatcher {
    *  whatever is still buffered behind it. The in-flight batch is always
    *  the earliest unconsumed text, so this order matches acceptance order. */
   takeUnsent(): string {
-    const text = (this.inFlight ?? "") + this.batcher.takeBuffered();
+    const text = this.sealed + (this.inFlight ?? "") + this.batcher.takeBuffered();
+    this.sealed = "";
     this.inFlight = null;
     return text;
+  }
+
+  /** Reclaim every accepted-but-unsent batch now, retain it for a later
+   *  `takeUnsent`, and dispose. The deadline cancel path uses this: parked
+   *  producers must unblock at cancel receipt, but the tail belongs to the
+   *  error terminal the executor publishes afterwards. */
+  sealUnsent(): void {
+    const tail = this.sealed + (this.inFlight ?? "") + this.batcher.takeBuffered();
+    this.inFlight = null;
+    this.dispose();
+    this.sealed = tail;
   }
 
   acknowledge(sequence: number): void {
@@ -69,6 +85,7 @@ export class WorkerDeltaBatcher {
   dispose(): void {
     this.disposed = true;
     this.inFlight = null;
+    this.sealed = "";
     this.batcher.dispose();
     this.unacknowledged.clear();
     this.unacknowledgedBytes = 0;

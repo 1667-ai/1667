@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **A stopped or expired generation keeps all text that arrived.** After the
+  writer stops a generation, the live stream does not move again. The text
+  that arrives after the Stop lands in the saved take in one piece. When a
+  request deadline ends a generation, the backend now sends the stream text
+  that it did not post yet together with the error, and the TUI keeps that
+  text with the streamed prose. The failure result does not change.
 - **Editors now have standard clipboard actions.** Right-click an editable
   text field to open Copy, Paste, and Select all. Press `Ctrl+A` or
   `Command+A` to select all text. Direct supports these actions in its inline

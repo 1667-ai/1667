@@ -131,7 +131,12 @@ async function receive(value: unknown): Promise<void> {
     }
     const request = active.get(workerOperationKey(id));
     request?.cancel(reason);
-    if (reason !== "user") request?.deltas?.dispose();
+    // Both non-user reasons must release producers parked on transport
+    // credit immediately. A deadline additionally retains the reclaimed
+    // tail for the error terminal the executor publishes; shutdown keeps
+    // pure drop semantics.
+    if (reason === "deadline") request?.deltas?.sealUnsent();
+    else if (reason === "shutdown") request?.deltas?.dispose();
     postOperation(id, state);
     return;
   }

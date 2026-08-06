@@ -66,7 +66,10 @@ test("user cancellation stays distinct from a deadline", () => {
     true
   );
   assert.equal(cancellation.settledUserCancellation(failure), false);
-  assert.deepEqual(cancellation.failure(failure), { error: failure });
+  assert.deepEqual(
+    cancellation.failure(failure),
+    { error: failure, deadline: false }
+  );
 });
 
 test("a deadline stays authoritative after user cancellation", () => {

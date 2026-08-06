@@ -100,7 +100,18 @@ manual renames beat autoname, rewrites and summaries revalidate their source,
 continuations preserve a line moved by the writer, and a Stop save wins by
 generation ID. Stop closes the provider record. If model text arrived before
 Stop, the TUI waits for terminal settlement. It then saves that text with the
-same generation ID. A provider failure cannot write the local story. 1667 records
+same generation ID.
+After the Stop aborts the request signal, the worker transport sends no more
+live text to the caller. The transport collects the text that arrives after
+the abort. The transport delivers the collected text one time, at terminal
+settlement, on the stopped-text channel. Thus, the Stop save keeps all text
+that arrived from the embedded backend.
+A request deadline can end a stream while the worker holds text that it did
+not post. The worker reclaims that text the same way a Stop does. The worker
+puts the reclaimed text in the `unsentText` field of its error message. The
+TUI adds that text to the streamed text before it processes the failure. The
+failure keeps its error result. An unknown mutation result stays unknown.
+A provider failure cannot write the local story. 1667 records
 the local generation as failed and accepts more work. It does not automatically
 repeat the provider request. This rule also applies when the model connection
 fails after it sends response headers.

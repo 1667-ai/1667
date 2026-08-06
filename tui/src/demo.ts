@@ -709,6 +709,8 @@ export function demoStoryApi(demo: DemoController): StoryApi {
       if (signal?.aborted === true) throw new Error("Search was superseded or cancelled");
       return demo.searchStories(search);
     },
+    // The fixture delivers every delta synchronously through `onDelta`
+    // before it observes the abort, so it has no late text for `onStopped`.
     continueStory: async (_storyId, instruction, genId, target, onDelta, signal) => {
       const text = target.appendTo !== undefined ? DEMO_CONTINUE_TEXT : DEMO_GENERATED_TEXT;
       let landed = "";
