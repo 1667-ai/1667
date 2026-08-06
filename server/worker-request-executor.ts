@@ -12,7 +12,8 @@ import {
 } from "../shared/worker-protocol.js";
 import {
   ProviderError,
-  ServiceError
+  ServiceError,
+  timeoutProvenanceOf
 } from "./errors.js";
 import {
   parseStoryAggregateVersion
@@ -125,11 +126,22 @@ export async function executeWorkerRequest(
     // instead of flushing it as live deltas after the request already
     // failed. The failure itself is untouched: an uncertain outcome stays
     // uncertain and is never converted into a stop-style success.
-    const unsentText = stream && failure.deadline
+    let unsentText = stream && failure.deadline
       ? deltas?.takeUnsent() ?? ""
       : "";
     if (outcome === "uncertain") deltas?.dispose();
-    else await deltas?.flush();
+    else {
+      await deltas?.flush();
+      // A clean provider timeout can reach this catch before the worker
+      // deadline. That deadline can then seal a credit-blocked tail while
+      // flush waits. Take the sealed text after flush releases. An ordinary
+      // provider rejection has no timeout stamp and cannot use this path.
+      if (stream
+        && !failure.deadline
+        && timeoutProvenanceOf(failure.error) !== null) {
+        unsentText = deltas?.takeUnsent() ?? "";
+      }
+    }
     await failures.tracked(
       failure.error,
       outcome,
