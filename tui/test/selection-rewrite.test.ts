@@ -700,7 +700,7 @@ describe("selection rewrite", () => {
     ]);
   });
 
-  test("escape during the rewrite stops it, restores the typed instruction into a reopened composer, and the stored text is unchanged", async () => {
+  test("escape keeps streamed rewrite text visible until the backend refuses the partial save", async () => {
     const { state, source } = harness();
     const index = focusNode(state, "p12");
     const { node, span } = rewriteFixture(state);
@@ -725,25 +725,23 @@ describe("selection rewrite", () => {
     expect(state.mode).toBe("NAV");
     expect(apiCalled).toBeTrue();
 
-    // Mirrors a failed/stopped retake: the typed instruction reappears in a
-    // reopened composer on the same tick as the keypress, since a stopped
-    // rewrite never has partial text worth landing instead.
+    // The streamed replacement can still land. Keep it visible until the
+    // backend settles the stop instead of restoring the draft too early.
     requestRewriteStop(state, () => undefined);
-    expect(state.stream).toBe(null);
-    expect(state.mode).toBe("COMPOSE");
-    expect(state.retakePrompt?.intent.kind).toBe("rewrite");
-    expect(state.composer.text).toBe("steady the flame");
-    expect(state.toast).toBe(null);
+    expect(state.stream).not.toBe(null);
+    expect(state.mode).toBe("NAV");
+    expect(state.toast).toBe("rewrite stopping · keeping streamed text");
 
     gate.resolve();
     await pending;
 
     expect(state.payload.path.find((candidate) => candidate.id === "p12")?.text).toBe(node.text);
-    // The reopened composer and its draft survive the async reload settling
-    // behind it.
+    // This stub has no server stash. A refused settle restores the draft and
+    // reports that it saved nothing.
     expect(state.mode).toBe("COMPOSE");
     expect(state.composer.text).toBe("steady the flame");
-    expect(state.toast).toBe(null);
+    expect(state.toast).toBe("rewrite stopped · nothing saved");
+    expect(state.stream).toBe(null);
     expect(state.abort).toBe(null);
   });
 
