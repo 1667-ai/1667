@@ -47,6 +47,8 @@ read_when:
 | exact count | A token count from a bundled tokenizer, or a server count of a complete message array |
 | near-exact count | A token count of server-tokenized content that 1667 cannot prove against the serving path |
 | token estimate | A token count of four characters for each token |
+| Generation Profile | One named set of model behavior settings |
+| Generation Route | The selection of a Generation Profile for one type of work |
 | Sampling group | The Settings group for sampling parameters |
 | sampling parameter | One provider request field that changes how the model selects tokens |
 | stop sequence | One text sequence that stops generation |
