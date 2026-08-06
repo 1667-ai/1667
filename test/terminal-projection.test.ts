@@ -76,6 +76,12 @@ const TABLE_ROWS: readonly TableRowCase[] = [
     input: "a\u200E\u200F\u200B\u200C\u200D\uFEFFb",
     expectedLine: "a\u200E\u200F\u200B\u200C\u200D\uFEFFb",
     expectedProse: "a\u200E\u200F\u200B\u200C\u200D\uFEFFb"
+  },
+  {
+    name: "U+061C, U+180E, U+2060–U+2064, U+206A–U+206F zero-width format characters",
+    input: "a\u061C\u180E\u2060\u2064\u206A\u206Fb",
+    expectedLine: "a\u061C\u180E\u2060\u2064\u206A\u206Fb",
+    expectedProse: "a\u061C\u180E\u2060\u2064\u206A\u206Fb"
   }
 ];
 

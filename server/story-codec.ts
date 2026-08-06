@@ -8,6 +8,7 @@ import {
 import { MAX_AUTHORS_NOTE_CHARS, storedAuthorsNoteDepth } from "../shared/authors-note.js";
 import { MAX_AUTHOR_BRIEF_CHARS, storedAuthorBrief } from "../shared/author-brief.js";
 import { FactActivationError, parseFactMetadata } from "../shared/fact-activation.js";
+import { factTextWithinLimit } from "../shared/fact-limits.js";
 import { activePath } from "../shared/story-tree.js";
 import { countWords } from "../shared/story-text.js";
 import {
@@ -337,7 +338,7 @@ function validateFactBodies(facts: readonly StoryFact[]): void {
       throw error;
     }
     if (fact.text.trim().length === 0) throw new StoryFormatError(`Fact ${fact.id} text must not be empty`);
-    if (fact.text.length > MAX_FACT_TEXT_CHARS) {
+    if (!factTextWithinLimit(fact.text)) {
       throw new StoryFormatError(`Fact ${fact.id} exceeds the ${MAX_FACT_TEXT_CHARS.toLocaleString()}-character limit`);
     }
   }

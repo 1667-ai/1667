@@ -1,7 +1,5 @@
 import {
   MAX_FACTS,
-  MAX_FACT_TAG_CHARS,
-  MAX_FACT_TEXT_CHARS,
   factImportRequestBytes,
   type FactInput
 } from "./types.js";
@@ -10,9 +8,14 @@ import {
   MAX_FACT_KEY_SCALARS,
   normalizeFactText
 } from "./fact-activation.js";
+import {
+  factTagWithinLimit,
+  factTextWithinLimit,
+  truncateFactTag,
+  truncateFactText
+} from "./fact-limits.js";
 import { countNoun, lossLines, type LossPhrases } from "./fidelity.js";
 import {
-  alignUtf16Boundary,
   hasUnpairedSurrogate,
   sliceUnicodeScalarPrefix,
   unicodeScalarLength
@@ -124,7 +127,7 @@ export function factsFromEntries(
     }
 
     let text = normalizedText;
-    if (text.length > MAX_FACT_TEXT_CHARS) {
+    if (!factTextWithinLimit(text)) {
       text = truncateFactText(text);
       losses.push("textTruncated");
     }
@@ -144,8 +147,8 @@ export function factsFromEntries(
       if (hasUnpairedSurrogate(tag)) {
         tag = null;
         losses.push("tagDropped");
-      } else if (unicodeScalarLength(tag, MAX_FACT_TAG_CHARS + 1) > MAX_FACT_TAG_CHARS) {
-        tag = sliceUnicodeScalarPrefix(tag, MAX_FACT_TAG_CHARS);
+      } else if (!factTagWithinLimit(tag)) {
+        tag = truncateFactTag(tag);
         losses.push("tagCut");
       }
     }
@@ -227,7 +230,7 @@ export function factsFromEntries(
   }
 
   // The request body can bite before the Fact ceiling does, because the body is
-  // counted in UTF-8 bytes while the text cap counts UTF-16 code units. Drop
+  // counted in UTF-8 bytes while the text cap counts Unicode scalars. Drop
   // from the end rather than refuse, because a writer cannot shorten a large
   // lorebook by hand. This is a different reason from the Fact ceiling, so it
   // gets its own count.
@@ -291,28 +294,4 @@ export function factsWithinBodyBudget(facts: readonly FactInput[], budget: numbe
     total += size;
   }
   return facts.length;
-}
-
-export function truncateFactText(text: string): string {
-  const max = MAX_FACT_TEXT_CHARS;
-  const floor = Math.floor(max / 2);
-  let cut = lastBoundary(text, "\n\n", floor, max);
-  if (cut === -1) cut = lastBoundary(text, "\n", floor, max);
-  if (cut === -1) {
-    cut = max;
-    for (let index = max - 1; index >= floor; index -= 1) {
-      if (/\s/u.test(text[index]!)) {
-        cut = index + 1;
-        break;
-      }
-    }
-  }
-  return text.slice(0, alignUtf16Boundary(text, cut)).trimEnd();
-}
-
-function lastBoundary(text: string, boundary: string, start: number, end: number): number {
-  for (let index = end - boundary.length; index >= start; index -= 1) {
-    if (text.startsWith(boundary, index)) return index + boundary.length;
-  }
-  return -1;
 }
