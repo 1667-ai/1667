@@ -134,6 +134,7 @@ export interface PartialRewriteReservation {
   readonly nodeId: string;
   readonly attemptId: string;
   record: PartialRewriteRecord | null;
+  settlementId: string | null;
 }
 
 /**
@@ -167,7 +168,13 @@ export class PartialRewriteStash {
         "Too many rewrites are waiting to finish. Settle a stopped rewrite and try again."
       );
     }
-    const reservation = { storyId, nodeId, attemptId, record: null };
+    const reservation = {
+      storyId,
+      nodeId,
+      attemptId,
+      record: null,
+      settlementId: null
+    };
     this.entries.set(key, reservation);
     return reservation;
   }
@@ -218,6 +225,30 @@ export class PartialRewriteStash {
       record.attemptId
     ));
     if (reservation?.record === record) this.claims.delete(reservation);
+  }
+
+  /** Bind the record to the first canonical mutation that tries to settle it.
+   * A retry with that identity can retire the record after ledger recovery;
+   * another identity cannot apply the same verified prose again. */
+  bindSettlement(record: PartialRewriteRecord, settlementId: string): boolean {
+    const reservation = this.entries.get(stashKey(
+      record.storyId,
+      record.nodeId,
+      record.attemptId
+    ));
+    if (reservation?.record !== record) return false;
+    reservation.settlementId ??= settlementId;
+    return reservation.settlementId === settlementId;
+  }
+
+  settlementMatches(record: PartialRewriteRecord, settlementId: string): boolean {
+    const reservation = this.entries.get(stashKey(
+      record.storyId,
+      record.nodeId,
+      record.attemptId
+    ));
+    return reservation?.record === record
+      && reservation.settlementId === settlementId;
   }
 
   /** Clear only the exact record a caller used. A delayed attempt cannot

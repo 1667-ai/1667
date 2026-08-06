@@ -348,6 +348,7 @@ export class StoryServiceLocal {
       this.dependencies.rewritePartials.releaseClaim(claimedRecord);
     }
     if (mutationRequest !== undefined) {
+      const settlementId = mutationRequestId(mutationRequest);
       let consumedRecord = false;
       try {
         const committed = await this.dependencies.storyMutations.runLocal(
@@ -359,7 +360,12 @@ export class StoryServiceLocal {
             // receipt; a replay after process restart still returns the
             // already-committed story from the ledger.
             if (record === null
-              || record.streamedDigest !== body.streamedDigest) {
+              || record.streamedDigest !== body.streamedDigest
+              || settlementId === null
+              || !this.dependencies.rewritePartials.bindSettlement(
+                record,
+                settlementId
+              )) {
               throw PARTIAL_REWRITE_UNAVAILABLE;
             }
             const effect = {
@@ -382,7 +388,14 @@ export class StoryServiceLocal {
           }
         );
         if (record !== null) {
-          if (consumedRecord) this.dependencies.rewritePartials.clear(record);
+          if (consumedRecord
+            || (settlementId !== null
+              && this.dependencies.rewritePartials.settlementMatches(
+                record,
+                settlementId
+              ))) {
+            this.dependencies.rewritePartials.clear(record);
+          }
           else this.dependencies.rewritePartials.releaseClaim(record);
         }
         const committedNodeId = settleTakeId !== undefined
@@ -396,7 +409,12 @@ export class StoryServiceLocal {
           nodeId: committedNodeId
         };
       } catch (error) {
-        if (error === PARTIAL_REWRITE_UNAVAILABLE) return null;
+        if (error === PARTIAL_REWRITE_UNAVAILABLE) {
+          if (record !== null) {
+            this.dependencies.rewritePartials.releaseClaim(record);
+          }
+          return null;
+        }
         // runLocal returns a prepared domain error only after its terminal
         // receipt is durable. The exact partial can never succeed afterward,
         // so release its bounded slot. Storage and implementation failures
@@ -764,4 +782,12 @@ export class StoryServiceLocal {
       ...committed.aggregateVersion
     });
   }
+}
+
+function mutationRequestId(value: unknown): string | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const mutationId = (value as { readonly mutationId?: unknown }).mutationId;
+  return typeof mutationId === "string" ? mutationId : null;
 }
