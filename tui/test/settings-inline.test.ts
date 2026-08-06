@@ -287,6 +287,64 @@ describe("inline settings menu", () => {
     expect(state.settings?.draft.generation.contextWindow).toBe(32_768);
   });
 
+  test("text providers expose raw, ChatML, and llama.cpp server prompt formats", async () => {
+    const { state, press } = harness();
+    await openSettings(press);
+    await selectRow(press, state, "provider");
+    for (let attempts = 0;
+      settingsProviderChoice(state.settings!.draft.generation).id !== "text-completion"
+        && attempts < SETTINGS_PROVIDER_CHOICES.length;
+      attempts += 1) {
+      await press(key("right"));
+    }
+
+    expect(state.settings?.draft.generation.provider).toBe("text-completion");
+    expect(selectSettingsRoute(state.settings!.draft.document!).connection)
+      .toMatchObject({
+        preset: "custom",
+        protocol: "text-completions",
+        textPromptFormat: "raw"
+      });
+    await selectRow(press, state, "text-prompt-format");
+    await press(key("right"));
+    expect(selectSettingsRoute(state.settings!.draft.document!).connection.textPromptFormat)
+      .toBe("chatml");
+
+    await draftRow(
+      press,
+      state,
+      "base-url",
+      "https://api.openai.com/v1"
+    );
+    expect(selectSettingsRoute(state.settings!.draft.document!).connection.preset)
+      .toBe("openai");
+
+    await draftRow(
+      press,
+      state,
+      "base-url",
+      "http://127.0.0.1:8080/v1"
+    );
+    expect(selectSettingsRoute(state.settings!.draft.document!).connection.preset)
+      .toBe("custom");
+
+    await selectRow(press, state, "provider");
+    await press(key("right"));
+    expect(settingsProviderChoice(
+      state.settings!.draft.generation,
+      selectSettingsRoute(state.settings!.draft.document!).connection.preset
+    ).id)
+      .toBe("llama-cpp-text");
+    await selectRow(press, state, "text-prompt-format");
+    await press(key("left"));
+    expect(selectSettingsRoute(state.settings!.draft.document!).connection)
+      .toMatchObject({
+        preset: "llama-cpp",
+        protocol: "text-completions",
+        textPromptFormat: "server-template"
+      });
+  });
+
   test("local provider choices apply safe localhost defaults", async () => {
     const localChoices = SETTINGS_PROVIDER_CHOICES.filter(
       (choice) => choice.plaintextDefaultRequiresOwnedLoopback === true
@@ -313,6 +371,16 @@ describe("inline settings menu", () => {
       },
       {
         label: "KoboldCpp",
+        baseUrl: "http://127.0.0.1:5001/v1",
+        model: ""
+      },
+      {
+        label: "llama.cpp text",
+        baseUrl: "http://127.0.0.1:8080/v1",
+        model: ""
+      },
+      {
+        label: "KoboldCpp text",
         baseUrl: "http://127.0.0.1:5001/v1",
         model: ""
       }

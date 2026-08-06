@@ -13,6 +13,7 @@ import {
   cycleEffortControl,
   cycleProfileControl,
   cycleRouteControl,
+  cycleTextPromptFormatControl,
   stepSettingsScalar,
   type ScalarMagnitude
 } from "./settings-profile-controls.js";
@@ -56,6 +57,11 @@ export async function cycleSettingsRow(
     } else if (row === "provider") {
       const choice = cycleSettingsProvider(overlay, step);
       state.toast = `provider · ${choice.label} · s saves settings`;
+    } else if (row === "text-prompt-format") {
+      const format = cycleTextPromptFormatControl(overlay, step);
+      if (format !== null) {
+        state.toast = `prompt format · ${format} · s saves settings`;
+      }
     } else if (row === "allow-insecure-http") {
       const enabled = cycleAllowInsecureHttp(overlay);
       state.toast =

@@ -14,6 +14,9 @@ import {
 } from "../../shared/types.js";
 import {
   applyBasicSettingsProbeDraft,
+  basicSettingsConnectionName,
+  basicSettingsPresetAfterIdentityChange,
+  basicSettingsPresetFor,
   basicSettingsForDisplay,
   basicSettingsFromDocument
 } from "../../shared/settings-basic-draft.js";
@@ -137,6 +140,34 @@ export function settingsTextDraftWithCachePolicy(
   );
 }
 
+/** Apply the explicit native text adapter selected in the provider picker. */
+export function settingsTextDraftWithTextPreset(
+  draft: SettingsTextDraft,
+  preset: "custom" | "llama-cpp" | "koboldcpp"
+): SettingsTextDraft {
+  const document = draft.document;
+  const profileId = draft.selectedProfileId;
+  if (document === null || profileId === null) return draft;
+  const route = resolveSettingsProfile(document, profileId);
+  if (route.connection.protocol !== "text-completions") return draft;
+  const textPromptFormat = route.connection.textPromptFormat === "server-template"
+    && preset !== "llama-cpp"
+    ? "raw"
+    : route.connection.textPromptFormat ?? "raw";
+  return settingsTextDraftForDocument({
+    ...document,
+    connections: {
+      ...document.connections,
+      [route.model.connectionId]: {
+        ...route.connection,
+        name: basicSettingsConnectionName(preset),
+        preset,
+        textPromptFormat
+      }
+    }
+  }, profileId);
+}
+
 /** Apply an explicit context probe after the provider/model identity has
  * reached the document. This keeps an equal numeric limit from being mistaken
  * for stale metadata that must reset with the old model identity. */
@@ -183,7 +214,7 @@ export function serializeSettings(draft: SettingsTextDraft): string {
   const settings = draft.generation;
   return [
     "≻ 1667 · generation settings · key: value per line · ≻ lines are stripped.",
-    "≻ provider is openai-compatible | anthropic | dry-run · blank apiKeyEnv means none.",
+    "≻ provider is openai-compatible | text-completion | anthropic | dry-run · blank apiKeyEnv means none.",
     "≻ Advanced cachePolicy is off | auto | long · exact provider/model support is required.",
     `provider: ${settings.provider}`,
     `baseUrl: ${settings.baseUrl}`,
@@ -221,7 +252,9 @@ export function parseSettings(value: string, base: SettingsTextDraft): SettingsT
     const stringList = SAMPLING_STRING_LISTS.get(key);
     if (key === "provider") {
       if (!PROVIDER_VALUES.includes(text as Provider)) {
-        return { error: `provider must be openai-compatible, anthropic, or dry-run — "${text}"` };
+        return {
+          error: `provider must be openai-compatible, text-completion, anthropic, or dry-run — "${text}"`
+        };
       }
       next.provider = text as Provider;
     }
@@ -360,7 +393,9 @@ function applyIncompleteGenerationDraft(
     ? "dry-run"
     : provider === "anthropic"
       ? "anthropic-messages"
-      : "openai-chat-completions";
+      : provider === "text-completion"
+        ? "text-completions"
+        : "openai-chat-completions";
   const baseUrl = provider === "dry-run"
     ? null
     : generation.baseUrl.trim().replace(/\/+$/u, "");
@@ -370,11 +405,22 @@ function applyIncompleteGenerationDraft(
     ? "dry-run"
     : generation.model.trim();
   const protocolChanged = route.connection.protocol !== protocol;
+  const inferredPreset = incompletePreset(provider, baseUrl);
+  const preset = basicSettingsPresetAfterIdentityChange(
+    route.connection.preset,
+    protocol,
+    protocolChanged,
+    inferredPreset
+  );
   const modelChanged = route.model.remoteId !== modelId || protocolChanged || route.connection.baseUrl !== baseUrl;
   const overrides = { ...route.model.overrides };
   if (generation.contextWindow === null) delete overrides.contextWindow;
   else overrides.contextWindow = generation.contextWindow;
-  const { allowInsecureHttp: _currentAllowInsecureHttp, ...connectionBase } = route.connection;
+  const {
+    allowInsecureHttp: _currentAllowInsecureHttp,
+    textPromptFormat: currentTextPromptFormat,
+    ...connectionBase
+  } = route.connection;
   return {
     ...document,
     connections: {
@@ -382,10 +428,18 @@ function applyIncompleteGenerationDraft(
       [route.model.connectionId]: {
         ...connectionBase,
         name: provider === "dry-run" ? "Dry Run" : "Custom",
-        preset: provider === "dry-run" ? "dry-run" : "custom",
+        preset,
         protocol,
         baseUrl,
         auth,
+        ...(protocol === "text-completions"
+          ? {
+              textPromptFormat: protocolChanged
+                || (currentTextPromptFormat === "server-template" && preset !== "llama-cpp")
+                ? "raw" as const
+                : currentTextPromptFormat ?? "raw" as const
+            }
+          : {}),
         ...(protocolChanged ? { headers: [] } : {}),
         ...(generation.allowInsecureHttp === true && provider !== "dry-run"
           ? { allowInsecureHttp: true as const }
@@ -421,6 +475,19 @@ function applyIncompleteGenerationDraft(
     },
     writing: { ...document.writing, defaultAuthorBrief: generation.systemPrompt }
   };
+}
+
+function incompletePreset(
+  provider: Provider,
+  baseUrl: string | null
+): ModelConnectionV2["preset"] {
+  if (provider === "dry-run") return "dry-run";
+  if (baseUrl === null || baseUrl.length === 0) return "custom";
+  try {
+    return basicSettingsPresetFor(provider, baseUrl);
+  } catch {
+    return "custom";
+  }
 }
 
 function incompleteDraftAuth(

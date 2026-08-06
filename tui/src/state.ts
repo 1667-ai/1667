@@ -149,6 +149,7 @@ export type SettingsRowId =
   | "theme"
   | "compose-focus"
   | "provider"
+  | "text-prompt-format"
   | "base-url"
   | "allow-insecure-http"
   | "api-key"

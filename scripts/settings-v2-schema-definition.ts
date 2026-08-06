@@ -30,6 +30,7 @@ import {
   SETTINGS_ACTIVATION_STATE_V2_VALUES,
   SETTINGS_PRESET_V2_VALUES,
   SETTINGS_PROTOCOL_V2_VALUES,
+  TEXT_PROMPT_FORMAT_V2_VALUES,
   SAMPLING_SCALAR_KNOB_V2_VALUES,
   type SamplingScalarKnobV2
 } from "../shared/settings-v2-types.js";
@@ -100,6 +101,7 @@ export function settingsV2Schema(): Schema {
       auth: ref("Auth"),
       headers: { type: "array", maxItems: MAX_SETTINGS_HEADERS, items: ref("Header") },
       timeouts: ref("Timeouts"),
+      textPromptFormat: { enum: TEXT_PROMPT_FORMAT_V2_VALUES },
       allowInsecureHttp: { const: true }
     }, ["name", "preset", "protocol", "baseUrl", "auth", "headers", "timeouts"]),
     ScalarMetadata: closed({

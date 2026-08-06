@@ -4,6 +4,7 @@ import type {
 } from "../../shared/types.js";
 import { ownedLoopbackHttpSupportedOn } from "../../shared/provider-transport-capability.js";
 import { isOfficialOpenAiBaseUrl } from "../../shared/settings-provider-defaults.js";
+import type { SettingsPresetV2 } from "../../shared/settings-v2-types.js";
 
 export type SettingsProviderChoiceId =
   | Provider
@@ -11,7 +12,9 @@ export type SettingsProviderChoiceId =
   | "lm-studio"
   | "ollama"
   | "llama-cpp"
-  | "koboldcpp";
+  | "koboldcpp"
+  | "llama-cpp-text"
+  | "koboldcpp-text";
 
 export interface SettingsProviderChoice {
   readonly id: SettingsProviderChoiceId;
@@ -121,6 +124,41 @@ export const SETTINGS_PROVIDER_CHOICES: readonly SettingsProviderChoice[] = [
       apiKeyEnv: "ANTHROPIC_API_KEY",
       contextWindow: null
     }
+  },
+  {
+    id: "text-completion",
+    label: "OpenAI-compatible text",
+    provider: "text-completion",
+    defaults: {
+      baseUrl: "",
+      model: "",
+      apiKeyEnv: null,
+      contextWindow: null
+    }
+  },
+  {
+    id: "llama-cpp-text",
+    label: "llama.cpp text",
+    provider: "text-completion",
+    plaintextDefaultRequiresOwnedLoopback: true,
+    defaults: {
+      baseUrl: "http://127.0.0.1:8080/v1",
+      model: "",
+      apiKeyEnv: null,
+      contextWindow: null
+    }
+  },
+  {
+    id: "koboldcpp-text",
+    label: "KoboldCpp text",
+    provider: "text-completion",
+    plaintextDefaultRequiresOwnedLoopback: true,
+    defaults: {
+      baseUrl: "http://127.0.0.1:5001/v1",
+      model: "",
+      apiKeyEnv: null,
+      contextWindow: null
+    }
   }
 ];
 
@@ -144,8 +182,15 @@ export function selectableSettingsProviderChoices(
 }
 
 export function settingsProviderChoice(
-  settings: GenerationSettings
+  settings: GenerationSettings,
+  textPreset?: SettingsPresetV2
 ): SettingsProviderChoice {
+  if (settings.provider === "text-completion") {
+    const id = textPreset === "llama-cpp" ? "llama-cpp-text"
+      : textPreset === "koboldcpp" ? "koboldcpp-text"
+        : "text-completion";
+    return SETTINGS_PROVIDER_CHOICES.find((choice) => choice.id === id)!;
+  }
   if (settings.provider !== "openai-compatible") {
     return SETTINGS_PROVIDER_CHOICES.find(
       (choice) => choice.id === settings.provider
@@ -168,9 +213,10 @@ export function settingsProviderChoice(
 export function nextSettingsProviderChoice(
   settings: GenerationSettings,
   step: -1 | 1,
+  textPreset?: SettingsPresetV2,
   localSupported = localProviderPresetsSupported()
 ): SettingsProviderChoice {
-  const current = settingsProviderChoice(settings);
+  const current = settingsProviderChoice(settings, textPreset);
   const selectable = new Set(
     selectableSettingsProviderChoices(localSupported).map((choice) => choice.id)
   );

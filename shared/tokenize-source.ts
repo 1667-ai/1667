@@ -96,7 +96,7 @@ export function tokenizeSourceFor(
     return model.length === 0 ? NO_SOURCE : sourceFor("anthropic-count-tokens");
   }
   if (preset === "openai"
-    && protocol === "openai-chat-completions"
+    && (protocol === "openai-chat-completions" || protocol === "text-completions")
     && isOfficialOpenAiBaseUrl(baseUrl ?? "")) {
     return sourceFor("bundled-openai");
   }

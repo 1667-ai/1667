@@ -7,6 +7,13 @@ import {
 } from "../shared/prompt-plan.js";
 import { ProviderError } from "./errors.js";
 import {
+  isProviderObject as isObject,
+  parseProviderStreamEvent as parseEvent,
+  requireProviderOutputWithinLimit as requireOutputWithinLimit
+} from "./provider-stream-output.js";
+import { streamTextCompletion } from "./text-completion-provider.js";
+import { providerUrl } from "./provider-url.js";
+import {
   PROMPT_CACHE_POLICY_OFF,
   type PreparedPromptCachePlan,
   type PromptCacheRequest
@@ -44,8 +51,6 @@ export interface StreamOutcome {
   providerTerminal: boolean;
 }
 
-const MAX_DECODED_OUTPUT_BYTES = 16 * 1024 * 1024;
-
 /** `streamCompletion`'s optional trailing values, grouped into one object
  * (issue #341) rather than a growing run of positional parameters — adding
  * `storySampling` as a fourth trailing optional would have made a seventh
@@ -79,6 +84,8 @@ export function streamCompletion(
       return streamAnthropic(settings, prompt, signal, options);
     case "openai-compatible":
       return streamOpenAiCompatible(settings, prompt, signal, options);
+    case "text-completion":
+      return streamTextCompletion(settings, prompt, signal, options);
   }
 }
 
@@ -558,48 +565,4 @@ function preparePromptCache(
     : request.runtime.prepare(request.context, request.scope, prompt);
 }
 
-/** Join a provider API path exactly as every probe and generation request will.
- *  Anthropic users commonly include /v1 in the base even though its documented
- *  base omits it; avoid silently producing /v1/v1 for those settings. */
-export function providerUrl(settings: GenerationSettings, pathName: string): string {
-  const base = settings.baseUrl.replace(/\/+$/, "");
-  let path = pathName.replace(/^\/+/, "");
-  if (settings.provider === "anthropic" && base.endsWith("/v1") && path.startsWith("v1/")) {
-    path = path.slice(3);
-  }
-  return `${base}/${path}`;
-}
-
-/** Strips a trailing /v1 and any trailing slashes to get the server's own
- *  root, for the handful of provider-specific routes — model lists, context
- *  probes, native token counts — that live beside /v1 rather than under it. */
-export function providerRoot(settings: GenerationSettings): string {
-  return settings.baseUrl.replace(/\/+$/, "").replace(/\/v1$/, "");
-}
-
-function parseEvent(data: string, secrets: readonly string[]): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(data) as unknown;
-    return isObject(parsed) ? parsed : {};
-  } catch {
-    const detail = redactProviderSecrets(data, secrets).slice(0, 200);
-    throw new ProviderError(`Model sent a non-JSON stream event: ${detail}`);
-  }
-}
-
-function requireOutputWithinLimit(
-  settings: GenerationSettings,
-  currentBytes: number,
-  delta: string
-): number {
-  const next = currentBytes + Buffer.byteLength(delta);
-  const tokenDerived = Math.min(MAX_DECODED_OUTPUT_BYTES, settings.maxTokens * 32 + 64 * 1024);
-  if (next > tokenDerived) {
-    throw new ProviderError("provider_response_too_large: decoded model output exceeded its safety limit.");
-  }
-  return next;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+export { providerRoot, providerUrl } from "./provider-url.js";

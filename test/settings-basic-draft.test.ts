@@ -19,6 +19,7 @@ import {
 } from "../shared/settings-v2-types.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import { validateSettingsDocumentV2 } from "../server/settings-v2-validation.js";
+import { selectSettingsRoute } from "../shared/settings-route.js";
 
 test("discovery metadata stays separate from manual context overrides", () => {
   const selected = applyBasicSettingsDraft(DOCUMENT, {
@@ -234,6 +235,41 @@ test("canonical base URL whitespace and trailing slashes are an exact no-op", ()
 
   assert.equal(result, DOCUMENT);
   assert.equal(result.connections.active, DOCUMENT.connections.active);
+});
+
+test("generic text routes follow official OpenAI URLs while native adapters stay explicit", () => {
+  const generic = applyBasicSettingsDraft(INITIAL_SETTINGS_DOCUMENT_V2, {
+    provider: "text-completion",
+    baseUrl: "https://models.example/v1",
+    model: "test-model",
+    apiKeyEnv: null,
+    temperature: 0.7,
+    maxTokens: 128,
+    systemPrompt: "Test.",
+    contextWindow: null
+  });
+  const official = applyBasicSettingsDraft(generic, {
+    ...basicSettingsFromDocument(generic),
+    baseUrl: "https://api.openai.com/v1"
+  });
+  assert.equal(selectSettingsRoute(official).connection.preset, "openai");
+
+  const nativeRoute = selectSettingsRoute(generic);
+  const native = {
+    ...generic,
+    connections: {
+      ...generic.connections,
+      [nativeRoute.model.connectionId]: {
+        ...nativeRoute.connection,
+        preset: "llama-cpp" as const
+      }
+    }
+  };
+  const nativeAtOfficialUrl = applyBasicSettingsDraft(native, {
+    ...basicSettingsFromDocument(native),
+    baseUrl: "https://api.openai.com/v1"
+  });
+  assert.equal(selectSettingsRoute(nativeAtOfficialUrl).connection.preset, "llama-cpp");
 });
 
 test("non-identity edits preserve hidden connection and model metadata", () => {

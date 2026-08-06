@@ -366,7 +366,7 @@ describe("run C overlay frames", () => {
       const view = { ...source.settingsView, pendingRevision, activeRevision: 3 };
       source.settingsView = view as typeof source.settingsView;
       source.api.getSettings = async () => view as typeof source.settingsView;
-      const lines = (await renderOnce(source, 120, 36, ",")).split("\n");
+      const lines = (await renderOnce(source, 120, 40, ",")).split("\n");
       const rowOf = (text: string): number => lines.findIndex((line) => line.includes(text));
       return { theme: rowOf("theme"), provider: rowOf("provider"), prompt: rowOf("system ") };
     };

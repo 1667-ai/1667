@@ -672,7 +672,12 @@ export function factImportRequestBytes(facts: readonly FactInput[]): number {
 /** Graceful drain window before a hung backend is force-terminated. */
 export const BACKEND_SHUTDOWN_GRACE_MS = 30_000;
 
-export const PROVIDER_VALUES = ["dry-run", "openai-compatible", "anthropic"] as const;
+export const PROVIDER_VALUES = [
+  "dry-run",
+  "openai-compatible",
+  "text-completion",
+  "anthropic"
+] as const;
 export type Provider = (typeof PROVIDER_VALUES)[number];
 
 export interface ModelServerCheckResult {

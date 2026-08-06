@@ -195,6 +195,8 @@ export function basicSettingsFromDocument(
     ? "dry-run"
     : route.connection.protocol === "anthropic-messages"
       ? "anthropic"
+      : route.connection.protocol === "text-completions"
+        ? "text-completion"
       : "openai-compatible";
   const auth = route.connection.auth;
   return {
@@ -246,7 +248,11 @@ function connectionFor(
   }
 
   if (draft.provider === "dry-run") {
-    const { allowInsecureHttp: _allowInsecureHttp, ...portable } = current;
+    const {
+      allowInsecureHttp: _allowInsecureHttp,
+      textPromptFormat: _textPromptFormat,
+      ...portable
+    } = current;
     return {
       ...portable,
       name: "Dry Run",
@@ -260,22 +266,54 @@ function connectionFor(
   }
 
   if (baseUrl === null) throw new Error("Network settings require a base URL");
-  const preset = presetFor(draft.provider, baseUrl);
+  const inferredPreset = basicSettingsPresetFor(draft.provider, baseUrl);
+  const preset = basicSettingsPresetAfterIdentityChange(
+    current.preset,
+    protocol,
+    protocolChanged,
+    inferredPreset
+  );
   const plaintext = new URL(baseUrl).protocol === "http:";
   const originChanged = current.baseUrl === null
     || new URL(current.baseUrl).origin !== new URL(baseUrl).origin;
-  const { allowInsecureHttp: _allowInsecureHttp, ...portable } = current;
+  const {
+    allowInsecureHttp: _allowInsecureHttp,
+    textPromptFormat: currentTextPromptFormat,
+    ...portable
+  } = current;
   return {
     ...portable,
-    name: connectionName(preset),
+    name: basicSettingsConnectionName(preset),
     preset,
     protocol,
     baseUrl,
     auth: authFor(draft, current.auth),
     headers: protocolChanged || plaintext || originChanged ? [] : current.headers,
     timeouts: protocolChanged ? defaultConnectionTimeouts(draft.provider) : current.timeouts,
+    ...(protocol === "text-completions"
+      ? {
+          textPromptFormat: protocolChanged
+            || (currentTextPromptFormat === "server-template" && preset !== "llama-cpp")
+            ? "raw" as const
+            : currentTextPromptFormat ?? "raw" as const
+        }
+      : {}),
     ...(draft.allowInsecureHttp === true ? { allowInsecureHttp: true as const } : {})
   };
+}
+
+/** Keep only a native text adapter that the writer selected explicitly.
+ * Generic text routes still follow their URL between custom and OpenAI. */
+export function basicSettingsPresetAfterIdentityChange(
+  currentPreset: SettingsPresetV2,
+  protocol: SettingsProtocolV2,
+  protocolChanged: boolean,
+  inferredPreset: SettingsPresetV2
+): SettingsPresetV2 {
+  const preserveNativeTextPreset = protocol === "text-completions"
+    && !protocolChanged
+    && (currentPreset === "llama-cpp" || currentPreset === "koboldcpp");
+  return preserveNativeTextPreset ? currentPreset : inferredPreset;
 }
 
 function authFor(
@@ -331,15 +369,23 @@ function sameBasicSettings(left: GenerationSettings, right: GenerationSettings):
 function protocolFor(provider: Provider): SettingsProtocolV2 {
   if (provider === "dry-run") return "dry-run";
   if (provider === "anthropic") return "anthropic-messages";
+  if (provider === "text-completion") return "text-completions";
   return "openai-chat-completions";
 }
 
-function presetFor(provider: Provider, baseUrl: string): SettingsPresetV2 {
+export function basicSettingsPresetFor(
+  provider: Provider,
+  baseUrl: string
+): SettingsPresetV2 {
   if (provider === "anthropic") {
     return isOfficialAnthropicBaseUrl(baseUrl) ? "anthropic" : "custom";
   }
   const parsed = new URL(baseUrl);
   const hostname = parsed.hostname.toLowerCase();
+  if (provider === "text-completion") {
+    if (hostname === "api.openai.com") return "openai";
+    return "custom";
+  }
   if (hostname === "api.openai.com") return "openai";
   if (hostname === "openrouter.ai") return "openrouter";
   const loopback = classifyHttpHost(baseUrl) === "loopback";
@@ -350,7 +396,7 @@ function presetFor(provider: Provider, baseUrl: string): SettingsPresetV2 {
   return "custom";
 }
 
-function connectionName(preset: SettingsPresetV2): string {
+export function basicSettingsConnectionName(preset: SettingsPresetV2): string {
   if (preset === "openai") return "OpenAI";
   if (preset === "openrouter") return "OpenRouter";
   if (preset === "anthropic") return "Anthropic";
@@ -478,6 +524,8 @@ function probeModelIdentity(settings: GenerationSettings): ModelIdentity {
     remoteId,
     name: remoteId.length > 0
       ? remoteId
-      : connectionName(presetFor(settings.provider, settings.baseUrl))
+      : basicSettingsConnectionName(
+          basicSettingsPresetFor(settings.provider, settings.baseUrl)
+        )
   };
 }

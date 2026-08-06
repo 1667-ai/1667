@@ -1,4 +1,9 @@
-import { type SettingsActivationErrorCodeV2, type SettingsView } from "../../shared/settings-v2-types.js";
+import {
+  type SettingsActivationErrorCodeV2,
+  type SettingsPresetV2,
+  type SettingsView
+} from "../../shared/settings-v2-types.js";
+import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import type { UserConfig } from "./config.js";
 import { THEME_NAMES, type ThemeName } from "./config.js";
 import {
@@ -17,7 +22,8 @@ import {
   parseSettings,
   settingsTextDraftForDocument,
   settingsTextDraftForView,
-  settingsTextDraftWithGeneration
+  settingsTextDraftWithGeneration,
+  settingsTextDraftWithTextPreset
 } from "./settings-text.js";
 import { renameSettingsProfile } from "./settings-profile-draft.js";
 import { settingsModelDisplayText } from "./settings-profile-controls.js";
@@ -52,6 +58,7 @@ export const SETTINGS_ROW_IDS = [
   "theme",
   "compose-focus",
   "provider",
+  "text-prompt-format",
   "base-url",
   "allow-insecure-http",
   "api-key",
@@ -317,6 +324,7 @@ export function settingsRowCycles(row: SettingsRowId): boolean {
   return row === "theme"
     || row === "compose-focus"
     || row === "provider"
+    || row === "text-prompt-format"
     || row === "allow-insecure-http"
     || row === "profile"
     || row === "effort"
@@ -334,7 +342,9 @@ export function settingsRowHasArrows(
   overlay: SettingsOverlayState,
   row: SettingsRowId
 ): boolean {
-  return settingsRowCycles(row)
+  return row === "text-prompt-format"
+    ? overlay.draft.generation.provider === "text-completion"
+    : settingsRowCycles(row)
     || isSettingsScalarRow(row)
     // A cycler stops at eight; past that the option column owns the choice.
     || row === "model" && settingsModelChoices(overlay).length > 0
@@ -351,7 +361,11 @@ export function cycleSettingsProvider(
   overlay: SettingsOverlayState,
   step: -1 | 1
 ): SettingsProviderChoice {
-  const choice = nextSettingsProviderChoice(overlay.draft.generation, step);
+  const choice = nextSettingsProviderChoice(
+    overlay.draft.generation,
+    step,
+    selectedConnectionPreset(overlay)
+  );
   const preserveStoredApiKey = hasStoredApiKey(overlay);
   overlay.draft = settingsTextDraftWithGeneration(overlay.draft, {
     ...overlay.draft.generation,
@@ -359,12 +373,33 @@ export function cycleSettingsProvider(
     ...choice.defaults,
     ...(preserveStoredApiKey ? { apiKeyEnv: null } : {})
   });
+  const textPreset = textPresetForChoice(choice);
+  if (textPreset !== null) {
+    overlay.draft = settingsTextDraftWithTextPreset(overlay.draft, textPreset);
+  }
   rekeyPendingStoredSecret(overlay);
   discardUnreferencedConnectionSecretWrites(overlay);
   overlay.result = null;
   if (!settingsDraftChanged(overlay)) overlay.conflict = null;
   else disarmSettingsConflict(overlay);
   return choice;
+}
+
+function selectedConnectionPreset(
+  overlay: SettingsOverlayState
+): SettingsPresetV2 | undefined {
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  if (document === null || profileId === null) return undefined;
+  return resolveSettingsProfile(document, profileId).connection.preset;
+}
+
+function textPresetForChoice(
+  choice: SettingsProviderChoice
+): "custom" | "llama-cpp" | "koboldcpp" | null {
+  if (choice.id === "llama-cpp-text") return "llama-cpp";
+  if (choice.id === "koboldcpp-text") return "koboldcpp";
+  return choice.id === "text-completion" ? "custom" : null;
 }
 
 export function cycleSettingsModel(

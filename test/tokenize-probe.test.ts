@@ -8,7 +8,9 @@ import {
 import type { ChatMessage } from "../shared/prompt-plan.js";
 import {
   EMPTY_SAMPLING_V2,
-  type SettingsPresetV2
+  type SettingsPresetV2,
+  type SettingsProtocolV2,
+  type TextPromptFormatV2
 } from "../shared/settings-v2-types.js";
 import { MAX_COUNTED_PROMPT_CHARS } from "../shared/tokenize-source.js";
 import type { GenerationSettings, Provider } from "../shared/types.js";
@@ -38,6 +40,39 @@ test("an OpenAI official preset returns an exact count with a per-message split"
   // is three o200k tokens and the instruction is seven.
   assert.deepEqual(result.perMessage, [3 + 4, 7 + 4]);
   assert.equal(result.total, 3 + 4 + 7 + 4 + 3);
+});
+
+test("OpenAI text completions count the exact raw and ChatML wire prompts", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    throw new Error("the bundled tokenizer must not reach the network");
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const messages: ChatMessage[] = [
+    { role: "system", content: "Write closely." },
+    { role: "user", content: "Continue the story about the lantern." }
+  ];
+  for (const [textPromptFormat, total] of [
+    ["raw", 10],
+    ["chatml", 44]
+  ] as const) {
+    const result = await countPromptTokens(settings({
+      preset: "openai",
+      provider: "text-completion",
+      protocol: "text-completions",
+      textPromptFormat,
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-5"
+    }), messages);
+    assert.deepEqual(result, {
+      kind: "counted",
+      source: "bundled-openai",
+      grade: "exact",
+      total,
+      perMessage: null
+    });
+  }
 });
 
 test("an OpenAI model on the older encoding is counted with that encoding", async (t) => {
@@ -470,6 +505,8 @@ function settings(options: {
   readonly baseUrl?: string;
   readonly model?: string;
   readonly timeouts?: ProviderRuntime["timeouts"];
+  readonly protocol?: SettingsProtocolV2;
+  readonly textPromptFormat?: TextPromptFormatV2;
 }): GenerationSettings {
   const value: GenerationSettings = {
     provider: options.provider ?? "openai-compatible",
@@ -500,7 +537,11 @@ function settings(options: {
       assistantPrefill: "unknown",
       reasoningEffort: "unknown",
       promptCaching: "unknown"
-    }
+    },
+    ...(options.protocol === undefined ? {} : { protocol: options.protocol }),
+    ...(options.textPromptFormat === undefined
+      ? {}
+      : { textPromptFormat: options.textPromptFormat })
   };
   return attachProviderRuntime(value, runtime, true);
 }
