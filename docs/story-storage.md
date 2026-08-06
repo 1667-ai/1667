@@ -63,6 +63,26 @@ owner process. The operating system releases the lock after a process failure.
 
 1667 refuses a file system that does not enforce the lock.
 
+## Reserved file publication
+
+1667 writes some control files one time and then does not change them. These
+are reserved files. The data-directory ID and each mutation receipt record
+are reserved files.
+
+A publication writes a scratch file with the suffix `.1667-publish-v1.tmp`.
+It makes the bytes durable. It then links the scratch file to the reserved
+name. In this commit window, the two names point to one file. The
+publication then removes the scratch name.
+
+A committed reserved file has one name. A reader refuses a reserved file
+that has two or more names.
+
+One owner operates on one reserved name at one time. In one process, 1667
+does the operations on the same reserved name in sequence. Across
+processes, the project lock or the applicable machine-tier lock gives this
+ownership. Crash recovery runs only with this ownership. A read does not
+change the file system when no scratch name is present.
+
 ## Migrate legacy data
 
 Use this command to migrate a stopped legacy data directory:

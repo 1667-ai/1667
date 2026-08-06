@@ -55,6 +55,27 @@ describe("private update cache store", () => {
     await symlink(target, path.join(root, UPDATE_CACHE_FILE));
     expect(await readPersistedUpdateCache(key, 1_001, { stateRoot: root })).toBe(null);
   });
+
+  test("a concurrent hint read never breaks a hint write", async () => {
+    const root = await privateRoot();
+    for (let round = 0; round < 12; round += 1) {
+      const entry = createUpdateCacheEntry(key, `0.${round + 2}.0`, round * 1_000);
+      const writing = writePersistedUpdateCache(entry, { stateRoot: root });
+      const observed = await readPersistedUpdateCache(
+        key,
+        round * 1_000 + 1,
+        { stateRoot: root }
+      );
+      expect(observed === null || typeof observed.latest === "string").toBeTrue();
+      expect(await writing).toBeTrue();
+      const settled = await readPersistedUpdateCache(
+        key,
+        round * 1_000 + 1,
+        { stateRoot: root }
+      );
+      expect(settled?.latest).toBe(`0.${round + 2}.0`);
+    }
+  });
 });
 
 async function privateRoot(): Promise<string> {

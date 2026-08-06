@@ -16,6 +16,8 @@ read_when:
 | backend | The service that stores stories and sends provider requests |
 | character card | A V1 or V2 character card file that another tool wrote |
 | project | A project root and its `.1667/` directory |
+| reserved file | A control file that 1667 writes one time and does not change |
+| scratch file | The temporary publication copy of one reserved file |
 | story part | One unit of story prose |
 | take | One alternative version of a story part |
 | rewritten span | The range of prose in a story part that a rewrite replaced |
