@@ -323,7 +323,7 @@ export class StoryServiceLocal {
    * uses — expected-text revalidation, rewritten spans, destination
    * current-take/new-take semantics, and the original attempt's
    * rewriteId/takeId replay markers included. Returns null when nothing was
-   * stashed for this part or the presented prose is not the stashed prose;
+   * stashed for this part or the presented digest does not match;
    * null commits nothing, so the caller reports nothing saved.
    */
   async commitPartialRewrite(
@@ -351,7 +351,8 @@ export class StoryServiceLocal {
             // without the exact volatile record refuses without creating a
             // receipt; a replay after process restart still returns the
             // already-committed story from the ledger.
-            if (record === null || record.streamed !== body.streamedText) {
+            if (record === null
+              || record.streamedDigest !== body.streamedDigest) {
               throw PARTIAL_REWRITE_UNAVAILABLE;
             }
             const effect = {
@@ -391,7 +392,9 @@ export class StoryServiceLocal {
         throw error;
       }
     }
-    if (record === null || record.streamed !== body.streamedText) return null;
+    if (record === null || record.streamedDigest !== body.streamedDigest) {
+      return null;
+    }
     const effect = {
       ...record.effect,
       updatedAt: new Date().toISOString()

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { rewriteStreamDigest } from "../../shared/rewrite-partial-contract.js";
 import { platformPerformanceBudget } from "../../test/performance-budget.js";
 import { ActionRuntime } from "../src/action-runtime.js";
 import type { AppSource } from "../src/app.js";
@@ -65,9 +66,9 @@ describe("partial rewrite commit through the real worker transport", () => {
           }
         );
       const realCommitPartialRewrite = api.commitPartialRewrite.bind(api);
-      api.commitPartialRewrite = (storyId, nodeId, streamedText, attemptId) => {
-        settleText = streamedText;
-        return realCommitPartialRewrite(storyId, nodeId, streamedText, attemptId);
+      api.commitPartialRewrite = (storyId, nodeId, streamedDigest, attemptId) => {
+        settleText = streamedDigest;
+        return realCommitPartialRewrite(storyId, nodeId, streamedDigest, attemptId);
       };
 
       const source: AppSource = {
@@ -114,7 +115,7 @@ describe("partial rewrite commit through the real worker transport", () => {
       // The settle presented exactly the streamed bytes, tail included.
       const streamed = arrived.join("") + stoppedTails.join("");
       expect(stoppedTails.length <= 1).toBeTrue();
-      expect(settleText).toBe(streamed);
+      expect(settleText).toBe(rewriteStreamDigest(streamed));
 
       // The partial replaced exactly the original selected range, in place,
       // and the replaced extent is recorded as a rewritten span.

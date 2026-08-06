@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createFailureEnvelope } from "../../shared/failure-envelope.js";
+import { rewriteStreamDigest } from "../../shared/rewrite-partial-contract.js";
 import type { StoryPayload } from "../../shared/types.js";
 import { ActionRuntime } from "../src/action-runtime.js";
 import { ApiHttpError } from "../src/api-error.js";
@@ -163,14 +164,15 @@ function rewriteHarness(options: {
     await gate.promise;
     throw options.failure();
   };
-  source.api.commitPartialRewrite = async (_storyId, nodeId, streamedText) => {
+  source.api.commitPartialRewrite = async (_storyId, nodeId, streamedDigest) => {
     settleCalls += 1;
-    settleStreamedText = streamedText;
+    settleStreamedText = streamedDigest;
     if (options.settle !== "commit") return null;
     const payload = structuredClone(state.payload) as StoryPayload;
     const target = payload.path.find((candidate) => candidate.id === nodeId)!;
-    target.text = node.text.slice(0, start) + streamedText.trim() + node.text.slice(end);
-    target.rewrittenSpans = [{ start, end: start + streamedText.trim().length }];
+    const replacement = "a dented compass";
+    target.text = node.text.slice(0, start) + replacement + node.text.slice(end);
+    target.rewrittenSpans = [{ start, end: start + replacement.length }];
     return { payload, nodeId };
   };
   const prompt = openRewriteComposer(state, { node, start, end, expected });
@@ -206,7 +208,9 @@ describe("timeout-class failures settle a partial rewrite", () => {
     await run.pending;
 
     expect(run.settleCalls()).toBe(1);
-    expect(run.settleStreamedText()).toBe("a dented compass");
+    expect(run.settleStreamedText()).toBe(
+      rewriteStreamDigest("a dented compass")
+    );
     const landed = run.state.payload.path.find((candidate) => candidate.id === run.node.id)!;
     expect(landed.text).toBe(
       run.node.text.slice(0, run.start) + "a dented compass" + run.node.text.slice(run.end)

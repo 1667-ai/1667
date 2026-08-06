@@ -237,14 +237,14 @@ export interface StoryApi {
     onStopped?: (text: string) => void
   ): Promise<string | null>;
   /** Settle a stopped or timed-out rewrite (issue #339): ask the backend to
-   * commit the verified partial it stashed for this part. `streamedText` is
-   * the exact prose this client watched stream, tail included; the backend
-   * refuses on any byte difference. null = nothing was committed and the
-   * story is unchanged. */
+   * commit the verified partial it stashed for this part. `streamedDigest`
+   * identifies the exact prose this client watched stream, tail included;
+   * the backend refuses on any byte difference. null = nothing was committed
+   * and the story is unchanged. */
   commitPartialRewrite(
     storyId: string,
     nodeId: string,
-    streamedText: string,
+    streamedDigest: string,
     attemptId: string
   ): Promise<{ payload: StoryPayload; nodeId: string } | null>;
   createSummaryTake(
@@ -908,12 +908,12 @@ export function createApi(
       await loadVersionedStory(storyId);
       return done.nodeId;
     },
-    commitPartialRewrite: async (storyId, nodeId, streamedText, attemptId) => {
+    commitPartialRewrite: async (storyId, nodeId, streamedDigest, attemptId) => {
       const committed = await request(
         "POST",
         `/api/stories/${storyId}/nodes/${nodeId}/rewrite-partial`,
         decodeCommitPartialRewriteResponse,
-        { streamedText, attemptId },
+        { streamedDigest, attemptId },
         HTTP_REQUEST_TIMEOUT_MS,
         await expectedVersion(storyId)
       );

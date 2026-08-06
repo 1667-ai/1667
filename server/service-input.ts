@@ -1,4 +1,5 @@
 import type { SearchRequest } from "../shared/story-search.js";
+import { isRewriteStreamDigest } from "../shared/rewrite-partial-contract.js";
 import {
   REWRITE_DESTINATIONS,
   type CreateNodeRequest,
@@ -106,19 +107,22 @@ export function parseRewrite(value: unknown): RewriteRequest {
 }
 
 export interface CommitPartialRewriteRequest {
-  readonly streamedText: string;
+  readonly streamedDigest: string;
   readonly attemptId: string;
 }
 
 /** The settle after a stopped or timed-out rewrite (issue #339). The caller
- * presents the exact prose it watched stream; the server commits only its
- * own stashed splice when the bytes agree. */
+ * presents the digest of the exact prose it watched stream. The server
+ * commits only its own stashed splice when the digest agrees. */
 export function parseCommitPartialRewrite(
   value: unknown
 ): CommitPartialRewriteRequest {
   const body = requireRecord(value, "partial rewrite body");
+  if (!isRewriteStreamDigest(body.streamedDigest)) {
+    throw new ServiceError(400, "Invalid streamedDigest");
+  }
   return {
-    streamedText: requireString(body.streamedText, "streamedText"),
+    streamedDigest: body.streamedDigest,
     attemptId: requireRewriteAttemptId(body.attemptId)
   };
 }

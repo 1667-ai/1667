@@ -789,6 +789,42 @@ test("a provider rejection stays a rejection when the total timer fires after it
     && /Anthropic stream error/.test(error.message));
 });
 
+test("a transport abort cannot replace a provider-classified stream failure", async (t) => {
+  const transport = new AbortController();
+  const caller = new AbortController();
+  const providerFailure = new ProviderError("The provider rejected the stream.");
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(new ReadableStream({
+    start(controller) {
+      setImmediate(() => {
+        transport.abort(new Error("outer total deadline"));
+        controller.error(providerFailure);
+      });
+    }
+  }), {
+    headers: { "content-type": "text/event-stream" }
+  })) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  await assert.rejects(
+    drain(providerSseEvents(
+      attached(),
+      "https://models.example/v1/chat/completions",
+      {},
+      {},
+      [],
+      transport.signal,
+      (value) => value,
+      undefined,
+      undefined,
+      () => true,
+      () => false,
+      caller.signal
+    )),
+    (error) => error === providerFailure
+  );
+});
+
 test("OpenAI parameter retries share one total deadline", async (t) => {
   const originalFetch = globalThis.fetch;
   let requests = 0;

@@ -250,11 +250,11 @@ export interface WorkerMethodContract {
   };
   rewriteNode: { input: { storyId: string; nodeId: string; body: RewriteRequest }; output: string | null };
   /** Settle a stopped or timed-out rewrite's stashed partial (issue #339).
-   * `streamedText` is the exact prose the caller watched stream; the server
-   * commits only when it matches the stashed record. null = nothing was
+   * `streamedDigest` identifies the exact prose the caller watched stream;
+   * the server commits only when it matches the stashed record. null = nothing was
    * stashed or the bytes differ; nothing changed. */
   commitPartialRewrite: {
-    input: { storyId: string; nodeId: string; streamedText: string; attemptId: string };
+    input: { storyId: string; nodeId: string; streamedDigest: string; attemptId: string };
     output: { payload: StoryPayload; nodeId: string } | null;
   };
   createSummaryTake: {
@@ -355,6 +355,8 @@ export function isLocalDurabilityMutation(
  *   be paid provider output already deleted from the store.
  * - `commitPartialRewrite` settles a stopped or timed-out rewrite; its
  *   text is paid streamed prose held only in process memory.
+ * - `importLorebook` and `importCard` need the full receipt to preserve the
+ *   plan that the committed import performed.
  *
  * Malformed inputs are not eligible: they fail toward the full tier, whose
  * validation rejects them with the mutation identity durably fenced.
@@ -366,6 +368,7 @@ export function isManifestOnlyDurabilityEligible(
   if (!isLocalDurabilityMutation(method)) return false;
   if (method === "restoreChapterBreak") return false;
   if (method === "commitPartialRewrite") return false;
+  if (method === "importLorebook" || method === "importCard") return false;
   if (method === "createNode") return !createNodeCarriesGeneration(input);
   return true;
 }

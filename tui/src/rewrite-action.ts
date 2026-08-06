@@ -1,4 +1,5 @@
 import type { RewriteDestination, StoryNode, StoryPayload, TextRange } from "../../shared/types.js";
+import { rewriteStreamDigest } from "../../shared/rewrite-partial-contract.js";
 import type { ActionTask } from "./action-runtime.js";
 import type { AppSource } from "./app.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
@@ -185,7 +186,7 @@ async function runSelectionRewrite(
   context.repaint();
 
   // Every byte the stream delivered, display guards aside — the exact text
-  // the settle after a Stop or a clean timeout presents to the backend's
+  // the settle after a Stop or a clean timeout identifies for the backend's
   // partial-rewrite commit (issue #339). The stopped tail arrives through
   // `onStopped` exactly once, at terminal settlement, so after the call
   // resolves this equals what the backend's own stash holds.
@@ -358,8 +359,8 @@ export function requestRewriteStop(state: RuntimeState, repaint: () => void): vo
 }
 
 /** The rewrite counterpart of `settleStoppedGeneration`: ask the backend to
- * commit the verified partial it stashed for this part, presenting the exact
- * prose this client watched stream. A refusal (nothing stashed, a byte
+ * commit the verified partial it stashed for this part. The request sends a
+ * digest of the exact prose this client watched stream. A refusal (nothing stashed, a byte
  * difference, a rejected seam, a restarted backend) commits nothing; only a
  * real commit ever reports text kept, so the writer is never told a save
  * happened that did not. `failureMessage` is non-null when a clean timeout —
@@ -379,6 +380,7 @@ async function settleStoppedRewrite(
   if (!task.storyCurrent()) return;
   let committed: { payload: StoryPayload; nodeId: string } | null = null;
   if (streamedText.trim().length > 0) {
+    const streamedDigest = rewriteStreamDigest(streamedText);
     try {
       // Routed through the recovery feed when one is active — a worker
       // deadline publishes a recovery warning that would otherwise fence
@@ -386,8 +388,18 @@ async function settleStoppedRewrite(
       // createNode this way.
       committed = await (
         source.backendRecovery?.runRecoveryMutation(() =>
-          source.api.commitPartialRewrite(task.storyId, nodeId, streamedText, attemptId)
-        ) ?? source.api.commitPartialRewrite(task.storyId, nodeId, streamedText, attemptId)
+          source.api.commitPartialRewrite(
+            task.storyId,
+            nodeId,
+            streamedDigest,
+            attemptId
+          )
+        ) ?? source.api.commitPartialRewrite(
+          task.storyId,
+          nodeId,
+          streamedDigest,
+          attemptId
+        )
       );
     } catch {
       committed = null;

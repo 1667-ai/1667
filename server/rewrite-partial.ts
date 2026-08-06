@@ -1,5 +1,6 @@
 import type { RewriteNodeEffect } from "./story-provider-effect.js";
 import { stripEchoedContext } from "./rewrite-output.js";
+import { ServiceError } from "./errors.js";
 
 /**
  * One rewrite's splice decisions, shared byte-for-byte by the full commit in
@@ -117,9 +118,8 @@ export interface PartialRewriteRecord {
   readonly nodeId: string;
   /** The client token for the one stream that produced this prose. */
   readonly attemptId: string;
-  /** The exact prose the stream delivered. The settle request must present
-   * the same bytes, so the writer commits exactly what they watched arrive. */
-  readonly streamed: string;
+  /** Fixed-size identity of the exact prose that the stream delivered. */
+  readonly streamedDigest: string;
   /** Precomputed by `rewriteNode` with the request's own tag, boundary
    * whitespace, destination, and idempotency ids. `updatedAt` is stamped at
    * commit time; `cancelled` is deliberately absent — the settle is an
@@ -128,6 +128,13 @@ export interface PartialRewriteRecord {
 }
 
 const MAX_STASHED_PARTIALS = 64;
+
+export interface PartialRewriteReservation {
+  readonly storyId: string;
+  readonly nodeId: string;
+  readonly attemptId: string;
+  record: PartialRewriteRecord | null;
+}
 
 /**
  * Process-local memory of verified partial rewrites, keyed by story part and
@@ -140,31 +147,65 @@ const MAX_STASHED_PARTIALS = 64;
  * caller-held prose died with its process.
  */
 export class PartialRewriteStash {
-  private readonly entries = new Map<string, PartialRewriteRecord>();
+  private readonly entries = new Map<string, PartialRewriteReservation>();
 
-  remember(record: PartialRewriteRecord): void {
-    const key = stashKey(record.storyId, record.nodeId, record.attemptId);
-    this.entries.delete(key);
-    if (this.entries.size >= MAX_STASHED_PARTIALS) {
-      const oldest = this.entries.keys().next();
-      if (!oldest.done) this.entries.delete(oldest.value);
+  /** Reserve before provider work can emit text. A full stash refuses the
+   * next rewrite instead of evicting prose that another writer can settle. */
+  reserve(
+    storyId: string,
+    nodeId: string,
+    attemptId: string
+  ): PartialRewriteReservation {
+    const key = stashKey(storyId, nodeId, attemptId);
+    if (this.entries.has(key)) {
+      throw new ServiceError(409, "This rewrite attempt is already active.");
     }
-    this.entries.set(key, record);
+    if (this.entries.size >= MAX_STASHED_PARTIALS) {
+      throw new ServiceError(
+        429,
+        "Too many rewrites are waiting to finish. Settle a stopped rewrite and try again."
+      );
+    }
+    const reservation = { storyId, nodeId, attemptId, record: null };
+    this.entries.set(key, reservation);
+    return reservation;
+  }
+
+  remember(
+    reservation: PartialRewriteReservation,
+    record: PartialRewriteRecord
+  ): void {
+    const key = stashKey(record.storyId, record.nodeId, record.attemptId);
+    if (this.entries.get(key) !== reservation) {
+      throw new Error("Partial rewrite reservation is no longer active");
+    }
+    reservation.record = record;
   }
 
   /** Read without consuming. The durable commit clears the record only
    * after it succeeds, so a transport or storage retry can use it again. */
   get(storyId: string, nodeId: string, attemptId: string): PartialRewriteRecord | null {
     const key = stashKey(storyId, nodeId, attemptId);
-    const record = this.entries.get(key);
-    return record ?? null;
+    return this.entries.get(key)?.record ?? null;
   }
 
   /** Clear only the exact record a caller used. A delayed attempt cannot
    * clear a newer record that reused its token. */
   clear(record: PartialRewriteRecord): void {
     const key = stashKey(record.storyId, record.nodeId, record.attemptId);
-    if (this.entries.get(key) === record) this.entries.delete(key);
+    const reservation = this.entries.get(key);
+    if (reservation?.record === record) this.entries.delete(key);
+  }
+
+  releaseEmpty(reservation: PartialRewriteReservation): void {
+    const key = stashKey(
+      reservation.storyId,
+      reservation.nodeId,
+      reservation.attemptId
+    );
+    if (this.entries.get(key) === reservation && reservation.record === null) {
+      this.entries.delete(key);
+    }
   }
 }
 

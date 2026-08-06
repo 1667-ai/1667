@@ -19,6 +19,7 @@ import {
 import { MAX_FACTS } from "../shared/types.js";
 import { unusedTakePruneSelection } from "../shared/story-tree.js";
 import { createDurableMutationId } from "../shared/durable-mutation-id.js";
+import { rewriteStreamDigest } from "../shared/rewrite-partial-contract.js";
 import { applyEffectiveGenerationSettings } from "../server/settings-v2-conversion.js";
 
 test("pending receipts recover committed entity creation without duplicates after restart", async (t) => {
@@ -500,7 +501,7 @@ test("a partial-rewrite receipt replays after the volatile stash is lost", async
     const input = {
       storyId: story.id,
       nodeId,
-      streamedText,
+      streamedDigest: rewriteStreamDigest(streamedText),
       attemptId: "restart-replay-attempt"
     };
     const committed = await runWorkerMutation(
@@ -600,7 +601,7 @@ test("a completed partial-rewrite replay does not consume a later attempt", asyn
     const inputA = {
       storyId: story.id,
       nodeId,
-      streamedText: streamedA,
+      streamedDigest: rewriteStreamDigest(streamedA),
       attemptId: "attempt-a"
     };
     const committedA = await runWorkerMutation(
@@ -631,7 +632,7 @@ test("a completed partial-rewrite replay does not consume a later attempt", asyn
       {
         storyId: story.id,
         nodeId,
-        streamedText: streamedB,
+        streamedDigest: rewriteStreamDigest(streamedB),
         attemptId: "attempt-b"
       }
     );

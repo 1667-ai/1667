@@ -4,7 +4,8 @@ import { continueStory, rewriteNode } from "../server/generation-http.js";
 import {
   GenerationResultError,
   GenerationStoppedError,
-  ProviderError
+  ProviderError,
+  ServiceError
 } from "../server/errors.js";
 import { GenerationAdmissionRegistry } from "../server/generation-admission.js";
 import { LEGACY_PROMPT_CACHE_CONTEXT, PromptCacheRuntime } from "../server/provider-cache-policy.js";
@@ -20,6 +21,7 @@ import {
   isTimeoutClassFailure
 } from "../shared/failure-envelope.js";
 import { createHttpOperationLease } from "../shared/http-operation-lease.js";
+import { rewriteStreamDigest } from "../shared/rewrite-partial-contract.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings, Story } from "../shared/types.js";
 import {
@@ -312,7 +314,10 @@ providerTest("generation timeouts: a stopped rewrite stashes the streamed partia
 
   const record = partials.get(story.id, nodeId, "stopped-attempt");
   assert.ok(record, "a stopped rewrite with a verified partial must stash it");
-  assert.equal(record.streamed, "rested on the cool step");
+  assert.equal(
+    record.streamedDigest,
+    rewriteStreamDigest("rested on the cool step")
+  );
   // The settle path commits the stash through the same rewrite effect a full
   // commit uses: exact splice, exact recorded span, in-place destination.
   const applied = await applyProviderStoryEffect(
@@ -353,6 +358,7 @@ providerTest("a verified rewrite is stashed before its cancellable commit", asyn
       throw new GenerationStoppedError("Story rewriting was cancelled");
     }
   } as unknown as ProviderStoryRuntime<"rewriteNode">;
+  let streamed = "";
 
   await assert.rejects(
     rewriteNode(
@@ -368,7 +374,7 @@ providerTest("a verified rewrite is stashed before its cancellable commit", asyn
       stories,
       stubSettingsStore(settings),
       new PromptCacheRuntime(),
-      () => {},
+      (delta) => { streamed += delta; },
       controller.signal,
       undefined,
       "commit-window-rewrite",
@@ -380,7 +386,52 @@ providerTest("a verified rewrite is stashed before its cancellable commit", asyn
   );
   const record = partials.get(story.id, nodeId, "commit-window-attempt");
   assert.ok(record);
-  assert.notEqual(record.streamed.trim(), "");
+  assert.equal(record.streamedDigest, rewriteStreamDigest(streamed));
+});
+
+providerTest("rewrite stash capacity refuses provider work before it can emit prose", async () => {
+  const { story, nodeId, start, end } = fixtureStory();
+  const partials = new PartialRewriteStash();
+  for (let index = 0; index < 64; index += 1) {
+    partials.reserve(story.id, nodeId, `waiting-${index}`);
+  }
+  const settings: GenerationSettings = {
+    provider: "dry-run",
+    baseUrl: "",
+    model: "dry-run",
+    apiKeyEnv: null,
+    temperature: null,
+    maxTokens: 256,
+    systemPrompt: "Write.",
+    contextWindow: null
+  };
+  let deltas = 0;
+
+  await assert.rejects(
+    rewriteNode(
+      story.id,
+      nodeId,
+      {
+        start,
+        end,
+        expected: SELECTION,
+        instruction: "",
+        attemptId: "over-capacity"
+      },
+      refusingStories<"rewriteNode">(story),
+      stubSettingsStore(settings),
+      new PromptCacheRuntime(),
+      () => { deltas += 1; },
+      new AbortController().signal,
+      undefined,
+      "over-capacity-rewrite",
+      "over-capacity-take",
+      undefined,
+      partials
+    ),
+    (error: unknown) => error instanceof ServiceError && error.status === 429
+  );
+  assert.equal(deltas, 0);
 });
 
 providerTest("generation timeouts: a rewrite idle timeout stashes the partial for a new take when the writer asked for one", async (t) => {

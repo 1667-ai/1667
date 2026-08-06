@@ -6,6 +6,7 @@ import test from "node:test";
 import { createDurableMutationId } from "../shared/durable-mutation-id.js";
 import type { StoryAggregateVersion } from "../shared/story-aggregate-version.js";
 import {
+  isManifestOnlyDurabilityEligible,
   type MutatingWorkerMethod,
   type WorkerOutput
 } from "../shared/worker-protocol.js";
@@ -19,6 +20,17 @@ import {
 } from "../server/worker-mutations.js";
 
 const encoder = new TextEncoder();
+
+test("imports keep the full receipt tier that preserves their performed plan", () => {
+  assert.equal(isManifestOnlyDurabilityEligible("importLorebook", {
+    storyId: "story",
+    archiveBytes: new Uint8Array()
+  }), false);
+  assert.equal(isManifestOnlyDurabilityEligible("importCard", {
+    storyId: "story",
+    cardBytes: new Uint8Array()
+  }), false);
+});
 
 // The crash window from old-repo #321: the story transaction committed, and
 // the process stopped before the outer receipt completed. The rewrite keeps

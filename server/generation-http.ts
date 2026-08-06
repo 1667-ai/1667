@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { renderPromptPlan } from "../shared/prompt-plan.js";
 import { resolveAuthorBrief } from "../shared/author-brief.js";
 import { resolveAuthorsNoteDepth, type AuthorsNotePlacement } from "../shared/authors-note.js";
+import { rewriteStreamDigest } from "../shared/rewrite-partial-contract.js";
 import {
   GenerationResultError,
   GenerationStoppedError,
@@ -491,93 +492,103 @@ export async function rewriteNode(
   // with a ready splice only when the left seam held and the cleaned prose
   // is committable; every rejection stashes nothing, so a later settle
   // finds nothing and changes nothing.
-  let streamed = "";
-  const stashPartial = () => {
-    if (partials === undefined || attemptId === undefined || output.prefixRejected) return null;
-    const result = spliceReplacement(streamed);
-    if (result.kind !== "replacement") return null;
-    const record = {
-      storyId: id,
-      nodeId: partId,
-      attemptId,
-      streamed,
-      effect: rewriteEffect(result.text)
+  const reservation = partials === undefined || attemptId === undefined
+    ? null
+    : partials.reserve(id, partId, attemptId);
+  try {
+    let streamed = "";
+    const stashPartial = () => {
+      if (partials === undefined || reservation === null || output.prefixRejected) return null;
+      const result = spliceReplacement(streamed);
+      if (result.kind !== "replacement") return null;
+      const record = {
+        storyId: id,
+        nodeId: partId,
+        attemptId: reservation.attemptId,
+        streamedDigest: rewriteStreamDigest(streamed),
+        effect: rewriteEffect(result.text)
+      };
+      partials.remember(reservation, record);
+      return record;
     };
-    partials.remember(record);
-    return record;
-  };
-  let replacement: string | null;
-  try {
-    replacement = await streamModel(rewriteSettings, plan.prompt, signal, async (delta) => {
-      streamed += delta;
-      await onDelta(delta);
-    }, {
-      output,
-      providerStarted,
-      promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
-      storySampling: storySamplingBias(story)
-    });
-  } catch (error) {
-    if (timeoutProvenanceOf(error) !== null) {
-      // A clean provider timeout after the opening already diverged from
-      // the required echo is a timeout masking a seam rejection: rethrow
-      // the rejection without the clean-timeout stamp, and stash nothing.
-      if (output.prefixRejected) throw rejectedRewriteLeftAnchor();
-      stashPartial();
-    }
-    throw error;
-  }
-  if (replacement === null) {
-    stashPartial();
-    return null;
-  }
-  if (requireLeftAnchor && !output.matchedPrefix) {
-    throw rejectedRewriteLeftAnchor();
-  }
-  // The end marker is required even when nothing follows the selection: without
-  // it, a rewrite at the end of the story is an unverifiable free continuation.
-  if (plan.endMarker.length > 0 && !output.matchedContract) {
-    throw new GenerationResultError(502, (plan.rightAnchor.length > 0
-      ? "The model did not reconnect the replacement to the exact text after it; nothing was saved."
-      : "The model did not finish its replacement cleanly; nothing was saved.") + SMALL_MODEL_POINTER);
-  }
-  const spliced = spliceReplacement(replacement);
-  if (spliced.kind === "empty") {
-    throw new GenerationResultError(502, "The model returned only markers; nothing was saved.");
-  }
-  if (spliced.kind === "over-band") {
-    throw new GenerationResultError(502,
-        `The model replaced ${spliced.selectionWords} ${spliced.selectionWords === 1 ? "word" : "words"} with ${spliced.replacementWords}; ` +
-        "nothing was saved. Try again, or add an instruction if you want something longer."
-    );
-  }
-  // The provider output is now fully verified. Preserve the ready effect
-  // before entering the cancellable commit so Stop or a deadline during the
-  // story lock wait can settle the exact prose the writer already received.
-  const fullRecord = stashPartial();
-  try {
-    const node = await stories.commitProviderEffect(id, {
-      ...rewriteEffect(spliced.text),
-      updatedAt: new Date().toISOString(),
-      cancelled: signal
-    });
-    if (fullRecord !== null) partials?.clear(fullRecord);
-    return node.id;
-  } catch (error) {
-    if (!(error instanceof GenerationStoppedError) && fullRecord !== null) {
-      partials?.clear(fullRecord);
-    }
-    if (error instanceof HttpError
-      && error.code === "story_manifest_requires_successor") {
+    let replacement: string | null;
+    try {
+      replacement = await streamModel(rewriteSettings, plan.prompt, signal, async (delta) => {
+        streamed += delta;
+        await onDelta(delta);
+      }, {
+        output,
+        providerStarted,
+        promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
+        storySampling: storySamplingBias(story)
+      });
+    } catch (error) {
+      if (timeoutProvenanceOf(error) !== null) {
+        // A clean provider timeout after the opening already diverged from
+        // the required echo is a timeout masking a seam rejection: rethrow
+        // the rejection without the clean-timeout stamp, and stash nothing.
+        if (output.prefixRejected) throw rejectedRewriteLeftAnchor();
+        stashPartial();
+      }
       throw error;
     }
-    if (error instanceof HttpError && error.status === 404) {
+    if (replacement === null) {
+      stashPartial();
+      return null;
+    }
+    if (requireLeftAnchor && !output.matchedPrefix) {
+      throw rejectedRewriteLeftAnchor();
+    }
+    // The end marker is required even when nothing follows the selection: without
+    // it, a rewrite at the end of the story is an unverifiable free continuation.
+    if (plan.endMarker.length > 0 && !output.matchedContract) {
+      throw new GenerationResultError(502, (plan.rightAnchor.length > 0
+        ? "The model did not reconnect the replacement to the exact text after it; nothing was saved."
+        : "The model did not finish its replacement cleanly; nothing was saved.") + SMALL_MODEL_POINTER);
+    }
+    const spliced = spliceReplacement(replacement);
+    if (spliced.kind === "empty") {
+      throw new GenerationResultError(502, "The model returned only markers; nothing was saved.");
+    }
+    if (spliced.kind === "over-band") {
       throw new GenerationResultError(
-        409,
-        "The story was deleted while rewriting."
+        502,
+        `The model replaced ${spliced.selectionWords} ${spliced.selectionWords === 1 ? "word" : "words"} with ${spliced.replacementWords}; ` +
+          "nothing was saved. Try again, or add an instruction if you want something longer."
       );
     }
-    throw error;
+    // The provider output is now fully verified. Preserve the ready effect
+    // before entering the cancellable commit so Stop or a deadline during the
+    // story lock wait can settle the exact prose the writer already received.
+    const fullRecord = stashPartial();
+    try {
+      const node = await stories.commitProviderEffect(id, {
+        ...rewriteEffect(spliced.text),
+        updatedAt: new Date().toISOString(),
+        cancelled: signal
+      });
+      if (fullRecord !== null) partials?.clear(fullRecord);
+      return node.id;
+    } catch (error) {
+      if (!(error instanceof GenerationStoppedError) && fullRecord !== null) {
+        partials?.clear(fullRecord);
+      }
+      if (error instanceof HttpError
+        && error.code === "story_manifest_requires_successor") {
+        throw error;
+      }
+      if (error instanceof HttpError && error.status === 404) {
+        throw new GenerationResultError(
+          409,
+          "The story was deleted while rewriting."
+        );
+      }
+      throw error;
+    }
+  } finally {
+    if (partials !== undefined && reservation !== null) {
+      partials.releaseEmpty(reservation);
+    }
   }
 }
 /**

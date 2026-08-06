@@ -131,6 +131,18 @@ test("worker JSON methods measure their HTTP-equivalent body", () => {
   );
 });
 
+test("partial rewrite settlement sends only fixed-size stream identity", () => {
+  assert.doesNotThrow(() => validateWorkerRequestSize(
+    "commitPartialRewrite",
+    {
+      storyId: "story",
+      nodeId: "node",
+      attemptId: "attempt",
+      streamedDigest: "a".repeat(64)
+    }
+  ));
+});
+
 test("chapter removal admission carries only its bounded undo fingerprint", () => {
   const removedFingerprint = "a".repeat(64);
   assert.doesNotThrow(() => validateWorkerRequestSize(

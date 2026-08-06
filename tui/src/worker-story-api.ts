@@ -442,10 +442,10 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         return result;
       });
     },
-    commitPartialRewrite: async (storyId, nodeId, streamedText, attemptId) => {
+    commitPartialRewrite: async (storyId, nodeId, streamedDigest, attemptId) => {
       const result = await transport.call(
         "commitPartialRewrite",
-        { storyId, nodeId, streamedText, attemptId },
+        { storyId, nodeId, streamedDigest, attemptId },
         { expectedAggregateVersion: await expectedVersion(storyId) }
       );
       if (result === null) return null;

@@ -87,6 +87,7 @@ export async function* providerSseEvents(
         allowInsecurePrivateHttp: runtime.allowInsecureHttp
       });
     } catch (error) {
+      if (error instanceof ProviderError) throw error;
       if (callerSignal.aborted) throw callerSignal.reason;
       if (signal.aborted) throw signal.reason;
       throw deadlineState.failure === null
@@ -100,6 +101,7 @@ export async function* providerSseEvents(
       try {
         rawText = await boundedResponseText(response);
       } catch (error) {
+        if (error instanceof ProviderError) throw error;
         if (callerSignal.aborted) throw callerSignal.reason;
         // A deadline here interrupts the read of a provider rejection's
         // body: the rejection is the failure, so no clean-timeout stamp.
@@ -237,10 +239,13 @@ function providerStreamFailure(
   secrets: readonly string[],
   redact: (value: string, secrets: readonly string[]) => string
 ): unknown {
-  if (callerSignal.aborted) return callerSignal.reason;
-  if (transportSignal.aborted) return transportSignal.reason;
-  if (deadlineFailure !== null) return providerDeadlineError(deadlineFailure);
+  // A provider-classified failure is already causal evidence. Preserve it
+  // before reading cancellation state that can change while a buffered event
+  // or redaction tail is in flight.
   if (error instanceof ProviderError) return error;
+  if (callerSignal.aborted) return callerSignal.reason;
+  if (deadlineFailure !== null) return providerDeadlineError(deadlineFailure);
+  if (transportSignal.aborted) return transportSignal.reason;
   return new ProviderError(
     `Model stream failed: ${safeMessage(error, secrets, redact)}`
   );

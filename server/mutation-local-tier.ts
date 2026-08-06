@@ -40,12 +40,13 @@ export async function runLocalTierMutation<
       throw localTierViolation(method, "provider recovery");
     },
     preserveChapterBreakRemoval: loadVerifiedChapterBreakRemoval,
-    // This tier has no retry source, so no replay can ever ask for a
-    // preserved import plan: every execution computes its plan fresh from
-    // the story it mutates, and recording it durably would outlive the
-    // receipt-free contract for no reader.
+    // Import methods are in the local-method type union but the manifest-only
+    // eligibility predicate routes them through the full receipt tier. These
+    // methods still fail closed if that boundary regresses.
     storedImportPlan: () => null,
-    recordImportPlan: async () => {}
+    recordImportPlan: async () => {
+      throw localTierViolation(method, "import-plan custody");
+    }
   });
   try {
     return await work(plan);
