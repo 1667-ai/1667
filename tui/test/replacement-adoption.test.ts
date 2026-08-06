@@ -97,7 +97,8 @@ describe("forced story replacement adoption", () => {
     const source = demoAppSource();
     const app = harness(source);
     await app.press(key(","));
-    for (let index = 0; index < 5; index += 1) await app.press(key("down"));
+    const modelRow = SETTINGS_ROW_IDS.indexOf("model");
+    while (app.state.settings!.cursor < modelRow) await app.press(key("down"));
     await app.press(key("return"));
     const edit = app.state.settings!.edit!;
     setComposerText(edit.composer, "local-model");
@@ -112,7 +113,7 @@ describe("forced story replacement adoption", () => {
     expect(app.state.editor).toBe(null);
     expect(app.state.settings?.edit).toBe(edit);
     expect(app.state.settings?.edit?.composer.text).toBe("local-model");
-    expect(app.state.settings?.cursor).toBe(5);
+    expect(app.state.settings?.cursor).toBe(modelRow);
   });
 
   test("different-story adoption preserves the full-screen system prompt", async () => {

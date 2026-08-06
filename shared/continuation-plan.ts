@@ -233,6 +233,17 @@ function continuationResult(
 /** OpenAI documents assistant entries as previous messages, not response prefills;
  * Claude 4.6+ rejects prefills. Those APIs use the exact-boundary echo fallback. */
 export function supportsAssistantPrefill(settings: GenerationSettings): boolean {
+  const runtime = (
+    settings as GenerationSettings & {
+      [key: symbol]: {
+        protocol?: "dry-run" | "openai-chat-completions" | "text-completions" | "anthropic-messages";
+        capabilities?: { assistantPrefill?: "supported" | "unsupported" | "unknown" };
+      } | undefined;
+    }
+  )[Symbol.for("1667.provider-runtime")];
+  if (runtime?.protocol === "text-completions" || settings.provider === "text-completion") {
+    return true;
+  }
   if (
     settings.provider === "anthropic"
     && isOfficialAnthropicBaseUrl(settings.baseUrl)
@@ -248,13 +259,7 @@ export function supportsAssistantPrefill(settings: GenerationSettings): boolean 
       // Invalid URLs are rejected by provider admission; preserve legacy fallback here.
     }
   }
-  const declared = (
-    settings as GenerationSettings & {
-      [key: symbol]: {
-        capabilities?: { assistantPrefill?: "supported" | "unsupported" | "unknown" };
-      } | undefined;
-    }
-  )[Symbol.for("1667.provider-runtime")]?.capabilities?.assistantPrefill;
+  const declared = runtime?.capabilities?.assistantPrefill;
   if (declared === "supported") return true;
   if (declared === "unsupported") return false;
   if (settings.provider === "openai-compatible") return true;

@@ -87,10 +87,34 @@ interface SamplingPresentation {
 const PROTOCOL_WIRE: Readonly<{
   "dry-run": Partial<Record<SamplingKnobV2, string>>;
   "openai-chat-completions": Readonly<Record<SamplingKnobV2, string>>;
+  "text-completions": Readonly<Record<SamplingKnobV2, string>>;
   "anthropic-messages": Partial<Record<SamplingKnobV2, string>>;
 }> = {
   "dry-run": {},
   "openai-chat-completions": {
+    topP: "top_p",
+    topK: "top_k",
+    minP: "min_p",
+    frequencyPenalty: "frequency_penalty",
+    presencePenalty: "presence_penalty",
+    repeatPenalty: "repeat_penalty",
+    seed: "seed",
+    stop: "stop",
+    logitBias: "logit_bias",
+    phraseBias: "logit_bias",
+    bannedStrings: "logit_bias",
+    dryMultiplier: "dry_multiplier",
+    dryBase: "dry_base",
+    dryRange: "dry_penalty_last_n",
+    dryBreakers: "dry_sequence_breakers",
+    xtcThreshold: "xtc_threshold",
+    xtcProbability: "xtc_probability",
+    dynatempRange: "dynatemp_range",
+    mirostat: "mirostat",
+    mirostatTau: "mirostat_tau",
+    mirostatEta: "mirostat_eta"
+  },
+  "text-completions": {
     topP: "top_p",
     topK: "top_k",
     minP: "min_p",
@@ -170,6 +194,18 @@ const PRESET_WIRE_OVERRIDES: Readonly<
   Partial<Record<SettingsPresetV2, Partial<Record<SamplingKnobV2, string>>>>
 > = {
   koboldcpp: { mirostat: "mirostat_mode", bannedStrings: "banned_tokens" }
+};
+
+/** Native text endpoints use their own names instead of chat-adapter names. */
+const TEXT_PRESET_WIRE_OVERRIDES: Readonly<
+  Partial<Record<SettingsPresetV2, Partial<Record<SamplingKnobV2, string>>>>
+> = {
+  koboldcpp: {
+    repeatPenalty: "rep_pen",
+    seed: "sampler_seed",
+    stop: "stop_sequence",
+    bannedStrings: "banned_tokens"
+  }
 };
 
 // Ollama's OpenAI-compatible endpoint documents logit_bias as unsupported
@@ -379,7 +415,17 @@ export function resolveSamplingKnob(
     return { kind: "unavailable", reason: "preset-unsupported" };
   }
 
-  if (context.protocol === "openai-chat-completions" && isOpenAiExtension(knob)) {
+  if (
+    context.protocol === "text-completions"
+    && context.preset === "llama-cpp"
+    && isLogitBiasFamilyKnob(knob)
+  ) {
+    return { kind: "unavailable", reason: "preset-unsupported" };
+  }
+  if (
+    (context.protocol === "openai-chat-completions" || context.protocol === "text-completions")
+    && isOpenAiExtension(knob)
+  ) {
     const extensions = PRESET_EXTENSIONS[context.preset];
     if (!extensions?.includes(knob)) {
       return { kind: "unavailable", reason: "preset-unknown" };
@@ -437,7 +483,9 @@ export function resolveSamplingKnob(
   }
   return {
     kind: "available",
-    wireField: PRESET_WIRE_OVERRIDES[context.preset]?.[knob] ?? wireField
+    wireField: context.protocol === "text-completions"
+      ? TEXT_PRESET_WIRE_OVERRIDES[context.preset]?.[knob] ?? wireField
+      : PRESET_WIRE_OVERRIDES[context.preset]?.[knob] ?? wireField
   };
 }
 

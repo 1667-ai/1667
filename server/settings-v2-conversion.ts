@@ -193,6 +193,7 @@ export function inferSettingsPresetV2(provider: Provider, baseUrl: string): Sett
   }
   const host = parsed.hostname.toLowerCase();
   if (host === "api.openai.com") return "openai";
+  if (provider === "text-completion") return "custom";
   if (host === "openrouter.ai") return "openrouter";
   if (isLoopback(host) && parsed.port === "1234") return "lm-studio";
   if (isLoopback(host) && parsed.port === "11434") return "ollama";
@@ -217,7 +218,14 @@ function connectionFromGenerationSettings(settings: GenerationSettings): ModelCo
   return {
     name: connectionName(preset),
     preset,
-    protocol: settings.provider === "anthropic" ? "anthropic-messages" : "openai-chat-completions",
+    protocol: settings.provider === "anthropic"
+      ? "anthropic-messages"
+      : settings.provider === "text-completion"
+        ? "text-completions"
+        : "openai-chat-completions",
+    ...(settings.provider === "text-completion"
+      ? { textPromptFormat: "raw" as const }
+      : {}),
     baseUrl: normalizeLegacyBaseUrl(settings.baseUrl),
     auth: settings.apiKeyEnv === null
       ? { type: "none" }
@@ -233,6 +241,7 @@ export function providerForProtocol(protocol: ModelConnectionV2["protocol"]): Pr
   switch (protocol) {
     case "dry-run": return "dry-run";
     case "openai-chat-completions": return "openai-compatible";
+    case "text-completions": return "text-completion";
     case "anthropic-messages": return "anthropic";
   }
 }

@@ -1,10 +1,14 @@
 import {
   GENERATION_EFFORT_V2_VALUES,
   PROMPT_CACHE_POLICY_V2_VALUES,
+  TEXT_PROMPT_FORMAT_V2_VALUES,
   type GenerationProfileV2,
+  type SettingsPresetV2,
   type SettingsRoutePurpose,
+  type TextPromptFormatV2,
   type SettingsView
 } from "../../shared/settings-v2-types.js";
+import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import type { GenerationSettings } from "../../shared/types.js";
 import { THEME_NAMES, type UserConfig } from "./config.js";
 import type { KeyAction } from "./keys.js";
@@ -86,7 +90,12 @@ export function settingsRows(
   config: UserConfig
 ): readonly SettingsRowPresentation[] {
   const settings = overlay.draft.generation;
-  const providerChoice = settingsProviderChoice(settings);
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  const selectedPreset = document === null || profileId === null
+    ? undefined
+    : resolveSettingsProfile(document, profileId).connection.preset;
+  const providerChoice = settingsProviderChoice(settings, selectedPreset);
   const insecureNeeded = providerChoice.plaintextDefaultRequiresOwnedLoopback === true
     && !localProviderPresetsSupported()
     && isPlainHttp(settings.baseUrl)
@@ -108,9 +117,21 @@ export function settingsRows(
     {
       id: "provider", section: "connection", label: "provider",
       value: `‹ ${providerChoice.label} ›`,
-      dots: providerPositionDots(settings),
+      dots: providerPositionDots(settings, selectedPreset),
       hint: insecureNeeded ? "" : "who answers a request",
       ...(insecureNeeded ? { invalid: "plain HTTP needs insecure HTTP on" } : {})
+    },
+    {
+      id: "text-prompt-format", section: "connection", label: "prompt format",
+      value: settings.provider === "text-completion"
+        ? `‹ ${textPromptFormat(overlay)} ›`
+        : "—",
+      dots: settings.provider === "text-completion"
+        ? positionDots(textPromptFormatChoices(overlay), textPromptFormat(overlay))
+        : "",
+      hint: settings.provider === "text-completion"
+        ? "raw text or a minimal instruct wrapper"
+        : "text completions only"
     },
     {
       id: "base-url", section: "connection", label: "base URL",
@@ -301,6 +322,55 @@ export function cycleCachePolicyControl(
   return policy;
 }
 
+export function cycleTextPromptFormatControl(
+  overlay: SettingsOverlayState,
+  step: -1 | 1
+): TextPromptFormatV2 | null {
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  if (
+    document === null
+    || profileId === null
+    || overlay.draft.generation.provider !== "text-completion"
+  ) return null;
+  const route = resolveSettingsProfile(document, profileId);
+  const choices = textPromptFormatChoices(overlay);
+  const current = route.connection.textPromptFormat ?? "raw";
+  const index = Math.max(0, choices.indexOf(current));
+  const format = choices[(index + step + choices.length) % choices.length]!;
+  overlay.draft = settingsTextDraftForDocument({
+    ...document,
+    connections: {
+      ...document.connections,
+      [route.model.connectionId]: {
+        ...route.connection,
+        textPromptFormat: format
+      }
+    }
+  }, profileId);
+  markControlMutation(overlay);
+  return format;
+}
+
+function textPromptFormat(overlay: SettingsOverlayState): TextPromptFormatV2 {
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  if (document === null || profileId === null) return "raw";
+  return resolveSettingsProfile(document, profileId).connection.textPromptFormat ?? "raw";
+}
+
+function textPromptFormatChoices(
+  overlay: SettingsOverlayState
+): readonly TextPromptFormatV2[] {
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  if (document === null || profileId === null) return ["raw", "chatml"];
+  const preset = resolveSettingsProfile(document, profileId).connection.preset;
+  return preset === "llama-cpp"
+    ? TEXT_PROMPT_FORMAT_V2_VALUES
+    : TEXT_PROMPT_FORMAT_V2_VALUES.filter((format) => format !== "server-template");
+}
+
 export function promptCacheRowValue(view: SettingsView, draft?: SettingsOverlayState["draft"]): string {
   const parts = promptCacheSummaryParts(view, draft);
   return `‹ ${parts.policy} › · ${
@@ -335,9 +405,12 @@ function effortPositionDots(overlay: SettingsOverlayState): string {
   );
 }
 
-function providerPositionDots(settings: GenerationSettings): string {
+function providerPositionDots(
+  settings: GenerationSettings,
+  textPreset: SettingsPresetV2 | undefined
+): string {
   const choices = selectableSettingsProviderChoices();
-  const current = settingsProviderChoice(settings);
+  const current = settingsProviderChoice(settings, textPreset);
   return positionDots(choices.map((choice) => choice.id), current.id);
 }
 

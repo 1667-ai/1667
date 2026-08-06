@@ -35,7 +35,7 @@ import {
 export async function applySamplingFields(
   body: Record<string, unknown>,
   settings: GenerationSettings,
-  protocol: "openai-chat-completions" | "anthropic-messages",
+  protocol: "openai-chat-completions" | "text-completions" | "anthropic-messages",
   request: StorySamplingRequest = {}
 ): Promise<void> {
   const runtime = providerRuntimeFor(settings);
@@ -215,7 +215,7 @@ function resolveLogitBiasFamilyKnob(
  * can actually report. */
 export function requireLogitBiasFamilyAvailable(
   settings: GenerationSettings,
-  protocol: "openai-chat-completions" | "anthropic-messages" | "dry-run",
+  protocol: "openai-chat-completions" | "text-completions" | "anthropic-messages" | "dry-run",
   storySampling?: StorySamplingBias
 ): void {
   const runtime = providerRuntimeFor(settings);

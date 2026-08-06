@@ -127,13 +127,14 @@ The tokenize source of the preset gives the grade:
 | --- | --- | --- |
 | OpenAI, official host | The bundled tokenizer | exact count |
 | Anthropic, official host | `POST /v1/messages/count_tokens` | exact count |
-| llama.cpp | `POST /apply-template`, then `POST /tokenize` | near-exact count |
+| llama.cpp | `POST /apply-template` when selected, then `POST /tokenize` | near-exact count |
 | KoboldCpp | `POST /api/extra/tokencount` | near-exact count |
 | LM Studio, Ollama, OpenRouter, custom | None | token estimate |
 
-A near-exact count comes from the model server. 1667 cannot prove that the
-server applies the same chat template to a generation request, so it does not
-call the count exact. A token estimate counts four characters for each token.
+A near-exact count comes from the model server. A chat request counts the
+server's chat template. A text request counts the selected prompt format.
+1667 does not call this count exact because it comes from a separate server
+request. A token estimate counts four characters for each token.
 
 The bundled tokenizer counts with the encoding of the selected model. Different
 OpenAI models use different encodings. If the bundled tokenizer does not know
@@ -208,21 +209,38 @@ values.
 
 - Dry run
 - OpenAI Chat Completions
+- Text Completions
 - Anthropic Messages
 
 Settings contains these provider choices:
 
 - OpenAI
 - OpenAI-compatible
+- OpenAI-compatible text
 - Anthropic
 - LM Studio
 - Ollama
 - llama.cpp
+- llama.cpp text
 - KoboldCpp
+- KoboldCpp text
 
 Use **OpenAI** for the official OpenAI endpoint. Use **OpenAI-compatible** for
-OpenRouter and other compatible endpoints. Linux shows local-server choices
-only when 1667 can verify exact socket ownership.
+OpenRouter and other compatible chat endpoints. Use **OpenAI-compatible text**
+for an endpoint that implements `POST /v1/completions`.
+
+Use **llama.cpp text** for the native `POST /completion` endpoint. Use
+**KoboldCpp text** for the native `POST /api/extra/generate/stream` endpoint.
+All release targets show the local provider choices.
+
+The **prompt format** row applies only to Text Completions. The `raw` prompt
+format is the default. It joins message content with one blank line. The
+`chatml` prompt format adds minimal ChatML markers. The `server-template`
+prompt format asks llama.cpp to apply the template from the loaded model.
+Only llama.cpp text offers `server-template`.
+
+1667 does not infer a prompt format from the model name. Select the format that
+the model requires. A saved chat connection stays on its chat protocol.
 
 Dry-run mode tests the interface without a provider request.
 

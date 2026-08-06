@@ -21,6 +21,32 @@ a short exact right anchor followed by a request-specific terminator. Streaming
 withholds that suffix. A missing required anchor rejects the generation and keeps
 the original passage unchanged.
 
+## Text Completions boundary
+
+Text Completions converts the provider-neutral request into one text prompt.
+The selected prompt format controls this conversion.
+
+The `raw` prompt format joins message content with one blank line. It does not
+add text after a final assistant message. A continuation prompt ends on the
+last character of the active passage. A rewrite prompt ends on the last
+character of the exact left anchor.
+
+The `chatml` prompt format closes each complete message with `<|im_end|>`. It
+does not close a final assistant message. If the request has no final assistant
+message, it adds an assistant start marker.
+
+The `server-template` prompt format uses llama.cpp `POST /apply-template`.
+1667 sets `continue_final_message` for a final assistant message. The server
+template keeps the assistant prefill open. This prompt format is not available
+for another provider.
+
+1667 does not select a prompt format from a model name. The writer must select
+the prompt format. An existing chat connection stays a chat connection.
+
+Text Completions does not change the rewrite right boundary. The model must
+still return the exact right anchor and the request terminator. 1667 removes
+this verified suffix before it saves the rewrite.
+
 Boundary whitespace stays owned by the original selection. Only generated prose
 between the verified anchors replaces the selection. By default, 1667 replaces
 the selection in the current take. The story line and its later story parts
@@ -126,12 +152,13 @@ provider-start record. At the next start, 1667 closes this record and reloads
 the story. It does not ask the writer to close the record. It does not
 automatically repeat the provider request.
 
-Provider request bodies are built by exact OpenAI Chat Completions and Anthropic
-Messages serializers. The selected cache policy and capability project
-through an exact protocol/preset adapter identity; a custom endpoint is never
-promoted from its URL. `StoryService` owns bounded, hash-only rolling
-breakpoint state and each generation reads its settings plus cache context from
-one route snapshot. Anthropic uses explicit stable-block controls; declared
+Provider request bodies are built by exact OpenAI Chat Completions, Text
+Completions, and Anthropic Messages serializers. The selected cache policy
+and capability use an exact protocol and preset identity. A native Text
+Completions adapter is selected only with its provider choice. A port does not
+select it. `StoryService` owns bounded, hash-only rolling breakpoint state.
+Each generation reads its settings and cache context from one route snapshot.
+Anthropic uses explicit stable-block controls; declared
 legacy OpenAI Chat models use automatic caching with a stable key; declared
 newer OpenAI Chat models use explicit mode with exact-token-qualified stable
 breakpoints. Unsupported policies fail before provider work and are never
@@ -140,6 +167,7 @@ silently downgraded.
 Regression coverage lives in `test/generation-prompts.test.ts` for prompt/filter
 mechanics, `test/prompt-plan.test.ts` for exact wire and stable-prefix ownership,
 `test/provider-request-body.test.ts` for exact provider bodies, and
+`test/text-completion-e2e.test.ts` for Text Completions paths and boundaries,
 `test/prompt-cache-breakpoints.test.ts` for exact token and rolling-state rules,
 and `test/generation-http.test.ts` for admission, OpenAI-compatible wire
 payloads, and saved story text.

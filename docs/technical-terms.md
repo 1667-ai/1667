@@ -58,6 +58,8 @@ read_when:
 | Mirostat | A sampling algorithm that holds output perplexity near a target value |
 | mass map | A map that shows all takes |
 | provider | A local or hosted service that supplies a language model |
+| Text Completions | The provider protocol that sends one text prompt and receives one text continuation |
+| prompt format | The rule that converts a provider-neutral request into one text prompt |
 | machine tier | Private 1667 data for one machine |
 | project tier | Story data and settings in a `.1667/` directory |
 | working tier | User files in a project root |
