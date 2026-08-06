@@ -272,6 +272,12 @@ export class PartialRewriteStash {
       this.entries.delete(key);
     }
   }
+
+  /** Release all volatile rewrite prose when its service closes. */
+  clearAll(): void {
+    this.claims.clear();
+    this.entries.clear();
+  }
 }
 
 function stashKey(storyId: string, nodeId: string, attemptId: string): string {

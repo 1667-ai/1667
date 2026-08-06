@@ -220,6 +220,7 @@ export abstract class StoryServiceRuntime {
       try {
         await this.archivedMutationCleanup.stop();
         await Promise.allSettled([...this.activeOperations]);
+        this.rewritePartials.clearAll();
         await this.stories.waitForMaintenance();
         await this.storyCatalog.dispose();
         this.generationAdmission.clear();

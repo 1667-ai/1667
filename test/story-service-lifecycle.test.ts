@@ -7,6 +7,7 @@ import { DataDirectoryLock } from "../server/data-directory-lock.js";
 import { ServiceLifecycle } from "../server/service-lifecycle.js";
 import { StoryService } from "../server/story-service.js";
 import { ServiceError } from "../server/errors.js";
+import { PartialRewriteStash } from "../server/rewrite-partial.js";
 
 class CancellableStoryService extends StoryService {
   async runCancellable<T>(
@@ -14,6 +15,12 @@ class CancellableStoryService extends StoryService {
     work: (active: AbortSignal) => Promise<T>
   ): Promise<T> {
     return await this.cancellable(signal, work);
+  }
+
+  partialRewriteStash(): PartialRewriteStash {
+    return (this as unknown as {
+      rewritePartials: PartialRewriteStash;
+    }).rewritePartials;
   }
 }
 
@@ -58,6 +65,35 @@ test("story service shares initialization and disposal across concurrent callers
   await Promise.all([service.dispose(), service.dispose()]);
   await service.dispose();
   await assert.rejects(service.loadStory(story.id), /shutting down/);
+});
+
+test("story service disposal releases verified partial rewrite prose", async (t) => {
+  const dataDir = await temporaryDataDirectory(t, "1667-service-partials-");
+  const service = new CancellableStoryService({
+    dataDir,
+    diagnostics: "disabled"
+  });
+  await service.init();
+  const partials = service.partialRewriteStash();
+  const reservation = partials.reserve("story", "node", "attempt");
+  partials.remember(reservation, {
+    storyId: "story",
+    nodeId: "node",
+    attemptId: "attempt",
+    streamedDigest: "digest",
+    effect: {
+      kind: "rewrite",
+      nodeId: "node",
+      expectedText: "old prose",
+      expectedInstruction: "",
+      text: "sensitive provider prose"
+    }
+  });
+  assert.notEqual(partials.get("story", "node", "attempt"), null);
+
+  await service.dispose();
+
+  assert.equal(partials.get("story", "node", "attempt"), null);
 });
 
 test("story service can retry initialization after lock contention", async (t) => {
