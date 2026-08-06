@@ -1,8 +1,8 @@
 import {
-  selectActiveFacts,
-  selectActiveFactsForRewrite,
-  type FactScanContext
+  selectActiveFactsWithTrace,
+  selectActiveFactsForRewriteWithTrace
 } from "./fact-activation.js";
+import type { FactScanContext } from "./fact-scan.js";
 import { selectFactsWithinBudget, type FactBudgetSelection } from "./fact-budget.js";
 import { formatFactsMessage } from "./story-facts.js";
 import { activePath } from "./story-tree.js";
@@ -27,15 +27,22 @@ export interface FactsBudgetSource {
  * render path calls it. Importing it from server/story-facts.ts pulled that
  * file's whole closure — node:crypto, node:fs and node:path among it — into
  * the render path's module graph. */
+export type FactBudgetedSelection = FactBudgetSelection & {
+  readonly activation: ReturnType<typeof selectActiveFactsWithTrace>;
+};
 export function activeBudgetedFacts(
   source: FactsBudgetSource,
   context?: FactScanContext
-): FactBudgetSelection {
-  return selectFactsWithinBudget(
-    selectActiveFacts(source.facts, context),
-    source.factsBudgetTokens ?? null,
-    { spaceDropReason: "total-budget" }
-  );
+): FactBudgetedSelection {
+  const activation = selectActiveFactsWithTrace(source.facts, context);
+  return {
+    ...selectFactsWithinBudget(
+      activation.facts,
+      source.factsBudgetTokens ?? null,
+      { spaceDropReason: "total-budget" }
+    ),
+    activation
+  };
 }
 
 export function activeBudgetedFactsForRewrite(
@@ -43,20 +50,24 @@ export function activeBudgetedFactsForRewrite(
   partId: string,
   instruction: string,
   selectedText: string
-): FactBudgetSelection {
-  return selectFactsWithinBudget(
-    selectActiveFactsForRewrite(
-      story.facts,
-      activePath(story),
-      partId,
-      story.chapterBreaks,
-      story.nodes,
-      instruction,
-      selectedText
-    ),
-    story.factsBudgetTokens ?? null,
-    { spaceDropReason: "total-budget" }
+): FactBudgetedSelection {
+  const activation = selectActiveFactsForRewriteWithTrace(
+    story.facts,
+    activePath(story),
+    partId,
+    story.chapterBreaks,
+    story.nodes,
+    instruction,
+    selectedText
   );
+  return {
+    ...selectFactsWithinBudget(
+      activation.facts,
+      story.factsBudgetTokens ?? null,
+      { spaceDropReason: "total-budget" }
+    ),
+    activation
+  };
 }
 
 export function factsSystemMessage(story: Story, context?: FactScanContext): string | null {

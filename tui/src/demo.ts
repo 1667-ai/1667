@@ -25,6 +25,7 @@ import type {
 } from "../../shared/types.js";
 import { MAX_FACTS, resolveRewriteDestination } from "../../shared/types.js";
 import { planCardImport } from "../../shared/card-import.js";
+import { DEFAULT_FACT_SCAN_PARTS, factMetadataOverrides } from "../../shared/fact-metadata.js";
 import type {
   ModelDiscoveryResultV2,
   SamplingPhraseBiasEntryV2,
@@ -356,7 +357,13 @@ export function createDemoController(dense = false): DemoController {
         keys: input.keys === undefined ? [] : [...input.keys],
         createdAt: CREATED,
         updatedAt: CREATED,
-        ...(input.priority === undefined || input.priority === "normal" ? {} : { priority: input.priority }),
+        ...factMetadataOverrides({
+          secondaryKeys: input.secondaryKeys ?? [],
+          secondaryMode: input.secondaryMode ?? "and",
+          scanDepth: input.scanDepth ?? DEFAULT_FACT_SCAN_PARTS,
+          recursion: input.recursion ?? "on",
+          priority: input.priority ?? "normal"
+        }),
         ...(input.budgetTokens === undefined ? {} : { budgetTokens: input.budgetTokens })
       });
       return payloadFrom(story);
@@ -368,6 +375,32 @@ export function createDemoController(dense = false): DemoController {
       if (input.text !== undefined) fact.text = input.text;
       if (input.activation !== undefined) fact.activation = input.activation;
       if (input.keys !== undefined) fact.keys = [...input.keys];
+      if (input.secondaryKeys !== undefined) {
+        if (input.secondaryKeys === null || input.secondaryKeys.length === 0) {
+          delete fact.secondaryKeys;
+        } else {
+          fact.secondaryKeys = [...input.secondaryKeys];
+        }
+      }
+      if (input.secondaryMode !== undefined) {
+        if (input.secondaryMode === null || input.secondaryMode === "and") {
+          delete fact.secondaryMode;
+        } else {
+          fact.secondaryMode = input.secondaryMode;
+        }
+      }
+      if (input.scanDepth !== undefined) {
+        if (input.scanDepth === null) delete fact.scanDepth;
+        else if (input.scanDepth === DEFAULT_FACT_SCAN_PARTS) delete fact.scanDepth;
+        else fact.scanDepth = input.scanDepth;
+      }
+      if (input.recursion !== undefined) {
+        if (input.recursion === null || input.recursion === "on") {
+          delete fact.recursion;
+        } else {
+          fact.recursion = input.recursion;
+        }
+      }
       if (input.priority !== undefined) {
         if (input.priority === "normal") delete fact.priority;
         else fact.priority = input.priority;
@@ -376,6 +409,7 @@ export function createDemoController(dense = false): DemoController {
         if (input.budgetTokens === null) delete fact.budgetTokens;
         else fact.budgetTokens = input.budgetTokens;
       }
+      normalizeDemoFactMetadata(fact);
       fact.updatedAt = CREATED;
       return payloadFrom(story);
     },
@@ -447,6 +481,22 @@ export function createDemoController(dense = false): DemoController {
       return { ...response, hits: scan.hits, capped: scan.capped, storiesSearched: scan.storiesSearched };
     }
   };
+}
+
+function normalizeDemoFactMetadata(fact: Story["facts"][number]): void {
+  const metadata = factMetadataOverrides({
+    secondaryKeys: fact.secondaryKeys ?? [],
+    secondaryMode: fact.secondaryMode ?? "and",
+    scanDepth: fact.scanDepth ?? DEFAULT_FACT_SCAN_PARTS,
+    recursion: fact.recursion ?? "on",
+    priority: fact.priority ?? "normal"
+  });
+  delete fact.secondaryKeys;
+  delete fact.secondaryMode;
+  delete fact.scanDepth;
+  delete fact.recursion;
+  delete fact.priority;
+  Object.assign(fact, metadata);
 }
 
 function storySummary(story: Story): StorySummary {

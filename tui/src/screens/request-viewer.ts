@@ -228,6 +228,20 @@ function substitutionNotices(estimate: NextRequestEstimate): string[] {
     return `Chapter ${substitution.chapterNumber} uses summary ${substitution.summaryId} (${formatTokensEstimate(substitution.tokens)}) instead of ${count} raw ${count === 1 ? "part" : "parts"}${ids.length === 0 ? "." : `: ${ids}.`}`;
   });
 }
+function activationNotices(estimate: NextRequestEstimate): string[] {
+  const notices: string[] = [];
+  for (const fact of estimate.activation.facts) {
+    const trace = estimate.activation.traces.get(fact.id);
+    if (trace === undefined || trace.kind === "always") continue;
+    const identity = fact.tag?.trim() || fact.text.split("\n", 1)[0]?.trim() || fact.id;
+    const gate = trace.gate === null ? "" : ` with ${trace.gate} secondary keys`;
+    notices.push(`Fact ${identity} activated by ${trace.kind} key ${trace.key ?? ""}${gate}${trace.round > 0 ? ` in chain round ${trace.round}` : ""}.`);
+  }
+  if (estimate.activation.unevaluated.length > 0) {
+    notices.push(`${estimate.activation.unevaluated.length} Fact regex key checks were not evaluated because the evaluation budget was reached.`);
+  }
+  return notices;
+}
 
 function requestBody(
   estimate: NextRequestEstimate,
@@ -237,16 +251,29 @@ function requestBody(
 ): { rows: BodyRow[]; starts: number[] } {
   const rows: BodyRow[] = [];
   const starts: number[] = [];
-  const notices = substitutionNotices(estimate);
-  if (notices.length > 0) {
+  const substitutions = substitutionNotices(estimate);
+  if (substitutions.length > 0) {
     rows.push(
       { line: [segment("─".repeat(Math.max(0, width)), "chrome")], target: null },
       { line: [segment(" substitutions", "focus / accent")], target: null }
     );
-    for (const notice of notices) {
+    for (const notice of substitutions) {
       rows.push(...wrapText(notice, [], Math.max(1, width - 3)).map(({ text }): BodyRow => ({
         line: [segment("  ", "chrome"), segment(text, "focus / accent")],
         target: null
+      })));
+    }
+    rows.push({ line: [], target: null });
+  }
+  const activations = activationNotices(estimate);
+  if (activations.length > 0) {
+    rows.push(
+      { line: [segment("─".repeat(Math.max(0, width)), "chrome")], target: null },
+      { line: [segment(" activations", "focus / accent")], target: null }
+    );
+    for (const notice of activations) {
+      rows.push(...wrapText(notice, [], Math.max(1, width - 3)).map(({ text }): BodyRow => ({
+        line: [segment("  ", "chrome"), segment(text, "focus / accent")], target: null
       })));
     }
     rows.push({ line: [], target: null });

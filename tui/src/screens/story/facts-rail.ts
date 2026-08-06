@@ -40,7 +40,7 @@ export function renderFactsRail(
     // status first, then priority — blank for the common cases (an `always`
     // Fact riding whole, a "normal" priority), so a state worth noticing is
     // the only thing that ever draws there.
-    const requestStatus = factStatusDisplay(fact.activation, fact.status);
+    const requestStatus = factStatusDisplay(fact.activation, fact.status, fact.trace);
     const activationGlyph = requestStatus.glyph.length === 0
       ? segment(" ")
       : segment(requestStatus.glyph, requestStatus.emphasis);

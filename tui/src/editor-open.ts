@@ -2,7 +2,7 @@ import type { StoryFact } from "../../shared/types.js";
 import { EMPTY_FACT_DRAFT, factDraftOf } from "../../shared/fact-draft.js";
 import { resolveAuthorsNoteDepth } from "../../shared/authors-note.js";
 import { createComposer } from "./composer-model.js";
-import { formatFactBudget, formatFactKeys } from "./fact-editor-draft.js";
+import { formatFactBudget, formatFactKeys, formatFactScanDepth } from "./fact-editor-draft.js";
 import { initializeFactEditorHistory } from "./fact-editor-policy.js";
 import { serializePart, stripGuidance } from "./editor.js";
 import { createStoryViewModel, rowPart } from "./model.js";
@@ -48,6 +48,10 @@ export function openFactEditor(state: RuntimeState, fact: StoryFact | null): voi
     tag: createComposer(fact?.tag ?? ""),
     activation: fact?.activation ?? "always",
     keys: createComposer(formatFactKeys(fact?.keys ?? [])),
+    secondary: createComposer(formatFactKeys(fact?.secondaryKeys ?? [])),
+    secondaryMode: fact?.secondaryMode ?? "and",
+    scan: createComposer(formatFactScanDepth(fact?.scanDepth)),
+    recursion: fact?.recursion ?? "on",
     priority: fact?.priority ?? "normal",
     budget: createComposer(formatFactBudget(fact?.budgetTokens)),
     focus: "body",
@@ -70,6 +74,10 @@ export function openFactFromSelection(state: RuntimeState, text: string): void {
     tag: createComposer(""),
     activation: "always",
     keys: createComposer(""),
+    secondary: createComposer(""),
+    secondaryMode: "and",
+    scan: createComposer(""),
+    recursion: "on",
     priority: "normal",
     budget: createComposer(""),
     focus: "body",

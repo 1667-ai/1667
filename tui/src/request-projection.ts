@@ -12,6 +12,7 @@ import { previewFixedContextAdmission } from "../../shared/fact-admission.js";
 import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 import { renderPromptPlan, type ChatMessage } from "../../shared/prompt-plan.js";
 import { activeBudgetedFacts } from "../../shared/fact-selection.js";
+import type { FactActivationResult } from "../../shared/fact-activation.js";
 import { isChapterSummary } from "../../shared/story-tree.js";
 import { estimateTokens } from "../../shared/tokens.js";
 import { isChapterSummaryNodeStub, type StoryPayload } from "../../shared/types.js";
@@ -34,6 +35,7 @@ export interface RequestTokenEstimate {
    *  see tui/src/facts-model.ts. Replaces a plain "is it active" boolean,
    *  which could not tell a Fact that never matched from one the budget shed. */
   factStatuses: ReadonlyMap<string, FactRequestStatus>;
+  activation: FactActivationResult;
   /** Every Fact that will not reach the provider: shed by the story's own
    *  Facts budget, by a Fact's own budgetTokens cap, or — previewed here via
    *  `previewFixedContextAdmission` (shared/fact-admission.ts), the same
@@ -229,8 +231,10 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
         ...budgetedFacts.kept.map((fact) => fact.id),
         ...budgetedFacts.dropped.map((drop) => drop.factId)
       ]),
-      droppedFacts
+      droppedFacts,
+      new Set(budgetedFacts.activation.unevaluated)
     ),
+    activation: budgetedFacts.activation,
     droppedFacts
   };
 }

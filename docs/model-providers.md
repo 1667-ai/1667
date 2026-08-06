@@ -25,12 +25,41 @@ the Fact in a request only when a key matches.
 Use `Up Arrow` or `Down Arrow` to move to the activation row. Use `Left Arrow`
 or `Right Arrow` to select the activation mode. Put a comma-separated list in
 the keys row. A Fact can have a maximum of 32 keys. Each key can have a maximum
-of 64 Unicode characters. A key cannot contain a comma.
+of 64 Unicode characters. A literal key cannot contain a comma.
 
-1667 matches keys without case differences. It matches a complete word or a
-complete phrase. For languages that do not use spaces between words, it also
-matches a key inside adjacent text. 1667 scans the last three nonempty story
-parts in the assembled request context. It also scans the current instruction.
+Use `/pattern/flags` for a regex key. Regex keys can contain commas. Use only
+the `i` and `s` flags. A regex key matches NFC text. It is case-sensitive
+unless it has the `i` flag. Literal keys ignore letter case.
+
+A regex key supports these items:
+
+- Literal Unicode characters
+- `.`, character classes, and character ranges
+- `|` and noncapturing groups such as `(?:cat|dog)`
+- `?`, `*`, `+`, and bounded repetitions such as `{2,4}`
+- Word, digit, space, and Unicode-property escapes
+
+A regex key does not support anchors, capturing groups, lookaround, or
+backreferences. A repetition bound cannot be more than eight. 1667 rejects an
+unsupported regex key when you save the Fact.
+
+Each request gives regex matching a fixed evaluation budget. Literal-key
+matching continues if regex matching uses this budget. The Facts panel and the
+request viewer show the regex checks that 1667 did not evaluate.
+
+Use the secondary row to add a second key list. Select `and` to require one
+primary key and one secondary key. Select `not` to require one primary key and
+no secondary key. Secondary keys do not activate a Fact by themselves.
+
+Use the scan row to select one to 20 recent story parts. Leave it empty to use
+three parts. Use the chain row to select whether this Fact text can activate
+another Fact. The default is `on`. Chain activation stops after three rounds.
+
+1667 matches literal keys without case differences. It matches a complete word
+or a complete phrase. For languages that do not use spaces between words, it
+also matches a literal key inside adjacent text. 1667 scans the configured
+number of recent nonempty story parts in the assembled request context. It
+also scans the current instruction and the selected rewrite text.
 
 An `always` Fact can keep keys. The keys do not control that Fact until you
 select `keyed`.
@@ -39,9 +68,10 @@ Below the keys row, the Fact editor shows a priority row and a budget row.
 Use `Up Arrow` or `Down Arrow` to reach them. See
 [Fact priority and Fact budget](#fact-priority-and-fact-budget).
 
-The Facts panel shows `always`, `✓ keyed`, or `· keyed` for each Fact. The
-`✓ keyed` status means that the next request includes the Fact. The side rail
-uses `✓` for an active keyed Fact. It uses `·` for an inactive keyed Fact.
+The Facts panel shows `always`, `✓ keyed`, `✓ regex`, `✓ chain`, or `· keyed`
+for each Fact. The `✓ keyed` status means that the next request includes the
+Fact. The side rail uses `✓` for an active keyed Fact. It uses `·` for an
+inactive keyed Fact.
 
 In Library or Facts, press `/` to start a filter. The list changes when you
 type. Press `Enter` to close the filter.
