@@ -42,8 +42,12 @@ const PERSIST_DEBOUNCE_MS = 400;
 const MAX_STORE_BYTES = 256 * 1024;
 const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 
-const dirty = new Map<string, string | null>();
-let persistTimer: ReturnType<typeof setTimeout> | null = null;
+interface PendingReadingPositionWrites {
+  readonly dirty: Map<string, string | null>;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+const pendingByFile = new Map<string, PendingReadingPositionWrites>();
 let activeStoreFile: string = readingPositionStorePathForScope("default");
 let disposed = false;
 
@@ -78,20 +82,15 @@ export function readingPositionStoreFile(
 export function configureReadingPositionStore(file: string): void {
   disposed = false;
   if (file !== activeStoreFile) {
-    dirty.clear();
-    if (persistTimer !== null) {
-      clearTimeout(persistTimer);
-      persistTimer = null;
-    }
+    discardPendingWrites(activeStoreFile);
   }
   activeStoreFile = file;
 }
 
 export function disposeReadingPositionStore(): void {
   disposed = true;
-  if (persistTimer !== null) {
-    clearTimeout(persistTimer);
-    persistTimer = null;
+  for (const pending of pendingByFile.values()) {
+    cancelPendingTimer(pending);
   }
   flushReadingPositionPersist();
   disposed = true;
@@ -125,38 +124,72 @@ export function markReadingPositionDirty(
   options: ReadingPositionStoreOptions = {}
 ): void {
   if (disposed) return;
-  dirty.set(storyId, partId);
-  if (options.file !== undefined) activeStoreFile = options.file;
-  if (persistTimer !== null) clearTimeout(persistTimer);
-  persistTimer = setTimeout(() => {
-    persistTimer = null;
-    if (!disposed) flushReadingPositionPersist(options);
-  }, PERSIST_DEBOUNCE_MS);
+  const file = options.file ?? activeStoreFile;
+  const pending = pendingWrites(file);
+  pending.dirty.set(storyId, partId);
+  schedulePendingFlush(file, options, pending);
 }
 
 export function flushReadingPositionPersist(
   options: ReadingPositionStoreOptions = {}
 ): void {
-  if (persistTimer !== null) {
-    clearTimeout(persistTimer);
-    persistTimer = null;
-  }
-  if (dirty.size === 0) return;
   const file = options.file ?? activeStoreFile;
+  const pending = pendingByFile.get(file);
+  if (pending === undefined) return;
+  cancelPendingTimer(pending);
+  if (pending.dirty.size === 0) return;
   const opts = { ...options, file };
-  const snapshot = new Map(dirty);
+  const snapshot = new Map(pending.dirty);
   const onDisk = loadReadingPositions(opts);
   const merged = mergeReadingPositionDirty(onDisk, snapshot);
   if (writePositionsFile(merged, opts)) {
     for (const [storyId, partId] of snapshot) {
-      if (dirty.get(storyId) === partId) dirty.delete(storyId);
+      if (pending.dirty.get(storyId) === partId) {
+        pending.dirty.delete(storyId);
+      }
     }
-  } else if (!disposed && dirty.size > 0 && persistTimer === null) {
-    persistTimer = setTimeout(() => {
-      persistTimer = null;
-      if (!disposed) flushReadingPositionPersist(options);
-    }, PERSIST_DEBOUNCE_MS);
   }
+  if (pending.dirty.size === 0) {
+    pendingByFile.delete(file);
+  } else if (!disposed && pending.timer === null) {
+    schedulePendingFlush(file, options, pending);
+  }
+}
+
+function pendingWrites(file: string): PendingReadingPositionWrites {
+  const current = pendingByFile.get(file);
+  if (current !== undefined) return current;
+  const created: PendingReadingPositionWrites = {
+    dirty: new Map(),
+    timer: null
+  };
+  pendingByFile.set(file, created);
+  return created;
+}
+
+function schedulePendingFlush(
+  file: string,
+  options: ReadingPositionStoreOptions,
+  pending: PendingReadingPositionWrites
+): void {
+  cancelPendingTimer(pending);
+  pending.timer = setTimeout(() => {
+    pending.timer = null;
+    if (!disposed) flushReadingPositionPersist({ ...options, file });
+  }, PERSIST_DEBOUNCE_MS);
+}
+
+function cancelPendingTimer(pending: PendingReadingPositionWrites): void {
+  if (pending.timer === null) return;
+  clearTimeout(pending.timer);
+  pending.timer = null;
+}
+
+function discardPendingWrites(file: string): void {
+  const pending = pendingByFile.get(file);
+  if (pending === undefined) return;
+  cancelPendingTimer(pending);
+  pendingByFile.delete(file);
 }
 
 function writePositionsFile(

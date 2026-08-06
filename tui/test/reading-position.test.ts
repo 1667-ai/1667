@@ -73,6 +73,28 @@ describe("reading position", () => {
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ "story-a": "part-1b" });
   });
 
+  test("pending store writes stay with their target file", () => {
+    const directory = mkdtempSync(join(tmpdir(), "1667-reading-scopes-"));
+    const first = join(directory, "first.json");
+    const second = join(directory, "second.json");
+    saveReadingPositions({ "first-peer": "part-a" }, { file: first });
+    saveReadingPositions({ "second-peer": "part-b" }, { file: second });
+
+    markReadingPositionDirty("first-story", "part-1", { file: first });
+    markReadingPositionDirty("second-story", "part-2", { file: second });
+    flushReadingPositionPersist({ file: first });
+    flushReadingPositionPersist({ file: second });
+
+    expect(loadReadingPositions({ file: first })).toEqual({
+      "first-peer": "part-a",
+      "first-story": "part-1"
+    });
+    expect(loadReadingPositions({ file: second })).toEqual({
+      "second-peer": "part-b",
+      "second-story": "part-2"
+    });
+  });
+
   test("merge at capacity keeps the newly dirty story", () => {
     const disk: Record<string, string> = {};
     for (let index = 0; index < MAX_READING_POSITIONS; index += 1) {
