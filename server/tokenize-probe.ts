@@ -1,4 +1,5 @@
 import type { ChatMessage } from "../shared/prompt-plan.js";
+import { renderTextMessages } from "../shared/text-prompt.js";
 import type { SettingsProtocolV2 } from "../shared/settings-v2-types.js";
 import {
   countedPromptChars,
@@ -12,6 +13,7 @@ import {
 import type { GenerationSettings } from "../shared/types.js";
 import { postKoboldCppTokenCount, postLlamaCppTokenize, probeTimeoutMs } from "./context-probe.js";
 import { countModelPromptTextTokens } from "./openai-prompt-tokenizer.js";
+import { llamaCppTemplateRequest } from "./llama-cpp-template.js";
 import { postProviderJson } from "./provider-json.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
 import { providerRoot, providerUrl } from "./providers.js";
@@ -83,9 +85,10 @@ export async function countPromptTokens(
   now: () => number = Date.now
 ): Promise<PromptTokenCount> {
   const runtime = providerRuntimeFor(settings);
+  const protocol = protocolFor(settings);
   signal?.throwIfAborted();
   const source = tokenizeSourceFor(
-    protocolFor(settings),
+    protocol,
     runtime.preset,
     settings.baseUrl,
     settings.model
@@ -93,13 +96,19 @@ export async function countPromptTokens(
   if (source.kind === "none") return ESTIMATED_TOKEN_COUNT;
   const kind = source.kind;
 
-  if (countedPromptChars(messages) > MAX_COUNTED_PROMPT_CHARS) {
+  const promptChars = protocol === "text-completions"
+    && runtime.textPromptFormat !== "server-template"
+    ? renderTextMessages(messages, runtime.textPromptFormat ?? "raw").length
+    : countedPromptChars(messages);
+  if (promptChars > MAX_COUNTED_PROMPT_CHARS) {
     return { kind: "estimate", reason: "too-large" };
   }
 
   const fingerprint = promptCountFingerprint(
     messages,
     runtime.preset,
+    protocol,
+    runtime.textPromptFormat ?? "raw",
     settings.model,
     settings.baseUrl
   );
@@ -142,6 +151,7 @@ function protocolFor(settings: GenerationSettings): SettingsProtocolV2 {
     case "anthropic": return "anthropic-messages";
     case "dry-run": return "dry-run";
     case "openai-compatible": return "openai-chat-completions";
+    case "text-completion": return "text-completions";
   }
 }
 
@@ -152,7 +162,7 @@ async function probeByKind(
   signal: AbortSignal | undefined
 ): Promise<CountedProbe | null> {
   switch (kind) {
-    case "bundled-openai": return countBundled(settings.model, messages);
+    case "bundled-openai": return countBundled(settings, messages);
     case "anthropic-count-tokens": return await countAnthropic(settings, messages, signal);
     case "llama-cpp-tokenize": return await countLlamaCpp(settings, messages, signal);
     case "koboldcpp-tokencount": return await countKoboldCpp(settings, messages, signal);
@@ -166,10 +176,25 @@ async function probeByKind(
  * The total carries the reply priming, which belongs to no message, so it is
  * larger than the sum of the per-message counts. That difference is the exact
  * shape of the request, not a rounding error. */
-function countBundled(model: string, messages: readonly ChatMessage[]): CountedProbe | null {
-  const textTokens = countModelPromptTextTokens(model, messages.map((message) => message.content));
+function countBundled(
+  settings: GenerationSettings,
+  messages: readonly ChatMessage[]
+): CountedProbe | null {
+  const runtime = providerRuntimeFor(settings);
+  if (runtime.protocol === "text-completions") {
+    if (runtime.textPromptFormat === "server-template") return null;
+    const prompt = renderTextMessages(messages, runtime.textPromptFormat ?? "raw");
+    const promptTokens = countModelPromptTextTokens(settings.model, [prompt]);
+    return promptTokens === null
+      ? null
+      : { total: promptTokens[0]!, perMessage: null };
+  }
+  const textTokens = countModelPromptTextTokens(
+    settings.model,
+    messages.map((message) => message.content)
+  );
   if (textTokens === null) return null;
-  const framing = LEGACY_FRAMING_MODELS.has(model)
+  const framing = LEGACY_FRAMING_MODELS.has(settings.model)
     ? LEGACY_MESSAGE_FRAMING_TOKENS
     : MESSAGE_FRAMING_TOKENS;
   const perMessage = textTokens.map((tokens) => tokens + framing);
@@ -224,6 +249,22 @@ async function countLlamaCpp(
 ): Promise<CountedProbe> {
   const root = providerRoot(settings);
   const timeoutMs = probeTimeoutMs(settings);
+  const runtime = providerRuntimeFor(settings);
+  if (runtime.protocol === "text-completions" && runtime.textPromptFormat !== "server-template") {
+    const prompt = renderTextMessages(messages, runtime.textPromptFormat ?? "raw");
+    const tokenized = await postLlamaCppTokenize(
+      settings,
+      prompt,
+      { add_special: true },
+      signal
+    );
+    if (!isObject(tokenized)
+      || !Array.isArray(tokenized.tokens)
+      || !tokenized.tokens.every(isTokenId)) {
+      throw new Error("llama.cpp tokenize returned an unusable response shape");
+    }
+    return { total: tokenized.tokens.length, perMessage: null };
+  }
   // A llama.cpp server can hold several models and picks one from the body.
   // Without the name, the count could describe a model other than the one
   // that will serve the request — and it would still be marked. `/tokenize`
@@ -231,13 +272,10 @@ async function countLlamaCpp(
   // postLlamaCppTokenize (server/context-probe.ts); /apply-template needs it
   // drawn again here because it is a different endpoint. probeContextWindow
   // makes the same distinction for /props.
-  const route: Record<string, unknown> = settings.model.length === 0
-    ? {}
-    : { model: settings.model };
   const templated = await postProviderJson(
     settings,
     `${root}/apply-template`,
-    { ...route, messages },
+    llamaCppTemplateRequest(settings.model, messages),
     {},
     { signal, timeoutMs }
   );
@@ -264,6 +302,18 @@ async function countKoboldCpp(
   messages: readonly ChatMessage[],
   signal: AbortSignal | undefined
 ): Promise<CountedProbe> {
+  const runtime = providerRuntimeFor(settings);
+  if (runtime.protocol === "text-completions") {
+    if (runtime.textPromptFormat === "server-template") {
+      throw new Error("KoboldCpp does not provide the llama.cpp server template");
+    }
+    const prompt = renderTextMessages(messages, runtime.textPromptFormat ?? "raw");
+    const data = await postKoboldCppTokenCount(settings, { prompt }, signal);
+    if (!isObject(data) || !isPositiveInteger(data.value)) {
+      throw new Error("KoboldCpp tokencount returned an unusable response shape");
+    }
+    return { total: data.value, perMessage: null };
+  }
   // Shares its endpoint call with probeKoboldCppTokenize
   // (server/context-probe.ts, issue #311) through postKoboldCppTokenCount —
   // one function owns the URL, so a phrase-bias probe and a prompt count can

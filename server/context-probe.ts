@@ -38,7 +38,10 @@ export async function probeContextWindow(
     });
   }
 
-  if (settings.provider === "openai-compatible") {
+  if (
+    settings.provider === "openai-compatible"
+    || settings.provider === "text-completion"
+  ) {
     if (runtime.preset === "openai"
       || runtime.preset === "openrouter"
       || runtime.preset === "custom"

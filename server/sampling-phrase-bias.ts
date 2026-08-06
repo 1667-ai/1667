@@ -908,7 +908,10 @@ export async function resolveSamplingBiasForSettings(
   const combined = combineSamplingBiasSources(sampling, storySampling);
   const needsTokenizer = combined.phraseBias.length > 0 || combined.bannedStrings.length > 0;
   if (!needsTokenizer) return resolveSamplingLogitBias(combined, neverCalledTokenizer);
-  if (settings.provider !== "openai-compatible") {
+  if (
+    settings.provider !== "openai-compatible"
+    && settings.provider !== "text-completion"
+  ) {
     return { kind: "tokenizer-unavailable", cause: "model-unknown" };
   }
   const runtime = providerRuntimeFor(settings);

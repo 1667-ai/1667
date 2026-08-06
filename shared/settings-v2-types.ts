@@ -3,9 +3,17 @@ import type { GenerationSettings } from "./types.js";
 export const SETTINGS_PROTOCOL_V2_VALUES = [
   "dry-run",
   "openai-chat-completions",
+  "text-completions",
   "anthropic-messages"
 ] as const;
 export type SettingsProtocolV2 = (typeof SETTINGS_PROTOCOL_V2_VALUES)[number];
+
+export const TEXT_PROMPT_FORMAT_V2_VALUES = [
+  "raw",
+  "server-template",
+  "chatml"
+] as const;
+export type TextPromptFormatV2 = (typeof TEXT_PROMPT_FORMAT_V2_VALUES)[number];
 
 export const SETTINGS_PRESET_V2_VALUES = [
   "dry-run",
@@ -51,6 +59,8 @@ export interface ModelConnectionV2 {
   readonly auth: CredentialReferenceV2;
   readonly headers: readonly CustomHeaderV2[];
   readonly timeouts: ConnectionTimeoutsV2;
+  /** Text protocols default to raw when this additive field is absent. */
+  readonly textPromptFormat?: TextPromptFormatV2;
   /** Absence means false. Only literal true is persisted. */
   readonly allowInsecureHttp?: true;
 }

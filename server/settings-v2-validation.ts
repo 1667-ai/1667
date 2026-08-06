@@ -4,6 +4,7 @@ import {
   PROMPT_CACHE_POLICY_V2_VALUES,
   SETTINGS_PRESET_V2_VALUES,
   SETTINGS_PROTOCOL_V2_VALUES,
+  TEXT_PROMPT_FORMAT_V2_VALUES,
   type CredentialReferenceV2,
   type GenerationProfileV2,
   type ModelCapabilitiesV2,
@@ -41,7 +42,7 @@ import {
 const DOCUMENT = closedShape(["schemaVersion", "connections", "models", "profiles", "routing", "writing"]);
 const CONNECTION = closedShape(
   ["name", "preset", "protocol", "baseUrl", "auth", "headers", "timeouts"],
-  ["allowInsecureHttp"]
+  ["allowInsecureHttp", "textPromptFormat"]
 );
 const TIMEOUTS = closedShape(["responseHeaderMs", "firstTokenMs", "idleMs", "totalMs"]);
 const AUTH_NONE = closedShape(["type"]);
@@ -111,6 +112,13 @@ function parseConnections(
     const connection = closedRecord(raw, `connection ${id}`, CONNECTION);
     const preset = oneOf(connection.preset, SETTINGS_PRESET_V2_VALUES, `connection ${id}.preset`);
     const protocol = oneOf(connection.protocol, SETTINGS_PROTOCOL_V2_VALUES, `connection ${id}.protocol`);
+    const textPromptFormat = connection.textPromptFormat === undefined
+      ? undefined
+      : oneOf(
+          connection.textPromptFormat,
+          TEXT_PROMPT_FORMAT_V2_VALUES,
+          `connection ${id}.textPromptFormat`
+        );
     const auth = parseAuth(connection.auth, `connection ${id}.auth`, credentialNames, caseInsensitive);
     const headers = parseHeaders(connection.headers, `connection ${id}.headers`, credentialNames, caseInsensitive);
     if (
@@ -128,6 +136,16 @@ function parseConnections(
     const baseUrl = protocol === "dry-run"
       ? parseDryRunConnection(id, preset, connection.baseUrl, auth, headers, allowInsecureHttp)
       : parseNetworkConnection(id, preset, protocol, connection.baseUrl, auth, headers, allowInsecureHttp);
+    if (protocol !== "text-completions" && textPromptFormat !== undefined) {
+      throw new SettingsFormatError(
+        `connection ${id}.textPromptFormat requires text-completions`
+      );
+    }
+    if (textPromptFormat === "server-template" && preset !== "llama-cpp") {
+      throw new SettingsFormatError(
+        `connection ${id} server-template prompt format requires llama-cpp`
+      );
+    }
     result[id] = {
       name: requireBoundedSettingsString(connection.name, `connection ${id}.name`, MAX_SETTINGS_NAME_SCALARS, 1),
       preset,
@@ -136,6 +154,7 @@ function parseConnections(
       auth,
       headers,
       timeouts,
+      ...(textPromptFormat === undefined ? {} : { textPromptFormat }),
       ...(allowInsecureHttp === true ? { allowInsecureHttp: true as const } : {})
     };
   }
@@ -174,8 +193,18 @@ function parseNetworkConnection(
   if (preset === "anthropic" && protocol !== "anthropic-messages") {
     throw new SettingsFormatError(`connection ${id} anthropic preset requires anthropic-messages`);
   }
-  if (preset !== "anthropic" && preset !== "custom" && protocol !== "openai-chat-completions") {
-    throw new SettingsFormatError(`connection ${id} preset requires openai-chat-completions`);
+  if (
+    preset !== "anthropic"
+    && preset !== "custom"
+    && protocol !== "openai-chat-completions"
+    && !(
+      protocol === "text-completions"
+      && (preset === "openai" || preset === "llama-cpp" || preset === "koboldcpp")
+    )
+  ) {
+    throw new SettingsFormatError(
+      `connection ${id} preset does not support ${protocol}`
+    );
   }
   const baseUrl = normalizeSettingsBaseUrl(rawUrl, `connection ${id}.baseUrl`);
   const parsed = new URL(baseUrl);

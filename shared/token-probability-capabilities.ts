@@ -86,7 +86,10 @@ export function resolveTokenProbabilities(
     // what lets the end-to-end viewer test run without a live provider.
     return { kind: "available", wire: "dry-run" };
   }
-  if (context.protocol === "anthropic-messages") {
+  if (
+    context.protocol === "anthropic-messages"
+    || context.protocol === "text-completions"
+  ) {
     return { kind: "unavailable", reason: "protocol" };
   }
   // context.protocol is "openai-chat-completions": the only case left.

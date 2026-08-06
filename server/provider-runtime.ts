@@ -6,6 +6,7 @@ import type {
   ModelCapabilitiesV2,
   ModelConnectionV2,
   SamplingSettingsV2,
+  SettingsProtocolV2,
   SettingsPresetV2
 } from "../shared/settings-v2-types.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
@@ -29,6 +30,10 @@ const PROVIDER_SECRET_REDACTORS = new WeakMap<
 
 export interface ProviderRuntime {
   readonly preset: SettingsPresetV2;
+  /** Absent only on legacy test/runtime attachments. */
+  readonly protocol?: SettingsProtocolV2;
+  /** Text routes use raw prompts when this value is absent. */
+  readonly textPromptFormat?: "raw" | "server-template" | "chatml";
   readonly auth: CredentialReferenceV2;
   readonly headers: readonly CustomHeaderV2[];
   readonly timeouts: ConnectionTimeoutsV2;
@@ -92,6 +97,8 @@ export function providerRuntimeFromV2(
 ): ProviderRuntime {
   const runtime: ProviderRuntime = {
     preset: connection.preset,
+    protocol: connection.protocol,
+    textPromptFormat: connection.textPromptFormat ?? "raw",
     auth: connection.auth,
     headers: connection.headers,
     timeouts: connection.timeouts,
@@ -462,6 +469,14 @@ function legacyProviderRuntime(settings: GenerationSettings): ProviderRuntime {
       : { type: "bearer-env", env: settings.apiKeyEnv };
   return {
     preset: legacyPreset(settings),
+    protocol: settings.provider === "dry-run"
+      ? "dry-run"
+      : settings.provider === "anthropic"
+        ? "anthropic-messages"
+        : settings.provider === "text-completion"
+          ? "text-completions"
+          : "openai-chat-completions",
+    textPromptFormat: "raw",
     auth,
     headers: [],
     timeouts: defaultConnectionTimeouts(settings.provider),
@@ -489,6 +504,9 @@ function legacyPreset(settings: GenerationSettings): SettingsPresetV2 {
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/gu, "");
   if (settings.provider === "anthropic") {
     return host === "api.anthropic.com" ? "anthropic" : "custom";
+  }
+  if (settings.provider === "text-completion") {
+    return host === "api.openai.com" ? "openai" : "custom";
   }
   if (host === "api.openai.com") return "openai";
   if (host === "openrouter.ai") return "openrouter";
