@@ -9,7 +9,6 @@ import {
 } from "./private-file-publication.js";
 import { MAX_SETTINGS_STATE_BYTES } from "./settings-v2-scalars.js";
 import { syncDirectory } from "./story-lifecycle.js";
-import { withReservedPathOwnership } from "./reserved-path-owner.js";
 
 const SETTINGS_FILE_LABEL = "Reserved settings file";
 const WINDOWS_REPLACE_ATTEMPTS = 200;
@@ -39,17 +38,15 @@ export async function readOptionalMutableSettingsAuthority(
   file: string,
   maxBytes: number
 ): Promise<Buffer | null> {
-  return await withReservedPathOwnership(file, async () => {
-    try {
-      await inspectPrivateDirectory(path.dirname(file), SETTINGS_FILE_LABEL);
-      return await readBoundedMutableAuthorityFile(file, maxBytes, {
-        requirePrivate: true
-      });
-    } catch (error) {
-      if (isErrorCode(error, "ENOENT")) return null;
-      throw error;
-    }
-  });
+  try {
+    await inspectPrivateDirectory(path.dirname(file), SETTINGS_FILE_LABEL);
+    return await readBoundedMutableAuthorityFile(file, maxBytes, {
+      requirePrivate: true
+    });
+  } catch (error) {
+    if (isErrorCode(error, "ENOENT")) return null;
+    throw error;
+  }
 }
 
 /** Durably publish one complete reserved replacement without overwriting it. */
@@ -69,10 +66,8 @@ export async function publishSettingsFile(
   finalFile: string,
   options: SettingsPublicationOptions = {}
 ): Promise<void> {
-  await withReservedPathOwnership(finalFile, async () => {
-    await renameSettingsFile(nextFile, finalFile, options);
-    await syncDirectory(path.dirname(finalFile));
-  });
+  await renameSettingsFile(nextFile, finalFile, options);
+  await syncDirectory(path.dirname(finalFile));
 }
 
 async function renameSettingsFile(
