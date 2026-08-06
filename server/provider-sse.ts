@@ -89,10 +89,13 @@ export async function* providerSseEvents(
     } catch (error) {
       if (error instanceof ProviderError) throw error;
       if (callerSignal.aborted) throw callerSignal.reason;
+      if (deadlineState.failure !== null) {
+        throw providerDeadlineError(deadlineState.failure);
+      }
       if (signal.aborted) throw signal.reason;
-      throw deadlineState.failure === null
-        ? new ProviderError(`Model request failed: ${safeMessage(error, secrets, redact)}`)
-        : providerDeadlineError(deadlineState.failure);
+      throw new ProviderError(
+        `Model request failed: ${safeMessage(error, secrets, redact)}`
+      );
     }
     if (phaseTimer !== null) clearTimeout(phaseTimer);
     phaseTimer = null;

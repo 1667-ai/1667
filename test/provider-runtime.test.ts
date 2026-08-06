@@ -655,6 +655,34 @@ test("caller cancellation is preserved while waiting for response headers", asyn
   await assert.rejects(pending, (error) => error === reason);
 });
 
+test("configured response-header deadline keeps typed timeout provenance", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    if (input.signal.aborted) throw input.signal.reason;
+    return await new Promise<Response>((_resolve, reject) => {
+      input.signal.addEventListener("abort", () => reject(input.signal.reason), {
+        once: true
+      });
+    });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  await assert.rejects(
+    drain(streamCompletion(attached({
+      timeouts: {
+        responseHeaderMs: 20,
+        firstTokenMs: 100,
+        idleMs: 100,
+        totalMs: 100
+      }
+    }), PROMPT, new AbortController().signal)),
+    (error) => error instanceof ProviderError
+      && error.timeout === "provider-response-header"
+      && /response headers/.test(error.message)
+  );
+});
+
 test("caller cancellation is preserved while reading an error body", async (t) => {
   const originalFetch = globalThis.fetch;
   let responseStarted!: () => void;
