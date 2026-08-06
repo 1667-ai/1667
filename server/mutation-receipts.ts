@@ -35,12 +35,15 @@ import {
 import {
   corruptMutationReceipt,
   encodeMutationResult,
+  importPlanFingerprint,
   loadVerifiedChapterBreakRemoval,
   parseMutationReceipt,
   requireChapterBreakRemovalFingerprint,
+  requireImportPlanArtifact,
   requireRemovalArtifact,
   restoreMutationReceiptFailure,
-  type MutationReceipt
+  type MutationReceipt,
+  type StoredImportPlan
 } from "./mutation-receipt-codec.js";
 import {
   createMutationPlan,
@@ -214,6 +217,22 @@ export class MutationReceiptStore {
           await this.save(receipt);
           return structuredClone(value);
         },
+        storedImportPlan: () => receipt.artifact?.kind === "import-plan"
+          ? structuredClone(receipt.artifact.value)
+          : null,
+        // Durable before the caller's story transaction can reach its commit
+        // point: the service records the plan inside the canonical mutation
+        // callback, before any prepared record or manifest publish, so every
+        // receipt whose import committed carries the plan that import applied.
+        recordImportPlan: async (value) => {
+          const preserved = structuredClone(value) as StoredImportPlan;
+          receipt.artifact = {
+            kind: "import-plan",
+            fingerprint: importPlanFingerprint(preserved),
+            value: preserved
+          };
+          await this.save(receipt);
+        },
         providerStarted: async () => {
           if (receipt.state === "provider_started") return;
           receipt.state = "provider_started";
@@ -282,6 +301,15 @@ export class MutationReceiptStore {
         payload: await this.resolveStory(result.id),
         removed: result.removed ?? requireRemovalArtifact(receipt)
       };
+      case "import": {
+        const plan = structuredClone(requireImportPlanArtifact(receipt));
+        const payload = await this.resolveStory(result.id);
+        if (receipt.method === "importLorebook") {
+          return { payload, importResult: plan };
+        }
+        if (receipt.method === "importCard") return { payload, plan };
+        throw corruptMutationReceipt(receipt.mutationId);
+      }
       case "value": return result.value;
     }
   }

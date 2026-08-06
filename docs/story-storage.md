@@ -226,3 +226,8 @@ the story part count and the Fact count.
 
 The command writes a Fidelity Report to standard error. The Fidelity Report
 gives the item counts. It also gives the changes and omissions.
+
+A transport can retry an import with the same mutation ID after a crash. 1667
+keeps the bounded import plan in the mutation receipt before the import
+commits. The retry returns the plan and the Fidelity Report of the import that
+occurred. The retry does not add the Facts again.

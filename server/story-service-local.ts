@@ -598,6 +598,62 @@ export class StoryServiceLocal {
     ));
   }
 
+  /**
+   * `createFact` for a batch whose content is planned from the story it
+   * mutates. The planner runs inside the canonical mutation callback, so the
+   * room it reads is exactly the room the commit consumes, and the report it
+   * returns is exactly the account of what this mutation did.
+   *
+   * When the ledger answers a retry from durable evidence, the callback never
+   * runs, and the report comes from `replay` — the plan a prior attempt
+   * preserved. A receipt that committed before plans were preserved has no
+   * faithful report to give; that replay refuses instead of recomputing one
+   * from the changed story.
+   */
+  async createPlannedFacts<Report>(
+    id: string,
+    mutationRequest: unknown,
+    plan: {
+      planned: (story: Story) => Promise<Report>;
+      body: (report: Report) => unknown;
+      replay: () => Report | null;
+    }
+  ): Promise<{ payload: StoryPayload; report: Report }> {
+    this.dependencies.ensureOpen();
+    let produced: Report | null = null;
+    const mutate = async (story: Story) => {
+      const report = await plan.planned(story);
+      produced = report;
+      return createFacts(story, plan.body(report)) ? undefined : STORY_UNCHANGED;
+    };
+    if (mutationRequest !== undefined) {
+      const committed = await this.dependencies.storyMutations.runLocal(
+        mutationRequest,
+        "createFact",
+        mutate
+      );
+      const report = produced ?? plan.replay();
+      if (report === null) {
+        throw new ServiceError(
+          409,
+          "A retained import replay has no preserved import plan; reload the story to see the imported Facts.",
+          "mutation_outcome_unknown"
+        );
+      }
+      return {
+        payload: buildStoryPayload(committed.story, {
+          ...committed.aggregateVersion
+        }),
+        report
+      };
+    }
+    const story = await this.dependencies.stories.mutate(id, mutate);
+    if (produced === null) {
+      throw new ServiceError(500, "A fact import lost its plan", "internal");
+    }
+    return { payload: buildStoryPayload(story), report: produced };
+  }
+
   async patchFact(
     id: string,
     factId: string,

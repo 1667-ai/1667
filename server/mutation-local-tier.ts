@@ -39,7 +39,13 @@ export async function runLocalTierMutation<
     providerRecoveryRequired: () => {
       throw localTierViolation(method, "provider recovery");
     },
-    preserveChapterBreakRemoval: loadVerifiedChapterBreakRemoval
+    preserveChapterBreakRemoval: loadVerifiedChapterBreakRemoval,
+    // This tier has no retry source, so no replay can ever ask for a
+    // preserved import plan: every execution computes its plan fresh from
+    // the story it mutates, and recording it durably would outlive the
+    // receipt-free contract for no reader.
+    storedImportPlan: () => null,
+    recordImportPlan: async () => {}
   });
   try {
     return await work(plan);

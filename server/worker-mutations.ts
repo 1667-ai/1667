@@ -34,7 +34,12 @@ import {
   parseRemovedChapterBreak,
   type RemovedChapterBreak
 } from "./chapter-breaks.js";
-import type { MutationHandlerContext, MutationPlan, MutationPreflightPlan } from "./mutation-plan.js";
+import {
+  importPlanCustody,
+  type MutationHandlerContext,
+  type MutationPlan,
+  type MutationPreflightPlan
+} from "./mutation-plan.js";
 import { mutationOutcomeUnknown } from "./mutation-recovery.js";
 import {
   parseEditNode,
@@ -826,11 +831,12 @@ const MUTATIONS: MutationRegistry = {
       return { storyId, archiveBytes: input.archiveBytes };
     },
     storyId: (input) => input.storyId,
-    execute: async (service, input, _plan, context) => {
+    execute: async (service, input, plan, context) => {
       return await service.importLorebook(
         input.storyId,
         input.archiveBytes,
-        context.storyMutationRequest
+        context.storyMutationRequest,
+        importPlanCustody(plan)
       );
     }
   }),
@@ -844,11 +850,12 @@ const MUTATIONS: MutationRegistry = {
       return { storyId, cardBytes: input.cardBytes };
     },
     storyId: (input) => input.storyId,
-    execute: async (service, input, _plan, context) => {
+    execute: async (service, input, plan, context) => {
       return await service.importCard(
         input.storyId,
         input.cardBytes,
-        context.storyMutationRequest
+        context.storyMutationRequest,
+        importPlanCustody(plan)
       );
     }
   }),
