@@ -244,7 +244,8 @@ export interface StoryApi {
   commitPartialRewrite(
     storyId: string,
     nodeId: string,
-    streamedText: string
+    streamedText: string,
+    attemptId: string
   ): Promise<{ payload: StoryPayload; nodeId: string } | null>;
   createSummaryTake(
     storyId: string,
@@ -907,12 +908,12 @@ export function createApi(
       await loadVersionedStory(storyId);
       return done.nodeId;
     },
-    commitPartialRewrite: async (storyId, nodeId, streamedText) => {
+    commitPartialRewrite: async (storyId, nodeId, streamedText, attemptId) => {
       const committed = await request(
         "POST",
         `/api/stories/${storyId}/nodes/${nodeId}/rewrite-partial`,
         decodeCommitPartialRewriteResponse,
-        { streamedText },
+        { streamedText, attemptId },
         HTTP_REQUEST_TIMEOUT_MS,
         await expectedVersion(storyId)
       );

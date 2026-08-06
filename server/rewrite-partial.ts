@@ -115,6 +115,8 @@ function stripWrappingQuotes(value: string): string {
 export interface PartialRewriteRecord {
   readonly storyId: string;
   readonly nodeId: string;
+  /** The client token for the one stream that produced this prose. */
+  readonly attemptId: string;
   /** The exact prose the stream delivered. The settle request must present
    * the same bytes, so the writer commits exactly what they watched arrive. */
   readonly streamed: string;
@@ -128,7 +130,8 @@ export interface PartialRewriteRecord {
 const MAX_STASHED_PARTIALS = 64;
 
 /**
- * Process-local memory of verified partial rewrites, keyed by story part.
+ * Process-local memory of verified partial rewrites, keyed by story part and
+ * attempt.
  * `rewriteNode` records at most one entry per attempt, only when the left
  * seam was verified and the cleaned prose is committable; every rejection
  * path records nothing, so a settle after a rejected boundary or echo
@@ -140,7 +143,7 @@ export class PartialRewriteStash {
   private readonly entries = new Map<string, PartialRewriteRecord>();
 
   remember(record: PartialRewriteRecord): void {
-    const key = stashKey(record.storyId, record.nodeId);
+    const key = stashKey(record.storyId, record.nodeId, record.attemptId);
     this.entries.delete(key);
     if (this.entries.size >= MAX_STASHED_PARTIALS) {
       const oldest = this.entries.keys().next();
@@ -151,17 +154,20 @@ export class PartialRewriteStash {
 
   /** Read without consuming. The durable commit clears the record only
    * after it succeeds, so a transport or storage retry can use it again. */
-  get(storyId: string, nodeId: string): PartialRewriteRecord | null {
-    const key = stashKey(storyId, nodeId);
+  get(storyId: string, nodeId: string, attemptId: string): PartialRewriteRecord | null {
+    const key = stashKey(storyId, nodeId, attemptId);
     const record = this.entries.get(key);
     return record ?? null;
   }
 
-  clear(storyId: string, nodeId: string): void {
-    this.entries.delete(stashKey(storyId, nodeId));
+  /** Clear only the exact record a caller used. A delayed attempt cannot
+   * clear a newer record that reused its token. */
+  clear(record: PartialRewriteRecord): void {
+    const key = stashKey(record.storyId, record.nodeId, record.attemptId);
+    if (this.entries.get(key) === record) this.entries.delete(key);
   }
 }
 
-function stashKey(storyId: string, nodeId: string): string {
-  return `${storyId.length}:${storyId}${nodeId}`;
+function stashKey(storyId: string, nodeId: string, attemptId: string): string {
+  return `${storyId.length}:${storyId}${nodeId.length}:${nodeId}${attemptId}`;
 }

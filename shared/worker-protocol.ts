@@ -254,7 +254,7 @@ export interface WorkerMethodContract {
    * commits only when it matches the stashed record. null = nothing was
    * stashed or the bytes differ; nothing changed. */
   commitPartialRewrite: {
-    input: { storyId: string; nodeId: string; streamedText: string };
+    input: { storyId: string; nodeId: string; streamedText: string; attemptId: string };
     output: { payload: StoryPayload; nodeId: string } | null;
   };
   createSummaryTake: {

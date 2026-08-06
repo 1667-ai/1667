@@ -284,7 +284,12 @@ export async function continueStory(
     }
     throw error;
   }
-  if (raw === null) return null;
+  if (raw === null) {
+    if (continuationOutput?.prefixRejected === true) {
+      throw rejectedContinuationEcho();
+    }
+    return null;
+  }
   if (continuation.requiresEcho && continuationOutput?.matchedPrefix !== true) {
     throw rejectedContinuationEcho();
   }
@@ -347,6 +352,9 @@ export async function rewriteNode(
   const start = body.start;
   const end = body.end;
   const expected = requireString(body.expected, "expected");
+  const attemptId = body.attemptId === undefined
+    ? undefined
+    : requireString(body.attemptId, "attemptId");
   const destination = resolveRewriteDestination(body.destination);
   const requested = (optionalString(body.instruction) ?? "").trim();
   const selectionWords = countWordsForTarget(expected);
@@ -446,9 +454,6 @@ export async function rewriteNode(
     beforeTail: plan.beforeTail,
     anchorWrapTag: `${tag}-right`
   });
-  // A fresh attempt owns this part's partial-rewrite slot: a stale stash
-  // from an earlier stopped attempt must never settle over this one.
-  partials?.clear(id, partId);
   const spliceReplacement = (streamed: string) => rewriteReplacement({
     streamed,
     tag,
@@ -488,15 +493,18 @@ export async function rewriteNode(
   // finds nothing and changes nothing.
   let streamed = "";
   const stashPartial = () => {
-    if (partials === undefined || output.prefixRejected) return;
+    if (partials === undefined || attemptId === undefined || output.prefixRejected) return null;
     const result = spliceReplacement(streamed);
-    if (result.kind !== "replacement") return;
-    partials.remember({
+    if (result.kind !== "replacement") return null;
+    const record = {
       storyId: id,
       nodeId: partId,
+      attemptId,
       streamed,
       effect: rewriteEffect(result.text)
-    });
+    };
+    partials.remember(record);
+    return record;
   };
   let replacement: string | null;
   try {
@@ -543,15 +551,22 @@ export async function rewriteNode(
         "nothing was saved. Try again, or add an instruction if you want something longer."
     );
   }
+  // The provider output is now fully verified. Preserve the ready effect
+  // before entering the cancellable commit so Stop or a deadline during the
+  // story lock wait can settle the exact prose the writer already received.
+  const fullRecord = stashPartial();
   try {
     const node = await stories.commitProviderEffect(id, {
       ...rewriteEffect(spliced.text),
       updatedAt: new Date().toISOString(),
       cancelled: signal
     });
-    partials?.clear(id, partId);
+    if (fullRecord !== null) partials?.clear(fullRecord);
     return node.id;
   } catch (error) {
+    if (!(error instanceof GenerationStoppedError) && fullRecord !== null) {
+      partials?.clear(fullRecord);
+    }
     if (error instanceof HttpError
       && error.code === "story_manifest_requires_successor") {
       throw error;

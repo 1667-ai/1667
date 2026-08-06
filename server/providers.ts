@@ -105,11 +105,10 @@ async function* streamOpenAiCompatible(
     delete body.top_logprobs;
   }
   const requestedAlternatives = typeof body.top_logprobs === "number" ? body.top_logprobs : null;
-  let totalDeadlineReached = false;
   const totalDeadline = new AbortController();
+  const totalDeadlineFailure = new Error("Model request exceeded its total deadline.");
   const totalTimer = setTimeout(() => {
-    totalDeadlineReached = true;
-    totalDeadline.abort();
+    totalDeadline.abort(totalDeadlineFailure);
   }, runtime.timeouts.totalMs);
   const requestSignal = AbortSignal.any([signal, totalDeadline.signal]);
   // Reasoning-family models reject `max_tokens` (renamed `max_completion_tokens`)
@@ -168,16 +167,7 @@ async function* streamOpenAiCompatible(
       } catch (error) {
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
-        if (totalDeadlineReached) {
-          if (error instanceof ProviderError && error.status !== null) {
-            // The deadline interrupted a provider rejection that already has
-            // a status: the rejection stands, so no clean-timeout stamp.
-            throw new ProviderError(
-              "Model request exceeded its total deadline.",
-              error.status,
-              error.body
-            );
-          }
+        if (error === totalDeadlineFailure) {
           throw new ProviderError("Model request exceeded its total deadline.", null, "", {
             timeout: "provider-total"
           });
@@ -268,11 +258,10 @@ async function* streamAnthropic(
   // One deadline covers the retry too. Each attempt starts its own total timer,
   // so a rejection arriving near the deadline would otherwise buy the retry a
   // second full budget.
-  let totalDeadlineReached = false;
   const totalDeadline = new AbortController();
+  const totalDeadlineFailure = new Error("Model request exceeded its total deadline.");
   const totalTimer = setTimeout(() => {
-    totalDeadlineReached = true;
-    totalDeadline.abort();
+    totalDeadline.abort(totalDeadlineFailure);
   }, runtime.timeouts.totalMs);
   const requestSignal = AbortSignal.any([signal, totalDeadline.signal]);
   // The catalog records which models dropped sampling, but a model typed by
@@ -333,16 +322,7 @@ async function* streamAnthropic(
       } catch (error) {
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
-        if (totalDeadlineReached) {
-          if (error instanceof ProviderError && error.status !== null) {
-            // The deadline interrupted a provider rejection that already has
-            // a status: the rejection stands, so no clean-timeout stamp.
-            throw new ProviderError(
-              "Model request exceeded its total deadline.",
-              error.status,
-              error.body
-            );
-          }
+        if (error === totalDeadlineFailure) {
           throw new ProviderError("Model request exceeded its total deadline.", null, "", {
             timeout: "provider-total"
           });

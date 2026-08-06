@@ -174,6 +174,33 @@ test("a batch drained into the send queue while an earlier batch blocks on credi
   assert.equal(sent.length, MAX_UNACKNOWLEDGED_DELTA_BATCHES);
 });
 
+test("deadline sealing reclaims every split chunk after a credit-blocked chunk", async () => {
+  const sent: DeltaMessage[] = [];
+  const batcher = new WorkerDeltaBatcher(
+    OPERATION_ID,
+    (message) => sent.push(message)
+  );
+  const fullBatch = "x".repeat(MAX_DELTA_BATCH_BYTES);
+  for (let index = 0; index < MAX_UNACKNOWLEDGED_DELTA_BATCHES; index += 1) {
+    await batcher.push(fullBatch);
+  }
+
+  const accepted = [
+    "first".padEnd(MAX_DELTA_BATCH_BYTES, "a"),
+    "middle".padEnd(MAX_DELTA_BATCH_BYTES, "b"),
+    "last".padEnd(MAX_DELTA_BATCH_BYTES, "c")
+  ].join("");
+  const pushing = batcher.push(accepted);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  batcher.sealUnsent();
+  await pushing;
+
+  assert.equal(batcher.takeUnsent(), accepted);
+  assert.equal(sent.length, MAX_UNACKNOWLEDGED_DELTA_BATCHES);
+  batcher.dispose();
+});
+
 test("timed flushes apply backpressure and the final flush awaits their queue", async () => {
   const sent: DeltaMessage[] = [];
   const batcher = new WorkerDeltaBatcher(OPERATION_ID, (message) => sent.push(message));

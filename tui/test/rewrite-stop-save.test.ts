@@ -65,9 +65,9 @@ describe("partial rewrite commit through the real worker transport", () => {
           }
         );
       const realCommitPartialRewrite = api.commitPartialRewrite.bind(api);
-      api.commitPartialRewrite = (storyId, nodeId, streamedText) => {
+      api.commitPartialRewrite = (storyId, nodeId, streamedText, attemptId) => {
         settleText = streamedText;
-        return realCommitPartialRewrite(storyId, nodeId, streamedText);
+        return realCommitPartialRewrite(storyId, nodeId, streamedText, attemptId);
       };
 
       const source: AppSource = {

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import type { ServerResponse } from "node:http";
 import { continueStory, rewriteNode } from "../server/generation-http.js";
-import { GenerationResultError, ProviderError } from "../server/errors.js";
+import {
+  GenerationResultError,
+  GenerationStoppedError,
+  ProviderError
+} from "../server/errors.js";
 import { GenerationAdmissionRegistry } from "../server/generation-admission.js";
 import { LEGACY_PROMPT_CACHE_CONTEXT, PromptCacheRuntime } from "../server/provider-cache-policy.js";
 import { attachProviderRuntime } from "../server/provider-runtime.js";
@@ -248,6 +252,36 @@ providerTest("generation timeouts: an idle timeout after a rejected continuation
   assert.equal(story.nodes[0]!.text, STORY_TEXT);
 });
 
+providerTest("generation timeouts: Stop cannot settle a continuation after its exact echo was rejected", async (t) => {
+  const controller = new AbortController();
+  const model = await fakeModel(t, (_body, response) => {
+    stall(response, ["#".repeat(700)]);
+    setTimeout(() => controller.abort(), 150);
+  });
+  const { story, nodeId } = fixtureStory();
+
+  await assert.rejects(
+    continueStory(
+      story.id,
+      {
+        appendTo: nodeId,
+        expectedTextHash: sha256(STORY_TEXT),
+        instruction: "",
+        genId: "stopped-rejected-gen"
+      },
+      refusingStories<"continueStory">(story),
+      stubSettingsStore(timedSettings(model.baseUrl, { assistantPrefill: "unsupported" })),
+      new PromptCacheRuntime(),
+      new GenerationAdmissionRegistry(),
+      () => {},
+      controller.signal
+    ),
+    (error: unknown) => error instanceof GenerationResultError
+      && /did not continue from the exact final characters/.test(error.message)
+  );
+  assert.equal(story.nodes[0]!.text, STORY_TEXT);
+});
+
 providerTest("generation timeouts: a stopped rewrite stashes the streamed partial and the settle splices exactly the selected range", async (t) => {
   const controller = new AbortController();
   const model = await fakeModel(t, (_body, response) => {
@@ -261,7 +295,7 @@ providerTest("generation timeouts: a stopped rewrite stashes the streamed partia
   const result = await rewriteNode(
     story.id,
     nodeId,
-    { start, end, expected: SELECTION, instruction: "" },
+    { start, end, expected: SELECTION, instruction: "", attemptId: "stopped-attempt" },
     refusingStories<"rewriteNode">(story),
     stubSettingsStore(timedSettings(model.baseUrl, { assistantPrefill: "supported" })),
     new PromptCacheRuntime(),
@@ -276,7 +310,7 @@ providerTest("generation timeouts: a stopped rewrite stashes the streamed partia
   assert.equal(result, null);
   assert.equal(story.nodes[0]!.text, STORY_TEXT);
 
-  const record = partials.get(story.id, nodeId);
+  const record = partials.get(story.id, nodeId, "stopped-attempt");
   assert.ok(record, "a stopped rewrite with a verified partial must stash it");
   assert.equal(record.streamed, "rested on the cool step");
   // The settle path commits the stash through the same rewrite effect a full
@@ -297,6 +331,58 @@ providerTest("generation timeouts: a stopped rewrite stashes the streamed partia
   assert.equal(story.nodes.length, 1);
 });
 
+providerTest("a verified rewrite is stashed before its cancellable commit", async () => {
+  const controller = new AbortController();
+  const { story, nodeId, start, end } = fixtureStory();
+  const partials = new PartialRewriteStash();
+  const settings: GenerationSettings = {
+    provider: "dry-run",
+    baseUrl: "",
+    model: "dry-run",
+    apiKeyEnv: null,
+    temperature: null,
+    maxTokens: 256,
+    systemPrompt: "Write.",
+    contextWindow: null
+  };
+  const stories = {
+    loadForMutation: async () => story,
+    hydratePath: async () => {},
+    commitProviderEffect: async () => {
+      controller.abort();
+      throw new GenerationStoppedError("Story rewriting was cancelled");
+    }
+  } as unknown as ProviderStoryRuntime<"rewriteNode">;
+
+  await assert.rejects(
+    rewriteNode(
+      story.id,
+      nodeId,
+      {
+        start,
+        end,
+        expected: SELECTION,
+        instruction: "",
+        attemptId: "commit-window-attempt"
+      },
+      stories,
+      stubSettingsStore(settings),
+      new PromptCacheRuntime(),
+      () => {},
+      controller.signal,
+      undefined,
+      "commit-window-rewrite",
+      "commit-window-take",
+      undefined,
+      partials
+    ),
+    GenerationStoppedError
+  );
+  const record = partials.get(story.id, nodeId, "commit-window-attempt");
+  assert.ok(record);
+  assert.notEqual(record.streamed.trim(), "");
+});
+
 providerTest("generation timeouts: a rewrite idle timeout stashes the partial for a new take when the writer asked for one", async (t) => {
   const model = await fakeModel(t, (_body, response) => {
     stall(response, ["rested on the cool step"]);
@@ -308,7 +394,7 @@ providerTest("generation timeouts: a rewrite idle timeout stashes the partial fo
     rewriteNode(
       story.id,
       nodeId,
-      { start, end, expected: SELECTION, instruction: "", destination: "take" },
+      { start, end, expected: SELECTION, instruction: "", destination: "take", attemptId: "timeout-attempt" },
       refusingStories<"rewriteNode">(story),
       stubSettingsStore(timedSettings(model.baseUrl, { assistantPrefill: "supported" })),
       new PromptCacheRuntime(),
@@ -329,7 +415,7 @@ providerTest("generation timeouts: a rewrite idle timeout stashes the partial fo
   );
   assert.equal(story.nodes[0]!.text, STORY_TEXT);
 
-  const record = partials.get(story.id, nodeId);
+  const record = partials.get(story.id, nodeId, "timeout-attempt");
   assert.ok(record, "a timed-out rewrite with a verified partial must stash it");
   const applied = await applyProviderStoryEffect(
     story,
@@ -364,7 +450,7 @@ providerTest("generation timeouts: an idle timeout after a rejected rewrite echo
     rewriteNode(
       story.id,
       nodeId,
-      { start, end, expected: SELECTION, instruction: "Make it grimmer." },
+      { start, end, expected: SELECTION, instruction: "Make it grimmer.", attemptId: "rejected-attempt" },
       refusingStories<"rewriteNode">(story),
       stubSettingsStore(timedSettings(model.baseUrl, { assistantPrefill: "unsupported" })),
       new PromptCacheRuntime(),
@@ -383,7 +469,7 @@ providerTest("generation timeouts: an idle timeout after a rejected rewrite echo
       return true;
     }
   );
-  assert.equal(partials.get(story.id, nodeId), null);
+  assert.equal(partials.get(story.id, nodeId, "rejected-attempt"), null);
   assert.equal(story.nodes[0]!.text, STORY_TEXT);
 });
 

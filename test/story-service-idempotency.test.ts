@@ -483,7 +483,8 @@ test("a partial-rewrite receipt replays after the volatile stash is lost", async
         end: start + expected.length,
         expected,
         instruction: "",
-        destination: "take"
+        destination: "take",
+        attemptId: "restart-replay-attempt"
       },
       (delta) => {
         streamedText += delta;
@@ -496,7 +497,12 @@ test("a partial-rewrite receipt replays after the volatile stash is lost", async
     assert.notEqual(streamedText.trim(), "");
 
     const settleId = mutationId("f");
-    const input = { storyId: story.id, nodeId, streamedText };
+    const input = {
+      storyId: story.id,
+      nodeId,
+      streamedText,
+      attemptId: "restart-replay-attempt"
+    };
     const committed = await runWorkerMutation(
       service,
       settleId,
@@ -508,6 +514,10 @@ test("a partial-rewrite receipt replays after the volatile stash is lost", async
     const committedText = committed.payload.nodes.find(
       (node) => node.id === committed.nodeId
     )?.preview;
+    const current = await service.createNode(story.id, {
+      parentId: committed.nodeId,
+      text: "A later edit must be visible when the settle receipt replays."
+    });
 
     // A restart removes the process-local stash. The durable terminal receipt
     // must still return the same take and must not apply the splice again.
@@ -528,9 +538,111 @@ test("a partial-rewrite receipt replays after the volatile stash is lost", async
       replayed.payload.nodes.find((node) => node.id === replayed.nodeId)?.preview,
       committedText
     );
-    assert.equal(replayed.payload.nodes.length, committed.payload.nodes.length);
+    assert.equal(replayed.payload.nodes.length, current.nodes.length);
+    assert.equal(
+      replayed.payload.nodes.some((node) => node.preview.includes("later edit")),
+      true
+    );
   } finally {
     if (!disposed) await service.dispose();
+  }
+});
+
+test("a completed partial-rewrite replay does not consume a later attempt", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-partial-rewrite-attempts-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    let story = await service.createStory("Partial rewrite attempts");
+    const original = "The blue door opened into a long and quiet stone corridor.";
+    story = await service.createNode(story.id, { parentId: null, text: original });
+    const nodeId = story.nodes[0]!.id;
+    const stopRewrite = async (
+      expected: string,
+      attemptId: string,
+      rewriteId: string
+    ): Promise<string> => {
+      const current = await service.loadStory(story.id);
+      const text = current.path.find((node) => node.id === nodeId)!.text;
+      const start = text.indexOf(expected);
+      assert.notEqual(start, -1);
+      const controller = new AbortController();
+      let streamedText = "";
+      const stopped = await service.rewriteNode(
+        story.id,
+        nodeId,
+        {
+          start,
+          end: start + expected.length,
+          expected,
+          instruction: "",
+          attemptId
+        },
+        (delta) => {
+          streamedText += delta;
+          controller.abort();
+        },
+        controller.signal,
+        { rewriteId, takeId: `${rewriteId}-unused-take` }
+      );
+      assert.equal(stopped, null);
+      assert.notEqual(streamedText.trim(), "");
+      return streamedText;
+    };
+
+    const streamedA = await stopRewrite(
+      "blue door opened into a long",
+      "attempt-a",
+      "rewrite-a"
+    );
+    const settleAId = mutationId("a1");
+    const inputA = {
+      storyId: story.id,
+      nodeId,
+      streamedText: streamedA,
+      attemptId: "attempt-a"
+    };
+    const committedA = await runWorkerMutation(
+      service,
+      settleAId,
+      "commitPartialRewrite",
+      inputA
+    );
+    assert.ok(committedA);
+
+    const streamedB = await stopRewrite(
+      "quiet stone corridor",
+      "attempt-b",
+      "rewrite-b"
+    );
+    const replayedA = await runWorkerMutation(
+      service,
+      settleAId,
+      "commitPartialRewrite",
+      inputA
+    );
+    assert.ok(replayedA);
+
+    const committedB = await runWorkerMutation(
+      service,
+      mutationId("b1"),
+      "commitPartialRewrite",
+      {
+        storyId: story.id,
+        nodeId,
+        streamedText: streamedB,
+        attemptId: "attempt-b"
+      }
+    );
+    assert.ok(committedB, "the replay of attempt A must leave attempt B available");
+    assert.equal(
+      committedB.payload.path.find((node) => node.id === nodeId)?.text
+        .includes("quiet stone corridor"),
+      false
+    );
+  } finally {
+    await service.dispose();
   }
 });
 

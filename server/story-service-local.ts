@@ -335,8 +335,13 @@ export class StoryServiceLocal {
   ): Promise<{ payload: StoryPayload; nodeId: string } | null> {
     this.dependencies.ensureOpen();
     const body = parseCommitPartialRewrite(value);
-    const record = this.dependencies.rewritePartials.get(id, nodeId);
+    const record = this.dependencies.rewritePartials.get(
+      id,
+      nodeId,
+      body.attemptId
+    );
     if (mutationRequest !== undefined) {
+      let consumedRecord = false;
       try {
         const committed = await this.dependencies.storyMutations.runLocal(
           mutationRequest,
@@ -364,10 +369,13 @@ export class StoryServiceLocal {
                 await session.hydratePath(current, pathNodeId);
               }
             );
+            consumedRecord = true;
             return applied.changed ? undefined : STORY_UNCHANGED;
           }
         );
-        if (record !== null) this.dependencies.rewritePartials.clear(id, nodeId);
+        if (record !== null && consumedRecord) {
+          this.dependencies.rewritePartials.clear(record);
+        }
         const committedNodeId = settleTakeId !== undefined
           && committed.story.nodes.some((node) => node.id === settleTakeId)
           ? settleTakeId
@@ -392,7 +400,7 @@ export class StoryServiceLocal {
       id,
       effect
     );
-    this.dependencies.rewritePartials.clear(id, nodeId);
+    this.dependencies.rewritePartials.clear(record);
     return {
       payload: buildStoryPayload(
         await this.dependencies.stories.loadForMutation(id)

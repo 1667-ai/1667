@@ -39,6 +39,7 @@ type StoredResult =
     }
   /** An import whose plan lives in the receipt's import-plan artifact. */
   | { type: "import"; id: string }
+  | { type: "partial-rewrite"; id: string; nodeId: string }
   | { type: "value"; value: unknown };
 
 export interface RemovedChapterBreakResult {
@@ -102,6 +103,13 @@ export function encodeMutationResult(
       type: "chapter-break-removed",
       id: value.payload.id,
       removed: value.removed
+    };
+  }
+  if (isPartialRewriteResult(value)) {
+    return {
+      type: "partial-rewrite",
+      id: value.payload.id,
+      nodeId: value.nodeId
     };
   }
   // An import response repeats the plan the artifact already preserved, so
@@ -294,6 +302,14 @@ function isChapterBreakRemovedResult(
     && typeof result.removed === "object";
 }
 
+function isPartialRewriteResult(
+  value: unknown
+): value is { payload: StoryPayload; nodeId: string } {
+  if (value === null || typeof value !== "object") return false;
+  const result = value as { payload?: unknown; nodeId?: unknown };
+  return isStoryPayload(result.payload) && typeof result.nodeId === "string";
+}
+
 function isStoredResult(value: unknown): value is StoredResult {
   if (value === null || typeof value !== "object") return false;
   const result = value as Record<string, unknown>;
@@ -308,6 +324,9 @@ function isStoredResult(value: unknown): value is StoredResult {
         || (result.removed !== null && typeof result.removed === "object"));
   }
   if (result.type === "import") return typeof result.id === "string";
+  if (result.type === "partial-rewrite") {
+    return typeof result.id === "string" && typeof result.nodeId === "string";
+  }
   return result.type === "value" && "value" in result;
 }
 

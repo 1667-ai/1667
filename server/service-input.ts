@@ -98,12 +98,16 @@ export function parseRewrite(value: unknown): RewriteRequest {
     end: requireNumber(body.end, "end"),
     expected: requireString(body.expected, "expected"),
     instruction: body.instruction === undefined ? "" : requireStringValue(body.instruction, "instruction"),
+    ...(body.attemptId === undefined ? {} : {
+      attemptId: requireRewriteAttemptId(body.attemptId)
+    }),
     ...(body.destination === undefined ? {} : { destination: requireRewriteDestination(body.destination) })
   };
 }
 
 export interface CommitPartialRewriteRequest {
   readonly streamedText: string;
+  readonly attemptId: string;
 }
 
 /** The settle after a stopped or timed-out rewrite (issue #339). The caller
@@ -114,8 +118,17 @@ export function parseCommitPartialRewrite(
 ): CommitPartialRewriteRequest {
   const body = requireRecord(value, "partial rewrite body");
   return {
-    streamedText: requireString(body.streamedText, "streamedText")
+    streamedText: requireString(body.streamedText, "streamedText"),
+    attemptId: requireRewriteAttemptId(body.attemptId)
   };
+}
+
+function requireRewriteAttemptId(value: unknown): string {
+  const attemptId = requireString(value, "attemptId");
+  if (attemptId.length > 128) {
+    throw new ServiceError(400, "attemptId is too long");
+  }
+  return attemptId;
 }
 
 function requireRewriteDestination(value: unknown): RewriteDestination {

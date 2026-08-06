@@ -738,6 +738,57 @@ test("credentialed cancellation flushes the safe redaction tail", async (t) => {
   await assert.rejects(iterator.next(), (error) => error === reason);
 });
 
+test("a provider rejection stays a rejection when the total timer fires after its redaction tail", async (t) => {
+  const secret = "12345678901234567890";
+  process.env.AI_1667_TEST_REJECTION_SECRET = secret;
+  t.after(() => { delete process.env.AI_1667_TEST_REJECTION_SECRET; });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode([
+        anthropicDelta("abcdefghijklmnopqrstuvwxyz"),
+        `data: ${JSON.stringify({
+          type: "error",
+          error: { message: "The provider rejected this stream." }
+        })}\n\n`
+      ].join("")));
+    }
+  }), {
+    headers: { "content-type": "text/event-stream" }
+  })) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const iterator = streamCompletion(
+    attached({
+      auth: {
+        type: "header-env",
+        name: "x-api-key",
+        env: "AI_1667_TEST_REJECTION_SECRET"
+      },
+      timeouts: {
+        responseHeaderMs: 1_000,
+        firstTokenMs: 1_000,
+        idleMs: 1_000,
+        totalMs: 30
+      }
+    }, {
+      provider: "anthropic",
+      baseUrl: "https://api.anthropic.com"
+    }),
+    PROMPT,
+    new AbortController().signal
+  );
+
+  assert.deepEqual(await iterator.next(), { done: false, value: "abcdefg" });
+  assert.deepEqual(await iterator.next(), {
+    done: false,
+    value: "hijklmnopqrstuvwxyz"
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await assert.rejects(iterator.next(), (error) => error instanceof ProviderError
+    && error.timeout === undefined
+    && /Anthropic stream error/.test(error.message));
+});
+
 test("OpenAI parameter retries share one total deadline", async (t) => {
   const originalFetch = globalThis.fetch;
   let requests = 0;

@@ -310,6 +310,10 @@ export class MutationReceiptStore {
         if (receipt.method === "importCard") return { payload, plan };
         throw corruptMutationReceipt(receipt.mutationId);
       }
+      case "partial-rewrite": return {
+        payload: await this.resolveStory(result.id),
+        nodeId: result.nodeId
+      };
       case "value": return result.value;
     }
   }

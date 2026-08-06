@@ -190,12 +190,14 @@ async function runSelectionRewrite(
   // `onStopped` exactly once, at terminal settlement, so after the call
   // resolves this equals what the backend's own stash holds.
   let streamedText = "";
+  const attemptId = crypto.randomUUID();
   try {
     const takeId = await source.api.rewriteNode(
       task.storyId,
       node.id,
       {
         start: target.start, end: target.end, instruction, expected: target.expected,
+        attemptId,
         // Absent means "in-place" (shared/types.ts's resolveRewriteDestination) —
         // omitted rather than always stamped, so a plain send keeps sending the
         // exact body shape it always has.
@@ -223,6 +225,7 @@ async function runSelectionRewrite(
         task,
         node.id,
         streamedText,
+        attemptId,
         pendingDraft,
         null,
         context.cache
@@ -269,6 +272,7 @@ async function runSelectionRewrite(
         task,
         node.id,
         streamedText,
+        attemptId,
         pendingDraft,
         null,
         context.cache
@@ -292,6 +296,7 @@ async function runSelectionRewrite(
           task,
           node.id,
           streamedText,
+          attemptId,
           pendingDraft,
           error instanceof Error ? error.message : String(error),
           context.cache
@@ -366,6 +371,7 @@ async function settleStoppedRewrite(
   task: ActionTask,
   nodeId: string,
   streamedText: string,
+  attemptId: string,
   pendingDraft: PendingGenerationDraft,
   failureMessage: string | null,
   cache: ActionContext["cache"]
@@ -380,8 +386,8 @@ async function settleStoppedRewrite(
       // createNode this way.
       committed = await (
         source.backendRecovery?.runRecoveryMutation(() =>
-          source.api.commitPartialRewrite(task.storyId, nodeId, streamedText)
-        ) ?? source.api.commitPartialRewrite(task.storyId, nodeId, streamedText)
+          source.api.commitPartialRewrite(task.storyId, nodeId, streamedText, attemptId)
+        ) ?? source.api.commitPartialRewrite(task.storyId, nodeId, streamedText, attemptId)
       );
     } catch {
       committed = null;

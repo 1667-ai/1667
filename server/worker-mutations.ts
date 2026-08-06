@@ -363,14 +363,15 @@ const MUTATIONS: MutationRegistry = {
       return {
         storyId: requireString(input.storyId, "storyId"),
         nodeId: requireString(input.nodeId, "nodeId"),
-        streamedText: requireString(input.streamedText, "streamedText")
+        streamedText: requireString(input.streamedText, "streamedText"),
+        attemptId: requireString(input.attemptId, "attemptId")
       };
     },
     storyId: (input) => input.storyId,
     execute: (service, input, plan, context) => service.commitPartialRewrite(
       input.storyId,
       input.nodeId,
-      { streamedText: input.streamedText },
+      { streamedText: input.streamedText, attemptId: input.attemptId },
       context.storyMutationRequest,
       plan.entityId("partial-rewrite-take")
     )

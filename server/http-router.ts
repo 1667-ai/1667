@@ -609,7 +609,8 @@ async function handleApi(
     const committed = await mutate("commitPartialRewrite", {
       storyId: id,
       nodeId: subId,
-      streamedText: body.streamedText
+      streamedText: body.streamedText,
+      attemptId: body.attemptId
     });
     return sendJson(response, committed === null ? 200 : 201, {
       committed

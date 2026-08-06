@@ -20,6 +20,9 @@ export class WorkerDeltaBatcher {
   private unacknowledgedBytes = 0;
   private readonly creditWaiters = new Set<() => void>();
   private disposed = false;
+  /** A deadline dispose transfers every later `send` handoff into `sealed`.
+   *  A normal dispose drops those handoffs. */
+  private sealAfterDispose = false;
   /** The one batch currently past `DeltaBatcher` and waiting on
    *  `waitForCredit`, if any. A batch is always in exactly one place: in
    *  `DeltaBatcher`'s `chunks`, or here in `inFlight`. `DeltaBatcher` drains
@@ -67,9 +70,11 @@ export class WorkerDeltaBatcher {
    *  producers must unblock at cancel receipt, but the tail belongs to the
    *  error terminal the executor publishes afterwards. */
   sealUnsent(): void {
+    if (this.disposed) return;
     const tail = this.sealed + (this.inFlight ?? "") + this.batcher.takeBuffered();
     this.inFlight = null;
-    this.dispose();
+    this.sealAfterDispose = true;
+    this.stopTransport();
     this.sealed = tail;
   }
 
@@ -83,9 +88,14 @@ export class WorkerDeltaBatcher {
   }
 
   dispose(): void {
-    this.disposed = true;
+    this.sealAfterDispose = false;
     this.inFlight = null;
     this.sealed = "";
+    this.stopTransport();
+  }
+
+  private stopTransport(): void {
+    this.disposed = true;
     this.batcher.dispose();
     this.unacknowledged.clear();
     this.unacknowledgedBytes = 0;
@@ -93,6 +103,13 @@ export class WorkerDeltaBatcher {
   }
 
   private async send(text: string, bytes: number): Promise<void> {
+    // An oversized push can still own later split chunks after sealUnsent()
+    // releases its first credit-blocked chunk. They were accepted by push()
+    // before the deadline, so append each later handoff in source order.
+    if (this.disposed) {
+      if (this.sealAfterDispose) this.sealed += text;
+      return;
+    }
     this.inFlight = text;
     await this.waitForCredit(bytes);
     // Reclaimed by takeUnsent(), or disposed, while this waited: never post.

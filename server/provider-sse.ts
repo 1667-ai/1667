@@ -88,6 +88,7 @@ export async function* providerSseEvents(
       });
     } catch (error) {
       if (callerSignal.aborted) throw callerSignal.reason;
+      if (signal.aborted) throw signal.reason;
       throw deadlineState.failure === null
         ? new ProviderError(`Model request failed: ${safeMessage(error, secrets, redact)}`)
         : providerDeadlineError(deadlineState.failure);
@@ -188,6 +189,7 @@ export async function* providerSseEvents(
           error,
           deadlineState.failure,
           callerSignal,
+          signal,
           secrets,
           redact
         ));
@@ -231,10 +233,12 @@ function providerStreamFailure(
   error: unknown,
   deadlineFailure: ProviderDeadline | null,
   callerSignal: AbortSignal,
+  transportSignal: AbortSignal,
   secrets: readonly string[],
   redact: (value: string, secrets: readonly string[]) => string
 ): unknown {
   if (callerSignal.aborted) return callerSignal.reason;
+  if (transportSignal.aborted) return transportSignal.reason;
   if (deadlineFailure !== null) return providerDeadlineError(deadlineFailure);
   if (error instanceof ProviderError) return error;
   return new ProviderError(
