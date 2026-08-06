@@ -127,20 +127,24 @@ converter turns each entry into a Fact through the same
 | `content` | Fact text |
 | `name`, or `comment` if `name` is empty | Fact tag |
 | `keys` | Fact keys |
+| Book `scan_depth` from 1 to 20 | Fact scan depth |
+| Book `recursive_scanning: false` | Chain activation off |
 | `constant: true` | Always-active Fact |
 | `enabled: false` | The entry does not import |
 
-A `character_book` entry can ask for behavior that a Fact has no place for.
-The Fidelity Report names each one:
+A `character_book` entry can use Fact retrieval settings. The converter keeps
+secondary keys, selective AND matching, and valid regex keys.
+The Fidelity Report names unsupported settings:
 
 | `character_book` field | What the report says |
 | --- | --- |
-| `secondary_keys` | The Fact keys on one list, not two |
 | `position`, `insertion_order`, or `priority` | The Fact lands where 1667 puts Facts |
-| `selective` | The Fact has no AND/NOT key logic |
-| `case_sensitive` | The Fact key matches a whole key and ignores letter case |
-| `use_regex: true` | The Fact key is literal text, not a pattern; the entry's keys do not import |
+| `case_sensitive` on a literal key | The Fact key matches a whole key and ignores letter case |
 | A leading `@@decorator` line in `content` | The line is removed from the Fact text |
+
+When `use_regex` is true, the converter stores each valid key as a Fact regex
+key. The converter drops an invalid regex key. The report gives the dropped
+key count.
 
 Every leading `@@decorator` line is removed from the Fact text. Most are read
 only to be removed and named in the Fidelity Report — `@@depth` reports the

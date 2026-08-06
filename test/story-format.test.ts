@@ -404,7 +404,7 @@ test("story format: default Fact metadata stays omitted and keys do not change i
   assert.deepEqual((await decodeStoryBundle(keyedManifest, dir)).story, keyed);
 });
 
-test("story format: Fact priority and budget round-trip, and an old manifest without them still decodes", async (t) => {
+test("story format: Fact metadata defaults omit and non-default settings round-trip", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-fact-priority-budget-format-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const objects = new StoryObjectStore(dir);
@@ -425,22 +425,42 @@ test("story format: Fact priority and budget round-trip, and an old manifest wit
   const plain = await encodeStoryBundle(plainStory, objects);
   assert.equal("priority" in plain.facts[0]!, false);
   assert.equal("budgetTokens" in plain.facts[0]!, false);
+  assert.equal("secondaryKeys" in plain.facts[0]!, false);
+  assert.equal("secondaryMode" in plain.facts[0]!, false);
+  assert.equal("scanDepth" in plain.facts[0]!, false);
+  assert.equal("recursion" in plain.facts[0]!, false);
   assert.equal("factsBudgetTokens" in plain, false);
   const plainDecoded = await decodeStoryBundle(plain, dir);
   assert.equal(plainDecoded.story.facts[0]!.priority, undefined);
   assert.equal(plainDecoded.story.facts[0]!.budgetTokens, undefined);
+  assert.equal(plainDecoded.story.facts[0]!.secondaryKeys, undefined);
+  assert.equal(plainDecoded.story.facts[0]!.secondaryMode, undefined);
+  assert.equal(plainDecoded.story.facts[0]!.scanDepth, undefined);
+  assert.equal(plainDecoded.story.facts[0]!.recursion, undefined);
   assert.equal(plainDecoded.story.factsBudgetTokens, undefined);
 
   // A non-default priority, a per-Fact budget, and a story-level Facts budget
   // all survive encode -> decode exactly.
   const richStory = {
     ...plainStory,
-    facts: [{ ...fact, priority: "high" as const, budgetTokens: 250 }],
+    facts: [{
+      ...fact,
+      priority: "high" as const,
+      budgetTokens: 250,
+      secondaryKeys: ["permit"],
+      secondaryMode: "not" as const,
+      scanDepth: 4,
+      recursion: "off" as const
+    }],
     factsBudgetTokens: 4_000
   };
   const richManifest = await encodeStoryBundle(richStory, objects);
   assert.equal(richManifest.facts[0]!.priority, "high");
   assert.equal(richManifest.facts[0]!.budgetTokens, 250);
+  assert.deepEqual(richManifest.facts[0]!.secondaryKeys, ["permit"]);
+  assert.equal(richManifest.facts[0]!.secondaryMode, "not");
+  assert.equal(richManifest.facts[0]!.scanDepth, 4);
+  assert.equal(richManifest.facts[0]!.recursion, "off");
   assert.equal(richManifest.factsBudgetTokens, 4_000);
   assert.deepEqual((await decodeStoryBundle(richManifest, dir)).story, richStory);
 });

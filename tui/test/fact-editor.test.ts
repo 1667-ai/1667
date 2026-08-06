@@ -83,6 +83,30 @@ describe("Fact editor", () => {
       .toBe("Lantern room\nCold now.");
   });
 
+  test("saves regex keys with commas and all activation settings", async () => {
+    const { state, press } = editorHarness();
+    await press(key("f"));
+    await press(key("n"));
+    const editor = setFactDraft(state, "Place", "The locked observatory.");
+    editor.activation = "keyed";
+    setComposerText(editor.keys, "/brass, key/i, observatory");
+    setComposerText(editor.secondary, "permit");
+    editor.secondaryMode = "not";
+    setComposerText(editor.scan, "4");
+    editor.recursion = "off";
+    await press(key("s", { sequence: SAVE_SEQUENCE, ctrl: true }));
+
+    expect(state.payload.facts.find(({ text }) => text.startsWith("The locked")))
+      .toMatchObject({
+        activation: "keyed",
+        keys: ["/brass, key/i", "observatory"],
+        secondaryKeys: ["permit"],
+        secondaryMode: "not",
+        scanDepth: 4,
+        recursion: "off"
+      });
+  });
+
   test("cycles preset tags and reuses a saved custom tag", async () => {
     const { state, press } = editorHarness();
     await press(key("f"));
@@ -131,7 +155,7 @@ describe("Fact editor", () => {
     expect(frame).not.toContain(editor.tag.text);
   });
 
-  test("moves through budget, priority, keys, and activation from the body first row", async () => {
+  test("moves through all Fact fields from the body first row", async () => {
     const { state, press } = editorHarness();
     await press(key("f"));
     await press(key("return"));
@@ -149,6 +173,14 @@ describe("Fact editor", () => {
     expect(editor.focus).toBe("priority");
     await press(key("right"));
     expect(editor.priority).toBe("high");
+    await press(key("up"));
+    expect(editor.focus).toBe("chain");
+    await press(key("up"));
+    expect(editor.focus).toBe("scan");
+    await press(key("up"));
+    expect(editor.focus).toBe("match");
+    await press(key("up"));
+    expect(editor.focus).toBe("secondary");
     await press(key("up"));
     expect(editor.focus).toBe("keys");
     expect(composerPosition(editor.keys).column).toBe(0);
@@ -565,12 +597,21 @@ describe("Fact editor", () => {
     editor.tag.cursor = 3;
     editor.tag.cutConfirmation = { start: 0, end: 3, text: "peo" };
 
-    // Move focus through activation, keys, priority, and budget to the body.
+    // Move focus through every fixed Fact row to the body.
     await press(key("down"));
     expect(editor.focus).toBe("activation");
     await press(key("down"));
     expect(editor.focus).toBe("keys");
     editor.keys.cutConfirmation = { start: 0, end: 1, text: "x" };
+    await press(key("down"));
+    expect(editor.focus).toBe("secondary");
+    expect(editor.keys.cutConfirmation).toBe(null);
+    await press(key("down"));
+    expect(editor.focus).toBe("match");
+    await press(key("down"));
+    expect(editor.focus).toBe("scan");
+    await press(key("down"));
+    expect(editor.focus).toBe("chain");
     await press(key("down"));
     expect(editor.focus).toBe("priority");
     // Priority borrows budget's buffer identity, same as activation borrows

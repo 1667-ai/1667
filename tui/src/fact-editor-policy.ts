@@ -7,7 +7,7 @@ import {
   undoComposerEditOwner,
   type ComposerState
 } from "./composer-model.js";
-import { FACT_PRIORITIES } from "../../shared/fact-activation.js";
+import { FACT_PRIORITIES, FACT_RECURSIONS, FACT_SECONDARY_MODES } from "../../shared/fact-metadata.js";
 import { graphemeCells } from "./cell-width.js";
 import { wrappedComposerLayout } from "./composer-wrapping.js";
 import { factEditorTag } from "./fact-editor-draft.js";
@@ -21,6 +21,10 @@ export const FACT_EDITOR_FOOTER =
 export const FACT_TAG_COMPOSER_SOURCE = "fact-tag";
 export const FACT_ACTIVATION_COMPOSER_SOURCE = "fact-activation";
 export const FACT_KEYS_COMPOSER_SOURCE = "fact-keys";
+export const FACT_SECONDARY_COMPOSER_SOURCE = "fact-secondary-keys";
+export const FACT_MATCH_COMPOSER_SOURCE = "fact-secondary-mode";
+export const FACT_SCAN_COMPOSER_SOURCE = "fact-scan-depth";
+export const FACT_CHAIN_COMPOSER_SOURCE = "fact-recursion";
 export const FACT_PRIORITY_COMPOSER_SOURCE = "fact-priority";
 export const FACT_BUDGET_COMPOSER_SOURCE = "fact-budget-tokens";
 export const FACT_BODY_COMPOSER_SOURCE = "fact-body";
@@ -59,6 +63,22 @@ const FACT_EDITOR_ROW_TABLE: Record<FactEditorRow, FactEditorRowSpec> = {
     row: "keys", sourceId: FACT_KEYS_COMPOSER_SOURCE, kind: "text",
     composer: (editor) => editor.keys
   },
+  secondary: {
+    row: "secondary", sourceId: FACT_SECONDARY_COMPOSER_SOURCE, kind: "text",
+    composer: (editor) => editor.secondary
+  },
+  match: {
+    row: "match", sourceId: FACT_MATCH_COMPOSER_SOURCE, kind: "choice",
+    composer: (editor) => editor.secondary
+  },
+  scan: {
+    row: "scan", sourceId: FACT_SCAN_COMPOSER_SOURCE, kind: "text",
+    composer: (editor) => editor.scan
+  },
+  chain: {
+    row: "chain", sourceId: FACT_CHAIN_COMPOSER_SOURCE, kind: "choice",
+    composer: (editor) => editor.scan
+  },
   priority: {
     row: "priority", sourceId: FACT_PRIORITY_COMPOSER_SOURCE, kind: "choice",
     composer: (editor) => editor.budget
@@ -96,10 +116,18 @@ export function handleFactEditorCommand(
       cycleFactEditorPriority(editor, resolved.index === -1 ? -1 : 1);
       return true;
     }
+    if (editor.focus === "match") {
+      cycleSecondaryMode(editor, resolved.index === -1 ? -1 : 1);
+      return true;
+    }
+    if (editor.focus === "chain") {
+      cycleRecursion(editor, resolved.index === -1 ? -1 : 1);
+      return true;
+    }
     // Keys and budget have no presets of their own to tab through — Tab
     // instead skips them to their neighbor, in the same row order the
     // vertical-move handler below navigates by.
-    if (editor.focus === "keys" || editor.focus === "budget") {
+    if (["keys", "secondary", "scan", "budget"].includes(editor.focus)) {
       setFactEditorFocus(editor, nextFactEditorRow(editor.focus, resolved.index === -1 ? -1 : 1));
       return true;
     }
@@ -112,6 +140,18 @@ export function handleFactEditorCommand(
   }
   if (editor.focus === "priority"
     && handleChoiceRowKeys(resolved, state, "priority", (direction) => cycleFactEditorPriority(editor, direction))) {
+    return true;
+  }
+  if (
+    editor.focus === "match"
+    && handleChoiceRowKeys(resolved, state, "secondary match", (direction) => cycleSecondaryMode(editor, direction))
+  ) {
+    return true;
+  }
+  if (
+    editor.focus === "chain"
+    && handleChoiceRowKeys(resolved, state, "recursion", (direction) => cycleRecursion(editor, direction))
+  ) {
     return true;
   }
   if (resolved.action === "edit-tag") {
@@ -203,19 +243,31 @@ export function factEditorInsert(
   source: "paste" | "input" | "newline"
 ): { text: string } | { blocked: string } {
   if (editor.focus === "body") return { text: raw };
-  if (editor.focus === "activation") {
-    return { blocked: "use left or right to select Fact activation" };
-  }
+  if (editor.focus === "activation") return choiceRowBlocked("activation");
+  if (editor.focus === "match") return choiceRowBlocked("secondary match");
+  if (editor.focus === "chain") return choiceRowBlocked("recursion");
   if (editor.focus === "priority") {
     return { blocked: "use left or right to select Fact priority" };
   }
   if (source === "newline" || /^[\r\n\u2028\u2029]+$/u.test(raw)) {
-    const label = editor.focus === "tag" ? "fact tags" : editor.focus === "keys" ? "fact keys" : "fact budget";
+    const label = factEditorSingleLineLabel(editor.focus);
     return { blocked: `${label} stay on one line` };
   }
   return {
     text: raw.replace(/[\r\n\u2028\u2029]+/gu, " ")
   };
+}
+
+function factEditorSingleLineLabel(focus: FactEditorSession["focus"]): string {
+  if (focus === "tag") return "fact tags";
+  if (focus === "keys") return "fact keys";
+  if (focus === "secondary") return "fact secondary keys";
+  if (focus === "scan") return "fact scan depth";
+  return "fact budget";
+}
+
+function choiceRowBlocked(label: string): { blocked: string } {
+  return { blocked: `use left or right to select Fact ${label}` };
 }
 
 export function factEditorActiveComposer(
@@ -292,15 +344,17 @@ function factEditorRowForComposer(editor: FactEditorSession, owner: ComposerStat
 
 /** Link the editable Fact fields to one bounded delta journal. */
 export function initializeFactEditorHistory(
-  editor: Pick<FactEditorSession, "tag" | "keys" | "budget" | "composer">
+  editor: Pick<FactEditorSession, "tag" | "keys" | "secondary" | "scan" | "budget" | "composer">
 ): void {
-  shareComposerEditHistory([editor.tag, editor.keys, editor.budget, editor.composer]);
+  shareComposerEditHistory([editor.tag, editor.keys, editor.secondary, editor.scan, editor.budget, editor.composer]);
 }
 
 /** Reset the composite journal after an authoritative buffer replacement. */
 export function resetFactEditorHistory(editor: FactEditorSession): void {
   resetComposerEditHistory(editor.tag);
   resetComposerEditHistory(editor.keys);
+  resetComposerEditHistory(editor.secondary);
+  resetComposerEditHistory(editor.scan);
   resetComposerEditHistory(editor.budget);
   resetComposerEditHistory(editor.composer);
 }
@@ -341,7 +395,6 @@ export function handleFactEditorVerticalMove(
   return false;
 }
 
-
 function cycleFactEditorActivation(editor: FactEditorSession): void {
   disarmFactEditor(editor);
   editor.activation = editor.activation === "always" ? "keyed" : "always";
@@ -351,6 +404,20 @@ function cycleFactEditorPriority(editor: FactEditorSession, direction: -1 | 1): 
   disarmFactEditor(editor);
   const at = FACT_PRIORITIES.indexOf(editor.priority);
   editor.priority = FACT_PRIORITIES[(at + direction + FACT_PRIORITIES.length) % FACT_PRIORITIES.length]!;
+}
+
+function cycleSecondaryMode(editor: FactEditorSession, direction: -1 | 1): void {
+  const at = FACT_SECONDARY_MODES.indexOf(editor.secondaryMode);
+  editor.secondaryMode = FACT_SECONDARY_MODES[
+    (at + direction + FACT_SECONDARY_MODES.length) % FACT_SECONDARY_MODES.length
+  ]!;
+}
+
+function cycleRecursion(editor: FactEditorSession, direction: -1 | 1): void {
+  const at = FACT_RECURSIONS.indexOf(editor.recursion);
+  editor.recursion = FACT_RECURSIONS[
+    (at + direction + FACT_RECURSIONS.length) % FACT_RECURSIONS.length
+  ]!;
 }
 
 function replaceTagText(

@@ -62,6 +62,64 @@ describe("next request viewer", () => {
     }
   });
 
+  test("explains regex, secondary-gate, and chained Fact activation", () => {
+    const { state } = harness();
+    const base = state.payload.facts[0]!;
+    state.payload.facts = [
+      ...state.payload.facts,
+      {
+        ...base,
+        id: "regex-gated",
+        tag: "Regex gate",
+        text: "chain token",
+        activation: "keyed",
+        keys: ["/Maren/"],
+        secondaryKeys: ["lantern"]
+      },
+      {
+        ...base,
+        id: "chained",
+        tag: "Chained",
+        text: "A chained Fact.",
+        activation: "keyed",
+        keys: ["chain"]
+      }
+    ];
+    state.mode = "REQUEST";
+    state.request = { cursor: 0, scrollTop: 0, returnMode: "NAV" };
+
+    const text = frameText(renderStoryScreen(state, { width: 120, height: 1_000 }).lines);
+
+    expect(text).toContain("activations");
+    expect(text).toContain("Fact Regex gate activated by regex key /Maren/ with and secondary keys.");
+    expect(text).toContain("Fact Chained activated by literal key chain in chain round 1.");
+  });
+
+  test("names the shared regex evaluation budget when checks remain unevaluated", () => {
+    const { state } = harness();
+    const projected = projectNextRequest(state);
+    const estimate = nextRequestEstimate(projected.payload, projected.context);
+    const incomplete = {
+      ...estimate,
+      activation: {
+        ...estimate.activation,
+        unevaluated: [state.payload.facts[0]!.id]
+      }
+    };
+    const frame = renderRequestViewer(
+      { payload: projected.payload, model: state.model, contextWindow: state.contextWindow },
+      projected.context,
+      incomplete,
+      { cursor: 0, scrollTop: 0, returnMode: "NAV" },
+      120,
+      1_000
+    );
+
+    expect(frameText(frame.lines)).toContain(
+      "1 Fact regex key checks were not evaluated because the evaluation budget was reached."
+    );
+  });
+
   test("makes every wire-order message and its token estimate reachable", () => {
     const { state } = harness();
     state.mode = "REQUEST";

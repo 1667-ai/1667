@@ -115,11 +115,12 @@ export async function composerChangedThroughSurface(
       tag: createComposer(""),
       activation: "always",
       keys: createComposer(""),
+      secondary: createComposer(""), secondaryMode: "and", scan: createComposer(""), recursion: "on",
       priority: "normal",
       budget: createComposer(""),
       focus: "body",
       initialFact: {
-        tag: null, activation: "always", keys: [], priority: "normal", budgetTokens: undefined, text: composer.text
+        tag: null, activation: "always", keys: [], secondaryKeys: [], secondaryMode: "and", scanDepth: undefined, recursion: "on", priority: "normal", budgetTokens: undefined, text: composer.text
       },
       title: "Edit fact",
       placeholder: "Fact text",

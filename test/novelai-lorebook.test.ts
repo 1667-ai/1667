@@ -111,7 +111,7 @@ test("fidelity report text for a Lorebook that fires every counter at once asser
   const importResult = factsFromLorebook(lorebook, 34);
   const formattedReport = fidelityReport(importResult.fidelity);
 
-  const expected = "41 entries read; 34 facts imported; 3 disabled entries skipped; 2 entries truncated to 4,000 characters; 2 fact bodies trimmed of surrounding whitespace; 1 tag cut to 48 characters; 2 keys dropped; 2 keyed entries have no keys and will not activate; 4 entries did not fit the 128-fact limit; search range, bias groups, and advanced conditions omitted";
+  const expected = "41 entries read; 34 facts imported; 3 disabled entries skipped; 2 entries truncated to 4,000 characters; 2 fact bodies trimmed of surrounding whitespace; 1 tag cut to 48 characters; 2 keys dropped; 2 keyed entries have no keys and will not activate; 4 entries did not fit the 128-fact limit; unsupported search ranges, bias groups, and advanced conditions omitted";
   assert.equal(formattedReport, expected);
 
 });

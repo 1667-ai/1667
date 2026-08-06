@@ -21,7 +21,8 @@ import {
   optionalBoundedString,
   safeInteger
 } from "./story-wire-validation.js";
-import { FactActivationError, parseFactMetadata } from "../shared/fact-activation.js";
+import { FactActivationError } from "../shared/fact-metadata.js";
+import { parseFactMetadata } from "../shared/fact-validation.js";
 import { MAX_FACT_BUDGET_TOKENS, MAX_STORY_FACTS_BUDGET_TOKENS } from "../shared/fact-budget.js";
 import {
   SAMPLING_BANNED_STRINGS_POLICY,
@@ -60,7 +61,7 @@ const ATTRIBUTION = closedShape(["source", "ranges"], ["deletedCharacters"]);
 const RANGE = closedShape(["start", "end"]);
 const FACT = closedShape(
   ["id", "tag", "revisionId", "createdAt", "updatedAt"],
-  ["sourcePartId", "activation", "keys", "priority", "budgetTokens"]
+  ["sourcePartId", "activation", "keys", "secondaryKeys", "secondaryMode", "scanDepth", "recursion", "priority", "budgetTokens"]
 );
 const TAG = closedShape(["nodeId", "name", "label", "color", "createdAt"]);
 const CHAPTER_BREAK = closedShape(["id", "parentPartId", "title", "createdAt"]);
@@ -207,7 +208,7 @@ function assertFact(value: unknown, label: string): void {
   timestamp(fact.updatedAt, `${label}.updatedAt`);
   optionalIdentifier(fact.sourcePartId, `${label}.sourcePartId`);
   try {
-    parseFactMetadata(fact.activation, fact.keys, label, fact.priority);
+    parseFactMetadata(fact, label);
   } catch (error) {
     if (error instanceof FactActivationError) throw new StoryFormatError(error.message);
     throw error;

@@ -101,11 +101,15 @@ test("paste inserts at the composer cursor and flattens single-line prompts", ()
       tag: createComposer(""),
       activation: "always" as const,
       keys: createComposer(""),
+      secondary: createComposer(""),
+      secondaryMode: "and" as const,
+      scan: createComposer(""),
+      recursion: "on" as const,
       priority: "normal" as const,
       budget: createComposer(""),
       focus: "body" as const,
       initialFact: {
-        tag: null, activation: "always" as const, keys: [], priority: "normal" as const, budgetTokens: undefined, text: "ab"
+        tag: null, activation: "always" as const, keys: [], secondaryKeys: [], secondaryMode: "and" as const, scanDepth: undefined, recursion: "on" as const, priority: "normal" as const, budgetTokens: undefined, text: "ab"
       },
       title: "edit fact",
       placeholder: "fact text…",

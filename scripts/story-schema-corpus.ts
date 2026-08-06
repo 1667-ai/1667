@@ -123,6 +123,15 @@ export function storyManifestCorpus(): StoryManifestCorpusCase[] {
     invalidNestedV5("v5-comma-in-fact-key", richV5, (copy) => {
       copy.facts[0]!.keys = ["red, blue"];
     }),
+    invalidNestedV5("v5-invalid-regex-fact-key-flag", richV5, (copy) => {
+      copy.facts[0]!.keys = ["/door/d"];
+    }),
+    invalidNestedV5("v5-invalid-fact-scan-depth", richV5, (copy) => {
+      copy.facts[0]!.scanDepth = 0;
+    }),
+    invalidNestedV5("v5-invalid-fact-secondary-mode", richV5, (copy) => {
+      copy.facts[0]!.secondaryMode = "either";
+    }),
     invalidNestedV5("v5-invalid-fact-priority", richV5, (copy) => {
       copy.facts[0]!.priority = "urgent";
     }),
@@ -357,7 +366,11 @@ function richV5Manifest(): RichV5Fixture {
       id: "fact-one",
       tag: "Lore",
       activation: "keyed",
-      keys: ["door", "green door"],
+      keys: ["/green, door/i", "green door"],
+      secondaryKeys: ["permit"],
+      secondaryMode: "not",
+      scanDepth: 4,
+      recursion: "off",
       priority: "high",
       budgetTokens: 100,
       revisionId: HASH,

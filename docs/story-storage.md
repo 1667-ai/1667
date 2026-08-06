@@ -214,20 +214,28 @@ A World Info Entry uses different names for the same values.
 | `content` | Fact text |
 | `comment` | Fact tag |
 | `key` | Fact keys |
+| `keysecondary` | Fact secondary keys |
+| `world_info_logic: 0` | AND secondary-key logic |
+| `world_info_logic: 2` | NOT secondary-key logic |
+| `scanDepth` from 1 to 20 | Fact scan depth |
+| `excludeRecursion: true` | Chain activation off |
 | `constant: true` | Always active |
 | Other `constant` values | Keyed activation |
 | `disable: true` | No Fact |
 
-A Fact is always in context or keyed on one list, and a Fact key is literal.
-So these World Info mechanisms do not import: secondary keys, insertion
-positions, firing probability, recursion controls, timed effects, per-entry
-matching rules, keys written as a regular expression, retrieval by meaning,
-character or trigger filters, prompt roles, and `{{macro}}` expansion. The Fidelity Report gives the number of Entries
-that lose each one.
+A Fact can use literal keys or restricted regex keys. 1667 imports valid regex
+keys. It also imports the supported secondary-key logic, scan depth, and chain
+activation setting.
 
-A Fact key matches a whole key and ignores letter case. A World Info Entry can
-ask for a different rule, so a key can match at a different moment after the
-import.
+These World Info mechanisms do not import: insertion positions, firing
+probability, delayed recursion, timed effects, AND-ALL or NOT-ALL logic,
+literal-key matching rules, retrieval by meaning, character or trigger
+filters, prompt roles, and `{{macro}}` expansion. The Fidelity Report gives
+the number of Entries that lose each one.
+
+A literal Fact key matches a whole key and ignores letter case. A World Info
+Entry can ask for a different literal-key rule. Thus, a literal key can match
+at a different moment after the import.
 
 Entries in the same World Info group are exclusive: SillyTavern uses one of
 them. Their Facts can be active together.
