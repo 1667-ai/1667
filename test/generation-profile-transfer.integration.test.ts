@@ -878,6 +878,51 @@ test("Profile transfer omits canonical text-bias rejections before fitting", () 
   );
 });
 
+test("Profile transfer invalidates stale bias resolution after omitting native bans", () => {
+  const bannedStrings = Array.from({ length: 201 }, (_, index) => index === 0 ? "ember" : `ban-${index}`);
+  const sampling = {
+    ...EMPTY_SAMPLING_V2,
+    phraseBias: [{ phrase: "ember", weight: 1 }],
+    bannedStrings
+  };
+  const precomputedResolution = resolveSamplingLogitBias(
+    combineSamplingBiasSources(sampling),
+    () => ({ kind: "single-token" as const, tokenId: 1 }),
+    samplingBiasPresetRules("koboldcpp")
+  );
+  const kobold = {
+    ...openAiDocument(),
+    connections: {
+      "builtin:dry-run": {
+        ...openAiDocument().connections["builtin:dry-run"]!,
+        preset: "koboldcpp" as const
+      }
+    }
+  };
+  const fitted = fitProfileToRoute(kobold, "default", {
+    name: "Native ban overflow",
+    sampling: {
+      phraseBias: sampling.phraseBias,
+      bannedStrings: sampling.bannedStrings
+    }
+  }, { samplingBiasResolution: precomputedResolution });
+  assert.deepEqual(fitted.document.profiles.default?.sampling?.phraseBias, sampling.phraseBias);
+  assert.deepEqual(fitted.document.profiles.default?.sampling?.bannedStrings, []);
+  assert.equal(fitted.importedCount, 1);
+  assert.equal(fitted.candidateCount, 2);
+  assert.match(
+    fitted.fidelity.join("; "),
+    /banned strings not imported; 201 entries exceed the 200-entry native banned-string limit for preset koboldcpp/u
+  );
+  assert.doesNotMatch(fitted.fidelity.join("; "), /phrase bias not imported/u);
+  validateSamplingRoute(
+    "default",
+    fitted.document.profiles.default!,
+    fitted.document.models[fitted.document.profiles.default!.modelId]!,
+    fitted.document.connections[fitted.document.models[fitted.document.profiles.default!.modelId]!.connectionId]!
+  );
+});
+
 test("Profile transfer applies the native banned-string limit only to KoboldCpp", () => {
   const entries = (count: number) => Array.from({ length: count }, (_, index) => `ban-${index}`);
   const profileExport = (bannedStrings: readonly string[]) => JSON.stringify({

@@ -17,6 +17,7 @@ import {
   applySamplingSettings,
   firstBlockedNativeBannedString,
   firstBlockingSamplingBiasEntry,
+  isLogitBiasFamilyKnob,
   resolveSamplingKnob,
   samplingBiasPresetRules,
   samplingBiasEntryRejectionMessage,
@@ -205,21 +206,29 @@ function fitSamplingToRoute(
   let sampling = EMPTY_SAMPLING_V2;
   let importedCount = 0;
   let candidateCount = 0;
+  let resolutionStillMatches = true;
   for (const knob of SAMPLING_KNOB_V2_VALUES) {
     const value = offered?.[knob];
     if (value === undefined || !samplingKnobValueIsSet(values, knob)) continue;
     candidateCount += 1;
     const operation = fitSamplingKnob(route, dependencySampling, sampling, knob, value, fidelity);
-    if (operation.kind === "omit") continue;
+    if (operation.kind === "omit") {
+      if (isLogitBiasFamilyKnob(knob)) resolutionStillMatches = false;
+      continue;
+    }
+    if (isLogitBiasFamilyKnob(knob) && operation.sampling[knob] !== value) {
+      resolutionStillMatches = false;
+    }
     sampling = operation.sampling;
     importedCount += 1;
   }
+  const matchingResolution = resolutionStillMatches ? precomputedResolution : undefined;
   const withoutBlocking = omitBlockedTextBias(
     sampling,
     importedCount,
     candidateCount,
     fidelity,
-    precomputedResolution
+    matchingResolution
   );
   return omitOverLimitTextBias(
     route,
@@ -227,7 +236,7 @@ function fitSamplingToRoute(
     withoutBlocking.importedCount,
     withoutBlocking.candidateCount,
     fidelity,
-    withoutBlocking.omitted ? undefined : precomputedResolution
+    withoutBlocking.omitted ? undefined : matchingResolution
   );
 }
 
