@@ -777,7 +777,7 @@ describe("demo action pipeline", () => {
       ...state.payload,
       id: "surviving-story",
       title: "Surviving story"
-    });
+    }, createWrapCache());
 
     expect(state.mode).toBe("COMPOSE");
     expect(state.composer.text).toBe("edited recalled retake direction");
@@ -816,7 +816,7 @@ describe("demo action pipeline", () => {
       ...state.payload,
       id: "surviving-story",
       title: "Surviving story"
-    });
+    }, createWrapCache());
 
     expect(state.mode).toBe("COMMANDS");
     expect(state.composer).toBe(directComposer);
@@ -839,7 +839,7 @@ describe("demo action pipeline", () => {
       ...state.payload,
       id: "surviving-story",
       title: "Surviving story"
-    });
+    }, createWrapCache());
 
     expect(state.mode).toBe("COMPOSE");
     expect(state.composer.text).toBe("edited recalled Direct direction");

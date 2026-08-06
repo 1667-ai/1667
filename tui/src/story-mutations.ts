@@ -53,7 +53,7 @@ async function switchTakeWith(
   await context.backend.run("switching take", async (task) => {
     const payload = await source.api.switchLine(task.storyId, target.id);
     if (!task.storyCurrent()) return;
-    adoptSameStoryPayload(state, payload);
+    adoptSameStoryPayload(state, payload, context.cache);
     const landed = new Map(state.freshLandedAt);
     for (const node of payload.path.slice(part.pathIndex)) landed.set(node.id, Date.now());
     state.freshLandedAt = landed;
@@ -65,7 +65,6 @@ async function switchTakeWith(
       // No undo hint: [←] and [→] walk the row, which is the whole of it.
       state.toast = `▸ take ${target.index}/${target.count} · ${partsBelow} parts below re-rendered`;
     }
-    context.cache.invalidate();
   });
 }
 
@@ -87,7 +86,7 @@ export async function undoChapterBreakChange(
       ? (await source.api.removeChapterBreak(task.storyId, entry.breakId)).payload
       : await source.api.restoreChapterBreak(task.storyId, entry.breakId, entry.removed);
     if (!task.storyCurrent()) return;
-    adoptSameStoryPayload(state, payload);
+    adoptSameStoryPayload(state, payload, context.cache);
     state.undo = popped.rest;
     if (task.interactionCurrent()) {
       if (entry.kind === "create-break") {
@@ -102,7 +101,6 @@ export async function undoChapterBreakChange(
       followStoryViewport(state);
       rememberFocus(state, source);
     }
-    context.cache.invalidate();
   });
 }
 
@@ -123,7 +121,7 @@ export async function confirmPrune(
         expectedPartCount: plan.parts
       });
     if (!task.storyCurrent()) return;
-    adoptSameStoryPayload(state, payload);
+    adoptSameStoryPayload(state, payload, context.cache);
     if (state.prune === plan) state.prune = null;
     if (task.interactionCurrent()) {
       state.focusIndex = Math.min(state.focusIndex, Math.max(0, createStoryViewModel(payload).rows.length - 1));
@@ -133,7 +131,6 @@ export async function confirmPrune(
         ? `pruned ${plan.parts} ${plan.parts === 1 ? "part" : "parts"}`
         : `pruned ${plan.takes} unused ${plan.takes === 1 ? "take" : "takes"} · ${plan.parts} ${plan.parts === 1 ? "part" : "parts"}`;
     }
-    context.cache.invalidate();
   });
 }
 
@@ -157,7 +154,7 @@ export async function advanceOrSaveTag(
   await context.backend.run("saving tag", async (task) => {
     const payload = await source.api.putBookmark(task.storyId, prompt.nodeId, name, label);
     if (!task.storyCurrent()) return;
-    adoptSameStoryPayload(state, payload);
+    adoptSameStoryPayload(state, payload, context.cache);
     if (state.tag === prompt
       && prompt.name.trim() === name
       && TAG_STATUSES[prompt.statusIndex] === label) {
@@ -181,7 +178,7 @@ export async function removeTag(
   await context.backend.run("deleting tag", async (task) => {
     const payload = await source.api.deleteBookmark(task.storyId, prompt.nodeId);
     if (!task.storyCurrent()) return;
-    adoptSameStoryPayload(state, payload);
+    adoptSameStoryPayload(state, payload, context.cache);
     if (state.tag === prompt
       && prompt.name === submittedName
       && prompt.statusIndex === submittedStatusIndex

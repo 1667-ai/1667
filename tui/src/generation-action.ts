@@ -219,7 +219,7 @@ export async function generate(
     );
     if (result !== null && storyCurrent()) {
       const updated = result.payload;
-      adoptSameStoryPayload(state, updated);
+      adoptSameStoryPayload(state, updated, cache);
       const landed = new Map(state.freshLandedAt);
       const landedId = updated.path.at(-1)?.id;
       if (landedId !== undefined) landed.set(landedId, Date.now());
@@ -267,7 +267,8 @@ export async function generate(
         pendingDraft,
         storyId,
         storyCurrent,
-        settlementMayOwnFocus
+        settlementMayOwnFocus,
+        cache
       );
       adopted = settlement.adopted;
       preserveStoppedStream = settlement.preserveStream;
@@ -307,7 +308,6 @@ export async function generate(
     if (!adopted && interactionCurrent()) {
       state.focusIndex = Math.min(previousFocus, Math.max(0, createStoryViewModel(state.payload).rows.length - 1));
     }
-    cache.invalidate();
     repaint();
   }
 }
@@ -413,7 +413,8 @@ async function settleStoppedGeneration(
   pendingDraft: PendingGenerationDraft | null,
   storyId: string,
   storyCurrent: () => boolean,
-  settlementMayOwnFocus: () => boolean
+  settlementMayOwnFocus: () => boolean,
+  cache: WrapCache<ProseStyle>
 ): Promise<{
   readonly adopted: boolean;
   readonly preserveStream: boolean;
@@ -475,7 +476,7 @@ async function settleStoppedGeneration(
     if (!storyCurrent()) {
       return { adopted: false, preserveStream: false, committed: substantive };
     }
-    adoptSameStoryPayload(state, payload);
+    adoptSameStoryPayload(state, payload, cache);
     if (!substantive) {
       restoreStoppedGenerationDraft(
         state,
@@ -494,7 +495,7 @@ async function settleStoppedGeneration(
     }
     const payload = await source.api.loadStory(storyId).catch(() => null);
     const adopted = payload !== null && storyCurrent();
-    if (adopted) adoptSameStoryPayload(state, payload);
+    if (adopted) adoptSameStoryPayload(state, payload, cache);
     if (substantive) {
       state.stream = stream;
     }

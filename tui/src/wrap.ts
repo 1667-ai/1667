@@ -75,6 +75,14 @@ export interface WrapCache<Style = string> {
     identity?: WrapContentIdentity
   ): void;
   invalidate(partId?: string): void;
+  /** Keep one part's entries across a payload swap. The caller proves the
+   *  part's settled prose is unchanged and names the part's new identity
+   *  source. Entries whose recorded text length disagrees stay untouched
+   *  and miss naturally; stream-tagged entries still need their full
+   *  identity tuple to match before they can hit. */
+  rebind(partId: string, source: object, textLength: number): void;
+  /** Every part id that currently holds at least one entry. */
+  partIds(): string[];
   /** Changes only when complete entries are explicitly invalidated. */
   readonly epoch: number;
   /** Changes whenever an exact cache entry is added, replaced, or invalidated. */
@@ -494,17 +502,23 @@ function clipRuns<Style>(runs: readonly StyleRun<Style>[], start: number, end: n
 }
 
 export function createWrapCache<Style>(): WrapCache<Style> {
-  const values = new Map<string, {
+  interface CacheEntry {
     text: string;
     runs: readonly StyleRun<Style>[];
     lines: WrappedLine<Style>[];
     identity: WrapContentIdentity | undefined;
-  }>();
+  }
+  const parts = new Map<string, Map<number, CacheEntry>>();
   let hits = 0;
   let misses = 0;
   let epoch = 0;
   let revision = 0;
-  const keyFor = (partId: string, width: number) => `${partId}\u0000${width}`;
+  const entryFor = (partId: string, width: number) => parts.get(partId)?.get(width);
+  const store = (partId: string, width: number, entry: CacheEntry) => {
+    let widths = parts.get(partId);
+    if (widths === undefined) parts.set(partId, widths = new Map());
+    widths.set(width, entry);
+  };
   const contentExact = (
     cached: { text: string; identity: WrapContentIdentity | undefined } | undefined,
     text: string,
@@ -525,15 +539,14 @@ export function createWrapCache<Style>(): WrapCache<Style> {
     && sameRuns(cached!.runs, runs);
   return {
     wrap(partId, width, text, runs, identity) {
-      const key = keyFor(partId, width);
-      const cached = values.get(key);
+      const cached = entryFor(partId, width);
       if (exact(cached, text, runs, identity)) {
         hits += 1;
         return cached!.lines;
       }
       misses += 1;
       const wrapped = wrapText(text, runs, width);
-      values.set(key, {
+      store(partId, width, {
         text,
         runs: copyRuns(runs),
         lines: wrapped,
@@ -543,14 +556,14 @@ export function createWrapCache<Style>(): WrapCache<Style> {
       return wrapped;
     },
     lineCount(partId, width, text, identity) {
-      const cached = values.get(keyFor(partId, width));
+      const cached = entryFor(partId, width);
       return contentExact(cached, text, identity) ? cached!.lines.length : null;
     },
     isWarm(partId, width, text, runs, identity) {
-      return exact(values.get(keyFor(partId, width)), text, runs, identity);
+      return exact(entryFor(partId, width), text, runs, identity);
     },
     appendCandidate(partId, width, appendStart) {
-      const cached = values.get(keyFor(partId, width));
+      const cached = entryFor(partId, width);
       const last = cached?.lines.at(-1);
       if (cached === undefined || last === undefined
         || last.start === 0
@@ -566,10 +579,9 @@ export function createWrapCache<Style>(): WrapCache<Style> {
       };
     },
     prime(partId, width, text, runs, lines, identity) {
-      const key = keyFor(partId, width);
-      if (exact(values.get(key), text, runs, identity)) return;
+      if (exact(entryFor(partId, width), text, runs, identity)) return;
       misses += 1;
-      values.set(key, {
+      store(partId, width, {
         text,
         runs: copyRuns(runs),
         lines,
@@ -580,10 +592,17 @@ export function createWrapCache<Style>(): WrapCache<Style> {
     invalidate(partId) {
       epoch += 1;
       revision += 1;
-      if (partId === undefined) return void values.clear();
-      const prefix = `${partId}\u0000`;
-      for (const key of values.keys()) if (key.startsWith(prefix)) values.delete(key);
+      if (partId === undefined) return void parts.clear();
+      parts.delete(partId);
     },
+    rebind(partId, source, textLength) {
+      const widths = parts.get(partId);
+      if (widths === undefined) return;
+      for (const entry of widths.values()) {
+        if (entry.identity?.textLength === textLength) entry.identity.source = source;
+      }
+    },
+    partIds: () => [...parts.keys()],
     get epoch() { return epoch; },
     get revision() { return revision; },
     get hits() { return hits; },

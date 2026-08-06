@@ -217,7 +217,16 @@ async function runSelectionRewrite(
       (tail) => { streamedText += tail; }
     );
     if (controller.signal.aborted) {
-      return await settleStoppedRewrite(state, source, task, node.id, streamedText, pendingDraft, null);
+      return await settleStoppedRewrite(
+        state,
+        source,
+        task,
+        node.id,
+        streamedText,
+        pendingDraft,
+        null,
+        context.cache
+      );
     }
     if (takeId === null) {
       // Not an abort and not an error — the request simply landed nothing.
@@ -239,7 +248,7 @@ async function runSelectionRewrite(
 
     const payload = await source.api.loadStory(task.storyId);
     if (!task.storyCurrent()) return;
-    adoptSameStoryPayload(state, payload);
+    adoptSameStoryPayload(state, payload, context.cache);
     const landed = new Map(state.freshLandedAt);
     landed.set(takeId, Date.now());
     state.freshLandedAt = landed;
@@ -254,7 +263,16 @@ async function runSelectionRewrite(
     state.toast = destination === "take" ? "selection rewritten as a new take" : "selection rewritten in place";
   } catch (error) {
     if (controller.signal.aborted) {
-      await settleStoppedRewrite(state, source, task, node.id, streamedText, pendingDraft, null);
+      await settleStoppedRewrite(
+        state,
+        source,
+        task,
+        node.id,
+        streamedText,
+        pendingDraft,
+        null,
+        context.cache
+      );
     } else if (task.storyCurrent()) {
       if (active.committed) {
         // Only the confirming reload failed; the take itself already landed.
@@ -275,7 +293,8 @@ async function runSelectionRewrite(
           node.id,
           streamedText,
           pendingDraft,
-          error instanceof Error ? error.message : String(error)
+          error instanceof Error ? error.message : String(error),
+          context.cache
         );
       } else {
         restorePendingGenerationDraft(state, pendingDraft, task.interactionCurrent());
@@ -285,7 +304,6 @@ async function runSelectionRewrite(
   } finally {
     if (state.abort === active) state.abort = null;
     if (state.stream === stream) state.stream = null;
-    context.cache.invalidate();
     context.repaint();
   }
 }
@@ -349,7 +367,8 @@ async function settleStoppedRewrite(
   nodeId: string,
   streamedText: string,
   pendingDraft: PendingGenerationDraft,
-  failureMessage: string | null
+  failureMessage: string | null,
+  cache: ActionContext["cache"]
 ): Promise<void> {
   if (!task.storyCurrent()) return;
   let committed: { payload: StoryPayload; nodeId: string } | null = null;
@@ -370,7 +389,7 @@ async function settleStoppedRewrite(
   }
   if (!task.storyCurrent()) return;
   if (committed !== null) {
-    adoptSameStoryPayload(state, committed.payload);
+    adoptSameStoryPayload(state, committed.payload, cache);
     const landed = new Map(state.freshLandedAt);
     landed.set(committed.nodeId, Date.now());
     state.freshLandedAt = landed;
@@ -392,19 +411,20 @@ async function settleStoppedRewrite(
     state.toast = failureMessage;
     return;
   }
-  await reloadAfterStop(state, source, task.storyId, task.storyCurrent);
+  await reloadAfterStop(state, source, task.storyId, task.storyCurrent, cache);
 }
 
 async function reloadAfterStop(
   state: RuntimeState,
   source: AppSource,
   storyId: string,
-  storyCurrent: () => boolean
+  storyCurrent: () => boolean,
+  cache: ActionContext["cache"]
 ): Promise<void> {
   if (!storyCurrent()) return;
   try {
     const payload = await source.api.loadStory(storyId);
-    if (storyCurrent()) adoptSameStoryPayload(state, payload);
+    if (storyCurrent()) adoptSameStoryPayload(state, payload, cache);
     if (state.toast === REWRITE_STOPPING_TOAST
       || state.toast === REWRITE_STOPPING_PARTIAL_TOAST) {
       state.toast = "rewrite stopped · nothing saved";

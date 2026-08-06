@@ -167,10 +167,9 @@ async function saveInlineEditor(
       await context.backend.run("saving Author's Note", async (task) => {
         const payload = await source.api.setAuthorsNote(task.storyId, submitted, requestedDepth);
         if (!task.storyCurrent()) return;
-        adoptSameStoryPayload(state, payload);
+        adoptSameStoryPayload(state, payload, context.cache);
         target.expected = payload.authorsNote ?? "";
         target.expectedDepth = resolveAuthorsNoteDepth(payload.authorsNoteDepth);
-        context.cache.invalidate();
         settleInlineSave(
           state,
           editor,
@@ -219,7 +218,7 @@ async function saveInlineEditor(
         })
         : await source.api.editNode(task.storyId, previous, { ...patch, text });
       if (!task.storyCurrent()) return;
-      adoptSameStoryPayload(state, payload);
+      adoptSameStoryPayload(state, payload, context.cache);
       const landedNode = creating
         ? findCreatedTake(payload, knownNodeIds, target.node.parentId, patch.instruction, text)
         : payload.path.find(({ id }) => id === previous.id)
@@ -241,7 +240,6 @@ async function saveInlineEditor(
           Math.max(0, countWords(text) - countWords(previous.text)));
         state.config = source.config;
       }
-      context.cache.invalidate();
       settleInlineSave(
         state,
         editor,
@@ -266,7 +264,7 @@ async function saveInlineEditor(
         ? await source.api.createNode(task.storyId, { parentId: target.node.parentId, text })
         : await source.api.editNode(task.storyId, previous, { text });
       if (!task.storyCurrent()) return;
-      adoptSameStoryPayload(state, payload);
+      adoptSameStoryPayload(state, payload, context.cache);
       const landedNode = payload.path[target.pathIndex]
         ?? (previous === null ? undefined : payload.path.find(({ id }) => id === previous.id));
       if (landedNode !== undefined) target.savedNode = landedNode;
@@ -281,7 +279,6 @@ async function saveInlineEditor(
         source.config = recordHumanWords(source.config, Math.max(0, countWords(text) - previousWords));
         state.config = source.config;
       }
-      context.cache.invalidate();
       settleInlineSave(state, editor, submitted, "human take saved", true);
     });
     return;
@@ -295,9 +292,8 @@ async function saveInlineEditor(
         task.storyId, target.summaryId, text, target.expected
       );
       if (!task.storyCurrent()) return;
-      adoptSameStoryPayload(state, payload);
+      adoptSameStoryPayload(state, payload, context.cache);
       target.expected = text;
-      context.cache.invalidate();
       settleInlineSave(
         state, editor, submitted, "summary edited · kept until you re-summarize", true
       );
@@ -351,7 +347,7 @@ async function saveFactEditor(
       // set cap — an omitted (undefined) field means "leave it alone".
       : await source.api.patchFact(task.storyId, factId, { ...submitted, budgetTokens: submitted.budgetTokens ?? null });
     if (!task.storyCurrent()) return;
-    adoptSameStoryPayload(state, payload);
+    adoptSameStoryPayload(state, payload, context.cache);
     if (creating) {
       const created = payload.facts.find(({ id, tag, activation, keys, text }) =>
         !previousIds.has(id)
@@ -369,7 +365,6 @@ async function saveFactEditor(
       target.base = payload.facts.find(({ id }) => id === factId) ?? target.base;
     }
     editor.conflict = null;
-    context.cache.invalidate();
     if (state.editor !== editor) return;
     const unchanged = editor.tag.text === submittedTagText
       && editor.activation === submittedActivation
@@ -411,9 +406,8 @@ async function saveScalarFieldEditor(
     await context.backend.run(options.backendLabel, async (task) => {
       const payload = await options.save(task.storyId);
       if (!task.storyCurrent()) return;
-      adoptSameStoryPayload(state, payload);
+      adoptSameStoryPayload(state, payload, context.cache);
       target.expected = options.nextExpected(payload);
-      context.cache.invalidate();
       settleInlineSave(state, editor, submitted, options.toast, true);
     });
   } catch (error) {

@@ -378,7 +378,10 @@ function streamTakePlan(
   );
 }
 
-function wrapInput(node: StoryNode): StoryPartWrapInput {
+/** The canonical projection of a settled node into wrap-plan input. The
+ * invalidation boundary (wrap-invalidation.ts) compares exactly these
+ * fields, so a new field that changes wrapping must land here, not there. */
+export function wrapInput(node: StoryNode): StoryPartWrapInput {
   return {
     id: node.id,
     node,
