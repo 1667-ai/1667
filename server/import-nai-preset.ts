@@ -26,6 +26,10 @@ export function importNovelAiSamplerPresetRecord(raw: Record<string, unknown>): 
     omittedCount += 1;
     fidelity.push(`Sampler Preset sampler ID ${samplerId} not imported; it is unknown`);
   }
+  if (enabled.activeRecognizedSamplerCount >= 2) {
+    omittedCount += 1;
+    fidelity.push("sampler order not imported; target order applies");
+  }
   const mapping: ReadonlyArray<readonly [string, "topP" | "topK" | "minP" | "frequencyPenalty" | "presencePenalty"]> = [
     ["top_p", "topP"], ["top_k", "topK"], ["min_p", "minP"],
     ["repetition_penalty_frequency", "frequencyPenalty"],
@@ -169,10 +173,13 @@ interface SamplerOrder {
   readonly enabled: ReadonlyMap<string, boolean>;
   readonly numeric: boolean;
   readonly unknownNumericIds: readonly number[];
+  readonly activeRecognizedSamplerCount: number;
 }
 
 function enabledOrder(value: unknown): SamplerOrder {
-  if (value === undefined) return { enabled: new Map(), numeric: false, unknownNumericIds: [] };
+  if (value === undefined) {
+    return { enabled: new Map(), numeric: false, unknownNumericIds: [], activeRecognizedSamplerCount: 0 };
+  }
   if (!Array.isArray(value)) throw new Error("Sampler Preset has an invalid order");
   if (value.every((item) => typeof item === "number" && Number.isInteger(item))) {
     const enabled = new Map<string, boolean>();
@@ -185,13 +192,22 @@ function enabledOrder(value: unknown): SamplerOrder {
         enabled.set(sampler, true);
       }
     }
-    return { enabled, numeric: true, unknownNumericIds };
+    return {
+      enabled,
+      numeric: true,
+      unknownNumericIds,
+      activeRecognizedSamplerCount: enabled.size
+    };
   }
   if (!value.every(isObjectSamplerOrderEntry)) throw new Error("Sampler Preset has an invalid order");
+  const enabled = new Map(value.map((entry) => [entry.id, entry.enabled] as const));
   return {
-    enabled: new Map(value.map((entry) => [entry.id, entry.enabled] as const)),
+    enabled,
     numeric: false,
-    unknownNumericIds: []
+    unknownNumericIds: [],
+    activeRecognizedSamplerCount: [...enabled].filter(
+      ([sampler, isActive]) => isActive && NUMERIC_SAMPLER_ORDER_NAMES.has(sampler)
+    ).length
   };
 }
 

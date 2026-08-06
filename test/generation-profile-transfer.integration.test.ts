@@ -18,6 +18,7 @@ import {
   readProfileTransferFile
 } from "../server/profile-transfer-decoder.js";
 import { samplingBiasPresetRules } from "../shared/sampling-capabilities.js";
+import { EMPTY_SAMPLING_V2, type SamplingPhraseBiasEntryV2 } from "../shared/settings-v2-types.js";
 import {
   generationEffortAvailabilityForTarget,
   generationEffortChoicesForTarget
@@ -71,9 +72,10 @@ test("Sampler Preset uses order, protects foreign token IDs, and fits the select
   assert.equal(profile.sampling?.minP, null);
   assert.equal(profile.sampling?.frequencyPenalty, 2);
   assert.equal(fitted.importedCount, 3);
-  assert.equal(fitted.candidateCount, 5);
+  assert.equal(fitted.candidateCount, 6);
   assert.match(fitted.fidelity.join("; "), /NovelAI token-ID parameters not imported/u);
   assert.match(fitted.fidelity.join("; "), /min p disabled/u);
+  assert.match(fitted.fidelity.join("; "), /sampler order not imported; target order applies/u);
   validateSamplingRoute(
     "default",
     profile,
@@ -110,6 +112,8 @@ test("Sampler Preset v3 numeric order enables only its listed samplers", () => {
   });
   assert.match(candidate.fidelity?.join("; ") ?? "", /top p disabled in the Sampler Preset skipped/u);
   assert.match(candidate.fidelity?.join("; ") ?? "", /top k disabled in the Sampler Preset skipped/u);
+  assert.equal(candidate.omittedCount, 1);
+  assert.match(candidate.fidelity?.join("; ") ?? "", /sampler order not imported; target order applies/u);
 
   const fitted = fitProfileToRoute(openAiDocument(), "default", candidate);
   assert.equal(fitted.document.profiles.default?.temperature, 0.7);
@@ -134,6 +138,37 @@ test("Sampler Preset numeric order ignores unknown sampler IDs", () => {
   assert.equal(candidate.sampling?.topP, undefined);
   assert.equal(candidate.omittedCount, 1);
   assert.match(candidate.fidelity?.join("; ") ?? "", /sampler ID 99 not imported; it is unknown/u);
+});
+
+test("Sampler Preset reports sampler order only when two known samplers are active", () => {
+  const objectOrder = importNovelAiSamplerPreset(JSON.stringify({
+    presetVersion: 7,
+    parameters: {
+      temperature: 0.7,
+      top_p: 0.9,
+      min_p: 0.1,
+      order: [
+        { id: "temperature", enabled: true },
+        { id: "top_p", enabled: true },
+        { id: "min_p", enabled: false }
+      ]
+    }
+  }));
+  assert.equal(objectOrder.omittedCount, 1);
+  assert.equal(
+    objectOrder.fidelity?.filter((message) => message === "sampler order not imported; target order applies").length,
+    1
+  );
+
+  const oneActive = importNovelAiSamplerPreset(JSON.stringify({
+    presetVersion: 7,
+    parameters: {
+      temperature: 0.7,
+      order: [{ id: "temperature", enabled: true }]
+    }
+  }));
+  assert.equal(oneActive.omittedCount, 0);
+  assert.doesNotMatch(oneActive.fidelity?.join("; ") ?? "", /sampler order not imported/u);
 });
 
 test("Sampler Preset rejects malformed numeric orders without enabling stored samplers", () => {
@@ -388,6 +423,51 @@ test("Profile Export round trips behavior and omits connection data", () => {
   assert.deepEqual(roundTrip.document.profiles.default, fitted.document.profiles.default);
 });
 
+test("Profile Export omits vocabulary-specific raw logit bias and preserves text bias", () => {
+  const withoutRawBias = exportGenerationProfile(openAiDocument(), "default");
+  assert.doesNotMatch(withoutRawBias.fidelity.join("; "), /raw logit bias omitted/u);
+  assert.match(
+    withoutRawBias.fidelity.join("; "),
+    /connection, credentials, and headers omitted; the file carries generation behavior only/u
+  );
+
+  const source = fitProfileToRoute(openAiDocument(), "default", {
+    name: "Portable bias",
+    sampling: {
+      logitBias: { "123": -100 },
+      phraseBias: [{ phrase: "harbor", weight: 2 }],
+      bannedStrings: ["slop"]
+    }
+  });
+  const exported = exportGenerationProfile(source.document, "default");
+  const payload = JSON.parse(exported.text) as { sampling: Record<string, unknown> };
+  assert.equal(payload.sampling.logitBias, undefined);
+  assert.deepEqual(payload.sampling.phraseBias, [{ phrase: "harbor", weight: 2 }]);
+  assert.deepEqual(payload.sampling.bannedStrings, ["slop"]);
+  assert.match(exported.fidelity.join("; "), /raw logit bias omitted; token IDs require source tokenizer identity/u);
+
+  const portable = importProfileExport(exported.text);
+  assert.equal(portable.sampling?.logitBias, undefined);
+  assert.deepEqual(portable.sampling?.phraseBias, [{ phrase: "harbor", weight: 2 }]);
+  assert.deepEqual(portable.sampling?.bannedStrings, ["slop"]);
+
+  const legacy = importProfileExport(JSON.stringify({
+    profileExportVersion: 1,
+    name: "Legacy raw IDs",
+    generation: {},
+    sampling: {
+      logitBias: { "987": -100 },
+      phraseBias: [{ phrase: "harbor", weight: 2 }]
+    }
+  }));
+  assert.equal(legacy.sampling?.logitBias, undefined);
+  assert.equal(legacy.omittedCount, 1);
+  assert.match(legacy.fidelity?.join("; ") ?? "", /raw logit bias not imported; token IDs require source tokenizer identity/u);
+  const imported = fitProfileToRoute(openAiDocument(), "default", legacy);
+  assert.deepEqual(imported.document.profiles.default?.sampling?.logitBias, {});
+  assert.deepEqual(imported.document.profiles.default?.sampling?.phraseBias, [{ phrase: "harbor", weight: 2 }]);
+});
+
 test("Profile Export transfers token probabilities and clears an omitted count", () => {
   const source = {
     ...openAiDocument(),
@@ -556,12 +636,6 @@ test("Profile transfer enforces the deterministic raw logit-bias limit by target
   const entries = (count: number) => Object.fromEntries(
     Array.from({ length: count }, (_, index) => [String(index + 1), 1])
   );
-  const profileExport = (logitBias: Readonly<Record<string, number>>) => JSON.stringify({
-    profileExportVersion: 1,
-    name: "Raw bias",
-    generation: {},
-    sampling: { topP: 0.9, logitBias }
-  });
   const officialOpenAi = {
     ...openAiDocument(),
     connections: {
@@ -578,9 +652,13 @@ test("Profile transfer enforces the deterministic raw logit-bias limit by target
       }
     }
   };
-  const source = fitProfileToRoute(officialOpenAi, "default", importProfileExport(profileExport(entries(17))));
+  const source = fitProfileToRoute(officialOpenAi, "default", {
+    name: "Raw bias",
+    sampling: { topP: 0.9, logitBias: entries(17) }
+  });
   const exported = exportGenerationProfile(source.document, "default");
   assert.equal(Object.keys(source.document.profiles.default?.sampling?.logitBias ?? {}).length, 17);
+  assert.doesNotMatch(exported.text, /logitBias/u);
 
   const kobold = {
     ...openAiDocument(),
@@ -591,7 +669,10 @@ test("Profile transfer enforces the deterministic raw logit-bias limit by target
       }
     }
   };
-  const dropped = fitProfileToRoute(kobold, "default", importProfileExport(exported.text));
+  const dropped = fitProfileToRoute(kobold, "default", {
+    name: "Raw bias",
+    sampling: { topP: 0.9, logitBias: entries(17) }
+  });
   const droppedProfile = dropped.document.profiles.default!;
   assert.equal(droppedProfile.sampling?.topP, 0.9);
   assert.deepEqual(droppedProfile.sampling?.logitBias, {});
@@ -607,7 +688,10 @@ test("Profile transfer enforces the deterministic raw logit-bias limit by target
     dropped.document.connections[dropped.document.models[droppedProfile.modelId]!.connectionId]!
   );
 
-  const accepted = fitProfileToRoute(kobold, "default", importProfileExport(profileExport(entries(16))));
+  const accepted = fitProfileToRoute(kobold, "default", {
+    name: "Raw bias",
+    sampling: { topP: 0.9, logitBias: entries(16) }
+  });
   const acceptedProfile = accepted.document.profiles.default!;
   assert.equal(Object.keys(acceptedProfile.sampling?.logitBias ?? {}).length, 16);
   assert.equal(accepted.importedCount, accepted.candidateCount);
@@ -616,6 +700,181 @@ test("Profile transfer enforces the deterministic raw logit-bias limit by target
     acceptedProfile,
     accepted.document.models[acceptedProfile.modelId]!,
     accepted.document.connections[accepted.document.models[acceptedProfile.modelId]!.connectionId]!
+  );
+});
+
+test("Profile transfer keeps text bias within the target resolved logit-bias limit", () => {
+  const phraseBias: readonly SamplingPhraseBiasEntryV2[] = Array.from(
+    { length: 17 },
+    (_, index) => ({ phrase: `bias-${index}`, weight: 1 })
+  );
+  const sampling = { ...EMPTY_SAMPLING_V2, phraseBias };
+  const tokenizer = (text: string) => ({
+    kind: "single-token" as const,
+    tokenId: Number(text.trim().split("-")[1]) + 1
+  });
+  const kobold = {
+    ...openAiDocument(),
+    connections: {
+      "builtin:dry-run": {
+        ...openAiDocument().connections["builtin:dry-run"]!,
+        preset: "koboldcpp" as const
+      }
+    }
+  };
+  const overLimitResolution = resolveSamplingLogitBias(
+    combineSamplingBiasSources(sampling),
+    tokenizer,
+    samplingBiasPresetRules("koboldcpp")
+  );
+  const unsafeProfile = { ...kobold.profiles.default!, sampling };
+  assert.throws(
+    () => validateSamplingRoute(
+      "default",
+      unsafeProfile,
+      kobold.models["builtin:dry-run"]!,
+      kobold.connections["builtin:dry-run"]!,
+      overLimitResolution
+    ),
+    /resolves to 17 logit-bias entries, exceeding the 16-entry limit for preset koboldcpp/u
+  );
+
+  const overLimit = fitProfileToRoute(kobold, "default", {
+    name: "Over limit text bias",
+    sampling: { phraseBias }
+  }, { samplingBiasResolution: overLimitResolution });
+  assert.equal(overLimit.document.profiles.default?.sampling, undefined);
+  assert.equal(overLimit.importedCount, 0);
+  assert.equal(overLimit.candidateCount, 1);
+  assert.match(
+    overLimit.fidelity.join("; "),
+    /phrase bias not imported; 17 resolved logit-bias entries exceed the 16-entry limit for preset koboldcpp/u
+  );
+  validateSamplingRoute(
+    "default",
+    overLimit.document.profiles.default!,
+    overLimit.document.models[overLimit.document.profiles.default!.modelId]!,
+    overLimit.document.connections[overLimit.document.models[overLimit.document.profiles.default!.modelId]!.connectionId]!
+  );
+
+  const nativeBans = Array.from({ length: 200 }, (_, index) => `native-ban-${index}`);
+  const overLimitWithNativeBans = fitProfileToRoute(kobold, "default", {
+    name: "Over limit text bias with native bans",
+    sampling: { phraseBias, bannedStrings: nativeBans }
+  }, { samplingBiasResolution: overLimitResolution });
+  assert.deepEqual(overLimitWithNativeBans.document.profiles.default?.sampling?.phraseBias, []);
+  assert.deepEqual(overLimitWithNativeBans.document.profiles.default?.sampling?.bannedStrings, nativeBans);
+  assert.equal(overLimitWithNativeBans.importedCount, 1);
+  assert.equal(overLimitWithNativeBans.candidateCount, 2);
+
+  const safePhraseBias = phraseBias.slice(0, 4);
+  const safe = fitProfileToRoute(kobold, "default", {
+    name: "Safe text bias",
+    sampling: { phraseBias: safePhraseBias }
+  });
+  assert.deepEqual(safe.document.profiles.default?.sampling?.phraseBias, safePhraseBias);
+  const safeResolution = resolveSamplingLogitBias(
+    combineSamplingBiasSources({ ...EMPTY_SAMPLING_V2, phraseBias: safePhraseBias }),
+    tokenizer,
+    samplingBiasPresetRules("koboldcpp")
+  );
+  validateSamplingRoute(
+    "default",
+    safe.document.profiles.default!,
+    safe.document.models[safe.document.profiles.default!.modelId]!,
+    safe.document.connections[safe.document.models[safe.document.profiles.default!.modelId]!.connectionId]!,
+    safeResolution
+  );
+
+  const normal = fitProfileToRoute(openAiDocument(), "default", {
+    name: "Normal preset text bias",
+    sampling: { phraseBias }
+  });
+  assert.deepEqual(normal.document.profiles.default?.sampling?.phraseBias, phraseBias);
+  const normalResolution = resolveSamplingLogitBias(
+    combineSamplingBiasSources(sampling),
+    tokenizer,
+    samplingBiasPresetRules("llama-cpp")
+  );
+  validateSamplingRoute(
+    "default",
+    normal.document.profiles.default!,
+    normal.document.models[normal.document.profiles.default!.modelId]!,
+    normal.document.connections[normal.document.models[normal.document.profiles.default!.modelId]!.connectionId]!,
+    normalResolution
+  );
+});
+
+test("Profile transfer omits canonical text-bias rejections before fitting", () => {
+  const rejectedSampling = {
+    ...EMPTY_SAMPLING_V2,
+    phraseBias: [{ phrase: "unknown-token", weight: 1 }]
+  };
+  const rejectedResolution = resolveSamplingLogitBias(
+    combineSamplingBiasSources(rejectedSampling),
+    () => ({ kind: "unencodable" as const }),
+    samplingBiasPresetRules("llama-cpp")
+  );
+  const rejected = fitProfileToRoute(openAiDocument(), "default", {
+    name: "Rejected phrase",
+    sampling: { phraseBias: rejectedSampling.phraseBias }
+  }, { samplingBiasResolution: rejectedResolution });
+  assert.equal(rejected.document.profiles.default?.sampling, undefined);
+  assert.equal(rejected.importedCount, 0);
+  assert.equal(rejected.candidateCount, 1);
+  assert.match(
+    rejected.fidelity.join("; "),
+    /phrase bias not imported; "unknown-token" has no exact token/u
+  );
+  validateSamplingRoute(
+    "default",
+    rejected.document.profiles.default!,
+    rejected.document.models[rejected.document.profiles.default!.modelId]!,
+    rejected.document.connections[rejected.document.models[rejected.document.profiles.default!.modelId]!.connectionId]!
+  );
+
+  const nativeSampling = {
+    ...EMPTY_SAMPLING_V2,
+    logitBias: { "1": 1 },
+    phraseBias: [{ phrase: "ember", weight: 1 }],
+    bannedStrings: ["ember"]
+  };
+  const nativeResolution = resolveSamplingLogitBias(
+    combineSamplingBiasSources(nativeSampling),
+    () => ({ kind: "single-token" as const, tokenId: 1 }),
+    samplingBiasPresetRules("koboldcpp")
+  );
+  const kobold = {
+    ...openAiDocument(),
+    connections: {
+      "builtin:dry-run": {
+        ...openAiDocument().connections["builtin:dry-run"]!,
+        preset: "koboldcpp" as const
+      }
+    }
+  };
+  const native = fitProfileToRoute(kobold, "default", {
+    name: "Blocked native ban",
+    sampling: {
+      logitBias: nativeSampling.logitBias,
+      phraseBias: nativeSampling.phraseBias,
+      bannedStrings: nativeSampling.bannedStrings
+    }
+  }, { samplingBiasResolution: nativeResolution });
+  assert.deepEqual(native.document.profiles.default?.sampling?.phraseBias, nativeSampling.phraseBias);
+  assert.deepEqual(native.document.profiles.default?.sampling?.bannedStrings, []);
+  assert.deepEqual(native.document.profiles.default?.sampling?.logitBias, nativeSampling.logitBias);
+  assert.equal(native.importedCount, 2);
+  assert.equal(native.candidateCount, 3);
+  assert.match(
+    native.fidelity.join("; "),
+    /banned strings not imported; "ember" conflicts with an explicit numeric logit-bias entry in the same scope/u
+  );
+  validateSamplingRoute(
+    "default",
+    native.document.profiles.default!,
+    native.document.models[native.document.profiles.default!.modelId]!,
+    native.document.connections[native.document.models[native.document.profiles.default!.modelId]!.connectionId]!
   );
 });
 
@@ -692,9 +951,9 @@ test("Profile transfer applies the native banned-string limit only to KoboldCpp"
   const tokenized = fitProfileToRoute(
     openAiDocument(),
     "default",
-    importProfileExport(profileExport(entries(201)))
+    importProfileExport(profileExport(entries(50)))
   );
-  assert.equal(tokenized.document.profiles.default?.sampling?.bannedStrings.length, 201);
+  assert.equal(tokenized.document.profiles.default?.sampling?.bannedStrings.length, 50);
   assert.equal(tokenized.importedCount, tokenized.candidateCount);
 });
 

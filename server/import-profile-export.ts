@@ -14,7 +14,6 @@ import { samplingKnobValueIsSet } from "../shared/sampling-capabilities.js";
 import {
   validateSamplingBannedStrings,
   validateSamplingDryBreakers,
-  validateSamplingLogitBias,
   validateSamplingPhraseBias,
   validateSamplingScalarOrNull,
   validateSamplingStopSequences
@@ -31,15 +30,24 @@ export interface ProfileExport { readonly extension: ".profile.json"; readonly t
 export function exportGenerationProfile(document: SettingsDocumentV2, profileId: string): ProfileExport {
   const route = resolveSettingsProfile(document, profileId);
   const { profile } = route;
+  const hasRawLogitBias = profile.sampling !== undefined
+    && samplingKnobValueIsSet(profile.sampling, "logitBias");
   const sampling = profile.sampling === undefined ? {} : Object.fromEntries(
     SAMPLING_KNOB_V2_VALUES
+      // Raw token IDs only have meaning for the source tokenizer. Profile
+      // Exports deliberately omit route and model identity, so retaining
+      // them would silently bias different tokens on import.
+      .filter((knob) => knob !== "logitBias")
       .filter((knob) => samplingKnobValueIsSet(profile.sampling!, knob))
       .map((knob) => [knob, profile.sampling![knob]])
   );
   return {
     extension: ".profile.json",
     text: `${canonicalJson({ profileExportVersion: 1, name: profile.name, generation: { temperature: profile.temperature, maxOutputTokens: profile.maxOutputTokens, effort: profile.effort, cachePolicy: profile.cachePolicy, ...(profile.tokenProbabilities === undefined ? {} : { tokenProbabilities: profile.tokenProbabilities }) }, sampling })}\n`,
-    fidelity: ["connection, credentials, and headers omitted; the file carries generation behavior only"]
+    fidelity: [
+      "connection, credentials, and headers omitted; the file carries generation behavior only",
+      ...(hasRawLogitBias ? ["raw logit bias omitted; token IDs require source tokenizer identity"] : [])
+    ]
   };
 }
 
@@ -83,6 +91,7 @@ export function importProfileExportRecord(raw: Record<string, unknown>): Profile
       "Profile Export generation.tokenProbabilities",
       MAX_ALTERNATIVE_TOKENS
     );
+  const parsedSampling = parseSampling(sampling);
   return {
     name: raw.name,
     ...(temperature === undefined ? {} : { temperature }),
@@ -90,11 +99,17 @@ export function importProfileExportRecord(raw: Record<string, unknown>): Profile
     ...(effort === undefined ? {} : { effort }),
     ...(cachePolicy === undefined ? {} : { cachePolicy }),
     tokenProbabilities,
-    sampling: parseSampling(sampling)
+    sampling: parsedSampling.sampling,
+    ...(parsedSampling.omittedCount === 0 ? {} : { omittedCount: parsedSampling.omittedCount }),
+    ...(parsedSampling.fidelity.length === 0 ? {} : { fidelity: parsedSampling.fidelity })
   };
 }
 
-function parseSampling(raw: Record<string, unknown>): Partial<SamplingSettingsV2> {
+function parseSampling(raw: Record<string, unknown>): {
+  readonly sampling: Partial<SamplingSettingsV2>;
+  readonly omittedCount: number;
+  readonly fidelity: readonly string[];
+} {
   rejectUnknownFields(raw, SAMPLING_KNOB_V2_VALUES, "Profile Export sampling");
   const sampling: { -readonly [Key in keyof SamplingSettingsV2]?: SamplingSettingsV2[Key] } = {};
   for (const knob of SAMPLING_SCALAR_KNOB_V2_VALUES) {
@@ -103,11 +118,18 @@ function parseSampling(raw: Record<string, unknown>): Partial<SamplingSettingsV2
     if (value !== null) Object.assign(sampling, { [knob]: value });
   }
   if (raw.stop !== undefined) sampling.stop = validateSamplingStopSequences(raw.stop, "Profile Export sampling.stop");
-  if (raw.logitBias !== undefined) sampling.logitBias = validateSamplingLogitBias(raw.logitBias, "Profile Export sampling.logitBias");
+  // Version 1 files can contain this field from before Profile Exports became
+  // route-neutral. Do not validate or apply foreign token identifiers.
   if (raw.bannedStrings !== undefined) sampling.bannedStrings = validateSamplingBannedStrings(raw.bannedStrings, "Profile Export sampling.bannedStrings");
   if (raw.phraseBias !== undefined) sampling.phraseBias = validateSamplingPhraseBias(raw.phraseBias, "Profile Export sampling.phraseBias");
   if (raw.dryBreakers !== undefined) sampling.dryBreakers = validateSamplingDryBreakers(raw.dryBreakers, "Profile Export sampling.dryBreakers");
-  return sampling;
+  return {
+    sampling,
+    omittedCount: Number(raw.logitBias !== undefined),
+    fidelity: raw.logitBias === undefined
+      ? []
+      : ["raw logit bias not imported; token IDs require source tokenizer identity"]
+  };
 }
 
 /** Version 1 exports once carried route data. Validate, then discard it. */

@@ -15,13 +15,21 @@ import {
 } from "./model-scalar-resolution.js";
 import {
   applySamplingSettings,
+  firstBlockedNativeBannedString,
+  firstBlockingSamplingBiasEntry,
   resolveSamplingKnob,
+  samplingBiasPresetRules,
+  samplingBiasEntryRejectionMessage,
+  samplingBiasNativeBlockedMessage,
   samplingContextForRoute,
   samplingKnobLabel,
   samplingKnobValueIsSet,
-  samplingUnavailableReasonCompact
+  samplingUnavailableReasonCompact,
+  SAMPLING_BIAS_VARIANT_VALUES,
+  type SamplingBiasResolutionResult
 } from "./sampling-capabilities.js";
 import {
+  maxResolvedLogitBiasEntries,
   nativeBannedStringsLimit,
   rawLogitBiasLimit,
   SAMPLING_SCALAR_DESCRIPTORS
@@ -62,6 +70,8 @@ export interface FittedProfileTransfer {
 /** Optional model metadata supplied by an import path that owns it. */
 export interface ProfileTransferFitOptions {
   readonly modelMetadata?: ModelScalarMetadataSourcesV2;
+  /** A canonical resolution of the offered text-bias settings, when the caller owns it. */
+  readonly samplingBiasResolution?: SamplingBiasResolutionResult;
 }
 
 /** Apply a candidate to an already-created profile. The route owns capability filtering. */
@@ -73,7 +83,12 @@ export function fitProfileToRoute(
 ): FittedProfileTransfer {
   const route = resolveSettingsProfile(document, profileId);
   const fidelity = [...(candidate.fidelity ?? [])];
-  const samplingFit = fitSamplingToRoute(route, candidate.sampling, fidelity);
+  const samplingFit = fitSamplingToRoute(
+    route,
+    candidate.sampling,
+    fidelity,
+    options.samplingBiasResolution
+  );
   let importedCount = samplingFit.importedCount;
   let candidateCount = (candidate.omittedCount ?? 0) + samplingFit.candidateCount;
   const countCandidate = (): void => { candidateCount += 1; };
@@ -179,7 +194,8 @@ type SamplingFitOperation =
 function fitSamplingToRoute(
   route: SelectedSettingsRouteV2,
   offered: Partial<SamplingSettingsV2> | undefined,
-  fidelity: string[]
+  fidelity: string[],
+  precomputedResolution: SamplingBiasResolutionResult | undefined
 ): SamplingFit {
   const values: SamplingSettingsV2 = { ...EMPTY_SAMPLING_V2, ...(offered ?? {}) };
   // Mirostat's child knobs resolve against its mode in the candidate.
@@ -198,7 +214,127 @@ function fitSamplingToRoute(
     sampling = operation.sampling;
     importedCount += 1;
   }
-  return { sampling, importedCount, candidateCount };
+  const withoutBlocking = omitBlockedTextBias(
+    sampling,
+    importedCount,
+    candidateCount,
+    fidelity,
+    precomputedResolution
+  );
+  return omitOverLimitTextBias(
+    route,
+    withoutBlocking.sampling,
+    withoutBlocking.importedCount,
+    withoutBlocking.candidateCount,
+    fidelity,
+    withoutBlocking.omitted ? undefined : precomputedResolution
+  );
+}
+
+interface BlockingTextBiasFit extends SamplingFit {
+  readonly omitted: boolean;
+}
+
+/** A supplied canonical result can name text values the target route rejects. */
+function omitBlockedTextBias(
+  sampling: SamplingSettingsV2,
+  importedCount: number,
+  candidateCount: number,
+  fidelity: string[],
+  precomputedResolution: SamplingBiasResolutionResult | undefined
+): BlockingTextBiasFit {
+  if (precomputedResolution?.kind !== "resolved") {
+    return { sampling, importedCount, candidateCount, omitted: false };
+  }
+  const blockedPhrase = firstBlockingSamplingBiasEntry(precomputedResolution.phraseBias, []);
+  const blockedBanned = firstBlockingSamplingBiasEntry([], precomputedResolution.bannedStrings);
+  const blockedNative = firstBlockedNativeBannedString(precomputedResolution.nativeBannedStrings);
+  const omitPhrase = blockedPhrase !== undefined && samplingKnobValueIsSet(sampling, "phraseBias");
+  const omitBanned = (blockedBanned !== undefined || blockedNative !== undefined)
+    && samplingKnobValueIsSet(sampling, "bannedStrings");
+  if (!omitPhrase && !omitBanned) return { sampling, importedCount, candidateCount, omitted: false };
+
+  if (omitPhrase) {
+    fidelity.push(`phrase bias not imported; ${samplingBiasEntryRejectionMessage(blockedPhrase!)}`);
+  }
+  if (blockedBanned !== undefined && omitBanned) {
+    fidelity.push(`banned strings not imported; ${samplingBiasEntryRejectionMessage(blockedBanned)}`);
+  }
+  if (blockedNative !== undefined && omitBanned) {
+    fidelity.push(`banned strings not imported; ${samplingBiasNativeBlockedMessage(blockedNative)}`);
+  }
+  return {
+    sampling: {
+      ...sampling,
+      ...(omitPhrase ? { phraseBias: EMPTY_SAMPLING_V2.phraseBias } : {}),
+      ...(omitBanned ? { bannedStrings: EMPTY_SAMPLING_V2.bannedStrings } : {})
+    },
+    importedCount: importedCount - Number(omitPhrase) - Number(omitBanned),
+    candidateCount,
+    omitted: true
+  };
+}
+
+/**
+ * Text bias resolves into the same provider `logit_bias` object as raw IDs.
+ * Use a caller-owned canonical result when available. Otherwise the shared
+ * variant list gives a conservative ceiling without adding a tokenizer here.
+ */
+function omitOverLimitTextBias(
+  route: SelectedSettingsRouteV2,
+  sampling: SamplingSettingsV2,
+  importedCount: number,
+  candidateCount: number,
+  fidelity: string[],
+  precomputedResolution: SamplingBiasResolutionResult | undefined
+): SamplingFit {
+  const configured = (["phraseBias", "bannedStrings"] as const).filter((knob) =>
+    samplingKnobValueIsSet(sampling, knob)
+  );
+  if (configured.length === 0) return { sampling, importedCount, candidateCount };
+
+  const preset = route.connection.preset;
+  const rules = samplingBiasPresetRules(preset);
+  // KoboldCpp sends literal banned strings in `banned_tokens`, not the
+  // bounded `logit_bias` object. Keep an accepted native list if phrase bias
+  // is the only value that exceeds the separate resolved-token limit.
+  const bounded = configured.filter((knob) =>
+    knob === "phraseBias" || rules.bannedStringsTransport !== "native"
+  );
+  if (bounded.length === 0) return { sampling, importedCount, candidateCount };
+  const limit = maxResolvedLogitBiasEntries(preset);
+  const resolvedEntries = precomputedResolution?.kind === "resolved"
+    ? precomputedResolution.resolvedEntryCount
+    : undefined;
+  const possibleEntries = resolvedEntries ?? maximumTextBiasEntries(sampling, preset);
+  if (possibleEntries <= limit) return { sampling, importedCount, candidateCount };
+
+  const names = bounded.map((knob) => samplingKnobLabel(knob)).join(" and ");
+  fidelity.push(
+    resolvedEntries === undefined
+      ? `${names} not imported; up to ${possibleEntries} logit-bias entries can resolve, exceeding the ${limit}-entry limit for preset ${preset}`
+      : `${names} not imported; ${resolvedEntries} resolved logit-bias entries exceed the ${limit}-entry limit for preset ${preset}`
+  );
+  return {
+    sampling: {
+      ...sampling,
+      phraseBias: EMPTY_SAMPLING_V2.phraseBias,
+      ...(bounded.includes("bannedStrings") ? { bannedStrings: EMPTY_SAMPLING_V2.bannedStrings } : {})
+    },
+    importedCount: importedCount - bounded.length,
+    candidateCount
+  };
+}
+
+function maximumTextBiasEntries(
+  sampling: SamplingSettingsV2,
+  preset: SelectedSettingsRouteV2["connection"]["preset"]
+): number {
+  const textVariants = SAMPLING_BIAS_VARIANT_VALUES.length;
+  const bannedStrings = samplingBiasPresetRules(preset).bannedStringsTransport === "native"
+    ? 0
+    : sampling.bannedStrings.length * textVariants;
+  return Object.keys(sampling.logitBias).length + sampling.phraseBias.length * textVariants + bannedStrings;
 }
 
 function fitSamplingKnob(
