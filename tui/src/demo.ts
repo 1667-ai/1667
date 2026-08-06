@@ -742,6 +742,9 @@ export function demoStoryApi(demo: DemoController): StoryApi {
       onCommitted?.(result.nodeId);
       return result.nodeId;
     },
+    // The demo fixture stashes no partials; a settle after a stop reports
+    // nothing committed, the same shape a restarted backend gives.
+    commitPartialRewrite: async () => null,
     createSummaryTake: async (_storyId, _body, onDelta, signal) => {
       let landed = "";
       for await (const delta of streamFake(DEMO_SUMMARY_TEXT, { wpm: 700, signal })) {

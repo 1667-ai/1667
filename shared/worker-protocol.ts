@@ -249,6 +249,14 @@ export interface WorkerMethodContract {
     output: { payload: StoryPayload; droppedFacts: readonly FactBudgetDrop[] } | null;
   };
   rewriteNode: { input: { storyId: string; nodeId: string; body: RewriteRequest }; output: string | null };
+  /** Settle a stopped or timed-out rewrite's stashed partial (issue #339).
+   * `streamedText` is the exact prose the caller watched stream; the server
+   * commits only when it matches the stashed record. null = nothing was
+   * stashed or the bytes differ; nothing changed. */
+  commitPartialRewrite: {
+    input: { storyId: string; nodeId: string; streamedText: string };
+    output: { payload: StoryPayload; nodeId: string } | null;
+  };
   createSummaryTake: {
     input: { storyId: string; body: { nodeId: string; offset?: number; expected?: string } };
     output: string | null;
@@ -265,7 +273,7 @@ export type MutatingWorkerMethod =
   | "createNode" | "editNode" | "deleteNode" | "pruneUnusedTakes" | "takeFromCut"
   | "putBookmark" | "deleteBookmark" | "createFact" | "patchFact" | "deleteFact" | "reorderFact"
   | "createChapterBreak" | "renameChapterBreak" | "removeChapterBreak" | "restoreChapterBreak" | "summarizeChapter"
-  | "importSillyTavern" | "importMarkdown" | "importNovelAI" | "importScenario" | "importLorebook" | "importCard" | "continueStory" | "rewriteNode" | "createSummaryTake";
+  | "importSillyTavern" | "importMarkdown" | "importNovelAI" | "importScenario" | "importLorebook" | "importCard" | "continueStory" | "rewriteNode" | "commitPartialRewrite" | "createSummaryTake";
 
 export const STREAM_METHODS: ReadonlySet<WorkerMethod> = new Set([
   "continueStory", "rewriteNode", "createSummaryTake"
@@ -292,7 +300,7 @@ export const MUTATING_METHODS: ReadonlySet<MutatingWorkerMethod> = new Set([
   "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
-  "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "importCard", "continueStory", "rewriteNode", "createSummaryTake"
+  "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "importCard", "continueStory", "rewriteNode", "commitPartialRewrite", "createSummaryTake"
 ]);
 
 export function isMutatingWorkerMethod(method: WorkerMethod): method is MutatingWorkerMethod {
@@ -312,7 +320,7 @@ export function isMutatingWorkerMethod(method: WorkerMethod): method is Mutating
  */
 export const LOCAL_DURABILITY_MUTATION_METHODS = [
   "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "setPhraseBias", "setBannedStrings", "switchLine",
-  "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
+  "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut", "commitPartialRewrite",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "importLorebook", "importCard"
 ] as const satisfies readonly MutatingWorkerMethod[];
@@ -345,6 +353,8 @@ export function isLocalDurabilityMutation(
  *   paid streamed prose held only in caller memory.
  * - `restoreChapterBreak` re-installs removed summary nodes whose text may
  *   be paid provider output already deleted from the store.
+ * - `commitPartialRewrite` settles a stopped or timed-out rewrite; its
+ *   text is paid streamed prose held only in process memory.
  *
  * Malformed inputs are not eligible: they fail toward the full tier, whose
  * validation rejects them with the mutation identity durably fenced.
@@ -355,6 +365,7 @@ export function isManifestOnlyDurabilityEligible(
 ): method is LocalDurabilityMutationMethod {
   if (!isLocalDurabilityMutation(method)) return false;
   if (method === "restoreChapterBreak") return false;
+  if (method === "commitPartialRewrite") return false;
   if (method === "createNode") return !createNodeCarriesGeneration(input);
   return true;
 }
@@ -528,7 +539,7 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "discoverModels", "resolveSamplingBias", "countPromptTokens",
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "importCard", "continueStory",
 
-  "rewriteNode", "createSummaryTake"
+  "rewriteNode", "commitPartialRewrite", "createSummaryTake"
 ]);
 
 export function isWorkerMethod(value: unknown): value is WorkerMethod {

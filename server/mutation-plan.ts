@@ -46,6 +46,7 @@ interface MutationEntityNamespaces {
   continueStory: never;
 
   rewriteNode: "rewrite" | "rewrite-take";
+  commitPartialRewrite: "partial-rewrite-take";
   createSummaryTake: "summary-node" | "summary-cut";
 }
 

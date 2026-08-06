@@ -5,8 +5,15 @@ import { resolveAuthorsNoteDepth, type AuthorsNotePlacement } from "../shared/au
 import {
   GenerationResultError,
   GenerationStoppedError,
-  ServiceError as HttpError
+  ServiceError as HttpError,
+  timeoutProvenanceOf
 } from "./errors.js";
+import {
+  countWordsForTarget,
+  rewriteReplacement,
+  wordBand,
+  type PartialRewriteStash
+} from "./rewrite-partial.js";
 import { hasDefinedProperty, optionalString, requireString } from "./validation.js";
 import { autonamePrompt, GeneratedTitleError, MAX_STORY_CONTEXT_CHARS, normalizeGeneratedTitle } from "./autoname.js";
 import {
@@ -16,7 +23,7 @@ import {
 } from "../shared/human-edit.js";
 import { streamCompletion, type TokenProbabilityCollector } from "./providers.js";
 import { storySamplingBias } from "./sampling-phrase-bias.js";
-import { AnchoredOutputFilter, continuationPlan, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, stripEchoedContext, supportsAssistantPrefill } from "./generation-prompts.js";
+import { AnchoredOutputFilter, continuationPlan, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, supportsAssistantPrefill } from "./generation-prompts.js";
 import { admitFactsIntoPrompt, type GenerationAdmissionRegistry } from "./generation-admission.js";
 import type { FactBudgetDrop } from "../shared/fact-budget.js";
 import type { SettingsStore } from "./settings.js";
@@ -252,21 +259,34 @@ export async function continueStory(
   // here) — a failure anywhere in that path leaves this null rather than
   // failing the generation; token probabilities are a diagnostic.
   const tokenProbabilities: TokenProbabilityCollector = { record: null };
-  const raw = await streamModel(settings, continuation.prompt, signal, onDelta, {
-    output: continuationOutput,
-    providerStarted,
-    promptCache: createPromptCacheRequest(
-      promptCacheRuntime,
-      promptCache,
-      id,
-      continuation.prompt.operation
-    ),
-    storySampling: storySamplingBias(story),
-    tokenProbabilities
-  });
+  let raw: string | null;
+  try {
+    raw = await streamModel(settings, continuation.prompt, signal, onDelta, {
+      output: continuationOutput,
+      providerStarted,
+      promptCache: createPromptCacheRequest(
+        promptCacheRuntime,
+        promptCache,
+        id,
+        continuation.prompt.operation
+      ),
+      storySampling: storySamplingBias(story),
+      tokenProbabilities
+    });
+  } catch (error) {
+    // A clean provider timeout after the opening already diverged from the
+    // required echo is a timeout masking an echo rejection. The rejection
+    // is the truth: rethrow it without the clean-timeout stamp, so a caller
+    // that preserves streamed prose on timeouts keeps none of this output.
+    if (timeoutProvenanceOf(error) !== null
+      && continuationOutput?.prefixRejected === true) {
+      throw rejectedContinuationEcho();
+    }
+    throw error;
+  }
   if (raw === null) return null;
   if (continuation.requiresEcho && continuationOutput?.matchedPrefix !== true) {
-    throw new GenerationResultError(502, "The model did not continue from the exact final characters; nothing was saved.");
+    throw rejectedContinuationEcho();
   }
   // A continuation owns its first character: it may be a space, punctuation,
   // newline, or the rest of an unfinished word. The prepared effect rechecks
@@ -320,7 +340,8 @@ export async function rewriteNode(
   providerStarted: () => void | Promise<void> = () => {},
   rewriteId?: string,
   takeId?: string,
-  bindIntent?: BindGenerationIntent
+  bindIntent?: BindGenerationIntent,
+  partials?: PartialRewriteStash
 ): Promise<string | null> {
   if (signal.aborted) return null;
   const start = body.start;
@@ -425,20 +446,85 @@ export async function rewriteNode(
     beforeTail: plan.beforeTail,
     anchorWrapTag: `${tag}-right`
   });
-  const replacement = await streamModel(rewriteSettings, plan.prompt, signal, onDelta, {
-    output,
-    providerStarted,
-    promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
-    storySampling: storySamplingBias(story)
+  // A fresh attempt owns this part's partial-rewrite slot: a stale stash
+  // from an earlier stopped attempt must never settle over this one.
+  partials?.clear(id, partId);
+  const spliceReplacement = (streamed: string) => rewriteReplacement({
+    streamed,
+    tag,
+    endMarker: plan.endMarker,
+    phraseMode,
+    bareMode,
+    plainRegenerateWords: requested === "" ? selectionWords : null,
+    originalText,
+    start,
+    end,
+    leadingWhitespace: plan.leadingWhitespace,
+    trailingWhitespace: plan.trailingWhitespace
   });
-  if (replacement === null) return null;
-  // Issue #277 stage 1: point a writer whose seam contract just failed at the
-  // reliable fallback — a plain regenerate skips the exact-boundary step
-  // entirely. Remove this pointer once stage 2 gives an instructed rewrite a
-  // bare mode of its own, so the seam contract stops being the only path.
-  const SMALL_MODEL_POINTER = " Smaller models often cannot complete this exact-boundary step; a plain regenerate (a rewrite with no instruction) is the reliable alternative.";
+  const rewriteEffect = (replacementText: string) => ({
+    kind: "rewrite" as const,
+    nodeId: partId,
+    expectedText: originalText,
+    expectedInstruction: part.instruction,
+    expectedUpdatedAt: part.updatedAt,
+    text: originalText.slice(0, start) + replacementText + originalText.slice(end),
+    attribution: attributionAfterReplacement(
+      activeHumanAttribution(part),
+      start,
+      end,
+      replacementText.length,
+      originalText.length
+    ),
+    rewrittenSpans: rewrittenSpansAfterReplacement(part.rewrittenSpans, start, end, replacementText.length),
+    rewriteId,
+    takeId,
+    destination
+  });
+  // What the stream delivered so far — the only prose a stopped or
+  // timed-out rewrite can still keep (issue #339). The stash records it
+  // with a ready splice only when the left seam held and the cleaned prose
+  // is committable; every rejection stashes nothing, so a later settle
+  // finds nothing and changes nothing.
+  let streamed = "";
+  const stashPartial = () => {
+    if (partials === undefined || output.prefixRejected) return;
+    const result = spliceReplacement(streamed);
+    if (result.kind !== "replacement") return;
+    partials.remember({
+      storyId: id,
+      nodeId: partId,
+      streamed,
+      effect: rewriteEffect(result.text)
+    });
+  };
+  let replacement: string | null;
+  try {
+    replacement = await streamModel(rewriteSettings, plan.prompt, signal, async (delta) => {
+      streamed += delta;
+      await onDelta(delta);
+    }, {
+      output,
+      providerStarted,
+      promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
+      storySampling: storySamplingBias(story)
+    });
+  } catch (error) {
+    if (timeoutProvenanceOf(error) !== null) {
+      // A clean provider timeout after the opening already diverged from
+      // the required echo is a timeout masking a seam rejection: rethrow
+      // the rejection without the clean-timeout stamp, and stash nothing.
+      if (output.prefixRejected) throw rejectedRewriteLeftAnchor();
+      stashPartial();
+    }
+    throw error;
+  }
+  if (replacement === null) {
+    stashPartial();
+    return null;
+  }
   if (requireLeftAnchor && !output.matchedPrefix) {
-    throw new GenerationResultError(502, "The model did not reconnect the replacement to the exact text before it; nothing was saved." + SMALL_MODEL_POINTER);
+    throw rejectedRewriteLeftAnchor();
   }
   // The end marker is required even when nothing follows the selection: without
   // it, a rewrite at the end of the story is an unverifiable free continuation.
@@ -447,55 +533,23 @@ export async function rewriteNode(
       ? "The model did not reconnect the replacement to the exact text after it; nothing was saved."
       : "The model did not finish its replacement cleanly; nothing was saved.") + SMALL_MODEL_POINTER);
   }
-  // Small models echo the markers back despite being told not to; splicing that
-  // in would put a literal <rewrite> tag into the prose. Strip them defensively,
-  // including the -left/-right/-excerpt/-story wrapper variants.
-  let cleaned = replacement.replace(new RegExp(`</?${tag}(?:-[a-z]+)?>`, "gi"), "");
-  if (plan.endMarker.length > 0) cleaned = cleaned.replaceAll(plan.endMarker, "");
-  if (phraseMode) cleaned = stripWrappingQuotes(cleaned.trim());
-  // A bare passage reply sometimes opens or closes by repeating adjacent story
-  // text; that text survives the splice on both sides, so drop the overlap.
-  if (bareMode && !phraseMode) cleaned = stripEchoedContext(cleaned.trim(), originalText.slice(0, start), originalText.slice(end));
-  if (cleaned.trim().length === 0) {
+  const spliced = spliceReplacement(replacement);
+  if (spliced.kind === "empty") {
     throw new GenerationResultError(502, "The model returned only markers; nothing was saved.");
   }
-  // The word band is advisory when the user gave an instruction (it may ask for
-  // more), but a plain regenerate promises "the same passage, fresh words" — a
-  // model that ignores the band must not silently splice paragraphs into the story.
-  if (requested === "" && selectionWords !== null) {
-    const { high, slack } = wordBand(selectionWords);
-    const replacementWords = countWordsForTarget(cleaned) ?? 0;
-    if (replacementWords > high + slack) {
-      throw new GenerationResultError(502,
-          `The model replaced ${selectionWords} ${selectionWords === 1 ? "word" : "words"} with ${replacementWords}; ` +
-          "nothing was saved. Try again, or add an instruction if you want something longer."
-      );
-    }
+  if (spliced.kind === "over-band") {
+    throw new GenerationResultError(502,
+        `The model replaced ${spliced.selectionWords} ${spliced.selectionWords === 1 ? "word" : "words"} with ${spliced.replacementWords}; ` +
+        "nothing was saved. Try again, or add an instruction if you want something longer."
+    );
   }
-  const replacementText =
-    plan.leadingWhitespace + cleaned.trim() + plan.trailingWhitespace;
   try {
     const node = await stories.commitProviderEffect(id, {
-      kind: "rewrite",
-      nodeId: partId,
-      expectedText: originalText,
-      expectedInstruction: part.instruction,
-      expectedUpdatedAt: part.updatedAt,
-      text: originalText.slice(0, start) + replacementText + originalText.slice(end),
-      attribution: attributionAfterReplacement(
-        activeHumanAttribution(part),
-        start,
-        end,
-        replacementText.length,
-        originalText.length
-      ),
-      rewrittenSpans: rewrittenSpansAfterReplacement(part.rewrittenSpans, start, end, replacementText.length),
+      ...rewriteEffect(spliced.text),
       updatedAt: new Date().toISOString(),
-      rewriteId,
-      takeId,
-      destination,
       cancelled: signal
     });
+    partials?.clear(id, partId);
     return node.id;
   } catch (error) {
     if (error instanceof HttpError
@@ -537,12 +591,19 @@ function lengthTarget(passage: string, instructed: boolean): string {
       : `Never exceed ${high} words.`)
   );
 }
-function wordBand(words: number): { low: number; high: number; slack: number } {
-  const slack = Math.max(3, Math.round(words * 0.2));
-  return { low: Math.max(1, words - slack), high: words + slack, slack };
-}
 /** Selections at or below this word count skip the seam contract entirely. */
 const PHRASE_REWRITE_MAX_WORDS = 4;
+// Issue #277 stage 1: point a writer whose seam contract just failed at the
+// reliable fallback — a plain regenerate skips the exact-boundary step
+// entirely. Remove this pointer once stage 2 gives an instructed rewrite a
+// bare mode of its own, so the seam contract stops being the only path.
+const SMALL_MODEL_POINTER = " Smaller models often cannot complete this exact-boundary step; a plain regenerate (a rewrite with no instruction) is the reliable alternative.";
+function rejectedRewriteLeftAnchor(): GenerationResultError {
+  return new GenerationResultError(502, "The model did not reconnect the replacement to the exact text before it; nothing was saved." + SMALL_MODEL_POINTER);
+}
+function rejectedContinuationEcho(): GenerationResultError {
+  return new GenerationResultError(502, "The model did not continue from the exact final characters; nothing was saved.");
+}
 /** Exact boundary copying degrades quickly above this temperature. */
 const REWRITE_MAX_TEMPERATURE = 0.6;
 /** Output budget for a plain regenerate: the largest replacement the word-band
@@ -553,24 +614,4 @@ const REWRITE_MAX_TEMPERATURE = 0.6;
 function rewriteOutputBudget(selectionWords: number): number {
   const { high, slack } = wordBand(selectionWords);
   return 48 + 4 * (high + slack);
-}
-/** Small models often wrap a bare-phrase reply in quotes despite being told not
- *  to. Strip one matched surrounding pair; interior quotes are prose and stay. */
-function stripWrappingQuotes(value: string): string {
-  const pairs: Record<string, string> = { '"': '"', "'": "'", "“": "”", "‘": "’", "«": "»" };
-  const first = value.length >= 2 ? value[0] : undefined;
-  if (first !== undefined && pairs[first] === value.at(-1)) return value.slice(1, -1).trim();
-  return value;
-}
-/** Unicode word segmentation, because splitting on whitespace counts a whole
- *  Chinese, Japanese, or Thai paragraph as one "word" — and the target would then
- *  order the model to collapse it into a handful. null = no trustworthy count, in
- *  which case no numeric target is sent at all. */
-function countWordsForTarget(passage: string): number | null {
-  const segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
-  let count = 0;
-  for (const segment of segmenter.segment(passage)) {
-    if (segment.isWordLike === true) count++;
-  }
-  return count > 0 ? count : null;
 }

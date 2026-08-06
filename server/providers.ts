@@ -170,13 +170,17 @@ async function* streamOpenAiCompatible(
         if (tail.length > 0) yield tail;
         if (totalDeadlineReached) {
           if (error instanceof ProviderError && error.status !== null) {
+            // The deadline interrupted a provider rejection that already has
+            // a status: the rejection stands, so no clean-timeout stamp.
             throw new ProviderError(
               "Model request exceeded its total deadline.",
               error.status,
               error.body
             );
           }
-          throw new ProviderError("Model request exceeded its total deadline.");
+          throw new ProviderError("Model request exceeded its total deadline.", null, "", {
+            timeout: "provider-total"
+          });
         }
         if (
           streamed
@@ -331,13 +335,17 @@ async function* streamAnthropic(
         if (tail.length > 0) yield tail;
         if (totalDeadlineReached) {
           if (error instanceof ProviderError && error.status !== null) {
+            // The deadline interrupted a provider rejection that already has
+            // a status: the rejection stands, so no clean-timeout stamp.
             throw new ProviderError(
               "Model request exceeded its total deadline.",
               error.status,
               error.body
             );
           }
-          throw new ProviderError("Model request exceeded its total deadline.");
+          throw new ProviderError("Model request exceeded its total deadline.", null, "", {
+            timeout: "provider-total"
+          });
         }
         if (
           streamed

@@ -1,4 +1,5 @@
 import type { CreateNodeRequest, StoryNode, StoryPayload } from "../../shared/types.js";
+import { isTimeoutClassFailure } from "../../shared/failure-envelope.js";
 import type { ActionTask } from "./action-runtime.js";
 import { ApiFailureError } from "./api-error.js";
 import { textHash } from "./api.js";
@@ -62,38 +63,26 @@ export function requestGenerationStop(state: RuntimeState, repaint: () => void):
   repaint();
 }
 
-/** Matches exactly one shape: a clean worker stream deadline
- *  (server/worker-request-cancellation.ts's `deadlineError`) — status 408,
- *  code "mutation_outcome_unknown" for a mutation (continueStory/
- *  rewriteNode/createSummaryTake always are; every other producer of that
- *  code in this codebase uses status 409 or 500, never 408) — with no
- *  `diagnosticRef`.
+/** Matches exactly the failures whose envelope carries a clean-timeout
+ *  provenance stamp (issue #345): the worker request deadline, the provider
+ *  idle/total/header/first-token deadlines, and the HTTP operation lease
+ *  deadline. `isTimeoutClassFailure` (shared/failure-envelope.ts) is a
+ *  positive allowlist over that one `timeout` field — no status/code
+ *  inference, no message matching.
  *
- *  The status/code pair alone is not proof: `WorkerRequestCancellation
- *  .failure()` rebuilds *any* other in-flight failure as a deadline once
- *  one has fired, so an exact-echo rejection racing the same deadline
- *  would otherwise wear this exact pair too. `diagnosticRef` tells them
- *  apart: a clean deadline is a plain `ServiceError` with no diagnostic
- *  (reaches the client as a `PlainFailureEnvelope`, `diagnosticRef`
- *  absent); a deadline masking another failure is a `DiagnosticServiceError`
- *  whose logged cause surfaces as a real reference —
- *  `diagnosticReferenceFromFailure` (shared/failure-envelope.ts) returns
- *  non-null exactly when `failure.kind === "diagnostic"`. A masked deadline
- *  must not commit, so this requires `diagnosticRef === null`.
- *
- *  An allowlist, not a denylist: everything else — including a provider
- *  outright rejecting the continuation, e.g. a failed exact-echo check
- *  (server/generation-http.ts) — takes the plain restore-and-toast path,
- *  because committing that prose would durably save output the server
- *  refused. A new failure type must default to *not* matching here. The
- *  other two timeout sources issue #326 names (the HTTP operation lease,
- *  the provider idle/total timeout) have no equivalent discriminator today
- *  and are not covered; tracked in #345. */
-function isCleanWorkerMutationDeadline(error: unknown): boolean {
+ *  Only the code that owns a deadline stamps the field, and only when the
+ *  deadline itself is the whole failure. A timeout that masks a different
+ *  rejection — an exact-echo rejection racing a worker deadline
+ *  (server/worker-request-cancellation.ts builds that as a
+ *  `DiagnosticServiceError` without the stamp), or a provider timeout after
+ *  the echo contract already failed (server/generation-http.ts rethrows the
+ *  rejection) — arrives without provenance and takes the plain
+ *  restore-and-toast path, because committing that prose would durably save
+ *  output the server refused. A new failure type defaults to *not* matching
+ *  here. */
+export function isTimeoutClassApiFailure(error: unknown): boolean {
   return error instanceof ApiFailureError
-    && error.status === 408
-    && error.code === "mutation_outcome_unknown"
-    && error.diagnosticRef === null;
+    && isTimeoutClassFailure(error.failure);
 }
 
 export async function generate(
@@ -248,14 +237,14 @@ export async function generate(
   } catch (error) {
     if (!signal.aborted && storyCurrent()) {
       const message = error instanceof Error ? error.message : String(error);
-      // A rejection this late that isCleanWorkerMutationDeadline positively
-      // identifies as a timeout — never the writer's Escape — still leaves
-      // prose in `stream.text` that is exactly as real as a Stop's, and just
-      // as worth keeping (issue #326). Everything else, including a
-      // provider outright rejecting the continuation, takes the plain
-      // restore-and-toast path below — see isCleanWorkerMutationDeadline's
+      // A rejection this late that isTimeoutClassApiFailure positively
+      // identifies as a clean timeout — never the writer's Escape — still
+      // leaves prose in `stream.text` that is exactly as real as a Stop's,
+      // and just as worth keeping (issues #326/#345). Everything else,
+      // including a provider outright rejecting the continuation, takes the
+      // plain restore-and-toast path below — see isTimeoutClassApiFailure's
       // own comment for why this is an allowlist, not a denylist.
-      if (streamHasSubstantiveText(stream) && isCleanWorkerMutationDeadline(error)) {
+      if (streamHasSubstantiveText(stream) && isTimeoutClassApiFailure(error)) {
         failedWithText = message;
       } else {
         restorePendingGenerationDraft(

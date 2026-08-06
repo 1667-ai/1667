@@ -13,6 +13,7 @@ import { readDataDirectoryFormat } from "./data-directory-format.js";
 import type { HttpDataDirectoryIdentity } from "./data-directory-id.js";
 import { resolveDataDirectory } from "./data-directory.js";
 import { GenerationAdmissionRegistry } from "./generation-admission.js";
+import { PartialRewriteStash } from "./rewrite-partial.js";
 import type {
   LegacyDataDirectoryLease
 } from "./legacy-data-directory.js";
@@ -116,6 +117,7 @@ export abstract class StoryServiceRuntime {
   private readonly archivedMutationCleanup =
     new LifecycleRetry<string>();
   private readonly generationAdmission = new GenerationAdmissionRegistry();
+  private readonly rewritePartials = new PartialRewriteStash();
   private readonly promptCache = new PromptCacheRuntime();
   private readonly lifecycle = new ServiceLifecycle();
   private readonly mutationCoordinator = createMutationCoordinator();
@@ -387,6 +389,7 @@ export abstract class StoryServiceRuntime {
       stories: this.stories,
       settings: this.settings,
       generationAdmission: this.generationAdmission,
+      rewritePartials: this.rewritePartials,
       storyMutations: this.storyMutations,
       dataFormat: () => this.settings.dataFormat,
       ensureOpen: () => this.ensureOpen()
@@ -395,6 +398,7 @@ export abstract class StoryServiceRuntime {
       stories: this.stories,
       settings: this.settings,
       generationAdmission: this.generationAdmission,
+      rewritePartials: this.rewritePartials,
       promptCache: this.promptCache,
       storyMutations: this.storyMutations,
       ensureOpen: () => this.ensureOpen(),

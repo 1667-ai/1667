@@ -13,6 +13,7 @@ import {
   decodeUnknownOutcomeStatusResponse,
   decodeSettingsMutationResult,
   decodeSettingsViewResponse,
+  decodeCommitPartialRewriteResponse,
   decodeStoryResponse,
   decodeTokenProbabilitiesResponse,
 } from "./api-response-decoders.js";
@@ -229,8 +230,22 @@ export interface StoryApi {
      * its way back to the caller. The caller (rewrite-action.ts) uses this
      * to record commitment one layer below where its own await resolves, so
      * a refresh that then rejects cannot hide a take that already landed. */
-    onCommitted?: (takeId: string) => void
+    onCommitted?: (takeId: string) => void,
+    /** Same contract as `continueStory`'s `onStopped`: the post-abort stream
+     * tail, delivered exactly once at terminal settlement. A caller that
+     * settles a stopped rewrite must take this tail too. */
+    onStopped?: (text: string) => void
   ): Promise<string | null>;
+  /** Settle a stopped or timed-out rewrite (issue #339): ask the backend to
+   * commit the verified partial it stashed for this part. `streamedText` is
+   * the exact prose this client watched stream, tail included; the backend
+   * refuses on any byte difference. null = nothing was committed and the
+   * story is unchanged. */
+  commitPartialRewrite(
+    storyId: string,
+    nodeId: string,
+    streamedText: string
+  ): Promise<{ payload: StoryPayload; nodeId: string } | null>;
   createSummaryTake(
     storyId: string,
     body: { nodeId: string; offset?: number; expected?: string },
@@ -892,6 +907,19 @@ export function createApi(
       await loadVersionedStory(storyId);
       return done.nodeId;
     },
+    commitPartialRewrite: async (storyId, nodeId, streamedText) => {
+      const committed = await request(
+        "POST",
+        `/api/stories/${storyId}/nodes/${nodeId}/rewrite-partial`,
+        decodeCommitPartialRewriteResponse,
+        { streamedText },
+        HTTP_REQUEST_TIMEOUT_MS,
+        await expectedVersion(storyId)
+      );
+      if (committed === null) return null;
+      versions.rememberPayload(committed.payload);
+      return committed;
+    },
     createSummaryTake: async (storyId, body, onDelta, signal) => {
       const done = await stream(
         storyId,
@@ -978,7 +1006,7 @@ async function streamSse(
     });
   } catch (error) {
     if (callerSignal.aborted) return null;
-    if (signal.aborted) throw operationDeadlineError();
+    if (signal.aborted) throw operationDeadlineError(signal.reason);
     throw error instanceof Error ? error : new Error(String(error));
   }
   if (!response.ok || response.body === null) {
@@ -1031,22 +1059,29 @@ async function streamSse(
     }
   } catch (error) {
     if (callerSignal.aborted) return null;
-    if (signal.aborted) throw operationDeadlineError();
+    if (signal.aborted) throw operationDeadlineError(signal.reason);
     throw error instanceof Error ? error : new Error(String(error));
   }
   if (completed === null && callerSignal.aborted) return null;
-  if (completed === null && signal.aborted) throw operationDeadlineError();
+  if (completed === null && signal.aborted) throw operationDeadlineError(signal.reason);
   if (completed === null) {
     throw new Error("The stream ended before the part was saved.");
   }
   return completed;
 }
 
-function operationDeadlineError(): ApiHttpError {
+function operationDeadlineError(reason: unknown): ApiHttpError {
+  // The lease aborts with a typed TimeoutError only when its own deadline
+  // fires (shared/http-operation-lease.ts). Every other abort reaching this
+  // path — a shutdown, an unexpected transport teardown — keeps the same
+  // public shape without the clean-timeout stamp.
+  const cleanLeaseDeadline = reason instanceof DOMException
+    && reason.name === "TimeoutError";
   return new ApiHttpError(createFailureEnvelope({
     code: "operation_expired",
     message:
       "Generation exceeded its operation deadline. Reload the story before retrying.",
-    status: 408
+    status: 408,
+    ...(cleanLeaseDeadline ? { timeout: "operation-lease" } : {})
   }));
 }

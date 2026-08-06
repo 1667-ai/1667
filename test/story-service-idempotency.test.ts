@@ -460,6 +460,80 @@ test("pending dry-run rewrites reconcile a committed in-place edit without dupli
   }
 });
 
+test("a partial-rewrite receipt replays after the volatile stash is lost", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-partial-rewrite-replay-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  let service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  let disposed = false;
+  try {
+    let story = await service.createStory("Partial rewrite replay");
+    const text = "The blue door opened into a long and quiet stone corridor.";
+    story = await service.createNode(story.id, { parentId: null, text });
+    const nodeId = story.nodes[0]!.id;
+    const expected = "blue door opened into a long and quiet stone corridor";
+    const start = text.indexOf(expected);
+    const controller = new AbortController();
+    let streamedText = "";
+    const stopped = await service.rewriteNode(
+      story.id,
+      nodeId,
+      {
+        start,
+        end: start + expected.length,
+        expected,
+        instruction: "",
+        destination: "take"
+      },
+      (delta) => {
+        streamedText += delta;
+        controller.abort();
+      },
+      controller.signal,
+      { rewriteId: "partial-rewrite", takeId: "unused-original-take" }
+    );
+    assert.equal(stopped, null);
+    assert.notEqual(streamedText.trim(), "");
+
+    const settleId = mutationId("f");
+    const input = { storyId: story.id, nodeId, streamedText };
+    const committed = await runWorkerMutation(
+      service,
+      settleId,
+      "commitPartialRewrite",
+      input
+    );
+    assert.ok(committed);
+    assert.notEqual(committed.nodeId, nodeId);
+    const committedText = committed.payload.nodes.find(
+      (node) => node.id === committed.nodeId
+    )?.preview;
+
+    // A restart removes the process-local stash. The durable terminal receipt
+    // must still return the same take and must not apply the splice again.
+    await service.dispose();
+    disposed = true;
+    service = StoryService.withoutDiagnostics({ dataDir });
+    await service.init();
+    disposed = false;
+    const replayed = await runWorkerMutation(
+      service,
+      settleId,
+      "commitPartialRewrite",
+      input
+    );
+    assert.ok(replayed);
+    assert.equal(replayed.nodeId, committed.nodeId);
+    assert.equal(
+      replayed.payload.nodes.find((node) => node.id === replayed.nodeId)?.preview,
+      committedText
+    );
+    assert.equal(replayed.payload.nodes.length, committed.payload.nodes.length);
+  } finally {
+    if (!disposed) await service.dispose();
+  }
+});
+
 test("pending autoname resumes before admission and reconciles after commit", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-autoname-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));

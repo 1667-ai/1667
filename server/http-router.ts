@@ -604,6 +604,17 @@ async function handleApi(
       context.errorReporter,
       "rewriteNode");
   }
+  if (head === "stories" && id !== undefined && sub === "nodes" && subId !== undefined && action === "rewrite-partial" && method === "POST") {
+    const body = await jsonBody() as Record<string, unknown>;
+    const committed = await mutate("commitPartialRewrite", {
+      storyId: id,
+      nodeId: subId,
+      streamedText: body.streamedText
+    });
+    return sendJson(response, committed === null ? 200 : 201, {
+      committed
+    });
+  }
   if (head === "stories" && id !== undefined && sub === "nodes" && subId === undefined && method === "POST") {
     return sendJson(response, 201, await mutate("createNode", {
       storyId: id,

@@ -484,6 +484,22 @@ export class StoryService extends StoryServiceRuntime {
     return await this.storyLocal.editNode(id, nodeId, value, mutationRequest);
   }
 
+  async commitPartialRewrite(
+    id: string,
+    nodeId: string,
+    value: unknown,
+    mutationRequest?: unknown,
+    settleTakeId?: string
+  ): Promise<{ payload: StoryPayload; nodeId: string } | null> {
+    return await this.storyLocal.commitPartialRewrite(
+      id,
+      nodeId,
+      value,
+      mutationRequest,
+      settleTakeId
+    );
+  }
+
   async deleteNode(
     id: string,
     nodeId: string,

@@ -41,11 +41,56 @@ export type FailureCode = typeof FAILURE_CODE_VALUES[number];
 
 const FAILURE_CODES: ReadonlySet<string> = new Set(FAILURE_CODE_VALUES);
 
+/**
+ * The one deadline that produced a clean timeout failure. Only the code that
+ * owns a deadline stamps it, at the moment the deadline itself is the whole
+ * failure. A timeout that masks a different rejection — an exact-echo
+ * rejection, a deadline that raced an unrelated in-flight error — never
+ * carries it, so one field separates "the clock ran out" from "the clock ran
+ * out while something else was already wrong" without one ad-hoc failure
+ * code per timeout source.
+ */
+const TIMEOUT_PROVENANCE_VALUES = [
+  "provider-response-header",
+  "provider-first-token",
+  "provider-idle",
+  "provider-total",
+  "operation-lease",
+  "worker-deadline"
+] as const;
+
+export type TimeoutProvenance = typeof TIMEOUT_PROVENANCE_VALUES[number];
+
+const TIMEOUT_PROVENANCES: ReadonlySet<string> =
+  new Set(TIMEOUT_PROVENANCE_VALUES);
+
+export function isTimeoutProvenance(
+  value: unknown
+): value is TimeoutProvenance {
+  return typeof value === "string" && TIMEOUT_PROVENANCES.has(value);
+}
+
+/**
+ * Positive allowlist over the timeout provenance field. A failure is
+ * timeout-class only when a known deadline stamped it as the clean cause;
+ * every failure without a recognized provenance — including new codes,
+ * provider rejections, and timeouts that masked another rejection — is not.
+ * Callers that preserve streamed prose gate on this, so the safe default for
+ * any unrecognized failure is "not a timeout".
+ */
+export function isTimeoutClassFailure(
+  failure: { readonly timeout?: string }
+): boolean {
+  return failure.timeout !== undefined
+    && TIMEOUT_PROVENANCES.has(failure.timeout);
+}
+
 export interface PlainFailureEnvelope {
   readonly kind: "plain";
   readonly code: FailureCode;
   readonly message: string;
   readonly status: number | null;
+  readonly timeout?: TimeoutProvenance;
 }
 
 export interface DiagnosticFailureEnvelope {
@@ -53,6 +98,7 @@ export interface DiagnosticFailureEnvelope {
   readonly code: FailureCode;
   readonly message: string;
   readonly status: number | null;
+  readonly timeout?: TimeoutProvenance;
   readonly diagnosticRef: DiagnosticReference;
 }
 
@@ -67,12 +113,14 @@ export type CompatibleHttpFailureEnvelope =
       readonly code: string;
       readonly message: string;
       readonly status: number | null;
+      readonly timeout?: TimeoutProvenance;
     }
   | {
       readonly kind: "diagnostic";
       readonly code: string;
       readonly message: string;
       readonly status: number | null;
+      readonly timeout?: TimeoutProvenance;
       readonly diagnosticRef: DiagnosticReference;
     };
 
@@ -80,12 +128,14 @@ export interface FailureWireFields {
   readonly code: FailureCode;
   readonly message: string;
   readonly status: number | null;
+  readonly timeout?: TimeoutProvenance;
   readonly diagnosticRef?: DiagnosticReference;
 }
 
 export interface HttpFailurePayload {
   readonly error: string;
   readonly code: FailureCode;
+  readonly timeout?: TimeoutProvenance;
   readonly diagnosticRef?: DiagnosticReference;
 }
 
@@ -99,6 +149,7 @@ export function createFailureEnvelope(
     readonly code: unknown;
     readonly message: unknown;
     readonly status: unknown;
+    readonly timeout?: unknown;
   }
 ): PlainFailureEnvelope;
 export function createFailureEnvelope(
@@ -106,6 +157,7 @@ export function createFailureEnvelope(
     readonly code: unknown;
     readonly message: unknown;
     readonly status: unknown;
+    readonly timeout?: unknown;
   },
   diagnosticRef: unknown
 ): FailureEnvelope;
@@ -114,6 +166,7 @@ export function createFailureEnvelope(
     readonly code: unknown;
     readonly message: unknown;
     readonly status: unknown;
+    readonly timeout?: unknown;
   },
   diagnosticRef?: unknown
 ): FailureEnvelope {
@@ -127,19 +180,24 @@ export function createFailureEnvelope(
     ? message
     : "Internal server error";
   const status = validFailure ? failure.status : 500;
+  const timeout = validFailure && isTimeoutProvenance(failure.timeout)
+    ? { timeout: failure.timeout }
+    : {};
   return Object.freeze(isDiagnosticReference(diagnosticRef)
     ? {
         kind: "diagnostic",
         code,
         message: publicMessage,
         status,
+        ...timeout,
         diagnosticRef
       }
     : {
         kind: "plain",
         code,
         message: publicMessage,
-        status
+        status,
+        ...timeout
       });
 }
 
@@ -178,7 +236,7 @@ export function decodeHttpFailurePayload(
     );
   }
   return createCompatibleHttpFailureEnvelope(
-    { code, message, status: httpStatus },
+    { code, message, status: httpStatus, timeout: payload.timeout },
     payload.diagnosticRef
   );
 }
@@ -189,18 +247,20 @@ export function isFailureEnvelope(value: unknown): value is FailureEnvelope {
   if (!isFailureCode(failure.code)
     || !validFailureString(failure.message, MAX_FAILURE_MESSAGE_LENGTH)
     || !isFailureStatus(failure.status)
+    || ("timeout" in failure && !isTimeoutProvenance(failure.timeout))
     || (failure.code === "internal"
       && failure.message !== "Internal server error")) {
     return false;
   }
   if (failure.kind === "plain") {
-    return hasExactKeys(value, ["kind", "code", "message", "status"]);
+    return hasExactKeys(value, ["kind", "code", "message", "status"], ["timeout"]);
   }
   return failure.kind === "diagnostic"
     && isDiagnosticReference(failure.diagnosticRef)
     && hasExactKeys(
       value,
-      ["kind", "code", "message", "status", "diagnosticRef"]
+      ["kind", "code", "message", "status", "diagnosticRef"],
+      ["timeout"]
     );
 }
 
@@ -218,6 +278,7 @@ export function failureWireFields(
     code: failure.code,
     message: failure.message,
     status: failure.status,
+    ...timeoutWireField(failure),
     ...diagnosticWireField(failure)
   };
 }
@@ -229,6 +290,7 @@ export function httpFailurePayload(
   return {
     error: failure.message,
     code: failure.code,
+    ...timeoutWireField(failure),
     ...diagnosticWireField(failure)
   };
 }
@@ -262,10 +324,11 @@ export function decodeFailureEnvelope(
       : raw.diagnosticRef === undefined
         ? ["code", "message", "status"]
         : ["code", "message", "status", "diagnosticRef"];
-  if (!hasExactKeys(raw, expectedKeys)) return null;
+  if (!hasExactKeys(raw, expectedKeys, ["timeout"])) return null;
   if (!validFailureString(raw.code, MAX_FAILURE_CODE_LENGTH)
     || !nonemptyString(raw.message)
     || !isFailureStatus(raw.status)) return null;
+  if ("timeout" in raw && !isTimeoutProvenance(raw.timeout)) return null;
   if (tagged
     && !validFailureString(raw.message, MAX_FAILURE_MESSAGE_LENGTH)) {
     return null;
@@ -276,7 +339,8 @@ export function decodeFailureEnvelope(
   const decoded = createFailureEnvelope({
     code: raw.code,
     message: raw.message,
-    status: raw.status
+    status: raw.status,
+    timeout: raw.timeout
   }, raw.diagnosticRef);
   if (raw.diagnosticRef !== undefined && decoded.kind !== "diagnostic") {
     return null;
@@ -298,10 +362,12 @@ function nonemptyString(value: unknown): value is string {
 
 function hasExactKeys(
   value: object,
-  expected: readonly string[]
+  expected: readonly string[],
+  optional: readonly string[] = []
 ): boolean {
   const keys = Object.keys(value);
-  return keys.length === expected.length
+  return keys.every((key) =>
+    expected.includes(key) || optional.includes(key))
     && expected.every((key) =>
       Object.prototype.hasOwnProperty.call(value, key));
 }
@@ -312,6 +378,12 @@ function diagnosticWireField(
   return failure.kind === "diagnostic"
     ? { diagnosticRef: failure.diagnosticRef }
     : {};
+}
+
+function timeoutWireField(
+  failure: FailureEnvelope
+): { readonly timeout?: TimeoutProvenance } {
+  return failure.timeout === undefined ? {} : { timeout: failure.timeout };
 }
 
 function isFailureStatus(value: unknown): value is number | null {
@@ -352,6 +424,7 @@ export function createCompatibleHttpFailureEnvelope(
     readonly code: unknown;
     readonly message: unknown;
     readonly status: unknown;
+    readonly timeout?: unknown;
   },
   diagnosticRef: unknown
 ): CompatibleHttpFailureEnvelope {
@@ -366,18 +439,23 @@ export function createCompatibleHttpFailureEnvelope(
   const status = isFailureStatus(failure.status)
     ? failure.status
     : 500;
+  const timeout = isTimeoutProvenance(failure.timeout)
+    ? { timeout: failure.timeout }
+    : {};
   return Object.freeze(isDiagnosticReference(diagnosticRef)
     ? {
         kind: "diagnostic",
         code,
         message: publicMessage,
         status,
+        ...timeout,
         diagnosticRef
       }
     : {
         kind: "plain",
         code,
         message: publicMessage,
-        status
+        status,
+        ...timeout
       });
 }

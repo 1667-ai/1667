@@ -7,12 +7,15 @@ import { DEFAULT_INSTRUCTION } from "./generation-prompts.js";
 import type { GenerationAdmissionRegistry } from "./generation-admission.js";
 import { commitNode } from "./node-commit.js";
 import {
+  parseCommitPartialRewrite,
   parseCreateNode,
   parseEditNode,
   parsePruneUnusedTakes,
   parseSwitchOptions,
   parseTakeFromCut
 } from "./service-input.js";
+import type { PartialRewriteStash } from "./rewrite-partial.js";
+import { applyProviderStoryEffect } from "./story-provider-effect.js";
 import type { SettingsStore } from "./settings.js";
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import { putStoryTag, removeStoryTag } from "./story-tags.js";
@@ -43,10 +46,13 @@ export interface StoryServiceLocalDependencies {
   readonly stories: StoryStore;
   readonly settings: SettingsStore;
   readonly generationAdmission: GenerationAdmissionRegistry;
+  readonly rewritePartials: PartialRewriteStash;
   readonly storyMutations: StoryMutationStore;
   readonly dataFormat: () => number;
   readonly ensureOpen: () => void;
 }
+
+const PARTIAL_REWRITE_UNAVAILABLE = Symbol("partial rewrite unavailable");
 
 /** Direct-author story commands, including their successor-Q adapters. */
 export class StoryServiceLocal {
@@ -308,6 +314,91 @@ export class StoryServiceLocal {
       body,
       nodeId
     ));
+  }
+
+  /**
+   * The canonical partial-rewrite commit (issue #339): settle the verified
+   * partial a stopped or timed-out rewrite stashed, splicing it into the
+   * original selected range through the same rewrite effect a full commit
+   * uses — expected-text revalidation, rewritten spans, destination
+   * current-take/new-take semantics, and the original attempt's
+   * rewriteId/takeId replay markers included. Returns null when nothing was
+   * stashed for this part or the presented prose is not the stashed prose;
+   * null commits nothing, so the caller reports nothing saved.
+   */
+  async commitPartialRewrite(
+    id: string,
+    nodeId: string,
+    value: unknown,
+    mutationRequest?: unknown,
+    settleTakeId?: string
+  ): Promise<{ payload: StoryPayload; nodeId: string } | null> {
+    this.dependencies.ensureOpen();
+    const body = parseCommitPartialRewrite(value);
+    const record = this.dependencies.rewritePartials.get(id, nodeId);
+    if (mutationRequest !== undefined) {
+      try {
+        const committed = await this.dependencies.storyMutations.runLocal(
+          mutationRequest,
+          "commitPartialRewrite",
+          async (story, session) => {
+            // This callback does not run for a durable replay. A fresh settle
+            // without the exact volatile record refuses without creating a
+            // receipt; a replay after process restart still returns the
+            // already-committed story from the ledger.
+            if (record === null || record.streamed !== body.streamedText) {
+              throw PARTIAL_REWRITE_UNAVAILABLE;
+            }
+            const effect = {
+              ...record.effect,
+              ...(record.effect.destination === "take"
+                && settleTakeId !== undefined
+                ? { takeId: settleTakeId }
+                : {}),
+              updatedAt: new Date().toISOString()
+            };
+            const applied = await applyProviderStoryEffect(
+              story,
+              effect,
+              async (current, pathNodeId) => {
+                await session.hydratePath(current, pathNodeId);
+              }
+            );
+            return applied.changed ? undefined : STORY_UNCHANGED;
+          }
+        );
+        if (record !== null) this.dependencies.rewritePartials.clear(id, nodeId);
+        const committedNodeId = settleTakeId !== undefined
+          && committed.story.nodes.some((node) => node.id === settleTakeId)
+          ? settleTakeId
+          : nodeId;
+        return {
+          payload: buildStoryPayload(committed.story, {
+            ...committed.aggregateVersion
+          }),
+          nodeId: committedNodeId
+        };
+      } catch (error) {
+        if (error === PARTIAL_REWRITE_UNAVAILABLE) return null;
+        throw error;
+      }
+    }
+    if (record === null || record.streamed !== body.streamedText) return null;
+    const effect = {
+      ...record.effect,
+      updatedAt: new Date().toISOString()
+    };
+    const node = await this.dependencies.stories.commitProviderEffect(
+      id,
+      effect
+    );
+    this.dependencies.rewritePartials.clear(id, nodeId);
+    return {
+      payload: buildStoryPayload(
+        await this.dependencies.stories.loadForMutation(id)
+      ),
+      nodeId: node.id
+    };
   }
 
   async editNode(

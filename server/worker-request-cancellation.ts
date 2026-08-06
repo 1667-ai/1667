@@ -106,6 +106,8 @@ function deadlineError(
     : "Worker request deadline exceeded";
   const code = mutation ? "mutation_outcome_unknown" : "invalid_request";
   if (options !== undefined) {
+    // The deadline raced a different in-flight failure: the timeout masks
+    // that rejection, so this variant carries no clean-timeout stamp.
     return new DiagnosticServiceError(
       status,
       message,
@@ -117,9 +119,12 @@ function deadlineError(
     ? new ServiceError(
         status,
         message,
-        code
+        code,
+        { timeout: "worker-deadline" }
       )
-    : new ServiceError(status, message);
+    : new ServiceError(status, message, undefined, {
+        timeout: "worker-deadline"
+      });
 }
 
 function mutationInterruptedError(): ServiceError {

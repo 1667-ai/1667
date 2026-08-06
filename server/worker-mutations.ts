@@ -352,6 +352,24 @@ const MUTATIONS: MutationRegistry = {
       context.storyMutationRequest
     )
   }),
+  commitPartialRewrite: define<"commitPartialRewrite">({
+    parse: (value) => {
+      const input = requireRecord(value, "commitPartialRewrite input");
+      return {
+        storyId: requireString(input.storyId, "storyId"),
+        nodeId: requireString(input.nodeId, "nodeId"),
+        streamedText: requireString(input.streamedText, "streamedText")
+      };
+    },
+    storyId: (input) => input.storyId,
+    execute: (service, input, plan, context) => service.commitPartialRewrite(
+      input.storyId,
+      input.nodeId,
+      { streamedText: input.streamedText },
+      context.storyMutationRequest,
+      plan.entityId("partial-rewrite-take")
+    )
+  }),
   editNode: define<"editNode">({
     parse: (value) => bodyInputWithId<"editNode">(value, "editNode", "nodeId"),
     storyId: (input) => input.storyId,

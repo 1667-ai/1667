@@ -102,6 +102,22 @@ export function parseRewrite(value: unknown): RewriteRequest {
   };
 }
 
+export interface CommitPartialRewriteRequest {
+  readonly streamedText: string;
+}
+
+/** The settle after a stopped or timed-out rewrite (issue #339). The caller
+ * presents the exact prose it watched stream; the server commits only its
+ * own stashed splice when the bytes agree. */
+export function parseCommitPartialRewrite(
+  value: unknown
+): CommitPartialRewriteRequest {
+  const body = requireRecord(value, "partial rewrite body");
+  return {
+    streamedText: requireString(body.streamedText, "streamedText")
+  };
+}
+
 function requireRewriteDestination(value: unknown): RewriteDestination {
   if (!(REWRITE_DESTINATIONS as readonly unknown[]).includes(value)) {
     throw new ServiceError(400, `destination must be one of: ${REWRITE_DESTINATIONS.join(", ")}`);

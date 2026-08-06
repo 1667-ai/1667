@@ -126,6 +126,8 @@ function logicalRequestBody(
     case "rewriteNode":
     case "createSummaryTake":
       return input.body;
+    case "commitPartialRewrite":
+      return { streamedText: input.streamedText };
     case "deleteNode": return { expectedSubtreeCount: input.expectedSubtreeCount };
     case "putBookmark": return { name: input.name, label: input.label };
     case "saveSettings":

@@ -420,13 +420,14 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
           : { payload: rememberPayload(result.payload), droppedFacts: result.droppedFacts };
       });
     },
-    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted) => {
+    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted, onStopped) => {
       return await runProviderMutation(storyId, async () => {
         const result = await transport.call(
           "rewriteNode",
           { storyId, nodeId, body },
           {
             onDelta,
+            ...(onStopped === undefined ? {} : { onStopped }),
             signal,
             expectedAggregateVersion: await expectedVersion(storyId)
           }
@@ -440,6 +441,18 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         }
         return result;
       });
+    },
+    commitPartialRewrite: async (storyId, nodeId, streamedText) => {
+      const result = await transport.call(
+        "commitPartialRewrite",
+        { storyId, nodeId, streamedText },
+        { expectedAggregateVersion: await expectedVersion(storyId) }
+      );
+      if (result === null) return null;
+      return {
+        payload: rememberPayload(result.payload),
+        nodeId: result.nodeId
+      };
     },
     createSummaryTake: async (storyId, body, onDelta, signal) => {
       return await runProviderMutation(storyId, async () => {
