@@ -227,13 +227,13 @@ export class HttpOperationClient {
       lease,
       !sent || options.callerSignal?.aborted === true
     );
+    if (execution.kind === "completed") return execution;
     if (settlement.kind === "failed") {
       return {
         kind: "sent-failure",
         error: new HttpOperationError(settlement.failure)
       };
     }
-    if (execution.kind === "completed") return execution;
     if (!sent) {
       return { kind: "unsent-failure", error: execution.error };
     }
