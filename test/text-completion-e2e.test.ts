@@ -313,7 +313,8 @@ function textDocument(
         ...base.connections[model.connectionId]!,
         preset,
         protocol: "text-completions",
-        textPromptFormat
+        textPromptFormat,
+        allowInsecureHttp: true
       }
     }
   };
