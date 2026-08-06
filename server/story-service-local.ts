@@ -416,12 +416,17 @@ export class StoryServiceLocal {
           return null;
         }
         // runLocal returns a prepared domain error only after its terminal
-        // receipt is durable. The exact partial can never succeed afterward,
-        // so release its bounded slot. Storage and implementation failures
-        // stay retryable and retain the record.
+        // receipt is durable. Retire only the record that the callback bound
+        // to this settlement. A terminal replay can claim a newer record with
+        // the same attempt and digest without running that callback.
         if (record !== null
           && error instanceof ServiceError
-          && isPreparedDomainError(error.code)) {
+          && isPreparedDomainError(error.code)
+          && settlementId !== null
+          && this.dependencies.rewritePartials.settlementMatches(
+            record,
+            settlementId
+          )) {
           this.dependencies.rewritePartials.clear(record);
         } else if (record !== null) {
           this.dependencies.rewritePartials.releaseClaim(record);

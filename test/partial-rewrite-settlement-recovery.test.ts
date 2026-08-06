@@ -9,8 +9,14 @@ import type {
   StoryAggregateVersion
 } from "../shared/story-aggregate-version.js";
 import { mutationFingerprint } from "../server/mutation-receipts.js";
+import {
+  PartialRewriteStash,
+  type PartialRewriteRecord
+} from "../server/rewrite-partial.js";
+import { ServiceError } from "../server/errors.js";
 import { StoryService } from "../server/story-service.js";
 import { StoryDurabilityError } from "../server/story-lifecycle.js";
+import { sha256 } from "../server/story-format.js";
 
 test("partial settlement replay retires the record after post-publish failure", async (t) => {
   const dataDir = await mkdtemp(path.join(
@@ -119,6 +125,125 @@ test("partial settlement replay retires the record after post-publish failure", 
   }
 });
 
+test("terminal settlement replay releases a newer record with reused identity", async (t) => {
+  const dataDir = await mkdtemp(path.join(
+    tmpdir(),
+    "1667-partial-terminal-replay-"
+  ));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    let story = await service.createStory("Partial terminal replay");
+    const original = "The blue door opened into a long and quiet stone corridor.";
+    story = await service.createNode(story.id, {
+      parentId: null,
+      text: original
+    });
+    const nodeId = story.nodes[0]!.id;
+    const expected = "blue door opened into a long and quiet stone corridor";
+    const attemptId = "reused-terminal-attempt";
+    const stopRewrite = async (): Promise<string> => {
+      const controller = new AbortController();
+      let streamedText = "";
+      const stopped = await service.rewriteNode(
+        story.id,
+        nodeId,
+        {
+          start: original.indexOf(expected),
+          end: original.indexOf(expected) + expected.length,
+          expected,
+          instruction: "",
+          attemptId
+        },
+        (delta) => {
+          streamedText += delta;
+          controller.abort();
+        },
+        controller.signal,
+        {
+          rewriteId: "reused-terminal-rewrite",
+          takeId: "unused-terminal-take"
+        }
+      );
+      assert.equal(stopped, null);
+      assert.notEqual(streamedText, "");
+      return streamedText;
+    };
+
+    const firstStream = await stopRewrite();
+    const partials = partialRewriteStash(service);
+    const firstRecord = partials.get(story.id, nodeId, attemptId);
+    assert.ok(firstRecord);
+    const changed = `${original} Changed.`;
+    await service.editNode(story.id, nodeId, {
+      text: changed,
+      expectedTextHash: sha256(original)
+    });
+    const oldVersion = (
+      await service.stories.loadVersioned(story.id)
+    ).aggregateVersion!;
+    const input = {
+      storyId: story.id,
+      nodeId,
+      streamedDigest: rewriteStreamDigest(firstStream),
+      attemptId
+    };
+    const oldSettlementId = createDurableMutationId();
+    const oldRequest = settlementRequest(
+      oldSettlementId,
+      input,
+      oldVersion
+    );
+    const terminalConflict = (error: unknown) =>
+      error instanceof ServiceError && error.status === 409;
+    await assert.rejects(
+      service.commitPartialRewrite(story.id, nodeId, input, oldRequest),
+      terminalConflict
+    );
+
+    const currentNode = (await service.loadStory(story.id)).path.find(
+      (node) => node.id === nodeId
+    );
+    assert.ok(currentNode);
+    const newerRecord: PartialRewriteRecord = {
+      ...firstRecord,
+      effect: {
+        ...firstRecord.effect,
+        expectedText: currentNode.text,
+        expectedInstruction: currentNode.instruction,
+        expectedUpdatedAt: currentNode.updatedAt,
+        text: `${currentNode.text} Settled.`
+      }
+    };
+    const reservation = partials.reserve(story.id, nodeId, attemptId);
+    partials.remember(reservation, newerRecord);
+
+    await assert.rejects(
+      service.commitPartialRewrite(story.id, nodeId, input, oldRequest),
+      terminalConflict
+    );
+    const newSettlementId = createDurableMutationId();
+    const committed = await service.commitPartialRewrite(
+      story.id,
+      nodeId,
+      input,
+      settlementRequest(
+        newSettlementId,
+        input,
+        (await service.stories.loadVersioned(story.id)).aggregateVersion!
+      )
+    );
+    assert.ok(committed, "the stale terminal replay must release the newer record");
+    assert.equal(
+      committed.payload.path.find((node) => node.id === nodeId)?.text,
+      `${changed} Settled.`
+    );
+  } finally {
+    await service.dispose();
+  }
+});
+
 interface MutableMutationHooks {
   afterPublish?: () => void;
 }
@@ -127,6 +252,12 @@ function mutationHooks(service: StoryService): MutableMutationHooks {
   return (service as unknown as {
     storyMutations: { hooks: MutableMutationHooks };
   }).storyMutations.hooks;
+}
+
+function partialRewriteStash(service: StoryService): PartialRewriteStash {
+  return (service as unknown as {
+    rewritePartials: PartialRewriteStash;
+  }).rewritePartials;
 }
 
 function settlementRequest(
