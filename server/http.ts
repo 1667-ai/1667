@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { SSE_HEARTBEAT_INTERVAL_MS } from "../shared/sse.js";
 import { MAX_JSON_BODY_BYTES } from "../shared/types.js";
 import { ServiceError } from "./errors.js";
 export { optionalString, requireString } from "./validation.js";
@@ -123,6 +124,8 @@ export async function waitForResponseSettlement(
 
 export interface SseSession {
   send: (event: Record<string, unknown>) => Promise<void>;
+  heartbeat: () => Promise<void>;
+  close: () => Promise<void>;
   abort: AbortController;
 }
 
@@ -147,9 +150,11 @@ export function openSse(response: ServerResponse, abort: AbortController): SseSe
     "cache-control": "no-store",
     connection: "keep-alive"
   });
-  const send = async (event: Record<string, unknown>) => {
+  let active = true;
+  let writes = Promise.resolve();
+  const write = async (chunk: string) => {
     if (response.writableEnded || abort.signal.aborted) return;
-    const accepted = response.write(`data: ${JSON.stringify(event)}\n\n`);
+    const accepted = response.write(chunk);
     if (accepted) return;
     await new Promise<void>((resolve) => {
       let settled = false;
@@ -167,5 +172,26 @@ export function openSse(response: ServerResponse, abort: AbortController): SseSe
       if (response.destroyed || response.closed || abort.signal.aborted) finish();
     });
   };
-  return { send, abort };
+  const enqueue = (chunk: string): Promise<void> => {
+    if (!active) return Promise.resolve();
+    const next = writes.then(() => write(chunk));
+    writes = next.catch(() => undefined);
+    return next;
+  };
+  const stopHeartbeats = () => clearInterval(heartbeatTimer);
+  const heartbeat = () => enqueue(": heartbeat\n\n");
+  const heartbeatTimer = setInterval(() => { void heartbeat(); }, SSE_HEARTBEAT_INTERVAL_MS);
+  abort.signal.addEventListener("abort", stopHeartbeats, { once: true });
+  return {
+    send: async (event) => await enqueue(`data: ${JSON.stringify(event)}\n\n`),
+    heartbeat,
+    close: async () => {
+      if (!active) return;
+      active = false;
+      stopHeartbeats();
+      abort.signal.removeEventListener("abort", stopHeartbeats);
+      await writes;
+    },
+    abort
+  };
 }

@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import test from "node:test";
 import { streamResponse } from "../server/stream-response.js";
-import { splitSseEvents } from "../shared/sse.js";
+import { SSE_HEARTBEAT_INTERVAL_MS, splitSseEvents } from "../shared/sse.js";
 import { DELTA_BATCH_WINDOW_MS } from "../shared/worker-protocol.js";
 import { FakeResponse } from "./fake-http-response.js";
 import { platformPerformanceBudget } from "./performance-budget.js";
@@ -153,6 +153,32 @@ test("a slow stream still delivers its first token promptly, without waiting for
   releaseModel();
   await running;
   assert.equal(response.ends, 1);
+});
+
+test("a silent stream sends an SSE comment heartbeat before the model responds", async () => {
+  const request = Readable.from([]) as unknown as IncomingMessage;
+  const response = new FakeResponse();
+  let releaseModel!: () => void;
+  const modelGate = new Promise<void>((resolve) => { releaseModel = resolve; });
+  const running = streamResponse(
+    request,
+    response as unknown as ServerResponse,
+    async () => {
+      await modelGate;
+      return { ok: true };
+    },
+    (value) => value
+  );
+
+  const heartbeatCount = () => response.output.match(/: heartbeat\n\n/g)?.length ?? 0;
+  const deadline = Date.now() + SSE_HEARTBEAT_INTERVAL_MS * 4;
+  while (heartbeatCount() < 2 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(heartbeatCount() >= 2, "the silent stream must keep sending heartbeats");
+
+  releaseModel();
+  await running;
 });
 
 test("a stream that ends mid-batch flushes rather than dropping the tail", async () => {

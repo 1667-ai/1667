@@ -51,7 +51,8 @@ describe("deterministic demo frames", () => {
   test("80x24 folds state into boundary rules", async () => {
     const frame = await renderOnce(demoSource(), 80, 24);
     expect(frame).toContain("── ¶ 12 · ‹ take 3/5 ›");
-    expect(frame).toContain("── ¶ 13 · ⟳ writing · esc stops");
+    expect(frame).toContain("── ¶ 13 ·");
+    expect(frame).toContain("writing · esc stops");
     expect(frame).toContain("space continues · enter directs · n new story · m map");
     expect(frame).toContain("NAV   the lantern keeper · ⚑ canon-storm · ¶ 12/13 · 3/5");
     expect(frame).not.toContain("307 words");

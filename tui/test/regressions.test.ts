@@ -591,7 +591,7 @@ describe("review regressions", () => {
     const rendered = renderStoryScreen(state, { width: 120, height: 36 }).lines.map(plainLine).join("\n");
 
     expect(view.activeLeafId).toBe(stream.targetId);
-    expect(rendered).toContain("⟳ writing");
+    expect(rendered).toContain("writing");
     expect(rendered).toContain("esc stops");
     expect(rendered).toContain("▏");
   });

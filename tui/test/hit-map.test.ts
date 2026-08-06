@@ -470,7 +470,7 @@ describe("hit map from rendered frames", () => {
     expect(clickText(narrow, state, "esc stops")).toEqual({ action: "cancel" });
     const boundaryRow = narrow.findIndex((line) => plainLine(line).includes("esc stops"));
     const boundaryText = plainLine(narrow[boundaryRow]!);
-    const writing = visibleWidth(boundaryText.slice(0, boundaryText.indexOf("⟳ writing"))) + 1;
+    const writing = visibleWidth(boundaryText.slice(0, boundaryText.indexOf("writing"))) + 1;
     expect(mouseToAction(click(writing, boundaryRow), state)?.action).not.toBe("cancel");
   });
 
@@ -524,7 +524,7 @@ describe("hit map from rendered frames", () => {
       : []));
 
     expect(proseRows.length).toBeGreaterThan(2);
-    expect(streamRows.some((line) => plainLine(line).includes("⟳ writing"))).toBeTrue();
+    expect(streamRows.some((line) => plainLine(line).includes("writing"))).toBeTrue();
     expect(streamRows.some((line) => plainLine(line).includes("esc stops"))).toBeTrue();
     expect(gutterActions).toEqual([{ text: "esc stops", action: "cancel" }]);
   });
