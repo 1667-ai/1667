@@ -44,7 +44,9 @@ import {
   createPromptCacheRequest,
   type PromptCacheRuntime
 } from "./provider-cache-policy.js";
-import { providerOutputByteLimit } from "./provider-stream-output.js";
+import {
+  providerOutputRetainedByteLimit
+} from "./provider-stream-output.js";
 
 export type BindGenerationIntent = (settings: GenerationSettings, context: unknown) => Promise<void>;
 
@@ -508,7 +510,7 @@ export async function rewriteNode(
           // The complete original keeps every byte that can survive outside
           // the replacement. The provider limit below covers all new text.
           effect: rewriteEffect(originalText.slice(start, end))
-        }, providerOutputByteLimit(rewriteSettings))
+        }, providerOutputRetainedByteLimit(rewriteSettings))
       );
   try {
     let streamed = "";

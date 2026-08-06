@@ -17,6 +17,7 @@ import {
   partialRewriteRecordRetainedBytes
 } from "../server/rewrite-partial.js";
 import { classifyServiceError } from "../server/service-error-policy.js";
+import { providerOutputByteLimit } from "../server/provider-stream-output.js";
 import type { SettingsStore } from "../server/settings.js";
 import { sha256 } from "../server/story-format.js";
 import type { ProviderStoryRuntime } from "../server/story-mutation-runtime.js";
@@ -607,6 +608,94 @@ providerTest("rewrite stash byte capacity refuses provider work before it can em
     (error: unknown) => error instanceof ServiceError && error.status === 429
   );
   assert.equal(deltas, 0);
+});
+
+providerTest("rewrite stash reserves space for credential-redaction expansion", async (t) => {
+  const credentialEnvironment = "AI_1667_TEST_REWRITE_EXPANDING_SECRET";
+  const previousCredential = process.env[credentialEnvironment];
+  process.env[credentialEnvironment] = "x";
+  t.after(() => {
+    if (previousCredential === undefined) {
+      delete process.env[credentialEnvironment];
+    } else {
+      process.env[credentialEnvironment] = previousCredential;
+    }
+  });
+  const controller = new AbortController();
+  const rawOutput = "x ".repeat(7_000);
+  const originalFetch = globalThis.fetch;
+  const wire = `data: ${JSON.stringify({
+    choices: [{ delta: { content: rawOutput }, finish_reason: null }]
+  })}\n\n`;
+  globalThis.fetch = (async (input, init) => {
+    const transportSignal = input instanceof Request
+      ? input.signal
+      : init?.signal;
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(streamController) {
+          streamController.enqueue(new TextEncoder().encode(wire));
+          transportSignal?.addEventListener("abort", () => {
+            streamController.error(transportSignal.reason);
+          }, { once: true });
+        }
+      }),
+      { headers: { "content-type": "text/event-stream" } }
+    );
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const settings = timedSettings("https://fixture.invalid", {
+    assistantPrefill: "supported",
+    authEnv: credentialEnvironment
+  });
+  const { story, nodeId, start, end } = fixtureStory();
+  const partials = new PartialRewriteStash();
+  let streamed = "";
+  let stopRequested = false;
+
+  const result = await rewriteNode(
+    story.id,
+    nodeId,
+    {
+      start,
+      end,
+      expected: SELECTION,
+      instruction: "Use a different image.",
+      attemptId: "redaction-expansion-attempt"
+    },
+    refusingStories<"rewriteNode">(story),
+    stubSettingsStore(settings),
+    new PromptCacheRuntime(),
+    (delta) => {
+      streamed += delta;
+      if (!stopRequested) {
+        stopRequested = true;
+        controller.abort();
+      }
+    },
+    controller.signal,
+    undefined,
+    "redaction-expansion-rewrite",
+    "redaction-expansion-take",
+    undefined,
+    partials
+  );
+
+  assert.equal(result, null);
+  assert.equal(streamed.includes("x"), false);
+  assert.ok(streamed.startsWith("[REDACTED] "));
+  assert.ok(streamed.length > providerOutputByteLimit(settings));
+  const record = partials.get(
+    story.id,
+    nodeId,
+    "redaction-expansion-attempt"
+  );
+  assert.ok(record);
+  assert.ok(
+    partialRewriteRecordRetainedBytes(record)
+      > providerOutputByteLimit(settings) * 2,
+    "the retained rewrite must exceed the old raw-output reservation"
+  );
 });
 
 providerTest("rewrite stash byte accounting returns unused reservation and released records", () => {

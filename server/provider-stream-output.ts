@@ -1,14 +1,43 @@
 import type { GenerationSettings } from "../shared/types.js";
 import { ProviderError } from "./errors.js";
-import { redactProviderSecrets } from "./provider-runtime.js";
+import {
+  redactProviderSecrets,
+  resolveProviderHeaders
+} from "./provider-runtime.js";
 
 const MAX_DECODED_OUTPUT_BYTES = 16 * 1024 * 1024;
+const REDACTION_MARKER_RETAINED_BYTES = "[REDACTED]".length * 2;
 
 export function providerOutputByteLimit(settings: GenerationSettings): number {
   return Math.min(
     MAX_DECODED_OUTPUT_BYTES,
     settings.maxTokens * 32 + 64 * 1024
   );
+}
+
+/** Maximum UTF-16 storage after provider credential redaction. */
+export function providerOutputRetainedByteLimit(
+  settings: GenerationSettings
+): number {
+  const decodedBytes = providerOutputByteLimit(settings);
+  const { secrets } = resolveProviderHeaders(settings, {});
+  const shortestSecretBytes = secrets.reduce(
+    (shortest, secret) => Math.min(shortest, Buffer.byteLength(secret)),
+    Number.POSITIVE_INFINITY
+  );
+  if (!Number.isFinite(shortestSecretBytes)) return decodedBytes * 2;
+  const baselineBytesPerMatch = shortestSecretBytes * 2;
+  const extraBytesPerMatch = Math.max(
+    0,
+    REDACTION_MARKER_RETAINED_BYTES - baselineBytesPerMatch
+  );
+  const maximumMatches = Math.floor(decodedBytes / shortestSecretBytes);
+  const retainedBytes = decodedBytes * 2
+    + maximumMatches * extraBytesPerMatch;
+  if (!Number.isSafeInteger(retainedBytes)) {
+    throw new Error("Provider output storage reservation exceeds the safe integer range");
+  }
+  return retainedBytes;
 }
 
 export function parseProviderStreamEvent(

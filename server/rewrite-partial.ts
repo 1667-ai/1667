@@ -168,17 +168,17 @@ export function partialRewriteRecordRetainedBytes(
 }
 
 /** Reserve before streaming against the largest record this request can
- * produce. A decoded provider byte can occupy at most two UTF-16 bytes. */
+ * produce, including provider-secret redaction expansion. */
 export function maximumPartialRewriteRecordRetainedBytes(
   originalRecord: PartialRewriteRecord,
-  maximumProviderOutputBytes: number
+  maximumRetainedProviderOutputBytes: number
 ): number {
-  if (!Number.isSafeInteger(maximumProviderOutputBytes)
-    || maximumProviderOutputBytes < 0) {
+  if (!Number.isSafeInteger(maximumRetainedProviderOutputBytes)
+    || maximumRetainedProviderOutputBytes < 0) {
     throw new Error("Partial rewrite output reservation must be a non-negative safe integer");
   }
   const maximumRecordBytes = partialRewriteRecordRetainedBytes(originalRecord)
-    + maximumProviderOutputBytes * 2;
+    + maximumRetainedProviderOutputBytes;
   if (!Number.isSafeInteger(maximumRecordBytes)) {
     throw new Error("Partial rewrite storage reservation exceeds the safe integer range");
   }

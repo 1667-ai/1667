@@ -150,14 +150,10 @@ async function settleOwnedWorkerTerminal(
   pending.resolve(message.value);
 }
 
-/** Deliver terminal-carried stream text before any failure handling or
- * settlement, exactly once. After the caller's signal has aborted, the
- * transport never calls `onDelta` again: the withheld post-abort deltas
- * plus the worker's reclaimed tail reach the caller through `onStopped`
- * instead, so a Stop save still receives every byte the server delivered.
- * A deadline's unsent tail arrives on an error terminal with the signal
- * never aborted, so it flows through `onDelta` before the failure is
- * released — the failure itself stays a failure. */
+/** Deliver legacy terminal-carried stream text before settlement. Current
+ * workers publish reclaimed text as sequenced deltas before the terminal.
+ * After abort, the transport routes those deltas to `onStopped`; a legacy
+ * terminal tail follows the same route. */
 function deliverStreamTail(
   pending: PendingCall,
   message: TerminalMessage

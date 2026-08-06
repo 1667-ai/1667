@@ -53,10 +53,7 @@ export class WorkerRequestFailureResponder {
 
   async tracked(
     error: unknown,
-    ...override: [
-      mutationOutcome?: WorkerMutationFailureOutcome,
-      unsentText?: string
-    ]
+    ...override: [mutationOutcome?: WorkerMutationFailureOutcome]
   ): Promise<void> {
     const message = await this.message(
       error,
@@ -65,12 +62,7 @@ export class WorkerRequestFailureResponder {
         : override[0]
     );
     this.operations.finish(this.id, "failed");
-    const unsentText = override[1];
-    this.sink.postMessage(
-      unsentText === undefined || unsentText.length === 0
-        ? message
-        : { ...message, unsentText }
-    );
+    this.sink.postMessage(message);
   }
 
   async untracked(

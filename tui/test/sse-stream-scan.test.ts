@@ -141,7 +141,9 @@ test("a large final payload with no line break until the end still parses in bou
   assertWithinBudget(
     CONSOLE_REPORT,
     "large single-line SSE payload parse",
-    cpuBudget(2_000),
+    // Native Linux x64 runners measured this linear scan at up to 2.14s.
+    // Keep enough runner variance while the old quadratic scan stays far over budget.
+    cpuBudget(2_500),
     read()
   );
 

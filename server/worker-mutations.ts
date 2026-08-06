@@ -28,7 +28,10 @@ import {
 } from "../shared/fact-budget.js";
 import { factDraftOf, sameFactDraft } from "../shared/fact-draft.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
-import { ServiceError } from "./errors.js";
+import {
+  RetryableMutationReceiptError,
+  ServiceError
+} from "./errors.js";
 import {
   chapterBreakRemovalFingerprint,
   parseRemovedChapterBreak,
@@ -40,6 +43,7 @@ import {
   type MutationPlan,
   type MutationPreflightPlan
 } from "./mutation-plan.js";
+import { isPreparedDomainError } from "./mutation-ledger-types.js";
 import { mutationOutcomeUnknown } from "./mutation-recovery.js";
 import {
   parseEditNode,
@@ -368,13 +372,25 @@ const MUTATIONS: MutationRegistry = {
       };
     },
     storyId: (input) => input.storyId,
-    execute: (service, input, plan, context) => service.commitPartialRewrite(
-      input.storyId,
-      input.nodeId,
-      { streamedDigest: input.streamedDigest, attemptId: input.attemptId },
-      context.storyMutationRequest,
-      plan.entityId("partial-rewrite-take")
-    )
+    execute: async (service, input, plan, context) => {
+      try {
+        return await service.commitPartialRewrite(
+          input.storyId,
+          input.nodeId,
+          { streamedDigest: input.streamedDigest, attemptId: input.attemptId },
+          context.storyMutationRequest,
+          plan.entityId("partial-rewrite-take")
+        );
+      } catch (error) {
+        if (error instanceof ServiceError
+          && isPreparedDomainError(error.code)) {
+          throw error;
+        }
+        // A transient settlement failure has no terminal story result. Keep
+        // the outer receipt pending so the same request can recover the ledger.
+        throw new RetryableMutationReceiptError(error, true);
+      }
+    }
   }),
   editNode: define<"editNode">({
     parse: (value) => bodyInputWithId<"editNode">(value, "editNode", "nodeId"),

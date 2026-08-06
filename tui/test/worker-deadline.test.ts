@@ -8,6 +8,7 @@ import { platformPerformanceBudget } from "../../test/performance-budget.js";
 import { DataDirectoryLock } from "../../server/data-directory-lock.js";
 import { ownedLoopbackHttpSupported } from "../../server/provider-fetch.js";
 import {
+  MAX_DELTA_BATCH_BYTES,
   MAX_UNACKNOWLEDGED_DELTA_BATCHES,
   WORKER_BUILD_IDENTITY,
   WORKER_PROTOCOL_VERSION,
@@ -172,7 +173,7 @@ describe("embedded worker deadlines", () => {
     }
   }, 20_000);
 
-  test("a deadline error carries the batcher's unsent tail as unsentText", async () => {
+  test("a deadline publishes a single oversized accepted delta before its error terminal", async () => {
     if (!ownedLoopbackHttpSupported()) return;
     const dataDir = await mkdtemp(path.join(tmpdir(), "1667-worker-deadline-tail-"));
     const openResponses = new Set<ServerResponse>();
@@ -197,7 +198,7 @@ describe("embedded worker deadlines", () => {
       model: "deadline-tail-fixture",
       apiKeyEnv: null,
       temperature: null,
-      maxTokens: 64,
+      maxTokens: 20_000,
       systemPrompt: "Continue the story.",
       contextWindow: null
     })}\n`, { mode: 0o600 });
@@ -261,12 +262,16 @@ describe("embedded worker deadlines", () => {
         response.write(sseDelta(word));
         await collected.waitForDeltaCount(index + 1);
       }
-      const parked = "parked-tail";
-      response.write(sseDelta(parked));
       // No delta can announce the parked word (the credit window is
-      // closed), so give it a generous budget to travel the loopback
-      // socket into the batcher before the deadline cancel reclaims it.
-      await new Promise((resolve) => setTimeout(resolve, platformPerformanceBudget(250)));
+      // closed), so give it a generous budget to travel the loopback socket
+      // into the batcher before the deadline cancel seals it. This is one
+      // provider delta larger than the complete credit window.
+      const parked = "single-provider-delta ".padEnd(
+        MAX_DELTA_BATCH_BYTES * (MAX_UNACKNOWLEDGED_DELTA_BATCHES + 3),
+        "p"
+      );
+      response.write(sseDelta(parked));
+      await new Promise((resolve) => setTimeout(resolve, platformPerformanceBudget(500)));
 
       worker.postMessage({
         type: "cancel",
@@ -277,10 +282,11 @@ describe("embedded worker deadlines", () => {
       expect(expired).toMatchObject({
         type: "error",
         failure: { code: "mutation_outcome_unknown" },
-        mutationOutcome: "uncertain",
-        unsentText: parked
+        mutationOutcome: "uncertain"
       });
-      expect(collected.deltas).toEqual(posted);
+      expect(collected.deltas.join("")).toBe(posted.join("") + parked);
+      expect(collected.deltas.every((text) =>
+        Buffer.byteLength(text, "utf8") <= MAX_DELTA_BATCH_BYTES)).toBe(true);
     } finally {
       await worker.terminate();
       await dataLock.release();

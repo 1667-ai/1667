@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import {
   MAX_DELTA_BATCH_BYTES,
@@ -7,8 +10,14 @@ import {
   type MainToWorkerMessage,
   type WorkerOperationId
 } from "../shared/worker-protocol.js";
-import { ProviderError } from "../server/errors.js";
-import type { StoryService } from "../server/story-service.js";
+import { createDurableMutationId } from "../shared/durable-mutation-id.js";
+import {
+  markRetryablePartialSettlementFailure,
+  ProviderError,
+  ServiceError
+} from "../server/errors.js";
+import { rewriteStreamDigest } from "../shared/rewrite-partial-contract.js";
+import { StoryService } from "../server/story-service.js";
 import { WorkerDeltaBatcher } from "../server/worker-delta-batcher.js";
 import { executeWorkerRequest } from "../server/worker-request-executor.js";
 import { WorkerRequestCancellation } from "../server/worker-request-cancellation.js";
@@ -19,7 +28,7 @@ const OPERATION_ID: WorkerOperationId = {
   sequence: 1n
 };
 
-test("a worker deadline during provider-timeout flush transfers the sealed tail", async () => {
+test("a worker deadline publishes one accepted oversized tail before its error terminal", async () => {
   const posted: string[] = [];
   const deltas = new WorkerDeltaBatcher(OPERATION_ID, (message) => {
     posted.push(message.text);
@@ -28,7 +37,10 @@ test("a worker deadline during provider-timeout flush transfers the sealed tail"
   for (let index = 0; index < MAX_UNACKNOWLEDGED_DELTA_BATCHES; index += 1) {
     await deltas.push(fullBatch);
   }
-  const tail = "tail".padEnd(MAX_DELTA_BATCH_BYTES, "t");
+  const tail = "single-provider-delta ".padEnd(
+    MAX_DELTA_BATCH_BYTES * (MAX_UNACKNOWLEDGED_DELTA_BATCHES + 3),
+    "t"
+  );
   const parked = deltas.push(tail);
   await new Promise((resolve) => setImmediate(resolve));
 
@@ -44,15 +56,13 @@ test("a worker deadline during provider-timeout flush transfers the sealed tail"
   const failures: Array<{
     error: unknown;
     outcome: "terminal" | "uncertain" | undefined;
-    unsentText: string | undefined;
   }> = [];
   const responder = {
     tracked: async (
       error: unknown,
-      outcome: "terminal" | "uncertain" | undefined,
-      unsentText: string | undefined
+      outcome: "terminal" | "uncertain" | undefined
     ) => {
-      failures.push({ error, outcome, unsentText });
+      failures.push({ error, outcome });
     }
   } as unknown as WorkerRequestFailureResponder;
   const request: Extract<MainToWorkerMessage, { type: "request" }> = {
@@ -80,10 +90,258 @@ test("a worker deadline during provider-timeout flush transfers the sealed tail"
   await execution;
   await parked;
 
-  assert.equal(posted.length, MAX_UNACKNOWLEDGED_DELTA_BATCHES);
+  assert.equal(posted.join(""), fullBatch.repeat(MAX_UNACKNOWLEDGED_DELTA_BATCHES) + tail);
+  assert.ok(posted.every((text) => Buffer.byteLength(text, "utf8") <= MAX_DELTA_BATCH_BYTES));
   assert.deepEqual(failures, [{
     error: timeout,
-    outcome: "terminal",
-    unsentText: tail
+    outcome: "terminal"
   }]);
 });
+
+test("a user cancellation during a credit-blocked success flush publishes its tail before terminal", async () => {
+  const posted: Array<{ text: string; sequence: number }> = [];
+  const terminals: Array<{ type: string; state: string }> = [];
+  const deltas = new WorkerDeltaBatcher(OPERATION_ID, (message) => {
+    posted.push({ text: message.text, sequence: message.sequence });
+  });
+  const fullBatch = "x".repeat(MAX_DELTA_BATCH_BYTES);
+  for (let index = 0; index < MAX_UNACKNOWLEDGED_DELTA_BATCHES; index += 1) {
+    await deltas.push(fullBatch);
+  }
+  const tail = "accepted before cancellation";
+  const parked = deltas.push(tail);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  let releaseSuccess!: () => void;
+  const success = new Promise<void>((resolve) => {
+    releaseSuccess = resolve;
+  });
+  const cancellation = new WorkerRequestCancellation(
+    true,
+    "00000000-0000-7000-8000-000000000001"
+  );
+  const responder = {
+    tracked: async () => assert.fail("The canceled request must not fail")
+  } as unknown as WorkerRequestFailureResponder;
+  const execution = executeWorkerRequest(
+    { runMutation: async () => {
+      await success;
+      return { id: "story" };
+    } } as unknown as StoryService,
+    request(),
+    cancellation,
+    deltas,
+    responder,
+    (message, state) => terminals.push({ type: message.type, state })
+  );
+
+  releaseSuccess();
+  // The successful mutation has now entered `deltas.flush()`, where the
+  // parked tail waits behind the unacknowledged credit window.
+  await new Promise((resolve) => setImmediate(resolve));
+  cancellation.cancel("user");
+  deltas.sealUnsent();
+  await execution;
+  await parked;
+
+  assert.equal(
+    posted.map((message) => message.text).join(""),
+    fullBatch.repeat(MAX_UNACKNOWLEDGED_DELTA_BATCHES) + tail
+  );
+  assert.deepEqual(
+    posted.map((message) => message.sequence),
+    posted.map((_, index) => index)
+  );
+  assert.deepEqual(terminals, [{ type: "complete", state: "canceled" }]);
+});
+
+test("a normal provider rejection flushes accepted stream text before its terminal", async () => {
+  const posted: string[] = [];
+  const deltas = new WorkerDeltaBatcher(OPERATION_ID, (message) => {
+    posted.push(message.text);
+  });
+  await deltas.push("accepted before rejection");
+  const rejection = new ProviderError("The provider rejected the request.");
+  const failures: Array<{ error: unknown; outcome: string | undefined }> = [];
+  const responder = {
+    tracked: async (error: unknown, outcome: string | undefined) => {
+      failures.push({ error, outcome });
+    }
+  } as unknown as WorkerRequestFailureResponder;
+
+  await executeWorkerRequest(
+    { runMutation: async () => { throw rejection; } } as unknown as StoryService,
+    request(),
+    new WorkerRequestCancellation(true, "00000000-0000-7000-8000-000000000001"),
+    deltas,
+    responder,
+    () => assert.fail("The failed request must not publish a success terminal")
+  );
+
+  assert.deepEqual(posted, ["accepted before rejection"]);
+  assert.deepEqual(failures, [{ error: rejection, outcome: "terminal" }]);
+});
+
+test("an uncertain mutation drops unsealed buffered stream text", async () => {
+  const posted: string[] = [];
+  const deltas = new WorkerDeltaBatcher(OPERATION_ID, (message) => {
+    posted.push(message.text);
+  });
+  await deltas.push("unsealed buffered text");
+  const uncertain = new ServiceError(500, "Internal server error", "internal");
+  const failures: Array<{ error: unknown; outcome: string | undefined }> = [];
+  const responder = {
+    tracked: async (error: unknown, outcome: string | undefined) => {
+      failures.push({ error, outcome });
+    }
+  } as unknown as WorkerRequestFailureResponder;
+
+  await executeWorkerRequest(
+    { runMutation: async () => { throw uncertain; } } as unknown as StoryService,
+    request(),
+    new WorkerRequestCancellation(true, "00000000-0000-7000-8000-000000000001"),
+    deltas,
+    responder,
+    () => assert.fail("The failed request must not publish a success terminal")
+  );
+
+  assert.deepEqual(posted, []);
+  assert.deepEqual(failures, [{ error: uncertain, outcome: "uncertain" }]);
+});
+
+test("a persistent retryable partial settlement stops at deadline without busy spinning", async () => {
+  const transient = new Error("Temporary partial settlement failure");
+  markRetryablePartialSettlementFailure(transient);
+  let attempts = 0;
+  let firstAttempt!: () => void;
+  const attempted = new Promise<void>((resolve) => { firstAttempt = resolve; });
+  const failures: Array<{ error: unknown; outcome: string | undefined }> = [];
+  const responder = {
+    tracked: async (error: unknown, outcome: string | undefined) => {
+      failures.push({ error, outcome });
+    }
+  } as unknown as WorkerRequestFailureResponder;
+
+  const cancellation = new WorkerRequestCancellation(
+    true,
+    "00000000-0000-7000-8000-000000000001"
+  );
+  const execution = executeWorkerRequest(
+    { runMutation: async () => {
+      attempts += 1;
+      if (attempts === 1) firstAttempt();
+      throw transient;
+    } } as unknown as StoryService,
+    { ...request(), method: "commitPartialRewrite" },
+    cancellation,
+    null,
+    responder,
+    () => assert.fail("The persistent settlement must not publish success")
+  );
+  await attempted;
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  cancellation.cancel("deadline");
+  await execution;
+
+  assert.ok(attempts >= 2, "the live operation retries after a bounded delay");
+  assert.ok(attempts <= 4, "the retry loop must not busy spin");
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0]!.outcome, "uncertain");
+});
+
+test("a live worker retries an exact partial settlement while its stash remains available", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-worker-partial-retry-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    let story = await service.createStory("Worker partial settlement retry");
+    const original = "The blue door opened into a long and quiet stone corridor.";
+    story = await service.createNode(story.id, { parentId: null, text: original });
+    const nodeId = story.nodes[0]!.id;
+    const expected = "blue door opened into a long and quiet stone corridor";
+    const controller = new AbortController();
+    let streamed = "";
+    const stopped = await service.rewriteNode(
+      story.id,
+      nodeId,
+      {
+        start: original.indexOf(expected),
+        end: original.indexOf(expected) + expected.length,
+        expected,
+        instruction: "",
+        destination: "take",
+        attemptId: "worker-retry-attempt"
+      },
+      (text) => {
+        streamed += text;
+        controller.abort();
+      },
+      controller.signal,
+      { rewriteId: "worker-retry-rewrite", takeId: "unused-worker-retry-take" }
+    );
+    assert.equal(stopped, null);
+    assert.notEqual(streamed.trim(), "");
+
+    let staged = 0;
+    const hooks = (service as unknown as {
+      storyMutations: { hooks: { afterStage?: () => void } };
+    }).storyMutations.hooks;
+    hooks.afterStage = () => {
+      staged += 1;
+      if (staged === 1) throw new Error("Temporary settlement stage failure");
+    };
+    const terminals: Array<{ type: string; value: unknown }> = [];
+    const reported: Array<{ error: unknown; outcome: unknown }> = [];
+    const failures = {
+      tracked: async (error: unknown, outcome: unknown) => reported.push({ error, outcome })
+    } as unknown as WorkerRequestFailureResponder;
+    const mutationId = createDurableMutationId();
+    const message: Extract<MainToWorkerMessage, { type: "request" }> = {
+      type: "request",
+      id: OPERATION_ID,
+      method: "commitPartialRewrite",
+      input: {
+        storyId: story.id,
+        nodeId,
+        streamedDigest: rewriteStreamDigest(streamed),
+        attemptId: "worker-retry-attempt"
+      },
+      protocolVersion: WORKER_PROTOCOL_VERSION,
+      mutationId,
+      expectedAggregateVersion: (await service.stories.loadVersioned(story.id)).aggregateVersion!,
+      deadlineMs: Date.now() + 60_000
+    };
+
+    await executeWorkerRequest(
+      service,
+      message,
+      new WorkerRequestCancellation(true, message.mutationId),
+      null,
+      failures,
+      (terminal) => terminals.push({ type: terminal.type, value: terminal.value })
+    );
+
+    assert.deepEqual(reported, []);
+    assert.equal(staged, 2);
+    assert.deepEqual(terminals.map(({ type }) => type), ["result"]);
+    assert.notEqual(
+      (terminals[0]!.value as { nodeId: string }).nodeId,
+      nodeId
+    );
+  } finally {
+    await service.dispose();
+  }
+});
+
+function request(): Extract<MainToWorkerMessage, { type: "request" }> {
+  return {
+    type: "request",
+    id: OPERATION_ID,
+    method: "continueStory",
+    input: {},
+    protocolVersion: WORKER_PROTOCOL_VERSION,
+    mutationId: "00000000-0000-7000-8000-000000000001",
+    deadlineMs: Date.now() + 60_000
+  };
+}

@@ -12,8 +12,8 @@ import { classifyProviderAbort } from "./provider-abort.js";
 export interface WorkerCancellationFailure {
   readonly error: unknown;
   /** True when this request's deadline is what publishes the error
-   * terminal. The executor attaches a stream's reclaimed unsent tail to
-   * exactly these terminals and to no others. */
+   * terminal. The executor sends reclaimed stream text as bounded deltas
+   * before that terminal. */
   readonly deadline: boolean;
 }
 
@@ -31,6 +31,10 @@ export class WorkerRequestCancellation {
 
   get signal(): AbortSignal {
     return this.controller.signal;
+  }
+
+  get userCancellationRequested(): boolean {
+    return this.userCancellation !== null && this.deadlineFailure === null;
   }
 
   cancel(reason: WorkerCancelReason): void {

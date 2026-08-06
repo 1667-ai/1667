@@ -66,7 +66,7 @@ test("disposing a credit-blocked batch releases the producer without posting", a
   assert.equal(sent.length, MAX_UNACKNOWLEDGED_DELTA_BATCHES);
 });
 
-test("cancellation transfers text still inside the batching window", async () => {
+test("cancellation publishes text still inside the batching window before its terminal", async () => {
   const sent: DeltaMessage[] = [];
   const batcher = new WorkerDeltaBatcher(
     OPERATION_ID,
@@ -74,12 +74,14 @@ test("cancellation transfers text still inside the batching window", async () =>
   );
 
   await batcher.push("arrived before Stop");
-  assert.equal(batcher.takeUnsent(), "arrived before Stop");
+  batcher.sealUnsent();
+  await batcher.publishSealed();
   batcher.dispose();
-  assert.deepEqual(sent, []);
+  assert.deepEqual(sent.map((message) => message.text), ["arrived before Stop"]);
+  assert.deepEqual(sent.map((message) => message.sequence), [0]);
 });
 
-test("cancellation transfers text already waiting for transport credit", async () => {
+test("cancellation publishes text already waiting for transport credit", async () => {
   const sent: DeltaMessage[] = [];
   const batcher = new WorkerDeltaBatcher(
     OPERATION_ID,
@@ -95,15 +97,19 @@ test("cancellation transfers text already waiting for transport credit", async (
   ));
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(
-    batcher.takeUnsent(),
-    "queued".padEnd(MAX_DELTA_BATCH_BYTES, "q")
-  );
+  batcher.sealUnsent();
+  await batcher.publishSealed();
   batcher.dispose();
   await blocked;
+  assert.deepEqual(sent.map((message) => message.text), [
+    ...Array.from({ length: MAX_UNACKNOWLEDGED_DELTA_BATCHES }, () => fullBatch),
+    "queued".padEnd(MAX_DELTA_BATCH_BYTES, "q")
+  ]);
+  assert.deepEqual(sent.map((message) => message.sequence),
+    sent.map((_, index) => index));
 });
 
-test("a batch reclaimed while blocked on credit is never posted once credit arrives", async () => {
+test("sealed batches bypass credit without reposting their blocked send", async () => {
   const sent: DeltaMessage[] = [];
   const batcher = new WorkerDeltaBatcher(
     OPERATION_ID,
@@ -117,23 +123,20 @@ test("a batch reclaimed while blocked on credit is never posted once credit arri
   const blocked = batcher.push(blockedText);
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(batcher.takeUnsent(), blockedText);
+  batcher.sealUnsent();
+  await batcher.publishSealed();
 
-  // No dispose() here: acknowledging credit for an earlier batch, without
-  // disposing, is the hazard case — the reclaimed batch's `send` call is
-  // still blocked in `waitForCredit` and must not post once it unblocks.
+  // The original credit-blocked send stays reclaimed even when an old
+  // acknowledgement arrives after terminal-tail publication.
   batcher.acknowledge(0);
 
   await assert.doesNotReject(blocked);
-  assert.ok(
-    sent.every((message) => message.text !== blockedText),
-    "reclaimed text must never reach post()"
-  );
-  assert.equal(sent.length, MAX_UNACKNOWLEDGED_DELTA_BATCHES);
+  assert.equal(sent.filter((message) => message.text === blockedText).length, 1);
+  assert.equal(sent.length, MAX_UNACKNOWLEDGED_DELTA_BATCHES + 1);
   batcher.dispose();
 });
 
-test("a batch drained into the send queue while an earlier batch blocks on credit is still reclaimable", async () => {
+test("a sealed queue publishes every batch behind a credit-blocked batch in order", async () => {
   const sent: DeltaMessage[] = [];
   const batcher = new WorkerDeltaBatcher(
     OPERATION_ID,
@@ -155,49 +158,37 @@ test("a batch drained into the send queue while an earlier batch blocks on credi
   const parkedB = batcher.push(textB);
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(
-    batcher.takeUnsent(),
-    textA + textB,
-    "the batch drained behind the busy send queue must not vanish from the reclaim"
-  );
-
-  // No dispose() before this point: the loss (or its absence) is already
-  // decided by takeUnsent() above. Disposing now only lets the two parked
-  // push() calls settle so the test can confirm neither batch posts.
-  batcher.dispose();
+  batcher.sealUnsent();
+  await batcher.publishSealed();
   await assert.doesNotReject(parkedA);
   await assert.doesNotReject(parkedB);
-  assert.ok(
-    sent.every((message) => message.text !== textA && message.text !== textB),
-    "a batch reclaimed by takeUnsent() must never also reach post()"
-  );
-  assert.equal(sent.length, MAX_UNACKNOWLEDGED_DELTA_BATCHES);
+  assert.deepEqual(sent.slice(-2).map((message) => message.text), [textA, textB]);
+  assert.equal(sent.length, MAX_UNACKNOWLEDGED_DELTA_BATCHES + 2);
+  batcher.dispose();
 });
 
-test("deadline sealing reclaims every split chunk after a credit-blocked chunk", async () => {
+test("deadline publishes a single accepted delta larger than the credit window in bounded frames", async () => {
   const sent: DeltaMessage[] = [];
   const batcher = new WorkerDeltaBatcher(
     OPERATION_ID,
     (message) => sent.push(message)
   );
-  const fullBatch = "x".repeat(MAX_DELTA_BATCH_BYTES);
-  for (let index = 0; index < MAX_UNACKNOWLEDGED_DELTA_BATCHES; index += 1) {
-    await batcher.push(fullBatch);
-  }
-
-  const accepted = [
-    "first".padEnd(MAX_DELTA_BATCH_BYTES, "a"),
-    "middle".padEnd(MAX_DELTA_BATCH_BYTES, "b"),
-    "last".padEnd(MAX_DELTA_BATCH_BYTES, "c")
-  ].join("");
+  const accepted = "single-provider-delta ".padEnd(
+    MAX_DELTA_BATCH_BYTES * (MAX_UNACKNOWLEDGED_DELTA_BATCHES + 3),
+    "x"
+  );
   const pushing = batcher.push(accepted);
   await new Promise((resolve) => setImmediate(resolve));
 
   batcher.sealUnsent();
   await pushing;
+  await batcher.publishSealed();
 
-  assert.equal(batcher.takeUnsent(), accepted);
-  assert.equal(sent.length, MAX_UNACKNOWLEDGED_DELTA_BATCHES);
+  assert.equal(sent.map((message) => message.text).join(""), accepted);
+  assert.ok(sent.every((message) =>
+    Buffer.byteLength(message.text, "utf8") <= MAX_DELTA_BATCH_BYTES));
+  assert.deepEqual(sent.map((message) => message.sequence),
+    sent.map((_, index) => index));
   batcher.dispose();
 });
 

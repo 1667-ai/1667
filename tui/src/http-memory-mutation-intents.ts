@@ -3,8 +3,8 @@ import {
   createDurableMutationId
 } from "../../shared/durable-mutation-id.js";
 import type {
-  HttpAbsentMutation,
   HttpMutationIntentClaim,
+  HttpMutationIntentOperation,
   HttpMutationIntentStore
 } from "./http-mutation-intents.js";
 
@@ -19,7 +19,7 @@ implements HttpMutationIntentStore {
   private readonly records = new Map<string, MemoryMutationIntent>();
 
   async claim(
-    operation: HttpAbsentMutation,
+    operation: HttpMutationIntentOperation,
     semanticInput: string
   ): Promise<HttpMutationIntentClaim> {
     const key = createHash("sha256")

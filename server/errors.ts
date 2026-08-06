@@ -144,6 +144,33 @@ export class ProviderRecoveryRequiredError extends ServiceError {
   readonly diagnosticCause: unknown;
 }
 
+const retryablePartialSettlementFailures = new WeakSet<object>();
+
+/** Internal marker for work that must leave its outer mutation receipt pending.
+ * The receipt store unwraps the original error before it reaches an adapter. */
+export class RetryableMutationReceiptError extends Error {
+  constructor(
+    readonly originalError: unknown,
+    readonly retryablePartialSettlement = false
+  ) {
+    super("Mutation work can retry with the same receipt");
+    this.name = "RetryableMutationReceiptError";
+  }
+}
+
+/** Carries the narrow partial-settlement retry contract past receipt unwrapping. */
+export function markRetryablePartialSettlementFailure(error: unknown): void {
+  if (error !== null && (typeof error === "object" || typeof error === "function")) {
+    retryablePartialSettlementFailures.add(error);
+  }
+}
+
+export function isRetryablePartialSettlementFailure(error: unknown): boolean {
+  return error !== null
+    && (typeof error === "object" || typeof error === "function")
+    && retryablePartialSettlementFailures.has(error);
+}
+
 function providerRecoveryDiagnostic(
   providerMutationId: string
 ): Error {

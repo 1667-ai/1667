@@ -134,9 +134,9 @@ settlement, on the stopped-text channel. Thus, the Stop save keeps all text
 that arrived from the embedded backend.
 A request deadline can end a stream while the worker holds text that it did
 not post. The worker reclaims that text the same way a Stop does. The worker
-puts the reclaimed text in the `unsentText` field of its error message. The
-TUI adds that text to the streamed text before it processes the failure. The
-failure keeps its error result. An unknown mutation result stays unknown.
+posts the reclaimed text in bounded delta messages before the error terminal.
+The TUI adds that text to the streamed text before it processes the failure.
+The failure keeps its error result. An unknown mutation result stays unknown.
 A provider failure cannot write the local story. 1667 records
 the local generation as failed and accepts more work. It does not automatically
 repeat the provider request. This rule also applies when the model connection

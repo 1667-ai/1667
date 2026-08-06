@@ -95,6 +95,51 @@ describe("reading position", () => {
     });
   });
 
+  test("dispose flushes dirty explicit files with their own persistence hooks", () => {
+    const directory = mkdtempSync(join(tmpdir(), "1667-reading-dispose-"));
+    const first = join(directory, "first.json");
+    const second = join(directory, "second.json");
+    const firstTemporaryFiles: string[] = [];
+    const secondTemporaryFiles: string[] = [];
+
+    markReadingPositionDirty("first-story", "part-1", {
+      file: first,
+      afterTemporaryFileSync: (temporaryFile) => firstTemporaryFiles.push(temporaryFile)
+    });
+    markReadingPositionDirty("second-story", "part-2", {
+      file: second,
+      afterTemporaryFileSync: (temporaryFile) => secondTemporaryFiles.push(temporaryFile)
+    });
+    disposeReadingPositionStore();
+
+    expect(loadReadingPositions({ file: first })).toEqual({ "first-story": "part-1" });
+    expect(loadReadingPositions({ file: second })).toEqual({ "second-story": "part-2" });
+    expect(firstTemporaryFiles).toHaveLength(1);
+    expect(secondTemporaryFiles).toHaveLength(1);
+    expect(firstTemporaryFiles[0]).toContain(`${first}.`);
+    expect(secondTemporaryFiles[0]).toContain(`${second}.`);
+  });
+
+  test("dispose rejects writes re-entered by a failed persistence hook", () => {
+    const directory = mkdtempSync(join(tmpdir(), "1667-reading-dispose-reentry-"));
+    const file = join(directory, "reading-positions.json");
+    configureReadingPositionStore(file);
+    markReadingPositionDirty("before-dispose", "part-1", {
+      file,
+      afterTemporaryFileSync: () => {
+        markReadingPositionDirty("after-dispose", "part-2", { file });
+        throw new Error("Simulated shutdown write failure");
+      }
+    });
+
+    disposeReadingPositionStore();
+    configureReadingPositionStore(file);
+    flushReadingPositionPersist({ file });
+
+    expect(loadReadingPositions({ file })).toEqual({ "before-dispose": "part-1" });
+    configureReadingPositionStore(join(directory, "cleanup.json"));
+  });
+
   test("merge at capacity keeps the newly dirty story", () => {
     const disk: Record<string, string> = {};
     for (let index = 0; index < MAX_READING_POSITIONS; index += 1) {

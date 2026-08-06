@@ -21,7 +21,10 @@ import { unusedTakePruneSelection } from "../shared/story-tree.js";
 import { createDurableMutationId } from "../shared/durable-mutation-id.js";
 import { rewriteStreamDigest } from "../shared/rewrite-partial-contract.js";
 import { applyEffectiveGenerationSettings } from "../server/settings-v2-conversion.js";
-import { ServiceError } from "../server/errors.js";
+import {
+  isRetryablePartialSettlementFailure,
+  ServiceError
+} from "../server/errors.js";
 import { sha256 } from "../server/story-format.js";
 import type { StoryAggregateVersion } from "../shared/story-aggregate-version.js";
 
@@ -549,6 +552,104 @@ test("a partial-rewrite receipt replays after the volatile stash is lost", async
     );
   } finally {
     if (!disposed) await service.dispose();
+  }
+});
+
+test("a retryable partial settlement keeps its outer receipt pending", async (t) => {
+  const dataDir = await mkdtemp(path.join(
+    tmpdir(),
+    "1667-partial-rewrite-pending-retry-"
+  ));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    let story = await service.createStory("Partial settlement retry");
+    const original = "The blue door opened into a long and quiet stone corridor.";
+    story = await service.createNode(story.id, { parentId: null, text: original });
+    const nodeId = story.nodes[0]!.id;
+    const expected = "blue door opened into a long and quiet stone corridor";
+    const start = original.indexOf(expected);
+    const controller = new AbortController();
+    let streamedText = "";
+    const stopped = await service.rewriteNode(
+      story.id,
+      nodeId,
+      {
+        start,
+        end: start + expected.length,
+        expected,
+        instruction: "",
+        destination: "take",
+        attemptId: "pending-retry-attempt"
+      },
+      (delta) => {
+        streamedText += delta;
+        controller.abort();
+      },
+      controller.signal,
+      { rewriteId: "pending-retry-rewrite", takeId: "unused-pending-retry-take" }
+    );
+    assert.equal(stopped, null);
+    assert.notEqual(streamedText.trim(), "");
+
+    const input = {
+      storyId: story.id,
+      nodeId,
+      streamedDigest: rewriteStreamDigest(streamedText),
+      attemptId: "pending-retry-attempt"
+    };
+    const settleId = createDurableMutationId();
+    const expectedAggregateVersion = (
+      await service.stories.loadVersioned(story.id)
+    ).aggregateVersion!;
+    const hooks = (service as unknown as {
+      storyMutations: { hooks: { afterStage?: () => void } };
+    }).storyMutations.hooks;
+    hooks.afterStage = () => {
+      throw new Error("temporary settlement stage failure");
+    };
+
+    await assert.rejects(
+      runWorkerMutation(
+        service,
+        settleId,
+        "commitPartialRewrite",
+        input,
+        () => {},
+        new AbortController().signal,
+        expectedAggregateVersion
+      ),
+      (error) => {
+        assert.equal(isRetryablePartialSettlementFailure(error), true);
+        return /temporary settlement stage failure/.test(String(error));
+      }
+    );
+    const receiptFile = path.join(
+      dataDir,
+      "mutation-receipts",
+      `${settleId}.json`
+    );
+    const pendingReceipt = JSON.parse(
+      await readFile(receiptFile, "utf8")
+    ) as { state?: unknown };
+    assert.equal(pendingReceipt.state, "pending");
+    delete hooks.afterStage;
+
+    const committed = await runWorkerMutation(
+      service,
+      settleId,
+      "commitPartialRewrite",
+      input,
+      () => {},
+      new AbortController().signal,
+      expectedAggregateVersion
+    );
+    assert.ok(committed);
+    assert.notEqual(committed.nodeId, nodeId);
+    assert.equal(committed.payload.nodes.length, 2);
+  } finally {
+    await service.dispose();
   }
 });
 

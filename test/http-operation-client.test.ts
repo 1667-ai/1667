@@ -209,6 +209,122 @@ test("terminal operation failure wins a racing lease deadline", async () => {
   }
 });
 
+test("operation-first settlement retains its handoff after a long response drain", async () => {
+  const controller = new AbortController();
+  const failure = createFailureEnvelope({
+    code: "revision_conflict",
+    message: "The stopped rewrite committed a conflicting terminal result.",
+    status: 409
+  });
+  let drainCompletedAt = 0;
+  let statusCalls = 0;
+  const client = operationClient(operationFixture(async (pathname, init) => {
+    if (pathname === "/api/operations/status") {
+      statusCalls += 1;
+      assert.ok(drainCompletedAt > 0, "status must start after the response drain");
+      const [sessionId, sequence] = (
+        new Headers(init?.headers).get(HTTP_OPERATION_TICKET_HEADER) ?? ""
+      ).split(".");
+      return Response.json({
+        listenerInstanceId: INSTANCE_ID,
+        sessionId,
+        sequence,
+        state: "failed",
+        terminal: true,
+        cancelRequested: true,
+        failure
+      });
+    }
+    return Response.json({ ok: true });
+  }, 2_000));
+
+  await assert.rejects(client.run({
+    method: "POST",
+    path: "/api/stories/story/continue",
+    binding: client.binding,
+    requestedLifetimeMs: 2_000,
+    expectedAggregateVersion: {
+      kind: "v6",
+      revision: "00000000000000000001"
+    },
+    callerSignal: controller.signal,
+    execute: async () => {
+      controller.abort();
+      await new Promise((resolve) => setTimeout(resolve, 550));
+      drainCompletedAt = performance.now();
+      throw new TypeError("response stream ended after caller stop");
+    }
+  }), (error: unknown) => {
+    assert.ok(error instanceof HttpOperationError);
+    assert.equal(error.code, "revision_conflict");
+    return true;
+  });
+  assert.equal(statusCalls, 1);
+});
+
+test("operation-first status settlement starts its handoff during a synchronous abort", async () => {
+  const controller = new AbortController();
+  const shutdown = new AbortController();
+  let resolveSecondStatus!: () => void;
+  const secondStatusStarted = new Promise<void>((resolve) => {
+    resolveSecondStatus = resolve;
+  });
+  let resolveStatusStopped!: () => void;
+  const statusStopped = new Promise<void>((resolve) => {
+    resolveStatusStopped = resolve;
+  });
+  let statusCalls = 0;
+  const client = operationClient(operationFixture(async (pathname, init) => {
+    if (pathname !== "/api/operations/status") return Response.json({ ok: true });
+    statusCalls += 1;
+    if (statusCalls === 1) {
+      controller.abort();
+      return Response.json({
+        listenerInstanceId: INSTANCE_ID,
+        sessionId: SESSION_ID,
+        sequence: "1",
+        state: "running",
+        terminal: false,
+        cancelRequested: true
+      });
+    }
+    resolveSecondStatus();
+    return await new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => {
+        resolveStatusStopped();
+        reject(init.signal?.reason);
+      }, { once: true });
+    });
+  }, 2_000), shutdown.signal);
+  const lease = await client.reserve({
+    method: "POST",
+    path: "/api/stories/story/continue",
+    binding: client.binding,
+    requestedLifetimeMs: 2_000,
+    callerSignal: controller.signal,
+    expectedAggregateVersion: {
+      kind: "v6",
+      revision: "00000000000000000001"
+    }
+  });
+  const settlement = lease.settle();
+
+  try {
+    await secondStatusStarted;
+    await Promise.race([
+      statusStopped,
+      new Promise<never>((_resolve, reject) => setTimeout(() => {
+        reject(new Error("settlement handoff did not start after synchronous abort"));
+      }, 750))
+    ]);
+    assert.equal(statusCalls, 2);
+    await settlement;
+  } finally {
+    shutdown.abort();
+    await settlement.catch(() => undefined);
+  }
+});
+
 test("operation admission errors use the canonical flat payload fallback", async () => {
   const client = operationClient(async (input) => {
     const pathname = new URL(String(input)).pathname;
@@ -456,9 +572,14 @@ test("run settles concurrently with a stalled caller cancellation", async () => 
   assert.ok(performance.now() - startedAt < 250);
 });
 
-test("generation cancellation reaches control before transport", async () => {
+test("generation cancellation reaches control while the response drains", async () => {
   const controller = new AbortController();
   const events: string[] = [];
+  let responseDrained = false;
+  let releaseResponse!: () => void;
+  const response = new Promise<void>((resolve) => {
+    releaseResponse = resolve;
+  });
   let markCancelStarted!: () => void;
   const cancelStarted = new Promise<void>((resolve) => {
     markCancelStarted = resolve;
@@ -483,12 +604,13 @@ test("generation cancellation reaches control before transport", async () => {
     callerSignal: controller.signal,
     execute: async (lease) => {
       markExecutionStarted();
-      await new Promise<void>((resolve) => {
-        lease.signal.addEventListener("abort", () => resolve(), {
-          once: true
-        });
+      lease.signal.addEventListener("abort", () => {
+        if (!responseDrained) events.push("transport");
+      }, {
+        once: true
       });
-      events.push("transport");
+      await response;
+      responseDrained = true;
       return null;
     }
   });
@@ -497,13 +619,22 @@ test("generation cancellation reaches control before transport", async () => {
   controller.abort();
   await cancelStarted;
   assert.deepEqual(events, ["control"]);
+  await new Promise((resolve) => setTimeout(resolve, 225));
+  assert.deepEqual(events, ["control"]);
+  releaseResponse();
 
   assert.equal(await pending, null);
-  assert.deepEqual(events, ["control", "transport"]);
+  assert.deepEqual(events, ["control"]);
 });
 
-test("generation cancellation bounds lost control and settlement", async () => {
+test("generation cancellation drains a response after lost control", async () => {
   const controller = new AbortController();
+  let responseDrained = false;
+  let transportAbortedEarly = false;
+  let releaseResponse!: () => void;
+  const response = new Promise<void>((resolve) => {
+    releaseResponse = resolve;
+  });
   let markExecutionStarted!: () => void;
   const executionStarted = new Promise<void>((resolve) => {
     markExecutionStarted = resolve;
@@ -522,11 +653,13 @@ test("generation cancellation bounds lost control and settlement", async () => {
     callerSignal: controller.signal,
     execute: async (lease) => {
       markExecutionStarted();
-      await new Promise<void>((resolve) => {
-        lease.signal.addEventListener("abort", () => resolve(), {
-          once: true
-        });
+      lease.signal.addEventListener("abort", () => {
+        if (!responseDrained) transportAbortedEarly = true;
+      }, {
+        once: true
       });
+      await response;
+      responseDrained = true;
       return null;
     }
   });
@@ -534,6 +667,9 @@ test("generation cancellation bounds lost control and settlement", async () => {
   await executionStarted;
   const startedAt = performance.now();
   controller.abort();
+  await new Promise((resolve) => setTimeout(resolve, 225));
+  assert.equal(transportAbortedEarly, false);
+  releaseResponse();
 
   assert.equal(await pending, null);
   assert.ok(performance.now() - startedAt < 1_000);
