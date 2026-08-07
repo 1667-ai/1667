@@ -187,36 +187,136 @@ test("Profile transfer keeps text bias within the target resolved logit-bias lim
 test("Profile transfer omits canonical text-bias rejections before fitting", () => {
   const rejectedSampling = {
     ...EMPTY_SAMPLING_V2,
-    phraseBias: [{ phrase: "unknown-token", weight: 1 }]
+    phraseBias: [
+      { phrase: "unknown-token", weight: 1 },
+      { phrase: "known-token", weight: 2 }
+    ]
   };
   const rejectedResolution = resolveSamplingLogitBias(
     combineSamplingBiasSources(rejectedSampling),
-    () => ({ kind: "unencodable" as const }),
+    (text) => text.includes("unknown")
+      ? { kind: "unencodable" as const }
+      : { kind: "single-token" as const, tokenId: 2 },
     samplingBiasPresetRules("llama-cpp")
   );
   const rejected = fitProfileToRoute(openAiDocument(), "default", {
     name: "Rejected phrase",
     sampling: { phraseBias: rejectedSampling.phraseBias }
   }, { samplingBiasResolution: rejectedResolution });
-  assert.equal(rejected.document.profiles.default?.sampling, undefined);
-  assert.equal(rejected.importedCount, 0);
+  assert.deepEqual(rejected.document.profiles.default?.sampling?.phraseBias, [
+    { phrase: "known-token", weight: 2 }
+  ]);
+  assert.equal(rejected.importedCount, 1);
   assert.equal(rejected.candidateCount, 1);
   assert.match(
     rejected.fidelity.join("; "),
-    /phrase bias not imported; "unknown-token" has no exact token/u
+    /phrase bias entry not imported; "unknown-token" has no exact token/u
   );
-  validateSamplingRoute(
-    "default",
-    rejected.document.profiles.default!,
-    rejected.document.models[rejected.document.profiles.default!.modelId]!,
-    rejected.document.connections[rejected.document.models[rejected.document.profiles.default!.modelId]!.connectionId]!
+  validateFittedSampling(
+    rejected,
+    (text) => text.includes("unknown")
+      ? { kind: "unencodable" as const }
+      : { kind: "single-token" as const, tokenId: 2 },
+    "llama-cpp"
   );
-
+  const fullyRejectedSampling = {
+    ...EMPTY_SAMPLING_V2,
+    phraseBias: [
+      { phrase: "unknown-one", weight: 1 },
+      { phrase: "unknown-two", weight: 2 }
+    ]
+  };
+  const fullyRejectedResolution = resolveSamplingLogitBias(
+    combineSamplingBiasSources(fullyRejectedSampling),
+    () => ({ kind: "unencodable" as const }),
+    samplingBiasPresetRules("llama-cpp")
+  );
+  const fullyRejected = fitProfileToRoute(openAiDocument(), "default", {
+    name: "Rejected phrase bias",
+    sampling: { phraseBias: fullyRejectedSampling.phraseBias }
+  }, { samplingBiasResolution: fullyRejectedResolution });
+  assert.equal(fullyRejected.document.profiles.default?.sampling, undefined);
+  assert.equal(fullyRejected.importedCount, 0);
+  assert.equal(fullyRejected.candidateCount, 1);
+  assert.match(
+    fullyRejected.fidelity.join("; "),
+    /phrase bias not imported; "unknown-one" has no exact token/u
+  );
+  assert.match(
+    fullyRejected.fidelity.join("; "),
+    /phrase bias not imported; "unknown-two" has no exact token/u
+  );
+  const rejectedBannedSampling = {
+    ...EMPTY_SAMPLING_V2,
+    bannedStrings: ["unknown banned string", "kept banned string"]
+  };
+  const rejectedBannedResolution = resolveSamplingLogitBias(
+    combineSamplingBiasSources(rejectedBannedSampling),
+    (text) => text.includes("unknown")
+      ? { kind: "unencodable" as const }
+      : { kind: "single-token" as const, tokenId: 3 },
+    samplingBiasPresetRules("llama-cpp")
+  );
+  const rejectedBanned = fitProfileToRoute(openAiDocument(), "default", {
+    name: "Rejected banned string",
+    sampling: { bannedStrings: rejectedBannedSampling.bannedStrings }
+  }, { samplingBiasResolution: rejectedBannedResolution });
+  assert.deepEqual(rejectedBanned.document.profiles.default?.sampling?.bannedStrings, [
+    "kept banned string"
+  ]);
+  assert.equal(rejectedBanned.importedCount, 1);
+  assert.equal(rejectedBanned.candidateCount, 1);
+  assert.match(
+    rejectedBanned.fidelity.join("; "),
+    /banned string not imported; "unknown banned string" has no exact token/u
+  );
+  validateFittedSampling(
+    rejectedBanned,
+    (text) => text.includes("unknown")
+      ? { kind: "unencodable" as const }
+      : { kind: "single-token" as const, tokenId: 3 },
+    "llama-cpp"
+  );
+  const shadowedSampling = {
+    ...EMPTY_SAMPLING_V2,
+    logitBias: { "1": 1 },
+    phraseBias: [
+      { phrase: "shadowed", weight: 2 },
+      { phrase: "kept", weight: 3 }
+    ]
+  };
+  const shadowedResolution = resolveSamplingLogitBias(
+    combineSamplingBiasSources(shadowedSampling),
+    (text) => ({ kind: "single-token" as const, tokenId: text.includes("shadowed") ? 1 : 2 }),
+    samplingBiasPresetRules("llama-cpp")
+  );
+  const shadowed = fitProfileToRoute(openAiDocument(), "default", {
+    name: "Shadowed phrase",
+    sampling: {
+      logitBias: shadowedSampling.logitBias,
+      phraseBias: shadowedSampling.phraseBias
+    }
+  }, { samplingBiasResolution: shadowedResolution });
+  assert.deepEqual(shadowed.document.profiles.default?.sampling?.phraseBias, [
+    { phrase: "kept", weight: 3 }
+  ]);
+  assert.deepEqual(shadowed.document.profiles.default?.sampling?.logitBias, { "1": 1 });
+  assert.equal(shadowed.importedCount, 2);
+  assert.equal(shadowed.candidateCount, 2);
+  assert.match(
+    shadowed.fidelity.join("; "),
+    /phrase bias entry not imported; "shadowed" loses its bias/u
+  );
+  validateFittedSampling(
+    shadowed,
+    (text) => ({ kind: "single-token" as const, tokenId: text.includes("shadowed") ? 1 : 2 }),
+    "llama-cpp"
+  );
   const nativeSampling = {
     ...EMPTY_SAMPLING_V2,
     logitBias: { "1": 1 },
     phraseBias: [{ phrase: "ember", weight: 1 }],
-    bannedStrings: ["ember"]
+    bannedStrings: ["ember", "kept native ban"]
   };
   const nativeResolution = resolveSamplingLogitBias(
     combineSamplingBiasSources(nativeSampling),
@@ -241,22 +341,20 @@ test("Profile transfer omits canonical text-bias rejections before fitting", () 
     }
   }, { samplingBiasResolution: nativeResolution });
   assert.deepEqual(native.document.profiles.default?.sampling?.phraseBias, nativeSampling.phraseBias);
-  assert.deepEqual(native.document.profiles.default?.sampling?.bannedStrings, []);
+  assert.deepEqual(native.document.profiles.default?.sampling?.bannedStrings, ["kept native ban"]);
   assert.deepEqual(native.document.profiles.default?.sampling?.logitBias, nativeSampling.logitBias);
-  assert.equal(native.importedCount, 2);
+  assert.equal(native.importedCount, 3);
   assert.equal(native.candidateCount, 3);
   assert.match(
     native.fidelity.join("; "),
-    /banned strings not imported; "ember" conflicts with an explicit numeric logit-bias entry in the same scope/u
+    /banned string not imported; "ember" conflicts with an explicit numeric logit-bias entry in the same scope/u
   );
-  validateSamplingRoute(
-    "default",
-    native.document.profiles.default!,
-    native.document.models[native.document.profiles.default!.modelId]!,
-    native.document.connections[native.document.models[native.document.profiles.default!.modelId]!.connectionId]!
+  validateFittedSampling(
+    native,
+    () => ({ kind: "single-token" as const, tokenId: 1 }),
+    "koboldcpp"
   );
 });
-
 test("Profile transfer invalidates stale bias resolution after omitting native bans", () => {
   const bannedStrings = Array.from({ length: 201 }, (_, index) => index === 0 ? "ember" : `ban-${index}`);
   const sampling = {
@@ -371,7 +469,6 @@ test("Profile transfer applies the native banned-string limit only to KoboldCpp"
     dropped.document.models[droppedProfile.modelId]!,
     dropped.document.connections[dropped.document.models[droppedProfile.modelId]!.connectionId]!
   );
-
   const tokenized = fitProfileToRoute(
     openAiDocument(),
     "default",
@@ -381,3 +478,23 @@ test("Profile transfer applies the native banned-string limit only to KoboldCpp"
   assert.equal(tokenized.importedCount, tokenized.candidateCount);
 });
 
+function validateFittedSampling(
+  fitted: ReturnType<typeof fitProfileToRoute>,
+  tokenize: Parameters<typeof resolveSamplingLogitBias>[1],
+  preset: Parameters<typeof samplingBiasPresetRules>[0]
+): void {
+  const profile = fitted.document.profiles.default!;
+  if (profile.sampling === undefined) throw new Error("fitted profile has no sampling settings");
+  const resolution = resolveSamplingLogitBias(
+    combineSamplingBiasSources(profile.sampling),
+    tokenize,
+    samplingBiasPresetRules(preset)
+  );
+  validateSamplingRoute(
+    "default",
+    profile,
+    fitted.document.models[profile.modelId]!,
+    fitted.document.connections[fitted.document.models[profile.modelId]!.connectionId]!,
+    resolution
+  );
+}

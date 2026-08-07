@@ -15,8 +15,6 @@ import {
 } from "./model-scalar-resolution.js";
 import {
   applySamplingSettings,
-  firstBlockedNativeBannedString,
-  firstBlockingSamplingBiasEntry,
   isLogitBiasFamilyKnob,
   resolveSamplingKnob,
   samplingBiasPresetRules,
@@ -236,12 +234,14 @@ function fitSamplingToRoute(
     withoutBlocking.importedCount,
     withoutBlocking.candidateCount,
     fidelity,
-    withoutBlocking.omitted ? undefined : matchingResolution
+    withoutBlocking.omitted ? undefined : matchingResolution,
+    withoutBlocking.retainedResolvedEntryCount
   );
 }
 
 interface BlockingTextBiasFit extends SamplingFit {
   readonly omitted: boolean;
+  readonly retainedResolvedEntryCount?: number;
 }
 
 /** A supplied canonical result can name text values the target route rejects. */
@@ -255,33 +255,77 @@ function omitBlockedTextBias(
   if (precomputedResolution?.kind !== "resolved") {
     return { sampling, importedCount, candidateCount, omitted: false };
   }
-  const blockedPhrase = firstBlockingSamplingBiasEntry(precomputedResolution.phraseBias, []);
-  const blockedBanned = firstBlockingSamplingBiasEntry([], precomputedResolution.bannedStrings);
-  const blockedNative = firstBlockedNativeBannedString(precomputedResolution.nativeBannedStrings);
-  const omitPhrase = blockedPhrase !== undefined && samplingKnobValueIsSet(sampling, "phraseBias");
-  const omitBanned = (blockedBanned !== undefined || blockedNative !== undefined)
-    && samplingKnobValueIsSet(sampling, "bannedStrings");
-  if (!omitPhrase && !omitBanned) return { sampling, importedCount, candidateCount, omitted: false };
+  const phraseBias = sampling.phraseBias.filter((_entry, index) => {
+    const resolution = precomputedResolution.phraseBias[index];
+    return resolution?.kind !== "rejected" && resolution?.kind !== "shadowed";
+  });
+  const bannedStrings = sampling.bannedStrings.filter((_entry, index) => {
+    const resolution = precomputedResolution.bannedStrings[index];
+    const nativeResolution = precomputedResolution.nativeBannedStrings[index];
+    return resolution?.kind !== "rejected"
+      && resolution?.kind !== "shadowed"
+      && nativeResolution?.kind !== "blocked";
+  });
+  const omittedPhrase = phraseBias.length !== sampling.phraseBias.length;
+  const omittedBanned = bannedStrings.length !== sampling.bannedStrings.length;
+  if (!omittedPhrase && !omittedBanned) {
+    return { sampling, importedCount, candidateCount, omitted: false };
+  }
+  const phraseBiasLabel = phraseBias.length === 0 ? "phrase bias" : "phrase bias entry";
+  const bannedStringsLabel = bannedStrings.length === 0 ? "banned strings" : "banned string";
 
-  if (omitPhrase) {
-    fidelity.push(`phrase bias not imported; ${samplingBiasEntryRejectionMessage(blockedPhrase!)}`);
+  for (const [index, resolution] of precomputedResolution.phraseBias.entries()) {
+    if (index >= sampling.phraseBias.length) break;
+    if (resolution.kind === "rejected" || resolution.kind === "shadowed") {
+      fidelity.push(`${phraseBiasLabel} not imported; ${samplingBiasEntryRejectionMessage(resolution)}`);
+    }
   }
-  if (blockedBanned !== undefined && omitBanned) {
-    fidelity.push(`banned strings not imported; ${samplingBiasEntryRejectionMessage(blockedBanned)}`);
+  for (const [index, resolution] of precomputedResolution.bannedStrings.entries()) {
+    if (index >= sampling.bannedStrings.length) break;
+    if (resolution.kind === "rejected" || resolution.kind === "shadowed") {
+      fidelity.push(`${bannedStringsLabel} not imported; ${samplingBiasEntryRejectionMessage(resolution)}`);
+    }
   }
-  if (blockedNative !== undefined && omitBanned) {
-    fidelity.push(`banned strings not imported; ${samplingBiasNativeBlockedMessage(blockedNative)}`);
+  for (const [index, resolution] of precomputedResolution.nativeBannedStrings.entries()) {
+    if (index >= sampling.bannedStrings.length) break;
+    if (resolution.kind === "blocked") {
+      fidelity.push(`${bannedStringsLabel} not imported; ${samplingBiasNativeBlockedMessage(resolution)}`);
+    }
   }
+  const fittedSampling = { ...sampling, phraseBias, bannedStrings };
   return {
-    sampling: {
-      ...sampling,
-      ...(omitPhrase ? { phraseBias: EMPTY_SAMPLING_V2.phraseBias } : {}),
-      ...(omitBanned ? { bannedStrings: EMPTY_SAMPLING_V2.bannedStrings } : {})
-    },
-    importedCount: importedCount - Number(omitPhrase) - Number(omitBanned),
+    sampling: fittedSampling,
+    importedCount: importedCount
+      - Number(omittedPhrase && !samplingKnobValueIsSet(fittedSampling, "phraseBias"))
+      - Number(omittedBanned && !samplingKnobValueIsSet(fittedSampling, "bannedStrings")),
     candidateCount,
-    omitted: true
+    omitted: true,
+    retainedResolvedEntryCount: retainedResolvedEntryCount(sampling, precomputedResolution)
   };
+}
+
+/** The supplied resolution starts with this profile's entries. Reuse their
+ * exact token IDs after filtering, rather than re-tokenizing or using a bound. */
+function retainedResolvedEntryCount(
+  sampling: SamplingSettingsV2,
+  resolution: Extract<SamplingBiasResolutionResult, { readonly kind: "resolved" }>
+): number {
+  const tokenIds = new Set(Object.keys(sampling.logitBias).map(Number));
+  for (const [index, entry] of resolution.phraseBias.entries()) {
+    if (index >= sampling.phraseBias.length) break;
+    if (entry.kind === "resolved" || entry.kind === "overridden") {
+      for (const tokenId of entry.tokenIds) tokenIds.add(tokenId);
+    }
+  }
+  // KoboldCpp's native banned strings are intentionally absent from this
+  // resolution array and from logit_bias, so they cannot consume this limit.
+  for (const [index, entry] of resolution.bannedStrings.entries()) {
+    if (index >= sampling.bannedStrings.length) break;
+    if (entry.kind === "resolved" || entry.kind === "overridden") {
+      for (const tokenId of entry.tokenIds) tokenIds.add(tokenId);
+    }
+  }
+  return tokenIds.size;
 }
 
 /**
@@ -295,7 +339,8 @@ function omitOverLimitTextBias(
   importedCount: number,
   candidateCount: number,
   fidelity: string[],
-  precomputedResolution: SamplingBiasResolutionResult | undefined
+  precomputedResolution: SamplingBiasResolutionResult | undefined,
+  retainedResolvedEntryCount: number | undefined
 ): SamplingFit {
   const configured = (["phraseBias", "bannedStrings"] as const).filter((knob) =>
     samplingKnobValueIsSet(sampling, knob)
@@ -312,9 +357,10 @@ function omitOverLimitTextBias(
   );
   if (bounded.length === 0) return { sampling, importedCount, candidateCount };
   const limit = maxResolvedLogitBiasEntries(preset);
-  const resolvedEntries = precomputedResolution?.kind === "resolved"
-    ? precomputedResolution.resolvedEntryCount
-    : undefined;
+  const resolvedEntries = retainedResolvedEntryCount
+    ?? (precomputedResolution?.kind === "resolved"
+      ? precomputedResolution.resolvedEntryCount
+      : undefined);
   const possibleEntries = resolvedEntries ?? maximumTextBiasEntries(sampling, preset);
   if (possibleEntries <= limit) return { sampling, importedCount, candidateCount };
 
