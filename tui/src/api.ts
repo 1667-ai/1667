@@ -1,7 +1,12 @@
-import { splitSseEvents } from "../../shared/sse.js";
 import { httpCapabilityScopeForApiPath } from "../../shared/http-capability-scope.js";
 import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.js";
 import type { HttpFetch } from "./direct-loopback-http.js";
+import {
+  readSseEvents,
+  readSseText,
+  SseIdleTimeoutError,
+  withSseIdleTimeout
+} from "./sse-stream-reader.js";
 import {
   decodeChapterBreakCreatedResponse,
   decodeChapterBreakRemovalPreview,
@@ -426,7 +431,8 @@ export function createApi(
                   signal,
                   lease.headers
                 ),
-              shouldRetry: (error) => !(error instanceof ApiError)
+              shouldRetry: (error) => !(error instanceof ApiError
+                || error instanceof SseIdleTimeoutError)
             });
           },
           true,
@@ -960,13 +966,17 @@ async function streamSse(
   protocolHeaders: Readonly<Record<string, string>>
 ): Promise<Record<string, unknown> | null> {
   let response: Response;
+  const streamAbort = new AbortController();
+  const transportSignal = AbortSignal.any([signal, streamAbort.signal]);
   try {
-    response = await transport(endpoint, {
+    response = await withSseIdleTimeout(transport(endpoint, {
       method: "POST",
       headers: { ...protocolHeaders, "content-type": "application/json" },
       body: JSON.stringify(payload),
       redirect: "error",
-      signal
+      signal: transportSignal
+    }), {
+      onTimeout: (error) => streamAbort.abort(error)
     });
   } catch (error) {
     if (callerSignal.aborted) return null;
@@ -974,54 +984,47 @@ async function streamSse(
     throw error instanceof Error ? error : new Error(String(error));
   }
   if (!response.ok || response.body === null) {
-    const errorPayload: unknown = await response.json().catch(() => null);
+    let errorPayload: unknown = null;
+    if (response.body !== null) {
+      try {
+        errorPayload = parseJson(await readSseText(response.body));
+      } catch (error) {
+        streamAbort.abort(error);
+        if (callerSignal.aborted) return null;
+        if (signal.aborted) throw operationDeadlineError();
+        throw error instanceof Error ? error : new Error(String(error));
+      }
+    }
     throw apiHttpErrorFromPayload(
       errorPayload,
       `Request failed (${response.status})`,
       response.status
     );
   }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  // Resumes each search where the last one left off (shared/sse.ts), so a
-  // large payload with no line break until its final byte costs one scan
-  // over the buffer, not one rescan per network chunk.
-  let searchFrom = 0;
   let completed: Record<string, unknown> | null = null;
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const split = splitSseEvents(buffer, searchFrom);
-      buffer = split.rest;
-      searchFrom = split.nextSearchFrom;
-      for (const data of split.events) {
-        const event = JSON.parse(data) as {
-          type: string;
-          text?: string;
-          message?: string;
-          code?: unknown;
-          status?: unknown;
-          diagnosticRef?: unknown;
-        };
-        if (event.type === "delta" && typeof event.text === "string") onDelta(event.text);
-        if (event.type === "error") {
-          throw apiHttpErrorFromPayload(
-            event,
-            "Generation failed.",
-            event.status
-          );
-        }
-        if (event.type === "done") completed = event as Record<string, unknown>;
+    await readSseEvents(response.body, (data) => {
+      const event = JSON.parse(data) as {
+        type: string;
+        text?: string;
+        message?: string;
+        code?: unknown;
+        status?: unknown;
+        diagnosticRef?: unknown;
+      };
+      if (event.type === "delta" && typeof event.text === "string") onDelta(event.text);
+      if (event.type === "error") {
+        throw apiHttpErrorFromPayload(
+          event,
+          "Generation failed.",
+          event.status
+        );
       }
-      if (completed !== null) {
-        void reader.cancel().catch(() => undefined);
-        return completed;
-      }
-    }
+      if (event.type === "done") completed = event as Record<string, unknown>;
+      return completed === null;
+    });
   } catch (error) {
+    streamAbort.abort(error);
     if (callerSignal.aborted) return null;
     if (signal.aborted) throw operationDeadlineError();
     throw error instanceof Error ? error : new Error(String(error));

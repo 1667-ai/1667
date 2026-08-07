@@ -11,6 +11,8 @@ import { demoAppSource } from "../src/demo.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { renderConnectionBanner } from "../src/screens/connection-banner.js";
 import { renderStoryScreen } from "../src/screens/story.js";
+import { plainLine } from "../src/screens/story/frame.js";
+import { emptyStreamText } from "../src/stream-text.js";
 
 function fakeClock(start = 0) {
   let now = start;
@@ -79,6 +81,33 @@ describe("animation deadlines", () => {
     renderStoryScreen(state, { width: 120, height: 36, deadlines });
 
     expect(deadlines.next()).toBe(1_330);
+  });
+
+  test("a silent stream advances one visible liveness mark per frame deadline", () => {
+    const state = initialState(demoAppSource(false), false);
+    const leaf = state.payload.path.at(-1)!;
+    state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), leaf.id);
+    state.stream = {
+      targetId: leaf.id,
+      parentId: leaf.parentId,
+      append: true,
+      startedAt: "2026-07-22T00:00:00.000Z",
+      instruction: "",
+      ...emptyStreamText()
+    };
+    state.now = 0;
+    const firstDeadlines = createFrameDeadlineCollector(state.now);
+    const first = renderStoryScreen(state, {
+      width: 120, height: 36, deadlines: firstDeadlines
+    }).lines.map(plainLine).join("\n");
+
+    state.now = 250;
+    const second = renderStoryScreen(state, { width: 120, height: 36 })
+      .lines.map(plainLine).join("\n");
+
+    expect(first).toContain("⠋ writing");
+    expect(second).toContain("⠙ writing");
+    expect(firstDeadlines.next()).toBe(250);
   });
 
   test("compose focus suppresses the growth pulse when phases collapse to chrome", () => {

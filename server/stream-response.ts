@@ -8,6 +8,7 @@ import {
 } from "../shared/failure-envelope.js";
 import { GenerationStoppedError } from "./errors.js";
 import { DeltaBatcher } from "./delta-batcher.js";
+import { SSE_HEARTBEAT_INTERVAL_MS } from "../shared/sse.js";
 
 export async function streamResponse<T>(
   request: IncomingMessage,
@@ -32,7 +33,22 @@ export async function streamResponse<T>(
     ? abort.signal
     : AbortSignal.any([operationSignal, abort.signal]);
   let session: ReturnType<typeof openSse> | null = null;
-  const open = () => session ??= openSse(response, abort);
+  let firstHeartbeat: ReturnType<typeof setTimeout> | null = null;
+  const stopFirstHeartbeat = () => {
+    if (firstHeartbeat === null) return;
+    clearTimeout(firstHeartbeat);
+    firstHeartbeat = null;
+  };
+  const open = () => {
+    stopFirstHeartbeat();
+    return session ??= openSse(response, abort);
+  };
+  firstHeartbeat = setTimeout(() => {
+    firstHeartbeat = null;
+    if (!signal.aborted) void open().heartbeat();
+  }, SSE_HEARTBEAT_INTERVAL_MS);
+  if (signal.aborted) stopFirstHeartbeat();
+  else signal.addEventListener("abort", stopFirstHeartbeat, { once: true });
   // Batches deltas at the same byte/time thresholds the embedded worker path
   // uses (server/worker-delta-batcher.ts), over the same DeltaBatcher. An
   // HTTP write already carries its own backpressure (openSse.send awaits
@@ -79,7 +95,10 @@ export async function streamResponse<T>(
     });
     response.end();
   } finally {
+    stopFirstHeartbeat();
+    signal.removeEventListener("abort", stopFirstHeartbeat);
     deltas.dispose();
+    await (session as ReturnType<typeof openSse> | null)?.close();
   }
 }
 

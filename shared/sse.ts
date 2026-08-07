@@ -1,6 +1,11 @@
 // "\r\n\r\n", the longest form the event separator can take.
 const MAX_SEPARATOR_LENGTH = 4;
 
+/** Keep an idle HTTP stream visible through proxies and detectable by clients. */
+export const SSE_HEARTBEAT_INTERVAL_MS = 1_000;
+/** Four missed loopback heartbeats identify a stream that no longer carries data. */
+export const SSE_IDLE_TIMEOUT_MS = SSE_HEARTBEAT_INTERVAL_MS * 4;
+
 /**
  * Split complete SSE events off the front of a stream buffer, returning
  * their data payloads and the unconsumed remainder.
