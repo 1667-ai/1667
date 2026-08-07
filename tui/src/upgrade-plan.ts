@@ -22,7 +22,11 @@ export interface UpgradeObservation {
 
 export interface UpgradeRegistry {
   channelHead(channel: UpgradeChannel, signal: AbortSignal): Promise<string>;
-  launcher(version: string, signal: AbortSignal): Promise<NpmVersionMetadata>;
+  launcher(
+    version: string,
+    platformPackage: PlatformPackage,
+    signal: AbortSignal
+  ): Promise<NpmVersionMetadata>;
   platform(
     packageName: PlatformPackage,
     version: string,
@@ -122,7 +126,7 @@ export async function planUpgrade(
   let platformMetadata: NpmVersionMetadata;
   try {
     const [, platform] = await Promise.all([
-      registry.launcher(latest, exactSignal),
+      registry.launcher(latest, observation.platformPackage, exactSignal),
       registry.platform(observation.platformPackage, latest, exactSignal)
     ]);
     platformMetadata = platform;

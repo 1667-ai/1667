@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  RELEASE_TARGETS,
-  releasePlatformDependencyGraph,
-  releaseTargetForArtifact
-} from "../../shared/release-targets.js";
+import { releaseTargetForArtifact } from "../../shared/release-targets.js";
 import {
   LAUNCHER_PACKAGE,
   NPM_METADATA_MAX_BYTES,
@@ -30,28 +26,33 @@ const TARBALL = tarballUrl(LAUNCHER_PACKAGE, "2.0.0");
 
 test("npm dist tags select strict stable and beta channel heads", () => {
   const body = JSON.stringify({
-    stable: "2.0.0",
+    // A stale hand-set tag, as the registry holds today. Reading it would give
+    // an installation a version two releases behind the stable channel head.
+    stable: "1.0.0",
     beta: "2.1.0-beta.2",
     latest: "2.0.0",
     next_build: "2.1.0+build-1"
   });
+  // A release writes `latest` and `beta`, and writes no dist-tag with the name
+  // `stable`, so the stable channel reads `latest` and ignores that name.
   expect(parseNpmDistTags(body, "stable")).toBe("2.0.0");
   expect(parseNpmDistTags(body, "beta")).toBe("2.1.0-beta.2");
   expect(parseNpmDistTags(
-    JSON.stringify({ stable: "2.0.0+build-1" }),
+    JSON.stringify({ latest: "2.0.0+build-1" }),
     "stable"
   )).toBe("2.0.0+build-1");
+  expect(() => parseNpmDistTags(JSON.stringify({ stable: "2.0.0" }), "stable")).toThrow();
 });
 
 test("npm dist tags reject malformed, hostile, and over-bound metadata", () => {
   const bodies = [
     "",
     "[]",
-    JSON.stringify({ stable: "v1.0.0" }),
-    JSON.stringify({ stable: "1.0.0-beta.1" }),
-    JSON.stringify({ stable: "1.0.0", "bad tag": "1.0.0" }),
-    JSON.stringify({ stable: "1.0.0", beta: "1.0.0\u001b" }),
-    '{"stable":"1.0.0","\\u0073table":"2.0.0"}',
+    JSON.stringify({ latest: "v1.0.0" }),
+    JSON.stringify({ latest: "1.0.0-beta.1" }),
+    JSON.stringify({ latest: "1.0.0", "bad tag": "1.0.0" }),
+    JSON.stringify({ latest: "1.0.0", beta: "1.0.0\u001b" }),
+    '{"latest":"1.0.0","\\u006catest":"2.0.0"}',
     new Uint8Array(NPM_METADATA_MAX_BYTES + 1)
   ];
   for (const body of bodies) expect(() => parseNpmDistTags(body, "stable")).toThrow();
@@ -70,7 +71,7 @@ test("exact npm metadata validates identity, integrity, and the complete platfor
   }), {
     name: LAUNCHER_PACKAGE,
     version: "2.0.0",
-    optionalDependencies
+    launcherGraph: { requiredPlatformPackage: PLATFORM_PACKAGE }
   });
   expect(metadata).toEqual({
     name: LAUNCHER_PACKAGE,
@@ -81,23 +82,49 @@ test("exact npm metadata validates identity, integrity, and the complete platfor
   expect(Object.isFrozen(metadata)).toBeTrue();
 });
 
-test("the launcher graph a client expects never names a held target's package", () => {
-  const graph = releasePlatformDependencyGraph("2.0.0");
-  expect(Object.keys(graph).sort()).toEqual([...PLATFORM_PACKAGES].sort());
-  for (const descriptor of RELEASE_TARGETS) {
-    if (descriptor.heldFromPublication === null) continue;
-    expect(Object.hasOwn(graph, descriptor.packageName)).toBeFalse();
-    // A published launcher that did name it would be verified against a package
-    // the registry never received, so the check has to refuse the pairing.
+test("a launcher that names a platform this build never heard of still verifies", () => {
+  // A release that publishes a new target names one more platform package than
+  // the installed build knows. A build that refused this refused every later
+  // release as well, and refused it inside itself, where no fix could reach it.
+  const graph = Object.fromEntries(PLATFORM_PACKAGES.map((name) => [name, "2.0.0"]));
+  const metadata = parseNpmExactVersionMetadata(JSON.stringify({
+    name: LAUNCHER_PACKAGE,
+    version: "2.0.0",
+    dist: { integrity: INTEGRITY, tarball: TARBALL },
+    optionalDependencies: { ...graph, "@1667-ai/freebsd-x64": "2.0.0" }
+  }), {
+    name: LAUNCHER_PACKAGE,
+    version: "2.0.0",
+    launcherGraph: { requiredPlatformPackage: PLATFORM_PACKAGE }
+  });
+  expect(metadata.version).toBe("2.0.0");
+});
+
+test("the launcher graph refuses a foreign package, a skewed pin, or a dropped platform", () => {
+  const graph = Object.fromEntries(PLATFORM_PACKAGES.map((name) => [name, "2.0.0"]));
+  const { [PLATFORM_PACKAGE]: _dropped, ...withoutOwnPlatform } = graph;
+  for (const optionalDependencies of [
+    // A package outside the release scope is never part of this graph.
+    { ...graph, "surprise-runtime": "2.0.0" },
+    { ...graph, "@other-scope/linux-x64": "2.0.0" },
+    // A platform package pinned to another version is a graph this upgrade
+    // did not verify.
+    { ...graph, "@1667-ai/freebsd-x64": "2.0.1" },
+    // The launcher cannot depend on itself.
+    { ...graph, [LAUNCHER_PACKAGE]: "2.0.0" },
+    // A release that no longer carries this installation's platform stops here.
+    withoutOwnPlatform,
+    {}
+  ]) {
     expect(() => parseNpmExactVersionMetadata(JSON.stringify({
       name: LAUNCHER_PACKAGE,
       version: "2.0.0",
       dist: { integrity: INTEGRITY, tarball: TARBALL },
-      optionalDependencies: { ...graph, [descriptor.packageName]: "2.0.0" }
+      optionalDependencies
     }), {
       name: LAUNCHER_PACKAGE,
       version: "2.0.0",
-      optionalDependencies: graph
+      launcherGraph: { requiredPlatformPackage: PLATFORM_PACKAGE }
     })).toThrow();
   }
 });
@@ -113,7 +140,7 @@ test("exact npm metadata rejects deprecated targets and graph or identity drift"
   const expected = {
     name: LAUNCHER_PACKAGE,
     version: "2.0.0",
-    optionalDependencies: graph
+    launcherGraph: { requiredPlatformPackage: PLATFORM_PACKAGE }
   };
   for (const value of [
     { ...valid, name: "other" },
@@ -138,7 +165,7 @@ test("registry client fixes the canonical origin and bounds streamed responses",
     calls.push(input);
     expect(init.method).toBe("GET");
     expect(init.redirect).toBe("error");
-    return Response.json({ stable: "2.0.0" });
+    return Response.json({ latest: "2.0.0" });
   });
   expect(await registry.channelHead("stable", new AbortController().signal)).toBe("2.0.0");
   expect(calls).toEqual([
@@ -154,10 +181,10 @@ test("registry client fixes the canonical origin and bounds streamed responses",
   expect((error as UpgradeFailure).code).toBe("metadata_invalid");
 
   for (const response of [
-    new Response('{"stable":"2.0.0"}', {
+    new Response('{"latest":"2.0.0"}', {
       headers: { "content-type": "text/plain" }
     }),
-    new Response('{"stable":"2.0.0"}', {
+    new Response('{"latest":"2.0.0"}', {
       headers: {
         "content-type": "application/json",
         "content-length": String(NPM_METADATA_MAX_BYTES + 1)
@@ -190,7 +217,7 @@ test("registry client derives exact launcher and platform endpoints locally", as
     });
   });
   const signal = new AbortController().signal;
-  await registry.launcher("2.0.0+build.1", signal);
+  await registry.launcher("2.0.0+build.1", PLATFORM_PACKAGE, signal);
   await registry.platform(PLATFORM_PACKAGE, "2.0.0+build.1", signal);
   expect(calls).toEqual([
     "https://registry.npmjs.org/@1667-ai%2fcli/2.0.0%2Bbuild.1",
@@ -265,7 +292,7 @@ test("registry client rejects libc metadata on the launcher package", async () =
     libc: ["glibc"]
   }));
   const error = await rejection(
-    registry.launcher("2.0.0", new AbortController().signal)
+    registry.launcher("2.0.0", PLATFORM_PACKAGE, new AbortController().signal)
   );
   expect((error as UpgradeFailure).code).toBe("verification_failed");
 });

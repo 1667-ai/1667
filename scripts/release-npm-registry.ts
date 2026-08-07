@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { distTagForChannel } from "../shared/release-dist-tags.js";
 import { isPrereleaseVersion } from "./release-publication-assets.js";
 import { lstatSync, realpathSync } from "node:fs";
 import {
@@ -396,12 +397,16 @@ function npmFailureStdout(error: unknown): string | null {
  * project does not have. Choosing the tag here means the tag is right the first
  * time and no version ever has to change channel.
  *
- * A prerelease is a release candidate and publishes to `beta`. Everything else
- * publishes to `latest`. This is the split `installScriptChannelsForVersion`
- * already applies to Installer file names.
+ * A prerelease is a release candidate and publishes into the beta channel.
+ * Everything else publishes into the stable channel. This is the split
+ * `installScriptChannelsForVersion` already applies to Installer file names.
+ *
+ * The dist-tag for each channel comes from `CHANNEL_DIST_TAG`, which the
+ * upgrade client reads as well, so a client cannot look for a dist-tag that a
+ * release does not write.
  */
 export function npmDistTagForVersion(version: string): "beta" | "latest" {
-  return isPrereleaseVersion(version) ? "beta" : "latest";
+  return distTagForChannel(isPrereleaseVersion(version) ? "beta" : "stable");
 }
 
 function npmVersionAlreadyExists(error: unknown): boolean {
