@@ -19,8 +19,8 @@ test("a getent line yields the group name and its supplementary members", () => 
   });
   // Ubuntu's private user group: the owner is not repeated in the member list.
   expect(parseGetentGroup("chris:x:1000:")).toEqual({ name: "chris", others: [] });
-  expect(parseGetentGroup("")).toBeNull();
-  expect(parseGetentGroup("nonsense")).toBeNull();
+  expect(parseGetentGroup("")).toBe(null);
+  expect(parseGetentGroup("nonsense")).toBe(null);
 });
 
 test("dscl membership is read from its labelled line", () => {
