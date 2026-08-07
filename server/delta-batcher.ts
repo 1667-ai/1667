@@ -67,7 +67,7 @@ export class DeltaBatcher {
    *  A batch already handed to `send` is not buffered here any more — a
    *  caller that also needs to reclaim a batch `send` has not committed to
    *  yet (for example a credit wait) must track that itself; see
-   *  `WorkerDeltaBatcher.takeUnsent`. */
+   *  `WorkerDeltaBatcher.sealUnsent`. */
   takeBuffered(): string {
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
@@ -109,7 +109,7 @@ function byteLength(value: string): number {
   return Buffer.byteLength(value, "utf8");
 }
 
-function splitUtf8(value: string, maxBytes: number): string[] {
+export function splitUtf8(value: string, maxBytes: number): string[] {
   if (value.length === 0) return [];
   if (byteLength(value) <= maxBytes) return [value];
   const chunks: string[] = [];

@@ -18,13 +18,15 @@ import {
   writePrivateSettingsFile
 } from "./settings-file-io.js";
 import {
-  inspectTypedPrivatePublicationResidue,
   removePrivateFile,
   privatePublicationScratchPath,
   publishPrivateFileNoReplace,
   readOptionalPrivateFile,
   type PrivateFilePolicy
 } from "./private-file-publication.js";
+import {
+  inspectTypedPrivatePublicationResidue
+} from "./private-file-residue.js";
 import { closedRecord, closedShape, literal } from "./story-wire-validation.js";
 import {
   type DataDirectoryFormat,

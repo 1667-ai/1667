@@ -1,5 +1,12 @@
 const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-const COMBINING = /^\p{Mark}+$/u;
+// A grapheme occupies zero cells when every scalar in it is a combining mark
+// or a zero-width format character: ZWSP, ZWNJ, ZWJ, the bidi marks LRM, RLM,
+// and ALM, the Mongolian vowel separator, the word joiner and invisible
+// operators, the deprecated format controls, ZWNBSP/BOM, and the tag block.
+// The bidi embedding, override, and isolate controls are absent on purpose:
+// the strict projection regime draws each as a one-cell control mark
+// (shared/terminal-text.ts), so their measured width must stay 1.
+const ZERO_WIDTH = /^[\p{Mark}\u061C\u180E\u200B-\u200F\u2060-\u2064\u206A-\u206F\uFEFF\u{E0000}-\u{E007F}]+$/u;
 const EMOJI_PRESENTATION = /\p{Emoji_Presentation}|\p{Regional_Indicator}/u;
 const KEYCAP = /\u20E3/u;
 const PRINTABLE_ASCII = /^[\x20-\x7E]*$/;
@@ -52,7 +59,7 @@ export function isPrintableAscii(text: string): boolean {
 }
 
 function graphemeWidth(grapheme: string): number {
-  if (grapheme.length === 0 || COMBINING.test(grapheme)) return 0;
+  if (grapheme.length === 0 || ZERO_WIDTH.test(grapheme)) return 0;
   // OpenTUI's TextBuffer renders each tab as two cells. Keep wrapping,
   // caret placement, and native selection projections on that same metric.
   if (grapheme === "\t") return 2;

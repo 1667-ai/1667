@@ -74,7 +74,7 @@ describe("global search screen and model", () => {
     // A rewrite can keep a node id while replacing every word the query
     // matched, so results that describe the previous revision must not survive
     // it — enter would travel to text that has moved.
-    adoptSameStoryPayload(state, { ...state.payload });
+    adoptSameStoryPayload(state, { ...state.payload }, createWrapCache<ProseStyle>());
     expect(search.response).toBe(null);
     expect(searchRows(search, state.payload).selectableCount).toBe(0);
   });
@@ -153,7 +153,7 @@ describe("global search screen and model", () => {
     const pending = new AbortController();
     search.pending = pending;
 
-    adoptStoryState(state, { ...state.payload, id: "another-story" });
+    adoptStoryState(state, { ...state.payload, id: "another-story" }, createWrapCache<ProseStyle>());
     expect(state.search).toBe(null);
     expect(pending.signal.aborted).toBeTrue();
   });
@@ -170,7 +170,7 @@ describe("global search screen and model", () => {
     // The reply will fail the ownership fence and run no handler, so adoption
     // has to clear the pending state or the pane reads "searching…" forever.
     const pending = search.pending!;
-    adoptSameStoryPayload(state, { ...state.payload });
+    adoptSameStoryPayload(state, { ...state.payload }, createWrapCache<ProseStyle>());
     expect(searchInFlight(search)).toBeFalse();
     expect(pending.signal.aborted).toBeTrue();
   });

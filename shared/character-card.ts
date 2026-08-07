@@ -10,6 +10,10 @@ import {
   readPngTextChunk
 } from "./png-text-chunk.js";
 import { countNoun, lossLines, type LossPhrases } from "./fidelity.js";
+import {
+  sliceUnicodeScalarPrefix,
+  unicodeScalarLength
+} from "./unicode.js";
 
 export const MAX_CHARACTER_CARD_JSON_BYTES = 1_000_000;
 export const MAX_CHARACTER_CARD_NAME_CHARS = 200;
@@ -76,7 +80,7 @@ export function factsFromCharacterCard(source: CharacterCardSections): FactInput
   if (sections.length === 0) throw new Error("Select at least one non-empty character field.");
   let combinedLength = 0;
   for (const section of sections) {
-    combinedLength += expandedMacroLength(section.text, macroName);
+    combinedLength += expandedMacroScalarLength(section.text, macroName);
     if (combinedLength > MAX_COMBINED_FACT_TEXT_CHARS) {
       throw new Error(`Selected character text needs more than ${MAX_FACTS} facts; shorten it before importing.`);
     }
@@ -91,7 +95,7 @@ export function factsFromCharacterCard(source: CharacterCardSections): FactInput
   let current: NamedSection[] = [];
   for (const piece of pieces) {
     const candidate = [...current, piece];
-    if (current.length > 0 && renderFact(name, candidate).length > MAX_FACT_TEXT_CHARS) {
+    if (current.length > 0 && factScalarLength(name, candidate) > MAX_FACT_TEXT_CHARS) {
       packed.push(current);
       current = [piece];
     } else {
@@ -348,21 +352,25 @@ export function characterCardMacroName(card: Pick<CharacterCardCore, "name" | "n
   return nonEmptyTrimmed(card.nickname) ?? card.name;
 }
 
-function expandedMacroLength(text: string, name: string): number {
-  let length = text.length;
+function expandedMacroScalarLength(text: string, name: string): number {
+  let length = unicodeScalarLength(text);
   for (const match of text.matchAll(MACROS)) {
-    length += (match[1]!.toLowerCase() === "char" ? name.length : "the protagonist".length) - match[0].length;
+    const replacement = match[1]!.toLowerCase() === "char"
+      ? name
+      : "the protagonist";
+    length += unicodeScalarLength(replacement) - unicodeScalarLength(match[0]);
   }
   return length;
 }
 
 function splitSection(name: string, section: NamedSection): NamedSection[] {
-  if (renderFact(name, [section]).length <= MAX_FACT_TEXT_CHARS) return [section];
+  if (factScalarLength(name, [section]) <= MAX_FACT_TEXT_CHARS) return [section];
   // Use the source length's digit count for a conservative fixed overhead. This
   // avoids an unstable split/count/re-split loop around 9/10 or 99/100 pieces.
-  const digits = String(section.text.length).length;
+  const digits = String(unicodeScalarLength(section.text)).length;
   const placeholder = `${section.label} (${"9".repeat(digits)}/${"9".repeat(digits)})`;
-  const maxText = MAX_FACT_TEXT_CHARS - renderFact(name, [{ label: placeholder, text: "" }]).length;
+  const maxText = MAX_FACT_TEXT_CHARS
+    - factScalarLength(name, [{ label: placeholder, text: "" }]);
   if (maxText < 1) throw new Error("Character name and section label leave no room for fact text.");
   const chunks = splitText(section.text, maxText);
   return chunks.map((text, index) => ({
@@ -374,9 +382,16 @@ function splitSection(name: string, section: NamedSection): NamedSection[] {
 function splitText(text: string, maxLength: number): string[] {
   const chunks: string[] = [];
   let start = 0;
-  while (text.length - start > maxLength) {
-    const end = start + maxLength;
-    const floor = start + Math.floor(maxLength / 2);
+  while (start < text.length) {
+    const remaining = text.slice(start);
+    const prefix = sliceUnicodeScalarPrefix(remaining, maxLength);
+    if (prefix.length === remaining.length) {
+      chunks.push(remaining);
+      break;
+    }
+    const end = start + prefix.length;
+    const floor = start
+      + sliceUnicodeScalarPrefix(remaining, Math.floor(maxLength / 2)).length;
     let cut = lastBoundary(text, "\n\n", floor, end);
     if (cut === -1) cut = lastBoundary(text, "\n", floor, end);
     if (cut === -1) {
@@ -392,7 +407,6 @@ function splitText(text: string, maxLength: number): string[] {
     chunks.push(text.slice(start, cut));
     start = cut;
   }
-  chunks.push(text.slice(start));
   return chunks;
 }
 
@@ -405,6 +419,10 @@ function lastBoundary(text: string, boundary: string, start: number, end: number
 
 function renderFact(name: string, sections: readonly NamedSection[]): string {
   return [`Name: ${name}`, ...sections.map((section) => `${section.label}:\n${section.text}`)].join("\n\n");
+}
+
+function factScalarLength(name: string, sections: readonly NamedSection[]): number {
+  return unicodeScalarLength(renderFact(name, sections));
 }
 
 function rejectUnsupportedContainer(bytes: Uint8Array): void {

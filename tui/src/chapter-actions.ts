@@ -58,12 +58,11 @@ export async function chaptersAction(
       await context.backend.run("renaming chapter", async (task) => {
         const payload = await source.api.renameChapterBreak(task.storyId, rename.breakId, submittedTitle);
         if (!task.storyCurrent()) return;
-        adoptSameStoryPayload(state, payload);
+        adoptSameStoryPayload(state, payload, context.cache);
         if (state.chapters === overlay && overlay.rename === rename && rename.value.trim() === submittedTitle) {
           overlay.rename = null;
           state.toast = "chapter title saved";
         }
-        context.cache.invalidate();
       });
     } else {
       const value = applyTextKey(overlay.rename.value, resolved);
@@ -110,7 +109,7 @@ export async function createBreakAtFocus(
   await context.backend.run("creating chapter break", async (task) => {
     const { payload, breakId } = await source.api.createChapterBreak(task.storyId, part.id);
     if (!task.storyCurrent()) return;
-    adoptSameStoryPayload(state, payload);
+    adoptSameStoryPayload(state, payload, context.cache);
     state.undo.push({ kind: "create-break", breakId });
     if (task.interactionCurrent()) {
       state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(payload), part.id));
@@ -120,7 +119,6 @@ export async function createBreakAtFocus(
         ? `Chapter ${chapterWord(part.chapterNumber)} ends here · next part opens Chapter ${chapterWord(part.chapterNumber + 1)} · u undoes`
         : "chapter break added · chapters renumbered · u undoes";
     }
-    context.cache.invalidate();
   });
 }
 
@@ -248,7 +246,7 @@ async function removeBreak(
   await context.backend.run("removing chapter break", async (task) => {
     const result = await source.api.removeChapterBreak(task.storyId, breakId);
     if (!task.storyCurrent()) return;
-    adoptSameStoryPayload(state, result.payload);
+    adoptSameStoryPayload(state, result.payload, context.cache);
     state.undo.push({ kind: "remove-break", breakId, removed: result.removed });
     if (state.chapterDeleteArmedId === breakId) state.chapterDeleteArmedId = null;
     if (state.chapters?.deleteArmedId === breakId) state.chapters.deleteArmedId = null;
@@ -265,7 +263,6 @@ async function removeBreak(
       }
       state.toast = "chapter break removed · summary removed · chapters renumbered · u undoes";
     }
-    context.cache.invalidate();
   });
 }
 
@@ -281,7 +278,7 @@ async function summarizeChapter(
   await context.backend.run("summarizing chapter", async (task) => {
     const payload = await source.api.summarizeChapter(task.storyId, breakId);
     if (!task.storyCurrent()) return;
-    adoptSameStoryPayload(state, payload);
+    adoptSameStoryPayload(state, payload, context.cache);
     if (task.interactionCurrent()) {
       const view = createStoryViewModel(payload);
       const summaryIndex = view.rows.findIndex((row) => row.kind === "chapter-summary" && row.chapter.closedBy?.id === breakId);
@@ -293,7 +290,6 @@ async function summarizeChapter(
         ? `Chapter ${chapterWord(chapter.number)} summary refreshed`
         : `Chapter ${chapterWord(chapter.number)} summarized · ${formatTokensEstimate(chapter.rawTokens)} raw · prose untouched`;
     }
-    context.cache.invalidate();
   });
 }
 

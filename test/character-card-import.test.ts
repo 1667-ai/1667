@@ -9,6 +9,8 @@ import { initializeProject } from "../server/project-discovery.js";
 import { StoryService } from "../server/story-service.js";
 import { toPublicServiceError } from "../server/service-error-policy.js";
 import { planCardImport } from "../shared/card-import.js";
+import { MAX_FACT_TEXT_CHARS } from "../shared/types.js";
+import { unicodeScalarLength } from "../shared/unicode.js";
 
 const execFileAsync = promisify(execFile);
 const PNG_SIGNATURE = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -56,6 +58,21 @@ test("a V3 card's nickname expands {{char}} in its character_book entries too, n
   assert.equal(plan.facts[0]?.text, "Name: Elizabeth\n\nDescription:\nLiz waits.");
   const bookFact = plan.facts.find((fact) => fact.tag === "Home");
   assert.equal(bookFact?.text, "Liz lives here.");
+});
+
+test("astral character text that fits one Fact keeps all text when one slot remains", () => {
+  const header = "Name: Mira\n\nDescription:\n";
+  const description = "🌙".repeat(MAX_FACT_TEXT_CHARS - unicodeScalarLength(header));
+  const plan = planCardImport(encoder.encode(JSON.stringify(v2Card({
+    description,
+    personality: "",
+    scenario: ""
+  }))), 1);
+
+  assert.equal(plan.facts.length, 1);
+  assert.equal(plan.facts[0]?.text, header + description);
+  assert.equal(unicodeScalarLength(plan.facts[0]!.text), MAX_FACT_TEXT_CHARS);
+  assert.deepEqual(plan.fidelity, []);
 });
 
 test("a malformed card produces a 4xx with its real message, not a 500 Internal server error", async (t) => {

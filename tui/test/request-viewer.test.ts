@@ -548,7 +548,7 @@ describe("next request viewer", () => {
     const replacement = structuredClone(state.payload);
     replacement.id = "story-request-viewer-replacement";
 
-    adoptReconciliationSnapshot(state, replacement);
+    adoptReconciliationSnapshot(state, replacement, createWrapCache());
 
     expect(state.request).toBe(null);
     expect(state.mode).toBe("NAV");

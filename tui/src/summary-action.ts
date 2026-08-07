@@ -51,21 +51,20 @@ export async function startSummary(
         summary.text += delta;
         context.repaint();
       }, controller.signal);
-      if (controller.signal.aborted) return await reloadAfterStop(state, source, task.storyId, task.storyCurrent);
+      if (controller.signal.aborted) return await reloadAfterStop(state, source, task.storyId, task.storyCurrent, context.cache);
       if (nodeId === null || !task.storyCurrent()) return;
 
       const expectedLineFingerprint = await fingerprint;
-      if (controller.signal.aborted) return await reloadAfterStop(state, source, task.storyId, task.storyCurrent);
+      if (controller.signal.aborted) return await reloadAfterStop(state, source, task.storyId, task.storyCurrent, context.cache);
       if (!task.storyCurrent()) return;
       const switched = await source.api.switchLine(task.storyId, nodeId, {
         stopAtNode: true,
         expectedLineFingerprint
       });
-      if (controller.signal.aborted) return await reloadAfterStop(state, source, task.storyId, task.storyCurrent);
+      if (controller.signal.aborted) return await reloadAfterStop(state, source, task.storyId, task.storyCurrent, context.cache);
       if (!task.storyCurrent()) return;
 
-      adoptSameStoryPayload(state, switched);
-      context.cache.invalidate();
+      adoptSameStoryPayload(state, switched, context.cache);
       if (!task.interactionCurrent() || state.summary !== summary) return;
       const index = switched.path.findIndex((node) => node.id === nodeId);
       if (index === -1) {
@@ -80,7 +79,7 @@ export async function startSummary(
       state.mode = "NAV";
     } catch (error) {
       if (controller.signal.aborted) {
-        await reloadAfterStop(state, source, task.storyId, task.storyCurrent);
+        await reloadAfterStop(state, source, task.storyId, task.storyCurrent, context.cache);
       } else if (task.storyCurrent()) {
         state.toast = error instanceof Error ? error.message : String(error);
       }
@@ -90,7 +89,6 @@ export async function startSummary(
         state.summary = null;
         if (state.mode === "SUMMARY") state.mode = "NAV";
       }
-      context.cache.invalidate();
       context.repaint();
     }
   });
@@ -110,12 +108,13 @@ async function reloadAfterStop(
   state: RuntimeState,
   source: AppSource,
   storyId: string,
-  storyCurrent: () => boolean
+  storyCurrent: () => boolean,
+  cache: ActionContext["cache"]
 ): Promise<void> {
   if (!storyCurrent()) return;
   try {
     const payload = await source.api.loadStory(storyId);
-    if (storyCurrent()) adoptSameStoryPayload(state, payload);
+    if (storyCurrent()) adoptSameStoryPayload(state, payload, cache);
     if (state.toast === SUMMARY_STOPPING_TOAST) state.toast = "summary stopped · draft discarded";
   } catch (error) {
     if (state.toast === SUMMARY_STOPPING_TOAST) {

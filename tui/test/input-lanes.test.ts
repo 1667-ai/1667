@@ -274,7 +274,7 @@ describe("responsive input lanes", () => {
       state: app.state,
       source,
       backend: app.backend,
-      invalidateCache: () => app.cache.invalidate(),
+      cache: app.cache,
       repaint: app.repaint
     });
 
@@ -327,7 +327,7 @@ describe("responsive input lanes", () => {
       state: app.state,
       source,
       backend: app.backend,
-      invalidateCache: () => app.cache.invalidate(),
+      cache: app.cache,
       repaint: app.repaint
     });
 

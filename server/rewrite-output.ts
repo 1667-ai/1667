@@ -85,6 +85,15 @@ export class AnchoredOutputFilter {
       + (wrapTag === null ? 0 : 2 * (wrapTag.length + 3) + 16);
   }
 
+  /** True only after the opening positively diverged from the required
+   *  echo: the emitted stream is then unanchored model output, and no
+   *  partial of it may replace the selection. An undecided opening — the
+   *  stream ended while the echo was still buffering — is not a rejection;
+   *  it emitted nothing. */
+  get prefixRejected(): boolean {
+    return this.requirePrefix && this.prefixDecided && !this.matchedPrefix;
+  }
+
   push(delta: string): string {
     if (this.stopped || delta.length === 0) return "";
     let text = delta;

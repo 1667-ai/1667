@@ -23,7 +23,9 @@ import {
 } from "./chapter-breaks.js";
 import {
   isTerminalGenerationFailure,
+  markRetryablePartialSettlementFailure,
   ProviderRecoveryRequiredError,
+  RetryableMutationReceiptError,
   ServiceError
 } from "./errors.js";
 import {
@@ -35,12 +37,15 @@ import {
 import {
   corruptMutationReceipt,
   encodeMutationResult,
+  importPlanFingerprint,
   loadVerifiedChapterBreakRemoval,
   parseMutationReceipt,
   requireChapterBreakRemovalFingerprint,
+  requireImportPlanArtifact,
   requireRemovalArtifact,
   restoreMutationReceiptFailure,
-  type MutationReceipt
+  type MutationReceipt,
+  type StoredImportPlan
 } from "./mutation-receipt-codec.js";
 import {
   createMutationPlan,
@@ -214,6 +219,22 @@ export class MutationReceiptStore {
           await this.save(receipt);
           return structuredClone(value);
         },
+        storedImportPlan: () => receipt.artifact?.kind === "import-plan"
+          ? structuredClone(receipt.artifact.value)
+          : null,
+        // Durable before the caller's story transaction can reach its commit
+        // point: the service records the plan inside the canonical mutation
+        // callback, before any prepared record or manifest publish, so every
+        // receipt whose import committed carries the plan that import applied.
+        recordImportPlan: async (value) => {
+          const preserved = structuredClone(value) as StoredImportPlan;
+          receipt.artifact = {
+            kind: "import-plan",
+            fingerprint: importPlanFingerprint(preserved),
+            value: preserved
+          };
+          await this.save(receipt);
+        },
         providerStarted: async () => {
           if (receipt.state === "provider_started") return;
           receipt.state = "provider_started";
@@ -233,28 +254,36 @@ export class MutationReceiptStore {
       try {
         value = await work(plan);
       } catch (error) {
-        if (isMutationReceiptPersistenceError(error)) {
-          throw error;
+        const retryableReceipt = error instanceof RetryableMutationReceiptError;
+        const failure = retryableReceipt ? error.originalError : error;
+        if (isMutationReceiptPersistenceError(failure)) {
+          throw failure;
         }
         // Keep exact provider ambiguity replayable. This is either an outer
         // pending receipt blocked by another request or this receipt's own
         // provider-started recovery.
-        if (error instanceof ProviderRecoveryRequiredError) {
-          throw error;
+        if (failure instanceof ProviderRecoveryRequiredError) {
+          throw failure;
         }
-        const durabilityLoss = unknownOutcomeFromDurabilityFailure(error);
+        const durabilityLoss = unknownOutcomeFromDurabilityFailure(failure);
         if (durabilityLoss !== null) {
           return await this.failureTerminalizer.reject(durabilityLoss);
         }
         if (receipt.state === "provider_started"
-          && !isTerminalGenerationReceiptFailure(error)) {
+          && !isTerminalGenerationReceiptFailure(failure)) {
           throw new ProviderRecoveryRequiredError(
             mutationId,
             { diagnostic: true }
           );
         }
+        if (retryableReceipt) {
+          if (error.retryablePartialSettlement) {
+            markRetryablePartialSettlementFailure(failure);
+          }
+          throw failure;
+        }
         return await this.failureTerminalizer.persist(
-          error,
+          failure,
           async (failure) => {
             receipt.state = "failed";
             receipt.failure = failure;
@@ -281,6 +310,19 @@ export class MutationReceiptStore {
       case "chapter-break-removed": return {
         payload: await this.resolveStory(result.id),
         removed: result.removed ?? requireRemovalArtifact(receipt)
+      };
+      case "import": {
+        const plan = structuredClone(requireImportPlanArtifact(receipt));
+        const payload = await this.resolveStory(result.id);
+        if (receipt.method === "importLorebook") {
+          return { payload, importResult: plan };
+        }
+        if (receipt.method === "importCard") return { payload, plan };
+        throw corruptMutationReceipt(receipt.mutationId);
+      }
+      case "partial-rewrite": return {
+        payload: await this.resolveStory(result.id),
+        nodeId: result.nodeId
       };
       case "value": return result.value;
     }

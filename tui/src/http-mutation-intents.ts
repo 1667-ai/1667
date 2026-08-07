@@ -41,7 +41,17 @@ const POLICY = {
   maxBytes: MAX_INTENT_BYTES
 } as const;
 
-export type HttpAbsentMutation = "createStory" | "importSillyTavern" | "importMarkdown" | "importNovelAI" | "importScenario";
+export type HttpAbsentMutation =
+  | "createStory"
+  | "importSillyTavern"
+  | "importMarkdown"
+  | "importNovelAI"
+  | "importScenario";
+
+/** HTTP mutations that need a caller-owned durable identity across retries. */
+export type HttpMutationIntentOperation =
+  | HttpAbsentMutation
+  | "commitPartialRewrite";
 
 export interface HttpMutationIntentClaim {
   readonly mutationId: string;
@@ -53,7 +63,7 @@ export interface HttpMutationIntentClaim {
 
 export interface HttpMutationIntentStore {
   claim(
-    operation: HttpAbsentMutation,
+    operation: HttpMutationIntentOperation,
     semanticInput: string
   ): Promise<HttpMutationIntentClaim>;
 }
@@ -67,7 +77,7 @@ interface HttpMutationIntentRecord {
   readonly schemaVersion: 2;
   readonly dataDirectoryClaimId: string;
   readonly dataDirectoryId: string;
-  readonly operation: HttpAbsentMutation;
+  readonly operation: HttpMutationIntentOperation;
   readonly fingerprint: string;
   readonly mutationId: string;
   readonly createdAt: string;
@@ -77,7 +87,7 @@ interface LegacyHttpMutationIntentRecord {
   readonly format: "1667-http-mutation-intent";
   readonly schemaVersion: 1;
   readonly origin: string;
-  readonly operation: HttpAbsentMutation;
+  readonly operation: HttpMutationIntentOperation;
   readonly fingerprint: string;
   readonly mutationId: string;
   readonly createdAt: string;
@@ -138,7 +148,7 @@ implements HttpMutationIntentStore {
   }
 
   async claim(
-    operation: HttpAbsentMutation,
+    operation: HttpMutationIntentOperation,
     semanticInput: string
   ): Promise<HttpMutationIntentClaim> {
     const fingerprint = mutationFingerprint(
@@ -226,7 +236,7 @@ implements HttpMutationIntentStore {
 
   private async readLegacyIntent(
     file: string,
-    operation: HttpAbsentMutation,
+    operation: HttpMutationIntentOperation,
     fingerprint: string
   ): Promise<LegacyHttpMutationIntentRecord | null> {
     const bytes = await readOptionalPrivateFile(file, POLICY);
@@ -366,7 +376,7 @@ implements HttpMutationIntentStore {
 
   private async read(
     file: string,
-    operation: HttpAbsentMutation,
+    operation: HttpMutationIntentOperation,
     fingerprint: string
   ): Promise<HttpMutationIntentRecord | null> {
     const bytes = await readOptionalPrivateFile(file, POLICY);
@@ -383,7 +393,7 @@ implements HttpMutationIntentStore {
 
 function mutationFingerprint(
   dataDirectoryId: string,
-  operation: HttpAbsentMutation,
+  operation: HttpMutationIntentOperation,
   semanticInput: string
 ): string {
   return createHash("sha256")
@@ -398,7 +408,7 @@ function mutationFingerprint(
 }
 
 function legacyMutationFingerprint(
-  operation: HttpAbsentMutation,
+  operation: HttpMutationIntentOperation,
   semanticInput: string
 ): string {
   return createHash("sha256")
@@ -414,7 +424,7 @@ function decodeIntent(
   bytes: Uint8Array,
   dataDirectoryId: string,
   dataDirectoryClaimId: string,
-  operation: HttpAbsentMutation,
+  operation: HttpMutationIntentOperation,
   fingerprint: string
 ): HttpMutationIntentRecord {
   const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -448,7 +458,7 @@ function decodeIntent(
 
 function decodeLegacyIntent(
   bytes: Uint8Array,
-  operation: HttpAbsentMutation,
+  operation: HttpMutationIntentOperation,
   fingerprint: string
 ): LegacyHttpMutationIntentRecord {
   const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);

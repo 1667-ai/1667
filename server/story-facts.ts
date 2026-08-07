@@ -24,7 +24,7 @@ import {
   type Story,
   type StoryFact
 } from "../shared/types.js";
-import { unicodeScalarLength } from "../shared/unicode.js";
+import { factTagWithinLimit, factTextWithinLimit } from "../shared/fact-limits.js";
 
 type Body = Record<string, unknown>;
 
@@ -223,7 +223,7 @@ function parseTag(value: unknown): string | null {
   if (typeof value !== "string") throw new HttpError(400, "Invalid tag");
   const tag = value.trim();
   assertWellFormed(tag, "Fact tag");
-  if (unicodeScalarLength(tag, MAX_FACT_TAG_CHARS) > MAX_FACT_TAG_CHARS) {
+  if (!factTagWithinLimit(tag)) {
     throw new HttpError(400, `Fact tag exceeds the ${MAX_FACT_TAG_CHARS}-character limit.`);
   }
   return tag.length === 0 ? null : tag;
@@ -233,7 +233,7 @@ function parseText(value: unknown): string {
   if (typeof value !== "string") throw new HttpError(400, "Missing fact text");
   if (value.trim().length === 0) throw new HttpError(400, "Fact text cannot be empty.");
   assertWellFormed(value, "Fact text");
-  if (value.length > MAX_FACT_TEXT_CHARS) {
+  if (!factTextWithinLimit(value)) {
     throw new HttpError(400, `Fact text exceeds the ${MAX_FACT_TEXT_CHARS}-character limit.`);
   }
   return value;

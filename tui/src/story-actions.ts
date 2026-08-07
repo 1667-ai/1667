@@ -585,7 +585,7 @@ export async function rerouteToNode(
   await context.backend.run("rerouting story", async (task) => {
     const payload = await source.api.switchLine(task.storyId, target);
     if (!task.storyCurrent()) return;
-    adoptSameStoryPayload(state, payload);
+    adoptSameStoryPayload(state, payload, context.cache);
     const targetPathIndex = Math.max(0, payload.path.findIndex((node) => node.id === target));
     const landed = new Map(state.freshLandedAt);
     for (const node of payload.path.slice(targetPathIndex)) landed.set(node.id, Date.now());
@@ -598,7 +598,6 @@ export async function rerouteToNode(
       origin.release(state);
       landOnNode(state, source, target);
     }
-    context.cache.invalidate();
   });
 }
 

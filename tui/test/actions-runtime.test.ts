@@ -166,7 +166,7 @@ describe("demo action runtime and input", () => {
       ...state.payload,
       nodes: state.payload.nodes.filter((node) => node.chapterBreakId !== "chapter-break-1")
     };
-    adoptSameStoryPayload(state, payload);
+    adoptSameStoryPayload(state, payload, createWrapCache<ProseStyle>());
 
     expect(state.actions).toBe(actions);
     const view = createStoryViewModel(state.payload);

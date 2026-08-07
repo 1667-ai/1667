@@ -86,7 +86,10 @@ export async function createSummaryTake(
   const tag = randomUUID().slice(0, 8);
   const marker = `[[summary-complete-${tag}]]`;
   const plan = planSummary(settings, source.title, prefix, tag);
-  const outcome: StreamOutcome = { finishReason: null };
+  const outcome: StreamOutcome = {
+    finishReason: null,
+    providerTerminal: false
+  };
   let raw = "";
   try {
     for await (const delta of streamCompletion(summarySettings(settings, plan.outputBudget), plan.prompt, signal, {
@@ -170,7 +173,10 @@ export async function generateSummaryText(
   const tag = randomUUID().slice(0, 8);
   const marker = `[[summary-complete-${tag}]]`;
   const plan = planSummary(settings, title, parts, tag, options.maxOutputTokens);
-  const outcome: StreamOutcome = { finishReason: null };
+  const outcome: StreamOutcome = {
+    finishReason: null,
+    providerTerminal: false
+  };
   let raw = "";
   try {
     for await (const delta of streamCompletion(summarySettings(settings, plan.outputBudget), plan.prompt, signal, {

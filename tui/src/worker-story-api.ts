@@ -15,6 +15,7 @@ export interface StoryWorkerTransport {
     input: WorkerInput<M>,
     options?: {
       onDelta?: (text: string) => void;
+      onStopped?: (text: string) => void;
       signal?: AbortSignal;
       expectedAggregateVersion?: StoryAggregateVersion;
     }
@@ -402,13 +403,14 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       return result;
     },
 
-    continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {
+    continueStory: async (storyId, instruction, genId, target, onDelta, signal, onStopped) => {
       return await runProviderMutation(storyId, async () => {
         const result = await transport.call(
           "continueStory",
           { storyId, instruction, genId, target },
           {
             onDelta,
+            ...(onStopped === undefined ? {} : { onStopped }),
             signal,
             expectedAggregateVersion: await expectedVersion(storyId)
           }
@@ -418,13 +420,14 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
           : { payload: rememberPayload(result.payload), droppedFacts: result.droppedFacts };
       });
     },
-    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted) => {
+    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted, onStopped) => {
       return await runProviderMutation(storyId, async () => {
         const result = await transport.call(
           "rewriteNode",
           { storyId, nodeId, body },
           {
             onDelta,
+            ...(onStopped === undefined ? {} : { onStopped }),
             signal,
             expectedAggregateVersion: await expectedVersion(storyId)
           }
@@ -438,6 +441,18 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         }
         return result;
       });
+    },
+    commitPartialRewrite: async (storyId, nodeId, streamedDigest, attemptId) => {
+      const result = await transport.call(
+        "commitPartialRewrite",
+        { storyId, nodeId, streamedDigest, attemptId },
+        { expectedAggregateVersion: await expectedVersion(storyId) }
+      );
+      if (result === null) return null;
+      return {
+        payload: rememberPayload(result.payload),
+        nodeId: result.nodeId
+      };
     },
     createSummaryTake: async (storyId, body, onDelta, signal) => {
       return await runProviderMutation(storyId, async () => {

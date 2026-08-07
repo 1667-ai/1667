@@ -28,13 +28,22 @@ import {
 } from "../shared/fact-budget.js";
 import { factDraftOf, sameFactDraft } from "../shared/fact-draft.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
-import { ServiceError } from "./errors.js";
+import {
+  RetryableMutationReceiptError,
+  ServiceError
+} from "./errors.js";
 import {
   chapterBreakRemovalFingerprint,
   parseRemovedChapterBreak,
   type RemovedChapterBreak
 } from "./chapter-breaks.js";
-import type { MutationHandlerContext, MutationPlan, MutationPreflightPlan } from "./mutation-plan.js";
+import {
+  importPlanCustody,
+  type MutationHandlerContext,
+  type MutationPlan,
+  type MutationPreflightPlan
+} from "./mutation-plan.js";
+import { isPreparedDomainError } from "./mutation-ledger-types.js";
 import { mutationOutcomeUnknown } from "./mutation-recovery.js";
 import {
   parseEditNode,
@@ -351,6 +360,37 @@ const MUTATIONS: MutationRegistry = {
       plan.entityId("node"),
       context.storyMutationRequest
     )
+  }),
+  commitPartialRewrite: define<"commitPartialRewrite">({
+    parse: (value) => {
+      const input = requireRecord(value, "commitPartialRewrite input");
+      return {
+        storyId: requireString(input.storyId, "storyId"),
+        nodeId: requireString(input.nodeId, "nodeId"),
+        streamedDigest: requireString(input.streamedDigest, "streamedDigest"),
+        attemptId: requireString(input.attemptId, "attemptId")
+      };
+    },
+    storyId: (input) => input.storyId,
+    execute: async (service, input, plan, context) => {
+      try {
+        return await service.commitPartialRewrite(
+          input.storyId,
+          input.nodeId,
+          { streamedDigest: input.streamedDigest, attemptId: input.attemptId },
+          context.storyMutationRequest,
+          plan.entityId("partial-rewrite-take")
+        );
+      } catch (error) {
+        if (error instanceof ServiceError
+          && isPreparedDomainError(error.code)) {
+          throw error;
+        }
+        // A transient settlement failure has no terminal story result. Keep
+        // the outer receipt pending so the same request can recover the ledger.
+        throw new RetryableMutationReceiptError(error, true);
+      }
+    }
   }),
   editNode: define<"editNode">({
     parse: (value) => bodyInputWithId<"editNode">(value, "editNode", "nodeId"),
@@ -808,11 +848,12 @@ const MUTATIONS: MutationRegistry = {
       return { storyId, archiveBytes: input.archiveBytes };
     },
     storyId: (input) => input.storyId,
-    execute: async (service, input, _plan, context) => {
+    execute: async (service, input, plan, context) => {
       return await service.importLorebook(
         input.storyId,
         input.archiveBytes,
-        context.storyMutationRequest
+        context.storyMutationRequest,
+        importPlanCustody(plan)
       );
     }
   }),
@@ -826,11 +867,12 @@ const MUTATIONS: MutationRegistry = {
       return { storyId, cardBytes: input.cardBytes };
     },
     storyId: (input) => input.storyId,
-    execute: async (service, input, _plan, context) => {
+    execute: async (service, input, plan, context) => {
       return await service.importCard(
         input.storyId,
         input.cardBytes,
-        context.storyMutationRequest
+        context.storyMutationRequest,
+        importPlanCustody(plan)
       );
     }
   }),

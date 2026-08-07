@@ -1,4 +1,7 @@
 import {
+  decodeFailureEnvelope
+} from "./failure-envelope.js";
+import {
   bearerAuthorization,
   HTTP_AUTHORIZATION_HEADER,
   type HttpCapabilityScope
@@ -102,13 +105,18 @@ export function decodeStatus(
   sequence: string
 ): HttpOperationStatusResponse | null {
   const state = value.state;
+  const failure = value.failure === undefined
+    ? null
+    : decodeFailureEnvelope(value.failure);
   if (value.listenerInstanceId !== serverInstanceId
     || value.sessionId !== sessionId
     || value.sequence !== sequence
     || !isHttpOperationState(state)
     || typeof value.terminal !== "boolean"
     || value.terminal !== isTerminalHttpOperationState(state)
-    || typeof value.cancelRequested !== "boolean") {
+    || typeof value.cancelRequested !== "boolean"
+    || (state === "failed") !== (failure !== null)
+    || (state !== "failed" && value.failure !== undefined)) {
     return null;
   }
   return {
@@ -117,7 +125,8 @@ export function decodeStatus(
     sequence,
     state,
     terminal: isTerminalHttpOperationState(state),
-    cancelRequested: value.cancelRequested
+    cancelRequested: value.cancelRequested,
+    ...(failure === null ? {} : { failure })
   };
 }
 

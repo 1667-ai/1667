@@ -52,6 +52,7 @@ export const STORY_MUTATION_METHODS = [
   "importCard",
   "continueStory",
   "rewriteNode",
+  "commitPartialRewrite",
   "createSummaryTake",
   "acknowledgeUnknownOutcomes"
 

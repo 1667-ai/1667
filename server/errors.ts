@@ -1,4 +1,7 @@
-import type { FailureCode } from "../shared/failure-envelope.js";
+import type {
+  FailureCode,
+  TimeoutProvenance
+} from "../shared/failure-envelope.js";
 import { isDurableMutationId } from "../shared/durable-mutation-id.js";
 
 export type ServiceErrorCode = FailureCode;
@@ -6,6 +9,9 @@ export type ServiceErrorCode = FailureCode;
 /** Transport-neutral application failure. Adapters decide how to encode it. */
 export class ServiceError extends Error {
   readonly code: ServiceErrorCode;
+  /** Set only when a clean deadline is the whole failure — see
+   * `TimeoutProvenance` (shared/failure-envelope.ts). */
+  readonly timeout?: TimeoutProvenance;
 
   constructor(
     readonly status: number,
@@ -13,6 +19,7 @@ export class ServiceError extends Error {
     code?: ServiceErrorCode,
     options: {
       readonly cause?: unknown;
+      readonly timeout?: TimeoutProvenance;
     } = {}
   ) {
     super(
@@ -23,6 +30,7 @@ export class ServiceError extends Error {
     );
     this.name = "ServiceError";
     this.code = code ?? codeForStatus(status);
+    if (options.timeout !== undefined) this.timeout = options.timeout;
   }
 }
 
@@ -40,10 +48,31 @@ export class DiagnosticServiceError extends ServiceError {
 }
 
 export class ProviderError extends Error {
-  constructor(message: string, readonly status: number | null = null, readonly body: string = "") {
+  /** Set only when a clean provider deadline is the whole failure — see
+   * `TimeoutProvenance` (shared/failure-envelope.ts). */
+  readonly timeout?: TimeoutProvenance;
+
+  constructor(
+    message: string,
+    readonly status: number | null = null,
+    readonly body: string = "",
+    options: { readonly timeout?: TimeoutProvenance } = {}
+  ) {
     super(message);
     this.name = "ProviderError";
+    if (options.timeout !== undefined) this.timeout = options.timeout;
   }
+}
+
+/** The clean-timeout provenance an error carries, if any. Positive check
+ * only: every error without a stamped provenance reads as null. */
+export function timeoutProvenanceOf(
+  error: unknown
+): TimeoutProvenance | null {
+  if (error instanceof ServiceError || error instanceof ProviderError) {
+    return error.timeout ?? null;
+  }
+  return null;
 }
 
 /** A startup/runtime failure whose message is explicitly safe and actionable
@@ -113,6 +142,33 @@ export class ProviderRecoveryRequiredError extends ServiceError {
 
   readonly hasDiagnosticCause: boolean;
   readonly diagnosticCause: unknown;
+}
+
+const retryablePartialSettlementFailures = new WeakSet<object>();
+
+/** Internal marker for work that must leave its outer mutation receipt pending.
+ * The receipt store unwraps the original error before it reaches an adapter. */
+export class RetryableMutationReceiptError extends Error {
+  constructor(
+    readonly originalError: unknown,
+    readonly retryablePartialSettlement = false
+  ) {
+    super("Mutation work can retry with the same receipt");
+    this.name = "RetryableMutationReceiptError";
+  }
+}
+
+/** Carries the narrow partial-settlement retry contract past receipt unwrapping. */
+export function markRetryablePartialSettlementFailure(error: unknown): void {
+  if (error !== null && (typeof error === "object" || typeof error === "function")) {
+    retryablePartialSettlementFailures.add(error);
+  }
+}
+
+export function isRetryablePartialSettlementFailure(error: unknown): boolean {
+  return error !== null
+    && (typeof error === "object" || typeof error === "function")
+    && retryablePartialSettlementFailures.has(error);
 }
 
 function providerRecoveryDiagnostic(

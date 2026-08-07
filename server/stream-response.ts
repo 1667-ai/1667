@@ -4,7 +4,8 @@ import { abortOnDisconnect, openSse } from "./http.js";
 import type { InternalErrorReporter } from "./internal-error-reporter.js";
 import {
   createFailureEnvelope,
-  failureWireFields
+  failureWireFields,
+  type FailureEnvelope
 } from "../shared/failure-envelope.js";
 import { GenerationStoppedError } from "./errors.js";
 import { DeltaBatcher } from "./delta-batcher.js";
@@ -20,7 +21,8 @@ export async function streamResponse<T>(
   done: (value: T) => Record<string, unknown>,
   operationSignal?: AbortSignal,
   errorReporter?: InternalErrorReporter,
-  operation?: string
+  operation?: string,
+  onTerminalFailure?: (failure: FailureEnvelope) => void
 ): Promise<void> {
   const abort = abortOnDisconnect(
     request,
@@ -70,28 +72,31 @@ export async function streamResponse<T>(
     await open().send(done(value));
     response.end();
   } catch (error) {
+    const expectedCancellation = signal.aborted
+      && isExpectedCancellation(error, signal);
+    // The operation record owns the known public failure before delta
+    // cleanup, diagnostics, or SSE backpressure can cross its hard deadline.
+    if (!expectedCancellation) {
+      onTerminalFailure?.(
+        createFailureEnvelope(toPublicServiceError(error))
+      );
+    }
     await deltas.flush().catch(() => undefined);
     if (signal.aborted) {
-      if (!isExpectedCancellation(error, signal)) {
-        await errorReporter?.report(error, {
-          service: "http-stream",
-          ...(operation === undefined ? {} : { operation })
-        });
+      if (!expectedCancellation) {
+        await reportStreamFailure(
+          error,
+          errorReporter,
+          operation
+        );
       }
       return void response.end();
     }
     if (session === null) throw error;
-    const reported = errorReporter === undefined
-      ? {
-          failure: createFailureEnvelope(toPublicServiceError(error))
-        }
-      : await errorReporter.report(error, {
-          service: "http-stream",
-          ...(operation === undefined ? {} : { operation })
-        });
+    const failure = await reportStreamFailure(error, errorReporter, operation);
     await (session as ReturnType<typeof openSse>).send({
       type: "error",
-      ...failureWireFields(reported.failure)
+      ...failureWireFields(failure)
     });
     response.end();
   } finally {
@@ -100,6 +105,21 @@ export async function streamResponse<T>(
     deltas.dispose();
     await (session as ReturnType<typeof openSse> | null)?.close();
   }
+}
+
+async function reportStreamFailure(
+  error: unknown,
+  errorReporter: InternalErrorReporter | undefined,
+  operation: string | undefined
+): Promise<FailureEnvelope> {
+  if (errorReporter === undefined) {
+    return createFailureEnvelope(toPublicServiceError(error));
+  }
+  const reported = await errorReporter.report(error, {
+    service: "http-stream",
+    ...(operation === undefined ? {} : { operation })
+  });
+  return reported.failure;
 }
 
 function isExpectedCancellation(

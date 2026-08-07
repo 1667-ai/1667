@@ -290,7 +290,7 @@ async function factsAction(
       await context.backend.run("deleting fact", async (task) => {
         const payload = await source.api.deleteFact(task.storyId, selected.id);
         if (!task.storyCurrent()) return;
-        adoptSameStoryPayload(state, payload);
+        adoptSameStoryPayload(state, payload, context.cache);
         if (state.facts === overlay) {
           if (overlay.deleteArmedId === selected.id) overlay.deleteArmedId = null;
           Object.assign(overlay, boundedFactSelection(payload.facts, overlay, overlay.query));
@@ -335,7 +335,7 @@ async function moveFact(
   await context.backend.run("reordering fact", async (task) => {
     const payload = await source.api.reorderFact(task.storyId, factId, toIndex);
     if (!task.storyCurrent()) return;
-    adoptSameStoryPayload(state, payload);
+    adoptSameStoryPayload(state, payload, context.cache);
     if (state.facts === overlay) {
       overlay.cursor = boundedFactCursor(toIndex, payload.facts.length);
     }
@@ -361,7 +361,7 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
         await context.backend.run("deleting tag", async (task) => {
           const payload = await source.api.deleteBookmark(task.storyId, tag.nodeId);
           if (!task.storyCurrent()) return;
-          adoptSameStoryPayload(state, payload);
+          adoptSameStoryPayload(state, payload, context.cache);
           if (state.commands === overlay && overlay.view === "tags") {
             state.toast = "tag deleted";
           }
@@ -509,7 +509,7 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
     await context.backend.run("naming story", async (task) => {
       const payload = await source.api.autonameStory(task.storyId);
       if (!task.storyCurrent()) return;
-      adoptSameStoryPayload(state, payload);
+      adoptSameStoryPayload(state, payload, context.cache);
       if (!task.owns()) return;
       const stories = await source.api.listStories();
       if (!task.owns()) return;
@@ -571,7 +571,7 @@ async function reconnect(state: RuntimeState, source: AppSource, context: Overla
     state,
     source,
     backend: context.backend,
-    invalidateCache: () => context.cache.invalidate(),
+    cache: context.cache,
     repaint: context.repaint
   });
 }

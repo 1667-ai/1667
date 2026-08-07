@@ -15,6 +15,10 @@ import { flushReadingPositionPersist } from "./reading-position-persist.js";
 import { abortPendingSearch, retireSearch } from "./search-request.js";
 import type { RuntimeState } from "./state.js";
 import { followStoryViewport } from "./viewport-intent.js";
+import { reconcileWrapCache } from "./wrap-invalidation.js";
+import type { ProseStyle, WrapCache } from "./wrap.js";
+
+type ProseWrapCache = WrapCache<ProseStyle>;
 
 interface StoryFocus {
   rowId: string | null;
@@ -39,8 +43,15 @@ export function restoreStoryFocus(state: RuntimeState, focus: StoryFocus): Retur
 
 /** Adopt an authoritative revision of the open story without reviving the
  * action's launch-time focus. This validity reconciliation is unconditional:
- * later input may move focus, but it may never leave an out-of-range index. */
-export function adoptSameStoryPayload(state: RuntimeState, payload: StoryPayload): ReturnType<typeof createStoryViewModel> {
+ * later input may move focus, but it may never leave an out-of-range index.
+ * Wrap-cache reconciliation is equally unconditional: adoption is the one
+ * boundary that knows the previous and the next payload at once, so it, not
+ * the calling action, decides which cached parts survive. */
+export function adoptSameStoryPayload(
+  state: RuntimeState,
+  payload: StoryPayload,
+  cache: ProseWrapCache
+): ReturnType<typeof createStoryViewModel> {
   const focus = captureStoryFocus(state);
   const facts = state.facts;
   const factSelection = facts === null
@@ -57,6 +68,7 @@ export function adoptSameStoryPayload(state: RuntimeState, payload: StoryPayload
     ? null
     : chapterRows[Math.max(0, Math.min(chapterRows.length - 1, chapters.cursor))] ?? null;
 
+  reconcileWrapCache(cache, state.payload, payload);
   state.payload = payload;
   const view = restoreStoryFocus(state, focus);
 
@@ -146,10 +158,11 @@ export function reconcileMapNavigation(state: RuntimeState, payload = state.payl
 export function adoptReconciliationSnapshot(
   state: RuntimeState,
   payload: StoryPayload,
+  cache: ProseWrapCache,
   options: { discardedLibrary?: NonNullable<RuntimeState["library"]> } = {}
 ): void {
   if (state.payload.id === payload.id) {
-    adoptSameStoryPayload(state, payload);
+    adoptSameStoryPayload(state, payload, cache);
     state.undo = [];
     return;
   }
@@ -194,7 +207,7 @@ export function adoptReconciliationSnapshot(
     ? state.commands
     : null;
 
-  adoptStoryState(state, payload);
+  adoptStoryState(state, payload, cache);
   // Destination story keeps its stored opening focus from adoptStoryState.
   // Reusing the previous story's numeric row index would land on an arbitrary
   // part of an unrelated layout.
@@ -330,10 +343,13 @@ function reconcileStoryBoundIntent(
 }
 
 /** Replace the authoritative story and discard every interaction frozen
- * against the previous payload. Global visual preferences remain intact. */
-export function adoptStoryState(state: RuntimeState, payload: StoryPayload): void {
+ * against the previous payload. Global visual preferences remain intact.
+ * The wrap cache goes through the same boundary as every adoption: a
+ * replacement that is still the open story keeps its unchanged parts. */
+export function adoptStoryState(state: RuntimeState, payload: StoryPayload, cache: ProseWrapCache): void {
   // Durably leave the previous story's position before replacing focus.
   flushReadingPositionPersist();
+  reconcileWrapCache(cache, state.payload, payload);
   state.payload = payload;
   state.focusIndex = applyOpeningFocus(payload, state.readingPositions);
   state.mode = payload.path.length === 0 ? "COMPOSE" : "NAV";

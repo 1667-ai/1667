@@ -14,7 +14,10 @@ import {
   BoundedProviderSseParser,
   providerSseEvents
 } from "../server/provider-sse.js";
-import { streamCompletion } from "../server/providers.js";
+import {
+  streamCompletion,
+  type StreamOutcome
+} from "../server/providers.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
@@ -655,6 +658,34 @@ test("caller cancellation is preserved while waiting for response headers", asyn
   await assert.rejects(pending, (error) => error === reason);
 });
 
+test("configured response-header deadline keeps typed timeout provenance", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    if (input.signal.aborted) throw input.signal.reason;
+    return await new Promise<Response>((_resolve, reject) => {
+      input.signal.addEventListener("abort", () => reject(input.signal.reason), {
+        once: true
+      });
+    });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  await assert.rejects(
+    drain(streamCompletion(attached({
+      timeouts: {
+        responseHeaderMs: 20,
+        firstTokenMs: 100,
+        idleMs: 100,
+        totalMs: 100
+      }
+    }), PROMPT, new AbortController().signal)),
+    (error) => error instanceof ProviderError
+      && error.timeout === "provider-response-header"
+      && /response headers/.test(error.message)
+  );
+});
+
 test("caller cancellation is preserved while reading an error body", async (t) => {
   const originalFetch = globalThis.fetch;
   let responseStarted!: () => void;
@@ -682,13 +713,18 @@ test("caller cancellation is preserved while reading an error body", async (t) =
 
 test("caller cancellation stops before draining buffered provider events", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () => new Response([
-    'data: {"choices":[{"delta":{"content":"first"}}]}',
-    'data: {"choices":[{"delta":{"content":" second"}}]}',
-    "data: [DONE]",
-    "",
-    ""
-  ].join("\n\n"), {
+  globalThis.fetch = (async (input) => new Response(new ReadableStream({
+    start(stream) {
+      stream.enqueue(new TextEncoder().encode([
+        openAiDelta("first"),
+        openAiDelta(" second")
+      ].join("")));
+      assert.ok(input instanceof Request);
+      input.signal.addEventListener("abort", () => {
+        stream.error(input.signal.reason);
+      }, { once: true });
+    }
+  }), {
     headers: { "content-type": "text/event-stream" }
   })) as typeof fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
@@ -736,6 +772,93 @@ test("credentialed cancellation flushes the safe redaction tail", async (t) => {
     value: "hijklmnopqrstuvwxyz"
   });
   await assert.rejects(iterator.next(), (error) => error === reason);
+});
+
+test("a provider rejection stays a rejection when the total timer fires after its redaction tail", async (t) => {
+  const secret = "12345678901234567890";
+  process.env.AI_1667_TEST_REJECTION_SECRET = secret;
+  t.after(() => { delete process.env.AI_1667_TEST_REJECTION_SECRET; });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode([
+        anthropicDelta("abcdefghijklmnopqrstuvwxyz"),
+        `data: ${JSON.stringify({
+          type: "error",
+          error: { message: "The provider rejected this stream." }
+        })}\n\n`
+      ].join("")));
+    }
+  }), {
+    headers: { "content-type": "text/event-stream" }
+  })) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const iterator = streamCompletion(
+    attached({
+      auth: {
+        type: "header-env",
+        name: "x-api-key",
+        env: "AI_1667_TEST_REJECTION_SECRET"
+      },
+      timeouts: {
+        responseHeaderMs: 1_000,
+        firstTokenMs: 1_000,
+        idleMs: 1_000,
+        totalMs: 30
+      }
+    }, {
+      provider: "anthropic",
+      baseUrl: "https://api.anthropic.com"
+    }),
+    PROMPT,
+    new AbortController().signal
+  );
+
+  assert.deepEqual(await iterator.next(), { done: false, value: "abcdefg" });
+  assert.deepEqual(await iterator.next(), {
+    done: false,
+    value: "hijklmnopqrstuvwxyz"
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await assert.rejects(iterator.next(), (error) => error instanceof ProviderError
+    && error.timeout === undefined
+    && /Anthropic stream error/.test(error.message));
+});
+
+test("a transport abort cannot replace a provider-classified stream failure", async (t) => {
+  const transport = new AbortController();
+  const caller = new AbortController();
+  const providerFailure = new ProviderError("The provider rejected the stream.");
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(new ReadableStream({
+    start(controller) {
+      setImmediate(() => {
+        transport.abort(new Error("outer total deadline"));
+        controller.error(providerFailure);
+      });
+    }
+  }), {
+    headers: { "content-type": "text/event-stream" }
+  })) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  await assert.rejects(
+    drain(providerSseEvents(
+      attached(),
+      "https://models.example/v1/chat/completions",
+      {},
+      {},
+      [],
+      transport.signal,
+      (value) => value,
+      undefined,
+      undefined,
+      () => true,
+      () => false,
+      caller.signal
+    )),
+    (error) => error === providerFailure
+  );
 });
 
 test("OpenAI parameter retries share one total deadline", async (t) => {
@@ -1001,6 +1124,82 @@ test("a queued terminal event wins over a later provider read failure", async (t
   assert.equal(output, "complete");
 });
 
+test("a queued terminal event wins over a later caller cancellation", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response([
+    openAiDelta("complete"),
+    "data: [DONE]\n\n"
+  ].join(""), {
+    headers: { "content-type": "text/event-stream" }
+  })) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const controller = new AbortController();
+  const outcome: StreamOutcome = {
+    finishReason: null,
+    providerTerminal: false
+  };
+  const iterator = streamCompletion(
+    attached(),
+    PROMPT,
+    controller.signal,
+    { outcome }
+  );
+
+  assert.deepEqual(await iterator.next(), { done: false, value: "complete" });
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  controller.abort(new Error("late Stop"));
+
+  assert.deepEqual(await iterator.next(), { done: true, value: undefined });
+  assert.equal(outcome.providerTerminal, true);
+});
+
+test("terminal evidence blocked on queue capacity wins over later caller cancellation", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const firstEvent = JSON.stringify({
+    choices: [{ delta: { content: "first" } }]
+  });
+  const emptyEvent = JSON.stringify({ choices: [{ delta: { content: "" } }] });
+  const queuedEvent = JSON.stringify({
+    choices: [{ delta: {
+      content: "x".repeat(1_048_570 - emptyEvent.length)
+    } }]
+  });
+  assert.equal(queuedEvent.length, 1_048_570);
+  globalThis.fetch = (async () => new Response([
+    `data: ${firstEvent}\n\n`,
+    `data: ${queuedEvent}\n\n`,
+    "data: [DONE]\n\n"
+  ].join(""), {
+    headers: { "content-type": "text/event-stream" }
+  })) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const controller = new AbortController();
+  const iterator = providerSseEvents(
+    attached(),
+    "https://models.example/v1/chat/completions",
+    {},
+    {},
+    [],
+    controller.signal,
+    (value) => value,
+    undefined,
+    undefined,
+    (event) => event !== "[DONE]",
+    (event) => event === "[DONE]"
+  );
+
+  assert.deepEqual(await iterator.next(), { done: false, value: firstEvent });
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  controller.abort(new Error("late Stop"));
+
+  assert.deepEqual(await iterator.next(), {
+    done: false,
+    value: queuedEvent
+  });
+  assert.deepEqual(await iterator.next(), { done: false, value: "[DONE]" });
+  assert.deepEqual(await iterator.next(), { done: true, value: undefined });
+});
+
 test("provider failures discard buffered nonterminal deltas", async (t) => {
   const originalFetch = globalThis.fetch;
   let failureTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1033,6 +1232,44 @@ test("provider failures discard buffered nonterminal deltas", async (t) => {
     iterator.next(),
     (error: unknown) => error instanceof ProviderError
       && /provider failed after buffering/.test(error.message)
+  );
+});
+
+test("a queued provider failure wins over later caller cancellation", async (t) => {
+  const originalFetch = globalThis.fetch;
+  let failureTimer: ReturnType<typeof setTimeout> | null = null;
+  globalThis.fetch = (async () => new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode([
+        openAiDelta("first"),
+        openAiDelta(" second")
+      ].join("")));
+      failureTimer = setTimeout(() => {
+        controller.error(new Error("provider failed before Stop"));
+      }, 5);
+    }
+  }), {
+    headers: { "content-type": "text/event-stream" }
+  })) as typeof fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    if (failureTimer !== null) clearTimeout(failureTimer);
+  });
+  const controller = new AbortController();
+  const iterator = streamCompletion(
+    attached(),
+    PROMPT,
+    controller.signal
+  );
+
+  assert.deepEqual(await iterator.next(), { done: false, value: "first" });
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  controller.abort(new Error("late Stop"));
+
+  await assert.rejects(
+    iterator.next(),
+    (error: unknown) => error instanceof ProviderError
+      && /provider failed before Stop/.test(error.message)
   );
 });
 

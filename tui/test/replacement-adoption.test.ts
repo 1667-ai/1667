@@ -107,7 +107,7 @@ describe("forced story replacement adoption", () => {
       ...app.state.payload,
       id: "replacement-story",
       title: "replacement story"
-    });
+    }, app.cache);
 
     expect(app.state.mode).toBe("SETTINGS");
     expect(app.state.editor).toBe(null);
@@ -136,7 +136,7 @@ describe("forced story replacement adoption", () => {
       ...app.state.payload,
       id: "replacement-story",
       title: "replacement story"
-    });
+    }, app.cache);
 
     expect(app.state.mode).toBe("EDITOR");
     expect(app.state.editor).toBe(session);
@@ -288,7 +288,7 @@ describe("forced story replacement adoption", () => {
       if (state.backendTask === null && state.payload.id === fallback.id) settled.resolve();
     });
     const stop = startRecoveryOrchestration({ state: app.state, source, backend: app.backend,
-      invalidateCache: () => app.cache.invalidate(), repaint: app.repaint });
+      cache: app.cache, repaint: app.repaint });
 
     feed.publish([], true);
     await entered.promise;
@@ -322,7 +322,7 @@ describe("forced story replacement adoption", () => {
     setComposerText(app.state.composer, "draft before recovery");
     app.state.focusIndex = 0;
     const stop = startRecoveryOrchestration({ state: app.state, source, backend: app.backend,
-      invalidateCache: () => app.cache.invalidate(), repaint: app.repaint });
+      cache: app.cache, repaint: app.repaint });
 
     feed.publish([], true);
     await settled.promise;

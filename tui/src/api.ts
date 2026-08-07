@@ -18,6 +18,7 @@ import {
   decodeUnknownOutcomeStatusResponse,
   decodeSettingsMutationResult,
   decodeSettingsViewResponse,
+  decodeCommitPartialRewriteResponse,
   decodeStoryResponse,
   decodeTokenProbabilitiesResponse,
 } from "./api-response-decoders.js";
@@ -215,7 +216,12 @@ export interface StoryApi {
     genId: string,
     target: ContinueTarget,
     onDelta: (text: string) => void,
-    signal: AbortSignal
+    signal: AbortSignal,
+    /** Receives, exactly once at terminal settlement, stream text that
+     * arrived after `signal` aborted. `onDelta` never fires after the
+     * abort, so a caller that saves stopped text must take this tail too.
+     * Both transports produce it when they drain text after a Stop. */
+    onStopped?: (text: string) => void
   ): Promise<{ payload: StoryPayload; droppedFacts: readonly FactBudgetDrop[] } | null>;
   rewriteNode(
     storyId: string,
@@ -228,8 +234,23 @@ export interface StoryApi {
      * its way back to the caller. The caller (rewrite-action.ts) uses this
      * to record commitment one layer below where its own await resolves, so
      * a refresh that then rejects cannot hide a take that already landed. */
-    onCommitted?: (takeId: string) => void
+    onCommitted?: (takeId: string) => void,
+    /** Same contract as `continueStory`'s `onStopped`: the post-abort stream
+     * tail, delivered exactly once at terminal settlement. A caller that
+     * settles a stopped rewrite must take this tail too. */
+    onStopped?: (text: string) => void
   ): Promise<string | null>;
+  /** Settle a stopped or timed-out rewrite (issue #339): ask the backend to
+   * commit the verified partial it stashed for this part. `streamedDigest`
+   * identifies the exact prose this client watched stream, tail included;
+   * the backend refuses on any byte difference. null = nothing was committed
+   * and the story is unchanged. */
+  commitPartialRewrite(
+    storyId: string,
+    nodeId: string,
+    streamedDigest: string,
+    attemptId: string
+  ): Promise<{ payload: StoryPayload; nodeId: string } | null>;
   createSummaryTake(
     storyId: string,
     body: { nodeId: string; offset?: number; expected?: string },
@@ -397,7 +418,8 @@ export function createApi(
     path: string,
     payload: unknown,
     onDelta: (text: string) => void,
-    signal: AbortSignal
+    signal: AbortSignal,
+    onStopped?: (text: string) => void
   ) => {
     if (signal.aborted) return null;
     try {
@@ -429,7 +451,8 @@ export function createApi(
                   onDelta,
                   lease.signal,
                   signal,
-                  lease.headers
+                  lease.headers,
+                  onStopped
                 ),
               shouldRetry: (error) => !(error instanceof ApiError
                 || error instanceof SseIdleTimeoutError)
@@ -441,6 +464,10 @@ export function createApi(
         );
       });
     } catch (error) {
+      // A parsed SSE terminal or a failed operation-status settlement is
+      // canonical server evidence. It stays authoritative over a Stop that
+      // arrived from an earlier delta in the same read.
+      if (error instanceof ApiHttpError) throw error;
       if (signal.aborted) return null;
       throw error;
     }
@@ -860,26 +887,28 @@ export function createApi(
       ),
     ...providerMethods({ request }),
     ...importMethods({ runAbsentImportMutation, request, versions, expectedVersion }),
-    continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {
+    continueStory: async (storyId, instruction, genId, target, onDelta, signal, onStopped) => {
       const done = await stream(
         storyId,
         `/api/stories/${storyId}/continue`,
         { instruction, genId, ...target },
         onDelta,
-        signal
+        signal,
+        onStopped
       );
       if (done === null) return null;
       const result = decodeContinueStoryResponse(done);
       versions.rememberPayload(result.payload);
       return result;
     },
-    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted) => {
+    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted, onStopped) => {
       const done = await stream(
         storyId,
         `/api/stories/${storyId}/nodes/${nodeId}/rewrite`,
         body,
         onDelta,
-        signal
+        signal,
+        onStopped
       );
       if (done === null) return null;
       if (typeof done.nodeId !== "string") throw new Error("The server did not return the rewritten take.");
@@ -889,6 +918,30 @@ export function createApi(
       onCommitted?.(done.nodeId);
       await loadVersionedStory(storyId);
       return done.nodeId;
+    },
+    commitPartialRewrite: async (storyId, nodeId, streamedDigest, attemptId) => {
+      const intent = await mutationIntents.claim(
+        "commitPartialRewrite",
+        JSON.stringify({ storyId, nodeId, streamedDigest, attemptId })
+      );
+      try {
+        const committed = await request(
+          "POST",
+          `/api/stories/${storyId}/nodes/${nodeId}/rewrite-partial`,
+          decodeCommitPartialRewriteResponse,
+          { streamedDigest, attemptId },
+          HTTP_REQUEST_TIMEOUT_MS,
+          await expectedVersion(storyId),
+          undefined,
+          intent.mutationId
+        );
+        await intent.complete();
+        if (committed === null) return null;
+        versions.rememberPayload(committed.payload);
+        return committed;
+      } catch (error) {
+        return await settlePartialRewriteFailure(intent, error);
+      }
     },
     createSummaryTake: async (storyId, body, onDelta, signal) => {
       const done = await stream(
@@ -933,6 +986,36 @@ async function settleAbsentMutationFailure(
   throw error;
 }
 
+async function settlePartialRewriteFailure(
+  intent: HttpMutationIntentClaim,
+  error: unknown
+): Promise<never> {
+  try {
+    if (isRetryablePartialSettlementFailure(error)) await intent.retain();
+    else await intent.complete();
+  } catch (settlementError) {
+    throw new AggregateError(
+      [error, settlementError],
+      "Partial-rewrite settlement failure and intent settlement both failed",
+      { cause: error }
+    );
+  }
+  throw error;
+}
+
+function isRetryablePartialSettlementFailure(error: unknown): boolean {
+  if (error instanceof ApiRecoveryRequiredError) return true;
+  if (error instanceof ApiHttpError) {
+    // A terminal operation failure reaches us with requestSent=false because
+    // the operation client owns the failed response. Its 4xx status still
+    // proves this exact mutation reached a terminal domain outcome.
+    return error.status >= 500;
+  }
+  // Transport and local durability failures have no terminal server outcome.
+  // Keep the stable settlement identity so the next exact request can replay it.
+  return !(error instanceof ApiError);
+}
+
 function summaryIsNewer(
   candidate: StorySummary,
   current: StorySummary
@@ -963,7 +1046,8 @@ async function streamSse(
   onDelta: (text: string) => void,
   signal: AbortSignal,
   callerSignal: AbortSignal,
-  protocolHeaders: Readonly<Record<string, string>>
+  protocolHeaders: Readonly<Record<string, string>>,
+  onStopped?: (text: string) => void
 ): Promise<Record<string, unknown> | null> {
   let response: Response;
   const streamAbort = new AbortController();
@@ -980,7 +1064,7 @@ async function streamSse(
     });
   } catch (error) {
     if (callerSignal.aborted) return null;
-    if (signal.aborted) throw operationDeadlineError();
+    if (signal.aborted) throw operationDeadlineError(signal.reason);
     throw error instanceof Error ? error : new Error(String(error));
   }
   if (!response.ok || response.body === null) {
@@ -991,7 +1075,7 @@ async function streamSse(
       } catch (error) {
         streamAbort.abort(error);
         if (callerSignal.aborted) return null;
-        if (signal.aborted) throw operationDeadlineError();
+        if (signal.aborted) throw operationDeadlineError(signal.reason);
         throw error instanceof Error ? error : new Error(String(error));
       }
     }
@@ -1002,6 +1086,14 @@ async function streamSse(
     );
   }
   let completed: Record<string, unknown> | null = null;
+  let terminalEvidence: "done" | "error" | null = null;
+  let stoppedTail = "";
+  let stoppedDelivered = false;
+  const deliverStopped = () => {
+    if (stoppedDelivered || stoppedTail.length === 0) return;
+    stoppedDelivered = true;
+    onStopped?.(stoppedTail);
+  };
   try {
     await readSseEvents(response.body, (data) => {
       const event = JSON.parse(data) as {
@@ -1012,36 +1104,57 @@ async function streamSse(
         status?: unknown;
         diagnosticRef?: unknown;
       };
-      if (event.type === "delta" && typeof event.text === "string") onDelta(event.text);
+      if (event.type === "delta" && typeof event.text === "string") {
+        if (callerSignal.aborted) stoppedTail += event.text;
+        else onDelta(event.text);
+      }
       if (event.type === "error") {
+        terminalEvidence = "error";
         throw apiHttpErrorFromPayload(
           event,
           "Generation failed.",
           event.status
         );
       }
-      if (event.type === "done") completed = event as Record<string, unknown>;
+      if (event.type === "done") {
+        terminalEvidence = "done";
+        completed = event as Record<string, unknown>;
+      }
       return completed === null;
     });
   } catch (error) {
     streamAbort.abort(error);
-    if (callerSignal.aborted) return null;
-    if (signal.aborted) throw operationDeadlineError();
+    if (terminalEvidence === "error") throw error;
+    if (callerSignal.aborted) {
+      deliverStopped();
+      return null;
+    }
+    if (signal.aborted) throw operationDeadlineError(signal.reason);
     throw error instanceof Error ? error : new Error(String(error));
   }
-  if (completed === null && callerSignal.aborted) return null;
-  if (completed === null && signal.aborted) throw operationDeadlineError();
+  if (completed === null && callerSignal.aborted) {
+    deliverStopped();
+    return null;
+  }
+  if (completed === null && signal.aborted) throw operationDeadlineError(signal.reason);
   if (completed === null) {
     throw new Error("The stream ended before the part was saved.");
   }
   return completed;
 }
 
-function operationDeadlineError(): ApiHttpError {
+function operationDeadlineError(reason: unknown): ApiHttpError {
+  // The lease aborts with a typed TimeoutError only when its own deadline
+  // fires (shared/http-operation-lease.ts). Every other abort reaching this
+  // path — a shutdown, an unexpected transport teardown — keeps the same
+  // public shape without the clean-timeout stamp.
+  const cleanLeaseDeadline = reason instanceof DOMException
+    && reason.name === "TimeoutError";
   return new ApiHttpError(createFailureEnvelope({
     code: "operation_expired",
     message:
       "Generation exceeded its operation deadline. Reload the story before retrying.",
-    status: 408
+    status: 408,
+    ...(cleanLeaseDeadline ? { timeout: "operation-lease" } : {})
   }));
 }

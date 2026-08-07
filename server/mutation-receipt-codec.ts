@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   decodeFailureEnvelope
 } from "../shared/failure-envelope.js";
@@ -6,10 +7,13 @@ import type {
   StoryNode,
   StoryPayload
 } from "../shared/types.js";
+import type { CardImportPlan } from "../shared/card-import.js";
+import type { LorebookImport } from "../shared/lorebook-entry.js";
 import {
   isWorkerMethod,
   type WorkerMethod
 } from "../shared/worker-protocol.js";
+import { canonicalJson } from "./canonical-json.js";
 import {
   chapterBreakRemovalFingerprint,
   parseRemovedChapterBreak
@@ -33,12 +37,22 @@ type StoredResult =
       /** Compatibility for receipts written before server-side artifacts. */
       removed?: RemovedChapterBreakResult;
     }
+  /** An import whose plan lives in the receipt's import-plan artifact. */
+  | { type: "import"; id: string }
+  | { type: "partial-rewrite"; id: string; nodeId: string }
   | { type: "value"; value: unknown };
 
 export interface RemovedChapterBreakResult {
   break: ChapterBreak;
   summaries: StoryNode[];
 }
+
+/** The bounded plan one import mutation applied: what `importLorebook`
+ * reports as `importResult`, or what `importCard` reports as `plan`. It is
+ * preserved before the story transaction can commit, so a retry answers with
+ * the plan the import performed rather than one recomputed from the changed
+ * story. */
+export type StoredImportPlan = LorebookImport | CardImportPlan;
 
 export interface MutationReceipt {
   format: "1667-mutation";
@@ -51,11 +65,17 @@ export interface MutationReceipt {
   state: "pending" | "provider_started" | "completed" | "failed";
   createdAt: string;
   context?: Record<string, string>;
-  artifact?: {
-    kind: "chapter-break-removal";
-    fingerprint: string;
-    value: RemovedChapterBreakResult;
-  };
+  artifact?:
+    | {
+        kind: "chapter-break-removal";
+        fingerprint: string;
+        value: RemovedChapterBreakResult;
+      }
+    | {
+        kind: "import-plan";
+        fingerprint: string;
+        value: StoredImportPlan;
+      };
   result?: StoredResult;
   failure?: StoredServiceError;
 }
@@ -85,7 +105,43 @@ export function encodeMutationResult(
       removed: value.removed
     };
   }
+  if (isPartialRewriteResult(value)) {
+    return {
+      type: "partial-rewrite",
+      id: value.payload.id,
+      nodeId: value.nodeId
+    };
+  }
+  // An import response repeats the plan the artifact already preserved, so
+  // the stored result keeps only the story pointer — the same rule the
+  // chapter-break removal above applies — and a replay resolves a fresh
+  // payload beside the preserved plan instead of a stale inline snapshot.
+  const importPlan = importPlanOfResult(value);
+  if (importPlan !== null
+    && artifact !== undefined
+    && artifact.kind === "import-plan"
+    && importPlanFingerprint(importPlan.plan) === artifact.fingerprint) {
+    return { type: "import", id: importPlan.payload.id };
+  }
   return { type: "value", value };
+}
+
+/** One canonical hash for an import-plan artifact value, shared by the
+ * writer and the parser so a hand-edited receipt cannot smuggle a different
+ * plan under a preserved fingerprint. */
+export function importPlanFingerprint(value: unknown): string {
+  return createHash("sha256").update(canonicalJson(value)).digest("hex");
+}
+
+function importPlanOfResult(
+  value: unknown
+): { payload: StoryPayload; plan: unknown } | null {
+  if (value === null || typeof value !== "object") return null;
+  const result = value as { payload?: unknown; importResult?: unknown; plan?: unknown };
+  if (!isStoryPayload(result.payload)) return null;
+  const plan = result.importResult ?? result.plan;
+  if (plan === null || typeof plan !== "object") return null;
+  return { payload: result.payload, plan };
 }
 
 export function parseMutationReceipt(
@@ -136,6 +192,11 @@ export function parseMutationReceipt(
     && receipt.artifact === undefined) {
     throw corruptMutationReceipt(mutationId);
   }
+  if (receipt.state === "completed"
+    && receipt.result?.type === "import"
+    && receipt.artifact?.kind !== "import-plan") {
+    throw corruptMutationReceipt(mutationId);
+  }
   return receipt as MutationReceipt;
 }
 
@@ -176,6 +237,15 @@ export function requireRemovalArtifact(
   receipt: MutationReceipt
 ): RemovedChapterBreakResult {
   if (receipt.artifact?.kind !== "chapter-break-removal") {
+    throw corruptMutationReceipt(receipt.mutationId);
+  }
+  return receipt.artifact.value;
+}
+
+export function requireImportPlanArtifact(
+  receipt: MutationReceipt
+): StoredImportPlan {
+  if (receipt.artifact?.kind !== "import-plan") {
     throw corruptMutationReceipt(receipt.mutationId);
   }
   return receipt.artifact.value;
@@ -232,6 +302,14 @@ function isChapterBreakRemovedResult(
     && typeof result.removed === "object";
 }
 
+function isPartialRewriteResult(
+  value: unknown
+): value is { payload: StoryPayload; nodeId: string } {
+  if (value === null || typeof value !== "object") return false;
+  const result = value as { payload?: unknown; nodeId?: unknown };
+  return isStoryPayload(result.payload) && typeof result.nodeId === "string";
+}
+
 function isStoredResult(value: unknown): value is StoredResult {
   if (value === null || typeof value !== "object") return false;
   const result = value as Record<string, unknown>;
@@ -245,6 +323,10 @@ function isStoredResult(value: unknown): value is StoredResult {
       && (result.removed === undefined
         || (result.removed !== null && typeof result.removed === "object"));
   }
+  if (result.type === "import") return typeof result.id === "string";
+  if (result.type === "partial-rewrite") {
+    return typeof result.id === "string" && typeof result.nodeId === "string";
+  }
   return result.type === "value" && "value" in result;
 }
 
@@ -253,6 +335,18 @@ function isStoredArtifact(
   method: WorkerMethod | undefined
 ): boolean {
   if (value === undefined) return true;
+  if (value.kind === "import-plan") {
+    if ((method !== "importLorebook" && method !== "importCard")
+      || !isMutationFingerprint(value.fingerprint)
+      || !isStoredImportPlan(value.value, method)) {
+      return false;
+    }
+    try {
+      return importPlanFingerprint(value.value) === value.fingerprint;
+    } catch {
+      return false;
+    }
+  }
   if (method !== "removeChapterBreak"
     || value.kind !== "chapter-break-removal"
     || !isMutationFingerprint(value.fingerprint)
@@ -265,6 +359,32 @@ function isStoredArtifact(
   } catch {
     return false;
   }
+}
+
+/** Structural check for a preserved plan. The Facts inside are re-parsed by
+ * `createFacts` whenever a replay applies them, so this only pins the report
+ * shape each import method answers with; the fingerprint above pins the
+ * exact content. */
+function isStoredImportPlan(
+  value: unknown,
+  method: "importLorebook" | "importCard"
+): value is StoredImportPlan {
+  if (value === null || typeof value !== "object") return false;
+  const plan = value as Partial<CardImportPlan>;
+  if (!Array.isArray(plan.facts)
+    || !plan.facts.every((fact) => fact !== null && typeof fact === "object" && !Array.isArray(fact))
+    || !isStringArray(plan.fidelity)) {
+    return false;
+  }
+  if (method === "importLorebook") return true;
+  return typeof plan.name === "string"
+    && isStringArray(plan.used)
+    && isStringArray(plan.skipped);
+}
+
+function isStringArray(value: unknown): value is readonly string[] {
+  return Array.isArray(value)
+    && value.every((entry) => typeof entry === "string");
 }
 
 function isStoredContext(

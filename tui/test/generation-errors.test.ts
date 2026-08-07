@@ -22,22 +22,25 @@ function deferred<T>() {
 
 /** The exact wire shape server/worker-request-cancellation.ts's
  *  `deadlineError` produces for the worker stream deadline: status 408,
- *  code "mutation_outcome_unknown" for a mutation (continueStory always is).
- *  generation-action.ts's isCleanWorkerMutationDeadline gates on this pairing. */
+ *  code "mutation_outcome_unknown" for a mutation (continueStory always is),
+ *  and the clean-timeout provenance stamp (issue #345).
+ *  generation-action.ts's isTimeoutClassApiFailure gates on that stamp. */
 function workerDeadlineFailure(message: string) {
   return workerApiErrorFromFailure(createFailureEnvelope({
     code: "mutation_outcome_unknown",
     message,
-    status: 408
+    status: 408,
+    timeout: "worker-deadline"
   }));
 }
 
 /** The wire shape of a deadline that raced another in-flight failure:
  *  `WorkerRequestCancellation.failure()` rebuilds that failure as a
- *  `DiagnosticServiceError` (server/worker-request-cancellation.ts), which
- *  reaches the client as a `DiagnosticFailureEnvelope` — same 408 and
- *  "mutation_outcome_unknown" as a clean deadline, but with a real
- *  `diagnosticRef`. isCleanWorkerMutationDeadline must never match this pairing. */
+ *  `DiagnosticServiceError` (server/worker-request-cancellation.ts) with no
+ *  clean-timeout stamp, which reaches the client as a
+ *  `DiagnosticFailureEnvelope` — same 408 and "mutation_outcome_unknown" as
+ *  a clean deadline, but masked. isTimeoutClassApiFailure must never match
+ *  it. */
 function maskedDeadlineFailure(message: string) {
   return workerApiErrorFromFailure(createFailureEnvelope(
     {
@@ -53,8 +56,8 @@ function maskedDeadlineFailure(message: string) {
  *  classifyServiceError (server/service-error-policy.ts) folds it down:
  *  every ProviderError and every GenerationResultError with a 5xx status —
  *  including the exact-echo continuation rejection in
- *  server/generation-http.ts — collapses to (502, "provider_failure").
- *  isCleanWorkerMutationDeadline must never match this pairing. */
+ *  server/generation-http.ts — collapses to (502, "provider_failure") with
+ *  no clean-timeout stamp. isTimeoutClassApiFailure must never match it. */
 function providerRejectionFailure(message: string) {
   return workerApiErrorFromFailure(createFailureEnvelope({
     code: "provider_failure",

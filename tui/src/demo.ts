@@ -759,6 +759,8 @@ export function demoStoryApi(demo: DemoController): StoryApi {
       if (signal?.aborted === true) throw new Error("Search was superseded or cancelled");
       return demo.searchStories(search);
     },
+    // The fixture delivers every delta synchronously through `onDelta`
+    // before it observes the abort, so it has no late text for `onStopped`.
     continueStory: async (_storyId, instruction, genId, target, onDelta, signal) => {
       const text = target.appendTo !== undefined ? DEMO_CONTINUE_TEXT : DEMO_GENERATED_TEXT;
       let landed = "";
@@ -790,6 +792,9 @@ export function demoStoryApi(demo: DemoController): StoryApi {
       onCommitted?.(result.nodeId);
       return result.nodeId;
     },
+    // The demo fixture stashes no partials; a settle after a stop reports
+    // nothing committed, the same shape a restarted backend gives.
+    commitPartialRewrite: async () => null,
     createSummaryTake: async (_storyId, _body, onDelta, signal) => {
       let landed = "";
       for await (const delta of streamFake(DEMO_SUMMARY_TEXT, { wpm: 700, signal })) {

@@ -16,6 +16,7 @@ import {
   ServiceError
 } from "../server/errors.js";
 import { HttpOperationSessionStore } from "../server/http-operation-sessions.js";
+import { createFailureEnvelope } from "../shared/failure-envelope.js";
 import { assertWithinBudget, cpuBudget, startTiming } from "./performance-budget.js";
 
 const INSTANCE_ID = "11111111-1111-4111-8111-111111111111";
@@ -60,7 +61,7 @@ test("HTTP operation sessions reserve monotonic server-owned tickets", async () 
   assert.equal(running.mutationId, null);
   assert.equal(running.expectedAggregateVersion, null);
   assert.equal(store.status(session.capability, first.ticket).state, "running");
-  running.finish("completed");
+  running.finish({ state: "completed" });
   assert.equal(store.status(session.capability, first.ticket).state, "completed");
   store.acknowledge(session.capability, first.ticket);
   assertServiceCode(
@@ -75,7 +76,7 @@ test("HTTP operation sessions reserve monotonic server-owned tickets", async () 
     "/api/stories"
   );
   assert.deepEqual(mutating.expectedAggregateVersion, { kind: "absent" });
-  mutating.finish("completed");
+  mutating.finish({ state: "completed" });
 });
 
 test("HTTP operation reservation expires before service start", async () => {
@@ -106,6 +107,38 @@ test("HTTP operation reservation expires before service start", async () => {
   assert.equal(
     store.status(session.capability, reservation.ticket).state,
     "canceled"
+  );
+});
+
+test("HTTP operation status retains its terminal public failure", async () => {
+  const store = new HttpOperationSessionStore(INSTANCE_ID, {
+    secret: Buffer.alloc(32, 23)
+  });
+  const session = store.createSession("story", "11".repeat(32));
+  const reservation = await store.reserve(session.capability, {
+    method: "POST",
+    path: "/api/stories/story/continue",
+    operation: "continueStory",
+    mutationId: MUTATION_ID,
+    expectedAggregateVersion: { kind: "v6", revision: "00000000000000000001" }
+  });
+  const running = store.begin(
+    session.capability,
+    reservation.ticket,
+    "POST",
+    "/api/stories/story/continue"
+  );
+  const failure = createFailureEnvelope({
+    code: "idempotency_conflict",
+    message: "The continuation did not match its required boundary.",
+    status: 409
+  });
+
+  running.finish({ state: "failed", failure });
+
+  assert.deepEqual(
+    store.status(session.capability, reservation.ticket).failure,
+    failure
   );
 });
 
@@ -306,7 +339,7 @@ test("HTTP session close waits for authoritative operation settlement", async ()
   await Promise.resolve();
   assert.equal(closed, false);
   assert.equal(running.signal.aborted, true);
-  running.finish("canceled");
+  running.finish({ state: "canceled" });
   await close;
   assert.equal(closed, true);
 });
@@ -421,7 +454,7 @@ test("HTTP per-capability session cap survives creation-window rollover", async 
     503,
     "resource_busy"
   );
-  for (const operation of running) operation.finish("canceled");
+  for (const operation of running) operation.finish({ state: "canceled" });
   await store.closeAll();
 });
 
@@ -455,7 +488,7 @@ test("HTTP mutation cancellation remains nonterminal until its authoritative set
   assert.equal(running.signal.aborted, true);
   assert.ok(running.signal.reason instanceof GenerationCancelledError);
   assert.equal(store.status(session.capability, reservation.ticket).terminal, false);
-  running.finish("completed");
+  running.finish({ state: "completed" });
   assert.equal(store.status(session.capability, reservation.ticket).state, "completed");
   assert.equal(
     store.cancel(session.capability, reservation.ticket).state,
@@ -492,7 +525,7 @@ test("local request cancellation uses a generic server reason", async () => {
     running.signal.reason instanceof GenerationCancelledError,
     false
   );
-  running.finish("canceled");
+  running.finish({ state: "canceled" });
   await store.closeAll();
 });
 
@@ -555,7 +588,7 @@ test("terminal HTTP operations expire to operation_unknown", async () => {
     reservation.ticket,
     "GET",
     "/api/stories"
-  ).finish("completed");
+  ).finish({ state: "completed" });
   for (
     now = 59_000;
     now < HTTP_OPERATION_TERMINAL_RETENTION_MS;
@@ -593,7 +626,7 @@ test("HTTP operation lifecycle keeps 20k local calls within its CPU budget", asy
       reservation.ticket,
       "GET",
       "/api/stories"
-    ).finish("completed");
+    ).finish({ state: "completed" });
     store.acknowledge(session.capability, reservation.ticket);
   }
   // Pure computation, so this budget measures CPU time.

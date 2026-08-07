@@ -34,6 +34,7 @@ import {
   jsonRecord
 } from "./http-operation-client-codec.js";
 import {
+  HttpOperationError,
   httpOperationResponseError
 } from "./http-operation-error.js";
 export { HttpOperationError } from "./http-operation-error.js";
@@ -227,6 +228,12 @@ export class HttpOperationClient {
       !sent || options.callerSignal?.aborted === true
     );
     if (execution.kind === "completed") return execution;
+    if (settlement.kind === "failed") {
+      return {
+        kind: "sent-failure",
+        error: new HttpOperationError(settlement.failure)
+      };
+    }
     if (!sent) {
       return { kind: "unsent-failure", error: execution.error };
     }

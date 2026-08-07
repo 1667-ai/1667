@@ -11,8 +11,10 @@ import {
   type WorkerToMainMessage
 } from "../shared/worker-protocol.js";
 import {
+  isRetryablePartialSettlementFailure,
   ProviderError,
-  ServiceError
+  ServiceError,
+  timeoutProvenanceOf
 } from "./errors.js";
 import {
   parseStoryAggregateVersion
@@ -41,6 +43,8 @@ type WorkerTerminalMessage = Extract<
   { type: "result" | "complete" }
 >;
 
+const PARTIAL_SETTLEMENT_RETRY_MS = 25;
+
 export async function executeWorkerRequest(
   service: StoryService,
   message: WorkerRequest,
@@ -66,11 +70,11 @@ export async function executeWorkerRequest(
         cancellation.signal
       );
     } else {
-      value = await executeMutation(
+      value = await executeWorkerMutationWithRetry(
         service,
         message,
         onDelta,
-        cancellation.signal
+        cancellation
       );
     }
     cancellation.throwIfDeadlineExpired();
@@ -78,22 +82,41 @@ export async function executeWorkerRequest(
       stream
       && (cancellation.signal.aborted || value === null || value === false)
     ) {
-      const stoppedText = cancellation.signal.aborted
-        ? deltas?.takeUnsent() ?? ""
-        : "";
+      if (cancellation.signal.aborted) {
+        deltas?.sealUnsent();
+        await deltas?.publishSealed();
+      }
       deltas?.dispose();
       publishTerminal(
         {
           type: "complete",
           id: message.id,
-          value: null,
-          ...(stoppedText.length === 0 ? {} : { stoppedText })
+          value: null
         },
         cancellation.signal.aborted ? "canceled" : "completed"
       );
       return;
     }
     await deltas?.flush();
+    // A user cancellation can arrive while success settlement waits for
+    // transport credit. The worker seals that accepted tail at receipt, so
+    // settle it before the canceled terminal instead of publishing success.
+    // Deadline handling stays below: its error terminal preserves recovery
+    // semantics.
+    if (stream && cancellation.userCancellationRequested) {
+      deltas?.sealUnsent();
+      await deltas?.publishSealed();
+      deltas?.dispose();
+      publishTerminal(
+        {
+          type: "complete",
+          id: message.id,
+          value: null
+        },
+        "canceled"
+      );
+      return;
+    }
     cancellation.throwIfDeadlineExpired();
     publishTerminal(
       stream
@@ -103,14 +126,14 @@ export async function executeWorkerRequest(
     );
   } catch (error) {
     if (stream && cancellation.settledUserCancellation(error)) {
-      const stoppedText = deltas?.takeUnsent() ?? "";
+      deltas?.sealUnsent();
+      await deltas?.publishSealed();
       deltas?.dispose();
       publishTerminal(
         {
           type: "complete",
           id: message.id,
-          value: null,
-          ...(stoppedText.length === 0 ? {} : { stoppedText })
+          value: null
         },
         "canceled"
       );
@@ -120,8 +143,23 @@ export async function executeWorkerRequest(
     const outcome = isWorkerMutationMethod(message.method)
       ? mutationOutcome(failure.error)
       : undefined;
-    if (outcome === "uncertain") deltas?.dispose();
-    else await deltas?.flush();
+    // A deadline seals accepted stream text at cancellation receipt. Publish
+    // that tail as normal bounded deltas before the error terminal, so a
+    // single oversized provider delta cannot make the terminal malformed.
+    if (stream && cancellation.signal.aborted) deltas?.sealUnsent();
+    if (outcome === "uncertain" && !cancellation.signal.aborted) {
+      deltas?.dispose();
+    }
+    else {
+      await deltas?.flush();
+      // A clean provider timeout can reach this catch before the worker
+      // deadline. If cancellation seals a credit-blocked tail while flush
+      // waits, this publishes it before the error terminal.
+      if (stream && (cancellation.signal.aborted
+        || timeoutProvenanceOf(failure.error) !== null)) {
+        await deltas?.publishSealed();
+      }
+    }
     await failures.tracked(
       failure.error,
       outcome
@@ -352,6 +390,43 @@ function mutationOutcome(error: unknown): "terminal" | "uncertain" {
     return error.code === "internal" ? "uncertain" : "terminal";
   }
   return "uncertain";
+}
+
+async function executeWorkerMutationWithRetry(
+  service: StoryService,
+  message: WorkerRequest,
+  onDelta: (text: string) => void,
+  cancellation: WorkerRequestCancellation
+): Promise<unknown> {
+  for (;;) {
+    try {
+      return await executeMutation(service, message, onDelta, cancellation.signal);
+    } catch (error) {
+      if (message.method !== "commitPartialRewrite"
+        || !isRetryablePartialSettlementFailure(error)
+        || cancellation.signal.aborted) {
+        throw error;
+      }
+      await waitForPartialSettlementRetry(cancellation.signal);
+      if (cancellation.signal.aborted) throw error;
+    }
+  }
+}
+
+async function waitForPartialSettlementRetry(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(done, PARTIAL_SETTLEMENT_RETRY_MS);
+    const abort = () => {
+      clearTimeout(timer);
+      done();
+    };
+    function done(): void {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }
+    signal.addEventListener("abort", abort, { once: true });
+  });
 }
 
 function requireProviderRecoveryContext(value: unknown) {

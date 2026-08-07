@@ -1483,21 +1483,23 @@ describe("embedded backend worker", () => {
     await expectRestartRequiredDisposal(backend);
   });
 
-  test("keeps every delta received before cancellation settles", async () => {
+  test("never calls onDelta after the abort and hands the whole late tail to onStopped", async () => {
     const worker = new FakeWorker(true);
     const backend = await createWorkerStoryApi({ worker, readyTimeoutMs: 100 });
     const cancel = new AbortController();
     const deltas: string[] = [];
+    const stopped: string[] = [];
     await primeStoryVersion(backend.api, worker);
     const pending = backend.api.continueStory(
       "story", "Continue", "generation", { parentId: null },
-      (text) => deltas.push(text), cancel.signal
+      (text) => deltas.push(text), cancel.signal,
+      (text) => stopped.push(text)
     );
     const request = await waitForRequest(worker, "continueStory");
 
     worker.message({ type: "delta", id: request.id, sequence: 0, text: "kept" });
     cancel.abort();
-    worker.message({ type: "delta", id: request.id, sequence: 1, text: "late" });
+    worker.message({ type: "delta", id: request.id, sequence: 1, text: " late" });
     worker.message({
       type: "complete",
       id: request.id,
@@ -1506,7 +1508,17 @@ describe("embedded backend worker", () => {
     });
 
     expect(await pending).toBe(null);
-    expect(deltas).toEqual(["kept", "late", " buffered"]);
+    // The live channel closed at the abort; the post-abort delta and the
+    // worker's reclaimed tail arrive once, in acceptance order, through
+    // onStopped — nothing the server delivered is lost to the Stop save.
+    expect(deltas).toEqual(["kept"]);
+    expect(stopped).toEqual([" late buffered"]);
+    // The withheld delta was still acknowledged, so worker credit kept
+    // flowing toward the terminal.
+    const ackedSequences = worker.messages
+      .filter((message) => message.type === "ack")
+      .map((message) => (message as { sequence: number }).sequence);
+    expect(ackedSequences).toEqual([0, 1]);
     await backend.dispose();
   });
 

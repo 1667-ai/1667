@@ -19,12 +19,14 @@ import {
 import type {
   HttpCallerCancellationStrategy
 } from "./http-operation-policy.js";
+import type { FailureEnvelope } from "./failure-envelope.js";
 
 const GENERATION_CANCEL_HANDOFF_MS = 150;
 const GENERATION_SETTLEMENT_HANDOFF_MS = 500;
 
 export type HttpOperationSettlement =
   | { readonly kind: "settled" }
+  | { readonly kind: "failed"; readonly failure: FailureEnvelope }
   | Extract<HttpListenerReplacementOutcome, { readonly kind: "rebound" }>
   | Extract<HttpListenerReplacementOutcome, { readonly kind: "replaced" }>;
 
@@ -82,12 +84,18 @@ export function createHttpOperationLease(input: {
   };
   const cancellation = new AbortController();
   const settlementHandoff = new AbortController();
-  let transportTimer: ReturnType<typeof setTimeout> | null = null;
   let settlementTimer: ReturnType<typeof setTimeout> | null = null;
   let canceled: Promise<boolean> | null = null;
   let settled: Promise<HttpOperationSettlement> | null = null;
+  let settlementStarted = false;
   let settlementComplete = false;
   let lease!: HttpOperationLease;
+  const startSettlementHandoff = () => {
+    if (input.callerCancellation !== "operation-first") return;
+    settlementTimer ??= setTimeout(() => {
+      settlementHandoff.abort();
+    }, GENERATION_SETTLEMENT_HANDOFF_MS);
+  };
   const cancelOperation = () => settlementComplete
     ? Promise.resolve(false)
     : canceled ??= confirmOperationCancellation(
@@ -112,13 +120,14 @@ export function createHttpOperationLease(input: {
       callerTransport.abort(input.callerSignal?.reason);
       return;
     }
-    settlementTimer ??= setTimeout(() => {
-      settlementHandoff.abort();
-    }, GENERATION_SETTLEMENT_HANDOFF_MS);
-    transportTimer ??= setTimeout(() => {
-      callerTransport.abort(input.callerSignal?.reason);
-    }, GENERATION_CANCEL_HANDOFF_MS);
+    // The cancel control request is bounded, but the response transport is
+    // not. The server can have accepted SSE deltas that remain backpressured
+    // after the caller stops. Keep draining until terminal so the caller can
+    // settle that exact tail rather than losing it behind a fixed handoff.
     void cancelOperation();
+    // Once terminal settlement is active there is no response drain left to
+    // protect, so bound its status polling from this cancellation point.
+    if (settlementStarted) startSettlementHandoff();
   };
   lease = {
     headers,
@@ -128,23 +137,32 @@ export function createHttpOperationLease(input: {
     cancel: async () => {
       await cancelOperation();
     },
-    settle: () => settled ??= acknowledgeWhenTerminal(
-      input,
-      headers,
-      AbortSignal.any([
-        input.shutdownSignal,
-        settlementHandoff.signal
-      ])
-    ).finally(() => {
-      settlementComplete = true;
-      input.callerSignal?.removeEventListener("abort", abortHandler);
-      clearTimeout(deadlineTimer);
-      if (transportTimer !== null) clearTimeout(transportTimer);
-      if (settlementTimer !== null) clearTimeout(settlementTimer);
-      deadline.abort();
-      cancellation.abort();
-      settlementHandoff.abort();
-    })
+    settle: () => {
+      if (settled !== null) return settled;
+      // Set this before the first status fetch. A fetch implementation can
+      // synchronously deliver caller cancellation before this call returns.
+      settlementStarted = true;
+      // An operation-first Stop keeps the response draining. Start this
+      // bounded status window only once that drain returns to its owner.
+      if (input.callerSignal?.aborted === true) startSettlementHandoff();
+      settled = acknowledgeWhenTerminal(
+        input,
+        headers,
+        AbortSignal.any([
+          input.shutdownSignal,
+          settlementHandoff.signal
+        ])
+      ).finally(() => {
+        settlementComplete = true;
+        input.callerSignal?.removeEventListener("abort", abortHandler);
+        clearTimeout(deadlineTimer);
+        if (settlementTimer !== null) clearTimeout(settlementTimer);
+        deadline.abort();
+        cancellation.abort();
+        settlementHandoff.abort();
+      });
+      return settled;
+    }
   };
   if (input.callerSignal?.aborted === true) abortHandler();
   else input.callerSignal?.addEventListener(
@@ -221,7 +239,9 @@ async function acknowledgeWhenTerminal(
           headers,
           AbortSignal.timeout(HTTP_OPERATION_LIFETIME_MS.control)
         ).catch(() => undefined);
-        return { kind: "settled" };
+        return status.state === "failed" && status.failure !== undefined
+          ? { kind: "failed", failure: status.failure }
+          : { kind: "settled" };
       }
     }
     const remainingUntilUnavailable =

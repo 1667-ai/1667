@@ -736,7 +736,7 @@ describe("review regressions", () => {
     } as RuntimeState;
     const replacement = { ...demo.payload(), id: "replacement-story" };
 
-    adoptStoryState(state, replacement);
+    adoptStoryState(state, replacement, createWrapCache());
 
     expect(state.payload.id).toBe("replacement-story");
     expect(state.mode).toBe("NAV");

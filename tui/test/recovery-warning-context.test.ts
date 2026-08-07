@@ -4,6 +4,7 @@ import { ActionRuntime } from "../src/action-runtime.js";
 import { initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { startRecoveryOrchestration } from "../src/recovery-orchestration.js";
+import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { RecoveryWarningFeed } from "../src/recovery-warning-feed.js";
 import {
   WorkerApiError,
@@ -51,7 +52,7 @@ test("generation recovery carries its provider context", async () => {
     state,
     source,
     backend: new ActionRuntime(state, repaint),
-    invalidateCache: () => undefined,
+    cache: createWrapCache<ProseStyle>(),
     repaint
   });
 

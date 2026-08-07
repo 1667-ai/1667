@@ -5,6 +5,7 @@ import { parsePartFile, serializePart } from "../src/editor.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { adoptSameStoryPayload } from "../src/story-adoption.js";
+import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { openTextActions } from "../src/text-actions.js";
 import type { CommandSelectionId } from "../src/command-model.js";
@@ -348,7 +349,7 @@ describe("inline editor", () => {
     // The note text still matches, so only the depth disagrees.
     await press(key("=", { meta: true }));
     expect(target.depth).toBe(2);
-    adoptSameStoryPayload(state, { ...state.payload, authorsNoteDepth: 7 });
+    adoptSameStoryPayload(state, { ...state.payload, authorsNoteDepth: 7 }, createWrapCache<ProseStyle>());
 
     expect(target.depth).toBe(2);
     expect(target.expectedDepth).toBe(7);

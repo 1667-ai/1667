@@ -180,7 +180,7 @@ describe("backend recovery orchestration", () => {
       state,
       source,
       backend,
-      invalidateCache: () => cache.invalidate(),
+      cache,
       repaint: () => undefined
     });
 
@@ -264,7 +264,7 @@ describe("backend recovery orchestration", () => {
       state,
       source,
       backend,
-      invalidateCache: () => cache.invalidate(),
+      cache,
       repaint: () => undefined
     });
     const retry = handleOverlayAction({ action: "retry" }, state, source, {
@@ -333,7 +333,7 @@ describe("backend recovery orchestration", () => {
       state,
       source,
       backend,
-      invalidateCache: () => {
+      cache: reconcileSpyCache(() => {
         invalidations += 1;
         if (invalidations === 1) {
           firstOwnerId = state.backendTask?.id ?? null;
@@ -342,7 +342,7 @@ describe("backend recovery orchestration", () => {
             connection.publish(connectionSucceeded());
           });
         }
-      },
+      }),
       repaint: () => undefined
     });
 
@@ -397,7 +397,7 @@ describe("backend recovery orchestration", () => {
       state,
       source,
       backend,
-      invalidateCache: () => {
+      cache: reconcileSpyCache(() => {
         invalidations += 1;
         if (invalidations === 1) {
           queueMicrotask(() => {
@@ -405,7 +405,7 @@ describe("backend recovery orchestration", () => {
             connection.publish(connectionSucceeded());
           });
         }
-      },
+      }),
       repaint
     });
 
@@ -469,7 +469,7 @@ describe("backend recovery orchestration", () => {
       state,
       source,
       backend,
-      invalidateCache: () => undefined,
+      cache: createWrapCache<ProseStyle>(),
       repaint
     });
 
@@ -535,7 +535,7 @@ describe("backend recovery orchestration", () => {
       state,
       source,
       backend,
-      invalidateCache: () => undefined,
+      cache: createWrapCache<ProseStyle>(),
       repaint
     });
 
@@ -588,7 +588,7 @@ describe("backend recovery orchestration", () => {
       state,
       source,
       backend,
-      invalidateCache: () => {
+      cache: reconcileSpyCache(() => {
         invalidations += 1;
         if (invalidations === 1) {
           firstOwnerId = state.backendTask?.id ?? null;
@@ -597,7 +597,7 @@ describe("backend recovery orchestration", () => {
             connection.publish(connectionSucceeded());
           });
         }
-      },
+      }),
       repaint
     });
 
@@ -655,7 +655,7 @@ describe("backend recovery orchestration", () => {
       state,
       source,
       backend,
-      invalidateCache: () => undefined,
+      cache: createWrapCache<ProseStyle>(),
       repaint
     });
 
@@ -749,7 +749,7 @@ describe("backend recovery orchestration", () => {
       state,
       source,
       backend,
-      invalidateCache: () => undefined,
+      cache: createWrapCache<ProseStyle>(),
       repaint
     });
 
@@ -813,7 +813,7 @@ describe("backend recovery orchestration", () => {
       state,
       source,
       backend,
-      invalidateCache: () => undefined,
+      cache: createWrapCache<ProseStyle>(),
       repaint
     });
 
@@ -848,7 +848,7 @@ describe("backend recovery orchestration", () => {
       state,
       source,
       backend,
-      invalidateCache: () => undefined,
+      cache: createWrapCache<ProseStyle>(),
       repaint
     });
 
@@ -901,7 +901,7 @@ describe("backend recovery orchestration", () => {
       state,
       source,
       backend,
-      invalidateCache: () => undefined,
+      cache: createWrapCache<ProseStyle>(),
       repaint
     });
 
@@ -944,7 +944,7 @@ describe("backend recovery orchestration", () => {
       }))
     };
     const state = initialState(source, false);
-    const cache = createWrapCache();
+    const cache = createWrapCache<ProseStyle>();
     const settled = deferred<void>();
     const repaint = () => {
       if (state.backendTask === null
@@ -957,7 +957,7 @@ describe("backend recovery orchestration", () => {
       state,
       source,
       backend,
-      invalidateCache: () => cache.invalidate(),
+      cache,
       repaint
     });
 
@@ -994,7 +994,7 @@ describe("backend recovery orchestration", () => {
     state.composer = createComposer("keep this draft");
     state.viewScroll = 7;
     state.lastViewportStart = 7;
-    const cache = createWrapCache();
+    const cache = createWrapCache<ProseStyle>();
     const settled = deferred<void>();
     const repaint = () => {
       if (state.backendTask === null && state.payload === recoveredPayload) settled.resolve();
@@ -1004,7 +1004,7 @@ describe("backend recovery orchestration", () => {
       state,
       source,
       backend,
-      invalidateCache: () => cache.invalidate(),
+      cache,
       repaint
     });
 
@@ -1073,7 +1073,7 @@ describe("backend recovery orchestration", () => {
       state,
       source,
       backend,
-      invalidateCache: () => undefined,
+      cache: createWrapCache<ProseStyle>(),
       repaint
     });
 
@@ -1133,7 +1133,7 @@ describe("backend recovery orchestration", () => {
       state,
       source,
       backend,
-      invalidateCache: () => undefined,
+      cache: createWrapCache<ProseStyle>(),
       repaint
     });
 
@@ -1154,7 +1154,7 @@ describe("backend recovery orchestration", () => {
     const reducedPayload = createDemoController().deleteNode("p12-t1", 1);
     state.prune = preview;
 
-    adoptReconciliationSnapshot(state, reducedPayload);
+    adoptReconciliationSnapshot(state, reducedPayload, createWrapCache<ProseStyle>());
 
     expect(state.prune).toBe(preview);
     expect(state.prune).toMatchObject({ kind: "unused-takes", takes: 4, parts: 4 });
@@ -1167,7 +1167,7 @@ describe("backend recovery orchestration", () => {
       nodes: emptyState.payload.nodes.filter(({ id }) => activeIds.has(id)),
       tags: emptyState.payload.tags.filter(({ nodeId }) => activeIds.has(nodeId))
     };
-    adoptReconciliationSnapshot(emptyState, activeLineOnly);
+    adoptReconciliationSnapshot(emptyState, activeLineOnly, createWrapCache<ProseStyle>());
     expect(emptyState.prune).toBe(null);
   });
 
@@ -1180,7 +1180,11 @@ describe("backend recovery orchestration", () => {
       phase: "file", path: "/tmp/stale.preset", candidates: [], error: null
     };
 
-    adoptReconciliationSnapshot(state, { ...state.payload, id: "recovered-story" });
+    adoptReconciliationSnapshot(
+      state,
+      { ...state.payload, id: "recovered-story" },
+      createWrapCache<ProseStyle>()
+    );
 
     expect(state.settings).toBe(null);
     expect(state.mode).toBe("NAV");
@@ -1194,11 +1198,11 @@ describe("backend recovery orchestration", () => {
       row.kind === "chapter-divider" && row.break.id === "chapter-break-1");
     state.chapterDeleteArmedId = "chapter-break-1";
 
-    adoptReconciliationSnapshot(state, { ...state.payload, title: "refreshed" });
+    adoptReconciliationSnapshot(state, { ...state.payload, title: "refreshed" }, createWrapCache<ProseStyle>());
     expect(state.chapterDeleteArmedId).toBe("chapter-break-1");
 
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");
-    adoptReconciliationSnapshot(state, { ...state.payload, title: "refreshed again" });
+    adoptReconciliationSnapshot(state, { ...state.payload, title: "refreshed again" }, createWrapCache<ProseStyle>());
     expect(state.chapterDeleteArmedId).toBe(null);
   });
 
@@ -1215,7 +1219,7 @@ describe("backend recovery orchestration", () => {
       nodeId: "p13", name: "stale", statusIndex: 0,
       choosingStatus: false, existing: false, returnMode: "MAP"
     };
-    adoptReconciliationSnapshot(tagState, recoveredPayload);
+    adoptReconciliationSnapshot(tagState, recoveredPayload, createWrapCache<ProseStyle>());
     expect(tagState.tag).toBe(null);
     expect(tagState.mode).toBe("MAP");
     expect(tagState.map?.pathCursorId).toBe(recoveredPayload.path.at(-1)?.id);
@@ -1227,7 +1231,7 @@ describe("backend recovery orchestration", () => {
       partId: "p13",
       selectionText: null
     };
-    adoptReconciliationSnapshot(actionsState, recoveredPayload);
+    adoptReconciliationSnapshot(actionsState, recoveredPayload, createWrapCache<ProseStyle>());
     expect(actionsState.actions).toBe(null);
     expect(actionsState.mode).toBe("NAV");
   });
@@ -1291,5 +1295,33 @@ function controlledMonitor(
       current = connection;
       listener?.(connection);
     }
+  };
+}
+
+
+/** Fire once per adoption commit. reconcileWrapCache reads partIds() exactly
+ * once for a same-story snapshot and calls one full invalidate() for a
+ * different story, so either signal marks one committed reconciliation. */
+function reconcileSpyCache(onReconcile: () => void): ReturnType<typeof createWrapCache<ProseStyle>> {
+  const cache = createWrapCache<ProseStyle>();
+  return {
+    wrap: (partId, width, text, runs, identity) => cache.wrap(partId, width, text, runs, identity),
+    lineCount: (partId, width, text, identity) => cache.lineCount(partId, width, text, identity),
+    isWarm: (partId, width, text, runs, identity) => cache.isWarm(partId, width, text, runs, identity),
+    appendCandidate: (partId, width, appendStart) => cache.appendCandidate(partId, width, appendStart),
+    prime: (partId, width, text, runs, lines, identity) => cache.prime(partId, width, text, runs, lines, identity),
+    invalidate: (partId) => {
+      if (partId === undefined) onReconcile();
+      cache.invalidate(partId);
+    },
+    rebind: (partId, source, textLength) => cache.rebind(partId, source, textLength),
+    partIds: () => {
+      onReconcile();
+      return cache.partIds();
+    },
+    get epoch() { return cache.epoch; },
+    get revision() { return cache.revision; },
+    get hits() { return cache.hits; },
+    get misses() { return cache.misses; }
   };
 }

@@ -8,6 +8,7 @@ import {
   type BindGenerationIntent
 } from "./generation-http.js";
 import type { GenerationAdmissionRegistry } from "./generation-admission.js";
+import type { PartialRewriteStash } from "./rewrite-partial.js";
 import type { DeltaConsumer } from "./generation-stream.js";
 import type { PromptCacheRuntime } from "./provider-cache-policy.js";
 import {
@@ -31,6 +32,7 @@ export interface StoryServiceGenerationDependencies {
   readonly stories: StoryStore;
   readonly settings: SettingsStore;
   readonly generationAdmission: GenerationAdmissionRegistry;
+  readonly rewritePartials: PartialRewriteStash;
   readonly promptCache: PromptCacheRuntime;
   readonly storyMutations: StoryMutationStore;
   readonly ensureOpen: () => void;
@@ -211,7 +213,8 @@ export class StoryServiceGeneration {
                 },
                 options.rewriteId,
                 options.takeId,
-                options.bindIntent
+                options.bindIntent,
+                this.dependencies.rewritePartials
               ),
             replayValue: () => replayValue
           }
@@ -233,7 +236,8 @@ export class StoryServiceGeneration {
         options.providerStarted,
         options.rewriteId,
         options.takeId,
-        options.bindIntent
+        options.bindIntent,
+        this.dependencies.rewritePartials
       )
     );
   }

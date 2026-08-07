@@ -1,4 +1,5 @@
 import type { SearchRequest } from "../shared/story-search.js";
+import { isRewriteStreamDigest } from "../shared/rewrite-partial-contract.js";
 import {
   REWRITE_DESTINATIONS,
   type CreateNodeRequest,
@@ -98,8 +99,40 @@ export function parseRewrite(value: unknown): RewriteRequest {
     end: requireNumber(body.end, "end"),
     expected: requireString(body.expected, "expected"),
     instruction: body.instruction === undefined ? "" : requireStringValue(body.instruction, "instruction"),
+    ...(body.attemptId === undefined ? {} : {
+      attemptId: requireRewriteAttemptId(body.attemptId)
+    }),
     ...(body.destination === undefined ? {} : { destination: requireRewriteDestination(body.destination) })
   };
+}
+
+export interface CommitPartialRewriteRequest {
+  readonly streamedDigest: string;
+  readonly attemptId: string;
+}
+
+/** The settle after a stopped or timed-out rewrite (issue #339). The caller
+ * presents the digest of the exact prose it watched stream. The server
+ * commits only its own stashed splice when the digest agrees. */
+export function parseCommitPartialRewrite(
+  value: unknown
+): CommitPartialRewriteRequest {
+  const body = requireRecord(value, "partial rewrite body");
+  if (!isRewriteStreamDigest(body.streamedDigest)) {
+    throw new ServiceError(400, "Invalid streamedDigest");
+  }
+  return {
+    streamedDigest: body.streamedDigest,
+    attemptId: requireRewriteAttemptId(body.attemptId)
+  };
+}
+
+function requireRewriteAttemptId(value: unknown): string {
+  const attemptId = requireString(value, "attemptId");
+  if (attemptId.length > 128) {
+    throw new ServiceError(400, "attemptId is too long");
+  }
+  return attemptId;
 }
 
 function requireRewriteDestination(value: unknown): RewriteDestination {

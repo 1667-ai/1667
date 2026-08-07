@@ -135,8 +135,7 @@ export async function createNewStory(
       adoptStory(state, payload, context);
       adopted = true;
     } else if (overlay === null && canCarryInteractionToNewStory(state)) {
-      adoptReconciliationSnapshot(state, payload);
-      context.cache.invalidate();
+      adoptReconciliationSnapshot(state, payload, context.cache);
       adopted = true;
     } else if (overlay !== null && task.interactionCurrent() && state.library === overlay) {
       adoptStory(state, payload, context);
@@ -207,8 +206,7 @@ async function renameStory(
     const payload = await source.api.renameStory(target.id, title);
     if (!task.storyCurrent()) return;
     if (target.id === task.storyId) {
-      adoptSameStoryPayload(state, payload);
-      context.cache.invalidate();
+      adoptSameStoryPayload(state, payload, context.cache);
     }
     if (state.library === overlay && overlay.prompt === prompt && prompt.value.trim() === title) {
       overlay.prompt = null;
@@ -247,14 +245,13 @@ async function deleteStory(
         if (!task.owns()) return;
       }
       publishStories(state, source, stories);
-      if (task.interactionCurrent()) adoptStoryState(state, next);
+      if (task.interactionCurrent()) adoptStoryState(state, next, context.cache);
       else {
-        adoptReconciliationSnapshot(state, next,
+        adoptReconciliationSnapshot(state, next, context.cache,
           state.library === overlay && overlay.prompt === prompt
             ? { discardedLibrary: overlay }
             : {});
       }
-      context.cache.invalidate();
       state.toast = `deleted ${target.title}`;
       return;
     }
@@ -267,6 +264,5 @@ async function deleteStory(
 }
 
 function adoptStory(state: RuntimeState, payload: RuntimeState["payload"], context: ActionContext): void {
-  adoptStoryState(state, payload);
-  context.cache.invalidate();
+  adoptStoryState(state, payload, context.cache);
 }

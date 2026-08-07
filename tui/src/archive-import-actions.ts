@@ -87,8 +87,7 @@ async function applyArchiveImport(
       if (route === "facts") {
         const { payload, importResult } = await source.api.importLorebook(task.storyId, bytes);
         if (!task.storyCurrent()) return;
-        adoptSameStoryPayload(state, payload);
-        context.cache.invalidate();
+        adoptSameStoryPayload(state, payload, context.cache);
         adopted = true;
         const keyed = importResult.facts.filter((fact) => fact.activation === "keyed").length;
         const always = importResult.facts.length - keyed;
@@ -115,8 +114,7 @@ async function applyArchiveImport(
         ? await source.api.importScenario(text)
         : await source.api.importNovelAI(text);
       if (!task.storyCurrent()) return;
-      adoptStoryState(state, payload);
-      context.cache.invalidate();
+      adoptStoryState(state, payload, context.cache);
       adopted = true;
       state.toast = `new story · ${payload.nodes.length} ${countNoun(payload.nodes.length, "part")}`
         + ` · ${payload.facts.length} ${countNoun(payload.facts.length, "fact")}`;

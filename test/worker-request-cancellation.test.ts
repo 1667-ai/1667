@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   GenerationCancelledError,
+  ProviderError,
   ProviderRecoveryRequiredError,
-  ServiceError
+  ServiceError,
+  timeoutProvenanceOf
 } from "../server/errors.js";
 import { WorkerRequestCancellation } from "../server/worker-request-cancellation.js";
 
@@ -66,7 +68,10 @@ test("user cancellation stays distinct from a deadline", () => {
     true
   );
   assert.equal(cancellation.settledUserCancellation(failure), false);
-  assert.deepEqual(cancellation.failure(failure), { error: failure });
+  assert.deepEqual(
+    cancellation.failure(failure),
+    { error: failure, deadline: false }
+  );
 });
 
 test("a deadline stays authoritative after user cancellation", () => {
@@ -96,6 +101,23 @@ test("deadline substitution retains its private error separately", () => {
     /retained for reconciliation/
   );
   assert.equal((failure.error as Error).cause, root);
+});
+
+test("a typed provider timeout stays settleable when the worker deadline races it", () => {
+  const providerTimeout = new ProviderError(
+    "Model stream was idle beyond the configured deadline.",
+    null,
+    "",
+    { timeout: "provider-idle" }
+  );
+  const cancellation = new WorkerRequestCancellation(true);
+  cancellation.cancel("deadline");
+
+  const failure = cancellation.failure(providerTimeout);
+  assert.equal(failure.error, cancellation.signal.reason);
+  assert.equal(failure.deadline, true);
+  assert.equal(timeoutProvenanceOf(failure.error), "worker-deadline");
+  assert.equal((failure.error as Error).cause, undefined);
 });
 
 test("a deadline preserves only an older provider recovery target", () => {

@@ -20,6 +20,22 @@ import {
   isRetainedDirectoryAuthorityPath,
   retainedDirectoryOpenFlags
 } from "./retained-directory-authority.js";
+import { withReservedPathOwnership } from "./reserved-path-owner.js";
+
+/**
+ * No-replace publication of reserved private files.
+ *
+ * Ownership contract: every operation on one reserved pathname runs while
+ * this process owns that pathname through an in-process FIFO gate. A reader
+ * therefore never observes the intentional two-link commit window of a live
+ * publication, and recovery never unlinks the scratch of a live writer.
+ * Between processes the caller's domain lock — the data-directory lock or the
+ * applicable private file lock — is the ownership boundary; the
+ * data-directory lock probes its filesystem and refuses one whose locks do
+ * not hold. Reads stay pure: they run recovery only when the deterministic
+ * scratch name is present, and a committed reserved file must keep exactly
+ * one hard link.
+ */
 
 const DIRECTORY_FLAG = typeof constants.O_DIRECTORY === "number"
   ? constants.O_DIRECTORY
@@ -32,109 +48,9 @@ export interface PrivateFilePolicy {
   readonly allowLegacyReadMode?: boolean;
 }
 
-export type TypedPrivatePublicationResidue =
-  | "none"
-  | "scratch"
-  | "published";
-
-export type InvalidPrivatePublicationResidue = (
-  detail: string,
-  cause?: unknown
-) => Error;
-
 /** Exact typed scratch paired with one reserved final pathname. */
 export function privatePublicationScratchPath(file: string): string {
   return `${file}${SCRATCH_SUFFIX}`;
-}
-
-/**
- * Read-only recognition of states emitted by private no-replace publication.
- * A lone scratch may be a prefix of any accepted value. Once the published
- * name exists, both names must describe its one exact accepted value.
- */
-export async function inspectTypedPrivatePublicationResidue(
-  file: string,
-  acceptedValues: readonly Uint8Array[],
-  policy: PrivateFilePolicy,
-  invalidResidue: InvalidPrivatePublicationResidue
-): Promise<TypedPrivatePublicationResidue> {
-  if (acceptedValues.length === 0) {
-    throw new Error(`${policy.label} requires at least one accepted value`);
-  }
-  const accepted = acceptedValues.map((value) => Buffer.from(value));
-  const scratch = privatePublicationScratchPath(file);
-  const [fileBytes, scratchBytes] = await Promise.all([
-    readTypedResidueOrAbsent(file, policy, invalidResidue),
-    readTypedResidueOrAbsent(scratch, policy, invalidResidue)
-  ]);
-  if (fileBytes === null) {
-    if (scratchBytes === null) return "none";
-    if (!accepted.some((value) => isBufferPrefix(scratchBytes, value))) {
-      throw invalidResidue(
-        `${policy.label} scratch is not an exact prefix of the expected canonical bytes`
-      );
-    }
-    const scratchInfo = await lstat(scratch);
-    requireResidueLinkCount(
-      scratchInfo,
-      1,
-      `${policy.label} single-name residue has an unsafe link count`,
-      invalidResidue
-    );
-    return "scratch";
-  }
-
-  const publishedValue = accepted.find((value) => fileBytes.equals(value));
-  if (publishedValue === undefined) {
-    throw invalidResidue(
-      `${policy.label} next is not the exact expected canonical bytes`
-    );
-  }
-  const fileInfo = await lstat(file);
-  if (scratchBytes === null) {
-    requireResidueLinkCount(
-      fileInfo,
-      1,
-      `${policy.label} single-name residue has an unsafe link count`,
-      invalidResidue
-    );
-    return "published";
-  }
-  if (!isBufferPrefix(scratchBytes, publishedValue)) {
-    throw invalidResidue(
-      `${policy.label} scratch is not an exact prefix of the expected canonical bytes`
-    );
-  }
-
-  const scratchInfo = await lstat(scratch);
-  if (sameFileIdentity(fileInfo, scratchInfo)) {
-    if (!scratchBytes.equals(publishedValue)) {
-      throw invalidResidue(
-        `${policy.label} linked publication residue is not an exact complete pair`
-      );
-    }
-    requireResidueLinkCount(
-      fileInfo,
-      2,
-      `${policy.label} linked publication residue has an unsafe link count`,
-      invalidResidue
-    );
-    requireResidueLinkCount(
-      scratchInfo,
-      2,
-      `${policy.label} linked publication residue has an unsafe link count`,
-      invalidResidue
-    );
-  } else if (
-    !scratchBytes.equals(publishedValue)
-    || !hasResidueLinkCount(fileInfo, 1)
-    || !hasResidueLinkCount(scratchInfo, 1)
-  ) {
-    throw invalidResidue(
-      `${policy.label} distinct publication residue is not an exact complete pair`
-    );
-  }
-  return "published";
 }
 
 /**
@@ -148,7 +64,16 @@ export async function publishPrivateFileNoReplace(
   policy: PrivateFilePolicy
 ): Promise<void> {
   requireBoundedBytes(bytes, policy);
-  await recoverPrivatePublication(file, policy);
+  await withReservedPathOwnership(file, async () =>
+    await publishOwned(file, bytes, policy));
+}
+
+async function publishOwned(
+  file: string,
+  bytes: Uint8Array,
+  policy: PrivateFilePolicy
+): Promise<void> {
+  await recoverOwned(file, policy);
   if (await optionalPathInfo(file) !== null) throw alreadyExists(file);
 
   const scratch = privatePublicationScratchPath(file);
@@ -209,8 +134,19 @@ export async function publishPrivateFileNoReplace(
  * Recover only this final/scratch pair. An unpublished scratch is discarded.
  * If both names are the same inode, publication already happened and cleanup
  * is completed. A valid final always wins over a distinct typed scratch.
+ *
+ * Recovery is an owner-only operation. The gate keeps it off a live writer in
+ * this process; the caller's domain lock keeps it off every other process.
  */
 export async function recoverPrivatePublication(
+  file: string,
+  policy: PrivateFilePolicy
+): Promise<void> {
+  await withReservedPathOwnership(file, async () =>
+    await recoverOwned(file, policy));
+}
+
+async function recoverOwned(
   file: string,
   policy: PrivateFilePolicy
 ): Promise<void> {
@@ -252,7 +188,17 @@ export async function readOptionalPrivateFile(
   file: string,
   policy: PrivateFilePolicy
 ): Promise<Buffer | null> {
-  await recoverPrivatePublication(file, policy);
+  return await withReservedPathOwnership(file, async () =>
+    await readOptionalOwned(file, policy));
+}
+
+async function readOptionalOwned(
+  file: string,
+  policy: PrivateFilePolicy
+): Promise<Buffer | null> {
+  if (await optionalPathInfo(privatePublicationScratchPath(file)) !== null) {
+    await recoverOwned(file, policy);
+  }
   try {
     if (await optionalPathInfo(file) === null) return null;
     await inspectPrivateDirectory(path.dirname(file), policy.label);
@@ -263,9 +209,9 @@ export async function readOptionalPrivateFile(
   }
 }
 
-/** Batch immutable siblings under one validated private directory. Receipt
- * reads use this to recover every typed publication first, then validate the
- * shared directory once more before bounded no-follow reads. */
+/** Batch immutable siblings under one validated private directory. Each file
+ * recovers typed publication residue and completes its bounded no-follow read
+ * under one ownership interval. */
 export async function readOptionalPrivateFiles(
   files: readonly string[],
   policy: PrivateFilePolicy
@@ -275,47 +221,41 @@ export async function readOptionalPrivateFiles(
   if (files.some((file) => path.dirname(file) !== directory)) {
     throw new Error(`${policy.label} batch crossed directories`);
   }
-  await Promise.all(files.map(
-    async (file) => await recoverPrivatePublicationBeforeRead(file, policy)
-  ));
   await inspectPrivateDirectory(directory, policy.label);
-  return await Promise.all(files.map(async (file) => {
-    try {
-      return await readBoundedRegularFile(
-        file,
-        policy.maxBytes,
-        regularFileOptions(policy, 1)
-      );
-    } catch (error) {
-      if (isErrorCode(error, "ENOENT")) return null;
-      throw error;
-    }
-  }));
-}
-
-async function recoverPrivatePublicationBeforeRead(
-  file: string,
-  policy: PrivateFilePolicy
-): Promise<void> {
-  if (await optionalPathInfo(privatePublicationScratchPath(file)) === null) {
-    return;
-  }
-  await recoverPrivatePublication(file, policy);
+  return await Promise.all(files.map(
+    async (file) => await withReservedPathOwnership(file, async () => {
+      if (await optionalPathInfo(privatePublicationScratchPath(file)) !== null) {
+        await recoverOwned(file, policy);
+      }
+      try {
+        return await readBoundedRegularFile(
+          file,
+          policy.maxBytes,
+          regularFileOptions(policy, 1)
+        );
+      } catch (error) {
+        if (isErrorCode(error, "ENOENT")) return null;
+        throw error;
+      }
+    })
+  ));
 }
 
 export async function removePrivateFile(
   file: string,
   policy: PrivateFilePolicy
 ): Promise<void> {
-  await recoverPrivatePublication(file, policy);
-  try {
-    await inspectPrivateRegularFile(file, policy, 1);
-    await unlink(file);
-  } catch (error) {
-    if (isErrorCode(error, "ENOENT")) return;
-    throw error;
-  }
-  await syncPrivateDirectory(path.dirname(file), policy.label);
+  await withReservedPathOwnership(file, async () => {
+    await recoverOwned(file, policy);
+    try {
+      await inspectPrivateRegularFile(file, policy, 1);
+      await unlink(file);
+    } catch (error) {
+      if (isErrorCode(error, "ENOENT")) return;
+      throw error;
+    }
+    await syncPrivateDirectory(path.dirname(file), policy.label);
+  });
 }
 
 export async function inspectPrivateDirectory(
@@ -378,43 +318,6 @@ async function removeValidatedScratch(
   await inspectPrivateRegularFile(scratch, policy, 1);
   await unlink(scratch);
   await syncPrivateDirectory(path.dirname(scratch), policy.label);
-}
-
-async function readTypedResidueOrAbsent(
-  file: string,
-  policy: PrivateFilePolicy,
-  invalidResidue: InvalidPrivatePublicationResidue
-): Promise<Buffer | null> {
-  try {
-    return await readBoundedRegularFile(file, policy.maxBytes, {
-      requirePrivate: true,
-      allowedLinkCounts: [1, 2]
-    });
-  } catch (error) {
-    if (isErrorCode(error, "ENOENT")) return null;
-    throw invalidResidue(
-      `${path.basename(file)} is not safe private publication residue`,
-      error
-    );
-  }
-}
-
-function isBufferPrefix(candidate: Buffer, expected: Buffer): boolean {
-  return candidate.byteLength <= expected.byteLength
-    && candidate.equals(expected.subarray(0, candidate.byteLength));
-}
-
-function requireResidueLinkCount(
-  info: Stats,
-  expected: 1 | 2,
-  detail: string,
-  invalidResidue: InvalidPrivatePublicationResidue
-): void {
-  if (!hasResidueLinkCount(info, expected)) throw invalidResidue(detail);
-}
-
-function hasResidueLinkCount(info: Stats, expected: 1 | 2): boolean {
-  return process.platform === "win32" || Number(info.nlink) === expected;
 }
 
 function requireBoundedBytes(bytes: Uint8Array, policy: PrivateFilePolicy): void {
