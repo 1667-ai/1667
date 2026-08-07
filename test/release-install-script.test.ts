@@ -360,13 +360,19 @@ test("Shell Installer installs, probes identity, refuses existing binaries, reco
   );
   await rm(path.join(prefix, "1667"));
 
-  // Unsafe group-writable ancestor refusal.
-  const unsafe = path.join(root, "unsafe");
-  await mkdir(unsafe, { mode: 0o755 });
-  await chmod(unsafe, 0o775);
-  await assert.rejects(
-    execFileAsync("sh", [scriptPath, "--prefix", path.join(unsafe, "bin")], { cwd: root }),
-    /group-writable|world-writable/i
+  // A group-writable ancestor installs. Debian, Ubuntu, and Homebrew all ship a
+  // directory like this, and refusing it stopped an install that exposed nobody.
+  const groupWritable = path.join(root, "group-writable");
+  await mkdir(groupWritable, { mode: 0o755 });
+  await chmod(groupWritable, 0o775);
+  const groupWritableRun = await execFileAsync(
+    "sh",
+    [scriptPath, "--prefix", path.join(groupWritable, "bin")],
+    { cwd: root }
+  );
+  assert.match(
+    groupWritableRun.stdout,
+    new RegExp(`Installed 1667 ${INSTALL_VERSION} \\(beta\\)`)
   );
 
   const safePrefix = path.join(root, "safe-prefix");

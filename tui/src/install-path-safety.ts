@@ -1,7 +1,6 @@
 import {
   constants as fsConstants,
-  lstatSync,
-  realpathSync,
+  statSync,
   type Stats
 } from "node:fs";
 import path from "node:path";
@@ -12,8 +11,19 @@ export interface SafePathObservation {
 }
 
 /**
- * Validates absolute, canonical, non-symlink paths with safe ownership and modes.
- * Matches ADR 010 Ownership Record path rules for macOS and Linux.
+ * Validates that a path is absolute and canonical, has the shape the caller
+ * needs, and belongs to the current user. Matches the ADR 010 Ownership Record
+ * path rules for macOS and Linux.
+ *
+ * These checks find a mistake the current user made, such as an Install Root
+ * that an earlier `sudo` left owned by root. They never protected against a
+ * program that already runs as the current user, because such a program can
+ * write to the Install Root whatever its mode is.
+ *
+ * The mode and path-component rules are gone. They refused a directory layout
+ * that Debian, Ubuntu, and Homebrew all ship: a group-writable directory whose
+ * group holds nobody except the owner. The refusal named a real bit and no real
+ * exposure, and it sent a person to a different prefix for no gain.
  */
 export function assertSafeOwnedPath(
   value: string,
@@ -31,16 +41,14 @@ export function assertSafeOwnedPath(
   if (/(^|\/)\.\.?($|\/)/u.test(value) || value.includes("//")) {
     throw new Error(`${options.label} must be a canonical path`);
   }
-  assertAncestorChain(value, options.label);
   let stats: Stats;
   try {
-    stats = lstatSync(value);
+    // Follows a symbolic link, so a person can keep a linked bin directory and
+    // still have the shape and the owner of the real target checked.
+    stats = statSync(value);
   } catch (error) {
     if (options.allowMissing === true && isNotFound(error)) return null;
     throw new Error(`${options.label} is missing`);
-  }
-  if (stats.isSymbolicLink()) {
-    throw new Error(`${options.label} must not be a symbolic link`);
   }
   if (options.requireFile === true && !stats.isFile()) {
     throw new Error(`${options.label} must be a regular file`);
@@ -48,17 +56,13 @@ export function assertSafeOwnedPath(
   if (options.requireDirectory === true && !stats.isDirectory()) {
     throw new Error(`${options.label} must be a directory`);
   }
-  assertOwnerAndMode(stats, options.label);
-  if (options.expectedModeMask !== undefined) {
-    if ((stats.mode & 0o777) !== options.expectedModeMask) {
-      throw new Error(`${options.label} has an unsafe mode`);
-    }
-  } else if ((stats.mode & 0o022) !== 0) {
-    throw new Error(`${options.label} is group-writable or world-writable`);
-  }
-  const canonical = realpathSync(value);
-  if (canonical !== value) {
-    throw new Error(`${options.label} must be a canonical path`);
+  assertOwner(stats, options.label);
+  // An exact mode still applies to a file 1667 writes itself, such as the
+  // Ownership Record at 0600. That check reads 1667's own work, and refuses no
+  // layout that a person chose.
+  if (options.expectedModeMask !== undefined
+    && (stats.mode & 0o777) !== options.expectedModeMask) {
+    throw new Error(`${options.label} has an unsafe mode`);
   }
   return Object.freeze({ path: value, stats });
 }
@@ -70,54 +74,11 @@ export function assertSafeInstallRoot(installRoot: string): void {
   });
 }
 
-function assertAncestorChain(value: string, label: string): void {
-  const uid = process.geteuid?.() ?? process.getuid?.();
-  if (uid === undefined) throw new Error(`${label} requires POSIX user identity`);
-  let current = path.resolve(value);
-  const seen = new Set<string>();
-  while (current !== path.parse(current).root) {
-    if (seen.has(current)) throw new Error(`${label} path chain is invalid`);
-    seen.add(current);
-    let stats: Stats;
-    try {
-      stats = lstatSync(current);
-    } catch (error) {
-      if (isNotFound(error)) {
-        current = path.dirname(current);
-        continue;
-      }
-      throw error;
-    }
-    if (stats.isSymbolicLink()) {
-      throw new Error(`${label} path component must not be a symbolic link`);
-    }
-    if (!stats.isDirectory() && current !== path.resolve(value)) {
-      throw new Error(`${label} path component must be a directory`);
-    }
-    if (stats.uid !== uid && stats.uid !== 0) {
-      throw new Error(`${label} path component must be owned by the current user or root`);
-    }
-    if ((stats.mode & 0o022) !== 0) {
-      throw new Error(`${label} path component is group-writable or world-writable`);
-    }
-    current = path.dirname(current);
-  }
-  // Root itself may be root-owned; only check it exists and is not a symlink.
-  const root = path.parse(value).root || "/";
-  const rootStats = lstatSync(root);
-  if (rootStats.isSymbolicLink()) {
-    throw new Error(`${label} file-system root must not be a symbolic link`);
-  }
-}
-
-function assertOwnerAndMode(stats: Stats, label: string): void {
+function assertOwner(stats: Stats, label: string): void {
   const uid = process.geteuid?.() ?? process.getuid?.();
   if (uid === undefined) throw new Error(`${label} requires POSIX user identity`);
   if (stats.uid !== uid) {
     throw new Error(`${label} must be owned by the current user`);
-  }
-  if ((stats.mode & 0o022) !== 0) {
-    throw new Error(`${label} is group-writable or world-writable`);
   }
 }
 

@@ -50,34 +50,25 @@ assert_json_safe_path() {
   fi
 }
 
+# The Install Root must be a name this Installer can write into the Ownership
+# Record, and a directory this user owns. It walked every directory up to the
+# file-system root before, and refused a symbolic link, a directory owned by
+# another user, and a group-writable or world-writable directory. Those rules
+# refused the layout that Debian, Ubuntu, and Homebrew ship, and they never
+# stopped a program that already runs as this user.
 validate_install_root() {
   root=\$1
   assert_json_safe_path "\$root" "Install Root"
-  path=\$root
-  while [ "\$path" != "/" ]; do
-    if [ -e "\$path" ] || [ -L "\$path" ]; then
-      if [ -L "\$path" ]; then
-        die "Install path component is a symbolic link: \$path"
-      fi
-      if [ ! -d "\$path" ]; then
-        die "Install path component is not a directory: \$path"
-      fi
-      owner=\$(owner_uid "\$path") || return 1
-      me=\$(id -u)
-      if [ "\$owner" != "\$me" ] && [ "\$owner" != 0 ]; then
-        die "Install path is not owned by you or root: \$path"
-      fi
-      mode=\$(file_mode "\$path") || return 1
-      group_write=\$(( (mode / 10) % 10 ))
-      world_write=\$(( mode % 10 ))
-      if [ \$((group_write & 2)) -ne 0 ] || [ \$((world_write & 2)) -ne 0 ]; then
-        die "Install path is group-writable or world-writable: \$path"
-      fi
+  if [ -e "\$root" ]; then
+    if [ ! -d "\$root" ]; then
+      die "Install Root is not a directory: \$root"
     fi
-    parent=\$(dirname "\$path")
-    [ "\$parent" != "\$path" ] || break
-    path=\$parent
-  done
+    owner=\$(owner_uid "\$root") || return 1
+    me=\$(id -u)
+    if [ "\$owner" != "\$me" ]; then
+      die "Install Root is not owned by you: \$root"
+    fi
+  fi
 }
 
 ensure_install_root() {
@@ -104,14 +95,6 @@ owner_uid() {
     stat -f %u "\$1" 9>&-
   else
     stat -c %u "\$1" 9>&-
-  fi
-}
-
-file_mode() {
-  if stat -f %Lp "\$1" >/dev/null 2>&1; then
-    stat -f %Lp "\$1" 9>&-
-  else
-    stat -c %a "\$1" 9>&-
   fi
 }
 
