@@ -379,11 +379,12 @@ function renderUpgrade(
       lines.push(`1667 ${envelope.target} is available on ${envelope.channel}.`);
       break;
   }
-  lines.push(
-    envelope.method === "shell"
-      ? "1667 installed this copy, so it can update it."
-      : "1667 did not install this copy, so it cannot update it."
-  );
+  // A Managed Installation says nothing about itself: the update it can do is
+  // the command the reader just ran. Only an installation 1667 cannot update
+  // has to say so, because that fact is why the instructions below differ.
+  if (envelope.method !== "shell") {
+    lines.push("1667 did not install this copy, so it cannot update it.");
+  }
   if (envelope.restartRequired) {
     lines.push("Restart 1667 to run the new version.");
   }

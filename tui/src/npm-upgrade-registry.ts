@@ -3,13 +3,13 @@ import {
   assertCanonicalNpmTarballUrl,
   NPM_REGISTRY_ORIGIN as SHARED_NPM_REGISTRY_ORIGIN
 } from "../../shared/npm-tarball-url.js";
+import { distTagForChannel } from "../../shared/release-dist-tags.js";
 import { isSemVer, parseSemVer } from "../../shared/semver.js";
 import { parseJsonRejectingDuplicateKeys } from "../../shared/strict-json.js";
 import {
   PUBLISHED_PLATFORM_PACKAGES,
   RELEASE_LAUNCHER_PACKAGE,
   registryPathForPackage,
-  releasePlatformDependencyGraph,
   releaseTargetForPackage,
   type PublishedPlatformPackage
 } from "../../shared/release-targets.js";
@@ -28,10 +28,21 @@ export const PLATFORM_PACKAGES = PUBLISHED_PLATFORM_PACKAGES;
 export type PlatformPackage = PublishedPlatformPackage;
 export type RegistryFetch = (input: string, init: RequestInit) => Promise<Response>;
 
+/** The scope every package of this product is published under. */
+const RELEASE_SCOPE = `${LAUNCHER_PACKAGE.slice(0, LAUNCHER_PACKAGE.indexOf("/"))}/`;
+
+/** The name part an npm package in that scope can have. */
+const SCOPED_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
 interface ExactMetadataExpectation {
   name: string;
   version: string;
   optionalDependencies?: Readonly<Record<string, string>>;
+  /**
+   * Verify the launcher graph by rule, and keep the platform package named here
+   * a required member of it.
+   */
+  launcherGraph?: Readonly<{ requiredPlatformPackage: string }>;
   platform?: Readonly<{
     os: string;
     cpu: string;
@@ -62,6 +73,7 @@ export class NpmUpgradeRegistry {
 
   async launcher(
     version: string,
+    platformPackage: PlatformPackage,
     signal: AbortSignal
   ): Promise<NpmVersionMetadata> {
     return parseNpmExactVersionMetadata(
@@ -72,7 +84,7 @@ export class NpmUpgradeRegistry {
       {
         name: LAUNCHER_PACKAGE,
         version,
-        optionalDependencies: releasePlatformDependencyGraph(version)
+        launcherGraph: { requiredPlatformPackage: platformPackage }
       }
     );
   }
@@ -174,7 +186,7 @@ export function parseNpmDistTags(
       throw metadataFailure();
     }
   }
-  const selected = value[channel];
+  const selected = value[distTagForChannel(channel)];
   if (typeof selected !== "string") {
     throw new UpgradeFailure("unsupported_target", `The ${channel} channel has no release.`);
   }
@@ -209,7 +221,7 @@ export function parseNpmExactVersionMetadata(
   } catch {
     throw new UpgradeFailure("verification_failed", "Registry tarball URL is invalid.");
   }
-  verifyDependencyGraph(value, expected.optionalDependencies ?? {});
+  verifyDependencyGraph(value, expected);
   if (expected.platform !== undefined) {
     verifyPlatformIdentity(
       value,
@@ -225,13 +237,20 @@ export function parseNpmExactVersionMetadata(
 
 function verifyDependencyGraph(
   metadata: Record<string, unknown>,
-  expected: Readonly<Record<string, string>>
+  expected: ExactMetadataExpectation
 ): void {
   const value = metadata.optionalDependencies;
-  if (value === undefined && Object.keys(expected).length === 0) {
+  if (expected.launcherGraph !== undefined) {
+    verifyLauncherGraph(
+      value,
+      expected.version,
+      expected.launcherGraph.requiredPlatformPackage
+    );
+  } else if (value === undefined
+    && Object.keys(expected.optionalDependencies ?? {}).length === 0) {
     // Omitted and empty are equivalent for an intentionally dependency-free package.
   } else {
-    verifyOptionalDependencies(value, expected);
+    verifyOptionalDependencies(value, expected.optionalDependencies ?? {});
   }
   for (const field of ["dependencies", "peerDependencies"] as const) {
     const graph = metadata[field];
@@ -245,6 +264,43 @@ function verifyDependencyGraph(
       throw dependencyFailure();
     }
   }
+}
+
+/**
+ * The launcher graph is verified by rule, and never against a list of platform
+ * packages that this build carries.
+ *
+ * A later release publishes a platform target that an earlier build knows
+ * nothing about. A list refuses that release, and every release after it, for
+ * the life of the installation, and the refusal happens inside the installed
+ * build, where no fix can reach it. A rule accepts the new name and keeps what
+ * the check is for: the launcher depends on packages of this product alone,
+ * each one pinned to the exact version this upgrade verified.
+ */
+function verifyLauncherGraph(
+  value: unknown,
+  version: string,
+  requiredPlatformPackage: string
+): void {
+  if (!isRecord(value)) throw dependencyFailure();
+  const entries = Object.entries(value);
+  if (entries.length > 64) throw metadataFailure();
+  for (const [name, pinned] of entries) {
+    boundedString(name, 214);
+    boundedSemVer(pinned);
+    if (!isReleaseScopePackage(name) || name === LAUNCHER_PACKAGE || pinned !== version) {
+      throw dependencyFailure();
+    }
+  }
+  // A release that no longer carries this installation's platform must stop
+  // here, and not at a later request for a package the registry never received.
+  if (!Object.hasOwn(value, requiredPlatformPackage)) throw dependencyFailure();
+}
+
+/** True for a package this product publishes, such as `@1667-ai/linux-x64`. */
+function isReleaseScopePackage(name: string): boolean {
+  return name.startsWith(RELEASE_SCOPE)
+    && SCOPED_NAME.test(name.slice(RELEASE_SCOPE.length));
 }
 
 function verifyOptionalDependencies(
