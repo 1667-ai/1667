@@ -187,19 +187,26 @@ test("Profile transfer keeps text bias within the target resolved logit-bias lim
 test("Profile transfer omits canonical text-bias rejections before fitting", () => {
   const rejectedSampling = {
     ...EMPTY_SAMPLING_V2,
-    phraseBias: [{ phrase: "unknown-token", weight: 1 }]
+    phraseBias: [
+      { phrase: "unknown-token", weight: 1 },
+      { phrase: "known-token", weight: 2 }
+    ]
   };
   const rejectedResolution = resolveSamplingLogitBias(
     combineSamplingBiasSources(rejectedSampling),
-    () => ({ kind: "unencodable" as const }),
+    (text) => text.includes("unknown")
+      ? { kind: "unencodable" as const }
+      : { kind: "single-token" as const, tokenId: 2 },
     samplingBiasPresetRules("llama-cpp")
   );
   const rejected = fitProfileToRoute(openAiDocument(), "default", {
     name: "Rejected phrase",
     sampling: { phraseBias: rejectedSampling.phraseBias }
   }, { samplingBiasResolution: rejectedResolution });
-  assert.equal(rejected.document.profiles.default?.sampling, undefined);
-  assert.equal(rejected.importedCount, 0);
+  assert.deepEqual(rejected.document.profiles.default?.sampling?.phraseBias, [
+    { phrase: "known-token", weight: 2 }
+  ]);
+  assert.equal(rejected.importedCount, 1);
   assert.equal(rejected.candidateCount, 1);
   assert.match(
     rejected.fidelity.join("; "),
@@ -212,11 +219,48 @@ test("Profile transfer omits canonical text-bias rejections before fitting", () 
     rejected.document.connections[rejected.document.models[rejected.document.profiles.default!.modelId]!.connectionId]!
   );
 
+  const shadowedSampling = {
+    ...EMPTY_SAMPLING_V2,
+    logitBias: { "1": 1 },
+    phraseBias: [
+      { phrase: "shadowed", weight: 2 },
+      { phrase: "kept", weight: 3 }
+    ]
+  };
+  const shadowedResolution = resolveSamplingLogitBias(
+    combineSamplingBiasSources(shadowedSampling),
+    (text) => ({ kind: "single-token" as const, tokenId: text.includes("shadowed") ? 1 : 2 }),
+    samplingBiasPresetRules("llama-cpp")
+  );
+  const shadowed = fitProfileToRoute(openAiDocument(), "default", {
+    name: "Shadowed phrase",
+    sampling: {
+      logitBias: shadowedSampling.logitBias,
+      phraseBias: shadowedSampling.phraseBias
+    }
+  }, { samplingBiasResolution: shadowedResolution });
+  assert.deepEqual(shadowed.document.profiles.default?.sampling?.phraseBias, [
+    { phrase: "kept", weight: 3 }
+  ]);
+  assert.deepEqual(shadowed.document.profiles.default?.sampling?.logitBias, { "1": 1 });
+  assert.equal(shadowed.importedCount, 2);
+  assert.equal(shadowed.candidateCount, 2);
+  assert.match(
+    shadowed.fidelity.join("; "),
+    /phrase bias not imported; "shadowed" loses its bias/u
+  );
+  validateSamplingRoute(
+    "default",
+    shadowed.document.profiles.default!,
+    shadowed.document.models[shadowed.document.profiles.default!.modelId]!,
+    shadowed.document.connections[shadowed.document.models[shadowed.document.profiles.default!.modelId]!.connectionId]!
+  );
+
   const nativeSampling = {
     ...EMPTY_SAMPLING_V2,
     logitBias: { "1": 1 },
     phraseBias: [{ phrase: "ember", weight: 1 }],
-    bannedStrings: ["ember"]
+    bannedStrings: ["ember", "kept native ban"]
   };
   const nativeResolution = resolveSamplingLogitBias(
     combineSamplingBiasSources(nativeSampling),
@@ -241,9 +285,9 @@ test("Profile transfer omits canonical text-bias rejections before fitting", () 
     }
   }, { samplingBiasResolution: nativeResolution });
   assert.deepEqual(native.document.profiles.default?.sampling?.phraseBias, nativeSampling.phraseBias);
-  assert.deepEqual(native.document.profiles.default?.sampling?.bannedStrings, []);
+  assert.deepEqual(native.document.profiles.default?.sampling?.bannedStrings, ["kept native ban"]);
   assert.deepEqual(native.document.profiles.default?.sampling?.logitBias, nativeSampling.logitBias);
-  assert.equal(native.importedCount, 2);
+  assert.equal(native.importedCount, 3);
   assert.equal(native.candidateCount, 3);
   assert.match(
     native.fidelity.join("; "),
@@ -380,4 +424,3 @@ test("Profile transfer applies the native banned-string limit only to KoboldCpp"
   assert.equal(tokenized.document.profiles.default?.sampling?.bannedStrings.length, 50);
   assert.equal(tokenized.importedCount, tokenized.candidateCount);
 });
-
