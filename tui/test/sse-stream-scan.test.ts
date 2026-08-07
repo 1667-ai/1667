@@ -11,6 +11,7 @@ import {
   cpuBudget,
   startTiming
 } from "../../test/performance-budget.js";
+import { SSE_IDLE_TIMEOUT_MS } from "../../shared/sse.js";
 
 const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; });
@@ -147,3 +148,115 @@ test("a large final payload with no line break until the end still parses in bou
 
   expect(nodeId).toBe(hugeNodeId);
 });
+
+test("an attached HTTP stream that stops sending data fails before its generation lease", async () => {
+  let generationRequests = 0;
+  let cancels = 0;
+  globalThis.fetch = (async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/health") return Response.json(metadata());
+    if (path === "/api/stories/story" && (init?.method ?? "GET") === "GET") {
+      return Response.json(storyPayload("story"));
+    }
+    if (path === "/api/stories/story/summary-take") {
+      generationRequests += 1;
+      const encoder = new TextEncoder();
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) { controller.enqueue(encoder.encode(": heartbeat\n\n")); },
+        cancel() { cancels += 1; }
+      }), { headers: { "content-type": "text/event-stream" } });
+    }
+    throw new Error(`Unexpected API path: ${path}`);
+  }) as typeof fetch;
+  const api = createApi("http://127.0.0.1:7373");
+  await api.loadStory("story");
+
+  const started = Date.now();
+  const error = await rejection(api.createSummaryTake(
+    "story", { nodeId: "root" }, () => {}, new AbortController().signal
+  ));
+
+  expect(error).toMatchObject({ name: "SseIdleTimeoutError" });
+  expect(generationRequests).toBe(1);
+  expect(cancels).toBe(1);
+  expect(Date.now() - started).toBeLessThan(SSE_IDLE_TIMEOUT_MS * 2);
+});
+
+test("an attached HTTP generation that stalls before its SSE response fails before its lease", async () => {
+  let generationRequests = 0;
+  let transportSignal: AbortSignal | null = null;
+  globalThis.fetch = (async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/health") return Response.json(metadata());
+    if (path === "/api/stories/story" && (init?.method ?? "GET") === "GET") {
+      return Response.json(storyPayload("story"));
+    }
+    if (path === "/api/stories/story/summary-take") {
+      generationRequests += 1;
+      transportSignal = init?.signal ?? null;
+      return await new Promise<Response>((_resolve, reject) => {
+        transportSignal?.addEventListener("abort", () => {
+          reject(transportSignal?.reason);
+        }, { once: true });
+      });
+    }
+    throw new Error(`Unexpected API path: ${path}`);
+  }) as typeof fetch;
+  const api = createApi("http://127.0.0.1:7373");
+  await api.loadStory("story");
+
+  const started = Date.now();
+  const error = await rejection(api.createSummaryTake(
+    "story", { nodeId: "root" }, () => {}, new AbortController().signal
+  ));
+
+  expect(error).toMatchObject({ name: "SseIdleTimeoutError" });
+  expect(generationRequests).toBe(1);
+  expect((transportSignal as AbortSignal | null)?.aborted).toBeTrue();
+  expect(Date.now() - started).toBeLessThan(SSE_IDLE_TIMEOUT_MS * 2);
+});
+
+test("a non-OK generation response that stalls mid-body fails before its lease", async () => {
+  let generationRequests = 0;
+  let cancels = 0;
+  globalThis.fetch = (async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/health") return Response.json(metadata());
+    if (path === "/api/stories/story" && (init?.method ?? "GET") === "GET") {
+      return Response.json(storyPayload("story"));
+    }
+    if (path === "/api/stories/story/summary-take") {
+      generationRequests += 1;
+      const encoder = new TextEncoder();
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) { controller.enqueue(encoder.encode('{"error":"slow')); },
+        cancel() { cancels += 1; }
+      }), {
+        status: 503,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    throw new Error(`Unexpected API path: ${path}`);
+  }) as typeof fetch;
+  const api = createApi("http://127.0.0.1:7373");
+  await api.loadStory("story");
+
+  const started = Date.now();
+  const error = await rejection(api.createSummaryTake(
+    "story", { nodeId: "root" }, () => {}, new AbortController().signal
+  ));
+
+  expect(error).toMatchObject({ name: "SseIdleTimeoutError" });
+  expect(generationRequests).toBe(1);
+  expect(cancels).toBe(1);
+  expect(Date.now() - started).toBeLessThan(SSE_IDLE_TIMEOUT_MS * 2);
+});
+
+async function rejection(promise: Promise<unknown>): Promise<Error> {
+  try {
+    await promise;
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+  throw new Error("Expected promise to reject");
+}
