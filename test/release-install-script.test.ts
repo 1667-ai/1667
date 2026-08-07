@@ -361,7 +361,7 @@ test("Shell Installer installs, probes identity, refuses existing binaries, reco
   await rm(path.join(prefix, "1667"));
 
   // A group-writable ancestor installs. Debian, Ubuntu, and Homebrew all ship a
-  // directory like this, and refusing it stopped an install that exposed nobody.
+  // directory like this, and only the Install Root itself is judged now.
   const groupWritable = path.join(root, "group-writable");
   await mkdir(groupWritable, { mode: 0o755 });
   await chmod(groupWritable, 0o775);
@@ -374,6 +374,37 @@ test("Shell Installer installs, probes identity, refuses existing binaries, reco
     groupWritableRun.stdout,
     new RegExp(`Installed 1667 ${INSTALL_VERSION} \\(beta\\)`)
   );
+
+  // An Install Root every account can write is refused, and the refusal names
+  // the mode, the command that fixes it, and the flag that accepts it anyway.
+  const worldWritable = path.join(root, "world-writable");
+  await mkdir(worldWritable, { mode: 0o755 });
+  await chmod(worldWritable, 0o777);
+  await assert.rejects(
+    execFileAsync("sh", [scriptPath, "--prefix", worldWritable], { cwd: root }),
+    (error: unknown) => {
+      const failure = error as { stderr?: string; message?: string };
+      const text = String(failure.stderr ?? failure.message ?? "");
+      assert.match(text, /writable by every account/i);
+      assert.match(text, /mode 777/);
+      assert.match(text, new RegExp(`chmod o-w ${worldWritable}`));
+      assert.match(text, /--force/);
+      return true;
+    }
+  );
+
+  // --force accepts exactly that Install Root, and warns about what it accepted.
+  const forced = await execFileAsync(
+    "sh",
+    [scriptPath, "--prefix", worldWritable, "--force"],
+    { cwd: root }
+  );
+  assert.match(
+    forced.stdout,
+    new RegExp(`Installed 1667 ${INSTALL_VERSION} \\(beta\\)`)
+  );
+  assert.match(forced.stderr, /writable by every account/i);
+  assert.match(forced.stderr, /--force accepted this Install Root anyway/);
 
   const safePrefix = path.join(root, "safe-prefix");
   await mkdir(safePrefix, { mode: 0o755 });

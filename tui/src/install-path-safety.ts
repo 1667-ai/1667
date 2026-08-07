@@ -3,7 +3,9 @@ import {
   statSync,
   type Stats
 } from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { groupOtherMembers } from "./install-path-group.js";
 
 export interface SafePathObservation {
   readonly path: string;
@@ -16,14 +18,20 @@ export interface SafePathObservation {
  * path rules for macOS and Linux.
  *
  * These checks find a mistake the current user made, such as an Install Root
- * that an earlier `sudo` left owned by root. They never protected against a
+ * that an earlier `sudo` left owned by root. They do not protect against a
  * program that already runs as the current user, because such a program can
  * write to the Install Root whatever its mode is.
  *
- * The mode and path-component rules are gone. They refused a directory layout
- * that Debian, Ubuntu, and Homebrew all ship: a group-writable directory whose
- * group holds nobody except the owner. The refusal named a real bit and no real
- * exposure, and it sent a person to a different prefix for no gain.
+ * They do refuse a path that a *different* account can write, because 1667
+ * stages a candidate in the Install Root, verifies its digest, runs it once,
+ * and then renames it into place. Another account that can write there can
+ * replace the candidate inside that window, and the reader then runs bytes that
+ * no check saw.
+ *
+ * Writable to everybody always fails. Writable to a group fails only when the
+ * group holds somebody besides this user, because Ubuntu gives each user a
+ * private group and Homebrew's `admin` group holds root and the owner. Reading
+ * the bit alone refused those layouts while naming no exposure at all.
  */
 export function assertSafeOwnedPath(
   value: string,
@@ -33,6 +41,12 @@ export function assertSafeOwnedPath(
     readonly requireDirectory?: boolean;
     readonly allowMissing?: boolean;
     readonly expectedModeMask?: number;
+    /**
+     * Accept a path another account can write. `--force` sets this. A reader
+     * who has looked at the directory and decided may proceed; nothing else
+     * about a release is waived by it.
+     */
+    readonly force?: boolean;
   }
 ): SafePathObservation | null {
   if (!path.isAbsolute(value) || value.includes("\0")) {
@@ -56,7 +70,10 @@ export function assertSafeOwnedPath(
   if (options.requireDirectory === true && !stats.isDirectory()) {
     throw new Error(`${options.label} must be a directory`);
   }
-  assertOwner(stats, options.label);
+  if (options.force !== true) {
+    assertOwner(stats, options.label, value);
+    assertNoOtherWriter(stats, options.label, value);
+  }
   // An exact mode still applies to a file 1667 writes itself, such as the
   // Ownership Record at 0600. That check reads 1667's own work, and refuses no
   // layout that a person chose.
@@ -67,19 +84,72 @@ export function assertSafeOwnedPath(
   return Object.freeze({ path: value, stats });
 }
 
-export function assertSafeInstallRoot(installRoot: string): void {
+export function assertSafeInstallRoot(installRoot: string, force = false): void {
   assertSafeOwnedPath(installRoot, {
     label: "Install Root",
-    requireDirectory: true
+    requireDirectory: true,
+    force
   });
 }
 
-function assertOwner(stats: Stats, label: string): void {
+/** `755`, the form a reader types back into chmod. */
+function octal(mode: number): string {
+  return (mode & 0o777).toString(8).padStart(3, "0");
+}
+
+function currentUser(): string {
+  try {
+    return os.userInfo().username;
+  } catch {
+    return "you";
+  }
+}
+
+function assertOwner(stats: Stats, label: string, file: string): void {
   const uid = process.geteuid?.() ?? process.getuid?.();
   if (uid === undefined) throw new Error(`${label} requires POSIX user identity`);
-  if (stats.uid !== uid) {
-    throw new Error(`${label} must be owned by the current user`);
+  if (stats.uid === uid) return;
+  const user = currentUser();
+  throw new Error(
+    `${label} ${file} belongs to user ${stats.uid}, and you are ${user}. `
+    + "1667 replaces files there during an upgrade, which it cannot do as "
+    + `another user. Run: sudo chown ${user} ${file} — choose another `
+    + "Install Root, or pass --force to use it anyway."
+  );
+}
+
+/**
+ * Refuse a path that an account other than this one can write. The message
+ * names the bit, the mode, and the accounts, so a reader can act on it without
+ * running `stat` and `getent` to find out what 1667 objected to.
+ */
+function assertNoOtherWriter(stats: Stats, label: string, file: string): void {
+  const mode = octal(stats.mode);
+  if ((stats.mode & 0o002) !== 0) {
+    throw new Error(
+      `${label} ${file} is writable by every account on this machine `
+      + `(mode ${mode}). Any of them could replace what 1667 installs there. `
+      + `Run: chmod o-w ${file} — or pass --force to use it anyway.`
+    );
   }
+  if ((stats.mode & 0o020) === 0) return;
+  const user = currentUser();
+  const group = groupOtherMembers(stats.gid, user);
+  if (group === null) {
+    throw new Error(
+      `${label} ${file} is writable by group ${stats.gid} (mode ${mode}), and `
+      + "1667 could not read that group's members to see whether anybody else "
+      + `is in it. Run: chmod g-w ${file} — or pass --force to use it anyway.`
+    );
+  }
+  if (group.others.length === 0) return;
+  const name = group.name ?? String(stats.gid);
+  throw new Error(
+    `${label} ${file} is writable by group ${name} (mode ${mode}), which also `
+    + `holds ${group.others.join(", ")}. That account could replace what 1667 `
+    + `installs there. Run: chmod g-w ${file} — choose another Install Root, `
+    + "or pass --force to use it anyway."
+  );
 }
 
 function isNotFound(error: unknown): boolean {

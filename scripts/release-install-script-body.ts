@@ -89,6 +89,10 @@ main() {
   prefix=
   prefix_set=0
   dry_run=0
+  # --force waives the Install Root permission refusals only. It never waives a
+  # checksum, an attestation, a release identity, or the version probe: those
+  # decide whether the bytes are the release, which no local layout can answer.
+  force=0
   while [ "\$#" -gt 0 ]; do
     case "\$1" in
       --prefix)
@@ -104,6 +108,10 @@ main() {
         ;;
       --dry-run)
         dry_run=1
+        shift
+        ;;
+      --force)
+        force=1
         shift
         ;;
       -h|--help)
@@ -141,7 +149,7 @@ ${input.digestLines}
   if [ "\$prefix" = "/" ]; then
     die "--prefix must not be the filesystem root"
   fi
-  validate_install_root "\$prefix" || exit 1
+  validate_install_root "\$prefix" "\$force" || exit 1
 
   if [ "\$dry_run" -eq 1 ]; then
     printf 'dry-run: would install 1667 %s (%s) for %s into %s\\n' \\
@@ -247,9 +255,11 @@ ${input.digestLines}
 }
 
 usage() {
-  printf 'Usage: install-%s.sh [--prefix /absolute/path] [--dry-run]\\n' "\$INSTALL_CHANNEL"
+  printf 'Usage: install-%s.sh [--prefix /absolute/path] [--dry-run] [--force]\\n' "\$INSTALL_CHANNEL"
   printf 'Installs 1667 %s from the pinned GitHub release archive.\\n' "\$PRODUCT_VERSION"
   printf 'This installer is for a fresh Install Root only. Use 1667 upgrade later.\\n'
+  printf -- '--force installs into an Install Root that another account can write.\\n'
+  printf 'It waives no checksum, attestation, or version check.\\n'
 }
 
 cleanup_install() {

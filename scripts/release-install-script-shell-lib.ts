@@ -50,14 +50,71 @@ assert_json_safe_path() {
   fi
 }
 
+# Members of a group other than this user and root. Sets GROUP_NAME and
+# GROUP_OTHERS. Returns 1 when the platform cannot answer, which is not the same
+# as a group with nobody else in it.
+#
+# /etc/group cannot answer on macOS: it lists 'admin:*:80:root' while Directory
+# Services holds the account that is really a member, so a reader of that file
+# says a shared group is private. Each platform is asked through the interface
+# that knows.
+group_other_members() {
+  gid=\$1
+  me=\$2
+  GROUP_NAME=
+  GROUP_OTHERS=
+  members=
+  if [ -x /usr/bin/getent ] || [ -x /bin/getent ]; then
+    getent_bin=/usr/bin/getent
+    [ -x "\$getent_bin" ] || getent_bin=/bin/getent
+    line=\$("\$getent_bin" group "\$gid" 2>/dev/null) || return 1
+    [ -n "\$line" ] || return 1
+    GROUP_NAME=\${line%%:*}
+    members=\${line##*:}
+  elif [ -x /usr/bin/dscl ]; then
+    GROUP_NAME=\$(/usr/bin/dscl . -search /Groups PrimaryGroupID "\$gid" 2>/dev/null \\
+      | awk 'NR==1{print \$1}') || return 1
+    [ -n "\$GROUP_NAME" ] || return 1
+    # A group with nobody in it has no GroupMembership key, and dscl exits
+    # nonzero. That is an empty membership, not a failed lookup.
+    members=\$(/usr/bin/dscl . -read "/Groups/\$GROUP_NAME" GroupMembership 2>/dev/null \\
+      | sed -n 's/^GroupMembership: //p') || members=
+  else
+    return 1
+  fi
+  GROUP_OTHERS=\$(printf '%s' "\$members" | tr ', ' '\\n\\n' \\
+    | grep -v -e '^\$' -e "^root\\\$" -e "^\$me\\\$" | tr '\\n' ' ' || true)
+  GROUP_OTHERS=\${GROUP_OTHERS% }
+  return 0
+}
+
 # The Install Root must be a name this Installer can write into the Ownership
-# Record, and a directory this user owns. It walked every directory up to the
-# file-system root before, and refused a symbolic link, a directory owned by
-# another user, and a group-writable or world-writable directory. Those rules
-# refused the layout that Debian, Ubuntu, and Homebrew ship, and they never
-# stopped a program that already runs as this user.
+# Record, a directory this user owns, and a directory no other account can
+# write. 1667 stages a candidate here, checks its digest, runs it once, and then
+# renames it into place; an account that can write here can replace the
+# candidate inside that window.
+#
+# Writable to everybody always fails. Writable to a group fails only when the
+# group holds somebody else, because Ubuntu gives each user a private group and
+# Homebrew's admin group holds root and the owner. Reading the bit alone refused
+# those layouts and named no exposure.
+
+# Refuse, or warn and continue when the caller passed --force. A waived refusal
+# still prints, so the reader who forced it can read what they accepted.
+refuse_root() {
+  forced=\$1
+  message=\$2
+  if [ "\$forced" -eq 1 ]; then
+    printf 'warning: %s\\n' "\$message" >&2
+    printf 'warning: --force accepted this Install Root anyway.\\n' >&2
+    return 0
+  fi
+  die "\$message"
+}
+
 validate_install_root() {
   root=\$1
+  forced=\${2:-0}
   assert_json_safe_path "\$root" "Install Root"
   if [ -e "\$root" ]; then
     if [ ! -d "\$root" ]; then
@@ -66,7 +123,21 @@ validate_install_root() {
     owner=\$(owner_uid "\$root") || return 1
     me=\$(id -u)
     if [ "\$owner" != "\$me" ]; then
-      die "Install Root is not owned by you: \$root"
+      refuse_root "\$forced" "Install Root \$root belongs to user \$owner, and you are \$(id -un). 1667 replaces files there during an upgrade, which it cannot do as another user. Run: sudo chown \$(id -un) \$root, choose another Install Root, or pass --force to install here anyway."
+    fi
+    mode=\$(file_mode "\$root") || return 1
+    if [ \$(( \$(printf '%d' "0\$mode") & 2 )) -ne 0 ]; then
+      refuse_root "\$forced" "Install Root \$root is writable by every account on this machine (mode \$mode). Any of them could replace what 1667 installs there. Run: chmod o-w \$root - or pass --force to install here anyway."
+    fi
+    if [ \$(( \$(printf '%d' "0\$mode") & 16 )) -ne 0 ]; then
+      gid=\$(file_gid "\$root") || return 1
+      if group_other_members "\$gid" "\$(id -un)"; then
+        if [ -n "\$GROUP_OTHERS" ]; then
+          refuse_root "\$forced" "Install Root \$root is writable by group \${GROUP_NAME:-\$gid} (mode \$mode), which also holds \$GROUP_OTHERS. That account could replace what 1667 installs there. Run: chmod g-w \$root, choose another Install Root, or pass --force to install here anyway."
+        fi
+      else
+        refuse_root "\$forced" "Install Root \$root is writable by group \$gid (mode \$mode), and this Installer could not read that group's members to see whether anybody else is in it. Run: chmod g-w \$root - or pass --force to install here anyway."
+      fi
     fi
   fi
 }
@@ -95,6 +166,23 @@ owner_uid() {
     stat -f %u "\$1" 9>&-
   else
     stat -c %u "\$1" 9>&-
+  fi
+}
+
+file_gid() {
+  if stat -f %g "\$1" >/dev/null 2>&1; then
+    stat -f %g "\$1" 9>&-
+  else
+    stat -c %g "\$1" 9>&-
+  fi
+}
+
+# Permission bits as octal digits, such as 775.
+file_mode() {
+  if stat -f %Lp "\$1" >/dev/null 2>&1; then
+    stat -f %Lp "\$1" 9>&-
+  else
+    stat -c %a "\$1" 9>&-
   fi
 }
 

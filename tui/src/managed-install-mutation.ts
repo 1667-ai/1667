@@ -48,11 +48,12 @@ export async function withManagedInstallMutation(
   authority: ShellAuthority,
   signal: AbortSignal,
   recoveryEarly: RecoveryEarlyResult,
-  work: (context: ManagedMutationContext) => Promise<UpgradeSuccessEnvelope>
+  work: (context: ManagedMutationContext) => Promise<UpgradeSuccessEnvelope>,
+  force = false
 ): Promise<UpgradeSuccessEnvelope> {
   const lock: InstallationLock = await acquireInstallationLock(authority.installRoot);
   try {
-    let current = revalidateAuthorityAfterLock(authority);
+    let current = revalidateAuthorityAfterLock(authority, force);
     let recovery: RecoveryOutcome;
     try {
       recovery = await recoverInstallationTransaction(current, lock.paths, signal);
@@ -65,7 +66,7 @@ export async function withManagedInstallMutation(
         const early = recoveryEarly(recovery, current);
         if (early !== null) return early;
         // Opposite-operation (or unsatisfied) completion may have rewritten Ownership.
-        current = reloadAuthorityAfterRecovery(current);
+        current = reloadAuthorityAfterRecovery(current, force);
         break;
       }
       case "clean":

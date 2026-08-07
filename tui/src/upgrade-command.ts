@@ -39,6 +39,13 @@ export type UpgradePlanCommand = UpgradeCheckCommand | UpgradeApplyCommand;
 export interface ParsedUpgradeArguments {
   readonly command: UpgradeCommand;
   readonly json: boolean;
+  /**
+   * `--force`: accept an Install Root that another account can write. It waives
+   * that refusal and nothing else. A checksum, an attestation, a release
+   * identity, and the version probe all still decide whether the bytes are the
+   * release, which no local decision can answer.
+   */
+  readonly force: boolean;
 }
 
 /**
@@ -57,6 +64,7 @@ export function parseUpgradeArguments(
   let version: string | null = null;
   let channel = defaultChannel;
   let channelSeen = false;
+  let forceSeen = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
     if (argument === "-h" || argument === "--help") {
@@ -74,6 +82,9 @@ export function parseUpgradeArguments(
     } else if (argument === "--json") {
       if (jsonSeen) throw invalidArguments("--json may be specified only once.");
       jsonSeen = true;
+    } else if (argument === "--force") {
+      if (forceSeen) throw invalidArguments("--force may be specified only once.");
+      forceSeen = true;
     } else if (argument === "--version" || argument.startsWith("--version=")) {
       if (version !== null) throw invalidArguments("--version may be specified only once.");
       version = optionValue(argument, "--version", () => argv[++index]);
@@ -98,18 +109,29 @@ export function parseUpgradeArguments(
   if (rollback && (check || version !== null || channelSeen)) {
     throw invalidArguments("--rollback cannot be combined with --check, --version, or --channel.");
   }
+  // A read-only check writes nothing, so waiving a write refusal means nothing
+  // there. Saying so beats accepting a flag that does nothing.
+  if (forceSeen && check) {
+    throw invalidArguments("--force cannot be used with --check, which changes no file.");
+  }
   if (rollback) {
-    return Object.freeze({ command: Object.freeze({ kind: "rollback" as const }), json: jsonSeen });
+    return Object.freeze({
+      command: Object.freeze({ kind: "rollback" as const }),
+      json: jsonSeen,
+      force: forceSeen
+    });
   }
   if (check) {
     return Object.freeze({
       command: Object.freeze({ kind: "check" as const, channel }),
-      json: jsonSeen
+      json: jsonSeen,
+      force: false
     });
   }
   return Object.freeze({
     command: Object.freeze({ kind: "apply" as const, channel, version }),
-    json: jsonSeen
+    json: jsonSeen,
+    force: forceSeen
   });
 }
 
