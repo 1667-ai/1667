@@ -212,13 +212,13 @@ test("Profile transfer omits canonical text-bias rejections before fitting", () 
     rejected.fidelity.join("; "),
     /phrase bias entry not imported; "unknown-token" has no exact token/u
   );
-  validateSamplingRoute(
-    "default",
-    rejected.document.profiles.default!,
-    rejected.document.models[rejected.document.profiles.default!.modelId]!,
-    rejected.document.connections[rejected.document.models[rejected.document.profiles.default!.modelId]!.connectionId]!
+  validateFittedSampling(
+    rejected,
+    (text) => text.includes("unknown")
+      ? { kind: "unencodable" as const }
+      : { kind: "single-token" as const, tokenId: 2 },
+    "llama-cpp"
   );
-
   const fullyRejectedSampling = {
     ...EMPTY_SAMPLING_V2,
     phraseBias: [
@@ -246,7 +246,6 @@ test("Profile transfer omits canonical text-bias rejections before fitting", () 
     fullyRejected.fidelity.join("; "),
     /phrase bias not imported; "unknown-two" has no exact token/u
   );
-
   const rejectedBannedSampling = {
     ...EMPTY_SAMPLING_V2,
     bannedStrings: ["unknown banned string", "kept banned string"]
@@ -271,13 +270,13 @@ test("Profile transfer omits canonical text-bias rejections before fitting", () 
     rejectedBanned.fidelity.join("; "),
     /banned string not imported; "unknown banned string" has no exact token/u
   );
-  validateSamplingRoute(
-    "default",
-    rejectedBanned.document.profiles.default!,
-    rejectedBanned.document.models[rejectedBanned.document.profiles.default!.modelId]!,
-    rejectedBanned.document.connections[rejectedBanned.document.models[rejectedBanned.document.profiles.default!.modelId]!.connectionId]!
+  validateFittedSampling(
+    rejectedBanned,
+    (text) => text.includes("unknown")
+      ? { kind: "unencodable" as const }
+      : { kind: "single-token" as const, tokenId: 3 },
+    "llama-cpp"
   );
-
   const shadowedSampling = {
     ...EMPTY_SAMPLING_V2,
     logitBias: { "1": 1 },
@@ -308,13 +307,11 @@ test("Profile transfer omits canonical text-bias rejections before fitting", () 
     shadowed.fidelity.join("; "),
     /phrase bias entry not imported; "shadowed" loses its bias/u
   );
-  validateSamplingRoute(
-    "default",
-    shadowed.document.profiles.default!,
-    shadowed.document.models[shadowed.document.profiles.default!.modelId]!,
-    shadowed.document.connections[shadowed.document.models[shadowed.document.profiles.default!.modelId]!.connectionId]!
+  validateFittedSampling(
+    shadowed,
+    (text) => ({ kind: "single-token" as const, tokenId: text.includes("shadowed") ? 1 : 2 }),
+    "llama-cpp"
   );
-
   const nativeSampling = {
     ...EMPTY_SAMPLING_V2,
     logitBias: { "1": 1 },
@@ -352,14 +349,12 @@ test("Profile transfer omits canonical text-bias rejections before fitting", () 
     native.fidelity.join("; "),
     /banned string not imported; "ember" conflicts with an explicit numeric logit-bias entry in the same scope/u
   );
-  validateSamplingRoute(
-    "default",
-    native.document.profiles.default!,
-    native.document.models[native.document.profiles.default!.modelId]!,
-    native.document.connections[native.document.models[native.document.profiles.default!.modelId]!.connectionId]!
+  validateFittedSampling(
+    native,
+    () => ({ kind: "single-token" as const, tokenId: 1 }),
+    "koboldcpp"
   );
 });
-
 test("Profile transfer invalidates stale bias resolution after omitting native bans", () => {
   const bannedStrings = Array.from({ length: 201 }, (_, index) => index === 0 ? "ember" : `ban-${index}`);
   const sampling = {
@@ -474,7 +469,6 @@ test("Profile transfer applies the native banned-string limit only to KoboldCpp"
     dropped.document.models[droppedProfile.modelId]!,
     dropped.document.connections[dropped.document.models[droppedProfile.modelId]!.connectionId]!
   );
-
   const tokenized = fitProfileToRoute(
     openAiDocument(),
     "default",
@@ -483,3 +477,24 @@ test("Profile transfer applies the native banned-string limit only to KoboldCpp"
   assert.equal(tokenized.document.profiles.default?.sampling?.bannedStrings.length, 50);
   assert.equal(tokenized.importedCount, tokenized.candidateCount);
 });
+
+function validateFittedSampling(
+  fitted: ReturnType<typeof fitProfileToRoute>,
+  tokenize: Parameters<typeof resolveSamplingLogitBias>[1],
+  preset: Parameters<typeof samplingBiasPresetRules>[0]
+): void {
+  const profile = fitted.document.profiles.default!;
+  if (profile.sampling === undefined) throw new Error("fitted profile has no sampling settings");
+  const resolution = resolveSamplingLogitBias(
+    combineSamplingBiasSources(profile.sampling),
+    tokenize,
+    samplingBiasPresetRules(preset)
+  );
+  validateSamplingRoute(
+    "default",
+    profile,
+    fitted.document.models[profile.modelId]!,
+    fitted.document.connections[fitted.document.models[profile.modelId]!.connectionId]!,
+    resolution
+  );
+}

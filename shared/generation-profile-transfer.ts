@@ -234,12 +234,14 @@ function fitSamplingToRoute(
     withoutBlocking.importedCount,
     withoutBlocking.candidateCount,
     fidelity,
-    withoutBlocking.omitted ? undefined : matchingResolution
+    withoutBlocking.omitted ? undefined : matchingResolution,
+    withoutBlocking.retainedResolvedEntryCount
   );
 }
 
 interface BlockingTextBiasFit extends SamplingFit {
   readonly omitted: boolean;
+  readonly retainedResolvedEntryCount?: number;
 }
 
 /** A supplied canonical result can name text values the target route rejects. */
@@ -297,8 +299,33 @@ function omitBlockedTextBias(
       - Number(omittedPhrase && !samplingKnobValueIsSet(fittedSampling, "phraseBias"))
       - Number(omittedBanned && !samplingKnobValueIsSet(fittedSampling, "bannedStrings")),
     candidateCount,
-    omitted: true
+    omitted: true,
+    retainedResolvedEntryCount: retainedResolvedEntryCount(sampling, precomputedResolution)
   };
+}
+
+/** The supplied resolution starts with this profile's entries. Reuse their
+ * exact token IDs after filtering, rather than re-tokenizing or using a bound. */
+function retainedResolvedEntryCount(
+  sampling: SamplingSettingsV2,
+  resolution: Extract<SamplingBiasResolutionResult, { readonly kind: "resolved" }>
+): number {
+  const tokenIds = new Set(Object.keys(sampling.logitBias).map(Number));
+  for (const [index, entry] of resolution.phraseBias.entries()) {
+    if (index >= sampling.phraseBias.length) break;
+    if (entry.kind === "resolved" || entry.kind === "overridden") {
+      for (const tokenId of entry.tokenIds) tokenIds.add(tokenId);
+    }
+  }
+  // KoboldCpp's native banned strings are intentionally absent from this
+  // resolution array and from logit_bias, so they cannot consume this limit.
+  for (const [index, entry] of resolution.bannedStrings.entries()) {
+    if (index >= sampling.bannedStrings.length) break;
+    if (entry.kind === "resolved" || entry.kind === "overridden") {
+      for (const tokenId of entry.tokenIds) tokenIds.add(tokenId);
+    }
+  }
+  return tokenIds.size;
 }
 
 /**
@@ -312,7 +339,8 @@ function omitOverLimitTextBias(
   importedCount: number,
   candidateCount: number,
   fidelity: string[],
-  precomputedResolution: SamplingBiasResolutionResult | undefined
+  precomputedResolution: SamplingBiasResolutionResult | undefined,
+  retainedResolvedEntryCount: number | undefined
 ): SamplingFit {
   const configured = (["phraseBias", "bannedStrings"] as const).filter((knob) =>
     samplingKnobValueIsSet(sampling, knob)
@@ -329,9 +357,10 @@ function omitOverLimitTextBias(
   );
   if (bounded.length === 0) return { sampling, importedCount, candidateCount };
   const limit = maxResolvedLogitBiasEntries(preset);
-  const resolvedEntries = precomputedResolution?.kind === "resolved"
-    ? precomputedResolution.resolvedEntryCount
-    : undefined;
+  const resolvedEntries = retainedResolvedEntryCount
+    ?? (precomputedResolution?.kind === "resolved"
+      ? precomputedResolution.resolvedEntryCount
+      : undefined);
   const possibleEntries = resolvedEntries ?? maximumTextBiasEntries(sampling, preset);
   if (possibleEntries <= limit) return { sampling, importedCount, candidateCount };
 
