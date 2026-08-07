@@ -294,6 +294,37 @@ describe("hit map from rendered frames", () => {
     expect(mouseToAction(click(2, 1), state)).toEqual({ action: "cancel" });
   });
 
+  test("the profile source modal owns page hits and makes its rows clickable", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    state.stream = null;
+    state.mode = "SETTINGS";
+    state.settings = initialSettingsOverlay(source.settingsView, state.config);
+    state.settings.profileTransfer = { phase: "source", cursor: 0, error: null };
+    render(state);
+
+    expect(state.hitRows.some((row) => row?.target.kind === "settings-row")).toBeFalse();
+    expect(hitAt(state.hitRows, 2, 1)).toEqual({ kind: "scrim" });
+    expect(mouseToAction(click(2, 1), state)).toEqual({ action: "cancel" });
+
+    const sourceRow = state.hitRows.flatMap((entry, row) => entry?.overrides?.map((hit) => ({ hit, row })) ?? [])
+      .find(({ hit }) => hit.target.kind === "list" && hit.target.index === 1);
+    expect(sourceRow).toBeDefined();
+    expect(hitAt(state.hitRows, sourceRow!.hit.left, sourceRow!.row))
+      .toEqual({ kind: "list", index: 1, selected: false });
+    const focus = mouseToAction(click(sourceRow!.hit.left, sourceRow!.row), state);
+    expect(focus).toEqual({ action: "focus-index", index: 1 });
+    await dispatch(focus!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    expect(state.settings.profileTransfer?.phase).toBe("source");
+    expect(state.settings.profileTransfer?.cursor).toBe(1);
+
+    render(state);
+    const selectedRow = state.hitRows.flatMap((entry, row) => entry?.overrides?.map((hit) => ({ hit, row })) ?? [])
+      .find(({ hit }) => hit.target.kind === "list" && hit.target.index === 1);
+    expect(mouseToAction(click(selectedRow!.hit.left, selectedRow!.row), state))
+      .toEqual({ action: "open-selected" });
+  });
+
   test("connection retry does not leak across shared panel hit rows", () => {
     const state = initialState(demoAppSource(), false);
     state.stream = null;

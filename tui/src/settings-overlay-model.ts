@@ -108,6 +108,7 @@ export function initialSettingsOverlay(
     cursor: 0,
     edit: null,
     sampling: null,
+    profileTransfer: null,
     conflict: null,
     checking: false,
     probing: false,

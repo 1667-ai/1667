@@ -32,6 +32,7 @@ import { runStoryExport } from "./export-cli.js";
 import { runStoryImport } from "./import-cli.js";
 import { runCardImport } from "./card-import-cli.js";
 import { runLorebookImport } from "./lorebook-import-cli.js";
+import { runProfileCommand } from "./profile-cli.js";
 import { runHttpCommand } from "./http-commands.js";
 
 import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.js";
@@ -46,10 +47,10 @@ import {
   initializeProject,
   PROJECT_DIRECTORY_NAME,
   resolveProject,
-  type ProjectOutcome,
   type ProjectRequest,
   type ResolvedProject
 } from "../../server/project-discovery.js";
+import { requireExistingProject } from "./project-command.js";
 import {
   readProjectRunRecord
 } from "../../server/project-run-record.js";
@@ -107,6 +108,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   }
   if (argv[0] === "import-lorebook") {
     await runLorebookImport(argv.slice(1));
+    return;
+  }
+  if (argv[0] === "profile") {
+    await runProfileCommand(argv.slice(1));
     return;
   }
 
@@ -334,7 +339,7 @@ async function attachOrigin(args: Arguments): Promise<string> {
   if (args.url !== null) return args.url;
   const project = requireExistingProject(
     await resolveProject(projectRequest(args)),
-    "attach to"
+    { unavailable: "nothing to attach to" }
   );
   const record = await readProjectRunRecord(project.directory);
   if (record?.url == null) {
@@ -376,26 +381,6 @@ async function openProject(args: Arguments): Promise<ResolvedProject | null> {
     return null;
   }
   return await initializeProject(outcome.cwd);
-}
-
-/** Attaching and exporting read an existing project; neither invents one. */
-function requireExistingProject(
-  outcome: ProjectOutcome,
-  action: string
-): ResolvedProject {
-  if (outcome.kind === "absent") {
-    throw new Error(
-      `no ${PROJECT_DIRECTORY_NAME} story project in ${outcome.cwd} or any `
-        + `parent, so there is nothing to ${action}. Run '1667 init' first.`
-    );
-  }
-  if (!outcome.project.exists) {
-    throw new Error(
-      `${outcome.project.directory} is not a 1667 story project yet, so there `
-        + `is nothing to ${action}. Run '1667 init' there first.`
-    );
-  }
-  return outcome.project;
 }
 
 function serviceErrorCode(error: unknown): string {

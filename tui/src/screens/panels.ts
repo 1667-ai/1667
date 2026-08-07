@@ -51,6 +51,7 @@ import { renderFactsPanel } from "./facts-panel.js";
 import { renderSamplingPanel } from "./sampling-panel.js";
 import { renderCardImportPanel } from "./card-import-panel.js";
 import { renderArchiveImportPanel } from "./archive-import-panel.js";
+import { renderProfileTransferPanel } from "./profile-transfer-panel.js";
 
 export { SETTINGS_FOOTER_ACTIONS } from "./settings-panel-footers.js";
 export { FACTS_FOOTER_ACTIONS } from "./facts-panel.js";
@@ -123,6 +124,15 @@ export function renderPanels(
   if (state.archive !== null) {
     composition = renderArchiveImportPanel(
       dimPage(base), local, width, height, ARCHIVE_IMPORT_FOOTER_ACTIONS
+    );
+  }
+  else if (local.settings !== null && local.settings.profileTransfer !== null) {
+    composition = renderProfileTransferPanel(
+      dimPage(base),
+      local.settings.profileTransfer,
+      local.hitRows,
+      width,
+      height
     );
   }
   else if (state.card !== null) {

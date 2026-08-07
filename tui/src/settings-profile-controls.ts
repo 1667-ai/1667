@@ -9,6 +9,7 @@ import {
   type SettingsView
 } from "../../shared/settings-v2-types.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
+import { generationEffortChoicesForRoute } from "../../shared/generation-effort-capabilities.js";
 import type { GenerationSettings } from "../../shared/types.js";
 import { THEME_NAMES, type UserConfig } from "./config.js";
 import type { KeyAction } from "./keys.js";
@@ -427,7 +428,7 @@ function profileRowHint(overlay: SettingsOverlayState): string {
   if (document === null || profileId === null) return "legacy settings are read-only";
   return profileRouteState(document, profileId) === "unrouted"
     ? "no route sends requests here"
-    : "n new · ⇧n duplicate · d delete";
+    : "n new · ⇧n duplicate · i import · d delete";
 }
 
 /** The chosen model's own identifier, kept out of the chip so the chip holds
@@ -451,20 +452,14 @@ function modelRowHint(overlay: SettingsOverlayState): string {
     : `${settingsModelDisplayText(selected.remoteId)} · ${count}`;
 }
 
-/** Runtime validation permits an explicit effort only with a supported model.
- * Anthropic has no mapping for `off`, so do not offer a value that its request
- * adapter would reject. Unknown capability is conservative: default only. */
+/** Delegate exact route effort choices to the shared request-policy owner. */
 function generationEffortChoices(
   document: NonNullable<SettingsOverlayState["draft"]["document"]>,
   profileId: string
 ): readonly (typeof GENERATION_EFFORT_V2_VALUES)[number][] {
   const profile = document.profiles[profileId];
-  const model = profile === undefined ? undefined : document.models[profile.modelId];
-  if (model?.capabilities.reasoningEffort !== "supported") return ["default"];
-  const connection = document.connections[model.connectionId];
-  return connection?.protocol === "anthropic-messages"
-    ? ["default", "low", "medium", "high"]
-    : GENERATION_EFFORT_V2_VALUES;
+  if (profile === undefined) return ["default"];
+  return generationEffortChoicesForRoute(resolveSettingsProfile(document, profileId));
 }
 
 function profileRowValue(overlay: SettingsOverlayState): string {

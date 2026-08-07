@@ -17,7 +17,7 @@ export interface StoryExportRequest {
 }
 
 /** A caller-selected extension from the formats this program writes. */
-export type ExportExtension = ".md" | ".story" | ".scenario" | ".lorebook";
+export type ExportExtension = ".md" | ".story" | ".scenario" | ".lorebook" | ".profile.json";
 
 export interface ExportFileRequest {
   readonly directory: string;

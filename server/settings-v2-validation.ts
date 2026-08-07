@@ -18,6 +18,7 @@ import {
 import { parseSampling, validateSamplingRoute } from "./settings-v2-sampling-validation.js";
 import { boundedArray, closedRecord, closedShape, literal } from "./story-wire-validation.js";
 import { MAX_ALTERNATIVE_TOKENS } from "../shared/token-probabilities.js";
+import { generationEffortAvailabilityForTarget } from "../shared/generation-effort-capabilities.js";
 import {
   MAX_SETTINGS_AUTHOR_BRIEF_SCALARS,
   MAX_SETTINGS_CREDENTIAL_NAMES,
@@ -389,12 +390,20 @@ function parseProfiles(
     if (!Object.hasOwn(models, modelId) || model === undefined) {
       throw new SettingsFormatError(`profile ${id}.modelId does not resolve`);
     }
+    const connection = connections[model.connectionId];
+    if (connection === undefined) {
+      throw new SettingsFormatError(`model ${modelId}.connectionId does not resolve`);
+    }
     const temperature = requireFiniteTemperature(profile.temperature, `profile ${id}.temperature`);
     const effort = oneOf(profile.effort, GENERATION_EFFORT_V2_VALUES, `profile ${id}.effort`);
     if (temperature !== null && model.capabilities.temperature === "unsupported") {
       throw new SettingsFormatError(`profile ${id} sets temperature for an unsupported model`);
     }
-    if (effort !== "default" && model.capabilities.reasoningEffort !== "supported") {
+    const effortAvailability = generationEffortAvailabilityForTarget({
+      protocol: connection.protocol,
+      reasoningEffort: model.capabilities.reasoningEffort
+    }, effort);
+    if (effortAvailability.kind === "unavailable" && effortAvailability.code === "model-unsupported") {
       throw new SettingsFormatError(`profile ${id} sets effort without explicit model support`);
     }
     const sampling = parseSampling(profile.sampling, `profile ${id}.sampling`);
@@ -422,10 +431,6 @@ function parseProfiles(
       ...(sampling === undefined ? {} : { sampling }),
       ...(tokenProbabilities === undefined ? {} : { tokenProbabilities })
     };
-    const connection = connections[model.connectionId];
-    if (connection === undefined) {
-      throw new SettingsFormatError(`model ${modelId}.connectionId does not resolve`);
-    }
     validateSamplingRoute(id, parsedProfile, model, connection);
     result[id] = parsedProfile;
   }

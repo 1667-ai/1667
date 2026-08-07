@@ -14,7 +14,7 @@ import {
 } from "../shared/sampling-capabilities.js";
 import {
   maxResolvedLogitBiasEntries,
-  SAMPLING_NATIVE_BANNED_STRINGS_POLICY
+  nativeBannedStringsLimit
 } from "../shared/sampling-validation-policy.js";
 import {
   SAMPLING_SCALAR_KNOB_V2_VALUES,
@@ -326,15 +326,17 @@ async function mergedSamplingBiasValue(
   // own weight never reaches `logit_bias` (issue #311 review, third pass,
   // finding G — server/sampling-phrase-bias.ts already excludes it from
   // `logitBias`; this is that same exclusion for the other wire field).
-  const nativeBannedStrings = [...new Set(
-    resolved.nativeBannedStrings.flatMap((entry) => entry.kind === "native" ? [entry.phrase] : [])
-  )];
-  if (nativeBannedStrings.length > SAMPLING_NATIVE_BANNED_STRINGS_POLICY.maxEntries) {
+  const nativePhrases = resolved.nativeBannedStrings.flatMap((entry) =>
+    entry.kind === "native" ? [entry.phrase] : []
+  );
+  const nativeLimit = nativeBannedStringsLimit(nativePhrases, resolvedPreset);
+  if (nativeLimit.exceeds) {
     throw new ProviderError(
-      `Resolved banned strings has ${nativeBannedStrings.length} entries, exceeding the `
-      + `${SAMPLING_NATIVE_BANNED_STRINGS_POLICY.maxEntries}-entry limit.`
+      `Resolved banned strings has ${nativeLimit.entries} entries, exceeding the `
+      + `${nativeLimit.limit}-entry limit.`
     );
   }
+  const nativeBannedStrings = [...new Set(nativePhrases)];
   return { logitBias: sortedLogitBias(resolved.logitBias), nativeBannedStrings };
 }
 

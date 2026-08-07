@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Generation Profiles can move between projects.** Import a NovelAI Sampler
+  Preset or a Profile Export with `1667 profile import`. Export a shareable
+  Profile Export with `1667 profile export`. The command creates a new profile
+  and reports values that the selected route cannot use. 1667 also provides
+  conservative, balanced, and adventurous prose Starter Profiles.
+
 - **A stopped or expired generation keeps all text that arrived.** After the
   writer stops a generation, the live stream does not move again. The text
   that arrives after the Stop lands in the saved take in one piece. When a

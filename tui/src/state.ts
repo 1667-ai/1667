@@ -252,6 +252,8 @@ export interface SettingsOverlayState {
   edit: SettingsInlineEditState | null;
   /** Nested three-layer sampling editor. */
   sampling: SamplingOverlayState | null;
+  /** Nested Generation Profile import flow. */
+  profileTransfer: ProfileTransferPrompt | null;
   conflict: { message: string; armed: boolean } | null;
   saveIntent?: SettingsOverlaySaveIntent;
   checking: boolean;
@@ -273,6 +275,20 @@ export interface SettingsOverlayState {
   modelPicker: SettingsModelPicker | null;
   discardIntent?: Omit<DiscardPendingSettingsCommand, "transportOperationId">;
 }
+
+/** Source choice or file entry for a Settings Generation Profile import. */
+export type ProfileTransferPrompt =
+  | {
+      readonly phase: "source";
+      cursor: number;
+      error: string | null;
+    }
+  | {
+      readonly phase: "file";
+      path: string;
+      candidates: string[];
+      error: string | null;
+    };
 export interface SummaryOverlayState {
   start: number;
   end: number;

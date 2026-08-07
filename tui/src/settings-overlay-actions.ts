@@ -70,6 +70,7 @@ import {
 import { discardUnreferencedConnectionSecretWrites } from "./settings-secret-sidecar.js";
 import { settingsTextDraftForDocument, settingsTextDraftWithGeneration } from "./settings-text.js";
 import { modelPickerRequired } from "./settings-model-picker.js";
+import { openProfileTransfer, profileTransferAction } from "./profile-transfer-actions.js";
 import {
   pasteIntoModelPicker,
   settingsInlineEditAction,
@@ -143,6 +144,17 @@ export async function settingsOverlayAction(
   }
   if (overlay.sampling !== null) {
     await samplingOverlayAction(resolved, state, source, context);
+    return true;
+  }
+  if (overlay.profileTransfer !== null) {
+    await profileTransferAction(resolved, state, overlay);
+    return true;
+  }
+  if (resolved.action === "import-profile") {
+    const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+    if (row === "profile" && overlay.view.editable && overlay.draft.document !== null) {
+      openProfileTransfer(overlay);
+    }
     return true;
   }
   if (resolved.action === "cancel") {

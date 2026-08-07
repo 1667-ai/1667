@@ -149,7 +149,7 @@ export const SETTINGS_MODEL_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ profile · n new · ⇧n copy · e rename · d delete · s save · esc close",
+    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s save · esc close",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -157,6 +157,7 @@ export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "→ profile", action: "take-next" },
       { token: "n new", action: "new-item" },
       { token: "⇧n copy", action: "duplicate-item" },
+      { token: "i import", action: "import-profile" },
       { token: "e rename", action: "edit" },
       { token: "d delete", action: "delete-item" },
       { token: "s save", action: "save-edit" },
@@ -164,7 +165,7 @@ export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
     ]
   },
   {
-    text: "↑↓ · ←→ profile · n new · ⇧n copy · e rename · d delete · s · esc",
+    text: "↑↓ · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s · esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -172,6 +173,7 @@ export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "→ profile", action: "take-next" },
       { token: "n new", action: "new-item" },
       { token: "⇧n copy", action: "duplicate-item" },
+      { token: "i import", action: "import-profile" },
       { token: "e rename", action: "edit" },
       { token: "d delete", action: "delete-item" },
       { token: "s", action: "save-edit" },
@@ -179,7 +181,7 @@ export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
     ]
   },
   {
-    text: "↑↓ ←→ n N e d s esc",
+    text: "↑↓ ←→ n N i e d s esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -187,6 +189,7 @@ export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "→", action: "take-next" },
       { token: "n", action: "new-item" },
       { token: "N", action: "duplicate-item" },
+      { token: "i", action: "import-profile" },
       { token: "e", action: "edit" },
       { token: "d", action: "delete-item" },
       { token: "s", action: "save-edit" },
@@ -199,7 +202,7 @@ export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
  * command visible with the profile verbs, because both affect the same draft. */
 export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ profile · n new · ⇧n copy · e rename · d delete · s save · x discard · esc close",
+    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s save · x discard · esc close",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -207,6 +210,7 @@ export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "→ profile", action: "take-next" },
       { token: "n new", action: "new-item" },
       { token: "⇧n copy", action: "duplicate-item" },
+      { token: "i import", action: "import-profile" },
       { token: "e rename", action: "edit" },
       { token: "d delete", action: "delete-item" },
       { token: "s save", action: "save-edit" },
@@ -215,7 +219,7 @@ export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
     ]
   },
   {
-    text: "↑↓ · ←→ profile · n new · ⇧n copy · e rename · d delete · s · x · esc",
+    text: "↑↓ · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s · x · esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -223,6 +227,7 @@ export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "→ profile", action: "take-next" },
       { token: "n new", action: "new-item" },
       { token: "⇧n copy", action: "duplicate-item" },
+      { token: "i import", action: "import-profile" },
       { token: "e rename", action: "edit" },
       { token: "d delete", action: "delete-item" },
       { token: "s", action: "save-edit" },
@@ -231,7 +236,7 @@ export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
     ]
   },
   {
-    text: "↑↓ ←→ n N e d s x esc",
+    text: "↑↓ ←→ n N i e d s x esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -239,6 +244,7 @@ export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "→", action: "take-next" },
       { token: "n", action: "new-item" },
       { token: "N", action: "duplicate-item" },
+      { token: "i", action: "import-profile" },
       { token: "e", action: "edit" },
       { token: "d", action: "delete-item" },
       { token: "s", action: "save-edit" },

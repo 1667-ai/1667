@@ -290,6 +290,10 @@ Select the **profile** row to see a Generation Profile. Use `Left Arrow` or
 Generation Profile. Press `Shift+N` to duplicate the selected Generation
 Profile. Press `e` to rename the selected Generation Profile. Press `d` two
 times to delete the selected Generation Profile. Press `s` to save the changes.
+See [Generation Profile transfer](generation-profile-transfer.md) to import,
+export, or start a Generation Profile.
+Press `i` on the profile row to select a Starter Profile or to read a file.
+The import changes the Settings draft. Press `s` to save the draft.
 
 A **Generation Route** selects a Generation Profile for one type of work. The
 **default route** is required. The **prose route** and the **utility route** are

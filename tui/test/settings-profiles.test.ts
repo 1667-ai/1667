@@ -1,13 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import {
-  applyBasicSettingsDraft,
-  basicSettingsFromDocument
-} from "../../shared/settings-basic-draft.js";
 import { resolveSettingsProfile, selectSettingsRoute } from "../../shared/settings-route.js";
 import type {
   SaveSettingsCommand,
-  SettingsDocumentV2,
-  SettingsView,
   ProviderProbeTarget
 } from "../../shared/settings-v2-types.js";
 import { MAX_ALTERNATIVE_TOKENS } from "../../shared/token-probabilities.js";
@@ -23,8 +17,12 @@ import {
   selectRow,
   settingsHarness
 } from "./settings-test-harness.js";
-
-type EditableSettingsView = Extract<SettingsView, { readonly dataFormat: 2 }>;
+import {
+  declareSelectedModelSupportsEffort,
+  installNetworkSettings,
+  savedResult,
+  savedView
+} from "./settings-profiles-test-helpers.js";
 
 describe("Generation Profile settings", () => {
   test("saves the complete profile document, routes, and selected profile behavior", async () => {
@@ -122,7 +120,7 @@ describe("Generation Profile settings", () => {
     await openSettings(press);
     await selectRow(press, state, "profile");
     expect(frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines))
-      .toContain("n new · ⇧n copy · e rename · d delete");
+      .toContain("↑↓ ←→ n N i e d s esc");
     await press(key("e"));
     expect(state.settings?.edit?.row).toBe("profile");
   });
@@ -137,7 +135,7 @@ describe("Generation Profile settings", () => {
       state,
       { width: 120, height: 30, wrapCache: cache }
     ).lines);
-    expect(frame).toContain("n new · ⇧n copy · e rename · d delete · s · x · esc");
+    expect(frame).toContain("n new · ⇧n copy · i import · e rename · d delete · s · x · esc");
   });
 
   test("requires two uninterrupted delete commands for a profile", async () => {
@@ -448,104 +446,5 @@ describe("Generation Profile settings", () => {
     expect(commands).toHaveLength(1);
     expect(Object.keys(commands[0]!.document.models)).toHaveLength(64);
   });
+
 });
-
-function installNetworkSettings(
-  source: ReturnType<typeof settingsHarness>["source"],
-  storedSecretId?: string
-): EditableSettingsView {
-  if (!source.settingsView.editable) throw new Error("demo settings must be editable");
-  let document = applyBasicSettingsDraft(source.settingsView.document, {
-    ...source.settings,
-    provider: "openai-compatible",
-    baseUrl: "https://api.openai.com/v1",
-    model: "gpt-5.6",
-    apiKeyEnv: null
-  });
-  const route = selectSettingsRoute(document, "default");
-  document = {
-    ...document,
-    connections: {
-      ...document.connections,
-      [route.model.connectionId]: {
-        ...route.connection,
-        auth: storedSecretId === undefined
-          ? { type: "none" }
-          : { type: "bearer-stored", secretId: storedSecretId }
-      }
-    },
-    models: {
-      ...document.models,
-      [route.profile.modelId]: {
-        ...route.model,
-        capabilities: { ...route.model.capabilities, reasoningEffort: "supported" }
-      }
-    }
-  };
-  const effective = basicSettingsFromDocument(document);
-  const view: EditableSettingsView = {
-    ...source.settingsView,
-    document,
-    effective,
-    effectiveProse: effective
-  };
-  source.settings = effective;
-  source.settingsView = view;
-  source.api.getSettings = async () => source.settingsView;
-  return view;
-}
-
-function declareSelectedModelSupportsEffort(
-  state: ReturnType<typeof settingsHarness>["state"]
-): void {
-  const overlay = state.settings;
-  const document = overlay?.draft.document;
-  const profileId = overlay?.draft.selectedProfileId;
-  if (overlay === null || overlay === undefined
-    || document === null || document === undefined
-    || profileId === null || profileId === undefined) {
-    throw new Error("selected profile missing");
-  }
-  const modelId = document.profiles[profileId]!.modelId;
-  overlay.draft = settingsTextDraftForDocument({
-    ...document,
-    models: {
-      ...document.models,
-      [modelId]: {
-        ...document.models[modelId]!,
-        capabilities: {
-          ...document.models[modelId]!.capabilities,
-          reasoningEffort: "supported"
-        }
-      }
-    }
-  }, profileId);
-}
-
-function savedView(
-  view: EditableSettingsView,
-  document: SettingsDocumentV2
-): EditableSettingsView {
-  const effective = basicSettingsFromDocument(document);
-  return {
-    ...view,
-    stateGeneration: view.stateGeneration + 1,
-    activeRevision: view.activeRevision + 1,
-    document,
-    effective,
-    effectiveProse: basicSettingsFromDocument(
-      document,
-      selectSettingsRoute(document, "prose").profileId
-    )
-  };
-}
-
-function savedResult(view: EditableSettingsView) {
-  return {
-    kind: "settings" as const,
-    settingsStateGeneration: view.stateGeneration,
-    activeSettingsRevision: view.activeRevision,
-    pendingSettingsRevision: null,
-    activationOutcome: null
-  };
-}

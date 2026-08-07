@@ -181,6 +181,15 @@ async function temporaryDirectory(): Promise<string> {
   return await mkdtemp(path.join(tmpdir(), "1667-export-"));
 }
 
+async function failure(run: () => Promise<unknown>): Promise<string> {
+  try {
+    await run();
+    return "the call resolved instead of failing";
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 function collector(): {
   readonly stream: { write: (text: string) => boolean };
   readonly text: () => string;
@@ -201,6 +210,17 @@ function collector(): {
 const WORKER_EXPORT_TIMEOUT_MS = 30_000;
 
 describe("export command", () => {
+  test("refuses a non-project directory without creating one", async () => {
+    const root = await temporaryDirectory();
+    try {
+      expect(await failure(() => runStoryExport(
+        ["--data", root], collector().stream, collector().stream
+      ))).toContain("nothing to export");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("runs against a project worker and gives duplicate bulk titles separate files", async () => {
     const root = await temporaryDirectory();
     await initializeProject(root);
