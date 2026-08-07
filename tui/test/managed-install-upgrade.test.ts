@@ -96,6 +96,37 @@ test("managed check reports available for shell installs", async () => {
   }
 });
 
+test("managed output tells the reader what to do and not how it was installed", async () => {
+  const root = managedScratchRoot();
+  try {
+    const installRoot = path.join(root, "bin");
+    mkdirSync(installRoot, { mode: 0o755 });
+    chmodSync(installRoot, 0o755);
+    const { authority } = shellManagedAuthority(installRoot, "stable");
+    const result = await executeUpgradeCli(["--check"], {
+      authority,
+      observation: {
+        currentVersion: CURRENT,
+        platformPackage: PACKAGE,
+        },
+      registry: fakeManagedRegistry(
+        NEXT,
+        PACKAGE,
+        "sha512-" + "A".repeat(86) + "==",
+        `https://registry.npmjs.org/${PACKAGE}/-/${path.basename(PACKAGE)}-${NEXT}.tgz`
+      )
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(`1667 ${NEXT} is available`);
+    expect(result.stdout).toContain("Run '1667 upgrade' to install it.");
+    // The reader can update this installation, so a sentence about who
+    // installed it tells them nothing they can act on.
+    expect(result.stdout).not.toContain("this copy");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("custom registry platform metadata is used without live npm access", async () => {
   // Regression: apply must use injected registry.platform only. A silent
   // NpmUpgradeRegistry fallback would request live registry metadata.
