@@ -135,7 +135,7 @@ Each Lorebook import reports the entry count, the Fact count, and the omitted
 NovelAI conditions:
 
 ```
-world.lorebook: 14 entries read; 12 facts imported; search range, bias groups, and advanced conditions omitted
+world.lorebook: 14 entries read; 12 facts imported; unsupported search ranges, bias groups, and advanced conditions omitted
 ```
 
 1667 does not read sampling settings from a NovelAI `.story` or `.scenario`

@@ -6,6 +6,10 @@ import {
   FACT_EDITOR_FOOTER,
   FACT_BODY_COMPOSER_SOURCE,
   FACT_KEYS_COMPOSER_SOURCE,
+  FACT_SECONDARY_COMPOSER_SOURCE,
+  FACT_MATCH_COMPOSER_SOURCE,
+  FACT_SCAN_COMPOSER_SOURCE,
+  FACT_CHAIN_COMPOSER_SOURCE,
   FACT_PRIORITY_COMPOSER_SOURCE,
   FACT_TAG_COMPOSER_SOURCE
 } from "../../fact-editor-policy.js";
@@ -36,6 +40,7 @@ export function renderFactEditorLayout(
   editor: FactEditorSession,
   options: FactEditorLayoutOptions
 ): ComposerLayout {
+  const headerRows = FACT_EDITOR_ROWS.length - 1;
   const body = renderComposerLayout({
     composer: editor.composer,
     fullscreen: true,
@@ -81,6 +86,10 @@ export function renderFactEditorLayout(
     body.fieldWidth,
     FACT_KEYS_COMPOSER_SOURCE
   );
+  const secondary = renderTextInput(editor.secondary, editor.focus === "secondary", "secondary", "none", body.fieldWidth, FACT_SECONDARY_COMPOSER_SOURCE);
+  const match = composerHitSource(renderComposerChoiceRow({ indent: "", fieldWidth: body.fieldWidth, label: "match", value: editor.secondaryMode, sourceId: FACT_MATCH_COMPOSER_SOURCE, sourceStart: null, focused: editor.focus === "match" }), FACT_MATCH_COMPOSER_SOURCE, false);
+  const scan = renderTextInput(editor.scan, editor.focus === "scan", "scan", "default 3", body.fieldWidth, FACT_SCAN_COMPOSER_SOURCE);
+  const chain = composerHitSource(renderComposerChoiceRow({ indent: "", fieldWidth: body.fieldWidth, label: "chain", value: editor.recursion, sourceId: FACT_CHAIN_COMPOSER_SOURCE, sourceStart: null, focused: editor.focus === "chain" }), FACT_CHAIN_COMPOSER_SOURCE, false);
   const priority = composerHitSource(renderComposerChoiceRow({
     indent: "",
     fieldWidth: body.fieldWidth,
@@ -105,6 +114,10 @@ export function renderFactEditorLayout(
       tag,
       activation,
       keys,
+      secondary,
+      match,
+      scan,
+      chain,
       priority,
       budget,
       ...body.lines.slice(1).map((line, index) => {
@@ -114,13 +127,13 @@ export function renderFactEditorLayout(
           : sourced;
       })
     ],
-    lineCount: body.lineCount + 5,
-    bodyRows: body.bodyRows + 5,
-    // Every row but the body sits at its FACT_EDITOR_ROWS index, in the five
+    lineCount: body.lineCount + headerRows,
+    bodyRows: body.bodyRows + headerRows,
+    // Every row but the body sits at its FACT_EDITOR_ROWS index, in the
     // header lines inserted above; the body's own viewport row shifts down
-    // by that same five.
+    // same number of inserted header rows.
     cursorViewportRow: editor.focus === "body"
-      ? body.cursorViewportRow + 5
+      ? body.cursorViewportRow + headerRows
       : FACT_EDITOR_ROWS.indexOf(editor.focus)
   };
 }

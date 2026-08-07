@@ -2,6 +2,7 @@ import { countNoun, lossLines, type LossPhrases } from "./fidelity.js";
 import type { LorebookEntry } from "./lorebook-entry.js";
 import { readLeadingDecorators } from "./entry-decorators.js";
 import { expandCharacterCardMacros } from "./character-card.js";
+import { splitRegexKey } from "./fact-keys.js";
 import { isRecord } from "./types.js";
 
 /** A `character_book` can hold far more entries than a story has room for. The
@@ -19,13 +20,10 @@ export interface CharacterBookEntries {
 
 type CharacterBookLoss =
   | "unreadable"
-  | "secondaryKeys"
   | "positioned"
   | "role"
   | "timed"
-  | "selective"
   | "caseSensitive"
-  | "useRegex"
   | "keyed"
   | "scanned"
   | "marked"
@@ -34,8 +32,6 @@ type CharacterBookLoss =
 
 const CHARACTER_BOOK_LOSS_PHRASES: LossPhrases<CharacterBookLoss> = {
   unreadable: (count) => `${count} ${countNoun(count, "entry", "entries")} could not be read`,
-  secondaryKeys: (count) =>
-    `${count} ${countNoun(count, "entry", "entries")} lost secondary keys; a fact keys on one list`,
   positioned: (count) =>
     `${count} ${countNoun(count, "entry", "entries")} lost a position; a fact lands where 1667 puts facts`,
   role: (count) =>
@@ -43,16 +39,12 @@ const CHARACTER_BOOK_LOSS_PHRASES: LossPhrases<CharacterBookLoss> = {
       + " lost a prompt role; a fact speaks as the system",
   timed: (count) =>
     `${count} ${countNoun(count, "entry", "entries")} lost a timed effect; a fact is judged on every request`,
-  selective: (count) =>
-    `${count} ${countNoun(count, "entry", "entries")} lost selective matching; a fact has no AND/NOT logic`,
   caseSensitive: (count) =>
     `${count} ${countNoun(count, "entry", "entries")} lost case-sensitive matching; a fact key ignores letter case`,
-  useRegex: (count) =>
-    `${count} ${countNoun(count, "entry", "entries")} marked their keys as a regular expression; a fact key is literal`,
   keyed: (count) =>
-    `${count} ${countNoun(count, "entry", "entries")} lost added or excluded keys; a fact keys on one list`,
+    `${count} ${countNoun(count, "entry", "entries")} lost added or excluded decorator keys`,
   scanned: (count) =>
-    `${count} ${countNoun(count, "entry", "entries")} lost a search range; a fact is judged on every request`,
+    `${count} ${countNoun(count, "entry", "entries")} lost a per-entry search range; the fact uses the book scan depth or the default`,
   marked: (count) =>
     `${count} ${countNoun(count, "entry", "entries")} marked as a greeting or an icon; each imports as an ordinary fact`,
   decorated: (count) => `${count} V3 ${countNoun(count, "decorator")} read and removed from the fact text`,
@@ -86,12 +78,9 @@ const MARKER_DECORATORS: ReadonlySet<string> = new Set(["@@is_greeting", "@@is_u
  * Turn a Character Card `character_book` into the Lorebook entry shape the
  * Entry Mapping already reads.
  *
- * A `character_book` entry carries retrieval machinery 1667 has no place for:
- * secondary keys with selective AND/NOT logic, a position and priority, and
- * regular-expression keys. A Fact is either always in context or keyed on its
- * own literal list, so those mechanisms are counted and named rather than
- * approximated into something that would fire at the wrong time, or not at
- * all.
+ * A `character_book` entry can carry secondary keys, AND selection, and
+ * regex keys. 1667 keeps those retrieval settings. It reports unsupported
+ * position, timing, role, and case-sensitive settings.
  *
  * V3 decorators are honoured the same way SillyTavern World Info honours
  * them: `@@activate` and `@@dont_activate` decide whether the entry arrives
@@ -114,6 +103,7 @@ export function entriesFromCharacterBook(value: unknown, macroName: string): Cha
 
   const entries: LorebookEntry[] = [];
   const losses: CharacterBookLoss[] = [];
+  const defaults = isRecord(value) ? bookActivationDefaults(value) : {};
 
   for (const item of source) {
     // An item that is not a record cannot be read at all. An entry that
@@ -124,7 +114,7 @@ export function entriesFromCharacterBook(value: unknown, macroName: string): Cha
     }
     const converted = convertCharacterBookEntry(item, macroName);
     losses.push(...converted.losses);
-    if (converted.entry !== null) entries.push(converted.entry);
+    if (converted.entry !== null) entries.push({ ...converted.entry, ...defaults });
   }
 
   const fidelity = lossLines(losses, CHARACTER_BOOK_LOSS_PHRASES);
@@ -140,16 +130,26 @@ export function entriesFromCharacterBook(value: unknown, macroName: string): Cha
  * all three regardless of what the book set. */
 function bookLevelFidelity(book: Record<string, unknown>): string[] {
   const lines: string[] = [];
-  if (book.scan_depth !== undefined && book.scan_depth !== null) {
-    lines.push("the book's scan depth omitted; a fact is judged on every request, not a limited recent window");
+  if (book.scan_depth !== undefined && book.scan_depth !== null && bookScanDepth(book.scan_depth) === undefined) {
+    lines.push("the book's scan depth omitted because it is outside the Fact scan-depth range");
   }
   if (book.token_budget !== undefined && book.token_budget !== null) {
     lines.push("the book's token budget omitted; an activated fact is included in full");
   }
-  if (book.recursive_scanning !== undefined && book.recursive_scanning !== null) {
-    lines.push("the book's recursive scanning omitted; a fact never activates another fact by its own text");
-  }
   return lines;
+}
+
+function bookActivationDefaults(book: Record<string, unknown>): Pick<LorebookEntry, "scanDepth" | "recursion"> {
+  return {
+    ...(bookScanDepth(book.scan_depth) === undefined ? {} : { scanDepth: bookScanDepth(book.scan_depth) }),
+    ...(book.recursive_scanning === false ? { recursion: "off" as const } : {})
+  };
+}
+
+function bookScanDepth(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 20
+    ? value
+    : undefined;
 }
 
 interface ConvertedEntry {
@@ -218,9 +218,6 @@ function convertCharacterBookEntry(item: Record<string, unknown>, macroName: str
   if (markerDecorator) losses.push("marked");
   if (otherDecorator) losses.push("decorated");
 
-  if (Array.isArray(item.secondary_keys) && item.secondary_keys.length > 0) {
-    losses.push("secondaryKeys");
-  }
   // `insertion_order` is required by the spec, so this fires on nearly every
   // entry. That is honest: 1667 never keeps an entry's place in the prompt,
   // whichever of these three fields — or the `@@depth` decorator above —
@@ -235,28 +232,49 @@ function convertCharacterBookEntry(item: Record<string, unknown>, macroName: str
   ) {
     losses.push("positioned");
   }
-  if (item.selective === true) losses.push("selective");
-  if (item.case_sensitive === true) losses.push("caseSensitive");
+  if (item.case_sensitive === true && item.use_regex !== true) losses.push("caseSensitive");
 
-  // `use_regex` makes every key in the entry a pattern, not a literal string.
-  // Keeping the pattern text as a literal Fact key would fire only on the
-  // pattern's own text, which is worse than the entry having no keys at all.
-  let keys: unknown[] = Array.isArray(item.keys) ? item.keys : [];
-  if (item.use_regex === true && keys.length > 0) {
-    losses.push("useRegex");
-    keys = [];
-  }
+  const rawKeys = Array.isArray(item.keys) ? item.keys : [];
+  const keys = item.use_regex === true ? regexMarkedKeys(rawKeys, item.case_sensitive !== true) : rawKeys;
+  const rawSecondaryKeys = item.selective === true && Array.isArray(item.secondary_keys)
+    ? item.secondary_keys
+    : [];
+  const secondaryKeys = item.use_regex === true
+    ? regexMarkedKeys(rawSecondaryKeys, item.case_sensitive !== true)
+    : rawSecondaryKeys;
 
   return {
     entry: {
       text,
       displayName,
       keys,
+      ...(secondaryKeys.length === 0 ? {} : { secondaryKeys }),
+      ...(item.selective === true ? { secondaryMode: "and" as const } : {}),
       forceActivation: item.constant === true || forced,
       enabled: true
     },
     losses
   };
+}
+
+/** A Character Card's `use_regex` marks bare key text as a regex source.
+ * Keep already-marked keys unchanged so flags survive the import. */
+function regexMarkedKeys(keys: readonly unknown[], insensitive: boolean): unknown[] {
+  return keys.map((key) => {
+    if (typeof key !== "string" || splitRegexKey(key) !== null) return key;
+    return `/${escapeRegexDelimiter(key)}/${insensitive ? "i" : ""}`;
+  });
+}
+
+function escapeRegexDelimiter(source: string): string {
+  let escaped = "";
+  let backslashes = 0;
+  for (const character of source) {
+    if (character === "/" && backslashes % 2 === 0) escaped += "\\";
+    escaped += character;
+    backslashes = character === "\\" ? backslashes + 1 : 0;
+  }
+  return escaped;
 }
 
 function displayNameOf(item: Record<string, unknown>): string {
@@ -273,4 +291,3 @@ function decoratorName(line: string): string {
   const match = /^@@[\w-]+/u.exec(line);
   return match === null ? line : match[0];
 }
-

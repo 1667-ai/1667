@@ -176,6 +176,8 @@ test("import-lorebook reads a SillyTavern World Info file", async () => {
         content: "The pass closes in winter.",
         key: ["storm"],
         keysecondary: ["night"],
+        selective: true,
+        selectiveLogic: 0,
         constant: false,
         disable: false,
         position: 0,
@@ -199,7 +201,7 @@ test("import-lorebook reads a SillyTavern World Info file", async () => {
   await runLorebookImport(["--story", target.id, "--data", root, file], out, errors);
 
   expect(out.text).toContain("imported 2 facts");
-  expect(errors.text).toContain("lost secondary keys");
+  expect(errors.text).not.toContain("lost secondary keys");
 
   const backend = await createWorkerStoryApi({ dataDir: path.join(root, ".1667") });
   try {
@@ -207,6 +209,7 @@ test("import-lorebook reads a SillyTavern World Info file", async () => {
     expect(payload.facts.map((fact) => fact.tag)).toEqual(["Weather", "Premise"]);
     expect(payload.facts.map((fact) => fact.activation)).toEqual(["keyed", "always"]);
     expect(payload.facts[0]!.keys).toEqual(["storm"]);
+    expect(payload.facts[0]!.secondaryKeys).toEqual(["night"]);
   } finally {
     await backend.dispose();
   }

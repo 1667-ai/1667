@@ -6,7 +6,7 @@
  * tui/src/screens/story/fact-editor-layout.ts, which now derive their
  * neighbours and row indices from this one list instead.
  */
-export const FACT_EDITOR_ROWS = ["tag", "activation", "keys", "priority", "budget", "body"] as const;
+export const FACT_EDITOR_ROWS = ["tag", "activation", "keys", "secondary", "match", "scan", "chain", "priority", "budget", "body"] as const;
 
 export type FactEditorRow = (typeof FACT_EDITOR_ROWS)[number];
 

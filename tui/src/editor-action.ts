@@ -334,7 +334,7 @@ async function saveFactEditor(
   // stays unchecked (issue #316). budgetTokens' `?? null` fixup below is its
   // own per-field rule that no table covers: a future FactDraft field with
   // "clear" semantics would need the same fixup to actually clear.
-  const submitted = { ...validated.draft, keys: [...validated.draft.keys] };
+  const submitted = { ...validated.draft, keys: [...validated.draft.keys], secondaryKeys: [...(validated.draft.secondaryKeys ?? [])] };
   const submittedTagText = editor.tag.text;
   const submittedActivation = editor.activation;
   const submittedKeysText = editor.keys.text;
@@ -349,7 +349,7 @@ async function saveFactEditor(
       ? await source.api.createFact(task.storyId, submitted)
       // budgetTokens must travel as an explicit null to clear a previously
       // set cap — an omitted (undefined) field means "leave it alone".
-      : await source.api.patchFact(task.storyId, factId, { ...submitted, budgetTokens: submitted.budgetTokens ?? null });
+      : await source.api.patchFact(task.storyId, factId, { ...submitted, budgetTokens: submitted.budgetTokens ?? null, scanDepth: submitted.scanDepth ?? null });
     if (!task.storyCurrent()) return;
     adoptSameStoryPayload(state, payload);
     if (creating) {

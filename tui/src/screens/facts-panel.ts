@@ -62,6 +62,7 @@ export function renderFactsPanel(
   const activeKeyedCount = keyedFacts.filter(
     ({ id }) => estimate.factStatuses.get(id)?.kind === "sent"
   ).length;
+  const unevaluatedCount = estimate.activation.unevaluated.length;
   const contentWidth = panelHorizontalGeometry(width).contentWidth;
   const columns = factColumns(contentWidth);
   const chipLines: FrameLine[] = [[raisedSegment("  tags  ", "chrome")]];
@@ -102,7 +103,7 @@ export function renderFactsPanel(
     raisedSegment(cellPad("name", columns.name), "chrome"),
     raisedSegment(cellPad("tag", columns.tag), "chrome"),
     raisedSegment(cellPad("note", columns.note), "chrome"),
-    raisedSegment(cellPad("status", columns.status), "chrome")
+    raisedSegment(cellPad(`status${unevaluatedCount === 0 ? "" : ` ⚠${unevaluatedCount}`}`, columns.status), "chrome")
   ]);
   const targets: Array<HitTarget | null> = content.map(() => null);
   const window = panelRowWindow(
@@ -115,7 +116,7 @@ export function renderFactsPanel(
     const body = factBody(fact);
     const selected = index === selection.cursor;
     const requestStatus = estimate.factStatuses.get(fact.id) ?? { kind: "not-matched" as const };
-    const display = factStatusDisplay(fact.activation, requestStatus);
+    const display = factStatusDisplay(fact.activation, requestStatus, estimate.activation.traces.get(fact.id));
     const statusBase = display.glyph.length === 0 ? display.word : `${display.glyph} ${display.word}`;
     const priorityChar = factPriorityGlyph(fact.priority);
     // A blank glyph for "normal" priority keeps the column at its established
@@ -155,7 +156,8 @@ export function renderFactsPanel(
   const activationCount = keyedFacts.length === 0
     ? ""
     : ` · ${activeKeyedCount}/${keyedFacts.length} keyed`;
-  const title = `facts · ${state.payload.facts.length} notes${activationCount}`
+  const exhaustionNotice = unevaluatedCount === 0 ? "" : ` · ⚠${unevaluatedCount} unchecked`;
+  const title = `facts · ${state.payload.facts.length} notes${activationCount}${exhaustionNotice}`
     + panelRange(rows.length, window);
   return placePanel(
     base,

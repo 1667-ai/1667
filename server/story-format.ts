@@ -10,7 +10,7 @@ import {
   type StoryOrigin,
   type TextRange,
 } from "../shared/types.js";
-import type { FactActivation, FactPriority } from "../shared/fact-activation.js";
+import type { FactActivation, FactPriority, FactRecursion, FactSecondaryMode } from "../shared/fact-metadata.js";
 import { FactBudgetError, parseStoryFactsBudgetTokens } from "../shared/fact-budget.js";
 import {
   SamplingValidationError,
@@ -75,6 +75,10 @@ export interface StoredFactV1 {
   activation?: FactActivation;
   /** Optional in V5 manifests written before fact keys existed. */
   keys?: string[];
+  secondaryKeys?: string[];
+  secondaryMode?: FactSecondaryMode;
+  scanDepth?: number;
+  recursion?: FactRecursion;
   /** Optional in V5 manifests written before Fact priority existed; absent means "normal". */
   priority?: FactPriority;
   /** Optional in V5 manifests written before a per-Fact budget existed. */
