@@ -127,6 +127,42 @@ test("managed output tells the reader what to do and not how it was installed", 
   }
 });
 
+test("a group-writable Install Root upgrades", async () => {
+  // Debian, Ubuntu, and Homebrew each ship a directory like this, and Ubuntu
+  // gives every user a private group, so the group holds nobody but the owner.
+  // Refusing the upgrade here protected nobody and stranded the installation.
+  const root = managedScratchRoot();
+  try {
+    const installRoot = path.join(root, "bin");
+    mkdirSync(installRoot, { mode: 0o755 });
+    const { authority } = shellManagedAuthority(installRoot, "stable");
+    chmodSync(installRoot, 0o775);
+    const pkg = buildCanonicalPlatformPackage({
+      packageName: PACKAGE,
+      version: NEXT,
+      target: TARGET
+    });
+    const result = await executeUpgradeCli(["--json"], {
+      authority,
+      observation: {
+        currentVersion: CURRENT,
+        platformPackage: PACKAGE,
+        },
+      registry: fakeManagedRegistry(NEXT, PACKAGE, pkg.integrity, pkg.tarballUrl),
+      fetcher: async () => new Response(new Uint8Array(pkg.bytes), { status: 200 })
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.envelope).toMatchObject({
+      status: "applied",
+      method: "shell",
+      current: CURRENT,
+      target: NEXT
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("custom registry platform metadata is used without live npm access", async () => {
   // Regression: apply must use injected registry.platform only. A silent
   // NpmUpgradeRegistry fallback would request live registry metadata.

@@ -5,6 +5,17 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **1667 installs and updates in a directory that other software also uses.**
+  The Installer and `1667 upgrade` refused an Install Root when any directory
+  above it was group-writable or world-writable, was a symbolic link, or
+  belonged to another user. Debian and Ubuntu ship `/usr/local` this way,
+  Ubuntu gives each user a private group, and Homebrew ships its `bin`
+  directory this way, so the refusal named a real permission bit and no real
+  exposure. 1667 now checks that the Install Root is a directory the current
+  user owns. These rules never protected against a program that already runs as
+  the user, because such a program can write to the Install Root whatever its
+  mode is.
+
 - **`1667 upgrade` accepts a release that supports one more platform.** The
   upgrade checked the packages of a new release against the platform list its
   own build carried, and refused a release that named one more. The first
