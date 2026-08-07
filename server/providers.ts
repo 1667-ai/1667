@@ -44,11 +44,11 @@ export type { ChatMessage, PromptPlan } from "../shared/prompt-plan.js";
 export { forgetRefusedTokenProbabilities } from "./token-probability-capture.js";
 export type { TokenProbabilityCollector } from "./token-probability-capture.js";
 
-/** Why the stream ended, when the provider said so: "length" means the output
- *  limit cut generation short; "stop" means the model finished on its own.
- *  Callers that need it pass a box the provider fills as the stream closes. */
+/** The provider terminal and its optional finish reason. A protocol terminal
+ * can occur without a finish reason. */
 export interface StreamOutcome {
   finishReason: "stop" | "length" | null;
+  providerTerminal: boolean;
 }
 
 /** `streamCompletion`'s optional trailing values, grouped into one object
@@ -112,11 +112,10 @@ async function* streamOpenAiCompatible(
     delete body.top_logprobs;
   }
   const requestedAlternatives = typeof body.top_logprobs === "number" ? body.top_logprobs : null;
-  let totalDeadlineReached = false;
   const totalDeadline = new AbortController();
+  const totalDeadlineFailure = new Error("Model request exceeded its total deadline.");
   const totalTimer = setTimeout(() => {
-    totalDeadlineReached = true;
-    totalDeadline.abort();
+    totalDeadline.abort(totalDeadlineFailure);
   }, runtime.timeouts.totalMs);
   const requestSignal = AbortSignal.any([signal, totalDeadline.signal]);
   // Reasoning-family models reject `max_tokens` (renamed `max_completion_tokens`)
@@ -150,6 +149,7 @@ async function* streamOpenAiCompatible(
         )) {
           streamed = true;
           if (data === "[DONE]") {
+            if (outcome !== undefined) outcome.providerTerminal = true;
             const tail = outputRedactor.finish();
             if (tail.length > 0) yield tail;
             capture.finish();
@@ -175,15 +175,10 @@ async function* streamOpenAiCompatible(
       } catch (error) {
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
-        if (totalDeadlineReached) {
-          if (error instanceof ProviderError && error.status !== null) {
-            throw new ProviderError(
-              "Model request exceeded its total deadline.",
-              error.status,
-              error.body
-            );
-          }
-          throw new ProviderError("Model request exceeded its total deadline.");
+        if (error === totalDeadlineFailure) {
+          throw new ProviderError("Model request exceeded its total deadline.", null, "", {
+            timeout: "provider-total"
+          });
         }
         if (
           streamed
@@ -271,11 +266,10 @@ async function* streamAnthropic(
   // One deadline covers the retry too. Each attempt starts its own total timer,
   // so a rejection arriving near the deadline would otherwise buy the retry a
   // second full budget.
-  let totalDeadlineReached = false;
   const totalDeadline = new AbortController();
+  const totalDeadlineFailure = new Error("Model request exceeded its total deadline.");
   const totalTimer = setTimeout(() => {
-    totalDeadlineReached = true;
-    totalDeadline.abort();
+    totalDeadline.abort(totalDeadlineFailure);
   }, runtime.timeouts.totalMs);
   const requestSignal = AbortSignal.any([signal, totalDeadline.signal]);
   // The catalog records which models dropped sampling, but a model typed by
@@ -314,6 +308,7 @@ async function* streamAnthropic(
             throw new ProviderError(`Anthropic stream error: ${detail}`);
           }
           if (parsed.type === "message_stop") {
+            if (outcome !== undefined) outcome.providerTerminal = true;
             const tail = outputRedactor.finish();
             if (tail.length > 0) yield tail;
             return;
@@ -336,15 +331,10 @@ async function* streamAnthropic(
       } catch (error) {
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
-        if (totalDeadlineReached) {
-          if (error instanceof ProviderError && error.status !== null) {
-            throw new ProviderError(
-              "Model request exceeded its total deadline.",
-              error.status,
-              error.body
-            );
-          }
-          throw new ProviderError("Model request exceeded its total deadline.");
+        if (error === totalDeadlineFailure) {
+          throw new ProviderError("Model request exceeded its total deadline.", null, "", {
+            timeout: "provider-total"
+          });
         }
         if (
           streamed
@@ -499,7 +489,10 @@ async function* streamDryRun(
     stepIndex += 1;
     await new Promise((resolve) => setTimeout(resolve, 15));
   }
-  if (outcome !== undefined) outcome.finishReason = "stop";
+  if (outcome !== undefined) {
+    outcome.finishReason = "stop";
+    outcome.providerTerminal = true;
+  }
   capture.finish();
 }
 

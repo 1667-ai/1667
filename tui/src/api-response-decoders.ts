@@ -484,6 +484,27 @@ export function decodeContinueStoryResponse(
   };
 }
 
+/** The `rewrite-partial` route wraps the worker output so a null (nothing
+ * stashed, or the bytes differ) is distinguishable from a transport error. */
+export function decodeCommitPartialRewriteResponse(
+  value: unknown
+): { payload: StoryPayload; nodeId: string } | null {
+  const envelope = responseRecord(value, "partial-rewrite commit");
+  if (envelope.committed === null) return null;
+  const record = responseRecord(
+    envelope.committed,
+    "partial-rewrite commit.committed"
+  );
+  const payload = record.payload;
+  assertPromptReadyStoryPayload(payload);
+  if (typeof record.nodeId !== "string") {
+    throw new Error(
+      "The server returned invalid partial-rewrite commit response.nodeId."
+    );
+  }
+  return { payload, nodeId: record.nodeId };
+}
+
 export function decodeChapterBreakCreatedResponse(
   value: unknown
 ): { payload: StoryPayload; breakId: string } {

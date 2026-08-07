@@ -19,7 +19,14 @@ import {
 import { MAX_FACTS } from "../shared/types.js";
 import { unusedTakePruneSelection } from "../shared/story-tree.js";
 import { createDurableMutationId } from "../shared/durable-mutation-id.js";
+import { rewriteStreamDigest } from "../shared/rewrite-partial-contract.js";
 import { applyEffectiveGenerationSettings } from "../server/settings-v2-conversion.js";
+import {
+  isRetryablePartialSettlementFailure,
+  ServiceError
+} from "../server/errors.js";
+import { sha256 } from "../server/story-format.js";
+import type { StoryAggregateVersion } from "../shared/story-aggregate-version.js";
 
 test("pending receipts recover committed entity creation without duplicates after restart", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-idempotency-"));
@@ -460,6 +467,383 @@ test("pending dry-run rewrites reconcile a committed in-place edit without dupli
   }
 });
 
+test("a partial-rewrite receipt replays after the volatile stash is lost", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-partial-rewrite-replay-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  let service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  let disposed = false;
+  try {
+    let story = await service.createStory("Partial rewrite replay");
+    const text = "The blue door opened into a long and quiet stone corridor.";
+    story = await service.createNode(story.id, { parentId: null, text });
+    const nodeId = story.nodes[0]!.id;
+    const expected = "blue door opened into a long and quiet stone corridor";
+    const start = text.indexOf(expected);
+    const controller = new AbortController();
+    let streamedText = "";
+    const stopped = await service.rewriteNode(
+      story.id,
+      nodeId,
+      {
+        start,
+        end: start + expected.length,
+        expected,
+        instruction: "",
+        destination: "take",
+        attemptId: "restart-replay-attempt"
+      },
+      (delta) => {
+        streamedText += delta;
+        controller.abort();
+      },
+      controller.signal,
+      { rewriteId: "partial-rewrite", takeId: "unused-original-take" }
+    );
+    assert.equal(stopped, null);
+    assert.notEqual(streamedText.trim(), "");
+
+    const settleId = mutationId("f");
+    const input = {
+      storyId: story.id,
+      nodeId,
+      streamedDigest: rewriteStreamDigest(streamedText),
+      attemptId: "restart-replay-attempt"
+    };
+    const committed = await runWorkerMutation(
+      service,
+      settleId,
+      "commitPartialRewrite",
+      input
+    );
+    assert.ok(committed);
+    assert.notEqual(committed.nodeId, nodeId);
+    const committedText = committed.payload.nodes.find(
+      (node) => node.id === committed.nodeId
+    )?.preview;
+    const current = await service.createNode(story.id, {
+      parentId: committed.nodeId,
+      text: "A later edit must be visible when the settle receipt replays."
+    });
+
+    // A restart removes the process-local stash. The durable terminal receipt
+    // must still return the same take and must not apply the splice again.
+    await service.dispose();
+    disposed = true;
+    service = StoryService.withoutDiagnostics({ dataDir });
+    await service.init();
+    disposed = false;
+    const replayed = await runWorkerMutation(
+      service,
+      settleId,
+      "commitPartialRewrite",
+      input
+    );
+    assert.ok(replayed);
+    assert.equal(replayed.nodeId, committed.nodeId);
+    assert.equal(
+      replayed.payload.nodes.find((node) => node.id === replayed.nodeId)?.preview,
+      committedText
+    );
+    assert.equal(replayed.payload.nodes.length, current.nodes.length);
+    assert.equal(
+      replayed.payload.nodes.some((node) => node.preview.includes("later edit")),
+      true
+    );
+  } finally {
+    if (!disposed) await service.dispose();
+  }
+});
+
+test("a retryable partial settlement keeps its outer receipt pending", async (t) => {
+  const dataDir = await mkdtemp(path.join(
+    tmpdir(),
+    "1667-partial-rewrite-pending-retry-"
+  ));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    let story = await service.createStory("Partial settlement retry");
+    const original = "The blue door opened into a long and quiet stone corridor.";
+    story = await service.createNode(story.id, { parentId: null, text: original });
+    const nodeId = story.nodes[0]!.id;
+    const expected = "blue door opened into a long and quiet stone corridor";
+    const start = original.indexOf(expected);
+    const controller = new AbortController();
+    let streamedText = "";
+    const stopped = await service.rewriteNode(
+      story.id,
+      nodeId,
+      {
+        start,
+        end: start + expected.length,
+        expected,
+        instruction: "",
+        destination: "take",
+        attemptId: "pending-retry-attempt"
+      },
+      (delta) => {
+        streamedText += delta;
+        controller.abort();
+      },
+      controller.signal,
+      { rewriteId: "pending-retry-rewrite", takeId: "unused-pending-retry-take" }
+    );
+    assert.equal(stopped, null);
+    assert.notEqual(streamedText.trim(), "");
+
+    const input = {
+      storyId: story.id,
+      nodeId,
+      streamedDigest: rewriteStreamDigest(streamedText),
+      attemptId: "pending-retry-attempt"
+    };
+    const settleId = createDurableMutationId();
+    const expectedAggregateVersion = (
+      await service.stories.loadVersioned(story.id)
+    ).aggregateVersion!;
+    const hooks = (service as unknown as {
+      storyMutations: { hooks: { afterStage?: () => void } };
+    }).storyMutations.hooks;
+    hooks.afterStage = () => {
+      throw new Error("temporary settlement stage failure");
+    };
+
+    await assert.rejects(
+      runWorkerMutation(
+        service,
+        settleId,
+        "commitPartialRewrite",
+        input,
+        () => {},
+        new AbortController().signal,
+        expectedAggregateVersion
+      ),
+      (error) => {
+        assert.equal(isRetryablePartialSettlementFailure(error), true);
+        return /temporary settlement stage failure/.test(String(error));
+      }
+    );
+    const receiptFile = path.join(
+      dataDir,
+      "mutation-receipts",
+      `${settleId}.json`
+    );
+    const pendingReceipt = JSON.parse(
+      await readFile(receiptFile, "utf8")
+    ) as { state?: unknown };
+    assert.equal(pendingReceipt.state, "pending");
+    delete hooks.afterStage;
+
+    const committed = await runWorkerMutation(
+      service,
+      settleId,
+      "commitPartialRewrite",
+      input,
+      () => {},
+      new AbortController().signal,
+      expectedAggregateVersion
+    );
+    assert.ok(committed);
+    assert.notEqual(committed.nodeId, nodeId);
+    assert.equal(committed.payload.nodes.length, 2);
+  } finally {
+    await service.dispose();
+  }
+});
+
+test("a completed partial-rewrite replay does not consume a later attempt", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-partial-rewrite-attempts-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    let story = await service.createStory("Partial rewrite attempts");
+    const original = "The blue door opened into a long and quiet stone corridor.";
+    story = await service.createNode(story.id, { parentId: null, text: original });
+    const nodeId = story.nodes[0]!.id;
+    const stopRewrite = async (
+      expected: string,
+      attemptId: string,
+      rewriteId: string
+    ): Promise<string> => {
+      const current = await service.loadStory(story.id);
+      const text = current.path.find((node) => node.id === nodeId)!.text;
+      const start = text.indexOf(expected);
+      assert.notEqual(start, -1);
+      const controller = new AbortController();
+      let streamedText = "";
+      const stopped = await service.rewriteNode(
+        story.id,
+        nodeId,
+        {
+          start,
+          end: start + expected.length,
+          expected,
+          instruction: "",
+          attemptId
+        },
+        (delta) => {
+          streamedText += delta;
+          controller.abort();
+        },
+        controller.signal,
+        { rewriteId, takeId: `${rewriteId}-unused-take` }
+      );
+      assert.equal(stopped, null);
+      assert.notEqual(streamedText.trim(), "");
+      return streamedText;
+    };
+
+    const streamedA = await stopRewrite(
+      "blue door opened into a long",
+      "attempt-a",
+      "rewrite-a"
+    );
+    const settleAId = mutationId("a1");
+    const inputA = {
+      storyId: story.id,
+      nodeId,
+      streamedDigest: rewriteStreamDigest(streamedA),
+      attemptId: "attempt-a"
+    };
+    const committedA = await runWorkerMutation(
+      service,
+      settleAId,
+      "commitPartialRewrite",
+      inputA
+    );
+    assert.ok(committedA);
+
+    const streamedB = await stopRewrite(
+      "quiet stone corridor",
+      "attempt-b",
+      "rewrite-b"
+    );
+    const replayedA = await runWorkerMutation(
+      service,
+      settleAId,
+      "commitPartialRewrite",
+      inputA
+    );
+    assert.ok(replayedA);
+
+    const committedB = await runWorkerMutation(
+      service,
+      mutationId("b1"),
+      "commitPartialRewrite",
+      {
+        storyId: story.id,
+        nodeId,
+        streamedDigest: rewriteStreamDigest(streamedB),
+        attemptId: "attempt-b"
+      }
+    );
+    assert.ok(committedB, "the replay of attempt A must leave attempt B available");
+    assert.equal(
+      committedB.payload.path.find((node) => node.id === nodeId)?.text
+        .includes("quiet stone corridor"),
+      false
+    );
+  } finally {
+    await service.dispose();
+  }
+});
+
+test("a terminal partial-rewrite conflict releases its exact stash slot", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-partial-rewrite-terminal-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    let story = await service.createStory("Partial rewrite conflict");
+    const original = "The blue door opened into a long and quiet stone corridor.";
+    story = await service.createNode(story.id, { parentId: null, text: original });
+    const nodeId = story.nodes[0]!.id;
+    const expected = "blue door opened into a long and quiet stone corridor";
+    const start = original.indexOf(expected);
+    const controller = new AbortController();
+    let streamedText = "";
+    const stopped = await service.rewriteNode(
+      story.id,
+      nodeId,
+      {
+        start,
+        end: start + expected.length,
+        expected,
+        instruction: "",
+        attemptId: "terminal-attempt"
+      },
+      (delta) => {
+        streamedText += delta;
+        controller.abort();
+      },
+      controller.signal,
+      { rewriteId: "terminal-rewrite", takeId: "terminal-unused-take" }
+    );
+    assert.equal(stopped, null);
+    assert.notEqual(streamedText.trim(), "");
+
+    await service.editNode(story.id, nodeId, {
+      text: `${original} Changed.`,
+      expectedTextHash: sha256(original)
+    });
+    const expectedAggregateVersion = (
+      await service.stories.loadVersioned(story.id)
+    ).aggregateVersion!;
+    const input = {
+      storyId: story.id,
+      nodeId,
+      streamedDigest: rewriteStreamDigest(streamedText),
+      attemptId: "terminal-attempt"
+    };
+    const settleId = createDurableMutationId();
+    const terminalConflict = (error: unknown) =>
+      error instanceof ServiceError && error.status === 409;
+    await assert.rejects(
+      runWorkerMutation(
+        service,
+        settleId,
+        "commitPartialRewrite",
+        input,
+        () => {},
+        new AbortController().signal,
+        expectedAggregateVersion
+      ),
+      terminalConflict
+    );
+    await assert.rejects(
+      runWorkerMutation(
+        service,
+        settleId,
+        "commitPartialRewrite",
+        input,
+        () => {},
+        new AbortController().signal,
+        expectedAggregateVersion
+      ),
+      terminalConflict
+    );
+
+    assert.equal(
+      await runWorkerMutation(
+        service,
+        createDurableMutationId(),
+        "commitPartialRewrite",
+        input,
+        () => {},
+        new AbortController().signal,
+        expectedAggregateVersion
+      ),
+      null,
+      "a new request must not find a terminally unusable partial"
+    );
+  } finally {
+    await service.dispose();
+  }
+});
+
 test("pending autoname resumes before admission and reconciles after commit", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-autoname-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
@@ -616,14 +1000,29 @@ async function runWorkerMutation<M extends MutatingWorkerMethod>(
   method: M,
   value: unknown,
   onDelta: (text: string) => void = () => {},
-  signal: AbortSignal = new AbortController().signal
+  signal: AbortSignal = new AbortController().signal,
+  expectedAggregateVersion?: StoryAggregateVersion
 ): Promise<WorkerOutput<M>> {
   const input = parseWorkerMutation(method, value);
   return await service.runMutation(
     mutationIdValue,
     method,
     input,
-    (plan) => executeWorkerMutation(service, input, plan, { onDelta, signal }),
+    (plan) => executeWorkerMutation(service, input, plan, {
+      onDelta,
+      signal,
+      ...(expectedAggregateVersion === undefined
+        ? {}
+        : {
+            storyMutationRequest: {
+              transportOperationId: `idempotency:${mutationIdValue}`,
+              mutationId: mutationIdValue,
+              fingerprint: mutationFingerprint(method, input),
+              scope: `story:${(input as { storyId: string }).storyId}` as const,
+              expectedAggregateVersion
+            }
+          })
+    }),
     undefined,
     (plan) => preflightWorkerMutation(service, input, plan)
   );

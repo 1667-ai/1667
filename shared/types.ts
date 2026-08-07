@@ -660,6 +660,8 @@ export interface RewriteRequest {
   instruction: string;
   /** The exact text currently at [start, end) — the server rejects stale selections. */
   expected: string;
+  /** Identifies the streamed attempt that a later partial settle can commit. */
+  attemptId?: string;
   /** Absent means "in-place" — see `resolveRewriteDestination`. */
   destination?: RewriteDestination;
 }

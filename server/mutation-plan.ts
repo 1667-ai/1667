@@ -2,6 +2,8 @@ import type {
   MutatingWorkerMethod
 } from "../shared/worker-protocol.js";
 import type { GenerationSettings, Story, StoryPayload } from "../shared/types.js";
+import type { CardImportPlan } from "../shared/card-import.js";
+import type { LorebookImport } from "../shared/lorebook-entry.js";
 import type { BindGenerationIntent } from "./generation-http.js";
 import type { RemovedChapterBreak } from "./chapter-breaks.js";
 import { mutationOutcomeUnknown } from "./mutation-recovery.js";
@@ -46,11 +48,39 @@ interface MutationEntityNamespaces {
   continueStory: never;
 
   rewriteNode: "rewrite" | "rewrite-take";
+  commitPartialRewrite: "partial-rewrite-take";
   createSummaryTake: "summary-node" | "summary-cut";
 }
 
 export type MutationEntityNamespace<M extends MutatingWorkerMethod> = MutationEntityNamespaces[M];
 export type MutationRecoveryMode = "new" | "pending" | "provider-uncertain";
+
+/** The report each import method must answer with exactly once per mutation
+ * ID, however many times the request is retried. */
+export type MutationImportPlan<M extends MutatingWorkerMethod> =
+  M extends "importLorebook" ? LorebookImport
+    : M extends "importCard" ? CardImportPlan
+      : never;
+
+/**
+ * The service-facing port for one import mutation's preserved plan. `record`
+ * makes the plan durable in the outer receipt before the story transaction
+ * can commit, and `stored` answers it back on a retry, so the reported plan
+ * is never recomputed from a story the import already changed.
+ */
+export interface ImportPlanCustody<Plan> {
+  stored(): Plan | null;
+  record(plan: Plan): Promise<void>;
+}
+
+export function importPlanCustody<
+  M extends "importLorebook" | "importCard"
+>(plan: MutationPlan<M>): ImportPlanCustody<MutationImportPlan<M>> {
+  return {
+    stored: () => plan.storedImportPlan(),
+    record: (value) => plan.recordImportPlan(value)
+  };
+}
 
 /** Receipt-free capability exposed during aggregate admission. */
 export interface MutationPreflightPlan<M extends MutatingWorkerMethod> {
@@ -65,6 +95,8 @@ export interface MutationPlan<M extends MutatingWorkerMethod> extends MutationPr
     expectedFingerprint: string,
     load: () => Promise<RemovedChapterBreak>
   ): Promise<RemovedChapterBreak>;
+  storedImportPlan(): MutationImportPlan<M> | null;
+  recordImportPlan(value: MutationImportPlan<M>): Promise<void>;
   providerStarted(): Promise<void>;
   reconcileStory(
     stories: StoryStore,
@@ -97,6 +129,8 @@ export interface MutationPlanStorage {
     expectedFingerprint: string,
     load: () => Promise<RemovedChapterBreak>
   ): Promise<RemovedChapterBreak>;
+  storedImportPlan(): unknown;
+  recordImportPlan(value: unknown): Promise<void>;
   providerStarted(): Promise<void>;
   providerRecoveryRequired(): never;
 }
@@ -113,6 +147,9 @@ export function createMutationPlan<M extends MutatingWorkerMethod>(
     bindGenerationIntent: (settings, context) => storage.bindGenerationIntent(settings, context),
     preserveChapterBreakRemoval: (expectedFingerprint, load) =>
       storage.preserveChapterBreakRemoval(expectedFingerprint, load),
+    storedImportPlan: () =>
+      storage.storedImportPlan() as MutationImportPlan<M> | null,
+    recordImportPlan: (value) => storage.recordImportPlan(value),
     providerStarted: () => {
       if (recoveryMode === "provider-uncertain") {
         return storage.providerRecoveryRequired();

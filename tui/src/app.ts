@@ -315,7 +315,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
     state,
     source,
     backend,
-    invalidateCache: () => wrapCache.invalidate(),
+    cache: wrapCache,
     repaint
   });
   // The generation or rewrite task owns partial-save/reload reconciliation.

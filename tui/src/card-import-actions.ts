@@ -90,8 +90,7 @@ async function applyCardImport(
       const result = await source.api.importCard(task.storyId, bytes);
       if (!task.storyCurrent()) return;
       plan = result.plan;
-      adoptSameStoryPayload(state, result.payload);
-      context.cache.invalidate();
+      adoptSameStoryPayload(state, result.payload, context.cache);
       adopted = true;
     });
     // TypeScript's flow analysis does not see the assignment inside the

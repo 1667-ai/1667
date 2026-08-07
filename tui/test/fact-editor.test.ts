@@ -12,6 +12,7 @@ import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import type { DocumentEditorSession, FactEditorSession, RuntimeState } from "../src/state.js";
 import { adoptSameStoryPayload } from "../src/story-adoption.js";
+import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { estimateTokens } from "../../shared/tokens.js";
 import { editorHarness, key } from "./editor-harness.js";
 
@@ -455,7 +456,7 @@ describe("Fact editor", () => {
       ...state.payload,
       facts: state.payload.facts.map((candidate) =>
         candidate.id === fact.id ? recovered : candidate)
-    });
+    }, createWrapCache<ProseStyle>());
 
     const editor = activeFactEditor(state);
     expect(editor.tag.text).toBe("Local");
@@ -485,7 +486,7 @@ describe("Fact editor", () => {
       ...state.payload,
       facts: state.payload.facts.map((candidate) =>
         candidate.id === fact.id ? recovered : candidate)
-    });
+    }, createWrapCache<ProseStyle>());
     let saves = 0;
     const patchFact = source.api.patchFact;
     source.api.patchFact = async (...args) => {
@@ -511,7 +512,7 @@ describe("Fact editor", () => {
     adoptSameStoryPayload(state, {
       ...state.payload,
       facts: state.payload.facts.filter(({ id }) => id !== fact.id)
-    });
+    }, createWrapCache<ProseStyle>());
 
     const editor = activeFactEditor(state);
     expect(editor.target).toMatchObject({

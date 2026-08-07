@@ -1,5 +1,10 @@
-import { GenerationResultError } from "./errors.js";
-import { streamCompletion, type PromptPlan, type TokenProbabilityCollector } from "./providers.js";
+import { GenerationResultError, ProviderError } from "./errors.js";
+import {
+  streamCompletion,
+  type PromptPlan,
+  type StreamOutcome,
+  type TokenProbabilityCollector
+} from "./providers.js";
 import type { GenerationSettings } from "../shared/types.js";
 import type { PromptCacheRequest } from "./provider-cache-policy.js";
 import type { StorySamplingBias } from "./sampling-phrase-bias.js";
@@ -24,7 +29,9 @@ export interface StreamModelOptions {
   readonly tokenProbabilities?: TokenProbabilityCollector;
 }
 
-/** Transport-neutral model stream. null means cancellation; failures throw. */
+/** Transport-neutral model stream. null means the stream was interrupted by
+ * cancellation; a completed stream and a classified provider failure keep
+ * their result even when the signal changes in the same turn. */
 export async function streamModel(
   settings: GenerationSettings,
   prompt: PromptPlan,
@@ -33,6 +40,10 @@ export async function streamModel(
   options: StreamModelOptions = {}
 ): Promise<string | null> {
   const { output, providerStarted, promptCache, storySampling, tokenProbabilities } = options;
+  const outcome: StreamOutcome = {
+    finishReason: null,
+    providerTerminal: false
+  };
   let text = "";
   const emit = async (delta: string) => {
     if (delta.length === 0) return;
@@ -44,16 +55,25 @@ export async function streamModel(
       providerStarted,
       promptCache,
       storySampling,
-      tokenProbabilities
+      tokenProbabilities,
+      outcome
     })) {
       await emit(output?.push(delta) ?? delta);
     }
+    // Some transports, including dry-run, end their iterator normally on
+    // cancellation. Only a provider terminal marks that normal return as a
+    // completed response; otherwise the streamed prefix remains partial.
+    if (signal.aborted && !outcome.providerTerminal) return null;
     if (output !== undefined) await emit(output.finish());
   } catch (error) {
+    // The provider already classified this failure. A caller abort that races
+    // the throw cannot turn rejected output into settleable cancellation.
+    if (error instanceof ProviderError) throw error;
     if (signal.aborted) return null;
     throw error;
   }
-  if (signal.aborted) return null;
+  // The provider and the output filter both finished. Validate their completed
+  // output even if Stop arrived during the final consumer backpressure wait.
   if (text.trim().length === 0) throw new GenerationResultError(502, "The model returned no text.");
   return text;
 }

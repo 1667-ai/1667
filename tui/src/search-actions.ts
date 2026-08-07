@@ -184,8 +184,7 @@ async function openHitStory(
       return;
     }
     flushReadingPositionPersist();
-    adoptStoryState(state, payload);
-    context.cache.invalidate();
+    adoptStoryState(state, payload, context.cache);
     // adoptStoryState returns the app to NAV; search still owns the screen
     // until the part it is travelling to is on the page.
     state.mode = "SEARCH";

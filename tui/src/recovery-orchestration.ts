@@ -6,6 +6,7 @@ import type { ConnectionMonitor } from "./connection.js";
 import type { RecoveryWarningFeed } from "./recovery-warning-feed.js";
 import type { BackendTaskKind, RuntimeState } from "./state.js";
 import { adoptReconciliationSnapshot } from "./story-adoption.js";
+import type { ProseStyle, WrapCache } from "./wrap.js";
 import type { WorkerRecoveryWarning } from "./worker-api.js";
 import { publishSettingsView, publishStories } from "./overlay-publication.js";
 import { synchronizeSettingsModelDiscovery } from "./settings-model-discovery.js";
@@ -24,7 +25,7 @@ export interface RecoveryOrchestrationOptions {
   state: RuntimeState;
   source: RecoverySource;
   backend: ActionRunner;
-  invalidateCache(): void;
+  cache: WrapCache<ProseStyle>;
   repaint(): void;
 }
 
@@ -80,7 +81,7 @@ const activeOrchestrations = new WeakMap<RuntimeState, RecoveryOrchestration>();
  * Automatic transitions, durable recovery warnings, and explicit retry all
  * publish through the same epoch-fenced commit path. */
 export function startRecoveryOrchestration(options: RecoveryOrchestrationOptions): RecoveryOrchestration {
-  const { state, source, backend, invalidateCache, repaint } = options;
+  const { state, source, backend, cache, repaint } = options;
   let stopped = false;
   let connectionEpoch = 0;
   let reconnectRefreshScheduled = false;
@@ -128,7 +129,7 @@ export function startRecoveryOrchestration(options: RecoveryOrchestrationOptions
           source,
           task,
           lease,
-          invalidateCache,
+          cache,
           settingsPublished
         );
         // The snapshot publication and this continuation are separated by an
@@ -362,7 +363,7 @@ async function reconcileCurrentBackendState(
   source: Pick<RecoverySource, "api" | "demo" | "stories" | "settingsView" | "settings" | "backendRecovery">,
   task: ActionTask,
   lease: ReconciliationLease,
-  invalidateCache: () => void,
+  cache: WrapCache<ProseStyle>,
   settingsPublished: () => void
 ): Promise<ReconciliationResult | null> {
   if (!lease.current()) return null;
@@ -380,8 +381,7 @@ async function reconcileCurrentBackendState(
   // publication from the lease's authoritative epoch.
   publishStories(state, source, snapshot.stories);
   publishSettingsView(state, source, snapshot.settingsView);
-  adoptReconciliationSnapshot(state, snapshot.payload);
-  invalidateCache();
+  adoptReconciliationSnapshot(state, snapshot.payload, cache);
   settingsPublished();
   return { changedStory, interactionStable, storyId: snapshot.payload.id };
 }

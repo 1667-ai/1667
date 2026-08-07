@@ -2,7 +2,8 @@ import { isDiagnosticReference } from "../../shared/diagnostic-reference.js";
 import {
   decodeHttpFailurePayload,
   diagnosticReferenceFromFailure,
-  type CompatibleHttpFailureEnvelope
+  type CompatibleHttpFailureEnvelope,
+  type TimeoutProvenance
 } from "../../shared/failure-envelope.js";
 
 /** Application errors do not indicate loss of the backend connection. */
@@ -45,6 +46,10 @@ export class ApiFailureError<
 
   get status(): number | null {
     return this.failure.status;
+  }
+
+  get timeout(): TimeoutProvenance | null {
+    return this.failure.timeout ?? null;
   }
 }
 

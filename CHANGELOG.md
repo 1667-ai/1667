@@ -5,6 +5,20 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **A stopped or expired generation keeps all text that arrived.** After the
+  writer stops a generation, the live stream does not move again. The text
+  that arrives after the Stop lands in the saved take in one piece. When a
+  request deadline ends a generation, the backend now sends the stream text
+  that it did not post yet together with the error, and the TUI keeps that
+  text with the streamed prose. The failure result does not change.
+- **A retried import reports the import that occurred.** A crash could stop a
+  Lorebook import or a character-card import after the story transaction
+  committed and before the mutation receipt completed. A retry then computed
+  a new plan from the changed story, and the report could show a smaller
+  import than the import that occurred. 1667 now keeps the bounded import
+  plan in the mutation receipt before the import commits. A retry returns
+  that plan and its Fidelity Report. The Facts were never duplicated; only
+  the report was wrong.
 - **Editors now have standard clipboard actions.** Right-click an editable
   text field to open Copy, Paste, and Select all. Press `Ctrl+A` or
   `Command+A` to select all text. Direct supports these actions in its inline

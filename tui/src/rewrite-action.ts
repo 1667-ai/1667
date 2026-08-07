@@ -1,16 +1,17 @@
 import type { RewriteDestination, StoryNode, StoryPayload, TextRange } from "../../shared/types.js";
+import { rewriteStreamDigest } from "../../shared/rewrite-partial-contract.js";
 import type { ActionTask } from "./action-runtime.js";
 import type { AppSource } from "./app.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import { openRetakeComposer, suspendRetakeComposer } from "./composer-ownership.js";
-import { clearPendingGenerationDraft, restorePendingGenerationDraft } from "./generation-action.js";
+import { clearPendingGenerationDraft, isTimeoutClassApiFailure, restorePendingGenerationDraft } from "./generation-action.js";
 import { recordHumanWords } from "./config.js";
 import { humanWordsOf } from "./rail.js";
 import type { PendingGenerationDraft, PromptIntent, RetakePromptSession, RuntimeState, StreamView } from "./state.js";
 import type { ActionContext } from "./action-context.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
-import { appendStreamText, emptyStreamText } from "./stream-text.js";
+import { appendStreamText, emptyStreamText, streamHasSubstantiveText } from "./stream-text.js";
 import { canRewriteSelection, type StorySelectionSpan } from "./selection-projection.js";
 
 export interface RewriteTarget extends TextRange {
@@ -74,6 +75,7 @@ export function partIdFromTextSelection(spans: readonly StorySelectionSpan[]): s
 type RewriteActionContext = Pick<ActionContext, "backend" | "cache" | "repaint">;
 
 const REWRITE_STOPPING_TOAST = "rewrite stopping · nothing saved yet";
+const REWRITE_STOPPING_PARTIAL_TOAST = "rewrite stopping · keeping streamed text";
 const REWRITE_ALREADY_SAVED_TOAST = "rewrite already saved · finishing up";
 
 /** Choosing "Rewrite selection" opens the composer this returns rather than
@@ -183,18 +185,27 @@ async function runSelectionRewrite(
   state.stream = stream;
   context.repaint();
 
+  // Every byte the stream delivered, display guards aside — the exact text
+  // the settle after a Stop or a clean timeout identifies for the backend's
+  // partial-rewrite commit (issue #339). The stopped tail arrives through
+  // `onStopped` exactly once, at terminal settlement, so after the call
+  // resolves this equals what the backend's own stash holds.
+  let streamedText = "";
+  const attemptId = crypto.randomUUID();
   try {
     const takeId = await source.api.rewriteNode(
       task.storyId,
       node.id,
       {
         start: target.start, end: target.end, instruction, expected: target.expected,
+        attemptId,
         // Absent means "in-place" (shared/types.ts's resolveRewriteDestination) —
         // omitted rather than always stamped, so a plain send keeps sending the
         // exact body shape it always has.
         ...(destination === undefined ? {} : { destination })
       },
       (delta) => {
+        streamedText += delta;
         if (!task.owns() || !task.storyCurrent() || state.stream !== stream) return;
         appendStreamText(stream, delta);
         context.repaint();
@@ -205,10 +216,21 @@ async function runSelectionRewrite(
       // actually happens (api.ts, worker-story-api.ts). Recording it here
       // closes the window where that refresh rejects (or Escape races it)
       // between a durable take and this task ever learning about it.
-      () => { active.committed = true; }
+      () => { active.committed = true; },
+      (tail) => { streamedText += tail; }
     );
     if (controller.signal.aborted) {
-      return await reloadAfterStop(state, source, task.storyId, task.storyCurrent);
+      return await settleStoppedRewrite(
+        state,
+        source,
+        task,
+        node.id,
+        streamedText,
+        attemptId,
+        pendingDraft,
+        null,
+        context.cache
+      );
     }
     if (takeId === null) {
       // Not an abort and not an error — the request simply landed nothing.
@@ -230,7 +252,7 @@ async function runSelectionRewrite(
 
     const payload = await source.api.loadStory(task.storyId);
     if (!task.storyCurrent()) return;
-    adoptSameStoryPayload(state, payload);
+    adoptSameStoryPayload(state, payload, context.cache);
     const landed = new Map(state.freshLandedAt);
     landed.set(takeId, Date.now());
     state.freshLandedAt = landed;
@@ -245,7 +267,17 @@ async function runSelectionRewrite(
     state.toast = destination === "take" ? "selection rewritten as a new take" : "selection rewritten in place";
   } catch (error) {
     if (controller.signal.aborted) {
-      await reloadAfterStop(state, source, task.storyId, task.storyCurrent);
+      await settleStoppedRewrite(
+        state,
+        source,
+        task,
+        node.id,
+        streamedText,
+        attemptId,
+        pendingDraft,
+        null,
+        context.cache
+      );
     } else if (task.storyCurrent()) {
       if (active.committed) {
         // Only the confirming reload failed; the take itself already landed.
@@ -253,15 +285,31 @@ async function runSelectionRewrite(
         // a node the new take has already replaced on the active path, and
         // let the error speak for what actually went wrong.
         clearPendingGenerationDraft(state, pendingDraft);
+        state.toast = error instanceof Error ? error.message : String(error);
+      } else if (isTimeoutClassApiFailure(error) && streamedText.trim().length > 0) {
+        // A clean timeout — never the writer's Escape and never a provider
+        // rejection — leaves prose exactly as real as a Stop's (issue
+        // #345). The settle decides between "text kept" and the plain
+        // restore below; the failure itself stays visible either way.
+        await settleStoppedRewrite(
+          state,
+          source,
+          task,
+          node.id,
+          streamedText,
+          attemptId,
+          pendingDraft,
+          error instanceof Error ? error.message : String(error),
+          context.cache
+        );
       } else {
         restorePendingGenerationDraft(state, pendingDraft, task.interactionCurrent());
+        state.toast = error instanceof Error ? error.message : String(error);
       }
-      state.toast = error instanceof Error ? error.message : String(error);
     }
   } finally {
     if (state.abort === active) state.abort = null;
     if (state.stream === stream) state.stream = null;
-    context.cache.invalidate();
     context.repaint();
   }
 }
@@ -293,6 +341,16 @@ export function requestRewriteStop(state: RuntimeState, repaint: () => void): vo
     repaint();
     return;
   }
+  // Substantive streamed prose is worth landing (issue #339): keep the
+  // stream visible and the draft unrestored, and let the settle after
+  // terminal settlement decide between "text kept" and full restoration.
+  const stream = state.stream;
+  if (stream !== null && stream.rewrite !== undefined && streamHasSubstantiveText(stream)) {
+    active.controller.abort();
+    state.toast = REWRITE_STOPPING_PARTIAL_TOAST;
+    repaint();
+    return;
+  }
   const restored = restorePendingGenerationDraft(state, state.pendingGenerationDraft, true);
   active.controller.abort();
   state.stream = null;
@@ -300,19 +358,98 @@ export function requestRewriteStop(state: RuntimeState, repaint: () => void): vo
   repaint();
 }
 
+/** The rewrite counterpart of `settleStoppedGeneration`: ask the backend to
+ * commit the verified partial it stashed for this part. The request sends a
+ * digest of the exact prose this client watched stream. A refusal (nothing stashed, a byte
+ * difference, a rejected seam, a restarted backend) commits nothing; only a
+ * real commit ever reports text kept, so the writer is never told a save
+ * happened that did not. `failureMessage` is non-null when a clean timeout —
+ * not the writer's Escape — ended the stream; it stays in the toast either
+ * way. */
+async function settleStoppedRewrite(
+  state: RuntimeState,
+  source: AppSource,
+  task: ActionTask,
+  nodeId: string,
+  streamedText: string,
+  attemptId: string,
+  pendingDraft: PendingGenerationDraft,
+  failureMessage: string | null,
+  cache: ActionContext["cache"]
+): Promise<void> {
+  if (!task.storyCurrent()) return;
+  let committed: { payload: StoryPayload; nodeId: string } | null = null;
+  if (streamedText.trim().length > 0) {
+    const streamedDigest = rewriteStreamDigest(streamedText);
+    try {
+      // Routed through the recovery feed when one is active — a worker
+      // deadline publishes a recovery warning that would otherwise fence
+      // this save, the same reason settleStoppedGeneration routes its
+      // createNode this way.
+      committed = await (
+        source.backendRecovery?.runRecoveryMutation(() =>
+          source.api.commitPartialRewrite(
+            task.storyId,
+            nodeId,
+            streamedDigest,
+            attemptId
+          )
+        ) ?? source.api.commitPartialRewrite(
+          task.storyId,
+          nodeId,
+          streamedDigest,
+          attemptId
+        )
+      );
+    } catch {
+      committed = null;
+    }
+  }
+  if (!task.storyCurrent()) return;
+  if (committed !== null) {
+    adoptSameStoryPayload(state, committed.payload, cache);
+    const landed = new Map(state.freshLandedAt);
+    landed.set(committed.nodeId, Date.now());
+    state.freshLandedAt = landed;
+    clearPendingGenerationDraft(state, pendingDraft);
+    if (task.interactionCurrent()) {
+      state.focusIndex = Math.max(
+        0,
+        rowIndexForNode(createStoryViewModel(committed.payload), committed.nodeId)
+      );
+      rememberFocus(state, source);
+    }
+    state.toast = failureMessage === null
+      ? "rewrite stopped · streamed text kept"
+      : `${failureMessage} · rewrite stopped · text kept`;
+    return;
+  }
+  restorePendingGenerationDraft(state, pendingDraft, task.interactionCurrent());
+  if (failureMessage !== null) {
+    state.toast = failureMessage;
+    return;
+  }
+  await reloadAfterStop(state, source, task.storyId, task.storyCurrent, cache);
+}
+
 async function reloadAfterStop(
   state: RuntimeState,
   source: AppSource,
   storyId: string,
-  storyCurrent: () => boolean
+  storyCurrent: () => boolean,
+  cache: ActionContext["cache"]
 ): Promise<void> {
   if (!storyCurrent()) return;
   try {
     const payload = await source.api.loadStory(storyId);
-    if (storyCurrent()) adoptSameStoryPayload(state, payload);
-    if (state.toast === REWRITE_STOPPING_TOAST) state.toast = "rewrite stopped · nothing saved";
+    if (storyCurrent()) adoptSameStoryPayload(state, payload, cache);
+    if (state.toast === REWRITE_STOPPING_TOAST
+      || state.toast === REWRITE_STOPPING_PARTIAL_TOAST) {
+      state.toast = "rewrite stopped · nothing saved";
+    }
   } catch (error) {
-    if (state.toast === REWRITE_STOPPING_TOAST) {
+    if (state.toast === REWRITE_STOPPING_TOAST
+      || state.toast === REWRITE_STOPPING_PARTIAL_TOAST) {
       state.toast = error instanceof Error ? error.message : String(error);
     }
   }

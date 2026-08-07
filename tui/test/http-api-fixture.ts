@@ -95,7 +95,10 @@ export function createTestApi(
 export function testHttpAccess(
   baseUrl: string,
   instanceId = TEST_HTTP_INSTANCE_ID,
-  onReservation?: (request: Record<string, unknown>) => unknown
+  onReservation?: (request: Record<string, unknown>) => unknown,
+  onOperationStatus?: (
+    path: "/api/operations/status" | "/api/operations/cancel"
+  ) => Readonly<Record<string, unknown>> | undefined
 ): HttpApiAccess {
   const origin = parseCanonicalLoopbackOrigin(baseUrl).origin;
   const authRecord = {
@@ -110,7 +113,8 @@ export function testHttpAccess(
   const fetch = operationAwareFixtureFetch(
     origin,
     authRecord,
-    onReservation
+    onReservation,
+    onOperationStatus
   );
   return {
     authority: new HttpListenerAuthority({
@@ -123,7 +127,10 @@ export function testHttpAccess(
 function operationAwareFixtureFetch(
   origin: string,
   authRecord: HttpAuthRecord,
-  onReservation?: (request: Record<string, unknown>) => unknown
+  onReservation?: (request: Record<string, unknown>) => unknown,
+  onOperationStatus?: (
+    path: "/api/operations/status" | "/api/operations/cancel"
+  ) => Readonly<Record<string, unknown>> | undefined
 ): OperationFetch {
   const sessions = {
     story: {
@@ -191,7 +198,8 @@ function operationAwareFixtureFetch(
         sequence,
         state: "completed",
         terminal: true,
-        cancelRequested: false
+        cancelRequested: false,
+        ...onOperationStatus?.(pathname)
       });
     }
     if (pathname === "/api/operations/terminal"

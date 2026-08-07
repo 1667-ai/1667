@@ -161,6 +161,11 @@ export class WorkerTransport {
     input: WorkerInput<M>,
     options: {
       onDelta?: (text: string) => void;
+      /** Receives, exactly once at terminal settlement, the stream text
+       * that arrived after `signal` aborted (withheld deltas plus the
+       * worker's own reclaimed tail). `onDelta` is never called after the
+       * abort. */
+      onStopped?: (text: string) => void;
       signal?: AbortSignal;
       expectedAggregateVersion?: StoryAggregateVersion;
     } = {}
@@ -194,6 +199,7 @@ export class WorkerTransport {
     input: WorkerInput<M>,
     options: {
       onDelta?: (text: string) => void;
+      onStopped?: (text: string) => void;
       signal?: AbortSignal;
       expectedAggregateVersion?: StoryAggregateVersion;
     }
@@ -292,6 +298,7 @@ export class WorkerTransport {
         ...(mutationId === undefined ? {} : { mutationId }),
         durableIntent: intent !== undefined,
         ...(options.onDelta === undefined ? {} : { onDelta: options.onDelta }),
+        ...(options.onStopped === undefined ? {} : { onStopped: options.onStopped }),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
         timeoutMs,
         deadlineAfterMs,
@@ -436,7 +443,13 @@ export class WorkerTransport {
       }
       pending.expectedSequence += 1;
       try {
-        pending.onDelta?.(message.text);
+        // After the caller's signal aborts, `onDelta` must never run again.
+        // The text still arrived from the server, so it is withheld into
+        // the stopped tail (delivered once at terminal settlement) rather
+        // than dropped, and the batch is still acknowledged so worker
+        // credit keeps flowing toward that terminal.
+        if (pending.cancelled) pending.stoppedTail += message.text;
+        else pending.onDelta?.(message.text);
         this.worker.postMessage({ type: "ack", id: message.id, sequence: message.sequence });
       } catch (error) {
         const failure = error instanceof Error ? error : new Error(String(error));

@@ -147,6 +147,36 @@ describe("embedded worker transport lifecycle", () => {
     }
   });
 
+  test("archives a legacy worker error with no mutation outcome", async () => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), "1667-worker-legacy-outcome-"));
+    const outbox = new MutationOutbox(path.join(dataDir, "mutation-outbox"));
+    await outbox.init();
+    const worker = new FakeWorker(true);
+    const transport = new WorkerTransport({ worker, readyTimeoutMs: 100 }, outbox);
+    await transport.start();
+    try {
+      const pending = transport.call("createStory", { title: "Legacy outcome" });
+      const request = await waitForRequest(worker, "createStory");
+      worker.message({
+        type: "error",
+        id: request.id,
+        failure: createFailureEnvelope({
+          code: "internal",
+          message: "Worker failure without an outcome marker",
+          status: 500
+        })
+      });
+
+      expect(await rejection(pending)).toMatchObject({ status: 500 });
+      expect(await outbox.list()).toEqual([]);
+      expect((await outbox.listArchived()).map(({ intent }) => intent.mutationId))
+        .toEqual([request.mutationId]);
+    } finally {
+      await transport.dispose();
+      await rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
   test("cancels a live mutation before enforcing its hard deadline fence", async () => {
     const worker = new FakeWorker();
     const backend = await createWorkerStoryApi({

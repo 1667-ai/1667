@@ -1,5 +1,6 @@
 import { performance } from "node:perf_hooks";
 import type { HttpCapabilityScope } from "../shared/http-auth.js";
+import type { FailureEnvelope } from "../shared/failure-envelope.js";
 import {
   HTTP_OPERATION_CAPACITY,
   HTTP_OPERATION_CANCEL_GRACE_MS,
@@ -70,7 +71,10 @@ export interface RunningHttpOperation {
   readonly signal: AbortSignal;
   readonly mutationId: string | null;
   readonly expectedAggregateVersion: StoryAggregateVersion | null;
-  finish(state: "completed" | "canceled" | "failed"): void;
+  finish(outcome:
+    | { readonly state: "completed" | "canceled" }
+    | { readonly state: "failed"; readonly failure: FailureEnvelope }
+  ): void;
 }
 
 /**
@@ -283,10 +287,15 @@ export class HttpOperationSessionStore {
       signal: operation.abort.signal,
       mutationId: operation.mutationId,
       expectedAggregateVersion: operation.expectedAggregateVersion,
-      finish: (state) => {
+      finish: (outcome) => {
         if (finished) return;
         finished = true;
-        this.finishRecord(operation, state, this.now());
+        this.finishRecord(
+          operation,
+          outcome.state,
+          this.now(),
+          outcome.state === "failed" ? outcome.failure : null
+        );
       }
     };
   }
@@ -481,7 +490,8 @@ export class HttpOperationSessionStore {
   private finishRecord(
     operation: HttpOperationRecord,
     requestedState: "completed" | "canceled" | "failed",
-    now: number
+    now: number,
+    failure: FailureEnvelope | null = null
   ): void {
     if (isTerminalHttpOperationState(operation.state)) return;
     if (operation.timer !== null) clearTimeout(operation.timer);
@@ -489,6 +499,7 @@ export class HttpOperationSessionStore {
     operation.timer = null;
     operation.hardTimer = null;
     operation.state = requestedState;
+    operation.failure = requestedState === "failed" ? failure : null;
     operation.terminalAt = now;
     if (this.lifecycle.kind === "supervised") {
       this.lifecycle.terminal({

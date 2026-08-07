@@ -13,6 +13,7 @@ import type {
 } from "../shared/settings-v2-types.js";
 import type {
   GenerationSettings,
+  Story,
   StoryPayload,
   StorySummary
 } from "../shared/types.js";
@@ -76,7 +77,11 @@ import type { SamplingBiasResolutionResult } from "../shared/sampling-capabiliti
 import type { SamplingPhraseBiasEntryV2 } from "../shared/settings-v2-types.js";
 import { seedStarterVault } from "./starter-vault.js";
 import { buildStoryPayload } from "./story-payload.js";
-import type { MutationPlan, MutationPreflightPlan } from "./mutation-plan.js";
+import type {
+  ImportPlanCustody,
+  MutationPlan,
+  MutationPreflightPlan
+} from "./mutation-plan.js";
 import type { MutatingWorkerMethod } from "../shared/worker-protocol.js";
 import type { StoryCatalogPage } from "../shared/story-catalog.js";
 import type { GenerationMutationHooks } from "./story-service-generation.js";
@@ -484,6 +489,22 @@ export class StoryService extends StoryServiceRuntime {
     return await this.storyLocal.editNode(id, nodeId, value, mutationRequest);
   }
 
+  async commitPartialRewrite(
+    id: string,
+    nodeId: string,
+    value: unknown,
+    mutationRequest?: unknown,
+    settleTakeId?: string
+  ): Promise<{ payload: StoryPayload; nodeId: string } | null> {
+    return await this.storyLocal.commitPartialRewrite(
+      id,
+      nodeId,
+      value,
+      mutationRequest,
+      settleTakeId
+    );
+  }
+
   async deleteNode(
     id: string,
     nodeId: string,
@@ -850,14 +871,21 @@ export class StoryService extends StoryServiceRuntime {
   async importLorebook(
     storyId: string,
     archiveBytes: Uint8Array,
-    mutationRequest?: unknown
+    mutationRequest?: unknown,
+    custody?: ImportPlanCustody<LorebookImport>
   ): Promise<{ payload: StoryPayload; importResult: LorebookImport }> {
     this.ensureOpen();
     if (archiveBytes.byteLength > MAX_IMPORT_BYTES) {
       throw new ServiceError(413, "Request body too large");
     }
-    const story = await this.stories.load(storyId);
-    const room = MAX_FACTS - story.facts.length;
+    // The plan is computed inside the canonical mutation callback, from the
+    // story that callback mutates, because the room is what a post-commit
+    // retry would otherwise get wrong: the retried load already holds the
+    // imported Facts and would report a smaller import than the one that
+    // happened (old-repo #321). The custody preserves the computed plan
+    // before the transaction can commit, and answers it back when the ledger
+    // resolves a retry without running the callback.
+    //
     // `parseLorebookArchive` and `factsFromArchive` live in `shared/`, so they
     // throw an ordinary `Error` for malformed JSON, an unreadable PNG, an
     // entry-shape refusal, or an oversized archive — they have no server-side
@@ -866,54 +894,67 @@ export class StoryService extends StoryServiceRuntime {
     // This path sends the Facts as one createFact body, so the body budget
     // applies here. A container import builds the story in process and does not
     // pass one.
-    const importResult = importValidation(() => {
-      const lorebook = parseLorebookArchive(archiveBytes);
-      return factsFromArchive(lorebook, room, MAX_JSON_BODY_BYTES);
-    });
+    //
     // An archive can hold nothing this story can take: no entries, every entry
     // disabled, or every entry refused. That is a report, not a failure, and
     // `createFacts` already answers `false` (-> STORY_UNCHANGED) for a request
     // that asks for what already holds. An empty batch is the degenerate member
     // of that family, so this call needs no branch of its own.
-    const payload = await this.createFact(
+    const { payload, report } = await this.storyLocal.createPlannedFacts(
       storyId,
-      { facts: [...importResult.facts] },
-      undefined,
-      mutationRequest
+      mutationRequest,
+      {
+        planned: preservedImportPlan(custody, (story) => importValidation(() => {
+          const lorebook = parseLorebookArchive(archiveBytes);
+          return factsFromArchive(
+            lorebook,
+            MAX_FACTS - story.facts.length,
+            MAX_JSON_BODY_BYTES
+          );
+        })),
+        body: (importResult) => ({ facts: [...importResult.facts] }),
+        replay: () => custody?.stored() ?? null
+      }
     );
-    return { payload, importResult };
+    return { payload, importResult: report };
   }
 
   async importCard(
     storyId: string,
     cardBytes: Uint8Array,
-    mutationRequest?: unknown
+    mutationRequest?: unknown,
+    custody?: ImportPlanCustody<CardImportPlan>
   ): Promise<{ payload: StoryPayload; plan: CardImportPlan }> {
     this.ensureOpen();
     if (cardBytes.byteLength > MAX_IMPORT_BYTES) {
       throw new ServiceError(413, "Request body too large");
     }
-    // Loaded first, unlike a lorebook, because the plan itself is bounded by
-    // the room this load produces: the Character Facts and the
-    // character_book Facts alike, not the character_book alone.
-    const story = await this.stories.load(storyId);
-    const room = MAX_FACTS - story.facts.length;
+    // The same planned-inside-the-callback shape as `importLorebook` above,
+    // for the same retry-fidelity reason: the plan is bounded by the room the
+    // mutation itself reads — the Character Facts and the character_book
+    // Facts alike — and the custody keeps that plan durable for replays.
+    //
     // `planCardImport` lives in `shared/`, so it throws an ordinary `Error`
     // for malformed JSON, an unsupported spec version, an unsupported
     // container, an entry-count ceiling, or oversized text — the same
     // boundary translation `importLorebook` above applies to its own parser.
-    const plan = importValidation(() => planCardImport(cardBytes, room));
+    //
     // A card can hold nothing this story can take: no room left for even one
     // Fact. That is a report, not a failure, and `createFacts` already
     // answers `false` (-> STORY_UNCHANGED) for a request that asks for what
     // already holds.
-    const payload = await this.createFact(
+    const { payload, report } = await this.storyLocal.createPlannedFacts(
       storyId,
-      { facts: [...plan.facts] },
-      undefined,
-      mutationRequest
+      mutationRequest,
+      {
+        planned: preservedImportPlan(custody, (story) => importValidation(
+          () => planCardImport(cardBytes, MAX_FACTS - story.facts.length)
+        )),
+        body: (plan) => ({ facts: [...plan.facts] }),
+        replay: () => custody?.stored() ?? null
+      }
     );
-    return { payload, plan };
+    return { payload, plan: report };
   }
 
   async continueStory(
@@ -1042,6 +1083,26 @@ export class StoryService extends StoryServiceRuntime {
     );
   }
 
+}
+
+/** The planner an import hands `createPlannedFacts`: a preserved plan wins,
+ * and only its absence computes one from the story in hand — then records it
+ * durably before the mutation can commit. A preserved plan can exist while
+ * the callback still runs when a crash landed before the commit point; the
+ * story is unchanged then, so applying the preserved plan and computing a
+ * fresh one are the same import, and preferring the preserved one keeps the
+ * report equal to it on every path. */
+function preservedImportPlan<Plan>(
+  custody: ImportPlanCustody<Plan> | undefined,
+  compute: (story: Story) => Plan
+): (story: Story) => Promise<Plan> {
+  return async (story) => {
+    const stored = custody?.stored() ?? null;
+    if (stored !== null) return stored;
+    const plan = compute(story);
+    await custody?.record(plan);
+    return plan;
+  };
 }
 
 /** Run a `shared/` import parser and translate its ordinary `Error` into a

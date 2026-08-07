@@ -39,7 +39,14 @@ export async function runLocalTierMutation<
     providerRecoveryRequired: () => {
       throw localTierViolation(method, "provider recovery");
     },
-    preserveChapterBreakRemoval: loadVerifiedChapterBreakRemoval
+    preserveChapterBreakRemoval: loadVerifiedChapterBreakRemoval,
+    // Import methods are in the local-method type union but the manifest-only
+    // eligibility predicate routes them through the full receipt tier. These
+    // methods still fail closed if that boundary regresses.
+    storedImportPlan: () => null,
+    recordImportPlan: async () => {
+      throw localTierViolation(method, "import-plan custody");
+    }
   });
   try {
     return await work(plan);

@@ -62,6 +62,7 @@ async function settleOwnedWorkerTerminal(
   if (pending.settling) return;
   pending.settling = true;
   pending.cleanup();
+  deliverStreamTail(pending, message);
   const uncertainMutation = message.type === "error"
     && (pending.mutationId !== undefined
       || isServiceOwnedSettingsMutation(pending.method))
@@ -146,12 +147,27 @@ async function settleOwnedWorkerTerminal(
     pending.reject(workerError(message));
     return;
   }
-  if (message.type === "complete"
-    && pending.cancelled
-    && message.stoppedText !== undefined) {
-    pending.onDelta?.(message.stoppedText);
-  }
   pending.resolve(message.value);
+}
+
+/** Deliver legacy terminal-carried stream text before settlement. Current
+ * workers publish reclaimed text as sequenced deltas before the terminal.
+ * After abort, the transport routes those deltas to `onStopped`; a legacy
+ * terminal tail follows the same route. */
+function deliverStreamTail(
+  pending: PendingCall,
+  message: TerminalMessage
+): void {
+  if (!pending.stream) return;
+  const stopped = message.type === "complete" ? message.stoppedText : undefined;
+  const unsent = message.type === "error" ? message.unsentText : undefined;
+  if (pending.cancelled) {
+    const tail = pending.stoppedTail + (stopped ?? "") + (unsent ?? "");
+    pending.stoppedTail = "";
+    if (tail.length > 0) pending.onStopped?.(tail);
+    return;
+  }
+  if (unsent !== undefined) pending.onDelta?.(unsent);
 }
 
 function workerError(

@@ -69,7 +69,10 @@ test("OpenAI-compatible text completions stream ChatML without changing the fina
   const settings = effectiveGenerationSettings(
     textDocument(origin, "custom", "chatml")
   );
-  const outcome: StreamOutcome = { finishReason: null };
+  const outcome: StreamOutcome = {
+    finishReason: null,
+    providerTerminal: false
+  };
 
   assert.equal(await collect(streamCompletion(
     settings,
@@ -88,6 +91,7 @@ test("OpenAI-compatible text completions stream ChatML without changing the fina
   );
   assert.equal(requests[0]?.body.max_tokens, 96);
   assert.equal(outcome.finishReason, "stop");
+  assert.equal(outcome.providerTerminal, true);
 });
 
 test("llama.cpp text completions derive the prompt from the server template", async (t) => {
@@ -113,11 +117,16 @@ test("llama.cpp text completions derive the prompt from the server template", as
   const settings = effectiveGenerationSettings(
     textDocument(origin, "llama-cpp", "server-template")
   );
+  const outcome: StreamOutcome = {
+    finishReason: null,
+    providerTerminal: false
+  };
 
   assert.equal(await collect(streamCompletion(
     settings,
     PROMPT,
-    new AbortController().signal
+    new AbortController().signal,
+    { outcome }
   )), " softly");
   assert.equal(requests[0]?.path, "/apply-template");
   assert.equal(requests[0]?.body.add_generation_prompt, false);
@@ -131,6 +140,8 @@ test("llama.cpp text completions derive the prompt from the server template", as
   assert.equal(requests[1]?.body.prompt, "server template :: The lantern dimmed");
   assert.equal(requests[1]?.body.model, "test-model");
   assert.equal(requests[1]?.body.n_predict, 96);
+  assert.equal(outcome.finishReason, "stop");
+  assert.equal(outcome.providerTerminal, true);
 });
 
 test("KoboldCpp text completions use its native stream and sampler names", async (t) => {
@@ -159,7 +170,10 @@ test("KoboldCpp text completions use its native stream and sampler names", async
     }
   );
   const settings = effectiveGenerationSettings(document);
-  const outcome: StreamOutcome = { finishReason: null };
+  const outcome: StreamOutcome = {
+    finishReason: null,
+    providerTerminal: false
+  };
 
   assert.equal(await collect(streamCompletion(
     settings,
@@ -178,6 +192,7 @@ test("KoboldCpp text completions use its native stream and sampler names", async
   assert.equal(requests[0]?.body.presence_penalty, 0.2);
   assert.equal(requests[0]?.body.rep_pen, 1.12);
   assert.equal(requests[0]?.body.sampler_seed, 42);
+  assert.equal(outcome.providerTerminal, true);
   assert.deepEqual(requests[0]?.body.stop_sequence, ["END"]);
   assert.equal(outcome.finishReason, "length");
 });

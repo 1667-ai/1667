@@ -1,5 +1,6 @@
 import {
   MAX_DELTA_BATCH_BYTES,
+  MAX_UNACKNOWLEDGED_DELTA_BYTES,
   isWorkerInstanceId,
   isWorkerOperationId,
   type WorkerOperationId,
@@ -157,19 +158,27 @@ function decodeErrorMessage(
   if (!hasExactKeys(
     message,
     ["type", "id", "failure"],
-    ["mutationOutcome", "providerMutationId"]
+    ["mutationOutcome", "providerMutationId", "unsentText"]
   )) return null;
   const id = decodeOperationId(message.id);
   const failure = decodeFailureEnvelope(message.failure);
   const outcome = message.mutationOutcome;
   const providerMutationId = message.providerMutationId;
+  // The reclaimed tail spans at most the credit window plus one buffered
+  // batch, so the transport bound is the window total, not one batch.
+  const unsentText = message.unsentText;
   if (id === null
     || failure === null
     || (providerMutationId !== undefined
       && !isProviderMutationId(providerMutationId))
     || (outcome !== undefined
       && outcome !== "terminal"
-      && outcome !== "uncertain")) {
+      && outcome !== "uncertain")
+    || (unsentText !== undefined
+      && (typeof unsentText !== "string"
+        || unsentText.length === 0
+        || new TextEncoder().encode(unsentText).byteLength
+          > MAX_UNACKNOWLEDGED_DELTA_BYTES))) {
     return null;
   }
   return Object.freeze({
@@ -179,7 +188,8 @@ function decodeErrorMessage(
     ...(providerMutationId === undefined
       ? {}
       : { providerMutationId }),
-    ...(outcome === undefined ? {} : { mutationOutcome: outcome })
+    ...(outcome === undefined ? {} : { mutationOutcome: outcome }),
+    ...(unsentText === undefined ? {} : { unsentText })
   });
 }
 

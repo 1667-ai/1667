@@ -4,12 +4,17 @@ import {
   GenerationCancelledError,
   GenerationStoppedError,
   ProviderRecoveryRequiredError,
-  ServiceError
+  ServiceError,
+  timeoutProvenanceOf
 } from "./errors.js";
 import { classifyProviderAbort } from "./provider-abort.js";
 
 export interface WorkerCancellationFailure {
   readonly error: unknown;
+  /** True when this request's deadline is what publishes the error
+   * terminal. The executor sends reclaimed stream text as bounded deltas
+   * before that terminal. */
+  readonly deadline: boolean;
 }
 
 /** Owns cooperative abort state without letting a late success erase deadline
@@ -26,6 +31,10 @@ export class WorkerRequestCancellation {
 
   get signal(): AbortSignal {
     return this.controller.signal;
+  }
+
+  get userCancellationRequested(): boolean {
+    return this.userCancellation !== null && this.deadlineFailure === null;
   }
 
   cancel(reason: WorkerCancelReason): void {
@@ -59,24 +68,25 @@ export class WorkerRequestCancellation {
 
   failure(error: unknown): WorkerCancellationFailure {
     const deadlineFailure = this.deadlineFailure;
-    if (deadlineFailure === null) return { error };
+    if (deadlineFailure === null) return { error, deadline: false };
     // A different target proves that the current request did not reach the
     // provider. Its older story fence must survive this request's deadline.
     if (error instanceof ProviderRecoveryRequiredError
       && error.providerMutationId !== this.mutationId) {
-      return { error };
+      return { error, deadline: false };
     }
     if (isExpectedDeadlineCancellation(
       error,
       deadlineFailure,
       this.controller.signal
     )) {
-      return { error: deadlineFailure };
+      return { error: deadlineFailure, deadline: true };
     }
     return {
       error: deadlineError(this.mutation, {
         diagnosticCause: error
-      })
+      }),
+      deadline: true
     };
   }
 }
@@ -88,7 +98,11 @@ function isExpectedDeadlineCancellation(
 ): boolean {
   return error === deadlineFailure
     || error === signal.reason
-    || (error instanceof Error && error.name === "AbortError");
+    || (error instanceof Error && error.name === "AbortError")
+    // A provider timeout is already positive evidence that cancellation,
+    // not rejection, ended the stream. If the worker deadline races that
+    // unwind, keep the worker's recovery code and its timeout provenance.
+    || timeoutProvenanceOf(error) !== null;
 }
 
 function deadlineError(
@@ -101,6 +115,8 @@ function deadlineError(
     : "Worker request deadline exceeded";
   const code = mutation ? "mutation_outcome_unknown" : "invalid_request";
   if (options !== undefined) {
+    // The deadline raced a different in-flight failure: the timeout masks
+    // that rejection, so this variant carries no clean-timeout stamp.
     return new DiagnosticServiceError(
       status,
       message,
@@ -112,9 +128,12 @@ function deadlineError(
     ? new ServiceError(
         status,
         message,
-        code
+        code,
+        { timeout: "worker-deadline" }
       )
-    : new ServiceError(status, message);
+    : new ServiceError(status, message, undefined, {
+        timeout: "worker-deadline"
+      });
 }
 
 function mutationInterruptedError(): ServiceError {

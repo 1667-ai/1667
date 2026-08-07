@@ -1,7 +1,8 @@
 import {
   createFailureEnvelope,
   diagnosticReferenceFromFailure,
-  type FailureEnvelope
+  type FailureEnvelope,
+  type TimeoutProvenance
 } from "../shared/failure-envelope.js";
 import type { DiagnosticReference } from "../shared/diagnostic-reference.js";
 import {
@@ -27,6 +28,7 @@ export interface PublicServiceError {
   readonly code: ServiceErrorCode;
   readonly message: string;
   readonly status: number;
+  readonly timeout?: TimeoutProvenance;
 }
 
 export interface ServiceErrorClassification {
@@ -55,7 +57,8 @@ export function classifyServiceError(
       publicError: {
         code: error.failure.code,
         message: error.failure.message,
-        status: error.failure.status ?? 500
+        status: error.failure.status ?? 500,
+        ...timeoutField(error.failure.timeout)
       },
       exposure: "public"
     };
@@ -78,7 +81,8 @@ export function classifyServiceError(
       publicError: {
         code: error.code,
         message: error.message,
-        status: error.status
+        status: error.status,
+        ...timeoutField(error.timeout)
       },
       exposure: "public"
     };
@@ -88,12 +92,19 @@ export function classifyServiceError(
       publicError: {
         code: "provider_failure",
         message: error.message,
-        status: 502
+        status: 502,
+        ...timeoutField(error.timeout)
       },
       exposure: "public"
     };
   }
   return { publicError: INTERNAL_PUBLIC_ERROR, exposure: "private" };
+}
+
+function timeoutField(
+  timeout: TimeoutProvenance | undefined
+): { readonly timeout?: TimeoutProvenance } {
+  return timeout === undefined ? {} : { timeout };
 }
 
 export function toPublicServiceError(error: unknown): PublicServiceError {
@@ -137,7 +148,8 @@ export function restoreStoredServiceFailure(
   const error = new ServiceError(
     failure.status ?? 500,
     failure.message,
-    failure.code
+    failure.code,
+    failure.timeout === undefined ? {} : { timeout: failure.timeout }
   );
   return failure.kind === "diagnostic" || failure.code === "internal"
     ? errorFromFailureIncident(

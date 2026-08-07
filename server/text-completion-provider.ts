@@ -23,6 +23,7 @@ import type { StorySamplingBias } from "./sampling-phrase-bias.js";
 
 interface TextCompletionOutcome {
   finishReason: "stop" | "length" | null;
+  providerTerminal: boolean;
 }
 
 interface TextCompletionOptions {
@@ -86,6 +87,9 @@ export async function* streamTextCompletion(
             throw new ProviderError(
               "OpenAI-compatible generation ended without a successful finish reason."
             );
+          }
+          if (options.outcome !== undefined) {
+            options.outcome.providerTerminal = true;
           }
           break;
         }
@@ -250,11 +254,13 @@ function updateOutcome(
   if (outcome === undefined) return;
   if (endpoint === "llama-cpp") {
     if (event.stop !== true) return;
+    outcome.providerTerminal = true;
     outcome.finishReason = event.stop_type === "limit" ? "length" : "stop";
     return;
   }
   if (endpoint === "koboldcpp") {
     if (typeof event.finish_reason !== "string") return;
+    outcome.providerTerminal = true;
     outcome.finishReason = event.finish_reason === "length" ? "length" : "stop";
     return;
   }

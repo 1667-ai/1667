@@ -227,6 +227,24 @@ test("cancellation during the final filtered delta returns no result", async () 
   assert.equal(result, null);
 });
 
+test("a classified failure wins when cancellation races the same stream turn", async () => {
+  const controller = new AbortController();
+  const providerFailure = new ProviderError("The provider rejected the stream.");
+
+  await assert.rejects(
+    streamModel(
+      settings("dry-run"),
+      prompt("title"),
+      controller.signal,
+      () => {
+        controller.abort();
+        throw providerFailure;
+      }
+    ),
+    (error) => error === providerFailure
+  );
+});
+
 test("an empty completed provider stream is a terminal generation result", async () => {
   const originalFetch = globalThis.fetch;
   let admissions = 0;

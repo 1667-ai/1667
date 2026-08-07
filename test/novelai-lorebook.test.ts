@@ -155,6 +155,52 @@ test("oversized entry is cut on a paragraph boundary, never between surrogates, 
   assert.equal(mockStory.facts.length, 1);
 });
 
+test("astral entry text measures in Unicode scalars, cuts on a paragraph boundary, and createFacts admits the result", () => {
+  // One scalar, two UTF-16 code units — a scalar count and a code-unit count
+  // disagree on every measurement below.
+  const astral = "\u{1D54F}";
+  // 3,000 scalars are 6,000 code units. The old code-unit measure cut this
+  // text; the scalar contract keeps it whole.
+  const wholeText = astral.repeat(3_000);
+  // 4,804 scalars pass the 4,000-scalar limit, so the cut lands on the last
+  // paragraph break at or before the cap: after paragraph two, at 3,802
+  // scalars — which is 7,602 code units, past the old code-unit limit.
+  const paragraph1 = astral.repeat(2_400);
+  const paragraph2 = astral.repeat(1_400);
+  const paragraph3 = astral.repeat(1_000);
+  const oversizedText = `${paragraph1}\n\n${paragraph2}\n\n${paragraph3}`;
+
+  const result = factsFromLorebook({
+    lorebookVersion: SUPPORTED_LOREBOOK_VERSION,
+    entries: [
+      { enabled: true, text: wholeText, displayName: "Whole" },
+      { enabled: true, text: oversizedText, displayName: "Cut" }
+    ]
+  }, 128);
+
+  assert.equal(result.facts.length, 2);
+  assert.equal(result.facts[0]?.text, wholeText);
+  assert.equal(result.facts[1]?.text, `${paragraph1}\n\n${paragraph2}`);
+  const report = fidelityReport(result.fidelity);
+  assert.ok(report.includes("1 entry truncated to 4,000 characters"), report);
+
+  const story: Story = {
+    id: "astral-story",
+    title: "Astral",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    nodes: [],
+    activeRootId: null,
+    recentNodeIds: [],
+    tags: [],
+    facts: [],
+    chapterBreaks: []
+  };
+  const accepted = createFacts(story, { facts: [...result.facts] }, (index) => `fact-${index}`);
+  assert.equal(accepted, true);
+  assert.equal(story.facts.length, 2);
+});
+
 test("parseLorebookArchive validates format, PNG embedding, and version", () => {
   assert.throws(() => parseLorebookArchive(new Uint8Array(0)), /Lorebook file is empty/);
 

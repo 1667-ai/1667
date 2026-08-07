@@ -1,4 +1,5 @@
 import type { GenerationSettings } from "../shared/types.js";
+import type { TimeoutProvenance } from "../shared/failure-envelope.js";
 import { ProviderError } from "./errors.js";
 import { providerFetch } from "./provider-fetch.js";
 import {
@@ -42,17 +43,26 @@ export async function* providerSseEvents(
       )}`
     );
   }
-  let deadlineMessage: string | null = null;
+  // A property read, not a narrowed local: the timers assign from their
+  // callbacks, which control-flow analysis cannot see.
+  const deadlineState: { failure: ProviderDeadline | null } = { failure: null };
   const deadline = new AbortController();
   const totalTimer = setTimeout(() => {
-    deadlineMessage = "Model request exceeded its total deadline.";
+    deadlineState.failure = {
+      message: "Model request exceeded its total deadline.",
+      timeout: "provider-total"
+    };
     deadline.abort();
   }, runtime.timeouts.totalMs);
   let phaseTimer: ReturnType<typeof setTimeout> | null = null;
-  const setPhaseTimer = (milliseconds: number, message: string) => {
+  const setPhaseTimer = (
+    milliseconds: number,
+    message: string,
+    timeout: TimeoutProvenance
+  ) => {
     if (phaseTimer !== null) clearTimeout(phaseTimer);
     phaseTimer = setTimeout(() => {
-      deadlineMessage = message;
+      deadlineState.failure = { message, timeout };
       deadline.abort();
     }, milliseconds);
   };
@@ -63,7 +73,8 @@ export async function* providerSseEvents(
     requestPrepared?.();
     setPhaseTimer(
       runtime.timeouts.responseHeaderMs,
-      "Model server did not return response headers before the configured deadline."
+      "Model server did not return response headers before the configured deadline.",
+      "provider-response-header"
     );
     let response: Response;
     try {
@@ -76,10 +87,15 @@ export async function* providerSseEvents(
         allowInsecurePrivateHttp: runtime.allowInsecureHttp
       });
     } catch (error) {
+      if (error instanceof ProviderError) throw error;
       if (callerSignal.aborted) throw callerSignal.reason;
-      throw deadlineMessage === null
-        ? new ProviderError(`Model request failed: ${safeMessage(error, secrets, redact)}`)
-        : new ProviderError(deadlineMessage);
+      if (deadlineState.failure !== null) {
+        throw providerDeadlineError(deadlineState.failure);
+      }
+      if (signal.aborted) throw signal.reason;
+      throw new ProviderError(
+        `Model request failed: ${safeMessage(error, secrets, redact)}`
+      );
     }
     if (phaseTimer !== null) clearTimeout(phaseTimer);
     phaseTimer = null;
@@ -88,9 +104,12 @@ export async function* providerSseEvents(
       try {
         rawText = await boundedResponseText(response);
       } catch (error) {
+        if (error instanceof ProviderError) throw error;
         if (callerSignal.aborted) throw callerSignal.reason;
+        // A deadline here interrupts the read of a provider rejection's
+        // body: the rejection is the failure, so no clean-timeout stamp.
         throw new ProviderError(
-          deadlineMessage
+          deadlineState.failure?.message
             ?? `Model request failed (${response.status}) while reading its error body: ${
               safeMessage(error, secrets, redact)
             }`,
@@ -108,7 +127,8 @@ export async function* providerSseEvents(
 
     setPhaseTimer(
       runtime.timeouts.firstTokenMs,
-      "Model server did not produce a content delta before the configured deadline."
+      "Model server did not produce a content delta before the configured deadline.",
+      "provider-first-token"
     );
     const decoder = new TextDecoder();
     let rawBytes = 0;
@@ -126,8 +146,9 @@ export async function* providerSseEvents(
           if (phaseTimer !== null) clearTimeout(phaseTimer);
           phaseTimer = null;
         }
-        if (!await events.push(event)) return false;
-        if (isTerminalEvent(event)) {
+        const terminal = isTerminalEvent(event);
+        if (!await events.push(event, terminal)) return false;
+        if (terminal) {
           terminalQueued = true;
           break;
         }
@@ -141,7 +162,8 @@ export async function* providerSseEvents(
           if (!firstContent) {
             setPhaseTimer(
               runtime.timeouts.idleMs,
-              "Model stream was idle beyond the configured deadline."
+              "Model stream was idle beyond the configured deadline.",
+              "provider-idle"
             );
           }
           const { done, value: chunk } = await reader.read();
@@ -171,8 +193,9 @@ export async function* providerSseEvents(
       } catch (error) {
         events.fail(providerStreamFailure(
           error,
-          deadlineMessage,
+          deadlineState.failure,
           callerSignal,
+          signal,
           secrets,
           redact
         ));
@@ -184,9 +207,9 @@ export async function* providerSseEvents(
     })();
     try {
       for (;;) {
-        if (signal.aborted) throw signal.reason;
+        events.throwIfCancellationWins(signal);
         const next = await events.next();
-        if (signal.aborted) throw signal.reason;
+        events.throwIfCancellationWins(signal);
         if (next.done) break;
         yield next.value;
       }
@@ -201,16 +224,32 @@ export async function* providerSseEvents(
   }
 }
 
+interface ProviderDeadline {
+  readonly message: string;
+  readonly timeout: TimeoutProvenance;
+}
+
+function providerDeadlineError(deadline: ProviderDeadline): ProviderError {
+  return new ProviderError(deadline.message, null, "", {
+    timeout: deadline.timeout
+  });
+}
+
 function providerStreamFailure(
   error: unknown,
-  deadlineMessage: string | null,
+  deadlineFailure: ProviderDeadline | null,
   callerSignal: AbortSignal,
+  transportSignal: AbortSignal,
   secrets: readonly string[],
   redact: (value: string, secrets: readonly string[]) => string
 ): unknown {
-  if (callerSignal.aborted) return callerSignal.reason;
-  if (deadlineMessage !== null) return new ProviderError(deadlineMessage);
+  // A provider-classified failure is already causal evidence. Preserve it
+  // before reading cancellation state that can change while a buffered event
+  // or redaction tail is in flight.
   if (error instanceof ProviderError) return error;
+  if (callerSignal.aborted) return callerSignal.reason;
+  if (deadlineFailure !== null) return providerDeadlineError(deadlineFailure);
+  if (transportSignal.aborted) return transportSignal.reason;
   return new ProviderError(
     `Model stream failed: ${safeMessage(error, secrets, redact)}`
   );
@@ -258,10 +297,15 @@ class ProviderEventQueue {
   private closed = false;
   private failed = false;
   private failure: unknown;
+  private terminalQueued = false;
 
-  async push(value: string): Promise<boolean> {
+  async push(value: string, terminal: boolean): Promise<boolean> {
     if (this.failed) throw this.failure;
     if (this.closed) return false;
+    // Terminal evidence belongs to the provider as soon as parsing finds it.
+    // Record it before capacity wait. A later Stop must drain queued deltas
+    // to release that wait and receive the terminal event.
+    if (terminal) this.terminalQueued = true;
     const waiter = this.waiters.shift();
     if (waiter !== undefined) {
       waiter.resolve({ done: false, value });
@@ -332,6 +376,13 @@ class ProviderEventQueue {
     return await new Promise<IteratorResult<string>>((resolve, reject) => {
       this.waiters.push({ resolve, reject });
     });
+  }
+
+  /** Preserve recorded provider failure and terminal evidence before a later
+   * caller cancellation. Cancellation can still discard ordinary deltas. */
+  throwIfCancellationWins(signal: AbortSignal): void {
+    if (this.failed) throw this.failure;
+    if (!this.terminalQueued && signal.aborted) throw signal.reason;
   }
 
   private releaseCapacityWaiters(): void {

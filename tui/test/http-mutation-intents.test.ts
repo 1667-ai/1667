@@ -129,6 +129,36 @@ test("HTTP import identity fingerprints the exact retained input", async () => {
   await changed.retain();
 });
 
+test("HTTP partial-settlement identity survives a client restart", async () => {
+  const root = await privateRoot();
+  const firstStore = await PrivateHttpMutationIntentStore.create({
+    dataDirectoryId: DATA_DIRECTORY_A,
+    dataDirectoryClaimId: DATA_DIRECTORY_CLAIM_A,
+    origin: ORIGIN,
+    privateStateRoot: root
+  });
+  const input = JSON.stringify({
+    storyId: "story",
+    nodeId: "node",
+    streamedDigest: "digest",
+    attemptId: "attempt"
+  });
+  const first = await firstStore.claim("commitPartialRewrite", input);
+  await first.retain();
+
+  const restartedStore = await PrivateHttpMutationIntentStore.create({
+    dataDirectoryId: DATA_DIRECTORY_A,
+    dataDirectoryClaimId: DATA_DIRECTORY_CLAIM_A,
+    origin: ORIGIN,
+    privateStateRoot: root
+  });
+  const retry = await restartedStore.claim("commitPartialRewrite", input);
+
+  expect(retry.reused).toBe(true);
+  expect(retry.mutationId).toBe(first.mutationId);
+  await retry.complete();
+});
+
 test("HTTP mutation intent survives a concurrent uncertain claimant", async () => {
   const root = await privateRoot();
   const store = await PrivateHttpMutationIntentStore.create({

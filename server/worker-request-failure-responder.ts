@@ -53,9 +53,7 @@ export class WorkerRequestFailureResponder {
 
   async tracked(
     error: unknown,
-    ...override: [
-      mutationOutcome?: WorkerMutationFailureOutcome
-    ]
+    ...override: [mutationOutcome?: WorkerMutationFailureOutcome]
   ): Promise<void> {
     const message = await this.message(
       error,

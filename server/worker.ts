@@ -131,7 +131,11 @@ async function receive(value: unknown): Promise<void> {
     }
     const request = active.get(workerOperationKey(id));
     request?.cancel(reason);
-    if (reason !== "user") request?.deltas?.dispose();
+    // Cancellation releases producers parked on transport credit at receipt.
+    // The executor publishes the retained tail as bounded deltas before its
+    // terminal. Shutdown keeps pure drop semantics.
+    if (reason === "shutdown") request?.deltas?.dispose();
+    else request?.deltas?.sealUnsent();
     postOperation(id, state);
     return;
   }

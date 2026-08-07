@@ -7,12 +7,15 @@ import { DEFAULT_INSTRUCTION } from "./generation-prompts.js";
 import type { GenerationAdmissionRegistry } from "./generation-admission.js";
 import { commitNode } from "./node-commit.js";
 import {
+  parseCommitPartialRewrite,
   parseCreateNode,
   parseEditNode,
   parsePruneUnusedTakes,
   parseSwitchOptions,
   parseTakeFromCut
 } from "./service-input.js";
+import type { PartialRewriteStash } from "./rewrite-partial.js";
+import { applyProviderStoryEffect } from "./story-provider-effect.js";
 import type { SettingsStore } from "./settings.js";
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import { putStoryTag, removeStoryTag } from "./story-tags.js";
@@ -27,6 +30,7 @@ import type {
   LocalStoryMutationMethod,
   StoryMutationStore
 } from "./story-mutation-store.js";
+import { isPreparedDomainError } from "./mutation-ledger-types.js";
 import {
   applyHumanEdit,
   commitTake,
@@ -43,10 +47,13 @@ export interface StoryServiceLocalDependencies {
   readonly stories: StoryStore;
   readonly settings: SettingsStore;
   readonly generationAdmission: GenerationAdmissionRegistry;
+  readonly rewritePartials: PartialRewriteStash;
   readonly storyMutations: StoryMutationStore;
   readonly dataFormat: () => number;
   readonly ensureOpen: () => void;
 }
+
+const PARTIAL_REWRITE_UNAVAILABLE = Symbol("partial rewrite unavailable");
 
 /** Direct-author story commands, including their successor-Q adapters. */
 export class StoryServiceLocal {
@@ -310,6 +317,146 @@ export class StoryServiceLocal {
     ));
   }
 
+  /**
+   * The canonical partial-rewrite commit (issue #339): settle the verified
+   * partial a stopped or timed-out rewrite stashed, splicing it into the
+   * original selected range through the same rewrite effect a full commit
+   * uses — expected-text revalidation, rewritten spans, destination
+   * current-take/new-take semantics, and the original attempt's
+   * rewriteId/takeId replay markers included. Returns null when nothing was
+   * stashed for this part or the presented digest does not match;
+   * null commits nothing, so the caller reports nothing saved.
+   */
+  async commitPartialRewrite(
+    id: string,
+    nodeId: string,
+    value: unknown,
+    mutationRequest?: unknown,
+    settleTakeId?: string
+  ): Promise<{ payload: StoryPayload; nodeId: string } | null> {
+    this.dependencies.ensureOpen();
+    const body = parseCommitPartialRewrite(value);
+    const claimedRecord = await this.dependencies.rewritePartials.claim(
+      id,
+      nodeId,
+      body.attemptId
+    );
+    const record = claimedRecord?.streamedDigest === body.streamedDigest
+      ? claimedRecord
+      : null;
+    if (claimedRecord !== null && record === null) {
+      this.dependencies.rewritePartials.releaseClaim(claimedRecord);
+    }
+    if (mutationRequest !== undefined) {
+      const settlementId = mutationRequestId(mutationRequest);
+      let consumedRecord = false;
+      try {
+        const committed = await this.dependencies.storyMutations.runLocal(
+          mutationRequest,
+          "commitPartialRewrite",
+          async (story, session) => {
+            // This callback does not run for a durable replay. A fresh settle
+            // without the exact volatile record refuses without creating a
+            // receipt; a replay after process restart still returns the
+            // already-committed story from the ledger.
+            if (record === null
+              || record.streamedDigest !== body.streamedDigest
+              || settlementId === null
+              || !this.dependencies.rewritePartials.bindSettlement(
+                record,
+                settlementId
+              )) {
+              throw PARTIAL_REWRITE_UNAVAILABLE;
+            }
+            const effect = {
+              ...record.effect,
+              ...(record.effect.destination === "take"
+                && settleTakeId !== undefined
+                ? { takeId: settleTakeId }
+                : {}),
+              updatedAt: new Date().toISOString()
+            };
+            const applied = await applyProviderStoryEffect(
+              story,
+              effect,
+              async (current, pathNodeId) => {
+                await session.hydratePath(current, pathNodeId);
+              }
+            );
+            consumedRecord = true;
+            return applied.changed ? undefined : STORY_UNCHANGED;
+          }
+        );
+        if (record !== null) {
+          if (consumedRecord
+            || (settlementId !== null
+              && this.dependencies.rewritePartials.settlementMatches(
+                record,
+                settlementId
+              ))) {
+            this.dependencies.rewritePartials.clear(record);
+          }
+          else this.dependencies.rewritePartials.releaseClaim(record);
+        }
+        const committedNodeId = settleTakeId !== undefined
+          && committed.story.nodes.some((node) => node.id === settleTakeId)
+          ? settleTakeId
+          : nodeId;
+        return {
+          payload: buildStoryPayload(committed.story, {
+            ...committed.aggregateVersion
+          }),
+          nodeId: committedNodeId
+        };
+      } catch (error) {
+        if (error === PARTIAL_REWRITE_UNAVAILABLE) {
+          if (record !== null) {
+            this.dependencies.rewritePartials.releaseClaim(record);
+          }
+          return null;
+        }
+        // runLocal returns a prepared domain error only after its terminal
+        // receipt is durable. Retire only the record that the callback bound
+        // to this settlement. A terminal replay can claim a newer record with
+        // the same attempt and digest without running that callback.
+        if (record !== null
+          && error instanceof ServiceError
+          && isPreparedDomainError(error.code)
+          && settlementId !== null
+          && this.dependencies.rewritePartials.settlementMatches(
+            record,
+            settlementId
+          )) {
+          this.dependencies.rewritePartials.clear(record);
+        } else if (record !== null) {
+          this.dependencies.rewritePartials.releaseClaim(record);
+        }
+        throw error;
+      }
+    }
+    if (record === null) return null;
+    const effect = {
+      ...record.effect,
+      updatedAt: new Date().toISOString()
+    };
+    try {
+      const node = await this.dependencies.stories.commitProviderEffect(
+        id,
+        effect
+      );
+      this.dependencies.rewritePartials.clear(record);
+      return {
+        payload: buildStoryPayload(
+          await this.dependencies.stories.loadForMutation(id)
+        ),
+        nodeId: node.id
+      };
+    } catch (error) {
+      this.dependencies.rewritePartials.releaseClaim(record);
+      throw error;
+    }
+  }
+
   async editNode(
     id: string,
     nodeId: string,
@@ -507,6 +654,62 @@ export class StoryServiceLocal {
     ));
   }
 
+  /**
+   * `createFact` for a batch whose content is planned from the story it
+   * mutates. The planner runs inside the canonical mutation callback, so the
+   * room it reads is exactly the room the commit consumes, and the report it
+   * returns is exactly the account of what this mutation did.
+   *
+   * When the ledger answers a retry from durable evidence, the callback never
+   * runs, and the report comes from `replay` — the plan a prior attempt
+   * preserved. A receipt that committed before plans were preserved has no
+   * faithful report to give; that replay refuses instead of recomputing one
+   * from the changed story.
+   */
+  async createPlannedFacts<Report>(
+    id: string,
+    mutationRequest: unknown,
+    plan: {
+      planned: (story: Story) => Promise<Report>;
+      body: (report: Report) => unknown;
+      replay: () => Report | null;
+    }
+  ): Promise<{ payload: StoryPayload; report: Report }> {
+    this.dependencies.ensureOpen();
+    let produced: Report | null = null;
+    const mutate = async (story: Story) => {
+      const report = await plan.planned(story);
+      produced = report;
+      return createFacts(story, plan.body(report)) ? undefined : STORY_UNCHANGED;
+    };
+    if (mutationRequest !== undefined) {
+      const committed = await this.dependencies.storyMutations.runLocal(
+        mutationRequest,
+        "createFact",
+        mutate
+      );
+      const report = produced ?? plan.replay();
+      if (report === null) {
+        throw new ServiceError(
+          409,
+          "A retained import replay has no preserved import plan; reload the story to see the imported Facts.",
+          "mutation_outcome_unknown"
+        );
+      }
+      return {
+        payload: buildStoryPayload(committed.story, {
+          ...committed.aggregateVersion
+        }),
+        report
+      };
+    }
+    const story = await this.dependencies.stories.mutate(id, mutate);
+    if (produced === null) {
+      throw new ServiceError(500, "A fact import lost its plan", "internal");
+    }
+    return { payload: buildStoryPayload(story), report: produced };
+  }
+
   async patchFact(
     id: string,
     factId: string,
@@ -584,4 +787,12 @@ export class StoryServiceLocal {
       ...committed.aggregateVersion
     });
   }
+}
+
+function mutationRequestId(value: unknown): string | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const mutationId = (value as { readonly mutationId?: unknown }).mutationId;
+  return typeof mutationId === "string" ? mutationId : null;
 }

@@ -13,7 +13,6 @@ import {
 import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
 import {
   MAX_FACTS,
-  MAX_FACT_TEXT_CHARS,
   MAX_STORED_TITLE_CHARS,
   type FactInput
 } from "../shared/types.js";
@@ -25,7 +24,7 @@ import {
   factsFromLorebook,
   SUPPORTED_LOREBOOK_VERSION
 } from "../shared/novelai-lorebook.js";
-import { truncateFactText } from "../shared/lorebook-entry.js";
+import { factTextWithinLimit, truncateFactText } from "../shared/fact-limits.js";
 import {
   hasUnpairedSurrogate,
   sliceUnicodeScalarPrefix,
@@ -131,7 +130,7 @@ export function extractFacts(
     }
     if (normalized.trim().length > 0) {
       let text = normalized;
-      if (text.length > MAX_FACT_TEXT_CHARS) {
+      if (!factTextWithinLimit(text)) {
         text = truncateFactText(text);
         fidelity.push("memory truncated to 4,000 characters");
       }

@@ -13,6 +13,7 @@ interface OpenPendingWorkerCallOptions {
   mutationId?: string;
   durableIntent: boolean;
   onDelta?: (text: string) => void;
+  onStopped?: (text: string) => void;
   signal?: AbortSignal;
   timeoutMs: number | null;
   deadlineAfterMs: number;
@@ -37,6 +38,7 @@ export function openPendingWorkerCall<T>(
       ...(options.mutationId === undefined ? {} : { mutationId: options.mutationId }),
       durableIntent: options.durableIntent,
       ...(options.onDelta === undefined ? {} : { onDelta: options.onDelta }),
+      ...(options.onStopped === undefined ? {} : { onStopped: options.onStopped }),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       timeoutMs: options.timeoutMs ?? options.deadlineAfterMs,
       onAbort: (id) => cancelPendingWorkerRequest({
