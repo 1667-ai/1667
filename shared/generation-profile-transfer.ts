@@ -269,23 +269,25 @@ function omitBlockedTextBias(
   if (!omittedPhrase && !omittedBanned) {
     return { sampling, importedCount, candidateCount, omitted: false };
   }
+  const phraseBiasLabel = phraseBias.length === 0 ? "phrase bias" : "phrase bias entry";
+  const bannedStringsLabel = bannedStrings.length === 0 ? "banned strings" : "banned string";
 
   for (const [index, resolution] of precomputedResolution.phraseBias.entries()) {
     if (index >= sampling.phraseBias.length) break;
     if (resolution.kind === "rejected" || resolution.kind === "shadowed") {
-      fidelity.push(`phrase bias not imported; ${samplingBiasEntryRejectionMessage(resolution)}`);
+      fidelity.push(`${phraseBiasLabel} not imported; ${samplingBiasEntryRejectionMessage(resolution)}`);
     }
   }
   for (const [index, resolution] of precomputedResolution.bannedStrings.entries()) {
     if (index >= sampling.bannedStrings.length) break;
     if (resolution.kind === "rejected" || resolution.kind === "shadowed") {
-      fidelity.push(`banned strings not imported; ${samplingBiasEntryRejectionMessage(resolution)}`);
+      fidelity.push(`${bannedStringsLabel} not imported; ${samplingBiasEntryRejectionMessage(resolution)}`);
     }
   }
   for (const [index, resolution] of precomputedResolution.nativeBannedStrings.entries()) {
     if (index >= sampling.bannedStrings.length) break;
     if (resolution.kind === "blocked") {
-      fidelity.push(`banned strings not imported; ${samplingBiasNativeBlockedMessage(resolution)}`);
+      fidelity.push(`${bannedStringsLabel} not imported; ${samplingBiasNativeBlockedMessage(resolution)}`);
     }
   }
   const fittedSampling = { ...sampling, phraseBias, bannedStrings };
