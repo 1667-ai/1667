@@ -185,7 +185,8 @@ export function adoptReconciliationSnapshot(
     ? state.library
     : null;
   const retainedGlobalEditor = globalEditor(state);
-  const retainedSettings = mode === "SETTINGS" || retainedGlobalEditor !== null
+  const retainedSettings = state.settings?.profileTransfer === null
+    && (mode === "SETTINGS" || retainedGlobalEditor !== null)
     ? state.settings
     : null;
   const editorScrollTop = state.editorScrollTop;

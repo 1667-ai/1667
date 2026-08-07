@@ -8,7 +8,6 @@ import { applyProfileTransfer } from "../src/profile-transfer-apply.js";
 import { profileTransferAction } from "../src/profile-transfer-actions.js";
 import { PROFILE_TRANSFER_SOURCES } from "../src/screens/profile-transfer-panel.js";
 import { openSettingsPasteTarget } from "../src/settings-prompt-editor.js";
-import { copyToClipboard } from "../src/clipboard.js";
 import {
   deferred,
   installSave,
@@ -17,7 +16,7 @@ import {
   selectRow,
   settingsHarness
 } from "./settings-test-harness.js";
-import { pasteInto } from "../src/keys.js";
+import { pasteInto, resolveKey } from "../src/keys.js";
 
 describe("Generation Profile transfer", () => {
   test("imports a Starter Profile into the draft and saves only on s", async () => {
@@ -143,17 +142,31 @@ describe("Generation Profile transfer", () => {
   test("Generation Profile file prompt routes Ctrl and Cmd V through the clipboard", async () => {
     const { state, press } = settingsHarness();
     const prompt = await openFilePrompt(state, press);
+    const overlay = state.settings;
+    if (overlay === null) throw new Error("settings overlay missing");
     prompt.error = "stale error";
     prompt.candidates = ["/tmp/stale.preset"];
+    const clipboard = ["/tmp/ctrl\u0007\nprofile.preset", "/cmd.profile.json"];
+    const readClipboard = async () => clipboard.shift() ?? null;
 
-    await copyToClipboard("/tmp/ctrl\u0007\nprofile.preset");
-    await press(key("v", { ctrl: true }));
+    const ctrlPaste = resolveKey(
+      key("v", { ctrl: true }),
+      "SETTINGS",
+      { settingsProfileTransfer: "file" }
+    );
+    expect(ctrlPaste).toEqual({ action: "paste-clipboard" });
+    await profileTransferAction(ctrlPaste, state, overlay, { readClipboard });
     expect(prompt.path).toBe("/tmp/ctrl profile.preset");
     expect(prompt.error).toBe(null);
     expect(prompt.candidates).toEqual([]);
 
-    await copyToClipboard("/cmd.profile.json");
-    await press(key("v", { super: true }));
+    const cmdPaste = resolveKey(
+      key("v", { super: true }),
+      "SETTINGS",
+      { settingsProfileTransfer: "file" }
+    );
+    expect(cmdPaste).toEqual({ action: "paste-clipboard" });
+    await profileTransferAction(cmdPaste, state, overlay, { readClipboard });
     expect(prompt.path).toBe("/tmp/ctrl profile.preset/cmd.profile.json");
   });
 

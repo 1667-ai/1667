@@ -19,6 +19,7 @@ const PROFILE_TRANSFER_SOURCE_COUNT = FILE_SOURCE_INDEX + 1;
 
 export interface ProfileTransferDependencies {
   readonly readFile?: typeof readProfileTransferFile;
+  readonly readClipboard?: typeof readFromClipboard;
 }
 
 export function openProfileTransfer(overlay: SettingsOverlayState): void {
@@ -54,7 +55,12 @@ export async function profileTransferAction(
       prompt.candidates = [];
     }
     else if (resolved.action === "paste-clipboard") {
-      await pasteProfileTransferClipboard(state, prompt, overlay);
+      await pasteProfileTransferClipboard(
+        state,
+        prompt,
+        overlay,
+        dependencies.readClipboard ?? readFromClipboard
+      );
     }
     else if (resolved.action === "complete") await completeFilePath(prompt);
     else if (resolved.action === "apply-profile-transfer") {
@@ -82,10 +88,11 @@ export async function profileTransferAction(
 async function pasteProfileTransferClipboard(
   state: RuntimeState,
   prompt: Extract<ProfileTransferPrompt, { readonly phase: "file" }>,
-  overlay: SettingsOverlayState
+  overlay: SettingsOverlayState,
+  readClipboard: typeof readFromClipboard
 ): Promise<void> {
   const claim = { interactionVersion: state.interactionVersion, path: prompt.path };
-  const text = await readFromClipboard();
+  const text = await readClipboard();
   if (!profileTransferCurrent(state, prompt, overlay)
     || state.interactionVersion !== claim.interactionVersion
     || prompt.path !== claim.path) {
