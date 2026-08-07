@@ -5,6 +5,23 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 upgrade` accepts a release that supports one more platform.** The
+  upgrade checked the packages of a new release against the platform list its
+  own build carried, and refused a release that named one more. The first
+  release with Windows support therefore stopped every earlier installation
+  from updating, and the refusal came from the installed program, where no
+  later fix could reach it. 1667 now checks that each package belongs to this
+  product and carries the exact version of the release, so a release that adds
+  a platform installs. An installation before 0.4.0 must be installed again.
+
+- **The stable channel finds the current release.** `1667 upgrade` read a
+  registry tag that a release does not write, so the stable channel stopped at
+  0.2.1 and reported a newer installation as current. The stable channel now
+  reads the tag each release writes.
+
+- **Upgrade output says less.** An installation that 1667 can update no longer
+  reads a sentence about how it was installed.
+
 - **The dependency audit is clean.** 1667 now uses `fast-uri` 3.1.5. Thanks
   @10fra for the report.
 
