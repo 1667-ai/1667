@@ -5,6 +5,9 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **The dependency audit is clean.** 1667 now uses `fast-uri` 3.1.5. Thanks
+  @10fra for the report.
+
 - **Generation Profiles can move between projects.** Import a NovelAI Sampler
   Preset or a Profile Export with `1667 profile import`. Export a shareable
   Profile Export with `1667 profile export`. The command creates a new profile
