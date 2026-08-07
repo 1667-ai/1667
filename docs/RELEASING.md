@@ -25,7 +25,8 @@ the hosted workflow. Do not publish held targets. Do not move registry tags
 outside a controlled operation. Do not describe a candidate as an official
 release.
 
-Publication also requires an explicit maintainer decision.
+A repository administrator starts publication with a manual dispatch. The
+release needs no other approval.
 
 ## Technical terms
 
@@ -38,7 +39,7 @@ This document uses these Technical Names:
 | release package | One npm tarball in the release matrix |
 | launcher package | The JavaScript package named `@1667-ai/cli` |
 | platform package | A package that contains one native executable |
-| candidate | A possible release package that has not received publication approval |
+| candidate | A possible release package that the workflow has not published |
 | Installer | A Shell Installer or a PowerShell Installer |
 | Shell Installer | A channel-specific release script that installs one native executable |
 | PowerShell Installer | A Windows release script that installs one native executable |
