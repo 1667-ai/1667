@@ -11,10 +11,19 @@ This file records notable changes to 1667. Product terms use the definitions in
   belonged to another user. Debian and Ubuntu ship `/usr/local` this way,
   Ubuntu gives each user a private group, and Homebrew ships its `bin`
   directory this way, so the refusal named a real permission bit and no real
-  exposure. 1667 now checks that the Install Root is a directory the current
-  user owns. These rules never protected against a program that already runs as
-  the user, because such a program can write to the Install Root whatever its
-  mode is.
+  exposure. 1667 now judges the Install Root alone: it must be a directory this
+  user owns, and no other account can be able to write it. A group-writable
+  directory is accepted when the group holds nobody except this user and root,
+  which is what those layouts are.
+
+- **A refusal about an Install Root says what is wrong and how to fix it.**
+  Each message names the directory, its mode, the account or group that can
+  write it, and the command that corrects it.
+
+- **`--force` installs or updates into an Install Root 1667 refused.** The
+  Installer and `1667 upgrade` accept it after printing what they accepted. It
+  waives no checksum, no attestation, no release identity, and no version
+  check.
 
 - **`1667 upgrade` accepts a release that supports one more platform.** The
   upgrade checked the packages of a new release against the platform list its

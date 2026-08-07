@@ -49,8 +49,11 @@ export type {
 
 export const UPGRADE_HELP = `Usage:
   1667 upgrade --check [--channel <stable|beta>] [--json]
-  1667 upgrade [--version <semver>] [--channel <stable|beta>] [--json]
-  1667 upgrade --rollback [--json]
+  1667 upgrade [--version <semver>] [--channel <stable|beta>] [--json] [--force]
+  1667 upgrade --rollback [--json] [--force]
+
+--force accepts an Install Root that another account on this machine can write.
+It waives no checksum, attestation, or version check.
 
 If you installed 1667 with npm, or you built it from source, update it the same
 way you installed it.
@@ -152,7 +155,8 @@ export async function executeUpgradeCli(
       observation,
       method,
       registry,
-      dependencies
+      dependencies,
+      parsed.force
     );
     return {
       exitCode: 0,
@@ -182,7 +186,8 @@ async function dispatchUpgradeCommand(
   observation: UpgradeObservation,
   method: UpgradeMethod,
   registry: UpgradeRegistry,
-  dependencies: UpgradeCliDependencies
+  dependencies: UpgradeCliDependencies,
+  force: boolean
 ): Promise<UpgradeSuccessEnvelope> {
   switch (command.kind) {
     case "rollback": {
@@ -203,7 +208,8 @@ async function dispatchUpgradeCommand(
       return await applyRollback({
         authority,
         observation,
-        signal: dependencies.signal
+        signal: dependencies.signal,
+        force
       });
     }
     case "check": {
@@ -225,7 +231,8 @@ async function dispatchUpgradeCommand(
           observation,
           registry,
           fetcher: dependencies.fetcher,
-          signal: dependencies.signal
+          signal: dependencies.signal,
+          force
         });
       }
       // External installs stay read-only: verify metadata, emit manual envelope.

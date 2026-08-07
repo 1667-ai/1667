@@ -41,15 +41,18 @@ test("upgrade argument parser preserves global version semantics and rejects amb
     "--version", "2.0.0-beta.1", "--channel=beta", "--json"
   ])).toEqual({
     command: { kind: "apply", version: "2.0.0-beta.1", channel: "beta" },
-    json: true
+    json: true,
+    force: false
   });
   expect(parseUpgradeArguments(["--check"])).toEqual({
     command: { kind: "check", channel: "stable" },
-    json: false
+    json: false,
+    force: false
   });
   expect(parseUpgradeArguments(["--rollback", "--json"])).toEqual({
     command: { kind: "rollback" },
-    json: true
+    json: true,
+    force: false
   });
   expect(() => parseUpgradeArguments(["--check", "--version", "2.0.0"])).toThrow();
   expect(() => parseUpgradeArguments(["--version", "v2.0.0"])).toThrow();
@@ -57,6 +60,22 @@ test("upgrade argument parser preserves global version semantics and rejects amb
   expect(() => parseUpgradeArguments(["--json", "--json"])).toThrow();
   expect(() => parseUpgradeArguments(["--rollback", "--check"])).toThrow();
   expect(() => parseUpgradeArguments(["--rollback", "--channel", "beta"])).toThrow();
+});
+
+test("--force is an apply-time waiver and says so when it would do nothing", () => {
+  expect(parseUpgradeArguments(["--force"])).toEqual({
+    command: { kind: "apply", version: null, channel: "stable" },
+    json: false,
+    force: true
+  });
+  expect(parseUpgradeArguments(["--rollback", "--force"])).toEqual({
+    command: { kind: "rollback" },
+    json: false,
+    force: true
+  });
+  // A read-only check writes nothing, so the flag would waive nothing there.
+  expect(() => parseUpgradeArguments(["--check", "--force"])).toThrow(/--check/u);
+  expect(() => parseUpgradeArguments(["--force", "--force"])).toThrow(/only once/u);
 });
 
 test("persisted channel is the default and an explicit flag wins", () => {

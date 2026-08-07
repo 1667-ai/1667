@@ -42,6 +42,8 @@ export interface UpgradeApplyDependencies {
   readonly registry?: UpgradeRegistry;
   readonly fetcher?: RegistryFetch;
   readonly signal?: AbortSignal;
+  /** `--force`: accept an Install Root another account can write. */
+  readonly force?: boolean;
 }
 
 /**
@@ -141,7 +143,8 @@ export async function applyUpgrade(
         target: targetVersion,
         channel: command.channel
       });
-    }
+    },
+    dependencies.force === true
   );
 }
 
@@ -150,6 +153,7 @@ export async function applyRollback(
     readonly authority: Extract<InstallationAuthority, { kind: "shell" }>;
     readonly observation: UpgradeObservation;
     readonly signal?: AbortSignal;
+    readonly force?: boolean;
   }
 ): Promise<UpgradeSuccessEnvelope> {
   const signal = dependencies.signal ?? new AbortController().signal;
@@ -205,7 +209,8 @@ export async function applyRollback(
         target: previousIdentity.productVersion,
         channel: authority.record.channel
       });
-    }
+    },
+    dependencies.force === true
   );
 }
 

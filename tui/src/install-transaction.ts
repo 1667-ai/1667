@@ -287,9 +287,10 @@ export async function activateCandidate(input: {
 }
 
 export function revalidateAuthorityAfterLock(
-  expected: Extract<InstallationAuthority, { kind: "shell" }>
+  expected: Extract<InstallationAuthority, { kind: "shell" }>,
+  force = false
 ): Extract<InstallationAuthority, { kind: "shell" }> {
-  const record = readManagedOwnershipUnderLock(expected);
+  const record = readManagedOwnershipUnderLock(expected, force);
   if (record.channel !== expected.record.channel
     || record.product !== expected.record.product) {
     throw new Error("Managed Installation authority changed under the lock");
@@ -299,24 +300,31 @@ export function revalidateAuthorityAfterLock(
 
 /** Reload Ownership after opposite-operation recovery (channel may change). */
 export function reloadAuthorityAfterRecovery(
-  expected: Extract<InstallationAuthority, { kind: "shell" }>
+  expected: Extract<InstallationAuthority, { kind: "shell" }>,
+  force = false
 ): Extract<InstallationAuthority, { kind: "shell" }> {
-  return shellAuthorityFromOwnership(expected, readManagedOwnershipUnderLock(expected));
+  return shellAuthorityFromOwnership(
+    expected,
+    readManagedOwnershipUnderLock(expected, force)
+  );
 }
 
 function readManagedOwnershipUnderLock(
-  expected: Extract<InstallationAuthority, { kind: "shell" }>
+  expected: Extract<InstallationAuthority, { kind: "shell" }>,
+  force = false
 ): InstallOwnershipRecord {
-  assertSafeInstallRoot(expected.installRoot);
+  assertSafeInstallRoot(expected.installRoot, force);
   const ownershipPath = path.join(expected.installRoot, INSTALL_OWNERSHIP_FILE);
   assertSafeOwnedPath(ownershipPath, {
     label: "Ownership Record",
     requireFile: true,
-    expectedModeMask: 0o600
+    expectedModeMask: 0o600,
+    force
   });
   assertSafeOwnedPath(expected.executable, {
     label: "managed executable",
-    requireFile: true
+    requireFile: true,
+    force
   });
   const record = parseInstallOwnershipRecordText(readFileSync(ownershipPath, "utf8"));
   if (record.installationId !== expected.record.installationId
