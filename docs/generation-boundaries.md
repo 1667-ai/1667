@@ -21,6 +21,12 @@ a short exact right anchor followed by a request-specific terminator. Streaming
 withholds that suffix. A missing required anchor rejects the generation and keeps
 the original passage unchanged.
 
+## HTTP stream liveness
+
+An HTTP generation sends one heartbeat comment each second while its SSE stream
+stays open. A heartbeat does not change the story prose. The attached TUI stops
+the HTTP generation after four seconds without stream bytes.
+
 ## Text Completions boundary
 
 Text Completions converts the provider-neutral request into one text prompt.

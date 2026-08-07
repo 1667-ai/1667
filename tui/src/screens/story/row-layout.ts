@@ -38,6 +38,8 @@ import { streamTrimBounds } from "../../stream-text.js";
 import type { WrapContentIdentity } from "../../wrap.js";
 
 export const STORY_GUTTER = 24;
+const STREAM_LIVENESS_MARKS = ["⠋", "⠙", "⠹", "⠸"] as const;
+const STREAM_LIVENESS_FRAME_MS = 250;
 
 export interface StoryRowLayout {
   height: number;
@@ -140,7 +142,7 @@ export function layoutStoryRow(
       : 0;
   let prefix: FrameLine[] | null = null;
   const preparePrefix = () => prefix ??= partPrefix(
-    row, rowIndex, allParts, state, measure, narrow, focused, streaming, prefixMask
+    row, rowIndex, allParts, state, measure, narrow, focused, streaming, prefixMask, deadlines
   );
   const expandedPrompt = (prefixMask & 2) !== 0 && state.expandedPromptIds.has(row.id);
   const prefixRows = expandedPrompt ? preparePrefix().length : prefixHeight(prefixMask);
@@ -148,7 +150,7 @@ export function layoutStoryRow(
     ? {
         start: prefixRows,
         lines: Array.from({ length: gutterRows }, (_, lineIndex) =>
-          gutterFor(row, true, false, lineIndex))
+          gutterFor(row, true, false, lineIndex, state.now, deadlines))
       }
     : null;
   const promptRowIndex = narrow ? 1 : 0;
@@ -234,10 +236,11 @@ function partPrefix(
   narrow: boolean,
   focused: boolean,
   streaming: boolean,
-  mask: number
+  mask: number,
+  deadlines?: FrameDeadlineCollector
 ): FrameLine[] {
   const lines: FrameLine[] = [];
-  if ((mask & 1) !== 0) lines.push(renderBoundary(part, measure, focused, streaming));
+  if ((mask & 1) !== 0) lines.push(renderBoundary(part, measure, focused, streaming, state.now, deadlines));
   if ((mask & 2) !== 0) {
     lines.push(...renderPrompt(part, rowIndex, state.expandedPromptIds.has(part.id), measure, narrow));
   }
@@ -327,19 +330,19 @@ function renderPartBody(
   if (compactLogo) {
     lines.push(prefixLine(
       narrow,
-      gutterFor(part, focused, streaming, 0),
+      gutterFor(part, focused, streaming, 0, state.now, deadlines),
       compactStarterLogo(focused)
     ));
   }
   for (const line of wrapped) {
     const lineIndex = lines.length;
-    lines.push(prefixLine(narrow, gutterFor(part, focused, streaming, lineIndex),
+    lines.push(prefixLine(narrow, gutterFor(part, focused, streaming, lineIndex, state.now, deadlines),
       styledWrapped(line, focused ? "prose" : "prose · dim", focused ? "human edit" : "human edit dim",
         "rewritten", state, part, streaming && !appending, deadlines, sourceStart)));
   }
   const proseTip = lines.length - 1;
   for (let lineIndex = lines.length; lineIndex < gutterRows; lineIndex += 1) {
-    lines.push(prefixLine(narrow, gutterFor(part, focused, streaming, lineIndex), []));
+    lines.push(prefixLine(narrow, gutterFor(part, focused, streaming, lineIndex, state.now, deadlines), []));
   }
   // Machine insertion stays visually distinct from the writer's solid block.
   if (streaming && proseTip >= 0) lines[proseTip]!.push(segment("▏", "chrome"));
@@ -731,9 +734,16 @@ function gutterVerbSegments(row: readonly GutterVerb[]): FrameLine {
   return fitLine(line, GUTTER_VERB_WIDTH);
 }
 
-function gutterFor(part: StoryPart, focused: boolean, streaming: boolean, lineIndex: number): FrameLine {
+function gutterFor(
+  part: StoryPart,
+  focused: boolean,
+  streaming: boolean,
+  lineIndex: number,
+  now = 0,
+  deadlines?: FrameDeadlineCollector
+): FrameLine {
   if (streaming) {
-    if (lineIndex === 0) return [segment("⟳ writing", "focus / accent")];
+    if (lineIndex === 0) return [segment(`${streamLivenessMark(now, deadlines)} writing`, "focus / accent")];
     if (lineIndex === 1) return [actionHint("esc stops", "cancel")];
     return [];
   }
@@ -817,9 +827,16 @@ export function replaceStoryProse(
   return [...gutter, ...prose];
 }
 
-function renderBoundary(part: StoryPart, measure: number, focused: boolean, streaming: boolean): FrameLine {
+function renderBoundary(
+  part: StoryPart,
+  measure: number,
+  focused: boolean,
+  streaming: boolean,
+  now = 0,
+  deadlines?: FrameDeadlineCollector
+): FrameLine {
   if (streaming) {
-    const lead = `── ¶ ${part.number} · ⟳ writing · `;
+    const lead = `── ¶ ${part.number} · ${streamLivenessMark(now, deadlines)} writing · `;
     const stop = "esc stops";
     const used = visibleWidth(lead) + visibleWidth(stop) + 1;
     return [segment("  "), segment(lead, "chrome"), actionHint(stop, "cancel"), segment(" ", "chrome"),
@@ -833,6 +850,16 @@ function renderBoundary(part: StoryPart, measure: number, focused: boolean, stre
   const prefix = `── ${marker} `;
   return [segment("  "), segment(prefix, "chrome"),
     segment("─".repeat(Math.max(0, measure - visibleWidth(prefix))), "chrome")];
+}
+
+/** One indicator owns both stream labels and their next visible frame. */
+export function streamLivenessMark(
+  now: number,
+  deadlines?: FrameDeadlineCollector
+): string {
+  const frame = Math.floor(now / STREAM_LIVENESS_FRAME_MS);
+  deadlines?.at((frame + 1) * STREAM_LIVENESS_FRAME_MS);
+  return STREAM_LIVENESS_MARKS[frame % STREAM_LIVENESS_MARKS.length]!;
 }
 
 function prefixLine(narrow: boolean, gutter: FrameLine, prose: FrameLine): FrameLine {

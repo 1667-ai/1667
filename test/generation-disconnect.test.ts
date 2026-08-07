@@ -20,6 +20,7 @@ import type { FailureEnvelope } from "../shared/failure-envelope.js";
 import { streamResponse } from "../server/stream-response.js";
 import { PromptCacheRuntime } from "../server/provider-cache-policy.js";
 import { MAX_DELTA_BATCH_BYTES } from "../shared/worker-protocol.js";
+import { SSE_HEARTBEAT_INTERVAL_MS } from "../shared/sse.js";
 import { FakeResponse } from "./fake-http-response.js";
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -214,6 +215,11 @@ test("HTTP stream adapter aborts generation before and after SSE opens", async (
     response.closed = true;
     response.emit("close");
     assert.equal((observedSignal as AbortSignal | null)?.aborted, true);
+    if (phase === "preflight") {
+      await new Promise((resolve) => setTimeout(resolve, SSE_HEARTBEAT_INTERVAL_MS * 2));
+      assert.equal(response.headersWritten, 0);
+      assert.equal(response.writes, 0);
+    }
     release();
     await running;
 
