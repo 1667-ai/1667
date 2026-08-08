@@ -1,8 +1,9 @@
 import type { ImportedPart } from "./import-model.js";
-import { countNoun } from "../shared/fidelity.js";
 import { isPlainRecord, normalizeSectionText } from "./import-nai-sections.js";
 import { MAX_NOVELAI_RECORDS } from "./import-nai-msgpack-preflight.js";
 import { hasUnpairedSurrogate } from "../shared/unicode.js";
+import { splitLegacyStoryLines } from "./import-nai-legacy-lines.js";
+import { retryHistoryFidelity } from "./import-retry-fidelity.js";
 
 export interface NovelAiLegacyHistoryAlternates {
   /** New parts, each carrying `parentIndex` and `active: false`. `parentIndex`
@@ -159,24 +160,7 @@ function build(
     }
   }
 
-  const fidelity: string[] = [];
-  if (counters.imported > 0) {
-    fidelity.push(`${counters.imported} ${countNoun(counters.imported, "retry", "retries")} imported as unselected takes`);
-  }
-  if (counters.notAdditive > 0) {
-    fidelity.push(
-      `${counters.notAdditive} retry ${countNoun(counters.notAdditive, "branch", "branches")} omitted: not a simple continuation`
-    );
-  }
-  if (counters.malformed > 0) {
-    fidelity.push(
-      `${counters.malformed} retry ${countNoun(counters.malformed, "branch", "branches")} omitted: malformed`
-    );
-  }
-  if (counters.budgetHit) {
-    fidelity.push("retry takes stopped: story is at the part or text limit");
-  }
-  return { parts: result, fidelity };
+  return { parts: result, fidelity: retryHistoryFidelity(counters) };
 }
 
 function readBlock(raw: unknown, blocksLength: number): LegacyBlock {
@@ -242,38 +226,33 @@ function statesAlong(
   blocks: readonly LegacyBlock[],
   activeParts: readonly ImportedPart[]
 ): readonly ({ readonly sourceLength: number; readonly parentIndex: number | null } | null)[] {
-  const states: ({ readonly sourceLength: number; readonly parentIndex: number | null } | null)[] = [];
+  const sourceEnds: (number | null)[] = [];
+  const fragments: string[] = [];
   let sourceLength = 0;
   let safe = true;
-  let prefixMatches = true;
-  let pendingLine = "";
-  let activePartIndex = 0;
   for (const id of lineage) {
     const block = blocks[id]!;
     if (!safe || !isPureAppend(block, sourceLength)) {
       safe = false;
-      states.push(null);
+      sourceEnds.push(null);
       continue;
     }
     sourceLength += block.text.length;
-    const normalized = normalizeSectionText(block.text);
-    let start = 0;
-    for (let index = 0; index <= normalized.length; index += 1) {
-      if (index < normalized.length && normalized[index] !== "\n") continue;
-      pendingLine += normalized.slice(start, index);
-      start = index + 1;
-      if (index === normalized.length) break;
-      if (pendingLine.trim().length > 0) {
-        if (activeParts[activePartIndex]?.text !== pendingLine) prefixMatches = false;
-        activePartIndex += 1;
-      }
-      pendingLine = "";
-    }
-    states.push(prefixMatches && pendingLine.length === 0
-      ? { sourceLength, parentIndex: activePartIndex === 0 ? null : activePartIndex - 1 }
-      : null);
+    fragments.push(block.text);
+    sourceEnds.push(sourceLength);
   }
-  return states;
+
+  const split = splitLegacyStoryLines(fragments.join(""));
+  const matchingPrefix: boolean[] = [true];
+  split.lines.forEach((line, index) => {
+    matchingPrefix.push(matchingPrefix[index]! && activeParts[index]?.text === line);
+  });
+  return sourceEnds.map((end) => {
+    if (end === null) return null;
+    const partCount = split.partCountAtBoundary.get(end);
+    if (partCount === undefined || matchingPrefix[partCount] !== true) return null;
+    return { sourceLength: end, parentIndex: partCount === 0 ? null : partCount - 1 };
+  });
 }
 
 function isPureAppend(block: LegacyBlock, baseLength: number): boolean {

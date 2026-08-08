@@ -186,6 +186,36 @@ test("partsFromNovelAiStory omits a V1 retry that diverges inside one imported s
   ]);
 });
 
+test("partsFromNovelAiStory matches legacy retry boundaries after cross-fragment NFC composition", () => {
+  const containerJson = JSON.stringify({
+    storyContainerVersion: 1,
+    metadata: { title: "Cross-fragment NFC retry" },
+    content: {
+      story: {
+        fragments: [
+          { data: "Cafe", origin: "prompt" },
+          { data: "\u0301.\n", origin: "ai" },
+          { data: "Selected.", origin: "ai" }
+        ],
+        currentBlock: 2,
+        datablocks: [
+          { prevBlock: -1, nextBlock: [1], startIndex: 0, dataFragment: { data: "Cafe", origin: "prompt" } },
+          { prevBlock: 0, nextBlock: [2, 3], startIndex: 4, dataFragment: { data: "\u0301.\n", origin: "ai" } },
+          { prevBlock: 1, nextBlock: [], startIndex: 7, dataFragment: { data: "Selected.", origin: "ai" } },
+          { prevBlock: 1, nextBlock: [], startIndex: 7, dataFragment: { data: "Alternate.", origin: "ai" } }
+        ]
+      }
+    }
+  });
+
+  const parsed = partsFromNovelAiStory(containerJson);
+  assert.deepEqual(parsed.story.parts.map(({ text, parentIndex, active }) => ({ text, parentIndex, active })), [
+    { text: "Café.", parentIndex: undefined, active: undefined },
+    { text: "Selected.", parentIndex: undefined, active: undefined },
+    { text: "Alternate.", parentIndex: 0, active: false }
+  ]);
+});
+
 test("legacy NovelAI retry import accepts the maximum-depth additive branch", () => {
   const retryCount = MAX_PARTS - 1;
   const datablocks = Array.from({ length: MAX_PARTS }, (_, index) => index === 0

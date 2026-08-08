@@ -1,5 +1,5 @@
 import type { ImportedPart } from "./import-model.js";
-import { countNoun } from "../shared/fidelity.js";
+import { retryHistoryFidelity } from "./import-retry-fidelity.js";
 import {
   type NovelAiSection,
   type SectionId,
@@ -216,24 +216,7 @@ function build(
     }
   }
 
-  const fidelity: string[] = [];
-  if (counters.imported > 0) {
-    fidelity.push(`${counters.imported} ${countNoun(counters.imported, "retry", "retries")} imported as unselected takes`);
-  }
-  if (counters.notAdditive > 0) {
-    fidelity.push(
-      `${counters.notAdditive} retry ${countNoun(counters.notAdditive, "branch", "branches")} omitted: not a simple continuation`
-    );
-  }
-  if (counters.malformed > 0) {
-    fidelity.push(
-      `${counters.malformed} retry ${countNoun(counters.malformed, "branch", "branches")} omitted: malformed`
-    );
-  }
-  if (counters.budgetHit) {
-    fidelity.push("retry takes stopped: story is at the part or text limit");
-  }
-  return { parts: result, fidelity };
+  return { parts: result, fidelity: retryHistoryFidelity(counters) };
 }
 
 function applyChanges(

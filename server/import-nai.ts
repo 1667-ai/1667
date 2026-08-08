@@ -11,6 +11,7 @@ import {
   partsFromNovelAiDocument
 } from "./import-nai-document.js";
 import { alternatesFromNovelAiLegacyHistory } from "./import-nai-legacy-history.js";
+import { splitLegacyStoryLines } from "./import-nai-legacy-lines.js";
 import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
 import {
   MAX_FACTS,
@@ -219,20 +220,13 @@ function parseLegacyStory(storyRaw: unknown, title: string): GenericImport {
     fragments.push(fragment.data);
   }
 
-  const prose = fragments.join("").normalize("NFC")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n");
-  if (prose.length > MAX_TOTAL_CHARS) throw importTextTooLarge();
+  const prose = splitLegacyStoryLines(fragments.join(""));
+  if (prose.normalizedLength > MAX_TOTAL_CHARS) throw importTextTooLarge();
 
   const parts: ImportedPart[] = [];
   const createdAt = new Date().toISOString();
   let partChars = 0;
-  let start = 0;
-  for (let index = 0; index <= prose.length; index += 1) {
-    if (index < prose.length && prose[index] !== "\n") continue;
-    const line = prose.slice(start, index);
-    start = index + 1;
-    if (line.trim().length === 0) continue;
+  for (const line of prose.lines) {
     if (parts.length === MAX_PARTS) {
       throw new ServiceError(
         400,
