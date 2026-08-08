@@ -10,6 +10,7 @@ import {
   MAX_NOVELAI_RECORDS,
   partsFromNovelAiDocument
 } from "./import-nai-document.js";
+import { alternatesFromNovelAiLegacyHistory } from "./import-nai-legacy-history.js";
 import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
 import {
   MAX_FACTS,
@@ -88,7 +89,14 @@ export function partsFromNovelAiStory(jsonText: string): NovelAiContainerImport 
   } else if (document !== undefined && document !== "") {
     throw new ServiceError(400, "Malformed MessagePack document");
   } else {
-    story = parseLegacyStory(rawJson.content.story, title);
+    const legacy = parseLegacyStory(rawJson.content.story, title);
+    const alternates = alternatesFromNovelAiLegacyHistory(rawJson.content.story, {
+      parts: legacy.parts,
+      room: MAX_PARTS - legacy.parts.length,
+      charsRoom: MAX_TOTAL_CHARS - totalChars(legacy.parts)
+    });
+    story = { title, parts: [...legacy.parts, ...alternates.parts] };
+    fidelity.push(...alternates.fidelity);
   }
 
   const facts = extractFacts(rawJson.content.context, rawJson.content.lorebook, fidelity);
@@ -239,6 +247,12 @@ function parseLegacyStory(storyRaw: unknown, title: string): GenericImport {
     throw new ServiceError(400, "No importable prose found");
   }
   return { title, parts };
+}
+
+function totalChars(parts: readonly ImportedPart[]): number {
+  let total = 0;
+  for (const part of parts) total += part.text.length;
+  return total;
 }
 
 function importTextTooLarge(): ServiceError {

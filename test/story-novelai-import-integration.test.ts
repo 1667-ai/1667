@@ -108,6 +108,75 @@ test("StoryService.importNovelAI imports a retry as a sibling take, off the acti
   }
 });
 
+test("StoryService.importNovelAI imports a V1 legacy datablocks retry as a sibling take, off the active storyline", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "nai-import-legacy-history-test-"));
+  try {
+    const service = StoryService.withoutDiagnostics({ dataDir: dir });
+    await service.init();
+    try {
+      const payload = await service.importNovelAI(JSON.stringify({
+        storyContainerVersion: 1,
+        metadata: { title: "Legacy branching story" },
+        content: {
+          storyContentVersion: 1,
+          story: {
+            fragments: [
+              { data: "The lantern keeper walked the cliff road.\n", origin: "ai" },
+              { data: "She chose the low path instead.", origin: "ai" }
+            ],
+            currentBlock: 1,
+            datablocks: [
+              {
+                prevBlock: -1,
+                nextBlock: [1, 2],
+                startIndex: 0,
+                dataFragment: { data: "The lantern keeper walked the cliff road.\n", origin: "ai" }
+              },
+              {
+                prevBlock: 0,
+                nextBlock: [],
+                startIndex: 42,
+                dataFragment: { data: "She chose the low path instead.", origin: "ai" }
+              },
+              {
+                prevBlock: 0,
+                nextBlock: [],
+                startIndex: 42,
+                dataFragment: { data: "Someone else took the cliff road that night.", origin: "ai" }
+              }
+            ]
+          }
+        }
+      }));
+
+      assert.deepEqual(payload.path.map(({ text }) => text), [
+        "The lantern keeper walked the cliff road.",
+        "She chose the low path instead."
+      ]);
+
+      assert.equal(payload.nodes.length, 3);
+      const root = payload.nodes.find(({ parentId }) => parentId === null);
+      assert.ok(root);
+      assert.equal(root.preview, "The lantern keeper walked the cliff road.");
+      assert.equal(payload.activeRootId, root.id);
+      const children = payload.nodes.filter(({ parentId }) => parentId === root.id);
+      assert.equal(children.length, 2);
+      assert.deepEqual(
+        children.map(({ preview }) => preview).sort(),
+        ["She chose the low path instead.", "Someone else took the cliff road that night."].sort()
+      );
+      const active = children.find(({ preview }) => preview === "She chose the low path instead.")!;
+      const alternate = children.find(({ preview }) => preview === "Someone else took the cliff road that night.")!;
+      assert.equal(root.activeChildId, active.id);
+      assert.notEqual(root.activeChildId, alternate.id);
+    } finally {
+      await service.dispose();
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("worker mutation parsing accepts the NovelAI container", () => {
   const storyContainerJson = JSON.stringify({
     storyContainerVersion: 1,

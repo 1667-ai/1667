@@ -53,6 +53,12 @@ retry. Import drops a retry that edits or removes prose already in the story
 line. It states the dropped count in the Fidelity Report. A dropped retry
 never changes the selected story line, which import always reads in full.
 
+Import reads retry history from the current NovelAI Document format. It also
+reads the `datablocks` history from the legacy story format. A legacy retry
+must start after a complete imported story part. Import drops a legacy retry
+that starts inside one story part. This rule prevents the import from changing
+or omitting shared prose.
+
 ## Before you start
 
 Export your work from NovelAI first: each story as a `.story` file, and each

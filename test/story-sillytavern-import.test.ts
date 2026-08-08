@@ -102,3 +102,79 @@ test("partsFromSillyTavernJsonl omits unselected swipes that do not fit the text
   assert.equal(imported.parts[0]!.text, bigActive);
   assert.equal(imported.omittedAlternateSwipes, 1);
 });
+
+test("partsFromSillyTavernJsonl never fails a later active message for a large early alternate", () => {
+  // The whole active storyline must claim its budget before any alternate
+  // does. A single-pass importer that spends budget message-by-message would
+  // let this early alternate starve the second active message's own text.
+  const activeOne = "Active one.";
+  const activeTwo = "Active two.";
+  const bigAlt = "x".repeat(MAX_TOTAL_CHARS - activeOne.length - 5);
+  const jsonl = [
+    JSON.stringify({ is_user: true, mes: "Go." }),
+    JSON.stringify({
+      is_user: false,
+      mes: activeOne,
+      swipe_id: 0,
+      swipes: [activeOne, bigAlt]
+    }),
+    JSON.stringify({ is_user: true, mes: "Continue." }),
+    JSON.stringify({ is_user: false, mes: activeTwo })
+  ].join("\n");
+
+  const imported = partsFromSillyTavernJsonl(jsonl);
+  assert.deepEqual(imported.parts.map(({ text }) => text), [activeOne, activeTwo]);
+  assert.equal(imported.omittedAlternateSwipes, 1);
+});
+
+test("partsFromSillyTavernJsonl charges an alternate's copied instruction to the text budget", () => {
+  const instruction = "u".repeat(Math.floor(MAX_TOTAL_CHARS / 2) + 1);
+  const jsonl = [
+    JSON.stringify({ is_user: true, mes: instruction }),
+    JSON.stringify({ is_user: false, mes: "A", swipe_id: 0, swipes: ["A", "B"] })
+  ].join("\n");
+
+  const imported = partsFromSillyTavernJsonl(jsonl);
+  assert.deepEqual(imported.parts.map(({ text }) => text), ["A"]);
+  assert.equal(imported.omittedAlternateSwipes, 1);
+});
+
+test("partsFromSillyTavernJsonl trusts swipe_id only when it names the active text, falling back by content", () => {
+  const outOfBounds = partsFromSillyTavernJsonl([
+    JSON.stringify({ is_user: true, mes: "Go." }),
+    JSON.stringify({
+      is_user: false,
+      mes: "Chosen text",
+      swipe_id: 99,
+      swipes: ["Alt A", "Chosen text"]
+    })
+  ].join("\n"));
+  assert.deepEqual(outOfBounds.parts.map(({ text }) => text), ["Chosen text", "Alt A"]);
+  assert.equal(outOfBounds.omittedAlternateSwipes, 0);
+
+  const mismatched = partsFromSillyTavernJsonl([
+    JSON.stringify({ is_user: true, mes: "Go." }),
+    JSON.stringify({
+      is_user: false,
+      mes: "Chosen text",
+      swipe_id: 0,
+      swipes: ["Alt A", "Chosen text"]
+    })
+  ].join("\n"));
+  assert.deepEqual(mismatched.parts.map(({ text }) => text), ["Chosen text", "Alt A"]);
+  assert.equal(mismatched.omittedAlternateSwipes, 0);
+
+  // No swipes entry matches `mes` at all: which one is "active" is unknowable,
+  // so no index is excluded and every swipe still imports.
+  const noMatch = partsFromSillyTavernJsonl([
+    JSON.stringify({ is_user: true, mes: "Go." }),
+    JSON.stringify({
+      is_user: false,
+      mes: "Something else entirely",
+      swipe_id: 5,
+      swipes: ["Alt A", "Alt B"]
+    })
+  ].join("\n"));
+  assert.deepEqual(noMatch.parts.map(({ text }) => text).sort(), ["Alt A", "Alt B", "Something else entirely"].sort());
+  assert.equal(noMatch.omittedAlternateSwipes, 0);
+});

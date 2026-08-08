@@ -141,8 +141,8 @@ export function partsFromSillyTavernJsonl(jsonl: string): SillyTavernImport {
   // it is optional retry history, and the chat it came from still has room for
   // the active storyline. `null` restores the budget so a smaller later swipe
   // can still claim it.
-  const tryExpand = (text: string): string | null => {
-    const projected = projectExpansion(text);
+  const tryExpand = (text: string, repeatedChars = 0): string | null => {
+    const projected = projectExpansion(text) + repeatedChars;
     remaining -= projected;
     if (remaining < 0) {
       remaining += projected;
@@ -151,9 +151,14 @@ export function partsFromSillyTavernJsonl(jsonl: string): SillyTavernImport {
     return substitute(text);
   };
 
+  // Two passes, deliberately: the whole active storyline claims its budget
+  // first, in message order, so one large early alternate can never starve a
+  // later active message of the room or characters it needs. Only once every
+  // active part is safely in does the second pass spend what is left on
+  // alternates, which are optional and may be dropped for want of room.
   const parts: ImportedPart[] = [];
   const pendingUser: string[] = [];
-  let omittedAlternateSwipes = 0;
+  const activeEntries: { parentIndex: number | null; instruction: string; message: RawMessage }[] = [];
   // The active storyline's own chain, tracked explicitly: once a message's
   // alternate swipes are appended after its active take, the *previous array
   // element* is an alternate, not the take the next active part continues.
@@ -168,26 +173,50 @@ export function partsFromSillyTavernJsonl(jsonl: string): SillyTavernImport {
       pendingUser.push(text);
       continue;
     }
+    const separators = Math.max(0, pendingUser.length - 1) * 2;
+    remaining -= separators;
+    if (remaining < 0) throw new HttpError(400, "Chat expands to more text than can be imported");
     const instruction = pendingUser.join("\n\n");
     const activeIndex = parts.length;
     parts.push({ instruction, text, createdAt: parseSendDate(message.sendDate), parentIndex: previousActiveIndex });
     pendingUser.length = 0;
     if (parts.length > MAX_PARTS) throw new HttpError(400, `Chat has more than ${MAX_PARTS} messages — too large to import`);
 
-    omittedAlternateSwipes += addAlternateSwipes(parts, previousActiveIndex, instruction, message, {
-      tryExpand,
-      hasRoom: () => parts.length < MAX_PARTS
-    });
+    activeEntries.push({ parentIndex: previousActiveIndex, instruction, message });
     previousActiveIndex = activeIndex;
   }
 
   if (parts.length === 0) throw new HttpError(400, "No importable messages found (not a SillyTavern chat JSONL?)");
+
+  let omittedAlternateSwipes = 0;
+  for (const entry of activeEntries) {
+    omittedAlternateSwipes += addAlternateSwipes(parts, entry.parentIndex, entry.instruction, entry.message, {
+      tryExpand,
+      hasRoom: () => parts.length < MAX_PARTS
+    });
+  }
+
   return {
     title: characterName.length > 0 ? `${characterName} (imported)` : "Imported chat",
     parts,
     droppedTrailingUserMessages: pendingUser.length,
     omittedAlternateSwipes
   };
+}
+
+/** Which `swipes` entry is `mes`. Trusts `swipe_id` only when it is in bounds
+ *  and that entry's text actually equals `mes`; a stale or corrupt index must
+ *  not hide a legitimate alternate. Falls back to the entry whose text equals
+ *  `mes`. When no entry matches at all, returns `null` — the caller then
+ *  excludes no index, so every swipe still imports rather than one vanishing
+ *  on a guess. */
+function resolveActiveSwipeIndex(swipes: readonly unknown[], swipeId: unknown, mes: string): number | null {
+  if (Number.isInteger(swipeId)) {
+    const index = swipeId as number;
+    if (index >= 0 && index < swipes.length && swipes[index] === mes) return index;
+  }
+  const matched = swipes.findIndex((entry) => entry === mes);
+  return matched === -1 ? null : matched;
 }
 
 /** A message's other swipes become alternate takes, siblings of its active
@@ -198,10 +227,10 @@ function addAlternateSwipes(
   parentIndex: number | null,
   instruction: string,
   message: RawMessage,
-  budget: { tryExpand: (text: string) => string | null; hasRoom: () => boolean }
+  budget: { tryExpand: (text: string, repeatedChars?: number) => string | null; hasRoom: () => boolean }
 ): number {
   if (!Array.isArray(message.swipes) || message.swipes.length < 2) return 0;
-  const activeSwipeIndex = Number.isInteger(message.swipeId) ? (message.swipeId as number) : 0;
+  const activeSwipeIndex = resolveActiveSwipeIndex(message.swipes, message.swipeId, message.mes);
   const swipeInfo = Array.isArray(message.swipeInfo) ? message.swipeInfo : [];
   let omitted = 0;
   for (let index = 0; index < message.swipes.length; index += 1) {
@@ -215,7 +244,9 @@ function addAlternateSwipes(
       omitted += 1;
       continue;
     }
-    const text = budget.tryExpand(rawText);
+    // Every alternate stores its own copy of the active take's instruction.
+    // Charge that duplicate as well as the alternate prose.
+    const text = budget.tryExpand(rawText, instruction.length);
     if (text === null || text.trim().length === 0) {
       omitted += 1;
       continue;

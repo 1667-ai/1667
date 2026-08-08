@@ -94,6 +94,96 @@ test("partsFromNovelAiStory parses V1 Legacy fragments when document is absent",
   assert.equal(parsed.story.parts[2]?.text, "Line 3 of legacy story.");
 });
 
+test("partsFromNovelAiStory imports a V1 legacy datablocks retry as a sibling take, nested, off the active storyline", () => {
+  // root(0) -> block1(1) -> A(2, chosen/current)
+  //                       \> B(3, a retry) -> B2(4, a further retry of B)
+  //                       \> edited(5, origin "edit" — not a simple continuation, dropped)
+  const containerJson = JSON.stringify({
+    storyContainerVersion: 1,
+    metadata: { title: "Legacy V1 retry history" },
+    content: {
+      storyContentVersion: 1,
+      story: {
+        fragments: [
+          { data: "Sec one.\n", origin: "ai" },
+          { data: "Sec two.\n", origin: "ai" },
+          { data: "Sec three (A).\n", origin: "ai" }
+        ],
+        currentBlock: 2,
+        datablocks: [
+          { prevBlock: -1, nextBlock: [1], startIndex: 0, dataFragment: { data: "Sec one.\n", origin: "ai" } },
+          { prevBlock: 0, nextBlock: [2, 3, 5], startIndex: 9, dataFragment: { data: "Sec two.\n", origin: "ai" } },
+          { prevBlock: 1, nextBlock: [], startIndex: 18, dataFragment: { data: "Sec three (A).\n", origin: "ai" } },
+          { prevBlock: 1, nextBlock: [4], startIndex: 18, dataFragment: { data: "Sec four (B).\n", origin: "ai" } },
+          { prevBlock: 3, nextBlock: [], startIndex: 32, dataFragment: { data: "Sec five (B2).", origin: "ai" } },
+          { prevBlock: 1, nextBlock: [], startIndex: 18, dataFragment: { data: "Edited two.", origin: "edit" } }
+        ]
+      }
+    }
+  });
+
+  const parsed = partsFromNovelAiStory(containerJson);
+  assert.deepEqual(parsed.story.parts.map(({ text, parentIndex, active }) => ({ text, parentIndex, active })), [
+    { text: "Sec one.", parentIndex: undefined, active: undefined },
+    { text: "Sec two.", parentIndex: undefined, active: undefined },
+    { text: "Sec three (A).", parentIndex: undefined, active: undefined },
+    { text: "Sec four (B).", parentIndex: 1, active: false },
+    { text: "Sec five (B2).", parentIndex: 3, active: false }
+  ]);
+  assert.deepEqual(parsed.fidelity, [
+    "2 retries imported as unselected takes",
+    "1 retry branch omitted: not a simple continuation",
+    "generation settings omitted"
+  ]);
+});
+
+test("partsFromNovelAiStory degrades a malformed V1 legacy history without touching the active prose", () => {
+  const containerJson = JSON.stringify({
+    storyContainerVersion: 1,
+    metadata: { title: "Bad legacy history" },
+    content: {
+      storyContentVersion: 1,
+      story: {
+        fragments: [{ data: "Only active prose.", origin: "ai" }],
+        // A block whose own prevBlock points back at itself is a cycle.
+        currentBlock: 0,
+        datablocks: [
+          { prevBlock: 0, nextBlock: [], startIndex: 0, dataFragment: { data: "Only active prose.", origin: "ai" } }
+        ]
+      }
+    }
+  });
+
+  const parsed = partsFromNovelAiStory(containerJson);
+  assert.deepEqual(parsed.story.parts.map(({ text }) => text), ["Only active prose."]);
+  assert.deepEqual(parsed.fidelity, ["retry history omitted: malformed", "generation settings omitted"]);
+});
+
+test("partsFromNovelAiStory omits a V1 retry that diverges inside one imported story part", () => {
+  const containerJson = JSON.stringify({
+    storyContainerVersion: 1,
+    metadata: { title: "Mid-line retry" },
+    content: {
+      story: {
+        fragments: [{ data: "Prompt selected.", origin: "ai" }],
+        currentBlock: 1,
+        datablocks: [
+          { prevBlock: -1, nextBlock: [1, 2], startIndex: 0, dataFragment: { data: "Prompt ", origin: "prompt" } },
+          { prevBlock: 0, nextBlock: [], startIndex: 7, dataFragment: { data: "selected.", origin: "ai" } },
+          { prevBlock: 0, nextBlock: [], startIndex: 7, dataFragment: { data: "alternate.", origin: "ai" } }
+        ]
+      }
+    }
+  });
+
+  const parsed = partsFromNovelAiStory(containerJson);
+  assert.deepEqual(parsed.story.parts.map(({ text }) => text), ["Prompt selected."]);
+  assert.deepEqual(parsed.fidelity, [
+    "1 retry branch omitted: not a simple continuation",
+    "generation settings omitted"
+  ]);
+});
+
 test("partsFromNovelAiStory applies dirtySections diffs correctly with chunk builder and bounds verification", () => {
   const sectionsMap = new Map([
     ["sec-1", { type: 1, text: "Hello World" }],
