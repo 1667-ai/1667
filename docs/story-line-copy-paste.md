@@ -30,16 +30,18 @@ target.
 
 ## Field policy
 
-A clone carries forward the source part's prose, instruction, model name,
-human-take marker, human-edit attribution, and rewritten spans. These fields
-let a reader read and continue the clone on its own, the same way they could
-read and continue the source.
+A clone carries forward the source part's prose and instruction. It also
+carries forward the human-take marker and the human-edit attribution. These
+fields let a reader read and continue the clone.
 
-A clone never carries the source part's generation ID or captured token
-probabilities. Both name one specific generation attempt. The clone is not
-that attempt. A clone never carries a chapter break or a Tag either. Both
-name the *original* story part's identity and position. The paste must not
-put two story parts under the same name.
+A clone uses `copied` as its model name. This name shows that a provider did
+not generate the clone. A clone never carries the source part's generation
+ID, rewritten spans, or captured token probabilities. These fields describe
+one generation attempt. The clone is not that attempt.
+
+A clone never carries a chapter break or a Tag. These fields identify the
+position of the original story part. The paste must not put two story parts
+under the same name.
 
 A chapter summary can be neither a copy source nor a paste target. A chapter
 summary is a structural dead end: no story line continues below it, and no

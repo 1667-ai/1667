@@ -26,7 +26,6 @@ import { sliceWellFormedUtf16Prefix } from "../shared/unicode.js";
 import { ServiceError as HttpError } from "./errors.js";
 import { attributionAfterHumanEdit, rewrittenSpansAfterHumanEdit } from "../shared/human-edit.js";
 import { HASH_PATTERN, sha256 } from "./story-format.js";
-import { cloneRewrittenSpans } from "./story-format-nodes.js";
 import { setNodeRewriteId } from "./story-node-text.js";
 import { attachTakeTokenProbabilities } from "./story-node-token-probabilities.js";
 
@@ -177,17 +176,14 @@ export interface PasteStoryLineIds {
  * to the new leaf, exactly as choosing that leaf on the Story Map would.
  *
  * Field policy, decided once here rather than ad hoc per field: prose,
- * instruction, model, human-take marker, human-edit attribution, and
- * rewritten spans are authored content the copy needs to read and continue
- * like the original, so every clone carries them forward. A clone never
- * carries the source's `genId` or captured token probabilities — those name
- * one specific generation attempt and its stored diagnostic record, and
- * copying the marker without the record would just dangle. A clone never
- * carries a chapter break or a Tag either: both are handles on the
- * *original* line's identity and position, not content the copy needs to be
- * usable, and duplicating them would leave two lines answering to the same
- * name. Chapter summaries never enter into this at all — a summary is a
- * structural dead end, so it can be neither copied from nor pasted onto.
+ * instruction, human-take marker, and human-edit attribution are authored
+ * content, so every clone carries them forward. The synthetic `copied`
+ * model states how this take entered the story without claiming that one
+ * provider generated it. A clone never carries generation identity,
+ * rewritten spans, captured token probabilities, a chapter break, or a Tag.
+ * Those fields describe the source take's generation or structural identity.
+ * Chapter summaries never enter into this at all: a summary is a structural
+ * dead end, so it can be neither copied from nor pasted onto.
  */
 export function pasteStoryLine(
   story: Story,
@@ -219,13 +215,11 @@ export function pasteStoryLine(
   const clones: StoryNode[] = [];
   let parentId = target.id;
   chain.forEach((original, index) => {
-    const clone = newNode(parentId, original.instruction, original.text, original.model, {
+    const clone = newNode(parentId, original.instruction, original.text, "copied", {
       ...(ids.nodeId === undefined ? {} : { id: ids.nodeId(index) }),
       ...(original.human === true ? { human: true as const } : {})
     });
     clone.attribution = clipAttribution(original.attribution, original.text.length);
-    const rewrittenSpans = cloneRewrittenSpans(original.rewrittenSpans);
-    if (rewrittenSpans !== undefined) clone.rewrittenSpans = rewrittenSpans;
     if (clones.length > 0) clones.at(-1)!.activeChildId = clone.id;
     clones.push(clone);
     parentId = clone.id;

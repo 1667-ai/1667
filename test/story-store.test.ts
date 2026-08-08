@@ -276,6 +276,45 @@ test("story store: pasting a story line rejects a chain over the size cap", asyn
   );
 });
 
+test("story store: pasted parts keep authored provenance without generation metadata", async (t) => {
+  const { store } = await testStore(t);
+  const generated = node("generated", "source", "Model prose", "human-part");
+  generated.model = "provider-model";
+  generated.genId = "generation-attempt";
+  generated.rewrittenSpans = [{ start: 0, end: 5 }];
+  generated.attribution = { source: "human", ranges: [{ start: 6, end: 11 }] };
+  const human = node("human-part", generated.id, "Human prose");
+  human.model = "human";
+  human.human = true;
+  const story = fixture("paste-metadata", [
+    node("source", null, "Source", generated.id),
+    generated,
+    human,
+    node("target", null, "Target")
+  ], "source");
+  await store.save(story);
+
+  const pasted = await store.pasteStoryLine(story.id, "target", {
+    sourceNodeId: "source",
+    expectedLeafId: human.id
+  });
+  const [, clonedGenerated, clonedHuman] = activePath(pasted);
+
+  assert.equal(clonedGenerated!.text, generated.text);
+  assert.equal(clonedGenerated!.model, "copied");
+  assert.equal(clonedGenerated!.genId, undefined);
+  assert.equal(clonedGenerated!.rewrittenSpans, undefined);
+  assert.deepEqual(clonedGenerated!.attribution, generated.attribution);
+  assert.notEqual(clonedGenerated!.attribution, generated.attribution);
+  assert.equal(clonedHuman!.model, "copied");
+  assert.equal(clonedHuman!.human, true);
+
+  const unchanged = pasted.nodes.find(({ id }) => id === generated.id)!;
+  assert.equal(unchanged.model, "provider-model");
+  assert.equal(unchanged.genId, "generation-attempt");
+  assert.deepEqual(unchanged.rewrittenSpans, [{ start: 0, end: 5 }]);
+});
+
 test("story store: unused-take pruning is atomic, preserves intent, and rejects a stale preview", async (t) => {
   const { store } = await testStore(t);
   const story = fixture("prune-unused", [

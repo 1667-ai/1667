@@ -217,7 +217,8 @@ export function openActions(
 /** The menu the renderer draws — one source for both, so row N on screen is
  *  always row N to a click. */
 export function currentPartActions(
-  state: Pick<RuntimeState, "actions" | "focusIndex" | "payload" | "stream" | "lineClipboard">
+  state: Pick<RuntimeState, "actions" | "focusIndex" | "payload" | "stream">
+    & { lineClipboard?: RuntimeState["lineClipboard"] }
 ): PartAction[] {
   const view = createStoryViewModel(state.payload, state.stream);
   const index = state.actions === null
