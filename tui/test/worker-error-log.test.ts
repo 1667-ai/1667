@@ -12,6 +12,7 @@ import { SETTINGS_STATE_V2_FILE } from "../../server/data-directory-layout.js";
 import { internalErrorLogPath } from "../../server/internal-error-log.js";
 import { MutationOutbox } from "../../server/mutation-outbox.js";
 import {
+  BackendRestartRequiredError,
   createWorkerStoryApi,
   WorkerApiError
 } from "../src/worker-api.js";
@@ -21,6 +22,9 @@ import {
   platformPerformanceBudget
 } from "../../test/performance-budget.js";
 import { FakeWorker, waitForRequest } from "./fixtures/fake-worker.js";
+import { createDemoController } from "../src/demo.js";
+import type { StoryPayload } from "../../shared/types.js";
+import { InternalErrorReporter } from "../../server/internal-error-reporter.js";
 
 test("embedded internal errors carry the reference written to the private log", async () => {
   const dataDir = await temporaryDirectory("1667-worker-error-data-");
@@ -57,6 +61,128 @@ test("embedded internal errors carry the reference written to the private log", 
       rm(dataDir, { recursive: true, force: true }),
       rm(machineDir, { recursive: true, force: true })
     ]);
+  }
+}, platformPerformanceBudget(10_000));
+
+test("unexpected worker exits log content-free host and stream progress", async () => {
+  const machineDir = await temporaryDirectory("1667-worker-host-machine-");
+  const worker = new FakeWorker();
+  const backend = await createWorkerStoryApi({
+    worker,
+    machineDir,
+    readyTimeoutMs: 100
+  });
+  const privateInstruction = "private-instruction-that-must-not-reach-the-log";
+  const privateDelta = "private-streamed-prose-that-must-not-reach-the-log";
+  try {
+    const payload: StoryPayload = {
+      ...createDemoController().payload(),
+      aggregateVersion: {
+        kind: "v6",
+        revision: "00000000000000000001"
+      }
+    };
+    const loading = backend.api.loadStory(payload.id);
+    const loadRequest = await waitForRequest(worker, "loadStory");
+    worker.message({ type: "result", id: loadRequest.id, value: payload });
+    await loading;
+
+    const received: string[] = [];
+    const generationFailure = rejection(backend.api.continueStory(
+      payload.id,
+      privateInstruction,
+      "private-generation-id",
+      { parentId: payload.path.at(-1)?.id ?? null },
+      (delta) => received.push(delta),
+      new AbortController().signal
+    ));
+    const request = await waitForRequest(worker, "continueStory");
+    worker.message({
+      type: "delta",
+      id: request.id,
+      sequence: 0,
+      text: privateDelta
+    });
+    expect(received).toEqual([privateDelta]);
+
+    worker.crash("injected worker runtime crash");
+    const failure = await backend.failure;
+    expect(failure instanceof BackendRestartRequiredError).toBeTrue();
+    expect((failure as BackendRestartRequiredError).diagnosticRef)
+      .toMatch(/^err_[0-9a-f]{24}$/);
+    expect(await generationFailure).toBe(failure);
+
+    const entries = (await readFile(internalErrorLogPath(machineDir), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const entry = entries.at(-1) as {
+      service: string;
+      operation: string;
+      error: {
+        name: string;
+        cause: { name: string; message: string };
+      };
+    };
+    expect(entry).toMatchObject({
+      service: "embedded-worker-host",
+      operation: "restart-required",
+      error: {
+        name: "BackendRestartRequiredError",
+        cause: { name: "EmbeddedWorkerHostDiagnostic" }
+      }
+    });
+    const prefix = "Embedded backend host state: ";
+    expect(entry.error.cause.message.startsWith(prefix)).toBeTrue();
+    const snapshot = JSON.parse(entry.error.cause.message.slice(prefix.length)) as {
+      pendingCount: number;
+      omittedCount: number;
+      operations: Array<Record<string, unknown>>;
+    };
+    expect(snapshot).toMatchObject({
+      pendingCount: 1,
+      omittedCount: 0,
+      operations: [{
+        method: "continueStory",
+        replay: false,
+        stream: true,
+        cancelled: false,
+        settling: false,
+        expectedSequence: 1,
+        receivedDeltaBatches: 1,
+        receivedUtf16Units: privateDelta.length
+      }]
+    });
+    expect(typeof snapshot.operations[0]?.ageMs).toBe("number");
+    const stored = JSON.stringify(entry);
+    expect(stored).not.toContain(privateInstruction);
+    expect(stored).not.toContain(privateDelta);
+    expect(stored).not.toContain("private-generation-id");
+  } finally {
+    await backend.dispose().catch(() => undefined);
+    await rm(machineDir, { recursive: true, force: true });
+  }
+}, platformPerformanceBudget(10_000));
+
+test("host diagnostic failures preserve the backend hard fence", async () => {
+  const worker = new FakeWorker();
+  const backend = await createWorkerStoryApi({
+    worker,
+    machineDir: "/unused-diagnostic-machine-directory",
+    readyTimeoutMs: 100
+  });
+  const openReporter = InternalErrorReporter.open;
+  InternalErrorReporter.open = async () => {
+    throw new Error("injected diagnostic open failure");
+  };
+  try {
+    worker.crash("injected worker runtime crash");
+    const failure = await backend.failure;
+    expect(failure instanceof BackendRestartRequiredError).toBeTrue();
+    expect((failure as BackendRestartRequiredError).diagnosticRef).toBe(null);
+  } finally {
+    InternalErrorReporter.open = openReporter;
+    await backend.dispose().catch(() => undefined);
   }
 }, platformPerformanceBudget(10_000));
 
