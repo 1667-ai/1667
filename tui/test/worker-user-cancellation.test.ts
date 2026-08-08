@@ -361,6 +361,57 @@ test("local durability mutations cancel without any durable outbox transition", 
   await transport.dispose();
 });
 
+test("caller cancellation of a non-mutating read retires locally, never fences the backend, and leaves a concurrent mutation running", async () => {
+  const worker = new FakeWorker(true);
+  const outbox = new RecordingCancellationOutbox();
+  const cancelGraceMs = 20;
+  const transport = await startTransport(worker, outbox, cancelGraceMs);
+  const cancel = new AbortController();
+
+  // The worker never answers this call at all: no delta, no result, no
+  // error. The policy under test is that a cancelled read needs no terminal
+  // evidence to retire safely.
+  const readOutcome = transport.call(
+    "countPromptTokens",
+    { messages: [] },
+    { signal: cancel.signal }
+  );
+  const readRequest = await waitForRequest(worker, "countPromptTokens");
+
+  // A mutation runs at the same time. Cancelling the unrelated read must
+  // never reach it.
+  const continueOutcome = transport.call("continueStory", {
+    storyId: "story-1",
+    instruction: "keep going",
+    genId: "gen-1",
+    target: {}
+  });
+  const continueRequest = await waitForRequest(worker, "continueStory");
+
+  cancel.abort();
+  expect(await waitForControlMessage(worker, "cancel", readRequest.id)).toMatchObject({
+    reason: "user"
+  });
+  expect(await readOutcome).toBe(null);
+
+  let failed = false;
+  void transport.failure.then(() => { failed = true; });
+  await new Promise((resolve) =>
+    setTimeout(resolve, cancelGraceMs + platformPerformanceBudget(200))
+  );
+  expect(failed).toBeFalse();
+  expect(worker.terminateCalls).toBe(0);
+
+  worker.message({
+    type: "result",
+    id: continueRequest.id,
+    value: { payload: null, droppedFacts: [] }
+  });
+  expect(await continueOutcome).toEqual({ payload: null, droppedFacts: [] });
+
+  await transport.dispose();
+});
+
 async function startTransport(
   worker: FakeWorker,
   outbox: MutationOutbox,
