@@ -110,6 +110,37 @@ describe("animation deadlines", () => {
     expect(firstDeadlines.next()).toBe(250);
   });
 
+  test("the liveness mark travels a whole turn before it repeats", () => {
+    const state = initialState(demoAppSource(false), false);
+    const leaf = state.payload.path.at(-1)!;
+    state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), leaf.id);
+    state.stream = {
+      targetId: leaf.id,
+      parentId: leaf.parentId,
+      append: true,
+      startedAt: "2026-07-22T00:00:00.000Z",
+      instruction: "",
+      ...emptyStreamText()
+    };
+    const markAt = (now: number): string => {
+      state.now = now;
+      const frame = renderStoryScreen(state, { width: 120, height: 36 })
+        .lines.map(plainLine).join("\n");
+      return frame.slice(frame.indexOf(" writing") - 1, frame.indexOf(" writing"));
+    };
+    const turn = Array.from({ length: 10 }, (_, frame) => markAt(frame * 250));
+
+    // The dots run down one side of the cell, along the bottom, and back up the
+    // other side. Ten marks carry them the whole way; four stopped a quarter of
+    // the way around and jumped back to the top.
+    expect(turn).toEqual([
+      "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
+    ]);
+    expect(new Set(turn).size).toBe(10);
+    // Only after the whole turn does the first mark come back.
+    expect(markAt(10 * 250)).toBe("⠋");
+  });
+
   test("compose focus suppresses the growth pulse when phases collapse to chrome", () => {
     const state = initialState(demoAppSource(false), false);
     state.mode = "COMPOSE";

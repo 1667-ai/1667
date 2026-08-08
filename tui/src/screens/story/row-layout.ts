@@ -38,7 +38,13 @@ import { streamTrimBounds } from "../../stream-text.js";
 import type { WrapContentIdentity } from "../../wrap.js";
 import { STORY_GUTTER } from "../../composer-geometry.js";
 
-const STREAM_LIVENESS_MARKS = ["⠋", "⠙", "⠹", "⠸"] as const;
+/** The complete braille cycle. The dots travel once around the cell and arrive
+ *  back where they started, so the mark reads as one turn. Four of these ten
+ *  marks carry the dots a quarter of the way around and then snap back to the
+ *  top, which reads as a stall rather than as progress. */
+const STREAM_LIVENESS_MARKS = [
+  "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
+] as const;
 const STREAM_LIVENESS_FRAME_MS = 250;
 
 export interface StoryRowLayout {
