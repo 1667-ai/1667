@@ -8,6 +8,7 @@ import {
 } from "../server/import-nai.js";
 import { ServiceError } from "../server/errors.js";
 import { alternatesFromNovelAiHistory } from "../server/import-nai-history.js";
+import { alternatesFromNovelAiLegacyHistory } from "../server/import-nai-legacy-history.js";
 import {
   STATIC_SYNTHETIC_V2_BASE64,
   SyntheticNovelAiSectionDiff,
@@ -183,6 +184,36 @@ test("partsFromNovelAiStory omits a V1 retry that diverges inside one imported s
     "1 retry branch omitted: not a simple continuation",
     "generation settings omitted"
   ]);
+});
+
+test("legacy NovelAI retry import accepts the maximum-depth additive branch", () => {
+  const retryCount = MAX_PARTS - 1;
+  const datablocks = Array.from({ length: MAX_PARTS }, (_, index) => index === 0
+    ? {
+      prevBlock: -1,
+      nextBlock: [1],
+      startIndex: 0,
+      dataFragment: { data: "Base.\n", origin: "ai" }
+    }
+    : {
+      prevBlock: index - 1,
+      nextBlock: index + 1 < MAX_PARTS ? [index + 1] : [],
+      startIndex: 6 + index - 1,
+      dataFragment: { data: "x", origin: "ai" }
+    });
+
+  const result = alternatesFromNovelAiLegacyHistory(
+    { currentBlock: 0, datablocks },
+    {
+      parts: [{ instruction: "", text: "Base.", createdAt: "2026-01-01T00:00:00.000Z" }],
+      room: retryCount,
+      charsRoom: retryCount
+    }
+  );
+
+  assert.equal(result.parts.length, retryCount);
+  assert.equal(result.parts.at(-1)?.parentIndex, MAX_PARTS - 2);
+  assert.deepEqual(result.fidelity, [`${retryCount} retries imported as unselected takes`]);
 });
 
 test("partsFromNovelAiStory applies dirtySections diffs correctly with chunk builder and bounds verification", () => {

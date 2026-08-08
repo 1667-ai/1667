@@ -90,49 +90,59 @@ function build(
 
   const createdAt = new Date().toISOString();
   const importSubtree = (blockId: number, parentPartIndex: number | null, baseLength: number): void => {
-    if (visited.has(blockId)) {
-      counters.malformed += 1;
-      return;
+    const pending = [{ blockId, parentPartIndex, baseLength }];
+    while (pending.length > 0) {
+      if (room <= 0 || charsRoom <= 0) {
+        counters.budgetHit = true;
+        return;
+      }
+      const next = pending.pop()!;
+      if (visited.has(next.blockId)) {
+        counters.malformed += 1;
+        continue;
+      }
+      visited.add(next.blockId);
+      const block = blocks[next.blockId];
+      if (block === undefined) {
+        counters.malformed += 1;
+        continue;
+      }
+      if (!isPureAppend(block, next.baseLength)) {
+        counters.notAdditive += 1;
+        continue;
+      }
+      // A legacy block routinely carries blank lines after its prose. The
+      // active legacy importer uses those lines as part boundaries. Remove
+      // only that structural tail; preserve prose whitespace.
+      const text = normalizeSectionText(block.text).replace(/(?:\n[ \t]*)+$/u, "");
+      if (text.trim().length === 0) {
+        counters.malformed += 1;
+        continue;
+      }
+      if (text.length > charsRoom) {
+        counters.budgetHit = true;
+        continue;
+      }
+      const combinedIndex = active.parts.length + result.length;
+      result.push({
+        instruction: "",
+        text,
+        createdAt,
+        parentIndex: next.parentPartIndex,
+        active: false
+      });
+      room -= 1;
+      charsRoom -= text.length;
+      counters.imported += 1;
+      const nextLength = next.baseLength + block.text.length;
+      for (let index = block.nextBlock.length - 1; index >= 0; index -= 1) {
+        pending.push({
+          blockId: block.nextBlock[index]!,
+          parentPartIndex: combinedIndex,
+          baseLength: nextLength
+        });
+      }
     }
-    if (room <= 0 || charsRoom <= 0) {
-      counters.budgetHit = true;
-      return;
-    }
-    visited.add(blockId);
-    const block = blocks[blockId];
-    if (block === undefined) {
-      counters.malformed += 1;
-      return;
-    }
-    if (!isPureAppend(block, baseLength)) {
-      counters.notAdditive += 1;
-      return;
-    }
-    // A legacy block routinely carries blank lines after its prose. The
-    // active legacy importer uses those lines as part boundaries. Remove
-    // only that structural tail; preserve prose whitespace.
-    const text = normalizeSectionText(block.text).replace(/(?:\n[ \t]*)+$/u, "");
-    if (text.trim().length === 0) {
-      counters.malformed += 1;
-      return;
-    }
-    if (text.length > charsRoom) {
-      counters.budgetHit = true;
-      return;
-    }
-    const combinedIndex = active.parts.length + result.length;
-    result.push({
-      instruction: "",
-      text,
-      createdAt,
-      parentIndex: parentPartIndex,
-      active: false
-    });
-    room -= 1;
-    charsRoom -= text.length;
-    counters.imported += 1;
-    const nextLength = baseLength + block.text.length;
-    for (const childId of block.nextBlock) importSubtree(childId, combinedIndex, nextLength);
   };
 
   for (let pathIndex = 0; pathIndex < lineage.length; pathIndex += 1) {
