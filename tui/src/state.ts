@@ -148,6 +148,7 @@ export interface ChaptersOverlayState {
 export type SettingsRowId =
   | "theme"
   | "compose-focus"
+  | "word-wrap"
   | "provider"
   | "text-prompt-format"
   | "base-url"

@@ -31,6 +31,7 @@ import type {
   DocumentEditorSession,
   StoryScreenState
 } from "../state.js";
+import type { UserConfig } from "../config.js";
 import { deriveStoryFrameLayout, type StoryFrameLayout } from "../story-frame-layout.js";
 import { createWrapCache, type ProseStyle, type WrapCache } from "../wrap.js";
 import { renderFactsRail } from "./story/facts-rail.js";
@@ -68,6 +69,8 @@ import { stickFocusedGutter, type FocusedStickyGutter } from "./story/sticky-gut
 import { stickStoryPrompt } from "./story/sticky-prompt.js";
 import {
   applyComposePageMode,
+  composerFieldWidth,
+  composerInputWidth,
   renderComposerLayout,
   type ComposerLayout
 } from "./story/composer.js";
@@ -375,6 +378,25 @@ export function storyProseMeasure(pageWidth: number): number {
   return Math.max(1, Math.min(72, pageWidth < 100 ? pageWidth - 4 : pageWidth - 26));
 }
 
+/** Cells the Direct composer wraps at, for the geometry it is painted with.
+ *  Vertical motion reads this so an arrow key follows the painted rows. */
+export function directComposerWrapWidth(
+  terminalWidth: number,
+  config: UserConfig,
+  fullscreen: boolean
+): number {
+  if (fullscreen) {
+    return composerInputWidth(
+      composerFieldWidth(true, terminalWidth, terminalWidth, "")
+    );
+  }
+  const pageWidth = deriveStoryFrameLayout(terminalWidth, config).pageWidth;
+  const indent = pageWidth < 100 ? "  " : " ".repeat(STORY_GUTTER);
+  return composerInputWidth(composerFieldWidth(
+    false, pageWidth, storyProseMeasure(pageWidth), indent
+  ));
+}
+
 function fullBleedDerived(
   state: StoryScreenState,
   hitRows: HitRows,
@@ -559,7 +581,8 @@ function renderPageComposer(state: StoryScreenState, view: StoryViewModel, width
     promptKind: state.retakePrompt?.intent.kind ?? null,
     scrollTop: state.composerScrollTop,
     focusDim: state.config.composeFocus === "on",
-    narrow
+    narrow,
+    softWrap: state.config.wordWrap === "on"
   });
   return { lines: composer.lines, scrollTop: composer.scrollTop };
 }
@@ -672,7 +695,8 @@ function renderFullscreenComposer(
     promptKind: state.retakePrompt?.intent.kind ?? null,
     scrollTop: state.composerScrollTop,
     focusDim: state.config.composeFocus === "on",
-    narrow: width < 100
+    narrow: width < 100,
+    softWrap: state.config.wordWrap === "on"
   });
   const lines = [...composer.lines, renderStoryStatus(state, view, width, width < 100, estimate)]
     .slice(0, height)
@@ -741,7 +765,8 @@ function renderInlineEditor(
         height,
         footerNotice,
         scrollTop: state.editorScrollTop,
-        narrow: width < 100
+        narrow: width < 100,
+        softWrap: state.config.wordWrap === "on"
       })
     : renderComposerLayout({
         composer: host.composer,
@@ -756,7 +781,7 @@ function renderInlineEditor(
         footerNotice,
         scrollTop: state.editorScrollTop,
         narrow: width < 100,
-        softWrap: true
+        softWrap: state.config.wordWrap === "on"
       });
   return renderEditorLayoutFrame(state, view, width, height, estimate, layout, deadlines);
 }

@@ -842,6 +842,7 @@ export function demoAppSource(dense = false): AppSource {
       theme: "lantern",
       factsRail: "auto",
       composeFocus: "off",
+      wordWrap: "on",
       composeMaxHeight: null,
       quota: { date: "", words: 0 },
       updates: { mode: "notify", channel: "stable", skippedVersion: null }

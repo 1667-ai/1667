@@ -215,6 +215,53 @@ describe("composer renderer", () => {
     expect(layout.lines.slice(1, 4).flat().some(({ text }) => text === "…")).toBeFalse();
   });
 
+  test("wraps at word boundaries and keeps the space on the row it ends", () => {
+    const text = "the lantern guttered against the wind";
+    const composer = createComposer(text);
+    const wrapped = wrappedComposerLayout(composer, 14);
+    const rows = Array.from(
+      { length: wrapped.rowCount },
+      (_, row) => {
+        const bound = wrapped.rowAt(row)!;
+        return text.slice(bound.start, bound.end);
+      }
+    );
+
+    expect(rows).toEqual(["the lantern ", "guttered ", "against the ", "wind"]);
+    // Rows tile the line, so every column the writer can type in has a row.
+    expect(rows.join("")).toBe(text);
+  });
+
+  test("breaks a word wider than the field by cell", () => {
+    const text = "hi supercalifragilistic";
+    const composer = createComposer(text);
+    const wrapped = wrappedComposerLayout(composer, 8);
+    const rows = Array.from(
+      { length: wrapped.rowCount },
+      (_, row) => {
+        const bound = wrapped.rowAt(row)!;
+        return text.slice(bound.start, bound.end);
+      }
+    );
+
+    expect(rows).toEqual(["hi ", "supercal", "ifragili", "stic"]);
+  });
+
+  test("paints wrapped editor rows at whole words", () => {
+    const composer = createComposer("the lantern guttered against the wind");
+    composer.fullscreen = true;
+    const layout = renderComposerLayout({
+      composer, terminalWidth: 18, terminalHeight: 14, measure: 18, softWrap: true
+    });
+    const body = frameText(layout.lines.slice(1, 1 + layout.bodyRows));
+
+    expect(body).toContain("┃ › the lantern");
+    expect(body).toContain("┃   guttered");
+    expect(body).toContain("┃   against the");
+    // Wrapped rows run on, so no row is clipped.
+    expect(body).not.toContain("…");
+  });
+
   test("keeps exact-width line endpoints as stable continuation rows", () => {
     const composer = createComposer("1234\nnext");
     moveComposerTo(composer, 4);

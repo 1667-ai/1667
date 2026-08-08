@@ -54,6 +54,12 @@ export async function cycleSettingsRow(
         source,
         state.config.composeFocus === "on" ? "off" : "on"
       );
+    } else if (row === "word-wrap") {
+      applySettingsWordWrap(
+        state,
+        source,
+        state.config.wordWrap === "on" ? "off" : "on"
+      );
     } else if (row === "provider") {
       const choice = cycleSettingsProvider(overlay, step);
       state.toast = `provider · ${choice.label} · s saves settings`;
@@ -117,4 +123,15 @@ export function applySettingsComposeFocus(
   source.config = state.config;
   if (!state.demo) saveConfig(state.config);
   state.toast = `compose focus · ${composeFocus}`;
+}
+
+export function applySettingsWordWrap(
+  state: RuntimeState,
+  source: AppSource,
+  wordWrap: "on" | "off"
+): void {
+  state.config = { ...state.config, wordWrap };
+  source.config = state.config;
+  if (!state.demo) saveConfig(state.config);
+  state.toast = `word wrap · ${wordWrap}`;
 }

@@ -314,6 +314,7 @@ describe("user config normalization", () => {
       theme: "bond",
       factsRail: "off",
       composeFocus: "off",
+      wordWrap: "on",
       composeMaxHeight: null,
       quota: { date: "2026-07-21", words: 42 },
       updates: { mode: "off", channel: "stable", skippedVersion: null }
@@ -368,10 +369,19 @@ describe("user config normalization", () => {
       theme: "lantern",
       factsRail: "auto",
       composeFocus: "off",
+      wordWrap: "on",
       composeMaxHeight: null,
       quota: { date: "", words: 0 },
       updates: { mode: "off", channel: "stable", skippedVersion: null }
     });
     expect(normalizeUserConfig(null)).toEqual(normalizeUserConfig([]));
+  });
+
+  test("keeps word wrap on unless the config turns it off", () => {
+    // An existing config file predates the key, and its editors already wrapped.
+    expect(normalizeUserConfig({}).wordWrap).toBe("on");
+    expect(normalizeUserConfig({ wordWrap: "off" }).wordWrap).toBe("off");
+    expect(normalizeUserConfig({ word_wrap: "off" }).wordWrap).toBe("off");
+    expect(normalizeUserConfig({ wordWrap: "sometimes" }).wordWrap).toBe("on");
   });
 });

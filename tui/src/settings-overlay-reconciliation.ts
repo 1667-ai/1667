@@ -76,7 +76,7 @@ export function reconcileSettingsOverlay(
   const draftWasClean = !settingsDraftChanged(overlay);
   const editAffectsServer = edit !== null && (
     edit.kind === "sampling"
-    || edit.row !== "theme" && edit.row !== "compose-focus"
+    || edit.row !== "theme" && edit.row !== "compose-focus" && edit.row !== "word-wrap"
   );
   const editWasClean = !editAffectsServer
     || edit.composer.text === edit.initialText();
@@ -162,7 +162,8 @@ export function sameGenerationSettings(
 
 export function draftRowEditValue(
   draft: SettingsTextDraft,
-  row: Exclude<SettingsRowId, "theme" | "compose-focus" | "allow-insecure-http" | "profile" | "sampling">
+  row: Exclude<SettingsRowId,
+    "theme" | "compose-focus" | "word-wrap" | "allow-insecure-http" | "profile" | "sampling">
 ): string {
   const settings = draft.generation;
   if (row === "provider") return settings.provider;
@@ -190,7 +191,7 @@ function draftWithActiveEdit(
     return edit.composer.text === edit.initialText() ? draft : null;
   }
   const row = edit.row;
-  if (row === "theme" || row === "compose-focus") return draft;
+  if (row === "theme" || row === "compose-focus" || row === "word-wrap") return draft;
   if (row === "profile") {
     if (draft.document === null || draft.selectedProfileId === null) return null;
     const renamed = renameSettingsProfile(
@@ -223,10 +224,11 @@ function settingsDraftTextRow(
   row: SettingsRowId
 ): row is Exclude<
   SettingsRowId,
-  "theme" | "compose-focus" | "allow-insecure-http" | "profile" | "sampling"
+  "theme" | "compose-focus" | "word-wrap" | "allow-insecure-http" | "profile" | "sampling"
 > {
   return row !== "theme"
     && row !== "compose-focus"
+    && row !== "word-wrap"
     && row !== "allow-insecure-http"
     && row !== "profile"
     && row !== "sampling";

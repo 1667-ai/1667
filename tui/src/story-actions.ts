@@ -7,6 +7,11 @@ import { copyToClipboard } from "./clipboard.js";
 import { pasteClipboardIntoComposer } from "./compose-clipboard.js";
 import { composerSurfaceAction } from "./composer-surface-action.js";
 import { composerPageRows } from "./composer-viewport.js";
+import {
+  moveComposerVisualRows,
+  moveComposerVisualVertical
+} from "./composer-visual-movement.js";
+import { directComposerWrapWidth } from "./screens/story.js";
 import { copyStoryText } from "./copy-actions.js";
 import { recordHumanWords, saveConfig } from "./config.js";
 import { rememberFocus } from "./reading-position-persist.js";
@@ -414,9 +419,20 @@ export async function composeAction(
     return;
   }
   if (resolved.action === "newline") { insertComposerText(state.composer, "\n"); return; }
+  // Wrapped, an arrow follows the painted rows; unwrapped, it follows logical
+  // lines. Direct alone reads the failure to move as "open history".
+  const softWrap = state.config.wordWrap === "on";
+  const wrapWidth = () => directComposerWrapWidth(
+    context.renderer?.width ?? 80, state.config, state.composer.fullscreen
+  );
   if (resolved.action === "cursor-up" || resolved.action === "cursor-down") {
     const direction = resolved.action === "cursor-up" ? -1 : 1;
-    if (!moveComposerVertical(state.composer, direction, resolved.extendSelection)
+    const moved = softWrap
+      ? moveComposerVisualVertical(
+        state.composer, direction, wrapWidth(), resolved.extendSelection
+      )
+      : moveComposerVertical(state.composer, direction, resolved.extendSelection);
+    if (!moved
       && state.composer.text.length === 0
       && resolved.extendSelection !== true) {
       historyMove(state, direction);
@@ -424,13 +440,24 @@ export async function composeAction(
     return;
   }
   const composer = state.composer;
+  const pageRows = composerPageRows(
+    context.renderer?.height ?? 24,
+    composer.fullscreen,
+    state.config.composeMaxHeight
+  );
+  if (softWrap
+    && (resolved.action === "cursor-page-up" || resolved.action === "cursor-page-down")) {
+    moveComposerVisualRows(
+      composer,
+      (resolved.action === "cursor-page-up" ? -1 : 1) * pageRows,
+      wrapWidth(),
+      resolved.extendSelection
+    );
+    return;
+  }
   if (await composerSurfaceAction(resolved, state, composer, {
     isCurrent: () => state.mode === "COMPOSE" && state.composer === composer,
-    pageRows: composerPageRows(
-      context.renderer?.height ?? 24,
-      composer.fullscreen,
-      state.config.composeMaxHeight
-    )
+    pageRows
   })) return;
   if (resolved.action === "history-previous") return historyMove(state, -1);
   if (resolved.action === "history-next") return historyMove(state, 1);

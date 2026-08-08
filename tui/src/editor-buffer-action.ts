@@ -1,4 +1,9 @@
-import { applyComposerEdit, applyComposerHistoryEdit } from "./composer-editing.js";
+import {
+  applyComposerEdit,
+  applyComposerHistoryEdit,
+  moveComposerPage
+} from "./composer-editing.js";
+import { moveComposerVertical } from "./composer-model.js";
 import {
   moveComposerVisualRows,
   moveComposerVisualVertical
@@ -30,6 +35,9 @@ export interface EditorBufferActionOptions extends EditorTextInsertionPolicy {
   readonly isCurrent: () => boolean;
   readonly wrapWidth: number;
   readonly pageRows: number;
+  /** Vertical motion follows the paint: wrapped rows when the editor wraps,
+   *  logical lines when it does not. */
+  readonly softWrap: boolean;
 }
 
 /** Shared multiline-buffer reducer. Target owners keep save, cancel, conflict,
@@ -60,21 +68,28 @@ export async function editorBufferAction(
     return "handled";
   }
   if (resolved.action === "cursor-up" || resolved.action === "cursor-down") {
-    moveComposerVisualVertical(
-      buffer.composer,
-      resolved.action === "cursor-up" ? -1 : 1,
-      options.wrapWidth,
-      resolved.extendSelection
-    );
+    const direction = resolved.action === "cursor-up" ? -1 : 1;
+    if (options.softWrap) {
+      moveComposerVisualVertical(
+        buffer.composer, direction, options.wrapWidth, resolved.extendSelection
+      );
+    } else moveComposerVertical(buffer.composer, direction, resolved.extendSelection);
     return "handled";
   }
   if (resolved.action === "cursor-page-up" || resolved.action === "cursor-page-down") {
-    moveComposerVisualRows(
-      buffer.composer,
-      (resolved.action === "cursor-page-up" ? -1 : 1) * options.pageRows,
-      options.wrapWidth,
-      resolved.extendSelection
-    );
+    const direction = resolved.action === "cursor-page-up" ? -1 : 1;
+    if (options.softWrap) {
+      moveComposerVisualRows(
+        buffer.composer,
+        direction * options.pageRows,
+        options.wrapWidth,
+        resolved.extendSelection
+      );
+    } else {
+      moveComposerPage(
+        buffer.composer, direction, options.pageRows, resolved.extendSelection
+      );
+    }
     return "handled";
   }
   const kind = applyComposerEdit(

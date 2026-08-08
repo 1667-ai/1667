@@ -69,8 +69,9 @@ export async function inlineEditorAction(
     return;
   }
   const wrapWidth = Math.max(1, (context.renderer?.width ?? 80) - 4);
+  const softWrap = state.config.wordWrap === "on";
   if (editor.kind === "fact"
-    && handleFactEditorVerticalMove(resolved, editor, wrapWidth)) {
+    && handleFactEditorVerticalMove(resolved, editor, wrapWidth, softWrap)) {
     return;
   }
   const buffer = editor.kind === "fact" ? factEditorBuffer(editor) : editor;
@@ -78,6 +79,7 @@ export async function inlineEditorAction(
     isCurrent: () => state.mode === "EDITOR" && state.editor === editor,
     ...editorInsertionPolicy(editor),
     wrapWidth,
+    softWrap,
     pageRows: composerPageRows(context.renderer?.height ?? 24, true)
   });
   const outcome = await reduceBuffer();

@@ -57,6 +57,7 @@ export {
 export const SETTINGS_ROW_IDS = [
   "theme",
   "compose-focus",
+  "word-wrap",
   "provider",
   "text-prompt-format",
   "base-url",
@@ -132,6 +133,7 @@ export function settingsRowEditValue(
 ): string {
   if (row === "theme") return config.theme;
   if (row === "compose-focus") return config.composeFocus;
+  if (row === "word-wrap") return config.wordWrap;
   if (row === "allow-insecure-http") {
     return overlay.draft.generation.allowInsecureHttp === true ? "on" : "off";
   }
@@ -203,6 +205,7 @@ export function applySettingsRowEdit(
   config: UserConfig
 ): { kind: "theme"; value: ThemeName }
   | { kind: "compose-focus"; value: UserConfig["composeFocus"] }
+  | { kind: "word-wrap"; value: UserConfig["wordWrap"] }
   | { kind: "draft" }
   | { kind: "error"; message: string } {
   const edit = overlay.edit;
@@ -224,6 +227,13 @@ export function applySettingsRowEdit(
     }
     overlay.edit = null;
     return { kind: "compose-focus", value };
+  }
+  if (edit.row === "word-wrap") {
+    if (value !== "on" && value !== "off") {
+      return { kind: "error", message: "word wrap must be on or off" };
+    }
+    overlay.edit = null;
+    return { kind: "word-wrap", value };
   }
   if (edit.row === "api-key") {
     const result = applyStoredApiKeyEdit(overlay, rawValue);
@@ -324,6 +334,7 @@ export function boundedSettingsCursor(value: number): number {
 export function settingsRowCycles(row: SettingsRowId): boolean {
   return row === "theme"
     || row === "compose-focus"
+    || row === "word-wrap"
     || row === "provider"
     || row === "text-prompt-format"
     || row === "allow-insecure-http"
@@ -355,7 +366,7 @@ export function settingsRowHasArrows(
 /** Local-only rows live in the user config; every other row edits a
  * server-backed settings revision. */
 export function settingsRowUsesServer(row: SettingsRowId): boolean {
-  return row !== "theme" && row !== "compose-focus";
+  return row !== "theme" && row !== "compose-focus" && row !== "word-wrap";
 }
 
 export function cycleSettingsProvider(

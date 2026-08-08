@@ -15,6 +15,7 @@ import {
 import { settingsTextDraftWithGeneration } from "./settings-text.js";
 import {
   applySettingsComposeFocus,
+  applySettingsWordWrap,
   applySettingsTheme
 } from "./settings-selector-actions.js";
 import type { RuntimeState, SettingsOverlayState } from "./state.js";
@@ -137,6 +138,10 @@ export async function settingsInlineEditAction(
     }
     if (applied.kind === "theme") {
       applySettingsTheme(state, context, applied.value);
+      return;
+    }
+    if (applied.kind === "word-wrap") {
+      applySettingsWordWrap(state, source, applied.value);
       return;
     }
     if (applied.kind === "compose-focus") {

@@ -1,11 +1,11 @@
 import {
   composerLineChunks,
+  composerLineHasWrapSpace,
   composerLineIdentity,
   composerLineLength,
   composerLineSnapshot,
   composerLineUniformWidth,
   composerPosition,
-  type ComposerLineChunk,
   type ComposerState
 } from "./composer-model.js";
 
@@ -23,32 +23,20 @@ export interface WrappedComposerLayout {
   rowAt(index: number): WrappedComposerRow | undefined;
 }
 
+/** One source line's wrap points. Rows tile the line without gaps, so row `i`
+ *  ends where row `i + 1` starts and the final row ends at `length`. Every
+ *  column therefore belongs to exactly one row, which is what lets the caret
+ *  sit anywhere the writer can type — including inside the run of spaces that
+ *  a wrap point absorbs.
+ *
+ *  A line with no break space wraps at a fixed cell count, so `stride` holds
+ *  that count and the row bounds stay arithmetic. Two million cells of one
+ *  pasted token therefore cost no row array at all. Prose takes `starts`. */
 interface WrappedLineMetric {
   length: number;
   rowCount: number;
-  cellsPerRow: number | null;
-  mixed: MixedLineMetric | null;
-}
-
-interface MixedLineMetric {
-  width: number;
-  endFull: boolean;
-  finalRow: number;
-  checkpoints: readonly MixedLineCheckpoint[];
-}
-
-interface MixedLineCheckpoint {
-  chunk: ComposerLineChunk;
-  column: number;
-  row: number;
-  used: number;
-  rowStart: number;
-}
-
-interface ChunkTransition {
-  rows: number;
-  used: number;
-  lastRowStart: number;
+  stride: number | null;
+  starts: readonly number[] | null;
 }
 
 interface WrapBlock {
@@ -66,11 +54,12 @@ interface CachedWrapStructure {
 const BLOCK_LINES = 256;
 const WRAP_STRUCTURES = new WeakMap<ComposerState, CachedWrapStructure>();
 const LINE_METRICS = new WeakMap<object, { width: number; metric: WrappedLineMetric }>();
-const CHUNK_TRANSITIONS = new WeakMap<object, Map<string, ChunkTransition>>();
 
-/** Cell-accurate soft-wrap index shared by paint and visual-row movement.
- * Uniform-width prose uses arithmetic bounds. Composer line-change metadata
- * replaces only affected 256-line blocks after edits. */
+/** Cell-accurate word wrap shared by paint and visual-row movement. Lines break
+ * at the last space that fits, matching the story measure (`wrap.ts`); a word
+ * wider than the field falls back to a cell break so a long token still
+ * advances. Composer line-change metadata replaces only affected 256-line
+ * blocks after edits. */
 export function wrappedComposerLayout(
   composer: ComposerState,
   width: number
@@ -121,133 +110,85 @@ function metricForLine(
   if (cached?.width === width) return cached.metric;
   const length = composerLineLength(composer, sourceIndex);
   const uniformWidth = composerLineUniformWidth(composer, sourceIndex);
-  const cellsPerRow = uniformWidth === null
-    ? null
-    : uniformWidth <= 0 ? Math.max(1, length) : Math.max(1, Math.floor(width / uniformWidth));
-  const mixed = cellsPerRow === null
-    ? mixedLineMetric(composer, sourceIndex, width)
-    : null;
-  const endFull = mixed?.endFull
-    ?? uniformEndUsed(length, cellsPerRow, uniformWidth) >= width;
-  const rowCount = length === 0 ? 1
-    : mixed !== null ? mixed.finalRow + 1 + (endFull ? 1 : 0)
-      : Math.ceil(length / cellsPerRow!) + (endFull ? 1 : 0);
-  const metric = {
-    length,
-    rowCount,
-    cellsPerRow,
-    mixed
-  };
+  const metric = uniformWidth !== null && !composerLineHasWrapSpace(composer, sourceIndex)
+    ? strideMetric(length, width, uniformWidth)
+    : scannedMetric(composer, sourceIndex, length, width);
   LINE_METRICS.set(identity, { width, metric });
   return metric;
 }
 
-function uniformEndUsed(
+/** Rows of a fixed cell count. Without a break space every row holds as many
+ *  cells as fit, which is what the arithmetic below states directly. */
+function strideMetric(
   length: number,
-  cellsPerRow: number | null,
-  cellWidth: number | null
-): number {
-  return cellsPerRow === null || cellWidth === null || length === 0
-    ? 0
-    : (length % cellsPerRow || cellsPerRow) * cellWidth;
+  width: number,
+  uniformWidth: number
+): WrappedLineMetric {
+  if (length === 0) return { length, rowCount: 1, stride: 1, starts: null };
+  const stride = uniformWidth <= 0
+    ? Math.max(1, length)
+    : Math.max(1, Math.floor(width / uniformWidth));
+  const lastRowWidth = (length % stride || stride) * Math.max(0, uniformWidth);
+  return {
+    length,
+    rowCount: Math.ceil(length / stride) + (lastRowWidth >= width ? 1 : 0),
+    stride,
+    starts: null
+  };
 }
 
-function mixedLineMetric(
+/** Walk the line once and record where each row begins.
+ *
+ *  A row keeps the spaces that end it, so the writer sees the caret advance
+ *  while typing them; those spaces can run past the field, where the field
+ *  paint clips them. A word too wide for the field breaks by cell instead, so
+ *  a pasted token still advances rather than stalling the wrap. */
+function scannedMetric(
   composer: ComposerState,
   sourceIndex: number,
+  length: number,
   width: number
-): MixedLineMetric {
-  const checkpoints: MixedLineCheckpoint[] = [];
-  let column = 0;
-  let row = 0;
-  let used = 0;
+): WrappedLineMetric {
+  const starts = [0];
   let rowStart = 0;
-  for (const chunk of composerLineChunks(composer, sourceIndex)) {
-    checkpoints.push({ chunk, column, row, used, rowStart });
-    const transition = chunkTransition(chunk, width, used);
-    row += transition.rows;
-    used = transition.used;
-    if (transition.lastRowStart >= 0) rowStart = column + transition.lastRowStart;
-    column += chunk.count;
-  }
-  return { width, endFull: used >= width, finalRow: row, checkpoints };
-}
-
-function chunkTransition(
-  chunk: ComposerLineChunk,
-  width: number,
-  startingUsed: number
-): ChunkTransition {
-  if (chunk.uniformWidth !== null) {
-    return uniformChunkTransition(chunk.count, chunk.uniformWidth, width, startingUsed);
-  }
-  let cache = CHUNK_TRANSITIONS.get(chunk);
-  if (cache === undefined) {
-    cache = new Map();
-    CHUNK_TRANSITIONS.set(chunk, cache);
-  }
-  const key = `${width}:${startingUsed}`;
-  const cached = cache.get(key);
-  if (cached !== undefined) return cached;
-  const transition = scanChunkTransition(chunk, width, startingUsed);
-  cache.set(key, transition);
-  return transition;
-}
-
-function scanChunkTransition(
-  chunk: ComposerLineChunk,
-  width: number,
-  startingUsed: number
-): ChunkTransition {
-  let rows = 0;
-  let used = startingUsed;
-  let lastRowStart = -1;
-  for (const [column, cell] of chunk.cells.entries()) {
-    if (used > 0 && used + cell.width > width) {
-      rows += 1;
-      used = 0;
-      lastRowStart = column;
-    }
-    used += cell.width;
-  }
-  return { rows, used, lastRowStart };
-}
-
-function uniformChunkTransition(
-  count: number,
-  cellWidth: number,
-  width: number,
-  startingUsed: number
-): ChunkTransition {
-  if (count === 0 || cellWidth <= 0) {
-    return { rows: 0, used: startingUsed, lastRowStart: -1 };
-  }
-  let rows = 0;
-  let used = startingUsed;
+  let used = 0;
+  // The run of non-space cells in flight.
+  let wordStart = 0;
+  let wordWidth = 0;
   let column = 0;
-  let lastRowStart = -1;
-  if (used > 0) {
-    const capacity = cellWidth > width
-      ? 0
-      : Math.max(0, Math.floor((width - used) / cellWidth));
-    if (count <= capacity) return {
-      rows: 0,
-      used: used + count * cellWidth,
-      lastRowStart: -1
-    };
-    column = capacity;
-    rows = 1;
-    used = 0;
-    lastRowStart = column;
+  for (const chunk of composerLineChunks(composer, sourceIndex)) {
+    for (const cell of chunk.cells) {
+      if (WRAP_SPACE.test(cell.text)) {
+        used += cell.width;
+        wordStart = column + 1;
+        wordWidth = 0;
+      } else if (used + cell.width <= width) {
+        used += cell.width;
+        wordWidth += cell.width;
+      } else if (wordStart > rowStart) {
+        // Carry the whole word down rather than splitting it.
+        starts.push(wordStart);
+        rowStart = wordStart;
+        used = wordWidth + cell.width;
+        wordWidth = used;
+      } else {
+        // The word alone outgrows the field, so break between its cells.
+        starts.push(column);
+        rowStart = column;
+        wordStart = column;
+        used = cell.width;
+        wordWidth = cell.width;
+      }
+      column += 1;
+    }
   }
-  const remaining = count - column;
-  const cellsPerRow = cellWidth > width ? 1 : Math.max(1, Math.floor(width / cellWidth));
-  const additionalRows = Math.floor((remaining - 1) / cellsPerRow);
-  rows += additionalRows;
-  if (additionalRows > 0) lastRowStart = column + additionalRows * cellsPerRow;
-  used = ((remaining - 1) % cellsPerRow + 1) * cellWidth;
-  return { rows, used, lastRowStart };
+  // An exactly-full final row leaves the caret no cell of its own, so the end
+  // of the line gets a row rather than a position off the right edge.
+  if (length > 0 && used >= width) starts.push(length);
+  return { length, rowCount: starts.length, stride: null, starts };
 }
+
+const WRAP_SPACE = /\s/;
 
 function createStructure(
   revision: number,
@@ -264,6 +205,12 @@ function createStructure(
 
 function makeBlock(lines: readonly WrappedLineMetric[]): WrapBlock {
   return { lines, rowCount: lines.reduce((sum, line) => sum + line.rowCount, 0) };
+}
+
+function rowStartAt(line: WrappedLineMetric, index: number): number {
+  return line.starts === null
+    ? Math.min(line.length, index * line.stride!)
+    : line.starts[index]!;
 }
 
 function chunkMetrics(lines: readonly WrappedLineMetric[]): WrapBlock[] {
@@ -331,42 +278,18 @@ function rowBeforeLine(blocks: readonly WrapBlock[], line: number): number {
 }
 
 function localRowForColumn(line: WrappedLineMetric, column: number): number {
-  if (line.cellsPerRow !== null) {
-    return Math.min(line.rowCount - 1, Math.floor(column / line.cellsPerRow));
+  const starts = line.starts;
+  if (starts === null) {
+    return Math.min(line.rowCount - 1, Math.max(0, Math.floor(column / line.stride!)));
   }
-  const mixed = line.mixed!;
-  if (line.length === 0 || column <= 0) return 0;
-  if (column >= line.length && mixed.endFull) return line.rowCount - 1;
-  const checkpoint = checkpointForColumn(mixed.checkpoints, column);
-  if (checkpoint === undefined) return 0;
-  let row = checkpoint.row;
-  let used = checkpoint.used;
-  let at = checkpoint.column;
-  for (const cell of checkpoint.chunk.cells) {
-    if (used > 0 && used + cell.width > mixed.width) {
-      row += 1;
-      used = 0;
-    }
-    if (at >= column) break;
-    used += cell.width;
-    at += 1;
-  }
-  return row;
-}
-
-function checkpointForColumn(
-  checkpoints: readonly MixedLineCheckpoint[],
-  column: number
-): MixedLineCheckpoint | undefined {
-  if (checkpoints.length === 0) return undefined;
   let low = 0;
-  let high = checkpoints.length - 1;
+  let high = starts.length - 1;
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);
-    if (checkpoints[middle]!.column <= column) low = middle;
+    if (starts[middle]! <= column) low = middle;
     else high = middle - 1;
   }
-  return checkpoints[low];
+  return low;
 }
 
 function wrappedRowAt(
@@ -389,56 +312,16 @@ function wrappedRowAt(
         sourceIndex += 1;
         continue;
       }
-      const bounds = line.cellsPerRow === null
-        ? mixedRowBounds(line, remaining)
-        : {
-          start: Math.min(line.length, remaining * line.cellsPerRow),
-          end: Math.min(line.length, (remaining + 1) * line.cellsPerRow)
-        };
+      const start = rowStartAt(line, remaining);
+      const last = remaining === line.rowCount - 1;
       return {
         sourceIndex,
-        ...bounds,
-        first: bounds.start === 0,
-        last: remaining === line.rowCount - 1
+        start,
+        end: last ? line.length : rowStartAt(line, remaining + 1),
+        first: start === 0,
+        last
       };
     }
   }
   return undefined;
-}
-
-function mixedRowBounds(
-  line: WrappedLineMetric,
-  targetRow: number
-): { start: number; end: number } {
-  const mixed = line.mixed!;
-  if (line.length === 0) return { start: 0, end: 0 };
-  if (mixed.endFull && targetRow === line.rowCount - 1) {
-    return { start: line.length, end: line.length };
-  }
-  const checkpoints = mixed.checkpoints;
-  let low = 0;
-  let high = checkpoints.length - 1;
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2);
-    if (checkpoints[middle]!.row <= targetRow) low = middle;
-    else high = middle - 1;
-  }
-  const checkpoint = checkpoints[low]!;
-  let row = checkpoint.row;
-  let used = checkpoint.used;
-  let rowStart = checkpoint.rowStart;
-  let column = checkpoint.column;
-  for (let chunk = low; chunk < checkpoints.length; chunk += 1) {
-    for (const cell of checkpoints[chunk]!.chunk.cells) {
-      if (used > 0 && used + cell.width > mixed.width) {
-        if (row === targetRow) return { start: rowStart, end: column };
-        row += 1;
-        used = 0;
-        rowStart = column;
-      }
-      used += cell.width;
-      column += 1;
-    }
-  }
-  return { start: rowStart, end: line.length };
 }

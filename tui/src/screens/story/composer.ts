@@ -96,6 +96,28 @@ export interface ComposerLayout {
   dimsStory: boolean;
 }
 
+/** Painted width of the composer field. */
+export function composerFieldWidth(
+  fullscreen: boolean,
+  terminalWidth: number,
+  measure: number,
+  indent: string
+): number {
+  const bounded = Math.max(8, Math.floor(terminalWidth));
+  return fullscreen
+    ? bounded
+    : Math.max(8, Math.min(
+      Math.floor(measure),
+      Math.max(8, bounded - visibleWidth(indent))
+    ));
+}
+
+/** Cells one wrapped row holds. Paint and vertical motion both read this, so a
+ *  wrapped caret lands on the row the writer sees. */
+export function composerInputWidth(fieldWidth: number): number {
+  return Math.max(1, fieldWidth - visibleWidth("┃ ") - visibleWidth("› "));
+}
+
 /**
  * Pure COMPOSE field renderer. Its lines exclude the app status row: inline
  * callers subtract `lines.length` from the prose viewport; fullscreen callers
@@ -107,14 +129,13 @@ export function renderComposerLayout(options: ComposerLayoutOptions): ComposerLa
   const terminalWidth = Math.max(8, Math.floor(options.terminalWidth));
   const fullscreen = options.fullscreen ?? composer.fullscreen;
   const indent = fullscreen ? "" : options.indent ?? "";
-  const availableWidth = Math.max(8, terminalWidth - visibleWidth(indent));
-  const fieldWidth = fullscreen
-    ? terminalWidth
-    : Math.max(8, Math.min(Math.floor(options.measure), availableWidth));
+  const fieldWidth = composerFieldWidth(
+    fullscreen, terminalWidth, options.measure, indent
+  );
   const cap = composerHeightCap(terminalHeight, options.composeMaxHeight);
   const lineCount = composerLineCount(composer);
   const cursor = composerPosition(composer);
-  const inputWidth = Math.max(1, fieldWidth - visibleWidth("┃ ") - visibleWidth("› "));
+  const inputWidth = composerInputWidth(fieldWidth);
   const wrapped = options.softWrap === true
     ? wrappedComposerLayout(composer, inputWidth)
     : null;

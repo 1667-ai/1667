@@ -372,7 +372,8 @@ export function factEditorBuffer(editor: FactEditorSession): { composer: Compose
 export function handleFactEditorVerticalMove(
   resolved: ResolvedKey,
   editor: FactEditorSession,
-  wrapWidth: number
+  wrapWidth: number,
+  softWrap: boolean
 ): boolean {
   if (resolved.action !== "cursor-up" && resolved.action !== "cursor-down") {
     return false;
@@ -382,8 +383,11 @@ export function handleFactEditorVerticalMove(
     setFactEditorFocus(editor, nextFactEditorRow(editor.focus, direction));
     return true;
   }
-  const layout = wrappedComposerLayout(editor.composer, wrapWidth);
-  if (resolved.action === "cursor-up" && layout.cursorRow === 0) {
+  // Unwrapped, the body's first row is its first logical line.
+  const atFirstRow = softWrap
+    ? wrappedComposerLayout(editor.composer, wrapWidth).cursorRow === 0
+    : composerPosition(editor.composer).line === 0;
+  if (resolved.action === "cursor-up" && atFirstRow) {
     setFactEditorFocus(editor, "budget");
     editor.budget.anchor = null;
     editor.budget.cursor = Math.min(
