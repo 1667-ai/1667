@@ -908,6 +908,67 @@ test("NovelAI V2 retry history rejects a branch whose baseline was removed from 
   });
 });
 
+test("NovelAI V2 retry history keeps reused section placements local to each branch", () => {
+  const imported = alternatesFromNovelAiHistory(
+    {
+      root: "root",
+      current: "selected",
+      nodes: new Map([
+        ["root", { changes: new Map([
+          [1, { type: 0, section: { type: 1, text: "Base." } }]
+        ]) }],
+        ["selected", { parent: "root", changes: new Map([
+          [2, { type: 0, section: { type: 1, text: "Selected." }, after: 1 }]
+        ]) }],
+        ["alternate-a", { parent: "root", changes: new Map([
+          [2, { type: 0, section: { type: 1, text: "Alternate A." }, after: 1 }]
+        ]) }],
+        ["alternate-b", { parent: "selected", changes: new Map([
+          [3, { type: 0, section: { type: 1, text: "Alternate B." }, after: 2 }]
+        ]) }]
+      ])
+    },
+    {
+      parts: [
+        { instruction: "", text: "Base.", createdAt: "2026-01-01T00:00:00.000Z" },
+        { instruction: "", text: "Selected.", createdAt: "2026-01-01T00:00:00.000Z" }
+      ],
+      sectionIndex: new Map([[1, 0], [2, 1]]),
+      room: 2,
+      charsRoom: 100
+    }
+  );
+
+  assert.deepEqual(imported.parts.map(({ text, parentIndex }) => ({ text, parentIndex })), [
+    { text: "Alternate A.", parentIndex: 0 },
+    { text: "Alternate B.", parentIndex: 1 }
+  ]);
+});
+
+test("NovelAI V2 retry history rejects a disconnected second root", () => {
+  const imported = alternatesFromNovelAiHistory(
+    {
+      root: "root",
+      current: "root",
+      nodes: new Map([
+        ["root", { changes: new Map() }],
+        ["other-root", { changes: new Map() }]
+      ])
+    },
+    {
+      parts: [{ instruction: "", text: "Active.", createdAt: "2026-01-01T00:00:00.000Z" }],
+      sectionIndex: new Map(),
+      room: 1,
+      charsRoom: 100
+    }
+  );
+
+  assert.deepEqual(imported, {
+    parts: [],
+    fidelity: ["retry history omitted: malformed"]
+  });
+});
+
 test("NovelAI V2 retry history bounds cumulative section replay work", () => {
   const nodes = new Map<string, { parent?: string; changes: Map<number, unknown> }>();
   nodes.set("root", { changes: new Map([

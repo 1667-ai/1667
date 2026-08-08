@@ -89,21 +89,24 @@ function build(
   const current = sectionId(historyRaw.current, "history current");
   if (!nodes.has(root) || !nodes.has(current)) throw new Error("Malformed history endpoints");
 
-  const pathOrder = walkToRoot(current, root, nodes);
-
   const childrenByParent = new Map<SectionId, SectionId[]>();
   for (const [id, node] of nodes) {
-    if (node.parent === undefined) continue;
+    if (id === root) {
+      if (node.parent !== undefined) throw new Error("History root has a parent");
+      continue;
+    }
+    if (node.parent === undefined) throw new Error("History has more than one root");
     if (!nodes.has(node.parent)) throw new Error("History node names an absent parent");
     const siblings = childrenByParent.get(node.parent) ?? [];
     siblings.push(id);
     childrenByParent.set(node.parent, siblings);
   }
+  validateHistoryReachability(root, nodes, childrenByParent);
+  const pathOrder = walkToRoot(current, root, nodes);
 
   const result: ImportedPart[] = [];
   const counters = { imported: 0, notAdditive: 0, malformed: 0, budgetHit: false };
   const visited = new Set<SectionId>();
-  const placedIndex = new Map<SectionId, number>(active.sectionIndex);
   const normalizedText = new Map<SectionId, { readonly source: string; readonly text: string }>();
   const normalizeText = (id: SectionId, text: string): string => {
     const cached = normalizedText.get(id);
@@ -161,12 +164,14 @@ function build(
       parentPartIndex: number | null;
       baseSections: ReadonlyMap<SectionId, NovelAiSection>;
       baseOrder: readonly SectionId[];
+      placedIndex: ReadonlyMap<SectionId, number>;
       allowRoot: boolean;
     }> = [{
       nodeId: startNodeId,
       parentPartIndex: startParentPartIndex,
       baseSections: startSections,
       baseOrder: startOrder,
+      placedIndex: active.sectionIndex,
       allowRoot: startAllowRoot
     }];
 
@@ -215,13 +220,15 @@ function build(
         }
       }
       let precedingPartIndex = frame.parentPartIndex;
+      let placedIndex: ReadonlyMap<SectionId, number> = frame.placedIndex;
+      let mutablePlacedIndex: Map<SectionId, number> | undefined;
       let stopSubtree = false;
       if (changeSteps.length > 0) {
         const baseOrderSet = new Set(frame.baseOrder);
         const nodeDate = historyNodeDate(node.date);
         for (const id of newOrder) {
           if (baseOrderSet.has(id)) {
-            const known = placedIndex.get(id);
+            const known = frame.placedIndex.get(id);
             if (known !== undefined) precedingPartIndex = known;
             continue;
           }
@@ -250,7 +257,9 @@ function build(
           room -= 1;
           charsRoom -= text.length;
           counters.imported += 1;
-          placedIndex.set(id, combinedIndex);
+          mutablePlacedIndex ??= new Map(frame.placedIndex);
+          mutablePlacedIndex.set(id, combinedIndex);
+          placedIndex = mutablePlacedIndex;
           precedingPartIndex = combinedIndex;
         }
       }
@@ -263,6 +272,7 @@ function build(
           parentPartIndex: precedingPartIndex,
           baseSections: newSections,
           baseOrder: newOrder,
+          placedIndex,
           allowRoot: false
         });
       }
@@ -270,6 +280,22 @@ function build(
   }
 
   return { parts: result, fidelity: retryHistoryFidelity(counters) };
+}
+
+function validateHistoryReachability(
+  root: SectionId,
+  nodes: ReadonlyMap<SectionId, HistoryNode>,
+  childrenByParent: ReadonlyMap<SectionId, readonly SectionId[]>
+): void {
+  const visited = new Set<SectionId>();
+  const pending = [root];
+  while (pending.length > 0) {
+    const id = pending.pop()!;
+    if (visited.has(id)) throw new Error("History graph has a cycle");
+    visited.add(id);
+    pending.push(...(childrenByParent.get(id) ?? []));
+  }
+  if (visited.size !== nodes.size) throw new Error("History graph is disconnected");
 }
 
 function applyChanges(
