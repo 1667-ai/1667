@@ -54,6 +54,7 @@ test("partsFromNovelAiStory parses V2 Editor document with Extension 20 and Map 
   assert.equal(parsed.story.parts.length, 2);
   assert.equal(parsed.story.parts[0]?.text, "First section text.");
   assert.equal(parsed.story.parts[1]?.text, "Second section text.");
+  assert.deepEqual(parsed.fidelity, ["generation settings omitted"]);
 });
 
 test("partsFromNovelAiStory normalizes NFC, line endings, and truncates title by Unicode scalar count", () => {
@@ -754,6 +755,35 @@ test("partsFromNovelAiStory reports a V2 retry without an attachable prose ances
 
   assert.deepEqual(parsed.story.parts.map(({ text }) => text), ["Selected prose."]);
   assert.ok(parsed.fidelity.includes("1 retry branch omitted: not a simple continuation"));
+});
+
+test("NovelAI V2 retry history rejects malformed changes without importing descendants", () => {
+  const imported = alternatesFromNovelAiHistory(
+    {
+      root: "root",
+      current: "root",
+      nodes: new Map([
+        ["root", { changes: new Map([
+          [1, { type: 0, section: { type: 1, text: "Active prose." } }]
+        ]) }],
+        ["malformed", { parent: "root", changes: "not a change map" }],
+        ["descendant", { parent: "malformed", changes: new Map([
+          [2, { type: 0, section: { type: 1, text: "Must not import." }, after: 1 }]
+        ]) }]
+      ])
+    },
+    {
+      parts: [{ instruction: "", text: "Active prose.", createdAt: "2026-01-01T00:00:00.000Z" }],
+      sectionIndex: new Map([[1, 0]]),
+      room: 2,
+      charsRoom: 100
+    }
+  );
+
+  assert.deepEqual(imported, {
+    parts: [],
+    fidelity: ["1 retry branch omitted: malformed"]
+  });
 });
 
 test("NovelAI V2 retry history walks a deep no-op branch without using the call stack", () => {

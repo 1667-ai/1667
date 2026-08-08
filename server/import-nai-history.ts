@@ -65,8 +65,14 @@ function build(
     readonly charsRoom: number;
   }
 ): NovelAiHistoryAlternates {
-  if (!isPlainRecord(historyRaw) || !(historyRaw.nodes instanceof Map || isPlainRecord(historyRaw.nodes))) {
+  if (!isPlainRecord(historyRaw)) {
     throw new Error("Malformed history");
+  }
+  if (Array.isArray(historyRaw.nodes) && historyRaw.nodes.length === 0) {
+    return { parts: [], fidelity: [] };
+  }
+  if (!(historyRaw.nodes instanceof Map || isPlainRecord(historyRaw.nodes))) {
+    throw new Error("Malformed history nodes");
   }
   const nodes = readHistoryNodes(historyRaw.nodes);
   if (nodes.size === 0) return { parts: [], fidelity: [] };
@@ -237,7 +243,7 @@ function applyChanges(
 function asMapOrRecord(value: unknown): Map<unknown, unknown> | Record<string, unknown> {
   if (value instanceof Map) return value;
   if (isPlainRecord(value)) return value;
-  return new Map();
+  throw new Error("Malformed history changes");
 }
 
 /** The nearest section in `order`, scanning from the end, that this history
