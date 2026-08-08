@@ -239,7 +239,7 @@ export interface WorkerMethodContract {
   /** No settings and no story id: the count always measures the backend's own
    * effective prose route, the same one a continuation would use. */
   countPromptTokens: { input: { messages: readonly ChatMessage[] }; output: PromptTokenCount };
-  importSillyTavern: { input: { jsonl: string }; output: StoryPayload };
+  importSillyTavern: { input: { jsonl: string }; output: { payload: StoryPayload; fidelity: readonly string[] } };
   importMarkdown: { input: { markdown: string; defaultTitle?: string }; output: StoryPayload };
   importNovelAI: { input: { storyContainerJson: string }; output: { payload: StoryPayload; fidelity: readonly string[] } };
   importScenario: { input: { jsonText: string }; output: { payload: StoryPayload; fidelity: readonly string[] } };

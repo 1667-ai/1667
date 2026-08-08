@@ -86,10 +86,11 @@ export async function runStoryImport(
           partsCount = payload.nodes.length;
           id = payload.id;
         } else {
-          const payload = await backend.api.importSillyTavern(content);
+          const { payload, fidelity } = await backend.api.importSillyTavern(content);
           title = payload.title;
           partsCount = payload.nodes.length;
           id = payload.id;
+          errorOutput.write(`${plain(file)}: ${fidelityReport(fidelity)}\n`);
         }
 
         output.write(

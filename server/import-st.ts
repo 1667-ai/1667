@@ -1,5 +1,6 @@
 import { ServiceError as HttpError } from "./errors.js";
 import { sliceWellFormedUtf16Prefix } from "../shared/unicode.js";
+import { countNoun } from "../shared/fidelity.js";
 import {
   MAX_PARTS,
   MAX_TOTAL_CHARS,
@@ -21,6 +22,31 @@ export interface SillyTavernImport {
    *  they carry no assistant-authored story text, and the source file still has
    *  them. The CLI reports the count; the UI treats the import as complete. */
   droppedTrailingUserMessages: number;
+  /** A message's `swipes` beyond the room the part or text budget had left,
+   *  once the active swipe and every other message already fit. Best effort:
+   *  a chat that carries more swipe history than 1667 can hold still imports
+   *  its active storyline in full. */
+  omittedAlternateSwipes: number;
+}
+
+/** The Fidelity Report for a SillyTavern import, in the same shape the
+ *  NovelAI and Scenario importers already report. */
+export function sillyTavernFidelity(
+  imported: Pick<SillyTavernImport, "droppedTrailingUserMessages" | "omittedAlternateSwipes">
+): string[] {
+  const fidelity: string[] = [];
+  if (imported.omittedAlternateSwipes > 0) {
+    fidelity.push(
+      `${imported.omittedAlternateSwipes} unselected ${countNoun(imported.omittedAlternateSwipes, "swipe")} omitted`
+    );
+  }
+  if (imported.droppedTrailingUserMessages > 0) {
+    fidelity.push(
+      `${imported.droppedTrailingUserMessages} trailing user `
+        + `${countNoun(imported.droppedTrailingUserMessages, "message")} dropped`
+    );
+  }
+  return fidelity;
 }
 
 // A byte cap bounds the *input*, not the work: 20MB of one-word lines is millions
@@ -43,6 +69,14 @@ interface RawMessage {
   isUser: boolean;
   name: string;
   sendDate: unknown;
+  /** Every generated candidate for this message, `mes` among them — a
+   *  SillyTavern "swipe". Absent or one-long means no alternates. */
+  swipes: unknown;
+  /** Index into `swipes` that `mes` came from. */
+  swipeId: unknown;
+  /** Parallel to `swipes`; each entry's `send_date` becomes that
+   *  alternate's `createdAt`, when it parses. */
+  swipeInfo: unknown;
 }
 
 /**
@@ -75,7 +109,10 @@ export function partsFromSillyTavernJsonl(jsonl: string): SillyTavernImport {
       mes: message.mes,
       isUser: message.is_user === true,
       name: typeof message.name === "string" ? message.name : "",
-      sendDate: message.send_date
+      sendDate: message.send_date,
+      swipes: message.swipes,
+      swipeId: message.swipe_id,
+      swipeInfo: message.swipe_info
     });
   }
 
@@ -83,7 +120,7 @@ export function partsFromSillyTavernJsonl(jsonl: string): SillyTavernImport {
   const characterName = resolveName(hasMeta ? meta.character_name : undefined, raw, false);
 
   let remaining = MAX_TOTAL_CHARS;
-  const expand = (text: string): string => {
+  const projectExpansion = (text: string): number => {
     // Project the exact expanded size BEFORE substituting: a 200-char name times
     // 100k macros is a half-gigabyte string that would be allocated, then rejected.
     let projected = text.length;
@@ -91,13 +128,36 @@ export function partsFromSillyTavernJsonl(jsonl: string): SillyTavernImport {
       const name = match[1]!.toLowerCase() === "user" ? userName : characterName;
       projected += name.length - MACRO_LENGTH;
     }
-    remaining -= Math.max(text.length, projected);
+    return Math.max(text.length, projected);
+  };
+  const substitute = (text: string): string =>
+    text.replace(MACROS, (_match, kind: string) => (kind.toLowerCase() === "user" ? userName : characterName));
+  const expand = (text: string): string => {
+    remaining -= projectExpansion(text);
     if (remaining < 0) throw new HttpError(400, "Chat expands to more text than can be imported");
-    return text.replace(MACROS, (_match, kind: string) => (kind.toLowerCase() === "user" ? userName : characterName));
+    return substitute(text);
+  };
+  // Unlike `expand`, an alternate swipe that does not fit is dropped, not fatal:
+  // it is optional retry history, and the chat it came from still has room for
+  // the active storyline. `null` restores the budget so a smaller later swipe
+  // can still claim it.
+  const tryExpand = (text: string): string | null => {
+    const projected = projectExpansion(text);
+    remaining -= projected;
+    if (remaining < 0) {
+      remaining += projected;
+      return null;
+    }
+    return substitute(text);
   };
 
   const parts: ImportedPart[] = [];
   const pendingUser: string[] = [];
+  let omittedAlternateSwipes = 0;
+  // The active storyline's own chain, tracked explicitly: once a message's
+  // alternate swipes are appended after its active take, the *previous array
+  // element* is an alternate, not the take the next active part continues.
+  let previousActiveIndex: number | null = null;
   for (const message of raw) {
     const text = expand(message.mes);
     // Expansion can empty a message: a greeting of just "{{user}}" with no
@@ -108,17 +168,71 @@ export function partsFromSillyTavernJsonl(jsonl: string): SillyTavernImport {
       pendingUser.push(text);
       continue;
     }
-    parts.push({ instruction: pendingUser.join("\n\n"), text, createdAt: parseSendDate(message.sendDate) });
+    const instruction = pendingUser.join("\n\n");
+    const activeIndex = parts.length;
+    parts.push({ instruction, text, createdAt: parseSendDate(message.sendDate), parentIndex: previousActiveIndex });
     pendingUser.length = 0;
     if (parts.length > MAX_PARTS) throw new HttpError(400, `Chat has more than ${MAX_PARTS} messages — too large to import`);
+
+    omittedAlternateSwipes += addAlternateSwipes(parts, previousActiveIndex, instruction, message, {
+      tryExpand,
+      hasRoom: () => parts.length < MAX_PARTS
+    });
+    previousActiveIndex = activeIndex;
   }
 
   if (parts.length === 0) throw new HttpError(400, "No importable messages found (not a SillyTavern chat JSONL?)");
   return {
     title: characterName.length > 0 ? `${characterName} (imported)` : "Imported chat",
     parts,
-    droppedTrailingUserMessages: pendingUser.length
+    droppedTrailingUserMessages: pendingUser.length,
+    omittedAlternateSwipes
   };
+}
+
+/** A message's other swipes become alternate takes, siblings of its active
+ *  take — the same position in the storyline, a different generation.
+ *  Returns how many were dropped for want of room or budget. */
+function addAlternateSwipes(
+  parts: ImportedPart[],
+  parentIndex: number | null,
+  instruction: string,
+  message: RawMessage,
+  budget: { tryExpand: (text: string) => string | null; hasRoom: () => boolean }
+): number {
+  if (!Array.isArray(message.swipes) || message.swipes.length < 2) return 0;
+  const activeSwipeIndex = Number.isInteger(message.swipeId) ? (message.swipeId as number) : 0;
+  const swipeInfo = Array.isArray(message.swipeInfo) ? message.swipeInfo : [];
+  let omitted = 0;
+  for (let index = 0; index < message.swipes.length; index += 1) {
+    if (index === activeSwipeIndex) continue;
+    const rawText: unknown = message.swipes[index];
+    if (typeof rawText !== "string") {
+      omitted += 1;
+      continue;
+    }
+    if (!budget.hasRoom()) {
+      omitted += 1;
+      continue;
+    }
+    const text = budget.tryExpand(rawText);
+    if (text === null || text.trim().length === 0) {
+      omitted += 1;
+      continue;
+    }
+    const info: unknown = swipeInfo[index];
+    const sendDate = info !== null && typeof info === "object" && !Array.isArray(info)
+      ? (info as Record<string, unknown>).send_date
+      : undefined;
+    parts.push({
+      instruction,
+      text,
+      createdAt: parseSendDate(sendDate),
+      parentIndex,
+      active: false
+    });
+  }
+  return omitted;
 }
 
 /** Header names are unreliable — SillyTavern writes "unused" in some exports — so

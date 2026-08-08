@@ -752,7 +752,11 @@ export class StoryService extends StoryServiceRuntime {
     jsonl: string,
     ids: { storyId?: string; nodeId?: (index: number) => string } = {},
     mutationRequest?: unknown
-  ): Promise<{ payload: StoryPayload; droppedTrailingUserMessages: number }> {
+  ): Promise<{
+    payload: StoryPayload;
+    droppedTrailingUserMessages: number;
+    omittedAlternateSwipes: number;
+  }> {
     this.ensureOpen();
     if (Buffer.byteLength(jsonl) > MAX_IMPORT_BYTES) throw new ServiceError(413, "Request body too large");
     const imported = partsFromSillyTavernJsonl(jsonl);
@@ -763,7 +767,8 @@ export class StoryService extends StoryServiceRuntime {
         ids,
         mutationRequest
       ),
-      droppedTrailingUserMessages: imported.droppedTrailingUserMessages
+      droppedTrailingUserMessages: imported.droppedTrailingUserMessages,
+      omittedAlternateSwipes: imported.omittedAlternateSwipes
     };
   }
 

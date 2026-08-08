@@ -80,19 +80,21 @@ export function partsFromNovelAiStory(jsonText: string): NovelAiContainerImport 
   const title = importTitle(rawJson.metadata?.title);
   const document = rawJson.content.document;
   let story: GenericImport;
+  const fidelity: string[] = [];
   if (typeof document === "string" && document.length > 0) {
-    story = { title, parts: partsFromNovelAiDocument(document) };
+    const documentImport = partsFromNovelAiDocument(document);
+    story = { title, parts: [...documentImport.parts] };
+    fidelity.push(...documentImport.fidelity);
   } else if (document !== undefined && document !== "") {
     throw new ServiceError(400, "Malformed MessagePack document");
   } else {
     story = parseLegacyStory(rawJson.content.story, title);
   }
 
-  const fidelity: string[] = [];
   const facts = extractFacts(rawJson.content.context, rawJson.content.lorebook, fidelity);
   const authorsNote = extractAuthorsNote(rawJson.content.context, fidelity);
 
-  fidelity.push("generation settings and retry history omitted");
+  fidelity.push("generation settings omitted");
 
   return { story, facts, authorsNote, fidelity };
 }

@@ -356,11 +356,15 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       { messages },
       { signal }
     ),
-    importSillyTavern: async (jsonl) => rememberPayload(await transport.call(
-      "importSillyTavern",
-      { jsonl },
-      { expectedAggregateVersion: { kind: "absent" } }
-    )),
+    importSillyTavern: async (jsonl) => {
+      const result = await transport.call(
+        "importSillyTavern",
+        { jsonl },
+        { expectedAggregateVersion: { kind: "absent" } }
+      );
+      rememberPayload(result.payload);
+      return result;
+    },
     importMarkdown: async (markdown, defaultTitle) => rememberPayload(await transport.call(
       "importMarkdown",
       {

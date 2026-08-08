@@ -263,8 +263,8 @@ describe("embedded backend worker", () => {
         JSON.stringify({ is_user: true, mes: "Begin" }),
         JSON.stringify({ is_user: false, mes: "One" })
       ].join("\n"));
-      expect(imported.path).toHaveLength(1);
-      expect((await api.deleteStory(imported.id)).ok).toBeTrue();
+      expect(imported.payload.path).toHaveLength(1);
+      expect((await api.deleteStory(imported.payload.id)).ok).toBeTrue();
 
       const importedMarkdown = await api.importMarkdown(
         "First part.\n\n## Later\n\nSecond part.",

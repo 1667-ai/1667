@@ -37,6 +37,7 @@ try {
       let partsCount: number;
       let id: string;
       let dropped = 0;
+      let omittedSwipes = 0;
 
       if (isStory) {
         const imported = await service.importNovelAIWithReport(content);
@@ -55,11 +56,13 @@ try {
         partsCount = imported.payload.nodes.length;
         id = imported.payload.id;
         dropped = imported.droppedTrailingUserMessages;
+        omittedSwipes = imported.omittedAlternateSwipes;
       }
 
       console.log(
         `${plain(file)}: imported "${plain(title)}" (${partsCount} parts) as ${id}` +
-          (dropped > 0 ? ` — dropped ${dropped} trailing user message${dropped === 1 ? "" : "s"}` : "")
+          (dropped > 0 ? ` — dropped ${dropped} trailing user message${dropped === 1 ? "" : "s"}` : "") +
+          (omittedSwipes > 0 ? ` — omitted ${omittedSwipes} unselected swipe${omittedSwipes === 1 ? "" : "s"}` : "")
       );
     } catch (error) {
       failed = true;

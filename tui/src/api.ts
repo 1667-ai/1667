@@ -121,6 +121,8 @@ export interface ContinueTarget {
   expectedTextHash?: string;
 }
 
+/** The shape every import that carries a Fidelity Report returns: NovelAI,
+ *  Scenario, and SillyTavern alike. */
 export interface NovelAiStoryImportResult {
   readonly payload: StoryPayload;
   readonly fidelity: readonly string[];
@@ -206,7 +208,7 @@ export interface StoryApi {
     messages: readonly ChatMessage[],
     signal?: AbortSignal
   ): Promise<PromptTokenCount>;
-  importSillyTavern(jsonl: string): Promise<StoryPayload>;
+  importSillyTavern(jsonl: string): Promise<NovelAiStoryImportResult>;
   importMarkdown(markdown: string, defaultTitle?: string): Promise<StoryPayload>;
   importNovelAI(storyContainerJson: string): Promise<NovelAiStoryImportResult>;
   importScenario(jsonText: string): Promise<NovelAiStoryImportResult>;

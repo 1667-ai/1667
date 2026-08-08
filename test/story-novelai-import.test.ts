@@ -474,3 +474,106 @@ test("partsFromNovelAiStory enforces structural bounds and budgets", () => {
     (error: unknown) => error instanceof ServiceError && error.status === 400
   );
 });
+
+test("partsFromNovelAiStory imports retry history as unselected takes, nested, off the active storyline", () => {
+  // root -> checkpoint (sec 1, sec 2) -> A (sec 3, chosen/current)
+  //                                   \> B (sec 4, a retry) -> B2 (sec 5, a further retry of B)
+  //                                   \> C (edits sec 2 in place — not a simple continuation, dropped)
+  const sections = new Map([
+    [1, { type: 1, text: "Sec one." }],
+    [2, { type: 1, text: "Sec two." }],
+    [3, { type: 1, text: "Sec three (A)." }]
+  ]);
+  const history = {
+    root: 100,
+    current: 102,
+    nodes: new Map([
+      [100, {}],
+      [101, { parent: 100, changes: new Map<number, unknown>([
+        [1, { type: 0, section: { type: 1, text: "Sec one." } }],
+        [2, { type: 0, section: { type: 1, text: "Sec two." }, after: 1 }]
+      ]) }],
+      [102, { parent: 101, changes: new Map<number, unknown>([
+        [3, { type: 0, section: { type: 1, text: "Sec three (A)." }, after: 2 }]
+      ]), date: "2025-06-01T00:00:00.000Z" }],
+      [103, { parent: 101, changes: new Map<number, unknown>([
+        [4, { type: 0, section: { type: 1, text: "Sec four (B)." }, after: 2 }]
+      ]), date: "2025-06-02T00:00:00.000Z" }],
+      [104, { parent: 103, changes: new Map<number, unknown>([
+        [5, { type: 0, section: { type: 1, text: "Sec five (B2)." }, after: 4 }]
+      ]), date: "2025-06-03T00:00:00.000Z" }],
+      [105, { parent: 101, changes: new Map<number, unknown>([
+        [2, { type: 1, diff: { parts: [{ from: 0, delete: "Sec two.", insert: "Edited." }] } }]
+      ]) }]
+    ])
+  };
+  const document = makeSyntheticNovelAiV2Base64(sections, [1, 2, 3], undefined, history);
+
+  const parsed = partsFromNovelAiStory(JSON.stringify({
+    storyContainerVersion: 1,
+    metadata: { title: "Retry history" },
+    content: { document }
+  }));
+
+  assert.deepEqual(parsed.story.parts.map(({ text, parentIndex, active }) => ({ text, parentIndex, active })), [
+    { text: "Sec one.", parentIndex: undefined, active: undefined },
+    { text: "Sec two.", parentIndex: undefined, active: undefined },
+    { text: "Sec three (A).", parentIndex: undefined, active: undefined },
+    { text: "Sec four (B).", parentIndex: 1, active: false },
+    { text: "Sec five (B2).", parentIndex: 3, active: false }
+  ]);
+  assert.equal(parsed.story.parts[3]?.createdAt, "2025-06-02T00:00:00.000Z");
+  assert.deepEqual(parsed.fidelity, [
+    "2 retries imported as unselected takes",
+    "1 retry branch omitted: not a simple continuation",
+    "generation settings omitted"
+  ]);
+});
+
+test("partsFromNovelAiStory degrades a malformed history without touching the active prose", () => {
+  const document = makeSyntheticNovelAiV2Base64(
+    new Map([[1, { type: 1, text: "Only active prose." }]]),
+    [1],
+    undefined,
+    { root: 100, current: 999, nodes: new Map([[100, {}]]) }
+  );
+  const parsed = partsFromNovelAiStory(JSON.stringify({
+    storyContainerVersion: 1,
+    metadata: { title: "Bad history" },
+    content: { document }
+  }));
+  assert.deepEqual(parsed.story.parts.map(({ text }) => text), ["Only active prose."]);
+  assert.deepEqual(parsed.fidelity, ["retry history omitted: malformed", "generation settings omitted"]);
+});
+
+test("partsFromNovelAiStory omits retries once the story is at the part limit", () => {
+  const sections = new Map<number, unknown>();
+  for (let id = 1; id <= MAX_PARTS; id += 1) sections.set(id, { type: 1, text: `Sec ${id}.` });
+  const order = [...sections.keys()];
+  const rootChanges = new Map<string | number, unknown>();
+  let previous: number | undefined;
+  for (const id of order) {
+    rootChanges.set(id, { type: 0, section: { type: 1, text: `Sec ${id}.` }, after: previous });
+    previous = id;
+  }
+  const historyNodes = new Map<string | number, { parent?: string; changes?: Map<string | number, unknown> }>([
+    ["root", { changes: rootChanges }],
+    ["retry", { parent: "root", changes: new Map([
+      ["extra", { type: 0, section: { type: 1, text: "One too many." }, after: previous }]
+    ]) }]
+  ]);
+  // The full document already carries `order`/`sections` at MAX_PARTS, so the
+  // retry can only be reached through `history`, not through the active read.
+  const document = makeSyntheticNovelAiV2Base64(sections, order, undefined, {
+    root: "root",
+    current: "root",
+    nodes: historyNodes
+  });
+  const parsed = partsFromNovelAiStory(JSON.stringify({
+    storyContainerVersion: 1,
+    metadata: { title: "At the limit" },
+    content: { document }
+  }));
+  assert.equal(parsed.story.parts.length, MAX_PARTS);
+  assert.ok(parsed.fidelity.includes("retry takes stopped: story is at the part or text limit"));
+});

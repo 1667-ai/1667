@@ -42,8 +42,16 @@ part. Change the depth in the Author's Note editor.
 
 A NovelAI retry maps to a [take](technical-terms.md). A take is one
 alternative version of a story part. 1667 keeps each take, and the mass map
-shows all of them. Import does not read the retry history from a `.story`
-file. The Fidelity Report states this omission.
+shows all of them. Import reads the retry history from a `.story` file. Each
+retry becomes a take. The take you had open in NovelAI becomes the selected
+story line. Import does not read NovelAI's own generation settings. The
+Fidelity Report states this omission.
+
+Import keeps a retry only when it is a plain new take. A plain new take is a
+fresh piece of prose that follows an existing story part or an earlier
+retry. Import drops a retry that edits or removes prose already in the story
+line. It states the dropped count in the Fidelity Report. A dropped retry
+never changes the selected story line, which import always reads in full.
 
 ## Before you start
 
@@ -118,10 +126,10 @@ An import can change or omit data. The Fidelity Report names each change and
 each omission. The import commands print the report to standard error, one
 line for each file.
 
-Each `.story` import reports this omission:
+Each `.story` import reports its retry takes and its one fixed omission:
 
 ```
-alderaan.story: generation settings and retry history omitted
+alderaan.story: 3 retries imported as unselected takes; generation settings omitted
 ```
 
 Each `.scenario` import reports the part count, the literal `${…}`

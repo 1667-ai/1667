@@ -87,8 +87,26 @@ The command reads these message fields:
 | `is_system` | If `true`, the command ignores the message |
 | `name` | The sender name |
 | `send_date` | The message time |
+| `swipes` | Every generated reply at this message, the open one among them |
+| `swipe_id` | Which `swipes` entry `mes` holds |
+| `swipe_info` | The time of each `swipes` entry |
 
 The command also ignores a message that has no text.
+
+## Swipes become unselected takes
+
+A character message can hold more than one swipe: more than one reply the
+character generated at that point in the chat. The command reads the open
+swipe, at `swipe_id`, as the story part. It reads every other swipe as an
+[unselected take](technical-terms.md) next to that part. Open the mass map to
+see them.
+
+The command gives an unselected take the same direction as the story part next
+to it. It reads the take's time from `swipe_info`, when present.
+
+A chat that carries more swipes than the story part or the text limit allows
+still imports in full. The command drops the extra swipes and states the
+count in standard error.
 
 The command reads `user_name` and `character_name` from the metadata line. It
 changes `{{user}}` to the user name. It changes `{{char}}` to the character

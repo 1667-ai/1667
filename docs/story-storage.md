@@ -160,12 +160,21 @@ creates a new story.
 - Prose blocks separated by blank lines become story parts.
 
 You can also import SillyTavern chat JSONL files with `1667 import <chat.jsonl>`.
+A chat message can carry more than one swipe: more than one generated reply at
+that point in the chat. 1667 reads the open swipe as the story part, and every
+other swipe as an unselected take next to it.
 
 You can also import NovelAI `.story` files with `1667 import <file.story>`.
 1667 reads Editor V2 documents and Editor V1 legacy stories. Each ordered V2
 text section becomes a story part. Each nonblank line of the joined V1 story
-text becomes a story part. 1667 does not infer chapter boundaries. Container
-generation settings and retry history are not imported.
+text becomes a story part. 1667 does not infer chapter boundaries.
+
+An Editor V2 document can hold retry history: every earlier generation at a
+point in the story, not only the one you kept. 1667 reads a plain retry as an
+unselected take, next to the part it retried. It keeps the take you had open in
+NovelAI as the selected story line. It drops a retry that edits or removes
+prose already in the story line, and it states the count in the Fidelity
+Report. Container generation settings are not imported.
 
 ## Import an Archive
 
