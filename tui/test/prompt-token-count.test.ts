@@ -6,6 +6,7 @@ import {
   type PromptTokenCountApi
 } from "../src/prompt-token-count.js";
 import type { PromptTokenCount } from "../../shared/tokenize-source.js";
+import type { StreamView } from "../src/state.js";
 
 type TimerHandle = ReturnType<typeof setTimeout>;
 
@@ -53,6 +54,20 @@ async function flush(): Promise<void> {
 
 function countedAnswer(total: number): PromptTokenCount {
   return { kind: "counted", source: "bundled-openai", grade: "exact", total, perMessage: null };
+}
+
+/** A generation in flight, minimal enough to move `promptProjectionIdentity`
+ *  (see request-context.ts) without depending on the rest of the streaming
+ *  pipeline. */
+function streamView(text: string): StreamView {
+  return {
+    targetId: "stream-target",
+    parentId: null,
+    append: false,
+    startedAt: new Date().toISOString(),
+    instruction: "",
+    text
+  };
 }
 
 function fixture() {
@@ -555,5 +570,142 @@ describe("prompt token count lane", () => {
     lane.dispose();
     expect(signals[0]!.aborted).toBeTrue();
     expect(clock.pendingCount()).toBe(0);
+  });
+
+  test("many stream deltas never call the backend and leave no debounce pending", async () => {
+    const { state, clock, repaint } = fixture();
+    let calls = 0;
+    const api: PromptTokenCountApi = {
+      countPromptTokens: async () => { calls += 1; return countedAnswer(1); }
+    };
+    const lane = startPromptTokenCountLane({
+      state, api, repaint, schedule: clock.schedule, cancel: clock.cancel
+    });
+
+    state.stream = streamView("");
+    for (let delta = 0; delta < 20; delta += 1) {
+      state.stream.text += `chunk ${delta} `;
+      lane.notify();
+    }
+
+    expect(calls).toBe(0);
+    expect(clock.pendingCount()).toBe(0);
+    lane.dispose();
+  });
+
+  test("generation ending fires exactly one debounced count for the whole stream", async () => {
+    const { state, clock, repaint } = fixture();
+    let calls = 0;
+    const api: PromptTokenCountApi = {
+      countPromptTokens: async () => { calls += 1; return countedAnswer(1); }
+    };
+    const lane = startPromptTokenCountLane({
+      state, api, repaint, schedule: clock.schedule, cancel: clock.cancel
+    });
+
+    state.stream = streamView("");
+    for (let delta = 0; delta < 10; delta += 1) {
+      state.stream.text += `chunk ${delta} `;
+      lane.notify();
+    }
+    state.stream = null;
+    lane.notify();
+    expect(calls).toBe(0);
+    expect(clock.pendingCount()).toBe(1);
+
+    // Adoption fires a couple more repaints right behind the stream ending.
+    // They collapse into the same debounce rather than each queuing their own.
+    lane.notify();
+    lane.notify();
+    expect(clock.pendingCount()).toBe(1);
+
+    clock.fireDelay(250);
+    await flush();
+    expect(calls).toBe(1);
+    lane.dispose();
+  });
+
+  test("a count showing before generation starts is retired at once", async () => {
+    const { state, clock, repaint } = fixture();
+    const api: PromptTokenCountApi = {
+      countPromptTokens: async () => countedAnswer(1)
+    };
+    const lane = startPromptTokenCountLane({
+      state, api, repaint, schedule: clock.schedule, cancel: clock.cancel
+    });
+
+    lane.notify();
+    clock.fireAll();
+    await flush();
+    expect(state.promptTokenCount).not.toBe(null);
+
+    // The stream did not touch the meter yet, but the count on screen already
+    // describes a shorter draft than the one now being written.
+    state.stream = streamView("");
+    lane.notify();
+
+    expect(state.promptTokenCount).toBe(null);
+    lane.dispose();
+  });
+
+  test("a call in flight when generation starts is aborted, not left to resolve into the meter", async () => {
+    const { state, clock, repaint } = fixture();
+    const signals: AbortSignal[] = [];
+    const api: PromptTokenCountApi = {
+      countPromptTokens: async (_messages, signal) => {
+        if (signal !== undefined) signals.push(signal);
+        return await new Promise<PromptTokenCount>(() => { /* never settles */ });
+      }
+    };
+    const lane = startPromptTokenCountLane({
+      state, api, repaint, schedule: clock.schedule, cancel: clock.cancel
+    });
+
+    state.mode = "REQUEST";
+    lane.notify();
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.aborted).toBeFalse();
+
+    state.stream = streamView("");
+    lane.notify();
+
+    expect(signals[0]!.aborted).toBeTrue();
+    expect(state.promptTokenCount).toBe(null);
+    lane.dispose();
+  });
+
+  test("ending a generation counts once on a debounce, even with the request viewer already open", async () => {
+    const { state, clock, repaint } = fixture();
+    let calls = 0;
+    const api: PromptTokenCountApi = {
+      countPromptTokens: async () => { calls += 1; return countedAnswer(1); }
+    };
+    const lane = startPromptTokenCountLane({
+      state, api, repaint, schedule: clock.schedule, cancel: clock.cancel
+    });
+
+    state.mode = "REQUEST";
+    lane.notify();
+    await flush();
+    expect(calls).toBe(1);
+
+    // A generation starts while the viewer stays open through the whole thing.
+    state.stream = streamView("");
+    lane.notify();
+    state.stream.text += "more";
+    lane.notify();
+    // Generation landing changes the prompt, same as adoption would.
+    state.systemPrompt = `${state.systemPrompt} plus a line the generation added`;
+    state.stream = null;
+    lane.notify();
+
+    // Debounced, not another on-demand call fired the instant the stream ends.
+    expect(calls).toBe(1);
+    expect(clock.pendingCount()).toBe(1);
+
+    clock.fireDelay(250);
+    await flush();
+    expect(calls).toBe(2);
+    lane.dispose();
   });
 });
