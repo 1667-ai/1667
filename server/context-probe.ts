@@ -1,4 +1,5 @@
 import type { GenerationSettings } from "../shared/types.js";
+import { withCallerCancellation } from "../shared/promise-cancellation.js";
 import { getProviderJson, postProviderJson } from "./provider-json.js";
 import {
   hasProviderRuntime,
@@ -472,19 +473,9 @@ export async function postKoboldCppTokenCount(
  * map never itself rejects (`.then(() => undefined, () => undefined)`), so
  * one caller's failure cannot poison the queue for the next.
  *
- * `signal` (issue #kobold-queue-abort) lets a caller give up on its own turn
- * without waiting for it. An already-aborted signal rejects before this call
- * ever joins the queue — the provider is never reached and no slot is
- * consumed. A signal that aborts while queued races an `abort` listener
- * against the queued slot itself: the listener rejects the caller's promise
- * the instant `abort` fires, while the slot — still chained behind
- * `previous` so serialization holds — checks `signal.aborted` right before
- * it would call `run`, and skips the provider call entirely if the signal
- * fired first. Either way `current` still settles and the map's tail still
- * advances, so a cancelled item never stalls the next one. An already
- * in-flight `run()` is untouched by any of this — its own `signal` reaches
- * `postProviderJson` exactly as before, and the existing HTTP layer aborts
- * it.
+ * Caller cancellation races the caller's wait. The queued slot stays in the
+ * chain and checks the signal before it starts provider work. Thus, a
+ * cancelled slot cannot overlap another call or stall the next call.
  */
 const koboldCppTokenCountLocks = new Map<string, Promise<unknown>>();
 
@@ -493,28 +484,13 @@ function withKoboldCppTokenCountLock<T>(
   run: () => Promise<T>,
   signal?: AbortSignal
 ): Promise<T> {
-  if (signal?.aborted) return Promise.reject(signal.reason);
+  signal?.throwIfAborted();
 
   const previous = koboldCppTokenCountLocks.get(root) ?? Promise.resolve();
   const runUnlessAborted = () => (signal?.aborted ? Promise.reject(signal.reason) : run());
   const current = previous.then(runUnlessAborted, runUnlessAborted);
   koboldCppTokenCountLocks.set(root, current.then(() => undefined, () => undefined));
-
-  if (signal === undefined) return current;
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(signal.reason);
-    signal.addEventListener("abort", onAbort, { once: true });
-    current.then(
-      (value) => {
-        signal.removeEventListener("abort", onAbort);
-        resolve(value);
-      },
-      (error) => {
-        signal.removeEventListener("abort", onAbort);
-        reject(error);
-      }
-    );
-  });
+  return withCallerCancellation(current, signal);
 }
 
 function ollamaModelMatches(
