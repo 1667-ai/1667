@@ -1,6 +1,7 @@
 import type { StoryPayload, StorySummary } from "../../../shared/types.js";
 import { nextAgeChange } from "../../../shared/story-model.js";
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
+import { composerPosition, type ComposerState } from "../composer-model.js";
 import {
   commandContext,
   commandPaletteModel,
@@ -46,6 +47,7 @@ import {
   type LibraryColumns
 } from "./panel-table-layout.js";
 import { truncate, truncateTail, visibleWidth, TYPING_CARET, type FrameComposition, type FrameLine } from "./story/frame.js";
+import { renderComposerInput } from "./story/composer.js";
 import { renderSettingsPanel } from "./settings-panel.js";
 import { renderFactsPanel } from "./facts-panel.js";
 import { renderSamplingPanel } from "./sampling-panel.js";
@@ -319,7 +321,10 @@ function renderLibrary(
   // C-17: a filter always states `n of m`. Rename and delete prompts are not
   // filters and carry no count.
   const filterCount = `${rows.length} of ${overlay.stories.length}`;
-  if (overlay.prompt !== null) {
+  if (overlay.prompt?.kind === "rename") {
+    content.push(renameLine(overlay.prompt.composer, contentWidth));
+  }
+  else if (overlay.prompt !== null) {
     content.push(promptLine(
       overlay.prompt.kind,
       overlay.prompt.kind === "filter" ? overlay.query : overlay.prompt.value,
@@ -383,6 +388,17 @@ function libraryLine(
     ...(columns.updated === 0 ? [] : [
       raisedSegment(cellPad(libraryAge(story.updatedAt, now), columns.updated), "chrome")
     ])
+  ];
+}
+
+function renameLine(composer: ComposerState, width: number): FrameLine {
+  const prefix = truncate("  › rename: ", Math.max(0, width - 1));
+  const valueWidth = Math.max(1, width - visibleWidth(prefix));
+  return [
+    raisedSegment(prefix, "accent · deep"),
+    ...renderComposerInput(
+      composer, 0, composerPosition(composer).column, valueWidth, "focused", false, ""
+    )
   ];
 }
 

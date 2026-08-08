@@ -435,7 +435,7 @@ describe("hit map clickable chrome", () => {
         state.mode = "LIBRARY";
         state.library = {
           stories: source.stories, cursor: 0, query: "",
-          prompt: { kind: "rename" as const, value: "new title", targetId: source.payload.id }
+          prompt: { kind: "rename" as const, composer: createComposer("new title"), targetId: source.payload.id }
         };
       },
       (state: State) => {

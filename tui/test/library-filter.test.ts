@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import { handleKey, initialState, type AppSource } from "../src/app.js";
+import { createComposer } from "../src/composer-model.js";
 import { demoAppSource } from "../src/demo.js";
 import { pasteInto } from "../src/keys.js";
 import { publishStories } from "../src/overlay-publication.js";
@@ -16,11 +17,22 @@ const key = (name: string, sequence = name): KeyEvent => ({
   meta: false
 }) as KeyEvent;
 
+const modifiedKey = (
+  name: string,
+  options: { sequence?: string; shift?: boolean; ctrl?: boolean; meta?: boolean } = {}
+): KeyEvent => ({
+  name,
+  sequence: options.sequence ?? name,
+  shift: options.shift ?? false,
+  ctrl: options.ctrl ?? false,
+  meta: options.meta ?? false
+}) as KeyEvent;
+
 function harness() {
   const source: AppSource = demoAppSource();
   const state = initialState(source, false);
-  const press = (name: string, sequence = name) => handleKey(
-    key(name, sequence),
+  const pressKey = (event: KeyEvent) => handleKey(
+    event,
     state,
     source,
     createWrapCache(),
@@ -28,7 +40,15 @@ function harness() {
     async () => {},
     () => {}
   );
-  return { source, state, press };
+  const press = (name: string, sequence = name) => pressKey(key(name, sequence));
+  return { source, state, press, pressKey };
+}
+
+/** Narrow the open LIBRARY prompt to its composer-backed rename shape. */
+function renamePrompt(state: ReturnType<typeof harness>["state"]) {
+  const prompt = state.library?.prompt;
+  if (prompt?.kind !== "rename") throw new Error("expected an open rename prompt");
+  return prompt;
 }
 
 describe("live Library filter", () => {
@@ -196,7 +216,7 @@ describe("live Library filter", () => {
     await press("o");
     state.library!.prompt = {
       kind: "rename",
-      value: "wrong target",
+      composer: createComposer("wrong target"),
       targetId: "missing-story"
     };
 
@@ -205,5 +225,79 @@ describe("live Library filter", () => {
     expect(renames).toBe(0);
     expect(state.library?.prompt).toBe(null);
     expect(state.toast).toBe("story changed · action cancelled");
+  });
+});
+
+describe("composer-backed Library rename field", () => {
+  test("alt+left jumps a word left, and typing lands there instead of at the end", async () => {
+    const { state, press, pressKey } = harness();
+    await press("o");
+    const currentTitle = state.payload.title;
+    await press("e");
+    expect(renamePrompt(state).composer.text).toBe(currentTitle);
+
+    // "the lantern keeper" -> jump behind "the lantern " and insert there.
+    await pressKey(modifiedKey("left", { meta: true }));
+    for (const character of "co") await press(character);
+
+    expect(renamePrompt(state).composer.text).toBe("the lantern cokeeper");
+  });
+
+  test("ctrl+a selects the whole title, so the next character replaces it", async () => {
+    const { state, press, pressKey } = harness();
+    await press("o");
+    await press("e");
+
+    await pressKey(modifiedKey("a", { ctrl: true }));
+    await press("x");
+
+    expect(renamePrompt(state).composer.text).toBe("x");
+  });
+
+  test("pasting into the rename field inserts at the cursor and flattens a newline", async () => {
+    const { state, press } = harness();
+    await press("o");
+    const currentTitle = state.payload.title;
+    await press("e");
+
+    await press("home");
+    expect(pasteInto(state, "front matter\nsecond line")).toBeTrue();
+
+    expect(renamePrompt(state).composer.text).toBe(`front matter second line${currentTitle}`);
+  });
+
+  test("enter still commits an edited rename", async () => {
+    const { source, state, press, pressKey } = harness();
+    const currentId = state.payload.id;
+    let renamedTo: string | null = null;
+    source.api.renameStory = async (id, title) => {
+      renamedTo = title;
+      return { ...state.payload, id, title };
+    };
+    await press("o");
+    await press("e");
+
+    await pressKey(modifiedKey("a", { ctrl: true }));
+    for (const character of "a whole new title") await press(character);
+    await press("return", "\r");
+
+    expect(renamedTo).toBe("a whole new title");
+    expect(state.payload.id).toBe(currentId);
+    expect(state.payload.title).toBe("a whole new title");
+    expect(state.library?.prompt).toBe(null);
+  });
+
+  test("escape still cancels, discarding the edit", async () => {
+    const { state, press } = harness();
+    await press("o");
+    const currentTitle = state.payload.title;
+    await press("e");
+    for (const character of "ruined") await press(character);
+    expect(renamePrompt(state).composer.text).not.toBe(currentTitle);
+
+    await press("escape");
+
+    expect(state.library?.prompt).toBe(null);
+    expect(state.payload.title).toBe(currentTitle);
   });
 });

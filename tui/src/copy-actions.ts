@@ -143,12 +143,13 @@ export function handleMainCopyShortcut(
 /** Composer surfaces consume Ctrl+C even without a selection. EDITOR handles
  * the chord in its reducer; this identifies ownership before input queues. */
 export function consumesEmptyCopyShortcut(
-  state: Pick<RuntimeState, "mode" | "settings">
+  state: Pick<RuntimeState, "mode" | "settings" | "library">
 ): boolean {
   return state.mode === "COMPOSE"
     || state.mode === "EDITOR"
     || state.mode === "SETTINGS"
-      && (state.settings?.edit != null || state.settings?.sampling?.edit != null);
+      && (state.settings?.edit != null || state.settings?.sampling?.edit != null)
+    || state.mode === "LIBRARY" && state.library?.prompt?.kind === "rename";
 }
 
 /** Convert OpenTUI's painted-cell range into the same raw document selection
@@ -280,7 +281,11 @@ function activeComposer(
             ?? state.settings?.edit?.composer
             ?? null
           : null
-        : null;
+        : state.mode === "LIBRARY"
+          ? sourceId === undefined && state.library?.prompt?.kind === "rename"
+            ? state.library.prompt.composer
+            : null
+          : null;
 }
 
 /** Translate generic multi-buffer selection outcomes at the editor boundary. */

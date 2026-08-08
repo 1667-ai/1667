@@ -622,7 +622,7 @@ describe("demo action runtime and input", () => {
       stories: source.stories,
       cursor: 0,
       query: "",
-      prompt: { kind: "rename", value: "renamed while streaming", targetId: payload.id }
+      prompt: { kind: "rename", composer: createComposer("renamed while streaming"), targetId: payload.id }
     };
     let renamed = 0;
     source.api.renameStory = async () => { renamed += 1; return { ...payload, title: "wrong" }; };

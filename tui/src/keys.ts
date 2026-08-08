@@ -213,7 +213,8 @@ export function pasteInto(
       query: string;
       prompt:
         | { kind: "filter" }
-        | { kind: "rename" | "delete"; value: string }
+        | { kind: "rename"; composer: ComposerState }
+        | { kind: "delete"; value: string }
         | null;
     } | null;
     facts: { filtering: boolean; query: string; cursor: number } | null;
@@ -292,6 +293,8 @@ export function pasteInto(
   if (state.mode === "LIBRARY" && state.library?.prompt != null) {
     if (state.library.prompt.kind === "filter") {
       setLibraryQuery(state.library, state.library.query + line);
+    } else if (state.library.prompt.kind === "rename") {
+      insertComposerText(state.library.prompt.composer, line);
     } else {
       state.library.prompt.value += line;
     }
@@ -348,6 +351,9 @@ export interface ResolveOptions {
   connectionDown?: boolean;
   /** A text prompt/filter owns the keyboard: letters are input, not hotkeys. */
   overlayTyping?: boolean;
+  /** The LIBRARY prompt open is specifically the composer-backed rename
+   *  field, not the plain-string filter or delete confirmation. */
+  libraryRenaming?: boolean;
   /** A nested Sampling panel owns list navigation and scalar controls. */
   settingsSampling?: boolean;
   /** The command palette is showing its tags sub-view. */
@@ -404,6 +410,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     factEditor = false, authorsNoteEditor = false, settingsPicker = false,
     settingsProfileTransfer = null,
     textActionsOpen = false,
+    libraryRenaming = false,
     mapView = "path" } = options;
   const globalReference = resolveReferenceBinding("global", key, mode, mapView);
   if (globalReference !== null || key.name === "escape") {
@@ -566,6 +573,20 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (searchReference !== null) return { action: searchReference.action };
     if (key.name === "backspace") return { action: "backspace" };
     return textInput(key) ?? { action: "none" };
+  }
+  // The LIBRARY rename field alone is composer-backed (its filter and its
+  // delete confirmation stay plain strings below). Resolved ahead of the
+  // blanket chord guard just below so cut/paste/select-all/word-motion
+  // chords reach it instead of being rejected as unknown chords.
+  if (mode === "LIBRARY" && libraryRenaming) {
+    if (key.name === "return") return { action: "open-selected" };
+    // Up/down still move the row behind the prompt, exactly as they do
+    // while filtering or confirming a delete — the composer has no vertical
+    // motion of its own to give them instead.
+    if (key.name === "down") return { action: "focus-next" };
+    if (key.name === "up") return { action: "focus-previous" };
+    if ((key.ctrl || key.super) && key.name.toLowerCase() === "v") return { action: "paste-clipboard" };
+    return composerBackedInput(key);
   }
   // A modified letter is a chord, never a plain hotkey. Keep unknown
   // terminal/application chords inert on every non-composer surface.
