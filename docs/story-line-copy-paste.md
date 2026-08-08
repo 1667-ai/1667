@@ -19,7 +19,8 @@ story part. It does not copy the story part itself. It copies every story
 part on that path, in order, down to the last part.
 
 The writer holds one copied story line at a time. The copy stays bound to
-its story. It stays ready to paste until the writer copies a new story line.
+its story. A successful paste removes the copy. A failed paste keeps the copy
+ready for another attempt. A new copy replaces the old copy.
 
 ## What the paste does
 
