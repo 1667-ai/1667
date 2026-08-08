@@ -7,9 +7,13 @@ import type { ResolvedKey } from "./keys.js";
  * They move and delete by character, word, line, buffer, and page.
  * They also share cut, undo, and redo.
  *
- * Four other surfaces hold a plain string, not a composer: the LIBRARY
- * prompt, the FACTS filter, the CHAPTERS rename field, and the TAG name.
- * These surfaces use `applyTextKey`. They do not use this table.
+ * Three other surfaces hold a plain string, not a composer: the FACTS
+ * filter, the CHAPTERS rename field, and the TAG name. These surfaces use
+ * `applyTextKey`. They do not use this table.
+ *
+ * The LIBRARY prompt is split: its filter and its delete confirmation are
+ * still plain strings on `applyTextKey`, but its rename field is composer-
+ * backed and reads this table, the same as Direct and the settings fields.
  *
  * Each surface checks its own chords before it checks this table.
  * This order keeps the intentional differences.

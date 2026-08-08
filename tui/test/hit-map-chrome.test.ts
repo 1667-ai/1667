@@ -435,7 +435,7 @@ describe("hit map clickable chrome", () => {
         state.mode = "LIBRARY";
         state.library = {
           stories: source.stories, cursor: 0, query: "",
-          prompt: { kind: "rename" as const, value: "new title", targetId: source.payload.id }
+          prompt: { kind: "rename" as const, composer: createComposer("new title"), targetId: source.payload.id }
         };
       },
       (state: State) => {
@@ -714,7 +714,7 @@ describe("hit map clickable chrome", () => {
     const isArrow = (region: { target: HitTarget }, index: number) =>
       region.target.kind === "action" && region.target.index === index
       && (region.target.action === "take-previous" || region.target.action === "take-next");
-    for (const index of [0, 2]) {
+    for (const index of [0, 3]) {
       const selectorRow = state.hitRows.findIndex((row) =>
         row?.overrides?.some((region) => isArrow(region, index)) === true);
       const arrows = state.hitRows[selectorRow]!.overrides!.filter((region) =>
@@ -749,10 +749,10 @@ describe("hit map clickable chrome", () => {
       }
     }
 
-    // Theme, compose focus, provider, insecure HTTP, profile, effort, cache,
-    // alternatives, and three routes — plus the three C-08 scalars, whose
-    // chips open on the same column.
-    expect(opens.size).toBe(14);
+    // Theme, compose focus, word wrap, provider, insecure HTTP, profile,
+    // effort, cache, alternatives, and three routes — plus the three C-08
+    // scalars, whose chips open on the same column.
+    expect(opens.size).toBe(15);
     expect(new Set(opens.values()).size).toBe(1);
   });
 

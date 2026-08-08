@@ -85,6 +85,7 @@ describe("partial rewrite commit through the real worker transport", () => {
           theme: "lantern",
           factsRail: "auto",
           composeFocus: "off",
+          wordWrap: "on",
           composeMaxHeight: null,
           quota: { date: "", words: 0 },
           updates: { mode: "notify", channel: "stable", skippedVersion: null }

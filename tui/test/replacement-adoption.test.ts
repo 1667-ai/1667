@@ -9,7 +9,7 @@ import { publishStories } from "../src/overlay-publication.js";
 import { RecoveryWarningFeed } from "../src/recovery-warning-feed.js";
 import { startRecoveryOrchestration } from "../src/recovery-orchestration.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
-import { setComposerText } from "../src/composer-model.js";
+import { createComposer, setComposerText } from "../src/composer-model.js";
 import { applyOpeningFocus } from "../src/reading-position.js";
 import { adoptReconciliationSnapshot } from "../src/story-adoption.js";
 import { SETTINGS_ROW_IDS } from "../src/settings-overlay-model.js";
@@ -58,7 +58,7 @@ async function launchDelete(app: ReturnType<typeof harness>, fixture: ReturnType
   await app.press(key("d"));
   const overlay = app.state.library!;
   const prompt = overlay.prompt!;
-  if (prompt.kind === "filter") throw new Error("expected delete prompt");
+  if (prompt.kind !== "delete") throw new Error("expected delete prompt");
   prompt.value = fixture.current.title;
   const pending = app.press(key("return", "\r"));
   await fixture.entered.promise;
@@ -83,7 +83,7 @@ describe("forced story replacement adoption", () => {
     publishStories(app.state, source, [survivor]);
     expect(app.state.library.prompt).toBe(filterPrompt);
 
-    const survivingPrompt = { kind: "rename" as const, value: survivor.title, targetId: survivor.id };
+    const survivingPrompt = { kind: "rename" as const, composer: createComposer(survivor.title), targetId: survivor.id };
     app.state.library.prompt = survivingPrompt;
     publishStories(app.state, source, [survivor]);
     expect(app.state.library.prompt).toBe(survivingPrompt);
@@ -208,7 +208,7 @@ describe("forced story replacement adoption", () => {
     overlay.cursor = 1;
     await app.press(key("d"));
     const submittedPrompt = overlay.prompt!;
-    if (submittedPrompt.kind === "filter") throw new Error("expected delete prompt");
+    if (submittedPrompt.kind !== "delete") throw new Error("expected delete prompt");
     submittedPrompt.value = doomed.title;
     const pending = app.press(key("return", "\r"));
     await listEntered.promise;

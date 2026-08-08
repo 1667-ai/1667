@@ -6,6 +6,7 @@ import {
   type PaletteCommand
 } from "./command-model.js";
 import { connectionFailed, connectionSucceeded } from "./connection.js";
+import { createComposer } from "./composer-model.js";
 import { writeExportFile, writeStoryExport } from "./export-file.js";
 import { exportGenerationProfile } from "../../server/import-profile-export.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
@@ -439,7 +440,7 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
     const title = state.payload.title;
     await openLibrary(state, source, context, {
       selectedStoryId: targetId,
-      prompt: { kind: "rename", value: title, targetId }
+      prompt: { kind: "rename", composer: createComposer(title), targetId }
     });
   }
   else if (command.id === "direct-take") openDirectComposer(state);

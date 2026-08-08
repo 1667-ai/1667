@@ -79,17 +79,22 @@ export function deleteComposerToLineBoundary(composer: ComposerState, end: boole
     Math.min(composer.cursor, boundary), Math.max(composer.cursor, boundary), "");
 }
 
-/** Move by logical rows. Direct and one-line Settings editors do not soft-wrap. */
+/** Move by logical rows. Direct and one-line Settings editors do not soft-wrap.
+ *  Returns whether the cursor actually moved, matching the soft-wrapped
+ *  `moveComposerVisualRows` this stands in for. */
 export function moveComposerPage(
   composer: ComposerState,
   direction: -1 | 1,
   rows: number,
   selecting = false
-): void {
+): boolean {
   const count = Math.max(1, Math.floor(rows));
+  let moved = false;
   for (let row = 0; row < count; row += 1) {
     if (!moveComposerVertical(composer, direction, selecting)) break;
+    moved = true;
   }
+  return moved;
 }
 
 function wordBoundary(composer: ComposerState, cursor: number, direction: -1 | 1): number {

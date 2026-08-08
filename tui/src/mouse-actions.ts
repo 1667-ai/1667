@@ -208,7 +208,12 @@ export function captureMouseActionState(state: RuntimeState): MouseActionState {
               ...state.library.prompt,
               initial: { ...state.library.prompt.initial }
             }
-          : { ...state.library.prompt }
+          // The rename composer mutates in place (insertComposerText et al.),
+          // like sampling's edit.composer below — a bare spread would keep
+          // pointing at the live object and silently "see" every later edit.
+          : state.library.prompt.kind === "rename"
+            ? { ...state.library.prompt, composer: { ...state.library.prompt.composer } }
+            : { ...state.library.prompt }
     },
     facts: state.facts === null ? null : { ...state.facts },
     commands: state.commands === null ? null : { ...state.commands },

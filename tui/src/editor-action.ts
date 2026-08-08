@@ -11,6 +11,7 @@ import { recordHumanWords } from "./config.js";
 import { parsePartFile, stripGuidance } from "./editor.js";
 import { editorBufferAction } from "./editor-buffer-action.js";
 import { composerPageRows } from "./composer-viewport.js";
+import { composerMotion } from "./composer-motion.js";
 import { editorInsertionPolicy } from "./editor-text-insertion.js";
 import { factEditorChanged, factEditorSavePayload } from "./fact-editor-draft.js";
 import {
@@ -68,16 +69,19 @@ export async function inlineEditorAction(
     && handleFactEditorHistory(resolved, state, editor)) {
     return;
   }
-  const wrapWidth = Math.max(1, (context.renderer?.width ?? 80) - 4);
+  const motion = composerMotion(
+    state.config.wordWrap === "on",
+    () => Math.max(1, (context.renderer?.width ?? 80) - 4)
+  );
   if (editor.kind === "fact"
-    && handleFactEditorVerticalMove(resolved, editor, wrapWidth)) {
+    && handleFactEditorVerticalMove(resolved, editor, motion)) {
     return;
   }
   const buffer = editor.kind === "fact" ? factEditorBuffer(editor) : editor;
   const reduceBuffer = () => editorBufferAction(resolved, state, buffer, {
     isCurrent: () => state.mode === "EDITOR" && state.editor === editor,
     ...editorInsertionPolicy(editor),
-    wrapWidth,
+    motion,
     pageRows: composerPageRows(context.renderer?.height ?? 24, true)
   });
   const outcome = await reduceBuffer();

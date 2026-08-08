@@ -108,7 +108,7 @@ export type TextPrompt =
     }
   | {
       kind: "rename";
-      value: string;
+      composer: ComposerState;
       /** Frozen at prompt-open so later movement or refresh cannot retarget it. */
       targetId: string;
     }
@@ -148,6 +148,7 @@ export interface ChaptersOverlayState {
 export type SettingsRowId =
   | "theme"
   | "compose-focus"
+  | "word-wrap"
   | "provider"
   | "text-prompt-format"
   | "base-url"
