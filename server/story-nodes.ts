@@ -167,6 +167,15 @@ export interface PasteStoryLineIds {
   nodeId?: (index: number) => string;
 }
 
+export function assertStoryLineCopySize(partCount: number): void {
+  if (partCount > MAX_STORY_LINE_COPY_PARTS) {
+    throw new HttpError(
+      400,
+      `A story line of more than ${MAX_STORY_LINE_COPY_PARTS.toLocaleString()} parts is too large to paste.`
+    );
+  }
+}
+
 /**
  * Copy the active descendant path below `sourceNodeId` — every part it
  * currently continues into, in order, not the anchor itself — and attach a
@@ -205,12 +214,7 @@ export function pasteStoryLine(
   if (chain.at(-1)!.id !== expectedLeafId) {
     throw new HttpError(409, "The story line changed since it was copied — copy it again.");
   }
-  if (chain.length > MAX_STORY_LINE_COPY_PARTS) {
-    throw new HttpError(
-      400,
-      `A story line of more than ${MAX_STORY_LINE_COPY_PARTS.toLocaleString()} parts is too large to paste.`
-    );
-  }
+  assertStoryLineCopySize(chain.length);
 
   const clones: StoryNode[] = [];
   let parentId = target.id;

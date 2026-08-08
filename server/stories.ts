@@ -41,6 +41,7 @@ import {
 } from "./story-lifecycle.js";
 import {
   applyHumanEdit,
+  assertStoryLineCopySize,
   createTake,
   createTakeFromCut as createCutTake,
   deleteSubtree,
@@ -297,7 +298,9 @@ export class StoryStore {
     return await this.mutate(id, async (story) => {
       const firstCloneId = ids.nodeId?.(0);
       if (firstCloneId !== undefined && story.nodes.some((node) => node.id === firstCloneId)) return STORY_UNCHANGED;
-      await this.hydrateNodes(story, descendantLine(story, body.sourceNodeId).map((node) => node.id));
+      const sourceLine = descendantLine(story, body.sourceNodeId);
+      assertStoryLineCopySize(sourceLine.length);
+      await this.hydrateNodes(story, sourceLine.map((node) => node.id));
       pasteLineNodes(story, body.sourceNodeId, targetParentId, body.expectedLeafId, ids);
     });
   }

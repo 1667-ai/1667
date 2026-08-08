@@ -34,6 +34,7 @@ import type {
 import { isPreparedDomainError } from "./mutation-ledger-types.js";
 import {
   applyHumanEdit,
+  assertStoryLineCopySize,
   commitTake,
   createEditedTake,
   createTakeFromCut,
@@ -596,7 +597,9 @@ export class StoryServiceLocal {
           // The nodes to clone are the source's descendants, not its
           // ancestors — hydrate the chain itself, not `hydratePath`'s
           // root-to-node ancestry.
-          await session.hydrateNodes(story, descendantLine(story, body.sourceNodeId).map((node) => node.id));
+          const sourceLine = descendantLine(story, body.sourceNodeId);
+          assertStoryLineCopySize(sourceLine.length);
+          await session.hydrateNodes(story, sourceLine.map((node) => node.id));
           pasteStoryLineNodes(story, body.sourceNodeId, targetParentId, body.expectedLeafId, ids);
         }
       );
