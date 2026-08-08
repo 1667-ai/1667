@@ -3,6 +3,10 @@ import type { GenerationSettings } from "../../shared/types.js";
 import { samplingSettingsEqual } from "../../shared/sampling-capabilities.js";
 import { setComposerText } from "./composer-model.js";
 import type { ActiveSettingsEdit } from "./settings-edit-state.js";
+import {
+  settingsRowIsLocal,
+  type LocalConfigRow
+} from "./settings-local-rows.js";
 import { renameSettingsProfile } from "./settings-profile-draft.js";
 import { sameConnectionSecrets } from "./settings-secret-sidecar.js";
 import {
@@ -76,7 +80,7 @@ export function reconcileSettingsOverlay(
   const draftWasClean = !settingsDraftChanged(overlay);
   const editAffectsServer = edit !== null && (
     edit.kind === "sampling"
-    || edit.row !== "theme" && edit.row !== "compose-focus" && edit.row !== "word-wrap"
+    || !settingsRowIsLocal(edit.row)
   );
   const editWasClean = !editAffectsServer
     || edit.composer.text === edit.initialText();
@@ -162,8 +166,7 @@ export function sameGenerationSettings(
 
 export function draftRowEditValue(
   draft: SettingsTextDraft,
-  row: Exclude<SettingsRowId,
-    "theme" | "compose-focus" | "word-wrap" | "allow-insecure-http" | "profile" | "sampling">
+  row: Exclude<SettingsRowId, LocalConfigRow | "allow-insecure-http" | "profile" | "sampling">
 ): string {
   const settings = draft.generation;
   if (row === "provider") return settings.provider;
@@ -191,7 +194,7 @@ function draftWithActiveEdit(
     return edit.composer.text === edit.initialText() ? draft : null;
   }
   const row = edit.row;
-  if (row === "theme" || row === "compose-focus" || row === "word-wrap") return draft;
+  if (settingsRowIsLocal(row)) return draft;
   if (row === "profile") {
     if (draft.document === null || draft.selectedProfileId === null) return null;
     const renamed = renameSettingsProfile(
@@ -224,11 +227,9 @@ function settingsDraftTextRow(
   row: SettingsRowId
 ): row is Exclude<
   SettingsRowId,
-  "theme" | "compose-focus" | "word-wrap" | "allow-insecure-http" | "profile" | "sampling"
+  LocalConfigRow | "allow-insecure-http" | "profile" | "sampling"
 > {
-  return row !== "theme"
-    && row !== "compose-focus"
-    && row !== "word-wrap"
+  return !settingsRowIsLocal(row)
     && row !== "allow-insecure-http"
     && row !== "profile"
     && row !== "sampling";

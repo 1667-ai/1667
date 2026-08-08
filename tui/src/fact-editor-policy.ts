@@ -9,7 +9,7 @@ import {
 } from "./composer-model.js";
 import { FACT_PRIORITIES, FACT_RECURSIONS, FACT_SECONDARY_MODES } from "../../shared/fact-metadata.js";
 import { graphemeCells } from "./cell-width.js";
-import { wrappedComposerLayout } from "./composer-wrapping.js";
+import type { ComposerVerticalMotion } from "./composer-motion.js";
 import { factEditorTag } from "./fact-editor-draft.js";
 import { nextFactEditorRow, type FactEditorRow } from "./fact-editor-rows.js";
 import { factTagPresets } from "./facts-model.js";
@@ -372,8 +372,7 @@ export function factEditorBuffer(editor: FactEditorSession): { composer: Compose
 export function handleFactEditorVerticalMove(
   resolved: ResolvedKey,
   editor: FactEditorSession,
-  wrapWidth: number,
-  softWrap: boolean
+  motion: ComposerVerticalMotion
 ): boolean {
   if (resolved.action !== "cursor-up" && resolved.action !== "cursor-down") {
     return false;
@@ -383,11 +382,7 @@ export function handleFactEditorVerticalMove(
     setFactEditorFocus(editor, nextFactEditorRow(editor.focus, direction));
     return true;
   }
-  // Unwrapped, the body's first row is its first logical line.
-  const atFirstRow = softWrap
-    ? wrappedComposerLayout(editor.composer, wrapWidth).cursorRow === 0
-    : composerPosition(editor.composer).line === 0;
-  if (resolved.action === "cursor-up" && atFirstRow) {
+  if (resolved.action === "cursor-up" && motion.atFirstRow(editor.composer)) {
     setFactEditorFocus(editor, "budget");
     editor.budget.anchor = null;
     editor.budget.cursor = Math.min(

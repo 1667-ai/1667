@@ -36,8 +36,8 @@ import {
 } from "../../animation-deadline.js";
 import { streamTrimBounds } from "../../stream-text.js";
 import type { WrapContentIdentity } from "../../wrap.js";
+import { STORY_GUTTER } from "../../composer-geometry.js";
 
-export const STORY_GUTTER = 24;
 const STREAM_LIVENESS_MARKS = ["⠋", "⠙", "⠹", "⠸"] as const;
 const STREAM_LIVENESS_FRAME_MS = 250;
 

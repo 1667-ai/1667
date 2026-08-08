@@ -1,10 +1,10 @@
 import type { AppSource } from "./app.js";
 import type { ActionContext } from "./action-context.js";
-import { readFromClipboard } from "./clipboard.js";
 import { createComposer, insertComposerText } from "./composer-model.js";
 import { composerSurfaceAction } from "./composer-surface-action.js";
+import { SINGLE_LINE_COMPOSER_MOTION } from "./composer-motion.js";
 import { globalEditor } from "./editor-scope.js";
-import { applyTextKey, isPlainNavigation, sanitizePastedText, type ResolvedKey } from "./keys.js";
+import { applyTextKey, isPlainNavigation, type ResolvedKey } from "./keys.js";
 import {
   boundedLibraryCursor,
   libraryRows,
@@ -99,18 +99,19 @@ export async function libraryAction(
     overlay.prompt = { kind: "rename", composer: createComposer(selected.title), targetId: selected.id };
   }
   else if (resolved.action === "delete-item" && selected !== undefined) overlay.prompt = { kind: "delete", value: "", targetId: selected.id };
-  else if (rename !== null && resolved.action === "paste-clipboard") {
-    await pasteLibraryRename(state, overlay, rename);
-  }
   else if (rename !== null && resolved.action === "input") {
     insertComposerText(rename.composer, resolved.text ?? "");
   }
   else if (rename !== null && await composerSurfaceAction(resolved, state, rename.composer, {
     isCurrent: () => state.library === overlay && overlay.prompt === rename,
-    pageRows: 1
+    pageRows: 1,
+    motion: SINGLE_LINE_COMPOSER_MOTION,
+    // The title is single-line, so a pasted newline flattens to a space
+    // rather than splitting it.
+    insert: (text) => text.replace(/\n+/g, " ")
   })) {
-    // Cut, paste-adjacent clipboard, select-all, undo/redo, and cursor/
-    // delete motion all run through the shared composer surface action.
+    // Cut, paste, select-all, undo/redo, and cursor/delete motion all run
+    // through the shared composer surface action.
   }
   else if ((resolved.action === "backspace" || resolved.action === "input") && overlay.prompt !== null) {
     if (overlay.prompt.kind === "filter") {
@@ -139,42 +140,6 @@ export async function libraryAction(
 }
 
 type LibraryOverlay = NonNullable<RuntimeState["library"]>;
-
-/** Paste into the composer-backed rename field. Mirrors
- *  `pasteSettingsInlineEdit` (settings-field-actions.ts): a stale claim — a
- *  different interaction, or the field changed underneath the clipboard
- *  read — drops the result instead of applying it blind. Single-line, so a
- *  pasted newline flattens to a space rather than splitting the title. */
-async function pasteLibraryRename(
-  state: RuntimeState,
-  overlay: LibraryOverlay,
-  prompt: Extract<NonNullable<LibraryOverlay["prompt"]>, { kind: "rename" }>
-): Promise<void> {
-  const claim = {
-    interactionVersion: state.interactionVersion,
-    text: prompt.composer.text,
-    cursor: prompt.composer.cursor,
-    anchor: prompt.composer.anchor
-  };
-  const text = await readFromClipboard();
-  if (state.library !== overlay || overlay.prompt !== prompt) return;
-  if (state.interactionVersion !== claim.interactionVersion
-    || prompt.composer.text !== claim.text
-    || prompt.composer.cursor !== claim.cursor
-    || prompt.composer.anchor !== claim.anchor) {
-    return;
-  }
-  if (text === null) {
-    state.toast = "clipboard unreadable · paste with ⌘V or ctrl+shift+v";
-    return;
-  }
-  const clean = sanitizePastedText(text);
-  if (clean.length === 0) {
-    state.toast = "clipboard has no insertable text";
-    return;
-  }
-  insertComposerText(prompt.composer, clean.replace(/\n+/g, " "));
-}
 
 export async function createNewStory(
   state: RuntimeState,

@@ -1,4 +1,4 @@
-import { graphemeCells } from "./cell-width.js";
+import { breaksLine, graphemeCells } from "./cell-width.js";
 
 export interface ComposerState {
   text: string;
@@ -37,10 +37,6 @@ export interface ComposerLineChunk {
   readonly count: number;
   readonly width: number;
   readonly uniformWidth: number | null;
-  /** True when some cell can carry a word-wrap break. Wrapping reads this to
-   *  keep space-free runs — a pasted token, a long ideographic passage — on
-   *  their arithmetic path instead of scanning for a break that cannot exist. */
-  readonly hasWrapSpace: boolean;
 }
 
 export interface ComposerLineChange {
@@ -62,6 +58,9 @@ interface CellChunk extends ComposerLineChunk {
   width: number;
   codeUnits: number;
   uniformWidth: number | null;
+  /** True when some cell can carry a word-wrap break. Wrapping reads this to
+   *  keep space-free runs — a pasted token, a long ideographic passage — on
+   *  their arithmetic path instead of scanning for a break that cannot exist. */
   hasWrapSpace: boolean;
 }
 
@@ -776,12 +775,9 @@ function makeChunk(cells: readonly ComposerLineCell[]): CellChunk {
     uniformWidth: firstWidth !== null && cells.every((cell) => cell.width === firstWidth)
       ? firstWidth
       : null,
-    hasWrapSpace: cells.some((cell) => WRAP_SPACE.test(cell.text))
+    hasWrapSpace: cells.some((cell) => breaksLine(cell.text))
   };
 }
-
-/** A cell a word wrap can break on. Line breaks never reach a chunk. */
-const WRAP_SPACE = /\s/;
 
 function joinChunks(...groups: ReadonlyArray<readonly CellChunk[]>): CellChunk[] {
   const joined: CellChunk[] = [];

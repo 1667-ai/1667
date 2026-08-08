@@ -3,6 +3,13 @@ import {
   type SettingsPresetV2,
   type SettingsView
 } from "../../shared/settings-v2-types.js";
+import {
+  LOCAL_CONFIG_ROWS,
+  settingsRowIsLocal,
+  type LocalConfigRow
+} from "./settings-local-rows.js";
+
+export { LOCAL_CONFIG_ROWS, settingsRowIsLocal, type LocalConfigRow };
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import type { UserConfig } from "./config.js";
 import { THEME_NAMES, type ThemeName } from "./config.js";
@@ -84,6 +91,11 @@ export const SETTINGS_ROW_IDS = [
 export function settingsRowIndex(row: SettingsRowId): number {
   return (SETTINGS_ROW_IDS as readonly SettingsRowId[]).indexOf(row);
 }
+
+/** Rows that live in the user config rather than a server-backed settings
+ *  revision. One list backs every "is this row local?" test in the overlay,
+ *  instead of each site naming the same three rows by hand. */
+
 
 export {
   reconcileSettingsOverlay,
@@ -204,8 +216,7 @@ export function applySettingsRowEdit(
   overlay: SettingsOverlayState,
   config: UserConfig
 ): { kind: "theme"; value: ThemeName }
-  | { kind: "compose-focus"; value: UserConfig["composeFocus"] }
-  | { kind: "word-wrap"; value: UserConfig["wordWrap"] }
+  | { kind: "local"; row: "compose-focus" | "word-wrap"; value: "on" | "off" }
   | { kind: "draft" }
   | { kind: "error"; message: string } {
   const edit = overlay.edit;
@@ -221,19 +232,13 @@ export function applySettingsRowEdit(
     overlay.edit = null;
     return { kind: "theme", value: value as ThemeName };
   }
-  if (edit.row === "compose-focus") {
+  if (edit.row === "compose-focus" || edit.row === "word-wrap") {
     if (value !== "on" && value !== "off") {
-      return { kind: "error", message: "compose focus must be on or off" };
+      const label = edit.row === "compose-focus" ? "compose focus" : "word wrap";
+      return { kind: "error", message: `${label} must be on or off` };
     }
     overlay.edit = null;
-    return { kind: "compose-focus", value };
-  }
-  if (edit.row === "word-wrap") {
-    if (value !== "on" && value !== "off") {
-      return { kind: "error", message: "word wrap must be on or off" };
-    }
-    overlay.edit = null;
-    return { kind: "word-wrap", value };
+    return { kind: "local", row: edit.row, value };
   }
   if (edit.row === "api-key") {
     const result = applyStoredApiKeyEdit(overlay, rawValue);
@@ -366,7 +371,7 @@ export function settingsRowHasArrows(
 /** Local-only rows live in the user config; every other row edits a
  * server-backed settings revision. */
 export function settingsRowUsesServer(row: SettingsRowId): boolean {
-  return row !== "theme" && row !== "compose-focus" && row !== "word-wrap";
+  return !settingsRowIsLocal(row);
 }
 
 export function cycleSettingsProvider(

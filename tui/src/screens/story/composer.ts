@@ -37,6 +37,10 @@ import {
   composerHeightCap,
   composerPageRows
 } from "../../composer-viewport.js";
+import {
+  composerFieldWidth,
+  composerInputWidth
+} from "../../composer-geometry.js";
 
 export { composerHeightCap } from "../../composer-viewport.js";
 
@@ -94,28 +98,6 @@ export interface ComposerLayout {
   fieldWidth: number;
   fullscreen: boolean;
   dimsStory: boolean;
-}
-
-/** Painted width of the composer field. */
-export function composerFieldWidth(
-  fullscreen: boolean,
-  terminalWidth: number,
-  measure: number,
-  indent: string
-): number {
-  const bounded = Math.max(8, Math.floor(terminalWidth));
-  return fullscreen
-    ? bounded
-    : Math.max(8, Math.min(
-      Math.floor(measure),
-      Math.max(8, bounded - visibleWidth(indent))
-    ));
-}
-
-/** Cells one wrapped row holds. Paint and vertical motion both read this, so a
- *  wrapped caret lands on the row the writer sees. */
-export function composerInputWidth(fieldWidth: number): number {
-  return Math.max(1, fieldWidth - visibleWidth("┃ ") - visibleWidth("› "));
 }
 
 /**

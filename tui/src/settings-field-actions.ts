@@ -1,6 +1,7 @@
 import type { AppSource } from "./app.js";
 import { insertComposerText } from "./composer-model.js";
 import { composerSurfaceAction } from "./composer-surface-action.js";
+import { SINGLE_LINE_COMPOSER_MOTION } from "./composer-motion.js";
 import { readFromClipboard } from "./clipboard.js";
 import { applyTextKey, sanitizePastedText, type ResolvedKey } from "./keys.js";
 import {
@@ -14,8 +15,7 @@ import {
 } from "./settings-overlay-model.js";
 import { settingsTextDraftWithGeneration } from "./settings-text.js";
 import {
-  applySettingsComposeFocus,
-  applySettingsWordWrap,
+  applySettingsLocalToggle,
   applySettingsTheme
 } from "./settings-selector-actions.js";
 import type { RuntimeState, SettingsOverlayState } from "./state.js";
@@ -140,12 +140,8 @@ export async function settingsInlineEditAction(
       applySettingsTheme(state, context, applied.value);
       return;
     }
-    if (applied.kind === "word-wrap") {
-      applySettingsWordWrap(state, source, applied.value);
-      return;
-    }
-    if (applied.kind === "compose-focus") {
-      applySettingsComposeFocus(state, source, applied.value);
+    if (applied.kind === "local") {
+      applySettingsLocalToggle(state, source, applied.row, applied.value);
       return;
     }
     disarmSettingsConflict(overlay);
@@ -162,6 +158,7 @@ export async function settingsInlineEditAction(
   await composerSurfaceAction(resolved, state, edit.composer, {
     isCurrent: () => state.settings === overlay && overlay.edit === edit,
     pageRows: 1,
+    motion: SINGLE_LINE_COMPOSER_MOTION,
     onEdit: (kind) => {
       if (kind !== "move") disarmSettingsConflict(overlay);
     }

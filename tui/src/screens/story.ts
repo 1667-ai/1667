@@ -31,7 +31,6 @@ import type {
   DocumentEditorSession,
   StoryScreenState
 } from "../state.js";
-import type { UserConfig } from "../config.js";
 import { deriveStoryFrameLayout, type StoryFrameLayout } from "../story-frame-layout.js";
 import { createWrapCache, type ProseStyle, type WrapCache } from "../wrap.js";
 import { renderFactsRail } from "./story/facts-rail.js";
@@ -63,17 +62,16 @@ import {
   type HintItem
 } from "./story/frame.js";
 import { addInlineHits } from "./story/hits.js";
-import { layoutStoryRow, renderChapterOneHeading, STORY_GUTTER, type StickyStoryPrompt } from "./story/row-layout.js";
+import { layoutStoryRow, renderChapterOneHeading, type StickyStoryPrompt } from "./story/row-layout.js";
 import { paintStorySelection } from "./story/selection-highlight.js";
 import { stickFocusedGutter, type FocusedStickyGutter } from "./story/sticky-gutter.js";
 import { stickStoryPrompt } from "./story/sticky-prompt.js";
 import {
   applyComposePageMode,
-  composerFieldWidth,
-  composerInputWidth,
   renderComposerLayout,
   type ComposerLayout
 } from "./story/composer.js";
+import { storyProseMeasure, STORY_GUTTER } from "../composer-geometry.js";
 import type { ComposerStatus as ComposerChromeStatus } from "./story/composer-chrome.js";
 import { renderStatus as renderCanonicalStatus } from "./story/status.js";
 import { viewportLines, type ViewportBlock } from "./story/viewport.js";
@@ -372,29 +370,6 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
       request: state.request
     }
   };
-}
-
-export function storyProseMeasure(pageWidth: number): number {
-  return Math.max(1, Math.min(72, pageWidth < 100 ? pageWidth - 4 : pageWidth - 26));
-}
-
-/** Cells the Direct composer wraps at, for the geometry it is painted with.
- *  Vertical motion reads this so an arrow key follows the painted rows. */
-export function directComposerWrapWidth(
-  terminalWidth: number,
-  config: UserConfig,
-  fullscreen: boolean
-): number {
-  if (fullscreen) {
-    return composerInputWidth(
-      composerFieldWidth(true, terminalWidth, terminalWidth, "")
-    );
-  }
-  const pageWidth = deriveStoryFrameLayout(terminalWidth, config).pageWidth;
-  const indent = pageWidth < 100 ? "  " : " ".repeat(STORY_GUTTER);
-  return composerInputWidth(composerFieldWidth(
-    false, pageWidth, storyProseMeasure(pageWidth), indent
-  ));
 }
 
 function fullBleedDerived(

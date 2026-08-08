@@ -49,15 +49,17 @@ export async function cycleSettingsRow(
         THEME_NAMES[(index + step + THEME_NAMES.length) % THEME_NAMES.length]!
       );
     } else if (row === "compose-focus") {
-      applySettingsComposeFocus(
+      applySettingsLocalToggle(
         state,
         source,
+        "compose-focus",
         state.config.composeFocus === "on" ? "off" : "on"
       );
     } else if (row === "word-wrap") {
-      applySettingsWordWrap(
+      applySettingsLocalToggle(
         state,
         source,
+        "word-wrap",
         state.config.wordWrap === "on" ? "off" : "on"
       );
     } else if (row === "provider") {
@@ -114,24 +116,20 @@ export function applySettingsTheme(
   state.toast = `theme · ${theme}`;
 }
 
-export function applySettingsComposeFocus(
+/** Compose focus and word wrap are both a plain on/off toggle stored on the
+ *  user config, saved and toasted the same way — the only difference is which
+ *  field and which label. One function for both instead of two clones. */
+export function applySettingsLocalToggle(
   state: RuntimeState,
   source: AppSource,
-  composeFocus: "on" | "off"
+  row: "compose-focus" | "word-wrap",
+  value: "on" | "off"
 ): void {
-  state.config = { ...state.config, composeFocus };
+  state.config = row === "compose-focus"
+    ? { ...state.config, composeFocus: value }
+    : { ...state.config, wordWrap: value };
   source.config = state.config;
   if (!state.demo) saveConfig(state.config);
-  state.toast = `compose focus · ${composeFocus}`;
-}
-
-export function applySettingsWordWrap(
-  state: RuntimeState,
-  source: AppSource,
-  wordWrap: "on" | "off"
-): void {
-  state.config = { ...state.config, wordWrap };
-  source.config = state.config;
-  if (!state.demo) saveConfig(state.config);
-  state.toast = `word wrap · ${wordWrap}`;
+  const label = row === "compose-focus" ? "compose focus" : "word wrap";
+  state.toast = `${label} · ${value}`;
 }
