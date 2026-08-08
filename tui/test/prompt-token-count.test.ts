@@ -1,67 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { initialState } from "../src/app.js";
-import { demoAppSource } from "../src/demo.js";
 import {
   startPromptTokenCountLane,
   type PromptTokenCountApi
 } from "../src/prompt-token-count.js";
 import type { PromptTokenCount } from "../../shared/tokenize-source.js";
-
-type TimerHandle = ReturnType<typeof setTimeout>;
-
-/** A scheduler a test drives by hand: `cancel` actually removes a pending
- *  task (unlike a real timer left to fire), so a debounce reset leaves
- *  exactly one task behind rather than an orphan the real clock would still
- *  run. `fireDelay` fires only tasks scheduled at an exact delay, so a test
- *  can settle the 250ms debounce without also tripping the 5s failure
- *  cooldown (or the reverse). */
-function fakeClock() {
-  let nextHandle = 1;
-  const tasks = new Map<number, { callback: () => void; delayMs: number }>();
-  return {
-    schedule(callback: () => void, delayMs: number): TimerHandle {
-      const handle = nextHandle++;
-      tasks.set(handle, { callback, delayMs });
-      return handle as unknown as TimerHandle;
-    },
-    cancel(handle: TimerHandle) {
-      tasks.delete(handle as unknown as number);
-    },
-    pendingCount() {
-      return tasks.size;
-    },
-    fireAll() {
-      const callbacks = [...tasks.values()].map((task) => task.callback);
-      tasks.clear();
-      for (const callback of callbacks) callback();
-    },
-    fireDelay(delayMs: number) {
-      const due = [...tasks.entries()].filter(([, task]) => task.delayMs === delayMs);
-      for (const [handle, task] of due) {
-        tasks.delete(handle);
-        task.callback();
-      }
-    }
-  };
-}
-
-/** Enough microtask turns for a chain of `await`s inside the lane's own
- *  async work to settle before an assertion reads its effect. */
-async function flush(): Promise<void> {
-  for (let turn = 0; turn < 4; turn += 1) await Promise.resolve();
-}
-
-function countedAnswer(total: number): PromptTokenCount {
-  return { kind: "counted", source: "bundled-openai", grade: "exact", total, perMessage: null };
-}
-
-function fixture() {
-  const state = initialState(demoAppSource(), false);
-  const clock = fakeClock();
-  let repaints = 0;
-  const repaint = () => { repaints += 1; };
-  return { state, clock, repaint, repaints: () => repaints };
-}
+import {
+  countedPromptTokenAnswer as countedAnswer,
+  flushPromptTokenCount as flush,
+  promptTokenCountFixture as fixture
+} from "./fixtures/prompt-token-count.js";
 
 describe("prompt token count lane", () => {
   test("a burst of notifications collapses to one call after the debounce settles", async () => {
@@ -556,4 +503,5 @@ describe("prompt token count lane", () => {
     expect(signals[0]!.aborted).toBeTrue();
     expect(clock.pendingCount()).toBe(0);
   });
+
 });

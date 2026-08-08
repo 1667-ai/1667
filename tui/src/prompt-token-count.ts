@@ -108,6 +108,10 @@ export function startPromptTokenCountLane(
    *  timer makes that bound real: an idle session repaints rarely, and a bound
    *  nothing observes is a promise the meter does not keep. */
   let expiryTimer: TimerHandle | null = null;
+  /** Whether the previous `notify()` saw a stream in flight, so the one
+   *  notification that carries generation from active to finished is told
+   *  apart from the many that arrived while it was still streaming. */
+  let wasGenerating = state.stream !== null;
 
   const clearTimer = () => {
     if (timer !== null) cancel(timer);
@@ -155,6 +159,15 @@ export function startPromptTokenCountLane(
 
   const runCount = (onDemand = false) => {
     if (disposed) return;
+    // A generation in flight rewrites `state.stream.text` on every delta, so
+    // any count a probe answered here would already be describing a shorter
+    // draft by the time it lands. `notify()` already keeps the debounce from
+    // firing during a stream; this is the backstop for the two paths that
+    // reach `runCount` without going through `notify()` at all: the cooldown
+    // and expiry timers, armed earlier, calling `queueDebounced()` straight
+    // from their own callbacks. Generation ending is what lets them through
+    // again, via the `wasGenerating` branch below.
+    if (state.stream !== null) return;
     const projected = projectNextRequest(state);
     const estimate = nextRequestEstimate(projected.payload, projected.context);
     const route = state.generationRoute;
@@ -292,6 +305,43 @@ export function startPromptTokenCountLane(
     }
     const openedRequestViewer = state.mode === "REQUEST" && lastMode !== "REQUEST";
     lastMode = state.mode;
+
+    if (state.stream !== null) {
+      // Every delta repaints, and the streamed prompt is different on each
+      // one: asking about it would only launch a probe the very next delta
+      // immediately supersedes, the abort/relaunch churn this lane exists to
+      // avoid. No debounce is even queued: there is nothing to answer until
+      // the stream stops moving.
+      clearTimer();
+      abortInFlight();
+      clearExpiryTimer();
+      // The answer and any in-flight ask are retired together. Forgetting the
+      // fingerprint guarantees one refresh after an empty or stopped stream,
+      // even when the settled prompt returns to exactly what it was before.
+      lastAskedFingerprint = null;
+      // Whatever the meter was showing was necessarily asked before this
+      // stream existed, so it already describes a shorter draft. Retiring it
+      // now, instead of waiting for a reader to notice the identity no longer
+      // matches, is what keeps the meter showing its own live estimate for
+      // the whole generation rather than a number frozen from before it
+      // started.
+      if (state.promptTokenCount !== null) {
+        state.promptTokenCount = null;
+        repaint();
+      }
+      wasGenerating = true;
+      return;
+    }
+    if (wasGenerating) {
+      // The stream just ended. Every repaint it produced was swallowed above
+      // without queuing anything, so this is the one debounce that answers
+      // for all of them, not an on-demand call even if the request viewer
+      // happens to already be open.
+      wasGenerating = false;
+      queueDebounced();
+      return;
+    }
+
     if (openedRequestViewer) {
       // On demand and affordable: no debounce.
       clearTimer();

@@ -1,4 +1,7 @@
-import type { WorkerOperationId } from "../../shared/worker-protocol.js";
+import {
+  isWorkerMutationMethod,
+  type WorkerOperationId
+} from "../../shared/worker-protocol.js";
 import type { WorkerLike } from "./worker-lifecycle.js";
 import type { PendingCall, PendingRequestRegistry } from "./worker-pending.js";
 import type { SerializedWorkerOutbox } from "./worker-outbox.js";
@@ -12,8 +15,12 @@ interface WorkerUserCancellationOptions {
   fail(message: string, cause?: unknown): void;
 }
 
-/** Durably records caller cancellation, delivers it, then requires terminal
- * worker evidence. Either phase is bounded by the same fixed grace period. */
+/** Durably records caller cancellation, delivers it, then, for a mutation,
+ * requires terminal worker evidence within a fixed grace period. A
+ * non-mutating call is read-only advisory: once delivery succeeds, the local
+ * call retires immediately, and any worker delta or terminal that arrives
+ * for it afterward lands on an unknown ID, which the transport already
+ * acknowledges harmlessly. */
 export function cancelPendingWorkerRequest(
   options: WorkerUserCancellationOptions
 ): void {
@@ -68,7 +75,24 @@ function deliverCancellation(
     );
     return;
   }
+  if (!isWorkerMutationMethod(pending.method)) {
+    retireDeliveredCancellation(options, pending);
+    return;
+  }
   armGrace(options, pending, "did not reach terminal state");
+}
+
+/** A non-mutating call has nothing to fence: there is no durable intent to
+ * protect and no story mutation whose outcome could go uncertain. Retiring
+ * it here, rather than waiting on a terminal that may never come, keeps a
+ * stalled read from taking down the transport or blocking a concurrent
+ * mutation. */
+function retireDeliveredCancellation(
+  options: WorkerUserCancellationOptions,
+  pending: PendingCall
+): void {
+  options.pendingRequests.discard(pending.id);
+  pending.resolve(null);
 }
 
 function armGrace(

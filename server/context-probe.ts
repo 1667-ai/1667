@@ -1,4 +1,5 @@
 import type { GenerationSettings } from "../shared/types.js";
+import { withCallerCancellation } from "../shared/promise-cancellation.js";
 import { getProviderJson, postProviderJson } from "./provider-json.js";
 import {
   hasProviderRuntime,
@@ -411,14 +412,16 @@ export async function postKoboldCppTokenCount(
   signal?: AbortSignal
 ): Promise<unknown> {
   const root = providerRoot(settings);
-  return await withKoboldCppTokenCountLock(root, () =>
-    postProviderJson(
+  return await withKoboldCppTokenCountLock(
+    root,
+    () => postProviderJson(
       settings,
       `${root}/api/extra/tokencount`,
       body,
       {},
       { signal, timeoutMs: probeTimeoutMs(settings) }
-    )
+    ),
+    signal
   );
 }
 
@@ -469,14 +472,25 @@ export async function postKoboldCppTokenCount(
  * never leave the next one waiting forever. The tail stored back into the
  * map never itself rejects (`.then(() => undefined, () => undefined)`), so
  * one caller's failure cannot poison the queue for the next.
+ *
+ * Caller cancellation races the caller's wait. The queued slot stays in the
+ * chain and checks the signal before it starts provider work. Thus, a
+ * cancelled slot cannot overlap another call or stall the next call.
  */
 const koboldCppTokenCountLocks = new Map<string, Promise<unknown>>();
 
-function withKoboldCppTokenCountLock<T>(root: string, run: () => Promise<T>): Promise<T> {
+function withKoboldCppTokenCountLock<T>(
+  root: string,
+  run: () => Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
+  signal?.throwIfAborted();
+
   const previous = koboldCppTokenCountLocks.get(root) ?? Promise.resolve();
-  const current = previous.then(run, run);
+  const runUnlessAborted = () => (signal?.aborted ? Promise.reject(signal.reason) : run());
+  const current = previous.then(runUnlessAborted, runUnlessAborted);
   koboldCppTokenCountLocks.set(root, current.then(() => undefined, () => undefined));
-  return current;
+  return withCallerCancellation(current, signal);
 }
 
 function ollamaModelMatches(

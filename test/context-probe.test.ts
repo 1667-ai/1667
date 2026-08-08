@@ -328,6 +328,57 @@ test("KoboldCpp tokenize probe serialization is per server root, not global", as
   assert.ok(overlapped, "two different KoboldCpp server roots must be free to probe concurrently");
 });
 
+test("aborting a queued KoboldCpp tokenize probe rejects promptly without stalling the queue", async (t) => {
+  // The per-root lock serializes every call against a KoboldCpp server, so a
+  // second call sits queued behind a first that is still in flight. Before
+  // this fix, aborting the queued call did nothing until the first call's own
+  // turn finished — the queued promise stayed pending the whole time. This
+  // reproduces the reported hang: block the first request, queue a second
+  // behind it, abort the second, and prove it rejects immediately rather than
+  // waiting on the first — and that the abort never reaches fetch, and never
+  // stalls a third request queued after it.
+  const originalFetch = globalThis.fetch;
+  let releaseFirst!: () => void;
+  const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  let markFirstStarted!: () => void;
+  const firstStarted = new Promise<void>((resolve) => { markFirstStarted = resolve; });
+  let firstReleased = false;
+  const fetchedTexts: string[] = [];
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    const body = JSON.parse(await input.text()) as { prompt: string };
+    fetchedTexts.push(body.prompt);
+    if (body.prompt === "first") {
+      markFirstStarted();
+      await firstBlocked;
+      firstReleased = true;
+    }
+    return Response.json({ value: 1, ids: [1] });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const koboldCpp = settings("koboldcpp");
+  const first = probeKoboldCppTokenize(koboldCpp, "first");
+  await firstStarted;
+
+  const controller = new AbortController();
+  const second = probeKoboldCppTokenize(koboldCpp, "second", controller.signal);
+  controller.abort(new Error("caller canceled the queued probe"));
+
+  await assert.rejects(second, /caller canceled the queued probe/);
+  assert.ok(!firstReleased, "the queued abort must reject before the first request is released");
+  assert.ok(
+    !fetchedTexts.includes("second"),
+    "an aborted queued probe must never reach the provider"
+  );
+
+  const third = probeKoboldCppTokenize(koboldCpp, "third");
+  releaseFirst();
+  assert.deepEqual(await first, { kind: "ok", ids: [1] });
+  assert.deepEqual(await third, { kind: "ok", ids: [1] });
+  assert.deepEqual(fetchedTexts, ["first", "third"]);
+});
+
 function settings(preset: SettingsPresetV2): GenerationSettings {
   const value: GenerationSettings = {
     provider: "openai-compatible",
