@@ -34,6 +34,7 @@ import {
 import { moveComposerVisualRows } from "../src/composer-visual-movement.js";
 import { composerPageRows } from "../src/composer-viewport.js";
 import { wrappedComposerLayout } from "../src/composer-wrapping.js";
+import { graphemeCells } from "../src/cell-width.js";
 import {
   applyComposeMode,
   composerHeightCap,
@@ -227,6 +228,28 @@ describe("composer renderer", () => {
     expect(rows).toEqual(["the lantern ", "guttered ", "against the ", "wind"]);
     // Rows tile the line, so every column the writer can type in has a row.
     expect(rows.join("")).toBe(text);
+  });
+
+  test("keeps a carried word inside the field when a wide cell ends it", () => {
+    // The word is 15 cells against a 14-cell field, so it cannot fit a row of
+    // its own. Carrying it down would land it just as over-wide and clip the
+    // emoji, so the break belongs between its cells instead.
+    const text = " abcdefghijklm\u{1F600}";
+    const composer = createComposer(text);
+    const cells = graphemeCells(text);
+    const wrapped = wrappedComposerLayout(composer, 14);
+    const rows = Array.from({ length: wrapped.rowCount }, (_, row) => {
+      const bound = wrapped.rowAt(row)!;
+      return cells.slice(bound.start, bound.end);
+    });
+
+    expect(rows.map((row) => row.map((cell) => cell.text).join("")))
+      .toEqual([" abcdefghijklm", "\u{1F600}"]);
+    // No row of visible text runs past the field.
+    const widest = Math.max(...rows.map(
+      (row) => row.reduce((sum, cell) => sum + cell.width, 0)
+    ));
+    expect(widest).toBe(14);
   });
 
   test("does not break at a no-break space", () => {

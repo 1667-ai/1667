@@ -234,8 +234,10 @@ function scanChunk(
     } else if (used + cell.width <= width) {
       used += cell.width;
       wordWidth += cell.width;
-    } else if (wordAfterRowStart) {
-      // Carry the whole word down rather than splitting it.
+    } else if (wordAfterRowStart && wordWidth + cell.width <= width) {
+      // Carry the whole word down rather than splitting it. Only a word that
+      // fits a row of its own can move; one that cannot would land just as
+      // over-wide on the next row, and clip its last cell there instead.
       offsets.push(wordStart);
       used = wordWidth + cell.width;
       wordWidth = used;
