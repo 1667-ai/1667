@@ -14,7 +14,7 @@ import test from "node:test";
 import { assertWithinBudget, cpuBudget, startTiming } from "./performance-budget.js";
 import { activeLineFingerprintSource } from "../shared/story-text.js";
 import { activePath } from "../shared/story-tree.js";
-import type { Story, StoryNode } from "../shared/types.js";
+import { MAX_STORY_LINE_COPY_PARTS, type Story, type StoryNode } from "../shared/types.js";
 import { HttpError } from "../server/http.js";
 import {
   CLEANUP_MARKER_FILENAME,
@@ -247,6 +247,33 @@ test("story store: deleting a descendant repairs an inactive subtree's remembere
   const reloaded = await store.load(story.id);
   assert.deepEqual(activePath(reloaded).map(({ id }) => id), ["A", "C"]);
   assert.equal(reloaded.nodes.find(({ id }) => id === "B")!.activeChildId, null);
+});
+
+// A full HTTP round trip to build a 5,000-part chain would dominate the
+// suite's runtime; this exercises the same paste path (StoryStore, not the
+// bare story-nodes.ts function) at the one scale an HTTP fixture cannot
+// afford to construct.
+test("story store: pasting a story line rejects a chain over the size cap", async (t) => {
+  const { store } = await testStore(t);
+  const chainIds = Array.from({ length: MAX_STORY_LINE_COPY_PARTS + 1 }, (_, index) => `chain-${index}`);
+  const chainNodes = chainIds.map((id, index) =>
+    node(id, index === 0 ? "root" : chainIds[index - 1]!, `part ${index}`, chainIds[index + 1] ?? null));
+  // `target` is a second opening take (its own root, parentId null) so it
+  // sits outside `root`'s subtree — otherwise the self/descendant guard
+  // would reject the request before the size cap ever runs.
+  const story = fixture("paste-oversized", [
+    node("root", null, "root", chainIds[0]),
+    node("target", null, "target"),
+    ...chainNodes
+  ], "root");
+  await store.save(story);
+  await assert.rejects(
+    () => store.pasteStoryLine("paste-oversized", "target", {
+      sourceNodeId: "root",
+      expectedLeafId: chainIds.at(-1)!
+    }),
+    (error: unknown) => error instanceof HttpError && error.status === 400
+  );
 });
 
 test("story store: unused-take pruning is atomic, preserves intent, and rejects a stale preview", async (t) => {

@@ -241,6 +241,11 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       { storyId, nodeId, body },
       { expectedAggregateVersion: await expectedVersion(storyId) }
     )),
+    pasteStoryLine: async (storyId, targetParentId, body) => rememberPayload(await transport.call(
+      "pasteStoryLine",
+      { storyId, nodeId: targetParentId, body },
+      { expectedAggregateVersion: await expectedVersion(storyId) }
+    )),
     putBookmark: async (storyId, nodeId, name, label) => rememberPayload(
       await transport.call(
         "putBookmark",

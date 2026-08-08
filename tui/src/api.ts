@@ -42,6 +42,7 @@ import type {
   FactPatch,
   GenerationSettings,
   ModelServerCheckResult,
+  PasteStoryLineRequest,
   PruneUnusedTakesRequest,
   ReorderFactRequest,
   RewriteRequest,
@@ -162,6 +163,8 @@ export interface StoryApi {
   deleteNode(storyId: string, nodeId: string, expectedSubtreeCount: number): Promise<StoryPayload>;
   pruneUnusedTakes(storyId: string, body: PruneUnusedTakesRequest): Promise<StoryPayload>;
   takeFromCut(storyId: string, nodeId: string, body: TakeFromCutRequest): Promise<StoryPayload>;
+  /** `targetParentId` is the story part the copied line attaches below. */
+  pasteStoryLine(storyId: string, targetParentId: string, body: PasteStoryLineRequest): Promise<StoryPayload>;
   putBookmark(storyId: string, nodeId: string, name: string, status: TagStatus): Promise<StoryPayload>;
   deleteBookmark(storyId: string, nodeId: string): Promise<StoryPayload>;
   createFact(storyId: string, body: CreateFactsRequest): Promise<StoryPayload>;
@@ -761,6 +764,13 @@ export function createApi(
         storyId,
         "POST",
         `/api/stories/${storyId}/nodes/${nodeId}/take-from-cut`,
+        body
+      ),
+    pasteStoryLine: (storyId, targetParentId, body) =>
+      mutateStoryPayload(
+        storyId,
+        "POST",
+        `/api/stories/${storyId}/nodes/${targetParentId}/paste-line`,
         body
       ),
     putBookmark: (storyId, nodeId, name, status) =>

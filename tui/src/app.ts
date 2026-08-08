@@ -793,6 +793,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     contextMeterExpanded: false,
     prune: null,
     tag: null,
+    lineClipboard: null,
     expandedChapterSummaryIds: new Set(),
     chapterDeleteArmedId: null,
     typewriter: false,

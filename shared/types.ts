@@ -639,6 +639,20 @@ export interface TakeFromCutRequest {
   expected?: string;
 }
 
+/** Wire body of POST /api/stories/:id/nodes/:nodeId/paste-line. `nodeId` in
+ *  the route is the paste target — the story part the copied line attaches
+ *  below. `expectedLeafId` is the copied line's leaf id at copy time, so a
+ *  paste against a line that changed shape since the copy is refused rather
+ *  than silently pasting something else. */
+export interface PasteStoryLineRequest {
+  sourceNodeId: string;
+  expectedLeafId: string;
+}
+
+/** A story line offered for paste is capped at this many story parts, the
+ *  same order of magnitude as the whole-story import ceiling. */
+export const MAX_STORY_LINE_COPY_PARTS = 5_000;
+
 /** Where a rewrite's result lands. "in-place" replaces the highlighted text in
  *  the current take; "take" forks a sibling instead, the way a manual edit's
  *  fork key does. One term, one meaning each — never call the fork "new" or

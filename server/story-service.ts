@@ -34,6 +34,7 @@ import {
 } from "../shared/story-search.js";
 import { StorySearchIndex } from "./story-search-index.js";
 import { parseSearchRequest } from "./service-input.js";
+import type { PasteStoryLineIds } from "./story-nodes.js";
 import {
   isServiceOwnedSettingsMutation,
   type LocalDurabilityMutationMethod,
@@ -539,6 +540,22 @@ export class StoryService extends StoryServiceRuntime {
       nodeId,
       value,
       takeId,
+      mutationRequest
+    );
+  }
+
+  async pasteStoryLine(
+    id: string,
+    targetParentId: string,
+    value: unknown,
+    ids?: PasteStoryLineIds,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return await this.storyLocal.pasteStoryLine(
+      id,
+      targetParentId,
+      value,
+      ids,
       mutationRequest
     );
   }

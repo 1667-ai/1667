@@ -140,6 +140,7 @@ request plan. It does not show the authentication header or its credential.
 - [Technical terms](docs/technical-terms.md)
 - [Generation boundaries](docs/generation-boundaries.md)
 - [Summary branches](docs/summary-branches.md)
+- [Story line copy and paste](docs/story-line-copy-paste.md)
 - [Automatic story names](docs/autoname.md)
 - [TUI reference](tui/README.md)
 

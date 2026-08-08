@@ -1,4 +1,4 @@
-import { activePath } from "../shared/story-tree.js";
+import { activePath, descendantLine } from "../shared/story-tree.js";
 import { activeLineFingerprintSource } from "../shared/story-text.js";
 import type { Story, StoryPayload } from "../shared/types.js";
 import { ServiceError } from "./errors.js";
@@ -10,6 +10,7 @@ import {
   parseCommitPartialRewrite,
   parseCreateNode,
   parseEditNode,
+  parsePasteStoryLine,
   parsePruneUnusedTakes,
   parseSwitchOptions,
   parseTakeFromCut
@@ -37,6 +38,8 @@ import {
   createEditedTake,
   createTakeFromCut,
   deleteSubtree,
+  pasteStoryLine as pasteStoryLineNodes,
+  type PasteStoryLineIds,
   pruneUnusedTakes as pruneUnusedStoryTakes,
   switchLine as switchTreeLine
 } from "./story-nodes.js";
@@ -569,6 +572,37 @@ export class StoryServiceLocal {
         body.expected ?? null,
         takeId
       )
+    );
+  }
+
+  async pasteStoryLine(
+    id: string,
+    targetParentId: string,
+    value: unknown,
+    ids: PasteStoryLineIds = {},
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    this.dependencies.ensureOpen();
+    const body = parsePasteStoryLine(value);
+    if (mutationRequest !== undefined) {
+      return await this.localStoryPayload(
+        mutationRequest,
+        "pasteStoryLine",
+        async (story, session) => {
+          const firstCloneId = ids.nodeId?.(0);
+          if (firstCloneId !== undefined && story.nodes.some((node) => node.id === firstCloneId)) {
+            return STORY_UNCHANGED;
+          }
+          // The nodes to clone are the source's descendants, not its
+          // ancestors — hydrate the chain itself, not `hydratePath`'s
+          // root-to-node ancestry.
+          await session.hydrateNodes(story, descendantLine(story, body.sourceNodeId).map((node) => node.id));
+          pasteStoryLineNodes(story, body.sourceNodeId, targetParentId, body.expectedLeafId, ids);
+        }
+      );
+    }
+    return buildStoryPayload(
+      await this.dependencies.stories.pasteStoryLine(id, targetParentId, body, ids)
     );
   }
 

@@ -47,6 +47,7 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   deleteNode: "local",
   pruneUnusedTakes: "local",
   takeFromCut: "local",
+  pasteStoryLine: "local",
   putBookmark: "local",
   deleteBookmark: "local",
   createFact: "local",
@@ -234,6 +235,8 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     }
     if (subId !== undefined && action === "take-from-cut"
       && httpMethod === "POST") return "takeFromCut";
+    if (subId !== undefined && action === "paste-line"
+      && httpMethod === "POST") return "pasteStoryLine";
     if (subId !== undefined && action === "rewrite"
       && httpMethod === "POST") return "rewriteNode";
     if (subId !== undefined && action === "rewrite-partial"

@@ -467,6 +467,17 @@ const MUTATIONS: MutationRegistry = {
       context.storyMutationRequest
     )
   }),
+  pasteStoryLine: define<"pasteStoryLine">({
+    parse: (value) => bodyInputWithId<"pasteStoryLine">(value, "pasteStoryLine", "nodeId"),
+    storyId: (input) => input.storyId,
+    execute: (service, input, plan, context) => service.pasteStoryLine(
+      input.storyId,
+      input.nodeId,
+      input.body,
+      { nodeId: (index) => plan.entityId("pasted-node", index) },
+      context.storyMutationRequest
+    )
+  }),
   putBookmark: define<"putBookmark">({
     parse: (value) => {
       const input = requireRecord(value, "putBookmark input");

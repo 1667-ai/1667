@@ -7,6 +7,7 @@ import type {
   FactPatch,
   GenerationSettings,
   ModelServerCheckResult,
+  PasteStoryLineRequest,
   PruneUnusedTakesRequest,
   ReorderFactRequest,
   RewriteRequest,
@@ -171,6 +172,9 @@ export interface WorkerMethodContract {
   deleteNode: { input: { storyId: string; nodeId: string; expectedSubtreeCount: number }; output: StoryPayload };
   pruneUnusedTakes: { input: { storyId: string; body: PruneUnusedTakesRequest }; output: StoryPayload };
   takeFromCut: { input: { storyId: string; nodeId: string; body: TakeFromCutRequest }; output: StoryPayload };
+  /** `nodeId` is the paste target: the story part the copied line attaches
+   *  below. */
+  pasteStoryLine: { input: { storyId: string; nodeId: string; body: PasteStoryLineRequest }; output: StoryPayload };
   putBookmark: { input: { storyId: string; nodeId: string; name: string; label: TagStatus }; output: StoryPayload };
   deleteBookmark: { input: { storyId: string; nodeId: string }; output: StoryPayload };
   createFact: { input: { storyId: string; body: CreateFactsRequest }; output: StoryPayload };
@@ -270,7 +274,7 @@ export type WorkerOutput<M extends WorkerMethod> = WorkerMethodContract[M]["outp
 export type MutatingWorkerMethod =
   | "createStory" | "renameStory" | "setAuthorsNote" | "setAuthorBrief" | "setFactsBudget" | "setPhraseBias" | "setBannedStrings" | "autonameStory" | "acknowledgeUnknownOutcomes"
   | "deleteStory" | "switchLine"
-  | "createNode" | "editNode" | "deleteNode" | "pruneUnusedTakes" | "takeFromCut"
+  | "createNode" | "editNode" | "deleteNode" | "pruneUnusedTakes" | "takeFromCut" | "pasteStoryLine"
   | "putBookmark" | "deleteBookmark" | "createFact" | "patchFact" | "deleteFact" | "reorderFact"
   | "createChapterBreak" | "renameChapterBreak" | "removeChapterBreak" | "restoreChapterBreak" | "summarizeChapter"
   | "importSillyTavern" | "importMarkdown" | "importNovelAI" | "importScenario" | "importLorebook" | "importCard" | "continueStory" | "rewriteNode" | "commitPartialRewrite" | "createSummaryTake";
@@ -297,7 +301,7 @@ export const PROVIDER_CHECK_METHODS: ReadonlySet<WorkerMethod> = new Set([
 export const MUTATING_METHODS: ReadonlySet<MutatingWorkerMethod> = new Set([
   "createStory", "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "setPhraseBias", "setBannedStrings", "autonameStory", "acknowledgeUnknownOutcomes",
   "deleteStory", "switchLine",
-  "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
+  "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut", "pasteStoryLine",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "importCard", "continueStory", "rewriteNode", "commitPartialRewrite", "createSummaryTake"
@@ -320,7 +324,7 @@ export function isMutatingWorkerMethod(method: WorkerMethod): method is Mutating
  */
 export const LOCAL_DURABILITY_MUTATION_METHODS = [
   "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "setPhraseBias", "setBannedStrings", "switchLine",
-  "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut", "commitPartialRewrite",
+  "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut", "pasteStoryLine", "commitPartialRewrite",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "importLorebook", "importCard"
 ] as const satisfies readonly MutatingWorkerMethod[];
@@ -533,7 +537,7 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "setPhraseBias", "setBannedStrings", "autonameStory",
   "acknowledgeUnknownOutcomes", "deleteStory",
   "exportMarkdown", "getTokenProbabilities",
-  "switchLine", "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
+  "switchLine", "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut", "pasteStoryLine",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact", "getSettings",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "saveSettings", "discardPendingSettings", "checkModelServer", "probeContextWindow",
