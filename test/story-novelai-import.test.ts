@@ -216,6 +216,31 @@ test("partsFromNovelAiStory matches legacy retry boundaries after cross-fragment
   ]);
 });
 
+test("partsFromNovelAiStory imports a V1 retry below final prose without a trailing newline", () => {
+  const parsed = partsFromNovelAiStory(JSON.stringify({
+    storyContainerVersion: 1,
+    metadata: { title: "Final-line retry" },
+    content: {
+      story: {
+        fragments: [{ data: "Base.\n" }, { data: "Selected." }],
+        currentBlock: 1,
+        datablocks: [
+          { prevBlock: -1, nextBlock: [1], startIndex: 0, dataFragment: { data: "Base.\n", origin: "prompt" } },
+          { prevBlock: 0, nextBlock: [2], startIndex: 6, dataFragment: { data: "Selected.", origin: "ai" } },
+          { prevBlock: 1, nextBlock: [], startIndex: 15, dataFragment: { data: "Retry continuation.", origin: "ai" } }
+        ]
+      }
+    }
+  }));
+
+  assert.deepEqual(parsed.story.parts.map(({ text, parentIndex, active }) => ({ text, parentIndex, active })), [
+    { text: "Base.", parentIndex: undefined, active: undefined },
+    { text: "Selected.", parentIndex: undefined, active: undefined },
+    { text: "Retry continuation.", parentIndex: 1, active: false }
+  ]);
+  assert.ok(parsed.fidelity.includes("1 retry imported as unselected takes"));
+});
+
 test("legacy NovelAI retry import accepts the maximum-depth additive branch", () => {
   const retryCount = MAX_PARTS - 1;
   const datablocks = Array.from({ length: MAX_PARTS }, (_, index) => index === 0
@@ -696,6 +721,39 @@ test("partsFromNovelAiStory degrades a malformed history without touching the ac
   }));
   assert.deepEqual(parsed.story.parts.map(({ text }) => text), ["Only active prose."]);
   assert.deepEqual(parsed.fidelity, ["retry history omitted: malformed", "generation settings omitted"]);
+});
+
+test("partsFromNovelAiStory reports a V2 retry without an attachable prose ancestor", () => {
+  const sections = new Map<number, unknown>([
+    [1, { type: 1, text: "   " }],
+    [2, { type: 1, text: "Selected prose." }]
+  ]);
+  const history = {
+    root: 100,
+    current: 102,
+    nodes: new Map([
+      [100, { changes: new Map<number, unknown>([
+        [1, { type: 0, section: { type: 1, text: "   " } }]
+      ]) }],
+      [101, { parent: 100 }],
+      [102, { parent: 101, changes: new Map<number, unknown>([
+        [2, { type: 0, section: { type: 1, text: "Selected prose." }, after: 1 }]
+      ]) }],
+      [103, { parent: 101, changes: new Map<number, unknown>([
+        [3, { type: 0, section: { type: 1, text: "Unattached retry." }, after: 1 }]
+      ]) }]
+    ])
+  };
+  const document = makeSyntheticNovelAiV2Base64(sections, [1, 2], undefined, history);
+
+  const parsed = partsFromNovelAiStory(JSON.stringify({
+    storyContainerVersion: 1,
+    metadata: { title: "Unattached retry" },
+    content: { document }
+  }));
+
+  assert.deepEqual(parsed.story.parts.map(({ text }) => text), ["Selected prose."]);
+  assert.ok(parsed.fidelity.includes("1 retry branch omitted: not a simple continuation"));
 });
 
 test("NovelAI V2 retry history walks a deep no-op branch without using the call stack", () => {

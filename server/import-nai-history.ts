@@ -167,8 +167,8 @@ function build(
           continue;
         }
       }
-
       let precedingPartIndex = frame.parentPartIndex;
+      let unattached = false;
       if (changeSteps.length > 0) {
         const baseOrderSet = new Set(frame.baseOrder);
         const nodeDate = historyNodeDate(node.date);
@@ -182,7 +182,11 @@ function build(
           if (section === undefined || section.type !== 1) continue;
           const text = normalizeSectionText(section.text);
           if (text.trim().length === 0) continue;
-          if (precedingPartIndex === null && !frame.allowRoot) continue;
+          if (precedingPartIndex === null && !frame.allowRoot) {
+            counters.notAdditive += 1;
+            unattached = true;
+            break;
+          }
           if (room <= 0 || text.length > charsRoom) {
             counters.budgetHit = true;
             break;
@@ -202,6 +206,7 @@ function build(
           precedingPartIndex = combinedIndex;
         }
       }
+      if (unattached) continue;
 
       const children = childrenByParent.get(frame.nodeId) ?? [];
       for (let index = children.length - 1; index >= 0; index -= 1) {

@@ -1,8 +1,8 @@
 export interface LegacyStoryLines {
   readonly lines: readonly string[];
   readonly normalizedLength: number;
-  /** Map each source offset after a line separator to the number of
-   * non-empty imported lines that end at or before that offset. */
+  /** Map each complete source-line boundary to the number of non-empty
+   * imported lines that end at or before that offset. */
   readonly partCountAtBoundary: ReadonlyMap<number, number>;
 }
 
@@ -25,6 +25,8 @@ export function splitLegacyStoryLines(source: string): LegacyStoryLines {
     const sourceBoundary = sourceBoundaries[index];
     if (sourceBoundary !== undefined) partCountAtBoundary.set(sourceBoundary, lines.length);
   });
+  const finalLine = normalizedLines.at(-1)!;
+  if (finalLine.trim().length > 0) partCountAtBoundary.set(source.length, lines.length);
   return { lines, normalizedLength: prose.length, partCountAtBoundary };
 }
 
