@@ -3,6 +3,7 @@ import {
   MAX_IMPORT_BYTES,
   MAX_PARTS,
   MAX_TOTAL_CHARS,
+  totalImportedPartChars,
   type GenericImport,
   type ImportedPart
 } from "./import-model.js";
@@ -94,7 +95,7 @@ export function partsFromNovelAiStory(jsonText: string): NovelAiContainerImport 
     const alternates = alternatesFromNovelAiLegacyHistory(rawJson.content.story, {
       parts: legacy.parts,
       room: MAX_PARTS - legacy.parts.length,
-      charsRoom: MAX_TOTAL_CHARS - totalChars(legacy.parts)
+      charsRoom: MAX_TOTAL_CHARS - totalImportedPartChars(legacy.parts)
     });
     story = { title, parts: [...legacy.parts, ...alternates.parts] };
     fidelity.push(...alternates.fidelity);
@@ -241,12 +242,6 @@ function parseLegacyStory(storyRaw: unknown, title: string): GenericImport {
     throw new ServiceError(400, "No importable prose found");
   }
   return { title, parts };
-}
-
-function totalChars(parts: readonly ImportedPart[]): number {
-  let total = 0;
-  for (const part of parts) total += part.text.length;
-  return total;
 }
 
 function importTextTooLarge(): ServiceError {

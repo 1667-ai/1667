@@ -31,6 +31,12 @@ export const MAX_PARTS = 5_000;
 /** Cumulative characters in the story written to disk. */
 export const MAX_TOTAL_CHARS = 4_000_000;
 
+export function totalImportedPartChars(parts: readonly ImportedPart[]): number {
+  let total = 0;
+  for (const part of parts) total += part.text.length;
+  return total;
+}
+
 export function storyFromImport(
   imported: GenericImport,
   ids: {

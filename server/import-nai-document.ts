@@ -3,6 +3,7 @@ import { ServiceError } from "./errors.js";
 import {
   MAX_PARTS,
   MAX_TOTAL_CHARS,
+  totalImportedPartChars,
   type ImportedPart
 } from "./import-model.js";
 import {
@@ -96,17 +97,11 @@ export function partsFromNovelAiDocument(base64: string): NovelAiDocumentImport 
     parts,
     sectionIndex,
     room: MAX_PARTS - parts.length,
-    charsRoom: MAX_TOTAL_CHARS - totalChars(parts)
+    charsRoom: MAX_TOTAL_CHARS - totalImportedPartChars(parts)
   });
   fidelity.push(...alternates.fidelity);
 
   return { parts: [...parts, ...alternates.parts], fidelity };
-}
-
-function totalChars(parts: readonly ImportedPart[]): number {
-  let total = 0;
-  for (const part of parts) total += part.text.length;
-  return total;
 }
 
 function parseCanonicalBase64(value: string): Buffer {
