@@ -1007,6 +1007,43 @@ test("NovelAI V2 retry history bounds cumulative section replay work", () => {
   });
 });
 
+test("NovelAI V2 retry history bounds cumulative large-text diff replay", () => {
+  const largeText = `a${"x".repeat(999_999)}`;
+  const nodes = new Map<string, { parent?: string; changes: Map<number, unknown> }>();
+  nodes.set("root", { changes: new Map([
+    [1, { type: 0, section: { type: 1, text: largeText } }]
+  ]) });
+  let parent = "root";
+  let previous = "a";
+  for (let index = 0; index < 20; index += 1) {
+    const id = `edit-${index}`;
+    const next = previous === "a" ? "b" : "a";
+    nodes.set(id, {
+      parent,
+      changes: new Map([
+        [1, { type: 1, diff: { parts: [{ from: 0, delete: previous, insert: next }] } }]
+      ])
+    });
+    parent = id;
+    previous = next;
+  }
+
+  const imported = alternatesFromNovelAiHistory(
+    { root: "root", current: parent, nodes },
+    {
+      parts: [{ instruction: "", text: `${previous}${largeText.slice(1)}`, createdAt: "2026-01-01T00:00:00.000Z" }],
+      sectionIndex: new Map([[1, 0]]),
+      room: MAX_PARTS - 1,
+      charsRoom: MAX_TOTAL_CHARS - largeText.length
+    }
+  );
+
+  assert.deepEqual(imported, {
+    parts: [],
+    fidelity: ["retry history omitted: replay work limit reached"]
+  });
+});
+
 test("partsFromNovelAiStory omits retries once the story is at the part limit", () => {
   const sections = new Map<number, unknown>();
   for (let id = 1; id <= MAX_PARTS; id += 1) sections.set(id, { type: 1, text: `Sec ${id}.` });

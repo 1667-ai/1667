@@ -1,4 +1,4 @@
-import type { ImportedPart } from "./import-model.js";
+import { MAX_TOTAL_CHARS, type ImportedPart } from "./import-model.js";
 import { retryHistoryFidelity } from "./import-retry-fidelity.js";
 import {
   type NovelAiSection,
@@ -12,6 +12,7 @@ import {
 import { MAX_NOVELAI_RECORDS } from "./import-nai-msgpack-preflight.js";
 
 const MAX_NOVELAI_HISTORY_REPLAY_WORK = MAX_NOVELAI_RECORDS * 8;
+const MAX_NOVELAI_HISTORY_TEXT_REPLAY_WORK = MAX_TOTAL_CHARS * 8;
 
 class HistoryReplayLimitError extends Error {}
 
@@ -107,10 +108,18 @@ function build(
   const result: ImportedPart[] = [];
   const counters = { imported: 0, notAdditive: 0, malformed: 0, budgetHit: false };
   const visited = new Set<SectionId>();
+  let replayTextWork = 0;
+  const claimReplayTextWork = (units: number): void => {
+    if (units > MAX_NOVELAI_HISTORY_TEXT_REPLAY_WORK - replayTextWork) {
+      throw new HistoryReplayLimitError("NovelAI history text replay work limit reached");
+    }
+    replayTextWork += units;
+  };
   const normalizedText = new Map<SectionId, { readonly source: string; readonly text: string }>();
   const normalizeText = (id: SectionId, text: string): string => {
     const cached = normalizedText.get(id);
     if (cached?.source === text) return cached.text;
+    claimReplayTextWork(text.length);
     const normalized = normalizeSectionText(text);
     normalizedText.set(id, { source: text, text: normalized });
     return normalized;
@@ -130,7 +139,13 @@ function build(
   for (let pathIndex = 0; pathIndex < pathOrder.length; pathIndex += 1) {
     const id = pathOrder[pathIndex]!;
     const node = nodes.get(id)!;
-    order = applyChanges(sections, order, node.changesRaw, claimReplayWork);
+    order = applyChanges(
+      sections,
+      order,
+      node.changesRaw,
+      claimReplayWork,
+      claimReplayTextWork
+    );
     const kids = childrenByParent.get(id) ?? [];
     const nextOnPath = pathOrder[pathIndex + 1];
     const alternateKids = kids.filter((kid) => kid !== nextOnPath);
@@ -206,6 +221,7 @@ function build(
       if (changeSteps.length > 0) {
         try {
           claimReplayWork(replayCost(frame.baseSections.size, frame.baseOrder.length, changeSteps.length));
+          claimReplayTextWork(replayTextCost(frame.baseSections, changeSteps));
           const changedSections = new Map(frame.baseSections);
           newOrder = applyDirtySections(changedSections, frame.baseOrder, asMapOrRecord(node.changesRaw));
           newSections = changedSections;
@@ -302,18 +318,49 @@ function applyChanges(
   sections: Map<SectionId, NovelAiSection>,
   order: readonly SectionId[],
   changesRaw: unknown,
-  claimReplayWork: (units: number) => void
+  claimReplayWork: (units: number) => void,
+  claimReplayTextWork: (units: number) => void
 ): readonly SectionId[] {
   if (changesRaw === undefined) return order;
   const changes = asMapOrRecord(changesRaw);
-  const changeCount = [...boundedEntries(changes, "history node changes")].length;
-  claimReplayWork(replayCost(sections.size, order.length, changeCount));
+  const changeSteps = [...boundedEntries(changes, "history node changes")];
+  claimReplayWork(replayCost(sections.size, order.length, changeSteps.length));
+  claimReplayTextWork(replayTextCost(sections, changeSteps));
   return applyDirtySections(sections, order, changes);
 }
 
 /** Charge map copies, order scans, and change scans before replay starts. */
 function replayCost(sectionCount: number, orderCount: number, changeCount: number): number {
   return sectionCount + orderCount * 2 + changeCount * 2;
+}
+
+/** Charge text validation and full-string diff reconstruction before replay. */
+function replayTextCost(
+  sections: ReadonlyMap<SectionId, NovelAiSection>,
+  changes: readonly [unknown, unknown][]
+): number {
+  let total = 0;
+  for (const [rawId, rawStep] of changes) {
+    if (!isPlainRecord(rawStep)) continue;
+    if (rawStep.type === 0) {
+      total += rawSectionTextLength(rawStep.section);
+      continue;
+    }
+    if (rawStep.type === 1) {
+      const id = sectionId(rawId, "history text replay");
+      const existing = sections.get(id);
+      if (existing?.type === 1) total += existing.text.length * 4;
+      continue;
+    }
+    if (rawStep.type === 2) total += rawSectionTextLength(rawStep.previous);
+  }
+  return total;
+}
+
+function rawSectionTextLength(value: unknown): number {
+  return isPlainRecord(value) && value.type === 1 && typeof value.text === "string"
+    ? value.text.length
+    : 0;
 }
 
 function startsWithOrder(order: readonly SectionId[], prefix: readonly SectionId[]): boolean {
