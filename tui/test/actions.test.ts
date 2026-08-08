@@ -883,6 +883,39 @@ describe("demo action pipeline", () => {
     expect(state.toast).toContain("line · 13 parts");
   });
 
+  test("copy story line below is offered on a non-leaf part and hidden on the leaf; pasting it below another part becomes available only after the copy", async () => {
+    const { state, press } = harness();
+
+    // p13 is the story's leaf: nothing continues below it to copy.
+    focusNode(state, "p13");
+    await press("x");
+    expect(currentPartActions(state).map((action) => action.id)).not.toContain("copy-line");
+    expect(currentPartActions(state).map((action) => action.id)).not.toContain("paste-line");
+    await press("escape");
+
+    // p11 continues into p12 then p13: two parts to copy below it.
+    focusNode(state, "p11");
+    await press("x");
+    const actions = currentPartActions(state);
+    expect(actions.map((action) => action.id)).toContain("copy-line");
+    expect(actions.map((action) => action.id)).not.toContain("paste-line");
+    state.actions!.cursor = actions.findIndex(({ id }) => id === "copy-line");
+    await press("return", "\r");
+    expect(state.toast).toBe("copied story line · 2 parts");
+    expect(state.lineClipboard).toEqual({
+      storyId: state.payload.id,
+      sourceNodeId: "p11",
+      expectedLeafId: "p13",
+      parts: 2
+    });
+
+    // A different part now offers "paste story line below" — the source
+    // selection travels with the writer, it is not pinned to p11.
+    focusNode(state, "p8");
+    await press("x");
+    expect(currentPartActions(state).map((action) => action.id)).toContain("paste-line");
+  });
+
   test("x opens the part menu; enter runs the highlighted action", async () => {
     const { state, press } = harness();
     focusNode(state, "p12");

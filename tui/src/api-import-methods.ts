@@ -61,7 +61,7 @@ export function importMethods(core: ImportMethodCore): ImportMethods {
         "/api/import/sillytavern",
         "text/plain; charset=utf-8",
         jsonl,
-        storyFrom
+        novelAiFrom
       ),
     importMarkdown: async (markdown, defaultTitle) => {
       const body = encodeMarkdownHttpBody(markdown, defaultTitle);

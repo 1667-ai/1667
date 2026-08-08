@@ -14,7 +14,7 @@ import test from "node:test";
 import { assertWithinBudget, cpuBudget, startTiming } from "./performance-budget.js";
 import { activeLineFingerprintSource } from "../shared/story-text.js";
 import { activePath } from "../shared/story-tree.js";
-import type { Story, StoryNode } from "../shared/types.js";
+import { MAX_STORY_LINE_COPY_PARTS, type Story, type StoryNode } from "../shared/types.js";
 import { HttpError } from "../server/http.js";
 import {
   CLEANUP_MARKER_FILENAME,
@@ -30,7 +30,10 @@ import {
   type StoryManifestV4
 } from "../server/story-format.js";
 import { STORY_LIST_IO_CONCURRENCY, StoryStore } from "../server/stories.js";
-import { pruneUnusedTakes as pruneUnusedStoryTakes } from "../server/story-nodes.js";
+import {
+  pasteStoryLine as pasteStoryLineNodes,
+  pruneUnusedTakes as pruneUnusedStoryTakes
+} from "../server/story-nodes.js";
 import { summarySourceFingerprint, type SummaryPoint } from "../server/summary-take.js";
 
 const NOW = "2026-01-01T00:00:00.000Z";
@@ -247,6 +250,66 @@ test("story store: deleting a descendant repairs an inactive subtree's remembere
   const reloaded = await store.load(story.id);
   assert.deepEqual(activePath(reloaded).map(({ id }) => id), ["A", "C"]);
   assert.equal(reloaded.nodes.find(({ id }) => id === "B")!.activeChildId, null);
+});
+
+// An HTTP or storage fixture for a 5,001-part chain makes this single bound
+// check dominate the suite. The HTTP integration tests cover the other paste
+// validation. This component test supplies the only impractical boundary.
+test("story nodes: pasting a story line rejects a chain over the size cap", () => {
+  const chainIds = Array.from({ length: MAX_STORY_LINE_COPY_PARTS + 1 }, (_, index) => `chain-${index}`);
+  const chainNodes = chainIds.map((id, index) =>
+    node(id, index === 0 ? "root" : chainIds[index - 1]!, `part ${index}`, chainIds[index + 1] ?? null));
+  // `target` is a second opening take (its own root, parentId null) so it
+  // sits outside `root`'s subtree — otherwise the self/descendant guard
+  // would reject the request before the size cap ever runs.
+  const story = fixture("paste-oversized", [
+    node("root", null, "root", chainIds[0]),
+    node("target", null, "target"),
+    ...chainNodes
+  ], "root");
+  assert.throws(
+    () => pasteStoryLineNodes(story, "root", "target", chainIds.at(-1)!),
+    (error: unknown) => error instanceof HttpError && error.status === 400
+  );
+});
+
+test("story store: pasted parts keep authored provenance without generation metadata", async (t) => {
+  const { store } = await testStore(t);
+  const generated = node("generated", "source", "Model prose", "human-part");
+  generated.model = "provider-model";
+  generated.genId = "generation-attempt";
+  generated.rewrittenSpans = [{ start: 0, end: 5 }];
+  generated.attribution = { source: "human", ranges: [{ start: 6, end: 11 }] };
+  const human = node("human-part", generated.id, "Human prose");
+  human.model = "human";
+  human.human = true;
+  const story = fixture("paste-metadata", [
+    node("source", null, "Source", generated.id),
+    generated,
+    human,
+    node("target", null, "Target")
+  ], "source");
+  await store.save(story);
+
+  const pasted = await store.pasteStoryLine(story.id, "target", {
+    sourceNodeId: "source",
+    expectedLeafId: human.id
+  });
+  const [, clonedGenerated, clonedHuman] = activePath(pasted);
+
+  assert.equal(clonedGenerated!.text, generated.text);
+  assert.equal(clonedGenerated!.model, "copied");
+  assert.equal(clonedGenerated!.genId, undefined);
+  assert.equal(clonedGenerated!.rewrittenSpans, undefined);
+  assert.deepEqual(clonedGenerated!.attribution, generated.attribution);
+  assert.notEqual(clonedGenerated!.attribution, generated.attribution);
+  assert.equal(clonedHuman!.model, "copied");
+  assert.equal(clonedHuman!.human, true);
+
+  const unchanged = pasted.nodes.find(({ id }) => id === generated.id)!;
+  assert.equal(unchanged.model, "provider-model");
+  assert.equal(unchanged.genId, "generation-attempt");
+  assert.deepEqual(unchanged.rewrittenSpans, [{ start: 0, end: 5 }]);
 });
 
 test("story store: unused-take pruning is atomic, preserves intent, and rejects a stale preview", async (t) => {

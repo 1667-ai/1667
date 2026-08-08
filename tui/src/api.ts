@@ -42,6 +42,7 @@ import type {
   FactPatch,
   GenerationSettings,
   ModelServerCheckResult,
+  PasteStoryLineRequest,
   PruneUnusedTakesRequest,
   ReorderFactRequest,
   RewriteRequest,
@@ -120,6 +121,8 @@ export interface ContinueTarget {
   expectedTextHash?: string;
 }
 
+/** The shape every import that carries a Fidelity Report returns: NovelAI,
+ *  Scenario, and SillyTavern alike. */
 export interface NovelAiStoryImportResult {
   readonly payload: StoryPayload;
   readonly fidelity: readonly string[];
@@ -162,6 +165,8 @@ export interface StoryApi {
   deleteNode(storyId: string, nodeId: string, expectedSubtreeCount: number): Promise<StoryPayload>;
   pruneUnusedTakes(storyId: string, body: PruneUnusedTakesRequest): Promise<StoryPayload>;
   takeFromCut(storyId: string, nodeId: string, body: TakeFromCutRequest): Promise<StoryPayload>;
+  /** `targetParentId` is the story part the copied line attaches below. */
+  pasteStoryLine(storyId: string, targetParentId: string, body: PasteStoryLineRequest): Promise<StoryPayload>;
   putBookmark(storyId: string, nodeId: string, name: string, status: TagStatus): Promise<StoryPayload>;
   deleteBookmark(storyId: string, nodeId: string): Promise<StoryPayload>;
   createFact(storyId: string, body: CreateFactsRequest): Promise<StoryPayload>;
@@ -203,7 +208,7 @@ export interface StoryApi {
     messages: readonly ChatMessage[],
     signal?: AbortSignal
   ): Promise<PromptTokenCount>;
-  importSillyTavern(jsonl: string): Promise<StoryPayload>;
+  importSillyTavern(jsonl: string): Promise<NovelAiStoryImportResult>;
   importMarkdown(markdown: string, defaultTitle?: string): Promise<StoryPayload>;
   importNovelAI(storyContainerJson: string): Promise<NovelAiStoryImportResult>;
   importScenario(jsonText: string): Promise<NovelAiStoryImportResult>;
@@ -761,6 +766,13 @@ export function createApi(
         storyId,
         "POST",
         `/api/stories/${storyId}/nodes/${nodeId}/take-from-cut`,
+        body
+      ),
+    pasteStoryLine: (storyId, targetParentId, body) =>
+      mutateStoryPayload(
+        storyId,
+        "POST",
+        `/api/stories/${storyId}/nodes/${targetParentId}/paste-line`,
         body
       ),
     putBookmark: (storyId, nodeId, name, status) =>

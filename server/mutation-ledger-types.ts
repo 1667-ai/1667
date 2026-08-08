@@ -33,6 +33,7 @@ export const STORY_MUTATION_METHODS = [
   "deleteNode",
   "pruneUnusedTakes",
   "takeFromCut",
+  "pasteStoryLine",
   "putBookmark",
   "deleteBookmark",
   "createFact",

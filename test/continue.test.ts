@@ -263,15 +263,18 @@ linuxTest("tag, switch, facts, and import mutations all return story payloads", 
   payload = await json<StoryPayload>(`${base}/api/stories/${created.id}/facts`, post({ tag: "Hero", text: "Level: 1" }));
   assert.equal(payload.facts[0]!.text, "Level: 1");
 
-  const imported = await json<StoryPayload>(`${base}/api/import/sillytavern`, {
-    method: "POST", headers: { "content-type": "text/plain" },
-    body: [JSON.stringify({ character_name: "Mira", user_name: "You" }),
-      JSON.stringify({ is_user: true, mes: "Begin" }), JSON.stringify({ is_user: false, mes: "One" }),
-      JSON.stringify({ is_user: true, mes: "Continue" }), JSON.stringify({ is_user: false, mes: "Two" })].join("\n")
-  });
-  assert.equal(imported.path.length, 2);
-  assert.equal(imported.path[1]!.parentId, imported.path[0]!.id);
-  assert.equal(imported.path[0]!.activeChildId, imported.path[1]!.id);
+  const imported = await json<{ payload: StoryPayload; fidelity: readonly string[] }>(
+    `${base}/api/import/sillytavern`,
+    {
+      method: "POST", headers: { "content-type": "text/plain" },
+      body: [JSON.stringify({ character_name: "Mira", user_name: "You" }),
+        JSON.stringify({ is_user: true, mes: "Begin" }), JSON.stringify({ is_user: false, mes: "One" }),
+        JSON.stringify({ is_user: true, mes: "Continue" }), JSON.stringify({ is_user: false, mes: "Two" })].join("\n")
+    }
+  );
+  assert.equal(imported.payload.path.length, 2);
+  assert.equal(imported.payload.path[1]!.parentId, imported.payload.path[0]!.id);
+  assert.equal(imported.payload.path[0]!.activeChildId, imported.payload.path[1]!.id);
 });
 
 function post(body: unknown): RequestInit {

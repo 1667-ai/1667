@@ -65,6 +65,7 @@ import { requireRecord, requireString } from "./validation.js";
 import { parseWorkerContinueTarget } from "./worker-continue-target.js";
 import { partsFromNovelAiStory } from "./import-nai.js";
 import { partsFromNovelAiScenario } from "./import-scenario.js";
+import { partsFromSillyTavernJsonl, sillyTavernFidelity } from "./import-st.js";
 
 interface ParsedPreQChapterRemoval {
   readonly lane: "pre-q";
@@ -467,6 +468,17 @@ const MUTATIONS: MutationRegistry = {
       context.storyMutationRequest
     )
   }),
+  pasteStoryLine: define<"pasteStoryLine">({
+    parse: (value) => bodyInputWithId<"pasteStoryLine">(value, "pasteStoryLine", "nodeId"),
+    storyId: (input) => input.storyId,
+    execute: (service, input, plan, context) => service.pasteStoryLine(
+      input.storyId,
+      input.nodeId,
+      input.body,
+      { nodeId: (index) => plan.entityId("pasted-node", index) },
+      context.storyMutationRequest
+    )
+  }),
   putBookmark: define<"putBookmark">({
     parse: (value) => {
       const input = requireRecord(value, "putBookmark input");
@@ -760,15 +772,20 @@ const MUTATIONS: MutationRegistry = {
       const storyId = plan.entityId("story");
       if (plan.recoveryMode !== "new") {
         try {
-          return await loadMutationPayload(service, storyId);
+          const payload = await loadMutationPayload(service, storyId);
+          return {
+            payload,
+            fidelity: sillyTavernFidelity(partsFromSillyTavernJsonl(input.jsonl))
+          };
         } catch (error) {
           if (!(error instanceof ServiceError) || error.status !== 404) throw error;
         }
       }
-      return await service.importSillyTavern(input.jsonl, {
+      const imported = await service.importSillyTavernWithReport(input.jsonl, {
         storyId,
         nodeId: (index) => plan.entityId("import-node", index)
       }, context.storyMutationRequest);
+      return { payload: imported.payload, fidelity: sillyTavernFidelity(imported) };
     }
   }),
   importMarkdown: define<"importMarkdown">({

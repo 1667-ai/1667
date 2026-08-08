@@ -3,6 +3,7 @@ import {
   activeLeaf,
   activePath,
   childrenOf,
+  descendantLine,
   indexTree,
   isChapterSummary,
   nodeById,
@@ -11,7 +12,15 @@ import {
   unusedTakePruneSelection
 } from "../shared/story-tree.js";
 import { appendContinuationText } from "../shared/story-text.js";
-import type { CoveredExtent, EditNodeRequest, HumanEditAttribution, PruneUnusedTakesRequest, Story, StoryNode } from "../shared/types.js";
+import {
+  MAX_STORY_LINE_COPY_PARTS,
+  type CoveredExtent,
+  type EditNodeRequest,
+  type HumanEditAttribution,
+  type PruneUnusedTakesRequest,
+  type Story,
+  type StoryNode
+} from "../shared/types.js";
 import type { CapturedTokenProbabilities } from "../shared/token-probabilities.js";
 import { sliceWellFormedUtf16Prefix } from "../shared/unicode.js";
 import { ServiceError as HttpError } from "./errors.js";
@@ -149,6 +158,85 @@ export function createEditedTake(
     }
   }
   return createTake(story, node);
+}
+
+export interface PasteStoryLineIds {
+  /** Deterministic id for the clone at this position in the pasted chain
+   *  (0 = the node attached directly under the target). Omit for a fresh
+   *  random id per clone. */
+  nodeId?: (index: number) => string;
+}
+
+export function assertStoryLineCopySize(partCount: number): void {
+  if (partCount > MAX_STORY_LINE_COPY_PARTS) {
+    throw new HttpError(
+      400,
+      `A story line of more than ${MAX_STORY_LINE_COPY_PARTS.toLocaleString()} parts is too large to paste.`
+    );
+  }
+}
+
+/**
+ * Copy the active descendant path below `sourceNodeId` — every part it
+ * currently continues into, in order, not the anchor itself — and attach a
+ * clone of that whole path under `targetParentId` in one atomic step. The
+ * cloned path becomes the active story line: `switchToNode` retargets every
+ * `activeChildId` pointer from the story's true root down through the target
+ * to the new leaf, exactly as choosing that leaf on the Story Map would.
+ *
+ * Field policy, decided once here rather than ad hoc per field: prose,
+ * instruction, human-take marker, and human-edit attribution are authored
+ * content, so every clone carries them forward. The synthetic `copied`
+ * model states how this take entered the story without claiming that one
+ * provider generated it. A clone never carries generation identity,
+ * rewritten spans, captured token probabilities, a chapter break, or a Tag.
+ * Those fields describe the source take's generation or structural identity.
+ * Chapter summaries never enter into this at all: a summary is a structural
+ * dead end, so it can be neither copied from nor pasted onto.
+ */
+export function pasteStoryLine(
+  story: Story,
+  sourceNodeId: string,
+  targetParentId: string,
+  expectedLeafId: string,
+  ids: PasteStoryLineIds = {}
+): StoryNode[] {
+  const source = requireNode(story, sourceNodeId);
+  if (isChapterSummary(source)) throw new HttpError(400, "A chapter summary is a dead end");
+  const target = requireNode(story, targetParentId);
+  if (isChapterSummary(target)) throw new HttpError(400, "A chapter summary is a dead end");
+  if (subtreeIds(story, sourceNodeId).includes(targetParentId)) {
+    throw new HttpError(400, "Cannot paste a story line below itself or one of its own parts.");
+  }
+
+  const chain = descendantLine(story, sourceNodeId);
+  if (chain.length === 0) throw new HttpError(400, "This story part has no story line below it to copy.");
+  if (chain.at(-1)!.id !== expectedLeafId) {
+    throw new HttpError(409, "The story line changed since it was copied — copy it again.");
+  }
+  assertStoryLineCopySize(chain.length);
+
+  const clones: StoryNode[] = [];
+  let parentId = target.id;
+  chain.forEach((original, index) => {
+    const clone = newNode(parentId, original.instruction, original.text, "copied", {
+      ...(ids.nodeId === undefined ? {} : { id: ids.nodeId(index) }),
+      ...(original.human === true ? { human: true as const } : {})
+    });
+    clone.attribution = clipAttribution(original.attribution, original.text.length);
+    if (clones.length > 0) clones.at(-1)!.activeChildId = clone.id;
+    clones.push(clone);
+    parentId = clone.id;
+  });
+  story.nodes.push(...clones);
+
+  const parentWasLineEnd = activeLeaf(story)?.id === target.id;
+  if (parentWasLineEnd) {
+    const tag = story.tags.find((candidate) => candidate.nodeId === target.id);
+    if (tag !== undefined) tag.nodeId = clones.at(-1)!.id;
+  }
+  switchToNode(story, clones[0]!.id);
+  return clones;
 }
 
 function createCutTake(

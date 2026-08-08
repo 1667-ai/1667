@@ -241,6 +241,11 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       { storyId, nodeId, body },
       { expectedAggregateVersion: await expectedVersion(storyId) }
     )),
+    pasteStoryLine: async (storyId, targetParentId, body) => rememberPayload(await transport.call(
+      "pasteStoryLine",
+      { storyId, nodeId: targetParentId, body },
+      { expectedAggregateVersion: await expectedVersion(storyId) }
+    )),
     putBookmark: async (storyId, nodeId, name, label) => rememberPayload(
       await transport.call(
         "putBookmark",
@@ -351,11 +356,15 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       { messages },
       { signal }
     ),
-    importSillyTavern: async (jsonl) => rememberPayload(await transport.call(
-      "importSillyTavern",
-      { jsonl },
-      { expectedAggregateVersion: { kind: "absent" } }
-    )),
+    importSillyTavern: async (jsonl) => {
+      const result = await transport.call(
+        "importSillyTavern",
+        { jsonl },
+        { expectedAggregateVersion: { kind: "absent" } }
+      );
+      rememberPayload(result.payload);
+      return result;
+    },
     importMarkdown: async (markdown, defaultTitle) => rememberPayload(await transport.call(
       "importMarkdown",
       {

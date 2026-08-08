@@ -27,6 +27,7 @@ interface MutationEntityNamespaces {
   deleteNode: never;
   pruneUnusedTakes: never;
   takeFromCut: "cut-take";
+  pasteStoryLine: "pasted-node";
   putBookmark: never;
   deleteBookmark: never;
   createFact: "fact";

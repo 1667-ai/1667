@@ -670,6 +670,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     deleteNode: async (_storyId, nodeId, expectedSubtreeCount) => demo.deleteNode(nodeId, expectedSubtreeCount),
     pruneUnusedTakes: async (_storyId, expected) => demo.pruneUnusedTakes(expected),
     takeFromCut: async () => unavailable("Take from cut"),
+    pasteStoryLine: async () => unavailable("Paste story line"),
     putBookmark: async (_storyId, nodeId, name, label) => demo.putBookmark(nodeId, name, label),
     deleteBookmark: async (_storyId, nodeId) => demo.deleteBookmark(nodeId),
     createFact: async (_storyId, body) => {

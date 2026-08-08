@@ -100,6 +100,7 @@ type PanelState = Omit<OverlayState, "hitRows"> & {
   tag: StoryScreenState["tag"];
   payload: StoryPayload;
   focusIndex: number;
+  lineClipboard?: StoryScreenState["lineClipboard"];
   now: number;
   contextWindow?: number | null;
   stream: StreamView | null;
