@@ -168,7 +168,7 @@ function build(
         }
       }
       let precedingPartIndex = frame.parentPartIndex;
-      let unattached = false;
+      let stopSubtree = false;
       if (changeSteps.length > 0) {
         const baseOrderSet = new Set(frame.baseOrder);
         const nodeDate = historyNodeDate(node.date);
@@ -184,11 +184,12 @@ function build(
           if (text.trim().length === 0) continue;
           if (precedingPartIndex === null && !frame.allowRoot) {
             counters.notAdditive += 1;
-            unattached = true;
+            stopSubtree = true;
             break;
           }
           if (room <= 0 || text.length > charsRoom) {
             counters.budgetHit = true;
+            stopSubtree = true;
             break;
           }
           const combinedIndex = active.parts.length + result.length;
@@ -206,7 +207,7 @@ function build(
           precedingPartIndex = combinedIndex;
         }
       }
-      if (unattached) continue;
+      if (stopSubtree) continue;
 
       const children = childrenByParent.get(frame.nodeId) ?? [];
       for (let index = children.length - 1; index >= 0; index -= 1) {

@@ -779,6 +779,37 @@ test("NovelAI V2 retry history walks a deep no-op branch without using the call 
   assert.deepEqual(imported, { parts: [], fidelity: [] });
 });
 
+test("NovelAI V2 retry history does not bypass an oversized retry to import its child", () => {
+  const imported = alternatesFromNovelAiHistory(
+    {
+      root: "root",
+      current: "root",
+      nodes: new Map([
+        ["root", { changes: new Map([
+          [1, { type: 0, section: { type: 1, text: "Active prose." } }]
+        ]) }],
+        ["oversized", { parent: "root", changes: new Map([
+          [2, { type: 0, section: { type: 1, text: "Too large." }, after: 1 }]
+        ]) }],
+        ["small-child", { parent: "oversized", changes: new Map([
+          [3, { type: 0, section: { type: 1, text: "x" }, after: 2 }]
+        ]) }]
+      ])
+    },
+    {
+      parts: [{ instruction: "", text: "Active prose.", createdAt: "2026-01-01T00:00:00.000Z" }],
+      sectionIndex: new Map([[1, 0]]),
+      room: 2,
+      charsRoom: 1
+    }
+  );
+
+  assert.deepEqual(imported, {
+    parts: [],
+    fidelity: ["retry takes stopped: story is at the part or text limit"]
+  });
+});
+
 test("partsFromNovelAiStory omits retries once the story is at the part limit", () => {
   const sections = new Map<number, unknown>();
   for (let id = 1; id <= MAX_PARTS; id += 1) sections.set(id, { type: 1, text: `Sec ${id}.` });
