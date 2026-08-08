@@ -19,6 +19,9 @@ export interface PendingCall {
   cancelled: boolean;
   settling: boolean;
   expectedSequence: number;
+  readonly openedAtMs: number;
+  receivedDeltaBatches: number;
+  receivedUtf16Units: number;
   /** Stream text that arrived after this call's signal aborted. The
    * transport never calls `onDelta` past that point; it collects the text
    * here and hands the whole tail to `onStopped` at terminal settlement,
@@ -31,6 +34,20 @@ export interface PendingCall {
   startCancellationGrace(timeoutMs: number, onTimeout: () => void): void;
   cleanup(): void;
 }
+
+export interface PendingRequestDiagnostic {
+  readonly method: WorkerMethod;
+  readonly replay: boolean;
+  readonly stream: boolean;
+  readonly cancelled: boolean;
+  readonly settling: boolean;
+  readonly expectedSequence: number;
+  readonly receivedDeltaBatches: number;
+  readonly receivedUtf16Units: number;
+  readonly ageMs: number;
+}
+
+const MAX_DIAGNOSTIC_OPERATIONS = 16;
 
 interface OpenPendingCall {
   method: WorkerMethod;
@@ -122,6 +139,9 @@ export class PendingRequestRegistry {
       cancelled: false,
       settling: false,
       expectedSequence: 0,
+      openedAtMs: Date.now(),
+      receivedDeltaBatches: 0,
+      receivedUtf16Units: 0,
       stoppedTail: "",
       ...(options.mutationId === undefined ? {} : { mutationId: options.mutationId }),
       ...(options.onDelta === undefined ? {} : { onDelta: options.onDelta }),
@@ -146,6 +166,31 @@ export class PendingRequestRegistry {
 
   *ids(): IterableIterator<WorkerOperationId> {
     for (const call of this.calls.values()) yield call.id;
+  }
+
+  diagnosticSnapshot(now = Date.now()): {
+    pendingCount: number;
+    omittedCount: number;
+    operations: PendingRequestDiagnostic[];
+  } {
+    const operations = [...this.calls.values()]
+      .slice(0, MAX_DIAGNOSTIC_OPERATIONS)
+      .map((call) => ({
+        method: call.method,
+        replay: call.replay,
+        stream: call.stream,
+        cancelled: call.cancelled,
+        settling: call.settling,
+        expectedSequence: call.expectedSequence,
+        receivedDeltaBatches: call.receivedDeltaBatches,
+        receivedUtf16Units: call.receivedUtf16Units,
+        ageMs: Math.max(0, now - call.openedAtMs)
+      }));
+    return {
+      pendingCount: this.calls.size,
+      omittedCount: Math.max(0, this.calls.size - operations.length),
+      operations
+    };
   }
 
   discard(id: WorkerOperationId): PendingCall | undefined {

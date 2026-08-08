@@ -10,7 +10,7 @@ export const BACKEND_RESTART_REQUIRED_EXIT_CODE = 75;
 
 export class BackendRestartRequiredError extends Error {
   readonly code = "backend_restart_required";
-  readonly diagnosticRef: string | null;
+  private attachedDiagnosticRef: string | null;
 
   constructor(
     message: string,
@@ -18,9 +18,19 @@ export class BackendRestartRequiredError extends Error {
   ) {
     super(`backend_restart_required: ${message}`, options);
     this.name = "BackendRestartRequiredError";
-    this.diagnosticRef = isDiagnosticReference(options.diagnosticRef)
+    this.attachedDiagnosticRef = isDiagnosticReference(options.diagnosticRef)
       ? options.diagnosticRef
       : null;
+  }
+
+  get diagnosticRef(): string | null {
+    return this.attachedDiagnosticRef;
+  }
+
+  attachDiagnosticReference(reference: unknown): void {
+    if (this.attachedDiagnosticRef === null && isDiagnosticReference(reference)) {
+      this.attachedDiagnosticRef = reference;
+    }
   }
 }
 

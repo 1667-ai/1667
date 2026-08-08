@@ -32,6 +32,10 @@ Add `--print-logs` to print new diagnostics to stderr:
 contain local paths and exception messages. 1667 resets the active log before
 it exceeds 5 MiB. Inspect the log before you share it.
 
+1667 also saves a diagnostic when the embedded backend stops unexpectedly.
+The host-state fields contain operation names and numeric stream progress.
+These fields do not contain request input or streamed text.
+
 ## Development gates
 
 Run the backend gates from the repository root:

@@ -48,6 +48,7 @@ import { settleWorkerTerminal } from "./worker-terminal.js";
 import { openPendingWorkerCall } from "./worker-call-allocation.js";
 import { prepareWorkerMutationIntent } from "./worker-mutation-publication.js";
 import type { WorkerRecoveryWarning, WorkerStoryApiOptions } from "./worker-api-contract.js";
+import { embeddedWorkerHostCause } from "./worker-host-diagnostics.js";
 
 declare const __AI_1667_EMBEDDED_WORKER_SOURCE__: string | undefined;
 
@@ -442,6 +443,8 @@ export class WorkerTransport {
         return this.fail(new Error("Embedded backend stream sequence mismatch"), false);
       }
       pending.expectedSequence += 1;
+      pending.receivedDeltaBatches += 1;
+      pending.receivedUtf16Units += message.text.length;
       try {
         // After the caller's signal aborts, `onDelta` must never run again.
         // The text still arrived from the server, so it is withheld into
@@ -598,11 +601,15 @@ export class WorkerTransport {
   }
   private requireRestart(message: string, cause?: unknown): BackendRestartRequiredError {
     if (this.restartRequired === null) {
+      const diagnosticRef = cause instanceof WorkerApiError
+        ? cause.diagnosticRef
+        : null;
       this.restartRequired = new BackendRestartRequiredError(message, {
-        cause,
-        diagnosticRef: cause instanceof WorkerApiError
-          ? cause.diagnosticRef
-          : null
+        cause: embeddedWorkerHostCause(
+          cause,
+          this.pending.diagnosticSnapshot()
+        ),
+        diagnosticRef
       });
       this.resolveRestartSignal(this.restartRequired);
     }

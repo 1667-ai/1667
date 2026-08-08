@@ -7,6 +7,8 @@ import { releaseOrRetainDataLock } from "./worker-data-lock.js";
 import { storyApiFromWorkerTransport } from "./worker-story-api.js";
 import { WorkerTransport } from "./worker-transport.js";
 import type { WorkerStoryApi, WorkerStoryApiOptions } from "./worker-api-contract.js";
+import { reportEmbeddedWorkerHostFailure } from "./worker-host-diagnostics.js";
+import { BackendRestartRequiredError } from "./worker-error.js";
 
 export { WorkerExitUnconfirmedError } from "./worker-data-lock.js";
 export {
@@ -51,6 +53,19 @@ export async function createWorkerStoryApi(options: WorkerStoryApiOptions = {}):
         freshDataDirectory: dataLock.initializedNewDirectory
       };
   let transport: WorkerTransport;
+  let failureReport: Promise<Error> | null = null;
+  const reportFailure = (error: Error): Promise<Error> => {
+    if (!(error instanceof BackendRestartRequiredError)
+      || error.diagnosticRef !== null) {
+      return Promise.resolve(error);
+    }
+    failureReport ??= reportEmbeddedWorkerHostFailure(
+      error,
+      transportOptions.machineDir,
+      options.printLogs === true
+    );
+    return failureReport;
+  };
   try {
     const outbox = options.outbox ?? (lockedDataDir === null
       ? null
@@ -60,17 +75,21 @@ export async function createWorkerStoryApi(options: WorkerStoryApiOptions = {}):
     await transport.start();
   } catch (error) {
     await releaseOrRetainDataLock(dataLock, error);
-    throw error;
+    throw error instanceof Error ? await reportFailure(error) : error;
   }
   const api = storyApiFromWorkerTransport(transport);
+  const failure = transport.failure.then(reportFailure);
   let disposal: Promise<void> | null = null;
   const dispose = (): Promise<void> => {
     disposal ??= (async () => {
       try {
         await transport.dispose();
       } catch (error) {
-        await releaseOrRetainDataLock(dataLock, error);
-        throw error;
+        const reported = error instanceof Error
+          ? await reportFailure(error)
+          : error;
+        await releaseOrRetainDataLock(dataLock, reported);
+        throw reported;
       }
       await dataLock?.release();
     })();
@@ -80,7 +99,7 @@ export async function createWorkerStoryApi(options: WorkerStoryApiOptions = {}):
     api,
     recovery: transport.recovery,
     recoveryWarnings: transport.recoveryWarnings,
-    failure: transport.failure,
+    failure,
     dispose
   };
 }
