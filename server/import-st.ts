@@ -53,6 +53,7 @@ export function sillyTavernFidelity(
 // of records, and a long name times many {{char}} macros expands far past the input
 // size. Every dimension that can amplify gets its own budget.
 const MAX_RECORDS = 50_000;
+export const MAX_SWIPE_RECORDS = 50_000;
 export const MAX_NAME = 200;
 
 /** One pattern, one pass. Two sequential replaces would let a name containing
@@ -98,6 +99,7 @@ export function partsFromSillyTavernJsonl(jsonl: string): SillyTavernImport {
   // Collect first, substitute later: names may only be discoverable from the
   // messages themselves, and every expansion has to be budgeted before it runs.
   const raw: RawMessage[] = [];
+  let swipeRecords = 0;
   // Headerless files replay their first line as a record, so it must not be pre-counted.
   let records = hasMeta ? 1 : 0;
   for (const line of hasMeta ? lines : prepend(first.value, lines)) {
@@ -106,6 +108,15 @@ export function partsFromSillyTavernJsonl(jsonl: string): SillyTavernImport {
     if (message === null || typeof message.mes !== "string") continue;
     if (message.is_system === true) continue;
     if (message.mes.trim().length === 0) continue;
+    if (Array.isArray(message.swipes)) {
+      swipeRecords += message.swipes.length;
+      if (swipeRecords > MAX_SWIPE_RECORDS) {
+        throw new HttpError(
+          400,
+          `Chat has more than ${MAX_SWIPE_RECORDS} swipe records — too large to import`
+        );
+      }
+    }
     raw.push({
       mes: message.mes,
       isUser: message.is_user === true,
@@ -149,7 +160,12 @@ export function partsFromSillyTavernJsonl(jsonl: string): SillyTavernImport {
       remaining += projected;
       return null;
     }
-    return substitute(text);
+    const expanded = substitute(text);
+    if (expanded.trim().length === 0) {
+      remaining += projected;
+      return null;
+    }
+    return expanded;
   };
 
   // Two passes, deliberately: the whole active storyline claims its budget
@@ -248,7 +264,7 @@ function addAlternateSwipes(
     // Every alternate stores its own copy of the active take's instruction.
     // Charge that duplicate as well as the alternate prose.
     const text = budget.tryExpand(rawText, instruction.length);
-    if (text === null || text.trim().length === 0) {
+    if (text === null) {
       omitted += 1;
       continue;
     }

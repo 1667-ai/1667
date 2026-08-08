@@ -104,6 +104,14 @@ function build(
   const counters = { imported: 0, notAdditive: 0, malformed: 0, budgetHit: false };
   const visited = new Set<SectionId>();
   const placedIndex = new Map<SectionId, number>(active.sectionIndex);
+  const normalizedText = new Map<SectionId, { readonly source: string; readonly text: string }>();
+  const normalizeText = (id: SectionId, text: string): string => {
+    const cached = normalizedText.get(id);
+    if (cached?.source === text) return cached.text;
+    const normalized = normalizeSectionText(text);
+    normalizedText.set(id, { source: text, text: normalized });
+    return normalized;
+  };
   let room = active.room;
   let charsRoom = active.charsRoom;
   let replayWork = 0;
@@ -122,11 +130,22 @@ function build(
     order = applyChanges(sections, order, node.changesRaw, claimReplayWork);
     const kids = childrenByParent.get(id) ?? [];
     const nextOnPath = pathOrder[pathIndex + 1];
-    for (const kid of kids) {
-      if (kid === nextOnPath) continue;
-      claimReplayWork(order.length);
-      const parentPartIndex = nearestPlacedIndex(order, placedIndex);
-      importSubtree(kid, parentPartIndex, sections, order, id === root);
+    const alternateKids = kids.filter((kid) => kid !== nextOnPath);
+    if (alternateKids.length === 0) continue;
+    claimReplayWork(order.length);
+    const baseline = matchingActiveBaseline(
+      order,
+      sections,
+      active.parts,
+      active.sectionIndex,
+      normalizeText
+    );
+    for (const kid of alternateKids) {
+      if (baseline === null) {
+        counters.notAdditive += 1;
+        continue;
+      }
+      importSubtree(kid, baseline.parentPartIndex, sections, order, id === root);
     }
   }
 
@@ -208,7 +227,7 @@ function build(
           }
           const section = newSections.get(id);
           if (section === undefined || section.type !== 1) continue;
-          const text = normalizeSectionText(section.text);
+          const text = normalizeText(id, section.text);
           if (text.trim().length === 0) continue;
           if (precedingPartIndex === null && !frame.allowRoot) {
             counters.notAdditive += 1;
@@ -276,25 +295,30 @@ function startsWithOrder(order: readonly SectionId[], prefix: readonly SectionId
   return prefix.every((id, index) => order[index] === id);
 }
 
+function matchingActiveBaseline(
+  order: readonly SectionId[],
+  sections: ReadonlyMap<SectionId, NovelAiSection>,
+  activeParts: readonly ImportedPart[],
+  activeSectionIndex: ReadonlyMap<SectionId, number>,
+  normalizeText: (id: SectionId, text: string) => string
+): { readonly parentPartIndex: number | null } | null {
+  let partIndex = 0;
+  for (const id of order) {
+    const section = sections.get(id);
+    if (section === undefined) return null;
+    if (section.type !== 1) continue;
+    const text = normalizeText(id, section.text);
+    if (text.trim().length === 0) continue;
+    if (activeSectionIndex.get(id) !== partIndex || activeParts[partIndex]?.text !== text) return null;
+    partIndex += 1;
+  }
+  return { parentPartIndex: partIndex === 0 ? null : partIndex - 1 };
+}
+
 function asMapOrRecord(value: unknown): Map<unknown, unknown> | Record<string, unknown> {
   if (value instanceof Map) return value;
   if (isPlainRecord(value)) return value;
   throw new Error("Malformed history changes");
-}
-
-/** The nearest section in `order`, scanning from the end, that this history
- *  branch's baseline shares with the active reading. `null` when nothing in
- *  `order` survived into the active reading — a fresh alternate then becomes
- *  a new root instead of an orphan. */
-function nearestPlacedIndex(
-  order: readonly SectionId[],
-  placedIndex: ReadonlyMap<SectionId, number>
-): number | null {
-  for (let index = order.length - 1; index >= 0; index -= 1) {
-    const found = placedIndex.get(order[index]!);
-    if (found !== undefined) return found;
-  }
-  return null;
 }
 
 function walkToRoot(

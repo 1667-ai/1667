@@ -4,7 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { StoryService } from "../server/story-service.js";
-import { MAX_TOTAL_CHARS, partsFromSillyTavernJsonl } from "../server/import-st.js";
+import {
+  MAX_SWIPE_RECORDS,
+  MAX_TOTAL_CHARS,
+  partsFromSillyTavernJsonl
+} from "../server/import-st.js";
 
 test("StoryService.importSillyTavern imports a swipe as a sibling take, off the active storyline", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "st-import-history-test-"));
@@ -137,6 +141,36 @@ test("partsFromSillyTavernJsonl charges an alternate's copied instruction to the
   const imported = partsFromSillyTavernJsonl(jsonl);
   assert.deepEqual(imported.parts.map(({ text }) => text), ["A"]);
   assert.equal(imported.omittedAlternateSwipes, 1);
+});
+
+test("partsFromSillyTavernJsonl refunds the budget for a blank unselected swipe", () => {
+  const instruction = "u".repeat(Math.floor(MAX_TOTAL_CHARS / 2) - 10);
+  const imported = partsFromSillyTavernJsonl([
+    JSON.stringify({ is_user: true, mes: instruction }),
+    JSON.stringify({
+      is_user: false,
+      mes: "Active",
+      swipe_id: 0,
+      swipes: ["Active", " ", "Valid"]
+    })
+  ].join("\n"));
+
+  assert.deepEqual(imported.parts.map(({ text }) => text), ["Active", "Valid"]);
+  assert.equal(imported.omittedAlternateSwipes, 1);
+});
+
+test("partsFromSillyTavernJsonl bounds nested swipe records", () => {
+  const jsonl = JSON.stringify({
+    is_user: false,
+    mes: "Active",
+    swipes: Array.from({ length: MAX_SWIPE_RECORDS + 1 }, () => "")
+  });
+
+  assert.throws(
+    () => partsFromSillyTavernJsonl(jsonl),
+    (error: unknown) => error instanceof Error
+      && error.message === `Chat has more than ${MAX_SWIPE_RECORDS} swipe records — too large to import`
+  );
 });
 
 test("partsFromSillyTavernJsonl trusts swipe_id only when it names the active text, falling back by content", () => {

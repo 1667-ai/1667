@@ -872,6 +872,42 @@ test("NovelAI V2 retry history rejects a create inserted into baseline prose", (
   });
 });
 
+test("NovelAI V2 retry history rejects a branch whose baseline was removed from the active story", () => {
+  const imported = alternatesFromNovelAiHistory(
+    {
+      root: "root",
+      current: "selected",
+      nodes: new Map([
+        ["root", { changes: new Map([
+          [1, { type: 0, section: { type: 1, text: "First." } }],
+          [2, { type: 0, section: { type: 1, text: "Removed." }, after: 1 }]
+        ]) }],
+        ["selected", { parent: "root", changes: new Map([
+          [2, { type: 2 }],
+          [3, { type: 0, section: { type: 1, text: "Selected." }, after: 1 }]
+        ]) }],
+        ["retry", { parent: "root", changes: new Map([
+          [4, { type: 0, section: { type: 1, text: "Retry after removed prose." }, after: 2 }]
+        ]) }]
+      ])
+    },
+    {
+      parts: [
+        { instruction: "", text: "First.", createdAt: "2026-01-01T00:00:00.000Z" },
+        { instruction: "", text: "Selected.", createdAt: "2026-01-01T00:00:00.000Z" }
+      ],
+      sectionIndex: new Map([[1, 0], [3, 1]]),
+      room: 1,
+      charsRoom: 100
+    }
+  );
+
+  assert.deepEqual(imported, {
+    parts: [],
+    fidelity: ["1 retry branch omitted: not a simple continuation"]
+  });
+});
+
 test("NovelAI V2 retry history bounds cumulative section replay work", () => {
   const nodes = new Map<string, { parent?: string; changes: Map<number, unknown> }>();
   nodes.set("root", { changes: new Map([
