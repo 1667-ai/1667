@@ -77,7 +77,6 @@ import {
   settingsModelPickerAction
 } from "./settings-field-actions.js";
 import {
-  applySettingsComposeFocus,
   applySettingsTheme,
   cycleSettingsRow
 } from "./settings-selector-actions.js";

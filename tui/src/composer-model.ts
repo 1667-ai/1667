@@ -1,4 +1,4 @@
-import { graphemeCells } from "./cell-width.js";
+import { breaksLine, graphemeCells } from "./cell-width.js";
 
 export interface ComposerState {
   text: string;
@@ -58,6 +58,10 @@ interface CellChunk extends ComposerLineChunk {
   width: number;
   codeUnits: number;
   uniformWidth: number | null;
+  /** True when some cell can carry a word-wrap break. Wrapping reads this to
+   *  keep space-free runs — a pasted token, a long ideographic passage — on
+   *  their arithmetic path instead of scanning for a break that cannot exist. */
+  hasWrapSpace: boolean;
 }
 
 interface IndexedLine {
@@ -68,6 +72,7 @@ interface IndexedLine {
   codeUnits: number;
   breakAfter: string | null;
   uniformWidth: number | null;
+  hasWrapSpace: boolean;
 }
 
 interface ComposerDocument {
@@ -371,6 +376,11 @@ export function composerLineLength(composer: ComposerState, line: number): numbe
 
 export function composerLineUniformWidth(composer: ComposerState, line: number): number | null {
   return documentFor(composer).lines[line]?.uniformWidth ?? null;
+}
+
+/** True when the line holds a cell a word wrap can break on. */
+export function composerLineHasWrapSpace(composer: ComposerState, line: number): boolean {
+  return documentFor(composer).lines[line]?.hasWrapSpace ?? false;
 }
 
 export function composerLineSnapshot(composer: ComposerState): ComposerLineSnapshot {
@@ -735,7 +745,16 @@ function makeLine(chunks: readonly CellChunk[], breakAfter: string | null): Inde
   const firstWidth = chunks[0]?.uniformWidth ?? null;
   const uniformWidth = firstWidth !== null
     && chunks.every((chunk) => chunk.uniformWidth === firstWidth) ? firstWidth : null;
-  return { chunks, chunkStarts, count, width, codeUnits, breakAfter, uniformWidth };
+  return {
+    chunks,
+    chunkStarts,
+    count,
+    width,
+    codeUnits,
+    breakAfter,
+    uniformWidth,
+    hasWrapSpace: chunks.some((chunk) => chunk.hasWrapSpace)
+  };
 }
 
 function chunksFromCells(cells: readonly ComposerLineCell[]): CellChunk[] {
@@ -755,7 +774,8 @@ function makeChunk(cells: readonly ComposerLineCell[]): CellChunk {
     codeUnits: cells.reduce((sum, cell) => sum + cell.text.length, 0),
     uniformWidth: firstWidth !== null && cells.every((cell) => cell.width === firstWidth)
       ? firstWidth
-      : null
+      : null,
+    hasWrapSpace: cells.some((cell) => breaksLine(cell.text))
   };
 }
 

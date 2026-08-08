@@ -604,16 +604,24 @@ describe("review regressions", () => {
   });
 
   test("multiline compose input stays inside its fixed viewport", () => {
-    const frame = renderStoryScreen({
+    const compose = (wordWrap: "on" | "off") => renderStoryScreen({
       ...baseState,
+      config: { ...baseState.config, wordWrap },
       mode: "COMPOSE",
       composer: createComposer(`first line\n${"x".repeat(100)}`)
     }, { width: 80, height: 24 }).lines;
-    expect(frame).toHaveLength(24);
-    expect(frame.every((line) => !plainLine(line).includes("\n"))).toBeTrue();
-    expect(plainLine(frame.at(-1)!)).toContain("COMPOSE");
-    expect(plainLine(frame.at(-2)!)).toContain("⇧enter newline");
-    expect(plainLine(frame.at(-3)!)).toContain("…");
+
+    for (const wordWrap of ["on", "off"] as const) {
+      const frame = compose(wordWrap);
+      expect(frame).toHaveLength(24);
+      expect(frame.every((line) => !plainLine(line).includes("\n"))).toBeTrue();
+      expect(plainLine(frame.at(-1)!)).toContain("COMPOSE");
+      expect(plainLine(frame.at(-2)!)).toContain("⇧enter newline");
+    }
+    // The line is one unbroken token, so unwrapped it clips and wrapped it
+    // runs on into further rows. Either way the frame stays 24 rows.
+    expect(plainLine(compose("off").at(-3)!)).toContain("…");
+    expect(plainLine(compose("on").at(-3)!)).not.toContain("…");
   });
 
   test("supports equals forms and rejects prefixed typos", () => {

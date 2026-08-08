@@ -14,7 +14,7 @@ import { startSummary } from "../src/summary-action.js";
 import { RecoveryWarningFeed } from "../src/recovery-warning-feed.js";
 import { startRecoveryOrchestration } from "../src/recovery-orchestration.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
-import { setComposerText } from "../src/composer-model.js";
+import { createComposer, setComposerText } from "../src/composer-model.js";
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -232,7 +232,7 @@ describe("responsive input lanes", () => {
 
     const prompt = app.state.library?.prompt;
     expect(app.state.mode).toBe("LIBRARY");
-    expect(prompt).toEqual({ kind: "rename", value: currentTitle, targetId: currentId });
+    expect(prompt).toEqual({ kind: "rename", composer: createComposer(currentTitle), targetId: currentId });
     expect(libraryRows(app.state.library!.stories, "")[app.state.library!.cursor]?.id).toBe(currentId);
     expect(renderStoryScreen(app.state, { width: 120, height: 36 }).lines.map(plainLine).join("\n"))
       .toContain(`rename: ${currentTitle}`);

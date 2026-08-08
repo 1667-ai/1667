@@ -12,16 +12,6 @@ import {
 } from "./composer-vertical-movement.js";
 import { wrappedComposerLayout } from "./composer-wrapping.js";
 
-/** Move through ordinary soft-wrapped composer rows. */
-export function moveComposerVisualVertical(
-  composer: ComposerState,
-  direction: -1 | 1,
-  width: number,
-  selecting = false
-): boolean {
-  return moveComposerVisualRows(composer, direction, width, selecting);
-}
-
 /** Move through a page of soft-wrapped rows while retaining the visual column. */
 export function moveComposerVisualRows(
   composer: ComposerState,

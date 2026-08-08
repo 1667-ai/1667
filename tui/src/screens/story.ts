@@ -62,7 +62,7 @@ import {
   type HintItem
 } from "./story/frame.js";
 import { addInlineHits } from "./story/hits.js";
-import { layoutStoryRow, renderChapterOneHeading, STORY_GUTTER, type StickyStoryPrompt } from "./story/row-layout.js";
+import { layoutStoryRow, renderChapterOneHeading, type StickyStoryPrompt } from "./story/row-layout.js";
 import { paintStorySelection } from "./story/selection-highlight.js";
 import { stickFocusedGutter, type FocusedStickyGutter } from "./story/sticky-gutter.js";
 import { stickStoryPrompt } from "./story/sticky-prompt.js";
@@ -71,6 +71,7 @@ import {
   renderComposerLayout,
   type ComposerLayout
 } from "./story/composer.js";
+import { storyProseMeasure, STORY_GUTTER } from "../composer-geometry.js";
 import type { ComposerStatus as ComposerChromeStatus } from "./story/composer-chrome.js";
 import { renderStatus as renderCanonicalStatus } from "./story/status.js";
 import { viewportLines, type ViewportBlock } from "./story/viewport.js";
@@ -371,10 +372,6 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   };
 }
 
-export function storyProseMeasure(pageWidth: number): number {
-  return Math.max(1, Math.min(72, pageWidth < 100 ? pageWidth - 4 : pageWidth - 26));
-}
-
 function fullBleedDerived(
   state: StoryScreenState,
   hitRows: HitRows,
@@ -559,7 +556,8 @@ function renderPageComposer(state: StoryScreenState, view: StoryViewModel, width
     promptKind: state.retakePrompt?.intent.kind ?? null,
     scrollTop: state.composerScrollTop,
     focusDim: state.config.composeFocus === "on",
-    narrow
+    narrow,
+    softWrap: state.config.wordWrap === "on"
   });
   return { lines: composer.lines, scrollTop: composer.scrollTop };
 }
@@ -672,7 +670,8 @@ function renderFullscreenComposer(
     promptKind: state.retakePrompt?.intent.kind ?? null,
     scrollTop: state.composerScrollTop,
     focusDim: state.config.composeFocus === "on",
-    narrow: width < 100
+    narrow: width < 100,
+    softWrap: state.config.wordWrap === "on"
   });
   const lines = [...composer.lines, renderStoryStatus(state, view, width, width < 100, estimate)]
     .slice(0, height)
@@ -741,7 +740,8 @@ function renderInlineEditor(
         height,
         footerNotice,
         scrollTop: state.editorScrollTop,
-        narrow: width < 100
+        narrow: width < 100,
+        softWrap: state.config.wordWrap === "on"
       })
     : renderComposerLayout({
         composer: host.composer,
@@ -756,7 +756,7 @@ function renderInlineEditor(
         footerNotice,
         scrollTop: state.editorScrollTop,
         narrow: width < 100,
-        softWrap: true
+        softWrap: state.config.wordWrap === "on"
       });
   return renderEditorLayoutFrame(state, view, width, height, estimate, layout, deadlines);
 }

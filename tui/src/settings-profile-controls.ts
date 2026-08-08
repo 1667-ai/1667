@@ -116,6 +116,11 @@ export function settingsRows(
       hint: "dim the page while you type"
     },
     {
+      id: "word-wrap", section: "app", label: "word wrap",
+      value: `[ ${config.wordWrap} ]`,
+      hint: "break editor lines at words, not at the edge"
+    },
+    {
       id: "provider", section: "connection", label: "provider",
       value: `‹ ${providerChoice.label} ›`,
       dots: providerPositionDots(settings, selectedPreset),

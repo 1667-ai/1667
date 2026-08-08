@@ -11,6 +11,17 @@ const EMOJI_PRESENTATION = /\p{Emoji_Presentation}|\p{Regional_Indicator}/u;
 const KEYCAP = /\u20E3/u;
 const PRINTABLE_ASCII = /^[\x20-\x7E]*$/;
 
+// A writer types a no-break space to hold two words on one row, so it is the
+// one whitespace a wrap must not break at. U+FEFF is already zero width, and
+// it joins the set for the same reason.
+const NO_BREAK_SPACE = /[\u00A0\u2007\u202F\uFEFF]/;
+
+/** True when a wrap can break the line at this cell. One spelling for the
+ *  story measure and for the composer, so both break a paragraph alike. */
+export function breaksLine(text: string): boolean {
+  return /\s/.test(text) && !NO_BREAK_SPACE.test(text);
+}
+
 export interface GraphemeCell {
   text: string;
   index: number;

@@ -33,6 +33,7 @@ interface FactEditorLayoutOptions {
   footerNotice: string | null;
   scrollTop: number;
   narrow: boolean;
+  softWrap: boolean;
 }
 
 /** Render the typed tag field as a sibling of the Fact body composer. */
@@ -53,7 +54,7 @@ export function renderFactEditorLayout(
     footerNotice: options.footerNotice,
     scrollTop: options.scrollTop,
     narrow: options.narrow,
-    softWrap: true,
+    softWrap: options.softWrap,
     caret: editor.focus === "body" ? "focused" : "none"
   });
   const tagLabel = factEditorTagLabel(editor);

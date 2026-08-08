@@ -47,6 +47,10 @@ export interface UserConfig {
   theme: ThemeName;
   factsRail: "auto" | "off";
   composeFocus: "on" | "off";
+  /** Break editor lines at word boundaries instead of clipping them. Every
+   *  composer-backed surface reads this: Direct, the document editors, and the
+   *  Fact body. */
+  wordWrap: "on" | "off";
   /** Null follows max(6, floor(terminal rows / 3)). */
   composeMaxHeight: number | null;
   quota: QuotaLedger;
@@ -57,6 +61,7 @@ const DEFAULTS: UserConfig = {
   theme: "lantern",
   factsRail: "auto",
   composeFocus: "off",
+  wordWrap: "on",
   composeMaxHeight: null,
   quota: { date: "", words: 0 },
   updates: { mode: "off", channel: "stable", skippedVersion: null }
@@ -78,6 +83,11 @@ function normalizedComposeFocus(value: unknown): UserConfig["composeFocus"] {
   return value === true || value === "on" ? "on" : "off";
 }
 
+/** Absent means on, so an existing config file keeps wrapping the editors. */
+function normalizedWordWrap(value: unknown): UserConfig["wordWrap"] {
+  return value === false || value === "off" ? "off" : "on";
+}
+
 function normalizedComposeMaxHeight(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 1) return null;
   return Math.floor(value);
@@ -95,6 +105,7 @@ export function normalizeUserConfig(value: unknown): UserConfig {
   const theme = raw.theme;
   const factsRail = configValue(raw, "factsRail", "facts_rail");
   const composeFocus = configValue(raw, "composeFocus", "compose_focus");
+  const wordWrap = configValue(raw, "wordWrap", "word_wrap");
   const composeMaxHeight = configValue(raw, "composeMaxHeight", "compose_max_height");
   const quotaValid = typeof rawQuota.date === "string"
     && typeof rawQuota.words === "number"
@@ -103,6 +114,7 @@ export function normalizeUserConfig(value: unknown): UserConfig {
     theme: THEME_NAMES.includes(theme as ThemeName) ? theme as ThemeName : DEFAULTS.theme,
     factsRail: factsRail === "off" ? "off" : "auto",
     composeFocus: normalizedComposeFocus(composeFocus),
+    wordWrap: normalizedWordWrap(wordWrap),
     composeMaxHeight: normalizedComposeMaxHeight(composeMaxHeight),
     quota: quotaValid
       ? { date: rawQuota.date as string, words: rawQuota.words as number }

@@ -31,12 +31,10 @@ import {
   moveComposerPage,
   moveComposerWord
 } from "../src/composer-editing.js";
-import {
-  moveComposerVisualRows,
-  moveComposerVisualVertical
-} from "../src/composer-visual-movement.js";
+import { moveComposerVisualRows } from "../src/composer-visual-movement.js";
 import { composerPageRows } from "../src/composer-viewport.js";
 import { wrappedComposerLayout } from "../src/composer-wrapping.js";
+import { graphemeCells } from "../src/cell-width.js";
 import {
   applyComposeMode,
   composerHeightCap,
@@ -215,6 +213,118 @@ describe("composer renderer", () => {
     expect(layout.lines.slice(1, 4).flat().some(({ text }) => text === "…")).toBeFalse();
   });
 
+  test("wraps at word boundaries and keeps the space on the row it ends", () => {
+    const text = "the lantern guttered against the wind";
+    const composer = createComposer(text);
+    const wrapped = wrappedComposerLayout(composer, 14);
+    const rows = Array.from(
+      { length: wrapped.rowCount },
+      (_, row) => {
+        const bound = wrapped.rowAt(row)!;
+        return text.slice(bound.start, bound.end);
+      }
+    );
+
+    expect(rows).toEqual(["the lantern ", "guttered ", "against the ", "wind"]);
+    // Rows tile the line, so every column the writer can type in has a row.
+    expect(rows.join("")).toBe(text);
+  });
+
+  test("keeps a carried word inside the field when a wide cell ends it", () => {
+    // The word is 15 cells against a 14-cell field, so it cannot fit a row of
+    // its own. Carrying it down would land it just as over-wide and clip the
+    // emoji, so the break belongs between its cells instead.
+    const text = " abcdefghijklm\u{1F600}";
+    const composer = createComposer(text);
+    const cells = graphemeCells(text);
+    const wrapped = wrappedComposerLayout(composer, 14);
+    const rows = Array.from({ length: wrapped.rowCount }, (_, row) => {
+      const bound = wrapped.rowAt(row)!;
+      return cells.slice(bound.start, bound.end);
+    });
+
+    expect(rows.map((row) => row.map((cell) => cell.text).join("")))
+      .toEqual([" abcdefghijklm", "\u{1F600}"]);
+    // No row of visible text runs past the field.
+    const widest = Math.max(...rows.map(
+      (row) => row.reduce((sum, cell) => sum + cell.width, 0)
+    ));
+    expect(widest).toBe(14);
+  });
+
+  test("does not break at a no-break space", () => {
+    // A writer types U+00A0 to hold two words together, so the wrap must not
+    // treat it as a break point even though it is whitespace.
+    const text = "call Mrs.\u00A0Dalloway now";
+    const composer = createComposer(text);
+    // Wide enough to hold the joined pair, so a break there would be a choice.
+    const wrapped = wrappedComposerLayout(composer, 16);
+    const rows = Array.from(
+      { length: wrapped.rowCount },
+      (_, row) => {
+        const bound = wrapped.rowAt(row)!;
+        return text.slice(bound.start, bound.end);
+      }
+    );
+
+    expect(rows).toEqual(["call ", "Mrs.\u00A0Dalloway ", "now"]);
+    expect(rows.join("")).toBe(text);
+  });
+
+  test("keeps a long paragraph's wrap incremental across edits", () => {
+    // Chunk-level wrap answers are cached against chunk identity. An edit must
+    // still land the same rows a fresh composer would.
+    const paragraph = "lantern keeper ".repeat(4_000);
+    const composer = createComposer(paragraph);
+    const rowsOf = (state: ReturnType<typeof createComposer>) => {
+      const wrapped = wrappedComposerLayout(state, 37);
+      return Array.from(
+        { length: wrapped.rowCount },
+        (_, row) => wrapped.rowAt(row)!
+      );
+    };
+
+    rowsOf(composer);
+    composer.cursor = composer.text.length;
+    insertComposerText(composer, "!");
+    const incremental = rowsOf(composer);
+    expect(incremental).toEqual(rowsOf(createComposer(composer.text)));
+
+    moveComposerTo(composer, 0);
+    insertComposerText(composer, "A ");
+    expect(rowsOf(composer)).toEqual(rowsOf(createComposer(composer.text)));
+  });
+
+  test("breaks a word wider than the field by cell", () => {
+    const text = "hi supercalifragilistic";
+    const composer = createComposer(text);
+    const wrapped = wrappedComposerLayout(composer, 8);
+    const rows = Array.from(
+      { length: wrapped.rowCount },
+      (_, row) => {
+        const bound = wrapped.rowAt(row)!;
+        return text.slice(bound.start, bound.end);
+      }
+    );
+
+    expect(rows).toEqual(["hi ", "supercal", "ifragili", "stic"]);
+  });
+
+  test("paints wrapped editor rows at whole words", () => {
+    const composer = createComposer("the lantern guttered against the wind");
+    composer.fullscreen = true;
+    const layout = renderComposerLayout({
+      composer, terminalWidth: 18, terminalHeight: 14, measure: 18, softWrap: true
+    });
+    const body = frameText(layout.lines.slice(1, 1 + layout.bodyRows));
+
+    expect(body).toContain("┃ › the lantern");
+    expect(body).toContain("┃   guttered");
+    expect(body).toContain("┃   against the");
+    // Wrapped rows run on, so no row is clipped.
+    expect(body).not.toContain("…");
+  });
+
   test("keeps exact-width line endpoints as stable continuation rows", () => {
     const composer = createComposer("1234\nnext");
     moveComposerTo(composer, 4);
@@ -227,9 +337,9 @@ describe("composer renderer", () => {
     expect(wrapped.rowAt(2)).toMatchObject({ sourceIndex: 1, start: 0, end: 4 });
     expect(wrapped.rowAt(3)).toMatchObject({ sourceIndex: 1, start: 4, end: 4 });
 
-    expect(moveComposerVisualVertical(composer, -1, 4)).toBeTrue();
+    expect(moveComposerVisualRows(composer, -1, 4)).toBeTrue();
     expect(composerPosition(composer)).toEqual({ line: 0, column: 0 });
-    expect(moveComposerVisualVertical(composer, 1, 4)).toBeTrue();
+    expect(moveComposerVisualRows(composer, 1, 4)).toBeTrue();
     expect(composerPosition(composer)).toEqual({ line: 0, column: 4 });
   });
 
@@ -244,7 +354,7 @@ describe("composer renderer", () => {
     moveComposerTo(composer, 3);
     expect(wrappedComposerLayout(composer, 4).cursorRow).toBe(1);
     moveComposerTo(composer, 6);
-    expect(moveComposerVisualVertical(composer, -1, 4)).toBeTrue();
+    expect(moveComposerVisualRows(composer, -1, 4)).toBeTrue();
     expect(composerPosition(composer)).toEqual({ line: 0, column: 3 });
     expect(wrappedComposerLayout(composer, 4).cursorRow).toBe(1);
   });
@@ -333,7 +443,7 @@ describe("composer renderer", () => {
 
   test("moves and extends selection by soft-wrapped visual rows", () => {
     const composer = createComposer("abcdefghij");
-    expect(moveComposerVisualVertical(composer, -1, 4, true)).toBeTrue();
+    expect(moveComposerVisualRows(composer, -1, 4, true)).toBeTrue();
     expect(composer).toMatchObject({ cursor: 6, anchor: 10 });
     expect(selectedComposerText(composer)).toBe("ghij");
   });
@@ -344,7 +454,7 @@ describe("composer renderer", () => {
     moveComposerBufferBoundary(composer, true, true);
     expect(composerSelection(composer)).not.toBe(null);
 
-    expect(moveComposerVisualVertical(composer, 1, 20)).toBeFalse();
+    expect(moveComposerVisualRows(composer, 1, 20)).toBeFalse();
     expect(composerSelection(composer)).toBe(null);
     insertComposerText(composer, "!");
     expect(composer.text).toBe("keep me!");
@@ -354,7 +464,7 @@ describe("composer renderer", () => {
     const composer = createComposer("one\nlast line");
     moveComposerTo(composer, 6);
 
-    expect(moveComposerVisualVertical(composer, 1, 20)).toBeTrue();
+    expect(moveComposerVisualRows(composer, 1, 20)).toBeTrue();
     expect(composerPosition(composer)).toEqual({ line: 1, column: 9 });
     insertComposerText(composer, "\n");
     expect(composer.text).toBe("one\nlast line\n");
@@ -371,14 +481,14 @@ describe("composer renderer", () => {
 
   test("retains the preferred column across short visual rows", () => {
     const composer = createComposer("abcdef\nx\nabcdef");
-    expect(moveComposerVisualVertical(composer, -1, 20)).toBeTrue();
+    expect(moveComposerVisualRows(composer, -1, 20)).toBeTrue();
     expect(composerPosition(composer)).toEqual({ line: 1, column: 1 });
-    expect(moveComposerVisualVertical(composer, -1, 20)).toBeTrue();
+    expect(moveComposerVisualRows(composer, -1, 20)).toBeTrue();
     expect(composerPosition(composer)).toEqual({ line: 0, column: 6 });
 
     moveComposerHorizontal(composer, -1);
-    expect(moveComposerVisualVertical(composer, 1, 20)).toBeTrue();
-    expect(moveComposerVisualVertical(composer, 1, 20)).toBeTrue();
+    expect(moveComposerVisualRows(composer, 1, 20)).toBeTrue();
+    expect(moveComposerVisualRows(composer, 1, 20)).toBeTrue();
     expect(composerPosition(composer)).toEqual({ line: 2, column: 5 });
   });
 

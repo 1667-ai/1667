@@ -1,7 +1,7 @@
 import type { StoryNode, StoryPayload } from "../../shared/types.js";
 import { createAppendPlanWrap } from "./append-wrap.js";
 import { projectedPart } from "./stream-projection.js";
-import { storyProseMeasure } from "./screens/story.js";
+import { storyProseMeasure } from "./composer-geometry.js";
 import {
   storyPartWrapPlan,
   type StoryPartWrapInput,

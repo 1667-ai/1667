@@ -346,8 +346,11 @@ describe("run C overlay frames", () => {
     const clean = await renderOnce(demoAppSource(), 120, 36, ",");
     expect(clean).not.toContain("revision");
 
+    // Down past theme, focus, and word wrap, which are local rows: only the
+    // server-backed provider below them can dirty the draft.
     const dirty = await renderWithKeys(demoAppSource(), 120, 36, [
       key(","),
+      key("down"),
       key("down"),
       key("down"),
       key("right")

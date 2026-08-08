@@ -619,6 +619,7 @@ export async function handleKey(
     tagChoosingStatus: state.tag?.choosingStatus ?? false,
     connectionDown: state.connection.down,
     overlayTyping: overlayTextInputActive(state),
+    libraryRenaming: state.library?.prompt?.kind === "rename",
     settingsSampling: state.settings !== null && state.settings.sampling !== null,
     settingsProfileTransfer: state.settings?.profileTransfer?.phase ?? null,
     commandsTags: state.commands?.view === "tags",

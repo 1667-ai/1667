@@ -1,5 +1,8 @@
 import type { AppSource } from "./app.js";
 import type { ActionContext } from "./action-context.js";
+import { createComposer, insertComposerText } from "./composer-model.js";
+import { composerSurfaceAction } from "./composer-surface-action.js";
+import { SINGLE_LINE_COMPOSER_MOTION } from "./composer-motion.js";
 import { globalEditor } from "./editor-scope.js";
 import { applyTextKey, isPlainNavigation, type ResolvedKey } from "./keys.js";
 import {
@@ -57,6 +60,7 @@ export async function libraryAction(
   const overlay = state.library!;
   const rows = libraryRows(overlay.stories, overlay.query);
   const selected = rows[Math.min(overlay.cursor, Math.max(0, rows.length - 1))];
+  const rename = overlay.prompt?.kind === "rename" ? overlay.prompt : null;
   if (resolved.action === "cancel") {
     if (overlay.prompt?.kind === "filter") {
       const initial = overlay.prompt.initial;
@@ -91,15 +95,31 @@ export async function libraryAction(
       }
     };
   }
-  else if (resolved.action === "rename-item" && selected !== undefined) overlay.prompt = { kind: "rename", value: selected.title, targetId: selected.id };
+  else if (resolved.action === "rename-item" && selected !== undefined) {
+    overlay.prompt = { kind: "rename", composer: createComposer(selected.title), targetId: selected.id };
+  }
   else if (resolved.action === "delete-item" && selected !== undefined) overlay.prompt = { kind: "delete", value: "", targetId: selected.id };
+  else if (rename !== null && resolved.action === "input") {
+    insertComposerText(rename.composer, resolved.text ?? "");
+  }
+  else if (rename !== null && await composerSurfaceAction(resolved, state, rename.composer, {
+    isCurrent: () => state.library === overlay && overlay.prompt === rename,
+    pageRows: 1,
+    motion: SINGLE_LINE_COMPOSER_MOTION,
+    // The title is single-line, so a pasted newline flattens to a space
+    // rather than splitting it.
+    insert: (text) => text.replace(/\n+/g, " ")
+  })) {
+    // Cut, paste, select-all, undo/redo, and cursor/delete motion all run
+    // through the shared composer surface action.
+  }
   else if ((resolved.action === "backspace" || resolved.action === "input") && overlay.prompt !== null) {
     if (overlay.prompt.kind === "filter") {
       setLibraryQuery(
         overlay,
         applyTextKey(overlay.query, resolved) ?? overlay.query
       );
-    } else {
+    } else if (overlay.prompt.kind === "delete") {
       overlay.prompt.value = applyTextKey(overlay.prompt.value, resolved)
         ?? overlay.prompt.value;
     }
@@ -200,7 +220,7 @@ async function renameStory(
   prompt: Extract<NonNullable<LibraryOverlay["prompt"]>, { kind: "rename" }>,
   target: AppSource["stories"][number]
 ): Promise<void> {
-  const title = prompt.value.trim();
+  const title = prompt.composer.text.trim();
   if (title.length === 0) return void (state.toast = "story title required");
   await context.backend.run("renaming story", async (task) => {
     const payload = await source.api.renameStory(target.id, title);
@@ -208,7 +228,7 @@ async function renameStory(
     if (target.id === task.storyId) {
       adoptSameStoryPayload(state, payload, context.cache);
     }
-    if (state.library === overlay && overlay.prompt === prompt && prompt.value.trim() === title) {
+    if (state.library === overlay && overlay.prompt === prompt && prompt.composer.text.trim() === title) {
       overlay.prompt = null;
       state.toast = `renamed ${title}`;
     }

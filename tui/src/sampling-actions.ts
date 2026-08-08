@@ -1,4 +1,5 @@
 import { composerSurfaceAction } from "./composer-surface-action.js";
+import { SINGLE_LINE_COMPOSER_MOTION } from "./composer-motion.js";
 import { insertComposerText } from "./composer-model.js";
 import { readFromClipboard } from "./clipboard.js";
 import { sanitizePastedText, type ResolvedKey } from "./keys.js";
@@ -198,6 +199,7 @@ async function samplingEditAction(
       && settings.sampling === nested
       && nested.edit === edit,
     pageRows: 1,
+    motion: SINGLE_LINE_COMPOSER_MOTION,
     onEdit: () => disarmSettingsConflict(settings)
   });
 }

@@ -1,4 +1,4 @@
-import { graphemeCells, iterateGraphemeCells } from "./cell-width.js";
+import { breaksLine, graphemeCells, iterateGraphemeCells } from "./cell-width.js";
 
 /** The prose-layer styles carried through wrapping: human-edited spans, spans
  *  a rewrite replaced (issue #319), and the freshly-streaming suffix of an
@@ -478,7 +478,7 @@ function nextWrappedLine(
   if (fitted === cell) fitted = cell + 1;
   let breakCell = -1;
   for (let probe = fitted; probe > cell; probe -= 1) {
-    if (probe < cells.length && /\s/.test(cells[probe]!.text)) {
+    if (probe < cells.length && breaksLine(cells[probe]!.text)) {
       breakCell = probe;
       break;
     }

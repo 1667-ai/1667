@@ -37,6 +37,10 @@ import {
   composerHeightCap,
   composerPageRows
 } from "../../composer-viewport.js";
+import {
+  composerFieldWidth,
+  composerInputWidth
+} from "../../composer-geometry.js";
 
 export { composerHeightCap } from "../../composer-viewport.js";
 
@@ -107,14 +111,13 @@ export function renderComposerLayout(options: ComposerLayoutOptions): ComposerLa
   const terminalWidth = Math.max(8, Math.floor(options.terminalWidth));
   const fullscreen = options.fullscreen ?? composer.fullscreen;
   const indent = fullscreen ? "" : options.indent ?? "";
-  const availableWidth = Math.max(8, terminalWidth - visibleWidth(indent));
-  const fieldWidth = fullscreen
-    ? terminalWidth
-    : Math.max(8, Math.min(Math.floor(options.measure), availableWidth));
+  const fieldWidth = composerFieldWidth(
+    fullscreen, terminalWidth, options.measure, indent
+  );
   const cap = composerHeightCap(terminalHeight, options.composeMaxHeight);
   const lineCount = composerLineCount(composer);
   const cursor = composerPosition(composer);
-  const inputWidth = Math.max(1, fieldWidth - visibleWidth("┃ ") - visibleWidth("› "));
+  const inputWidth = composerInputWidth(fieldWidth);
   const wrapped = options.softWrap === true
     ? wrappedComposerLayout(composer, inputWidth)
     : null;

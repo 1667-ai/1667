@@ -14,7 +14,8 @@ import {
   type TuiFrameProfileReport
 } from "./frame-profile.js";
 import type { Palette } from "./palette.js";
-import { renderStoryScreen, storyProseMeasure } from "./screens/story.js";
+import { renderStoryScreen } from "./screens/story.js";
+import { storyProseMeasure } from "./composer-geometry.js";
 import { fitLine, segment, type FrameLine } from "./screens/story/frame.js";
 import type { RuntimeState } from "./state.js";
 import type { StorySurface } from "./story-surface.js";
