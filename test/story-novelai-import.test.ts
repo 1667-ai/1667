@@ -840,6 +840,76 @@ test("NovelAI V2 retry history does not bypass an oversized retry to import its 
   });
 });
 
+test("NovelAI V2 retry history rejects a create inserted into baseline prose", () => {
+  const imported = alternatesFromNovelAiHistory(
+    {
+      root: "root",
+      current: "root",
+      nodes: new Map([
+        ["root", { changes: new Map([
+          [1, { type: 0, section: { type: 1, text: "First." } }],
+          [2, { type: 0, section: { type: 1, text: "Second." }, after: 1 }]
+        ]) }],
+        ["inserted", { parent: "root", changes: new Map([
+          [3, { type: 0, section: { type: 1, text: "Inserted." }, after: 1 }]
+        ]) }]
+      ])
+    },
+    {
+      parts: [
+        { instruction: "", text: "First.", createdAt: "2026-01-01T00:00:00.000Z" },
+        { instruction: "", text: "Second.", createdAt: "2026-01-01T00:00:00.000Z" }
+      ],
+      sectionIndex: new Map([[1, 0], [2, 1]]),
+      room: 1,
+      charsRoom: 100
+    }
+  );
+
+  assert.deepEqual(imported, {
+    parts: [],
+    fidelity: ["1 retry branch omitted: not a simple continuation"]
+  });
+});
+
+test("NovelAI V2 retry history bounds cumulative section replay work", () => {
+  const nodes = new Map<string, { parent?: string; changes: Map<number, unknown> }>();
+  nodes.set("root", { changes: new Map([
+    [1, { type: 0, section: { type: 1, text: "Active prose." } }]
+  ]) });
+  let parent = "root";
+  for (let index = 0; index < 1_000; index += 1) {
+    const id = `blank-${index}`;
+    const sectionId = index + 2;
+    nodes.set(id, {
+      parent,
+      changes: new Map([
+        [sectionId, {
+          type: 0,
+          section: { type: 1, text: " " },
+          after: sectionId - 1
+        }]
+      ])
+    });
+    parent = id;
+  }
+
+  const imported = alternatesFromNovelAiHistory(
+    { root: "root", current: "root", nodes },
+    {
+      parts: [{ instruction: "", text: "Active prose.", createdAt: "2026-01-01T00:00:00.000Z" }],
+      sectionIndex: new Map([[1, 0]]),
+      room: MAX_PARTS - 1,
+      charsRoom: MAX_TOTAL_CHARS - "Active prose.".length
+    }
+  );
+
+  assert.deepEqual(imported, {
+    parts: [],
+    fidelity: ["retry history omitted: replay work limit reached"]
+  });
+});
+
 test("partsFromNovelAiStory omits retries once the story is at the part limit", () => {
   const sections = new Map<number, unknown>();
   for (let id = 1; id <= MAX_PARTS; id += 1) sections.set(id, { type: 1, text: `Sec ${id}.` });

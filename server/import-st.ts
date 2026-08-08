@@ -70,7 +70,8 @@ interface RawMessage {
   name: string;
   sendDate: unknown;
   /** Every generated candidate for this message, `mes` among them — a
-   *  SillyTavern "swipe". Absent or one-long means no alternates. */
+   *  SillyTavern "swipe". A one-item list can be a stale alternate when it
+   *  does not match `mes`. */
   swipes: unknown;
   /** Index into `swipes` that `mes` came from. */
   swipeId: unknown;
@@ -229,7 +230,7 @@ function addAlternateSwipes(
   message: RawMessage,
   budget: { tryExpand: (text: string, repeatedChars?: number) => string | null; hasRoom: () => boolean }
 ): number {
-  if (!Array.isArray(message.swipes) || message.swipes.length < 2) return 0;
+  if (!Array.isArray(message.swipes) || message.swipes.length === 0) return 0;
   const activeSwipeIndex = resolveActiveSwipeIndex(message.swipes, message.swipeId, message.mes);
   const swipeInfo = Array.isArray(message.swipeInfo) ? message.swipeInfo : [];
   let omitted = 0;

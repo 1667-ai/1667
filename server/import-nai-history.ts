@@ -9,6 +9,11 @@ import {
   normalizeSectionText,
   sectionId
 } from "./import-nai-sections.js";
+import { MAX_NOVELAI_RECORDS } from "./import-nai-msgpack-preflight.js";
+
+const MAX_NOVELAI_HISTORY_REPLAY_WORK = MAX_NOVELAI_RECORDS * 8;
+
+class HistoryReplayLimitError extends Error {}
 
 export interface NovelAiHistoryAlternates {
   /** New parts, each carrying `parentIndex` and `active: false`. `parentIndex`
@@ -51,7 +56,10 @@ export function alternatesFromNovelAiHistory(
   if (historyRaw === undefined || historyRaw === null) return { parts: [], fidelity: [] };
   try {
     return build(historyRaw, active);
-  } catch {
+  } catch (error) {
+    if (error instanceof HistoryReplayLimitError) {
+      return { parts: [], fidelity: ["retry history omitted: replay work limit reached"] };
+    }
     return { parts: [], fidelity: ["retry history omitted: malformed"] };
   }
 }
@@ -98,17 +106,25 @@ function build(
   const placedIndex = new Map<SectionId, number>(active.sectionIndex);
   let room = active.room;
   let charsRoom = active.charsRoom;
+  let replayWork = 0;
+  const claimReplayWork = (units: number): void => {
+    if (units > MAX_NOVELAI_HISTORY_REPLAY_WORK - replayWork) {
+      throw new HistoryReplayLimitError("NovelAI history replay work limit reached");
+    }
+    replayWork += units;
+  };
 
   const sections = new Map<SectionId, NovelAiSection>();
   let order: readonly SectionId[] = [];
   for (let pathIndex = 0; pathIndex < pathOrder.length; pathIndex += 1) {
     const id = pathOrder[pathIndex]!;
     const node = nodes.get(id)!;
-    order = applyChanges(sections, order, node.changesRaw);
+    order = applyChanges(sections, order, node.changesRaw, claimReplayWork);
     const kids = childrenByParent.get(id) ?? [];
     const nextOnPath = pathOrder[pathIndex + 1];
     for (const kid of kids) {
       if (kid === nextOnPath) continue;
+      claimReplayWork(order.length);
       const parentPartIndex = nearestPlacedIndex(order, placedIndex);
       importSubtree(kid, parentPartIndex, sections, order, id === root);
     }
@@ -165,11 +181,17 @@ function build(
       let newOrder = frame.baseOrder;
       if (changeSteps.length > 0) {
         try {
+          claimReplayWork(replayCost(frame.baseSections.size, frame.baseOrder.length, changeSteps.length));
           const changedSections = new Map(frame.baseSections);
           newOrder = applyDirtySections(changedSections, frame.baseOrder, asMapOrRecord(node.changesRaw));
           newSections = changedSections;
-        } catch {
+        } catch (error) {
+          if (error instanceof HistoryReplayLimitError) throw error;
           counters.malformed += 1;
+          continue;
+        }
+        if (!startsWithOrder(newOrder, frame.baseOrder)) {
+          counters.notAdditive += 1;
           continue;
         }
       }
@@ -234,10 +256,24 @@ function build(
 function applyChanges(
   sections: Map<SectionId, NovelAiSection>,
   order: readonly SectionId[],
-  changesRaw: unknown
+  changesRaw: unknown,
+  claimReplayWork: (units: number) => void
 ): readonly SectionId[] {
   if (changesRaw === undefined) return order;
-  return applyDirtySections(sections, order, asMapOrRecord(changesRaw));
+  const changes = asMapOrRecord(changesRaw);
+  const changeCount = [...boundedEntries(changes, "history node changes")].length;
+  claimReplayWork(replayCost(sections.size, order.length, changeCount));
+  return applyDirtySections(sections, order, changes);
+}
+
+/** Charge map copies, order scans, and change scans before replay starts. */
+function replayCost(sectionCount: number, orderCount: number, changeCount: number): number {
+  return sectionCount + orderCount * 2 + changeCount * 2;
+}
+
+function startsWithOrder(order: readonly SectionId[], prefix: readonly SectionId[]): boolean {
+  if (order.length < prefix.length) return false;
+  return prefix.every((id, index) => order[index] === id);
 }
 
 function asMapOrRecord(value: unknown): Map<unknown, unknown> | Record<string, unknown> {

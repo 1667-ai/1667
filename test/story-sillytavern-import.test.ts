@@ -177,4 +177,16 @@ test("partsFromSillyTavernJsonl trusts swipe_id only when it names the active te
   ].join("\n"));
   assert.deepEqual(noMatch.parts.map(({ text }) => text).sort(), ["Alt A", "Alt B", "Something else entirely"].sort());
   assert.equal(noMatch.omittedAlternateSwipes, 0);
+
+  const loneNoMatch = partsFromSillyTavernJsonl([
+    JSON.stringify({ is_user: true, mes: "Go." }),
+    JSON.stringify({
+      is_user: false,
+      mes: "Chosen text",
+      swipe_id: 4,
+      swipes: ["Lone stale alternate"]
+    })
+  ].join("\n"));
+  assert.deepEqual(loneNoMatch.parts.map(({ text }) => text), ["Chosen text", "Lone stale alternate"]);
+  assert.equal(loneNoMatch.omittedAlternateSwipes, 0);
 });
