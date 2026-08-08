@@ -314,6 +314,11 @@ export function startPromptTokenCountLane(
       // the stream stops moving.
       clearTimer();
       abortInFlight();
+      clearExpiryTimer();
+      // The answer and any in-flight ask are retired together. Forgetting the
+      // fingerprint guarantees one refresh after an empty or stopped stream,
+      // even when the settled prompt returns to exactly what it was before.
+      lastAskedFingerprint = null;
       // Whatever the meter was showing was necessarily asked before this
       // stream existed, so it already describes a shorter draft. Retiring it
       // now, instead of waiting for a reader to notice the identity no longer

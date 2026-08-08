@@ -627,8 +627,9 @@ describe("prompt token count lane", () => {
 
   test("a count showing before generation starts is retired at once", async () => {
     const { state, clock, repaint } = fixture();
+    let calls = 0;
     const api: PromptTokenCountApi = {
-      countPromptTokens: async () => countedAnswer(1)
+      countPromptTokens: async () => { calls += 1; return countedAnswer(calls); }
     };
     const lane = startPromptTokenCountLane({
       state, api, repaint, schedule: clock.schedule, cancel: clock.cancel
@@ -637,6 +638,7 @@ describe("prompt token count lane", () => {
     lane.notify();
     clock.fireAll();
     await flush();
+    expect(calls).toBe(1);
     expect(state.promptTokenCount).not.toBe(null);
 
     // The stream did not touch the meter yet, but the count on screen already
@@ -645,6 +647,15 @@ describe("prompt token count lane", () => {
     lane.notify();
 
     expect(state.promptTokenCount).toBe(null);
+
+    // An empty or stopped generation can leave the settled prompt unchanged.
+    // The lane must still replace the count that it retired above.
+    state.stream = null;
+    lane.notify();
+    clock.fireDelay(250);
+    await flush();
+    expect(calls).toBe(2);
+    expect(state.promptTokenCount?.count).toEqual(countedAnswer(2));
     lane.dispose();
   });
 
