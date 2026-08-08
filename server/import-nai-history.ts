@@ -109,80 +109,110 @@ function build(
   }
 
   function importSubtree(
-    nodeId: SectionId,
-    parentPartIndex: number | null,
-    baseSections: ReadonlyMap<SectionId, NovelAiSection>,
-    baseOrder: readonly SectionId[],
-    allowRoot: boolean
+    startNodeId: SectionId,
+    startParentPartIndex: number | null,
+    startSections: ReadonlyMap<SectionId, NovelAiSection>,
+    startOrder: readonly SectionId[],
+    startAllowRoot: boolean
   ): void {
-    if (visited.has(nodeId) || room <= 0 || charsRoom <= 0) {
-      if (room <= 0 || charsRoom <= 0) counters.budgetHit = true;
-      return;
-    }
-    visited.add(nodeId);
-    const node = nodes.get(nodeId);
-    if (node === undefined) {
-      counters.malformed += 1;
-      return;
-    }
+    const pending: Array<{
+      nodeId: SectionId;
+      parentPartIndex: number | null;
+      baseSections: ReadonlyMap<SectionId, NovelAiSection>;
+      baseOrder: readonly SectionId[];
+      allowRoot: boolean;
+    }> = [{
+      nodeId: startNodeId,
+      parentPartIndex: startParentPartIndex,
+      baseSections: startSections,
+      baseOrder: startOrder,
+      allowRoot: startAllowRoot
+    }];
 
-    let changeSteps: readonly [unknown, unknown][];
-    try {
-      changeSteps = [...boundedEntries(asMapOrRecord(node.changesRaw), "history node changes")];
-    } catch {
-      counters.malformed += 1;
-      return;
-    }
-    if (changeSteps.some(([, step]) => !isPlainRecord(step) || step.type !== 0)) {
-      counters.notAdditive += 1;
-      return;
-    }
-
-    let newSections: Map<SectionId, NovelAiSection>;
-    let newOrder: readonly SectionId[];
-    try {
-      newSections = new Map(baseSections);
-      newOrder = applyDirtySections(newSections, baseOrder, asMapOrRecord(node.changesRaw));
-    } catch {
-      counters.malformed += 1;
-      return;
-    }
-
-    const baseOrderSet = new Set(baseOrder);
-    let precedingPartIndex = parentPartIndex;
-    const nodeDate = historyNodeDate(node.date);
-    for (const id of newOrder) {
-      if (baseOrderSet.has(id)) {
-        const known = placedIndex.get(id);
-        if (known !== undefined) precedingPartIndex = known;
-        continue;
-      }
-      const section = newSections.get(id);
-      if (section === undefined || section.type !== 1) continue;
-      const text = normalizeSectionText(section.text);
-      if (text.trim().length === 0) continue;
-      if (precedingPartIndex === null && !allowRoot) continue;
-      if (room <= 0 || text.length > charsRoom) {
+    while (pending.length > 0) {
+      if (room <= 0 || charsRoom <= 0) {
         counters.budgetHit = true;
         break;
       }
-      const combinedIndex = active.parts.length + result.length;
-      result.push({
-        instruction: "",
-        text,
-        createdAt: nodeDate,
-        parentIndex: precedingPartIndex,
-        active: false
-      });
-      room -= 1;
-      charsRoom -= text.length;
-      counters.imported += 1;
-      placedIndex.set(id, combinedIndex);
-      precedingPartIndex = combinedIndex;
-    }
+      const frame = pending.pop()!;
+      if (visited.has(frame.nodeId)) continue;
+      visited.add(frame.nodeId);
+      const node = nodes.get(frame.nodeId);
+      if (node === undefined) {
+        counters.malformed += 1;
+        continue;
+      }
 
-    for (const childId of childrenByParent.get(nodeId) ?? []) {
-      importSubtree(childId, precedingPartIndex, newSections, newOrder, false);
+      let changeSteps: readonly [unknown, unknown][];
+      try {
+        changeSteps = [...boundedEntries(asMapOrRecord(node.changesRaw), "history node changes")];
+      } catch {
+        counters.malformed += 1;
+        continue;
+      }
+      if (changeSteps.some(([, step]) => !isPlainRecord(step) || step.type !== 0)) {
+        counters.notAdditive += 1;
+        continue;
+      }
+
+      let newSections: ReadonlyMap<SectionId, NovelAiSection> = frame.baseSections;
+      let newOrder = frame.baseOrder;
+      if (changeSteps.length > 0) {
+        try {
+          const changedSections = new Map(frame.baseSections);
+          newOrder = applyDirtySections(changedSections, frame.baseOrder, asMapOrRecord(node.changesRaw));
+          newSections = changedSections;
+        } catch {
+          counters.malformed += 1;
+          continue;
+        }
+      }
+
+      let precedingPartIndex = frame.parentPartIndex;
+      if (changeSteps.length > 0) {
+        const baseOrderSet = new Set(frame.baseOrder);
+        const nodeDate = historyNodeDate(node.date);
+        for (const id of newOrder) {
+          if (baseOrderSet.has(id)) {
+            const known = placedIndex.get(id);
+            if (known !== undefined) precedingPartIndex = known;
+            continue;
+          }
+          const section = newSections.get(id);
+          if (section === undefined || section.type !== 1) continue;
+          const text = normalizeSectionText(section.text);
+          if (text.trim().length === 0) continue;
+          if (precedingPartIndex === null && !frame.allowRoot) continue;
+          if (room <= 0 || text.length > charsRoom) {
+            counters.budgetHit = true;
+            break;
+          }
+          const combinedIndex = active.parts.length + result.length;
+          result.push({
+            instruction: "",
+            text,
+            createdAt: nodeDate,
+            parentIndex: precedingPartIndex,
+            active: false
+          });
+          room -= 1;
+          charsRoom -= text.length;
+          counters.imported += 1;
+          placedIndex.set(id, combinedIndex);
+          precedingPartIndex = combinedIndex;
+        }
+      }
+
+      const children = childrenByParent.get(frame.nodeId) ?? [];
+      for (let index = children.length - 1; index >= 0; index -= 1) {
+        pending.push({
+          nodeId: children[index]!,
+          parentPartIndex: precedingPartIndex,
+          baseSections: newSections,
+          baseOrder: newOrder,
+          allowRoot: false
+        });
+      }
     }
   }
 

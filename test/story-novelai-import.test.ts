@@ -7,6 +7,7 @@ import {
   MAX_TOTAL_CHARS
 } from "../server/import-nai.js";
 import { ServiceError } from "../server/errors.js";
+import { alternatesFromNovelAiHistory } from "../server/import-nai-history.js";
 import {
   STATIC_SYNTHETIC_V2_BASE64,
   SyntheticNovelAiSectionDiff,
@@ -634,6 +635,29 @@ test("partsFromNovelAiStory degrades a malformed history without touching the ac
   }));
   assert.deepEqual(parsed.story.parts.map(({ text }) => text), ["Only active prose."]);
   assert.deepEqual(parsed.fidelity, ["retry history omitted: malformed", "generation settings omitted"]);
+});
+
+test("NovelAI V2 retry history walks a deep no-op branch without using the call stack", () => {
+  const nodes = new Map<string, { parent?: string; changes: Map<unknown, unknown> }>();
+  nodes.set("root", { changes: new Map() });
+  let parent = "root";
+  for (let index = 0; index < 20_000; index += 1) {
+    const id = `no-op-${index}`;
+    nodes.set(id, { parent, changes: new Map() });
+    parent = id;
+  }
+
+  const imported = alternatesFromNovelAiHistory(
+    { root: "root", current: "root", nodes },
+    {
+      parts: [{ instruction: "", text: "Active prose.", createdAt: "2026-01-01T00:00:00.000Z" }],
+      sectionIndex: new Map(),
+      room: MAX_PARTS - 1,
+      charsRoom: MAX_TOTAL_CHARS - "Active prose.".length
+    }
+  );
+
+  assert.deepEqual(imported, { parts: [], fidelity: [] });
 });
 
 test("partsFromNovelAiStory omits retries once the story is at the part limit", () => {
