@@ -4,6 +4,7 @@ import {
   REWRITE_DESTINATIONS,
   type CreateNodeRequest,
   type EditNodeRequest,
+  type PasteStoryLineRequest,
   type PruneUnusedTakesRequest,
   type RewriteDestination,
   type RewriteRequest,
@@ -54,6 +55,14 @@ export function parseCreateNode(value: unknown): CreateNodeRequest {
   if (genId !== null) throw new ServiceError(400, "sourceNodeId cannot carry genId");
   if (sourceNodeId === null) throw new ServiceError(400, "Missing sourceNodeId");
   return { ...common, sourceNodeId, expectedTextHash };
+}
+
+export function parsePasteStoryLine(value: unknown): PasteStoryLineRequest {
+  const body = requireRecord(value, "paste-line body");
+  return {
+    sourceNodeId: requireString(body.sourceNodeId, "sourceNodeId"),
+    expectedLeafId: requireString(body.expectedLeafId, "expectedLeafId")
+  };
 }
 
 export function parseEditNode(value: unknown): EditNodeRequest {

@@ -3,7 +3,9 @@ import { readImportBytes } from "./import-file.js";
 import { resolveMachineTierRoot } from "./machine-tier.js";
 import { InternalErrorReporter } from "./internal-error-reporter.js";
 import { terminalLineText as plain } from "../shared/terminal-text.js";
+import { fidelityReport } from "../shared/fidelity.js";
 import { StoryService } from "./story-service.js";
+import { sillyTavernFidelity } from "./import-st.js";
 
 const files = process.argv.slice(2);
 
@@ -36,13 +38,14 @@ try {
       let title: string;
       let partsCount: number;
       let id: string;
-      let dropped = 0;
+      let fidelity: readonly string[] | null = null;
 
       if (isStory) {
         const imported = await service.importNovelAIWithReport(content);
         title = imported.payload.title;
         partsCount = imported.payload.nodes.length;
         id = imported.payload.id;
+        fidelity = imported.fidelity;
       } else if (isMarkdown) {
         const defaultTitle = path.basename(file, path.extname(file));
         const imported = await service.importMarkdownWithReport(content, { defaultTitle });
@@ -54,13 +57,11 @@ try {
         title = imported.payload.title;
         partsCount = imported.payload.nodes.length;
         id = imported.payload.id;
-        dropped = imported.droppedTrailingUserMessages;
+        fidelity = sillyTavernFidelity(imported);
       }
 
-      console.log(
-        `${plain(file)}: imported "${plain(title)}" (${partsCount} parts) as ${id}` +
-          (dropped > 0 ? ` — dropped ${dropped} trailing user message${dropped === 1 ? "" : "s"}` : "")
-      );
+      if (fidelity !== null) console.error(`${plain(file)}: ${plain(fidelityReport(fidelity))}`);
+      console.log(`${plain(file)}: imported "${plain(title)}" (${partsCount} parts) as ${id}`);
     } catch (error) {
       failed = true;
       console.error(`${plain(file)}: ${plain(error instanceof Error ? error.message : String(error))}`);

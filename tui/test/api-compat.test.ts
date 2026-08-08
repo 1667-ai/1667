@@ -1083,7 +1083,10 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
     }
     if (path.endsWith("/export")) return new Response("# Story\n");
     if (path === "/api/import/sillytavern") {
-      return Response.json(storyPayload("imported"));
+      return Response.json({
+        payload: storyPayload("imported"),
+        fidelity: []
+      });
     }
     if (path === "/api/import/markdown") {
       importBodies.push(decodeMarkdownHttpBody(String(init?.body)));

@@ -92,6 +92,18 @@ export interface TagPrompt {
   returnMode: "NAV" | "MAP";
 }
 
+/** The source anchor "Copy story line below" captured — the copied part's
+ *  descendant chain, not its content. "Paste story line below" re-derives
+ *  and re-validates the actual chain from `sourceNodeId` against the live
+ *  payload at paste time; `expectedLeafId` and `parts` only guard staleness
+ *  and drive the toast, matching the server's own staleness check. */
+export interface StoryLineClipboard {
+  storyId: string;
+  sourceNodeId: string;
+  expectedLeafId: string;
+  parts: number;
+}
+
 /** Both import prompts ask for a file path and answer the same keys. */
 export type CardImportPrompt = FilePathPrompt;
 
@@ -511,6 +523,10 @@ export interface StoryScreenState extends OverlayState {
   contextMeterExpanded: boolean;
   prune: PrunePlan | null;
   tag: TagPrompt | null;
+  /** The bounded source selection held between "Copy story line below" and
+   *  "Paste story line below" — never the copied prose itself, just enough
+   *  to re-derive and re-validate the live chain at paste time. */
+  lineClipboard: StoryLineClipboard | null;
   /** Expanded dead-end chapter-summary cards in the reading column. */
   expandedChapterSummaryIds: Set<string>;
   /** Direct divider deletion uses the same two-step safety as prune. */

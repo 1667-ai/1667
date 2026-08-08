@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { activeLineFingerprintSource } from "../shared/story-text.js";
-import { activePath, pathTo } from "../shared/story-tree.js";
+import { activePath, descendantLine, pathTo } from "../shared/story-tree.js";
 import {
   type EditNodeRequest,
+  type PasteStoryLineRequest,
   type PruneUnusedTakesRequest,
   type Story,
   type StorySummary
@@ -40,10 +41,13 @@ import {
 } from "./story-lifecycle.js";
 import {
   applyHumanEdit,
+  assertStoryLineCopySize,
   createTake,
   createTakeFromCut as createCutTake,
   deleteSubtree,
   newNode,
+  pasteStoryLine as pasteLineNodes,
+  type PasteStoryLineIds,
   pruneUnusedTakes as pruneUnusedStoryTakes,
   requireNode,
   switchLine as switchTreeLine
@@ -282,6 +286,22 @@ export class StoryStore {
     return await this.mutate(id, async (story) => {
       await this.hydratePath(story, nodeId);
       applyHumanEdit(story, nodeId, request);
+    });
+  }
+
+  async pasteStoryLine(
+    id: string,
+    targetParentId: string,
+    body: PasteStoryLineRequest,
+    ids: PasteStoryLineIds = {}
+  ): Promise<Story> {
+    return await this.mutate(id, async (story) => {
+      const firstCloneId = ids.nodeId?.(0);
+      if (firstCloneId !== undefined && story.nodes.some((node) => node.id === firstCloneId)) return STORY_UNCHANGED;
+      const sourceLine = descendantLine(story, body.sourceNodeId);
+      assertStoryLineCopySize(sourceLine.length);
+      await this.hydrateNodes(story, sourceLine.map((node) => node.id));
+      pasteLineNodes(story, body.sourceNodeId, targetParentId, body.expectedLeafId, ids);
     });
   }
 

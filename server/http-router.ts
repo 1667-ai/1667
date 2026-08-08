@@ -594,6 +594,13 @@ async function handleApi(
       body: await jsonBody()
     }));
   }
+  if (head === "stories" && id !== undefined && sub === "nodes" && subId !== undefined && action === "paste-line" && method === "POST") {
+    return sendJson(response, 201, await mutate("pasteStoryLine", {
+      storyId: id,
+      nodeId: subId,
+      body: await jsonBody()
+    }));
+  }
   if (head === "stories" && id !== undefined && sub === "nodes" && subId !== undefined && action === "rewrite" && method === "POST") {
     const body = await jsonBody();
     return await streamResponse(request, response,

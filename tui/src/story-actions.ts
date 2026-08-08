@@ -1,4 +1,4 @@
-import { createStoryIndex, rememberedLeafId } from "../../shared/story-model.js";
+import { continuationStats, createStoryIndex, rememberedLeafId } from "../../shared/story-model.js";
 import { TAG_STATUSES, type StoryNode } from "../../shared/types.js";
 import type { AppSource } from "./app.js";
 import { openFactFromSelection, openPartEditor } from "./editor-action.js";
@@ -219,6 +219,7 @@ export function openActions(
  *  always row N to a click. */
 export function currentPartActions(
   state: Pick<RuntimeState, "actions" | "focusIndex" | "payload" | "stream">
+    & { lineClipboard?: RuntimeState["lineClipboard"] }
 ): PartAction[] {
   const view = createStoryViewModel(state.payload, state.stream);
   const index = state.actions === null
@@ -233,7 +234,8 @@ export function currentPartActions(
   const actions = partActions(
     part?.node,
     part?.pathIndex === state.payload.path.length - 1,
-    selection
+    selection,
+    state.lineClipboard?.storyId === state.payload.id
   );
   const persisted = part !== null && state.payload.nodes.some(({ id }) => id === part.id);
   return persisted ? actions : actions.filter(({ id }) => !partActionRequiresPersistedTarget(id));
@@ -313,6 +315,50 @@ export async function runPartAction(
   }
   else if (id === "tag") openTag(state, node.id);
   else if (id === "prune") armPrune(state, node.id);
+  else if (id === "copy-line") copyStoryLineBelow(state, node.id);
+  else if (id === "paste-line") await pasteStoryLineBelow(state, source, context, node.id);
+}
+
+/** Hold the source anchor, not the copied prose: `pasteStoryLineBelow`
+ *  re-derives and re-validates the live chain at paste time, the same way
+ *  every other multi-step story mutation here re-checks a captured id
+ *  against the current payload instead of trusting stale content. */
+function copyStoryLineBelow(state: RuntimeState, nodeId: string): void {
+  const stats = continuationStats(state.payload, nodeId);
+  if (stats.parts === 0) {
+    state.toast = "nothing below this part to copy";
+    return;
+  }
+  state.lineClipboard = {
+    storyId: state.payload.id,
+    sourceNodeId: nodeId,
+    expectedLeafId: rememberedLeafId(state.payload, nodeId),
+    parts: stats.parts
+  };
+  state.toast = `copied story line · ${stats.parts} ${stats.parts === 1 ? "part" : "parts"}`;
+}
+
+async function pasteStoryLineBelow(
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext,
+  targetParentId: string
+): Promise<void> {
+  const clipboard = state.lineClipboard;
+  if (clipboard === null || clipboard.storyId !== state.payload.id) {
+    state.toast = "nothing copied to paste";
+    return;
+  }
+  await context.backend.run("pasting story line", async (task) => {
+    const payload = await source.api.pasteStoryLine(task.storyId, targetParentId, {
+      sourceNodeId: clipboard.sourceNodeId,
+      expectedLeafId: clipboard.expectedLeafId
+    });
+    if (!task.storyCurrent()) return;
+    adoptSameStoryPayload(state, payload, context.cache);
+    state.lineClipboard = null;
+    state.toast = `pasted story line · ${clipboard.parts} ${clipboard.parts === 1 ? "part" : "parts"}`;
+  });
 }
 
 function resumePendingRetakeDraft(state: RuntimeState): boolean {

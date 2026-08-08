@@ -3,6 +3,7 @@ import {
   MAX_IMPORT_BYTES,
   MAX_PARTS,
   MAX_TOTAL_CHARS,
+  totalImportedPartChars,
   type GenericImport,
   type ImportedPart
 } from "./import-model.js";
@@ -10,6 +11,8 @@ import {
   MAX_NOVELAI_RECORDS,
   partsFromNovelAiDocument
 } from "./import-nai-document.js";
+import { alternatesFromNovelAiLegacyHistory } from "./import-nai-legacy-history.js";
+import { splitLegacyStoryLines } from "./import-nai-legacy-lines.js";
 import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
 import {
   MAX_FACTS,
@@ -80,19 +83,28 @@ export function partsFromNovelAiStory(jsonText: string): NovelAiContainerImport 
   const title = importTitle(rawJson.metadata?.title);
   const document = rawJson.content.document;
   let story: GenericImport;
+  const fidelity: string[] = [];
   if (typeof document === "string" && document.length > 0) {
-    story = { title, parts: partsFromNovelAiDocument(document) };
+    const documentImport = partsFromNovelAiDocument(document);
+    story = { title, parts: [...documentImport.parts] };
+    fidelity.push(...documentImport.fidelity);
   } else if (document !== undefined && document !== "") {
     throw new ServiceError(400, "Malformed MessagePack document");
   } else {
-    story = parseLegacyStory(rawJson.content.story, title);
+    const legacy = parseLegacyStory(rawJson.content.story, title);
+    const alternates = alternatesFromNovelAiLegacyHistory(rawJson.content.story, {
+      parts: legacy.parts,
+      room: MAX_PARTS - legacy.parts.length,
+      charsRoom: MAX_TOTAL_CHARS - totalImportedPartChars(legacy.parts)
+    });
+    story = { title, parts: [...legacy.parts, ...alternates.parts] };
+    fidelity.push(...alternates.fidelity);
   }
 
-  const fidelity: string[] = [];
   const facts = extractFacts(rawJson.content.context, rawJson.content.lorebook, fidelity);
   const authorsNote = extractAuthorsNote(rawJson.content.context, fidelity);
 
-  fidelity.push("generation settings and retry history omitted");
+  fidelity.push("generation settings omitted");
 
   return { story, facts, authorsNote, fidelity };
 }
@@ -209,20 +221,13 @@ function parseLegacyStory(storyRaw: unknown, title: string): GenericImport {
     fragments.push(fragment.data);
   }
 
-  const prose = fragments.join("").normalize("NFC")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n");
-  if (prose.length > MAX_TOTAL_CHARS) throw importTextTooLarge();
+  const prose = splitLegacyStoryLines(fragments.join(""));
+  if (prose.normalizedLength > MAX_TOTAL_CHARS) throw importTextTooLarge();
 
   const parts: ImportedPart[] = [];
   const createdAt = new Date().toISOString();
   let partChars = 0;
-  let start = 0;
-  for (let index = 0; index <= prose.length; index += 1) {
-    if (index < prose.length && prose[index] !== "\n") continue;
-    const line = prose.slice(start, index);
-    start = index + 1;
-    if (line.trim().length === 0) continue;
+  for (const line of prose.lines) {
     if (parts.length === MAX_PARTS) {
       throw new ServiceError(
         400,

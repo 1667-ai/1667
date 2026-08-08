@@ -16,7 +16,7 @@ export type MouseGesture = Pick<
  *  under an open menu or list are derived from the story, and reconciliation
  *  has to compare the row, not its index. */
 export type MouseActionState = Pick<RuntimeState,
-  | "mode" | "focusIndex" | "hitRows" | "map" | "payload" | "stream" | "demo"
+  | "mode" | "focusIndex" | "hitRows" | "map" | "payload" | "stream" | "demo" | "lineClipboard"
   | "connection" | "composer" | "editor"
   | "actions" | "textActions" | "library" | "facts" | "commands" | "chapters" | "settings"
   | "search"
@@ -185,6 +185,7 @@ export function captureMouseActionState(state: RuntimeState): MouseActionState {
     // snapshot.
     payload: state.payload,
     stream: state.stream,
+    lineClipboard: state.lineClipboard === null ? null : { ...state.lineClipboard },
     demo: state.demo,
     composer: state.composer,
     editor: state.editor,

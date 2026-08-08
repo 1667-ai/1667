@@ -34,6 +34,7 @@ import {
 } from "../shared/story-search.js";
 import { StorySearchIndex } from "./story-search-index.js";
 import { parseSearchRequest } from "./service-input.js";
+import type { PasteStoryLineIds } from "./story-nodes.js";
 import {
   isServiceOwnedSettingsMutation,
   type LocalDurabilityMutationMethod,
@@ -543,6 +544,22 @@ export class StoryService extends StoryServiceRuntime {
     );
   }
 
+  async pasteStoryLine(
+    id: string,
+    targetParentId: string,
+    value: unknown,
+    ids?: PasteStoryLineIds,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return await this.storyLocal.pasteStoryLine(
+      id,
+      targetParentId,
+      value,
+      ids,
+      mutationRequest
+    );
+  }
+
   async putBookmark(
     id: string,
     nodeId: string,
@@ -735,7 +752,11 @@ export class StoryService extends StoryServiceRuntime {
     jsonl: string,
     ids: { storyId?: string; nodeId?: (index: number) => string } = {},
     mutationRequest?: unknown
-  ): Promise<{ payload: StoryPayload; droppedTrailingUserMessages: number }> {
+  ): Promise<{
+    payload: StoryPayload;
+    droppedTrailingUserMessages: number;
+    omittedAlternateSwipes: number;
+  }> {
     this.ensureOpen();
     if (Buffer.byteLength(jsonl) > MAX_IMPORT_BYTES) throw new ServiceError(413, "Request body too large");
     const imported = partsFromSillyTavernJsonl(jsonl);
@@ -746,7 +767,8 @@ export class StoryService extends StoryServiceRuntime {
         ids,
         mutationRequest
       ),
-      droppedTrailingUserMessages: imported.droppedTrailingUserMessages
+      droppedTrailingUserMessages: imported.droppedTrailingUserMessages,
+      omittedAlternateSwipes: imported.omittedAlternateSwipes
     };
   }
 

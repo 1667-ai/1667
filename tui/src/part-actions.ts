@@ -2,7 +2,8 @@ import type { StoryNode } from "../../shared/types.js";
 
 export type PartActionId =
   | "direct" | "continue" | "retake" | "retake-with-prompt" | "write" | "edit"
-  | "copy" | "fact-from-selection" | "rewrite-selection" | "tag" | "prune";
+  | "copy" | "fact-from-selection" | "rewrite-selection" | "tag" | "prune"
+  | "copy-line" | "paste-line";
 
 export interface PartAction {
   id: PartActionId;
@@ -13,7 +14,8 @@ export interface PartAction {
 /** Local prompt/confirmation phases that must never freeze a virtual stream ID
  * as their eventual mutation target. */
 export function partActionRequiresPersistedTarget(id: PartActionId): boolean {
-  return id === "tag" || id === "prune" || id === "retake-with-prompt" || id === "rewrite-selection";
+  return id === "tag" || id === "prune" || id === "retake-with-prompt" || id === "rewrite-selection"
+    || id === "copy-line" || id === "paste-line";
 }
 
 /** "none": no selection. "text": a selection exists but is not one
@@ -25,7 +27,8 @@ export type PartActionSelection = "none" | "text" | "rewritable";
 export function partActions(
   node: StoryNode | undefined,
   isLeaf: boolean,
-  selection: PartActionSelection = "none"
+  selection: PartActionSelection = "none",
+  hasCopiedLine = false
 ): PartAction[] {
   if (node === undefined) return [];
   const summary = node.role === "summary";
@@ -54,6 +57,16 @@ export function partActions(
     id: "rewrite-selection",
     name: "Rewrite selection",
     description: "regenerate the highlighted text"
+  });
+  if (!isLeaf) actions.push({
+    id: "copy-line",
+    name: "Copy story line below",
+    description: "hold every part below this one, ready to paste elsewhere"
+  });
+  if (hasCopiedLine) actions.push({
+    id: "paste-line",
+    name: "Paste story line below",
+    description: "attach the copied line here as the active continuation"
   });
   actions.push(
     { id: "tag", name: "Tag", description: "name the line this part ends" },

@@ -78,16 +78,27 @@ export function activePath<Node extends TreeNode>(state: TreeSource<Node>): Node
   const index = isTreeIndex(state) ? state : indexTree(state);
   const root = index.nodesById.get(state.activeRootId) ?? null;
   if (root === null || !isLineNode(root)) return [];
+  return [root, ...descendantLine(index, root.id)];
+}
 
-  const path = [root];
-  let current = root;
+/** The active descendant path below one node: `activeChildId` followed
+ * forward, node by node, until it stops. Excludes the node itself, so an
+ * empty result means nothing continues below it. `activePath` is this
+ * traversal seeded at a story's active root. */
+export function descendantLine<Node extends TreeNode>(state: TreeSource<Node>, nodeId: string): Node[] {
+  const index = isTreeIndex(state) ? state : indexTree(state);
+  const start = index.nodesById.get(nodeId) ?? null;
+  if (start === null || !isLineNode(start)) return [];
+
+  const line: Node[] = [];
+  let current = start;
   while (current.activeChildId !== null) {
     const child = index.nodesById.get(current.activeChildId) ?? null;
     if (child === null || child.parentId !== current.id || !isLineNode(child)) break;
-    path.push(child);
+    line.push(child);
     current = child;
   }
-  return path;
+  return line;
 }
 
 export function activeLeafId<Node extends TreeNode>(state: TreeSource<Node>): string | null {
