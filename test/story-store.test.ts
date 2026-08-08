@@ -30,7 +30,10 @@ import {
   type StoryManifestV4
 } from "../server/story-format.js";
 import { STORY_LIST_IO_CONCURRENCY, StoryStore } from "../server/stories.js";
-import { pruneUnusedTakes as pruneUnusedStoryTakes } from "../server/story-nodes.js";
+import {
+  pasteStoryLine as pasteStoryLineNodes,
+  pruneUnusedTakes as pruneUnusedStoryTakes
+} from "../server/story-nodes.js";
 import { summarySourceFingerprint, type SummaryPoint } from "../server/summary-take.js";
 
 const NOW = "2026-01-01T00:00:00.000Z";
@@ -249,12 +252,10 @@ test("story store: deleting a descendant repairs an inactive subtree's remembere
   assert.equal(reloaded.nodes.find(({ id }) => id === "B")!.activeChildId, null);
 });
 
-// A full HTTP round trip to build a 5,000-part chain would dominate the
-// suite's runtime; this exercises the same paste path (StoryStore, not the
-// bare story-nodes.ts function) at the one scale an HTTP fixture cannot
-// afford to construct.
-test("story store: pasting a story line rejects a chain over the size cap", async (t) => {
-  const { store } = await testStore(t);
+// An HTTP or storage fixture for a 5,001-part chain makes this single bound
+// check dominate the suite. The HTTP integration tests cover the other paste
+// validation. This component test supplies the only impractical boundary.
+test("story nodes: pasting a story line rejects a chain over the size cap", () => {
   const chainIds = Array.from({ length: MAX_STORY_LINE_COPY_PARTS + 1 }, (_, index) => `chain-${index}`);
   const chainNodes = chainIds.map((id, index) =>
     node(id, index === 0 ? "root" : chainIds[index - 1]!, `part ${index}`, chainIds[index + 1] ?? null));
@@ -266,12 +267,8 @@ test("story store: pasting a story line rejects a chain over the size cap", asyn
     node("target", null, "target"),
     ...chainNodes
   ], "root");
-  await store.save(story);
-  await assert.rejects(
-    () => store.pasteStoryLine("paste-oversized", "target", {
-      sourceNodeId: "root",
-      expectedLeafId: chainIds.at(-1)!
-    }),
+  assert.throws(
+    () => pasteStoryLineNodes(story, "root", "target", chainIds.at(-1)!),
     (error: unknown) => error instanceof HttpError && error.status === 400
   );
 });
