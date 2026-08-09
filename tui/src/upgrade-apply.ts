@@ -21,6 +21,7 @@ import {
   type UpgradeRegistry
 } from "./upgrade-plan.js";
 import { downloadPlatformPackage } from "./upgrade-download.js";
+import type { PackageDownloadProgressHandler } from "./upgrade-download.js";
 import {
   materializeCandidate,
   probeCandidateVersion
@@ -42,6 +43,7 @@ export interface UpgradeApplyDependencies {
   readonly registry?: UpgradeRegistry;
   readonly fetcher?: RegistryFetch;
   readonly signal?: AbortSignal;
+  readonly onDownloadProgress?: PackageDownloadProgressHandler;
   /** `--force`: accept an Install Root another account can write. */
   readonly force?: boolean;
 }
@@ -117,7 +119,8 @@ export async function applyUpgrade(
         integrity: meta.integrity,
         destinationPath: paths.packageStaging,
         signal: lockedSignal,
-        fetcher: dependencies.fetcher
+        fetcher: dependencies.fetcher,
+        onProgress: dependencies.onDownloadProgress
       });
       await materializeCandidate({
         packagePath: paths.packageStaging,

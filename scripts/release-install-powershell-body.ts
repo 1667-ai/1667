@@ -48,7 +48,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$ProgressPreference = 'SilentlyContinue'
+$ProgressPreference = 'Continue'
 
 $ProductVersion = '${input.version}'
 $InstallChannel = '${input.channel}'
@@ -198,6 +198,8 @@ function Download-Archive([string]$Url, [string]$Destination) {
       $Destination, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
     $buffer = New-Object byte[] 65536
     $total = 0L
+    $lastProgress = -1L
+    $activity = "Downloading 1667 $ProductVersion"
     while (($count = $inputStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
       $total += $count
       if ($total -gt $MaxArchiveBytes) { Fail 'Release Archive is too large.' }
@@ -206,9 +208,25 @@ function Download-Archive([string]$Url, [string]$Destination) {
         Fail 'Release Archive download exceeded its time limit.'
       }
       $outputStream.Write($buffer, 0, $count)
+      if ($response.ContentLength -gt 0) {
+        $percent = [Math]::Min(100, [Math]::Floor(100 * $total / $response.ContentLength))
+        if ($percent -ne $lastProgress) {
+          Write-Progress -Activity $activity -Status "$percent%" -PercentComplete $percent
+          $lastProgress = $percent
+        }
+      } else {
+        $bucket = [Math]::Floor($total / 1MB)
+        if ($bucket -ne $lastProgress) {
+          Write-Progress -Activity $activity -Status "$total bytes" -PercentComplete -1
+          $lastProgress = $bucket
+        }
+      }
     }
     $outputStream.Flush($true)
   } finally {
+    if ($null -ne $response) {
+      Write-Progress -Activity "Downloading 1667 $ProductVersion" -Completed
+    }
     $deadline.Stop()
     if ($null -ne $outputStream) { $outputStream.Dispose() }
     if ($null -ne $inputStream) { $inputStream.Dispose() }

@@ -526,9 +526,11 @@ a valid Ownership Record grants installation authority. npm, source, and copied
 installations stay read-only to `1667 upgrade`.
 
 `1667 upgrade` downloads the Platform Package from the canonical npm registry.
-It verifies the SHA-512 integrity value. It extracts the Candidate. It probes
-the build identity. It uses a recoverable transaction to replace the
-executable. The transaction stays in the Install Root.
+It shows download progress when standard error is a terminal. It writes no
+progress when output is redirected or when `--json` is active. It verifies the
+SHA-512 integrity value. It extracts the Candidate. It probes the build
+identity. It uses a recoverable transaction to replace the executable. The
+transaction stays in the Install Root.
 
 `1667 upgrade --rollback` works offline.
 
@@ -538,7 +540,8 @@ command. The command downloads `install-stable.ps1` from the exact, immutable
 `v<version>` GitHub release that the plan selected; it does not re-resolve the
 moving homepage route. Exit 1667 before you run that command. Run the same
 command again for an upgrade. The PowerShell Installer keeps the Installation
-ID. Windows does not support `1667 upgrade --rollback`.
+ID. The PowerShell Installer shows archive download progress. Windows does not
+support `1667 upgrade --rollback`.
 
 Background update checks stay notify-only. They never install a Candidate.
 

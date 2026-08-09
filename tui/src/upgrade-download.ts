@@ -16,6 +16,16 @@ import { UpgradeFailure } from "./upgrade-contract.js";
 
 export type PackageFetch = (input: string, init: RequestInit) => Promise<Response>;
 
+export interface PackageDownloadProgress {
+  readonly downloadedBytes: number;
+  readonly totalBytes: number | null;
+  readonly state: "active" | "complete" | "failed";
+}
+
+export type PackageDownloadProgressHandler = (
+  progress: PackageDownloadProgress
+) => void;
+
 /** Cumulative wall-clock deadline for headers plus the complete body (600s). */
 export const DEFAULT_PACKAGE_DOWNLOAD_TIMEOUT_MS = RELEASE_TRANSFER_TOTAL_TIMEOUT_MS;
 /** Body-idle bound between chunks; independent of the wall-clock deadline (60s). */
@@ -34,6 +44,7 @@ export async function downloadPlatformPackage(options: {
   readonly signal: AbortSignal;
   readonly fetcher?: PackageFetch;
   readonly maximumBytes?: number;
+  readonly onProgress?: PackageDownloadProgressHandler;
   /** Deterministic short wall-clock timeout for tests; defaults to production. */
   readonly requestTimeoutMs?: number;
   /** Deterministic short body-idle timeout for tests; defaults to production. */
@@ -68,6 +79,26 @@ export async function downloadPlatformPackage(options: {
     () => wallTimeout.abort(new DOMException("Package download timed out", "TimeoutError")),
     wallTimeoutMs
   );
+  let progressStarted = false;
+  let progressEnded = false;
+  let lastProgressBucket = -1;
+  let downloadedBytes = 0;
+  let totalBytes: number | null = null;
+  const reportProgress = (state: PackageDownloadProgress["state"]): void => {
+    if (!progressStarted || options.onProgress === undefined) return;
+    if (state === "active") {
+      const bucket = totalBytes === null
+        ? Math.floor(downloadedBytes / (1024 * 1024))
+        : Math.floor(100 * downloadedBytes / totalBytes);
+      if (bucket === lastProgressBucket) return;
+      lastProgressBucket = bucket;
+    }
+    try {
+      options.onProgress(Object.freeze({ downloadedBytes, totalBytes, state }));
+    } catch {
+      // Progress is advisory. A closed terminal must not change the upgrade.
+    }
+  };
   let response: Response | undefined;
   try {
     try {
@@ -97,6 +128,9 @@ export async function downloadPlatformPackage(options: {
       await cancelResponseBody(response);
       throw new UpgradeFailure("verification_failed", "Release package size is outside the bound.");
     }
+    totalBytes = declared !== null && Number(declared) > 0 ? Number(declared) : null;
+    progressStarted = true;
+    reportProgress("active");
 
     const hash = createHash("sha512");
     let fd: number | null = null;
@@ -152,6 +186,8 @@ export async function downloadPlatformPackage(options: {
           bytes += chunk.byteLength;
           hash.update(chunk);
           writeAll(fd, chunk);
+          downloadedBytes = bytes;
+          reportProgress("active");
         }
       } finally {
         if (idleTimer !== null) clearTimeout(idleTimer);
@@ -189,9 +225,12 @@ export async function downloadPlatformPackage(options: {
         "Release package integrity did not match the registry metadata."
       );
     }
+    reportProgress("complete");
+    progressEnded = true;
     return Object.freeze({ bytes, sha512Hex });
   } finally {
     clearTimeout(wallTimer);
+    if (!progressEnded) reportProgress("failed");
   }
 }
 

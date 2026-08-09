@@ -5,6 +5,9 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- Show live download progress for managed upgrades and the Windows Installer.
+  Thanks to @10fra.
+
 - **Prompt-token counting stops for all active provider work.** A count could
   continue before a generation showed its stream. It could also restart while
   a stopped generation was still settling. 1667 now stops an active count when
