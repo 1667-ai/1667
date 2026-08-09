@@ -103,6 +103,10 @@ export async function generate(
     stopInteractionVersion: null as number | null
   };
   state.abort = active;
+  // Publish the provider claim before textHash() yields. ActionRuntime's
+  // start repaint happens before this claim exists, and prompt-token work
+  // already in flight must stop for the complete provider-work lifetime.
+  repaint();
   const signal = controller.signal;
   const storyId = task.storyId;
   const composerClaimEpoch = state.composerClaimEpoch;

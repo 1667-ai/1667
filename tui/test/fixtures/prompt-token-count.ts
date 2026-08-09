@@ -56,9 +56,10 @@ export function promptTokenCountStream(text: string): StreamView {
 }
 
 export function promptTokenCountFixture() {
-  const state = initialState(demoAppSource(), false);
+  const source = demoAppSource();
+  const state = initialState(source, false);
   const clock = promptTokenCountClock();
   let repaints = 0;
   const repaint = () => { repaints += 1; };
-  return { state, clock, repaint, repaints: () => repaints };
+  return { state, source, clock, repaint, repaints: () => repaints };
 }
