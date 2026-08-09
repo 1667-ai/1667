@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Prompt-token counting stops for all active provider work.** A count could
+  continue before a generation showed its stream. It could also restart while
+  a stopped generation was still settling. 1667 now stops an active count when
+  provider work starts. It counts once after the provider owner releases the
+  operation. This behavior also applies to rewrites and summaries. Thanks
+  @10fra for the report.
+
 - **1667 installs and updates in a directory that other software also uses.**
   The Installer and `1667 upgrade` refused an Install Root when any directory
   above it was group-writable or world-writable, was a symbolic link, or

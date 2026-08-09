@@ -178,6 +178,8 @@ counted number. Each category and each message keeps its estimate.
 1667 counts the request after you stop typing. It counts the request again when
 you open the request viewer. A count never delays a keystroke. If the model
 server does not answer, 1667 keeps the estimate and shows no error.
+1667 does not count while a generation, rewrite, or summary is active. It
+counts again after the operation ends.
 
 ## Request viewer
 

@@ -108,10 +108,11 @@ export function startPromptTokenCountLane(
    *  timer makes that bound real: an idle session repaints rarely, and a bound
    *  nothing observes is a promise the meter does not keep. */
   let expiryTimer: TimerHandle | null = null;
-  /** Whether the previous `notify()` saw a stream in flight, so the one
-   *  notification that carries generation from active to finished is told
-   *  apart from the many that arrived while it was still streaming. */
-  let wasGenerating = state.stream !== null;
+  /** Whether the previous `notify()` saw provider work in flight, so the one
+   *  notification that releases its owner is told apart from the many that
+   *  arrived while it was still active. A stopped request clears its visible
+   *  stream before its abort owner finishes settlement. */
+  let providerWorkActive = hasProviderOwner(state);
 
   const clearTimer = () => {
     if (timer !== null) cancel(timer);
@@ -159,15 +160,13 @@ export function startPromptTokenCountLane(
 
   const runCount = (onDemand = false) => {
     if (disposed) return;
-    // A generation in flight rewrites `state.stream.text` on every delta, so
-    // any count a probe answered here would already be describing a shorter
-    // draft by the time it lands. `notify()` already keeps the debounce from
-    // firing during a stream; this is the backstop for the two paths that
-    // reach `runCount` without going through `notify()` at all: the cooldown
-    // and expiry timers, armed earlier, calling `queueDebounced()` straight
-    // from their own callbacks. Generation ending is what lets them through
-    // again, via the `wasGenerating` branch below.
-    if (state.stream !== null) return;
+    // Provider work can rewrite the projected prompt or still own settlement.
+    // `notify()` already keeps the debounce from firing while that owner is
+    // active; this is the backstop for the two paths that reach `runCount`
+    // without going through `notify()` at all: the cooldown and expiry timers,
+    // armed earlier, calling `queueDebounced()` from their own callbacks. The
+    // provider owner ending is what lets them through again.
+    if (hasProviderOwner(state)) return;
     const projected = projectNextRequest(state);
     const estimate = nextRequestEstimate(projected.payload, projected.context);
     const route = state.generationRoute;
@@ -306,12 +305,11 @@ export function startPromptTokenCountLane(
     const openedRequestViewer = state.mode === "REQUEST" && lastMode !== "REQUEST";
     lastMode = state.mode;
 
-    if (state.stream !== null) {
-      // Every delta repaints, and the streamed prompt is different on each
-      // one: asking about it would only launch a probe the very next delta
-      // immediately supersedes, the abort/relaunch churn this lane exists to
-      // avoid. No debounce is even queued: there is nothing to answer until
-      // the stream stops moving.
+    if (hasProviderOwner(state)) {
+      // A stream repaints on every delta. Summary and post-Stop settlement can
+      // also repaint before their provider owner clears. A count during any of
+      // these phases is stale or competes with work that is still settling.
+      // No debounce is queued until that owner clears.
       clearTimer();
       abortInFlight();
       clearExpiryTimer();
@@ -329,15 +327,15 @@ export function startPromptTokenCountLane(
         state.promptTokenCount = null;
         repaint();
       }
-      wasGenerating = true;
+      providerWorkActive = true;
       return;
     }
-    if (wasGenerating) {
-      // The stream just ended. Every repaint it produced was swallowed above
-      // without queuing anything, so this is the one debounce that answers
-      // for all of them, not an on-demand call even if the request viewer
-      // happens to already be open.
-      wasGenerating = false;
+    if (providerWorkActive) {
+      // The provider owner just cleared. Every repaint it produced was
+      // swallowed above without queuing anything, so this is the one debounce
+      // that answers for all of them, not an on-demand call even if the
+      // request viewer happens to already be open.
+      providerWorkActive = false;
       queueDebounced();
       return;
     }
@@ -361,4 +359,10 @@ export function startPromptTokenCountLane(
       abortInFlight();
     }
   };
+}
+
+/** The abort claim is the provider-work lifetime. It starts before a stream,
+ * remains through settlement, and excludes a preserved ownerless stream. */
+function hasProviderOwner(state: Pick<RuntimeState, "abort">): boolean {
+  return state.abort !== null;
 }
