@@ -34,6 +34,7 @@ test("PowerShell Installer handles install, repeat, and upgrade cases", async (t
   const scratch = await mkdtemp(path.join(tmpdir(), "1667-powershell-install-"));
   t.after(() => rm(scratch, { recursive: true, force: true }));
   const assets = new Map<string, Buffer>();
+  let chunkedAssetPath: string | null = null;
   const server = createServer((request, response) => {
     const asset = assets.get(request.url ?? "");
     if (asset === undefined) {
@@ -42,6 +43,21 @@ test("PowerShell Installer handles install, repeat, and upgrade cases", async (t
       return;
     }
     response.writeHead(200, { "content-length": asset.byteLength });
+    if (request.url === chunkedAssetPath) {
+      const chunkSize = Math.max(1, Math.floor(asset.byteLength / 3));
+      let offset = 0;
+      const send = () => {
+        if (offset >= asset.byteLength) {
+          response.end();
+          return;
+        }
+        response.write(asset.subarray(offset, offset + chunkSize));
+        offset += chunkSize;
+        setTimeout(send, 20);
+      };
+      send();
+      return;
+    }
     response.end(asset);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -55,6 +71,7 @@ test("PowerShell Installer handles install, repeat, and upgrade cases", async (t
 
   const v1 = await addRelease(assets, scratch, base, "1.2.3", "v1");
   const v2 = await addRelease(assets, scratch, base, "1.2.4", "v2");
+  chunkedAssetPath = `/v2/${v2.archiveName}`;
   const installRoot = path.join(scratch, "managed");
 
   const fresh = await runInstaller(v1.url, installRoot);
@@ -127,10 +144,14 @@ test("PowerShell Installer handles install, repeat, and upgrade cases", async (t
   held.kill();
   await heldExit;
 
-  const upgraded = await runInstaller(v2.url, installRoot);
+  const progressLog = path.join(scratch, "upgrade-progress.log");
+  const upgraded = await runInstaller(v2.url, installRoot, false, progressLog);
   assert.match(upgraded.stdout, /Installed 1667 1\.2\.4 \(stable\)/u);
   assert.equal(await installedVersion(installRoot), "1.2.4");
   assert.equal((await ownershipRecord(installRoot)).installationId, firstRecord.installationId);
+  const progress = (await readFile(progressLog, "utf8")).trim().split(/\r?\n/u);
+  assert.ok(progress.filter((line) => line.startsWith("active|")).length >= 2);
+  assert.match(progress.at(-1)!, /^complete\|Downloading 1667 1\.2\.4$/u);
 
   const unmanagedRoot = path.join(scratch, "unmanaged");
   await mkdir(unmanagedRoot);
@@ -330,7 +351,8 @@ Add-Type -Path $Source -OutputAssembly $Output -OutputType ConsoleApplication
 async function runInstaller(
   url: string,
   installRoot: string,
-  updatePath = false
+  updatePath = false,
+  progressLog?: string
 ) {
   const environment: NodeJS.ProcessEnv = {
     ...process.env,
@@ -341,13 +363,22 @@ async function runInstaller(
   } else {
     environment.AI_1667_SKIP_PATH_UPDATE = "1";
   }
+  if (progressLog !== undefined) environment.AI_1667_PROGRESS_LOG = progressLog;
+  const progressCapture = progressLog === undefined
+    ? ""
+    : `function Write-Progress {
+  param([string]$Activity, [string]$Status, [int]$PercentComplete, [switch]$Completed)
+  $state = if ($Completed) { 'complete' } else { 'active' }
+  Add-Content -LiteralPath $env:AI_1667_PROGRESS_LOG -Value "$state|$Activity"
+}
+`;
   return execFileAsync("powershell.exe", [
     "-NoLogo",
     "-NoProfile",
     "-ExecutionPolicy",
     "Bypass",
     "-Command",
-    `irm '${url}' | iex`
+    `${progressCapture}irm '${url}' | iex`
   ], {
     env: environment,
     timeout: 15_000

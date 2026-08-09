@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { canonicalNpmTarballUrl } from "../../shared/npm-tarball-url.js";
 import { downloadPlatformPackage } from "../src/upgrade-download.js";
 import { executeUpgradeCli } from "../src/upgrade-cli.js";
+import { createUpgradeProgressRenderer } from "../src/upgrade-progress.js";
 import {
   MANAGED_TEST_CURRENT as CURRENT,
   MANAGED_TEST_NEXT as NEXT,
@@ -67,6 +69,41 @@ test("oversized download is refused with a small injected bound", async () => {
   }
 });
 
+test("download progress is bounded when transport chunks are tiny", async () => {
+  const root = managedScratchRoot("policy-progress-");
+  try {
+    const destination = path.join(root, "pkg.tgz");
+    const body = new Uint8Array(1_000).fill(7);
+    const progress: import("../src/upgrade-download.js").PackageDownloadProgress[] = [];
+    await downloadPlatformPackage({
+      tarballUrl: canonicalNpmTarballUrl(PACKAGE, "1.0.0"),
+      packageName: PACKAGE,
+      version: "1.0.0",
+      integrity: `sha512-${createHash("sha512").update(body).digest("base64")}`,
+      destinationPath: destination,
+      signal: new AbortController().signal,
+      onProgress: (event) => progress.push(event),
+      fetcher: async () => new Response(new ReadableStream({
+        start(controller) {
+          for (const byte of body) controller.enqueue(new Uint8Array([byte]));
+          controller.close();
+        }
+      }), {
+        status: 200,
+        headers: { "content-length": String(body.byteLength) }
+      })
+    });
+    expect(progress.length <= 102).toBe(true);
+    expect(progress[0]).toMatchObject({ downloadedBytes: 0, state: "active" });
+    expect(progress.at(-1)).toMatchObject({
+      downloadedBytes: body.byteLength,
+      state: "complete"
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("stalled package download headers are a retryable network failure", async () => {
   const root = managedScratchRoot("policy-headers-");
   try {
@@ -114,6 +151,7 @@ test("stalled package download body idle is a retryable network failure", async 
     const destination = path.join(root, "pkg.tgz");
     let bodyCancelled = false;
     let failed: unknown;
+    const progressWrites: string[] = [];
     try {
       await downloadPlatformPackage({
         tarballUrl: canonicalNpmTarballUrl(PACKAGE, "1.0.0"),
@@ -125,6 +163,7 @@ test("stalled package download body idle is a retryable network failure", async 
         // Short idle; long wall so body silence is an idle failure, not wall-clock.
         requestTimeoutMs: 5_000,
         idleTimeoutMs: 40,
+        onProgress: createUpgradeProgressRenderer((text) => progressWrites.push(text)),
         fetcher: async () => new Response(new ReadableStream({
           start(controller) {
             // Headers resolve; body never emits a chunk so the idle deadline fires.
@@ -142,6 +181,9 @@ test("stalled package download body idle is a retryable network failure", async 
     const failure = failed as import("../src/upgrade-contract.js").UpgradeFailure;
     expect(failure.code).toBe("network_error");
     expect(failure.retryable).toBe(true);
+    const progress = progressWrites.join("");
+    expect(progress).not.toContain("100%");
+    expect(progress.endsWith("\n")).toBe(true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

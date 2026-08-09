@@ -80,6 +80,12 @@ test("generated install scripts embed exact digests and never resolve latest", (
   });
   assert.match(powershellBody, /^# 1667 PowerShell Installer/u);
   assert.match(powershellBody, /windows-x64/u);
+  assert.match(powershellBody, /\$ProgressPreference = 'Continue'/u);
+  assert.match(powershellBody, /Write-Progress -Activity \$activity/u);
+  assert.match(
+    powershellBody,
+    /Write-Progress -Activity "Downloading 1667 \$ProductVersion" -Completed/u
+  );
   // Both URL branches embed portable connect and overall transfer deadlines.
   assert.match(body, /DOWNLOAD_CONNECT_TIMEOUT_SEC=30/);
   assert.match(body, /DOWNLOAD_MAX_TIME_SEC=600/);

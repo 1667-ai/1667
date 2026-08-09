@@ -54,8 +54,9 @@ Installer supports macOS and Linux. The PowerShell Installer supports Windows
 x64.
 
 Run `1667 upgrade` to update a Managed Installation that the Shell Installer
-created. On Windows, exit 1667 and run the PowerShell Installer again. `1667
-upgrade` shows the required command.
+created. The command shows download progress in a terminal. On Windows, exit
+1667 and run the PowerShell Installer again. The Installer shows download
+progress. `1667 upgrade` shows the required command.
 
 Install with npm:
 

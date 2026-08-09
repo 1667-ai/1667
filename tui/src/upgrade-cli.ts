@@ -16,6 +16,8 @@ import {
   type RegistryFetch
 } from "./npm-upgrade-registry.js";
 import { applyRollback, applyUpgrade } from "./upgrade-apply.js";
+import type { PackageDownloadProgressHandler } from "./upgrade-download.js";
+import { createUpgradeProgressRenderer } from "./upgrade-progress.js";
 import {
   parseUpgradeArguments,
   upgradeCommandChannel,
@@ -88,6 +90,7 @@ export interface UpgradeCliDependencies {
   readonly fetcher?: RegistryFetch;
   readonly signal?: AbortSignal;
   readonly defaultChannel?: UpgradeChannel;
+  readonly onDownloadProgress?: PackageDownloadProgressHandler;
 }
 
 export interface UpgradeCliOutput {
@@ -156,7 +159,8 @@ export async function executeUpgradeCli(
       method,
       registry,
       dependencies,
-      parsed.force
+      parsed.force,
+      parsed.json ? undefined : dependencies.onDownloadProgress
     );
     return {
       exitCode: 0,
@@ -187,7 +191,8 @@ async function dispatchUpgradeCommand(
   method: UpgradeMethod,
   registry: UpgradeRegistry,
   dependencies: UpgradeCliDependencies,
-  force: boolean
+  force: boolean,
+  onDownloadProgress: PackageDownloadProgressHandler | undefined
 ): Promise<UpgradeSuccessEnvelope> {
   switch (command.kind) {
     case "rollback": {
@@ -232,6 +237,7 @@ async function dispatchUpgradeCommand(
           registry,
           fetcher: dependencies.fetcher,
           signal: dependencies.signal,
+          onDownloadProgress,
           force
         });
       }
@@ -348,11 +354,17 @@ export async function runProcessUpgrade(
   process.once("SIGINT", onSigInt);
   process.once("SIGTERM", onSigTerm);
   try {
+    const onDownloadProgress = process.stderr.isTTY
+      ? createUpgradeProgressRenderer((text) => {
+          process.stderr.write(text);
+        }, process.stderr.columns ?? 80)
+      : undefined;
     const output = await executeUpgradeCli(argv, {
       signal: controller.signal,
       registry: new NpmUpgradeRegistry(fetcher),
       fetcher,
-      defaultChannel: loadConfig().updates.channel
+      defaultChannel: loadConfig().updates.channel,
+      onDownloadProgress
     });
     if (output.stdout.length > 0) process.stdout.write(output.stdout);
     if (output.stderr.length > 0) process.stderr.write(output.stderr);

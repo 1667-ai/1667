@@ -18,6 +18,7 @@ import {
 } from "../src/install-transaction.js";
 import { downloadPlatformPackage } from "../src/upgrade-download.js";
 import { executeUpgradeCli } from "../src/upgrade-cli.js";
+import { createUpgradeProgressRenderer } from "../src/upgrade-progress.js";
 import {
   MANAGED_TEST_CURRENT as CURRENT,
   MANAGED_TEST_NEXT as NEXT,
@@ -43,6 +44,7 @@ test("unqualified managed upgrade defaults to Ownership Record channel beta", as
       version: NEXT,
       target: TARGET
     });
+    let progressEvents = 0;
     const result = await executeUpgradeCli(["--json"], {
       authority,
       observation: {
@@ -51,6 +53,9 @@ test("unqualified managed upgrade defaults to Ownership Record channel beta", as
         },
       registry: fakeManagedRegistry(NEXT, PACKAGE, pkg.integrity, pkg.tarballUrl),
       fetcher: async () => new Response(new Uint8Array(pkg.bytes), { status: 200 }),
+      onDownloadProgress: () => {
+        progressEvents += 1;
+      },
       defaultChannel: "stable"
     });
     expect(result.exitCode).toBe(0);
@@ -59,6 +64,48 @@ test("unqualified managed upgrade defaults to Ownership Record channel beta", as
       channel: "beta",
       method: "shell"
     });
+    expect(progressEvents).toBe(0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("managed human upgrade renders live download progress", async () => {
+  const root = managedScratchRoot("progress-");
+  try {
+    const installRoot = path.join(root, "bin");
+    mkdirSync(installRoot, { mode: 0o755 });
+    chmodSync(installRoot, 0o755);
+    const { authority } = shellManagedAuthority(installRoot, "stable");
+    const pkg = buildCanonicalPlatformPackage({
+      packageName: PACKAGE,
+      version: NEXT,
+      target: TARGET
+    });
+    const writes: string[] = [];
+    const result = await executeUpgradeCli([], {
+      authority,
+      observation: {
+        currentVersion: CURRENT,
+        platformPackage: PACKAGE
+      },
+      registry: fakeManagedRegistry(NEXT, PACKAGE, pkg.integrity, pkg.tarballUrl),
+      fetcher: async () => new Response(new Uint8Array(pkg.bytes), {
+        status: 200,
+        headers: { "content-length": String(pkg.bytes.byteLength) }
+      }),
+      onDownloadProgress: createUpgradeProgressRenderer((text) => writes.push(text), 32)
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(`Upgraded 1667 from ${CURRENT} to ${NEXT}.`);
+    expect(result.stderr).toBe("");
+    const progress = writes.join("");
+    expect(progress).toContain("\rDownloading [");
+    expect(progress).toContain("100%");
+    expect(progress.endsWith("\n")).toBe(true);
+    for (const update of progress.split("\r").filter(Boolean)) {
+      expect(update.replace(/\n$/u, "").length <= 32).toBe(true);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
