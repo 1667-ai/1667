@@ -1,6 +1,6 @@
 {
   "name": "1667-workspace",
-  "version": "0.5.2",
+  "version": "0.5.3-rc.1",
   "private": true,
   "description": "Source workspace for the 1667 terminal writing environment",
   "license": "Apache-2.0",
