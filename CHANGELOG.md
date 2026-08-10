@@ -255,7 +255,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names. Thanks @10fra for the request.
 
-## 0.6.1-rc.1 - 2026-08-10
+## 0.6.1 - 2026-08-10
 
 - **Alt count no longer loses a long generation on KoboldCpp.** KoboldCpp
   sends the alternative tokens of a whole generation in one message, so that
