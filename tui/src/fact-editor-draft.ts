@@ -3,6 +3,8 @@ import { FactActivationError, parseFactScanDepth } from "../../shared/fact-metad
 import { parseFactKeys } from "../../shared/fact-keys.js";
 import { splitFactKeyLine } from "../../shared/fact-keys.js";
 import { MAX_FACT_BUDGET_TOKENS } from "../../shared/fact-budget.js";
+import { factTextWithinLimit } from "../../shared/fact-limits.js";
+import { MAX_FACT_TEXT_CHARS } from "../../shared/types.js";
 import { FACT_DRAFT_FIELDS, type FactDraft } from "../../shared/fact-draft.js";
 import type { FactEditorSession } from "./state.js";
 
@@ -52,6 +54,12 @@ export function factEditorSavePayload(
 ): { ok: true; draft: FactDraft } | { ok: false; toast: string } {
   if (editor.composer.text.trim().length === 0) {
     return { ok: false, toast: "fact text cannot be empty" };
+  }
+  if (!factTextWithinLimit(editor.composer.text)) {
+    return {
+      ok: false,
+      toast: `fact text exceeds the ${MAX_FACT_TEXT_CHARS.toLocaleString()}-character limit · shorten it before saving`
+    };
   }
   const parsedKeys = factEditorKeys(editor);
   if (!parsedKeys.ok) return parsedKeys;

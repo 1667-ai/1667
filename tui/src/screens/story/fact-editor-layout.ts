@@ -1,3 +1,5 @@
+import { MAX_FACT_TEXT_CHARS } from "../../../../shared/types.js";
+import { unicodeScalarLength } from "../../../../shared/unicode.js";
 import { composerPosition } from "../../composer-model.js";
 import { factEditorTagLabel } from "../../fact-editor-draft.js";
 import {
@@ -22,7 +24,8 @@ import {
   type ComposerLayout
 } from "./composer.js";
 import {
-  composerFieldLine
+  composerFieldLine,
+  type ComposerStatus
 } from "./composer-chrome.js";
 import { renderComposerChoiceRow } from "./composer-choice.js";
 import { segment, visibleWidth, type FrameLine } from "./frame.js";
@@ -55,7 +58,8 @@ export function renderFactEditorLayout(
     scrollTop: options.scrollTop,
     narrow: options.narrow,
     softWrap: options.softWrap,
-    caret: editor.focus === "body" ? "focused" : "none"
+    caret: editor.focus === "body" ? "focused" : "none",
+    status: factTextCounterStatus(editor.composer.text)
   });
   const tagLabel = factEditorTagLabel(editor);
   const tag = editor.focus === "tag"
@@ -136,6 +140,25 @@ export function renderFactEditorLayout(
     cursorViewportRow: editor.focus === "body"
       ? body.cursorViewportRow + headerRows
       : FACT_EDITOR_ROWS.indexOf(editor.focus)
+  };
+}
+
+/** Only the "context warning" (≥80%) and "danger text" (at/over the limit)
+ *  bands of `contextSeverity` (rail.ts) apply here — below that a Fact is
+ *  nowhere near its own ceiling, and the top rule stays quiet the same way a
+ *  fullscreen composer already shows no status by default. The `.length`
+ *  check first is a cheap lower bound (UTF-16 length never undercounts
+ *  Unicode scalars), so an ordinary small Fact never pays for the exact scan. */
+const FACT_TEXT_COUNTER_WARNING_FILL = 0.8;
+
+function factTextCounterStatus(text: string): ComposerStatus | undefined {
+  const warningFloor = Math.ceil(MAX_FACT_TEXT_CHARS * FACT_TEXT_COUNTER_WARNING_FILL);
+  if (text.length < warningFloor) return undefined;
+  const count = unicodeScalarLength(text);
+  if (count < warningFloor) return undefined;
+  return {
+    text: `${count.toLocaleString()} / ${MAX_FACT_TEXT_CHARS.toLocaleString()} chars`,
+    role: count >= MAX_FACT_TEXT_CHARS ? "danger text" : "context warning"
   };
 }
 

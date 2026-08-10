@@ -15,6 +15,15 @@ This file records notable changes to 1667. Product terms use the definitions in
   ceiling still ends the generation, the same as any other oversized response
   from the model. Thanks @10fra for the report.
 
+- **A Fact can now hold up to 100,000 characters, and an over-long Fact says
+  so.** The old limit was 4,000 characters, well under what a NovelAI
+  Lorebook entry or a SillyTavern World Info entry allows. The token budget
+  already governs what a request sends, so the character limit no longer
+  needs to be so tight. The Fact editor shows a character count as a Fact
+  nears the new limit. It also refuses an over-limit Fact right away, with a
+  message that names the limit. Before this fix, the refusal could arrive
+  after the writer's next keystroke had already cleared it from view.
+
 - **1667 shows what a model thinks before it writes.** Some models write
   reasoning text before prose. 1667 calls this text a thought and keeps it
   apart from your story. The margin shows `⟳ thinking` while the model works,
