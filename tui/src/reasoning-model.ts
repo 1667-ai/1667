@@ -86,25 +86,30 @@ export function resolvedThought(
   };
 }
 
-/** Every thought-gutter decision `gutterFor`, `partPrefix` and
- *  `renderPartBody` (row-layout.ts) need for one row, computed once in
- *  `layoutStoryRow` and threaded through rather than recomputed at each call
- *  site — the same reason `streaming`/`prepared` are computed once there and
- *  passed down.
+/** Every thought-gutter decision `gutterFor`, `gutterRowsFor` and
+ *  `partPrefix`/`renderPartBody` (row-layout.ts, gutter.ts) need for one row,
+ *  computed once in `layoutStoryRow` and threaded through rather than
+ *  recomputed at each call site — the same reason `streaming`/`prepared` are
+ *  computed once there and passed down.
  *
- * `show`/`unfolded` are both false whenever `state.reasoning === "off"`:
- * `off` renders nothing, ever, and gating it once here is what makes every
- * downstream reader — the gutter marks, the unfolded block, the streaming
- * line — inherit that instead of each needing its own `!== "off"` check. */
-export interface ThoughtGutterContext {
-  readonly show: boolean;
-  readonly unfolded: boolean;
-  readonly thinking: boolean;
-  readonly hit: { kind: "thought"; index: number; rowId: string };
-  /** Set whenever `show || thinking` — everywhere either reads it, guarded
-   *  by the same condition that set it. */
-  readonly resolved: ResolvedThought | null;
-}
+ * A discriminated union instead of independent booleans: `"hidden"` is the
+ * one state with nothing to show — `state.reasoning === "off"`, or the part
+ * has no thought and none is arriving — so every downstream reader narrows
+ * on `kind` once and gets `resolved`/`hit` for free, instead of trusting a
+ * doc comment that they are only readable together with `show`/`thinking`. */
+export type ThoughtGutterContext =
+  | { readonly kind: "hidden" }
+  | {
+      readonly kind: "shown";
+      /** True when the thought is folded (the default, or toggled back down
+       *  in `open` mode) — false means the block sits unfolded above the
+       *  part's prose. Replaces the four `show && !unfolded` call sites this
+       *  union closes over. */
+      readonly folded: boolean;
+      readonly thinking: boolean;
+      readonly hit: { readonly kind: "thought"; readonly index: number; readonly rowId: string };
+      readonly resolved: ResolvedThought;
+    };
 
 export function thoughtGutterContext(
   part: StoryPart,
@@ -118,18 +123,15 @@ export function thoughtGutterContext(
   streaming: boolean,
   stream: StreamView | null
 ): ThoughtGutterContext {
-  const hit = { kind: "thought" as const, index: rowIndex, rowId: part.id };
-  if (state.reasoning === "off") {
-    return { show: false, unfolded: false, thinking: false, hit, resolved: null };
-  }
+  if (state.reasoning === "off") return { kind: "hidden" };
   const show = partHasThought(part, state);
   const thinking = streaming && stream !== null && streamThinkingOnly(stream);
-  if (!show && !thinking) return { show: false, unfolded: false, thinking: false, hit, resolved: null };
+  if (!show && !thinking) return { kind: "hidden" };
   return {
-    show,
-    unfolded: show && thoughtUnfolded(state, part),
+    kind: "shown",
+    folded: !thoughtUnfolded(state, part),
     thinking,
-    hit,
+    hit: { kind: "thought", index: rowIndex, rowId: part.id },
     resolved: resolvedThought(part, state)
   };
 }

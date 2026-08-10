@@ -11,7 +11,7 @@ import {
   setFactEditorFocus
 } from "../src/fact-editor-policy.js";
 import { hitAt, type HitTarget } from "../src/hit.js";
-import { GUTTER_VERBS } from "../src/screens/story/row-layout.js";
+import { GUTTER_VERBS } from "../src/screens/story/gutter.js";
 import { resolveKey, type AppMode, type KeyAction, type ResolveOptions } from "../src/keys.js";
 import { mouseToAction } from "../src/mouse-actions.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
