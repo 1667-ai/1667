@@ -13,6 +13,7 @@ import { MutationReceiptStore as ProductionMutationReceiptStore } from "../serve
 import { prepareServiceFailure } from "../server/service-error-policy.js";
 import { buildStoryPayload } from "../server/story-payload.js";
 import { StoryStore } from "../server/stories.js";
+import { readUnsealedFile } from "../server/vault-file-read.js";
 
 /** Runs receipt mechanics without aggregate admission, same convenience as
  *  test/mutation-receipts.test.ts's own local subclass. */
@@ -151,6 +152,63 @@ test("story cleanup consults chapter-break undo liveness without rescanning the 
   }
 
   assert.equal(hydrateCalls, 1);
+});
+
+/**
+ * Regression for hydrate's original serial scan: with receipts persisting
+ * indefinitely, startup latency grew as the sum of every read. Proves the
+ * fix by observing real concurrent-call counts through the narrow `readFile`
+ * injection seam, rather than asserting anything about the implementation.
+ */
+test("hydrate bounds concurrent receipt reads without dropping or racing any story's liveness", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-chapter-liveness-hydrate-bound-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  const RECEIPT_COUNT = 20;
+  const setup = new MutationReceiptStore(dir, async (id) => storyPayload(id));
+  await setup.init();
+  for (let index = 0; index < RECEIPT_COUNT; index += 1) {
+    const storyId = `story-${index}`;
+    const removed = removedChapterBreak();
+    const removedFingerprint = chapterBreakRemovalFingerprint(removed);
+    const mutationId = createDurableMutationId();
+    const input = { storyId, breakId: "break", removedFingerprint };
+    await setup.run(mutationId, "removeChapterBreak", input, async (plan) => ({
+      payload: storyPayload(storyId),
+      removed: await plan.preserveChapterBreakRemoval(removedFingerprint, async () => removed)
+    }));
+  }
+
+  let active = 0;
+  let maxActive = 0;
+  let totalCalls = 0;
+  const trackedRead = async (file: string) => {
+    totalCalls += 1;
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    // Holds each read open long enough for the next-in-line reads to start,
+    // so a sustained (not just initial-burst) concurrency ceiling is observable.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    try {
+      return await readUnsealedFile(file);
+    } finally {
+      active -= 1;
+    }
+  };
+
+  const index = new ChapterBreakLivenessIndex();
+  const diagnosed: unknown[] = [];
+  await index.hydrate(dir, (mutationId, error) => {
+    diagnosed.push({ mutationId, error });
+  }, trackedRead);
+
+  assert.equal(diagnosed.length, 0);
+  assert.equal(totalCalls, RECEIPT_COUNT, "every receipt file must still be hydrated, none skipped");
+  assert.ok(maxActive > 1, `expected observable overlap between reads, got a peak of ${maxActive}`);
+  assert.ok(maxActive <= 8, `expected concurrent receipt reads to stay bounded, got a peak of ${maxActive}`);
+  for (let index2 = 0; index2 < RECEIPT_COUNT; index2 += 1) {
+    assert.deepEqual(index.liveGenerationRecordIds(`story-${index2}`), [RECORD_ID]);
+  }
 });
 
 function storyPayload(id: string): StoryPayload {

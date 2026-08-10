@@ -1,5 +1,6 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
+import { mapWithConcurrency } from "./concurrency.js";
 import {
   parseMutationReceipt,
   type MutationReceipt,
@@ -9,6 +10,12 @@ import type { ObjectHash } from "./story-format.js";
 import { readUnsealedFile } from "./vault-file-read.js";
 
 export const MUTATION_RECEIPT_DIRECTORY = "mutation-receipts";
+
+/** Receipts persist indefinitely, so a story's directory can accumulate many
+ *  of them; bound hydration's concurrent reads instead of opening every file
+ *  at once (matches the small, explicit IO ceilings elsewhere, e.g.
+ *  `story-objects.ts`'s `TEXT_IO_CONCURRENCY`). */
+const HYDRATE_IO_CONCURRENCY = 8;
 
 /** The narrow read StoryStore needs from the receipt store: the Generation
  *  Record ids a durable chapter-break removal receipt still holds live for
@@ -33,7 +40,8 @@ export class ChapterBreakLivenessIndex {
 
   async hydrate(
     dir: string,
-    onMalformed: (mutationId: string, error: unknown) => Promise<void> | void
+    onMalformed: (mutationId: string, error: unknown) => Promise<void> | void,
+    readFile: (file: string) => Promise<Buffer> = readUnsealedFile
   ): Promise<void> {
     let entries;
     try {
@@ -42,20 +50,26 @@ export class ChapterBreakLivenessIndex {
       if (isErrorCode(error, "ENOENT")) return;
       throw error;
     }
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-      const mutationId = entry.name.slice(0, -".json".length);
+    const receiptFiles = entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .map((entry) => entry.name);
+    // Each file's parse and `observe` fold run inside the worker's own
+    // try/catch, so a slow or malformed reader never blocks another file's
+    // read; `observe`'s set unions are commutative and JS callbacks never
+    // interleave mid-statement, so completion order cannot change the result.
+    await mapWithConcurrency(receiptFiles, HYDRATE_IO_CONCURRENCY, async (name) => {
+      const mutationId = name.slice(0, -".json".length);
       try {
-        const file = path.join(dir, entry.name);
+        const file = path.join(dir, name);
         const receipt = parseMutationReceipt(
-          JSON.parse((await readUnsealedFile(file)).toString("utf8")),
+          JSON.parse((await readFile(file)).toString("utf8")),
           mutationId
         );
         this.observe(receipt);
       } catch (error) {
         await onMalformed(mutationId, error);
       }
-    }
+    });
   }
 
   /** Fold one receipt's chapter-break removal liveness into the view. Safe to
