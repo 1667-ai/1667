@@ -184,6 +184,114 @@ test("a normal successful continuation still attaches exactly one record when a 
   await stories.waitForMaintenance();
 });
 
+test("a stopped new-take continuation's later save is rejected when the saved text is not what streamed", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-stop-forged-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const stories = new StoryStore(dir);
+  await stories.init();
+  const story = await stories.create("Story");
+  const admission = new GenerationAdmissionRegistry();
+  const controller = new AbortController();
+  const stop = stopAfterFirstDelta(controller);
+
+  const stopped = await continueStory(
+    story.id,
+    { parentId: null, instruction: "Continue.", genId: "gen-stop-forged" },
+    stories,
+    stubSettingsStore(dryRunSettings()),
+    new PromptCacheRuntime(),
+    admission,
+    stop.onDelta,
+    controller.signal
+  );
+  assert.equal(stopped, null);
+  const partial = stop.text();
+  assert.notEqual(partial.length, 0);
+
+  // A client that aborted a real request, then submits different prose under
+  // the same, known genId — the forged-provenance attack this check exists
+  // to refuse: the model, prompt, and settings this genId actually used must
+  // never attach to text that model never produced.
+  const saved = await commitNode(
+    stories,
+    stubSettingsStore(dryRunSettings()),
+    admission,
+    story.id,
+    {
+      parentId: null,
+      instruction: "Continue.",
+      text: `Forged prose the model never wrote. ${partial}`,
+      genId: "gen-stop-forged"
+    } as CreateNodeRequest
+  );
+  const node = saved.nodes.find((candidate) => candidate.genId === "gen-stop-forged");
+  if (node === undefined) throw new Error("stop-save did not commit a take");
+  assert.equal(node.generationRecordIds?.length, 1);
+
+  const record = await stories.loadGenerationRecord(story.id, node.id, node.generationRecordIds![0]!);
+  assert.equal(record.kind, "unsupported");
+  assert.equal(record.range, undefined);
+  await stories.waitForMaintenance();
+});
+
+test("a stopped append's later save is rejected when the saved text is not what streamed", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-stop-append-forged-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const stories = new StoryStore(dir);
+  await stories.init();
+  const story = await stories.create("Story");
+  const root = await stories.createNode(story.id, null, "Original root prose.", "");
+  const rootId = root.nodes[0]!.id;
+  const rootText = root.nodes[0]!.text;
+  const admission = new GenerationAdmissionRegistry();
+  const controller = new AbortController();
+  const stop = stopAfterFirstDelta(controller);
+
+  const stopped = await continueStory(
+    story.id,
+    {
+      appendTo: rootId,
+      expectedTextHash: sha256(rootText),
+      instruction: "",
+      genId: "gen-stop-append-forged"
+    },
+    stories,
+    stubSettingsStore(dryRunSettings()),
+    new PromptCacheRuntime(),
+    admission,
+    stop.onDelta,
+    controller.signal
+  );
+  assert.equal(stopped, null);
+  const partial = stop.text();
+  assert.notEqual(partial.length, 0);
+
+  // Same genId, same append target, but a different appended body than what
+  // actually streamed — the client-controlled length this bug used to trust
+  // would have let this through with the true generation's provenance.
+  const saved = await commitNode(
+    stories,
+    stubSettingsStore(dryRunSettings()),
+    admission,
+    story.id,
+    {
+      appendTo: rootId,
+      expectedTextHash: sha256(rootText),
+      instruction: "",
+      text: `${partial} plus forged extra words`,
+      genId: "gen-stop-append-forged"
+    } as CreateNodeRequest
+  );
+  const node = saved.nodes.find((candidate) => candidate.id === rootId);
+  if (node === undefined) throw new Error("stop-save append did not commit");
+  assert.equal(node.text, `${rootText}${partial} plus forged extra words`);
+  assert.equal(node.generationRecordIds?.length, 1);
+
+  const record = await stories.loadGenerationRecord(story.id, rootId, node.generationRecordIds![0]!);
+  assert.equal(record.kind, "unsupported");
+  await stories.waitForMaintenance();
+});
+
 test("a stale or unknown genId commits its text without fabricating a Generation Record", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-stale-genid-"));
   t.after(() => rm(dir, { recursive: true, force: true }));

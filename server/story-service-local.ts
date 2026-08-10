@@ -305,7 +305,7 @@ export class StoryServiceLocal {
             id,
             genId,
             appendTo,
-            text.length,
+            text,
             new Date().toISOString()
           );
           const commit = commitTake(story, {

@@ -69,7 +69,7 @@ export async function commitNode(
       id,
       genId,
       appendTo,
-      text.length,
+      text,
       new Date().toISOString()
     );
     const { duplicate } = commitTake(story, {

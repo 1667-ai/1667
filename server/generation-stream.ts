@@ -17,6 +17,14 @@ interface ModelOutputFilter {
 
 export type DeltaConsumer = (text: string) => void | Promise<void>;
 
+/** Mutated in place as `streamModel` emits deltas, so a caller whose stream
+ *  gets cancelled (return value null — the accumulated text itself is
+ *  otherwise discarded) can still read back exactly what reached `onDelta`
+ *  before the stop, same text and same order the client's own stream saw. */
+export interface PartialOutputCollector {
+  text: string;
+}
+
 /** `streamModel`'s optional trailing values, grouped for the same reason as
  * `StreamCompletionOptions` (server/providers.ts, issue #341): `output`,
  * `providerStarted`, and `promptCache` were already three trailing
@@ -29,6 +37,7 @@ export interface StreamModelOptions {
   readonly storySampling?: StorySamplingBias;
   readonly tokenProbabilities?: TokenProbabilityCollector;
   readonly generationRecord?: GenerationRecordCollector;
+  readonly partialOutput?: PartialOutputCollector;
 }
 
 /** Transport-neutral model stream. null means the stream was interrupted by
@@ -41,7 +50,9 @@ export async function streamModel(
   onDelta: DeltaConsumer,
   options: StreamModelOptions = {}
 ): Promise<string | null> {
-  const { output, providerStarted, promptCache, storySampling, tokenProbabilities, generationRecord } = options;
+  const {
+    output, providerStarted, promptCache, storySampling, tokenProbabilities, generationRecord, partialOutput
+  } = options;
   const outcome: StreamOutcome = {
     finishReason: null,
     providerTerminal: false
@@ -50,6 +61,7 @@ export async function streamModel(
   const emit = async (delta: string) => {
     if (delta.length === 0) return;
     text += delta;
+    if (partialOutput !== undefined) partialOutput.text = text;
     await onDelta(delta);
   };
   try {

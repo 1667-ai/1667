@@ -45,7 +45,8 @@ import { activeBudgetedFacts, activeBudgetedFactsForRewrite } from "../shared/fa
 import { formatFactsMessage } from "../shared/story-facts.js";
 import {
   streamModel,
-  type DeltaConsumer
+  type DeltaConsumer,
+  type PartialOutputCollector
 } from "./generation-stream.js";
 import { activeLeaf, activePath, nodeById, pathTo } from "../shared/story-tree.js";
 import { resolveRewriteDestination, type GenerationSettings, type Story } from "../shared/types.js";
@@ -286,6 +287,11 @@ export async function continueStory(
   // failing the generation; token probabilities are a diagnostic.
   const tokenProbabilities: TokenProbabilityCollector = { record: null };
   const generationRecordCollector: GenerationRecordCollector = { effective: null };
+  // Read only on a genuine stop (the `raw === null` branch below), to hand a
+  // later, separate stop-save commit a truthful digest of what this attempt
+  // actually sent the client — never trusted from that later request's own
+  // body. Otherwise discarded along with the completed `raw` text.
+  const partialOutput: PartialOutputCollector = { text: "" };
   let raw: string | null;
   try {
     raw = await streamModel(settings, continuation.prompt, signal, onDelta, {
@@ -299,7 +305,8 @@ export async function continueStory(
       ),
       storySampling: storySamplingBias(story),
       tokenProbabilities,
-      generationRecord: generationRecordCollector
+      generationRecord: generationRecordCollector,
+      partialOutput
     });
   } catch (error) {
     // A clean provider timeout after the opening already diverged from the
@@ -330,7 +337,8 @@ export async function continueStory(
       collector: generationRecordCollector,
       story,
       continuation,
-      foldAuthorsNote: providerFoldsAuthorsNote(settings)
+      foldAuthorsNote: providerFoldsAuthorsNote(settings),
+      emittedText: partialOutput.text
     });
     if (handoff !== null) generationAdmission.rememberGenerationRecordHandoff(id, genId, handoff);
     return null;

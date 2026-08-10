@@ -8,6 +8,7 @@ import {
 } from "../server/generation-admission.js";
 import { ServiceError } from "../server/errors.js";
 import type { GenerationRecordHandoff } from "../server/generation-record-handoff.js";
+import { sha256 } from "../server/story-format.js";
 import { parseWorkerMutation } from "../server/worker-mutations.js";
 import { continuationPlan } from "../shared/continuation-plan.js";
 import type { GenerationSettings, StoryFact, StoryNode } from "../shared/types.js";
@@ -163,7 +164,9 @@ function fakeHandoff(model: string): GenerationRecordHandoff {
     operation: "continue",
     appendSegmentStart: null,
     effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
-    entries: { ok: true, entries: [] }
+    entries: { ok: true, entries: [] },
+    emittedRawDigest: sha256(""),
+    emittedTrimmedDigest: sha256("")
   };
 }
 

@@ -11,6 +11,7 @@ import type { GenerationRecordCollector } from "./generation-record-capture.js";
 import { finalizeGenerationRecord, unsupportedGenerationRecord } from "./generation-record-finalize.js";
 import { continuationRecordEntries } from "./generation-record-prompt.js";
 import type { GenerationAdmissionRegistry } from "./generation-admission.js";
+import { sha256 } from "./story-format.js";
 
 /**
  * The stop-and-save handoff (Generation Records project): what a continuation
@@ -45,6 +46,19 @@ export interface GenerationRecordHandoff {
   readonly entries:
     | { readonly ok: true; readonly entries: readonly GenerationRecordPromptEntry[] }
     | { readonly ok: false; readonly reason: string };
+  /** sha256 of exactly what this attempt emitted to `onDelta` before it
+   *  stopped — not the text itself, which this bounded, story/gen-scoped
+   *  slot must not retain in full. Two digests, not one, because a later
+   *  stop-save commit's own append-vs-new-take decision (which can differ
+   *  from this request's, e.g. a chapter break landed on the target in
+   *  between — see `finalizeHandoffGenerationRecord`) decides whether the
+   *  client's text should match this raw emission or its trimmed form:
+   *  `emittedRawDigest` for an append (the client resends the exact streamed
+   *  delta), `emittedTrimmedDigest` for a new take (every client trims
+   *  trailing/leading whitespace before saving, same as a normal completion
+   *  does in `generation-http.ts`). */
+  readonly emittedRawDigest: string;
+  readonly emittedTrimmedDigest: string;
 }
 
 /** Every text-revision id a handoff's captured entries reference — what
@@ -75,6 +89,11 @@ export function captureGenerationRecordHandoff(input: {
   readonly story: Story;
   readonly continuation: ContinuationPlan;
   readonly foldAuthorsNote?: boolean;
+  /** Exactly what this attempt emitted to `onDelta` before it stopped —
+   *  `server/generation-http.ts`'s own `partialOutput` collector, the same
+   *  text the client's stream actually received. Hashed below, never
+   *  retained. */
+  readonly emittedText: string;
 }): GenerationRecordHandoff | null {
   const effective = input.collector.effective;
   if (effective === null) return null;
@@ -96,7 +115,9 @@ export function captureGenerationRecordHandoff(input: {
     operation: input.operation,
     appendSegmentStart: input.appendSegmentStart,
     effective,
-    entries
+    entries,
+    emittedRawDigest: sha256(input.emittedText),
+    emittedTrimmedDigest: sha256(input.emittedText.trim())
   };
 }
 
@@ -110,10 +131,21 @@ export function captureGenerationRecordHandoff(input: {
  * guessed range, matching how `finalizeGenerationRecord` already turns any
  * other unsatisfiable bound into an honest stand-in rather than a silent
  * omission or a truncation.
+ *
+ * `input.committedText` must hash to the handoff's own digest of what this
+ * genId actually streamed (raw for an append, trimmed for a new take —
+ * `captureGenerationRecordHandoff` computes both) before any provenance
+ * attaches. A client can reuse a real, known genId while resubmitting
+ * different prose than the partial that genId actually streamed; without
+ * this check the record it gets back would still cite this genId's true
+ * provider, prompt, and settings for text that provider never produced. A
+ * mismatch is not a guess to fall back on — it becomes the same explicit
+ * `kind: "unsupported"` stand-in as any other unsatisfiable bound here,
+ * never a silent omission and never a truncated match.
  */
 export function finalizeHandoffGenerationRecord(
   handoff: GenerationRecordHandoff,
-  input: { readonly appendTo: string | null; readonly committedTextLength: number; readonly createdAt: string }
+  input: { readonly appendTo: string | null; readonly committedText: string; readonly createdAt: string }
 ): GenerationRecord {
   const common = {
     createdAt: input.createdAt,
@@ -131,6 +163,13 @@ export function finalizeHandoffGenerationRecord(
       new Error("This append's affected range was not captured before the generation stopped.")
     );
   }
+  const expectedDigest = input.appendTo === null ? handoff.emittedTrimmedDigest : handoff.emittedRawDigest;
+  if (sha256(input.committedText) !== expectedDigest) {
+    return unsupportedGenerationRecord(
+      common,
+      new Error("The saved text does not match what this generation actually streamed.")
+    );
+  }
   const entries = handoff.entries.entries;
   const record = finalizeGenerationRecord({
     ...common,
@@ -138,7 +177,7 @@ export function finalizeHandoffGenerationRecord(
     ...(input.appendTo === null ? {} : {
       range: {
         start: handoff.appendSegmentStart!,
-        end: handoff.appendSegmentStart! + input.committedTextLength
+        end: handoff.appendSegmentStart! + input.committedText.length
       }
     }),
     entries: () => entries
@@ -162,11 +201,11 @@ export function generationRecordForCommit(
   storyId: string,
   genId: string | null,
   appendTo: string | null,
-  committedTextLength: number,
+  committedText: string,
   createdAt: string
 ): GenerationRecord | undefined {
   if (genId === null) return undefined;
   const handoff = registry.generationRecordHandoffFor(storyId, genId);
   if (handoff === undefined) return undefined;
-  return finalizeHandoffGenerationRecord(handoff, { appendTo, committedTextLength, createdAt });
+  return finalizeHandoffGenerationRecord(handoff, { appendTo, committedText, createdAt });
 }
