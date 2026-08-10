@@ -20,8 +20,7 @@
  *    request that asked for few alternatives: at alt count 1 the old
  *    formula budgeted roughly `maxTokens * 256`, against a real need of
  *    `maxTokens * 1452` — an ordinary generation lost its probabilities
- *    every time, now *silently* (issue #107 part 1 discards a "safe" event
- *    without telling anyone).
+ *    every time, with the event simply refused as too large.
  *  - Every real entry also carries `token_id` and a `bytes` array (the
  *    token's UTF-8 bytes) that a bare OpenAI-spec payload does not, both on
  *    the sampled token and on each of its alternatives — real events are
@@ -54,19 +53,36 @@ const PROBABILITY_EVENT_ENVELOPE_BYTES = 4 * 1024;
 
 /**
  * Absolute ceiling for a probability-carrying event, regardless of how large
- * `maxTokens` derives it: twice shared/token-probabilities.ts's
- * MAX_TOKEN_PROBABILITY_BYTES (4 MiB) stored-record cap, leaving headroom
- * for wire overhead (JSON key repetition, SSE framing) over that
- * already-decoded shape, while staying below server/provider-sse.ts's own
- * scales for an entire response — 16 MiB decoded output
- * (provider-stream-output.ts's MAX_DECODED_OUTPUT_BYTES) and its 64 MiB
- * raw-response cap. A long enough generation still exceeds this ceiling
- * (the measured table above already crosses 8 MiB past ~5,800 tokens) —
- * that is expected, and is exactly what issue #107 part 1's discard path
- * (server/provider-sse.ts's BoundedProviderSseParser) exists to absorb
- * without failing the generation.
+ * `maxTokens` derives it. Sized to the storage layer's own hard limit, not
+ * to a round number: shared/token-probabilities.ts caps a stored record at
+ * MAX_TOKEN_PROBABILITY_STEPS (8,192) steps, and at the measured 1,452
+ * bytes/token above, a full 8,192-step payload is ~11.35 MiB on the wire.
+ * 12 MiB is exactly "as much as the storage layer could conceivably accept
+ * in steps", with a little headroom (unicode-heavy tokens, a provider that
+ * isn't KoboldCpp) over that figure — not an arbitrary number, and not
+ * trying to be generous beyond what the step limit already bounds.
+ *
+ * A transport-layer decision earlier tried to also cover events past this
+ * ceiling — a request-wide "discard the event instead of throwing" path in
+ * server/provider-sse.ts — and was removed (issue #107, third review pass):
+ * deciding "this event is safe to drop" requires seeing the whole event
+ * (its prose, its finish_reason, its error field), but an event too large
+ * to buffer is precisely the one the parser cannot see all of. There is no
+ * safe middle ground at the transport layer, so this module doesn't attempt
+ * one: past MAX_PROBABILITY_EVENT_BYTES the stream fails loudly, exactly
+ * the pre-existing behaviour for any oversized response.
+ *
+ * Below the ceiling, graceful degradation already exists one layer up:
+ * server/story-node-token-probabilities.ts's attachTakeTokenProbabilities
+ * wraps record creation in try/catch and returns on failure, so a captured
+ * record that still busts MAX_TOKEN_PROBABILITY_BYTES (4 MiB) once
+ * serialized for storage is dropped silently there — the take keeps its
+ * prose, only the diagnostic is lost. The transport doesn't need to
+ * pre-empt that decision; it only needs to let a storable-sized payload
+ * through, which is exactly what sizing this ceiling to the step limit
+ * achieves.
  */
-const MAX_PROBABILITY_EVENT_BYTES = 8 * 1024 * 1024;
+const MAX_PROBABILITY_EVENT_BYTES = 12 * 1024 * 1024;
 
 /** Mirrors the flat caps' own ratio in server/provider-sse.ts (2 MiB partial
  *  / 1 MiB event = 2x). A still-accumulating line needs headroom over the
@@ -74,9 +90,9 @@ const MAX_PROBABILITY_EVENT_BYTES = 8 * 1024 * 1024;
  *  and the event queue's memory accounting doubles a UTF-16 string's length
  *  — both need the same headroom over whatever maxSseEventBytesFor resolves
  *  to, or they become the next thing to trip once a per-request budget grows
- *  past the old flat 2 MiB (issue #107's own warning: a legal, in-budget
- *  probability event would then be silently discarded by a cap that never
- *  learned the budget grew). */
+ *  past the old flat 2 MiB: a legal, in-budget probability event would then
+ *  be refused by a cap that never learned the budget grew, even though
+ *  maxSseEventBytesFor itself would have allowed it through. */
 export const EVENT_HEADROOM_MULTIPLIER = 2;
 
 /** No probabilities requested: `flatEventBytes` (server/provider-sse.ts's

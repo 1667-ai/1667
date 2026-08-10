@@ -9,10 +9,11 @@ This file records notable changes to 1667. Product terms use the definitions in
   sends the alternative tokens of a whole generation in one message, so that
   message grows with the generation. Past about a thousand tokens it crossed a
   size limit, and 1667 ended the generation and dropped the prose. The limit
-  now follows the alt count and the output limit, so a message that the writer
-  asked for fits. A message that is still too large gives no alternative token
-  for that take, and the generation keeps its prose. Thanks @10fra for the
-  report.
+  now follows the output limit for the generation, up to a fixed ceiling. A
+  message within that limit but still too large to keep gives no alternative
+  token for that take, and the generation keeps its prose. A message past the
+  ceiling still ends the generation, the same as any other oversized response
+  from the model. Thanks @10fra for the report.
 
 - **1667 shows what a model thinks before it writes.** Some models write
   reasoning text before prose. 1667 calls this text a thought and keeps it

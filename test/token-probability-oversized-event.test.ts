@@ -9,6 +9,7 @@ import { LEGACY_PROMPT_CACHE_CONTEXT, PromptCacheRuntime } from "../server/provi
 import { attachProviderRuntime } from "../server/provider-runtime.js";
 import { StoryStore } from "../server/stories.js";
 import type { SettingsStore } from "../server/settings.js";
+import { MAX_TOKEN_PROBABILITY_STEPS } from "../shared/token-probabilities.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 
@@ -21,23 +22,38 @@ import type { GenerationSettings } from "../shared/types.js";
  * generation, prose included, was thrown away over a diagnostic the writer
  * merely opted into.
  *
- * Two review passes corrected the first cut of the fix, both covered below:
- *  - the budget was sized from a synthetic OpenAI-spec payload scaled by the
- *    requested alternative count; KoboldCpp's real serializer always reports
- *    a hard-coded 10 alternatives per token regardless of what was
- *    requested, and costs ~1452 bytes/token, not bytes/(token*alternative) —
- *    buildKoboldLogprobsSteps below mirrors that real shape, not the OpenAI
- *    spec's minimal one;
- *  - the discard predicate proved only that `delta` carried no prose; an
- *    oversized event with an empty `delta` can still carry a real
- *    `finish_reason` or a provider `error`, so discarding it could hide a
- *    truncation or failure behind a later `[DONE]`.
+ * Two review passes tried to widen the cap AND let an oversized event be
+ * discarded (kept, not thrown) whenever it could be shown to carry no
+ * prose. Both attempts were reverted (issue #107, third review pass): an
+ * event too large to buffer is precisely the one whose `finish_reason` or
+ * `error` field can sit past whatever inspection window the parser can
+ * afford, so "safe to discard" can never be soundly decided at the
+ * transport layer — the only place with the whole event to look at is the
+ * one that already has it, and by then it isn't oversized anymore.
+ *
+ * The actual fix has two parts:
+ *  - server/provider-sse-probability-budget.ts sizes the per-event budget to
+ *    what a real KoboldCpp payload for this request's `maxTokens` needs
+ *    (measured directly against `parse_last_logprobs`, not a synthetic
+ *    OpenAI-spec shape — see that module's comment), capped at
+ *    12 MiB — exactly as much as MAX_TOKEN_PROBABILITY_STEPS (8,192) steps
+ *    could ever produce, with headroom;
+ *  - graceful degradation for a payload that parses fine but is still too
+ *    big to store already exists one layer up:
+ *    server/story-node-token-probabilities.ts's attachTakeTokenProbabilities
+ *    drops a record that busts MAX_TOKEN_PROBABILITY_BYTES (4 MiB) once
+ *    serialized, silently, keeping the take's prose. The transport doesn't
+ *    need to duplicate that decision — it only needs to let a
+ *    storable-sized payload through.
+ *
+ * Past the 12 MiB transport ceiling, an event still fails loudly — the same
+ * pre-existing behaviour any oversized provider response has always had.
  *
  * These tests drive the fix at the same layer test/reasoning-storage.test.ts
  * and test/token-probability-storage.test.ts use — a fake OpenAI-compatible
  * SSE stream through `continueStory` — so a passing test proves the take
- * actually commits and, where expected, actually stores the record, not
- * just that the parser stops throwing.
+ * actually commits and, where expected, actually stores (or doesn't store)
+ * the record, not just that the parser stops throwing.
  */
 
 /** What these tests ask the fake provider for. Kept fixed at 10 for most
@@ -46,73 +62,17 @@ import type { GenerationSettings } from "../shared/types.js";
  *  the budget derived from it. */
 const REQUESTED_ALT_COUNT = 10;
 
-/** Shared by every test whose whole point is that the event stays too large
- *  no matter how generous the per-request budget gets: comfortably past
- *  MAX_PROBABILITY_EVENT_BYTES (the 8 MiB absolute ceiling in
- *  server/provider-sse-probability-budget.ts), regardless of the exact
- *  per-token constant. OVERSIZED_MAX_TOKENS is set high enough that the step
- *  count stepsReachingBytes finds for OVERSIZED_TARGET_BYTES (using
- *  KoboldCpp's real, heavier entry shape — see buildKoboldLogprobsSteps)
- *  still reads as a plausible generation length, not an artifact of the
- *  fixture overshooting its own target. */
-const OVERSIZED_TARGET_BYTES = 8_700_000;
-const OVERSIZED_MAX_TOKENS = 16_384;
-
 /** Shared by every test proving an event that fits the new allowance is
- *  parsed and stored, not discarded: comfortably past the OLD flat 1 MiB
+ *  parsed and stored, not refused: comfortably past the OLD flat 1 MiB
  *  event / 2 MiB partial caps this event would have tripped before the fix
  *  (issue #107's own measured 2,048-token row lands at 2.84 MiB on
- *  KoboldCpp's real serializer), and comfortably below the ~8 MiB budget
+ *  KoboldCpp's real serializer), and comfortably below the ~8.0 MiB budget
  *  maxSseEventBytesFor derives for WITHIN_BUDGET_MAX_TOKENS tokens (2,048
- *  B/token headroom over KoboldCpp's real ~1452 B/token, clamped to the
- *  absolute ceiling here). */
+ *  B/token headroom over KoboldCpp's real ~1452 B/token). */
 const WITHIN_BUDGET_TARGET_BYTES = 2_201_600;
 const WITHIN_BUDGET_MAX_TOKENS = 4_096;
 
-test("an oversized token-probability event is dropped, not fatal: the take still commits its prose", { timeout: 20_000 }, async (t) => {
-  const dir = await mkdtemp(path.join(tmpdir(), "1667-token-probability-oversized-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const stories = new StoryStore(dir);
-  await stories.init();
-  const story = await stories.create("Story");
-
-  // Generous maxTokens keeps this fixture's own prose text well inside
-  // providerOutputByteLimit (server/provider-stream-output.ts) regardless of
-  // how many probability steps it takes to build a large event — that cap
-  // is a different safety limit and this test has no business tripping it.
-  const maxTokens = OVERSIZED_MAX_TOKENS;
-  const stepCount = stepsReachingBytes(OVERSIZED_TARGET_BYTES);
-  const { text, steps } = buildKoboldLogprobsSteps(stepCount);
-
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () => new Response(
-    proseDeltaEvent(text) + logprobsFinalEvent(steps) + "data: [DONE]\n\n",
-    { headers: { "content-type": "text/event-stream" } }
-  )) as typeof fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-
-  const result = await continueStory(
-    story.id,
-    { parentId: null, instruction: "Continue.", genId: "gen-oversized" },
-    stories,
-    stubSettingsStore(koboldSettings(REQUESTED_ALT_COUNT, maxTokens)),
-    new PromptCacheRuntime(),
-    new GenerationAdmissionRegistry(),
-    () => {},
-    new AbortController().signal
-  );
-  const node = result?.nodes[0];
-  if (node === undefined) throw new Error("continuation did not commit a take");
-
-  // The prose survives: the oversized event never threw the generation away.
-  assert.equal(node.text, text);
-  // The probabilities do not: the one event that would have carried them was
-  // too large even for the raised per-request budget, so it was discarded —
-  // the same end state as any other path where the record cannot be kept.
-  assert.equal(node.tokenProbabilities, undefined);
-});
-
-test("a probability event within the new per-request allowance is parsed and stored, not discarded", { timeout: 20_000 }, async (t) => {
+test("a probability event within the new per-request allowance is parsed and stored, not refused", { timeout: 20_000 }, async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-token-probability-within-budget-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const stories = new StoryStore(dir);
@@ -122,7 +82,7 @@ test("a probability event within the new per-request allowance is parsed and sto
   const maxTokens = WITHIN_BUDGET_MAX_TOKENS;
   const stepCount = stepsReachingBytes(WITHIN_BUDGET_TARGET_BYTES);
   assert.ok(
-    stepCount < 8_192,
+    stepCount < MAX_TOKEN_PROBABILITY_STEPS,
     "fixture must stay under MAX_TOKEN_PROBABILITY_STEPS or truncation, not the size budget, would decide this test"
   );
   assert.ok(
@@ -192,98 +152,11 @@ test("a request that asked for no probabilities still refuses an oversized event
   );
 });
 
-// Structural-review finding on the fix above: discardOversizedEvents was
-// request-wide, so ANY oversized event was silently dropped once a request
-// had asked for probabilities — but a real OpenAI-compatible event can carry
-// `delta.content` (prose), `logprobs`, and finish/error fields together. A
-// mixed event over budget must never be silently discarded: it must throw,
-// exactly like an oversized event always did before this feature existed.
-test("a mixed event carrying real prose alongside an oversized logprobs payload throws instead of silently losing the prose", { timeout: 20_000 }, async (t) => {
-  const dir = await mkdtemp(path.join(tmpdir(), "1667-token-probability-mixed-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const stories = new StoryStore(dir);
-  await stories.init();
-  const story = await stories.create("Story");
-
-  const maxTokens = OVERSIZED_MAX_TOKENS;
-  const stepCount = stepsReachingBytes(OVERSIZED_TARGET_BYTES);
-  const { steps } = buildKoboldLogprobsSteps(stepCount);
-  const prose = "Real prose that must survive.";
-
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () => new Response(
-    mixedProseAndLogprobsEvent(prose, steps) + "data: [DONE]\n\n",
-    { headers: { "content-type": "text/event-stream" } }
-  )) as typeof fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-
-  await assert.rejects(
-    continueStory(
-      story.id,
-      { parentId: null, instruction: "Continue.", genId: "gen-mixed" },
-      stories,
-      stubSettingsStore(koboldSettings(REQUESTED_ALT_COUNT, maxTokens)),
-      new PromptCacheRuntime(),
-      new GenerationAdmissionRegistry(),
-      () => {},
-      new AbortController().signal
-    ),
-    /provider_response_too_large/
-  );
-
-  // Not just a rejected promise: nothing was silently committed with the
-  // prose missing.
-  const reloaded = await stories.load(story.id);
-  assert.equal(reloaded.nodes.length, 0);
-});
-
-test("an oversized event whose prefix is inconclusive (logprobs ordered before delta) throws rather than guessing", { timeout: 20_000 }, async (t) => {
-  const dir = await mkdtemp(path.join(tmpdir(), "1667-token-probability-inconclusive-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const stories = new StoryStore(dir);
-  await stories.init();
-  const story = await stories.create("Story");
-
-  const maxTokens = OVERSIZED_MAX_TOKENS;
-  const stepCount = stepsReachingBytes(OVERSIZED_TARGET_BYTES);
-  // `delta` carries no real prose here (content: ""), so if the parser
-  // could see it, it would recognize the event as safe to drop. The point
-  // of this test is that it never gets the chance to see it: `logprobs`
-  // comes first and is large enough that `delta` sits well past the
-  // inspection prefix's cutoff.
-  const { steps } = buildKoboldLogprobsSteps(stepCount);
-
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () => new Response(
-    logprobsBeforeDeltaEvent(steps) + "data: [DONE]\n\n",
-    { headers: { "content-type": "text/event-stream" } }
-  )) as typeof fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-
-  await assert.rejects(
-    continueStory(
-      story.id,
-      { parentId: null, instruction: "Continue.", genId: "gen-inconclusive" },
-      stories,
-      stubSettingsStore(koboldSettings(REQUESTED_ALT_COUNT, maxTokens)),
-      new PromptCacheRuntime(),
-      new GenerationAdmissionRegistry(),
-      () => {},
-      new AbortController().signal
-    ),
-    /provider_response_too_large/
-  );
-
-  const reloaded = await stories.load(story.id);
-  assert.equal(reloaded.nodes.length, 0);
-});
-
-// Review finding on the budget itself (not the discard predicate): the
-// first cut scaled the per-event budget by the REQUESTED alternative count,
-// but KoboldCpp's real wire size does not depend on it — the serializer
-// always emits its own hard-coded 10 alternatives per token. A request that
-// asks for only 1 must get exactly the same budget (and the same successful
-// outcome) as one that asks for 10.
+// Review finding on the budget itself: the first cut scaled the per-event
+// budget by the REQUESTED alternative count, but KoboldCpp's real wire size
+// does not depend on it — the serializer always emits its own hard-coded 10
+// alternatives per token. A request that asks for only 1 must get exactly
+// the same budget (and the same successful outcome) as one that asks for 10.
 test("a low requested alternative count does not shrink the per-token budget", { timeout: 20_000 }, async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-token-probability-low-alt-count-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -312,7 +185,7 @@ test("a low requested alternative count does not shrink the per-token budget", {
     // per token (buildKoboldLogprobsSteps mirrors that) and still costs the
     // same ~1452 B/token regardless. The old alt-scaled formula would have
     // derived a budget around maxTokens * 256 here — far below this event's
-    // real size — and silently discarded it.
+    // real size — and refused the event as too large.
     stubSettingsStore(koboldSettings(1, maxTokens)),
     new PromptCacheRuntime(),
     new GenerationAdmissionRegistry(),
@@ -329,29 +202,81 @@ test("a low requested alternative count does not shrink the per-token budget", {
   assert.equal(record.steps.length, stepCount);
 });
 
-// Review finding on the discard predicate: proving `delta` carries no prose
-// is not the same as proving the event carries no terminal state. An empty
-// delta with a real (non-null) finish_reason means the generation actually
-// ended on this event — discarding it would hide that behind a later
-// [DONE], letting a truncated or failed take commit as if it had finished
-// cleanly.
-test("an oversized event with an empty delta but a non-null finish_reason throws instead of discarding", { timeout: 20_000 }, async (t) => {
-  const dir = await mkdtemp(path.join(tmpdir(), "1667-token-probability-finish-reason-"));
+// The guarantee issue #107 actually cares about: a payload the transport
+// accepts can still be too big to store. A full MAX_TOKEN_PROBABILITY_STEPS
+// payload (KoboldCpp's real per-entry shape) is comfortably under the 12 MiB
+// transport ceiling on the wire, but its stored form — token/logprob pairs
+// only, no token_id or bytes — still busts the 4 MiB storage cap. Storage's
+// own try/catch (server/story-node-token-probabilities.ts's
+// attachTakeTokenProbabilities) is what has to drop it, and the take keeps
+// its prose either way.
+test("a payload within the transport ceiling but over the storage cap commits its prose with no stored alternatives", { timeout: 20_000 }, async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-token-probability-storage-cap-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const stories = new StoryStore(dir);
   await stories.init();
   const story = await stories.create("Story");
 
-  const maxTokens = OVERSIZED_MAX_TOKENS;
-  const stepCount = stepsReachingBytes(OVERSIZED_TARGET_BYTES);
+  const maxTokens = MAX_TOKEN_PROBABILITY_STEPS;
+  const stepCount = MAX_TOKEN_PROBABILITY_STEPS;
+  const { text, steps } = buildKoboldLogprobsSteps(stepCount);
+  // Measured directly against this fixture: ~8.7 MiB on the wire (under the
+  // 12 MiB transport ceiling — this event must reach the provider layer
+  // intact), reserializing to ~4.4 MiB in the leaner stored shape (over the
+  // 4 MiB storage cap — this is the record storage must refuse).
+  const wireBytes = Buffer.byteLength(JSON.stringify(steps));
+  assert.ok(wireBytes < 12 * 1024 * 1024, "fixture must stay under the transport ceiling to reach storage at all");
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(
+    proseDeltaEvent(text) + logprobsFinalEvent(steps) + "data: [DONE]\n\n",
+    { headers: { "content-type": "text/event-stream" } }
+  )) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const result = await continueStory(
+    story.id,
+    { parentId: null, instruction: "Continue.", genId: "gen-storage-cap" },
+    stories,
+    stubSettingsStore(koboldSettings(REQUESTED_ALT_COUNT, maxTokens)),
+    new PromptCacheRuntime(),
+    new GenerationAdmissionRegistry(),
+    () => {},
+    new AbortController().signal
+  );
+  const node = result?.nodes[0];
+  if (node === undefined) throw new Error("continuation did not commit a take");
+
+  // The prose commits regardless — the transport accepted the event, and
+  // storage's own refusal of the oversized record never touches the take's
+  // text.
+  assert.equal(node.text, text);
+  // Storage dropped the record: no alternatives were kept.
+  assert.equal(node.tokenProbabilities, undefined);
+  await assert.rejects(
+    () => stories.loadTokenProbabilities(story.id, node.id),
+    /no stored token probabilities/
+  );
+});
+
+// The boundary this module's ceiling actually draws: an event too large
+// even for MAX_TOKEN_PROBABILITY_STEPS worth of real KoboldCpp output still
+// fails the generation loudly. That is the same behaviour any oversized
+// provider response has always had — the ceiling doesn't try to absorb it.
+test("an event past the 12 MiB transport ceiling still throws", { timeout: 20_000 }, async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-token-probability-past-ceiling-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const stories = new StoryStore(dir);
+  await stories.init();
+  const story = await stories.create("Story");
+
+  const maxTokens = 16_384;
+  const stepCount = stepsReachingBytes(13 * 1024 * 1024);
   const { steps } = buildKoboldLogprobsSteps(stepCount);
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => new Response(
-    // Empty delta — on its own, the old (prose-only) predicate would have
-    // called this safe to drop. "length" is a real terminal reason, not
-    // KoboldCpp's own null, so it must not be.
-    logprobsFinalEvent(steps, "length") + "data: [DONE]\n\n",
+    logprobsFinalEvent(steps) + "data: [DONE]\n\n",
     { headers: { "content-type": "text/event-stream" } }
   )) as typeof fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
@@ -359,7 +284,7 @@ test("an oversized event with an empty delta but a non-null finish_reason throws
   await assert.rejects(
     continueStory(
       story.id,
-      { parentId: null, instruction: "Continue.", genId: "gen-finish-reason" },
+      { parentId: null, instruction: "Continue.", genId: "gen-past-ceiling" },
       stories,
       stubSettingsStore(koboldSettings(REQUESTED_ALT_COUNT, maxTokens)),
       new PromptCacheRuntime(),
@@ -421,7 +346,10 @@ function tokenIdFor(index: number, rank: number): number {
  *  review, corrected after reading `parse_last_logprobs` directly, not the
  *  bare OpenAI spec): every entry — the sampled token and each of its
  *  KOBOLD_WIRE_ALTERNATIVES alternatives — carries `token_id` and a `bytes`
- *  array (the token's UTF-8 bytes) alongside `token`/`logprob`. The count of
+ *  array (the token's UTF-8 bytes) alongside `token`/`logprob`, fields
+ *  server/token-probability-capture.ts's parseOpenAiLogprobsEntry reads past
+ *  and doesn't store — which is exactly why the wire and stored sizes differ
+ *  enough for the storage-cap test above to matter. The count of
  *  alternatives is always KOBOLD_WIRE_ALTERNATIVES, independent of any
  *  `altCount` the caller asked the (fake) provider for — that is the whole
  *  point of the low-requested-alt-count test above.
@@ -478,40 +406,11 @@ function proseDeltaEvent(text: string): string {
 }
 
 /** KoboldCpp's real probability-only event carries `"finish_reason":null` —
- *  it is a bonus message, not the generation's actual terminal chunk
- *  (issue #107 review). `finishReason` defaults to that real shape; tests
- *  that need to prove a REAL finish_reason still blocks the discard pass an
- *  explicit non-null value. */
-function logprobsFinalEvent(
-  steps: readonly Record<string, unknown>[],
-  finishReason: string | null = null
-): string {
+ *  it is a bonus message, sent after the stream is already done, not the
+ *  generation's actual terminal chunk. */
+function logprobsFinalEvent(steps: readonly Record<string, unknown>[]): string {
   return `data: ${JSON.stringify({
-    choices: [{ delta: {}, finish_reason: finishReason, logprobs: { content: steps } }]
-  })}\n\n`;
-}
-
-/** A single event carrying real prose (`delta.content`) and a large
- *  `logprobs` payload together — the mixed shape a real OpenAI-compatible
- *  stream can send, and the exact case server/provider-sse.ts's
- *  decideOversizedEvent must never silently discard: `delta` comes before
- *  `logprobs`, matching KoboldCpp's own field order, but this time with
- *  content the fix must not lose. `finish_reason: null` keeps this test
- *  isolated to the prose gate specifically — nothing else about the event
- *  should be a reason to refuse it. */
-function mixedProseAndLogprobsEvent(prose: string, steps: readonly Record<string, unknown>[]): string {
-  return `data: ${JSON.stringify({
-    choices: [{ delta: { content: prose }, finish_reason: null, logprobs: { content: steps } }]
-  })}\n\n`;
-}
-
-/** The inconclusive shape: `logprobs` ordered before `delta`, so the parser's
- *  bounded inspection prefix runs out inside the large `logprobs` payload
- *  and never reaches `delta` at all — prefixProvesSafeToDiscard cannot prove
- *  anything about a field it never saw, and must fail closed. */
-function logprobsBeforeDeltaEvent(steps: readonly Record<string, unknown>[]): string {
-  return `data: ${JSON.stringify({
-    choices: [{ logprobs: { content: steps }, delta: { content: "" }, finish_reason: null }]
+    choices: [{ delta: {}, finish_reason: null, logprobs: { content: steps } }]
   })}\n\n`;
 }
 

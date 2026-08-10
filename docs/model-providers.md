@@ -443,9 +443,14 @@ token contains the credential that 1667 sent, 1667 stores no alternative
 token for that take. The generation keeps its prose.
 
 Some servers send the alternative tokens of a full generation in one
-message. KoboldCpp is one. 1667 accepts a message that the alt count and
-the output limit together permit. A larger message gives no alternative
-token for that take. The generation keeps its prose.
+message. KoboldCpp is one. 1667 sizes its limit for this message from the
+output limit for the generation, up to a fixed ceiling.
+
+A message within that limit can still be too large to keep. 1667 then
+stores no alternative token for that take. The generation keeps its prose.
+
+A message past the ceiling fails the whole generation. This is the same
+result as for any other oversized response from the model.
 
 Select a story part that has prose. Press `l` to open the token probability
 viewer. The viewer shows the take's prose with the selected token marked.
