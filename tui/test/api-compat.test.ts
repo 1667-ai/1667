@@ -937,6 +937,58 @@ test("HTTP StoryApi rejects malformed successful responses for every response fa
       },
       () => api.getGenerationRecord("story", "node", "a".repeat(64)),
       "Generation Record.prompt.entries"
+    ],
+    [
+      [{ id: "", kind: "continue", createdAt: "2026-01-01T00:00:00.000Z" }],
+      () => api.getGenerationRecords("story", "node"),
+      "Generation Record summary[0].id"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: {
+          operation: "continue",
+          entries: [{
+            stability: "stable",
+            kind: "source",
+            source: "revisions",
+            // A resolved source part's revisionId is the same 64-hex text-
+            // revision id the stored codec requires; a shorter string could
+            // never have named a real revision.
+            parts: [{ nodeId: "n1", category: "recent", instruction: "", revisionId: "not-a-hash", text: "prose" }]
+          }]
+        }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt.entries[0].parts[0].revisionId"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: {
+          operation: "continue",
+          entries: [{
+            stability: "stable",
+            kind: "source",
+            source: "revisions",
+            // A resolved source part's nodeId names the story node it came
+            // from; the empty string never names one.
+            parts: [{ nodeId: "", category: "recent", instruction: "", revisionId: "a".repeat(64), text: "prose" }]
+          }]
+        }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt.entries[0].parts[0].nodeId"
     ]
   ];
   for (const [payload, request, expected] of malformed) {

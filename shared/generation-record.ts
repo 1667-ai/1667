@@ -16,9 +16,13 @@ import {
   GENERATION_RECORD_ADJUSTMENT_ACTIONS,
   GENERATION_RECORD_ADJUSTMENT_STAGES,
   GENERATION_RECORD_FORMAT,
+  GENERATION_RECORD_ID_PATTERN,
   GENERATION_RECORD_KINDS,
   GENERATION_RECORD_PROMPT_BLOCK_KINDS,
+  GENERATION_RECORD_PROMPT_OPERATIONS,
+  GENERATION_RECORD_PROMPT_ROLES,
   GENERATION_RECORD_SCHEMA_VERSION,
+  GENERATION_RECORD_SOURCE_CATEGORIES,
   GENERATION_RECORD_WIRE_PROTOCOLS,
   GenerationRecordFormatError,
   MAX_GENERATION_RECORD_ADJUSTMENTS,
@@ -67,20 +71,15 @@ export * from "./generation-record-types.js";
  * migration would have to reach every story that ever stored one.
  */
 
-const HASH_PATTERN = /^[a-f0-9]{64}$/u;
-const PROMPT_ROLES: readonly PromptRole[] = ["system", "user", "assistant"];
-const PROMPT_OPERATIONS: readonly PromptOperation[] = ["continue", "rewrite", "title", "summary"];
-const SOURCE_PART_CATEGORIES = ["recent", "summary"] as const;
-
 export function createGenerationRecord(input: GenerationRecordInput): GenerationRecord {
   const record: GenerationRecord = {
     format: GENERATION_RECORD_FORMAT,
     schemaVersion: GENERATION_RECORD_SCHEMA_VERSION,
-    kind: requireKind(input.kind),
+    kind: requireKind(input.kind, "kind"),
     createdAt: requireNonEmptyString(input.createdAt, "createdAt"),
-    ...(input.range === undefined ? {} : { range: cloneRange(input.range) }),
-    provider: cloneProvider(input.provider),
-    effective: cloneEffective(input.effective),
+    ...(input.range === undefined ? {} : { range: cloneRange(input.range, "range") }),
+    provider: cloneProvider(input.provider, "provider"),
+    effective: cloneEffective(input.effective, "effective"),
     prompt: clonePrompt(input.prompt),
     ...(input.unsupportedReason === undefined ? {} : {
       unsupportedReason: requireBoundedString(
@@ -90,14 +89,21 @@ export function createGenerationRecord(input: GenerationRecordInput): Generation
       )
     })
   };
-  if (record.kind === "unsupported" && record.unsupportedReason === undefined) {
-    throw new GenerationRecordFormatError('unsupportedReason is required when kind is "unsupported"');
-  }
-  if (record.kind !== "unsupported" && record.unsupportedReason !== undefined) {
-    throw new GenerationRecordFormatError('unsupportedReason is only allowed when kind is "unsupported"');
-  }
+  requireUnsupportedReasonPairing(record.kind, record.unsupportedReason !== undefined, "unsupportedReason");
   assertEncodedSize(record);
   return record;
+}
+
+/** `unsupportedReason` is required exactly when `kind === "unsupported"` and
+ *  forbidden otherwise, stored or resolved — shared with
+ *  `shared/generation-record-resolved.ts` so the two shapes can't drift. */
+export function requireUnsupportedReasonPairing(kind: GenerationRecordKind, present: boolean, label: string): void {
+  if (kind === "unsupported" && !present) {
+    throw new GenerationRecordFormatError(`${label} is required when kind is "unsupported"`);
+  }
+  if (kind !== "unsupported" && present) {
+    throw new GenerationRecordFormatError(`${label} is only allowed when kind is "unsupported"`);
+  }
 }
 
 /** Every text-revision id a run of prompt entries references. Shared by
@@ -190,7 +196,7 @@ export function parseGenerationRecord(raw: string, expectedHash?: string): Gener
     );
   }
   if (expectedHash !== undefined) {
-    if (!HASH_PATTERN.test(expectedHash)) throw new GenerationRecordFormatError("Invalid generation record id");
+    if (!GENERATION_RECORD_ID_PATTERN.test(expectedHash)) throw new GenerationRecordFormatError("Invalid generation record id");
     if (sha256Hex(raw) !== expectedHash) {
       throw new GenerationRecordFormatError(`Generation record hash mismatch: ${expectedHash}`);
     }
@@ -209,11 +215,11 @@ export function parseGenerationRecord(raw: string, expectedHash?: string): Gener
     "generation record"
   );
   const input: GenerationRecordInput = {
-    kind: requireKind(value.kind),
+    kind: requireKind(value.kind, "kind"),
     createdAt: requireString(value.createdAt, "createdAt"),
-    ...(value.range === undefined ? {} : { range: parseRange(value.range) }),
-    provider: parseProvider(value.provider),
-    effective: parseEffective(value.effective),
+    ...(value.range === undefined ? {} : { range: parseGenerationRecordRange(value.range, "range") }),
+    provider: parseGenerationRecordProvider(value.provider, "provider"),
+    effective: parseGenerationRecordEffectiveParameters(value.effective, "effective"),
     prompt: parsePrompt(value.prompt),
     ...(value.unsupportedReason === undefined ? {} : { unsupportedReason: requireString(value.unsupportedReason, "unsupportedReason") })
   };
@@ -224,81 +230,85 @@ export function parseGenerationRecord(raw: string, expectedHash?: string): Gener
   return record;
 }
 
-function requireKind(value: unknown): GenerationRecordKind {
+function requireKind(value: unknown, label: string): GenerationRecordKind {
   if (typeof value !== "string" || !(GENERATION_RECORD_KINDS as readonly string[]).includes(value)) {
-    throw new GenerationRecordFormatError("Invalid generation record kind");
+    throw new GenerationRecordFormatError(`${label} is invalid`);
   }
   return value as GenerationRecordKind;
 }
 
-function cloneRange(range: GenerationRecordRange): GenerationRecordRange {
-  if (
-    !Number.isSafeInteger(range.start) || !Number.isSafeInteger(range.end)
-    || range.start < 0 || range.end < range.start
-  ) {
-    throw new GenerationRecordFormatError("range must be a non-negative, non-decreasing integer pair");
+function cloneRange(range: GenerationRecordRange, label: string): GenerationRecordRange {
+  if (!Number.isSafeInteger(range.start) || range.start < 0) {
+    throw new GenerationRecordFormatError(`${label}.start must be a non-negative integer`);
+  }
+  if (!Number.isSafeInteger(range.end) || range.end < range.start) {
+    throw new GenerationRecordFormatError(`${label}.end must be an integer no less than ${label}.start`);
   }
   return { start: range.start, end: range.end };
 }
 
-function parseRange(value: unknown): GenerationRecordRange {
-  const range = requireRecord(value, "range");
-  requireKeys(range, ["start", "end"], [], "range");
-  return cloneRange({ start: requireSafeInteger(range.start, "range.start"), end: requireSafeInteger(range.end, "range.end") });
+/** Shared by the stored `GenerationRecord` and its resolved projection: both
+ *  carry an identical `range` field. */
+export function parseGenerationRecordRange(value: unknown, label: string): GenerationRecordRange {
+  const range = requireRecord(value, label);
+  return cloneRange(
+    { start: requireSafeInteger(range.start, `${label}.start`), end: requireSafeInteger(range.end, `${label}.end`) },
+    label
+  );
 }
 
-function cloneProvider(provider: GenerationRecordProvider): GenerationRecordProvider {
+function cloneProvider(provider: GenerationRecordProvider, label: string): GenerationRecordProvider {
   if (!(PROVIDER_VALUES as readonly string[]).includes(provider.provider)) {
-    throw new GenerationRecordFormatError("Invalid provider");
+    throw new GenerationRecordFormatError(`${label}.provider is invalid`);
   }
   return {
     provider: provider.provider,
-    model: requireBoundedString(provider.model, "provider.model", MAX_GENERATION_RECORD_MODEL_CHARS)
+    model: requireBoundedString(provider.model, `${label}.model`, MAX_GENERATION_RECORD_MODEL_CHARS)
   };
 }
 
-function parseProvider(value: unknown): GenerationRecordProvider {
-  const provider = requireRecord(value, "provider");
-  requireKeys(provider, ["provider", "model"], [], "provider");
+/** Identical between the stored and resolved shapes — a record's provider
+ *  identity is never rewritten by resolution. */
+export function parseGenerationRecordProvider(value: unknown, label: string): GenerationRecordProvider {
+  const provider = requireRecord(value, label);
   return cloneProvider({
-    provider: requireString(provider.provider, "provider.provider") as GenerationRecordProvider["provider"],
-    model: requireString(provider.model, "provider.model")
-  });
+    provider: requireString(provider.provider, `${label}.provider`) as GenerationRecordProvider["provider"],
+    model: requireString(provider.model, `${label}.model`)
+  }, label);
 }
 
-function cloneEffective(effective: GenerationRecordEffectiveParameters): GenerationRecordEffectiveParameters {
+function cloneEffective(effective: GenerationRecordEffectiveParameters, label: string): GenerationRecordEffectiveParameters {
   if (!(GENERATION_RECORD_WIRE_PROTOCOLS as readonly string[]).includes(effective.wireProtocol)) {
-    throw new GenerationRecordFormatError("Invalid wireProtocol");
+    throw new GenerationRecordFormatError(`${label}.wireProtocol is invalid`);
   }
   if (effective.fields.length > MAX_GENERATION_RECORD_FIELDS) {
-    throw new GenerationRecordFormatError(`effective.fields exceeds the ${MAX_GENERATION_RECORD_FIELDS}-field limit`);
+    throw new GenerationRecordFormatError(`${label}.fields exceeds the ${MAX_GENERATION_RECORD_FIELDS}-field limit`);
   }
   if (effective.adjustments.length > MAX_GENERATION_RECORD_ADJUSTMENTS) {
-    throw new GenerationRecordFormatError(`effective.adjustments exceeds the ${MAX_GENERATION_RECORD_ADJUSTMENTS}-entry limit`);
+    throw new GenerationRecordFormatError(`${label}.adjustments exceeds the ${MAX_GENERATION_RECORD_ADJUSTMENTS}-entry limit`);
   }
   return {
     wireProtocol: effective.wireProtocol,
-    fields: effective.fields.map((field, index) => cloneField(field, index)),
-    adjustments: effective.adjustments.map((adjustment, index) => cloneAdjustment(adjustment, index))
+    fields: effective.fields.map((field, index) => cloneField(field, `${label}.fields[${index}]`)),
+    adjustments: effective.adjustments.map((adjustment, index) => cloneAdjustment(adjustment, `${label}.adjustments[${index}]`))
   };
 }
 
-function cloneField(field: GenerationRecordField, index: number): GenerationRecordField {
-  const name = requireBoundedString(field.field, `effective.fields[${index}].field`, MAX_GENERATION_RECORD_FIELD_NAME_CHARS);
+function cloneField(field: GenerationRecordField, label: string): GenerationRecordField {
+  const name = requireBoundedString(field.field, `${label}.field`, MAX_GENERATION_RECORD_FIELD_NAME_CHARS);
   const value = field.value;
   if (typeof value === "string") {
-    return { field: name, value: requireBoundedString(value, `effective.fields[${index}].value`, MAX_GENERATION_RECORD_FIELD_STRING_CHARS) };
+    return { field: name, value: requireBoundedString(value, `${label}.value`, MAX_GENERATION_RECORD_FIELD_STRING_CHARS) };
   }
   if (typeof value === "number") {
-    if (!Number.isFinite(value)) throw new GenerationRecordFormatError(`effective.fields[${index}].value must be finite`);
+    if (!Number.isFinite(value)) throw new GenerationRecordFormatError(`${label}.value must be finite`);
     return { field: name, value };
   }
   if (typeof value === "boolean") return { field: name, value };
-  throw new GenerationRecordFormatError(`effective.fields[${index}].value must be a string, number, or boolean`);
+  throw new GenerationRecordFormatError(`${label}.value must be a string, number, or boolean`);
 }
 
-function cloneAdjustment(adjustment: GenerationRecordAdjustment, index: number): GenerationRecordAdjustment {
-  const label = `effective.adjustments[${index}]`;
+function cloneAdjustment(adjustment: GenerationRecordAdjustment, label: string): GenerationRecordAdjustment {
   if (!(GENERATION_RECORD_ADJUSTMENT_STAGES as readonly string[]).includes(adjustment.stage)) {
     throw new GenerationRecordFormatError(`${label}.stage is invalid`);
   }
@@ -325,23 +335,22 @@ function cloneAdjustment(adjustment: GenerationRecordAdjustment, index: number):
   };
 }
 
-function parseEffective(value: unknown): GenerationRecordEffectiveParameters {
-  const effective = requireRecord(value, "effective");
-  requireKeys(effective, ["wireProtocol", "fields", "adjustments"], [], "effective");
-  const fields = requireArray(effective.fields, "effective.fields").map((field, index) => parseField(field, index));
-  const adjustments = requireArray(effective.adjustments, "effective.adjustments")
-    .map((adjustment, index) => parseAdjustment(adjustment, index));
+/** Identical between the stored and resolved shapes: only a record's
+ *  `prompt` changes shape under resolution, never `effective`. */
+export function parseGenerationRecordEffectiveParameters(value: unknown, label: string): GenerationRecordEffectiveParameters {
+  const effective = requireRecord(value, label);
+  const fields = requireArray(effective.fields, `${label}.fields`).map((field, index) => parseField(field, `${label}.fields[${index}]`));
+  const adjustments = requireArray(effective.adjustments, `${label}.adjustments`)
+    .map((adjustment, index) => parseAdjustment(adjustment, `${label}.adjustments[${index}]`));
   return cloneEffective({
-    wireProtocol: requireString(effective.wireProtocol, "effective.wireProtocol") as GenerationRecordWireProtocol,
+    wireProtocol: requireString(effective.wireProtocol, `${label}.wireProtocol`) as GenerationRecordWireProtocol,
     fields,
     adjustments
-  });
+  }, label);
 }
 
-function parseField(value: unknown, index: number): GenerationRecordField {
-  const label = `effective.fields[${index}]`;
+function parseField(value: unknown, label: string): GenerationRecordField {
   const field = requireRecord(value, label);
-  requireKeys(field, ["field", "value"], [], label);
   const raw = field.value;
   if (typeof raw !== "string" && typeof raw !== "number" && typeof raw !== "boolean") {
     throw new GenerationRecordFormatError(`${label}.value must be a string, number, or boolean`);
@@ -349,21 +358,19 @@ function parseField(value: unknown, index: number): GenerationRecordField {
   return { field: requireString(field.field, `${label}.field`), value: raw };
 }
 
-function parseAdjustment(value: unknown, index: number): GenerationRecordAdjustment {
-  const label = `effective.adjustments[${index}]`;
+function parseAdjustment(value: unknown, label: string): GenerationRecordAdjustment {
   const adjustment = requireRecord(value, label);
-  requireKeys(adjustment, ["stage", "field", "action"], ["attempt", "toField"], label);
   return cloneAdjustment({
     stage: requireString(adjustment.stage, `${label}.stage`) as GenerationRecordAdjustmentStage,
     field: requireString(adjustment.field, `${label}.field`),
     action: requireString(adjustment.action, `${label}.action`) as GenerationRecordAdjustmentAction,
     ...(adjustment.attempt === undefined ? {} : { attempt: requireSafeInteger(adjustment.attempt, `${label}.attempt`) }),
     ...(adjustment.toField === undefined ? {} : { toField: requireString(adjustment.toField, `${label}.toField`) })
-  }, index);
+  }, label);
 }
 
 function clonePrompt(prompt: GenerationRecordPrompt): GenerationRecordPrompt {
-  if (!(PROMPT_OPERATIONS as readonly string[]).includes(prompt.operation)) {
+  if (!(GENERATION_RECORD_PROMPT_OPERATIONS as readonly string[]).includes(prompt.operation)) {
     throw new GenerationRecordFormatError("Invalid prompt.operation");
   }
   if (prompt.entries.length > MAX_GENERATION_RECORD_ENTRIES) {
@@ -397,7 +404,7 @@ function clonePromptEntry(entry: GenerationRecordPromptEntry, index: number): Ge
       parts: entry.parts.map((part, partIndex) => cloneSourcePart(part, `${label}.parts[${partIndex}]`))
     };
   }
-  if (!(PROMPT_ROLES as readonly string[]).includes(entry.role)) throw new GenerationRecordFormatError(`${label}.role is invalid`);
+  if (!(GENERATION_RECORD_PROMPT_ROLES as readonly string[]).includes(entry.role)) throw new GenerationRecordFormatError(`${label}.role is invalid`);
   if (entry.source !== "text") throw new GenerationRecordFormatError(`${label}.source must be "text" or "revisions"`);
   if (entry.stability !== "stable" && entry.stability !== "volatile") {
     throw new GenerationRecordFormatError(`${label}.stability is invalid`);
@@ -413,11 +420,11 @@ function clonePromptEntry(entry: GenerationRecordPromptEntry, index: number): Ge
 }
 
 function cloneSourcePart(part: GenerationRecordSourcePart, label: string): GenerationRecordSourcePart {
-  if (!HASH_PATTERN.test(part.revisionId)) throw new GenerationRecordFormatError(`${label}.revisionId is invalid`);
+  if (!GENERATION_RECORD_ID_PATTERN.test(part.revisionId)) throw new GenerationRecordFormatError(`${label}.revisionId is invalid`);
   if (part.nodeId.length === 0 || part.nodeId.length > MAX_GENERATION_RECORD_FIELD_STRING_CHARS) {
     throw new GenerationRecordFormatError(`${label}.nodeId is invalid`);
   }
-  if (!(SOURCE_PART_CATEGORIES as readonly string[]).includes(part.category)) {
+  if (!(GENERATION_RECORD_SOURCE_CATEGORIES as readonly string[]).includes(part.category)) {
     throw new GenerationRecordFormatError(`${label}.category is invalid`);
   }
   if (!Number.isSafeInteger(part.textLength) || part.textLength < 0) {

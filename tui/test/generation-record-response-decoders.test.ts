@@ -25,6 +25,6 @@ test("decodeGenerationRecordResponse rejects a non-finite effective-field value"
     prompt: { operation: "continue", entries: [] }
   };
   expect(() => decodeGenerationRecordResponse(record)).toThrow(
-    "The server returned invalid Generation Record.effective.fields[0].value."
+    "Generation Record.effective.fields[0].value must be finite"
   );
 });

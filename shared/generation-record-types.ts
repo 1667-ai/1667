@@ -11,6 +11,18 @@ import type { Provider } from "./types.js";
 export const GENERATION_RECORD_FORMAT = "1667-generation-record";
 export const GENERATION_RECORD_SCHEMA_VERSION = 1;
 
+/** A text-revision id, stored or resolved: 64 lowercase hex characters. */
+export const GENERATION_RECORD_ID_PATTERN = /^[a-f0-9]{64}$/u;
+
+/** The wire and storage value lists behind `PromptRole`/`PromptOperation`/a
+ *  source part's `category` (`shared/prompt-plan.ts` declares the types
+ *  only, not the members) — the one place both the stored and the resolved
+ *  Generation Record codecs read them from, so the two shapes can never
+ *  drift apart on which values are valid. */
+export const GENERATION_RECORD_PROMPT_ROLES: readonly PromptRole[] = ["system", "user", "assistant"];
+export const GENERATION_RECORD_PROMPT_OPERATIONS: readonly PromptOperation[] = ["continue", "rewrite", "title", "summary"];
+export const GENERATION_RECORD_SOURCE_CATEGORIES = ["recent", "summary"] as const;
+
 export const MAX_GENERATION_RECORD_BYTES = 2 * 1024 * 1024;
 export const MAX_GENERATION_RECORD_TEXT_CHARS = 65_536;
 export const MAX_GENERATION_RECORD_ENTRIES = 32;
