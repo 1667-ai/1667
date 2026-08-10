@@ -27,6 +27,20 @@ export function logBodyHeight(height: number): number {
   return Math.max(1, height - SHELL_ROWS);
 }
 
+/** The largest `scrollOffset` that still moves the view within the focused
+ *  notice, at a given terminal size. Shared with `overlay-actions.ts` so an
+ *  action's clamp and `windowStart`'s render can never disagree: both are
+ *  built from the same `noticeRows`/`logBodyHeight` measurement. Zero for a
+ *  notice that fits beside its neighbours — there is nowhere to scroll it. */
+export function maxNoticeScrollOffset(log: NoticeLog, width: number, height: number): number {
+  const cursor = boundedNoticeCursor(log, log.cursor);
+  const notice = log.entries[cursor];
+  if (notice === undefined) return 0;
+  const rows = noticeRows(notice, true, width).length;
+  const bodyHeight = logBodyHeight(height);
+  return rows > bodyHeight ? rows - bodyHeight : 0;
+}
+
 /** C-37 · log: a C-02 surface holding the session's notices, newest first, the
  *  one you came from expanded. The only surface with no cap — it is what makes
  *  the caps on the other three feedback channels honest. */

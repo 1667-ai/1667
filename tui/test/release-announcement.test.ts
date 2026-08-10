@@ -275,6 +275,39 @@ describe("announceRelease (wiring)", () => {
 
     expect(state.toast).toBe(EXPECTED_COMPOSE_TOAST);
   });
+
+  // Regression: `~/.config/1667/config.json` is machine-global, not
+  // per-project. A second 1667 process running a different project can
+  // write to it between this process's own startup load and this call.
+  // The stamp must land on top of that write, not revert it by persisting
+  // the stale startup snapshot.
+  test("stamping lastRunVersion does not revert a setting a concurrent process just wrote", async () => {
+    const file = await scratchConfigFile();
+    saveConfig(normalizeUserConfig({ lastRunVersion: "0.0.1", theme: "lantern" }), { file });
+    // This process's own startup load — the snapshot `source.config` holds
+    // for the rest of the session.
+    const source = wiringSource(file);
+    const state = initialState(source, false);
+    expect(source.config.theme).toBe("lantern");
+
+    // A second process, running a different project, changes a setting
+    // after that load but before this process reaches announceRelease.
+    saveConfig(normalizeUserConfig({ lastRunVersion: "0.0.1", theme: "bond" }), { file });
+
+    announceRelease(state, source, { file }, WIRING_NOTES);
+
+    const persisted = loadConfig({ file });
+    // The concurrent write survives...
+    expect(persisted.theme).toBe("bond");
+    // ...and the stamp still lands on top of it.
+    expect(persisted.lastRunVersion).toBe(AI_1667_PRODUCT_VERSION);
+
+    // In memory, only lastRunVersion changes: this session already rendered
+    // its first frame from the "lantern" snapshot, and adopting "bond" here
+    // would swap the live theme underneath it.
+    expect(source.config.theme).toBe("lantern");
+    expect(source.config.lastRunVersion).toBe(AI_1667_PRODUCT_VERSION);
+  });
 });
 
 describe("the stamp makes the announcement one-shot", () => {

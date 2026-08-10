@@ -18,9 +18,9 @@ export interface ReleaseAnnouncement {
  * build carrying this feature always leaves it set. A config file that
  * parses but carries no `lastRunVersion` can only have been written by a
  * build older than this feature: an upgrade from a version we cannot name.
- * A missing config file is a genuinely new install. A config file that
- * exists but could not be read or parsed is neither — see `announceRelease`,
- * which refuses to touch it.
+ * A missing config file is a *probable* new install, not a certain one — see
+ * `classifyLastRun`. A config file that exists but could not be read or
+ * parsed is neither — see `announceRelease`, which refuses to touch it.
  */
 export type LastRun =
   | { readonly kind: "fresh" }
@@ -30,6 +30,12 @@ export type LastRun =
 
 function classifyLastRun(status: ConfigLoadStatus, lastRunVersion: string | null): LastRun {
   if (status === "unreadable") return { kind: "unreadable" };
+  // Decision record: "absent" is a probable new install, not a certain one —
+  // a pre-feature build only wrote config.json on a settings change, so a
+  // returning writer who only ever read and generated has none either, and
+  // silently misses one announcement here. Accepted deliberately: the two
+  // errors are not symmetric, and announcing to a genuinely new writer is
+  // the worse one.
   if (status === "absent") return { kind: "fresh" };
   return lastRunVersion === null ? { kind: "unknown" } : { kind: "version", version: lastRunVersion };
 }
@@ -123,18 +129,17 @@ export function announceRelease(
   notes: readonly ReleaseNote[] = RELEASE_NOTES
 ): void {
   if (source.demo) return;
-  // Read fresh rather than trusting `source.config.lastRunVersion`: that
-  // value already went through `loadConfig`, which collapses "absent" and
-  // "unreadable" to the same silent defaults. Only a fresh read carries the
-  // distinction `classifyLastRun` needs.
-  const { status } = loadConfigWithStatus(options);
-  const lastRun = classifyLastRun(status, source.config.lastRunVersion);
+  // Read fresh rather than trusting `source.config`: that snapshot came from
+  // `main.ts`'s own `loadConfig` call earlier in startup, and `loadConfig`
+  // alone cannot tell "absent" from "unreadable" (see `loadConfigWithStatus`
+  // in config.ts). This read is also the copy the stamp below persists
+  // onto — see the comment there for why that matters too.
+  const fresh = loadConfigWithStatus(options);
+  const lastRun = classifyLastRun(fresh.status, fresh.config.lastRunVersion);
   if (lastRun.kind === "unreadable") {
     // A config we could not read is a config we must not overwrite: it may
     // be the writer's only copy of their settings, and it may still be
-    // repairable by hand. Stamping here would persist `source.config`'s
-    // already-defaulted values over it, turning a recoverable parse error
-    // into a silent loss. Announce nothing either — there is nothing to
+    // repairable by hand. Announce nothing either — there is nothing to
     // compare against with any confidence.
     return;
   }
@@ -146,12 +151,25 @@ export function announceRelease(
   // Unconditional (for every case but `unreadable`, already returned above):
   // a version with no notes for this writer's range must still be recorded,
   // or every later launch of this same build would repeat the check forever.
-  if (source.config.lastRunVersion !== currentVersion) {
-    // Same mutation shape as story-actions.ts's toggle-rail action: update
-    // both copies state and source share, then persist.
+  if (fresh.config.lastRunVersion !== currentVersion) {
+    // Persist onto `fresh.config` — the copy this function just read — never
+    // onto `source.config`, the snapshot `main.ts` loaded earlier at
+    // startup. `~/.config/1667/config.json` is machine-global, not
+    // per-project: a second 1667 process running a different project can
+    // change the theme, an update preference, or the quota ledger between
+    // that earlier load and this call. Stamping over the stale startup
+    // snapshot would silently revert whatever that other process just wrote.
+    saveConfig({ ...fresh.config, lastRunVersion: currentVersion }, options);
+    // In memory, though, adopt only this one field. `source.config`'s other
+    // fields already built this session's palette and behavior before this
+    // function ever ran, so swapping the concurrent process's fresher
+    // values in here would change a running session's settings underneath
+    // it — a worse bug than the disk overwrite this guards against. Disk
+    // gets the fresh copy; memory keeps its own snapshot except for
+    // `lastRunVersion`. This asymmetry is deliberate — do not "tidy" it
+    // into full adoption.
     source.config = { ...source.config, lastRunVersion: currentVersion };
     state.config = source.config;
-    saveConfig(source.config, options);
   }
 
   if (announcement === null) return;
