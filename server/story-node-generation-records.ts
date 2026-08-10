@@ -22,8 +22,11 @@ import { sha256 } from "./story-format.js";
  * node before an encode drained it — the id would stay in
  * `generationRecordIds` forever, but its bytes would never reach disk. This
  * keeps every pending record queued per node instead, in append order, so
- * `takePendingGenerationRecords` always drains the exact set (and order)
- * `appendPendingGenerationRecord` queued.
+ * `storePendingGenerationRecords` always drains the exact set (and order)
+ * `appendPendingGenerationRecord` queued — one record at a time, only ever
+ * dropping a record once its own write durably lands, so a failed write
+ * partway through leaves everything after it (and itself) queued for retry
+ * instead of vanishing with the in-memory-only bytes behind it.
  */
 const pendingGenerationRecords = new WeakMap<StoryNode, GenerationRecord[]>();
 
@@ -71,10 +74,48 @@ export function appendPendingGenerationRecord(node: StoryNode, record: Generatio
 /** Consume and clear every pending record so a later, unrelated encode of the
  *  same long-lived Story object can never store any of them twice. Empty
  *  when this node's most recent ids were already stored by an earlier encode
- *  (or when it has none pending at all). */
+ *  (or when it has none pending at all).
+ *
+ *  This drops every pending record synchronously, before any of it has
+ *  actually reached disk — safe only for a caller that stores the result
+ *  itself without ever failing partway through. `encodeStoryBundle` cannot
+ *  make that promise (the object store write is an async, fallible I/O
+ *  call), so it must use `storePendingGenerationRecords` below instead. This
+ *  export remains for callers that only ever inspect or discard the queue
+ *  synchronously (tests). */
 export function takePendingGenerationRecords(node: StoryNode): readonly GenerationRecord[] {
   const queue = pendingGenerationRecords.get(node);
   if (queue === undefined) return [];
   pendingGenerationRecords.delete(node);
   return queue;
+}
+
+/** Store every pending record queued for one node, removing each from the
+ *  queue only once its own write has actually settled — so a transient
+ *  failure partway through a node's queue (or before any of it starts)
+ *  leaves every unwritten record queued for the next encode of the same
+ *  Story object, while every record this call already wrote can never be
+ *  re-queued and re-sent by a later retry or an unrelated encode. This is
+ *  what makes commit-time persistence retryable at this boundary: the
+ *  in-memory queue is the only copy of a record's bytes, so it must survive
+ *  every record `store` has not yet durably written, across as many retries
+ *  as it takes.
+ *
+ *  `store` does not need to be idempotent for this function's correctness —
+ *  a record already shifted off the queue is never sent again — but
+ *  `StoryObjectStore.storeGenerationRecord` happens to be one anyway
+ *  (content-addressed), so a caller that retries a whole failed encode from
+ *  scratch after some other node's write also failed does not have to worry
+ *  about which of this node's records already landed. */
+export async function storePendingGenerationRecords(
+  node: StoryNode,
+  store: (record: GenerationRecord) => Promise<unknown>
+): Promise<void> {
+  const queue = pendingGenerationRecords.get(node);
+  if (queue === undefined) return;
+  while (queue.length > 0) {
+    await store(queue[0]!);
+    queue.shift();
+  }
+  pendingGenerationRecords.delete(node);
 }

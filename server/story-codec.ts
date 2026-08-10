@@ -45,7 +45,7 @@ import {
   reusableStoredRevisionId,
   reusableTokenProbabilityId
 } from "./story-node-text.js";
-import { takePendingGenerationRecords } from "./story-node-generation-records.js";
+import { storePendingGenerationRecords } from "./story-node-generation-records.js";
 import { takePendingTokenProbabilities } from "./story-node-token-probabilities.js";
 import { reusableRevisionId, type StoryRevisionSnapshot } from "./story-snapshot.js";
 import { setStoryAutonameId, storyAutonameId } from "./story-metadata.js";
@@ -123,13 +123,15 @@ export async function encodeStoryBundle(
   // array itself needs no reuse lookup the way a node's single revisionId
   // does. Only hashes this commit just minted still need their bytes
   // written — every one of them, in append order, since a node can carry
-  // more than one pending record; takePendingGenerationRecords also clears
-  // the side table, so a later encode of the same long-lived Story never
-  // stores any of them twice.
+  // more than one pending record. storePendingGenerationRecords only drops a
+  // record from the side table once its own write settles, so a transient
+  // failure here (including one that lands after some records in this same
+  // loop already wrote) leaves every unwritten record queued for the next
+  // encode of this same Story object, instead of losing the only in-memory
+  // copy of its bytes. A fully drained node's queue still clears, so a later
+  // unrelated encode never stores any of its records twice.
   for (const node of story.nodes) {
-    for (const pending of takePendingGenerationRecords(node)) {
-      await objects.storeGenerationRecord(pending, reuseFrom);
-    }
+    await storePendingGenerationRecords(node, (pending) => objects.storeGenerationRecord(pending, reuseFrom));
   }
 
   const nodes: StoredNodeV1[] = story.nodes.map((node, index) => ({
