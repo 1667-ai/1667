@@ -57,6 +57,7 @@ import {
 import {
   providerOutputRetainedByteLimit
 } from "./provider-stream-output.js";
+import { assertGenerationRecordCapacity } from "./story-node-generation-records.js";
 
 export type BindGenerationIntent = (settings: GenerationSettings, context: unknown) => Promise<void>;
 
@@ -198,6 +199,11 @@ export async function continueStory(
     if (crossesChapterBreak) {
       appendTo = null;
     } else {
+      // A genuine append to this existing node's history — unlike the
+      // crosses-break branch above, which retargets to a brand-new take —
+      // so its Generation Record capacity must be checked before the paid
+      // provider request below ever starts, not just at commit time.
+      assertGenerationRecordCapacity(target);
       expectedTextHash = requireString(body.expectedTextHash, "expectedTextHash");
       if (!HASH_PATTERN.test(expectedTextHash)) throw new HttpError(400, "Invalid expectedTextHash");
       if (sha256(target.text) !== expectedTextHash) throw new HttpError(409, "The node being continued changed before writing began.");
@@ -437,6 +443,10 @@ export async function rewriteNode(
   if (part.text.slice(start, end) !== expected) {
     throw new HttpError(409, "The selection no longer matches the stored text — reload the story.");
   }
+  // The public rewrite route selects from activePath, which excludes chapter
+  // summaries. Thus only an explicit take destination mints a new node here.
+  // Every other destination appends a record to this existing node.
+  if (destination !== "take") assertGenerationRecordCapacity(part);
   const originalText = part.text;
   const budgetedFacts = activeBudgetedFactsForRewrite(story, partId, instruction, expected);
   const { settings, promptCache } = await settingsStore.loadGeneration("prose");

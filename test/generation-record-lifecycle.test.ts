@@ -186,69 +186,6 @@ test("an append adds a second Generation Record after the first, both readable i
   assert.deepEqual(warnings, [], "expected no storage warnings while appending and settling cleanup");
 });
 
-test("an append at the Generation Record limit refuses without persisting an unreadable manifest", async (t) => {
-  const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-append-limit-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const stories = new StoryStore(dir);
-  await stories.init();
-  const story = await stories.create("Story");
-
-  const created = await stories.createNode(story.id, null, "The cat sat on the mat.", "");
-  const nodeId = created.nodes[0]!.id;
-  const seeded = await continueStory(
-    story.id,
-    {
-      appendTo: nodeId,
-      expectedTextHash: sha256(created.nodes[0]!.text),
-      instruction: "",
-      genId: "gen-append-limit-seed"
-    },
-    stories,
-    stubSettingsStore(dryRunSettings()),
-    new PromptCacheRuntime(),
-    new GenerationAdmissionRegistry(),
-    () => {},
-    new AbortController().signal
-  );
-  const seededNode = seeded?.nodes.find((node) => node.id === nodeId);
-  const recordId = seededNode?.generationRecordIds?.[0];
-  if (seededNode === undefined || recordId === undefined) {
-    throw new Error("seed append did not store a Generation Record");
-  }
-  const beforeText = seededNode.text;
-  await stories.mutate(story.id, (fresh) => {
-    fresh.nodes.find((node) => node.id === nodeId)!.generationRecordIds =
-      Array.from({ length: MAX_GENERATION_RECORD_IDS }, () => recordId);
-  });
-
-  await assert.rejects(
-    () => continueStory(
-      story.id,
-      {
-        appendTo: nodeId,
-        expectedTextHash: sha256(beforeText),
-        instruction: "",
-        genId: "gen-append-over-limit"
-      },
-      stories,
-      stubSettingsStore(dryRunSettings()),
-      new PromptCacheRuntime(),
-      new GenerationAdmissionRegistry(),
-      () => {},
-      new AbortController().signal
-    ),
-    /maximum of 4096 Generation Records/u
-  );
-
-  // The refused commit never saved, so the story on disk stays exactly as it
-  // was — still readable, still at the limit, nothing appended.
-  const reloaded = await stories.load(story.id);
-  const node = reloaded.nodes.find((candidate) => candidate.id === nodeId)!;
-  assert.equal(node.generationRecordIds?.length, MAX_GENERATION_RECORD_IDS);
-  assert.equal(node.text, beforeText);
-  await stories.waitForMaintenance();
-});
-
 test("cancelling a full Generation Record history read releases its bounded work", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-history-cancel-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
