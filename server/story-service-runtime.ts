@@ -378,7 +378,11 @@ export abstract class StoryServiceRuntime {
       undefined,
       undefined,
       undefined,
-      path.join(storageRoot, MUTATION_RECEIPT_DIRECTORY)
+      // A closure, not a direct reference: `this.mutationReceipts` is
+      // constructed after `this.stories` below (it resolves stories through
+      // `this.stories.load`), so this must read the field lazily. StoryStore
+      // never calls it before both are constructed and initialized.
+      (storyId) => this.mutationReceipts.liveGenerationRecordIds(storyId)
     );
     this.settings = new SettingsStore(storageRoot, {
       activationMode: this.settingsActivation,

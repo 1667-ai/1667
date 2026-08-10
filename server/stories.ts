@@ -93,8 +93,8 @@ import {
   type GenerationRecordSourceRevisionSnapshot
 } from "./story-aggregate-session.js";
 import {
-  chapterBreakUndoGenerationRecordIds,
-  MUTATION_RECEIPT_DIRECTORY
+  NO_CHAPTER_BREAK_UNDO_LIVENESS,
+  type ChapterBreakUndoLiveness
 } from "./chapter-break-undo-liveness.js";
 
 export const STORY_LIST_IO_CONCURRENCY = 4;
@@ -134,7 +134,7 @@ export class StoryStore {
     private readonly sweep: SweepObjects = sweepObjects,
     private readonly writeManifest: WriteManifest = writeDurableAtomic,
     generationRecordGraphCacheCapacity: number = GENERATION_RECORD_GRAPH_CACHE_CAPACITY,
-    private readonly mutationReceiptDir: string = path.join(dir, MUTATION_RECEIPT_DIRECTORY)
+    private readonly liveGenerationRecordIds: ChapterBreakUndoLiveness = NO_CHAPTER_BREAK_UNDO_LIVENESS
   ) {
     this.cleanupQueue = new BoundedCleanupQueue(
       STORY_CLEANUP_IO_CONCURRENCY,
@@ -866,7 +866,7 @@ export class StoryStore {
             : null;
         if (live === null) return;
         const pinned = this.providerSnapshotPins.get(id);
-        const undoGenerationRecords = await chapterBreakUndoGenerationRecordIds(this.mutationReceiptDir, id, signal);
+        const undoGenerationRecords = this.liveGenerationRecordIds(id);
         const beganWithPins = pinned !== undefined;
         const protectedIds: LiveStoryObjectIds = pinned === undefined
           ? {

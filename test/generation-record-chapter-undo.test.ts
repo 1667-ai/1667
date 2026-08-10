@@ -28,9 +28,16 @@ test("chapter-summary undo keeps its Generation Record graph live through remova
   t.after(() => rm(dir, { recursive: true, force: true }));
   const storyDir = path.join(dir, "stories");
   const receiptDir = path.join(dir, MUTATION_RECEIPT_DIRECTORY);
-  const stories = new StoryStore(storyDir, undefined, undefined, undefined, receiptDir);
+  let receipts: MutationReceiptStore | undefined;
+  const stories = new StoryStore(
+    storyDir,
+    undefined,
+    undefined,
+    undefined,
+    (storyId) => receipts!.liveGenerationRecordIds(storyId)
+  );
   await stories.init();
-  const receipts = new MutationReceiptStore(
+  receipts = new MutationReceiptStore(
     receiptDir,
     async (id) => buildStoryPayload(await stories.load(id))
   );
