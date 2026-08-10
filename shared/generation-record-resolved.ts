@@ -2,6 +2,7 @@ import type { PromptOperation, PromptRole } from "./prompt-plan.js";
 import {
   boundedEntryText,
   requireArray,
+  requireKeys,
   requireRecord,
   requireString
 } from "./generation-record-validation.js";
@@ -52,8 +53,9 @@ import {
 
 export function parseGenerationRecordSummary(value: unknown, label: string): GenerationRecordSummary {
   const record = requireRecord(value, label);
+  requireKeys(record, ["id", "kind", "createdAt"], ["range"], label);
   return {
-    id: requireNonEmpty(record.id, `${label}.id`),
+    id: requireGenerationRecordId(record.id, `${label}.id`),
     kind: requireKind(record.kind, `${label}.kind`),
     createdAt: requireNonEmpty(record.createdAt, `${label}.createdAt`),
     ...(record.range === undefined ? {} : { range: parseGenerationRecordRange(record.range, `${label}.range`) })
@@ -66,6 +68,12 @@ export function parseResolvedGenerationRecord(value: unknown, label: string): Re
   if (record.schemaVersion !== GENERATION_RECORD_SCHEMA_VERSION) {
     throw new GenerationRecordFormatError(`${label}.schemaVersion is invalid`);
   }
+  requireKeys(
+    record,
+    ["format", "schemaVersion", "kind", "createdAt", "provider", "effective", "prompt"],
+    ["range", "unsupportedReason"],
+    label
+  );
   const kind = requireKind(record.kind, `${label}.kind`);
   const present = record.unsupportedReason !== undefined;
   requireUnsupportedReasonPairing(kind, present, `${label}.unsupportedReason`);
@@ -95,6 +103,12 @@ function requireNonEmpty(value: unknown, label: string): string {
   return text;
 }
 
+function requireGenerationRecordId(value: unknown, label: string): string {
+  const id = requireString(value, label);
+  if (!GENERATION_RECORD_ID_PATTERN.test(id)) throw new GenerationRecordFormatError(`${label} is invalid`);
+  return id;
+}
+
 function requireBoundedUnsupportedReason(value: unknown, label: string): string {
   const reason = requireString(value, label);
   if (reason.length > MAX_GENERATION_RECORD_UNSUPPORTED_REASON_CHARS) {
@@ -105,6 +119,7 @@ function requireBoundedUnsupportedReason(value: unknown, label: string): string 
 
 function parseResolvedPrompt(value: unknown, label: string): ResolvedGenerationRecordPrompt {
   const prompt = requireRecord(value, label);
+  requireKeys(prompt, ["operation", "entries"], [], label);
   const operation = requireString(prompt.operation, `${label}.operation`);
   if (!(GENERATION_RECORD_PROMPT_OPERATIONS as readonly string[]).includes(operation)) {
     throw new GenerationRecordFormatError(`${label}.operation is invalid`);
@@ -131,6 +146,7 @@ function parseResolvedPromptEntry(value: unknown, label: string): ResolvedGenera
 }
 
 function parseTextEntry(entry: Record<string, unknown>, label: string): GenerationRecordTextEntry {
+  requireKeys(entry, ["role", "stability", "kind", "source", "text"], [], label);
   if (!(GENERATION_RECORD_PROMPT_BLOCK_KINDS as readonly string[]).includes(entry.kind as string)) {
     throw new GenerationRecordFormatError(`${label}.kind is invalid`);
   }
@@ -151,6 +167,7 @@ function parseTextEntry(entry: Record<string, unknown>, label: string): Generati
 }
 
 function parseResolvedSourceEntry(entry: Record<string, unknown>, label: string): ResolvedGenerationRecordSourceEntry {
+  requireKeys(entry, ["stability", "kind", "source", "parts"], [], label);
   if (entry.kind !== "source") throw new GenerationRecordFormatError(`${label}.kind must be "source" when source is "revisions"`);
   if (entry.stability !== "stable") throw new GenerationRecordFormatError(`${label}.stability must be "stable" for kind "source"`);
   const parts = requireArray(entry.parts, `${label}.parts`);
@@ -174,6 +191,7 @@ function parseResolvedSourceEntry(entry: Record<string, unknown>, label: string)
  *  prompt block. Every other field keeps the stored side's own bound. */
 function parseResolvedSourcePart(value: unknown, label: string): ResolvedGenerationRecordSourcePart {
   const part = requireRecord(value, label);
+  requireKeys(part, ["nodeId", "category", "instruction", "revisionId", "text"], [], label);
   const category = requireString(part.category, `${label}.category`);
   if (!(GENERATION_RECORD_SOURCE_CATEGORIES as readonly string[]).includes(category)) {
     throw new GenerationRecordFormatError(`${label}.category is invalid`);

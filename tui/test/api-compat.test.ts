@@ -1006,6 +1006,110 @@ test("HTTP StoryApi rejects malformed successful responses for every response fa
       },
       () => api.getGenerationRecord("story", "node", "a".repeat(64)),
       "Generation Record.provider"
+    ],
+    // A resolved-record id must be the same 64-lowercase-hex shape the
+    // stored side requires — nothing else can ever have been a real
+    // Generation Record id, and the TUI places this string directly into a
+    // detail-route URL.
+    ...(["../reasoning", "a".repeat(63), "A".repeat(64)] as const).map((id) => [
+      [{ id, kind: "continue", createdAt: "2026-01-01T00:00:00.000Z" }],
+      () => api.getGenerationRecords("story", "node"),
+      "Generation Record summary[0].id"
+    ] as [unknown, () => Promise<unknown>, string]),
+    // An unknown key must be rejected at every distinct resolved wire
+    // boundary the TUI decodes, not only the ones the stored codec's own
+    // requireKeys calls happen to cover through shared parsers.
+    [
+      [{ id: "a".repeat(64), kind: "continue", createdAt: "2026-01-01T00:00:00.000Z", extra: true }],
+      () => api.getGenerationRecords("story", "node"),
+      "Generation Record summary[0] contains unknown key: extra"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: { operation: "continue", entries: [] },
+        extra: true
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record contains unknown key: extra"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: { operation: "continue", entries: [], extra: true }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt contains unknown key: extra"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: {
+          operation: "continue",
+          entries: [{ role: "user", stability: "volatile", kind: "request", source: "text", text: "Continue.", extra: true }]
+        }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt.entries[0] contains unknown key: extra"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: {
+          operation: "continue",
+          entries: [{ stability: "stable", kind: "source", source: "revisions", parts: [], extra: true }]
+        }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt.entries[0] contains unknown key: extra"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: {
+          operation: "continue",
+          entries: [{
+            stability: "stable",
+            kind: "source",
+            source: "revisions",
+            parts: [{
+              nodeId: "n1",
+              category: "recent",
+              instruction: "",
+              revisionId: "a".repeat(64),
+              text: "prose",
+              extra: true
+            }]
+          }]
+        }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt.entries[0].parts[0] contains unknown key: extra"
     ]
   ];
   for (const [payload, request, expected] of malformed) {
