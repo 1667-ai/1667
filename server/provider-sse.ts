@@ -3,6 +3,10 @@ import type { TimeoutProvenance } from "../shared/failure-envelope.js";
 import { ProviderError } from "./errors.js";
 import { providerFetch } from "./provider-fetch.js";
 import {
+  EVENT_HEADROOM_MULTIPLIER,
+  maxSseEventBytesFor
+} from "./provider-sse-probability-budget.js";
+import {
   providerErrorSummary,
   providerRuntimeFor,
   redactProviderBody
@@ -134,8 +138,27 @@ export async function* providerSseEvents(
     let rawBytes = 0;
     let firstActivity = true;
     const reader = response.body.getReader();
-    const events = new ProviderEventQueue();
-    const parser = new BoundedProviderSseParser();
+    // Sized to this request: no probabilities asked for keeps today's flat
+    // 1 MiB cap; probabilities asked for gets a budget derived from
+    // maxTokens and the alternative count
+    // (provider-sse-probability-budget.ts). Probabilities-requested is also
+    // what gates BoundedProviderSseParser's discard-instead-of-throw path
+    // (issue #107 part 1): a request that asked for none keeps today's hard
+    // failure on an oversized event.
+    const probabilitiesRequested = runtime.tokenProbabilities !== null;
+    const maxEventBytes = maxSseEventBytesFor(
+      settings.maxTokens,
+      runtime.tokenProbabilities,
+      MAX_SSE_EVENT_BYTES
+    );
+    const maxPartialEventBytes = maxEventBytes * EVENT_HEADROOM_MULTIPLIER;
+    const maxQueuedEventMemoryBytes = maxEventBytes * EVENT_HEADROOM_MULTIPLIER;
+    const events = new ProviderEventQueue(maxQueuedEventMemoryBytes);
+    const parser = new BoundedProviderSseParser(
+      maxEventBytes,
+      maxPartialEventBytes,
+      probabilitiesRequested
+    );
     let terminalQueued = false;
     const enqueueParsedEvents = async (
       parsedEvents: readonly string[]
@@ -299,6 +322,10 @@ class ProviderEventQueue {
   private failure: unknown;
   private terminalQueued = false;
 
+  constructor(
+    private readonly maxQueuedEventMemoryBytes: number = MAX_QUEUED_EVENT_MEMORY_BYTES
+  ) {}
+
   async push(value: string, terminal: boolean): Promise<boolean> {
     if (this.failed) throw this.failure;
     if (this.closed) return false;
@@ -314,7 +341,7 @@ class ProviderEventQueue {
     const memoryBytes = Math.max(1, value.length * 2);
     while (this.queuedMemoryBytes > 0
       && this.queuedMemoryBytes + memoryBytes
-        > MAX_QUEUED_EVENT_MEMORY_BYTES) {
+        > this.maxQueuedEventMemoryBytes) {
       await new Promise<void>((resolve) => {
         this.capacityWaiters.push(resolve);
       });
@@ -402,6 +429,22 @@ export class BoundedProviderSseParser {
   private eventCount = 0;
   private pendingCr = false;
   private pendingCrContinuesEvent = false;
+  /** Set once the event in progress has crossed maxEventBytes /
+   *  maxPartialEventBytes and discardOversizedEvents allows dropping it
+   *  instead of throwing (issue #107 part 1). Further bytes for this event
+   *  are counted but no longer retained — appendLinePart stops buffering
+   *  them and finishLine stops assembling `dataLines` — so a probability
+   *  event that runs past even the per-request budget above costs bounded
+   *  memory, not unbounded memory, while it is discarded. The stream's own
+   *  MAX_RAW_RESPONSE_BYTES and MAX_EVENT_COUNT checks are untouched by this
+   *  flag and remain the backstop for a provider that never stops sending. */
+  private discardingCurrentEvent = false;
+
+  constructor(
+    private readonly maxEventBytes: number = MAX_SSE_EVENT_BYTES,
+    private readonly maxPartialEventBytes: number = MAX_PARTIAL_EVENT_BYTES,
+    private readonly discardOversizedEvents: boolean = false
+  ) {}
 
   push(chunk: string): readonly string[] {
     const events: string[] = [];
@@ -458,6 +501,9 @@ export class BoundedProviderSseParser {
     this.lineBytes += bytes;
     this.partialBytes += bytes;
     this.requirePartialWithinLimit();
+    // Once this event is known to be discarded, stop paying to buffer
+    // content nobody will ever read (see discardingCurrentEvent above).
+    if (this.discardingCurrentEvent) return;
     this.lineParts.push(value);
     if (this.lineParts.length === 1_024) {
       this.lineBlocks.push(this.lineParts.join(""));
@@ -474,10 +520,19 @@ export class BoundedProviderSseParser {
     this.lineBytes = 0;
     if (line.length === 0) {
       this.eventCount += 1;
+      // Unconditional: a request that asked for probabilities may discard
+      // one oversized event, but a provider that never stops sending events
+      // is still cut off here regardless (issue #107 part 1's own
+      // constraint).
       if (this.eventCount > MAX_EVENT_COUNT) throw responseTooLarge();
-      if (this.eventBytes > MAX_SSE_EVENT_BYTES) throw responseTooLarge();
-      const data = this.dataLines.join("\n");
-      if (data.length > 0) events.push(data);
+      if (this.eventBytes > this.maxEventBytes) {
+        if (!this.discardOversizedEvents) throw responseTooLarge();
+        this.discardingCurrentEvent = true;
+      }
+      if (!this.discardingCurrentEvent) {
+        const data = this.dataLines.join("\n");
+        if (data.length > 0) events.push(data);
+      }
       this.resetEvent();
       return false;
     }
@@ -485,12 +540,15 @@ export class BoundedProviderSseParser {
       this.eventBytes += this.pendingEventLineEndingBytes;
     }
     this.eventBytes += lineBytes;
-    if (this.eventBytes > MAX_SSE_EVENT_BYTES) throw responseTooLarge();
+    if (this.eventBytes > this.maxEventBytes) {
+      if (!this.discardOversizedEvents) throw responseTooLarge();
+      this.discardingCurrentEvent = true;
+    }
     this.hasEventLine = true;
     this.pendingEventLineEndingBytes = endingBytes;
     this.partialBytes += endingBytes;
     this.requirePartialWithinLimit();
-    if (line.startsWith("data:")) {
+    if (!this.discardingCurrentEvent && line.startsWith("data:")) {
       this.dataLines.push(line.slice(5).replace(/^ /u, ""));
     }
     return true;
@@ -513,9 +571,12 @@ export class BoundedProviderSseParser {
     this.pendingEventLineEndingBytes = 0;
     this.hasEventLine = false;
     this.dataLines.length = 0;
+    this.discardingCurrentEvent = false;
   }
 
   private requirePartialWithinLimit(): void {
-    if (this.partialBytes > MAX_PARTIAL_EVENT_BYTES) throw responseTooLarge();
+    if (this.partialBytes <= this.maxPartialEventBytes) return;
+    if (!this.discardOversizedEvents) throw responseTooLarge();
+    this.discardingCurrentEvent = true;
   }
 }
