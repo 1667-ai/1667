@@ -52,6 +52,9 @@ read_when:
 | token probability | The probability that the model gave one generated token |
 | alternative token | One token that the model weighed at one position |
 | token probability viewer | The read-only view of the alternative tokens of one take |
+| thought | The reasoning text that a model writes before it writes the prose of one take |
+| thought marker | The word in the margin that shows that a story part has a thought |
+| reasoning mode | The setting that selects how 1667 shows a thought |
 | tokenize source | The bundled tokenizer or the server endpoint that counts the tokens in one provider request |
 | grade | The quality of a token count: exact count, near-exact count, or token estimate |
 | mark | The symbol that shows a token count's grade |

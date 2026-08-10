@@ -2,12 +2,15 @@ import { GenerationResultError, ProviderError } from "./errors.js";
 import {
   streamCompletion,
   type PromptPlan,
+  type ProviderSecretsCollector,
+  type ReasoningConsumer,
   type StreamOutcome,
   type TokenProbabilityCollector
 } from "./providers.js";
 import type { GenerationSettings } from "../shared/types.js";
 import type { PromptCacheRequest } from "./provider-cache-policy.js";
 import type { StorySamplingBias } from "./sampling-phrase-bias.js";
+export type { ReasoningConsumer, ReasoningStreamDelta } from "./providers.js";
 
 interface ModelOutputFilter {
   push(delta: string): string;
@@ -20,13 +23,17 @@ export type DeltaConsumer = (text: string) => void | Promise<void>;
  * `StreamCompletionOptions` (server/providers.ts, issue #341): `output`,
  * `providerStarted`, and `promptCache` were already three trailing
  * optionals, and `storySampling` would have made a fourth positional
- * parameter tacked on after them. */
+ * parameter tacked on after them. `onReasoning` rides this same bag rather
+ * than a new positional parameter, so every existing `streamModel` caller
+ * stays valid unchanged. */
 export interface StreamModelOptions {
   readonly output?: ModelOutputFilter;
   readonly providerStarted?: () => void | Promise<void>;
   readonly promptCache?: PromptCacheRequest;
   readonly storySampling?: StorySamplingBias;
   readonly tokenProbabilities?: TokenProbabilityCollector;
+  readonly onReasoning?: ReasoningConsumer;
+  readonly providerSecrets?: ProviderSecretsCollector;
 }
 
 /** Transport-neutral model stream. null means the stream was interrupted by
@@ -39,7 +46,7 @@ export async function streamModel(
   onDelta: DeltaConsumer,
   options: StreamModelOptions = {}
 ): Promise<string | null> {
-  const { output, providerStarted, promptCache, storySampling, tokenProbabilities } = options;
+  const { output, providerStarted, promptCache, storySampling, tokenProbabilities, onReasoning, providerSecrets } = options;
   const outcome: StreamOutcome = {
     finishReason: null,
     providerTerminal: false
@@ -56,6 +63,8 @@ export async function streamModel(
       promptCache,
       storySampling,
       tokenProbabilities,
+      onReasoning,
+      providerSecrets,
       outcome
     })) {
       await emit(output?.push(delta) ?? delta);

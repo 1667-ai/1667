@@ -23,7 +23,8 @@ import {
   attributionAfterReplacement,
   rewrittenSpansAfterReplacement
 } from "../shared/human-edit.js";
-import { streamCompletion, type TokenProbabilityCollector } from "./providers.js";
+import { streamCompletion, type ProviderSecretsCollector, type TokenProbabilityCollector } from "./providers.js";
+import { reasoningCapture, reasoningSafeToStore } from "./reasoning-capture.js";
 import { storySamplingBias } from "./sampling-phrase-bias.js";
 import { AnchoredOutputFilter, continuationPlan, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, supportsAssistantPrefill } from "./generation-prompts.js";
 import { admitFactsIntoPrompt, type GenerationAdmissionRegistry } from "./generation-admission.js";
@@ -35,7 +36,8 @@ import { activeBudgetedFacts, activeBudgetedFactsForRewrite } from "../shared/fa
 import { formatFactsMessage } from "../shared/story-facts.js";
 import {
   streamModel,
-  type DeltaConsumer
+  type DeltaConsumer,
+  type ReasoningConsumer
 } from "./generation-stream.js";
 import { activeLeaf, activePath, nodeById, pathTo } from "../shared/story-tree.js";
 import { resolveRewriteDestination, type GenerationSettings, type Story } from "../shared/types.js";
@@ -49,6 +51,33 @@ import {
 } from "./provider-stream-output.js";
 
 export type BindGenerationIntent = (settings: GenerationSettings, context: unknown) => Promise<void>;
+
+/** The optional side channels a streamed generation call takes, bundled into
+ *  one trailing parameter instead of a run of positional callbacks —
+ *  `continueStory` and `rewriteNode` had each grown past a dozen positional
+ *  parameters, `providerStarted`/`bindIntent`/`onReasoning` among them, with
+ *  nothing at a call site naming which was which. `server/story-service-
+ *  generation.ts`'s `GenerationMutationHooks` extends this with the one
+ *  field that is a caller concern, not a generation concern:
+ *  `mutationRequest`. */
+export interface GenerationStreamHooks {
+  providerStarted?: () => void | Promise<void>;
+  bindIntent?: BindGenerationIntent;
+  /** Reasoning ("thinking") text, kept apart from `onDelta`'s prose at every
+   *  step between here and the provider. */
+  onReasoning?: ReasoningConsumer;
+}
+
+/** `continueStory`'s own hooks bag: everything `GenerationStreamHooks` has,
+ *  plus the one callback that is specific to a continuation. */
+export interface ContinueStoryHooks extends GenerationStreamHooks {
+  /** Fired once, synchronously, with whatever admission actually shed to fit
+   *  the fixed prompt — the only place this real, post-shedding drop set
+   *  exists. A caller that wants to tell the writer what happened (rather
+   *  than the pre-flight guess the context meter shows before the request is
+   *  sent) reads it here; the committed Story carries no trace of it. */
+  onFactsDropped?: (dropped: readonly FactBudgetDrop[]) => void;
+}
 
 export async function autonameStory(
   id: string,
@@ -147,15 +176,9 @@ export async function continueStory(
   generationAdmission: GenerationAdmissionRegistry,
   onDelta: DeltaConsumer,
   signal: AbortSignal,
-  providerStarted: () => void | Promise<void> = () => {},
-  bindIntent?: BindGenerationIntent,
-  /** Fired once, synchronously, with whatever admission actually shed to fit
-   *  the fixed prompt — the only place this real, post-shedding drop set
-   *  exists. A caller that wants to tell the writer what happened (rather
-   *  than the pre-flight guess the context meter shows before the request is
-   *  sent) reads it here; the committed Story carries no trace of it. */
-  onFactsDropped?: (dropped: readonly FactBudgetDrop[]) => void
+  hooks: ContinueStoryHooks = {}
 ): Promise<Story | null> {
+  const { providerStarted = () => {}, bindIntent, onFactsDropped, onReasoning } = hooks;
   if (signal.aborted) return null;
   const requestedInstruction = (optionalString(body.instruction) ?? "").trim();
   const instruction = requestedInstruction || DEFAULT_INSTRUCTION;
@@ -264,6 +287,12 @@ export async function continueStory(
   // here) — a failure anywhere in that path leaves this null rather than
   // failing the generation; token probabilities are a diagnostic.
   const tokenProbabilities: TokenProbabilityCollector = { record: null };
+  const reasoning = reasoningCapture(settings, onReasoning);
+  // Filled by whichever stream actually ran, with the exact credentials it
+  // resolved (server/providers.ts's `ProviderSecretsCollector`) — read below
+  // alongside the committed prose so a thought split across the reasoning
+  // and prose channels can be caught jointly (`reasoningSafeToStore`).
+  const providerSecrets: ProviderSecretsCollector = { secrets: [] };
   let raw: string | null;
   try {
     raw = await streamModel(settings, continuation.prompt, signal, onDelta, {
@@ -276,7 +305,9 @@ export async function continueStory(
         continuation.prompt.operation
       ),
       storySampling: storySamplingBias(story),
-      tokenProbabilities
+      tokenProbabilities,
+      onReasoning: reasoning.onReasoning,
+      providerSecrets
     });
   } catch (error) {
     // A clean provider timeout after the opening already diverged from the
@@ -304,13 +335,14 @@ export async function continueStory(
   // Stop by generation ID.
   try {
     const parent = parentId === null ? null : nodeById(story, parentId);
+    const committedText = appendTo === null ? raw.trim() : raw;
     return await stories.commitProviderEffect(id, {
       kind: "continue",
       parentId,
       appendTo,
       expectedTextHash,
       instruction,
-      text: appendTo === null ? raw.trim() : raw,
+      text: committedText,
       model,
       genId,
       expectedParentActiveChildId: parent?.activeChildId ?? null,
@@ -320,6 +352,7 @@ export async function continueStory(
       expectedActiveRootId: story.activeRootId,
       expectedActiveLeafId: activePath(story).at(-1)?.id ?? null,
       tokenProbabilities: tokenProbabilities.record,
+      reasoning: reasoningSafeToStore(reasoning.collector.record, committedText, providerSecrets.secrets),
       cancelled: signal
     });
   } catch (error) {
@@ -347,12 +380,12 @@ export async function rewriteNode(
   promptCacheRuntime: PromptCacheRuntime,
   onDelta: DeltaConsumer,
   signal: AbortSignal,
-  providerStarted: () => void | Promise<void> = () => {},
   rewriteId?: string,
   takeId?: string,
-  bindIntent?: BindGenerationIntent,
-  partials?: PartialRewriteStash
+  partials?: PartialRewriteStash,
+  hooks: GenerationStreamHooks = {}
 ): Promise<string | null> {
+  const { providerStarted = () => {}, bindIntent, onReasoning } = hooks;
   if (signal.aborted) return null;
   const start = body.start;
   const end = body.end;
@@ -512,6 +545,10 @@ export async function rewriteNode(
           effect: rewriteEffect(originalText.slice(start, end))
         }, providerOutputRetainedByteLimit(rewriteSettings))
       );
+  const reasoning = reasoningCapture(rewriteSettings, onReasoning);
+  // See continueStory's own comment on this box: filled by whichever stream
+  // actually ran, read alongside the committed replacement below.
+  const providerSecrets: ProviderSecretsCollector = { secrets: [] };
   try {
     let streamed = "";
     const stashPartial = () => {
@@ -537,7 +574,9 @@ export async function rewriteNode(
         output,
         providerStarted,
         promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
-        storySampling: storySamplingBias(story)
+        storySampling: storySamplingBias(story),
+        onReasoning: reasoning.onReasoning,
+        providerSecrets
       });
     } catch (error) {
       if (timeoutProvenanceOf(error) !== null) {
@@ -582,6 +621,7 @@ export async function rewriteNode(
       const node = await stories.commitProviderEffect(id, {
         ...rewriteEffect(spliced.text),
         updatedAt: new Date().toISOString(),
+        reasoning: reasoningSafeToStore(reasoning.collector.record, spliced.text, providerSecrets.secrets),
         cancelled: signal
       });
       if (fullRecord !== null) partials?.clear(fullRecord);

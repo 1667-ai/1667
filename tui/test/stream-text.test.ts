@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { StreamView } from "../src/state.js";
 import {
+  appendStreamReasoning,
   appendStreamText,
   emptyStreamText,
+  streamHasSubstantiveReasoning,
   streamHasSubstantiveText,
+  streamReasoningTrimmedText,
   streamTrimBounds,
   streamTrimmedText
 } from "../src/stream-text.js";
@@ -60,5 +63,45 @@ describe("incremental stream trim metadata", () => {
     expect(() => streamTrimBounds(legacy)).toThrow(
       "Large stream text is missing incremental trim metadata."
     );
+  });
+});
+
+describe("incremental stream reasoning trim metadata", () => {
+  test("matches String.trim across arbitrary delta boundaries, kept off stream.text", () => {
+    const current = stream();
+    appendStreamText(current, "settled prose");
+    const deltas = [
+      " \r",
+      "\n ",
+      "The",
+      " model ",
+      "\t",
+      "weighed",
+      " \n"
+    ];
+
+    for (const delta of deltas) {
+      appendStreamReasoning(current, delta, deltas.indexOf(delta) + 1);
+      expect(streamReasoningTrimmedText(current)).toBe(current.reasoning!.text.trim());
+      expect(streamHasSubstantiveReasoning(current)).toBe(current.reasoning!.text.trim().length > 0);
+    }
+    // Reasoning never touches the prose channel it started with.
+    expect(streamTrimmedText(current)).toBe("settled prose");
+  });
+
+  test("a stream with no reasoning reports none, never a fabricated empty channel", () => {
+    const current = stream();
+    appendStreamText(current, "prose only");
+    expect(current.reasoning).toBe(undefined);
+    expect(streamHasSubstantiveReasoning(current)).toBeFalse();
+    expect(streamReasoningTrimmedText(current)).toBe("");
+  });
+
+  test("tokenCount updates even when a delta carries no new text", () => {
+    const current = stream();
+    appendStreamReasoning(current, "first", 1);
+    appendStreamReasoning(current, "", 4);
+    expect(current.reasoning!.tokenCount).toBe(4);
+    expect(current.reasoning!.text).toBe("first");
   });
 });

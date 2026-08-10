@@ -4,6 +4,8 @@ import { demoAppSource } from "../src/demo.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { plainLine } from "../src/screens/story/frame.js";
 import { createWrapCache } from "../src/wrap.js";
+import { createReasoningRecord } from "../../shared/reasoning.js";
+import type { RuntimeState } from "../src/state.js";
 import type { OrdinaryNodeStub, StoryNode, StoryPayload } from "../../shared/types.js";
 
 function makeFixture(part1Instruction: string, part1ProseLines = 15) {
@@ -61,7 +63,7 @@ function makeFixture(part1Instruction: string, part1ProseLines = 15) {
     chapterBreaks: []
   };
 
-  const state = {
+  const state: RuntimeState = {
     ...initialState(source, false),
     payload,
     focusIndex: 0,
@@ -96,6 +98,45 @@ describe("sticky prompt", () => {
     const frame = renderStoryScreen(state, { width: 120, height: 10, wrapCache: createWrapCache() });
     const topLine = plainLine(frame.lines[0]!);
     expect(topLine).not.toContain("make his money feel wrong");
+  });
+
+  test("an unfolded thought block measures its own dynamic prefix height", () => {
+    // A compact (unexpanded) prompt is normally one fixed prefix row —
+    // `prefixHeight`'s static formula. An unfolded thought block is the
+    // second thing that can make a prefix taller than that formula knows,
+    // and it must do so even when the prompt itself stays compact.
+    const { state } = makeFixture("prompt for part one", 1);
+    // This test is about prefix height, not sticky scrolling — read from the
+    // natural top instead of inheriting the fixture's pinned-scroll setup.
+    state.viewScroll = null;
+    state.payload = {
+      ...state.payload,
+      path: state.payload.path.map((node) => node.id === "p1" ? { ...node, reasoning: true } : node),
+      nodes: state.payload.nodes.map((stub) => stub.id === "p1" ? { ...stub, reasoning: true } : stub)
+    };
+    state.reasoning = "marker";
+    state.expandedThoughtIds.add("p1");
+    state.thoughts.set("p1", {
+      status: "ready",
+      record: createReasoningRecord({
+        text: "First he checked the weather, then the tide charts, then his own nerve.",
+        tokenCount: 200
+      })
+    });
+
+    const frame = renderStoryScreen(state, { width: 120, height: 20, wrapCache: createWrapCache() });
+    const text = frame.lines.map(plainLine).join("\n");
+    const promptLine = text.indexOf("» prompt for part one");
+    const thoughtLine = text.indexOf("checked the weather");
+    const secondPartLine = text.indexOf("Second part prose line 1.");
+    expect(promptLine).toBeGreaterThan(-1);
+    expect(thoughtLine).toBeGreaterThan(-1);
+    expect(secondPartLine).toBeGreaterThan(-1);
+    // Reading order: the instruction first, the thought above the prose it
+    // led to, then the prose itself — never overlapped or reordered by the
+    // dynamic height measurement.
+    expect(promptLine).toBeLessThan(thoughtLine);
+    expect(thoughtLine).toBeLessThan(secondPartLine);
   });
 
   test("it stops pinning when the next part takes the top row", () => {

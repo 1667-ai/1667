@@ -19,6 +19,12 @@ interface StoredNodeTextState {
    *  or clears an existing one, so — unlike revisionId — there is no reuse
    *  condition to check. */
   tokenProbabilityId?: ObjectHash;
+  /** The take's stored reasoning object, carried forward the same way as
+   *  `tokenProbabilityId`. Unlike that field, a rewrite can explicitly clear
+   *  this one (`clearReusableReasoningId`) — a rewrite replaces the take's
+   *  text in place, and a thought describing text that no longer exists must
+   *  not keep being reused. */
+  reasoningId?: ObjectHash;
 }
 
 const storedText = new WeakMap<StoryNode, StoredNodeTextState>();
@@ -40,7 +46,8 @@ export function attachStoredNodeText(node: StoryNode, stored: StoredNodeV1, text
     tokens,
     originalText: text,
     reusable: stored.syntheticEmpty !== true,
-    ...(stored.tokenProbabilityId === undefined ? {} : { tokenProbabilityId: stored.tokenProbabilityId })
+    ...(stored.tokenProbabilityId === undefined ? {} : { tokenProbabilityId: stored.tokenProbabilityId }),
+    ...(stored.reasoningId === undefined ? {} : { reasoningId: stored.reasoningId })
   });
   setNodeRewriteId(node, stored.rewriteId);
   if (text !== null) verifyStoredStub(node, text);
@@ -60,6 +67,7 @@ export function refreshStoredNodeText(node: StoryNode, stored: StoredNodeV1): vo
   // the per-save stub rescan of every unchanged path node.
   if (current !== undefined && current.revisionId === stored.revisionId
     && current.tokenProbabilityId === stored.tokenProbabilityId
+    && current.reasoningId === stored.reasoningId
     && current.instruction === node.instruction
     && (current.originalText === null || current.originalText === node.text)
     && (stored.preview ?? current.preview) === current.preview
@@ -97,6 +105,22 @@ export function reusableStoredRevisionId(node: StoryNode): ObjectHash | undefine
  *  for a freshly created node this process has never decoded. */
 export function reusableTokenProbabilityId(node: StoryNode): ObjectHash | undefined {
   return storedText.get(node)?.tokenProbabilityId;
+}
+
+/** The take's already-stored reasoning id, carried forward from the manifest
+ *  that produced this node. undefined both for a node with none and for a
+ *  freshly created node this process has never decoded. */
+export function reusableReasoningId(node: StoryNode): ObjectHash | undefined {
+  return storedText.get(node)?.reasoningId;
+}
+
+/** Drop a carried-forward reasoning id so the next encode omits it instead of
+ *  reusing an id that described text a rewrite just replaced. A no-op for a
+ *  node with no decoded state (nothing to drop) or none stored (nothing to
+ *  clear). */
+export function clearReusableReasoningId(node: StoryNode): void {
+  const state = storedText.get(node);
+  if (state !== undefined) delete state.reasoningId;
 }
 
 export function nodeStubPreview(node: StoryNode): string {

@@ -10,6 +10,7 @@ import { ownedLoopbackHttpSupported } from "./provider-fetch.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
 import { effectiveGenerationSettings } from "./settings-v2-conversion.js";
 import { classifyHttpHost, SettingsFormatError } from "./settings-v2-scalars.js";
+import { selectSettingsRoute } from "../shared/settings-route.js";
 import { settingsStateRelation } from "./settings-v2-state-validation.js";
 import {
   corruptSettingsStateReceipt,
@@ -29,6 +30,7 @@ export function settingsViewFromState(
   const shown = pendingRevision === null
     ? activeSettingsDocument(state)
     : pendingSettingsDocument(state);
+  const active = activeSettingsDocument(state);
   return {
     dataFormat: 2,
     editable: true,
@@ -36,8 +38,13 @@ export function settingsViewFromState(
     activeRevision: effectiveActiveSettingsRevision(state),
     pendingRevision,
     document: shown,
-    effective: effectiveGenerationSettings(activeSettingsDocument(state)),
-    effectiveProse: effectiveGenerationSettings(activeSettingsDocument(state), "prose"),
+    effective: effectiveGenerationSettings(active),
+    effectiveProse: effectiveGenerationSettings(active, "prose"),
+    // Read from `active`, never `shown`: `effectiveProse` above already
+    // resolves against the active (never pending) document, and this must
+    // describe the same route, not whichever document a mid-activation
+    // window happens to be showing the editor.
+    effectiveProseReasoning: selectSettingsRoute(active, "prose").profile.reasoning ?? "marker",
     lastActivationOutcome: state.lastActivationOutcome
   };
 }

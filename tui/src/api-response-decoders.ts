@@ -12,6 +12,7 @@ import type {
 } from "../../shared/types.js";
 import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 import { parseTokenProbabilities, type TokenProbabilityRecord } from "../../shared/token-probabilities.js";
+import { parseReasoning, type ReasoningRecord } from "../../shared/reasoning.js";
 import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
 import {
   SAMPLING_BIAS_SCOPE_VALUES,
@@ -450,6 +451,21 @@ export function decodeTokenProbabilitiesResponse(value: unknown): TokenProbabili
   } catch (error) {
     throw new Error(
       `The server returned an invalid token probabilities response.${
+        error instanceof Error ? ` ${error.message}` : ""
+      }`
+    );
+  }
+}
+
+/** Mirrors `decodeTokenProbabilitiesResponse`: re-serializes the decoded JSON
+ * and hands it to the same canonical parser that verifies a stored object's
+ * bytes (shared/reasoning.ts). */
+export function decodeReasoningResponse(value: unknown): ReasoningRecord {
+  try {
+    return parseReasoning(JSON.stringify(value));
+  } catch (error) {
+    throw new Error(
+      `The server returned an invalid reasoning response.${
         error instanceof Error ? ` ${error.message}` : ""
       }`
     );

@@ -25,7 +25,7 @@ export async function* providerSseEvents(
   redact: (value: string, secrets: readonly string[]) => string,
   providerStarted?: () => void | Promise<void>,
   requestPrepared?: () => void,
-  isContentDelta: (event: string) => boolean = () => true,
+  isActivityEvent: (event: string) => boolean = () => true,
   isTerminalEvent: (event: string) => boolean = () => false,
   callerSignal: AbortSignal = signal,
   providerTransportFinished?: () => void
@@ -127,12 +127,12 @@ export async function* providerSseEvents(
 
     setPhaseTimer(
       runtime.timeouts.firstTokenMs,
-      "Model server did not produce a content delta before the configured deadline.",
+      "Model server did not produce stream activity before the configured deadline.",
       "provider-first-token"
     );
     const decoder = new TextDecoder();
     let rawBytes = 0;
-    let firstContent = true;
+    let firstActivity = true;
     const reader = response.body.getReader();
     const events = new ProviderEventQueue();
     const parser = new BoundedProviderSseParser();
@@ -141,8 +141,8 @@ export async function* providerSseEvents(
       parsedEvents: readonly string[]
     ): Promise<boolean> => {
       for (const event of parsedEvents) {
-        if (firstContent && isContentDelta(event)) {
-          firstContent = false;
+        if (firstActivity && isActivityEvent(event)) {
+          firstActivity = false;
           if (phaseTimer !== null) clearTimeout(phaseTimer);
           phaseTimer = null;
         }
@@ -159,7 +159,7 @@ export async function* providerSseEvents(
       try {
         let active = true;
         for (;;) {
-          if (!firstContent) {
+          if (!firstActivity) {
             setPhaseTimer(
               runtime.timeouts.idleMs,
               "Model stream was idle beyond the configured deadline.",
@@ -167,7 +167,7 @@ export async function* providerSseEvents(
             );
           }
           const { done, value: chunk } = await reader.read();
-          if (!firstContent && phaseTimer !== null) {
+          if (!firstActivity && phaseTimer !== null) {
             clearTimeout(phaseTimer);
             phaseTimer = null;
           }

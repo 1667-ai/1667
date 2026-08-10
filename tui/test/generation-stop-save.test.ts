@@ -36,15 +36,18 @@ describe("stop save through the real worker transport", () => {
       const arrived: string[] = [];
       const stoppedTails: string[] = [];
       const realContinueStory = api.continueStory.bind(api);
-      api.continueStory = (storyId, instruction, genId, target, onDelta, signal, onStopped) => {
+      api.continueStory = (storyId, instruction, genId, target, onDelta, signal, callbacks = {}) => {
         capturedGenId = genId;
         return realContinueStory(storyId, instruction, genId, target, (text) => {
           if (aborted) deltaAfterAbort = true;
           arrived.push(text);
           onDelta(text);
-        }, signal, (text) => {
-          stoppedTails.push(text);
-          onStopped?.(text);
+        }, signal, {
+          ...callbacks,
+          onStopped: (text) => {
+            stoppedTails.push(text);
+            callbacks.onStopped?.(text);
+          }
         });
       };
 

@@ -461,6 +461,7 @@ describe("text surfaces and palette", () => {
       ["f", "toggle-rail"],
       ["g", "leaf"],
       ["r", "retake-with-prompt"],
+      ["t", "toggle-thought"],
       ["y", "copy-line"]
     ]);
     for (const letter of "abcdefghijklmnopqrstuvwxyz") {

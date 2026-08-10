@@ -9,11 +9,12 @@ import {
   GenerationStoppedError,
   ServiceError as HttpError
 } from "./errors.js";
-import { streamCompletion, type StreamOutcome } from "./providers.js";
+import { streamCompletion, type ProviderSecretsCollector, type StreamOutcome } from "./providers.js";
+import { reasoningCapture, reasoningSafeToStore } from "./reasoning-capture.js";
 import { countWords } from "./story-codec.js";
 import { sha256 } from "./story-format.js";
 import type { DeltaConsumer } from "./generation-stream.js";
-import type { BindGenerationIntent } from "./generation-http.js";
+import type { GenerationStreamHooks } from "./generation-http.js";
 import { clipAttribution } from "./story-nodes.js";
 import type { SettingsStore } from "./settings.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
@@ -61,10 +62,10 @@ export async function createSummaryTake(
   promptCacheRuntime: PromptCacheRuntime,
   onDelta: DeltaConsumer,
   signal: AbortSignal,
-  providerStarted: () => void | Promise<void> = () => {},
   commitIds: SummaryCommitIds = {},
-  bindIntent?: BindGenerationIntent
+  hooks: GenerationStreamHooks = {}
 ): Promise<string | null> {
+  const { providerStarted = () => {}, bindIntent, onReasoning } = hooks;
   if (signal.aborted) return null;
   if (body.offset !== undefined && typeof body.offset !== "number") {
     throw new HttpError(400, "offset must be a number when provided");
@@ -91,11 +92,19 @@ export async function createSummaryTake(
     providerTerminal: false
   };
   let raw = "";
+  const reasoning = reasoningCapture(settings, onReasoning);
+  // See continueStory's own comment on this box (server/generation-http.ts):
+  // filled by whichever stream actually ran — here that is
+  // `summarySettings(settings, ...)`, not `settings` itself, so this is the
+  // only correct place to learn what it actually resolved.
+  const providerSecrets: ProviderSecretsCollector = { secrets: [] };
   try {
     for await (const delta of streamCompletion(summarySettings(settings, plan.outputBudget), plan.prompt, signal, {
       outcome,
       providerStarted,
-      promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation)
+      promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
+      onReasoning: reasoning.onReasoning,
+      providerSecrets
     })) {
       raw += delta;
       if (raw.length > SUMMARY_OUTPUT_LIMIT) {
@@ -127,7 +136,8 @@ export async function createSummaryTake(
       model,
       instruction: summaryNodeInstruction(source.title),
       cancelled: signal,
-      commitIds
+      commitIds,
+      reasoning: reasoningSafeToStore(reasoning.collector.record, summary, providerSecrets.secrets)
     });
   } catch (error) {
     if (error instanceof HttpError && error.code === "story_manifest_requires_successor") throw error;

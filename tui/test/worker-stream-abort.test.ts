@@ -70,7 +70,7 @@ test("an abort keeps a racing deadline's tail out of onDelta and hands it to onS
   const pending = backend.api.continueStory(
     "story", "Continue", "generation", { parentId: null },
     (text) => deltas.push(text), cancel.signal,
-    (text) => stopped.push(text)
+    { onStopped: (text) => stopped.push(text) }
   );
   const request = await waitForRequest(worker, "continueStory");
 

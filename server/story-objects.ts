@@ -34,6 +34,12 @@ import {
   type TokenProbabilityRecord
 } from "../shared/token-probabilities.js";
 import {
+  MAX_REASONING_BYTES,
+  parseReasoning,
+  serializeReasoning,
+  type ReasoningRecord
+} from "../shared/reasoning.js";
+import {
   drainPromises,
   isErrorCode,
   isLinkFallback,
@@ -46,18 +52,41 @@ import {
 } from "./story-object-fs.js";
 
 export type { ObjectKind } from "./story-object-fs.js";
+/** The object kinds that are leaves: no nested graph to enumerate, unlike a
+ *  revision's chunks — a bare id is the whole story for either kind. The
+ *  next side record that fits this shape is a one-line addition here plus a
+ *  `store`/`read` pair on the store below; `sweep`, `verifyGraph`, and
+ *  `readObject` need no further changes. */
+export const LEAF_OBJECT_KINDS = ["probabilities", "reasoning"] as const;
+export type LeafObjectKind = typeof LEAF_OBJECT_KINDS[number];
+/** The label `requireHash` reports for one leaf kind's live id, kept apart
+ *  from `COMMITTED_ID_LABELS` below: that one names a *committed* id, this
+ *  one a *live* id, and the two read differently in a thrown message. */
+const LEAF_LIVE_ID_LABELS: Record<LeafObjectKind, string> = {
+  probabilities: "live token probabilities id",
+  reasoning: "live reasoning id"
+};
 /** Every hash a save must protect from a concurrent sweep: the live
- *  revision graph and the live token probability objects. Kept as one
- *  object, not two positional lists, so a call site can never update one
- *  without the other. */
+ *  revision graph and, per leaf kind, the live leaf objects. Kept as one
+ *  object, not a positional list per kind, so a call site can never update
+ *  one without the others. */
 export interface LiveStoryObjectIds {
   readonly revisions: readonly ObjectHash[];
-  readonly probabilities: readonly ObjectHash[];
+  readonly leaves: Readonly<Record<LeafObjectKind, readonly ObjectHash[]>>;
 }
 const OBJECT_IO_CONCURRENCY = 16;
 const REVISION_IO_CONCURRENCY = 4;
 const TEXT_IO_CONCURRENCY = 4;
 const MAX_REVISION_BYTES = MAX_CHUNKS_PER_REVISION * 67 + 256;
+/** Per-kind byte ceiling for one stored object, read by `readObject` — a
+ *  table lookup rather than a kind chain, so an added kind is one more row
+ *  here instead of one more branch there. */
+const OBJECT_MAX_BYTES: Record<ObjectKind, number> = {
+  chunks: MAX_CHUNK_BYTES,
+  revisions: MAX_REVISION_BYTES,
+  probabilities: MAX_TOKEN_PROBABILITY_BYTES,
+  reasoning: MAX_REASONING_BYTES
+};
 const OBJECT_TEMP_PATTERN = exactStringPattern(
   "\\.1667-([a-f0-9]{64})-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\\.tmp"
 );
@@ -69,7 +98,8 @@ const SHARD_PATTERN = exactStringPattern("[a-f0-9]{2}");
 const COMMITTED_ID_LABELS: Record<ObjectKind, string> = {
   chunks: "committed chunk id",
   revisions: "committed revision id",
-  probabilities: "committed token probabilities id"
+  probabilities: "committed token probabilities id",
+  reasoning: "committed reasoning id"
 };
 
 export interface StoryObjectStoreOptions {
@@ -102,25 +132,28 @@ export class StoryObjectStore {
   private readonly verifiedObjects: Record<ObjectKind, Set<ObjectHash>> = {
     chunks: new Set(),
     revisions: new Set(),
-    probabilities: new Set()
+    probabilities: new Set(),
+    reasoning: new Set()
   };
   private readonly pendingObjects: Record<ObjectKind, Map<ObjectHash, Promise<void>>> = {
     chunks: new Map(),
     revisions: new Map(),
-    probabilities: new Map()
+    probabilities: new Map(),
+    reasoning: new Map()
   };
   private readonly knownRevisions = new Map<ObjectHash, TextRevisionV1>();
   /** Bare ids adopted from the currently committed manifest, kept apart by
    * object kind like `verifiedObjects` and `pendingObjects` above. Their
    * bodies were never read by this instance, so they are held apart from
    * `verifiedObjects`, which only ever contains hashes proven against bytes.
-   * A probabilities object has no nested graph to enumerate — it is a leaf,
-   * unlike a revision's chunks — so a bare id is all there is to adopt for
-   * either kind. */
+   * A probabilities or reasoning object has no nested graph to enumerate —
+   * each is a leaf, unlike a revision's chunks — so a bare id is all there is
+   * to adopt for either kind. */
   private readonly trustedCommitted: Record<ObjectKind, Set<ObjectHash>> = {
     chunks: new Set(),
     revisions: new Set(),
-    probabilities: new Set()
+    probabilities: new Set(),
+    reasoning: new Set()
   };
   private readonly dirtyShards = new Set<string>();
   private firstWriteBarrier: Promise<void> | null = null;
@@ -140,7 +173,8 @@ export class StoryObjectStore {
     await drainPromises([
       this.withKind("chunks", true, async () => undefined),
       this.withKind("revisions", true, async () => undefined),
-      this.withKind("probabilities", true, async () => undefined)
+      this.withKind("probabilities", true, async () => undefined),
+      this.withKind("reasoning", true, async () => undefined)
     ]);
   }
 
@@ -185,6 +219,23 @@ export class StoryObjectStore {
     return parseTokenProbabilities(bytes.toString("utf8"), hash);
   }
 
+  /** A take's captured reasoning, stored the same way as token probabilities:
+   * one leaf object with no chunking, already bounded to
+   * `MAX_REASONING_BYTES`, far below a chunk's own ceiling. */
+  async storeReasoning(record: ReasoningRecord, reuseFrom?: StoryObjectStore): Promise<ObjectHash> {
+    const bytes = Buffer.from(serializeReasoning(record), "utf8");
+    const hash = sha256(bytes);
+    await this.putObject("reasoning", hash, bytes, reuseFrom);
+    return hash;
+  }
+
+  /** Bounded, hash-verified read of one take's stored reasoning. Read at most
+   * once per request, for the same reason as `readTokenProbabilities`. */
+  async readReasoning(hash: ObjectHash): Promise<ReasoningRecord> {
+    const bytes = await this.readObject("reasoning", hash);
+    return parseReasoning(bytes.toString("utf8"), hash);
+  }
+
   async readText(hash: ObjectHash, cache = createStoryReadCache()): Promise<string> {
     const revision = await this.readRevision(hash, cache);
     const chunks = await mapWithConcurrency(revision.chunks, OBJECT_IO_CONCURRENCY, (chunkHash) =>
@@ -205,9 +256,10 @@ export class StoryObjectStore {
     try {
       requireSweepActive(signal);
       const liveRevisions = new Set(live.revisions.map((hash) => requireHash(hash, "live revision id")));
-      const liveProbabilities = new Set(
-        live.probabilities.map((hash) => requireHash(hash, "live token probabilities id"))
-      );
+      const liveLeaves = {} as Record<LeafObjectKind, Set<ObjectHash>>;
+      for (const kind of LEAF_OBJECT_KINDS) {
+        liveLeaves[kind] = new Set(live.leaves[kind].map((hash) => requireHash(hash, LEAF_LIVE_ID_LABELS[kind])));
+      }
       const liveChunks = new Set<ObjectHash>();
       const cache = createStoryReadCache();
 
@@ -226,19 +278,21 @@ export class StoryObjectStore {
         requireSweepActive(signal);
         await this.requireObject("chunks", hash);
       });
-      // A probabilities object is a leaf with nothing beneath it to mark; the
-      // read-and-hash-verify below both proves it survives and, on
-      // corruption, fails the whole sweep closed exactly like a chunk would.
-      await mapWithConcurrency([...liveProbabilities], OBJECT_IO_CONCURRENCY, async (hash) => {
-        requireSweepActive(signal);
-        await this.requireObject("probabilities", hash);
-      });
+      // A leaf object has nothing beneath it to mark; the read-and-hash-verify
+      // below both proves it survives and, on corruption, fails the whole
+      // sweep closed exactly like a chunk would.
+      for (const kind of LEAF_OBJECT_KINDS) {
+        await mapWithConcurrency([...liveLeaves[kind]], OBJECT_IO_CONCURRENCY, async (hash) => {
+          requireSweepActive(signal);
+          await this.requireObject(kind, hash);
+        });
+      }
 
       requireSweepActive(signal);
       await drainPromises([
         this.sweepKind("revisions", liveRevisions, signal),
         this.sweepKind("chunks", liveChunks, signal),
-        this.sweepKind("probabilities", liveProbabilities, signal)
+        ...LEAF_OBJECT_KINDS.map((kind) => this.sweepKind(kind, liveLeaves[kind], signal))
       ]);
       return true;
     } catch (error) {
@@ -277,14 +331,14 @@ export class StoryObjectStore {
     }
     await mapWithConcurrency([...chunkIds], OBJECT_IO_CONCURRENCY, (hash) => this.requireObject("chunks", hash));
 
-    const probabilityIds = [
-      ...new Set(live.probabilities.map((hash) => requireHash(hash, "live token probabilities id")))
-    ];
-    const unverifiedProbabilities = probabilityIds.filter((hash) =>
-      !this.verifiedObjects.probabilities.has(hash) && !this.trustedCommitted.probabilities.has(hash));
-    await mapWithConcurrency(unverifiedProbabilities, OBJECT_IO_CONCURRENCY, (hash) =>
-      this.requireObject("probabilities", hash)
-    );
+    for (const kind of LEAF_OBJECT_KINDS) {
+      const leafIds = [...new Set(live.leaves[kind].map((hash) => requireHash(hash, LEAF_LIVE_ID_LABELS[kind])))];
+      const unverifiedLeaves = leafIds.filter((hash) =>
+        !this.verifiedObjects[kind].has(hash) && !this.trustedCommitted[kind].has(hash));
+      await mapWithConcurrency(unverifiedLeaves, OBJECT_IO_CONCURRENCY, (hash) =>
+        this.requireObject(kind, hash)
+      );
+    }
   }
 
   objectPath(kind: ObjectKind, hash: ObjectHash): string {
@@ -391,15 +445,10 @@ export class StoryObjectStore {
   private async readObject(kind: ObjectKind, hash: ObjectHash): Promise<Buffer> {
     let bytes: Buffer;
     try {
-      const limit = kind === "chunks"
-        ? MAX_CHUNK_BYTES
-        : kind === "probabilities"
-          ? MAX_TOKEN_PROBABILITY_BYTES
-          : MAX_REVISION_BYTES;
       bytes = await this.withShard(kind, hash, false, async (directory) =>
         await readBoundedFile(
           path.join(directory.path, objectFilename(kind, hash)),
-          limit,
+          OBJECT_MAX_BYTES[kind],
           `${kind} object ${hash}`
         )
       );

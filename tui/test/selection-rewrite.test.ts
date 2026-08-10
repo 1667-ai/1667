@@ -10,7 +10,7 @@ import { handleOverlayAction } from "../src/overlay-actions.js";
 import { requestRewriteStop } from "../src/rewrite-action.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
-import { storyPartWrapPlan } from "../src/screens/story/row-layout.js";
+import { storyPartWrapPlan } from "../src/screens/story/wrap-plan.js";
 import type { StorySelectionSpan } from "../src/selection-projection.js";
 import { composeAction, currentPartActions, navAction, openActions, runPartAction } from "../src/story-actions.js";
 import { deriveStoryFrameLayout } from "../src/story-frame-layout.js";
@@ -94,7 +94,7 @@ async function settleStream(state: ReturnType<typeof harness>["state"]): Promise
  *  phrase (rewriteFixture's docstring above) — to the demo's fixed
  *  replacement text in place. The splice leaves the fresh rewritten span
  *  first in the text and the (shifted) human span second: the exact shape
- *  `storyPartWrapPlan` (row-layout.ts) used to get backwards, since it
+ *  `storyPartWrapPlan` (wrap-plan.ts) used to get backwards, since it
  *  appended every human run before every rewritten run regardless of
  *  position, rather than merging the two families into one ascending list. */
 async function rewriteTwiceInPlace(
@@ -496,7 +496,7 @@ describe("selection rewrite", () => {
     // span: the wrap planner and the frame projection must agree on every
     // "rewritten" run's position, the same guarantee Fix 1 established
     // above for "human" runs, and no run may claim the same characters
-    // under both styles (row-layout.ts's storyPartWrapPlan would otherwise
+    // under both styles (wrap-plan.ts's storyPartWrapPlan would otherwise
     // draw that text twice rather than blend the colors).
     const layout = deriveStoryFrameLayout(120, state.config);
     const wrapPlan = storyFrameWrapPlans(state, layout).find((plan) => plan.partId === "p12")!;
@@ -527,7 +527,7 @@ describe("selection rewrite", () => {
     // — but the renderer must not assume that ran, since nothing stops a
     // payload arriving with both. Constructed directly rather than driven
     // through a live edit, since no in-app path produces this shape today;
-    // this exercises the defensive clip (row-layout.ts) on its own.
+    // this exercises the defensive clip (wrap-plan.ts) on its own.
     const { state } = harness();
     const node = state.payload.path.find((candidate) => candidate.id === "p12")!;
     node.attribution = { source: "human", ranges: [{ start: 10, end: 30 }] };
@@ -572,7 +572,7 @@ describe("selection rewrite", () => {
       const current = wrapPlan.runs[index]!;
       // Ascending by start and pairwise disjoint collapse to one check here
       // because the runs are already known non-overlapping
-      // (subtractAscending/mergeAscending, row-layout.ts): the only way
+      // (subtractAscending/mergeAscending, wrap-plan.ts): the only way
       // adjacent entries could still be unordered is exactly the bug this
       // guards, a later-starting run sorted ahead of an earlier one.
       expect(previous.end <= current.start).toBeTrue();
@@ -623,12 +623,12 @@ describe("selection rewrite", () => {
   test("many human and rewritten spans at the caps still merge into one ascending, pairwise-disjoint run list (Fix 1 review: quadratic overlay resolution)", () => {
     // The review's own repro is 256 of each family (MAX_HUMAN_EDIT_RANGES /
     // MAX_REWRITTEN_SPANS) — the exact shape that made the old per-run
-    // `subtractRanges` call (row-layout.ts) allocate O(runs × cuts) on every
+    // `subtractRanges` call (wrap-plan.ts) allocate O(runs × cuts) on every
     // frame. Interleaved and disjoint by construction, matching the
     // ascending-and-pairwise-disjoint guarantee `parseRewrittenSpans` and
     // `parseVersionAttributions` (server/story-format-facts.ts) enforce at
     // load, since that guarantee is what lets `subtractAscending` and
-    // `mergeAscending` (row-layout.ts) settle everything in one linear pass
+    // `mergeAscending` (wrap-plan.ts) settle everything in one linear pass
     // instead of a nested one — this is a correctness proof for that pass at
     // the scale where a bug in it would actually show up, not a speed test.
     const gap = 8;
@@ -665,7 +665,7 @@ describe("selection rewrite", () => {
   test("a provenance range extending past the text length is truncated at the boundary and never lands after the streaming run (Fix 2 review: streaming clip)", () => {
     // The review's own repro: a human span {start: 2, end: 40} on a
     // 15-character appending part. Before the fix, the streaming clip
-    // (row-layout.ts) only removed the intersection with
+    // (wrap-plan.ts) only removed the intersection with
     // [streamingStart, text.length) — the piece of the span past
     // text.length survived untouched and landed in the array *before* the
     // streaming run pushed after it: [{2,10,human}, {15,40,human},

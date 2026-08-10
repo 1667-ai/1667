@@ -43,6 +43,12 @@ import {
   tokenProbabilitiesRowValue
 } from "./settings-token-probabilities-row.js";
 import {
+  reasoningRowChoices,
+  reasoningRowHint,
+  reasoningRowState,
+  reasoningRowValue
+} from "./settings-reasoning-row.js";
+import {
   cycleSettingsProfile as cycleProfile,
   cycleSettingsRoute as cycleRoute,
   profileRouteState,
@@ -63,6 +69,7 @@ export const SETTINGS_SECTIONS = [
   { id: "connection", label: "connection" },
   { id: "model", label: "model" },
   { id: "generation", label: "generation" },
+  { id: "story", label: "story" },
   { id: "routing", label: "routing" },
   { id: "prompt", label: "prompt" }
 ] as const;
@@ -107,6 +114,7 @@ export function settingsRows(
     && settings.allowInsecureHttp !== true;
   const cache = promptCacheSummaryParts(overlay.view, overlay.draft);
   const tokenProbabilities = tokenProbabilitiesRowState(overlay);
+  const reasoning = reasoningRowState(overlay);
   return [
     {
       id: "theme", section: "app", label: "theme",
@@ -198,6 +206,21 @@ export function settingsRows(
       id: "token-probabilities", section: "generation", label: "alt count",
       value: tokenProbabilitiesRowValue(tokenProbabilities),
       hint: tokenProbabilitiesRowHint(tokenProbabilities)
+    },
+    {
+      id: "reasoning", section: "story", label: "Reasoning",
+      value: reasoningRowValue(reasoning),
+      dots: positionDots(reasoningRowChoices(overlay), reasoning.display),
+      hint: reasoningRowHint(reasoning)
+    },
+    {
+      // "Keep thought", not "Keep thoughts": the 12-column label budget
+      // (settings-form.ts LABEL_WIDTH) truncates the plural to "Keep
+      // though…", so the singular is what actually paints without an
+      // ellipsis eating the word.
+      id: "keep-thoughts", section: "story", label: "Keep thought",
+      value: `[ ${keepThoughts(overlay) ? "on" : "off"} ]`,
+      hint: "saved with the take · ! reads them later"
     },
     routeRow("default-route", "default", overlay, "default"),
     routeRow("prose-route", "prose", overlay, "prose"),
@@ -340,6 +363,45 @@ export function cycleCachePolicyControl(
   );
   markControlMutation(overlay);
   return policy;
+}
+
+/** C-11 toggle: on writes a profile with `discardReasoning` dropped (kept is
+ *  the default), off writes it present as `true`. Unlike the Reasoning
+ *  cycler above, keeping thoughts has no capability gate — a route that
+ *  never returns reasoning simply keeps nothing, the same as any other take
+ *  with no thought to store. */
+const KEEP_THOUGHTS_CHOICES: readonly boolean[] = [true, false];
+
+export function cycleKeepThoughtsControl(
+  overlay: SettingsOverlayState,
+  step: -1 | 1
+): string | null {
+  const next = cycleProfileField(
+    overlay,
+    step,
+    KEEP_THOUGHTS_CHOICES,
+    (profile) => profile.discardReasoning !== true,
+    profileWithKeepThoughts
+  );
+  return next === undefined ? null : next ? "on" : "off";
+}
+
+function profileWithKeepThoughts(
+  profile: GenerationProfileV2,
+  keep: boolean
+): GenerationProfileV2 {
+  if (keep) {
+    const { discardReasoning: _dropped, ...rest } = profile;
+    return rest;
+  }
+  return { ...profile, discardReasoning: true };
+}
+
+function keepThoughts(overlay: SettingsOverlayState): boolean {
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  if (document === null || profileId === null) return true;
+  return document.profiles[profileId]?.discardReasoning !== true;
 }
 
 export function cycleTextPromptFormatControl(

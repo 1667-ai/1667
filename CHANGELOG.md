@@ -5,6 +5,20 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **1667 shows what a model thinks before it writes.** Some models write
+  reasoning text before prose. 1667 calls this text a thought and keeps it
+  apart from your story. The margin shows `⟳ thinking` while the model works,
+  then the word `thought` on a story part that has one. Press `T` to unfold it
+  above the prose, behind a rail. The new **Reasoning** row in Settings selects
+  off, marker, or open, and the new **Keep thought** row selects whether 1667
+  saves each thought with its take. Thanks to @10fra.
+
+- **A model that thinks for a long time no longer stops at the first-token
+  deadline.** 1667 waited for prose. A model that thinks first sent no prose,
+  so the deadline ended the generation while the model was still working. 1667
+  now accepts any stream activity, and reasoning text counts. Thanks @10fra for
+  the report.
+
 - **Settings loads a provider's only model before Save.** A provider or base
   URL change could return one model while the model row stayed blank. The
   writer then had to save or select the model. Settings now selects the model

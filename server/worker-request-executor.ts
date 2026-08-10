@@ -16,6 +16,7 @@ import {
   ServiceError,
   timeoutProvenanceOf
 } from "./errors.js";
+import type { ReasoningStreamDelta } from "./providers.js";
 import {
   parseStoryAggregateVersion
 } from "../shared/story-aggregate-version.js";
@@ -59,6 +60,11 @@ export async function executeWorkerRequest(
   const stream = STREAM_METHODS.has(message.method);
   try {
     const onDelta = (text: string) => deltas?.push(text);
+    // Same batcher, same shared sequence/ack/credit machinery as `onDelta`
+    // above — see `WorkerDeltaBatcher.pushReasoning`. Reasoning text never
+    // travels through `onDelta`'s own text accumulator, so it can never be
+    // coalesced into a batch a caller reads as story prose.
+    const onReasoning = (delta: ReasoningStreamDelta) => deltas?.pushReasoning(delta.text, delta.tokenCount);
     let value: unknown;
     if (isServiceOwnedSettingsMutation(message.method)) {
       value = await executeSettingsMutation(service, message, cancellation.signal);
@@ -74,6 +80,7 @@ export async function executeWorkerRequest(
         service,
         message,
         onDelta,
+        onReasoning,
         cancellation
       );
     }
@@ -185,6 +192,7 @@ async function executeMutation(
   service: StoryService,
   message: WorkerRequest,
   onDelta: (text: string) => void,
+  onReasoning: (delta: ReasoningStreamDelta) => void,
   signal: AbortSignal
 ): Promise<unknown> {
   const method = message.method;
@@ -206,6 +214,7 @@ async function executeMutation(
       message,
       method,
       onDelta,
+      onReasoning,
       signal
     );
   }
@@ -244,6 +253,7 @@ async function executeMutation(
             };
       return executeWorkerMutation(service, parsedInput, plan, {
         onDelta,
+        onReasoning,
         signal,
         ...(storyMutationRequest === undefined
           ? {}
@@ -262,6 +272,7 @@ async function executeLocalTierMutation<M extends LocalDurabilityMutationMethod>
   message: WorkerRequest,
   method: M,
   onDelta: (text: string) => void,
+  onReasoning: (delta: ReasoningStreamDelta) => void,
   signal: AbortSignal
 ): Promise<unknown> {
   return await service.runLocalMutation(
@@ -282,6 +293,7 @@ async function executeLocalTierMutation<M extends LocalDurabilityMutationMethod>
       }
       return executeWorkerMutation(service, parsedInput, plan, {
         onDelta,
+        onReasoning,
         signal,
         storyMutationRequest: {
           transportOperationId: workerOperationKey(message.id),
@@ -347,6 +359,11 @@ async function invokeReadOnly(
         requireString(input.storyId, "storyId"),
         requireString(input.nodeId, "nodeId")
       );
+    case "getReasoning":
+      return await service.getReasoning(
+        requireString(input.storyId, "storyId"),
+        requireString(input.nodeId, "nodeId")
+      );
     case "getSettings": return await service.getSettings();
     case "checkModelServer":
       return await service.checkModelServer(
@@ -396,11 +413,12 @@ async function executeWorkerMutationWithRetry(
   service: StoryService,
   message: WorkerRequest,
   onDelta: (text: string) => void,
+  onReasoning: (delta: ReasoningStreamDelta) => void,
   cancellation: WorkerRequestCancellation
 ): Promise<unknown> {
   for (;;) {
     try {
-      return await executeMutation(service, message, onDelta, cancellation.signal);
+      return await executeMutation(service, message, onDelta, onReasoning, cancellation.signal);
     } catch (error) {
       if (message.method !== "commitPartialRewrite"
         || !isRetryablePartialSettlementFailure(error)

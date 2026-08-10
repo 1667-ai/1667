@@ -17,6 +17,7 @@ import {
   MAX_MARKDOWN_HTTP_BODY_BYTES
 } from "../shared/import-markdown-wire.js";
 import type { StoryService } from "./story-service.js";
+import type { ReasoningStreamDelta } from "./providers.js";
 import { streamResponse } from "./stream-response.js";
 import { optionalString, requireNumberValue, requireString, requireStringValue } from "./validation.js";
 import {
@@ -220,7 +221,8 @@ async function handleApi(
     workerMethod: M,
     input: unknown,
     onDelta?: (text: string) => void | Promise<void>,
-    signal = operation.signal
+    signal = operation.signal,
+    onReasoning?: (delta: ReasoningStreamDelta) => void | Promise<void>
   ) => {
     if (operation.mutationId === null) {
       throw new ServiceError(
@@ -242,7 +244,8 @@ async function handleApi(
       signal,
       ticket,
       operation.expectedAggregateVersion,
-      onDelta
+      onDelta,
+      onReasoning
     );
   };
   if (head === "settings" && id === undefined) {
@@ -459,7 +462,7 @@ async function handleApi(
   if (head === "stories" && id !== undefined && sub === "continue" && method === "POST") {
     const body = await jsonBody();
     return await streamResponse(request, response,
-      (onDelta, signal) => mutate("continueStory", {
+      (onDelta, signal, onReasoning) => mutate("continueStory", {
         storyId: id,
         instruction: requireStringValue(body.instruction, "instruction"),
         genId: requireString(body.genId, "genId"),
@@ -477,7 +480,7 @@ async function handleApi(
             )
           })
         }
-      }, onDelta, signal),
+      }, onDelta, signal, onReasoning),
       (result) => ({ type: "done", story: result.payload, droppedFacts: result.droppedFacts }),
       operation.signal,
       context.errorReporter,
@@ -487,14 +490,15 @@ async function handleApi(
   if (head === "stories" && id !== undefined && sub === "summary-take" && method === "POST") {
     const body = await jsonBody();
     return await streamResponse(request, response,
-      (onDelta, signal) => mutate(
+      (onDelta, signal, onReasoning) => mutate(
         "createSummaryTake",
         {
           storyId: id,
           body
         },
         onDelta,
-        signal
+        signal,
+        onReasoning
       ),
       (nodeId) => ({ type: "done", nodeId }),
       operation.signal,
@@ -604,7 +608,7 @@ async function handleApi(
   if (head === "stories" && id !== undefined && sub === "nodes" && subId !== undefined && action === "rewrite" && method === "POST") {
     const body = await jsonBody();
     return await streamResponse(request, response,
-      (onDelta, signal) => mutate(
+      (onDelta, signal, onReasoning) => mutate(
         "rewriteNode",
         {
           storyId: id,
@@ -612,7 +616,8 @@ async function handleApi(
           body
         },
         onDelta,
-        signal
+        signal,
+        onReasoning
       ),
       (nodeId) => ({ type: "done", nodeId }),
       operation.signal,
@@ -644,6 +649,14 @@ async function handleApi(
       response,
       200,
       await service.getTokenProbabilities(id, subId)
+    );
+  }
+  if (head === "stories" && id !== undefined && sub === "nodes" && subId !== undefined
+    && action === "reasoning" && method === "GET") {
+    return sendJson(
+      response,
+      200,
+      await service.getReasoning(id, subId)
     );
   }
   if (head === "stories" && id !== undefined && sub === "prune-unused-takes" && method === "POST") {

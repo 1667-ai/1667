@@ -6,7 +6,7 @@ import {
   storyPartWrapPlan,
   type StoryPartWrapInput,
   type StoryPartWrapPlan
-} from "./screens/story/row-layout.js";
+} from "./screens/story/wrap-plan.js";
 import type { StoryFrameLayout } from "./story-frame-layout.js";
 import type { StoryScreenState, StreamView } from "./state.js";
 import {

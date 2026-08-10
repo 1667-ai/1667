@@ -41,6 +41,7 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   deleteStory: "local",
   exportMarkdown: "transfer",
   getTokenProbabilities: "local",
+  getReasoning: "local",
   switchLine: "local",
   createNode: "local",
   editNode: "local",
@@ -243,6 +244,8 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
       && httpMethod === "POST") return "commitPartialRewrite";
     if (subId !== undefined && action === "token-probabilities"
       && httpMethod === "GET") return "getTokenProbabilities";
+    if (subId !== undefined && action === "reasoning"
+      && httpMethod === "GET") return "getReasoning";
   }
   if (sub === "tags" && subId !== undefined
     && action === undefined && parts.length === 6) {

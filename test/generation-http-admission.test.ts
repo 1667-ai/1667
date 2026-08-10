@@ -88,7 +88,7 @@ test("rewrite admission reserves the rewrite's own output budget, not the global
       undefined,
       undefined,
       undefined,
-      bindIntent
+      { bindIntent }
     ),
     (error) => error === stop
   );
@@ -167,9 +167,7 @@ test("continueStory reports own-cap and story-budget drops, not only window-pres
       new GenerationAdmissionRegistry(),
       () => {},
       new AbortController().signal,
-      undefined,
-      bindIntent,
-      (dropped) => { reported = dropped; }
+      { bindIntent, onFactsDropped: (dropped) => { reported = dropped; } }
     ),
     (error) => error === stop
   );
