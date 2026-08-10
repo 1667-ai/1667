@@ -8,6 +8,8 @@ import { SettingsV2Store } from "../server/settings-v2-store.js";
 import { parseSettingsStateV3, formatSettingsStateV3 } from "../server/settings-v3-codec.js";
 import { convertSettingsDocumentV2ToV3 } from "../server/settings-v3-conversion.js";
 import type { SettingsDocumentV3, ModelCapabilitiesV3 } from "../shared/settings-v2-types.js";
+import { MAX_CREDENTIAL_NAMES_PER_STATE } from "../shared/credential-slot-policy.js";
+import { settingsStateCredentialNames } from "../shared/settings-credential-slots.js";
 import {
   FIXED_TIME,
   MUTATION_A,
@@ -162,5 +164,43 @@ test("the write-schema decision defaults to schema 2 and only a forced option wr
   await assert.rejects(
     forcedStore.save(saveCommand(MUTATION_B, 3, writingDocument("A second forced write still refuses."))),
     hasServiceCode("settings_requires_successor")
+  );
+});
+
+/**
+ * `server/settings-v2-state-validation.ts` enforces
+ * `MAX_CREDENTIAL_NAMES_PER_STATE` across a state's documents.
+ * `server/settings-v3-state-validation.ts` ran the same five validators but
+ * skipped that one, because `settingsStateCredentialNames`
+ * (shared/settings-credential-slots.ts) was typed to accept only
+ * `SettingsDocumentV2`, and a `SettingsDocumentV3` is not assignable to it
+ * (their `schemaVersion` literals differ). The fix widens that helper to the
+ * structural shape it actually needs - `connections`, identical on both
+ * document versions, and calls it from both validators.
+ *
+ * The per-document credential cap (32) times the at most two documents a
+ * real settings state ever holds already bounds a normally parsed state at
+ * exactly 64, so this exact state-wide check can never fire by handing
+ * `validateSettingsStateV3` well-formed JSON: the same "defence in depth,
+ * unreachable by construction" shape the Draft Image byte quotas have
+ * (G6 in FOLLOWUPS.md). This test exercises the aggregation function the
+ * guard calls directly, with more documents than a real state ever holds
+ * standing in for what an incorrectly assembled one could carry, and proves
+ * it now sums schema-3 documents exactly like it always summed schema-2
+ * ones.
+ */
+test("settingsStateCredentialNames sums schema-3 documents toward the same state-wide bound schema 2 uses", () => {
+  const documentCount = MAX_CREDENTIAL_NAMES_PER_STATE + 1;
+  const documents: Record<string, SettingsDocumentV3> = {};
+  for (let index = 0; index < documentCount; index += 1) {
+    documents[String(index + 1)] = convertSettingsDocumentV2ToV3(
+      credentialedDocument(`IMAGE_INPUT_STATE_BOUND_ENV_${index}`)
+    );
+  }
+  const names = settingsStateCredentialNames({ documents });
+  assert.equal(names.length, documentCount);
+  assert.ok(
+    names.length > MAX_CREDENTIAL_NAMES_PER_STATE,
+    "server/settings-v3-state-validation.ts's new guard must refuse a state this large"
   );
 });

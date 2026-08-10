@@ -1,7 +1,24 @@
-import type {
-  SettingsDocumentV2,
-  SettingsStateV2
-} from "./settings-v2-types.js";
+import type { ModelConnectionV2 } from "./settings-v2-types.js";
+
+/**
+ * The structural shape both `settingsStateCredentialNames` and
+ * `settingsStateEnvironmentCredentialNames` actually need: a document's
+ * `connections`, nothing else. `SettingsDocumentV2` and `SettingsDocumentV3`
+ * both satisfy this - `connections` is the identical type on both, only
+ * `schemaVersion` and `models` differ, so a caller holding either document
+ * version, or a state whose documents mix the two across a schema migration,
+ * can call these functions without a cast. Do not re-narrow this back to
+ * `SettingsDocumentV2`: that is exactly the mistake that let
+ * server/settings-v3-state-validation.ts skip the state-wide credential
+ * bound `server/settings-v2-state-validation.ts` enforces.
+ */
+interface CredentialBearingSettingsDocument {
+  readonly connections: Readonly<Record<string, ModelConnectionV2>>;
+}
+
+interface CredentialBearingSettingsState {
+  readonly documents: Readonly<Record<string, CredentialBearingSettingsDocument>>;
+}
 
 /**
  * Sorted credential union for every exact role-backed document. The parser
@@ -9,7 +26,7 @@ import type {
  * projection runs, so rollback authority cannot be omitted.
  */
 export function settingsStateCredentialNames(
-  state: Pick<SettingsStateV2, "documents">
+  state: CredentialBearingSettingsState
 ): string[] {
   const names = new Set<string>();
   for (const document of Object.values(state.documents)) {
@@ -20,7 +37,7 @@ export function settingsStateCredentialNames(
 
 /** Environment-only projection for supervised process secret requests. */
 export function settingsStateEnvironmentCredentialNames(
-  state: Pick<SettingsStateV2, "documents">
+  state: CredentialBearingSettingsState
 ): string[] {
   const names = new Set<string>();
   for (const document of Object.values(state.documents)) {
@@ -30,7 +47,7 @@ export function settingsStateEnvironmentCredentialNames(
 }
 
 function addDocumentCredentialNames(
-  document: SettingsDocumentV2,
+  document: CredentialBearingSettingsDocument,
   names: Set<string>,
   includeStored: boolean
 ): void {

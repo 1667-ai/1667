@@ -11,7 +11,17 @@ import {
   publishDraftImageLease,
   removeDraftImageLease
 } from "../server/story-image-lease.js";
+import { StoryObjectStore } from "../server/story-objects.js";
+import { parseStoryManifestBytes, STORY_SCHEMA_VERSION_V8 } from "../server/story-v6-codec.js";
 import type { NormalizedImage } from "../server/image-normalize.js";
+import type { StoryImageAttachment } from "../shared/image-attachment.js";
+import {
+  providerOperation,
+  request,
+  setup,
+  storyFixture,
+  STORY_ID
+} from "./story-mutation-fixtures.js";
 
 /**
  * Integration coverage for the sweep/cleanup side of Draft Image staging,
@@ -113,5 +123,85 @@ test("image cleanup: releasing a malformed lease id is a client error, not an in
   await assert.rejects(
     () => stories.releaseImage(story.id, "../../../../etc/passwd"),
     (error: unknown) => (error as { status?: number }).status === 400
+  );
+});
+
+function seedAttachment(objectId: string): StoryImageAttachment {
+  return { objectId, mediaType: "image/png", width: 1, height: 1, byteLength: 17 };
+}
+
+test("image cleanup: a Draft Lease on a successor-schema (v8) story is swept exactly like on an ordinary story", async (t) => {
+  // Regression coverage for the sweep going dead on a successor story:
+  // `requireStageableStory` (server/story-draft-images.ts) deliberately
+  // admits a v8-live story, but before the fix `runCleanup`'s slot-content
+  // lookup fell through to `null` for "v8-live", so it returned before ever
+  // calling the sweep. The Image Object and the cleanup marker both stayed
+  // forever, and every later `load()` scheduled a pass that did nothing.
+  const fixture = await setup(
+    t,
+    "1667-image-cleanup-successor-",
+    {},
+    undefined,
+    { imageInputActivation: true }
+  );
+  const storiesDir = path.join(fixture.dataDir, "stories");
+
+  // Commit a take carrying an Image Attachment first: that is what moves a
+  // story from a V6 to a V8 envelope
+  // (test/story-aggregate-successor-write.test.ts).
+  const seedObjects = new StoryObjectStore(path.join(storiesDir, STORY_ID));
+  await seedObjects.init();
+  const seedObjectId = await seedObjects.storeImage(Buffer.from("seed image bytes"));
+  await seedObjects.flush();
+
+  await fixture.mutations.runProviderOperation(
+    request(fixture.v5Hash),
+    "continueStory",
+    providerOperation(
+      async (stories, providerStarted) => {
+        await providerStarted();
+        return await stories.commitProviderEffect(STORY_ID, {
+          kind: "continue",
+          parentId: null,
+          appendTo: null,
+          expectedTextHash: null,
+          instruction: "Describe the image.",
+          text: "A lantern-lit room.",
+          model: "test",
+          genId: "g-seed",
+          expectedParentActiveChildId: null,
+          expectedAppendActiveChildId: null,
+          expectedActiveRootId: null,
+          expectedActiveLeafId: null,
+          imageAttachments: [seedAttachment(seedObjectId)]
+        });
+      },
+      storyFixture
+    )
+  );
+
+  const afterSeed = await readFile(fixture.manifestFile);
+  const parsedSeed = parseStoryManifestBytes(afterSeed, STORY_ID);
+  assert.equal(parsedSeed.kind, "v8-live", "the seed commit really did move the story to the successor envelope");
+  if (parsedSeed.kind !== "v8-live") return;
+  assert.equal(parsedSeed.manifest.schemaVersion, STORY_SCHEMA_VERSION_V8);
+
+  // Stage a fresh Draft Image the same way any story accepts one.
+  const staged = await fixture.stories.stageImage(STORY_ID, image("draft-on-v8"));
+  await fixture.stories.waitForMaintenance();
+  await readFile(objectPath(storiesDir, STORY_ID, staged.attachment.objectId));
+  assert.equal(
+    await cleanupPending(path.join(storiesDir, STORY_ID)),
+    true,
+    "a live Draft Lease keeps the marker set on a successor-schema story too"
+  );
+
+  await fixture.stories.releaseImage(STORY_ID, staged.leaseId);
+  await fixture.stories.waitForMaintenance();
+  await assert.rejects(() => readFile(objectPath(storiesDir, STORY_ID, staged.attachment.objectId)));
+  assert.equal(
+    await cleanupPending(path.join(storiesDir, STORY_ID)),
+    false,
+    "the sweep actually ran and retired the marker: it is no longer dead for v8-live"
   );
 });

@@ -21,9 +21,23 @@
  */
 import { ServiceError } from "./errors.js";
 import { IMAGE_STAGE_WAITER_LIMIT } from "../shared/image-attachment.js";
+import { imageInputEntryPointsOpen } from "../shared/image-input-release.js";
 
 interface Waiter {
   readonly grant: () => void;
+}
+
+/**
+ * Refuse with the closed-release message every image entry point uses, when
+ * `shared/image-input-release.ts`'s switch is off. Both staging boundaries
+ * (server/http-router.ts and server/worker-request-executor.ts) call this
+ * before they do any other work, so a closed release never reads a request
+ * body or touches the permit.
+ */
+export function requireImageInputEntryPointsOpen(option?: boolean): void {
+  if (!imageInputEntryPointsOpen(option)) {
+    throw new ServiceError(400, "Image input is not available in this release.", "image_input_not_supported");
+  }
 }
 
 let active = false;
@@ -74,6 +88,25 @@ export async function acquireImageStagePermit(
     waiters.push(waiter);
     signal?.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+/**
+ * Acquire the permit, run `work`, and release on every terminal path,
+ * success, a thrown error, or a caller disconnect. A hand-written
+ * acquire/try/finally/release block at a call site can leak the permit if a
+ * future edit adds a return before the `finally`; this makes that
+ * unrepresentable.
+ */
+export async function withImageStagePermit<T>(
+  signal: AbortSignal | undefined,
+  work: () => Promise<T>
+): Promise<T> {
+  const release = await acquireImageStagePermit(signal);
+  try {
+    return await work();
+  } finally {
+    release();
+  }
 }
 
 function release(): void {

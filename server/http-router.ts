@@ -60,7 +60,7 @@ import type {
   HttpDataDirectoryIdentity
 } from "./data-directory-id.js";
 import { toPublicServiceError } from "./service-error-policy.js";
-import { acquireImageStagePermit } from "./image-stage-permit.js";
+import { requireImageInputEntryPointsOpen, withImageStagePermit } from "./image-stage-permit.js";
 import {
   isSourceImageMediaType,
   MAX_SOURCE_IMAGE_BYTES,
@@ -772,23 +772,17 @@ async function handleApi(
   }
 
   if (head === "stories" && id !== undefined && sub === "images" && subId === undefined && method === "POST") {
+    requireImageInputEntryPointsOpen();
     const mediaType = requireImageContentType(request);
-    const release = await acquireImageStagePermit(operation.signal);
-    try {
+    return await withImageStagePermit(operation.signal, async () => {
       const bytes = await readBufferBody(request, MAX_SOURCE_IMAGE_BYTES, operation.signal);
       return sendJson(response, 201, await service.stageStoryImage(id, mediaType, bytes));
-    } finally {
-      release();
-    }
+    });
   }
   if (head === "stories" && id !== undefined && sub === "images" && subId !== undefined
     && action === undefined && method === "DELETE") {
-    const release = await acquireImageStagePermit(operation.signal);
-    try {
-      await service.releaseStoryImage(id, subId);
-    } finally {
-      release();
-    }
+    requireImageInputEntryPointsOpen();
+    await withImageStagePermit(operation.signal, () => service.releaseStoryImage(id, subId));
     response.writeHead(204);
     return void response.end();
   }

@@ -83,7 +83,7 @@ function retakeTarget(story: Story, parentId: string | null): StoryNode | null {
  * same invariant again at commit.
  */
 export async function resolveContinueStoryImages(
-  store: ImageAttachmentStore,
+  store: ImageAttachmentStore | null,
   storyId: string,
   story: Story,
   parentId: string | null,
@@ -103,13 +103,21 @@ export async function resolveContinueStoryImages(
   const inherited = retakeTarget(story, parentId)?.imageAttachments ?? [];
   const drafted: StoryImageAttachment[] = [];
   const leaseIds: string[] = [];
-  // Sequential, not parallel. Each resolution already claims its own story
-  // `ioQueue` turn, and the ordered list a client submits is exactly the
-  // order the take should carry. A stable, simple loop preserves that
-  // order without adding a sort step.
-  for (const reference of images) {
-    drafted.push(await store.resolveDraftImage(storyId, reference));
-    leaseIds.push(reference.leaseId);
+  if (images.length > 0) {
+    if (store === null) {
+      // Fail closed: a caller with a Draft Image to resolve but no reader to
+      // resolve it with is a programming error, not a request the writer
+      // could cause. Every production call site supplies a store.
+      throw new HttpError(500, "Image resolution is not available for this request.", "image_input_not_supported");
+    }
+    // Sequential, not parallel. Each resolution already claims its own story
+    // `ioQueue` turn, and the ordered list a client submits is exactly the
+    // order the take should carry. A stable, simple loop preserves that
+    // order without adding a sort step.
+    for (const reference of images) {
+      drafted.push(await store.resolveDraftImage(storyId, reference));
+      leaseIds.push(reference.leaseId);
+    }
   }
   const attachments = [...inherited, ...drafted];
   const seen = new Set<string>();
@@ -170,14 +178,23 @@ export async function loadVerifiedImageBytes(
  *  references, keyed by object id: the shape `server/providers.ts`'s
  *  `StreamCompletionOptions.imageBytes` takes. The same Image Object can
  *  occur on more than one active story part. This loads it once regardless
- *  of how many attachments name it. */
+ *  of how many attachments name it. A caller with images to load and no
+ *  store is a programming error, refused the same way
+ *  `resolveContinueStoryImages` refuses one. */
 export async function loadActiveImageBytes(
-  store: ImageAttachmentStore,
+  store: ImageAttachmentStore | null,
   storyId: string,
   activeImages: readonly StoryImageAttachment[]
 ): Promise<ReadonlyMap<string, Uint8Array>> {
   const byId = new Map<string, StoryImageAttachment>();
   for (const attachment of activeImages) byId.set(attachment.objectId, attachment);
+  if (byId.size === 0) return new Map();
+  if (store === null) {
+    // Fail closed: a caller with an Image Object to load and no reader to
+    // load it with is a programming error, refused the same way
+    // `resolveContinueStoryImages` refuses one.
+    throw new HttpError(500, "Image resolution is not available for this request.", "image_input_not_supported");
+  }
   const entries = await Promise.all(
     [...byId.values()].map(async (attachment): Promise<readonly [string, Uint8Array]> =>
       [attachment.objectId, await loadVerifiedImageBytes(store, storyId, attachment)])

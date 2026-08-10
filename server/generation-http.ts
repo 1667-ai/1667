@@ -40,7 +40,7 @@ import {
 } from "./generation-image-attachments.js";
 import { parseWorkerContinueImages } from "./worker-continue-target.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
-import type { StoryImageAttachment } from "../shared/image-attachment.js";
+import { imageInputEntryPointsOpen } from "../shared/image-input-release.js";
 import { activeBudgetedFacts, activeBudgetedFactsForRewrite } from "../shared/fact-selection.js";
 import { formatFactsMessage } from "../shared/story-facts.js";
 import {
@@ -60,21 +60,6 @@ import {
 } from "./provider-stream-output.js";
 
 export type BindGenerationIntent = (settings: GenerationSettings, context: unknown) => Promise<void>;
-
-/** Never actually invoked: `continueStory` already refuses a request with a
- *  Draft Image reference when `hooks.imageStore` is absent, before this
- *  placeholder could ever be asked to resolve one. It exists only so
- *  `resolveContinueStoryImages` can run unconditionally (Retake inheritance
- *  needs no store at all) without an unsound type assertion at the call
- *  site. */
-const NO_IMAGES_STORE: ImageAttachmentStore = {
-  resolveDraftImage(): Promise<StoryImageAttachment> {
-    throw new Error("No image store was supplied for this request");
-  },
-  loadImage(): Promise<Buffer> {
-    throw new Error("No image store was supplied for this request");
-  }
-};
 
 /** The optional side channels a streamed generation call takes, bundled into
  *  one trailing parameter instead of a run of positional callbacks —
@@ -109,6 +94,12 @@ export interface ContinueStoryHooks extends GenerationStreamHooks {
    *  `StoryStore`; a caller with no images to resolve (most tests) may omit
    *  this entirely. */
   imageStore?: ImageAttachmentStore;
+  /** Overrides `imageInputEntryPointsOpen()`'s build-constant default.
+   *  Absent resolves through the constant, so production wiring can never
+   *  open this entry point by accident. A test that needs to drive a
+   *  request carrying a Draft Image through the full continuation path
+   *  sets this explicitly; see shared/image-input-release.ts. */
+  imageEntryPointsOpen?: boolean;
 }
 
 export async function autonameStory(
@@ -213,6 +204,12 @@ export async function continueStory(
   const { providerStarted = () => {}, bindIntent, onFactsDropped, onReasoning, imageStore } = hooks;
   if (signal.aborted) return null;
   const draftImageReferences = parseWorkerContinueImages(body.images);
+  if (draftImageReferences.length > 0 && !imageInputEntryPointsOpen(hooks.imageEntryPointsOpen)) {
+    // The whole feature is inactive in this release: refuse a request that
+    // names a Draft Image before it does any other work, the same way the
+    // staging routes refuse (shared/image-input-release.ts).
+    throw new HttpError(400, "Image input is not available in this release.", "image_input_not_supported");
+  }
   if (draftImageReferences.length > 0 && imageStore === undefined) {
     // Fail closed: a caller with a Draft Image to resolve but no reader to
     // resolve it with is a programming error, not a request the writer
@@ -276,7 +273,7 @@ export async function continueStory(
   // decisions). Refuses image_attachment_duplicate/image_attachment_expired
   // before any Image Object byte is read.
   const resolvedImages = await resolveContinueStoryImages(
-    imageStore ?? NO_IMAGES_STORE,
+    imageStore ?? null,
     id,
     story,
     parentId,
@@ -372,7 +369,7 @@ export async function continueStory(
   // reference the same bytes.
   const imageBytes = activeImages.length === 0
     ? undefined
-    : await loadActiveImageBytes(imageStore ?? NO_IMAGES_STORE, id, activeImages);
+    : await loadActiveImageBytes(imageStore ?? null, id, activeImages);
   // Declare before the provider sees any bytes, so
   // server/story-provider-mutation.ts's `publishStarted` can read the ids
   // back for the durable receipt and the pin that keeps them readable for

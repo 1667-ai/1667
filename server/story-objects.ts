@@ -63,10 +63,10 @@ export type { ObjectKind } from "./story-object-fs.js";
  *  `images` joined this list once a manifest could name an Image Object
  *  (`nodes[].imageAttachments[].objectId`, server/story-format-nodes.ts).
  *  Unlike the other two kinds, an image can also be live through a Draft
- *  Lease that names no manifest node yet. `sweep`'s own `liveImageIds`
- *  parameter below carries those ids and unions them into `images` before
- *  marking, so this one list still protects every image an object store
- *  method needs to protect. */
+ *  Lease that names no manifest node yet; the caller (server/stories.ts's
+ *  `unionLiveWithPins`) folds those lease-sourced ids into `live.leaves.images`
+ *  before calling `sweep` below, so this one list still protects every image
+ *  an object store method needs to protect. */
 export const LEAF_OBJECT_KINDS = ["probabilities", "reasoning", "images"] as const;
 export type LeafObjectKind = typeof LEAF_OBJECT_KINDS[number];
 /** The label `requireHash` reports for one leaf kind's live id, kept apart
@@ -287,21 +287,18 @@ export class StoryObjectStore {
   }
 
   /**
-   * `liveImageIds` carries ids a live Draft Lease references
-   * (server/stories.ts's `runCleanup`) that no manifest node names yet.
-   * `live.leaves.images` carries every Image Object a manifest node's
-   * `imageAttachments[].objectId` names (server/story-format-nodes.ts's
-   * `manifestImageIds`, folded into `liveObjectIds`). This method unions
-   * the two before marking, exactly as `unionLiveWithPins` already unions
-   * live and pinned ids for every other leaf kind. An Image Object is
-   * protected while it is either referenced by the committed story or kept
-   * alive by an unconsumed Draft Lease.
+   * `live.leaves.images` carries every Image Object this sweep must protect:
+   * every id a manifest node's `imageAttachments[].objectId` names
+   * (server/story-format-nodes.ts's `manifestImageIds`, folded into
+   * `liveObjectIds`) plus every id a live Draft Lease references. Images are
+   * a leaf kind exactly like `probabilities` and `reasoning`, so this method
+   * treats all three identically; the caller (server/stories.ts's
+   * `unionLiveWithPins`) is the one place that folds a lease-sourced id into
+   * `leaves.images` before calling this, so "an object is live when the
+   * manifest names it or a lease does" is decided once, in the module that
+   * owns lease lifetime, rather than here.
    */
-  async sweep(
-    live: LiveStoryObjectIds,
-    signal?: AbortSignal,
-    liveImageIds: readonly ObjectHash[] = []
-  ): Promise<boolean> {
+  async sweep(live: LiveStoryObjectIds, signal?: AbortSignal): Promise<boolean> {
     try {
       requireSweepActive(signal);
       const liveRevisions = new Set(live.revisions.map((hash) => requireHash(hash, "live revision id")));
@@ -309,7 +306,6 @@ export class StoryObjectStore {
       for (const kind of LEAF_OBJECT_KINDS) {
         liveLeaves[kind] = new Set(live.leaves[kind].map((hash) => requireHash(hash, LEAF_LIVE_ID_LABELS[kind])));
       }
-      for (const hash of liveImageIds) liveLeaves.images.add(requireHash(hash, "live image id"));
       const liveChunks = new Set<ObjectHash>();
       const cache = createStoryReadCache();
 

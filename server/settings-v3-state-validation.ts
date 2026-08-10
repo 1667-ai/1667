@@ -20,6 +20,8 @@ import {
 import { validateSettingsDocumentV3, type SettingsValidationOptions } from "./settings-v3-validation.js";
 import { canonicalJson } from "./canonical-json.js";
 import { closedRecord, closedShape } from "./story-wire-validation.js";
+import { MAX_CREDENTIAL_NAMES_PER_STATE } from "../shared/credential-slot-policy.js";
+import { settingsStateCredentialNames } from "../shared/settings-credential-slots.js";
 
 /** Schema 3's aggregate state codec. Structural sibling of
  * server/settings-v2-state-validation.ts: activation, outcome, and
@@ -80,6 +82,16 @@ export function validateSettingsStateV3(
   validateActivationBindingV3(state, relation);
   validateTransactionBindingV3(state, relation);
   validateInitialNullPointerV3(state, relation);
+  // The same state-wide bound server/settings-v2-state-validation.ts
+  // enforces. Schema 3's document shape is not `SettingsDocumentV2`, so this
+  // needs the widened `settingsStateCredentialNames`
+  // (shared/settings-credential-slots.ts), not a second copy of the check.
+  if (settingsStateCredentialNames(state).length
+    > MAX_CREDENTIAL_NAMES_PER_STATE) {
+    throw new SettingsFormatError(
+      `settings state exceeds the ${MAX_CREDENTIAL_NAMES_PER_STATE}-credential-name limit`
+    );
+  }
   return state;
 }
 

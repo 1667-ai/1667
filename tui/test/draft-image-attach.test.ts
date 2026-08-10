@@ -13,7 +13,7 @@ import type { AppSource } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { draftImagesFor } from "../src/draft-image.js";
 import { openImageAttach, imageAttachAction } from "../src/image-attach-actions.js";
-import { IMAGE_INPUT_UNKNOWN_MESSAGE } from "../src/image-input-runtime.js";
+import { IMAGE_INPUT_ENTRY_POINTS_CLOSED_MESSAGE, IMAGE_INPUT_UNKNOWN_MESSAGE } from "../src/image-input-runtime.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import type { RuntimeState } from "../src/state.js";
 
@@ -82,6 +82,31 @@ function stagedImage(width = 64, height = 48, byteLength = 4_096) {
   };
 }
 
+/**
+ * Every `openImageAttach` call below the release-gate block passes an
+ * explicit `true` fourth argument, opening the gate that
+ * shared/image-input-release.ts closes by default in this release. Those
+ * tests are about capability resolution, the rewrite carve-out, path
+ * handling, and the four-image ceiling, behavior that sits behind the
+ * gate, not the gate itself, so they drive past it deliberately. The
+ * release-gate block below is the one place that calls `openImageAttach`
+ * with no override, pinning the production default.
+ */
+describe("the release gate", () => {
+  test("refuses before any other check, and opens no panel, while entry points are closed", async () => {
+    const source = demoAppSource();
+    setRoute(source, "anthropic-messages", "claude-sonnet-5");
+    const state = initialState(source, false);
+    state.mode = "COMPOSE";
+
+    openImageAttach(state, source);
+
+    expect(state.toast).toBe(IMAGE_INPUT_ENTRY_POINTS_CLOSED_MESSAGE);
+    expect(state.mode).toBe("COMPOSE");
+    expect(state.image ?? null).toBe(null);
+  });
+});
+
 describe("attach image capability gating", () => {
   test("refuses with the exact unknown-model message and opens no panel", async () => {
     const source = demoAppSource();
@@ -89,7 +114,7 @@ describe("attach image capability gating", () => {
     const state = initialState(source, false);
     state.mode = "COMPOSE";
 
-    openImageAttach(state, source);
+    openImageAttach(state, source, undefined, true);
 
     expect(state.toast).toBe(IMAGE_INPUT_UNKNOWN_MESSAGE);
     expect(state.mode).toBe("COMPOSE");
@@ -102,7 +127,7 @@ describe("attach image capability gating", () => {
     const state = initialState(source, false);
     state.mode = "COMPOSE";
 
-    openImageAttach(state, source);
+    openImageAttach(state, source, undefined, true);
 
     expect(state.image ?? null).toBe(null);
     expect(state.mode).toBe("COMPOSE");
@@ -114,7 +139,7 @@ describe("attach image capability gating", () => {
     const state = initialState(source, false);
     state.mode = "COMPOSE";
 
-    openImageAttach(state, source);
+    openImageAttach(state, source, undefined, true);
 
     expect(state.mode).toBe("IMAGE");
     expect(state.image?.returnMode).toBe("COMPOSE");
@@ -138,7 +163,7 @@ describe("attach image capability gating", () => {
       }
     };
 
-    openImageAttach(state, source);
+    openImageAttach(state, source, undefined, true);
 
     expect(state.image ?? null).toBe(null);
     expect(state.toast).toContain("rewrite");
@@ -157,7 +182,7 @@ describe("attach image path handling", () => {
     await execFileAsync("mkfifo", [fifo]);
 
     for (const badPath of [root, fifo, "/dev/null"]) {
-      openImageAttach(state, source);
+      openImageAttach(state, source, undefined, true);
       state.image!.path = badPath;
       await imageAttachAction({ action: "apply" }, state, source, context(state));
       expect(state.image?.error ?? "").not.toBe("");
@@ -181,7 +206,7 @@ describe("attach image path handling", () => {
     let staged = false;
     source.api.stageStoryImage = async () => { staged = true; return stagedImage(); };
 
-    openImageAttach(state, source);
+    openImageAttach(state, source, undefined, true);
     state.image!.path = oversized;
     await imageAttachAction({ action: "apply" }, state, source, context(state));
 
@@ -205,7 +230,7 @@ describe("attach image path handling", () => {
       return staged;
     };
 
-    openImageAttach(state, source);
+    openImageAttach(state, source, undefined, true);
     state.image!.path = png;
     await imageAttachAction({ action: "apply" }, state, source, context(state));
 
@@ -228,7 +253,7 @@ describe("the four-image boundary", () => {
       const png = join(root, `art-${index}.png`);
       await writeFile(png, minimalPng(10, 10));
       source.api.stageStoryImage = async () => stagedImage();
-      openImageAttach(state, source);
+      openImageAttach(state, source, undefined, true);
       expect(state.mode).toBe("IMAGE");
       state.image!.path = png;
       await imageAttachAction({ action: "apply" }, state, source, context(state));
@@ -236,7 +261,7 @@ describe("the four-image boundary", () => {
     }
 
     // A fifth attempt is refused before the panel even opens.
-    openImageAttach(state, source);
+    openImageAttach(state, source, undefined, true);
     expect(state.image ?? null).toBe(null);
     expect(state.toast).toContain("already 4 images attached");
     expect(draftImagesFor(state.composer)).toHaveLength(4);

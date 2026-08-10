@@ -15,6 +15,11 @@ import type { SettingsView } from "../../shared/settings-v2-types.js";
 export const IMAGE_INPUT_UNKNOWN_MESSAGE =
   "image input is not configured for this model · set it in Advanced settings";
 
+/** Shown when the attach-image entry point itself is closed
+ *  (shared/image-input-release.ts) - the whole feature is inactive in this
+ *  release, distinct from a per-model capability refusal. */
+export const IMAGE_INPUT_ENTRY_POINTS_CLOSED_MESSAGE = "image input is not available in this release";
+
 export function currentImageInputCapability(
   settingsView: SettingsView
 ): ImageInputCapabilityResolution {

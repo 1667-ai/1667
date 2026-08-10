@@ -6,11 +6,13 @@ import { FileSizeLimitError, readBoundedFile } from "./bounded-file.js";
 import { ServiceError } from "./errors.js";
 import { StoryFormatError } from "./story-format-facts.js";
 import {
+  liveObjectIds,
   parseLegacyStory,
   parseLegacyManifestWithoutSizeLimit,
   STORY_SUCCESSOR_SCHEMA_VERSION,
   type StoryManifestV5
 } from "./story-format.js";
+import type { LiveStoryObjectIds } from "./story-objects.js";
 import { readOversizeLegacyManifestBytes } from "./json-schema-version.js";
 import { MAX_STORY_MANIFEST_BYTES } from "./story-v5-strict.js";
 import { parseStoryManifestBytes } from "./story-v6-codec.js";
@@ -112,6 +114,54 @@ export function requireMutableStorySlot(
   if (slot.kind === "residue") {
     throw new ServiceError(409, `Story ${storyId} has an unfinished storage transition`, "resource_busy");
   }
+}
+
+const EMPTY_LIVE_STORY_OBJECT_IDS: LiveStoryObjectIds = {
+  revisions: [],
+  leaves: { probabilities: [], reasoning: [], images: [] }
+};
+
+/**
+ * The ids one sweep pass must protect for a slot, switched over every
+ * `StoredStorySlot` member so a kind this function does not know about fails
+ * to compile instead of silently sweeping as if nothing were live. This is
+ * the third site of the same bug class: two earlier call sites each narrowed
+ * `StoredStorySlot` by hand and separately forgot a successor member
+ * (`requirePresentStorySlot` in server/story-aggregate-session.ts,
+ * `server/story-reaper.ts`). Routing every sweep-scoped read through one
+ * exhaustive function, instead of one more hand-written `if` chain, makes a
+ * fourth miss a compiler error rather than a review-discipline hope.
+ *
+ * A live kind (`v5`, `v6-live`, `v8-live`) protects its manifest's own ids.
+ * A deleted kind (`v6-deleted`, `v8-deleted`) protects none of its own, but
+ * still returns an explicit empty set rather than `null`: the caller must
+ * still run its sweep pass so any object the manifest no longer references
+ * gets reaped, the difference between "reap what is left" and "the cleanup
+ * marker stays set forever" (the exact defect this function replaces).
+ * Every other kind (`absent`, `residue`, `legacy`) has no story-object
+ * bundle for a sweep to examine, so there is nothing for a sweep to do.
+ */
+export function storySlotSweepLiveIds(slot: StoredStorySlot): LiveStoryObjectIds | null {
+  switch (slot.kind) {
+    case "v5":
+      return liveObjectIds(slot.manifest);
+    case "v6-live":
+    case "v8-live":
+      return liveObjectIds(slot.manifest.content);
+    case "v6-deleted":
+    case "v8-deleted":
+      return EMPTY_LIVE_STORY_OBJECT_IDS;
+    case "absent":
+    case "residue":
+    case "legacy":
+      return null;
+    default:
+      return assertNeverStorySlotKind(slot);
+  }
+}
+
+function assertNeverStorySlotKind(slot: never): never {
+  throw new StoryFormatError(`Unhandled story slot kind: ${String((slot as { kind: unknown }).kind)}`);
 }
 
 /** Resolve canonical state and reserved successor siblings as one filesystem slot. */

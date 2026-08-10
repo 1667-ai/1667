@@ -9,20 +9,34 @@ import type { ActionContext } from "./action-context.js";
 import { completeFilePath, errorMessage, expandLeadingTilde } from "./path-completion.js";
 import { parseImageHeader } from "../../server/image-header.js";
 import { MAX_SOURCE_IMAGE_BYTES, imageAttachmentLabel } from "../../shared/image-attachment.js";
+import { imageInputEntryPointsOpen } from "../../shared/image-input-release.js";
 import { readImportBytes } from "../../server/import-file.js";
 import { attachDraftImage, draftImagesFor, MAX_DRAFT_IMAGES } from "./draft-image.js";
-import { currentImageInputCapability, imageInputRefusalMessage } from "./image-input-runtime.js";
+import {
+  currentImageInputCapability,
+  imageInputRefusalMessage,
+  IMAGE_INPUT_ENTRY_POINTS_CLOSED_MESSAGE
+} from "./image-input-runtime.js";
 import type { ResolvedKey } from "./keys.js";
 import type { ImageAttachPrompt, RuntimeState } from "./state.js";
 
-/** Refuse before opening the panel: capability, the four-image ceiling, and
- *  the rewrite-composer carve-out (image attachment targets a fresh passage,
- *  never a highlighted excerpt). */
+/** Refuse before opening the panel: the release gate, capability, the
+ *  four-image ceiling, and the rewrite-composer carve-out (image attachment
+ *  targets a fresh passage, never a highlighted excerpt).
+ *
+ *  `entryPointsOpen` defaults to the release constant
+ *  (shared/image-input-release.ts); a test that needs to drive the panel
+ *  past the release gate passes an explicit value. */
 export function openImageAttach(
   state: RuntimeState,
   source: AppSource,
-  returnMode: ImageAttachPrompt["returnMode"] = state.mode === "COMPOSE" ? "COMPOSE" : "NAV"
+  returnMode: ImageAttachPrompt["returnMode"] = state.mode === "COMPOSE" ? "COMPOSE" : "NAV",
+  entryPointsOpen: boolean = imageInputEntryPointsOpen()
 ): void {
+  if (!entryPointsOpen) {
+    state.toast = IMAGE_INPUT_ENTRY_POINTS_CLOSED_MESSAGE;
+    return;
+  }
   if (state.retakePrompt?.intent.kind === "rewrite") {
     state.toast = "an image cannot be attached to a rewrite";
     return;

@@ -1,4 +1,5 @@
 import type { StoryPayload } from "../../shared/types.js";
+import { imageInputEntryPointsOpen } from "../../shared/image-input-release.js";
 import { THEME_NAMES, type ThemeName } from "./config.js";
 import { fuzzyMatch } from "./fuzzy.js";
 
@@ -99,7 +100,14 @@ const COMMANDS: readonly PaletteCommand[] = [
   { id: "banned-strings", section: "story", name: "banned strings", description: "ban strings for this story only, adding to the profile's own", mutating: true },
 
   { id: "direct-take", section: "take", name: "direct take", description: "write the next take from an instruction", shortcut: "i" },
-  { id: "attach-image", section: "take", name: "attach image", description: "attach an image file to the next take" },
+  {
+    id: "attach-image", section: "take", name: "attach image",
+    description: "attach an image file to the next take",
+    // Image input is inactive in this release: shared/image-input-release.ts.
+    // The command stays in the list, wired and ready, so a slice-6 flip is
+    // the only change this command needs.
+    requires: () => imageInputEntryPointsOpen()
+  },
   { id: "retake", section: "take", name: "retake", description: "retake the focused part as a sibling", shortcut: "r", mutating: true },
   {
     id: "rewrite-selection", section: "take", name: "rewrite selection",

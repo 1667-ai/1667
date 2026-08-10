@@ -26,3 +26,20 @@ export const IMAGE_INPUT_ACTIVATED = false;
 export function resolveImageInputActivation(option?: boolean): boolean {
   return option ?? IMAGE_INPUT_ACTIVATED;
 }
+
+/**
+ * Whether a user-facing image entry point may run at all: the `attach
+ * image` palette command, the attach panel, a clipboard image paste, the
+ * staging and release HTTP routes and worker methods, and a Continue
+ * request that names a Draft Image.
+ *
+ * Reads the same release switch as the document writers above, so a single
+ * flip opens every entry point together. A caller that passes nothing gets
+ * the release default, so production wiring can never open an entry point
+ * by accident. A test that needs to exercise what is behind a closed entry
+ * point passes an explicit option, the same way `resolveImageInputActivation`
+ * tests do.
+ */
+export function imageInputEntryPointsOpen(option?: boolean): boolean {
+  return option ?? IMAGE_INPUT_ACTIVATED;
+}

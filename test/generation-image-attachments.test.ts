@@ -288,7 +288,10 @@ test("an append that carries a new image creates a child and leaves its parent u
       new GenerationAdmissionRegistry(),
       () => {},
       new AbortController().signal,
-      { imageStore }
+      // Image input's entry points are closed by default in this release
+      // (shared/image-input-release.ts); this test exercises the append-
+      // plus-image downgrade rule itself, so it opens the gate explicitly.
+      { imageStore, imageEntryPointsOpen: true }
     )),
     /stop before durable commit/
   );
@@ -299,5 +302,38 @@ test("an append that carries a new image creates a child and leaves its parent u
   assert.deepEqual(
     committedEffect!.imageAttachments?.map((image) => image.objectId),
     [OBJECT_A]
+  );
+});
+
+test("continueStory refuses a Draft Image reference while image input's entry points are closed, the release default", async () => {
+  // The refusal fires before the story ever loads: a closed entry point
+  // must not pay for work it will not do (image-input-release.ts).
+  const stories: ProviderStoryRuntime<"continueStory"> = {
+    loadForMutation: async () => { throw new Error("must not load the story before the entry-points gate refuses"); },
+    hydratePath: async () => {},
+    commitProviderEffect: async (): Promise<never> => { throw new Error("must not be reached"); }
+  };
+  const settingsStore = {
+    loadGeneration: async () => ({ settings: anthropicSettings(), promptCache: LEGACY_PROMPT_CACHE_CONTEXT })
+  } as unknown as SettingsStore;
+
+  await assert.rejects(
+    continueStory(
+      "story-1",
+      {
+        instruction: "",
+        genId: "gen-closed",
+        images: [{ leaseId: LEASE_1, objectId: OBJECT_A }]
+      },
+      stories,
+      settingsStore,
+      new PromptCacheRuntime(),
+      new GenerationAdmissionRegistry(),
+      () => {},
+      new AbortController().signal
+      // No hooks: the production default, so the release constant governs
+      // and the request is refused.
+    ),
+    (error: unknown) => (error as { code?: string }).code === "image_input_not_supported"
   );
 });

@@ -334,6 +334,44 @@ test("a live worker retries an exact partial settlement while its stash remains 
   }
 });
 
+test("stageStoryImage and releaseStoryImage both refuse before reaching the service while image input's entry points are closed, the release default", async () => {
+  const service = {
+    stageStoryImage: async () => { throw new Error("must not reach the service while entry points are closed"); },
+    releaseStoryImage: async () => { throw new Error("must not reach the service while entry points are closed"); }
+  } as unknown as StoryService;
+
+  const cases: readonly [Extract<MainToWorkerMessage, { type: "request" }>["method"], Record<string, unknown>][] = [
+    ["stageStoryImage", { storyId: "story-1", mediaType: "image/png", bytes: new Uint8Array([1, 2, 3]) }],
+    ["releaseStoryImage", { storyId: "story-1", leaseId: "a".repeat(64) }]
+  ];
+  for (const [method, input] of cases) {
+    const failures: unknown[] = [];
+    const responder = {
+      tracked: async (error: unknown) => { failures.push(error); }
+    } as unknown as WorkerRequestFailureResponder;
+    const message: Extract<MainToWorkerMessage, { type: "request" }> = {
+      type: "request",
+      id: OPERATION_ID,
+      method,
+      input,
+      protocolVersion: WORKER_PROTOCOL_VERSION,
+      deadlineMs: Date.now() + 60_000
+    };
+
+    await executeWorkerRequest(
+      service,
+      message,
+      new WorkerRequestCancellation(false),
+      null,
+      responder,
+      () => assert.fail(`${method} must not publish a success terminal while entry points are closed`)
+    );
+
+    assert.equal(failures.length, 1, `${method} must report exactly one failure`);
+    assert.equal((failures[0] as { code?: string }).code, "image_input_not_supported");
+  }
+});
+
 function request(): Extract<MainToWorkerMessage, { type: "request" }> {
   return {
     type: "request",

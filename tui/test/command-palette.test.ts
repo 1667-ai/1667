@@ -35,6 +35,14 @@ describe("grouped command palette model", () => {
     }
   });
 
+  test("attach image is unavailable while image input's entry points are closed, the release default", () => {
+    // shared/image-input-release.ts: the whole feature is inactive in this
+    // release. The command stays defined and reachable by id, wired and
+    // ready for a slice-6 flip; only its palette availability is gated.
+    const model = commandPaletteModel("", false);
+    expect(model.selectable.some((match) => match.command.id === "attach-image")).toBeFalse();
+  });
+
   test("filters across descriptions without losing group or theme commands", () => {
     const folder = commandPaletteModel("1667 disk", false);
     expect(folder.sections.map((section) => section.label)).toEqual(["Story"]);

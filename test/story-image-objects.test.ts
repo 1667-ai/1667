@@ -45,7 +45,13 @@ test("story objects: a corrupted image object is refused on read", async (t) => 
   await assert.rejects(() => fresh.readImage(hash), StoryFormatError);
 });
 
-test("story objects: sweep keeps an image a live Draft Lease references and removes an unreferenced one", async (t) => {
+// `StoryObjectStore.sweep` is kind-generic: it knows only `live.leaves.images`,
+// never a Draft Lease. server/stories.ts's `unionLiveWithPins` is the one
+// place that folds a lease-sourced image id into that set before calling
+// sweep, so "a live Draft Lease keeps its image" is integration coverage in
+// test/story-image-cleanup.test.ts, driven through `StoryStore`, not a
+// `StoryObjectStore`-level concern.
+test("story objects: sweep keeps an image live.leaves.images names and removes an unreferenced one", async (t) => {
   const dir = await tempDir(t, "1667-image-sweep-");
   const objects = new StoryObjectStore(dir);
   await objects.init();
@@ -53,13 +59,14 @@ test("story objects: sweep keeps an image a live Draft Lease references and remo
   const drop = await objects.storeImage(Buffer.from("orphaned image bytes"));
   await objects.flush();
 
-  const completed = await objects.sweep(EMPTY_LIVE, undefined, [keep]);
+  const live = { revisions: [], leaves: { probabilities: [], reasoning: [], images: [keep] } };
+  const completed = await objects.sweep(live);
   assert.equal(completed, true);
   await readFile(objects.objectPath("images", keep));
   await assert.rejects(() => readFile(objects.objectPath("images", drop)));
 });
 
-test("story objects: sweep fails closed when a live Draft Lease names a missing image", async (t) => {
+test("story objects: sweep fails closed when live.leaves.images names a missing image", async (t) => {
   const dir = await tempDir(t, "1667-image-sweep-missing-");
   const objects = new StoryObjectStore(dir);
   await objects.init();
@@ -67,8 +74,9 @@ test("story objects: sweep fails closed when a live Draft Lease names a missing 
   await objects.flush();
   const missing = sha256(Buffer.from("never stored"));
 
+  const live = { revisions: [], leaves: { probabilities: [], reasoning: [], images: [missing] } };
   await assert.rejects(
-    () => objects.sweep(EMPTY_LIVE, undefined, [missing]),
+    () => objects.sweep(live),
     /Missing images object/
   );
   // The failed sweep must not have deleted anything: a damaged live graph
@@ -153,8 +161,8 @@ test("a sweep protects an image the manifest references even with no live Draft 
   const manifest = manifestFixture([manifestNode("n1", [{ objectId: referenced }])]);
   const live = { revisions: [], leaves: { probabilities: [], reasoning: [], images: manifestImageIds(manifest) } };
 
-  // No liveImageIds (third argument) at all: only the manifest reference
-  // protects `referenced`.
+  // Nothing beyond the manifest reference is in `live.leaves.images`: only
+  // that reference protects `referenced`.
   assert.equal(await objects.sweep(live), true);
   await readFile(objects.objectPath("images", referenced));
   await assert.rejects(() => readFile(objects.objectPath("images", orphan)));

@@ -3,7 +3,6 @@ import {
   activeImageAttachments,
   renderPromptPlan,
   type ChatMessage,
-  type PromptBlock,
   type PromptOperation,
   type PromptPlan,
   type StablePromptBlock,
@@ -88,24 +87,24 @@ export interface StreamCompletionOptions {
   readonly providerSecrets?: ProviderSecretsCollector;
   /** Normalized Image bytes, by object id, for every image block the prompt
    *  carries. Required when the prompt has an image; omitted by every caller
-   *  that never attaches one, which is every caller today. See
-   *  server/provider-request-body.ts's `imageBytes` parameter.
+   *  that never attaches one. See server/provider-request-body.ts's
+   *  `imageBytes` parameter.
    *
-   *  TODO(image-prompt): server/generation-http.ts must load each active
-   *  image's Normalized Image bytes from the story object store, only after
+   *  `server/generation-http.ts`'s `continueStory` loads each active image's
+   *  Normalized Image bytes from the story object store, only after
    *  `assertImageContextAdmitted` and the fixed-context admission both pass,
-   *  and supply them here. Never read the object store before admission: a
-   *  request that will be refused must never pay for that read. */
+   *  and supplies them here. It never reads the object store before
+   *  admission, so a request that will be refused never pays for that read. */
   readonly imageBytes?: ReadonlyMap<string, Uint8Array>;
   /** The resolved Image Input capability for this exact model and protocol
    *  (shared/image-input-capabilities.ts's `resolveImageInputCapability`).
    *  Omitted, this fails closed: a prompt that carries an image without one
    *  is refused rather than silently sent.
    *
-   *  TODO(image-prompt): server/generation-http.ts must call
+   *  `server/generation-http.ts`'s `continueStory` calls
    *  `resolveImageInputCapability` with the request's protocol, remote model
-   *  id, and the model's stored `imageInput` override (schema 3 settings)
-   *  and pass the result here. */
+   *  id, and the model's stored `imageInput` override (schema 3 settings),
+   *  and passes the result here. */
   readonly imageCapability?: ImageInputCapabilityResolution;
 }
 
@@ -632,28 +631,18 @@ async function* streamDryRun(
 const DRY_RUN_REASONING_TEXT = "(dry-run) weighing two openings before picking one.";
 
 // Rewrite and summary operations never carry an image block (Image Input
-// stays out of scope for both), so these predicates exist only to let
-// TypeScript narrow `.find`/`.filter` results back to a block with `.text`.
-function isSourceTextBlock(block: PromptBlock): block is StablePromptBlock {
-  return block.kind === "source";
-}
-
-function isCompletionMarkerBlock(block: PromptBlock): block is VolatilePromptBlock {
-  return block.kind === "completion-marker";
-}
-
-function isSelectionTextBlock(block: PromptBlock): block is VolatilePromptBlock {
-  return block.kind === "selection";
-}
-
-function isBoundaryTextBlock(block: PromptBlock): block is VolatilePromptBlock {
-  return block.kind === "boundary";
+// stays out of scope for both). An image block has no `.text`, so narrow it
+// away once, right where the blocks are gathered, every remaining member of
+// the union has `.text`, so no further narrowing is needed downstream.
+function textBlocksOf(prompt: PromptPlan): readonly (StablePromptBlock | VolatilePromptBlock)[] {
+  return prompt.turns.flatMap((turn) => turn.blocks)
+    .filter((block): block is StablePromptBlock | VolatilePromptBlock => block.kind !== "image");
 }
 
 function dryRunSummary(prompt: PromptPlan): string {
-  const blocks = prompt.turns.flatMap((turn) => turn.blocks);
-  const source = blocks.find(isSourceTextBlock)?.text ?? "";
-  const completionMarker = blocks.find(isCompletionMarkerBlock)
+  const blocks = textBlocksOf(prompt);
+  const source = blocks.find((block) => block.kind === "source")?.text ?? "";
+  const completionMarker = blocks.find((block) => block.kind === "completion-marker")
     ?.text.match(/\[\[summary-complete-[a-f0-9]+\]\]/)?.[0]
     ?? "[[summary-complete-dry-run]]";
   const excerpt = source.replace(/^\[Part \d+\]\n/gm, "").trim().slice(0, 1_200);
@@ -677,9 +666,9 @@ function dryRunSummary(prompt: PromptPlan): string {
  *  get a word back, not a fixed sentence spliced into the prose. */
 function dryRunRewrite(prompt: PromptPlan): string {
   const standIn = "placeholder prose from dry-run mode — connect a real model in Settings for real rewrites".split(" ");
-  const blocks = prompt.turns.flatMap((turn) => turn.blocks);
-  const selectionText = blocks.find(isSelectionTextBlock)?.text ?? "";
-  const boundaryText = blocks.filter(isBoundaryTextBlock).map((block) => block.text).join("\n");
+  const blocks = textBlocksOf(prompt);
+  const selectionText = blocks.find((block) => block.kind === "selection")?.text ?? "";
+  const boundaryText = blocks.filter((block) => block.kind === "boundary").map((block) => block.text).join("\n");
   // Phrase rewrites carry no end marker; their tag is on the excerpt block.
   const marker = /\[\[end-(rw-[a-f0-9]+)\]\]/.exec(boundaryText);
   const tag = marker?.[1] ?? /<(rw-[a-f0-9]+)-excerpt>/.exec(selectionText)?.[1];
