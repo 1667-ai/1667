@@ -16,6 +16,7 @@ import {
 import { tagGlyph, tagRole } from "../tag-presentation.js";
 import { renderStatus } from "./story/status.js";
 import { renderConnectionBanner } from "./connection-banner.js";
+import { sectionRule } from "./request-document.js";
 import {
   fitLine,
   padCells,
@@ -80,7 +81,8 @@ export function renderTokenProbabilitiesScreen(
       composerSelectionProjection: null,
       storySelectionProjection: null,
       map: state.map,
-      request: state.request
+      request: state.request,
+      record: state.record
     }
   };
 }
@@ -187,14 +189,6 @@ function keylineRow(width: number): FrameLine {
     segment("⇥", "focus / accent"), segment(" next ¶ · ", "chrome"),
     segment("esc", "focus / accent"), segment(" back", "chrome")
   ], width);
-}
-
-function sectionRule(text: string, width: number): FrameLine {
-  const prefix = `── ${text} `;
-  return [
-    segment(prefix, "focus / accent"),
-    segment("─".repeat(Math.max(0, width - visibleWidth(prefix))), "chrome")
-  ];
 }
 
 function columnHeader(barCells: number | null): FrameLine {

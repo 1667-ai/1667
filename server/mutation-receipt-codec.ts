@@ -69,6 +69,9 @@ export interface MutationReceipt {
     | {
         kind: "chapter-break-removal";
         fingerprint: string;
+        /** Story ownership for object-liveness scans. Receipts written before
+         *  Generation Records infer it from their completed result instead. */
+        storyId?: string;
         value: RemovedChapterBreakResult;
       }
     | {
@@ -350,6 +353,7 @@ function isStoredArtifact(
   if (method !== "removeChapterBreak"
     || value.kind !== "chapter-break-removal"
     || !isMutationFingerprint(value.fingerprint)
+    || (value.storyId !== undefined && typeof value.storyId !== "string")
     || value.value === null || typeof value.value !== "object") {
     return false;
   }

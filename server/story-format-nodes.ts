@@ -1,4 +1,10 @@
-import { isTagStatus, MAX_RECENT_LINES, type HumanEditAttribution, type TextRange } from "../shared/types.js";
+import {
+  isTagStatus,
+  MAX_GENERATION_RECORD_IDS,
+  MAX_RECENT_LINES,
+  type HumanEditAttribution,
+  type TextRange
+} from "../shared/types.js";
 import { assertStoryImageAttachments, ImageAttachmentError, type StoryImageAttachment } from "../shared/image-attachment.js";
 import {
   StoryFormatError,
@@ -236,6 +242,16 @@ export function manifestTokenProbabilityIds(
   return ids;
 }
 
+/** Every take's stored Generation Record ids, oldest first per node. Most
+ *  nodes have none — old, human, and imported takes never gain one. */
+export function manifestGenerationRecordIds(manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7): ObjectHash[] {
+  const ids: ObjectHash[] = [];
+  for (const node of manifest.nodes) {
+    if (node.generationRecordIds !== undefined) ids.push(...node.generationRecordIds);
+  }
+  return ids;
+}
+
 /** Every take's stored reasoning id, mirroring `manifestTokenProbabilityIds`
  *  exactly — most nodes have none. */
 export function manifestReasoningIds(manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7): ObjectHash[] {
@@ -275,7 +291,8 @@ export function liveObjectIds(manifest: StoryManifestV4 | StoryManifestV5 | Stor
       probabilities: manifestTokenProbabilityIds(manifest),
       reasoning: manifestReasoningIds(manifest),
       images: manifestImageIds(manifest)
-    }
+    },
+    generationRecords: manifestGenerationRecordIds(manifest)
   };
 }
 
@@ -416,6 +433,7 @@ function parseStoredNode(value: unknown, index: number): StoredNodeV1 {
   const tokenProbabilityId = node.tokenProbabilityId === undefined
     ? undefined
     : requireHash(node.tokenProbabilityId, `${label}.tokenProbabilityId`);
+  const generationRecordIds = parseGenerationRecordIds(node.generationRecordIds, `${label}.generationRecordIds`);
   const reasoningId = node.reasoningId === undefined
     ? undefined
     : requireHash(node.reasoningId, `${label}.reasoningId`);
@@ -437,6 +455,7 @@ function parseStoredNode(value: unknown, index: number): StoredNodeV1 {
     ...(syntheticEmpty === undefined ? {} : { syntheticEmpty }),
     revisionId: requireHash(node.revisionId, `${label}.revisionId`),
     ...(tokenProbabilityId === undefined ? {} : { tokenProbabilityId }),
+    ...(generationRecordIds === undefined ? {} : { generationRecordIds }),
     ...(reasoningId === undefined ? {} : { reasoningId }),
     ...(imageAttachments === undefined ? {} : { imageAttachments }),
     ...(attribution === undefined ? {} : { attribution }),
@@ -563,6 +582,20 @@ export function cloneAttribution(value: HumanEditAttribution | null): HumanEditA
 
 export function cloneRewrittenSpans(value: readonly TextRange[] | undefined): TextRange[] | undefined {
   return value === undefined ? undefined : value.map((range) => ({ ...range }));
+}
+
+export function cloneGenerationRecordIds(value: readonly string[] | undefined): string[] | undefined {
+  return value === undefined || value.length === 0 ? undefined : [...value];
+}
+
+function parseGenerationRecordIds(value: unknown, label: string): ObjectHash[] | undefined {
+  if (value === undefined) return undefined;
+  const ids = arrayValue(value, label);
+  if (ids.length === 0) throw new StoryFormatError(`${label} must not be empty when present`);
+  if (ids.length > MAX_GENERATION_RECORD_IDS) {
+    throw new StoryFormatError(`${label} exceeds the ${MAX_GENERATION_RECORD_IDS}-record limit`);
+  }
+  return ids.map((id, index) => requireHash(id, `${label}[${index}]`));
 }
 
 function nullableString(value: unknown, label: string): string | null {

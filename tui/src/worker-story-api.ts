@@ -313,6 +313,10 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
     },
     getTokenProbabilities: async (storyId, nodeId) =>
       await transport.call("getTokenProbabilities", { storyId, nodeId }),
+    getGenerationRecords: async (storyId, nodeId) =>
+      await transport.call("getGenerationRecords", { storyId, nodeId }),
+    getGenerationRecord: async (storyId, nodeId, recordId) =>
+      await transport.call("getGenerationRecord", { storyId, nodeId, recordId }),
     getReasoning: async (storyId, nodeId) =>
       await transport.call("getReasoning", { storyId, nodeId }),
     stageStoryImage: async (storyId, mediaType, bytes) =>

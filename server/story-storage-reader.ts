@@ -118,7 +118,8 @@ export function requireMutableStorySlot(
 
 const EMPTY_LIVE_STORY_OBJECT_IDS: LiveStoryObjectIds = {
   revisions: [],
-  leaves: { probabilities: [], reasoning: [], images: [] }
+  leaves: { probabilities: [], reasoning: [], images: [] },
+  generationRecords: []
 };
 
 /**

@@ -86,6 +86,16 @@ export interface PrepareStoryContentOptions {
   readonly activation?: boolean;
 }
 
+/** A generation record source-revision graph this session hash-verified,
+ * paired with the manifest hash it was verified against. A caller may hand
+ * this back into a later session's constructor for the same story; it is
+ * only ever adopted there if that session's starting manifest hash still
+ * matches — otherwise it is discarded, same as `liveGraph` below. */
+export interface GenerationRecordSourceRevisionSnapshot {
+  readonly manifestHash: string;
+  readonly sourceRevisions: ReadonlyMap<ObjectHash, readonly ObjectHash[]>;
+}
+
 /** One story-scope-held filesystem view. Callers own coordinator admission and
  * the StoryStore's per-story I/O lock for this session's complete lifetime. */
 export class StoryAggregateSession {
@@ -106,18 +116,35 @@ export class StoryAggregateSession {
     readonly manifestHash: string;
     readonly revisions: ReadonlyMap<ObjectHash, TextRevisionV1>;
   } | null = null;
+  /** Generation record source-revision graph carried in from a prior session
+   * for this same story. Replaced wholesale (never merged) by prepareContent
+   * + publishStagedManifest, so it always reflects exactly one manifest
+   * hash's worth of trust. */
+  private generationRecordGraph: GenerationRecordSourceRevisionSnapshot | null;
+  /** The graph prepareContent just verified, narrowed to the manifest it
+   * staged, held here until publishStagedManifest learns that manifest's
+   * durable hash and can pair the two into `generationRecordGraph`. */
+  private preparedGenerationRecordGraph: ReadonlyMap<ObjectHash, readonly ObjectHash[]> | null = null;
 
   get snapshot(): StoryAggregateSnapshot {
     return this.currentSnapshot;
   }
 
+  /** This session's most recently verified generation record graph, for a
+   * caller to hold and pass into the next session for this story id. */
+  get capturedGenerationRecordGraph(): GenerationRecordSourceRevisionSnapshot | null {
+    return this.generationRecordGraph;
+  }
+
   constructor(
     storyRoot: string,
     readonly storyId: string,
-    slot: PresentStorySlot
+    slot: PresentStorySlot,
+    priorGenerationRecordGraph: GenerationRecordSourceRevisionSnapshot | null = null
   ) {
     this.bundleDir = path.join(storyRoot, storyId);
     this.currentSnapshot = storyAggregateSnapshot(slot);
+    this.generationRecordGraph = priorGenerationRecordGraph;
   }
 
   async init(): Promise<void> {
@@ -201,6 +228,12 @@ export class StoryAggregateSession {
       objects.adoptCommittedIds("revisions", previousLive.revisions);
       for (const kind of LEAF_OBJECT_KINDS) objects.adoptCommittedIds(kind, previousLive.leaves[kind]);
     }
+    if (this.generationRecordGraph !== null && this.generationRecordGraph.manifestHash === this.snapshot.manifestHash) {
+      // Same trust-by-induction rule as the revision graph above, narrowed to
+      // records: each entry was hash-verified and parsed by a prior session
+      // whose starting manifest is still this session's starting manifest.
+      objects.adoptKnownGenerationRecordGraph(this.generationRecordGraph.sourceRevisions, { committed: true });
+    }
     // The single site that decides whether this encode builds the successor
     // content payload. Release-wide activation alone is not enough: a story
     // that carries no Image Attachment stays on the current schema even with
@@ -221,15 +254,23 @@ export class StoryAggregateSession {
     const nextRevisionIds = new Set(nextLive.revisions);
     const nextLeafIds = {} as Record<LeafObjectKind, Set<ObjectHash>>;
     for (const kind of LEAF_OBJECT_KINDS) nextLeafIds[kind] = new Set(nextLive.leaves[kind]);
+    const nextGenerationRecordIds = new Set(nextLive.generationRecords);
+    this.preparedGenerationRecordGraph = new Map(
+      [...objects.verifiedGenerationRecordGraph()].filter(([hash]) => nextGenerationRecordIds.has(hash))
+    );
     // Parsing normalizes V2-V4 sources before this diff can run (old fact
     // states collapse to their selected revision), so objects the
     // normalization dropped never appear in previousLive.revisions. Mirror
     // the V5 save path: a legacy-schema source always owes the first V5 sweep.
+    // A dropped node's revision can still be live through a surviving node
+    // that shares its text, so the revision check alone misses a dropped
+    // node's own Generation Record — check that set too.
     this.preparedCleanupRetirement = await cleanup.settle(
       this.legacySchemaSource
         || previousLive.revisions.some((id) => !nextRevisionIds.has(id))
         || LEAF_OBJECT_KINDS.some((kind) =>
             previousLive.leaves[kind].some((id) => !nextLeafIds[kind].has(id)))
+        || previousLive.generationRecords.some((id) => !nextGenerationRecordIds.has(id))
     ) === "retire-marker";
     return {
       story,
@@ -313,6 +354,16 @@ export class StoryAggregateSession {
     // it back off disk.
     this.currentSnapshot = storyAggregateSnapshot(persistedSlotFromManifest(manifest, manifestBytes));
     this.staged = null;
+    if (this.preparedGenerationRecordGraph !== null) {
+      // Only prepareContent (run in this same session, against the manifest
+      // that just published) sets this, so it can only ever pair with the
+      // manifest hash that graph was actually verified against.
+      this.generationRecordGraph = {
+        manifestHash: this.currentSnapshot.manifestHash,
+        sourceRevisions: this.preparedGenerationRecordGraph
+      };
+      this.preparedGenerationRecordGraph = null;
+    }
     if (staged.clearCleanupOnPublish) {
       // Objects this mutation wrote are referenced by the manifest that just
       // published, and it dropped nothing, so no sweep is owed. A failed
@@ -326,6 +377,7 @@ export class StoryAggregateSession {
   async discardStagedManifest(): Promise<void> {
     await removePrivateFile(this.nextManifestPath(), MANIFEST_POLICY);
     this.staged = null;
+    this.preparedGenerationRecordGraph = null;
   }
 
   /** True while the committed source predates schema 5. Parsing already

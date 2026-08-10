@@ -183,6 +183,10 @@ const SECTIONS: readonly KeysModalSection[] = [
       // (no hyphenation, and nothing else in this reference runs past ten
       // letters), so this reads the feature's purpose, not its noun.
       entry("how sure the model was", [binding("navOpenProbs")]),
+      entry("past model requests", [
+        binding("navOpenRecords"),
+        binding("mapOpenRecords")
+      ]),
       entry("everything the app said", [
         binding("navOpenLog"),
         binding("navOpenLogShifted"),

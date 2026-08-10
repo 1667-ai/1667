@@ -17,6 +17,10 @@ import {
   createPromptCacheRequest,
   type PromptCacheRuntime
 } from "./provider-cache-policy.js";
+import { promptEntriesInline } from "./generation-record-prompt.js";
+import { lowerPromptForProvider } from "./provider-request-body.js";
+import { finalizeRequiredGenerationRecord } from "./generation-record-finalize.js";
+import { assertGenerationRecordCapacity } from "./story-node-generation-records.js";
 
 interface ChapterSummaryOptions {
   providerStarted?: () => void | Promise<void>;
@@ -36,23 +40,44 @@ export async function summarizeChapter(
 ): Promise<Story> {
   const snapshot = await stories.loadForMutation(id);
   const chapter = chapterSummarySource(snapshot, breakId);
+  // A chapter that already has a summary node is being refreshed in place —
+  // that appends to an existing node's history (server/story-provider-effect.ts
+  // applyChapterSummary), so capacity must be checked before the paid
+  // provider request below starts. The first summary for a chapter mints a
+  // brand-new node and needs no preflight.
+  if (chapter.summary !== null) assertGenerationRecordCapacity(chapter.summary);
   const fingerprint = chapterSourceFingerprint(snapshot, breakId);
   const { settings, promptCache } = await settingsStore.loadGeneration("utility");
   await options.bindIntent?.(settings, { kind: "chapter-summary", storyId: id, breakId, fingerprint });
-  const summary = await generateSummaryText(settings, snapshot.title, chapter.parts, signal, {
-    maxOutputTokens: SUMMARY_TARGET_TOKENS,
-    providerStarted: options.providerStarted,
-    promptCache: createPromptCacheRequest(
-      promptCacheRuntime,
-      promptCache,
-      id,
-      "summary"
-    )
-  });
+  const { summary, generationRecordCollector, prompt } = await generateSummaryText(
+    settings,
+    snapshot.title,
+    chapter.parts,
+    signal,
+    {
+      maxOutputTokens: SUMMARY_TARGET_TOKENS,
+      providerStarted: options.providerStarted,
+      promptCache: createPromptCacheRequest(
+        promptCacheRuntime,
+        promptCache,
+        id,
+        "summary"
+      )
+    }
+  );
   if (signal.aborted) {
     throw new GenerationStoppedError("Chapter summarization was cancelled");
   }
   const model = settings.provider === "dry-run" ? "dry-run" : settings.model;
+  const generationRecord = finalizeRequiredGenerationRecord({
+    kind: "chapter-summary",
+    createdAt: new Date().toISOString(),
+    provider: settings.provider,
+    model,
+    operation: prompt.operation,
+    entries: () => promptEntriesInline(lowerPromptForProvider(settings, prompt)),
+    collector: generationRecordCollector
+  });
   try {
     return await stories.commitProviderEffect(id, {
       kind: "chapter-summary",
@@ -62,7 +87,8 @@ export async function summarizeChapter(
       model,
       summaryNodeId: options.summaryNodeId,
       rewriteId: options.rewriteId,
-      cancelled: signal
+      cancelled: signal,
+      generationRecord
     });
   } catch (error) {
     if (error instanceof ServiceError

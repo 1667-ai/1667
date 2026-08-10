@@ -104,6 +104,50 @@ test("Anthropic generation recovers from a model that rejects temperature", asyn
   assert.equal("temperature" in (bodies[2] ?? {}), false);
 });
 
+test("the refusal cache does not collide across endpoint/model tuples that share a naive concatenation", async (t) => {
+  const originalFetch = globalThis.fetch;
+  forgetRefusedSampling();
+  t.after(() => { forgetRefusedSampling(); });
+  const bodies: Record<string, unknown>[] = [];
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    bodies.push(JSON.parse(await input.text()) as Record<string, unknown>);
+    return new Response(DEPRECATED_TEMPERATURE, {
+      status: 400,
+      headers: { "content-type": "application/json" }
+    });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  // A plain `${baseUrl} ${model}` join would make these two distinct
+  // (baseUrl, model) tuples collapse to the identical string
+  // "https://api.anthropic.com/a b c" — one endpoint's learned refusal must
+  // never silently strip temperature from the other's requests. Every
+  // response 400s, so each tuple exhausts its one retry (two requests).
+  await assert.rejects(async () => {
+    for await (const _ of streamCompletion(
+      anthropicSettings(EMPTY_SAMPLING_V2, "c", "https://api.anthropic.com/a b"),
+      PROMPT,
+      new AbortController().signal
+    )) { /* every response 400s */ }
+  });
+  assert.equal(bodies.length, 2, "tuple A: its own attempt then its own retry");
+  assert.equal(bodies[0]?.temperature, 0.8);
+
+  await assert.rejects(async () => {
+    for await (const _ of streamCompletion(
+      anthropicSettings(EMPTY_SAMPLING_V2, "b c", "https://api.anthropic.com/a"),
+      PROMPT,
+      new AbortController().signal
+    )) { /* every response 400s */ }
+  });
+  assert.equal(bodies.length, 4, "tuple B: its own attempt then its own retry");
+  // Tuple B never had its own refusal learned before this call, so its own
+  // first attempt must still carry the writer's temperature — a collision
+  // with tuple A's cached refusal would have stripped it here already.
+  assert.equal(bodies[2]?.temperature, 0.8);
+});
+
 test("a sampling value the model merely bounds is the writer's to see", async (t) => {
   const originalFetch = globalThis.fetch;
   forgetRefusedSampling();
@@ -224,11 +268,12 @@ test("a provider error reads as its own sentence, not as its envelope", () => {
 
 function anthropicSettings(
   sampling: SamplingSettingsV2 = EMPTY_SAMPLING_V2,
-  model = "claude-fixture"
+  model = "claude-fixture",
+  baseUrl = "https://api.anthropic.com"
 ): GenerationSettings {
   return attachProviderRuntime({
     provider: "anthropic",
-    baseUrl: "https://api.anthropic.com",
+    baseUrl,
     model,
     apiKeyEnv: null,
     temperature: 0.8,

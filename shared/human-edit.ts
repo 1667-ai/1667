@@ -46,6 +46,15 @@ export function activeHumanAttribution(node: StoryNode): HumanEditAttribution | 
   return node.attribution ?? null;
 }
 
+/** True when a `HumanEditAttribution` reflects an edit a reader should see —
+ *  either a visible span or a deletion-only edit, which leaves no range
+ *  behind but still carries `deletedCharacters`. An attribution with neither
+ *  (a no-op save) is not an edit. */
+export function humanEditIsMeaningful(attribution: HumanEditAttribution | null | undefined): boolean {
+  if (attribution == null) return false;
+  return attribution.ranges.length > 0 || (attribution.deletedCharacters ?? 0) > 0;
+}
+
 /** Carry earlier human spans through another author edit, then merge the new
  * changes. This preserves authorship across successive saves of one take. */
 export function attributionAfterHumanEdit(

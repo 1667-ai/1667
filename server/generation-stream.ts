@@ -1,6 +1,7 @@
 import { GenerationResultError, ProviderError } from "./errors.js";
 import {
   streamCompletion,
+  type GenerationRecordCollector,
   type PromptPlan,
   type ProviderSecretsCollector,
   type ReasoningConsumer,
@@ -20,6 +21,14 @@ interface ModelOutputFilter {
 
 export type DeltaConsumer = (text: string) => void | Promise<void>;
 
+/** Mutated in place as `streamModel` emits deltas, so a caller whose stream
+ *  gets cancelled (return value null — the accumulated text itself is
+ *  otherwise discarded) can still read back exactly what reached `onDelta`
+ *  before the stop, same text and same order the client's own stream saw. */
+export interface PartialOutputCollector {
+  text: string;
+}
+
 /** `streamModel`'s optional trailing values, grouped for the same reason as
  * `StreamCompletionOptions` (server/providers.ts, issue #341): `output`,
  * `providerStarted`, and `promptCache` were already three trailing
@@ -33,6 +42,8 @@ export interface StreamModelOptions {
   readonly promptCache?: PromptCacheRequest;
   readonly storySampling?: StorySamplingBias;
   readonly tokenProbabilities?: TokenProbabilityCollector;
+  readonly generationRecord?: GenerationRecordCollector;
+  readonly partialOutput?: PartialOutputCollector;
   readonly onReasoning?: ReasoningConsumer;
   readonly providerSecrets?: ProviderSecretsCollector;
   /** See `StreamCompletionOptions.imageBytes` (server/providers.ts): Image
@@ -57,7 +68,7 @@ export async function streamModel(
 ): Promise<string | null> {
   const {
     output, providerStarted, promptCache, storySampling, tokenProbabilities,
-    onReasoning, providerSecrets, imageBytes, imageCapability
+    generationRecord, partialOutput, onReasoning, providerSecrets, imageBytes, imageCapability
   } = options;
   const outcome: StreamOutcome = {
     finishReason: null,
@@ -67,6 +78,7 @@ export async function streamModel(
   const emit = async (delta: string) => {
     if (delta.length === 0) return;
     text += delta;
+    if (partialOutput !== undefined) partialOutput.text = text;
     await onDelta(delta);
   };
   try {
@@ -75,6 +87,7 @@ export async function streamModel(
       promptCache,
       storySampling,
       tokenProbabilities,
+      generationRecord,
       onReasoning,
       providerSecrets,
       imageBytes,

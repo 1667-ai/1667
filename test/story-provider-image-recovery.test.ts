@@ -18,6 +18,7 @@ import {
 } from "../server/story-mutation-store.js";
 import type { StoryImageAttachment } from "../shared/image-attachment.js";
 import type { ProviderStoryRuntime } from "../server/story-mutation-runtime.js";
+import { createGenerationRecord } from "../shared/generation-record.js";
 
 /**
  * Story and crash coverage for the receipt/pin/lease machinery an
@@ -47,7 +48,14 @@ function imageEffect(attachment: StoryImageAttachment, genId = "gen-image-1") {
     expectedAppendActiveChildId: null,
     expectedActiveRootId: null,
     expectedActiveLeafId: null,
-    imageAttachments: [attachment]
+    imageAttachments: [attachment],
+    generationRecord: createGenerationRecord({
+      kind: "continue",
+      createdAt: FIXED_NOW.toISOString(),
+      provider: { provider: "dry-run", model: "dry-run" },
+      effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+      prompt: { operation: "continue", entries: [] }
+    })
   };
 }
 

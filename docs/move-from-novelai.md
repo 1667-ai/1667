@@ -161,9 +161,9 @@ occurred:
 
 | Item | Meaning |
 | --- | --- |
-| `memory truncated to 4,000 characters` | A Fact holds a maximum of 4,000 characters |
+| `memory truncated to 100,000 characters` | A Fact holds a maximum of 100,000 characters |
 | `2 disabled entries skipped` | A disabled Lorebook Entry does not import |
-| `3 entries truncated to 4,000 characters` | The entry text was longer than one Fact holds |
+| `3 entries truncated to 100,000 characters` | The entry text was longer than one Fact holds |
 | `1 entry could not be read` | The entry was not a readable record |
 
 ## Where your data lives

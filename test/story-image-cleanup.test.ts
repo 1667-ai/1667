@@ -15,7 +15,9 @@ import { StoryObjectStore } from "../server/story-objects.js";
 import { parseStoryManifestBytes, STORY_SCHEMA_VERSION_V8 } from "../server/story-v6-codec.js";
 import type { NormalizedImage } from "../server/image-normalize.js";
 import type { StoryImageAttachment } from "../shared/image-attachment.js";
+import { createGenerationRecord } from "../shared/generation-record.js";
 import {
+  FIXED_NOW,
   providerOperation,
   request,
   setup,
@@ -44,6 +46,16 @@ function image(marker: string): NormalizedImage {
 
 function objectPath(dir: string, storyId: string, objectId: string): string {
   return path.join(dir, storyId, "images", objectId.slice(0, 2), `${objectId}.bin`);
+}
+
+function generationRecordFixture() {
+  return createGenerationRecord({
+    kind: "continue",
+    createdAt: FIXED_NOW.toISOString(),
+    provider: { provider: "dry-run", model: "dry-run" },
+    effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+    prompt: { operation: "continue", entries: [] }
+  });
 }
 
 test("image cleanup: a staged image survives maintenance while its Draft Lease is live", async (t) => {
@@ -173,7 +185,8 @@ test("image cleanup: a Draft Lease on a successor-schema (v8) story is swept exa
           expectedAppendActiveChildId: null,
           expectedActiveRootId: null,
           expectedActiveLeafId: null,
-          imageAttachments: [seedAttachment(seedObjectId)]
+          imageAttachments: [seedAttachment(seedObjectId)],
+          generationRecord: generationRecordFixture()
         });
       },
       storyFixture

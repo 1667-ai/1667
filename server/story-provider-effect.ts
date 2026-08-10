@@ -2,6 +2,7 @@ import { deriveChapters, summaryNodeInstruction } from "../shared/chapters.js";
 import { activePath, isChapterSummary, nodeById } from "../shared/story-tree.js";
 import { resolveRewriteDestination, type RewriteDestination, type Story, type StoryNode } from "../shared/types.js";
 import type { CapturedTokenProbabilities } from "../shared/token-probabilities.js";
+import type { GenerationRecord } from "../shared/generation-record.js";
 import type { CapturedReasoning } from "../shared/reasoning.js";
 import type { StoryImageAttachment } from "../shared/image-attachment.js";
 import {
@@ -12,6 +13,8 @@ import {
 import { sha256 } from "./story-format.js";
 import { setStoryAutonameId } from "./story-metadata.js";
 import { nodeRewriteId, setNodeRewriteId } from "./story-node-text.js";
+import { appendPendingGenerationRecord } from "./story-node-generation-records.js";
+import { generationRecordRetargetedToNewTake, generationRecordSettledInPlace } from "./generation-record-finalize.js";
 import { attachTakeTokenProbabilities } from "./story-node-token-probabilities.js";
 import { attachTakeReasoning, clearTakeReasoning } from "./story-node-reasoning.js";
 import {
@@ -65,6 +68,14 @@ export interface ContinueStoryEffect extends TakeCommit {
    *  (server/story-nodes.ts) for the append restriction this must honor. */
   readonly imageAttachments?: readonly StoryImageAttachment[] | null;
   readonly cancelled?: AbortSignal;
+  /** Narrows `TakeCommit.generationRecord` from optional to required: every
+   *  successful continuation is a provider effect, and a provider effect
+   *  must carry a Generation Record — complete or an explicit `unsupported`
+   *  stand-in, never absent. `TakeCommit` itself stays optional because it
+   *  also backs genuinely human/legacy commit paths (a human take, a
+   *  stop-and-save settle with no captured handoff, starter-vault seeding)
+   *  that have no generation to record at all. */
+  readonly generationRecord: GenerationRecord;
 }
 
 export interface RewriteNodeEffect {
@@ -94,6 +105,9 @@ export interface RewriteNodeEffect {
    *  rewrite mints a fresh node, so there is nothing to clear either way. */
   readonly reasoning?: CapturedReasoning | null;
   readonly cancelled?: AbortSignal;
+  /** Every successful rewrite is a provider effect and must carry a
+   *  Generation Record — see ContinueStoryEffect.generationRecord. */
+  readonly generationRecord: GenerationRecord;
 }
 
 export interface SummaryTakeEffect {
@@ -110,6 +124,9 @@ export interface SummaryTakeEffect {
    *  retention allowed storing it; null or absent otherwise. */
   readonly reasoning?: CapturedReasoning | null;
   readonly cancelled?: AbortSignal;
+  /** Every successful summary take is a provider effect and must carry a
+   *  Generation Record — see ContinueStoryEffect.generationRecord. */
+  readonly generationRecord: GenerationRecord;
 }
 
 export interface ChapterSummaryEffect {
@@ -122,6 +139,9 @@ export interface ChapterSummaryEffect {
   readonly rewriteId?: string;
   readonly committedAt?: string;
   readonly cancelled?: AbortSignal;
+  /** Every successful chapter summary is a provider effect and must carry a
+   *  Generation Record — see ContinueStoryEffect.generationRecord. */
+  readonly generationRecord: GenerationRecord;
 }
 
 export type ProviderStoryEffect =
@@ -254,6 +274,9 @@ async function applyContinuation(
     // plain TakeCommit. Every branch — append or new take, racing or not —
     // now forwards this field; see TakeCommit.tokenProbabilities.
     tokenProbabilities: effect.tokenProbabilities ?? undefined,
+    generationRecord: appendCrossesNewBreak
+      ? generationRecordRetargetedToNewTake(effect.generationRecord)
+      : effect.generationRecord,
     // Same normalization, for the same reason; see TakeCommit.reasoning.
     reasoning: effect.reasoning ?? undefined,
     // Same normalization, for the same reason; see TakeCommit.imageAttachments.
@@ -283,7 +306,7 @@ async function applyContinuation(
       if (commit.expectedTextHash === null) {
         throw new Error("appendTo requires expectedTextHash");
       }
-      appendContinuationToNode(
+      const node = appendContinuationToNode(
         appendTarget,
         commit.expectedTextHash,
         commit.text,
@@ -293,6 +316,7 @@ async function applyContinuation(
         commit.tokenProbabilities,
         commit.reasoning
       );
+      appendPendingGenerationRecord(node, commit.generationRecord);
     } else if (writerMoved) {
       const added = newNode(
         commit.parentId,
@@ -313,6 +337,7 @@ async function applyContinuation(
       if (commit.tokenProbabilities !== undefined && commit.tokenProbabilities !== null) {
         attachTakeTokenProbabilities(added, commit.tokenProbabilities, commit.text, 0);
       }
+      appendPendingGenerationRecord(added, commit.generationRecord);
       attachTakeReasoning(added, commit.reasoning);
       attachTakeImageAttachments(added, commit.imageAttachments);
       if (story.nodes.length === 1 && story.title === "Untitled") {
@@ -383,6 +408,7 @@ async function applyRewrite(
     target.rewrittenSpans = effect.rewrittenSpans;
     target.updatedAt = effect.updatedAt;
     setNodeRewriteId(target, effect.rewriteId);
+    appendPendingGenerationRecord(target, generationRecordSettledInPlace(effect.generationRecord));
     // The replaced text invalidates whatever thought described the old text;
     // clear it before deciding whether this attempt produced a fresh one to
     // take its place (server/story-node-reasoning.ts).
@@ -407,6 +433,7 @@ async function applyRewrite(
   node.rewrittenSpans = effect.rewrittenSpans;
   setNodeRewriteId(node, effect.rewriteId);
   createTake(story, node);
+  appendPendingGenerationRecord(node, effect.generationRecord);
   attachTakeReasoning(node, effect.reasoning);
   return { changed: true, value: node };
 }
@@ -463,6 +490,7 @@ async function applySummaryTake(
   );
   if (effect.committedAt !== undefined) node.createdAt = effect.committedAt;
   createTake(story, node, { activate: false });
+  appendPendingGenerationRecord(node, effect.generationRecord);
   attachTakeReasoning(node, effect.reasoning);
   return { changed: true, value: node };
 }
@@ -508,6 +536,7 @@ function applyChapterSummary(
     node.createdAt = madeAt;
     setNodeRewriteId(node, effect.rewriteId);
     createTake(story, node, { activate: false });
+    appendPendingGenerationRecord(node, effect.generationRecord);
   } else {
     chapter.summary.text = effect.summary;
     setNodeRewriteId(chapter.summary, effect.rewriteId);
@@ -518,6 +547,7 @@ function applyChapterSummary(
     chapter.summary.coveredExtent = { ...extent };
     delete chapter.summary.editedByUser;
     delete chapter.summary.attribution;
+    appendPendingGenerationRecord(chapter.summary, effect.generationRecord);
   }
   return { changed: true, value: story };
 }

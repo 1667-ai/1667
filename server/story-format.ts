@@ -49,7 +49,13 @@ import { assertStrictV5Manifest, MAX_STORY_MANIFEST_BYTES } from "./story-v5-str
 import { assertStrictV7Manifest } from "./story-v7-strict.js";
 
 export { HASH_PATTERN, StoryFormatError, requireHash } from "./story-format-facts.js";
-export { liveObjectIds, manifestImageIds, manifestReasoningIds, manifestTokenProbabilityIds } from "./story-format-nodes.js";
+export {
+  liveObjectIds,
+  manifestGenerationRecordIds,
+  manifestImageIds,
+  manifestReasoningIds,
+  manifestTokenProbabilityIds
+} from "./story-format-nodes.js";
 export { hasUnpairedSurrogate } from "./story-format-unicode.js";
 export const STORY_FORMAT = "1667-story";
 /** StoryTavern objects are content-addressed. Read their exact identifiers so
@@ -170,6 +176,10 @@ export interface StoredNodeV1 {
   /** The stored alternative tokens of this take. Absent when the generation
    *  did not ask for them. */
   tokenProbabilityId?: ObjectHash;
+  /** Ordered ids of every Generation Record event that created or changed
+   *  this node. Absent for a node with no model-request history. See
+   *  shared/generation-record.ts. */
+  generationRecordIds?: ObjectHash[];
   /** This take's stored reasoning ("thought"). Absent when the generation
    *  produced none, when retention was off, or when a rewrite replaced the
    *  take's text without producing a fresh thought of its own. */

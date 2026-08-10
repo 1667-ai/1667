@@ -12,9 +12,9 @@ import {
 } from "../rail.js";
 import { imageAttachmentLabel, imageMediaTypeLabel } from "../../../shared/image-attachment.js";
 import { formatImageBytes } from "../draft-image.js";
+import { wrapText } from "../wrap.js";
 import type { PromptTokenCount, TokenCountGrade } from "../../../shared/tokenize-source.js";
 import type { RequestViewerState, StoryScreenState } from "../state.js";
-import { wrapText } from "../wrap.js";
 import {
   fitLine,
   segment,
@@ -25,17 +25,18 @@ import {
 } from "./story/frame.js";
 import { renderConnectionBanner } from "./connection-banner.js";
 import { renderSurfaceBreadcrumb } from "./surface-breadcrumb.js";
-import { addInlineHits } from "./story/hits.js";
 import { tagGlyph, tagRole } from "../tag-presentation.js";
+import {
+  messageDocumentRows,
+  noticeSection,
+  renderRequestDocumentShell,
+  titleRule,
+  type RequestDocumentRow
+} from "./request-document.js";
 
 export interface RequestViewerFrame extends FrameComposition {
   hitRows: HitRows;
   request: RequestViewerState;
-}
-
-interface BodyRow {
-  line: FrameLine;
-  target: HitTarget | null;
 }
 
 /** Connect the document to the story renderer without adding another story layout path. */
@@ -68,7 +69,8 @@ export function renderRequestViewerScreen(
       composerSelectionProjection: null,
       storySelectionProjection: null,
       map: state.map,
-      request: frame.request
+      request: frame.request,
+      record: state.record
     }
   };
 }
@@ -93,40 +95,26 @@ export function renderRequestViewer(
   const header = requestHeader(context, estimate, story.model, story.contextWindow, width, resolved, count);
   const cursor = Math.max(0, Math.min(Math.max(0, estimate.messages.length - 1), request.cursor));
   const body = requestBody(estimate, width, cursor, resolved);
-  const bodyHeight = Math.max(0, height - header.length - 2);
-  const maxScroll = Math.max(0, body.rows.length - bodyHeight);
-  const reveal = body.starts[cursor] ?? 0;
-  const requestedScroll = request.scrollTop < 0
-    ? cursor === 0 ? 0 : Math.max(0, Math.min(maxScroll, reveal - 1))
-    : request.scrollTop;
-  const scrollTop = Math.max(0, Math.min(maxScroll, requestedScroll));
-  const visible = body.rows.slice(scrollTop, scrollTop + bodyHeight);
-  const padded: BodyRow[] = [
-    ...visible,
-    ...Array.from({ length: Math.max(0, bodyHeight - visible.length) }, (): BodyRow => ({
-      line: [], target: null
-    }))
-  ];
   const footer: FrameLine[] = [
     [segment("─".repeat(Math.max(0, width)), "chrome")],
     requestBreadcrumb(story, estimate, cursor, width)
   ];
-  const rows = [
-    ...header.map((line): BodyRow => ({ line, target: null })),
-    ...padded,
-    ...footer.map((line): BodyRow => ({ line, target: null }))
-  ].slice(0, height);
-  const lines = rows.map(({ line }) => fitLine(line, width));
-  const hitRows: HitRows = rows.map(({ target }) => target === null
-    ? null
-    : { target, left: 0, right: width });
-  // The breadcrumb's keys carry their actions on their own segments, the way
-  // the map's and search's do; without this they are painted text.
-  const breadcrumb = lines.length - 1;
-  if (lines[breadcrumb] !== undefined) {
-    addInlineHits([lines[breadcrumb]!], hitRows, () => true, breadcrumb);
-  }
-  return { lines, selectable: null, hitRows, request: { ...request, cursor, scrollTop } };
+  const shell = renderRequestDocumentShell({
+    header,
+    body: body.rows,
+    footer,
+    width,
+    height,
+    scrollTop: request.scrollTop,
+    reveal: body.starts[cursor] ?? 0,
+    revealAtStart: cursor === 0
+  });
+  return {
+    lines: shell.lines,
+    selectable: null,
+    hitRows: shell.hitRows,
+    request: { ...request, cursor, scrollTop: shell.scrollTop }
+  };
 }
 
 /** C-02: the surface keeps its mode cell and its tether back to the story.
@@ -201,7 +189,7 @@ function requestHeader(
   const modelWidth = Math.max(0, width - visibleWidth(routePrefix) - visibleWidth(routeSuffix));
   const breakdown = { ...breakdownFromPerMessage(estimate.plan.entries, resolved.perMessage), visual: estimate.breakdown.visual };
   const lines: FrameLine[] = [
-    titleLine(
+    titleRule(
       `next request ━ ${estimate.messages.length} messages ━ ${formatTokensGraded(totalWithVisual.total, totalWithVisual.totalGrade)}`,
       width
     ),
@@ -254,40 +242,16 @@ function requestBody(
   width: number,
   cursor: number,
   resolved: ResolvedTokenCount
-): { rows: BodyRow[]; starts: number[] } {
-  const rows: BodyRow[] = [];
+): { rows: RequestDocumentRow[]; starts: number[] } {
+  const rows: RequestDocumentRow[] = [
+    ...noticeSection("substitutions", substitutionNotices(estimate), width),
+    ...noticeSection("activations", activationNotices(estimate), width)
+  ];
   const starts: number[] = [];
   // Counts every image across the whole prompt in wire order, matching the
   // composer's own row numbering (shared/image-attachment.ts's
   // imageAttachmentLabel) rather than resetting per message.
   let imageOrdinal = 0;
-  const substitutions = substitutionNotices(estimate);
-  if (substitutions.length > 0) {
-    rows.push(
-      { line: [segment("─".repeat(Math.max(0, width)), "chrome")], target: null },
-      { line: [segment(" substitutions", "focus / accent")], target: null }
-    );
-    for (const notice of substitutions) {
-      rows.push(...wrapText(notice, [], Math.max(1, width - 3)).map(({ text }): BodyRow => ({
-        line: [segment("  ", "chrome"), segment(text, "focus / accent")],
-        target: null
-      })));
-    }
-    rows.push({ line: [], target: null });
-  }
-  const activations = activationNotices(estimate);
-  if (activations.length > 0) {
-    rows.push(
-      { line: [segment("─".repeat(Math.max(0, width)), "chrome")], target: null },
-      { line: [segment(" activations", "focus / accent")], target: null }
-    );
-    for (const notice of activations) {
-      rows.push(...wrapText(notice, [], Math.max(1, width - 3)).map(({ text }): BodyRow => ({
-        line: [segment("  ", "chrome"), segment(text, "focus / accent")], target: null
-      })));
-    }
-    rows.push({ line: [], target: null });
-  }
   for (const [index, message] of estimate.messages.entries()) {
     starts.push(rows.length);
     const entry = estimate.plan.entries[index]!;
@@ -298,12 +262,6 @@ function requestBody(
       rowId: requestRowIdentity(entry),
       selected
     };
-    rows.push({
-      line: [
-        segment("─".repeat(Math.max(0, width)), "chrome", target)
-      ],
-      target
-    });
     const source = entrySource(entry);
     const messagePrefix = ` ${String(index + 1).padStart(2, "0")} ${message.role.toUpperCase()} · ${entry.category} · `;
     const tokenSuffix = ` · ${formatTokensGraded(resolved.perMessage[index]!, resolved.perMessageGrade)}`;
@@ -316,26 +274,24 @@ function requestBody(
     const selection = selected
       ? { background: "focus / accent" as const, bold: true }
       : {};
-    rows.push({
-      line: [
-        {
-          ...segment(messagePrefix, selected ? "background" : "focus / accent", target),
-          ...selection
-        },
-        {
-          ...segment(truncate(source, sourceWidth), selected ? "background" : "focus / accent", target),
-          ...selection
-        },
-        segment(tokenSuffix, "chrome", target)
-      ],
-      target
-    });
+    const header: FrameLine = [
+      {
+        ...segment(messagePrefix, selected ? "background" : "focus / accent", target),
+        ...selection
+      },
+      {
+        ...segment(truncate(source, sourceWidth), selected ? "background" : "focus / accent", target),
+        ...selection
+      },
+      segment(tokenSuffix, "chrome", target)
+    ];
     // Image blocks carry no text (shared/prompt-plan.ts's ImagePromptBlock
     // has no `text` field), so `message.content` never describes them. This
     // renders their metadata explicitly, one row per image, ahead of the
     // wrapped text — and never a data URL: only the position, media type,
     // dimensions, byte length, and an estimated token count, the same
     // closed metadata shape the story bundle itself stores.
+    const imageRows: RequestDocumentRow[] = [];
     for (const block of entry.turn.blocks) {
       if (block.kind !== "image") continue;
       imageOrdinal += 1;
@@ -346,19 +302,13 @@ function requestBody(
         + (tokens !== undefined && tokens > 0 ? ` · ${formatTokensEstimate(tokens)} tokens` : "")
         + "]";
       for (const wrapped of wrapText(label, [], Math.max(1, width - 4))) {
-        rows.push({
+        imageRows.push({
           line: [segment("  ", "chrome"), segment(wrapped.text, "focus / accent")],
           target: null
         });
       }
     }
-    for (const wrapped of wrapText(message.content, [], Math.max(1, width - 4))) {
-      rows.push({
-        line: [segment("  ", "chrome"), segment(wrapped.text, "prose")],
-        target: null
-      });
-    }
-    rows.push({ line: [], target: null });
+    rows.push(...messageDocumentRows(target, header, message.content, width, imageRows));
   }
   if (rows.length === 0) rows.push({ line: [segment(" no prompt messages", "prose · dim")], target: null });
   return { rows, starts };
@@ -384,12 +334,4 @@ function entrySource(entry: NextRequestEstimate["plan"]["entries"][number]): str
   return entry.partsAfterNote === 0
     ? `${label} · before the request`
     : `${label} · depth ${entry.partsAfterNote}`;
-}
-
-function titleLine(title: string, width: number): FrameLine {
-  const prefix = `━━ ${title} `;
-  return [
-    segment(prefix, "focus / accent"),
-    segment("━".repeat(Math.max(0, width - visibleWidth(prefix))), "chrome")
-  ];
 }

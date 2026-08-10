@@ -21,6 +21,11 @@ import {
 import { providerSseEvents } from "./provider-sse.js";
 import { providerRoot, providerUrl } from "./provider-url.js";
 import type { StorySamplingBias } from "./sampling-phrase-bias.js";
+import {
+  snapshotEffectiveFields,
+  TEXT_COMPLETION_EFFECTIVE_FIELDS,
+  type GenerationRecordCollector
+} from "./generation-record-capture.js";
 
 interface TextCompletionOutcome {
   finishReason: "stop" | "length" | null;
@@ -32,6 +37,7 @@ interface TextCompletionOptions {
   readonly providerStarted?: () => void | Promise<void>;
   readonly promptCache?: PromptCacheRequest;
   readonly storySampling?: StorySamplingBias;
+  readonly generationRecord?: GenerationRecordCollector;
 }
 
 type TextEndpoint = "llama-cpp" | "koboldcpp" | "openai";
@@ -67,10 +73,19 @@ export async function* streamTextCompletion(
   let decodedBytes = 0;
   let redactorFinished = false;
   let successfulTerminal = false;
+  let streamed = false;
   const finishRedactor = (): string => {
     if (redactorFinished) return "";
     redactorFinished = true;
     return outputRedactor.finish();
+  };
+  const finishGenerationRecord = (): void => {
+    if (options.generationRecord === undefined) return;
+    options.generationRecord.effective = {
+      wireProtocol: "text-completions",
+      fields: snapshotEffectiveFields(request.body, TEXT_COMPLETION_EFFECTIVE_FIELDS),
+      adjustments: []
+    };
   };
   try {
     try {
@@ -106,15 +121,28 @@ export async function* streamTextCompletion(
         if (delta.length === 0) continue;
         decodedBytes = requireProviderOutputWithinLimit(settings, decodedBytes, delta);
         const safe = outputRedactor.push(delta);
-        if (safe.length > 0) yield safe;
+        if (safe.length > 0) {
+          streamed = true;
+          yield safe;
+        }
       }
     } catch (error) {
       const tail = finishRedactor();
-      if (tail.length > 0) yield tail;
+      if (tail.length > 0) {
+        streamed = true;
+        yield tail;
+      }
+      // Any text already streamed is what a stopped-partial commit will
+      // save, so the request body that produced it is worth recording even
+      // though this attempt is failing. A secret redactor can buffer a short
+      // delta and only release it here, on the tail flush — that release is
+      // still delivered prose, so it must count as streamed too.
+      if (streamed) finishGenerationRecord();
       throw error;
     }
     const tail = finishRedactor();
     if (tail.length > 0) yield tail;
+    finishGenerationRecord();
   } finally {
     finishRedactor();
   }

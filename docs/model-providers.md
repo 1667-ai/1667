@@ -4,6 +4,7 @@ read_when:
   - configuring a model provider
   - changing Facts or the context meter
   - changing the request viewer
+  - changing the Generation Record Viewer
   - changing token probabilities
   - changing connection credentials, deadlines, or transport rules
 ---
@@ -192,6 +193,42 @@ The request viewer identifies chapter summaries that replace raw story parts.
 It also identifies the latest summary take that resets the raw context. The
 request viewer does not show provider wire data. It cannot show a credential
 because the request plan does not contain credentials.
+
+## Generation Record
+
+A Generation Record is a durable record of one model request that created or
+changed a take. The Generation Record Viewer is a separate, read-only view.
+It does not change the request viewer, `Ctrl+R`, or the next request plan.
+
+Select a take. Press `h` to open the Generation Record Viewer. You can also
+select **generation records** in the command palette. You can select an
+inactive take in the mass map first. The Generation Record Viewer does not
+change the story line.
+
+The Generation Record Viewer shows:
+
+- The provider and the protocol of the request.
+- The routed model.
+- The effective scalar provider settings and sampling settings the request
+  used.
+- Each provider adjustment 1667 made to the request.
+- The text segment the request created or changed.
+- The ordered, categorized request pipeline.
+
+A continuation request and an in-place rewrite request can both run on one
+take. Each request adds one Generation Record. The Generation Record Viewer
+lists a take's Generation Records in order.
+
+An old take, an imported take, and a human take can have no Generation
+Record. The Generation Record Viewer states this when a take has no record.
+
+1667 loads a Generation Record only when you open it. A Generation Record
+stays local story data. It never contains a credential, a custom header
+value, a base URL, or provider response text. 1667 does not send a
+Generation Record to a provider.
+
+Copying and pasting a story line does not copy a Generation Record. See
+[Story line copy and paste](story-line-copy-paste.md#field-policy).
 
 ## Author's Note
 
@@ -441,6 +478,16 @@ either way.
 1667 reads each alternative token before it stores one. If an alternative
 token contains the credential that 1667 sent, 1667 stores no alternative
 token for that take. The generation keeps its prose.
+
+Some servers send the alternative tokens of a full generation in one
+message. KoboldCpp is one. 1667 sizes its limit for this message from the
+output limit for the generation, up to a fixed ceiling.
+
+A message within that limit can still be too large to keep. 1667 then
+stores no alternative token for that take. The generation keeps its prose.
+
+A message past the ceiling fails the whole generation. This is the same
+result as for any other oversized response from the model.
 
 Select a story part that has prose. Press `l` to open the token probability
 viewer. The viewer shows the take's prose with the selected token marked.

@@ -34,6 +34,13 @@ import {
   type TokenProbabilityRecord
 } from "../shared/token-probabilities.js";
 import {
+  generationRecordSourceRevisionIds,
+  MAX_GENERATION_RECORD_BYTES,
+  parseGenerationRecord,
+  serializeGenerationRecord,
+  type GenerationRecord
+} from "../shared/generation-record.js";
+import {
   MAX_REASONING_BYTES,
   parseReasoning,
   serializeReasoning,
@@ -55,8 +62,11 @@ import {
 
 export type { ObjectKind } from "./story-object-fs.js";
 /** The object kinds that are leaves: no nested graph to enumerate, unlike a
- *  revision's chunks — a bare id is the whole story for either kind. The
- *  next side record that fits this shape is a one-line addition here plus a
+ *  revision's chunks — a bare id is the whole story for either kind.
+ *  Generation records are not a leaf: a record can reference further
+ *  revision ids of its own, so it keeps its own mark-phase handling in
+ *  `sweep`/`verifyGraph` below instead of joining this list. The next side
+ *  record that fits the true-leaf shape is a one-line addition here plus a
  *  `store`/`read` pair on the store below; `sweep`, `verifyGraph`, and
  *  `readObject` need no further changes.
  *
@@ -78,12 +88,13 @@ const LEAF_LIVE_ID_LABELS: Record<LeafObjectKind, string> = {
   images: "live image id"
 };
 /** Every hash a save must protect from a concurrent sweep: the live
- *  revision graph and, per leaf kind, the live leaf objects. Kept as one
- *  object, not a positional list per kind, so a call site can never update
- *  one without the others. */
+ *  revision graph, per leaf kind the live leaf objects, and the live
+ *  Generation Record objects. Kept as one object, not positional lists, so a
+ *  call site can never update one without the others. */
 export interface LiveStoryObjectIds {
   readonly revisions: readonly ObjectHash[];
   readonly leaves: Readonly<Record<LeafObjectKind, readonly ObjectHash[]>>;
+  readonly generationRecords: readonly ObjectHash[];
 }
 const OBJECT_IO_CONCURRENCY = 16;
 const REVISION_IO_CONCURRENCY = 4;
@@ -97,7 +108,8 @@ const OBJECT_MAX_BYTES: Record<ObjectKind, number> = {
   revisions: MAX_REVISION_BYTES,
   probabilities: MAX_TOKEN_PROBABILITY_BYTES,
   reasoning: MAX_REASONING_BYTES,
-  images: MAX_IMAGE_OBJECT_BYTES
+  images: MAX_IMAGE_OBJECT_BYTES,
+  "generation-records": MAX_GENERATION_RECORD_BYTES
 };
 const OBJECT_TEMP_PATTERN = exactStringPattern(
   "\\.1667-([a-f0-9]{64})-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\\.tmp"
@@ -112,7 +124,8 @@ const COMMITTED_ID_LABELS: Record<ObjectKind, string> = {
   revisions: "committed revision id",
   probabilities: "committed token probabilities id",
   reasoning: "committed reasoning id",
-  images: "committed image id"
+  images: "committed image id",
+  "generation-records": "committed generation record id"
 };
 
 export interface StoryObjectStoreOptions {
@@ -147,29 +160,41 @@ export class StoryObjectStore {
     revisions: new Set(),
     probabilities: new Set(),
     reasoning: new Set(),
-    images: new Set()
+    images: new Set(),
+    "generation-records": new Set()
   };
   private readonly pendingObjects: Record<ObjectKind, Map<ObjectHash, Promise<void>>> = {
     chunks: new Map(),
     revisions: new Map(),
     probabilities: new Map(),
     reasoning: new Map(),
-    images: new Map()
+    images: new Map(),
+    "generation-records": new Map()
   };
   private readonly knownRevisions = new Map<ObjectHash, TextRevisionV1>();
+  /** Every live generation record's own referenced revision ids, cached by
+   * this record's hash so a sweep and a same-save verifyGraph never parse the
+   * same record object twice. Populated whenever a record is stored or read,
+   * so a record this instance just wrote never needs a read-back to learn
+   * what it already knows. */
+  private readonly knownGenerationRecordSourceRevisions = new Map<ObjectHash, readonly ObjectHash[]>();
   /** Bare ids adopted from the currently committed manifest, kept apart by
    * object kind like `verifiedObjects` and `pendingObjects` above. Their
    * bodies were never read by this instance, so they are held apart from
    * `verifiedObjects`, which only ever contains hashes proven against bytes.
    * A probabilities or reasoning object has no nested graph to enumerate —
    * each is a leaf, unlike a revision's chunks — so a bare id is all there is
-   * to adopt for either kind. */
+   * to adopt for either kind. A generation-records object can reference
+   * further revision ids of its own (`generationRecordSourceRevisionIds`), so
+   * adopting its bare id does not exempt those referenced revisions from
+   * verification — only the record object itself. */
   private readonly trustedCommitted: Record<ObjectKind, Set<ObjectHash>> = {
     chunks: new Set(),
     revisions: new Set(),
     probabilities: new Set(),
     reasoning: new Set(),
-    images: new Set()
+    images: new Set(),
+    "generation-records": new Set()
   };
   private readonly dirtyShards = new Set<string>();
   private firstWriteBarrier: Promise<void> | null = null;
@@ -191,7 +216,8 @@ export class StoryObjectStore {
       this.withKind("revisions", true, async () => undefined),
       this.withKind("probabilities", true, async () => undefined),
       this.withKind("reasoning", true, async () => undefined),
-      this.withKind("images", true, async () => undefined)
+      this.withKind("images", true, async () => undefined),
+      this.withKind("generation-records", true, async () => undefined)
     ]);
   }
 
@@ -270,6 +296,43 @@ export class StoryObjectStore {
     return await this.readObject("images", hash);
   }
 
+  /** One Generation Record event, content-addressed like a probabilities
+   * object: a bounded leaf with no chunking. */
+  async storeGenerationRecord(
+    record: GenerationRecord,
+    reuseFrom?: StoryObjectStore
+  ): Promise<ObjectHash> {
+    const bytes = Buffer.from(serializeGenerationRecord(record), "utf8");
+    const hash = sha256(bytes);
+    await this.putObject("generation-records", hash, bytes, reuseFrom);
+    this.knownGenerationRecordSourceRevisions.set(hash, generationRecordSourceRevisionIds(record));
+    return hash;
+  }
+
+  /** Bounded, hash-verified read of one Generation Record. Read on demand —
+   * the record viewer's GET route reads exactly one — so this needs no
+   * cache beyond the source-revision-id memo `generationRecordSourceRevisions`
+   * keeps for sweep and verifyGraph. */
+  async readGenerationRecord(hash: ObjectHash): Promise<GenerationRecord> {
+    const bytes = await this.readObject("generation-records", hash);
+    const record = parseGenerationRecord(bytes.toString("utf8"), hash);
+    this.knownGenerationRecordSourceRevisions.set(hash, generationRecordSourceRevisionIds(record));
+    return record;
+  }
+
+  /** The revision ids one Generation Record references, from cache when this
+   * instance already read that record this session. A generation-records
+   * object is not a leaf the way probabilities and reasoning are — it can
+   * name further revisions sweep and verifyGraph must also keep live — so,
+   * unlike a leaf kind, its content must be resolved at least once every
+   * session rather than trusted bare from a committed manifest. */
+  private async generationRecordSourceRevisions(hash: ObjectHash): Promise<readonly ObjectHash[]> {
+    const known = this.knownGenerationRecordSourceRevisions.get(hash);
+    if (known !== undefined) return known;
+    const record = await this.readGenerationRecord(hash);
+    return this.knownGenerationRecordSourceRevisions.get(hash) ?? generationRecordSourceRevisionIds(record);
+  }
+
   async readText(hash: ObjectHash, cache = createStoryReadCache()): Promise<string> {
     const revision = await this.readRevision(hash, cache);
     const chunks = await mapWithConcurrency(revision.chunks, OBJECT_IO_CONCURRENCY, (chunkHash) =>
@@ -301,7 +364,28 @@ export class StoryObjectStore {
   async sweep(live: LiveStoryObjectIds, signal?: AbortSignal): Promise<boolean> {
     try {
       requireSweepActive(signal);
-      const liveRevisions = new Set(live.revisions.map((hash) => requireHash(hash, "live revision id")));
+      const liveGenerationRecords = new Set(
+        live.generationRecords.map((hash) => requireHash(hash, "live generation record id"))
+      );
+      // Reading every live generation record is itself part of the mark
+      // phase: a record can name a revision no current node points at
+      // anymore, and that revision must join the live set before the chunk
+      // enumeration below, or a rewritten node's superseded text would be
+      // swept out from under the history that still describes it. A record
+      // that fails to read fails the whole sweep closed, same as a damaged
+      // revision would.
+      const recordRevisionLists = await mapWithConcurrency(
+        [...liveGenerationRecords],
+        OBJECT_IO_CONCURRENCY,
+        async (hash) => {
+          requireSweepActive(signal);
+          return await this.generationRecordSourceRevisions(hash);
+        }
+      );
+      const liveRevisions = new Set([
+        ...live.revisions.map((hash) => requireHash(hash, "live revision id")),
+        ...recordRevisionLists.flat()
+      ]);
       const liveLeaves = {} as Record<LeafObjectKind, Set<ObjectHash>>;
       for (const kind of LEAF_OBJECT_KINDS) {
         liveLeaves[kind] = new Set(live.leaves[kind].map((hash) => requireHash(hash, LEAF_LIVE_ID_LABELS[kind])));
@@ -340,6 +424,7 @@ export class StoryObjectStore {
       await drainPromises([
         this.sweepKind("revisions", liveRevisions, signal),
         this.sweepKind("chunks", liveChunks, signal),
+        this.sweepKind("generation-records", liveGenerationRecords, signal),
         ...LEAF_OBJECT_KINDS.map((kind) => this.sweepKind(kind, liveLeaves[kind], signal))
       ]);
       return true;
@@ -355,7 +440,21 @@ export class StoryObjectStore {
    * current manifest's snapshot — are durable; only ids outside that set are
    * read back, so save cost scales with changed objects, not story size. */
   async verifyGraph(live: LiveStoryObjectIds): Promise<void> {
-    const revisionIds = [...new Set(live.revisions.map((hash) => requireHash(hash, "live revision id")))];
+    const generationRecordIds = [
+      ...new Set(live.generationRecords.map((hash) => requireHash(hash, "live generation record id")))
+    ];
+    // Resolving every live generation record's source revisions here, before
+    // the revision pass below, guarantees each is verified at least once this
+    // session and folds any revision it references into the same pass —
+    // mirrors sweep()'s mark phase, so the two never disagree about which
+    // revisions a save must keep.
+    const recordRevisionLists = await mapWithConcurrency(generationRecordIds, OBJECT_IO_CONCURRENCY, (hash) =>
+      this.generationRecordSourceRevisions(hash)
+    );
+    const revisionIds = [...new Set([
+      ...live.revisions.map((hash) => requireHash(hash, "live revision id")),
+      ...recordRevisionLists.flat()
+    ])];
     const cache = createStoryReadCache();
     const chunkIds = new Set<ObjectHash>();
     const unverified: ObjectHash[] = [];
@@ -442,6 +541,34 @@ export class StoryObjectStore {
 
   verifiedRevisionGraph(): ReadonlyMap<ObjectHash, TextRevisionV1> {
     return new Map(this.knownRevisions);
+  }
+
+  /** Every generation record's source revision ids this instance has
+   * resolved so far — each one only ever set from a hash-verified parse
+   * (`storeGenerationRecord` or `readGenerationRecord`), never adopted. */
+  verifiedGenerationRecordGraph(): ReadonlyMap<ObjectHash, readonly ObjectHash[]> {
+    return new Map(this.knownGenerationRecordSourceRevisions);
+  }
+
+  /** Reuse generation record source-revision lookups a prior session already
+   * hash-verified, so a save with an unchanged manifest never reparses a
+   * record it already resolved. A record is immutable and content-addressed,
+   * so a hash's source revisions never change — but this only ever accepts a
+   * map assembled from `verifiedGenerationRecordGraph`, and only when the
+   * caller can assert `committed: true` (the record was live in the
+   * currently committed manifest), which is the same trust-by-induction rule
+   * `adoptKnownGraph` uses for revisions. Never call this with ids or lists
+   * sourced any other way. */
+  adoptKnownGenerationRecordGraph(
+    sourceRevisions: ReadonlyMap<ObjectHash, readonly ObjectHash[]>,
+    options: { committed?: boolean } = {}
+  ): void {
+    if (options.committed !== true) return;
+    for (const [hash, revisionIds] of sourceRevisions) {
+      requireHash(hash, "generation record id");
+      for (const revisionId of revisionIds) requireHash(revisionId, "revision id");
+      this.knownGenerationRecordSourceRevisions.set(hash, revisionIds);
+    }
   }
 
   private async readRevision(hash: ObjectHash, cache: StoryReadCache): Promise<TextRevisionV1> {
@@ -799,4 +926,3 @@ export class StoryObjectStore {
     });
   }
 }
-

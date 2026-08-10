@@ -13,6 +13,7 @@ import { hashStoryV6ManifestBytes } from "../server/story-manifest-hash.js";
 import { StoryStore } from "../server/stories.js";
 import type { StoryManifestV6 } from "../server/story-v6-types.js";
 import type { StoryImageAttachment } from "../shared/image-attachment.js";
+import { createGenerationRecord } from "../shared/generation-record.js";
 import {
   FIXED_NOW,
   OTHER_FINGERPRINT,
@@ -51,6 +52,16 @@ async function storeTestImage(storiesDir: string, label: string): Promise<StoryI
   return attachment(objectId);
 }
 
+function generationRecordFixture() {
+  return createGenerationRecord({
+    kind: "continue",
+    createdAt: FIXED_NOW.toISOString(),
+    provider: { provider: "dry-run", model: "dry-run" },
+    effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+    prompt: { operation: "continue", entries: [] }
+  });
+}
+
 test("Q activation off: a full Continue commit writes byte-identical V6 manifest bytes", async (t) => {
   const fixture = await setup(t, "1667-q-successor-off-bytes-");
   const commit = await fixture.mutations.runProviderOperation(
@@ -71,7 +82,8 @@ test("Q activation off: a full Continue commit writes byte-identical V6 manifest
           expectedParentActiveChildId: null,
           expectedAppendActiveChildId: null,
           expectedActiveRootId: null,
-          expectedActiveLeafId: null
+          expectedActiveLeafId: null,
+          generationRecord: generationRecordFixture()
         });
       },
       storyFixture
@@ -136,7 +148,8 @@ test("Q activation on: a Continue carrying an Image Attachment commits as V8, an
           expectedAppendActiveChildId: null,
           expectedActiveRootId: null,
           expectedActiveLeafId: null,
-          imageAttachments: [image]
+          imageAttachments: [image],
+          generationRecord: generationRecordFixture()
         });
       },
       storyFixture

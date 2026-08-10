@@ -43,6 +43,7 @@ import { renderMapScreen } from "./map.js";
 import { renderSearchScreen } from "./search.js";
 import { renderRequestViewerScreen } from "./request-viewer.js";
 import { renderTokenProbabilitiesScreen } from "./token-probabilities.js";
+import { renderGenerationRecordViewerScreen } from "./generation-record-viewer.js";
 import { renderLogScreen } from "./log.js";
 import { wrapFeedback } from "./feedback-wrap.js";
 import { renderPanels, renderTextActionsPanel } from "./panels.js";
@@ -107,6 +108,7 @@ export interface StoryScreenDerived {
   storySelectionProjection: StorySelectionProjection | null;
   map: StoryScreenState["map"];
   request: StoryScreenState["request"];
+  record: StoryScreenState["record"];
 }
 
 export interface StoryScreenFrame extends FrameComposition {
@@ -144,6 +146,9 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   if (state.map !== null && (state.mode === "MAP"
     || state.mode === "TAG" && state.tag?.returnMode === "MAP")) {
     return renderMap(state, state.map, options.width, height, options.deadlines);
+  }
+  if (state.mode === "RECORD" && state.record !== null) {
+    return renderGenerationRecordViewerScreen(state, state.record, options.width, height, options.deadlines);
   }
   const fullscreen = state.mode === "COMPOSE" && state.composer.fullscreen;
   const view = createStoryViewModel(state.payload, state.stream);
@@ -370,7 +375,8 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
         ? buildStorySelectionProjection(pageSelectionLines, frameLayout.pageWidth)
         : null,
       map: state.map,
-      request: state.request
+      request: state.request,
+      record: state.record
     }
   };
 }
@@ -391,7 +397,8 @@ function fullBleedDerived(
     composerSelectionProjection: null,
     storySelectionProjection: null,
     map,
-    request: state.request
+    request: state.request,
+    record: state.record
   };
 }
 
@@ -717,7 +724,8 @@ function renderFullscreenComposer(
       composerSelectionProjection: buildComposerSelectionProjection(presentedLines, width),
       storySelectionProjection: null,
       map: state.map,
-      request: state.request
+      request: state.request,
+      record: state.record
     }
   };
 }
@@ -854,7 +862,8 @@ function renderEditorLayoutFrame(
       composerSelectionProjection: buildComposerSelectionProjection(lines, width),
       storySelectionProjection: null,
       map: state.map,
-      request: state.request
+      request: state.request,
+      record: state.record
     }
   };
 }

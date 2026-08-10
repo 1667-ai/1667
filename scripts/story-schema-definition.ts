@@ -11,6 +11,7 @@ import {
 import {
   MAX_FACTS,
   MAX_FACT_TAG_CHARS,
+  MAX_GENERATION_RECORD_IDS,
   MAX_HUMAN_EDIT_RANGES,
   MAX_RECENT_LINES,
   MAX_REWRITTEN_SPANS
@@ -211,6 +212,9 @@ function nodeSchema(extraProperties: Record<string, Schema> = {}): Schema {
     // The stored alternative tokens of this take. Absent when the generation
     // did not ask for them.
     tokenProbabilityId: ref("Hash256"),
+    // Ordered ids of every Generation Record event that created or changed
+    // this node. Absent for a node with no model-request history.
+    generationRecordIds: { type: "array", minItems: 1, maxItems: MAX_GENERATION_RECORD_IDS, items: ref("Hash256") },
     // This take's stored reasoning ("thought"). Absent when the generation
     // produced none, when retention was off, or when a rewrite replaced the
     // take's text without producing a fresh thought of its own.

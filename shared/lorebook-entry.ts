@@ -1,5 +1,6 @@
 import {
   MAX_FACTS,
+  MAX_FACT_TEXT_CHARS,
   factImportRequestBytes,
   type FactInput
 } from "./types.js";
@@ -73,7 +74,8 @@ type EntryLoss =
 
 const ENTRY_LOSS_PHRASES: LossPhrases<EntryLoss> = {
   disabled: (count) => `${count} disabled ${countNoun(count, "entry", "entries")} skipped`,
-  textTruncated: (count) => `${count} ${countNoun(count, "entry", "entries")} truncated to 4,000 characters`,
+  textTruncated: (count) =>
+    `${count} ${countNoun(count, "entry", "entries")} truncated to ${MAX_FACT_TEXT_CHARS.toLocaleString()} characters`,
   textEmpty: (count) => `${count} empty ${countNoun(count, "entry", "entries")} dropped`,
   textInvalid: (count) => `${count} ${countNoun(count, "entry", "entries")} dropped for invalid Unicode`,
   textRelined: (count) => `${count} fact ${countNoun(count, "body", "bodies")} changed to line feeds`,

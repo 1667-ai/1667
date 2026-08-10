@@ -22,6 +22,7 @@ import {
   type StoryNode
 } from "../shared/types.js";
 import type { CapturedTokenProbabilities } from "../shared/token-probabilities.js";
+import type { GenerationRecord } from "../shared/generation-record.js";
 import type { CapturedReasoning } from "../shared/reasoning.js";
 import type { StoryImageAttachment } from "../shared/image-attachment.js";
 import { sliceWellFormedUtf16Prefix } from "../shared/unicode.js";
@@ -29,6 +30,7 @@ import { ServiceError as HttpError } from "./errors.js";
 import { attributionAfterHumanEdit, rewrittenSpansAfterHumanEdit } from "../shared/human-edit.js";
 import { HASH_PATTERN, sha256 } from "./story-format.js";
 import { setNodeRewriteId } from "./story-node-text.js";
+import { appendPendingGenerationRecord } from "./story-node-generation-records.js";
 import { attachTakeTokenProbabilities } from "./story-node-token-probabilities.js";
 import { attachTakeReasoning } from "./story-node-reasoning.js";
 
@@ -286,6 +288,11 @@ export interface TakeCommit {
    *  rather than merging into it: the viewer shows the most recent
    *  generation, never a combination of several. */
   tokenProbabilities?: CapturedTokenProbabilities | null;
+  /** The Generation Record this commit's model request produced, when the
+   *  caller captured one (server/generation-record-finalize.ts). Absent or
+   *  null for a human take or a commit source unconcerned with this feature
+   *  — mirrors TakeCommit.tokenProbabilities exactly. */
+  generationRecord?: GenerationRecord | null;
   /** Only ever set by a commit that captured a thought and whose retention
    *  allowed keeping it. Mirrors `tokenProbabilities` above, except an
    *  append that lands on a take with no fresh thought this attempt leaves
@@ -335,7 +342,7 @@ export function commitTake(story: Story, commit: TakeCommit): { duplicate: boole
   assertNoAppendImageAttachments(commit);
   if (commit.appendTo !== null) {
     if (commit.expectedTextHash === null) throw new HttpError(400, "appendTo requires expectedTextHash");
-    appendToActiveLeaf(
+    const node = appendToActiveLeaf(
       story,
       commit.appendTo,
       commit.expectedTextHash,
@@ -346,6 +353,9 @@ export function commitTake(story: Story, commit: TakeCommit): { duplicate: boole
       commit.tokenProbabilities,
       commit.reasoning
     );
+    if (commit.generationRecord !== undefined && commit.generationRecord !== null) {
+      appendPendingGenerationRecord(node, commit.generationRecord);
+    }
     return { duplicate: false };
   }
   const node = newNode(
@@ -362,6 +372,9 @@ export function commitTake(story: Story, commit: TakeCommit): { duplicate: boole
   createTake(story, node);
   if (commit.tokenProbabilities !== undefined && commit.tokenProbabilities !== null) {
     attachTakeTokenProbabilities(node, commit.tokenProbabilities, commit.text, 0);
+  }
+  if (commit.generationRecord !== undefined && commit.generationRecord !== null) {
+    appendPendingGenerationRecord(node, commit.generationRecord);
   }
   attachTakeReasoning(node, commit.reasoning);
   attachTakeImageAttachments(node, commit.imageAttachments);

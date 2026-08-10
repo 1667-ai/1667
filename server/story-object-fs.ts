@@ -11,10 +11,17 @@ import { StoryFormatError, sha256, type ObjectHash } from "./story-format.js";
 /** The kinds of immutable object a story bundle stores. A revision's chunks
  * are the prose; a revision is the ordered chunk list; a probabilities
  * object is one take's captured token probabilities (issue #291 phase 3); a
- * reasoning object is one take's captured thought (shared/reasoning.ts); an
- * images object is one Normalized Image's raw bytes
- * (shared/image-attachment.ts), hashed and stored with no JSON codec. */
-export type ObjectKind = "chunks" | "revisions" | "probabilities" | "reasoning" | "images";
+ * generation-records object is one Generation Record event (Generation
+ * Records project); a reasoning object is one take's captured thought
+ * (shared/reasoning.ts); an images object is one Normalized Image's raw
+ * bytes (shared/image-attachment.ts), hashed and stored with no JSON codec. */
+export type ObjectKind =
+  | "chunks"
+  | "revisions"
+  | "probabilities"
+  | "generation-records"
+  | "reasoning"
+  | "images";
 
 /** The on-disk extension for one object kind, kept as the single table every
  * writer and reader shares. `objectFilename` below, `objectPath`
@@ -27,6 +34,7 @@ export const OBJECT_EXTENSIONS: Record<ObjectKind, string> = {
   chunks: ".txt",
   revisions: ".json",
   probabilities: ".json",
+  "generation-records": ".json",
   reasoning: ".json",
   images: ".bin"
 };

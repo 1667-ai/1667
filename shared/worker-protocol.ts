@@ -31,6 +31,7 @@ import type { LorebookImport } from "./lorebook-entry.js";
 import type { CardImportPlan } from "./card-import.js";
 import type { FactBudgetDrop } from "./fact-budget.js";
 import type { TokenProbabilityRecord } from "./token-probabilities.js";
+import type { GenerationRecordSummary, ResolvedGenerationRecord } from "./generation-record.js";
 import type { ReasoningRecord } from "./reasoning.js";
 import type { SamplingBiasResolutionResult } from "./sampling-capabilities.js";
 import type {
@@ -68,6 +69,9 @@ export const MUTATION_INPUT_PROTOCOL_VERSION = WORKER_PROTOCOL_VERSION;
 export const WORKER_BUILD_IDENTITY = AI_1667_BUILD_IDENTITY;
 export const WORKER_UNARY_TIMEOUT_MS = 15_000;
 export const WORKER_PROVIDER_CHECK_TIMEOUT_MS = 30_000;
+/** Generation Record reads can scan a complete bounded history or resolve a
+ * complete bounded source pipeline. Give these reads the transfer deadline. */
+export const WORKER_GENERATION_RECORD_READ_TIMEOUT_MS = 120_000;
 export const WORKER_MUTATION_DEADLINE_MS = 5 * 60_000;
 export const WORKER_STREAM_DEADLINE_MS = 30 * 60_000;
 export const WORKER_STARTUP_HEARTBEAT_MS = 2_000;
@@ -172,6 +176,12 @@ export interface WorkerMethodContract {
    *  stored record fails the request (typed 404 reason) rather than
    *  returning one. */
   getTokenProbabilities: { input: { storyId: string; nodeId: string }; output: TokenProbabilityRecord };
+  /** Every Generation Record event on one take, oldest first, projected to
+   *  what a history list needs — never the full prompt pipeline or effective
+   *  parameters, which getGenerationRecord fetches per id on demand. See
+   *  shared/generation-record.ts. */
+  getGenerationRecords: { input: { storyId: string; nodeId: string }; output: GenerationRecordSummary[] };
+  getGenerationRecord: { input: { storyId: string; nodeId: string; recordId: string }; output: ResolvedGenerationRecord };
   /** Reads a stored thought straight from the manifest and object store —
    *  never through StoryPayload, which carries presence only. A take with no
    *  stored thought fails the request (typed 404 reason) rather than
@@ -342,6 +352,11 @@ export const PROVIDER_CHECK_METHODS: ReadonlySet<WorkerMethod> = new Set([
   "discoverModels",
   "resolveSamplingBias",
   "countPromptTokens"
+]);
+
+export const GENERATION_RECORD_READ_METHODS: ReadonlySet<WorkerMethod> = new Set([
+  "getGenerationRecords",
+  "getGenerationRecord"
 ]);
 
 export const MUTATING_METHODS: ReadonlySet<MutatingWorkerMethod> = new Set([
@@ -596,7 +611,7 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "getUnknownOutcomeStatus", "previewChapterBreakRemoval",
   "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "setPhraseBias", "setBannedStrings", "autonameStory",
   "acknowledgeUnknownOutcomes", "deleteStory",
-  "exportMarkdown", "getTokenProbabilities", "getReasoning",
+  "exportMarkdown", "getTokenProbabilities", "getGenerationRecords", "getGenerationRecord", "getReasoning",
   "switchLine", "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut", "pasteStoryLine",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact", "getSettings",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",

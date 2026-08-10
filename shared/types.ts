@@ -36,8 +36,23 @@ export const MAX_HUMAN_EDIT_RANGES = 256;
  *  the same pathological-edit risk. */
 export const MAX_REWRITTEN_SPANS = 256;
 
+/** Keep a node's generation-record history bounded. A node accumulates one
+ *  entry per request event that created or changed it — an append, an
+ *  in-place rewrite — not per story part, so this is generous relative to
+ *  MAX_REWRITTEN_SPANS while still refusing a pathological append loop. */
+export const MAX_GENERATION_RECORD_IDS = 4_096;
+
 export const MAX_FACTS = 128;
-export const MAX_FACT_TEXT_CHARS = 4_000;
+// Raised from 4,000 (issue-driven): the character ceiling is no longer meant
+// to be the writer-visible constraint on Fact size. NovelAI and SillyTavern
+// World Info both govern entry size by token budget, not a character cap, and
+// `selectFactsWithinBudget` (shared/fact-budget.ts) already drops an
+// over-budget Fact whole rather than truncating it — so the token budget does
+// the real governing here too. Fact text is content-addressed and carried by
+// `revisionId` in the hash-pinned schema (scripts/story-schema-definition.ts
+// `StoredFactV5`), so this constant is free to move without a schema bump or
+// a data migration.
+export const MAX_FACT_TEXT_CHARS = 100_000;
 export const MAX_FACT_TAG_CHARS = 48;
 
 export type { FactActivation, FactPriority, FactRecursion, FactSecondaryMode };
@@ -143,6 +158,15 @@ export interface StoryNode {
    *  GET /api/stories/:id/nodes/:nodeId/token-probabilities, never carried
    *  automatically with the story. See shared/token-probabilities.ts. */
   tokenProbabilities?: true;
+  /** Ordered ids of every Generation Record event that created or changed
+   *  this node — an append, an in-place rewrite — oldest first. A node with
+   *  no model-request history (an old, human, or imported take) has none.
+   *  Each record is fetched on demand via
+   *  GET /api/stories/:id/nodes/:nodeId/generation-records/:recordId, never
+   *  carried automatically with the story. See shared/generation-record.ts.
+   *  Domain `Story.nodes` and undo/restore responses carry this list; the
+   *  wire `StoryPayload.path` never does — see `StoryPathNode`. */
+  generationRecordIds?: string[];
   /** This take's captured reasoning ("thought"). Presence only — the record
    *  itself is fetched on demand via
    *  GET /api/stories/:id/nodes/:nodeId/reasoning, never carried
@@ -158,6 +182,20 @@ export interface StoryNode {
    *  recorded (leaf, or story ends here on purpose). Must be a child's id. */
   activeChildId: string | null;
 }
+
+/** `StoryPayload.path`'s node shape: the same take the reader already has,
+ *  minus its Generation Record id list. A path node is prose already in
+ *  hand — its Generation Record history is fetched on demand (see
+ *  `GenerationRecordSummary` and `loadGenerationRecordSummaries`), so the
+ *  ordered id list itself never needs to travel with the story, only a
+ *  count. Mirrors `NodeStub.generationRecordCount`; computed once, in
+ *  `buildStoryPayload`, in place of `StoryNode.generationRecordIds`. The two
+ *  fields are mutually exclusive by construction: a path node can carry a
+ *  count, a domain or undo/restore `StoryNode` can carry ids, and neither
+ *  shape has room for the other. */
+export type StoryPathNode = Omit<StoryNode, "generationRecordIds"> & {
+  generationRecordCount?: number;
+};
 
 export const TAG_STATUSES = ["", "Canon", "Alt", "Draft", "Discarded", "Summary"] as const;
 
@@ -197,6 +235,10 @@ interface NodeStubBase {
   human?: true;
   /** See StoryNode.tokenProbabilities. */
   tokenProbabilities?: true;
+  /** How many Generation Record events this node has. Absent or 0 means none.
+   *  A count only — see StoryNode.generationRecordIds for the ordered ids,
+   *  fetched on demand. */
+  generationRecordCount?: number;
   /** See StoryNode.reasoning. */
   reasoning?: true;
   /** Presence only, mirroring `reasoning` and `tokenProbabilities`. See
@@ -264,7 +306,7 @@ export interface StoryPayload {
   bannedStrings?: readonly string[];
   firstChapterTitle?: string;
   nodes: NodeStub[];
-  path: StoryNode[];
+  path: StoryPathNode[];
   activeRootId: string | null;
   tags: Tag[];
   recentNodeIds: string[];
@@ -303,7 +345,7 @@ export function assertPromptReadyStoryPayload(value: unknown): asserts value is 
   const facts = requireArray(candidate, "facts", "story payload");
   const chapterBreaks = requireArray(candidate, "chapterBreaks", "story payload");
   candidate.nodes.forEach(assertNodeStub);
-  path.forEach(assertStoryNode);
+  path.forEach(assertStoryPathNode);
   tags.forEach(assertTag);
   if (!recentNodeIds.every((id) => typeof id === "string")) {
     throw new Error("The server returned invalid story payload.recentNodeIds.");
@@ -347,6 +389,12 @@ function assertNodeStub(value: unknown): void {
   optionalLiteral(node, "human", true, "story node stub");
   optionalLiteral(node, "editedByUser", true, "story node stub");
   optionalLiteral(node, "tokenProbabilities", true, "story node stub");
+  if (node.generationRecordCount !== undefined) {
+    requirePositiveInteger(node.generationRecordCount, "story node stub", "generationRecordCount");
+  }
+  if (node.generationRecordIds !== undefined) {
+    throw new Error("The server returned Generation Record ids in a story node stub.");
+  }
   optionalLiteral(node, "reasoning", true, "story node stub");
   optionalLiteral(node, "images", true, "story node stub");
   optionalLiteral(node, "role", "summary", "story node stub");
@@ -356,23 +404,28 @@ function assertNodeStub(value: unknown): void {
   if (node.coveredExtent !== undefined) assertCoveredExtent(node.coveredExtent, "story node stub.coveredExtent");
 }
 
-export function assertStoryNode(value: unknown): asserts value is StoryNode {
-  const node = requireRecord(value, "The server returned an invalid story path node.");
-  requireStrings(node, "story path node", "id", "instruction", "text", "model", "createdAt");
-  requireNullableString(node, "parentId", "story path node");
-  requireNullableString(node, "activeChildId", "story path node");
+const GENERATION_RECORD_ID_PATTERN = /^[a-f0-9]{64}$/u;
+
+/** Fields shared by every `StoryNode`-shaped wire value, regardless of
+ *  whether the caller wants the domain shape (`generationRecordIds` intact)
+ *  or the path shape (`generationRecordCount` only). Each field beyond this
+ *  common set is checked by the caller. */
+function assertStoryNodeShape(node: Record<string, unknown>, label: string): void {
+  requireStrings(node, label, "id", "instruction", "text", "model", "createdAt");
+  requireNullableString(node, "parentId", label);
+  requireNullableString(node, "activeChildId", label);
   for (const field of ["updatedAt", "genId", "chapterBreakId", "madeAt"] as const) {
-    optionalString(node, field, "story path node");
+    optionalString(node, field, label);
   }
-  optionalLiteral(node, "human", true, "story path node");
-  optionalLiteral(node, "editedByUser", true, "story path node");
-  optionalLiteral(node, "tokenProbabilities", true, "story path node");
-  optionalLiteral(node, "reasoning", true, "story path node");
-  optionalLiteral(node, "role", "summary", "story path node");
+  optionalLiteral(node, "human", true, label);
+  optionalLiteral(node, "editedByUser", true, label);
+  optionalLiteral(node, "tokenProbabilities", true, label);
+  optionalLiteral(node, "reasoning", true, label);
+  optionalLiteral(node, "role", "summary", label);
   if (node.imageAttachments !== undefined) {
-    assertStoryImageAttachments(node.imageAttachments, "story path node.imageAttachments");
+    assertStoryImageAttachments(node.imageAttachments, `${label}.imageAttachments`);
   }
-  if (node.coveredExtent !== undefined) assertCoveredExtent(node.coveredExtent, "story path node.coveredExtent");
+  if (node.coveredExtent !== undefined) assertCoveredExtent(node.coveredExtent, `${label}.coveredExtent`);
   if (node.attribution !== undefined && node.attribution !== null) {
     const attribution = requireRecord(node.attribution, "The server returned invalid human attribution.");
     if (attribution.source !== "human" || !Array.isArray(attribution.ranges)) {
@@ -394,6 +447,43 @@ export function assertStoryNode(value: unknown): asserts value is StoryNode {
       const range = requireRecord(value, "The server returned an invalid rewritten span.");
       requireNumbers(range, "rewritten span", "start", "end");
     }
+  }
+}
+
+/** Boundary assertion for a domain-shaped `StoryNode`: `Story.nodes`
+ *  entries and the full-fidelity nodes chapter-break undo/restore carries
+ *  (see `RemovedChapterBreak.summaries`). May carry `generationRecordIds`;
+ *  never carries the wire-only `generationRecordCount` projection — that
+ *  belongs to `StoryPathNode` alone. */
+export function assertStoryNode(value: unknown): asserts value is StoryNode {
+  const node = requireRecord(value, "The server returned an invalid story node.");
+  assertStoryNodeShape(node, "story node");
+  if (node.generationRecordCount !== undefined) {
+    throw new Error("The server returned a Generation Record count on a story node.");
+  }
+  if (node.generationRecordIds !== undefined) {
+    if (
+      !Array.isArray(node.generationRecordIds)
+      || node.generationRecordIds.length === 0
+      || node.generationRecordIds.length > MAX_GENERATION_RECORD_IDS
+      || node.generationRecordIds.some((id) => typeof id !== "string" || !GENERATION_RECORD_ID_PATTERN.test(id))
+    ) {
+      throw new Error("The server returned invalid story node Generation Record ids.");
+    }
+  }
+}
+
+/** Boundary assertion for `StoryPayload.path` entries: the reader's own
+ *  prose, wire-only. Never carries `generationRecordIds` — only the count
+ *  projection `buildStoryPayload` computes in its place. */
+export function assertStoryPathNode(value: unknown): asserts value is StoryPathNode {
+  const node = requireRecord(value, "The server returned an invalid story path node.");
+  assertStoryNodeShape(node, "story path node");
+  if (node.generationRecordIds !== undefined) {
+    throw new Error("The server returned Generation Record ids in a story path.");
+  }
+  if (node.generationRecordCount !== undefined) {
+    requirePositiveInteger(node.generationRecordCount, "story path node", "generationRecordCount");
   }
 }
 

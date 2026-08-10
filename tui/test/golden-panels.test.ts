@@ -217,13 +217,15 @@ describe("run C overlay frames", () => {
   });
 
   test("command palette groups actions and fuzzy-filters with a live Search field", async () => {
-    // Height 41, not 36: the Story section now carries the Author Brief and
-    // Facts budget commands alongside the Author's Note, so the unfiltered
-    // palette is taller than it was and needs the extra rows to reach the
-    // System section without scrolling. "attach image" exists in Take but
-    // stays hidden while image input's entry points are closed
+    // Height 47, not 36: the Story section carries the Author Brief and
+    // Facts budget commands alongside the Author's Note (from this branch),
+    // and the palette also includes story settings and the Generation Record
+    // Viewer (from the Generation Records project), so the unfiltered
+    // palette needs every one of those extra rows to reach the System
+    // section without scrolling. "attach image" exists in Take but stays
+    // hidden while image input's entry points are closed
     // (shared/image-input-release.ts), so it does not add a row here.
-    const grouped = await renderOnce(demoAppSource(), 120, 41, ":");
+    const grouped = await renderOnce(demoAppSource(), 120, 47, ":");
     expect(grouped).toContain("┏━ commands ━");
     expect(grouped).toContain("Search");
     const sectionOffsets = ["Suggested", "Story", "Take", "View", "System"]

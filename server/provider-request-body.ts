@@ -1,4 +1,5 @@
 import {
+  foldAuthorsNoteAcross,
   renderPromptPlan,
   type PromptBlock,
   type PromptPlan,
@@ -38,13 +39,7 @@ export async function buildOpenAiChatRequestBody(
    *  could cause. */
   imageBytes: ReadonlyMap<string, Uint8Array> = NO_IMAGE_BYTES
 ): Promise<Record<string, unknown>> {
-  const loweredPrompt = promptCacheAdapter(
-    "openai-chat-completions",
-    providerRuntimeFor(settings).preset,
-    settings.baseUrl
-  ) === "openai-official"
-    ? prompt
-    : foldAuthorsNote(prompt);
+  const loweredPrompt = lowerPromptForProvider(settings, prompt);
   let messages: unknown;
   const cacheFields: Record<string, unknown> = {};
   switch (cache.kind) {
@@ -125,7 +120,7 @@ export async function buildAnthropicMessagesRequestBody(
   /** See `buildOpenAiChatRequestBody`'s `imageBytes`. */
   imageBytes: ReadonlyMap<string, Uint8Array> = NO_IMAGE_BYTES
 ): Promise<Record<string, unknown>> {
-  const loweredPrompt = foldAuthorsNote(prompt);
+  const loweredPrompt = lowerPromptForProvider(settings, prompt);
   let system: string | readonly TextContentBlock[];
   let messages: unknown;
   switch (cache.kind) {
@@ -197,45 +192,32 @@ export async function buildAnthropicMessagesRequestBody(
   return body;
 }
 
-/** Fold the late note when the protocol has no in-conversation system turn.
- *  Folds into the first TEXT block of the following user turn: an image
- *  block, when the turn has one, always comes before that text block, so it
- *  is skipped rather than folded into. */
-function foldAuthorsNote(plan: PromptPlan): PromptPlan {
-  const noteIndex = plan.turns.findIndex((turn) =>
-    turn.blocks.some((block) => block.kind === "authors-note")
-  );
-  if (noteIndex === -1) return plan;
-  const noteTurn = plan.turns[noteIndex]!;
-  const noteText = noteTurn.blocks
-    .flatMap((block) => block.kind === "authors-note" ? [block.text] : [])
-    .join("");
-  const following = plan.turns[noteIndex + 1];
-  if (following === undefined || following.role !== "user") {
-    throw new Error("Author's Note must be followed by a user turn");
-  }
-  return {
-    ...plan,
-    turns: plan.turns.flatMap((turn, index) => {
-      if (index === noteIndex) return [];
-      if (index !== noteIndex + 1) return [turn];
-      return [foldNoteIntoFirstTextBlock(turn, noteText)];
-    })
-  };
+/** Fold the late note when the protocol has no in-conversation system turn. */
+export function providerFoldsAuthorsNote(settings: GenerationSettings): boolean {
+  if (settings.provider === "anthropic") return true;
+  if (settings.provider !== "openai-compatible") return false;
+  return promptCacheAdapter(
+    "openai-chat-completions",
+    providerRuntimeFor(settings).preset,
+    settings.baseUrl
+  ) !== "openai-official";
 }
 
-function foldNoteIntoFirstTextBlock(turn: PromptTurn, noteText: string): PromptTurn {
-  let folded = false;
-  const blocks = turn.blocks.map((block) => {
-    if (folded) return block;
-    if (block.kind === "image") return block;
-    folded = true;
-    return { ...block, text: `${noteText}\n\n${block.text}` };
-  });
-  if (!folded) {
-    throw new Error("Author's Note must be followed by a user turn with text");
-  }
-  return { ...turn, blocks };
+/** Return the exact prompt shape that the selected provider receives. */
+export function lowerPromptForProvider(
+  settings: GenerationSettings,
+  prompt: PromptPlan
+): PromptPlan {
+  return providerFoldsAuthorsNote(settings) ? foldAuthorsNote(prompt) : prompt;
+}
+
+/** `foldAuthorsNoteAcross` (shared/prompt-plan.ts) folds into the first TEXT
+ *  block of the following user turn: an image block, when the turn has one,
+ *  always comes before that text block, so it is skipped rather than folded
+ *  into. */
+function foldAuthorsNote(plan: PromptPlan): PromptPlan {
+  const turns = foldAuthorsNoteAcross(plan.turns, (turn) => turn, (_turn, folded) => folded);
+  return turns === plan.turns ? plan : { ...plan, turns };
 }
 
 function applyGenerationEffort(

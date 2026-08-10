@@ -60,6 +60,8 @@ read_when:
 | token probability | The probability that the model gave one generated token |
 | alternative token | One token that the model weighed at one position |
 | token probability viewer | The read-only view of the alternative tokens of one take |
+| Generation Record | The durable record of one model request that created or changed a take |
+| Generation Record Viewer | The read-only view of the Generation Record history of one take |
 | thought | The reasoning text that a model writes before it writes the prose of one take |
 | thought marker | The word in the margin that shows that a story part has a thought |
 | reasoning mode | The setting that selects how 1667 shows a thought |
@@ -83,6 +85,7 @@ read_when:
 | DRY | A sampling parameter group that lowers the probability of a token sequence that would repeat |
 | XTC | A sampling parameter group that removes the model's top token choices at random |
 | Mirostat | A sampling algorithm that holds output perplexity near a target value |
+| provider adjustment | A change 1667 made before or during a provider request |
 | mass map | A map that shows all takes |
 | provider | A local or hosted service that supplies a language model |
 | Text Completions | The provider protocol that sends one text prompt and receives one text continuation |
@@ -92,6 +95,7 @@ read_when:
 | working tier | User files in a project root |
 | frame | One complete terminal screen |
 | standalone executable | One executable that contains the runtime dependencies |
+| release note | One version's entry in `CHANGELOG.md` |
 | release target | One supported operating system and processor architecture |
 | data-directory ID | A random identifier in project state that Git can track |
 | data-directory claim ID | A machine-local identifier for one live copy of a project data directory |

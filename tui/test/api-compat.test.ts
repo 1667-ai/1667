@@ -32,6 +32,7 @@ import {
   HttpListenerAuthority
 } from "../../shared/http-listener-authority.js";
 import { decodeMarkdownHttpBody } from "../../shared/import-markdown-wire.js";
+import { MAX_GENERATION_RECORD_ENTRIES } from "../../shared/generation-record.js";
 
 const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; });
@@ -595,6 +596,40 @@ test("HTTP StoryApi validates chapter summaries at ingress and preserves legacy 
   expect((await rejection(api.loadStory("story")) as Error).message).toContain("story payload.title");
 });
 
+test("HTTP StoryApi rejects Generation Record ids on an ordinary story path node", async () => {
+  // StoryPayload.path only ever carries a count (see buildStoryPayload) — an
+  // id list there would mean the server leaked full Generation Record
+  // history into an ordinary story load.
+  const story = {
+    ...storyPayload("story"),
+    path: [storyNode("part", { generationRecordIds: ["a".repeat(64)] })]
+  };
+  globalThis.fetch = (async (input) => String(input).endsWith("/api/health")
+    ? Response.json(metadata())
+    : Response.json(story)) as typeof fetch;
+  const api = createApi("http://127.0.0.1:7373");
+
+  expect((await rejection(api.loadStory("story")) as Error).message)
+    .toContain("Generation Record ids in a story path");
+});
+
+test("HTTP StoryApi rejects Generation Record ids on an ordinary story node stub", async () => {
+  // StoryPayload.nodes stubs only ever carry generationRecordCount (see
+  // buildStoryPayload) — an id list there would leak full Generation Record
+  // history into an ordinary story load, same as the path boundary above.
+  const story = {
+    ...storyPayload("story"),
+    nodes: [storyStub("part", { generationRecordIds: ["a".repeat(64)] })]
+  };
+  globalThis.fetch = (async (input) => String(input).endsWith("/api/health")
+    ? Response.json(metadata())
+    : Response.json(story)) as typeof fetch;
+  const api = createApi("http://127.0.0.1:7373");
+
+  expect((await rejection(api.loadStory("story")) as Error).message)
+    .toContain("Generation Record ids in a story node stub");
+});
+
 test("HTTP StoryApi rejects malformed direct and chapter endpoint envelopes", async () => {
   let response: unknown = { ...storyPayload("story"), nodes: null };
   globalThis.fetch = (async (input) => {
@@ -642,11 +677,35 @@ test("HTTP StoryApi rejects malformed direct and chapter endpoint envelopes", as
   response = validRemoval;
   expect((await api.removeChapterBreak("story", "break")).removed.summaries[0]?.id).toBe("summary");
 
+  const recordId = "a".repeat(64);
+  response = {
+    ...validRemoval,
+    removed: { break: validBreak, summaries: [{ ...validSummary, generationRecordIds: [recordId] }] }
+  };
+  expect((await api.removeChapterBreak("story", "break")).removed.summaries[0]?.generationRecordIds)
+    .toEqual([recordId]);
+
   for (const [malformed, expected] of [
     [{ ...validRemoval, removed: null }, "removed chapter-break"],
     [{ ...validRemoval, removed: { break: {}, summaries: [] } }, "chapter break.id"],
     [{ ...validRemoval, removed: { break: validBreak, summaries: {} } }, "summaries"],
-    [{ ...validRemoval, removed: { break: validBreak, summaries: [validSummary, { id: "summary" }] } }, "story path node"]
+    [{ ...validRemoval, removed: { break: validBreak, summaries: [validSummary, { id: "summary" }] } }, "story node"],
+    [{ ...validRemoval, removed: { break: validBreak, summaries: [{ ...validSummary, generationRecordIds: ["bad"] }] } }, "Generation Record ids"],
+    // A removed chapter summary is a full domain node: it may carry the
+    // ordered id list, but never the wire-only path count, and never both
+    // at once (that impossible state used to slip through — see
+    // decodeRemovedChapterSummary's old strip-then-recast).
+    [{ ...validRemoval, removed: { break: validBreak, summaries: [{ ...validSummary, generationRecordCount: 2 }] } }, "Generation Record count"],
+    [
+      {
+        ...validRemoval,
+        removed: {
+          break: validBreak,
+          summaries: [{ ...validSummary, generationRecordIds: [recordId], generationRecordCount: 1 }]
+        }
+      },
+      "Generation Record count"
+    ]
   ] as const) {
     response = malformed;
     expect((await rejection(api.removeChapterBreak("story", "break")) as Error).message)
@@ -808,7 +867,267 @@ test("HTTP StoryApi rejects malformed successful responses for every response fa
       grade: "near-exact",
       total: 3,
       perMessage: [3]
-    }, () => api.countPromptTokens([{ role: "user", content: "Hi" }]), "prompt token count response.perMessage"]
+    }, () => api.countPromptTokens([{ role: "user", content: "Hi" }]), "prompt token count response.perMessage"],
+    [
+      [{ id: "a".repeat(64), kind: "not-a-kind", createdAt: "2026-01-01T00:00:00.000Z" }],
+      () => api.getGenerationRecords("story", "node"),
+      "Generation Record summary[0].kind"
+    ],
+    [
+      {
+        format: "wrong-format",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: { operation: "continue", entries: [] }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.format"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: {
+          operation: "continue",
+          entries: [{ role: "user", stability: "volatile", kind: "not-a-real-kind", source: "text", text: "Continue." }]
+        }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt.entries[0].kind"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: {
+          operation: "continue",
+          // A resolved revision-source entry is always "stable" — this one
+          // claims "volatile" instead of the shape its own `source:
+          // "revisions"` requires.
+          entries: [{ stability: "volatile", kind: "source", source: "revisions", parts: [] }]
+        }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt.entries[0].stability"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "append",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        range: { start: 5, end: 2 },
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: { operation: "continue", entries: [] }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.range.end"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: {
+          operation: "continue",
+          // One entry past MAX_GENERATION_RECORD_ENTRIES (32): the bound a
+          // malformed response cannot use to force an unbounded render.
+          entries: Array.from({ length: MAX_GENERATION_RECORD_ENTRIES + 1 }, () => (
+            { role: "user", stability: "volatile", kind: "request", source: "text", text: "Continue." }
+          ))
+        }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt.entries"
+    ],
+    [
+      [{ id: "", kind: "continue", createdAt: "2026-01-01T00:00:00.000Z" }],
+      () => api.getGenerationRecords("story", "node"),
+      "Generation Record summary[0].id"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: {
+          operation: "continue",
+          entries: [{
+            stability: "stable",
+            kind: "source",
+            source: "revisions",
+            // A resolved source part's revisionId is the same 64-hex text-
+            // revision id the stored codec requires; a shorter string could
+            // never have named a real revision.
+            parts: [{ nodeId: "n1", category: "recent", instruction: "", revisionId: "not-a-hash", text: "prose" }]
+          }]
+        }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt.entries[0].parts[0].revisionId"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: {
+          operation: "continue",
+          entries: [{
+            stability: "stable",
+            kind: "source",
+            source: "revisions",
+            // A resolved source part's nodeId names the story node it came
+            // from; the empty string never names one.
+            parts: [{ nodeId: "", category: "recent", instruction: "", revisionId: "a".repeat(64), text: "prose" }]
+          }]
+        }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt.entries[0].parts[0].nodeId"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        // The resolved detail route reuses the stored codec's provider
+        // parser unchanged (shared/generation-record-resolved.ts); an
+        // unrecognized key must be rejected here too, not just on the
+        // stored side.
+        provider: { provider: "dry-run", model: "dry-run", credential: "leaked" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: { operation: "continue", entries: [] }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.provider"
+    ],
+    // A resolved-record id must be the same 64-lowercase-hex shape the
+    // stored side requires — nothing else can ever have been a real
+    // Generation Record id, and the TUI places this string directly into a
+    // detail-route URL.
+    ...(["../reasoning", "a".repeat(63), "A".repeat(64)] as const).map((id) => [
+      [{ id, kind: "continue", createdAt: "2026-01-01T00:00:00.000Z" }],
+      () => api.getGenerationRecords("story", "node"),
+      "Generation Record summary[0].id"
+    ] as [unknown, () => Promise<unknown>, string]),
+    // An unknown key must be rejected at every distinct resolved wire
+    // boundary the TUI decodes, not only the ones the stored codec's own
+    // requireKeys calls happen to cover through shared parsers.
+    [
+      [{ id: "a".repeat(64), kind: "continue", createdAt: "2026-01-01T00:00:00.000Z", extra: true }],
+      () => api.getGenerationRecords("story", "node"),
+      "Generation Record summary[0] contains unknown key: extra"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: { operation: "continue", entries: [] },
+        extra: true
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record contains unknown key: extra"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: { operation: "continue", entries: [], extra: true }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt contains unknown key: extra"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: {
+          operation: "continue",
+          entries: [{ role: "user", stability: "volatile", kind: "request", source: "text", text: "Continue.", extra: true }]
+        }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt.entries[0] contains unknown key: extra"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: {
+          operation: "continue",
+          entries: [{ stability: "stable", kind: "source", source: "revisions", parts: [], extra: true }]
+        }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt.entries[0] contains unknown key: extra"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: {
+          operation: "continue",
+          entries: [{
+            stability: "stable",
+            kind: "source",
+            source: "revisions",
+            parts: [{
+              nodeId: "n1",
+              category: "recent",
+              instruction: "",
+              revisionId: "a".repeat(64),
+              text: "prose",
+              extra: true
+            }]
+          }]
+        }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt.entries[0].parts[0] contains unknown key: extra"
+    ]
   ];
   for (const [payload, request, expected] of malformed) {
     response = payload;
@@ -1082,6 +1401,18 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
       return Response.json({ kind: "estimate", reason: "no-source" });
     }
     if (path.endsWith("/export")) return new Response("# Story\n");
+    if (path.endsWith("/generation-records")) return Response.json([]);
+    if (path.includes("/generation-records/")) {
+      return Response.json({
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: { operation: "continue", entries: [] }
+      });
+    }
     if (path === "/api/import/sillytavern") {
       return Response.json({
         payload: storyPayload("imported"),
@@ -1113,6 +1444,8 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
   await api.discoverModels(DEMO_SETTINGS_VIEW.effective);
   await api.countPromptTokens([{ role: "user", content: "Hi" }]);
   await api.exportMarkdown("story");
+  await api.getGenerationRecords("story", "node");
+  await api.getGenerationRecord("story", "node", "a".repeat(64));
   await api.importSillyTavern("{}");
   await api.importMarkdown("Opening prose.", "Draft title");
   await api.importNovelAI("{}");
@@ -1128,6 +1461,8 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
     WORKER_PROVIDER_CHECK_TIMEOUT_MS,
     WORKER_PROVIDER_CHECK_TIMEOUT_MS,
     WORKER_PROVIDER_CHECK_TIMEOUT_MS,
+    HTTP_OPERATION_LIFETIME_MS.transfer,
+    HTTP_OPERATION_LIFETIME_MS.transfer,
     HTTP_OPERATION_LIFETIME_MS.transfer,
     HTTP_OPERATION_LIFETIME_MS.transfer,
     HTTP_OPERATION_LIFETIME_MS.transfer,

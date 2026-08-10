@@ -361,6 +361,19 @@ async function invokeReadOnly(
         requireString(input.storyId, "storyId"),
         requireString(input.nodeId, "nodeId")
       );
+    case "getGenerationRecords":
+      return await service.getGenerationRecords(
+        requireString(input.storyId, "storyId"),
+        requireString(input.nodeId, "nodeId"),
+        signal
+      );
+    case "getGenerationRecord":
+      return await service.getGenerationRecord(
+        requireString(input.storyId, "storyId"),
+        requireString(input.nodeId, "nodeId"),
+        requireString(input.recordId, "recordId"),
+        signal
+      );
     case "getReasoning":
       return await service.getReasoning(
         requireString(input.storyId, "storyId"),

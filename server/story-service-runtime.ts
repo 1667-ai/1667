@@ -7,6 +7,7 @@ import {
   storyIdFromMutationIntent
 } from "./mutation-outbox.js";
 import { createMutationCoordinator } from "./mutation-coordinator.js";
+import { MUTATION_RECEIPT_DIRECTORY } from "./chapter-break-undo-liveness.js";
 import { MutationReceiptStore } from "./mutation-receipts.js";
 import { PromptCacheRuntime } from "./provider-cache-policy.js";
 import { readDataDirectoryFormat } from "./data-directory-format.js";
@@ -116,7 +117,9 @@ export abstract class StoryServiceRuntime {
   private readonly activeOperations = new Set<Promise<unknown>>();
   private readonly archivedMutationCleanup =
     new LifecycleRetry<string>();
-  private readonly generationAdmission = new GenerationAdmissionRegistry();
+  private readonly generationAdmission = new GenerationAdmissionRegistry(
+    (storyId, revisionIds) => this.stories.pinRevisions(storyId, revisionIds)
+  );
   private readonly rewritePartials = new PartialRewriteStash();
   private readonly promptCache = new PromptCacheRuntime();
   private readonly lifecycle = new ServiceLifecycle();
@@ -370,7 +373,17 @@ export abstract class StoryServiceRuntime {
   private configureStorage(storageRoot: string, displayPath: string): void {
     this.dataDir = displayPath;
     this.storageRoot = storageRoot;
-    this.stories = new StoryStore(path.join(storageRoot, "stories"));
+    this.stories = new StoryStore(
+      path.join(storageRoot, "stories"),
+      undefined,
+      undefined,
+      undefined,
+      // A closure, not a direct reference: `this.mutationReceipts` is
+      // constructed after `this.stories` below (it resolves stories through
+      // `this.stories.load`), so this must read the field lazily. StoryStore
+      // never calls it before both are constructed and initialized.
+      (storyId) => this.mutationReceipts.liveGenerationRecordIds(storyId)
+    );
     this.settings = new SettingsStore(storageRoot, {
       activationMode: this.settingsActivation,
       coordinator: this.mutationCoordinator,
@@ -428,7 +441,7 @@ export abstract class StoryServiceRuntime {
         await this.stories.schedulePendingCleanup(storyId)
     });
     this.mutationReceipts = new MutationReceiptStore(
-      path.join(storageRoot, "mutation-receipts"),
+      path.join(storageRoot, MUTATION_RECEIPT_DIRECTORY),
       async (id) => buildStoryPayload(await this.stories.load(id)),
       async (error) => await this.errorReporter.report(
         error,

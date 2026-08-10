@@ -5,6 +5,7 @@ import { applyProviderStoryEffect, type ContinueStoryEffect } from "../server/st
 import { assertNoAppendImageAttachments, commitTake, type TakeCommit } from "../server/story-nodes.js";
 import { sha256 } from "../server/story-format.js";
 import type { StoryImageAttachment } from "../shared/image-attachment.js";
+import { createGenerationRecord } from "../shared/generation-record.js";
 
 /**
  * Coverage for "attach on commit": copying the token-probabilities pattern
@@ -39,6 +40,16 @@ function story(nodes: StoryNode[], activeRootId: string | null): Story {
 
 function attachment(objectId: string): StoryImageAttachment {
   return { objectId, mediaType: "image/png", width: 4, height: 4, byteLength: 10 };
+}
+
+function generationRecordFixture() {
+  return createGenerationRecord({
+    kind: "continue",
+    createdAt: AT,
+    provider: { provider: "dry-run", model: "dry-run" },
+    effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+    prompt: { operation: "continue", entries: [] }
+  });
 }
 
 test("commitTake attaches Image Attachments to a freshly created take", () => {
@@ -120,7 +131,8 @@ test("applyProviderStoryEffect attaches images on the writer-moved new-take bran
     expectedAppendActiveChildId: null,
     expectedActiveRootId: root.id,
     expectedActiveLeafId: root.id,
-    imageAttachments: [attachment("b".repeat(64))]
+    imageAttachments: [attachment("b".repeat(64))],
+    generationRecord: generationRecordFixture()
   };
   const applied = await applyProviderStoryEffect(s, effect, hydrate);
   assert.equal(applied.changed, true);

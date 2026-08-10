@@ -7,7 +7,7 @@ import { liveObjectIds, manifestImageIds, StoryFormatError, sha256 } from "../se
 import { StoryObjectStore } from "../server/story-objects.js";
 import type { StoryManifestV7 } from "../server/story-format.js";
 
-const EMPTY_LIVE = { revisions: [], leaves: { probabilities: [], reasoning: [], images: [] } };
+const EMPTY_LIVE = { revisions: [], leaves: { probabilities: [], reasoning: [], images: [] }, generationRecords: [] };
 
 async function tempDir(t: import("node:test").TestContext, prefix: string): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), prefix));
@@ -59,7 +59,7 @@ test("story objects: sweep keeps an image live.leaves.images names and removes a
   const drop = await objects.storeImage(Buffer.from("orphaned image bytes"));
   await objects.flush();
 
-  const live = { revisions: [], leaves: { probabilities: [], reasoning: [], images: [keep] } };
+  const live = { revisions: [], leaves: { probabilities: [], reasoning: [], images: [keep] }, generationRecords: [] };
   const completed = await objects.sweep(live);
   assert.equal(completed, true);
   await readFile(objects.objectPath("images", keep));
@@ -74,7 +74,7 @@ test("story objects: sweep fails closed when live.leaves.images names a missing 
   await objects.flush();
   const missing = sha256(Buffer.from("never stored"));
 
-  const live = { revisions: [], leaves: { probabilities: [], reasoning: [], images: [missing] } };
+  const live = { revisions: [], leaves: { probabilities: [], reasoning: [], images: [missing] }, generationRecords: [] };
   await assert.rejects(
     () => objects.sweep(live),
     /Missing images object/
@@ -159,7 +159,11 @@ test("a sweep protects an image the manifest references even with no live Draft 
   await objects.flush();
 
   const manifest = manifestFixture([manifestNode("n1", [{ objectId: referenced }])]);
-  const live = { revisions: [], leaves: { probabilities: [], reasoning: [], images: manifestImageIds(manifest) } };
+  const live = {
+    revisions: [],
+    leaves: { probabilities: [], reasoning: [], images: manifestImageIds(manifest) },
+    generationRecords: []
+  };
 
   // Nothing beyond the manifest reference is in `live.leaves.images`: only
   // that reference protects `referenced`.

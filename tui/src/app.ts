@@ -30,6 +30,7 @@ import { openingFocusIndex, readingPartIdFor, type ReadingPositions } from "./re
 import { bindLiveReadingPositionState } from "./reading-position-persist.js";
 import { handleOverlayAction } from "./overlay-actions.js";
 import { createNoticeLog, recordSessionNotices } from "./notice-log.js";
+import { announceRelease } from "./release-announcement.js";
 import { openSettingsPasteTarget } from "./editor-open.js";
 import { createPalette } from "./palette.js";
 import {
@@ -569,6 +570,10 @@ export async function runInteractive(source: AppSource): Promise<void> {
   renderer.on(CliRenderEvents.RESIZE, () => {
     frames.invalidate("resize");
   });
+  // Before the first `repaint()`, so a startup toast is part of the opening
+  // frame, and before the background update check starts, so its own
+  // notice cannot take the toast line first.
+  announceRelease(state, source);
   repaint();
   // One-shot requestRender frames while idle; renderables may request a live
   // loop explicitly when they own native animation.
@@ -785,6 +790,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     retakePrompt: null,
     request: null,
     probs: null,
+    record: null,
     toast: null,
     notices: createNoticeLog(),
     stream: renderMode && source.demo ? leafStreamView(source.payload) : null,

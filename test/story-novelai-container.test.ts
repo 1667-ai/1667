@@ -17,15 +17,23 @@ import {
 
 test("A long Memory is cut on a paragraph boundary and reported", async (t) => {
   const service = await temporaryService(t);
-  const firstParagraph = "m".repeat(3_000);
-  const secondParagraph = "n".repeat(1_500);
+  // Sized off MAX_FACT_TEXT_CHARS rather than a fresh literal, so this stays
+  // correct if the cap moves again: firstParagraph alone sits past the cap's
+  // floor (half the cap), and firstParagraph + secondParagraph together pass
+  // the cap, so the cut must land on the paragraph break and drop the second
+  // paragraph whole.
+  const firstParagraph = "m".repeat(Math.floor(MAX_FACT_TEXT_CHARS * 0.75));
+  const secondParagraph = "n".repeat(Math.floor(MAX_FACT_TEXT_CHARS * 0.5));
   const result = await service.importNovelAIWithReport(novelAiStoryContainer({
     context: { memory: `${firstParagraph}\n\n${secondParagraph}` }
   }));
 
   assert.equal(result.payload.facts[0]?.text, firstParagraph);
   assert.ok(result.payload.facts[0]!.text.length <= MAX_FACT_TEXT_CHARS);
-  assert.match(fidelityReport(result.fidelity), /memory truncated to 4,000 characters/u);
+  assert.match(
+    fidelityReport(result.fidelity),
+    new RegExp(`memory truncated to ${MAX_FACT_TEXT_CHARS.toLocaleString()} characters`, "u")
+  );
 });
 
 test("A long Author's Note is cut to 4,000 Unicode scalars and reported", async (t) => {
