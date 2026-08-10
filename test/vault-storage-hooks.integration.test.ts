@@ -86,6 +86,27 @@ test("an alias collision can clear a failed scoped registration without leaving 
   assert.equal(registeredKey!.every((byte) => byte === 0), true);
 });
 
+test("a nested vault registration takes precedence over its containing vault", async (t) => {
+  const outer = await mkdtemp(path.join(tmpdir(), "1667-vault-nested-registration-"));
+  t.after(async () => await rm(outer, { recursive: true, force: true }));
+  const inner = path.join(outer, "nested", ".1667");
+  await mkdir(inner, { recursive: true });
+  const outerKey = randomBytes(32);
+  const innerKey = randomBytes(32);
+  const outerRegistration = registerVaultKey(outer, outerKey);
+  const innerRegistration = registerVaultKey(inner, innerKey);
+  t.after(() => {
+    innerRegistration.clear();
+    outerRegistration.clear();
+  });
+
+  assert.deepEqual(
+    vaultKeyForPath(path.join(inner, "story.json")),
+    innerKey
+  );
+  assert.equal(vaultKeyForPath(path.join(inner, "vault.json")), null);
+});
+
 test("only the documented story cleanup marker remains plaintext", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-vault-cleanup-control-"));
   t.after(async () => await rm(root, { recursive: true, force: true }));
