@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { GenerationRecordSummary } from "../shared/generation-record.js";
 import type { StoryPayload } from "../shared/types.js";
-import { API_PROTOCOL_HEADERS } from "./http-test-client.js";
+import { API_PROTOCOL_HEADERS, fetchWithApiProtocol } from "./http-test-client.js";
 import {
+  doneStory,
   fakeModel,
   getStory,
   json,
@@ -11,6 +12,7 @@ import {
   post,
   providerTest,
   seededStory,
+  stream,
   testApp as providerTestApp
 } from "./provider-http-fixture.js";
 
@@ -66,9 +68,7 @@ providerTest(
 providerTest(
   "Generation Record list and detail canonical paths still resolve once trailing segments are rejected",
   async (t) => {
-    const model = await fakeModel(t, (_body, response) => {
-      assert.fail("this test issues no generation request");
-    });
+    const model = await fakeModel(t, (_body, response) => stream(response, ["A take."]));
     const base = await providerTestApp(t, modelSettings(model.baseUrl), "1667-http-route-exactness-gr-");
     const story = await seededStory(base, "A story with no takes yet.");
     const root = story.path[0]!;
@@ -82,9 +82,12 @@ providerTest(
       `${base}/api/stories/${story.id}/nodes/${root.id}/generation-records/${"0".repeat(64)}/junk`,
       { headers: API_PROTOCOL_HEADERS }
     );
-    assert.equal(listWithJunk.status, 404);
-    // Rejected by the route-shape boundary itself, before dispatch.
-    assert.match(await listWithJunk.text(), /No route/);
+    assert.equal(listWithJunk.status, 400);
+    // One segment past the record id overflows the canonical path's own
+    // segment-count limit. parseCanonicalApiPath rejects it before any
+    // route — this one included — ever sees it, so this is not the
+    // "No route" rejection a shared-prefix mismatch produces below.
+    assert.match(await listWithJunk.text(), /API path must use canonical nonempty segments/);
 
     const detailNotFound = await fetch(
       `${base}/api/stories/${story.id}/nodes/${root.id}/generation-records/${"0".repeat(64)}`,
@@ -95,6 +98,27 @@ providerTest(
     // still reaches the service, which 404s for its own, distinguishable
     // reason — proving the boundary did not swallow the legitimate route.
     assert.match(await detailNotFound.text(), /no such Generation Record/);
-    assert.equal(model.requests.length, 0);
+
+    // A real record, fetched through the same canonical detail shape,
+    // resolves all the way to the service. That proves the rejections
+    // above are about path shape, not about the route being gone.
+    const response = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/continue`, post({
+      parentId: root.id, instruction: "Continue.", genId: "route-exactness-gr"
+    }));
+    const returned = doneStory(await response.text());
+    const generatedNode = returned.path.at(-1);
+    if (generatedNode === undefined) throw new Error("continuation did not commit a take");
+
+    const summaries = await json<GenerationRecordSummary[]>(
+      `${base}/api/stories/${story.id}/nodes/${generatedNode.id}/generation-records`
+    );
+    assert.equal(summaries.length, 1);
+
+    const record = await json<{ format: string; kind: string }>(
+      `${base}/api/stories/${story.id}/nodes/${generatedNode.id}/generation-records/${summaries[0]!.id}`
+    );
+    assert.equal(record.format, "1667-generation-record");
+    assert.equal(record.kind, "continue");
+    assert.equal(model.requests.length, 1);
   }
 );

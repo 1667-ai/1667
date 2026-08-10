@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
-import test from "node:test";
 import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../shared/generation-record.js";
-import { API_PROTOCOL_HEADERS } from "./http-test-client.js";
-import { post } from "./provider-http-fixture.js";
-import { json, testApp } from "./story-server-fixture.js";
+import { API_PROTOCOL_HEADERS, fetchWithApiProtocol } from "./http-test-client.js";
+import {
+  doneStory,
+  fakeModel,
+  json,
+  modelSettings,
+  post,
+  providerTest,
+  stream,
+  testApp
+} from "./provider-http-fixture.js";
 
 /**
  * Generation Records: every model request that creates or changes a take
@@ -15,10 +22,9 @@ import { json, testApp } from "./story-server-fixture.js";
  * test/generation-record-pipeline.test.ts for the storage-layer coverage.
  */
 
-const linuxTest = process.platform === "linux" ? test : test.skip;
-
-linuxTest("the HTTP routes list and read a take's Generation Records", async (t) => {
-  const base = await testApp(t, "1667-generation-record-http-");
+providerTest("the HTTP routes list and read a take's Generation Records", async (t) => {
+  const model = await fakeModel(t, (_body, response) => stream(response, ["Written by a model."]));
+  const base = await testApp(t, modelSettings(model.baseUrl), "1667-generation-record-http-");
 
   const created = await json<{ id: string }>(`${base}/api/stories`, post({ title: "Story" }));
   const story = await json<{ id: string; path: { id: string }[] }>(
@@ -32,11 +38,14 @@ linuxTest("the HTTP routes list and read a take's Generation Records", async (t)
   );
   assert.deepEqual(empty, []);
 
-  const continued = await json<{ payload: { path: { id: string; generationRecordCount?: number }[] } } | null>(
-    `${base}/api/stories/${created.id}/continue`,
-    post({ parentId: humanNodeId, instruction: "Continue.", genId: "gen-http" })
-  );
-  const generatedNode = continued?.payload.path.at(-1);
+  // POST /continue always answers over SSE, success or failure alike, so the
+  // take it commits has to come from the streamed "done" event, never from
+  // parsing the response body as a single JSON document.
+  const response = await fetchWithApiProtocol(`${base}/api/stories/${created.id}/continue`, post({
+    parentId: humanNodeId, instruction: "Continue.", genId: "gen-http"
+  }));
+  const returned = doneStory(await response.text());
+  const generatedNode = returned.path.at(-1);
   if (generatedNode === undefined) throw new Error("continuation did not commit a take");
 
   const summaries = await json<GenerationRecordSummary[]>(
@@ -65,9 +74,9 @@ linuxTest("the HTTP routes list and read a take's Generation Records", async (t)
   assert.equal(sourceEntry.parts[0]?.nodeId, humanNodeId);
   assert.equal(sourceEntry.parts[0]?.text, "Written by a human, not a model.");
 
-  const response = await fetch(
+  const notFound = await fetch(
     `${base}/api/stories/${created.id}/nodes/${generatedNode.id}/generation-records/${"0".repeat(64)}`,
     { headers: API_PROTOCOL_HEADERS }
   );
-  assert.equal(response.status, 404);
+  assert.equal(notFound.status, 404);
 });
