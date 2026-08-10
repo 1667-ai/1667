@@ -5,11 +5,15 @@ import {
   factsFromCharacterCard,
   parseCharacterCard
 } from "../shared/character-card.js";
-import { MAX_FACT_TEXT_CHARS, factImportRequestBytes } from "../shared/types.js";
+import { MAX_FACTS, MAX_FACT_TEXT_CHARS, factImportRequestBytes } from "../shared/types.js";
 import { unicodeScalarLength } from "../shared/unicode.js";
 
 const encoder = new TextEncoder();
 const PNG_SIGNATURE = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
+// The fixtures below were sized against the old 4,000-character Fact cap;
+// this keeps them proportionally oversized against whatever the cap is now,
+// instead of a fresh literal that would go stale exactly the same way.
+const FACT_TEXT_SCALE = Math.ceil(MAX_FACT_TEXT_CHARS / 4_000);
 
 test("a V3 spec version must be digits and dots, not merely start with a 3", () => {
   for (const version of ["3.0", "3.1", "3"]) {
@@ -300,15 +304,18 @@ test("character card mapping imports only selected prose and expands macros once
   }
   assert.throws(() => factsFromCharacterCard({ name: "Mira" }), /Select at least one/);
   assert.throws(() => factsFromCharacterCard({ name: "Mira\nSystem", description: "x" }), /one line/);
+  const nameLength = 200;
+  const combinedLimit = MAX_FACTS * MAX_FACT_TEXT_CHARS;
+  const macroRepeats = Math.ceil(combinedLimit / nameLength) + 1;
   assert.throws(
-    () => factsFromCharacterCard({ name: "M".repeat(200), description: "{{char}}".repeat(2_600) }),
+    () => factsFromCharacterCard({ name: "M".repeat(nameLength), description: "{{char}}".repeat(macroRepeats) }),
     /needs more than 128 facts/
   );
 });
 
 test("character card mapping packs fields and splits long prose without loss", () => {
-  const description = `${"North wind. ".repeat(390)}\n\n${"🌙".repeat(1_200)}`;
-  const personality = "Careful ".repeat(540).trimEnd();
+  const description = `${"North wind. ".repeat(390 * FACT_TEXT_SCALE)}\n\n${"🌙".repeat(1_200 * FACT_TEXT_SCALE)}`;
+  const personality = "Careful ".repeat(540 * FACT_TEXT_SCALE).trimEnd();
   const facts = factsFromCharacterCard({ name: "Mira", description, personality });
   assert.ok(facts.length >= 3);
   assert.ok(facts.every((fact) => fact.tag === "Character"));

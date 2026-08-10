@@ -43,6 +43,7 @@ import {
 } from "../../shared/story-search.js";
 import type { RemovedChapterBreak, StoryApi } from "./api.js";
 import type { AppSource } from "./app.js";
+import { normalizeUserConfig } from "./config.js";
 import { demoResolveSamplingBias } from "./demo-token-ids.js";
 import { streamFake } from "./fake-stream.js";
 import {
@@ -842,15 +843,7 @@ export function demoAppSource(dense = false): AppSource {
     // that path sends its keys and captures the frame at once, so a scan that
     // had not started yet would be captured for ever as `searching…`.
     searchDebounceMs: 0,
-    config: {
-      theme: "lantern",
-      factsRail: "auto",
-      composeFocus: "off",
-      wordWrap: "on",
-      composeMaxHeight: null,
-      quota: { date: "", words: 0 },
-      updates: { mode: "notify", channel: "stable", skippedVersion: null }
-    },
+    config: normalizeUserConfig({ updates: { mode: "notify" } }),
     readingPositions: {}
   };
 }

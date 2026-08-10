@@ -11,11 +11,12 @@ declare module "bun:test" {
     toThrow(expected?: string | RegExp): void;
     toBeTrue(): void;
     toBeFalse(): void;
+    toBeNull(): void;
     toMatch(expected: string | RegExp): void;
     toBeGreaterThan(expected: number): void;
     toBeDefined(): void;
     toBeLessThan(expected: number): void;
-    not: { toContain(expected: unknown): void; toBe(expected: unknown): void };
+    not: { toContain(expected: unknown): void; toBe(expected: unknown): void; toBeNull(): void };
   };
 }
 

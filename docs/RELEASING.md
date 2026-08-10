@@ -165,6 +165,20 @@ package must contain this content before publication.
 
 ## Required trusted inputs
 
+Add the new version's section to `CHANGELOG.md` before you collect these
+inputs. Then run `npm run notes:write` and commit the updated
+`shared/release-notes.ts`. The build embeds this file in the executable. A
+release without this step ships a binary whose own release notes stop one
+version early.
+
+The release workflow enforces this: every job that verifies source authority
+also runs `npm run notes:check-version -- <version>`, which fails the release
+unless `CHANGELOG.md` has a `## <version> - <date>` section. This step exists
+because `notes:check` alone cannot catch a missing section — it only verifies
+the generated file matches whatever headings already exist, and a version
+still sitting under `## Unreleased` has none. Fix a failure here by adding the
+section and running `npm run notes:write` before you tag.
+
 Collect these inputs before preflight:
 
 1. Use a clean source commit.

@@ -255,6 +255,36 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names. Thanks @10fra for the request.
 
+## 0.6.1-rc.1 - 2026-08-10
+
+- **Alt count no longer loses a long generation on KoboldCpp.** KoboldCpp
+  sends the alternative tokens of a whole generation in one message, so that
+  message grows with the generation. Past about a thousand tokens it crossed a
+  size limit, and 1667 ended the generation and dropped the prose. The limit
+  now follows the output limit for the generation, up to a fixed ceiling. A
+  message within that limit but still too large to keep gives no alternative
+  token for that take, and the generation keeps its prose. A message past the
+  ceiling still ends the generation, the same as any other oversized response
+  from the model. Thanks @10fra for the report.
+
+- **A Fact can now hold up to 100,000 characters, and an over-long Fact says
+  so.** The old limit was 4,000 characters, well under what a NovelAI
+  Lorebook entry or a SillyTavern World Info entry allows. The token budget
+  already governs what a request sends, so the character limit no longer
+  needs to be so tight. The Fact editor shows a character count as a Fact
+  nears the new limit. It also refuses an over-limit Fact right away, with a
+  message that names the limit. Before this fix, the refusal could arrive
+  after the writer's next keystroke had already cleared it from view.
+
+- **1667 shows the release notes after an upgrade.** The first run of a new
+  build shows a toast: `Updated to <version> · press ! for what changed`.
+  Press `!` to open the log. The log shows the release note for each version
+  between your last run and this one. An existing installation that predates
+  this feature shows the release note for the version it lands on, because
+  1667 cannot know its earlier version. 1667 shows this one time for each
+  upgrade. A fresh install shows nothing, because a new writer has no earlier
+  version to compare against.
+
 ## 0.2.1 - 2026-08-01
 
 - **Facts can now activate only when request context matches their keys.** The

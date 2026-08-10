@@ -43,7 +43,14 @@ import {
 } from "./settings-overlay-actions.js";
 import { synchronizeSettingsModelDiscovery } from "./settings-model-discovery.js";
 import { panelContentRows } from "./screens/overlay.js";
-import { boundedNoticeCursor, clearNoticeLog, recordNotice } from "./notice-log.js";
+import { logBodyHeight, maxNoticeScrollOffset } from "./screens/log.js";
+import {
+  boundedNoticeCursor,
+  clearNoticeLog,
+  recordNotice,
+  setNoticeCursor,
+  type NoticeLog
+} from "./notice-log.js";
 import { copyToClipboard } from "./clipboard.js";
 import {
   openRequestViewer,
@@ -117,12 +124,15 @@ export async function handleOverlayAction(
     // The notice the writer came from is the newest one, and `recordNotices`
     // already put the cursor on it. The map is a place, so closing the log
     // has to put the writer back in it rather than on the page.
-    state.notices.cursor = boundedNoticeCursor(state.notices, state.notices.cursor);
+    setNoticeCursor(state.notices, state.notices.cursor);
     state.notices.returnMode = state.mode === "MAP" ? "MAP" : "NAV";
     state.mode = "LOG";
     return true;
   }
-  if (state.mode === "LOG") { await logAction(resolved, state); return true; }
+  if (state.mode === "LOG") {
+    await logAction(resolved, state, context.renderer?.height, context.renderer?.width);
+    return true;
+  }
   if (resolved.action === "open-library") { await openLibrary(state, source, context); return true; }
   if (resolved.action === "open-facts") {
     state.facts = initialFacts();
@@ -207,23 +217,43 @@ export async function handleOverlayAction(
   return false;
 }
 
-/** C-37's keys: `↑↓` move · `↵` copies · `x` clears · `!` or `esc` closes.
- *  Clearing is unceremonious — the log holds nothing the story needs. */
-async function logAction(resolved: ResolvedKey, state: RuntimeState): Promise<void> {
+/** C-37's keys: `↑↓` move · `⇧↑↓` scrolls a line and `pgup`/`pgdn` a page
+ *  within the focused notice · `↵` copies · `x` clears · `!` or `esc`
+ *  closes. Clearing is unceremonious — the log holds nothing the story needs.
+ *  `terminalHeight` sizes a scroll page exactly to what `renderLogScreen`
+ *  paints, the same way `scrollKeysReference` sizes its own page below.
+ *  `terminalWidth` joins it to clamp the stored offset itself (not just the
+ *  rendered window): without a width, `noticeRows` cannot say how tall the
+ *  focused notice actually is, so an unclamped offset could grow past the
+ *  notice's last row and leave `pageup` seemingly frozen while it unwinds. */
+async function logAction(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  terminalHeight?: number,
+  terminalWidth?: number
+): Promise<void> {
   const log = state.notices;
   if (resolved.action === "cancel") {
     state.mode = log.returnMode;
     return;
   }
   if (resolved.action === "focus-next" || resolved.action === "focus-previous") {
-    log.cursor = boundedNoticeCursor(
-      log,
-      log.cursor + (resolved.action === "focus-next" ? 1 : -1)
-    );
+    setNoticeCursor(log, log.cursor + (resolved.action === "focus-next" ? 1 : -1));
     return;
   }
   if (resolved.action === "focus-index" && resolved.index !== undefined) {
-    log.cursor = boundedNoticeCursor(log, resolved.index);
+    setNoticeCursor(log, resolved.index);
+    return;
+  }
+  if (resolved.action === "scroll-line-down" || resolved.action === "scroll-line-up") {
+    const delta = resolved.action === "scroll-line-down" ? 1 : -1;
+    log.scrollOffset = scrolledNoticeOffset(log, delta, terminalWidth, terminalHeight);
+    return;
+  }
+  if (resolved.action === "scroll-down" || resolved.action === "scroll-up") {
+    const page = terminalHeight === undefined ? 1 : logBodyHeight(terminalHeight);
+    const delta = resolved.action === "scroll-down" ? page : -page;
+    log.scrollOffset = scrolledNoticeOffset(log, delta, terminalWidth, terminalHeight);
     return;
   }
   if (resolved.action === "clear-log") {
@@ -237,6 +267,43 @@ async function logAction(resolved: ResolvedKey, state: RuntimeState): Promise<vo
     // notice the writer just copied off the top, so the log stays quiet here.
     await copyToClipboard(notice.text);
   }
+}
+
+/** Bound a requested scroll offset to the focused notice's actual last row.
+ *  Without a live renderer (an early input before the first frame, or a
+ *  test harness), a conservative 80x24 stands in — the same fallback size
+ *  `context.renderer?.width ?? 80` and `?? 24` already use elsewhere (see
+ *  story-actions.ts's composeAction and editor-action.ts) — so the offset
+ *  still cannot grow without bound; it is just bounded by an assumed size
+ *  instead of the real one until a frame reports it. */
+function clampedNoticeScrollOffset(
+  log: NoticeLog,
+  requested: number,
+  terminalWidth: number | undefined,
+  terminalHeight: number | undefined
+): number {
+  const maxOffset = maxNoticeScrollOffset(log, terminalWidth ?? 80, terminalHeight ?? 24);
+  return Math.max(0, Math.min(maxOffset, requested));
+}
+
+/** Apply a scroll delta to the *currently valid* clamped offset, not to the
+ *  raw stored one. A terminal resize since the last scroll leaves
+ *  `log.scrollOffset` stale — `windowStart` clamps it for display but never
+ *  writes the clamped value back — so growing the terminal can leave it well
+ *  past the new maximum. Basing the delta on the stale value there would
+ *  produce a keypress that visibly does nothing, or jumps the wrong
+ *  distance, until enough presses absorb the gap: the same symptom
+ *  `clampedNoticeScrollOffset` exists to prevent, reached by a different
+ *  route. No resize hook and no new state: the very next scroll keypress
+ *  after a resize is what re-grounds the offset. */
+function scrolledNoticeOffset(
+  log: NoticeLog,
+  delta: number,
+  terminalWidth: number | undefined,
+  terminalHeight: number | undefined
+): number {
+  const current = clampedNoticeScrollOffset(log, log.scrollOffset, terminalWidth, terminalHeight);
+  return clampedNoticeScrollOffset(log, current + delta, terminalWidth, terminalHeight);
 }
 
 /** The reference only reads and scrolls; `open-keys` owns the reset. Page

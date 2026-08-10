@@ -317,7 +317,8 @@ describe("user config normalization", () => {
       wordWrap: "on",
       composeMaxHeight: null,
       quota: { date: "2026-07-21", words: 42 },
-      updates: { mode: "off", channel: "stable", skippedVersion: null }
+      updates: { mode: "off", channel: "stable", skippedVersion: null },
+      lastRunVersion: null
     });
   });
 
@@ -332,7 +333,8 @@ describe("user config normalization", () => {
         channel: "beta",
         skippedVersion: "1.2.3"
       },
-      quota: { date: "", words: 0 }
+      quota: { date: "", words: 0 },
+      lastRunVersion: "0.5.0"
     })).toMatchObject({
       theme: "hi-contrast light",
       factsRail: "off",
@@ -342,7 +344,8 @@ describe("user config normalization", () => {
         mode: "off",
         channel: "beta",
         skippedVersion: "1.2.3"
-      }
+      },
+      lastRunVersion: "0.5.0"
     });
   });
 
@@ -364,7 +367,8 @@ describe("user config normalization", () => {
         channel: "nightly",
         skippedVersion: "01.2.3"
       },
-      quota: { date: 12, words: "many" }
+      quota: { date: 12, words: "many" },
+      lastRunVersion: "01.2.3"
     })).toEqual({
       theme: "lantern",
       factsRail: "auto",
@@ -372,7 +376,8 @@ describe("user config normalization", () => {
       wordWrap: "on",
       composeMaxHeight: null,
       quota: { date: "", words: 0 },
-      updates: { mode: "off", channel: "stable", skippedVersion: null }
+      updates: { mode: "off", channel: "stable", skippedVersion: null },
+      lastRunVersion: null
     });
     expect(normalizeUserConfig(null)).toEqual(normalizeUserConfig([]));
   });

@@ -16,6 +16,7 @@ import { splitLegacyStoryLines } from "./import-nai-legacy-lines.js";
 import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
 import {
   MAX_FACTS,
+  MAX_FACT_TEXT_CHARS,
   MAX_STORED_TITLE_CHARS,
   type FactInput
 } from "../shared/types.js";
@@ -144,7 +145,7 @@ export function extractFacts(
       let text = normalized;
       if (!factTextWithinLimit(text)) {
         text = truncateFactText(text);
-        fidelity.push("memory truncated to 4,000 characters");
+        fidelity.push(`memory truncated to ${MAX_FACT_TEXT_CHARS.toLocaleString()} characters`);
       }
       memoryFact = { tag: "memory", text, activation: "always", keys: [] };
     }
@@ -190,7 +191,7 @@ export function extractAuthorsNote(
   const norm = normalizeAuthorsNote(anEntry.text);
   if (norm === null) return null;
   if (unicodeScalarLength(norm, MAX_AUTHORS_NOTE_CHARS + 1) > MAX_AUTHORS_NOTE_CHARS) {
-    fidelity.push("author's note truncated to 4,000 characters");
+    fidelity.push(`author's note truncated to ${MAX_AUTHORS_NOTE_CHARS.toLocaleString()} characters`);
     return sliceUnicodeScalarPrefix(norm, MAX_AUTHORS_NOTE_CHARS);
   }
   return norm;

@@ -194,7 +194,7 @@ line, word, and Unicode-safe boundaries. It does not truncate selected text.
 - Maximum character card file size: 20 MB
 - Maximum decoded card JSON size: 1 MB
 - Maximum character name length: 200 UTF-16 code units
-- Maximum Fact input length: 4,000 Unicode scalar values
+- Maximum Fact input length: 100,000 Unicode scalar values
 - Maximum result: 128 Fact inputs
 - Maximum card import request size: 1 MB
 

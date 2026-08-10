@@ -87,6 +87,7 @@ read_when:
 | working tier | User files in a project root |
 | frame | One complete terminal screen |
 | standalone executable | One executable that contains the runtime dependencies |
+| release note | One version's entry in `CHANGELOG.md` |
 | release target | One supported operating system and processor architecture |
 | data-directory ID | A random identifier in project state that Git can track |
 | data-directory claim ID | A machine-local identifier for one live copy of a project data directory |
