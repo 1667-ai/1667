@@ -122,13 +122,21 @@ function sourcePart(
   instructionEntry: Extract<ContinuationPromptEntry, { partId: string }>
 ): GenerationRecordSourcePart | null {
   const node = byId.get(instructionEntry.partId);
-  // A node whose text is not yet a durable, reusable revision (freshly
-  // minted within this same request, so nothing has stored it yet) is
-  // omitted rather than guessed at; that is a narrow, honest gap, not a
-  // fabricated reference.
+  // A node the plan cited but the story no longer has, or one whose prose
+  // raced to empty between plan-build and record-build, carries nothing to
+  // reference — that is a narrow, honest gap, not a fabricated reference.
   if (node === undefined || node.text.trim().length === 0) return null;
   const revisionId = reusableStoredRevisionId(node);
-  if (revisionId === undefined) return null;
+  // A node with real prose but no durable, reusable revision — an
+  // unmigrated legacy story's context, most commonly — cannot be cited
+  // safely: silently dropping it would let the record claim a complete
+  // pipeline while omitting historical prose the provider actually saw.
+  // The caller (`finalizeGenerationRecord` / `captureGenerationRecordHandoff`)
+  // already turns a thrown entries() failure into an explicit `unsupported`
+  // record instead of a partial one.
+  if (revisionId === undefined) {
+    throw new Error(`Story node ${node.id} has prose but no reusable stored revision to reference`);
+  }
   return {
     nodeId: node.id,
     category: instructionEntry.category,
