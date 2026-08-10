@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { GenerationResultError } from "../server/errors.js";
 import { continueStory } from "../server/generation-http.js";
 import { GenerationAdmissionRegistry } from "../server/generation-admission.js";
 import { commitNode } from "../server/node-commit.js";
@@ -397,6 +398,140 @@ test("a stop-save commit still resolves its source revision after cleanup runs b
   // ordinary sweep — the transient handoff pin has done its job and released.
   await stories.waitForMaintenance();
   await readFile(objects.objectPath("revisions", originalRevisionId));
+});
+
+// GenerationAdmissionRegistry.rememberModel reuses an existing story/genId
+// slot without touching whatever handoff already lives there. So when a
+// stopped attempt A's handoff sits in that slot and a later, sequential
+// attempt B with the *same* genId streams to completion and commits
+// directly (never stopping, so it never captures a handoff of its own), A's
+// handoff and revision pin used to survive B's commit indefinitely — nothing
+// but eviction or process shutdown would ever release them, since no
+// stop-save for this genId is coming anymore.
+test("a stopped continuation's handoff is released once a same-genId retry completes and commits directly", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-superseded-handoff-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const stories = new StoryStore(dir);
+  await stories.init();
+  const story = await stories.create("Story");
+
+  const releasedRevisionIds: string[][] = [];
+  const admission = new GenerationAdmissionRegistry((_storyId, revisionIds) => {
+    const pinned = [...revisionIds];
+    releasedRevisionIds.push(pinned);
+    return () => pinned.push("released");
+  });
+  const controller = new AbortController();
+  const stop = stopAfterFirstDelta(controller);
+
+  const stopped = await continueStory(
+    story.id,
+    { parentId: null, instruction: "Continue.", genId: "gen-superseded" },
+    stories,
+    stubSettingsStore(dryRunSettings()),
+    new PromptCacheRuntime(),
+    admission,
+    stop.onDelta,
+    controller.signal
+  );
+  assert.equal(stopped, null);
+  assert.notEqual(admission.generationRecordHandoffFor(story.id, "gen-superseded"), undefined);
+  // Exactly one pin so far — A's captured handoff.
+  assert.equal(releasedRevisionIds.length, 1);
+  assert.equal(releasedRevisionIds[0]!.includes("released"), false);
+
+  // Attempt B reuses the same genId (a client retry) but this time is never
+  // stopped — it streams to completion and commits on its own.
+  const completed = await continueStory(
+    story.id,
+    { parentId: null, instruction: "Continue.", genId: "gen-superseded" },
+    stories,
+    stubSettingsStore(dryRunSettings()),
+    new PromptCacheRuntime(),
+    admission,
+    () => {},
+    new AbortController().signal
+  );
+  const node = completed?.nodes.find((candidate) => candidate.genId === "gen-superseded");
+  if (node === undefined) throw new Error("direct completion did not commit a take");
+
+  // B never stopped, so it minted no handoff of its own (no second pin) —
+  // A's now-superseded handoff and its revision pin must be released once
+  // B's own commit lands, not left to leak until FIFO eviction or disposal.
+  assert.equal(releasedRevisionIds.length, 1);
+  assert.equal(releasedRevisionIds[0]!.includes("released"), true);
+  assert.equal(admission.generationRecordHandoffFor(story.id, "gen-superseded"), undefined);
+  // The model attribution itself is unrelated bookkeeping and survives.
+  assert.equal(admission.modelFor(story.id, "gen-superseded"), "dry-run");
+  await stories.waitForMaintenance();
+});
+
+// The companion case: a same-genId retry's direct commit can still fail
+// (the story changed under it). A failed commit must not release A's
+// handoff or lease — there is no other later commit left that could still
+// consume it.
+test("a stopped continuation's handoff survives when a same-genId retry's commit fails", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-superseded-handoff-fails-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const stories = new StoryStore(dir);
+  await stories.init();
+  const story = await stories.create("Story");
+  const root = await stories.createNode(story.id, null, "Root prose.", "");
+  const rootId = root.nodes[0]!.id;
+
+  const releasedRevisionIds: string[][] = [];
+  const admission = new GenerationAdmissionRegistry((_storyId, revisionIds) => {
+    const pinned = [...revisionIds];
+    releasedRevisionIds.push(pinned);
+    return () => pinned.push("released");
+  });
+  const controller = new AbortController();
+  const stop = stopAfterFirstDelta(controller);
+
+  const stopped = await continueStory(
+    story.id,
+    { parentId: rootId, instruction: "Continue.", genId: "gen-fails-retry" },
+    stories,
+    stubSettingsStore(dryRunSettings()),
+    new PromptCacheRuntime(),
+    admission,
+    stop.onDelta,
+    controller.signal
+  );
+  assert.equal(stopped, null);
+  assert.notEqual(admission.generationRecordHandoffFor(story.id, "gen-fails-retry"), undefined);
+
+  // Attempt B streams to completion, but its parent is deleted out from
+  // under it the moment its own stream starts producing text — a genuine
+  // commit-time conflict (not a stop) that only surfaces once
+  // commitProviderEffect re-reads the story.
+  let deleted = false;
+  const onDelta = async () => {
+    if (deleted) return;
+    deleted = true;
+    await stories.deleteNode(story.id, rootId, 1);
+  };
+
+  await assert.rejects(
+    continueStory(
+      story.id,
+      { parentId: rootId, instruction: "Continue.", genId: "gen-fails-retry" },
+      stories,
+      stubSettingsStore(dryRunSettings()),
+      new PromptCacheRuntime(),
+      admission,
+      onDelta,
+      new AbortController().signal
+    ),
+    (error) => error instanceof GenerationResultError && error.status === 409
+  );
+
+  // The failed commit must not have released A's still-unconsumed handoff or
+  // its revision pin — retain the lease for whatever retry follows.
+  assert.notEqual(admission.generationRecordHandoffFor(story.id, "gen-fails-retry"), undefined);
+  assert.equal(releasedRevisionIds.length, 1);
+  assert.equal(releasedRevisionIds[0]!.includes("released"), false);
+  await stories.waitForMaintenance();
 });
 
 function dryRunSettings(): GenerationSettings {

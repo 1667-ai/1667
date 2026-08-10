@@ -365,7 +365,7 @@ export async function continueStory(
       entries: () => continuationRecordEntries(story, continuation, providerFoldsAuthorsNote(settings)),
       collector: generationRecordCollector
     });
-    return await stories.commitProviderEffect(id, {
+    const committed = await stories.commitProviderEffect(id, {
       kind: "continue",
       parentId,
       appendTo,
@@ -384,6 +384,17 @@ export async function continueStory(
       generationRecord,
       cancelled: signal
     });
+    // This attempt committed directly (it never stopped, so it never captured
+    // its own handoff above) — any handoff still sitting in this genId's slot
+    // belongs to an earlier, superseded attempt (Stop raced a retry that then
+    // completed on its own). That attempt's stop-save can no longer be the
+    // one true record of this genId, so its revision pin must go now, not
+    // wait for a stop-save commit that will never come. A duplicate-genId
+    // commit above (`changed: false`) still resolves rather than throwing, so
+    // it releases here too. A thrown commit must not reach this line — the
+    // lease and handoff stay intact for whatever retry follows.
+    generationAdmission.releaseGenerationRecordHandoff(id, genId);
+    return committed;
   } catch (error) {
     if (error instanceof HttpError
       && error.code === "story_manifest_requires_successor") {
