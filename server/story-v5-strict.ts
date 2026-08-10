@@ -1,6 +1,7 @@
 import {
   MAX_FACTS,
   MAX_FACT_TAG_CHARS,
+  MAX_GENERATION_RECORD_IDS,
   MAX_HUMAN_EDIT_RANGES,
   MAX_RECENT_LINES,
   MAX_REWRITTEN_SPANS,
@@ -54,7 +55,7 @@ const NODE = closedShape([
 ], [
   "preview", "words", "tokens", "updatedAt", "genId", "rewriteId", "role", "chapterBreakId",
   "coveredExtent", "madeAt", "editedByUser", "human", "syntheticEmpty", "tokenProbabilityId",
-  "attribution", "rewrittenSpans"
+  "generationRecordIds", "attribution", "rewrittenSpans"
 ]);
 const EXTENT = closedShape(["fromPartId", "toPartId"]);
 const ATTRIBUTION = closedShape(["source", "ranges"], ["deletedCharacters"]);
@@ -160,6 +161,11 @@ function assertNode(value: unknown, label: string): void {
   assertHash(node.revisionId, `${label}.revisionId`);
   if (node.tokenProbabilityId !== undefined) {
     assertHash(node.tokenProbabilityId, `${label}.tokenProbabilityId`);
+  }
+  if (node.generationRecordIds !== undefined) {
+    const ids = boundedArray(node.generationRecordIds, `${label}.generationRecordIds`, MAX_GENERATION_RECORD_IDS);
+    if (ids.length === 0) throw new StoryFormatError(`${label}.generationRecordIds must not be empty when present`);
+    ids.forEach((id, index) => assertHash(id, `${label}.generationRecordIds[${index}]`));
   }
   if (node.attribution !== undefined && node.attribution !== null) {
     assertAttribution(node.attribution, `${label}.attribution`);

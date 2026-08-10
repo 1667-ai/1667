@@ -558,7 +558,7 @@ export function decodeChapterBreakRemovedResponse(
   return { payload, removed: { break: chapterBreak, summaries } };
 }
 
-function responseRecord(value: unknown, label: string): Record<string, unknown> {
+export function responseRecord(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`The server did not return a ${label} response envelope.`);
   }
@@ -585,7 +585,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-function stringField(value: Record<string, unknown>, field: string, label: string): string {
+export function stringField(value: Record<string, unknown>, field: string, label: string): string {
   const candidate = value[field];
   if (typeof candidate !== "string") invalidField(label, field);
   return candidate;
@@ -603,7 +603,7 @@ function positiveIntegerField(value: Record<string, unknown>, field: string, lab
   return candidate;
 }
 
-function nonNegativeIntegerField(value: Record<string, unknown>, field: string, label: string): number {
+export function nonNegativeIntegerField(value: Record<string, unknown>, field: string, label: string): number {
   const candidate = numberField(value, field, label);
   if (!Number.isSafeInteger(candidate) || candidate < 0) invalidField(label, field);
   return candidate;
@@ -633,7 +633,7 @@ function decodePerMessageTokenCounts(value: unknown, label: string): readonly nu
 
 /** Narrow a wire value against the shared list that declares it, so a decoder
  * never carries its own copy of a union that can grow without it. */
-function isMember<T extends string>(values: readonly T[], candidate: unknown): candidate is T {
+export function isMember<T extends string>(values: readonly T[], candidate: unknown): candidate is T {
   return typeof candidate === "string" && (values as readonly string[]).includes(candidate);
 }
 
@@ -643,6 +643,6 @@ function booleanField(value: Record<string, unknown>, field: string, label: stri
   return candidate;
 }
 
-function invalidField(label: string, field: string): never {
+export function invalidField(label: string, field: string): never {
   throw new Error(`The server returned invalid ${label}.${field}.`);
 }

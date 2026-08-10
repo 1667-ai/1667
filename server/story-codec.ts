@@ -32,7 +32,7 @@ import {
   type StoryManifestV5,
   type TextRevisionV1
 } from "./story-format.js";
-import { cloneAttribution, cloneRewrittenSpans } from "./story-format-nodes.js";
+import { cloneAttribution, cloneGenerationRecordIds, cloneRewrittenSpans } from "./story-format-nodes.js";
 import { createStoryReadCache, StoryObjectStore } from "./story-objects.js";
 import {
   attachStoredNodeText,
@@ -45,6 +45,7 @@ import {
   reusableStoredRevisionId,
   reusableTokenProbabilityId
 } from "./story-node-text.js";
+import { takePendingGenerationRecords } from "./story-node-generation-records.js";
 import { takePendingTokenProbabilities } from "./story-node-token-probabilities.js";
 import { reusableRevisionId, type StoryRevisionSnapshot } from "./story-snapshot.js";
 import { setStoryAutonameId, storyAutonameId } from "./story-metadata.js";
@@ -116,6 +117,21 @@ export async function encodeStoryBundle(
     );
   }
 
+  // Every id already in node.generationRecordIds is durable — either read
+  // back from the manifest this Story decoded from, or appended synchronously
+  // by appendPendingGenerationRecord when this process minted it — so the
+  // array itself needs no reuse lookup the way a node's single revisionId
+  // does. Only hashes this commit just minted still need their bytes
+  // written — every one of them, in append order, since a node can carry
+  // more than one pending record; takePendingGenerationRecords also clears
+  // the side table, so a later encode of the same long-lived Story never
+  // stores any of them twice.
+  for (const node of story.nodes) {
+    for (const pending of takePendingGenerationRecords(node)) {
+      await objects.storeGenerationRecord(pending, reuseFrom);
+    }
+  }
+
   const nodes: StoredNodeV1[] = story.nodes.map((node, index) => ({
     id: node.id,
     parentId: node.parentId,
@@ -136,6 +152,9 @@ export async function encodeStoryBundle(
     ...(node.human === undefined ? {} : { human: node.human }),
     revisionId: requireEncodedRevision(revisionIds[index], node.id),
     ...(tokenProbabilityIds[index] === undefined ? {} : { tokenProbabilityId: tokenProbabilityIds[index] }),
+    ...(cloneGenerationRecordIds(node.generationRecordIds) === undefined
+      ? {}
+      : { generationRecordIds: cloneGenerationRecordIds(node.generationRecordIds) }),
     ...(node.attribution === undefined ? {} : { attribution: cloneAttribution(node.attribution) }),
     ...(node.rewrittenSpans === undefined ? {} : { rewrittenSpans: cloneRewrittenSpans(node.rewrittenSpans) }),
     activeChildId: node.activeChildId
@@ -240,6 +259,11 @@ export async function decodeStoryBundle(
       // Presence only — the record itself is fetched on demand, never loaded
       // with the story. See shared/token-probabilities.ts.
       ...(stored.tokenProbabilityId === undefined ? {} : { tokenProbabilities: true as const }),
+      // The ordered id list itself, not a presence flag — the reader fetches
+      // one Generation Record at a time by id. See shared/generation-record.ts.
+      ...(cloneGenerationRecordIds(stored.generationRecordIds) === undefined
+        ? {}
+        : { generationRecordIds: cloneGenerationRecordIds(stored.generationRecordIds) }),
       activeChildId: stored.activeChildId
     };
     attachStoredNodeText(node, stored, text);

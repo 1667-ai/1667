@@ -130,7 +130,7 @@ async function handleApi(
 ): Promise<void> {
   const method = request.method ?? "GET";
   const segments = parseCanonicalApiPath(pathname);
-  const [rawHead, id, sub, subId, action] = segments;
+  const [rawHead, id, sub, subId, action, extra] = segments;
   response.setHeader(
     HTTP_SERVER_INSTANCE_HEADER,
     context.authRecord.instanceId
@@ -645,6 +645,13 @@ async function handleApi(
       200,
       await service.getTokenProbabilities(id, subId)
     );
+  }
+  if (head === "stories" && id !== undefined && sub === "nodes" && subId !== undefined
+    && action === "generation-records" && method === "GET") {
+    if (extra === undefined) {
+      return sendJson(response, 200, await service.getGenerationRecords(id, subId));
+    }
+    return sendJson(response, 200, await service.getGenerationRecord(id, subId, extra));
   }
   if (head === "stories" && id !== undefined && sub === "prune-unused-takes" && method === "POST") {
     return sendJson(response, 200, await mutate("pruneUnusedTakes", {

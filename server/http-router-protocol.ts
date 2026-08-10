@@ -12,6 +12,7 @@ export function parseCanonicalApiPath(pathname: string): readonly [
   string?,
   string?,
   string?,
+  string?,
   string?
 ] {
   const segments = pathname.split("/");
@@ -19,11 +20,12 @@ export function parseCanonicalApiPath(pathname: string): readonly [
     || segments[1] !== "api"
     || segments.length < 3
     || segments.slice(2).some((segment) => segment.length === 0)
-    || segments.length > 7) {
+    || segments.length > 8) {
     throw new ServiceError(400, "API path must use canonical nonempty segments");
   }
   return segments.slice(2) as [
     string,
+    string?,
     string?,
     string?,
     string?,

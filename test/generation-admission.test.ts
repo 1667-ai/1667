@@ -7,6 +7,7 @@ import {
   MAX_GENERATION_MODEL_ATTRIBUTIONS
 } from "../server/generation-admission.js";
 import { ServiceError } from "../server/errors.js";
+import type { GenerationRecordHandoff } from "../server/generation-record-handoff.js";
 import { parseWorkerMutation } from "../server/worker-mutations.js";
 import { continuationPlan } from "../shared/continuation-plan.js";
 import type { GenerationSettings, StoryFact, StoryNode } from "../shared/types.js";
@@ -79,6 +80,50 @@ test("generation model attribution is story-scoped, globally bounded, and cleara
   assert.equal(registry.modelFor("story-b", "shared"), undefined);
   assert.equal(registry.modelFor("overflow", "new"), undefined);
 });
+
+// The stop-and-save handoff (a stopped continuation's captured Generation
+// Record ingredients) rides in the same bounded, story/gen-scoped slot as
+// the model string above — never a second, separately-bounded map — so it
+// inherits that array's eviction and clearing for free. This asserts it
+// actually does, and that a handoff for a tuple `rememberModel` already
+// tracked fills the existing slot instead of growing the array.
+test("a generation record handoff shares the model attribution's bounded, clearable slot", () => {
+  const registry = new GenerationAdmissionRegistry();
+  registry.rememberModel("story-a", "gen-a", "model-a");
+  registry.rememberGenerationRecordHandoff("story-a", "gen-a", fakeHandoff("model-a"));
+  assert.equal(registry.modelFor("story-a", "gen-a"), "model-a");
+  assert.equal(registry.generationRecordHandoffFor("story-a", "gen-a")?.model, "model-a");
+
+  // Filling every other bounded slot must not evict this one — if the
+  // handoff above had grown the array instead of reusing rememberModel's
+  // existing entry, this would already have pushed "story-a"/"gen-a" out.
+  for (let index = 0; index < MAX_GENERATION_MODEL_ATTRIBUTIONS - 1; index += 1) {
+    registry.rememberModel(`story-${index}`, `gen-${index}`, `model-${index}`);
+  }
+  assert.equal(registry.modelFor("story-a", "gen-a"), "model-a");
+  assert.equal(registry.generationRecordHandoffFor("story-a", "gen-a")?.model, "model-a");
+
+  // One more distinct tuple overflows the shared bound and evicts the oldest
+  // slot — the handoff riding in it is gone exactly when the model is.
+  registry.rememberGenerationRecordHandoff("overflow", "new", fakeHandoff("new-model"));
+  assert.equal(registry.modelFor("story-a", "gen-a"), undefined);
+  assert.equal(registry.generationRecordHandoffFor("story-a", "gen-a"), undefined);
+  assert.equal(registry.generationRecordHandoffFor("overflow", "new")?.model, "new-model");
+
+  registry.clear();
+  assert.equal(registry.generationRecordHandoffFor("overflow", "new"), undefined);
+});
+
+function fakeHandoff(model: string): GenerationRecordHandoff {
+  return {
+    provider: "dry-run",
+    model,
+    operation: "continue",
+    appendSegmentStart: null,
+    effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+    entries: { ok: true, entries: [] }
+  };
+}
 
 test("worker continuation targets cannot shadow the authoritative generation envelope", () => {
   const envelope = {

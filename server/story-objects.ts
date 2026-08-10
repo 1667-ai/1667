@@ -34,6 +34,13 @@ import {
   type TokenProbabilityRecord
 } from "../shared/token-probabilities.js";
 import {
+  generationRecordSourceRevisionIds,
+  MAX_GENERATION_RECORD_BYTES,
+  parseGenerationRecord,
+  serializeGenerationRecord,
+  type GenerationRecord
+} from "../shared/generation-record.js";
+import {
   drainPromises,
   isErrorCode,
   isLinkFallback,
@@ -47,12 +54,13 @@ import {
 
 export type { ObjectKind } from "./story-object-fs.js";
 /** Every hash a save must protect from a concurrent sweep: the live
- *  revision graph and the live token probability objects. Kept as one
- *  object, not two positional lists, so a call site can never update one
- *  without the other. */
+ *  revision graph, the live token probability objects, and the live
+ *  Generation Record objects. Kept as one object, not positional lists, so a
+ *  call site can never update one without the others. */
 export interface LiveStoryObjectIds {
   readonly revisions: readonly ObjectHash[];
   readonly probabilities: readonly ObjectHash[];
+  readonly generationRecords: readonly ObjectHash[];
 }
 const OBJECT_IO_CONCURRENCY = 16;
 const REVISION_IO_CONCURRENCY = 4;
@@ -69,7 +77,8 @@ const SHARD_PATTERN = exactStringPattern("[a-f0-9]{2}");
 const COMMITTED_ID_LABELS: Record<ObjectKind, string> = {
   chunks: "committed chunk id",
   revisions: "committed revision id",
-  probabilities: "committed token probabilities id"
+  probabilities: "committed token probabilities id",
+  "generation-records": "committed generation record id"
 };
 
 export interface StoryObjectStoreOptions {
@@ -102,25 +111,37 @@ export class StoryObjectStore {
   private readonly verifiedObjects: Record<ObjectKind, Set<ObjectHash>> = {
     chunks: new Set(),
     revisions: new Set(),
-    probabilities: new Set()
+    probabilities: new Set(),
+    "generation-records": new Set()
   };
   private readonly pendingObjects: Record<ObjectKind, Map<ObjectHash, Promise<void>>> = {
     chunks: new Map(),
     revisions: new Map(),
-    probabilities: new Map()
+    probabilities: new Map(),
+    "generation-records": new Map()
   };
   private readonly knownRevisions = new Map<ObjectHash, TextRevisionV1>();
+  /** Every live generation record's own referenced revision ids, cached by
+   * this record's hash so a sweep and a same-save verifyGraph never parse the
+   * same record object twice. Populated whenever a record is stored or read,
+   * so a record this instance just wrote never needs a read-back to learn
+   * what it already knows. */
+  private readonly knownGenerationRecordSourceRevisions = new Map<ObjectHash, readonly ObjectHash[]>();
   /** Bare ids adopted from the currently committed manifest, kept apart by
    * object kind like `verifiedObjects` and `pendingObjects` above. Their
    * bodies were never read by this instance, so they are held apart from
    * `verifiedObjects`, which only ever contains hashes proven against bytes.
    * A probabilities object has no nested graph to enumerate — it is a leaf,
    * unlike a revision's chunks — so a bare id is all there is to adopt for
-   * either kind. */
+   * either kind. A generation-records object can reference further revision
+   * ids of its own (`generationRecordSourceRevisionIds`), so adopting its
+   * bare id does not exempt those referenced revisions from verification —
+   * only the record object itself. */
   private readonly trustedCommitted: Record<ObjectKind, Set<ObjectHash>> = {
     chunks: new Set(),
     revisions: new Set(),
-    probabilities: new Set()
+    probabilities: new Set(),
+    "generation-records": new Set()
   };
   private readonly dirtyShards = new Set<string>();
   private firstWriteBarrier: Promise<void> | null = null;
@@ -140,7 +161,8 @@ export class StoryObjectStore {
     await drainPromises([
       this.withKind("chunks", true, async () => undefined),
       this.withKind("revisions", true, async () => undefined),
-      this.withKind("probabilities", true, async () => undefined)
+      this.withKind("probabilities", true, async () => undefined),
+      this.withKind("generation-records", true, async () => undefined)
     ]);
   }
 
@@ -185,6 +207,43 @@ export class StoryObjectStore {
     return parseTokenProbabilities(bytes.toString("utf8"), hash);
   }
 
+  /** One Generation Record event, content-addressed like a probabilities
+   * object: a bounded leaf with no chunking. */
+  async storeGenerationRecord(
+    record: GenerationRecord,
+    reuseFrom?: StoryObjectStore
+  ): Promise<ObjectHash> {
+    const bytes = Buffer.from(serializeGenerationRecord(record), "utf8");
+    const hash = sha256(bytes);
+    await this.putObject("generation-records", hash, bytes, reuseFrom);
+    this.knownGenerationRecordSourceRevisions.set(hash, generationRecordSourceRevisionIds(record));
+    return hash;
+  }
+
+  /** Bounded, hash-verified read of one Generation Record. Read on demand —
+   * the record viewer's GET route reads exactly one — so this needs no
+   * cache beyond the source-revision-id memo `generationRecordSourceRevisions`
+   * keeps for sweep and verifyGraph. */
+  async readGenerationRecord(hash: ObjectHash): Promise<GenerationRecord> {
+    const bytes = await this.readObject("generation-records", hash);
+    const record = parseGenerationRecord(bytes.toString("utf8"), hash);
+    this.knownGenerationRecordSourceRevisions.set(hash, generationRecordSourceRevisionIds(record));
+    return record;
+  }
+
+  /** The revision ids one Generation Record references, from cache when this
+   * instance already read that record this session. A generation-records
+   * object is not a leaf the way probabilities is — it can name further
+   * revisions sweep and verifyGraph must also keep live — so, unlike
+   * probabilities, its content must be resolved at least once every session
+   * rather than trusted bare from a committed manifest. */
+  private async generationRecordSourceRevisions(hash: ObjectHash): Promise<readonly ObjectHash[]> {
+    const known = this.knownGenerationRecordSourceRevisions.get(hash);
+    if (known !== undefined) return known;
+    const record = await this.readGenerationRecord(hash);
+    return this.knownGenerationRecordSourceRevisions.get(hash) ?? generationRecordSourceRevisionIds(record);
+  }
+
   async readText(hash: ObjectHash, cache = createStoryReadCache()): Promise<string> {
     const revision = await this.readRevision(hash, cache);
     const chunks = await mapWithConcurrency(revision.chunks, OBJECT_IO_CONCURRENCY, (chunkHash) =>
@@ -204,7 +263,28 @@ export class StoryObjectStore {
   async sweep(live: LiveStoryObjectIds, signal?: AbortSignal): Promise<boolean> {
     try {
       requireSweepActive(signal);
-      const liveRevisions = new Set(live.revisions.map((hash) => requireHash(hash, "live revision id")));
+      const liveGenerationRecords = new Set(
+        live.generationRecords.map((hash) => requireHash(hash, "live generation record id"))
+      );
+      // Reading every live generation record is itself part of the mark
+      // phase: a record can name a revision no current node points at
+      // anymore, and that revision must join the live set before the chunk
+      // enumeration below, or a rewritten node's superseded text would be
+      // swept out from under the history that still describes it. A record
+      // that fails to read fails the whole sweep closed, same as a damaged
+      // revision would.
+      const recordRevisionLists = await mapWithConcurrency(
+        [...liveGenerationRecords],
+        OBJECT_IO_CONCURRENCY,
+        async (hash) => {
+          requireSweepActive(signal);
+          return await this.generationRecordSourceRevisions(hash);
+        }
+      );
+      const liveRevisions = new Set([
+        ...live.revisions.map((hash) => requireHash(hash, "live revision id")),
+        ...recordRevisionLists.flat()
+      ]);
       const liveProbabilities = new Set(
         live.probabilities.map((hash) => requireHash(hash, "live token probabilities id"))
       );
@@ -238,7 +318,8 @@ export class StoryObjectStore {
       await drainPromises([
         this.sweepKind("revisions", liveRevisions, signal),
         this.sweepKind("chunks", liveChunks, signal),
-        this.sweepKind("probabilities", liveProbabilities, signal)
+        this.sweepKind("probabilities", liveProbabilities, signal),
+        this.sweepKind("generation-records", liveGenerationRecords, signal)
       ]);
       return true;
     } catch (error) {
@@ -253,7 +334,21 @@ export class StoryObjectStore {
    * current manifest's snapshot — are durable; only ids outside that set are
    * read back, so save cost scales with changed objects, not story size. */
   async verifyGraph(live: LiveStoryObjectIds): Promise<void> {
-    const revisionIds = [...new Set(live.revisions.map((hash) => requireHash(hash, "live revision id")))];
+    const generationRecordIds = [
+      ...new Set(live.generationRecords.map((hash) => requireHash(hash, "live generation record id")))
+    ];
+    // Resolving every live generation record's source revisions here, before
+    // the revision pass below, guarantees each is verified at least once this
+    // session and folds any revision it references into the same pass —
+    // mirrors sweep()'s mark phase, so the two never disagree about which
+    // revisions a save must keep.
+    const recordRevisionLists = await mapWithConcurrency(generationRecordIds, OBJECT_IO_CONCURRENCY, (hash) =>
+      this.generationRecordSourceRevisions(hash)
+    );
+    const revisionIds = [...new Set([
+      ...live.revisions.map((hash) => requireHash(hash, "live revision id")),
+      ...recordRevisionLists.flat()
+    ])];
     const cache = createStoryReadCache();
     const chunkIds = new Set<ObjectHash>();
     const unverified: ObjectHash[] = [];
@@ -395,7 +490,9 @@ export class StoryObjectStore {
         ? MAX_CHUNK_BYTES
         : kind === "probabilities"
           ? MAX_TOKEN_PROBABILITY_BYTES
-          : MAX_REVISION_BYTES;
+          : kind === "generation-records"
+            ? MAX_GENERATION_RECORD_BYTES
+            : MAX_REVISION_BYTES;
       bytes = await this.withShard(kind, hash, false, async (directory) =>
         await readBoundedFile(
           path.join(directory.path, objectFilename(kind, hash)),

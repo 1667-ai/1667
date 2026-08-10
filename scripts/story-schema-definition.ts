@@ -11,6 +11,7 @@ import {
 import {
   MAX_FACTS,
   MAX_FACT_TAG_CHARS,
+  MAX_GENERATION_RECORD_IDS,
   MAX_HUMAN_EDIT_RANGES,
   MAX_RECENT_LINES,
   MAX_REWRITTEN_SPANS
@@ -172,6 +173,9 @@ function nodeSchema(): Schema {
     // The stored alternative tokens of this take. Absent when the generation
     // did not ask for them.
     tokenProbabilityId: ref("Hash256"),
+    // Ordered ids of every Generation Record event that created or changed
+    // this node. Absent for a node with no model-request history.
+    generationRecordIds: { type: "array", minItems: 1, maxItems: MAX_GENERATION_RECORD_IDS, items: ref("Hash256") },
     attribution: nullable(ref("Attribution")),
     rewrittenSpans: { type: "array", maxItems: MAX_REWRITTEN_SPANS, items: ref("TextRange") },
     activeChildId: nullable(ref("Identifier"))

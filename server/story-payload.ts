@@ -53,6 +53,12 @@ export function buildStoryPayload(
         ...(node.updatedAt === undefined ? {} : { updatedAt: node.updatedAt }),
         ...(node.human === undefined ? {} : { human: node.human }),
         ...(node.tokenProbabilities === undefined ? {} : { tokenProbabilities: node.tokenProbabilities }),
+        ...(node.generationRecordIds === undefined || node.generationRecordIds.length === 0
+          ? {}
+          : { generationRecordCount: node.generationRecordIds.length }),
+        ...(node.attribution == null || node.attribution.ranges.length === 0
+          ? {}
+          : { editedByUser: true as const }),
         hasInstruction: node.instruction.trim().length > 0,
         activeChildId: node.activeChildId
       };

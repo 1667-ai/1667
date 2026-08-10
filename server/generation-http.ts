@@ -23,7 +23,13 @@ import {
   attributionAfterReplacement,
   rewrittenSpansAfterReplacement
 } from "../shared/human-edit.js";
-import { streamCompletion, type TokenProbabilityCollector } from "./providers.js";
+import { streamCompletion, type GenerationRecordCollector, type TokenProbabilityCollector } from "./providers.js";
+import {
+  continuationRecordEntries,
+  promptEntriesInline
+} from "./generation-record-prompt.js";
+import { finalizeGenerationRecord } from "./generation-record-finalize.js";
+import { captureGenerationRecordHandoff } from "./generation-record-handoff.js";
 import { storySamplingBias } from "./sampling-phrase-bias.js";
 import { AnchoredOutputFilter, continuationPlan, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, supportsAssistantPrefill } from "./generation-prompts.js";
 import { admitFactsIntoPrompt, type GenerationAdmissionRegistry } from "./generation-admission.js";
@@ -175,6 +181,10 @@ export async function continueStory(
   let appendTo = requestedAppendTo;
   let expectedTextHash: string | null = null;
   let contextParts;
+  // Captured only on the append path, before the model runs: the exact
+  // affected range a Generation Record needs is the tail this request adds,
+  // which only the pre-append length can place.
+  let appendSegmentStart: number | null = null;
   if (appendTo !== null) {
     const target = requireNode(story, appendTo);
     if (activeLeaf(story)?.id !== target.id) throw new HttpError(409, "The node being continued is no longer the active leaf.");
@@ -187,6 +197,7 @@ export async function continueStory(
       expectedTextHash = requireString(body.expectedTextHash, "expectedTextHash");
       if (!HASH_PATTERN.test(expectedTextHash)) throw new HttpError(400, "Invalid expectedTextHash");
       if (sha256(target.text) !== expectedTextHash) throw new HttpError(409, "The node being continued changed before writing began.");
+      appendSegmentStart = target.text.length;
     }
     contextParts = activePath(story);
   } else {
@@ -264,6 +275,7 @@ export async function continueStory(
   // here) — a failure anywhere in that path leaves this null rather than
   // failing the generation; token probabilities are a diagnostic.
   const tokenProbabilities: TokenProbabilityCollector = { record: null };
+  const generationRecordCollector: GenerationRecordCollector = { effective: null };
   let raw: string | null;
   try {
     raw = await streamModel(settings, continuation.prompt, signal, onDelta, {
@@ -276,7 +288,8 @@ export async function continueStory(
         continuation.prompt.operation
       ),
       storySampling: storySamplingBias(story),
-      tokenProbabilities
+      tokenProbabilities,
+      generationRecord: generationRecordCollector
     });
   } catch (error) {
     // A clean provider timeout after the opening already diverged from the
@@ -293,6 +306,22 @@ export async function continueStory(
     if (continuationOutput?.prefixRejected === true) {
       throw rejectedContinuationEcho();
     }
+    // A genuine stop: whatever streamed is what the client already has and
+    // may separately ask to save via createNode, keyed by this same genId.
+    // Hand off what this attempt actually sent, so that later commit can
+    // attach a truthful Generation Record instead of none at all — but only
+    // when the provider layer captured something, which happens only once a
+    // byte actually streamed (never for a stop before the first one).
+    const handoff = captureGenerationRecordHandoff({
+      provider: settings.provider,
+      model,
+      operation: continuation.prompt.operation,
+      appendSegmentStart,
+      collector: generationRecordCollector,
+      story,
+      continuation
+    });
+    if (handoff !== null) generationAdmission.rememberGenerationRecordHandoff(id, genId, handoff);
     return null;
   }
   if (continuation.requiresEcho && continuationOutput?.matchedPrefix !== true) {
@@ -304,13 +333,26 @@ export async function continueStory(
   // Stop by generation ID.
   try {
     const parent = parentId === null ? null : nodeById(story, parentId);
+    const committedText = appendTo === null ? raw.trim() : raw;
+    const generationRecord = finalizeGenerationRecord({
+      kind: appendTo === null ? "continue" : "append",
+      createdAt: new Date().toISOString(),
+      ...(appendTo === null || appendSegmentStart === null
+        ? {}
+        : { range: { start: appendSegmentStart, end: appendSegmentStart + committedText.length } }),
+      provider: settings.provider,
+      model,
+      operation: continuation.prompt.operation,
+      entries: () => continuationRecordEntries(story, continuation),
+      collector: generationRecordCollector
+    });
     return await stories.commitProviderEffect(id, {
       kind: "continue",
       parentId,
       appendTo,
       expectedTextHash,
       instruction,
-      text: appendTo === null ? raw.trim() : raw,
+      text: committedText,
       model,
       genId,
       expectedParentActiveChildId: parent?.activeChildId ?? null,
@@ -320,6 +362,7 @@ export async function continueStory(
       expectedActiveRootId: story.activeRootId,
       expectedActiveLeafId: activePath(story).at(-1)?.id ?? null,
       tokenProbabilities: tokenProbabilities.record,
+      generationRecord,
       cancelled: signal
     });
   } catch (error) {
@@ -454,6 +497,8 @@ export async function rewriteNode(
     phraseMode,
     destination
   });
+  const rewriteGenerationRecordCollector: GenerationRecordCollector = { effective: null };
+  const rewriteGenerationRecordEntries = promptEntriesInline(plan.prompt);
   const requireLeftAnchor = plan.leftAnchor.length > 0 && plan.prompt.turns.at(-1)?.role !== "assistant";
   const output = new AnchoredOutputFilter(plan.leftAnchor, plan.rightAnchor, plan.endMarker, requireLeftAnchor, {
     beforeTail: plan.beforeTail,
@@ -489,7 +534,25 @@ export async function rewriteNode(
     rewrittenSpans: rewrittenSpansAfterReplacement(part.rewrittenSpans, start, end, replacementText.length),
     rewriteId,
     takeId,
-    destination
+    destination,
+    // Recomputed at every call: the collector's captured effective parameters
+    // fill in progressively as the stream (and any retry) runs, so a
+    // reservation sized before streaming starts and the eventual real commit
+    // must each read whatever the collector holds at that moment, not a
+    // value frozen when this closure was created.
+    generationRecord: finalizeGenerationRecord({
+      kind: destination === "take" ? "rewrite-take" : "rewrite-in-place",
+      createdAt: new Date().toISOString(),
+      // In the resulting (committed) text's coordinates: unchanged prose
+      // before `start` keeps its offset, but the replacement's own length —
+      // not the length of the passage it replaced — decides where it ends.
+      range: { start, end: start + replacementText.length },
+      provider: rewriteSettings.provider,
+      model: rewriteSettings.provider === "dry-run" ? "dry-run" : rewriteSettings.model,
+      operation: plan.prompt.operation,
+      entries: () => rewriteGenerationRecordEntries,
+      collector: rewriteGenerationRecordCollector
+    })
   });
   // What the stream delivered so far — the only prose a stopped or
   // timed-out rewrite can still keep (issue #339). The stash records it
@@ -537,7 +600,8 @@ export async function rewriteNode(
         output,
         providerStarted,
         promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
-        storySampling: storySamplingBias(story)
+        storySampling: storySamplingBias(story),
+        generationRecord: rewriteGenerationRecordCollector
       });
     } catch (error) {
       if (timeoutProvenanceOf(error) !== null) {

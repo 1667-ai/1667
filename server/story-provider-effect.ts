@@ -2,6 +2,7 @@ import { deriveChapters, summaryNodeInstruction } from "../shared/chapters.js";
 import { activePath, isChapterSummary, nodeById } from "../shared/story-tree.js";
 import { resolveRewriteDestination, type RewriteDestination, type Story, type StoryNode } from "../shared/types.js";
 import type { CapturedTokenProbabilities } from "../shared/token-probabilities.js";
+import type { GenerationRecord } from "../shared/generation-record.js";
 import {
   GenerationResultError,
   GenerationStoppedError,
@@ -10,6 +11,7 @@ import {
 import { sha256 } from "./story-format.js";
 import { setStoryAutonameId } from "./story-metadata.js";
 import { nodeRewriteId, setNodeRewriteId } from "./story-node-text.js";
+import { appendPendingGenerationRecord } from "./story-node-generation-records.js";
 import { attachTakeTokenProbabilities } from "./story-node-token-probabilities.js";
 import {
   appendContinuationToNode,
@@ -73,6 +75,8 @@ export interface RewriteNodeEffect {
    *  chapter summary overrides this to "in-place" regardless (see below). */
   readonly destination?: RewriteDestination;
   readonly cancelled?: AbortSignal;
+  /** See ContinueStoryEffect.generationRecord (TakeCommit). */
+  readonly generationRecord?: GenerationRecord | null;
 }
 
 export interface SummaryTakeEffect {
@@ -86,6 +90,8 @@ export interface SummaryTakeEffect {
   readonly commitIds: SummaryCommitIds;
   readonly committedAt?: string;
   readonly cancelled?: AbortSignal;
+  /** See ContinueStoryEffect.generationRecord (TakeCommit). */
+  readonly generationRecord?: GenerationRecord | null;
 }
 
 export interface ChapterSummaryEffect {
@@ -98,6 +104,8 @@ export interface ChapterSummaryEffect {
   readonly rewriteId?: string;
   readonly committedAt?: string;
   readonly cancelled?: AbortSignal;
+  /** See ContinueStoryEffect.generationRecord (TakeCommit). */
+  readonly generationRecord?: GenerationRecord | null;
 }
 
 export type ProviderStoryEffect =
@@ -254,7 +262,7 @@ async function applyContinuation(
       if (commit.expectedTextHash === null) {
         throw new Error("appendTo requires expectedTextHash");
       }
-      appendContinuationToNode(
+      const node = appendContinuationToNode(
         appendTarget,
         commit.expectedTextHash,
         commit.text,
@@ -263,6 +271,9 @@ async function applyContinuation(
         commit.committedAt,
         commit.tokenProbabilities
       );
+      if (commit.generationRecord !== undefined && commit.generationRecord !== null) {
+        appendPendingGenerationRecord(node, commit.generationRecord);
+      }
     } else if (writerMoved) {
       const added = newNode(
         commit.parentId,
@@ -282,6 +293,9 @@ async function applyContinuation(
       createTake(story, added, { activate: false });
       if (commit.tokenProbabilities !== undefined && commit.tokenProbabilities !== null) {
         attachTakeTokenProbabilities(added, commit.tokenProbabilities, commit.text, 0);
+      }
+      if (commit.generationRecord !== undefined && commit.generationRecord !== null) {
+        appendPendingGenerationRecord(added, commit.generationRecord);
       }
       if (story.nodes.length === 1 && story.title === "Untitled") {
         story.title = titleFrom(
@@ -351,6 +365,9 @@ async function applyRewrite(
     target.rewrittenSpans = effect.rewrittenSpans;
     target.updatedAt = effect.updatedAt;
     setNodeRewriteId(target, effect.rewriteId);
+    if (effect.generationRecord !== undefined && effect.generationRecord !== null) {
+      appendPendingGenerationRecord(target, effect.generationRecord);
+    }
     return { changed: true, value: target };
   }
   // Sibling of the source, same field-carrying decisions as
@@ -370,6 +387,9 @@ async function applyRewrite(
   node.rewrittenSpans = effect.rewrittenSpans;
   setNodeRewriteId(node, effect.rewriteId);
   createTake(story, node);
+  if (effect.generationRecord !== undefined && effect.generationRecord !== null) {
+    appendPendingGenerationRecord(node, effect.generationRecord);
+  }
   return { changed: true, value: node };
 }
 
@@ -425,6 +445,9 @@ async function applySummaryTake(
   );
   if (effect.committedAt !== undefined) node.createdAt = effect.committedAt;
   createTake(story, node, { activate: false });
+  if (effect.generationRecord !== undefined && effect.generationRecord !== null) {
+    appendPendingGenerationRecord(node, effect.generationRecord);
+  }
   return { changed: true, value: node };
 }
 
@@ -469,6 +492,9 @@ function applyChapterSummary(
     node.createdAt = madeAt;
     setNodeRewriteId(node, effect.rewriteId);
     createTake(story, node, { activate: false });
+    if (effect.generationRecord !== undefined && effect.generationRecord !== null) {
+      appendPendingGenerationRecord(node, effect.generationRecord);
+    }
   } else {
     chapter.summary.text = effect.summary;
     setNodeRewriteId(chapter.summary, effect.rewriteId);
@@ -479,6 +505,9 @@ function applyChapterSummary(
     chapter.summary.coveredExtent = { ...extent };
     delete chapter.summary.editedByUser;
     delete chapter.summary.attribution;
+    if (effect.generationRecord !== undefined && effect.generationRecord !== null) {
+      appendPendingGenerationRecord(chapter.summary, effect.generationRecord);
+    }
   }
   return { changed: true, value: story };
 }

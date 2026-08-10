@@ -39,10 +39,18 @@ import {
 } from "./token-probability-capture.js";
 import { requireLogitBiasFamilyAvailable } from "./provider-sampling.js";
 import type { StorySamplingBias } from "./sampling-phrase-bias.js";
+import {
+  ANTHROPIC_MESSAGES_EFFECTIVE_FIELDS,
+  createGenerationRecordCapture,
+  dryRunEffectiveParameters,
+  OPENAI_CHAT_EFFECTIVE_FIELDS,
+  type GenerationRecordCollector
+} from "./generation-record-capture.js";
 export { ProviderError } from "./errors.js";
 export type { ChatMessage, PromptPlan } from "../shared/prompt-plan.js";
 export { forgetRefusedTokenProbabilities } from "./token-probability-capture.js";
 export type { TokenProbabilityCollector } from "./token-probability-capture.js";
+export type { GenerationRecordCollector } from "./generation-record-capture.js";
 
 /** The provider terminal and its optional finish reason. A protocol terminal
  * can occur without a finish reason. */
@@ -69,6 +77,10 @@ export interface StreamCompletionOptions {
   readonly promptCache?: PromptCacheRequest;
   readonly storySampling?: StorySamplingBias;
   readonly tokenProbabilities?: TokenProbabilityCollector;
+  /** Filled once, at whichever attempt's body a caller ultimately keeps —
+   *  see server/generation-record-capture.ts. Absent for a caller that has
+   *  no use for a Generation Record (autoname is excluded by design). */
+  readonly generationRecord?: GenerationRecordCollector;
 }
 
 export function streamCompletion(
@@ -103,13 +115,22 @@ async function* streamOpenAiCompatible(
   const body = await buildOpenAiChatRequestBody(settings, prompt, prepared.wire, { signal, storySampling });
   const runtime = providerRuntimeFor(settings);
   const explicitEffort = runtime.effort !== "default";
+  const generationRecord = createGenerationRecordCapture(
+    options.generationRecord,
+    "openai-chat-completions",
+    OPENAI_CHAT_EFFECTIVE_FIELDS
+  );
   const tokenProbabilityKey = tokenProbabilityRefusalKey(settings);
   if (tokenProbabilitiesRefused(tokenProbabilityKey)) {
     // Paid once per model: a prior request already learned this endpoint
     // rejects the fields, so this one never asks again (issue #291 phase 2,
-    // point 6) — mirrors SAMPLING_REFUSED's temperature strip below.
+    // point 6) — mirrors SAMPLING_REFUSED's temperature strip below. Only
+    // fields this request actually asked for are worth recording as skipped;
+    // a request that never set top_logprobs never had it to lose.
+    const skipped = ["logprobs", "top_logprobs"].filter((field) => field in body);
     delete body.logprobs;
     delete body.top_logprobs;
+    generationRecord.recordCachedRefusalSkip(skipped);
   }
   const requestedAlternatives = typeof body.top_logprobs === "number" ? body.top_logprobs : null;
   const totalDeadline = new AbortController();
@@ -153,6 +174,7 @@ async function* streamOpenAiCompatible(
             const tail = outputRedactor.finish();
             if (tail.length > 0) yield tail;
             capture.finish();
+            generationRecord.finish(body);
             return;
           }
           const parsed = parseEvent(data, secrets);
@@ -171,20 +193,24 @@ async function* streamOpenAiCompatible(
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
         capture.finish();
+        generationRecord.finish(body);
         return;
       } catch (error) {
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
+        // Any text already streamed is what a stopped-partial commit will
+        // save, so the body that produced it is worth recording even though
+        // this attempt is about to fail or retry.
+        if (streamed) generationRecord.finish(body);
         if (error === totalDeadlineFailure) {
           throw new ProviderError("Model request exceeded its total deadline.", null, "", {
             timeout: "provider-total"
           });
         }
-        if (
-          streamed
-          || attempt >= 3
-          || !adjustRejectedParameter(body, error, prompt.operation, explicitEffort, settings)
-        ) throw error;
+        if (streamed || attempt >= 3) throw error;
+        const beforeAdjustment = { ...body };
+        if (!adjustRejectedParameter(body, error, prompt.operation, explicitEffort, settings)) throw error;
+        generationRecord.recordRetryAdjustment(beforeAdjustment, body, attempt);
       }
     }
   } finally {
@@ -259,8 +285,19 @@ async function* streamAnthropic(
   });
   const prepared = preparePromptCache(promptCache, prompt);
   const body = await buildAnthropicMessagesRequestBody(settings, prompt, prepared.wire, { signal, storySampling });
+  const generationRecord = createGenerationRecordCapture(
+    options.generationRecord,
+    "anthropic-messages",
+    ANTHROPIC_MESSAGES_EFFECTIVE_FIELDS
+  );
   const refusalKey = samplingRefusalKey(settings);
-  if (SAMPLING_REFUSED.has(refusalKey)) delete body.temperature;
+  if (SAMPLING_REFUSED.has(refusalKey)) {
+    // Only worth recording if this request actually asked for temperature;
+    // a request with no writer-set temperature never had one to lose.
+    const skipped = "temperature" in body ? ["temperature"] : [];
+    delete body.temperature;
+    generationRecord.recordCachedRefusalSkip(skipped);
+  }
   const runtime = providerRuntimeFor(settings);
   let decodedBytes = 0;
   // One deadline covers the retry too. Each attempt starts its own total timer,
@@ -311,6 +348,7 @@ async function* streamAnthropic(
             if (outcome !== undefined) outcome.providerTerminal = true;
             const tail = outputRedactor.finish();
             if (tail.length > 0) yield tail;
+            generationRecord.finish(body);
             return;
           }
           if (parsed.type === "message_delta" && isObject(parsed.delta) && typeof parsed.delta.stop_reason === "string" && outcome !== undefined) {
@@ -327,20 +365,21 @@ async function* streamAnthropic(
         }
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
+        generationRecord.finish(body);
         return;
       } catch (error) {
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
+        if (streamed) generationRecord.finish(body);
         if (error === totalDeadlineFailure) {
           throw new ProviderError("Model request exceeded its total deadline.", null, "", {
             timeout: "provider-total"
           });
         }
-        if (
-          streamed
-          || attempt >= 1
-          || !dropRejectedAnthropicSampling(body, error)
-        ) throw error;
+        if (streamed || attempt >= 1) throw error;
+        const beforeAdjustment = { ...body };
+        if (!dropRejectedAnthropicSampling(body, error)) throw error;
+        generationRecord.recordRetryAdjustment(beforeAdjustment, body, attempt);
         SAMPLING_REFUSED.add(refusalKey);
       }
     }
@@ -357,7 +396,12 @@ async function* streamAnthropic(
 const SAMPLING_REFUSED = new Set<string>();
 
 function samplingRefusalKey(settings: GenerationSettings): string {
-  return `${settings.baseUrl} ${settings.model}`;
+  // A plain space cannot separate the two fields safely: baseUrl "a" + model
+  // "b c" and baseUrl "a b" + model "c" both join to "a b c" and would share
+  // a cache entry. NUL never appears in either field and matches the
+  // separator token-probability-capture.ts already uses for the same shape
+  // of key.
+  return `${settings.baseUrl}\0${settings.model}`;
 }
 
 export function forgetRefusedSampling(): void {
@@ -458,6 +502,7 @@ async function* streamDryRun(
 ): AsyncGenerator<string> {
   const { outcome, storySampling, tokenProbabilities } = options;
   requireLogitBiasFamilyAvailable(settings, "dry-run", storySampling);
+  if (options.generationRecord !== undefined) options.generationRecord.effective = dryRunEffectiveParameters();
   const messages = renderPromptPlan(prompt);
   const instruction = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   const text = prompt.operation === "rewrite"

@@ -70,6 +70,11 @@ Press `l` on a story part to open the token probability viewer. It shows the
 take's prose with the alternative tokens the model weighed at the selected
 token, if the story stored them.
 
+Select a take. Press `h` to open the Generation Record Viewer. You can also
+select **generation records** in the command palette. The viewer shows each
+model request that created or changed the selected take, if the story stored
+one. See [Model providers](../docs/model-providers.md#generation-record).
+
 ## Run the gates
 
 ```sh

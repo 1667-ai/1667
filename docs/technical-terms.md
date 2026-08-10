@@ -52,6 +52,8 @@ read_when:
 | token probability | The probability that the model gave one generated token |
 | alternative token | One token that the model weighed at one position |
 | token probability viewer | The read-only view of the alternative tokens of one take |
+| Generation Record | The durable record of one model request that created or changed a take |
+| Generation Record Viewer | The read-only view of the Generation Record history of one take |
 | tokenize source | The bundled tokenizer or the server endpoint that counts the tokens in one provider request |
 | grade | The quality of a token count: exact count, near-exact count, or token estimate |
 | mark | The symbol that shows a token count's grade |
@@ -72,6 +74,7 @@ read_when:
 | DRY | A sampling parameter group that lowers the probability of a token sequence that would repeat |
 | XTC | A sampling parameter group that removes the model's top token choices at random |
 | Mirostat | A sampling algorithm that holds output perplexity near a target value |
+| provider adjustment | A change 1667 made before or during a provider request |
 | mass map | A map that shows all takes |
 | provider | A local or hosted service that supplies a language model |
 | Text Completions | The provider protocol that sends one text prompt and receives one text continuation |

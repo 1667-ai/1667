@@ -176,7 +176,8 @@ describe("hit map clickable chrome", () => {
       for (const [name, action] of Object.entries(expected[view])) {
         expect(resolveKey(key(name), "MAP", { mapView: view }).action).toBe(action);
       }
-      for (const dead of ["h", "j", "k"]) {
+      expect(resolveKey(key("h"), "MAP", { mapView: view }).action).toBe("open-records");
+      for (const dead of ["j", "k"]) {
         expect(resolveKey(key(dead), "MAP", { mapView: view }).action).toBe("none");
       }
     }

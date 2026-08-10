@@ -1,6 +1,7 @@
 import { GenerationResultError, ProviderError } from "./errors.js";
 import {
   streamCompletion,
+  type GenerationRecordCollector,
   type PromptPlan,
   type StreamOutcome,
   type TokenProbabilityCollector
@@ -27,6 +28,7 @@ export interface StreamModelOptions {
   readonly promptCache?: PromptCacheRequest;
   readonly storySampling?: StorySamplingBias;
   readonly tokenProbabilities?: TokenProbabilityCollector;
+  readonly generationRecord?: GenerationRecordCollector;
 }
 
 /** Transport-neutral model stream. null means the stream was interrupted by
@@ -39,7 +41,7 @@ export async function streamModel(
   onDelta: DeltaConsumer,
   options: StreamModelOptions = {}
 ): Promise<string | null> {
-  const { output, providerStarted, promptCache, storySampling, tokenProbabilities } = options;
+  const { output, providerStarted, promptCache, storySampling, tokenProbabilities, generationRecord } = options;
   const outcome: StreamOutcome = {
     finishReason: null,
     providerTerminal: false
@@ -56,6 +58,7 @@ export async function streamModel(
       promptCache,
       storySampling,
       tokenProbabilities,
+      generationRecord,
       outcome
     })) {
       await emit(output?.push(delta) ?? delta);

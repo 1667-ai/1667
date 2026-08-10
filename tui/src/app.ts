@@ -783,6 +783,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     retakePrompt: null,
     request: null,
     probs: null,
+    record: null,
     toast: null,
     notices: createNoticeLog(),
     stream: renderMode && source.demo ? leafStreamView(source.payload) : null,

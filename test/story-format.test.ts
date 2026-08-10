@@ -81,6 +81,18 @@ test("story format: StoryTavern V5 manifests normalize to the current identity",
   assert.equal(parsed.schemaVersion, 5);
 });
 
+test("story payload projects Generation Record counts and human-edit presence", () => {
+  const edited = {
+    ...node("root", null, "Edited prose"),
+    attribution: { source: "human" as const, ranges: [{ start: 0, end: 6 }] },
+    generationRecordIds: [HASH, "b".repeat(64)]
+  };
+  const payload = buildStoryPayload(runtimeStory([edited]));
+  const stub = payload.nodes[0];
+  assert.equal(stub?.generationRecordCount, 2);
+  assert.equal(stub?.editedByUser, true);
+});
+
 test("story objects: foreground cancellation leaves cleanup safe to retry", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-sweep-cancel-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -92,7 +104,7 @@ test("story objects: foreground cancellation leaves cleanup safe to retry", asyn
   const abort = new AbortController();
   abort.abort();
 
-  const live1 = { revisions: [live], probabilities: [] };
+  const live1 = { revisions: [live], probabilities: [], generationRecords: [] };
   assert.equal(await objects.sweep(live1, abort.signal), false);
   await readFile(objects.objectPath("revisions", stale));
   assert.equal(await objects.sweep(live1), true);

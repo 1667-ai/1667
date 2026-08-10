@@ -32,6 +32,7 @@ import {
   HttpListenerAuthority
 } from "../../shared/http-listener-authority.js";
 import { decodeMarkdownHttpBody } from "../../shared/import-markdown-wire.js";
+import { MAX_GENERATION_RECORD_ENTRIES } from "../../shared/generation-record.js";
 
 const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; });
@@ -808,7 +809,94 @@ test("HTTP StoryApi rejects malformed successful responses for every response fa
       grade: "near-exact",
       total: 3,
       perMessage: [3]
-    }, () => api.countPromptTokens([{ role: "user", content: "Hi" }]), "prompt token count response.perMessage"]
+    }, () => api.countPromptTokens([{ role: "user", content: "Hi" }]), "prompt token count response.perMessage"],
+    [
+      [{ id: "a".repeat(64), kind: "not-a-kind", createdAt: "2026-01-01T00:00:00.000Z" }],
+      () => api.getGenerationRecords("story", "node"),
+      "Generation Record summary[0].kind"
+    ],
+    [
+      {
+        format: "wrong-format",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: { operation: "continue", entries: [] }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.format"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: {
+          operation: "continue",
+          entries: [{ role: "user", stability: "volatile", kind: "not-a-real-kind", source: "text", text: "Continue." }]
+        }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt.entries[0].kind"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: {
+          operation: "continue",
+          // A resolved revision-source entry is always "stable" — this one
+          // claims "volatile" instead of the shape its own `source:
+          // "revisions"` requires.
+          entries: [{ stability: "volatile", kind: "source", source: "revisions", parts: [] }]
+        }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt.entries[0].stability"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "append",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        range: { start: 5, end: 2 },
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: { operation: "continue", entries: [] }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.range.end"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: {
+          operation: "continue",
+          // One entry past MAX_GENERATION_RECORD_ENTRIES (32): the bound a
+          // malformed response cannot use to force an unbounded render.
+          entries: Array.from({ length: MAX_GENERATION_RECORD_ENTRIES + 1 }, () => (
+            { role: "user", stability: "volatile", kind: "request", source: "text", text: "Continue." }
+          ))
+        }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.prompt.entries"
+    ]
   ];
   for (const [payload, request, expected] of malformed) {
     response = payload;

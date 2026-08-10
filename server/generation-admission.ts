@@ -7,6 +7,7 @@ import {
 import type { PromptPlan } from "../shared/prompt-plan.js";
 import type { StoryFact } from "../shared/types.js";
 import { ServiceError } from "./errors.js";
+import type { GenerationRecordHandoff } from "./generation-record-handoff.js";
 
 export const MAX_GENERATION_MODEL_ATTRIBUTIONS = 50;
 
@@ -79,10 +80,17 @@ export function admitFactsIntoPrompt<P extends { prompt: PromptPlan }>(
   );
 }
 
-interface GenerationModelAttribution {
+interface GenerationAttribution {
   readonly storyId: string;
   readonly genId: string;
   model: string;
+  /** Set only by a continuation request that got cancelled mid-stream (issue
+   *  Generation Records / stop-and-save): what the later, separate
+   *  `createNode` call the client makes to save the partial needs to attach
+   *  a truthful Generation Record to that take. Absent for a request that
+   *  finished normally (its record is attached directly, in the same call)
+   *  or that never streamed any output at all. */
+  record: GenerationRecordHandoff | null;
 }
 
 /**
@@ -91,7 +99,7 @@ interface GenerationModelAttribution {
  */
 export class GenerationAdmissionRegistry {
   private readonly active = new Map<string, Set<string>>();
-  private readonly modelAttributions: GenerationModelAttribution[] = [];
+  private readonly modelAttributions: GenerationAttribution[] = [];
 
   async run<T>(
     storyId: string,
@@ -133,13 +141,44 @@ export class GenerationAdmissionRegistry {
     if (this.modelAttributions.length >= MAX_GENERATION_MODEL_ATTRIBUTIONS) {
       this.modelAttributions.shift();
     }
-    this.modelAttributions.push({ storyId, genId, model });
+    this.modelAttributions.push({ storyId, genId, model, record: null });
   }
 
   modelFor(storyId: string, genId: string): string | undefined {
     return this.modelAttributions.find(
       (candidate) => candidate.storyId === storyId && candidate.genId === genId
     )?.model;
+  }
+
+  /** Called once, by a continuation request that just discovered its own
+   *  stream was cancelled — never by the later commit that reads it back via
+   *  `generationRecordHandoffFor`. `rememberModel` always runs first (before
+   *  that same request's provider stream even starts), so the slot this
+   *  writes into already exists; the fallback insert below only guards
+   *  against a caller that never called `rememberModel` first. */
+  rememberGenerationRecordHandoff(storyId: string, genId: string, record: GenerationRecordHandoff): void {
+    const existing = this.modelAttributions.find(
+      (candidate) => candidate.storyId === storyId && candidate.genId === genId
+    );
+    if (existing !== undefined) {
+      existing.record = record;
+      return;
+    }
+    if (this.modelAttributions.length >= MAX_GENERATION_MODEL_ATTRIBUTIONS) {
+      this.modelAttributions.shift();
+    }
+    this.modelAttributions.push({ storyId, genId, model: record.model, record });
+  }
+
+  /** Read by a stop-save commit at most once in practice — `commitTake`'s own
+   *  genId dedup means a second commit for the same genId never reaches this
+   *  far — but this lookup is non-destructive, so a redundant call is still
+   *  safe: it simply returns the same handoff again rather than one commit
+   *  racing another to consume it. */
+  generationRecordHandoffFor(storyId: string, genId: string): GenerationRecordHandoff | undefined {
+    return this.modelAttributions.find(
+      (candidate) => candidate.storyId === storyId && candidate.genId === genId
+    )?.record ?? undefined;
   }
 
   clear(): void {

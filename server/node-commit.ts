@@ -3,6 +3,7 @@ import { ServiceError } from "./errors.js";
 import { currentModel } from "./generation-http.js";
 import type { GenerationAdmissionRegistry } from "./generation-admission.js";
 import { DEFAULT_INSTRUCTION } from "./generation-prompts.js";
+import { generationRecordForCommit } from "./generation-record-handoff.js";
 import type { SettingsStore } from "./settings.js";
 import { commitTake, createEditedTake } from "./story-nodes.js";
 import type { StoryStore } from "./stories.js";
@@ -51,14 +52,29 @@ export async function commitNode(
       ? body.expectedTextHash
       : null;
     const parentId = body.parentId ?? null;
+    const text = appendTo === null ? rawText.trim() : rawText;
+    // A stop-and-save commit for a generated take: whatever the streaming
+    // request that produced this text captured before it stopped, keyed by
+    // the same genId. Absent for a human take, a duplicate settle (dedup
+    // already returns the existing story before this runs), or a genId this
+    // process never saw stream anything.
+    const generationRecord = generationRecordForCommit(
+      generationAdmission,
+      id,
+      genId,
+      appendTo,
+      text.length,
+      new Date().toISOString()
+    );
     const { duplicate } = commitTake(story, {
       parentId: appendCrossesBreak ? requestedAppendTo : appendTo === null ? parentId : null,
       appendTo,
       expectedTextHash,
       instruction,
-      text: appendTo === null ? rawText.trim() : rawText,
+      text,
       model,
       genId,
+      generationRecord,
       ...(mutationNodeId === undefined ? {} : { nodeId: mutationNodeId })
     });
     if (!duplicate) await stories.save(story);

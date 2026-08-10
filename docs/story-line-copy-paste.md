@@ -37,8 +37,9 @@ fields let a reader read and continue the clone.
 
 A clone uses `copied` as its model name. This name shows that a provider did
 not generate the clone. A clone never carries the source part's generation
-ID, rewritten spans, or captured token probabilities. These fields describe
-one generation attempt. The clone is not that attempt.
+ID, rewritten spans, captured token probabilities, or Generation Record
+history. These fields record the source take's history. The clone has no
+such history.
 
 A clone never carries a chapter break or a Tag. These fields identify the
 position of the original story part. The paste must not put two story parts

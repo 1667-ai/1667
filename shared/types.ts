@@ -35,6 +35,12 @@ export const MAX_HUMAN_EDIT_RANGES = 256;
  *  the same pathological-edit risk. */
 export const MAX_REWRITTEN_SPANS = 256;
 
+/** Keep a node's generation-record history bounded. A node accumulates one
+ *  entry per request event that created or changed it — an append, an
+ *  in-place rewrite — not per story part, so this is generous relative to
+ *  MAX_REWRITTEN_SPANS while still refusing a pathological append loop. */
+export const MAX_GENERATION_RECORD_IDS = 4_096;
+
 export const MAX_FACTS = 128;
 export const MAX_FACT_TEXT_CHARS = 4_000;
 export const MAX_FACT_TAG_CHARS = 48;
@@ -142,6 +148,13 @@ export interface StoryNode {
    *  GET /api/stories/:id/nodes/:nodeId/token-probabilities, never carried
    *  automatically with the story. See shared/token-probabilities.ts. */
   tokenProbabilities?: true;
+  /** Ordered ids of every Generation Record event that created or changed
+   *  this node — an append, an in-place rewrite — oldest first. A node with
+   *  no model-request history (an old, human, or imported take) has none.
+   *  Each record is fetched on demand via
+   *  GET /api/stories/:id/nodes/:nodeId/generation-records/:recordId, never
+   *  carried automatically with the story. See shared/generation-record.ts. */
+  generationRecordIds?: string[];
   /** Which child continues the line through this node. null = no preference
    *  recorded (leaf, or story ends here on purpose). Must be a child's id. */
   activeChildId: string | null;
@@ -185,6 +198,10 @@ interface NodeStubBase {
   human?: true;
   /** See StoryNode.tokenProbabilities. */
   tokenProbabilities?: true;
+  /** How many Generation Record events this node has. Absent or 0 means none.
+   *  A count only — see StoryNode.generationRecordIds for the ordered ids,
+   *  fetched on demand. */
+  generationRecordCount?: number;
   hasInstruction: boolean;
   activeChildId: string | null;
 }
@@ -330,6 +347,9 @@ function assertNodeStub(value: unknown): void {
   optionalLiteral(node, "human", true, "story node stub");
   optionalLiteral(node, "editedByUser", true, "story node stub");
   optionalLiteral(node, "tokenProbabilities", true, "story node stub");
+  if (node.generationRecordCount !== undefined) {
+    requirePositiveInteger(node.generationRecordCount, "story node stub", "generationRecordCount");
+  }
   optionalLiteral(node, "role", "summary", "story node stub");
   if (node.chapterBreakId !== undefined && typeof node.chapterBreakId !== "string") {
     invalidField("story node stub", "chapterBreakId");
@@ -370,6 +390,14 @@ export function assertStoryNode(value: unknown): asserts value is StoryNode {
     for (const value of node.rewrittenSpans) {
       const range = requireRecord(value, "The server returned an invalid rewritten span.");
       requireNumbers(range, "rewritten span", "start", "end");
+    }
+  }
+  if (node.generationRecordIds !== undefined) {
+    if (!Array.isArray(node.generationRecordIds) || node.generationRecordIds.length > MAX_GENERATION_RECORD_IDS) {
+      throw new Error("The server returned an invalid generation record id list.");
+    }
+    for (const value of node.generationRecordIds) {
+      if (typeof value !== "string") throw new Error("The server returned an invalid generation record id list.");
     }
   }
 }

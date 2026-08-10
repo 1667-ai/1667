@@ -180,6 +180,14 @@ export function storyManifestCorpus(): StoryManifestCorpusCase[] {
       ...nodeV5,
       nodes: [{ ...nodeV5.nodes[0], tokenProbabilityId: `${HASH}\n` }]
     })),
+    invalid("v5-generation-record-hash-final-newline", nodeV5.id, JSON.stringify({
+      ...nodeV5,
+      nodes: [{ ...nodeV5.nodes[0], generationRecordIds: [`${HASH}\n`] }]
+    })),
+    invalid("v5-empty-generation-record-ids", nodeV5.id, JSON.stringify({
+      ...nodeV5,
+      nodes: [{ ...nodeV5.nodes[0], generationRecordIds: [] }]
+    })),
     invalid("v5-noncanonical-deterministic-id", NONCANONICAL_DETERMINISTIC_ID, JSON.stringify({
       ...v5,
       id: NONCANONICAL_DETERMINISTIC_ID
@@ -350,6 +358,7 @@ function richV5Manifest(): RichV5Fixture {
       rewriteId: "rewrite-one",
       human: true,
       tokenProbabilityId: HASH,
+      generationRecordIds: [HASH],
       attribution: { source: "human", ranges: [{ start: 0, end: 1 }], deletedCharacters: 1 },
       rewrittenSpans: [{ start: 2, end: 4 }]
     }, {

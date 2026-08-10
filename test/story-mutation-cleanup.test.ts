@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
+import { createGenerationRecord } from "../shared/generation-record.js";
 import { hashStoryV5ManifestBytes } from "../server/story-manifest-hash.js";
 import { cleanupPending } from "../server/story-cleanup.js";
-import { createTake, newNode, switchLine } from "../server/story-nodes.js";
+import { createTake, deleteSubtree, newNode, switchLine } from "../server/story-nodes.js";
 import { StoryObjectStore } from "../server/story-objects.js";
 import { parseStoryManifestBytes } from "../server/story-v6-codec.js";
 import { StoryStore } from "../server/stories.js";
@@ -22,6 +23,8 @@ const SWITCH_MUTATION_ID = "m1.1767225600000.aa00000000000000000000000000000b";
 const EDIT_MUTATION_ID = "m1.1767225600000.aa00000000000000000000000000000c";
 const LEGACY_MUTATION_ID = "m1.1767225600000.aa00000000000000000000000000000d";
 const PROVIDER_MUTATION_ID = "m1.1767225600000.aa00000000000000000000000000000e";
+const RECORD_SEED_MUTATION_ID = "m1.1767225600000.aa00000000000000000000000000000f";
+const RECORD_DELETE_MUTATION_ID = "m1.1767225600000.aa00000000000000000000000000001e";
 
 test("Q cleanup intent tracks dropped references: a take switch sweeps nothing, an edit reaps its old revision", async (t) => {
   let sweeps = 0;

@@ -3,7 +3,11 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import test from "node:test";
 import { effectiveGenerationSettings } from "../server/settings-v2-conversion.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
-import { streamCompletion, type StreamOutcome } from "../server/providers.js";
+import {
+  streamCompletion,
+  type GenerationRecordCollector,
+  type StreamOutcome
+} from "../server/providers.js";
 import { applyBasicSettingsDraft } from "../shared/settings-basic-draft.js";
 import {
   applySamplingSettings,
@@ -244,6 +248,43 @@ test("KoboldCpp text rejects a provider error after partial output", async (t) =
   assert.equal(received.join(""), " partial");
 });
 
+test("a short delta the redactor still holds when the stream fails still hands off a Generation Record", async (t) => {
+  const secretEnv = "AI_1667_TEST_TEXT_COMPLETION_TAIL_SECRET";
+  // Longer than the delta below, so the redactor holds it pending rather
+  // than releasing it on the push that carries it.
+  process.env[secretEnv] = "sk-a-very-long-fixture-secret-value-1234567890";
+  t.after(() => { delete process.env[secretEnv]; });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response([
+      'data: {"token":" partial","finish_reason":null}',
+      "",
+      'data: {"token":"","finish_reason":"error"}',
+      "",
+      ""
+    ].join("\n"), { headers: { "content-type": "text/event-stream" } })) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const settings = effectiveGenerationSettings(
+    textDocument("https://models.example", "koboldcpp", "raw", secretEnv)
+  );
+  const collector: GenerationRecordCollector = { effective: null };
+  const received: string[] = [];
+
+  await assert.rejects(async () => {
+    for await (const chunk of streamCompletion(
+      settings,
+      PROMPT,
+      new AbortController().signal,
+      { generationRecord: collector }
+    )) {
+      received.push(chunk);
+    }
+  }, /KoboldCpp generation failed/);
+  // The delta never crossed the redactor's buffering threshold on its own,
+  // so it is only released by the tail flush the failure path triggers.
+  assert.equal(received.join(""), " partial");
+  assert.notEqual(collector.effective, null, "a delivered partial still hands off a Generation Record");
+});
+
 test("OpenAI-compatible text rejects content filtering after partial output", async (t) => {
   const server = createServer((_request, response) => {
     response.writeHead(200, { "content-type": "text/event-stream" });
@@ -307,13 +348,14 @@ test("OpenAI-compatible text rejects DONE without a successful finish reason", a
 function textDocument(
   origin: string,
   preset: SettingsPresetV2,
-  textPromptFormat: TextPromptFormatV2
+  textPromptFormat: TextPromptFormatV2,
+  apiKeyEnv: string | null = null
 ): SettingsDocumentV2 {
   const base = applyBasicSettingsDraft(INITIAL_SETTINGS_DOCUMENT_V2, {
     provider: "text-completion",
     baseUrl: `${origin}/v1`,
     model: "test-model",
-    apiKeyEnv: null,
+    apiKeyEnv,
     temperature: 0.7,
     maxTokens: 96,
     systemPrompt: "Write plain prose.",
@@ -329,7 +371,7 @@ function textDocument(
         preset,
         protocol: "text-completions",
         textPromptFormat,
-        allowInsecureHttp: true
+        ...(origin.startsWith("http:") ? { allowInsecureHttp: true as const } : {})
       }
     }
   };

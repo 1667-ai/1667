@@ -22,9 +22,12 @@ import {
   serializeManifest,
   sha256,
   type ObjectHash,
+  type StoredNodeV1,
   type StoryManifestV5
 } from "./story-format.js";
 import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
+import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../shared/generation-record.js";
+import { resolveGenerationRecord } from "./generation-record-resolve.js";
 import { decodeStoryBundle, encodeStoryBundle, hydrateStoryNodes } from "./story-codec.js";
 import { putStoryTag, removeStoryTag } from "./story-tags.js";
 import {
@@ -108,7 +111,7 @@ type ProviderSnapshotPins = Record<ObjectKind, Map<ObjectHash, number>>;
 const LIVE_OBJECT_KINDS = ["revisions", "probabilities"] as const satisfies readonly (keyof LiveStoryObjectIds)[];
 
 function emptyProviderSnapshotPins(): ProviderSnapshotPins {
-  return { chunks: new Map(), revisions: new Map(), probabilities: new Map() };
+  return { chunks: new Map(), revisions: new Map(), probabilities: new Map(), "generation-records": new Map() };
 }
 
 const sweepObjects: SweepObjects = async (bundleDir, live, signal) =>
@@ -198,9 +201,18 @@ export class StoryStore {
     }
     const storyId = session.storyId;
     const live = liveObjectIds(manifest.content);
+    // Generation Records are never read mid-flight during provider
+    // preparation — a record's own object is only created and stored at
+    // commit time — so, unlike revisions and probabilities, there is nothing
+    // for this in-flight pin to protect for them; the normal current-manifest
+    // sweep already keeps a committed record (and, per its own mark phase,
+    // any revision it references) live for as long as any node still points
+    // at it. `dedupedLive.generationRecords` is carried here only to satisfy
+    // LiveStoryObjectIds' shape, not because LIVE_OBJECT_KINDS pins it.
     const dedupedLive: LiveStoryObjectIds = {
       revisions: [...new Set(live.revisions)],
-      probabilities: [...new Set(live.probabilities)]
+      probabilities: [...new Set(live.probabilities)],
+      generationRecords: [...new Set(live.generationRecords)]
     };
     const pins = this.providerSnapshotPins.get(storyId) ?? emptyProviderSnapshotPins();
     this.providerSnapshotPins.set(storyId, pins);
@@ -458,6 +470,64 @@ export class StoryStore {
     });
   }
 
+  /** Every Generation Record event on one node, oldest first, projected down
+   *  to what a history list needs. Reads every record this node has — always
+   *  a small, request-bounded set (MAX_GENERATION_RECORD_IDS), never the
+   *  whole story — so unlike a single on-demand read this does open more
+   *  than one object, exactly the way a history list must. */
+  async loadGenerationRecordSummaries(id: string, nodeId: string): Promise<GenerationRecordSummary[]> {
+    return await this.withIo(id, async () => {
+      const stored = await this.requireGenerationRecordNode(id, nodeId);
+      const ids = stored.generationRecordIds ?? [];
+      const objects = new StoryObjectStore(this.bundlePath(id));
+      const records = await mapWithConcurrency(ids, STORY_LIST_IO_CONCURRENCY, (recordId) =>
+        objects.readGenerationRecord(recordId)
+      );
+      return records.map((record, index) => ({
+        id: ids[index]!,
+        kind: record.kind,
+        createdAt: record.createdAt,
+        ...(record.range === undefined ? {} : { range: record.range })
+      }));
+    });
+  }
+
+  /** One Generation Record, fetched on demand — never carried with the
+   *  story. 404s distinctly for an unknown take versus a take with no
+   *  matching record, and refuses an id that is not actually this node's own
+   *  so a stale or guessed id from another node can never be read through
+   *  the wrong take's route. Resolved: every source part's prose is read
+   *  back from its exact historical revision, not left as a bare reference
+   *  the caller has no other way to open — see
+   *  server/generation-record-resolve.ts. */
+  async loadGenerationRecord(id: string, nodeId: string, recordId: string): Promise<ResolvedGenerationRecord> {
+    return await this.withIo(id, async () => {
+      const stored = await this.requireGenerationRecordNode(id, nodeId);
+      if (!(stored.generationRecordIds ?? []).includes(recordId)) {
+        throw new HttpError(404, "This take has no such Generation Record.");
+      }
+      const objects = new StoryObjectStore(this.bundlePath(id));
+      const record = await objects.readGenerationRecord(recordId);
+      return await resolveGenerationRecord(record, objects);
+    });
+  }
+
+  private async requireGenerationRecordNode(id: string, nodeId: string): Promise<StoredNodeV1> {
+    let slot: ResolvedStory;
+    try {
+      slot = await this.resolveUnlocked(id);
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 404) throw new HttpError(404, `Take not found: ${nodeId}`);
+      throw error;
+    }
+    await this.schedulePendingCleanup(id);
+    if (slot.kind === "legacy") throw new HttpError(404, `Take not found: ${nodeId}`);
+    const manifest = slot.kind === "v5" ? slot.manifest : slot.manifest.content;
+    const stored = manifest.nodes.find((node) => node.id === nodeId);
+    if (stored === undefined) throw new HttpError(404, `Take not found: ${nodeId}`);
+    return stored;
+  }
+
   /** Every part's text, not only the reading line. Search is the one reader
    *  that must see the takes nobody is standing on. */
   async loadHydrated(id: string): Promise<Story> {
@@ -562,12 +632,17 @@ export class StoryStore {
         const nextLive = liveObjectIds(manifest);
         const nextRevisionIds = new Set(nextLive.revisions);
         const nextProbabilityIds = new Set(nextLive.probabilities);
+        const nextGenerationRecordIds = new Set(nextLive.generationRecords);
         // V2 temporal facts normalize to only their selected revision. Force the
         // first V4 sweep so older state objects that normalization hid are reaped.
+        // A dropped node's revision can still be live through a surviving node
+        // that shares its text, so the revision check alone misses a dropped
+        // node's own Generation Record — check that set too.
         const settled = await cleanup.settle(
           sourceSchemaVersion !== STORY_SCHEMA_VERSION
             || previousLive.revisions.some((revisionId) => !nextRevisionIds.has(revisionId))
             || previousLive.probabilities.some((id) => !nextProbabilityIds.has(id))
+            || previousLive.generationRecords.some((id) => !nextGenerationRecordIds.has(id))
         );
         await objects.flush();
         await objects.verifyGraph(nextLive);
@@ -667,10 +742,10 @@ export class StoryStore {
         // construction. Deriving both from one manifest (or one explicit
         // empty-live case) makes that impossible instead of merely unlikely.
         const content = manifestContentFromSlot(slot);
-        const live = content !== null
+        const live: LiveStoryObjectIds | null = content !== null
           ? liveObjectIds(content)
           : slot.kind === "v6-deleted"
-            ? { revisions: [], probabilities: [] }
+            ? { revisions: [], probabilities: [], generationRecords: [] }
             : null;
         if (live === null) return;
         const pinned = this.providerSnapshotPins.get(id);
@@ -679,7 +754,8 @@ export class StoryStore {
           ? live
           : {
               revisions: [...new Set([...live.revisions, ...pinned.revisions.keys()])],
-              probabilities: [...new Set([...live.probabilities, ...pinned.probabilities.keys()])]
+              probabilities: [...new Set([...live.probabilities, ...pinned.probabilities.keys()])],
+              generationRecords: live.generationRecords
             };
         const completed = await this.sweep(this.bundlePath(id), protectedIds, signal);
         if (completed

@@ -40,6 +40,7 @@ import type { SettingsTextDraft } from "./settings-text.js";
 import type { SettingsModelPicker } from "./settings-model-picker.js";
 import type { TokenProbabilityRecord } from "../../shared/token-probabilities.js";
 import type { TokenProbabilityEmptyReason } from "./token-probabilities-model.js";
+import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../../shared/generation-record.js";
 import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 import type { PromptProjectionIdentity } from "./request-context.js";
 import type { StoryScalarField } from "./story-scalar-fields.js";
@@ -360,6 +361,58 @@ export interface TokenProbabilitiesViewerState {
   empty: TokenProbabilityEmptyReason | null;
 }
 
+/** Why a Generation Record detail fetch settled without a record to show —
+ *  distinct from `kind: "unsupported"`, which is a valid resolved record
+ *  (see `GenerationRecord.unsupportedReason`) rendered in the body, not an
+ *  error here. */
+export type GenerationRecordDetailError =
+  /** The take's own history no longer lists this id (deleted, or a stale
+   *  cached id from a take that has since moved on). */
+  | { kind: "missing" }
+  /** The server answered, but its shape failed the client's own decoder. */
+  | { kind: "corrupt"; message: string }
+  /** Any other transport or service failure. */
+  | { kind: "failed"; message: string };
+
+/** The Generation Record Viewer (RECORD mode): the read-only history of
+ *  every captured request that produced or changed one take, opened with
+ *  `h` from NAV or any MAP view without moving that view's own focus.
+ *
+ *  Two independent async stages, each with its own staleness guard the same
+ *  way `TokenProbabilitiesViewerState` guards its single stage: the summary
+ *  list loads once per `nodeId`, and each event's detail loads once per
+ *  `(nodeId, eventIndex)` pair — re-checked against `state.record` after
+ *  every await, so closing the viewer or moving to a different take or event
+ *  before a fetch settles can never paint its answer over the wrong place. */
+export interface GenerationRecordViewerState {
+  /** The take being inspected. Re-resolved against the live payload on every
+   *  render, so a concurrent edit degrades to an honest empty state instead
+   *  of describing a take that moved out from under it. */
+  nodeId: string;
+  returnMode: "NAV" | "MAP";
+  /** Oldest first, mirroring `loadGenerationRecordSummaries` — null while the
+   *  first fetch is in flight or has failed. */
+  summaries: readonly GenerationRecordSummary[] | null;
+  listLoading: boolean;
+  listError: string | null;
+  /** Index into `summaries`; meaningless while `summaries` is null or empty.
+   *  Initialized to the newest (last) entry. */
+  eventIndex: number;
+  /** Selected message/pipeline row within the current event's body. Reclamped
+   *  at render time against the live entry count, the same way
+   *  `RequestViewerState.cursor` is reclamped against message count. */
+  entryIndex: number;
+  /** Negative means reveal the focused entry on the next render. */
+  scrollTop: number;
+  detail: ResolvedGenerationRecord | null;
+  detailLoading: boolean;
+  detailError: GenerationRecordDetailError | null;
+  /** Every detail already fetched this session, keyed by record id, so
+   *  paging back to an earlier event repaints instantly instead of
+   *  re-fetching it. */
+  cache: Map<string, ResolvedGenerationRecord>;
+}
+
 /** The last answer the token-count lane published, held against the exact
  *  projection inputs and the route that produced it. The render path trusts it
  *  only while both still match, so a rendered mark always describes the prompt
@@ -498,6 +551,8 @@ export interface StoryScreenState extends OverlayState {
   request: RequestViewerState | null;
   /** The read-only token probability viewer, or null when it is closed. */
   probs: TokenProbabilitiesViewerState | null;
+  /** The read-only Generation Record Viewer, or null when it is closed. */
+  record: GenerationRecordViewerState | null;
   toast: string | null;
   /** C-37: every notice the session has shown, so a capped channel never
    *  loses a message for good. `!` opens it. */

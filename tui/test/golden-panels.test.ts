@@ -217,11 +217,9 @@ describe("run C overlay frames", () => {
   });
 
   test("command palette groups actions and fuzzy-filters with a live Search field", async () => {
-    // Height 40, not 36: the Story section now carries the Author Brief and
-    // Facts budget commands alongside the Author's Note, so the unfiltered
-    // palette is taller than it was and needs the extra rows to reach the
-    // System section without scrolling.
-    const grouped = await renderOnce(demoAppSource(), 120, 40, ":");
+    // Height 42, not 36: the palette includes story settings and the Generation
+    // Record Viewer, so it needs extra rows to reach System without scrolling.
+    const grouped = await renderOnce(demoAppSource(), 120, 42, ":");
     expect(grouped).toContain("┏━ commands ━");
     expect(grouped).toContain("Search");
     const sectionOffsets = ["Suggested", "Story", "Take", "View", "System"]

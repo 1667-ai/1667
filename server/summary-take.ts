@@ -9,7 +9,7 @@ import {
   GenerationStoppedError,
   ServiceError as HttpError
 } from "./errors.js";
-import { streamCompletion, type StreamOutcome } from "./providers.js";
+import { streamCompletion, type GenerationRecordCollector, type StreamOutcome } from "./providers.js";
 import { countWords } from "./story-codec.js";
 import { sha256 } from "./story-format.js";
 import type { DeltaConsumer } from "./generation-stream.js";
@@ -23,6 +23,8 @@ import {
   type PromptCacheRequest,
   type PromptCacheRuntime
 } from "./provider-cache-policy.js";
+import { promptEntriesInline } from "./generation-record-prompt.js";
+import { finalizeGenerationRecord } from "./generation-record-finalize.js";
 
 const SUMMARY_OUTPUT_LIMIT = 200_000;
 const MIN_SUMMARY_TOKENS = 512;
@@ -90,12 +92,14 @@ export async function createSummaryTake(
     finishReason: null,
     providerTerminal: false
   };
+  const generationRecordCollector: GenerationRecordCollector = { effective: null };
   let raw = "";
   try {
     for await (const delta of streamCompletion(summarySettings(settings, plan.outputBudget), plan.prompt, signal, {
       outcome,
       providerStarted,
-      promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation)
+      promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
+      generationRecord: generationRecordCollector
     })) {
       raw += delta;
       if (raw.length > SUMMARY_OUTPUT_LIMIT) {
@@ -116,6 +120,15 @@ export async function createSummaryTake(
     throw new GenerationResultError(502, "The model returned no summary; nothing was saved.");
   }
   const model = settings.provider === "dry-run" ? "dry-run" : settings.model;
+  const generationRecord = finalizeGenerationRecord({
+    kind: "summary-take",
+    createdAt: new Date().toISOString(),
+    provider: settings.provider,
+    model,
+    operation: plan.prompt.operation,
+    entries: () => promptEntriesInline(plan.prompt),
+    collector: generationRecordCollector
+  });
   let node: StoryNode;
   try {
     node = await stories.commitProviderEffect(id, {
@@ -127,7 +140,8 @@ export async function createSummaryTake(
       model,
       instruction: summaryNodeInstruction(source.title),
       cancelled: signal,
-      commitIds
+      commitIds,
+      generationRecord
     });
   } catch (error) {
     if (error instanceof HttpError && error.code === "story_manifest_requires_successor") throw error;
@@ -159,6 +173,12 @@ export function summarySourceFingerprint(title: string, parts: readonly StoryNod
   return sha256(JSON.stringify({ title, point, parts: parts.map((part) => ({ id: part.id, text: part.text })) }));
 }
 
+export interface GeneratedSummaryText {
+  summary: string;
+  generationRecordCollector: GenerationRecordCollector;
+  prompt: PromptPlan;
+}
+
 export async function generateSummaryText(
   settings: GenerationSettings,
   title: string,
@@ -169,7 +189,7 @@ export async function generateSummaryText(
     providerStarted?: () => void | Promise<void>;
     promptCache?: PromptCacheRequest;
   } = {}
-): Promise<string> {
+): Promise<GeneratedSummaryText> {
   const tag = randomUUID().slice(0, 8);
   const marker = `[[summary-complete-${tag}]]`;
   const plan = planSummary(settings, title, parts, tag, options.maxOutputTokens);
@@ -177,12 +197,14 @@ export async function generateSummaryText(
     finishReason: null,
     providerTerminal: false
   };
+  const generationRecordCollector: GenerationRecordCollector = { effective: null };
   let raw = "";
   try {
     for await (const delta of streamCompletion(summarySettings(settings, plan.outputBudget), plan.prompt, signal, {
       outcome,
       providerStarted: options.providerStarted,
-      promptCache: options.promptCache
+      promptCache: options.promptCache,
+      generationRecord: generationRecordCollector
     })) {
       raw += delta;
       if (raw.length > SUMMARY_OUTPUT_LIMIT) {
@@ -199,7 +221,7 @@ export async function generateSummaryText(
   const summary = extractConfirmedSummary(raw, marker);
   if (summary === null) throw new GenerationResultError(502, incompleteSummaryMessage(outcome, plan.windowBound));
   if (summary.length === 0) throw new GenerationResultError(502, "The model returned no summary; nothing was saved.");
-  return summary;
+  return { summary, generationRecordCollector, prompt: plan.prompt };
 }
 
 interface SummaryPlan {

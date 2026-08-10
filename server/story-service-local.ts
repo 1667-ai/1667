@@ -5,6 +5,7 @@ import { ServiceError } from "./errors.js";
 import { currentModel } from "./generation-http.js";
 import { DEFAULT_INSTRUCTION } from "./generation-prompts.js";
 import type { GenerationAdmissionRegistry } from "./generation-admission.js";
+import { generationRecordForCommit } from "./generation-record-handoff.js";
 import { commitNode } from "./node-commit.js";
 import {
   parseCommitPartialRewrite,
@@ -293,6 +294,20 @@ export class StoryServiceLocal {
             );
           const appendTo = appendCrossesBreak ? null : requestedAppendTo;
           if (appendTo !== null) await session.hydratePath(story, appendTo);
+          const text = appendTo === null ? rawText.trim() : rawText;
+          // A stop-and-save commit for a generated take: see the identical
+          // handoff read in server/node-commit.ts. `appendTo` is resolved
+          // above from the current story, not the one the original streaming
+          // request saw, so the record's kind and range always follow this
+          // commit's own decision.
+          const generationRecord = generationRecordForCommit(
+            this.dependencies.generationAdmission,
+            id,
+            genId,
+            appendTo,
+            text.length,
+            new Date().toISOString()
+          );
           const commit = commitTake(story, {
             parentId: appendCrossesBreak
               ? requestedAppendTo
@@ -302,9 +317,10 @@ export class StoryServiceLocal {
               ? body.expectedTextHash
               : null,
             instruction,
-            text: appendTo === null ? rawText.trim() : rawText,
+            text,
             model,
             genId,
+            generationRecord,
             ...(nodeId === undefined ? {} : { nodeId })
           });
           return commit.duplicate ? STORY_UNCHANGED : undefined;

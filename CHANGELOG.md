@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Every generated take keeps its request details.** Press `h` on a take to
+  open the Generation Record Viewer. It shows the provider, the model, the
+  effective settings, provider adjustments, and the ordered request pipeline.
+  It keeps the request text from that generation after a later edit. It never
+  stores a credential, a custom header value, or a base URL.
+
 - **Settings loads a provider's only model before Save.** A provider or base
   URL change could return one model while the model row stayed blank. The
   writer then had to save or select the model. Settings now selects the model

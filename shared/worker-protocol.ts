@@ -31,6 +31,7 @@ import type { LorebookImport } from "./lorebook-entry.js";
 import type { CardImportPlan } from "./card-import.js";
 import type { FactBudgetDrop } from "./fact-budget.js";
 import type { TokenProbabilityRecord } from "./token-probabilities.js";
+import type { GenerationRecordSummary, ResolvedGenerationRecord } from "./generation-record.js";
 import type { SamplingBiasResolutionResult } from "./sampling-capabilities.js";
 
 import type {
@@ -166,6 +167,12 @@ export interface WorkerMethodContract {
    *  stored record fails the request (typed 404 reason) rather than
    *  returning one. */
   getTokenProbabilities: { input: { storyId: string; nodeId: string }; output: TokenProbabilityRecord };
+  /** Every Generation Record event on one take, oldest first, projected to
+   *  what a history list needs — never the full prompt pipeline or effective
+   *  parameters, which getGenerationRecord fetches per id on demand. See
+   *  shared/generation-record.ts. */
+  getGenerationRecords: { input: { storyId: string; nodeId: string }; output: GenerationRecordSummary[] };
+  getGenerationRecord: { input: { storyId: string; nodeId: string; recordId: string }; output: ResolvedGenerationRecord };
   switchLine: { input: { storyId: string; nodeId: string; options?: Omit<SwitchRequest, "nodeId"> }; output: StoryPayload };
   createNode: { input: { storyId: string; body: CreateNodeRequest }; output: StoryPayload };
   editNode: { input: { storyId: string; nodeId: string; body: EditNodeRequest }; output: StoryPayload };
@@ -538,7 +545,7 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "getUnknownOutcomeStatus", "previewChapterBreakRemoval",
   "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "setPhraseBias", "setBannedStrings", "autonameStory",
   "acknowledgeUnknownOutcomes", "deleteStory",
-  "exportMarkdown", "getTokenProbabilities",
+  "exportMarkdown", "getTokenProbabilities", "getGenerationRecords", "getGenerationRecord",
   "switchLine", "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut", "pasteStoryLine",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact", "getSettings",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",

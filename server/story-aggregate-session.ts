@@ -190,14 +190,19 @@ export class StoryAggregateSession {
     await objects.verifyGraph(nextLive);
     const nextRevisionIds = new Set(nextLive.revisions);
     const nextProbabilityIds = new Set(nextLive.probabilities);
+    const nextGenerationRecordIds = new Set(nextLive.generationRecords);
     // Parsing normalizes V2-V4 sources before this diff can run (old fact
     // states collapse to their selected revision), so objects the
     // normalization dropped never appear in previousLive.revisions. Mirror
     // the V5 save path: a legacy-schema source always owes the first V5 sweep.
+    // A dropped node's revision can still be live through a surviving node
+    // that shares its text, so the revision check alone misses a dropped
+    // node's own Generation Record — check that set too.
     this.preparedCleanupRetirement = await cleanup.settle(
       this.legacySchemaSource
         || previousLive.revisions.some((id) => !nextRevisionIds.has(id))
         || previousLive.probabilities.some((id) => !nextProbabilityIds.has(id))
+        || previousLive.generationRecords.some((id) => !nextGenerationRecordIds.has(id))
     ) === "retire-marker";
     return {
       story,
