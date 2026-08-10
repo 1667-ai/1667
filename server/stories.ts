@@ -531,9 +531,10 @@ export class StoryStore {
   ): Promise<GenerationRecordSummary[]> {
     return await this.withIo(id, async () => {
       signal?.throwIfAborted();
-      const stored = await this.requireGenerationRecordNode(id, nodeId);
+      const found = await this.requireGenerationRecordNode(id, nodeId);
       signal?.throwIfAborted();
-      const ids = stored.generationRecordIds ?? [];
+      if (found.kind === "legacy") return [];
+      const ids = found.stored.generationRecordIds ?? [];
       const objects = new StoryObjectStore(this.bundlePath(id));
       const summaries = await mapWithConcurrency(ids, STORY_LIST_IO_CONCURRENCY, async (recordId) => {
         signal?.throwIfAborted();
@@ -567,9 +568,10 @@ export class StoryStore {
   ): Promise<ResolvedGenerationRecord> {
     return await this.withIo(id, async () => {
       signal?.throwIfAborted();
-      const stored = await this.requireGenerationRecordNode(id, nodeId);
+      const found = await this.requireGenerationRecordNode(id, nodeId);
       signal?.throwIfAborted();
-      if (!(stored.generationRecordIds ?? []).includes(recordId)) {
+      if (found.kind === "legacy") throw new HttpError(404, `Take not found: ${nodeId}`);
+      if (!(found.stored.generationRecordIds ?? []).includes(recordId)) {
         throw new HttpError(404, "This take has no such Generation Record.");
       }
       const objects = new StoryObjectStore(this.bundlePath(id));
@@ -579,7 +581,13 @@ export class StoryStore {
     });
   }
 
-  private async requireGenerationRecordNode(id: string, nodeId: string): Promise<StoredNodeV1> {
+  /** A legacy story predates Generation Records, so it never has any — its
+   *  node either exists (callers treat that as a take with no history) or it
+   *  doesn't (still a 404, same as an unknown take in any other format). */
+  private async requireGenerationRecordNode(
+    id: string,
+    nodeId: string
+  ): Promise<{ kind: "legacy" } | { kind: "stored"; stored: StoredNodeV1 }> {
     let slot: ResolvedStory;
     try {
       slot = await this.resolveUnlocked(id);
@@ -588,11 +596,16 @@ export class StoryStore {
       throw error;
     }
     await this.schedulePendingCleanup(id);
-    if (slot.kind === "legacy") throw new HttpError(404, `Take not found: ${nodeId}`);
+    if (slot.kind === "legacy") {
+      if (!slot.story.nodes.some((node) => node.id === nodeId)) {
+        throw new HttpError(404, `Take not found: ${nodeId}`);
+      }
+      return { kind: "legacy" };
+    }
     const manifest = slot.kind === "v5" ? slot.manifest : slot.manifest.content;
     const stored = manifest.nodes.find((node) => node.id === nodeId);
     if (stored === undefined) throw new HttpError(404, `Take not found: ${nodeId}`);
-    return stored;
+    return { kind: "stored", stored };
   }
 
   /** Every part's text, not only the reading line. Search is the one reader
