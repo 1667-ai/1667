@@ -18,6 +18,13 @@ import {
   type SettingsTextDraft
 } from "./settings-text.js";
 import type { SettingsOverlayState, SettingsRowId } from "./state.js";
+import {
+  acknowledgeSettingsModelSelection,
+  replaceAuthoritativeSettingsDraft,
+  replaceSettingsDraft,
+  settingsAutomaticModelSelectionForProfile
+} from "./settings-draft-transition.js";
+import { settingsModelTargetFingerprint } from "./settings-provider-probe.js";
 
 type EditableSettingsFieldRow =
   | "provider"
@@ -75,7 +82,6 @@ export function reconcileSettingsOverlay(
     overlay.base = nextBase;
     return null;
   }
-
   const samplingWasOpen = overlay.sampling !== null;
   const draftWasClean = !settingsDraftChanged(overlay);
   const editAffectsServer = edit !== null && (
@@ -89,7 +95,13 @@ export function reconcileSettingsOverlay(
     ? draftWithActiveEdit(activeEditBase, edit)
     : overlay.draft;
   const converged = activeDraft !== null && sameSettingsDraft(activeDraft, nextBase);
-  if (draftWasClean || converged) overlay.draft = nextBase;
+  if (draftWasClean || converged) {
+    replaceAuthoritativeSettingsDraft(
+      overlay,
+      nextBase,
+      reconciledModelProvenance(overlay, nextBase, view)
+    );
+  }
   overlay.base = nextBase;
 
   if (edit !== null && (draftWasClean || converged) && editWasClean) {
@@ -134,6 +146,7 @@ export function settleSettingsOverlaySave(
 ): boolean {
   const newerDraft = !sameSettingsDraft(overlay.draft, acknowledged)
     || !sameConnectionSecrets(overlay.connectionSecrets, acknowledgedSecrets);
+  acknowledgeSavedAutomaticModels(overlay, acknowledged, acknowledgedSecrets);
   if (sameConnectionSecrets(overlay.connectionSecrets, acknowledgedSecrets)) {
     overlay.connectionSecrets = {};
   }
@@ -142,11 +155,110 @@ export function settleSettingsOverlaySave(
     overlay.draft.selectedProfileId
   );
   overlay.base = nextBase;
-  if (!newerDraft) overlay.draft = nextBase;
+  if (!newerDraft) {
+    replaceSettingsDraft(overlay, nextBase);
+  }
   overlay.conflict = null;
   return newerDraft || (
     edit !== null && edit.composer.text !== edit.initialText()
   );
+}
+
+function reconciledModelProvenance(
+  overlay: SettingsOverlayState,
+  next: SettingsTextDraft,
+  view: SettingsView
+): SettingsOverlayState["modelSelectionByProfile"] {
+  return Object.fromEntries(
+    Object.keys(overlay.modelSelectionByProfile).flatMap((key) => {
+      const current = overlay.modelSelectionByProfile[key] ?? {};
+      const profileId = overlay.draft.document === null ? null : key;
+      const previousDraft = draftForProfile(overlay.draft, profileId);
+      const nextDraft = draftForProfile(next, profileId);
+      if (previousDraft === null || nextDraft === null) return [];
+      const reconciled = {
+        ...(current.automaticModel !== undefined
+          && nextDraft.generation.model === current.automaticModel.remoteId
+          && modelTargetIdentityForView(
+            view,
+            nextDraft,
+            overlay.connectionSecrets
+          ) === current.automaticModel.targetIdentity
+          ? { automaticModel: current.automaticModel }
+          : {}),
+      };
+      return Object.keys(reconciled).length === 0
+        ? []
+        : [[key, reconciled]];
+    })
+  );
+}
+
+function acknowledgeSavedAutomaticModels(
+  overlay: SettingsOverlayState,
+  acknowledged: SettingsTextDraft,
+  acknowledgedSecrets: Readonly<Record<string, string | null>>
+): void {
+  const profileIds: readonly (string | null)[] = acknowledged.document === null
+    ? [null]
+    : Object.keys(acknowledged.document.profiles);
+  for (const profileId of profileIds) {
+    const automatic = settingsAutomaticModelSelectionForProfile(
+      overlay,
+      profileId
+    );
+    if (automatic === null) continue;
+    const saved = draftForProfile(acknowledged, profileId);
+    const current = draftForProfile(overlay.draft, profileId);
+    if (saved === null || current === null
+      || saved.generation.model !== automatic.remoteId
+      || current.generation.model !== automatic.remoteId) continue;
+    const currentTarget = modelTargetIdentityForView(
+      overlay.view,
+      current,
+      overlay.connectionSecrets
+    );
+    if (currentTarget !== null
+      && currentTarget === modelTargetIdentityForView(
+        overlay.view,
+        saved,
+        acknowledgedSecrets
+      )) {
+      acknowledgeSettingsModelSelection(overlay, profileId, automatic.remoteId);
+    }
+  }
+}
+
+function draftForProfile(
+  draft: SettingsTextDraft,
+  profileId: string | null
+): SettingsTextDraft | null {
+  if (profileId === null) {
+    return draft.selectedProfileId === null ? draft : null;
+  }
+  if (draft.document?.profiles[profileId] === undefined) return null;
+  return settingsTextDraftForDocument(
+    draft.document,
+    profileId
+  );
+}
+
+function modelTargetIdentityForView(
+  view: SettingsView,
+  draft: SettingsTextDraft,
+  connectionSecrets: Readonly<Record<string, string | null>>
+): string | null {
+  try {
+    return settingsModelTargetFingerprint(
+      view,
+      draft.generation,
+      connectionSecrets,
+      draft.document,
+      draft.selectedProfileId
+    );
+  } catch {
+    return null;
+  }
 }
 
 export function sameGenerationSettings(

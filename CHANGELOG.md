@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Settings loads a provider's only model before Save.** A provider or base
+  URL change could return one model while the model row stayed blank. The
+  writer then had to save or select the model. Settings now selects the model
+  when the current model is blank. It does not replace a model name that the
+  writer typed. Thanks to @10fra.
+
 - Show live download progress for managed upgrades and the Windows Installer.
   Thanks to @10fra.
 

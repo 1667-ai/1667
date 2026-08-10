@@ -22,6 +22,54 @@ import {
 } from "./settings-test-harness.js";
 
 describe("Settings save lifecycle", () => {
+  test("a normalized no-op save restores the canonical draft", async () => {
+    const { source, state, press } = settingsHarness();
+    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
+    const document = {
+      ...source.settingsView.document,
+      models: {
+        ...source.settingsView.document.models,
+        demo: {
+          ...source.settingsView.document.models.demo!,
+          discovered: {}
+        }
+      }
+    };
+    const effective = basicSettingsFromDocument(document);
+    const view = {
+      ...source.settingsView,
+      document,
+      effective,
+      effectiveProse: effective
+    };
+    publishSettingsView(state, source, view);
+    let saves = 0;
+    source.api.saveSettings = async () => {
+      saves += 1;
+      throw new Error("a normalized no-op must not reach the server");
+    };
+    source.api.discoverModels = async () => ({
+      observedAt: "2026-01-01T00:00:00.000Z",
+      models: []
+    });
+    source.api.getSettings = async () => source.settingsView;
+
+    await openSettings(press);
+    await draftRow(
+      press,
+      state,
+      "base-url",
+      "https://inactive.example.test/v1"
+    );
+    expect(settingsDraftChanged(state.settings!)).toBeTrue();
+
+    await press(key("s"));
+
+    expect(saves).toBe(0);
+    expect(state.settings?.draft.generation.baseUrl).toBe("");
+    expect(settingsDraftChanged(state.settings!)).toBeFalse();
+  });
+
   test("discard refreshes the model list for the restored provider", async () => {
     const { source, state, press } = settingsHarness();
     if (!source.settingsView.editable) {

@@ -1,4 +1,5 @@
 import type { GenerationProfileV2 } from "../../shared/settings-v2-types.js";
+import { replaceSettingsDraft } from "./settings-draft-transition.js";
 import { settingsTextDraftForDocument } from "./settings-text.js";
 import type { SettingsOverlayState } from "./state.js";
 
@@ -26,10 +27,13 @@ export function cycleProfileField<T>(
   const next = choices[index < 0
     ? 0
     : (index + step + choices.length) % choices.length]!;
-  overlay.draft = settingsTextDraftForDocument({
-    ...document,
-    profiles: { ...document.profiles, [profileId]: write(profile, next) }
-  }, profileId);
+  replaceSettingsDraft(
+    overlay,
+    settingsTextDraftForDocument({
+      ...document,
+      profiles: { ...document.profiles, [profileId]: write(profile, next) }
+    }, profileId)
+  );
   markControlMutation(overlay);
   return next;
 }

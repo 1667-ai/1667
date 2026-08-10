@@ -24,9 +24,16 @@ import { resolveSettingsProfile } from "./settings-route.js";
 export function applyBasicSettingsDraft(
   document: SettingsDocumentV2,
   draft: GenerationSettings,
-  profileId: string = document.routing.default
+  profileId: string = document.routing.default,
+  retainContextWindowOverride = false
 ): SettingsDocumentV2 {
-  return applyBasicSettingsDocumentDraft(document, draft, savedModelIdentity, profileId);
+  return applyBasicSettingsDocumentDraft(
+    document,
+    draft,
+    savedModelIdentity,
+    profileId,
+    retainContextWindowOverride
+  );
 }
 
 /**
@@ -36,9 +43,16 @@ export function applyBasicSettingsDraft(
 export function applyBasicSettingsProbeDraft(
   document: SettingsDocumentV2,
   draft: GenerationSettings,
-  profileId: string = document.routing.default
+  profileId: string = document.routing.default,
+  retainContextWindowOverride = false
 ): SettingsDocumentV2 {
-  return applyBasicSettingsDocumentDraft(document, draft, probeModelIdentity, profileId);
+  return applyBasicSettingsDocumentDraft(
+    document,
+    draft,
+    probeModelIdentity,
+    profileId,
+    retainContextWindowOverride
+  );
 }
 
 type ModelIdentity = {
@@ -50,7 +64,8 @@ function applyBasicSettingsDocumentDraft(
   document: SettingsDocumentV2,
   draft: GenerationSettings,
   modelIdentityFor: (settings: GenerationSettings) => ModelIdentity,
-  profileId: string
+  profileId: string,
+  retainContextWindowOverride: boolean
 ): SettingsDocumentV2 {
   const route = resolveSettingsProfile(document, profileId);
   const projected = basicSettingsFromDocument(document, profileId);
@@ -61,7 +76,11 @@ function applyBasicSettingsDocumentDraft(
   // already contains the same incomplete value. The probe reducer deliberately
   // accepts a blank model so discovery can complete that draft.
   const requestedModelIdentity = modelIdentityFor(normalizedDraft);
-  if (sameBasicSettings(normalizedProjection, normalizedDraft)) return document;
+  if (sameBasicSettings(normalizedProjection, normalizedDraft)
+    && (!retainContextWindowOverride
+      || route.model.overrides.contextWindow === normalizedDraft.contextWindow)) {
+    return document;
+  }
 
   const protocol = protocolFor(normalizedDraft.provider);
   const protocolChanged = route.connection.protocol !== protocol;
@@ -93,7 +112,8 @@ function applyBasicSettingsDocumentDraft(
         ...route.model,
         ...modelIdentity,
         discovered: {},
-        overrides: contextWindowChanged && normalizedDraft.contextWindow !== null
+        overrides: (contextWindowChanged || retainContextWindowOverride)
+          && normalizedDraft.contextWindow !== null
           ? { contextWindow: normalizedDraft.contextWindow }
           : {},
         capabilities: defaultModelCapabilities(normalizedDraft.provider)
@@ -103,7 +123,7 @@ function applyBasicSettingsDocumentDraft(
         discovered: contextWindowChanged && normalizedDraft.contextWindow === null
           ? metadataWithoutContextWindow(route.model.discovered)
           : route.model.discovered,
-        overrides: contextWindowChanged
+        overrides: contextWindowChanged || retainContextWindowOverride
           ? overridesWithContextWindow(route.model.overrides, normalizedDraft.contextWindow)
           : route.model.overrides
       };
@@ -138,7 +158,8 @@ export function applyBasicModelDiscovery(
   document: SettingsDocumentV2,
   discovery: ModelDiscoveryResultV2 | null,
   visibleContextWindow: number | null,
-  profileId: string = document.routing.default
+  profileId: string = document.routing.default,
+  retainVisibleContextWindowOverride = false
 ): SettingsDocumentV2 {
   if (discovery === null) return document;
   const route = resolveSettingsProfile(document, profileId);
@@ -157,7 +178,8 @@ export function applyBasicModelDiscovery(
   const overrides = { ...route.model.overrides };
   if (
     visibleContextWindow === null
-    || visibleContextWindow === found.contextWindow
+    || (!retainVisibleContextWindowOverride
+      && visibleContextWindow === found.contextWindow)
   ) {
     delete overrides.contextWindow;
   } else {

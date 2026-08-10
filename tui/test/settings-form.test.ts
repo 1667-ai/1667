@@ -7,7 +7,7 @@ import {
   DEFAULT_PROFILE_TEMPERATURE
 } from "../../shared/settings-v2-types.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2_TEXT } from "../../server/settings-v2-initial-vectors.js";
-import { settingsModelDiscoveryIdentity } from "../src/settings-model-discovery.js";
+import { publishCurrentSettingsModelDiscovery } from "../src/settings-model-discovery.js";
 import {
   initialSettingsOverlay,
   settingsRows,
@@ -178,7 +178,7 @@ describe("C-15 · the model option column", () => {
       ...overlay.draft,
       generation: { ...overlay.draft.generation, model: "model-01" }
     };
-    overlay.modelDiscovery = {
+    publishCurrentSettingsModelDiscovery(overlay, {
       observedAt: "2026-01-01T00:00:00.000Z",
       models: Array.from({ length: count }, (_, index) => ({
         remoteId: `model-${String(index + 1).padStart(2, "0")}`,
@@ -187,9 +187,7 @@ describe("C-15 · the model option column", () => {
         maxOutputTokens: null,
         source: "openai-models" as const
       }))
-    };
-    overlay.modelDiscoveryIdentity =
-      settingsModelDiscoveryIdentity(overlay.draft.generation);
+    });
   }
 
   test("a long list opens as a column that owns the arrows", async () => {

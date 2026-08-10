@@ -5,10 +5,20 @@ import type {
   SettingsView
 } from "../../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../../shared/types.js";
-import { selectSettingsRoute } from "../../shared/settings-route.js";
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
-import { settingsProviderProbeTarget } from "./settings-provider-probe.js";
+import {
+  settingsAutomaticModelSelection,
+  settingsContextWindowIsManual,
+} from "./settings-draft-transition.js";
+import {
+  applySettingsModelChoice,
+  clearAutomaticSettingsModel
+} from "./settings-model-selection.js";
+import {
+  settingsModelTargetFingerprint,
+  settingsProviderProbeTarget
+} from "./settings-provider-probe.js";
 import type { RuntimeState, SettingsOverlayState } from "./state.js";
 
 const synchronizedOverlays = new WeakMap<RuntimeState, SettingsOverlayState>();
@@ -29,8 +39,22 @@ export function settingsModelChoices(
 ): readonly DiscoveredModelV2[] {
   return overlay.modelDiscoveryIdentity
       === settingsModelDiscoveryIdentity(overlay.draft.generation)
+      && overlay.modelDiscoveryResultTargetIdentity
+        === settingsModelSelectionScopeIdentity(overlay)
     ? overlay.modelDiscovery?.models ?? []
     : [];
+}
+
+export function publishCurrentSettingsModelDiscovery(
+  overlay: SettingsOverlayState,
+  discovery: ModelDiscoveryResultV2
+): void {
+  publishSettingsModelDiscoveryResult(
+    overlay,
+    discovery,
+    settingsModelDiscoveryIdentity(overlay.draft.generation),
+    settingsModelSelectionScopeIdentity(overlay)
+  );
 }
 
 export function clearSettingsModelDiscovery(
@@ -42,6 +66,7 @@ export function clearSettingsModelDiscovery(
   overlay.discoveringModels = false;
   overlay.modelDiscovery = null;
   overlay.modelDiscoveryIdentity = null;
+  overlay.modelDiscoveryResultTargetIdentity = null;
 }
 
 export async function synchronizeSettingsModelDiscovery(
@@ -74,6 +99,9 @@ export async function synchronizeSettingsModelDiscovery(
 interface ModelDiscoveryRequest {
   generation: number;
   identity: string;
+  targetIdentity: string;
+  selectionTargetIdentity: string;
+  selectionScopeIdentity: string;
   settings: GenerationSettings;
   view: SettingsView;
   document: SettingsDocumentV2 | null;
@@ -87,6 +115,7 @@ export async function discoverSettingsModels(
   context: Pick<ActionContext, "backend" | "repaint">,
   overlay: SettingsOverlayState
 ): Promise<void> {
+  clearStaleAutomaticModel(overlay);
   const settings = overlay.view.editable
     ? overlay.draft.generation
     : overlay.view.effective;
@@ -98,6 +127,9 @@ export async function discoverSettingsModels(
   const request: ModelDiscoveryRequest = {
     generation: overlay.modelDiscoveryGeneration,
     identity,
+    targetIdentity: settingsModelDiscoveryTargetIdentity(overlay),
+    selectionTargetIdentity: settingsModelSelectionTargetIdentity(overlay),
+    selectionScopeIdentity: settingsModelSelectionScopeIdentity(overlay),
     settings,
     view: overlay.view,
     document: overlay.draft.document,
@@ -147,8 +179,17 @@ async function runModelDiscoveryRequest(
         request.signal
       );
       if (!task.owns() || !ownsCurrentRequest(state, overlay, request)) return;
-      publishModelDiscovery(overlay, request.identity, discovery);
-      if (discovery.models.length === 0) {
+      const selectionError = publishModelDiscovery(overlay, request, discovery);
+      if (selectionError !== null) {
+        overlay.result = {
+          state: "warning",
+          message: "model list loaded · choose the model manually"
+        };
+        overlay.resultRow = "model";
+        state.toast = selectionError instanceof Error
+          ? selectionError.message
+          : String(selectionError);
+      } else if (discovery.models.length === 0) {
         overlay.result = {
           state: "warning",
           message: `model list is empty · ${namedModelSuffix(overlay)}`
@@ -203,40 +244,52 @@ function canDiscoverModels(settings: GenerationSettings): boolean {
   }
 }
 
-function settingsModelDiscoveryTargetIdentity(
+export function settingsModelSelectionTargetIdentity(
   overlay: SettingsOverlayState
 ): string {
   const settings = overlay.view.editable
     ? overlay.draft.generation
     : overlay.view.effective;
-  let connection: unknown = null;
   try {
-    const target = settingsProviderProbeTarget(
+    return settingsModelTargetFingerprint(
       overlay.view,
       settings,
       overlay.connectionSecrets,
       overlay.draft.document,
       overlay.draft.selectedProfileId
     );
-    if ("kind" in target) {
-      connection = selectSettingsRoute(
-        target.document,
-        target.purpose
-      ).connection;
-    }
   } catch {
-    connection = "invalid";
+    return JSON.stringify([
+      "invalid",
+      settingsModelDiscoveryIdentity(settings)
+    ]);
   }
-  const secretIntent = Object.entries(overlay.connectionSecrets)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([id, value]) => [id, value === null ? "delete" : "replace"]);
+}
+
+function settingsModelSelectionScopeIdentity(
+  overlay: SettingsOverlayState
+): string {
   return JSON.stringify([
-    settingsModelDiscoveryIdentity(settings),
     overlay.draft.selectedProfileId,
-    overlay.view.stateGeneration,
-    connection,
-    secretIntent
+    settingsModelSelectionTargetIdentity(overlay)
   ]);
+}
+
+function settingsModelDiscoveryTargetIdentity(
+  overlay: SettingsOverlayState
+): string {
+  return JSON.stringify([
+    overlay.view.stateGeneration,
+    settingsModelSelectionScopeIdentity(overlay)
+  ]);
+}
+
+function clearStaleAutomaticModel(overlay: SettingsOverlayState): void {
+  const automatic = settingsAutomaticModelSelection(overlay);
+  if (automatic !== null
+    && automatic.targetIdentity !== settingsModelSelectionTargetIdentity(overlay)) {
+    clearAutomaticSettingsModel(overlay);
+  }
 }
 
 function ownsCurrentRequest(
@@ -250,16 +303,67 @@ function ownsCurrentRequest(
   return state.settings === overlay
     && overlay.modelDiscoveryGeneration === request.generation
     && overlay.draft.selectedProfileId === request.profileId
+    && settingsModelDiscoveryTargetIdentity(overlay) === request.targetIdentity
     && settingsModelDiscoveryIdentity(current) === request.identity;
 }
 
 function publishModelDiscovery(
   overlay: SettingsOverlayState,
-  identity: string,
+  request: ModelDiscoveryRequest,
   discovery: ModelDiscoveryResultV2
+): unknown | null {
+  publishSettingsModelDiscoveryResult(
+    overlay,
+    discovery,
+    request.identity,
+    request.selectionScopeIdentity
+  );
+  const onlyModel = discovery.models.length === 1
+    ? discovery.models[0]
+    : undefined;
+  const currentModel = overlay.draft.generation.model;
+  const automatic = settingsAutomaticModelSelection(overlay);
+  if (!overlay.view.editable
+    || (currentModel.trim().length > 0 && automatic === null)) {
+    return null;
+  }
+  const listedModel = automatic === null
+      || automatic.targetIdentity !== request.selectionTargetIdentity
+    ? undefined
+    : discovery.models.find((model) => model.remoteId === automatic.remoteId);
+  const selected = listedModel ?? onlyModel;
+  if (selected === undefined) {
+    if (automatic !== null) clearAutomaticSettingsModel(overlay);
+    return null;
+  }
+  const contextWindow = settingsContextWindowIsManual(overlay)
+    ? overlay.draft.generation.contextWindow
+    : selected.contextWindow;
+  try {
+    applySettingsModelChoice(
+      overlay,
+      selected,
+      contextWindow,
+      {
+        kind: "automatic",
+        targetIdentity: request.selectionTargetIdentity
+      }
+    );
+    return null;
+  } catch (error) {
+    return error;
+  }
+}
+
+function publishSettingsModelDiscoveryResult(
+  overlay: SettingsOverlayState,
+  discovery: ModelDiscoveryResultV2,
+  identity: string,
+  targetIdentity: string
 ): void {
   overlay.modelDiscovery = discovery;
   overlay.modelDiscoveryIdentity = identity;
+  overlay.modelDiscoveryResultTargetIdentity = targetIdentity;
 }
 
 /** What to say after a discovery failure. Telling a writer to "enter a custom

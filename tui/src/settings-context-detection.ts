@@ -9,6 +9,7 @@ import { settingsTextDraftWithDetectedContext } from "./settings-text.js";
 import { settingsProviderProbeTarget } from "./settings-provider-probe.js";
 import { sameConnectionSecrets } from "./settings-secret-sidecar.js";
 import { activeSettingsEdit } from "./settings-edit-state.js";
+import { replaceSettingsDraft } from "./settings-draft-transition.js";
 import type { RuntimeState, SettingsOverlayState } from "./state.js";
 
 /** Probe the selected draft without letting a late response overwrite newer
@@ -69,9 +70,9 @@ export async function detectSettingsContext(
         return;
       }
       if (editable) {
-        overlay.draft = settingsTextDraftWithDetectedContext(
-          overlay.draft,
-          contextWindow
+        replaceSettingsDraft(
+          overlay,
+          settingsTextDraftWithDetectedContext(overlay.draft, contextWindow)
         );
         if (sameSettingsDraft(overlay.draft, overlay.base)) overlay.conflict = null;
         else if (overlay.conflict !== null) overlay.conflict.armed = false;

@@ -279,7 +279,9 @@ Dry-run mode tests the interface without a provider request.
 Settings reads the model list from the selected provider. Use `Left Arrow` or
 `Right Arrow` to select a model. Press `Enter` to type a custom model name.
 Settings reads the list again after you change the provider or the base URL.
-Save a new credential target before you use it to read a model list.
+Settings selects the model when the list contains one model and the model row
+is blank. An unsaved stored API key can read the model list. Settings uses the
+key for this request only. Save the settings to store the key.
 
 ## Use Generation Profiles and Generation Routes
 

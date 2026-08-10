@@ -9,7 +9,7 @@ import { setComposerText } from "../src/composer-model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { settingsTextDraftForDocument } from "../src/settings-text.js";
-import { settingsModelDiscoveryIdentity } from "../src/settings-model-discovery.js";
+import { publishCurrentSettingsModelDiscovery } from "../src/settings-model-discovery.js";
 import {
   draftRow,
   key,
@@ -292,7 +292,10 @@ describe("Generation Profile settings", () => {
         }
       }
     };
-    state.settings!.draft = settingsTextDraftForDocument(unsupported);
+    state.settings!.draft = settingsTextDraftForDocument(
+      unsupported,
+      undefined
+    );
     await selectRow(press, state, "effort");
     expect(frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines))
       .toContain("‹ high ›");
@@ -301,7 +304,10 @@ describe("Generation Profile settings", () => {
     await press(key("left"));
     expect(state.settings?.draft.document?.profiles.default?.effort).toBe("default");
 
-    state.settings!.draft = settingsTextDraftForDocument(unsupported);
+    state.settings!.draft = settingsTextDraftForDocument(
+      unsupported,
+      undefined
+    );
     await press(key("right"));
     expect(state.settings?.draft.document?.profiles.default?.effort).toBe("default");
   });
@@ -379,7 +385,10 @@ describe("Generation Profile settings", () => {
         [connectionId]: { ...document.connections[connectionId]!, preset: "ollama" as const }
       }
     };
-    state.settings!.draft = settingsTextDraftForDocument(unavailable);
+    state.settings!.draft = settingsTextDraftForDocument(
+      unavailable,
+      undefined
+    );
     await selectRow(press, state, "token-probabilities");
     const frame = frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines);
     expect(frame).toContain("‹ — ›");
@@ -427,7 +436,7 @@ describe("Generation Profile settings", () => {
       ...draft.document,
       models
     }, draft.selectedProfileId);
-    state.settings!.modelDiscovery = {
+    publishCurrentSettingsModelDiscovery(state.settings!, {
       observedAt: "2026-08-01T00:00:00.000Z",
       models: [{
         remoteId: "some-other-model",
@@ -436,10 +445,7 @@ describe("Generation Profile settings", () => {
         maxOutputTokens: null,
         source: "openai-models"
       }]
-    };
-    state.settings!.modelDiscoveryIdentity = settingsModelDiscoveryIdentity(
-      state.settings!.draft.generation
-    );
+    });
 
     await press(key("s"));
 

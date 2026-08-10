@@ -30,6 +30,10 @@ import {
   settingsProviderChoice
 } from "./settings-provider-choices.js";
 import { settingsModelChoices } from "./settings-model-discovery.js";
+import {
+  applySettingsManualContextDraft,
+  replaceSettingsDraft
+} from "./settings-draft-transition.js";
 import { promptCacheSummaryParts } from "./settings-cache-summary.js";
 import { samplingRowValue } from "./sampling-model.js";
 import { cycleProfileField, markControlMutation } from "./settings-profile-cycle.js";
@@ -259,7 +263,14 @@ export function stepSettingsScalar(
   else if (row === "context-window") generation.contextWindow = next;
   else if (next === null) throw new Error("max tokens has no sentinel to step to");
   else generation.maxTokens = next;
-  overlay.draft = settingsTextDraftWithGeneration(overlay.draft, generation);
+  if (row === "context-window" && next !== null) {
+    applySettingsManualContextDraft(overlay, generation);
+  } else {
+    replaceSettingsDraft(
+      overlay,
+      settingsTextDraftWithGeneration(overlay.draft, generation)
+    );
+  }
   markControlMutation(overlay);
 }
 
@@ -280,7 +291,7 @@ export function cycleProfileControl(
   const selected = overlay.draft.selectedProfileId;
   if (document === null || selected === null) return null;
   const profileId = cycleProfile(document, selected, step);
-  overlay.draft = settingsTextDraftForDocument(document, profileId);
+  replaceSettingsDraft(overlay, settingsTextDraftForDocument(document, profileId));
   markControlMutation(overlay);
   return document.profiles[profileId]!.name;
 }
@@ -294,7 +305,7 @@ export function cycleRouteControl(
   const selected = overlay.draft.selectedProfileId;
   if (document === null || selected === null) return null;
   const next = cycleRoute(document, purpose, step);
-  overlay.draft = settingsTextDraftForDocument(next, selected);
+  replaceSettingsDraft(overlay, settingsTextDraftForDocument(next, selected));
   markControlMutation(overlay);
   return routeRowValue(overlay, purpose);
 }
@@ -323,7 +334,10 @@ export function cycleCachePolicyControl(
   const policy = PROMPT_CACHE_POLICY_V2_VALUES[
     (index + step + PROMPT_CACHE_POLICY_V2_VALUES.length) % PROMPT_CACHE_POLICY_V2_VALUES.length
   ]!;
-  overlay.draft = settingsTextDraftWithCachePolicy(overlay.draft, policy);
+  replaceSettingsDraft(
+    overlay,
+    settingsTextDraftWithCachePolicy(overlay.draft, policy)
+  );
   markControlMutation(overlay);
   return policy;
 }
@@ -344,16 +358,19 @@ export function cycleTextPromptFormatControl(
   const current = route.connection.textPromptFormat ?? "raw";
   const index = Math.max(0, choices.indexOf(current));
   const format = choices[(index + step + choices.length) % choices.length]!;
-  overlay.draft = settingsTextDraftForDocument({
-    ...document,
-    connections: {
-      ...document.connections,
-      [route.model.connectionId]: {
-        ...route.connection,
-        textPromptFormat: format
+  replaceSettingsDraft(
+    overlay,
+    settingsTextDraftForDocument({
+      ...document,
+      connections: {
+        ...document.connections,
+        [route.model.connectionId]: {
+          ...route.connection,
+          textPromptFormat: format
+        }
       }
-    }
-  }, profileId);
+    }, profileId)
+  );
   markControlMutation(overlay);
   return format;
 }

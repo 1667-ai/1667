@@ -252,12 +252,24 @@ export interface SettingsOverlaySaveIntent {
   readonly draft: SettingsTextDraft;
   readonly connectionSecrets: Readonly<Record<string, string | null>>;
 }
+export interface SettingsProfileModelSelection {
+  automaticModel?: {
+    remoteId: string;
+    targetIdentity: string;
+  };
+}
+export type SettingsModelSelectionByProfile = Record<
+  string,
+  SettingsProfileModelSelection
+>;
 export interface SettingsOverlayState {
   view: SettingsView;
   /** Last authoritative projection used to detect/rebase external refreshes. */
   base: SettingsTextDraft;
   /** Atomic unsaved form state. Runtime generation remains pinned to view.effective. */
   draft: SettingsTextDraft;
+  /** One per-profile owner for model values inferred while this overlay is open. */
+  modelSelectionByProfile: SettingsModelSelectionByProfile;
   /** Write-only key material; never projected into GenerationSettings/document. */
   connectionSecrets: Record<string, string | null>;
   cursor: number;
@@ -274,6 +286,7 @@ export interface SettingsOverlayState {
   discoveringModels: boolean;
   modelDiscovery: ModelDiscoveryResultV2 | null;
   modelDiscoveryIdentity: string | null;
+  modelDiscoveryResultTargetIdentity: string | null;
   modelDiscoveryGeneration: number;
   modelDiscoveryAbortController: AbortController | null;
   modelDiscoveryTargetIdentity: string | null;

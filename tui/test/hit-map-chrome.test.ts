@@ -20,7 +20,7 @@ import {
   initialSettingsOverlay,
   SETTINGS_ROW_IDS
 } from "../src/settings-overlay-model.js";
-import { settingsModelDiscoveryIdentity } from "../src/settings-model-discovery.js";
+import { publishCurrentSettingsModelDiscovery } from "../src/settings-model-discovery.js";
 import { currentPartActions, openActions } from "../src/story-actions.js";
 import {
   ACTIONS_FOOTER_ACTIONS, TAGS_FOOTER_ACTIONS, CHAPTERS_FOOTER_ACTIONS,
@@ -125,7 +125,7 @@ function installModelChoices(state: State, remoteIds: readonly string[]): void {
       model: remoteIds[0] ?? ""
     }
   };
-  overlay.modelDiscovery = {
+  publishCurrentSettingsModelDiscovery(overlay, {
     observedAt: "2026-01-01T00:00:00.000Z",
     models: remoteIds.map((remoteId) => ({
       remoteId,
@@ -134,10 +134,7 @@ function installModelChoices(state: State, remoteIds: readonly string[]): void {
       maxOutputTokens: null,
       source: "openai-models" as const
     }))
-  };
-  overlay.modelDiscoveryIdentity = settingsModelDiscoveryIdentity(
-    overlay.draft.generation
-  );
+  });
 }
 
 function clickText(frame: ReturnType<typeof render>, state: ReturnType<typeof initialState>, text: string) {
