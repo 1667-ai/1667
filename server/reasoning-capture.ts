@@ -1,13 +1,15 @@
 import { createReasoningRecord, MAX_REASONING_BYTES, type CapturedReasoning } from "../shared/reasoning.js";
 import type { GenerationSettings } from "../shared/types.js";
-import { providerRuntimeFor } from "./provider-runtime.js";
+import { providerRuntimeFor, redactProviderSecrets } from "./provider-runtime.js";
 import type { ReasoningConsumer, ReasoningStreamDelta } from "./generation-stream.js";
 
 /**
  * Accumulate a stream's reasoning deltas into one capture, the same
  * collector-box shape as `TokenProbabilityCollector`
  * (server/token-probability-capture.ts): filled as the stream runs, read
- * once the stream ends.
+ * once the stream ends. `reasoningSafeToStore`, below, is the commit-time
+ * counterpart: whether the capture this module built is actually safe to
+ * keep, once the take's prose is also in hand.
  */
 export interface ReasoningCollector {
   record: CapturedReasoning | null;
@@ -82,6 +84,38 @@ export function withReasoningCapture(
     }
     await onReasoning?.(delta);
   };
+}
+
+/** The commit-time gate this module's own doc-comment promises: whether a
+ *  captured thought is actually safe to store, once the take's prose is
+ *  also in hand. `outputRedactor` and the reasoning relay's own redactor
+ *  (server/provider-reasoning-relay.ts) each scrub their own channel as it
+ *  streams, but the two never share a buffer — a provider that splits one
+ *  configured credential across both channels (the prefix as reasoning, the
+ *  suffix as prose, or the reverse) leaves neither channel's own text
+ *  containing the whole secret, so neither redactor ever has cause to act.
+ *  This is the one place both halves are finally read together.
+ *
+ *  Checked in both concatenation orders because either channel could hold
+ *  the prefix; a provider controls that, not 1667. `captured` and
+ *  `proseText` are never touched here — a tainted pair is dropped whole
+ *  (mirrors `carriesProviderSecret` in server/token-probability-capture.ts):
+ *  a joined match says only that the pair together is unsafe, not which
+ *  side holds which half, so there is nothing sound to redact in place. The
+ *  prose is never the one discarded — a writer's prose is not this
+ *  function's decision to make (server/story-node-reasoning.ts, the "never
+ *  a reason to fail the generation" rule for reasoning as a diagnostic). */
+export function reasoningSafeToStore(
+  captured: CapturedReasoning | null,
+  proseText: string,
+  secrets: readonly string[]
+): CapturedReasoning | null {
+  if (captured === null || secrets.length === 0) return captured;
+  const forward = captured.text + proseText;
+  const backward = proseText + captured.text;
+  const tainted = redactProviderSecrets(forward, secrets) !== forward
+    || redactProviderSecrets(backward, secrets) !== backward;
+  return tainted ? null : captured;
 }
 
 /** The longest prefix of `text` that `createReasoningRecord` still accepts

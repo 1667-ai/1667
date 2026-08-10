@@ -9,8 +9,8 @@ import {
   GenerationStoppedError,
   ServiceError as HttpError
 } from "./errors.js";
-import { streamCompletion, type StreamOutcome } from "./providers.js";
-import { reasoningCapture } from "./reasoning-capture.js";
+import { streamCompletion, type ProviderSecretsCollector, type StreamOutcome } from "./providers.js";
+import { reasoningCapture, reasoningSafeToStore } from "./reasoning-capture.js";
 import { countWords } from "./story-codec.js";
 import { sha256 } from "./story-format.js";
 import type { DeltaConsumer } from "./generation-stream.js";
@@ -93,12 +93,18 @@ export async function createSummaryTake(
   };
   let raw = "";
   const reasoning = reasoningCapture(settings, onReasoning);
+  // See continueStory's own comment on this box (server/generation-http.ts):
+  // filled by whichever stream actually ran — here that is
+  // `summarySettings(settings, ...)`, not `settings` itself, so this is the
+  // only correct place to learn what it actually resolved.
+  const providerSecrets: ProviderSecretsCollector = { secrets: [] };
   try {
     for await (const delta of streamCompletion(summarySettings(settings, plan.outputBudget), plan.prompt, signal, {
       outcome,
       providerStarted,
       promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
-      onReasoning: reasoning.onReasoning
+      onReasoning: reasoning.onReasoning,
+      providerSecrets
     })) {
       raw += delta;
       if (raw.length > SUMMARY_OUTPUT_LIMIT) {
@@ -131,7 +137,7 @@ export async function createSummaryTake(
       instruction: summaryNodeInstruction(source.title),
       cancelled: signal,
       commitIds,
-      reasoning: reasoning.collector.record
+      reasoning: reasoningSafeToStore(reasoning.collector.record, summary, providerSecrets.secrets)
     });
   } catch (error) {
     if (error instanceof HttpError && error.code === "story_manifest_requires_successor") throw error;

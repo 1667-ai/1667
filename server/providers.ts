@@ -76,6 +76,22 @@ export interface StreamCompletionOptions {
   readonly storySampling?: StorySamplingBias;
   readonly tokenProbabilities?: TokenProbabilityCollector;
   readonly onReasoning?: ReasoningConsumer;
+  readonly providerSecrets?: ProviderSecretsCollector;
+}
+
+/** Filled once a stream resolves the provider's own credentials — the exact
+ *  values `outputRedactor` and the reasoning relay's own redactor
+ *  (server/provider-reasoning-relay.ts) already scrub against. A caller that
+ *  later needs to check a captured thought jointly with the take's prose
+ *  (server/reasoning-capture.ts's `reasoningSafeToStore`) reads this rather
+ *  than resolving credentials a second, possibly divergent way — `settings`
+ *  at that point may not be the exact object a provider adjusted internally
+ *  (`server/summary-take.ts`'s `summarySettings`, for one). Left at its
+ *  caller-supplied default (empty) by dry-run and text-completion, which
+ *  resolve no credentials and, for text-completion, never stream reasoning
+ *  for a caller to check. */
+export interface ProviderSecretsCollector {
+  secrets: readonly string[];
 }
 
 export function streamCompletion(
@@ -102,10 +118,11 @@ async function* streamOpenAiCompatible(
   signal: AbortSignal,
   options: StreamCompletionOptions
 ): AsyncGenerator<string> {
-  const { outcome, providerStarted, promptCache, storySampling, tokenProbabilities, onReasoning } = options;
+  const { outcome, providerStarted, promptCache, storySampling, tokenProbabilities, onReasoning, providerSecrets } = options;
   const { headers, secrets } = resolveProviderHeaders(settings, {
     "content-type": "application/json"
   });
+  if (providerSecrets !== undefined) providerSecrets.secrets = secrets;
   const prepared = preparePromptCache(promptCache, prompt);
   const body = await buildOpenAiChatRequestBody(settings, prompt, prepared.wire, { signal, storySampling });
   const runtime = providerRuntimeFor(settings);
@@ -273,11 +290,12 @@ async function* streamAnthropic(
   signal: AbortSignal,
   options: StreamCompletionOptions
 ): AsyncGenerator<string> {
-  const { outcome, providerStarted, promptCache, storySampling, onReasoning } = options;
+  const { outcome, providerStarted, promptCache, storySampling, onReasoning, providerSecrets } = options;
   const { headers, secrets } = resolveProviderHeaders(settings, {
     "content-type": "application/json",
     "anthropic-version": "2023-06-01"
   });
+  if (providerSecrets !== undefined) providerSecrets.secrets = secrets;
   const prepared = preparePromptCache(promptCache, prompt);
   const body = await buildAnthropicMessagesRequestBody(settings, prompt, prepared.wire, { signal, storySampling });
   const refusalKey = samplingRefusalKey(settings);

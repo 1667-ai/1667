@@ -106,6 +106,104 @@ test("a writer who keeps no thoughts still streams one, but stores nothing", asy
   await stories.waitForMaintenance();
 });
 
+// A provider's stream redactor only ever sees its own channel: reasoning and
+// prose each get their own instance (server/providers.ts), so a credential
+// split with its prefix in one and its suffix in the other never appears
+// whole to either. `reasoningSafeToStore` (server/reasoning-capture.ts) is
+// the commit-time check that closes this — joining the captured thought with
+// the take's own prose, in both orders, before either is allowed to become
+// durable.
+test("a credential split across the reasoning and prose channels stores no thought, but the prose still commits", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-reasoning-split-secret-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const stories = new StoryStore(dir);
+  await stories.init();
+  const story = await stories.create("Story");
+
+  const secret = "split-secret-credential-a1b2c3d4e5";
+  const half = Math.ceil(secret.length / 2);
+  const env = "AI_1667_TEST_REASONING_SPLIT_SECRET";
+  process.env[env] = secret;
+  t.after(() => { delete process.env[env]; });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response([
+    openAiReasoningDelta(`I recall the key is ${secret.slice(0, half)}`),
+    openAiProseDelta(`${secret.slice(half)} continues the story.`),
+    "data: [DONE]\n\n"
+  ].join(""), {
+    headers: { "content-type": "text/event-stream" }
+  })) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const result = await continueStory(
+    story.id,
+    { parentId: null, instruction: "Continue.", genId: "gen-split-secret" },
+    stories,
+    stubSettingsStore(credentialedSettings(env)),
+    new PromptCacheRuntime(),
+    new GenerationAdmissionRegistry(),
+    () => {},
+    new AbortController().signal
+  );
+  const node = result?.nodes[0];
+  if (node === undefined) throw new Error("continuation did not commit a take");
+
+  // No thought survives: joined either way, the pair carries the whole
+  // credential.
+  assert.equal(node.reasoning, undefined);
+  await assert.rejects(
+    () => stories.loadReasoning(story.id, node.id),
+    /has no stored thought/
+  );
+
+  // The prose is not this check's decision to make — it commits untouched.
+  assert.equal(node.text, `${secret.slice(half)} continues the story.`);
+  await stories.waitForMaintenance();
+});
+
+// The companion case: a writer with real credentials configured, whose
+// thought and prose never touch them. Proves the joined check drops only a
+// tainted pair, not every thought a credentialed provider produces.
+test("an ordinary thought from a credentialed provider still stores normally", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-reasoning-credentialed-ordinary-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const stories = new StoryStore(dir);
+  await stories.init();
+  const story = await stories.create("Story");
+
+  const env = "AI_1667_TEST_REASONING_ORDINARY_SECRET";
+  process.env[env] = "unrelated-provider-credential";
+  t.after(() => { delete process.env[env]; });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response([
+    openAiReasoningDelta("The garden path fits the mood better."),
+    openAiProseDelta("The path wound through the garden."),
+    "data: [DONE]\n\n"
+  ].join(""), {
+    headers: { "content-type": "text/event-stream" }
+  })) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const result = await continueStory(
+    story.id,
+    { parentId: null, instruction: "Continue.", genId: "gen-credentialed-ordinary" },
+    stories,
+    stubSettingsStore(credentialedSettings(env)),
+    new PromptCacheRuntime(),
+    new GenerationAdmissionRegistry(),
+    () => {},
+    new AbortController().signal
+  );
+  const node = result?.nodes[0];
+  if (node === undefined) throw new Error("continuation did not commit a take");
+
+  assert.equal(node.reasoning, true);
+  const record = await stories.loadReasoning(story.id, node.id);
+  assert.equal(record.text, "The garden path fits the mood better.");
+  assert.equal(node.text, "The path wound through the garden.");
+  await stories.waitForMaintenance();
+});
+
 test("a thought longer than the storage bound keeps its prefix, not nothing", async () => {
   // Capture and storage share one bound (MAX_REASONING_BYTES): a stream this
   // long used to accumulate without limit and then lose everything at
@@ -428,4 +526,54 @@ function stubSettingsStore(settings: GenerationSettings): SettingsStore {
   return {
     loadGeneration: async () => ({ settings, promptCache: LEGACY_PROMPT_CACHE_CONTEXT })
   } as unknown as SettingsStore;
+}
+
+// Unlike dry-run, an openai-compatible route with a real bearer credential
+// actually resolves `secrets` (server/provider-runtime.ts's
+// `resolveProviderHeaders`) — the split-secret attack has nothing to split
+// without one configured.
+function credentialedSettings(authEnv: string): GenerationSettings {
+  return attachProviderRuntime({
+    provider: "openai-compatible",
+    baseUrl: "https://models.example/v1",
+    model: "fixture",
+    apiKeyEnv: null,
+    temperature: 0,
+    maxTokens: 256,
+    systemPrompt: "Write.",
+    contextWindow: null
+  }, {
+    preset: "custom",
+    auth: { type: "bearer-env", env: authEnv },
+    headers: [],
+    timeouts: {
+      responseHeaderMs: 1_000,
+      firstTokenMs: 1_000,
+      idleMs: 1_000,
+      totalMs: 5_000
+    },
+    allowInsecureHttp: false,
+    effort: "default",
+    tokenProbabilities: null,
+    keepReasoning: true,
+    sampling: EMPTY_SAMPLING_V2,
+    capabilities: {
+      temperature: "supported",
+      assistantPrefill: "unsupported",
+      reasoningEffort: "unsupported",
+      promptCaching: "unsupported"
+    }
+  }, true);
+}
+
+function openAiReasoningDelta(text: string): string {
+  return `data: ${JSON.stringify({
+    choices: [{ delta: { reasoning_content: text } }]
+  })}\n\n`;
+}
+
+function openAiProseDelta(text: string): string {
+  return `data: ${JSON.stringify({
+    choices: [{ delta: { content: text } }]
+  })}\n\n`;
 }

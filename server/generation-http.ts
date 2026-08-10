@@ -23,8 +23,8 @@ import {
   attributionAfterReplacement,
   rewrittenSpansAfterReplacement
 } from "../shared/human-edit.js";
-import { streamCompletion, type TokenProbabilityCollector } from "./providers.js";
-import { reasoningCapture } from "./reasoning-capture.js";
+import { streamCompletion, type ProviderSecretsCollector, type TokenProbabilityCollector } from "./providers.js";
+import { reasoningCapture, reasoningSafeToStore } from "./reasoning-capture.js";
 import { storySamplingBias } from "./sampling-phrase-bias.js";
 import { AnchoredOutputFilter, continuationPlan, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, supportsAssistantPrefill } from "./generation-prompts.js";
 import { admitFactsIntoPrompt, type GenerationAdmissionRegistry } from "./generation-admission.js";
@@ -288,6 +288,11 @@ export async function continueStory(
   // failing the generation; token probabilities are a diagnostic.
   const tokenProbabilities: TokenProbabilityCollector = { record: null };
   const reasoning = reasoningCapture(settings, onReasoning);
+  // Filled by whichever stream actually ran, with the exact credentials it
+  // resolved (server/providers.ts's `ProviderSecretsCollector`) — read below
+  // alongside the committed prose so a thought split across the reasoning
+  // and prose channels can be caught jointly (`reasoningSafeToStore`).
+  const providerSecrets: ProviderSecretsCollector = { secrets: [] };
   let raw: string | null;
   try {
     raw = await streamModel(settings, continuation.prompt, signal, onDelta, {
@@ -301,7 +306,8 @@ export async function continueStory(
       ),
       storySampling: storySamplingBias(story),
       tokenProbabilities,
-      onReasoning: reasoning.onReasoning
+      onReasoning: reasoning.onReasoning,
+      providerSecrets
     });
   } catch (error) {
     // A clean provider timeout after the opening already diverged from the
@@ -329,13 +335,14 @@ export async function continueStory(
   // Stop by generation ID.
   try {
     const parent = parentId === null ? null : nodeById(story, parentId);
+    const committedText = appendTo === null ? raw.trim() : raw;
     return await stories.commitProviderEffect(id, {
       kind: "continue",
       parentId,
       appendTo,
       expectedTextHash,
       instruction,
-      text: appendTo === null ? raw.trim() : raw,
+      text: committedText,
       model,
       genId,
       expectedParentActiveChildId: parent?.activeChildId ?? null,
@@ -345,7 +352,7 @@ export async function continueStory(
       expectedActiveRootId: story.activeRootId,
       expectedActiveLeafId: activePath(story).at(-1)?.id ?? null,
       tokenProbabilities: tokenProbabilities.record,
-      reasoning: reasoning.collector.record,
+      reasoning: reasoningSafeToStore(reasoning.collector.record, committedText, providerSecrets.secrets),
       cancelled: signal
     });
   } catch (error) {
@@ -539,6 +546,9 @@ export async function rewriteNode(
         }, providerOutputRetainedByteLimit(rewriteSettings))
       );
   const reasoning = reasoningCapture(rewriteSettings, onReasoning);
+  // See continueStory's own comment on this box: filled by whichever stream
+  // actually ran, read alongside the committed replacement below.
+  const providerSecrets: ProviderSecretsCollector = { secrets: [] };
   try {
     let streamed = "";
     const stashPartial = () => {
@@ -565,7 +575,8 @@ export async function rewriteNode(
         providerStarted,
         promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
         storySampling: storySamplingBias(story),
-        onReasoning: reasoning.onReasoning
+        onReasoning: reasoning.onReasoning,
+        providerSecrets
       });
     } catch (error) {
       if (timeoutProvenanceOf(error) !== null) {
@@ -610,7 +621,7 @@ export async function rewriteNode(
       const node = await stories.commitProviderEffect(id, {
         ...rewriteEffect(spliced.text),
         updatedAt: new Date().toISOString(),
-        reasoning: reasoning.collector.record,
+        reasoning: reasoningSafeToStore(reasoning.collector.record, spliced.text, providerSecrets.secrets),
         cancelled: signal
       });
       if (fullRecord !== null) partials?.clear(fullRecord);
