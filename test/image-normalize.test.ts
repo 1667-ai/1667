@@ -241,6 +241,11 @@ test("the launcher's deadline kills a child stuck in synchronous work", async ()
   assert.ok(elapsedMs < 4_000, `expected the deadline to end the child quickly, took ${elapsedMs}ms`);
 });
 
+// The memory watchdog itself only runs on Linux (`pollChildMemory` in
+// server/image-normalize-launcher.ts reads /proc); on another platform this
+// child would never receive a beginTermination call and would run to its own
+// completion instead of proving the watchdog, so the test is gated the same
+// way the watchdog is.
 test("the memory watchdog kills a child that grows past the configured limit", { skip: process.platform !== "linux" }, async () => {
   const source = await opaquePng(64, 64);
   await assert.rejects(

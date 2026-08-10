@@ -4,12 +4,18 @@
  * `server/image-normalize-child.ts` holds the child body; this module
  * spawns it, feeds it bounded input, reads its bounded output, and enforces
  * the stage deadline and the memory limit from the outside. The phase
- * machine, the termination ladder, and the `process.kill(-pid, sig)`
- * process-group discipline below follow `shared/executable-probe.ts`
+ * machine and the termination ladder below follow `shared/executable-probe.ts`
  * exactly: never settle on a bare `'error'` event, always wait for `close`,
- * and always signal the process group rather than the single child pid.
+ * and always end the whole child tree rather than only the direct pid. On
+ * POSIX that means `process.kill(-pid, sig)` against the process group; on
+ * Windows, which has no process group, it means `taskkill /T /F` against
+ * the pid tree. Both matter here: a source checkout runs the child through
+ * `tsx`, and `tsx` transforms TypeScript through a long-lived `esbuild`
+ * service process it spawns as an unref'd grandchild. `esbuild` never marks
+ * that grandchild `detached`, so on POSIX it inherits the child's process
+ * group and dies with it; on Windows only `taskkill /T /F` reaches it.
  */
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import {
@@ -309,7 +315,7 @@ async function readProcessRssBytes(pid: number): Promise<number | null> {
   return Number.isFinite(kilobytes) ? kilobytes * 1024 : null;
 }
 
-/** Signal the child's process group on POSIX, or the child alone on
+/** End the whole child tree: the process group on POSIX, or the pid tree on
  *  Windows. No pid means nothing spawned; never call `child.kill` without a
  *  pid, which can deliver the signal to this process instead. */
 function killChildTree(child: ChildProcess, signal: NodeJS.Signals, posix: boolean): void {
@@ -318,16 +324,36 @@ function killChildTree(child: ChildProcess, signal: NodeJS.Signals, posix: boole
   if (posix) {
     try {
       process.kill(-pid, signal);
-      return;
     } catch {
       // Group already gone.
     }
+    return;
   }
-  try {
-    child.kill(signal);
-  } catch {
-    // Already reaped.
-  }
+  killWindowsProcessTree(pid);
+}
+
+/**
+ * Windows has no process group, so a bare `child.kill()` reaches only the
+ * direct pid and leaves any descendant running, in particular the `esbuild`
+ * transform service `tsx` spawns as an unref'd grandchild in a source
+ * checkout (see the module comment above). `taskkill /T /F` walks the
+ * Windows parent-process-id chain instead and force-ends the pid and every
+ * descendant it finds, which is the Windows primitive for what
+ * `process.kill(-pid, signal)` does for a POSIX process group.
+ *
+ * Node ignores the `signal` argument on Windows and force-kills regardless
+ * (there is no graceful Windows signal to send), so `taskkill /F` is the
+ * right call on both rungs of the termination ladder, not only the second
+ * one.
+ *
+ * `taskkill` exits with a non-zero code when the pid is already gone. That
+ * is the Windows analogue of the ESRCH the POSIX branch swallows above, so
+ * `spawnSync` result is not checked; a failed lookup and a failed spawn (an
+ * absent `taskkill`, recorded on `.error`) both mean the same thing here:
+ * there is nothing left to terminate.
+ */
+function killWindowsProcessTree(pid: number): void {
+  spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
 }
 
 function decodeChildResultMessage(value: unknown): ChildResultMessage | null {
