@@ -109,6 +109,7 @@ import {
 import { isStoryId } from "./story-v5-strict.js";
 import {
   requirePresentStorySlot,
+  stagedStoryManifestExists,
   StoryAggregateSession,
   type GenerationRecordSourceRevisionSnapshot
 } from "./story-aggregate-session.js";
@@ -900,6 +901,10 @@ export class StoryStore {
       const slot = await readStoredStorySlot(this.dir, id);
       await afterCommit(`cleaning old objects for story ${id}`, async () => {
         if (!await cleanupPending(this.bundlePath(id))) return;
+        // A staged successor can reference objects that the current manifest
+        // does not reference. Recovery owns the staged file and schedules a
+        // later cleanup after it publishes or discards that file.
+        if (await stagedStoryManifestExists(this.bundlePath(id))) return;
         // A single `live` value, not two independently-nullable ones: the two
         // used to be computed by identical-shaped ternaries, which meant one
         // could in principle end up null while the other did not — a branch

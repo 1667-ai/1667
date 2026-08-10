@@ -61,6 +61,16 @@ const MANIFEST_POLICY = {
   maxBytes: MAX_STORY_MANIFEST_BYTES
 } as const;
 
+/** A staged manifest owns immutable objects that the current manifest does
+ * not own yet. Cleanup must keep all objects until recovery publishes or
+ * discards this file. */
+export async function stagedStoryManifestExists(bundleDir: string): Promise<boolean> {
+  return await readOptionalPrivateFile(
+    path.join(bundleDir, NEXT_MANIFEST_FILE),
+    MANIFEST_POLICY
+  ) !== null;
+}
+
 type PresentStorySlot = Extract<
   StoredStorySlot,
   { kind: "v5" | "v6-live" | "v6-deleted" }

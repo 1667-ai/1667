@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **The log now shows a release note with its paragraphs and list kept.**
+  Before this fix, the log joined a release note into one line, and it
+  showed the raw `**` and backtick marks. The log now keeps each paragraph
+  and each list item on its own line. It also shows bold text and code text
+  in their own style, with the marks removed.
+
 - **1667 shows what a model thinks before it writes.** Some models write
   reasoning text before prose. 1667 calls this text a thought and keeps it
   apart from your story. The margin shows `⟳ thinking` while the model works,
