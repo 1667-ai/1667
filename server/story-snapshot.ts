@@ -1,6 +1,7 @@
 import type { Story } from "../shared/types.js";
 import { isNodeTextHydrated, refreshStoredNodeText } from "./story-node-text.js";
 import {
+  manifestReasoningIds,
   manifestTokenProbabilityIds,
   StoryFormatError,
   serializeManifest,
@@ -28,6 +29,9 @@ export interface StoryRevisionSnapshot {
    *  all that is needed (`server/story-objects.ts`'s
    *  `adoptCommittedIds`). */
   probabilityIds: Set<ObjectHash>;
+  /** Every take's stored reasoning id in this manifest, mirroring
+   *  `probabilityIds` exactly. */
+  reasoningIds: Set<ObjectHash>;
 }
 
 export function captureStorySnapshot(
@@ -53,7 +57,8 @@ export function captureStorySnapshot(
     manifestFingerprint: manifestFingerprint(manifest),
     nodes,
     revisions: graph,
-    probabilityIds: new Set(manifestTokenProbabilityIds(manifest))
+    probabilityIds: new Set(manifestTokenProbabilityIds(manifest)),
+    reasoningIds: new Set(manifestReasoningIds(manifest))
   };
 }
 

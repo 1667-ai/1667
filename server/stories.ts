@@ -28,6 +28,7 @@ import {
 import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
 import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../shared/generation-record.js";
 import { resolveGenerationRecord } from "./generation-record-resolve.js";
+import type { ReasoningRecord } from "../shared/reasoning.js";
 import { decodeStoryBundle, encodeStoryBundle, hydrateStoryNodes } from "./story-codec.js";
 import { putStoryTag, removeStoryTag } from "./story-tags.js";
 import {
@@ -55,7 +56,22 @@ import {
   requireNode,
   switchLine as switchTreeLine
 } from "./story-nodes.js";
-import { StoryObjectStore, type LiveStoryObjectIds, type ObjectKind } from "./story-objects.js";
+import {
+  LEAF_OBJECT_KINDS,
+  StoryObjectStore,
+  type LeafObjectKind,
+  type LiveStoryObjectIds
+} from "./story-objects.js";
+import {
+  addLivePins,
+  addPins,
+  dedupeLiveObjectIds,
+  emptyProviderSnapshotPins,
+  releaseLivePins,
+  releasePins,
+  unionLiveWithPins,
+  type ProviderSnapshotPins
+} from "./story-provider-snapshot-pins.js";
 import { BoundedLruMap } from "./bounded-lru-map.js";
 import { KeyedSerialQueue } from "./keyed-serial-queue.js";
 import {
@@ -109,21 +125,6 @@ type ResolvedStory = Extract<StoredStorySlot, { kind: "legacy" | "v5" | "v6-live
 type SweepObjects = (bundleDir: string, live: LiveStoryObjectIds, signal: AbortSignal) => Promise<boolean>;
 type WriteManifest = (file: string, data: string) => Promise<CommitResult>;
 interface SwitchLineOptions { expectedLineFingerprint?: string; stopAtNode?: boolean }
-/** One story's provider-snapshot pins, kept apart by object kind — mixing
- * them would protect a revision hash from the probabilities sweep pass (or
- * vice versa), silently defeating the pin. Shaped like StoryObjectStore's own
- * per-kind collections (server/story-objects.ts) for the same reason: only
- * `revisions` and `probabilities` are ever populated (`LiveStoryObjectIds`
- * has no `chunks`), but sharing the kind-generic shape lets `addPins` and
- * `releasePins` run as one loop each instead of one call per kind. */
-type ProviderSnapshotPins = Record<ObjectKind, Map<ObjectHash, number>>;
-/** The two kinds `LiveStoryObjectIds` ever carries — the subset of
- * `ProviderSnapshotPins`' kinds that pinning and its release loop touch. */
-const LIVE_OBJECT_KINDS = ["revisions", "probabilities"] as const satisfies readonly (keyof LiveStoryObjectIds)[];
-
-function emptyProviderSnapshotPins(): ProviderSnapshotPins {
-  return { chunks: new Map(), revisions: new Map(), probabilities: new Map(), "generation-records": new Map() };
-}
 
 const sweepObjects: SweepObjects = async (bundleDir, live, signal) =>
   await new StoryObjectStore(bundleDir).sweep(live, signal);
@@ -242,27 +243,15 @@ export class StoryStore {
     }
     const storyId = session.storyId;
     const live = liveObjectIds(manifest.content);
-    // Generation Records are never read mid-flight during provider
-    // preparation — a record's own object is only created and stored at
-    // commit time — so, unlike revisions and probabilities, there is nothing
-    // for this in-flight pin to protect for them; the normal current-manifest
-    // sweep already keeps a committed record (and, per its own mark phase,
-    // any revision it references) live for as long as any node still points
-    // at it. `dedupedLive.generationRecords` is carried here only to satisfy
-    // LiveStoryObjectIds' shape, not because LIVE_OBJECT_KINDS pins it.
-    const dedupedLive: LiveStoryObjectIds = {
-      revisions: [...new Set(live.revisions)],
-      probabilities: [...new Set(live.probabilities)],
-      generationRecords: [...new Set(live.generationRecords)]
-    };
+    const dedupedLive = dedupeLiveObjectIds(live);
     const pins = this.providerSnapshotPins.get(storyId) ?? emptyProviderSnapshotPins();
     this.providerSnapshotPins.set(storyId, pins);
-    for (const kind of LIVE_OBJECT_KINDS) addPins(pins[kind], dedupedLive[kind]);
+    addLivePins(pins, dedupedLive);
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      for (const kind of LIVE_OBJECT_KINDS) releasePins(pins[kind], dedupedLive[kind]);
+      releaseLivePins(pins, dedupedLive);
       if (Object.values(pins).every((map) => map.size === 0)) {
         this.providerSnapshotPins.delete(storyId);
       }
@@ -625,6 +614,30 @@ export class StoryStore {
     return { kind: "stored", stored };
   }
 
+  /** One take's stored reasoning ("thought"), mirroring
+   *  `loadTokenProbabilities` exactly: 404s, distinguishably by message, when
+   *  the story, the take, or the take's stored thought is missing. */
+  async loadReasoning(id: string, nodeId: string): Promise<ReasoningRecord> {
+    return await this.withIo(id, async () => {
+      let slot: ResolvedStory;
+      try {
+        slot = await this.resolveUnlocked(id);
+      } catch (error) {
+        if (error instanceof HttpError && error.status === 404) throw new HttpError(404, `Take not found: ${nodeId}`);
+        throw error;
+      }
+      await this.schedulePendingCleanup(id);
+      if (slot.kind === "legacy") throw new HttpError(404, `Take not found: ${nodeId}`);
+      const manifest = slot.kind === "v5" ? slot.manifest : slot.manifest.content;
+      const stored = manifest.nodes.find((node) => node.id === nodeId);
+      if (stored === undefined) throw new HttpError(404, `Take not found: ${nodeId}`);
+      if (stored.reasoningId === undefined) {
+        throw new HttpError(404, "This take has no stored thought.");
+      }
+      return await new StoryObjectStore(this.bundlePath(id)).readReasoning(stored.reasoningId);
+    });
+  }
+
   /** Every part's text, not only the reading line. Search is the one reader
    *  that must see the takes nobody is standing on. */
   async loadHydrated(id: string): Promise<Story> {
@@ -725,6 +738,7 @@ export class StoryStore {
         if (snapshot !== undefined) {
           objects.adoptKnownGraph(snapshot.revisions, { committed: true });
           objects.adoptCommittedIds("probabilities", [...snapshot.probabilityIds]);
+          objects.adoptCommittedIds("reasoning", [...snapshot.reasoningIds]);
         }
         const previousGenerationRecordGraph = this.generationRecordGraphs.get(story.id);
         if (previousGenerationRecordGraph?.manifestHash === hashStoryV5ManifestBytes(slot.manifestBytes)) {
@@ -733,7 +747,8 @@ export class StoryStore {
         const manifest = await encodeStoryBundle(story, objects, reuseFrom, snapshot);
         const nextLive = liveObjectIds(manifest);
         const nextRevisionIds = new Set(nextLive.revisions);
-        const nextProbabilityIds = new Set(nextLive.probabilities);
+        const nextLeafIds = {} as Record<LeafObjectKind, Set<ObjectHash>>;
+        for (const kind of LEAF_OBJECT_KINDS) nextLeafIds[kind] = new Set(nextLive.leaves[kind]);
         const nextGenerationRecordIds = new Set(nextLive.generationRecords);
         // V2 temporal facts normalize to only their selected revision. Force the
         // first V4 sweep so older state objects that normalization hid are reaped.
@@ -743,7 +758,8 @@ export class StoryStore {
         const settled = await cleanup.settle(
           sourceSchemaVersion !== STORY_SCHEMA_VERSION
             || previousLive.revisions.some((revisionId) => !nextRevisionIds.has(revisionId))
-            || previousLive.probabilities.some((id) => !nextProbabilityIds.has(id))
+            || LEAF_OBJECT_KINDS.some((kind) =>
+                previousLive.leaves[kind].some((id) => !nextLeafIds[kind].has(id)))
             || previousLive.generationRecords.some((id) => !nextGenerationRecordIds.has(id))
         );
         await objects.flush();
@@ -862,22 +878,19 @@ export class StoryStore {
         const live: LiveStoryObjectIds | null = content !== null
           ? liveObjectIds(content)
           : slot.kind === "v6-deleted"
-            ? { revisions: [], probabilities: [], generationRecords: [] }
+            ? { revisions: [], leaves: { probabilities: [], reasoning: [] }, generationRecords: [] }
             : null;
         if (live === null) return;
         const pinned = this.providerSnapshotPins.get(id);
         const undoGenerationRecords = this.liveGenerationRecordIds(id);
         const beganWithPins = pinned !== undefined;
+        const liveWithUndo: LiveStoryObjectIds = {
+          ...live,
+          generationRecords: [...new Set([...live.generationRecords, ...undoGenerationRecords])]
+        };
         const protectedIds: LiveStoryObjectIds = pinned === undefined
-          ? {
-              ...live,
-              generationRecords: [...new Set([...live.generationRecords, ...undoGenerationRecords])]
-            }
-          : {
-              revisions: [...new Set([...live.revisions, ...pinned.revisions.keys()])],
-              probabilities: [...new Set([...live.probabilities, ...pinned.probabilities.keys()])],
-              generationRecords: [...new Set([...live.generationRecords, ...undoGenerationRecords])]
-            };
+          ? liveWithUndo
+          : unionLiveWithPins(liveWithUndo, pinned);
         const completed = await this.sweep(this.bundlePath(id), protectedIds, signal);
         if (completed
           && !beganWithPins
@@ -895,18 +908,6 @@ export class StoryStore {
 
 function validateId(id: string): void { if (!isValidId(id)) throw new HttpError(400, "Invalid story id"); }
 function isValidId(id: string): boolean { return isStoryId(id); }
-
-function addPins(pins: Map<ObjectHash, number>, ids: readonly ObjectHash[]): void {
-  for (const id of ids) pins.set(id, (pins.get(id) ?? 0) + 1);
-}
-
-function releasePins(pins: Map<ObjectHash, number>, ids: readonly ObjectHash[]): void {
-  for (const id of ids) {
-    const count = pins.get(id);
-    if (count === undefined || count <= 1) pins.delete(id);
-    else pins.set(id, count - 1);
-  }
-}
 
 function generationRecordGraphSnapshot(
   manifestHash: string,

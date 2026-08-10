@@ -57,6 +57,7 @@ export function buildStoryPayload(
         ...(node.generationRecordIds === undefined || node.generationRecordIds.length === 0
           ? {}
           : { generationRecordCount: node.generationRecordIds.length }),
+        ...(node.reasoning === undefined ? {} : { reasoning: node.reasoning }),
         ...(humanEditIsMeaningful(node.attribution) ? { editedByUser: true as const } : {}),
         hasInstruction: node.instruction.trim().length > 0,
         activeChildId: node.activeChildId

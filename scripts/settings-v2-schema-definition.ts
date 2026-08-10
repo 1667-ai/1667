@@ -24,6 +24,7 @@ import {
   FEATURE_SUPPORT_V2_VALUES,
   GENERATION_EFFORT_V2_VALUES,
   PROMPT_CACHE_POLICY_V2_VALUES,
+  REASONING_DISPLAY_V2_VALUES,
   SAMPLING_KNOB_V2_REQUIRED_VALUES,
   SETTINGS_ACTIVATION_ERROR_CODE_V2_VALUES,
   SETTINGS_ACTIVATION_OUTCOME_RESULT_V2_VALUES,
@@ -112,8 +113,9 @@ export function settingsV2Schema(): Schema {
       temperature: support(),
       assistantPrefill: support(),
       reasoningEffort: support(),
-      promptCaching: support()
-    }),
+      promptCaching: support(),
+      reasoningContent: support()
+    }, ["temperature", "assistantPrefill", "reasoningEffort", "promptCaching"]),
     Model: closed({
       connectionId: ref("SettingsId"),
       remoteId: boundedString(MAX_SETTINGS_REMOTE_ID_SCALARS),
@@ -132,7 +134,9 @@ export function settingsV2Schema(): Schema {
       effort: { enum: GENERATION_EFFORT_V2_VALUES },
       cachePolicy: { enum: PROMPT_CACHE_POLICY_V2_VALUES },
       sampling: ref("Sampling"),
-      tokenProbabilities: ref("TokenProbabilitiesCount")
+      tokenProbabilities: ref("TokenProbabilitiesCount"),
+      reasoning: { enum: REASONING_DISPLAY_V2_VALUES },
+      discardReasoning: { const: true }
     }, ["name", "modelId", "temperature", "maxOutputTokens", "effort", "cachePolicy"]),
     PhraseBiasEntry: closed({
       phrase: boundedString(SAMPLING_PHRASE_BIAS_POLICY.maxPhraseScalars, 1),

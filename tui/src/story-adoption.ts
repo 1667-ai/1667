@@ -137,6 +137,9 @@ export function reconcileMapNavigation(state: RuntimeState, payload = state.payl
   state.expandedPromptIds = new Set(
     [...state.expandedPromptIds].filter((nodeId) => nodeIds.has(nodeId))
   );
+  state.expandedThoughtIds = new Set(
+    [...state.expandedThoughtIds].filter((nodeId) => nodeIds.has(nodeId))
+  );
   const map = state.map;
   if (map === null) return;
   const fallbackId = payload.path.at(-1)?.id ?? null;
@@ -377,6 +380,11 @@ export function adoptStoryState(state: RuntimeState, payload: StoryPayload, cach
   state.chapters = null;
   state.expandedChapterSummaryIds = new Set();
   state.expandedPromptIds = new Set();
+  state.expandedThoughtIds = new Set();
+  // A node id names one immutable take, so a stale cache entry from the
+  // previous story could never collide with a real id in this one — cleared
+  // anyway so the map does not grow forever across a long library session.
+  state.thoughts = new Map();
   state.chapterDeleteArmedId = null;
   state.actions = null;
   state.textActions = null;

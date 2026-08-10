@@ -5,6 +5,7 @@ import type { GenerationSettings, Story, StoryPayload } from "../shared/types.js
 import type { CardImportPlan } from "../shared/card-import.js";
 import type { LorebookImport } from "../shared/lorebook-entry.js";
 import type { BindGenerationIntent } from "./generation-http.js";
+import type { ReasoningStreamDelta } from "./providers.js";
 import type { RemovedChapterBreak } from "./chapter-breaks.js";
 import { mutationOutcomeUnknown } from "./mutation-recovery.js";
 import { buildStoryPayload } from "./story-payload.js";
@@ -121,6 +122,10 @@ export interface MutationHandlerContext {
   readonly signal: AbortSignal;
   /** Parsed again by the canonical coordinator at the service boundary. */
   readonly storyMutationRequest?: unknown;
+  /** Reasoning ("thinking") text, kept apart from `onDelta`'s story prose.
+   *  Read only by the generation mutations that can carry it
+   *  (continueStory, rewriteNode, createSummaryTake). */
+  readonly onReasoning?: (delta: ReasoningStreamDelta) => void | Promise<void>;
 }
 
 export interface MutationPlanStorage {

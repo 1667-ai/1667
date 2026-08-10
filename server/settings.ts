@@ -133,6 +133,7 @@ export class SettingsStore {
       document: null,
       effective,
       effectiveProse: effective,
+      effectiveProseReasoning: "marker",
       lastActivationOutcome: null
     };
   }

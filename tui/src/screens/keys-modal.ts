@@ -150,6 +150,7 @@ const SECTIONS: readonly KeysModalSection[] = [
       ]),
       entry("actions for this part", [binding("navOpenActions")]),
       entry("show or hide directions", [binding("navToggleInstructions")]),
+      entry("show or hide a thought", [binding("navToggleThought")]),
       entry("typewriter mode", [binding("navTypewriter")]),
       entry("facts rail · auto or off", [
         binding("navToggleRail")

@@ -5,7 +5,7 @@ import type {
 } from "../../shared/worker-protocol.js";
 import type { StoryAggregateVersion } from "../../shared/story-aggregate-version.js";
 import type { ProviderRecoveryContext } from "../../shared/provider-recovery.js";
-import { textHash, type StoryApi } from "./api.js";
+import { textHash, type StoryApi, type StreamCallbacks, type SummaryStreamCallbacks } from "./api.js";
 import type { StoryPayload, StorySummary } from "../../shared/types.js";
 import { normalizeMarkdownDefaultTitle } from "../../shared/import-markdown-wire.js";
 
@@ -317,6 +317,8 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       await transport.call("getGenerationRecords", { storyId, nodeId }),
     getGenerationRecord: async (storyId, nodeId, recordId) =>
       await transport.call("getGenerationRecord", { storyId, nodeId, recordId }),
+    getReasoning: async (storyId, nodeId) =>
+      await transport.call("getReasoning", { storyId, nodeId }),
     restoreChapterBreak: async (storyId, breakId, removed) => rememberPayload(
       await transport.call(
         "restoreChapterBreak",
@@ -416,7 +418,8 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       return result;
     },
 
-    continueStory: async (storyId, instruction, genId, target, onDelta, signal, onStopped) => {
+    continueStory: async (storyId, instruction, genId, target, onDelta, signal, callbacks: StreamCallbacks = {}) => {
+      const { onStopped, onReasoning, onReasoningStopped } = callbacks;
       return await runProviderMutation(storyId, async () => {
         const result = await transport.call(
           "continueStory",
@@ -424,6 +427,8 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
           {
             onDelta,
             ...(onStopped === undefined ? {} : { onStopped }),
+            ...(onReasoning === undefined ? {} : { onReasoning }),
+            ...(onReasoningStopped === undefined ? {} : { onReasoningStopped }),
             signal,
             expectedAggregateVersion: await expectedVersion(storyId)
           }
@@ -433,7 +438,8 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
           : { payload: rememberPayload(result.payload), droppedFacts: result.droppedFacts };
       });
     },
-    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted, onStopped) => {
+    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted, callbacks: StreamCallbacks = {}) => {
+      const { onStopped, onReasoning, onReasoningStopped } = callbacks;
       return await runProviderMutation(storyId, async () => {
         const result = await transport.call(
           "rewriteNode",
@@ -441,6 +447,8 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
           {
             onDelta,
             ...(onStopped === undefined ? {} : { onStopped }),
+            ...(onReasoning === undefined ? {} : { onReasoning }),
+            ...(onReasoningStopped === undefined ? {} : { onReasoningStopped }),
             signal,
             expectedAggregateVersion: await expectedVersion(storyId)
           }
@@ -467,13 +475,15 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         nodeId: result.nodeId
       };
     },
-    createSummaryTake: async (storyId, body, onDelta, signal) => {
+    createSummaryTake: async (storyId, body, onDelta, signal, callbacks: SummaryStreamCallbacks = {}) => {
+      const { onReasoning } = callbacks;
       return await runProviderMutation(storyId, async () => {
         const result = await transport.call(
           "createSummaryTake",
           { storyId, body },
           {
             onDelta,
+            ...(onReasoning === undefined ? {} : { onReasoning }),
             signal,
             expectedAggregateVersion: await expectedVersion(storyId)
           }

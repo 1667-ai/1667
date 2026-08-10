@@ -59,7 +59,7 @@ test("HTTP rewrite terminal stays authoritative beyond the stop control handoff"
     },
     stopped.signal,
     undefined,
-    (text) => tails.push(text)
+    { onStopped: (text) => tails.push(text) }
   );
 
   expect(result).toBe("committed-take");
@@ -97,7 +97,7 @@ test("HTTP done in the same SSE buffer stays authoritative after onDelta stops",
     },
     stopped.signal,
     undefined,
-    (text) => tails.push(text)
+    { onStopped: (text) => tails.push(text) }
   );
 
   expect(result).toBe("committed-take");
@@ -158,7 +158,7 @@ test("HTTP error in the same SSE buffer stays authoritative after Stop and faile
     },
     stopped.signal,
     undefined,
-    (text) => tails.push(text)
+    { onStopped: (text) => tails.push(text) }
   ));
 
   expect(error instanceof ApiHttpError).toBe(true);
@@ -315,6 +315,104 @@ test("HTTP partial-settlement clears its identity after success", async () => {
 
   expect(mutationIds).toHaveLength(2);
   expect(mutationIds[1]).not.toBe(mutationIds[0]);
+});
+
+test("HTTP reasoning frames route to onReasoning, counted, and never to onDelta or story prose", async () => {
+  globalThis.fetch = (async (input) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/health") return Response.json(testHttpMetadata());
+    if (path === "/api/stories/story") return Response.json(testStoryPayload("story"));
+    if (path !== "/api/stories/story/nodes/node/rewrite") {
+      throw new Error(`Unexpected HTTP request: ${path}`);
+    }
+    return terminalStream([
+      { type: "reasoning", text: "weigh", tokenCount: 1 },
+      { type: "reasoning", text: " options", tokenCount: 2 },
+      { type: "delta", text: "accepted" },
+      { type: "done", nodeId: "committed-take" }
+    ]);
+  }) as typeof fetch;
+  const baseUrl = "http://127.0.0.1:7373";
+  const api = createApi(baseUrl, undefined, testHttpAccess(baseUrl));
+  const stopped = new AbortController();
+  const deltas: string[] = [];
+  const reasoning: Array<{ text: string; tokenCount: number }> = [];
+
+  const result = await api.rewriteNode(
+    "story",
+    "node",
+    { start: 0, end: 1, expected: "x", instruction: "" },
+    (text) => { deltas.push(text); },
+    stopped.signal,
+    undefined,
+    { onReasoning: (delta) => { reasoning.push(delta); } }
+  );
+
+  expect(result).toBe("committed-take");
+  expect(deltas).toEqual(["accepted"]);
+  expect(reasoning).toEqual([
+    { text: "weigh", tokenCount: 1 },
+    { text: " options", tokenCount: 2 }
+  ]);
+});
+
+test("HTTP reasoning tail is withheld after Stop and delivered once at terminal settlement, never through onReasoning", async () => {
+  // The stream never reaches "done" — it ends mid-generation, the same as a
+  // real Stop racing the network. Only then does the withheld-tail delivery
+  // path fire; a stream that still reaches its terminal despite an abort
+  // stays authoritative and discards the tail instead (the sibling test
+  // above this one, and "HTTP done in the same SSE buffer stays
+  // authoritative after onDelta stops").
+  globalThis.fetch = (async (input) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/health") return Response.json(testHttpMetadata());
+    if (path === "/api/stories/story") return Response.json(testStoryPayload("story"));
+    if (path !== "/api/stories/story/nodes/node/rewrite") {
+      throw new Error(`Unexpected HTTP request: ${path}`);
+    }
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(sse({ type: "reasoning", text: "before", tokenCount: 1 }));
+        setTimeout(() => {
+          controller.enqueue(sse({ type: "reasoning", text: "after", tokenCount: 2 }));
+          controller.enqueue(sse({ type: "delta", text: "prose" }));
+          controller.close();
+        }, 20);
+      }
+    }), {
+      headers: { "content-type": "text/event-stream" }
+    });
+  }) as typeof fetch;
+  const baseUrl = "http://127.0.0.1:7373";
+  const api = createApi(baseUrl, undefined, testHttpAccess(baseUrl));
+  const stopped = new AbortController();
+  const reasoning: Array<{ text: string; tokenCount: number }> = [];
+  const reasoningTails: string[] = [];
+  const deltas: string[] = [];
+  const tails: string[] = [];
+
+  const result = await api.rewriteNode(
+    "story",
+    "node",
+    { start: 0, end: 1, expected: "x", instruction: "" },
+    (text) => { deltas.push(text); },
+    stopped.signal,
+    undefined,
+    {
+      onStopped: (tail) => { tails.push(tail); },
+      onReasoning: (delta) => {
+        reasoning.push(delta);
+        stopped.abort();
+      },
+      onReasoningStopped: (tail) => { reasoningTails.push(tail); }
+    }
+  );
+
+  expect(result).toBe(null);
+  expect(reasoning).toEqual([{ text: "before", tokenCount: 1 }]);
+  expect(reasoningTails).toEqual(["after"]);
+  expect(deltas).toEqual([]);
+  expect(tails).toEqual(["prose"]);
 });
 
 function sse(event: Record<string, unknown>): Uint8Array {

@@ -373,10 +373,8 @@ providerTest("generation timeouts: a stopped rewrite stashes the streamed partia
     new PromptCacheRuntime(),
     () => {},
     controller.signal,
-    undefined,
     "partial-rewrite-id",
     "partial-take-id",
-    undefined,
     partials
   );
   assert.equal(result, null);
@@ -451,10 +449,8 @@ providerTest("generation timeouts: Stop during the completed rewrite tail cannot
         await Promise.resolve();
       },
       controller.signal,
-      undefined,
       "missing-marker-rewrite",
       "missing-marker-take",
-      undefined,
       partials
     ),
     (error: unknown) => error instanceof GenerationResultError
@@ -504,10 +500,8 @@ providerTest("a verified rewrite is stashed before its cancellable commit", asyn
       new PromptCacheRuntime(),
       (delta) => { streamed += delta; },
       controller.signal,
-      undefined,
       "commit-window-rewrite",
       "commit-window-take",
-      undefined,
       partials
     ),
     GenerationStoppedError
@@ -551,10 +545,8 @@ providerTest("rewrite stash capacity refuses provider work before it can emit pr
       new PromptCacheRuntime(),
       () => { deltas += 1; },
       new AbortController().signal,
-      undefined,
       "over-capacity-rewrite",
       "over-capacity-take",
-      undefined,
       partials
     ),
     (error: unknown) => error instanceof ServiceError && error.status === 429
@@ -599,10 +591,8 @@ providerTest("rewrite stash byte capacity refuses provider work before it can em
       new PromptCacheRuntime(),
       () => { deltas += 1; },
       new AbortController().signal,
-      undefined,
       "over-byte-capacity-rewrite",
       "over-byte-capacity-take",
-      undefined,
       partials
     ),
     (error: unknown) => error instanceof ServiceError && error.status === 429
@@ -674,10 +664,8 @@ providerTest("rewrite stash reserves space for credential-redaction expansion", 
       }
     },
     controller.signal,
-    undefined,
     "redaction-expansion-rewrite",
     "redaction-expansion-take",
-    undefined,
     partials
   );
 
@@ -758,10 +746,8 @@ providerTest("generation timeouts: a rewrite idle timeout stashes the partial fo
       new PromptCacheRuntime(),
       () => {},
       new AbortController().signal,
-      undefined,
       "partial-rewrite-id",
       "partial-take-id",
-      undefined,
       partials
     ),
     (error: unknown) => {
@@ -814,10 +800,8 @@ providerTest("generation timeouts: an idle timeout after a rejected rewrite echo
       new PromptCacheRuntime(),
       () => {},
       new AbortController().signal,
-      undefined,
       "masked-rewrite-id",
       "masked-take-id",
-      undefined,
       partials
     ),
     (error: unknown) => {

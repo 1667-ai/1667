@@ -8,6 +8,7 @@ import type { StoryService } from "./story-service.js";
 import { ServiceError } from "./errors.js";
 import { storyIdForMutation } from "./story-identity.js";
 import { mutationFingerprint } from "./mutation-receipts.js";
+import type { ReasoningStreamDelta } from "./providers.js";
 import {
   executeWorkerMutation,
   parseWorkerMutation,
@@ -25,7 +26,8 @@ export async function runHttpOperationMutation<
   signal: AbortSignal,
   transportOperationId: string,
   expectedAggregateVersion: StoryAggregateVersion,
-  onDelta: (text: string) => void | Promise<void> = () => {}
+  onDelta: (text: string) => void | Promise<void> = () => {},
+  onReasoning: (delta: ReasoningStreamDelta) => void | Promise<void> = () => {}
 ): Promise<WorkerOutput<M>> {
   let parsed: ReturnType<typeof parseWorkerMutation<M>> | undefined;
   const parse = () => parsed ??= parseWorkerMutation(
@@ -61,6 +63,7 @@ export async function runHttpOperationMutation<
       };
       return executeWorkerMutation(service, parsedInput, plan, {
         onDelta,
+        onReasoning,
         signal,
         storyMutationRequest
       });

@@ -3,6 +3,10 @@ import type { TimeoutProvenance } from "../shared/failure-envelope.js";
 import { ProviderError } from "./errors.js";
 import { providerFetch } from "./provider-fetch.js";
 import {
+  EVENT_HEADROOM_MULTIPLIER,
+  maxSseEventBytesFor
+} from "./provider-sse-probability-budget.js";
+import {
   providerErrorSummary,
   providerRuntimeFor,
   redactProviderBody
@@ -25,7 +29,7 @@ export async function* providerSseEvents(
   redact: (value: string, secrets: readonly string[]) => string,
   providerStarted?: () => void | Promise<void>,
   requestPrepared?: () => void,
-  isContentDelta: (event: string) => boolean = () => true,
+  isActivityEvent: (event: string) => boolean = () => true,
   isTerminalEvent: (event: string) => boolean = () => false,
   callerSignal: AbortSignal = signal,
   providerTransportFinished?: () => void
@@ -127,22 +131,37 @@ export async function* providerSseEvents(
 
     setPhaseTimer(
       runtime.timeouts.firstTokenMs,
-      "Model server did not produce a content delta before the configured deadline.",
+      "Model server did not produce stream activity before the configured deadline.",
       "provider-first-token"
     );
     const decoder = new TextDecoder();
     let rawBytes = 0;
-    let firstContent = true;
+    let firstActivity = true;
     const reader = response.body.getReader();
-    const events = new ProviderEventQueue();
-    const parser = new BoundedProviderSseParser();
+    // Sized to this request: no probabilities asked for keeps today's flat
+    // 1 MiB cap; probabilities asked for gets a budget derived from
+    // maxTokens alone (provider-sse-probability-budget.ts) — an event past
+    // that budget still fails loudly, exactly as an oversized event always
+    // has. A captured record that is within this transport budget but still
+    // too large to store is dropped by the storage layer instead
+    // (server/story-node-token-probabilities.ts's attachTakeTokenProbabilities),
+    // which is the layer that can actually see the whole record and decide.
+    const maxEventBytes = maxSseEventBytesFor(
+      settings.maxTokens,
+      runtime.tokenProbabilities,
+      MAX_SSE_EVENT_BYTES
+    );
+    const maxPartialEventBytes = maxEventBytes * EVENT_HEADROOM_MULTIPLIER;
+    const maxQueuedEventMemoryBytes = maxEventBytes * EVENT_HEADROOM_MULTIPLIER;
+    const events = new ProviderEventQueue(maxQueuedEventMemoryBytes);
+    const parser = new BoundedProviderSseParser(maxEventBytes, maxPartialEventBytes);
     let terminalQueued = false;
     const enqueueParsedEvents = async (
       parsedEvents: readonly string[]
     ): Promise<boolean> => {
       for (const event of parsedEvents) {
-        if (firstContent && isContentDelta(event)) {
-          firstContent = false;
+        if (firstActivity && isActivityEvent(event)) {
+          firstActivity = false;
           if (phaseTimer !== null) clearTimeout(phaseTimer);
           phaseTimer = null;
         }
@@ -159,7 +178,7 @@ export async function* providerSseEvents(
       try {
         let active = true;
         for (;;) {
-          if (!firstContent) {
+          if (!firstActivity) {
             setPhaseTimer(
               runtime.timeouts.idleMs,
               "Model stream was idle beyond the configured deadline.",
@@ -167,7 +186,7 @@ export async function* providerSseEvents(
             );
           }
           const { done, value: chunk } = await reader.read();
-          if (!firstContent && phaseTimer !== null) {
+          if (!firstActivity && phaseTimer !== null) {
             clearTimeout(phaseTimer);
             phaseTimer = null;
           }
@@ -299,6 +318,10 @@ class ProviderEventQueue {
   private failure: unknown;
   private terminalQueued = false;
 
+  constructor(
+    private readonly maxQueuedEventMemoryBytes: number = MAX_QUEUED_EVENT_MEMORY_BYTES
+  ) {}
+
   async push(value: string, terminal: boolean): Promise<boolean> {
     if (this.failed) throw this.failure;
     if (this.closed) return false;
@@ -314,7 +337,7 @@ class ProviderEventQueue {
     const memoryBytes = Math.max(1, value.length * 2);
     while (this.queuedMemoryBytes > 0
       && this.queuedMemoryBytes + memoryBytes
-        > MAX_QUEUED_EVENT_MEMORY_BYTES) {
+        > this.maxQueuedEventMemoryBytes) {
       await new Promise<void>((resolve) => {
         this.capacityWaiters.push(resolve);
       });
@@ -403,6 +426,11 @@ export class BoundedProviderSseParser {
   private pendingCr = false;
   private pendingCrContinuesEvent = false;
 
+  constructor(
+    private readonly maxEventBytes: number = MAX_SSE_EVENT_BYTES,
+    private readonly maxPartialEventBytes: number = MAX_PARTIAL_EVENT_BYTES
+  ) {}
+
   push(chunk: string): readonly string[] {
     const events: string[] = [];
     let offset = 0;
@@ -475,7 +503,7 @@ export class BoundedProviderSseParser {
     if (line.length === 0) {
       this.eventCount += 1;
       if (this.eventCount > MAX_EVENT_COUNT) throw responseTooLarge();
-      if (this.eventBytes > MAX_SSE_EVENT_BYTES) throw responseTooLarge();
+      if (this.eventBytes > this.maxEventBytes) throw responseTooLarge();
       const data = this.dataLines.join("\n");
       if (data.length > 0) events.push(data);
       this.resetEvent();
@@ -485,7 +513,7 @@ export class BoundedProviderSseParser {
       this.eventBytes += this.pendingEventLineEndingBytes;
     }
     this.eventBytes += lineBytes;
-    if (this.eventBytes > MAX_SSE_EVENT_BYTES) throw responseTooLarge();
+    if (this.eventBytes > this.maxEventBytes) throw responseTooLarge();
     this.hasEventLine = true;
     this.pendingEventLineEndingBytes = endingBytes;
     this.partialBytes += endingBytes;
@@ -516,6 +544,6 @@ export class BoundedProviderSseParser {
   }
 
   private requirePartialWithinLimit(): void {
-    if (this.partialBytes > MAX_PARTIAL_EVENT_BYTES) throw responseTooLarge();
+    if (this.partialBytes > this.maxPartialEventBytes) throw responseTooLarge();
   }
 }

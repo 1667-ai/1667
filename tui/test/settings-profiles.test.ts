@@ -18,6 +18,7 @@ import {
   settingsHarness
 } from "./settings-test-harness.js";
 import {
+  declareSelectedModelReturnsReasoning,
   declareSelectedModelSupportsEffort,
   installNetworkSettings,
   savedResult,
@@ -398,6 +399,91 @@ describe("Generation Profile settings", () => {
     // request was never going to carry.
     await press(key("right"));
     expect(state.settings?.draft.document?.profiles.default?.tokenProbabilities).toBe(undefined);
+  });
+
+  test("reasoning is disabled only where the model reports it returns none", async () => {
+    const { source, state, cache, press } = settingsHarness();
+    installNetworkSettings(source);
+    await openSettings(press);
+    declareSelectedModelReturnsReasoning(state, "unsupported");
+    await selectRow(press, state, "reasoning");
+    const frame = frameText(renderStoryScreen(state, { width: 120, height: 24, wrapCache: cache }).lines);
+    expect(frame).toContain("‹ — ›");
+    expect(frame).toContain("gpt-5.6 @ openai returns none");
+
+    // Cycling a disabled row only ever snaps to its one available choice,
+    // `off` — the same "resets to the sole available choice" behavior the
+    // effort row's own unavailable-import test exercises above — never a
+    // fold state the route was never going to populate.
+    await press(key("right"));
+    expect(state.settings?.draft.document?.profiles.default?.reasoning).toBe("off");
+    await press(key("left"));
+    expect(state.settings?.draft.document?.profiles.default?.reasoning).toBe("off");
+  });
+
+  test("reasoning stays usable on a model that never declared the capability", async () => {
+    // Discovery never promotes a model to "supported", so gating on that
+    // would leave this row reading `‹ — ›` on every real route.
+    const { source, state, cache, press } = settingsHarness();
+    installNetworkSettings(source);
+    await openSettings(press);
+    await selectRow(press, state, "reasoning");
+    const frame = frameText(renderStoryScreen(state, { width: 120, height: 24, wrapCache: cache }).lines);
+    expect(frame).toContain("‹ marker ›");
+    expect(frame).not.toContain("returns none");
+
+    await press(key("right"));
+    expect(state.settings?.draft.document?.profiles.default?.reasoning).toBe("open");
+  });
+
+  test("reasoning cycles off/marker/open once the model confirms it, and drops the key back at marker", async () => {
+    const { source, state, press } = settingsHarness();
+    installNetworkSettings(source);
+    await openSettings(press);
+    declareSelectedModelReturnsReasoning(state);
+    await selectRow(press, state, "reasoning");
+    const current = () => state.settings?.draft.document?.profiles.default?.reasoning;
+
+    // marker is the default fold state and starts absent.
+    expect(current()).toBe(undefined);
+    await press(key("right"));
+    expect(current()).toBe("open");
+    await press(key("right"));
+    expect(current()).toBe("off");
+    await press(key("right"));
+    // Wraps back to marker, written as absent, not the literal string.
+    expect(current()).toBe(undefined);
+    expect(Object.hasOwn(state.settings!.draft.document!.profiles.default!, "reasoning")).toBe(false);
+    await press(key("left"));
+    expect(current()).toBe("off");
+  });
+
+  test("keep thoughts defaults on and toggles discardReasoning independent of the reasoning capability", async () => {
+    const { source, state, press } = settingsHarness();
+    const current = installNetworkSettings(source);
+    const commands: SaveSettingsCommand[] = [];
+    source.api.saveSettings = async (command) => {
+      commands.push(command);
+      const saved = savedView(current, command.document);
+      source.settingsView = saved;
+      return savedResult(saved);
+    };
+    await openSettings(press);
+    expect(state.settings?.draft.document?.profiles.default?.discardReasoning).toBe(undefined);
+    await selectRow(press, state, "keep-thoughts");
+    await press(key("right"));
+    expect(state.settings?.draft.document?.profiles.default?.discardReasoning).toBe(true);
+    await press(key("s"));
+
+    expect(commands).toHaveLength(1);
+    expect(commands[0]!.document.profiles.default!.discardReasoning).toBe(true);
+
+    await selectRow(press, state, "keep-thoughts");
+    await press(key("left"));
+    expect(state.settings?.draft.document?.profiles.default?.discardReasoning).toBe(undefined);
+    expect(
+      Object.hasOwn(state.settings!.draft.document!.profiles.default!, "discardReasoning")
+    ).toBe(false);
   });
 
   test("a nonmatching discovery result does not allocate a model during save", async () => {

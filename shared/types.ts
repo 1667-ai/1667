@@ -157,6 +157,11 @@ export interface StoryNode {
    *  Domain `Story.nodes` and undo/restore responses carry this list; the
    *  wire `StoryPayload.path` never does — see `StoryPathNode`. */
   generationRecordIds?: string[];
+  /** This take's captured reasoning ("thought"). Presence only — the record
+   *  itself is fetched on demand via
+   *  GET /api/stories/:id/nodes/:nodeId/reasoning, never carried
+   *  automatically with the story. See shared/reasoning.ts. */
+  reasoning?: true;
   /** Which child continues the line through this node. null = no preference
    *  recorded (leaf, or story ends here on purpose). Must be a child's id. */
   activeChildId: string | null;
@@ -218,6 +223,8 @@ interface NodeStubBase {
    *  A count only — see StoryNode.generationRecordIds for the ordered ids,
    *  fetched on demand. */
   generationRecordCount?: number;
+  /** See StoryNode.reasoning. */
+  reasoning?: true;
   hasInstruction: boolean;
   activeChildId: string | null;
 }
@@ -366,6 +373,7 @@ function assertNodeStub(value: unknown): void {
   if (node.generationRecordCount !== undefined) {
     requirePositiveInteger(node.generationRecordCount, "story node stub", "generationRecordCount");
   }
+  optionalLiteral(node, "reasoning", true, "story node stub");
   optionalLiteral(node, "role", "summary", "story node stub");
   if (node.chapterBreakId !== undefined && typeof node.chapterBreakId !== "string") {
     invalidField("story node stub", "chapterBreakId");
@@ -389,6 +397,7 @@ function assertStoryNodeShape(node: Record<string, unknown>, label: string): voi
   optionalLiteral(node, "human", true, label);
   optionalLiteral(node, "editedByUser", true, label);
   optionalLiteral(node, "tokenProbabilities", true, label);
+  optionalLiteral(node, "reasoning", true, label);
   optionalLiteral(node, "role", "summary", label);
   if (node.coveredExtent !== undefined) assertCoveredExtent(node.coveredExtent, `${label}.coveredExtent`);
   if (node.attribution !== undefined && node.attribution !== null) {

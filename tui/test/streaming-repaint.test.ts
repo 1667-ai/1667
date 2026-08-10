@@ -9,7 +9,7 @@ import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText, plainLine } from "../src/screens/story/frame.js";
 import type { RuntimeState, StreamView } from "../src/state.js";
 import { projectStreamedPayload } from "../src/stream-projection.js";
-import { appendStreamText, emptyStreamText } from "../src/stream-text.js";
+import { appendStreamReasoning, appendStreamText, emptyStreamText } from "../src/stream-text.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 
 const STARTED_AT = "2026-07-22T00:00:00.000Z";
@@ -67,6 +67,17 @@ function coldState(payload: StoryPayload, stream: StreamView, text: string): Run
   return streamedState(structuredClone(payload), freshStream);
 }
 
+// Whitespace-only leading bytes first, like TAKE_DELTAS, then substantive
+// text — the unfolded block must not paint before there is anything to
+// paint, and the warm and cold paths must agree at every one of these steps.
+const REASONING_DELTAS = [
+  "  ",
+  "Three ways down: rope, the",
+  " old stair, jumping.",
+  " The stair collapsed",
+  " in ¶9, canon."
+];
+
 function storyFrame(state: RuntimeState, cache = createWrapCache<ProseStyle>()): string {
   return renderStoryScreen(state, { width: 120, height: 36, wrapCache: cache })
     .lines.map(plainLine).join("\n");
@@ -119,6 +130,37 @@ describe("streaming repaint", () => {
       appendStreamText(stream, delta);
       streamed += delta;
       expect(storyFrame(live, cache)).toBe(storyFrame(coldState(payload, stream, streamed)));
+    }
+  });
+
+  test("reasoning deltas match a cold projection at every batch, thought block included", () => {
+    const payload = createDemoController().payload();
+    const parent = payload.path.at(-1)!;
+    const stream: StreamView = {
+      targetId: "streamed-take",
+      parentId: parent.id,
+      append: false,
+      startedAt: STARTED_AT,
+      instruction: "keep the storm outside",
+      ...emptyStreamText()
+    };
+    const live = streamedState(payload, stream);
+    live.reasoning = "open";
+    const cache = createWrapCache<ProseStyle>();
+    let streamedReasoning = "";
+    let tokenCount = 0;
+    for (const delta of REASONING_DELTAS) {
+      tokenCount += 1;
+      appendStreamReasoning(stream, delta, tokenCount);
+      streamedReasoning += delta;
+      // A structurally fresh payload and stream deny every memo, the same
+      // guarantee `coldState` gives the prose-only tests above — built by
+      // hand here since the reasoning growth needs its own fresh stream.
+      const coldStream: StreamView = { ...stream, ...emptyStreamText() };
+      appendStreamReasoning(coldStream, streamedReasoning, tokenCount);
+      const cold = streamedState(structuredClone(payload), coldStream);
+      cold.reasoning = "open";
+      expect(storyFrame(live, cache)).toBe(storyFrame(cold));
     }
   });
 

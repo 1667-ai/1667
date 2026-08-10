@@ -10,13 +10,18 @@ import {
 import { GenerationStoppedError } from "./errors.js";
 import { DeltaBatcher } from "./delta-batcher.js";
 import { SSE_HEARTBEAT_INTERVAL_MS } from "../shared/sse.js";
+import type { ReasoningStreamDelta } from "./providers.js";
 
 export async function streamResponse<T>(
   request: IncomingMessage,
   response: ServerResponse,
   run: (
     onDelta: (text: string) => Promise<void>,
-    signal: AbortSignal
+    signal: AbortSignal,
+    /** Reasoning ("thinking") text, kept apart from `onDelta`'s story prose:
+     *  it reaches the client only through its own `"reasoning"` SSE frame,
+     *  never through a `"delta"` frame. */
+    onReasoning: (delta: ReasoningStreamDelta) => Promise<void>
   ) => Promise<T | null>,
   done: (value: T) => Record<string, unknown>,
   operationSignal?: AbortSignal,
@@ -59,15 +64,29 @@ export async function streamResponse<T>(
   const deltas = new DeltaBatcher(
     async (text) => { await open().send({ type: "delta", text }); }
   );
+  // Reasoning gets its own `DeltaBatcher` and its own text accumulator — the
+  // same batching policy as prose, on a separate frame type, so a coalesced
+  // batch can never mix reasoning and story prose into one `"delta"` frame.
+  let reasoningTokenCount = 0;
+  const reasoningDeltas = new DeltaBatcher(
+    async (text) => {
+      await open().send({ type: "reasoning", text, tokenCount: reasoningTokenCount });
+    }
+  );
   try {
     const value = await run(
       (text) => deltas.push(text),
-      signal
+      signal,
+      (delta) => {
+        reasoningTokenCount = delta.tokenCount;
+        return reasoningDeltas.push(delta.text);
+      }
     );
     // A pending batch must reach the client before "done" or "error" — never
     // delayed behind it, and never reordered around it — so every exit path
     // flushes before it decides what terminal event (if any) to send.
     await deltas.flush();
+    await reasoningDeltas.flush();
     if (value === null || signal.aborted) return void response.end();
     await open().send(done(value));
     response.end();
@@ -82,6 +101,7 @@ export async function streamResponse<T>(
       );
     }
     await deltas.flush().catch(() => undefined);
+    await reasoningDeltas.flush().catch(() => undefined);
     if (signal.aborted) {
       if (!expectedCancellation) {
         await reportStreamFailure(
@@ -103,6 +123,7 @@ export async function streamResponse<T>(
     stopFirstHeartbeat();
     signal.removeEventListener("abort", stopFirstHeartbeat);
     deltas.dispose();
+    reasoningDeltas.dispose();
     await (session as ReturnType<typeof openSse> | null)?.close();
   }
 }

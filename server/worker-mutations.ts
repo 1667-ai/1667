@@ -918,11 +918,10 @@ const MUTATIONS: MutationRegistry = {
         ...input.target,
         instruction: input.instruction,
         genId: input.genId
-      }, context.onDelta, context.signal, generationHooks(
-        plan,
-        {},
-        context.storyMutationRequest
-      ));
+      }, context.onDelta, context.signal, {
+        ...generationHooks(plan, {}, context.storyMutationRequest),
+        onReasoning: context.onReasoning
+      });
     }
   }),
   rewriteNode: define<"rewriteNode">({
@@ -955,11 +954,10 @@ const MUTATIONS: MutationRegistry = {
       }
       return await service.rewriteNode(
         input.storyId, input.nodeId, input.body, context.onDelta, context.signal,
-        generationHooks(
-          plan,
-          { rewriteId, takeId },
-          context.storyMutationRequest
-        )
+        {
+          ...generationHooks(plan, { rewriteId, takeId }, context.storyMutationRequest),
+          onReasoning: context.onReasoning
+        }
       );
     }
   }),
@@ -976,11 +974,10 @@ const MUTATIONS: MutationRegistry = {
       }
       return await service.createSummaryTake(
         input.storyId, input.body, context.onDelta, context.signal,
-        generationHooks(
-          plan,
-          { summaryNodeId, cutNodeId: plan.entityId("summary-cut") },
-          context.storyMutationRequest
-        )
+        {
+          ...generationHooks(plan, { summaryNodeId, cutNodeId: plan.entityId("summary-cut") }, context.storyMutationRequest),
+          onReasoning: context.onReasoning
+        }
       );
     }
   })

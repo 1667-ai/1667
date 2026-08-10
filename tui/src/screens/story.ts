@@ -63,6 +63,7 @@ import {
   type HintItem
 } from "./story/frame.js";
 import { addInlineHits } from "./story/hits.js";
+import { partHasThought } from "../reasoning-model.js";
 import { layoutStoryRow, renderChapterOneHeading, type StickyStoryPrompt } from "./story/row-layout.js";
 import { paintStorySelection } from "./story/selection-highlight.js";
 import { stickFocusedGutter, type FocusedStickyGutter } from "./story/sticky-gutter.js";
@@ -624,37 +625,50 @@ function navHintItems(state: StoryScreenState, view: StoryViewModel): HintItem[]
     ];
   }
   const focused = rowPart(view, state.focusIndex);
+  // The one keyline affordance for a thought — present only when the
+  // focused part actually has one to fold or unfold, live or stored (see
+  // `partHasThought`). At 80 columns the gutter waymark disappears entirely
+  // (`prefixLine` drops every gutter cell in narrow mode); this is what
+  // keeps the feature discoverable there. Rank 1, the same tier "? keys"
+  // already holds in every branch below: low enough to outlast the
+  // lowest-priority item or two, without claiming rank 0's "never drops
+  // first" tier from the branch's own primary read/write verbs.
+  const thoughtHint = focused !== null && state.reasoning !== "off" && partHasThought(focused, state)
+    ? hintItem([actionHint("T thought", "toggle-thought")], 1)
+    : null;
+  const withThoughtHint = (items: HintItem[]): HintItem[] =>
+    thoughtHint === null ? items : [...items, thoughtHint];
   const onSeam = focused !== null && focused.pathIndex < state.payload.path.length - 1 && state.stream === null;
   if (onSeam) {
-    return [
+    return withThoughtHint([
       hintItem([actionHint(`space continues ¶ ${focused.number}`, "continue")]),
       hintItem([actionHint("enter direct", "compose")]),
       hintItem([actionHint("G leaf", "leaf")], 1),
       hintItem([actionHint("n new story", "new-item")], 3),
       hintItem([actionHint("? keys", "open-keys")], 2)
-    ];
+    ]);
   }
   const leafBreak = focused !== null && focused.pathIndex === state.payload.path.length - 1
     && state.payload.chapterBreaks.some((chapterBreak) => chapterBreak.parentPartId === focused.id);
   if (leafBreak) {
     // The notice leads, but it is also the longest thing here and the only
     // item that names no key — so it is the first of these to yield its cells.
-    return [
+    return withThoughtHint([
       hintItem([segment(`next part opens chapter ${chapterWord(focused.chapterNumber + 1).toLowerCase()}`, "chrome")], 3),
       hintItem([actionHint("space continues", "continue")]),
       hintItem([actionHint("c chapters", "open-chapters")], 1),
       hintItem([actionHint("n new story", "new-item")], 2)
-    ];
+    ]);
   }
   // No `←→ flips takes` here: the focused part's own `‹ take j/m ›` carries
   // that affordance where it applies, with the arrows as click targets.
-  return [
+  return withThoughtHint([
     hintItem([actionHint("space continues", "continue")]),
     hintItem([actionHint("enter directs", "compose")]),
     hintItem([actionHint("n new story", "new-item")], 2),
     hintItem([actionHint("m map", "open-map")], 3),
     hintItem([actionHint("? keys", "open-keys")], 1)
-  ];
+  ]);
 }
 
 function renderFullscreenComposer(

@@ -778,6 +778,8 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     mode: source.payload.path.length === 0 ? "COMPOSE" : "NAV",
     showInstructions: true,
     expandedPromptIds: new Set(),
+    expandedThoughtIds: new Set(),
+    thoughts: new Map(),
     composer: createComposer(),
     editor: null,
     retakePrompt: null,

@@ -43,10 +43,12 @@ import {
   nodeStubTokens,
   nodeStubWords,
   reusableStoredRevisionId,
+  reusableReasoningId,
   reusableTokenProbabilityId
 } from "./story-node-text.js";
 import { storePendingGenerationRecords } from "./story-node-generation-records.js";
 import { takePendingTokenProbabilities } from "./story-node-token-probabilities.js";
+import { takePendingReasoning } from "./story-node-reasoning.js";
 import { reusableRevisionId, type StoryRevisionSnapshot } from "./story-snapshot.js";
 import { setStoryAutonameId, storyAutonameId } from "./story-metadata.js";
 import { boundedString } from "./story-wire-validation.js";
@@ -134,6 +136,19 @@ export async function encodeStoryBundle(
     await storePendingGenerationRecords(node, (pending) => objects.storeGenerationRecord(pending, reuseFrom));
   }
 
+  // Same reasoning as the token-probabilities loop above: at most one node
+  // per encode ever carries a pending reasoning record, so a plain
+  // sequential pass costs nothing extra.
+  const reasoningIds: Array<ObjectHash | undefined> = [];
+  for (const node of story.nodes) {
+    const pending = takePendingReasoning(node);
+    reasoningIds.push(
+      pending === undefined
+        ? reusableReasoningId(node)
+        : await objects.storeReasoning(pending, reuseFrom)
+    );
+  }
+
   const nodes: StoredNodeV1[] = story.nodes.map((node, index) => ({
     id: node.id,
     parentId: node.parentId,
@@ -157,6 +172,7 @@ export async function encodeStoryBundle(
     ...(cloneGenerationRecordIds(node.generationRecordIds) === undefined
       ? {}
       : { generationRecordIds: cloneGenerationRecordIds(node.generationRecordIds) }),
+    ...(reasoningIds[index] === undefined ? {} : { reasoningId: reasoningIds[index] }),
     ...(node.attribution === undefined ? {} : { attribution: cloneAttribution(node.attribution) }),
     ...(node.rewrittenSpans === undefined ? {} : { rewrittenSpans: cloneRewrittenSpans(node.rewrittenSpans) }),
     activeChildId: node.activeChildId
@@ -266,6 +282,9 @@ export async function decodeStoryBundle(
       ...(cloneGenerationRecordIds(stored.generationRecordIds) === undefined
         ? {}
         : { generationRecordIds: cloneGenerationRecordIds(stored.generationRecordIds) }),
+      // Presence only, mirroring tokenProbabilities above. See
+      // shared/reasoning.ts.
+      ...(stored.reasoningId === undefined ? {} : { reasoning: true as const }),
       activeChildId: stored.activeChildId
     };
     attachStoredNodeText(node, stored, text);

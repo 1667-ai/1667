@@ -52,7 +52,7 @@ import type {
   StoryManifestV6
 } from "./story-v6-types.js";
 import { MAX_STORY_MANIFEST_BYTES } from "./story-v5-strict.js";
-import { StoryObjectStore } from "./story-objects.js";
+import { LEAF_OBJECT_KINDS, StoryObjectStore, type LeafObjectKind } from "./story-objects.js";
 
 const MANIFEST_FILE = "manifest.json";
 const NEXT_MANIFEST_FILE = `${MANIFEST_FILE}.next`;
@@ -209,7 +209,7 @@ export class StoryAggregateSession {
       // blocking unrelated saves.
       objects.adoptKnownGraph(this.liveGraph.revisions, { committed: true });
       objects.adoptCommittedIds("revisions", previousLive.revisions);
-      objects.adoptCommittedIds("probabilities", previousLive.probabilities);
+      for (const kind of LEAF_OBJECT_KINDS) objects.adoptCommittedIds(kind, previousLive.leaves[kind]);
     }
     if (this.generationRecordGraph !== null && this.generationRecordGraph.manifestHash === this.snapshot.manifestHash) {
       // Same trust-by-induction rule as the revision graph above, narrowed to
@@ -222,7 +222,8 @@ export class StoryAggregateSession {
     const nextLive = liveObjectIds(content);
     await objects.verifyGraph(nextLive);
     const nextRevisionIds = new Set(nextLive.revisions);
-    const nextProbabilityIds = new Set(nextLive.probabilities);
+    const nextLeafIds = {} as Record<LeafObjectKind, Set<ObjectHash>>;
+    for (const kind of LEAF_OBJECT_KINDS) nextLeafIds[kind] = new Set(nextLive.leaves[kind]);
     const nextGenerationRecordIds = new Set(nextLive.generationRecords);
     this.preparedGenerationRecordGraph = new Map(
       [...objects.verifiedGenerationRecordGraph()].filter(([hash]) => nextGenerationRecordIds.has(hash))
@@ -237,7 +238,8 @@ export class StoryAggregateSession {
     this.preparedCleanupRetirement = await cleanup.settle(
       this.legacySchemaSource
         || previousLive.revisions.some((id) => !nextRevisionIds.has(id))
-        || previousLive.probabilities.some((id) => !nextProbabilityIds.has(id))
+        || LEAF_OBJECT_KINDS.some((kind) =>
+            previousLive.leaves[kind].some((id) => !nextLeafIds[kind].has(id)))
         || previousLive.generationRecords.some((id) => !nextGenerationRecordIds.has(id))
     ) === "retire-marker";
     return {

@@ -55,7 +55,7 @@ const NODE = closedShape([
 ], [
   "preview", "words", "tokens", "updatedAt", "genId", "rewriteId", "role", "chapterBreakId",
   "coveredExtent", "madeAt", "editedByUser", "human", "syntheticEmpty", "tokenProbabilityId",
-  "generationRecordIds", "attribution", "rewrittenSpans"
+  "generationRecordIds", "reasoningId", "attribution", "rewrittenSpans"
 ]);
 const EXTENT = closedShape(["fromPartId", "toPartId"]);
 const ATTRIBUTION = closedShape(["source", "ranges"], ["deletedCharacters"]);
@@ -166,6 +166,9 @@ function assertNode(value: unknown, label: string): void {
     const ids = boundedArray(node.generationRecordIds, `${label}.generationRecordIds`, MAX_GENERATION_RECORD_IDS);
     if (ids.length === 0) throw new StoryFormatError(`${label}.generationRecordIds must not be empty when present`);
     ids.forEach((id, index) => assertHash(id, `${label}.generationRecordIds[${index}]`));
+  }
+  if (node.reasoningId !== undefined) {
+    assertHash(node.reasoningId, `${label}.reasoningId`);
   }
   if (node.attribution !== undefined && node.attribution !== null) {
     assertAttribution(node.attribution, `${label}.attribution`);

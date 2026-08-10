@@ -2,6 +2,7 @@ import type { WorkerMethod } from "../../shared/worker-protocol.js";
 import type { WorkerLike } from "./worker-lifecycle.js";
 import {
   type PendingRequestRegistry,
+  type ReasoningDelta,
   type RegisteredCall
 } from "./worker-pending.js";
 import type { SerializedWorkerOutbox } from "./worker-outbox.js";
@@ -14,6 +15,8 @@ interface OpenPendingWorkerCallOptions {
   durableIntent: boolean;
   onDelta?: (text: string) => void;
   onStopped?: (text: string) => void;
+  onReasoning?: (delta: ReasoningDelta) => void;
+  onReasoningStopped?: (text: string) => void;
   signal?: AbortSignal;
   timeoutMs: number | null;
   deadlineAfterMs: number;
@@ -39,6 +42,8 @@ export function openPendingWorkerCall<T>(
       durableIntent: options.durableIntent,
       ...(options.onDelta === undefined ? {} : { onDelta: options.onDelta }),
       ...(options.onStopped === undefined ? {} : { onStopped: options.onStopped }),
+      ...(options.onReasoning === undefined ? {} : { onReasoning: options.onReasoning }),
+      ...(options.onReasoningStopped === undefined ? {} : { onReasoningStopped: options.onReasoningStopped }),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       timeoutMs: options.timeoutMs ?? options.deadlineAfterMs,
       onAbort: (id) => cancelPendingWorkerRequest({

@@ -43,6 +43,7 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   getTokenProbabilities: "local",
   getGenerationRecords: "transfer",
   getGenerationRecord: "transfer",
+  getReasoning: "local",
   switchLine: "local",
   createNode: "local",
   editNode: "local",
@@ -251,6 +252,8 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
       if (parts[7] !== undefined && parts.length === 8
         && httpMethod === "GET") return "getGenerationRecord";
     }
+    if (subId !== undefined && action === "reasoning"
+      && httpMethod === "GET") return "getReasoning";
   }
   if (sub === "tags" && subId !== undefined
     && action === undefined && parts.length === 6) {

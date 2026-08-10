@@ -28,6 +28,7 @@ import type { ProseStyle, WrapCache } from "./wrap.js";
 import { followStoryViewport } from "./viewport-intent.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import {
+  appendStreamReasoning,
   appendStreamText,
   emptyStreamText,
   streamHasSubstantiveText,
@@ -211,14 +212,33 @@ export async function generate(
         if (state.stream === stream) repaint();
       },
       signal,
-      // Text that arrived after Stop: the transport withholds it from
-      // onDelta and hands the whole tail here at terminal settlement, so
-      // the stopped-generation commit below still saves every byte the
-      // server delivered.
-      (tail) => {
-        if (!owns() || !storyCurrent()) return;
-        appendStreamText(stream, tail);
-        if (state.stream === stream) repaint();
+      {
+        // Text that arrived after Stop: the transport withholds it from
+        // onDelta and hands the whole tail here at terminal settlement, so
+        // the stopped-generation commit below still saves every byte the
+        // server delivered.
+        onStopped: (tail) => {
+          if (!owns() || !storyCurrent()) return;
+          appendStreamText(stream, tail);
+          if (state.stream === stream) repaint();
+        },
+        // Same ownership guard as onDelta, on the reasoning channel. Reasoning
+        // is never persisted in this pass — it only ever lives on the live
+        // stream view — so it appends and repaints exactly like prose, without
+        // any of prose's commit bookkeeping.
+        onReasoning: (delta) => {
+          if (!owns()
+            || !storyCurrent()
+            || (state.stream !== stream && !signal.aborted)) return;
+          appendStreamReasoning(stream, delta.text, delta.tokenCount);
+          if (state.stream === stream) repaint();
+        },
+        // Same withheld-tail contract as onStopped, on the reasoning channel.
+        onReasoningStopped: (tail) => {
+          if (!owns() || !storyCurrent()) return;
+          appendStreamReasoning(stream, tail, stream.reasoning?.tokenCount ?? 0);
+          if (state.stream === stream) repaint();
+        }
       }
     );
     if (result !== null && storyCurrent()) {

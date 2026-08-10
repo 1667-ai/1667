@@ -176,6 +176,10 @@ function nodeSchema(): Schema {
     // Ordered ids of every Generation Record event that created or changed
     // this node. Absent for a node with no model-request history.
     generationRecordIds: { type: "array", minItems: 1, maxItems: MAX_GENERATION_RECORD_IDS, items: ref("Hash256") },
+    // This take's stored reasoning ("thought"). Absent when the generation
+    // produced none, when retention was off, or when a rewrite replaced the
+    // take's text without producing a fresh thought of its own.
+    reasoningId: ref("Hash256"),
     attribution: nullable(ref("Attribution")),
     rewrittenSpans: { type: "array", maxItems: MAX_REWRITTEN_SPANS, items: ref("TextRange") },
     activeChildId: nullable(ref("Identifier"))

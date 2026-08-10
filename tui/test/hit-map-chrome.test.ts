@@ -11,7 +11,7 @@ import {
   setFactEditorFocus
 } from "../src/fact-editor-policy.js";
 import { hitAt, type HitTarget } from "../src/hit.js";
-import { GUTTER_VERBS } from "../src/screens/story/row-layout.js";
+import { GUTTER_VERBS } from "../src/screens/story/gutter.js";
 import { resolveKey, type AppMode, type KeyAction, type ResolveOptions } from "../src/keys.js";
 import { mouseToAction } from "../src/mouse-actions.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
@@ -748,9 +748,10 @@ describe("hit map clickable chrome", () => {
     }
 
     // Theme, compose focus, word wrap, provider, insecure HTTP, profile,
-    // effort, cache, alternatives, and three routes — plus the three C-08
-    // scalars, whose chips open on the same column.
-    expect(opens.size).toBe(15);
+    // effort, cache, alternatives, reasoning, keep thoughts, and three
+    // routes — plus the three C-08 scalars, whose chips open on the same
+    // column.
+    expect(opens.size).toBe(17);
     expect(new Set(opens.values()).size).toBe(1);
   });
 

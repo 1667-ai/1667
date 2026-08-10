@@ -23,6 +23,7 @@ import {
 } from "../shared/types.js";
 import type { CapturedTokenProbabilities } from "../shared/token-probabilities.js";
 import type { GenerationRecord } from "../shared/generation-record.js";
+import type { CapturedReasoning } from "../shared/reasoning.js";
 import { sliceWellFormedUtf16Prefix } from "../shared/unicode.js";
 import { ServiceError as HttpError } from "./errors.js";
 import { attributionAfterHumanEdit, rewrittenSpansAfterHumanEdit } from "../shared/human-edit.js";
@@ -30,6 +31,7 @@ import { HASH_PATTERN, sha256 } from "./story-format.js";
 import { setNodeRewriteId } from "./story-node-text.js";
 import { appendPendingGenerationRecord } from "./story-node-generation-records.js";
 import { attachTakeTokenProbabilities } from "./story-node-token-probabilities.js";
+import { attachTakeReasoning } from "./story-node-reasoning.js";
 
 export interface NewNodeOptions {
   id?: string;
@@ -290,6 +292,12 @@ export interface TakeCommit {
    *  null for a human take or a commit source unconcerned with this feature
    *  — mirrors TakeCommit.tokenProbabilities exactly. */
   generationRecord?: GenerationRecord | null;
+  /** Only ever set by a commit that captured a thought and whose retention
+   *  allowed keeping it. Mirrors `tokenProbabilities` above, except an
+   *  append that lands on a take with no fresh thought this attempt leaves
+   *  the take's existing thought untouched rather than clearing it — see
+   *  `server/story-node-reasoning.ts`. */
+  reasoning?: CapturedReasoning | null;
 }
 
 export function hasCommittedGeneration(
@@ -317,7 +325,8 @@ export function commitTake(story: Story, commit: TakeCommit): { duplicate: boole
       commit.model,
       commit.genId ?? undefined,
       commit.committedAt,
-      commit.tokenProbabilities
+      commit.tokenProbabilities,
+      commit.reasoning
     );
     if (commit.generationRecord !== undefined && commit.generationRecord !== null) {
       appendPendingGenerationRecord(node, commit.generationRecord);
@@ -342,6 +351,7 @@ export function commitTake(story: Story, commit: TakeCommit): { duplicate: boole
   if (commit.generationRecord !== undefined && commit.generationRecord !== null) {
     appendPendingGenerationRecord(node, commit.generationRecord);
   }
+  attachTakeReasoning(node, commit.reasoning);
   if (story.nodes.length === 1 && story.title === "Untitled") {
     story.title = titleFrom(commit.genId === null ? node.text : commit.instruction);
   }
@@ -378,7 +388,8 @@ export function appendToActiveLeaf(
   model: string,
   genId?: string,
   committedAt?: string,
-  tokenProbabilities?: CapturedTokenProbabilities | null
+  tokenProbabilities?: CapturedTokenProbabilities | null,
+  reasoning?: CapturedReasoning | null
 ): StoryNode {
   validateTextHash(expectedTextHash);
   const node = requireNode(story, nodeId);
@@ -392,7 +403,8 @@ export function appendToActiveLeaf(
     model,
     genId,
     committedAt,
-    tokenProbabilities
+    tokenProbabilities,
+    reasoning
   );
 }
 
@@ -403,7 +415,8 @@ export function appendContinuationToNode(
   model: string,
   genId?: string,
   committedAt?: string,
-  tokenProbabilities?: CapturedTokenProbabilities | null
+  tokenProbabilities?: CapturedTokenProbabilities | null,
+  reasoning?: CapturedReasoning | null
 ): StoryNode {
   validateTextHash(expectedTextHash);
   if (node.role === "summary") {
@@ -425,6 +438,7 @@ export function appendContinuationToNode(
   if (tokenProbabilities !== undefined && tokenProbabilities !== null) {
     attachTakeTokenProbabilities(node, tokenProbabilities, continuation, segmentStart);
   }
+  attachTakeReasoning(node, reasoning);
   return node;
 }
 

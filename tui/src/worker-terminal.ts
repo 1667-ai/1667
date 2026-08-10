@@ -165,6 +165,12 @@ function deliverStreamTail(
     const tail = pending.stoppedTail + (stopped ?? "") + (unsent ?? "");
     pending.stoppedTail = "";
     if (tail.length > 0) pending.onStopped?.(tail);
+    // Reasoning has no legacy terminal-carried tail (this channel is new,
+    // so no old worker ever encoded one there) — only the withheld deltas
+    // a new worker already sequenced before the terminal.
+    const reasoningTail = pending.stoppedReasoningTail;
+    pending.stoppedReasoningTail = "";
+    if (reasoningTail.length > 0) pending.onReasoningStopped?.(reasoningTail);
     return;
   }
   if (unsent !== undefined) pending.onDelta?.(unsent);

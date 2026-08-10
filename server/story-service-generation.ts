@@ -5,7 +5,7 @@ import {
   autonameStory,
   continueStory,
   rewriteNode,
-  type BindGenerationIntent
+  type GenerationStreamHooks
 } from "./generation-http.js";
 import type { GenerationAdmissionRegistry } from "./generation-admission.js";
 import type { PartialRewriteStash } from "./rewrite-partial.js";
@@ -22,9 +22,12 @@ import type { StoryStore } from "./stories.js";
 import { createSummaryTake } from "./summary-take.js";
 import { requireString } from "./validation.js";
 
-export interface GenerationMutationHooks {
-  providerStarted?: () => void | Promise<void>;
-  bindIntent?: BindGenerationIntent;
+/** The hooks a caller of `StoryServiceGeneration`'s streamed mutations may
+ *  supply: `GenerationStreamHooks` (server/generation-http.ts) — the
+ *  generation's own concerns, `providerStarted`/`bindIntent`/`onReasoning`
+ *  — plus `mutationRequest`, this layer's own concern (durable-replay
+ *  identity), which no lower layer ever reads. */
+export interface GenerationMutationHooks extends GenerationStreamHooks {
   mutationRequest?: unknown;
 }
 
@@ -141,12 +144,14 @@ export class StoryServiceGeneration {
                   this.dependencies.generationAdmission,
                   onDelta,
                   signal,
-                  async () => {
-                    await providerStarted();
-                    await hooks.providerStarted?.();
-                  },
-                  hooks.bindIntent,
-                  onFactsDropped
+                  {
+                    ...hooks,
+                    onFactsDropped,
+                    providerStarted: async () => {
+                      await providerStarted();
+                      await hooks.providerStarted?.();
+                    }
+                  }
                 )) !== null,
               replayValue: () => true
             }
@@ -166,9 +171,7 @@ export class StoryServiceGeneration {
           this.dependencies.generationAdmission,
           onDelta,
           active,
-          hooks.providerStarted,
-          hooks.bindIntent,
-          onFactsDropped
+          { ...hooks, onFactsDropped }
         );
         return story === null ? null : { payload: buildStoryPayload(story), droppedFacts };
       })
@@ -207,14 +210,16 @@ export class StoryServiceGeneration {
                 this.dependencies.promptCache,
                 onDelta,
                 signal,
-                async () => {
-                  await providerStarted();
-                  await options.providerStarted?.();
-                },
                 options.rewriteId,
                 options.takeId,
-                options.bindIntent,
-                this.dependencies.rewritePartials
+                this.dependencies.rewritePartials,
+                {
+                  ...options,
+                  providerStarted: async () => {
+                    await providerStarted();
+                    await options.providerStarted?.();
+                  }
+                }
               ),
             replayValue: () => replayValue
           }
@@ -233,11 +238,10 @@ export class StoryServiceGeneration {
         this.dependencies.promptCache,
         onDelta,
         active,
-        options.providerStarted,
         options.rewriteId,
         options.takeId,
-        options.bindIntent,
-        this.dependencies.rewritePartials
+        this.dependencies.rewritePartials,
+        options
       )
     );
   }
@@ -270,15 +274,17 @@ export class StoryServiceGeneration {
                 this.dependencies.promptCache,
                 onDelta,
                 signal,
-                async () => {
-                  await providerStarted();
-                  await options.providerStarted?.();
-                },
                 {
                   summaryNodeId: options.summaryNodeId,
                   cutNodeId: options.cutNodeId
                 },
-                options.bindIntent
+                {
+                  ...options,
+                  providerStarted: async () => {
+                    await providerStarted();
+                    await options.providerStarted?.();
+                  }
+                }
               ),
             replayValue: () => options.summaryNodeId ?? null
           }
@@ -296,12 +302,11 @@ export class StoryServiceGeneration {
         this.dependencies.promptCache,
         onDelta,
         active,
-        options.providerStarted,
         {
           summaryNodeId: options.summaryNodeId,
           cutNodeId: options.cutNodeId
         },
-        options.bindIntent
+        options
       )
     );
   }

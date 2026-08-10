@@ -181,6 +181,46 @@ test("a silent stream sends an SSE comment heartbeat before the model responds",
   await running;
 });
 
+test("reasoning frames batch on their own channel, separate from and never mixed into story-prose delta frames", async () => {
+  const request = Readable.from([]) as unknown as IncomingMessage;
+  const response = new FakeResponse();
+  const running = streamResponse(
+    request,
+    response as unknown as ServerResponse,
+    async (onDelta, _signal, onReasoning) => {
+      await onReasoning({ text: "weigh", tokenCount: 1 });
+      await onDelta("prose");
+      await onReasoning({ text: " options", tokenCount: 2 });
+      await onDelta(" continues");
+      return { ok: true };
+    },
+    (value) => value
+  );
+  await running;
+
+  const events = recordedEvents(response);
+  const deltaEvents = events.filter((event) => event.type === "delta");
+  const reasoningEvents = events.filter((event) => event.type === "reasoning");
+  const done = events.at(-1);
+
+  assert.equal(done?.["ok"], true);
+  // Batched by DELTA_BATCH_WINDOW_MS with no gap between pushes, so both
+  // channels typically arrive as one flushed frame each — but the exact
+  // count is not the point: no reasoning byte reaches a "delta" frame, and
+  // no prose byte reaches a "reasoning" frame.
+  assert.equal(
+    deltaEvents.map((event) => event.text as string).join(""),
+    "prose continues"
+  );
+  assert.equal(
+    reasoningEvents.map((event) => event.text as string).join(""),
+    "weigh options"
+  );
+  // The running token count travels with whichever reasoning frame it
+  // arrives in — the freshest known count, never a fabricated one.
+  assert.equal(reasoningEvents.at(-1)?.["tokenCount"], 2);
+});
+
 test("a stream that ends mid-batch flushes rather than dropping the tail", async () => {
   const request = Readable.from([]) as unknown as IncomingMessage;
   const response = new FakeResponse();

@@ -9,7 +9,7 @@ import { demoAppSource } from "../src/demo.js";
 import { dimPage } from "../src/screens/overlay.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { lineWidth, plainLine, type DisplayRole } from "../src/screens/story/frame.js";
-import { storyPartWrapPlan } from "../src/screens/story/row-layout.js";
+import { storyPartWrapPlan } from "../src/screens/story/wrap-plan.js";
 import { syntheticStoryPayload } from "./fixtures/story.js";
 
 const LOGO_ROLES: readonly DisplayRole[] = [

@@ -248,15 +248,29 @@ export function manifestGenerationRecordIds(manifest: StoryManifestV4 | StoryMan
   return ids;
 }
 
+/** Every take's stored reasoning id, mirroring `manifestTokenProbabilityIds`
+ *  exactly — most nodes have none. */
+export function manifestReasoningIds(manifest: StoryManifestV4 | StoryManifestV5): ObjectHash[] {
+  const ids: ObjectHash[] = [];
+  for (const node of manifest.nodes) {
+    if (node.reasoningId !== undefined) ids.push(node.reasoningId);
+  }
+  return ids;
+}
+
 /** Every live id list for one manifest, kept as one object so a writer can
  *  never save one and silently drop another — the invariant that was
  *  previously held only by every call site remembering to call
- *  `manifestRevisionIds` and `manifestTokenProbabilityIds` together (issue
- *  #291 structural review, finding F1). */
+ *  `manifestRevisionIds`, `manifestTokenProbabilityIds`, and
+ *  `manifestReasoningIds` together (issue #291 structural review, finding
+ *  F1). */
 export function liveObjectIds(manifest: StoryManifestV4 | StoryManifestV5): LiveStoryObjectIds {
   return {
     revisions: manifestRevisionIds(manifest),
-    probabilities: manifestTokenProbabilityIds(manifest),
+    leaves: {
+      probabilities: manifestTokenProbabilityIds(manifest),
+      reasoning: manifestReasoningIds(manifest)
+    },
     generationRecords: manifestGenerationRecordIds(manifest)
   };
 }
@@ -399,6 +413,9 @@ function parseStoredNode(value: unknown, index: number): StoredNodeV1 {
     ? undefined
     : requireHash(node.tokenProbabilityId, `${label}.tokenProbabilityId`);
   const generationRecordIds = parseGenerationRecordIds(node.generationRecordIds, `${label}.generationRecordIds`);
+  const reasoningId = node.reasoningId === undefined
+    ? undefined
+    : requireHash(node.reasoningId, `${label}.reasoningId`);
   const stored: StoredNodeV1 = {
     id: stringField(node, "id"),
     parentId,
@@ -417,6 +434,7 @@ function parseStoredNode(value: unknown, index: number): StoredNodeV1 {
     revisionId: requireHash(node.revisionId, `${label}.revisionId`),
     ...(tokenProbabilityId === undefined ? {} : { tokenProbabilityId }),
     ...(generationRecordIds === undefined ? {} : { generationRecordIds }),
+    ...(reasoningId === undefined ? {} : { reasoningId }),
     ...(attribution === undefined ? {} : { attribution }),
     ...(rewrittenSpans === undefined ? {} : { rewrittenSpans }),
     activeChildId

@@ -367,7 +367,11 @@ describe("run C overlay frames", () => {
       const view = { ...source.settingsView, pendingRevision, activeRevision: 3 };
       source.settingsView = view as typeof source.settingsView;
       source.api.getSettings = async () => view as typeof source.settingsView;
-      const lines = (await renderOnce(source, 120, 40, ",")).split("\n");
+      // Height 44, not 40: the story section now carries the Reasoning and
+      // Keep thoughts rows above Prompt, so the panel needs three more rows
+      // (a section rule and two fields) to reach the System row without
+      // scrolling.
+      const lines = (await renderOnce(source, 120, 44, ",")).split("\n");
       const rowOf = (text: string): number => lines.findIndex((line) => line.includes(text));
       return { theme: rowOf("theme"), provider: rowOf("provider"), prompt: rowOf("system ") };
     };

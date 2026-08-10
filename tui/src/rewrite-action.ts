@@ -11,7 +11,7 @@ import type { PendingGenerationDraft, PromptIntent, RetakePromptSession, Runtime
 import type { ActionContext } from "./action-context.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
-import { appendStreamText, emptyStreamText, streamHasSubstantiveText } from "./stream-text.js";
+import { appendStreamReasoning, appendStreamText, emptyStreamText, streamHasSubstantiveText } from "./stream-text.js";
 import { canRewriteSelection, type StorySelectionSpan } from "./selection-projection.js";
 
 export interface RewriteTarget extends TextRange {
@@ -217,7 +217,23 @@ async function runSelectionRewrite(
       // closes the window where that refresh rejects (or Escape races it)
       // between a durable take and this task ever learning about it.
       () => { active.committed = true; },
-      (tail) => { streamedText += tail; }
+      {
+        onStopped: (tail) => { streamedText += tail; },
+        // Same ownership guard as onDelta, on the reasoning channel. Reasoning
+        // is not part of the rewrite's committed replacement text — it never
+        // touches `streamedText` — it only ever lives on the live stream view.
+        onReasoning: (delta) => {
+          if (!task.owns() || !task.storyCurrent() || state.stream !== stream) return;
+          appendStreamReasoning(stream, delta.text, delta.tokenCount);
+          context.repaint();
+        },
+        // Same withheld-tail contract as onStopped, on the reasoning channel.
+        onReasoningStopped: (tail) => {
+          if (!task.owns() || !task.storyCurrent() || state.stream !== stream) return;
+          appendStreamReasoning(stream, tail, stream.reasoning?.tokenCount ?? 0);
+          context.repaint();
+        }
+      }
     );
     if (controller.signal.aborted) {
       return await settleStoppedRewrite(

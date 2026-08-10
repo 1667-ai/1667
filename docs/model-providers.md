@@ -479,12 +479,68 @@ either way.
 token contains the credential that 1667 sent, 1667 stores no alternative
 token for that take. The generation keeps its prose.
 
+Some servers send the alternative tokens of a full generation in one
+message. KoboldCpp is one. 1667 sizes its limit for this message from the
+output limit for the generation, up to a fixed ceiling.
+
+A message within that limit can still be too large to keep. 1667 then
+stores no alternative token for that take. The generation keeps its prose.
+
+A message past the ceiling fails the whole generation. This is the same
+result as for any other oversized response from the model.
+
 Select a story part that has prose. Press `l` to open the token probability
 viewer. The viewer shows the take's prose with the selected token marked.
 Below the prose, it shows the alternative tokens the model weighed at that
 position, with their probabilities and log probabilities. Use `←` and `→`
 to move between tokens. Use `↑` and `↓` to move between alternatives. Use
 `Tab` to move to the next story part.
+
+## Thoughts
+
+Some models write reasoning text before they write prose. 1667 calls this
+text a thought. A thought is not story prose. 1667 keeps a thought apart
+from the prose of a take. 1667 never writes a thought into your story.
+
+A thought belongs to one take. If you change to a different take, 1667
+shows the thought of that take.
+
+Most providers count the tokens of a thought against the same output
+limit as the prose. A long thought thus leaves less space for prose. If a
+model that thinks stops too early, increase **max tokens** in Settings.
+
+While the model thinks, the margin shows `⟳ thinking` and a count. If the
+provider reports a thought token count, 1667 shows that count. If the
+provider reports no count, 1667 counts the pieces of the thought that it
+receives, which gives an approximate number. Press `Esc` to stop the
+generation.
+
+The **Reasoning** row in Settings selects how 1667 shows a thought:
+
+| Reasoning mode | What 1667 shows |
+| --- | --- |
+| off | Nothing. 1667 shows no thought. |
+| marker | The thought marker in the margin. This is the default. |
+| open | Each thought, unfolded, above the prose of its story part. |
+
+Select a story part that has a thought. Press `T` to unfold the thought.
+1667 shows the thought above the prose of the story part. A rail and an
+indent keep the thought apart from the prose. Press `T` again to fold the
+thought. The `T` key does nothing on a story part that has no thought.
+
+The **Keep thought** row controls storage. Keep thought is on by default.
+1667 then saves each thought with its take. The thought stays after you
+close the story. Set Keep thought to off to save no thought. 1667 then
+shows each thought while the model writes it, but keeps none of it.
+
+Some routes cannot return reasoning text. A text completion route is one,
+because that protocol has no field for it. The Reasoning row then shows
+`‹ — ›` and gives the reason.
+
+1667 cannot know in advance whether the other routes return reasoning
+text. Thus the Reasoning row keeps your selection on all of them. If a
+model writes no reasoning text, its take gets no thought marker, and the
+Reasoning row does not change.
 
 ## Credentials and deadlines
 

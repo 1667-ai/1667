@@ -83,6 +83,10 @@ const DEFINITIONS = {
   navCreateChapter: route("nav-shifted", "C", "NAV", "create-chapter", { shift: true }),
   navOpenActions: route("nav", "x", "NAV", "open-actions"),
   navToggleInstructions: route("nav", "p", "NAV", "toggle-instructions"),
+  // `T` (shift), not `r`: `r` already means retake (regenerate) on a story
+  // part, and overloading it would silently drop retake from exactly the
+  // parts that have a thought to fold.
+  navToggleThought: route("nav-shifted", "T", "NAV", "toggle-thought", { shift: true }),
   navTypewriter: route("nav", "z", "NAV", "typewriter"),
   navToggleRail: route("nav-shifted", "F", "NAV", "toggle-rail", { shift: true }),
   navOpenMap: route("nav", "m", "NAV", "open-map"),

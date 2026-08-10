@@ -39,7 +39,7 @@ test("a full append history refuses before the provider starts", async (t) => {
       new GenerationAdmissionRegistry(),
       () => { deltas += 1; },
       new AbortController().signal,
-      () => { providerStarted = true; }
+      { providerStarted: () => { providerStarted = true; } }
     ),
     /maximum of 4096 Generation Records/u
   );
@@ -67,7 +67,10 @@ test("a full in-place rewrite history refuses before the provider starts", async
       new PromptCacheRuntime(),
       () => { deltas += 1; },
       new AbortController().signal,
-      () => { providerStarted = true; }
+      undefined,
+      undefined,
+      undefined,
+      { providerStarted: () => { providerStarted = true; } }
     ),
     /maximum of 4096 Generation Records/u
   );

@@ -54,6 +54,9 @@ read_when:
 | token probability viewer | The read-only view of the alternative tokens of one take |
 | Generation Record | The durable record of one model request that created or changed a take |
 | Generation Record Viewer | The read-only view of the Generation Record history of one take |
+| thought | The reasoning text that a model writes before it writes the prose of one take |
+| thought marker | The word in the margin that shows that a story part has a thought |
+| reasoning mode | The setting that selects how 1667 shows a thought |
 | tokenize source | The bundled tokenizer or the server endpoint that counts the tokens in one provider request |
 | grade | The quality of a token count: exact count, near-exact count, or token estimate |
 | mark | The symbol that shows a token count's grade |

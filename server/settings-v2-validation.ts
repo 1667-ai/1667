@@ -2,6 +2,7 @@ import {
   FEATURE_SUPPORT_V2_VALUES,
   GENERATION_EFFORT_V2_VALUES,
   PROMPT_CACHE_POLICY_V2_VALUES,
+  REASONING_DISPLAY_V2_VALUES,
   SETTINGS_PRESET_V2_VALUES,
   SETTINGS_PROTOCOL_V2_VALUES,
   TEXT_PROMPT_FORMAT_V2_VALUES,
@@ -19,6 +20,7 @@ import { parseSampling, validateSamplingRoute } from "./settings-v2-sampling-val
 import { boundedArray, closedRecord, closedShape, literal } from "./story-wire-validation.js";
 import { MAX_ALTERNATIVE_TOKENS } from "../shared/token-probabilities.js";
 import { generationEffortAvailabilityForTarget } from "../shared/generation-effort-capabilities.js";
+import { reasoningDisplayChoicesForTarget } from "../shared/reasoning-display-capabilities.js";
 import {
   MAX_SETTINGS_AUTHOR_BRIEF_SCALARS,
   MAX_SETTINGS_CREDENTIAL_NAMES,
@@ -55,10 +57,13 @@ const HEADER = closedShape(["name", "value"]);
 const HEADER_VALUE = closedShape(["type", "env"]);
 const MODEL = closedShape(["connectionId", "remoteId", "name", "discovered", "overrides", "capabilities"]);
 const METADATA = closedShape([], ["contextWindow", "maxOutputTokens"]);
-const CAPABILITIES = closedShape(["temperature", "assistantPrefill", "reasoningEffort", "promptCaching"]);
+const CAPABILITIES = closedShape(
+  ["temperature", "assistantPrefill", "reasoningEffort", "promptCaching"],
+  ["reasoningContent"]
+);
 const PROFILE = closedShape(
   ["name", "modelId", "temperature", "maxOutputTokens", "effort", "cachePolicy"],
-  ["sampling", "tokenProbabilities"]
+  ["sampling", "tokenProbabilities", "reasoning", "discardReasoning"]
 );
 const ROUTING = closedShape(["default"], ["prose", "utility"]);
 const WRITING = closedShape(["defaultAuthorBrief"]);
@@ -367,11 +372,15 @@ function parseMetadata(value: unknown, label: string): ModelScalarMetadataV2 {
 
 function parseCapabilities(value: unknown, label: string): ModelCapabilitiesV2 {
   const capabilities = closedRecord(value, label, CAPABILITIES);
+  const reasoningContent = capabilities.reasoningContent === undefined
+    ? undefined
+    : oneOf(capabilities.reasoningContent, FEATURE_SUPPORT_V2_VALUES, `${label}.reasoningContent`);
   return {
     temperature: oneOf(capabilities.temperature, FEATURE_SUPPORT_V2_VALUES, `${label}.temperature`),
     assistantPrefill: oneOf(capabilities.assistantPrefill, FEATURE_SUPPORT_V2_VALUES, `${label}.assistantPrefill`),
     reasoningEffort: oneOf(capabilities.reasoningEffort, FEATURE_SUPPORT_V2_VALUES, `${label}.reasoningEffort`),
-    promptCaching: oneOf(capabilities.promptCaching, FEATURE_SUPPORT_V2_VALUES, `${label}.promptCaching`)
+    promptCaching: oneOf(capabilities.promptCaching, FEATURE_SUPPORT_V2_VALUES, `${label}.promptCaching`),
+    ...(reasoningContent === undefined ? {} : { reasoningContent })
   };
 }
 
@@ -417,6 +426,26 @@ function parseProfiles(
         `profile ${id}.tokenProbabilities`,
         MAX_ALTERNATIVE_TOKENS
       );
+    // Absent means "marker", the default fold state, so a document saved
+    // before this field existed keeps meaning exactly what it did — same
+    // shape as `sampling` and `tokenProbabilities` above. A present, explicit
+    // value still has to be one this route can actually populate: `off` is
+    // always fine, but `marker`/`open` is refused on a model that reports it
+    // returns no reasoning content at all.
+    const reasoning = profile.reasoning === undefined
+      ? undefined
+      : oneOf(profile.reasoning, REASONING_DISPLAY_V2_VALUES, `profile ${id}.reasoning`);
+    if (
+      reasoning !== undefined
+      && !reasoningDisplayChoicesForTarget({
+        reasoningContent: model.capabilities.reasoningContent ?? "unknown"
+      }).includes(reasoning)
+    ) {
+      throw new SettingsFormatError(`profile ${id} sets reasoning on a model that returns none`);
+    }
+    const discardReasoning = profile.discardReasoning === undefined
+      ? undefined
+      : literal(profile.discardReasoning, true, `profile ${id}.discardReasoning`);
     const parsedProfile: GenerationProfileV2 = {
       name: requireBoundedSettingsString(profile.name, `profile ${id}.name`, MAX_SETTINGS_NAME_SCALARS, 1),
       modelId,
@@ -429,7 +458,9 @@ function parseProfiles(
       effort,
       cachePolicy: oneOf(profile.cachePolicy, PROMPT_CACHE_POLICY_V2_VALUES, `profile ${id}.cachePolicy`),
       ...(sampling === undefined ? {} : { sampling }),
-      ...(tokenProbabilities === undefined ? {} : { tokenProbabilities })
+      ...(tokenProbabilities === undefined ? {} : { tokenProbabilities }),
+      ...(reasoning === undefined ? {} : { reasoning }),
+      ...(discardReasoning === undefined ? {} : { discardReasoning })
     };
     validateSamplingRoute(id, parsedProfile, model, connection);
     result[id] = parsedProfile;

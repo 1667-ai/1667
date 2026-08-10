@@ -32,6 +32,7 @@ import type { CardImportPlan } from "./card-import.js";
 import type { FactBudgetDrop } from "./fact-budget.js";
 import type { TokenProbabilityRecord } from "./token-probabilities.js";
 import type { GenerationRecordSummary, ResolvedGenerationRecord } from "./generation-record.js";
+import type { ReasoningRecord } from "./reasoning.js";
 import type { SamplingBiasResolutionResult } from "./sampling-capabilities.js";
 
 import type {
@@ -176,6 +177,11 @@ export interface WorkerMethodContract {
    *  shared/generation-record.ts. */
   getGenerationRecords: { input: { storyId: string; nodeId: string }; output: GenerationRecordSummary[] };
   getGenerationRecord: { input: { storyId: string; nodeId: string; recordId: string }; output: ResolvedGenerationRecord };
+  /** Reads a stored thought straight from the manifest and object store —
+   *  never through StoryPayload, which carries presence only. A take with no
+   *  stored thought fails the request (typed 404 reason) rather than
+   *  returning one. */
+  getReasoning: { input: { storyId: string; nodeId: string }; output: ReasoningRecord };
   switchLine: { input: { storyId: string; nodeId: string; options?: Omit<SwitchRequest, "nodeId"> }; output: StoryPayload };
   createNode: { input: { storyId: string; body: CreateNodeRequest }; output: StoryPayload };
   editNode: { input: { storyId: string; nodeId: string; body: EditNodeRequest }; output: StoryPayload };
@@ -530,7 +536,19 @@ export type WorkerToMainMessage =
        * bounded delta messages before this terminal. */
       unsentText?: string;
     }
-  | { type: "delta"; id: WorkerOperationId; sequence: number; text: string }
+  | {
+      type: "delta";
+      id: WorkerOperationId;
+      sequence: number;
+      text: string;
+      /** Present only when `text` is model reasoning ("thinking") rather
+       *  than story prose — absent means prose, exactly as before this
+       *  field existed. A reasoning delta still consumes the same
+       *  monotonic `sequence` and the same ack/credit window as a prose
+       *  delta; only the channel differs. `tokenCount` is the running total
+       *  for the whole reasoning stream so far. */
+      reasoning?: { tokenCount: number };
+    }
   | {
       type: "complete";
       id: WorkerOperationId;
@@ -553,7 +571,7 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "getUnknownOutcomeStatus", "previewChapterBreakRemoval",
   "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "setPhraseBias", "setBannedStrings", "autonameStory",
   "acknowledgeUnknownOutcomes", "deleteStory",
-  "exportMarkdown", "getTokenProbabilities", "getGenerationRecords", "getGenerationRecord",
+  "exportMarkdown", "getTokenProbabilities", "getGenerationRecords", "getGenerationRecord", "getReasoning",
   "switchLine", "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut", "pasteStoryLine",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact", "getSettings",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
