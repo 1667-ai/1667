@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -7,7 +7,8 @@ import { continueStory } from "../server/generation-http.js";
 import { GenerationAdmissionRegistry } from "../server/generation-admission.js";
 import { commitNode } from "../server/node-commit.js";
 import { LEGACY_PROMPT_CACHE_CONTEXT, PromptCacheRuntime } from "../server/provider-cache-policy.js";
-import { sha256 } from "../server/story-format.js";
+import { sha256, type StoryManifestV5 } from "../server/story-format.js";
+import { StoryObjectStore } from "../server/story-objects.js";
 import { StoryStore } from "../server/stories.js";
 import type { SettingsStore } from "../server/settings.js";
 import type { CreateNodeRequest, GenerationSettings } from "../shared/types.js";
@@ -204,6 +205,90 @@ test("a stale or unknown genId commits its text without fabricating a Generation
   const node = saved.nodes.find((candidate) => candidate.genId === "never-seen");
   if (node === undefined) throw new Error("stale-genId save did not commit a take");
   assert.deepEqual(node.generationRecordIds ?? [], []);
+});
+
+test("a stop-save commit still resolves its source revision after cleanup runs between the cancel and the save", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-handoff-pin-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const stories = new StoryStore(dir);
+  await stories.init();
+  const story = await stories.create("Story");
+  const root = await stories.createNode(story.id, null, "The lighthouse keeper checked the lamp.", "");
+  const rootId = root.nodes[0]!.id;
+  const rootText = root.nodes[0]!.text;
+  const manifestBefore = JSON.parse(
+    await readFile(path.join(dir, story.id, "manifest.json"), "utf8")
+  ) as StoryManifestV5;
+  const originalRevisionId = manifestBefore.nodes.find((node) => node.id === rootId)!.revisionId;
+
+  // The real production wiring (server/story-service-runtime.ts): the
+  // registry pins a handoff's source revisions straight into this same
+  // StoryStore's object-sweep protection.
+  const admission = new GenerationAdmissionRegistry(
+    (storyId, revisionIds) => stories.pinRevisions(storyId, revisionIds)
+  );
+  const controller = new AbortController();
+  const stop = stopAfterFirstDelta(controller);
+
+  // A continuation off the root captures a handoff whose source cites the
+  // root's current revision — then the stream is cancelled before anything
+  // commits, so nothing yet keeps that revision reachable except the pin.
+  const stopped = await continueStory(
+    story.id,
+    { parentId: rootId, instruction: "Continue.", genId: "gen-handoff-pin" },
+    stories,
+    stubSettingsStore(dryRunSettings()),
+    new PromptCacheRuntime(),
+    admission,
+    stop.onDelta,
+    controller.signal
+  );
+  assert.equal(stopped, null);
+  const partial = stop.text();
+  assert.notEqual(partial.length, 0);
+
+  // The root's own text changes before the stop-save arrives: the live
+  // manifest now points at a new revision, so the original one is otherwise
+  // unreachable — nothing but the handoff's pin protects it. Forcing
+  // maintenance here is exactly the gap between "cancelled" and "saved" the
+  // handoff has to survive.
+  await stories.editNode(story.id, rootId, {
+    text: "The lighthouse keeper checked the lamp, then wound the clockwork.",
+    expectedTextHash: sha256(rootText)
+  });
+  await stories.waitForMaintenance();
+
+  const objects = new StoryObjectStore(path.join(dir, story.id));
+  // Still on disk — a leaked pin (or none at all) would have let this sweep
+  // reap it, since the live manifest no longer references it and no commit
+  // has happened yet to root it as a Generation Record source.
+  await readFile(objects.objectPath("revisions", originalRevisionId));
+
+  const saved = await commitNode(
+    stories,
+    stubSettingsStore(dryRunSettings()),
+    admission,
+    story.id,
+    { parentId: rootId, instruction: "Continue.", text: partial, genId: "gen-handoff-pin" } as CreateNodeRequest
+  );
+  const node = saved.nodes.find((candidate) => candidate.genId === "gen-handoff-pin");
+  if (node === undefined) throw new Error("stop-save did not commit a take");
+  assert.equal(node.generationRecordIds?.length, 1);
+
+  const record = await stories.loadGenerationRecord(story.id, node.id, node.generationRecordIds![0]!);
+  const sourceEntry = record.prompt.entries.find(
+    (entry): entry is Extract<typeof record.prompt.entries[number], { source: "revisions" }> =>
+      entry.source === "revisions"
+  );
+  assert.ok(sourceEntry !== undefined, "expected a source entry with revision references");
+  const rootPart = sourceEntry.parts.find((part) => part.revisionId === originalRevisionId);
+  assert.ok(rootPart !== undefined, "expected a source part citing the root's pre-edit revision");
+  assert.equal(rootPart.text, rootText);
+
+  // The commit's own Generation Record now roots the revision through the
+  // ordinary sweep — the transient handoff pin has done its job and released.
+  await stories.waitForMaintenance();
+  await readFile(objects.objectPath("revisions", originalRevisionId));
 });
 
 function dryRunSettings(): GenerationSettings {

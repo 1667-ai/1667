@@ -91,6 +91,26 @@ test("story payload projects Generation Record counts and human-edit presence", 
   const stub = payload.nodes[0];
   assert.equal(stub?.generationRecordCount, 2);
   assert.equal(stub?.editedByUser, true);
+
+  // The path carries the same node in full (not the stub projection), so it
+  // must project generationRecordIds down to a count of its own instead of
+  // ever putting the ordered id list on the wire.
+  const pathNode = payload.path[0];
+  assert.equal("generationRecordIds" in (pathNode as object), false);
+  assert.equal(pathNode?.generationRecordCount, 2);
+});
+
+test("a deletion-only human edit (no ranges, characters removed) still counts as edited", () => {
+  const deletionOnly = {
+    ...node("root", null, "Shorter prose"),
+    attribution: { source: "human" as const, ranges: [], deletedCharacters: 5 }
+  };
+  const payload = buildStoryPayload(runtimeStory([deletionOnly]));
+  assert.equal(payload.nodes[0]?.editedByUser, true);
+
+  // A truly untouched node (no attribution at all) must not be marked edited.
+  const untouched = buildStoryPayload(runtimeStory([node("root", null, "Untouched prose")]));
+  assert.equal(untouched.nodes[0]?.editedByUser, undefined);
 });
 
 test("story objects: foreground cancellation leaves cleanup safe to retry", async (t) => {

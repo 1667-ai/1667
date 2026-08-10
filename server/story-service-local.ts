@@ -267,7 +267,7 @@ export class StoryServiceLocal {
         ? "human"
         : this.dependencies.generationAdmission.modelFor(id, genId)
           ?? await currentModel(this.dependencies.settings);
-      return await this.localStoryPayload(
+      const payload = await this.localStoryPayload(
         mutationRequest,
         "createNode",
         async (story, session) => {
@@ -326,6 +326,11 @@ export class StoryServiceLocal {
           return commit.duplicate ? STORY_UNCHANGED : undefined;
         }
       );
+      // Either the record just landed durably (the story's own generic sweep
+      // now keeps its revisions live) or this commit was a no-op duplicate —
+      // both ways, this genId's handoff pin has done its job.
+      if (genId !== null) this.dependencies.generationAdmission.releaseGenerationRecordHandoff(id, genId);
+      return payload;
     }
     return buildStoryPayload(await commitNode(
       this.dependencies.stories,

@@ -63,6 +63,12 @@ test("a continuation stores a Generation Record, ordered first on the node's his
   assert.equal(summaries.length, 1);
   assert.equal(summaries[0]!.kind, "continue");
   assert.equal(summaries[0]!.id, node.generationRecordIds![0]);
+  // Shape contract: a summary carries only the history-list projection —
+  // never a full record's prompt pipeline or effective parameters, which
+  // stay behind the per-id detail route (see server/stories.ts's
+  // loadGenerationRecordSummaries doc comment on why it must never retain a
+  // full record beyond its own projection step).
+  assert.deepEqual(Object.keys(summaries[0]!).sort(), ["createdAt", "id", "kind"]);
 
   const record = await stories.loadGenerationRecord(story.id, node.id, summaries[0]!.id);
   assert.equal(record.format, "1667-generation-record");

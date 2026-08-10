@@ -99,18 +99,29 @@ export function createGenerationRecord(input: GenerationRecordInput): Generation
   return record;
 }
 
-/** Every text-revision id a record references, for `server/story-objects.ts`
- *  to root as live alongside the record's own object id — the mechanism that
- *  keeps a superseded revision's chunks from being swept while a generation
- *  record still points at them. */
-export function generationRecordSourceRevisionIds(record: GenerationRecord): string[] {
+/** Every text-revision id a run of prompt entries references. Shared by
+ *  `generationRecordSourceRevisionIds` below (a committed record's own mark
+ *  phase) and `server/generation-record-handoff.ts` (a stop-save handoff's
+ *  pre-commit revision pin) — the same ids, read from the same entry shape,
+ *  at two different points in a Generation Record's life. */
+export function promptEntriesSourceRevisionIds(
+  entries: readonly GenerationRecordPromptEntry[]
+): string[] {
   const ids: string[] = [];
-  for (const entry of record.prompt.entries) {
+  for (const entry of entries) {
     if (entry.source === "revisions") {
       for (const part of entry.parts) ids.push(part.revisionId);
     }
   }
   return ids;
+}
+
+/** Every text-revision id a record references, for `server/story-objects.ts`
+ *  to root as live alongside the record's own object id — the mechanism that
+ *  keeps a superseded revision's chunks from being swept while a generation
+ *  record still points at them. */
+export function generationRecordSourceRevisionIds(record: GenerationRecord): string[] {
+  return promptEntriesSourceRevisionIds(record.prompt.entries);
 }
 
 /** Byte-stable: the same record always produces the same bytes, because the

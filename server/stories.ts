@@ -88,7 +88,8 @@ import {
 import { isStoryId } from "./story-v5-strict.js";
 import {
   requirePresentStorySlot,
-  StoryAggregateSession
+  StoryAggregateSession,
+  type GenerationRecordSourceRevisionSnapshot
 } from "./story-aggregate-session.js";
 
 export const STORY_LIST_IO_CONCURRENCY = 4;
@@ -132,6 +133,14 @@ export class StoryStore {
   private readonly snapshots = new WeakMap<Story, StoryRevisionSnapshot>();
   private readonly providerSnapshotPins =
     new Map<string, ProviderSnapshotPins>();
+  /** One V6 story's last hash-verified generation record source-revision
+   *  graph, keyed by story id since a `StoryAggregateSession` is created
+   *  fresh for every `withAggregateSession` call and cannot itself carry
+   *  state between them. Guarded at adoption time by the manifest hash it
+   *  was captured against (`StoryAggregateSession.capturedGenerationRecordGraph`),
+   *  so a stale entry here is simply ignored, never trusted. */
+  private readonly generationRecordGraphs =
+    new Map<string, GenerationRecordSourceRevisionSnapshot>();
   /** One writer at a time per story. Read-modify-write is otherwise not atomic:
    *  a Stop and the stream's own commit can both load an unstamped story, both
    *  decide to write, and race — duplicating a node or losing the other's text.
@@ -154,9 +163,10 @@ export class StoryStore {
     return await this.withLock(id, async () => await this.withIo(id, async () => {
       const slot = await readStoredStorySlot(this.dir, id);
       requirePresentStorySlot(slot, id);
-      const session = new StoryAggregateSession(this.dir, id, slot);
+      const session = new StoryAggregateSession(this.dir, id, slot, this.generationRecordGraphs.get(id) ?? null);
       await session.init();
       const result = await work(session);
+      this.captureGenerationRecordGraph(id, session);
       await this.schedulePendingCleanup(id);
       return result;
     }));
@@ -170,12 +180,26 @@ export class StoryStore {
       const slot = await readStoredStorySlot(this.dir, id);
       if (slot.kind === "absent") return await work(null);
       requirePresentStorySlot(slot, id);
-      const session = new StoryAggregateSession(this.dir, id, slot);
+      const session = new StoryAggregateSession(this.dir, id, slot, this.generationRecordGraphs.get(id) ?? null);
       await session.init();
       const result = await work(session);
+      this.captureGenerationRecordGraph(id, session);
       await this.schedulePendingCleanup(id);
       return result;
     }));
+  }
+
+  /** Remember whatever generation record graph this session verified, so the
+   *  next session for the same story can skip reparsing unchanged records. A
+   *  session that never called prepareContent leaves its captured graph
+   *  untouched, so this simply re-stores the same entry — harmless. */
+  private captureGenerationRecordGraph(id: string, session: StoryAggregateSession): void {
+    if (session.snapshot.manifest.kind !== "live") {
+      this.generationRecordGraphs.delete(id);
+      return;
+    }
+    const captured = session.capturedGenerationRecordGraph;
+    if (captured !== null) this.generationRecordGraphs.set(id, captured);
   }
 
   async init(): Promise<void> {
@@ -222,6 +246,31 @@ export class StoryStore {
       if (released) return;
       released = true;
       for (const kind of LIVE_OBJECT_KINDS) releasePins(pins[kind], dedupedLive[kind]);
+      if (Object.values(pins).every((map) => map.size === 0)) {
+        this.providerSnapshotPins.delete(storyId);
+      }
+      this.cleanupQueue.schedule(storyId);
+    };
+  }
+
+  /** Keep specific text revisions readable across a gap nothing else
+   * bridges: a stop-save Generation Record handoff (server/generation-
+   * record-handoff.ts) captures revision ids while `pinProviderSnapshot`'s
+   * own lease is still open, but that lease ends with the request that
+   * cancelled — long before the client's later, separate stop-save
+   * `createNode` call turns the handoff into a committed record. Unlike
+   * `pinProviderSnapshot`, this only ever pins the `revisions` kind, and only
+   * the ids the caller names, never a whole live snapshot. */
+  pinRevisions(storyId: string, revisionIds: readonly ObjectHash[]): () => void {
+    if (revisionIds.length === 0) return () => {};
+    const pins = this.providerSnapshotPins.get(storyId) ?? emptyProviderSnapshotPins();
+    this.providerSnapshotPins.set(storyId, pins);
+    addPins(pins.revisions, revisionIds);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      releasePins(pins.revisions, revisionIds);
       if (Object.values(pins).every((map) => map.size === 0)) {
         this.providerSnapshotPins.delete(storyId);
       }
@@ -480,15 +529,15 @@ export class StoryStore {
       const stored = await this.requireGenerationRecordNode(id, nodeId);
       const ids = stored.generationRecordIds ?? [];
       const objects = new StoryObjectStore(this.bundlePath(id));
-      const records = await mapWithConcurrency(ids, STORY_LIST_IO_CONCURRENCY, (recordId) =>
-        objects.readGenerationRecord(recordId)
-      );
-      return records.map((record, index) => ({
-        id: ids[index]!,
-        kind: record.kind,
-        createdAt: record.createdAt,
-        ...(record.range === undefined ? {} : { range: record.range })
-      }));
+      return await mapWithConcurrency(ids, STORY_LIST_IO_CONCURRENCY, async (recordId) => {
+        const record = await objects.readGenerationRecord(recordId);
+        return {
+          id: recordId,
+          kind: record.kind,
+          createdAt: record.createdAt,
+          ...(record.range === undefined ? {} : { range: record.range })
+        };
+      });
     });
   }
 
@@ -574,6 +623,7 @@ export class StoryStore {
       } else {
         requireDurableCommit(await unlinkDurable(this.legacyPath(id)), `Deleting legacy story ${id}`);
       }
+      this.generationRecordGraphs.delete(id);
     });
   }
 
@@ -628,6 +678,10 @@ export class StoryStore {
           objects.adoptKnownGraph(snapshot.revisions, { committed: true });
           objects.adoptCommittedIds("probabilities", [...snapshot.probabilityIds]);
         }
+        const previousGenerationRecordGraph = this.generationRecordGraphs.get(story.id);
+        if (previousGenerationRecordGraph?.manifestHash === hashStoryV5ManifestBytes(slot.manifestBytes)) {
+          objects.adoptKnownGenerationRecordGraph(previousGenerationRecordGraph.sourceRevisions, { committed: true });
+        }
         const manifest = await encodeStoryBundle(story, objects, reuseFrom, snapshot);
         const nextLive = liveObjectIds(manifest);
         const nextRevisionIds = new Set(nextLive.revisions);
@@ -649,6 +703,11 @@ export class StoryStore {
         const commit = await this.writeManifest(this.manifestPath(story.id), serializeManifest(manifest));
         this.snapshots.set(story, captureStorySnapshot(story, manifest, objects.verifiedRevisionGraph()));
         requireDurableCommit(commit, `Saving story ${story.id}`);
+        this.generationRecordGraphs.set(story.id, generationRecordGraphSnapshot(
+          hashStoryV5ManifestBytes(Buffer.from(serializeManifest(manifest), "utf8")),
+          nextGenerationRecordIds,
+          objects.verifiedGenerationRecordGraph()
+        ));
         if (settled === "sweep-owed") {
           this.cleanupQueue.schedule(story.id);
         } else {
@@ -667,8 +726,18 @@ export class StoryStore {
     }
     const legacyBytes = slot.kind === "legacy" ? slot.raw : null;
     const published = await this.publishNewBundle(story, legacyBytes, reuseFrom);
-    this.snapshots.set(story, captureStorySnapshot(story, published.manifest, published.objects.verifiedRevisionGraph()));
+    this.snapshots.set(story, captureStorySnapshot(
+      story,
+      published.manifest,
+      published.objects.verifiedRevisionGraph()
+    ));
     requireDurableCommit(published.commit, `Publishing story ${story.id}`);
+    const publishedLive = liveObjectIds(published.manifest);
+    this.generationRecordGraphs.set(story.id, generationRecordGraphSnapshot(
+      hashStoryV5ManifestBytes(Buffer.from(serializeManifest(published.manifest), "utf8")),
+      new Set(publishedLive.generationRecords),
+      published.objects.verifiedGenerationRecordGraph()
+    ));
     if (legacyBytes !== null) await afterCommit(`removing migrated legacy file for story ${story.id}`, async () => {
       const duplicate = await this.removeVerifiedLegacyDuplicate(story.id);
       if (duplicate !== null) requireDurableCommit(duplicate, `Removing migrated legacy story ${story.id}`);
@@ -785,6 +854,17 @@ function releasePins(pins: Map<ObjectHash, number>, ids: readonly ObjectHash[]):
     if (count === undefined || count <= 1) pins.delete(id);
     else pins.set(id, count - 1);
   }
+}
+
+function generationRecordGraphSnapshot(
+  manifestHash: string,
+  liveIds: ReadonlySet<ObjectHash>,
+  verified: ReadonlyMap<ObjectHash, readonly ObjectHash[]>
+): GenerationRecordSourceRevisionSnapshot {
+  return {
+    manifestHash,
+    sourceRevisions: new Map([...verified].filter(([id]) => liveIds.has(id)))
+  };
 }
 
 function isErrorCode(error: unknown, code: string): boolean { return error instanceof Error && "code" in error && error.code === code; }

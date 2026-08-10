@@ -1,8 +1,9 @@
 import type { ContinuationPlan } from "../shared/continuation-plan.js";
-import type {
-  GenerationRecord,
-  GenerationRecordEffectiveParameters,
-  GenerationRecordPromptEntry
+import {
+  promptEntriesSourceRevisionIds,
+  type GenerationRecord,
+  type GenerationRecordEffectiveParameters,
+  type GenerationRecordPromptEntry
 } from "../shared/generation-record.js";
 import type { PromptOperation } from "../shared/prompt-plan.js";
 import type { Provider, Story } from "../shared/types.js";
@@ -44,6 +45,18 @@ export interface GenerationRecordHandoff {
   readonly entries:
     | { readonly ok: true; readonly entries: readonly GenerationRecordPromptEntry[] }
     | { readonly ok: false; readonly reason: string };
+}
+
+/** Every text-revision id a handoff's captured entries reference — what
+ *  `server/generation-admission.ts` pins for the life of the handoff, so the
+ *  later, separate stop-save commit that finalizes this into a real
+ *  Generation Record still finds those revisions readable no matter what
+ *  else happened to the story in between. Empty (nothing to pin) when the
+ *  entries themselves failed to capture. */
+export function generationRecordHandoffRevisionIds(
+  handoff: GenerationRecordHandoff
+): readonly string[] {
+  return handoff.entries.ok ? promptEntriesSourceRevisionIds(handoff.entries.entries) : [];
 }
 
 /** Builds a handoff from a continuation request's own state once its stream

@@ -116,7 +116,9 @@ export abstract class StoryServiceRuntime {
   private readonly activeOperations = new Set<Promise<unknown>>();
   private readonly archivedMutationCleanup =
     new LifecycleRetry<string>();
-  private readonly generationAdmission = new GenerationAdmissionRegistry();
+  private readonly generationAdmission = new GenerationAdmissionRegistry(
+    (storyId, revisionIds) => this.stories.pinRevisions(storyId, revisionIds)
+  );
   private readonly rewritePartials = new PartialRewriteStash();
   private readonly promptCache = new PromptCacheRuntime();
   private readonly lifecycle = new ServiceLifecycle();

@@ -7,7 +7,10 @@ import {
 import type { PromptPlan } from "../shared/prompt-plan.js";
 import type { StoryFact } from "../shared/types.js";
 import { ServiceError } from "./errors.js";
-import type { GenerationRecordHandoff } from "./generation-record-handoff.js";
+import {
+  generationRecordHandoffRevisionIds,
+  type GenerationRecordHandoff
+} from "./generation-record-handoff.js";
 
 export const MAX_GENERATION_MODEL_ATTRIBUTIONS = 50;
 
@@ -91,6 +94,11 @@ interface GenerationAttribution {
    *  finished normally (its record is attached directly, in the same call)
    *  or that never streamed any output at all. */
   record: GenerationRecordHandoff | null;
+  /** Releases `record`'s revision pin (see `GenerationAdmissionRegistry`'s
+   *  constructor). Null whenever `record` is, and also once that pin has
+   *  already been released — consumed by a stop-save commit, or dropped by
+   *  eviction, replacement, or `clear()` — so it is never released twice. */
+  releaseRevisionPin: (() => void) | null;
 }
 
 /**
@@ -100,6 +108,19 @@ interface GenerationAttribution {
 export class GenerationAdmissionRegistry {
   private readonly active = new Map<string, Set<string>>();
   private readonly modelAttributions: GenerationAttribution[] = [];
+
+  /** `pinHandoffRevisions` protects a captured handoff's source revisions
+   *  from the story's own object sweep for as long as this registry still
+   *  holds the handoff — the gap between a cancelled continuation capturing
+   *  it and a later, separate stop-save commit consuming it, which nothing
+   *  else spans (`server/story-provider-mutation.ts`'s own snapshot pin
+   *  releases as soon as that first request settles). Defaults to a no-op so
+   *  tests that never touch story storage do not need a `StoryStore` to
+   *  construct this. */
+  constructor(
+    private readonly pinHandoffRevisions:
+      (storyId: string, revisionIds: readonly string[]) => () => void = () => () => {}
+  ) {}
 
   async run<T>(
     storyId: string,
@@ -138,10 +159,8 @@ export class GenerationAdmissionRegistry {
       existing.model = model;
       return;
     }
-    if (this.modelAttributions.length >= MAX_GENERATION_MODEL_ATTRIBUTIONS) {
-      this.modelAttributions.shift();
-    }
-    this.modelAttributions.push({ storyId, genId, model, record: null });
+    this.evictOldestIfFull();
+    this.modelAttributions.push({ storyId, genId, model, record: null, releaseRevisionPin: null });
   }
 
   modelFor(storyId: string, genId: string): string | undefined {
@@ -155,19 +174,25 @@ export class GenerationAdmissionRegistry {
    *  `generationRecordHandoffFor`. `rememberModel` always runs first (before
    *  that same request's provider stream even starts), so the slot this
    *  writes into already exists; the fallback insert below only guards
-   *  against a caller that never called `rememberModel` first. */
+   *  against a caller that never called `rememberModel` first.
+   *
+   *  Pins the handoff's source revisions before storing it, so they stay
+   *  readable for whatever later, separate stop-save commit reads this back
+   *  — releasing any pin this same slot already held first, since a second
+   *  call here would otherwise leak the first pin. */
   rememberGenerationRecordHandoff(storyId: string, genId: string, record: GenerationRecordHandoff): void {
+    const releaseRevisionPin = this.pinHandoffRevisions(storyId, generationRecordHandoffRevisionIds(record));
     const existing = this.modelAttributions.find(
       (candidate) => candidate.storyId === storyId && candidate.genId === genId
     );
     if (existing !== undefined) {
+      existing.releaseRevisionPin?.();
       existing.record = record;
+      existing.releaseRevisionPin = releaseRevisionPin;
       return;
     }
-    if (this.modelAttributions.length >= MAX_GENERATION_MODEL_ATTRIBUTIONS) {
-      this.modelAttributions.shift();
-    }
-    this.modelAttributions.push({ storyId, genId, model: record.model, record });
+    this.evictOldestIfFull();
+    this.modelAttributions.push({ storyId, genId, model: record.model, record, releaseRevisionPin });
   }
 
   /** Read by a stop-save commit at most once in practice — `commitTake`'s own
@@ -181,8 +206,34 @@ export class GenerationAdmissionRegistry {
     )?.record ?? undefined;
   }
 
+  /** Called once a stop-save commit has finished acting on whatever
+   *  `generationRecordHandoffFor` returned it — whether that meant attaching
+   *  a fresh Generation Record or discarding a duplicate genId's replay.
+   *  Releases the handoff's revision pin, since nothing else will read this
+   *  slot's record again for that purpose. Safe to call for a genId with no
+   *  pin (or none at all) — a no-op, not an error, so a caller never has to
+   *  first check whether a handoff existed. */
+  releaseGenerationRecordHandoff(storyId: string, genId: string): void {
+    const existing = this.modelAttributions.find(
+      (candidate) => candidate.storyId === storyId && candidate.genId === genId
+    );
+    if (existing === undefined) return;
+    existing.releaseRevisionPin?.();
+    existing.releaseRevisionPin = null;
+  }
+
+  /** Drops the oldest slot once the bound is reached, releasing whatever
+   *  revision pin it still held — an unconsumed handoff (its stop-save never
+   *  arrived) must not outlive the slot that was the only thing remembering
+   *  to release it. */
+  private evictOldestIfFull(): void {
+    if (this.modelAttributions.length < MAX_GENERATION_MODEL_ATTRIBUTIONS) return;
+    this.modelAttributions.shift()?.releaseRevisionPin?.();
+  }
+
   clear(): void {
     this.active.clear();
+    for (const attribution of this.modelAttributions) attribution.releaseRevisionPin?.();
     this.modelAttributions.length = 0;
   }
 }

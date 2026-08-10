@@ -32,7 +32,7 @@ linuxTest("the HTTP routes list and read a take's Generation Records", async (t)
   );
   assert.deepEqual(empty, []);
 
-  const continued = await json<{ payload: { path: { id: string; generationRecordIds?: string[] }[] } } | null>(
+  const continued = await json<{ payload: { path: { id: string; generationRecordCount?: number }[] } } | null>(
     `${base}/api/stories/${created.id}/continue`,
     post({ parentId: humanNodeId, instruction: "Continue.", genId: "gen-http" })
   );

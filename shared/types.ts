@@ -155,6 +155,12 @@ export interface StoryNode {
    *  GET /api/stories/:id/nodes/:nodeId/generation-records/:recordId, never
    *  carried automatically with the story. See shared/generation-record.ts. */
   generationRecordIds?: string[];
+  /** Wire-only projection of `generationRecordIds` for `StoryPayload.path`:
+   *  how many Generation Record events this node has, without the ids
+   *  themselves — mirrors `NodeStub.generationRecordCount`. The server never
+   *  sets this on its own domain `Story.nodes`; it is computed once, in
+   *  `buildStoryPayload`, in place of `generationRecordIds`. */
+  generationRecordCount?: number;
   /** Which child continues the line through this node. null = no preference
    *  recorded (leaf, or story ends here on purpose). Must be a child's id. */
   activeChildId: string | null;
@@ -393,12 +399,10 @@ export function assertStoryNode(value: unknown): asserts value is StoryNode {
     }
   }
   if (node.generationRecordIds !== undefined) {
-    if (!Array.isArray(node.generationRecordIds) || node.generationRecordIds.length > MAX_GENERATION_RECORD_IDS) {
-      throw new Error("The server returned an invalid generation record id list.");
-    }
-    for (const value of node.generationRecordIds) {
-      if (typeof value !== "string") throw new Error("The server returned an invalid generation record id list.");
-    }
+    throw new Error("The server returned Generation Record ids in a story path.");
+  }
+  if (node.generationRecordCount !== undefined) {
+    requirePositiveInteger(node.generationRecordCount, "story path node", "generationRecordCount");
   }
 }
 

@@ -5,6 +5,7 @@ import type {
   GenerationRecordPromptBlockKind,
   ResolvedGenerationRecord
 } from "../../shared/generation-record.js";
+import { humanEditIsMeaningful } from "../../shared/human-edit.js";
 import type { PromptOperation, PromptRole } from "../../shared/prompt-plan.js";
 import type { NodeStub, StoryNode } from "../../shared/types.js";
 
@@ -150,7 +151,7 @@ export function humanEditWarning(node: StoryNode | NodeStub | undefined): string
   if (node === undefined) return null;
   const edited = "preview" in node
     ? node.editedByUser === true
-    : node.attribution != null && node.attribution.ranges.length > 0;
+    : humanEditIsMeaningful(node.attribution);
   if (!edited) return null;
   return "This take has been edited by hand since it was generated. "
     + "The request below describes the historical generation, not the current edited text.";

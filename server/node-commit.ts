@@ -27,7 +27,13 @@ export async function commitNode(
 
   return await stories.withLock(id, async () => {
     const story = await stories.loadForMutation(id);
-    if (mutationNodeId !== undefined && story.nodes.some((node) => node.id === mutationNodeId)) return story;
+    if (mutationNodeId !== undefined && story.nodes.some((node) => node.id === mutationNodeId)) {
+      // A retried commit for a mutationNodeId already saved: that earlier
+      // attempt already consumed and released this genId's handoff pin, but
+      // releasing again here is a harmless no-op, not a double release.
+      if (genId !== null) generationAdmission.releaseGenerationRecordHandoff(id, genId);
+      return story;
+    }
     if (body.sourceNodeId !== undefined) {
       await stories.hydratePath(story, body.sourceNodeId);
       createEditedTake(
@@ -78,6 +84,10 @@ export async function commitNode(
       ...(mutationNodeId === undefined ? {} : { nodeId: mutationNodeId })
     });
     if (!duplicate) await stories.save(story);
+    // Either the record just landed durably (the story's own generic sweep
+    // now keeps its revisions live) or this commit was a no-op duplicate —
+    // both ways, this genId's handoff pin has done its job.
+    if (genId !== null) generationAdmission.releaseGenerationRecordHandoff(id, genId);
     return story;
   });
 }

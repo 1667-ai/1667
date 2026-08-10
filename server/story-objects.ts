@@ -438,6 +438,34 @@ export class StoryObjectStore {
     return new Map(this.knownRevisions);
   }
 
+  /** Every generation record's source revision ids this instance has
+   * resolved so far — each one only ever set from a hash-verified parse
+   * (`storeGenerationRecord` or `readGenerationRecord`), never adopted. */
+  verifiedGenerationRecordGraph(): ReadonlyMap<ObjectHash, readonly ObjectHash[]> {
+    return new Map(this.knownGenerationRecordSourceRevisions);
+  }
+
+  /** Reuse generation record source-revision lookups a prior session already
+   * hash-verified, so a save with an unchanged manifest never reparses a
+   * record it already resolved. A record is immutable and content-addressed,
+   * so a hash's source revisions never change — but this only ever accepts a
+   * map assembled from `verifiedGenerationRecordGraph`, and only when the
+   * caller can assert `committed: true` (the record was live in the
+   * currently committed manifest), which is the same trust-by-induction rule
+   * `adoptKnownGraph` uses for revisions. Never call this with ids or lists
+   * sourced any other way. */
+  adoptKnownGenerationRecordGraph(
+    sourceRevisions: ReadonlyMap<ObjectHash, readonly ObjectHash[]>,
+    options: { committed?: boolean } = {}
+  ): void {
+    if (options.committed !== true) return;
+    for (const [hash, revisionIds] of sourceRevisions) {
+      requireHash(hash, "generation record id");
+      for (const revisionId of revisionIds) requireHash(revisionId, "revision id");
+      this.knownGenerationRecordSourceRevisions.set(hash, revisionIds);
+    }
+  }
+
   private async readRevision(hash: ObjectHash, cache: StoryReadCache): Promise<TextRevisionV1> {
     requireHash(hash, "revision id");
     const cached = cache.revisions.get(hash);

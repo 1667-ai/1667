@@ -2,6 +2,7 @@ import { activePath, computeRollups } from "../shared/story-tree.js";
 import type { NodeStub, Story, StoryPayload } from "../shared/types.js";
 import { MAX_AUTHORS_NOTE_CHARS, storedAuthorsNoteDepth } from "../shared/authors-note.js";
 import { MAX_AUTHOR_BRIEF_CHARS, storedAuthorBrief } from "../shared/author-brief.js";
+import { humanEditIsMeaningful } from "../shared/human-edit.js";
 import type { StoryAggregateVersion } from "../shared/story-aggregate-version.js";
 import { nodeStubPreview, nodeStubTokens, nodeStubWords } from "./story-node-text.js";
 import { boundedString } from "./story-wire-validation.js";
@@ -56,9 +57,7 @@ export function buildStoryPayload(
         ...(node.generationRecordIds === undefined || node.generationRecordIds.length === 0
           ? {}
           : { generationRecordCount: node.generationRecordIds.length }),
-        ...(node.attribution == null || node.attribution.ranges.length === 0
-          ? {}
-          : { editedByUser: true as const }),
+        ...(humanEditIsMeaningful(node.attribution) ? { editedByUser: true as const } : {}),
         hasInstruction: node.instruction.trim().length > 0,
         activeChildId: node.activeChildId
       };
@@ -76,15 +75,25 @@ export function buildStoryPayload(
     }),
     // Shallow copies keep handlers from mutating store state through the
     // response; structuredClone here cost ~29ms on 20k-part paths.
-    path: activePath(story).map((node) => ({
-      ...node,
-      ...(node.attribution == null ? {} : {
-        attribution: { ...node.attribution, ranges: node.attribution.ranges.map((range) => ({ ...range })) }
-      }),
-      ...(node.rewrittenSpans === undefined ? {} : {
-        rewrittenSpans: node.rewrittenSpans.map((range) => ({ ...range }))
-      })
-    })),
+    path: activePath(story).map((node) => {
+      // A path node is prose the reader already has; its Generation Record
+      // history is fetched on demand (see GenerationRecordSummary and
+      // loadGenerationRecordSummaries), so the ordered id list itself never
+      // needs to travel with the story — only a count, same as NodeStub.
+      const { generationRecordIds, ...rest } = node;
+      return {
+        ...rest,
+        ...(generationRecordIds === undefined || generationRecordIds.length === 0
+          ? {}
+          : { generationRecordCount: generationRecordIds.length }),
+        ...(node.attribution == null ? {} : {
+          attribution: { ...node.attribution, ranges: node.attribution.ranges.map((range) => ({ ...range })) }
+        }),
+        ...(node.rewrittenSpans === undefined ? {} : {
+          rewrittenSpans: node.rewrittenSpans.map((range) => ({ ...range }))
+        })
+      };
+    }),
     activeRootId: story.activeRootId,
     tags: story.tags.map((tag) => ({ ...tag })),
     recentNodeIds: [...story.recentNodeIds],

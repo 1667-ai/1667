@@ -210,4 +210,23 @@ describe("human edit warning", () => {
     expect(warning).not.toBe(null);
     expect(warning).toContain("edited by hand");
   });
+
+  test("present for a deletion-only edit — empty ranges, characters removed", () => {
+    const warning = humanEditWarning({
+      ...BASE_NODE,
+      attribution: { source: "human", ranges: [], deletedCharacters: 4 }
+    });
+    expect(warning).not.toBe(null);
+    expect(warning).toContain("edited by hand");
+  });
+
+  test("present for a node stub whose deletion-only edit was already reduced to editedByUser", () => {
+    const warning = humanEditWarning({
+      id: "n1", parentId: null, preview: "The cat sat.", words: 3, tokens: 4, childCount: 0, leafCount: 1,
+      lastTouched: BASE_NODE.createdAt, hasInstruction: false, activeChildId: null,
+      editedByUser: true
+    });
+    expect(warning).not.toBe(null);
+    expect(warning).toContain("edited by hand");
+  });
 });

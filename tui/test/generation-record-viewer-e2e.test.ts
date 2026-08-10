@@ -114,6 +114,13 @@ describe("generation record viewer: end-to-end dry-run generation", () => {
     expect(appended).not.toBe(null);
     const payload = appended!.payload;
     expect(payload.nodes.find((node) => node.id === leafId)?.generationRecordCount).toBe(2);
+    // The path carries the same take in full, but its Generation Record
+    // history still travels only as a count — the ordered id list stays off
+    // the wire, fetched on demand instead (server/stories.ts's
+    // loadGenerationRecordSummaries).
+    const pathLeaf = payload.path.find((node) => node.id === leafId);
+    expect(pathLeaf?.generationRecordCount).toBe(2);
+    expect((pathLeaf as { generationRecordIds?: unknown } | undefined)?.generationRecordIds).toBe(undefined);
 
     const settingsView = await api.getSettings();
     const source = appSource(api, settingsView);
