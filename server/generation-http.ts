@@ -597,7 +597,11 @@ export async function rewriteNode(
     leadingWhitespace: plan.leadingWhitespace,
     trailingWhitespace: plan.trailingWhitespace
   });
-  const rewriteEffect = (replacementText: string) => ({
+  // The splice fields alone, without a Generation Record — everything a
+  // reservation can size before a stream has run and a record can be
+  // captured. `rewriteEffect` below adds the record on top of this for the
+  // two callers (a stash, a commit) that need the actual effect.
+  const rewriteEffectBase = (replacementText: string) => ({
     kind: "rewrite" as const,
     nodeId: partId,
     expectedText: originalText,
@@ -614,12 +618,15 @@ export async function rewriteNode(
     rewrittenSpans: rewrittenSpansAfterReplacement(part.rewrittenSpans, start, end, replacementText.length),
     rewriteId,
     takeId,
-    destination,
+    destination
+  });
+  const rewriteEffect = (replacementText: string) => ({
+    ...rewriteEffectBase(replacementText),
     // Recomputed at every call: the collector's captured effective parameters
-    // fill in progressively as the stream (and any retry) runs, so a
-    // reservation sized before streaming starts and the eventual real commit
-    // must each read whatever the collector holds at that moment, not a
-    // value frozen when this closure was created.
+    // fill in progressively as the stream (and any retry) runs, so the
+    // eventual real commit and any earlier stash must each read whatever the
+    // collector holds at that moment, not a value frozen when this closure
+    // was created.
     generationRecord: finalizeRequiredGenerationRecord({
       kind: destination === "take" ? "rewrite-take" : "rewrite-in-place",
       createdAt: new Date().toISOString(),
@@ -652,7 +659,10 @@ export async function rewriteNode(
           streamedDigest: rewriteStreamDigest(""),
           // The complete original keeps every byte that can survive outside
           // the replacement. The provider limit below covers all new text.
-          effect: rewriteEffect(originalText.slice(start, end))
+          // No Generation Record exists yet — the reservation adds the
+          // codec's own worst case on top of this base (see
+          // maximumPartialRewriteRecordRetainedBytes).
+          effect: rewriteEffectBase(originalText.slice(start, end))
         }, providerOutputRetainedByteLimit(rewriteSettings))
       );
   const reasoning = reasoningCapture(rewriteSettings, onReasoning);
