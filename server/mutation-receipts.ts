@@ -62,6 +62,7 @@ import {
 } from "./mutation-ledger-types.js";
 import { isProviderMutationId } from "../shared/provider-recovery.js";
 import { mkdirDurable, requireDurableCommit, writeDurableAtomic } from "./story-lifecycle.js";
+import { readUnsealedFile } from "./vault-file-read.js";
 import { exactStringPattern } from "./story-wire-patterns.js";
 
 const LEGACY_MUTATION_ID_PATTERN = exactStringPattern("m1-([0-9a-z]+)-([0-9a-f]{32})");
@@ -331,7 +332,7 @@ export class MutationReceiptStore {
   private async load(mutationId: string): Promise<MutationReceipt | null> {
     validateMutationIdSyntax(mutationId);
     try {
-      const value: unknown = JSON.parse(await readFile(this.file(mutationId), "utf8"));
+      const value: unknown = JSON.parse((await readUnsealedFile(this.file(mutationId))).toString("utf8"));
       return parseMutationReceipt(value, mutationId);
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;

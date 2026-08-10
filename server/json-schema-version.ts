@@ -1,8 +1,10 @@
 import { constants, type BigIntStats } from "node:fs";
 import { open, type FileHandle } from "node:fs/promises";
 import { noFollowFlag } from "./data-directory-file-read.js";
+import { readBoundedFile } from "./bounded-file.js";
 import { StoryFormatError } from "./story-format-facts.js";
 import { SchemaVersionNumberScanner } from "./schema-version-number.js";
+import { hasVaultKeyForPath } from "./vault-key-registry.js";
 
 const READ_CHUNK_BYTES = 64 * 1024;
 const MAX_SCHEMA_KEY_BYTES = "schemaVersion".length * 6;
@@ -22,6 +24,12 @@ export async function readOversizeLegacyManifestBytes(
   file: string,
   label: string
 ): Promise<Buffer | null> {
+  // Ciphertext has a fixed prefix and cannot be classified by the streaming
+  // JSON scanner. The bounded reader restores its plaintext size contract.
+  if (hasVaultKeyForPath(file)) {
+    const plaintext = await readBoundedFile(file, MAX_LEGACY_STORY_MANIFEST_BYTES, label);
+    return hasLegacyTopLevelSchemaVersion(plaintext) ? plaintext : null;
+  }
   let handle: FileHandle | undefined;
   try {
     handle = await open(file, constants.O_RDONLY | noFollowFlag());

@@ -50,6 +50,7 @@ import {
 import { localStartupFailure } from "./local-startup-failure.js";
 import { failureMessageFields } from "../shared/failure-envelope.js";
 import { toPublicServiceError } from "./service-error-policy.js";
+import { refuseSealedVaultForHttp } from "./vault-access-policy.js";
 
 interface IpcProcess extends NodeJS.Process {
   send?: (message: ChildToSupervisorMessage) => boolean;
@@ -57,8 +58,14 @@ interface IpcProcess extends NodeJS.Process {
 
 const ipc = process as IpcProcess;
 
+export interface SupervisedServeChildDependencies {
+  /** @internal Deterministic test seam before the retained vault check. */
+  readonly beforeLockedVaultCheck?: (authorityPath: string) => Promise<void>;
+}
+
 export async function runSupervisedServeChild(
-  argv: readonly string[]
+  argv: readonly string[],
+  dependencies: SupervisedServeChildDependencies = {}
 ): Promise<void> {
   if (ipc.send === undefined) {
     throw new PublicRuntimeError(
@@ -115,7 +122,8 @@ export async function runSupervisedServeChild(
       argv,
       machineDir,
       errorReporterLease,
-      project
+      project,
+      dependencies
     );
   } catch (error) {
     const reported = await errorReporter.report(localStartupFailure(error), {
@@ -165,11 +173,13 @@ async function runSupervisedServeChildCore(
   argv: readonly string[],
   machineDir: string,
   errorReporterLease: InternalErrorReporterLease,
-  project: ResolvedProject
+  project: ResolvedProject,
+  dependencies: SupervisedServeChildDependencies
 ): Promise<void> {
   const dataDir = project.exists
     ? project.directory
     : await createProjectTier(project.directory);
+  await refuseSealedVaultForHttp(dataDir, "serve");
   const port = Number(valueAfter(argv, "--port"));
   const secretFd = Number(valueAfter(argv, "--secret-fd"));
   if (!Number.isSafeInteger(port) || port < 0 || port > 65_535) {
@@ -223,7 +233,13 @@ async function runSupervisedServeChildCore(
           listenerProject.dataDir
         );
         dataLock = acquiredDataLock;
-        displayDataDir = await acquiredDataLock.acquire();
+        displayDataDir = await acquiredDataLock.acquire({
+          beforeMigration: async () => {
+            const authorityPath = acquiredDataLock.authorityPath;
+            await dependencies.beforeLockedVaultCheck?.(authorityPath);
+            await refuseSealedVaultForHttp(authorityPath, "serve");
+          }
+        });
         const lockedDataDir = acquiredDataLock.authorityPath;
         await installRequestedSecrets(
           await credentialNames(lockedDataDir),

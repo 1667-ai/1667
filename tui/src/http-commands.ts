@@ -27,6 +27,7 @@ import {
 } from "../../server/service-error-policy.js";
 import type { HttpCapabilityScope } from "../../shared/http-auth.js";
 import { attachHttpServer } from "./http-attach.js";
+import { refuseSealedVaultForHttp } from "../../server/vault-access-policy.js";
 
 export async function runHttpCommand(argv: string[]): Promise<boolean> {
   if (argv[0] === "auth") {
@@ -98,10 +99,13 @@ export async function startLegacyServe(
   options: {
     readonly port?: number;
     readonly printLogs?: boolean;
+    /** @internal Deterministic test seam before the retained vault check. */
+    readonly beforeLockedVaultCheck?: (authorityPath: string) => Promise<void>;
   } = {}
 ): Promise<HttpListener> {
   assertLegacyDataDirectoryPlatform();
   const dataDir = resolve(dataDirInput);
+  await refuseSealedVaultForHttp(dataDir, "legacy HTTP serve");
   const machineTierContext = {
     service: "http-server-startup",
     operation: "machine-tier-resolution"
@@ -137,9 +141,22 @@ export async function startLegacyServe(
     machineDir,
     project: { root: dataDir, dataDir },
     serviceFactory: async (errorReporter, machineDir, project) => {
+      let legacyValidationCount = 0;
       const legacyDataLease = await acquireLegacyDataDirectoryLease(
         project.dataDir,
-        machineDir
+        machineDir,
+        {
+          validateAuthority: async (authorityPath) => {
+            // The lease calls this once before its layout validation and once
+            // after every data lock is retained. Only the second callback is
+            // useful to a race test.
+            if (legacyValidationCount > 0) {
+              await options.beforeLockedVaultCheck?.(authorityPath);
+            }
+            legacyValidationCount += 1;
+            await refuseSealedVaultForHttp(authorityPath, "legacy HTTP serve");
+          }
+        }
       );
       try {
         return new StoryService({

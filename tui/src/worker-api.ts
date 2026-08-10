@@ -9,6 +9,10 @@ import { WorkerTransport } from "./worker-transport.js";
 import type { WorkerStoryApi, WorkerStoryApiOptions } from "./worker-api-contract.js";
 import { reportEmbeddedWorkerHostFailure } from "./worker-host-diagnostics.js";
 import { BackendRestartRequiredError } from "./worker-error.js";
+import {
+  registerVaultKey,
+  type VaultKeyRegistration
+} from "../../server/vault-key-registry.js";
 
 export { WorkerExitUnconfirmedError } from "./worker-data-lock.js";
 export {
@@ -25,6 +29,12 @@ export type {
 } from "./worker-api-contract.js";
 
 export async function createWorkerStoryApi(options: WorkerStoryApiOptions = {}): Promise<WorkerStoryApi> {
+  const vault = { registration: null as VaultKeyRegistration | null };
+  const clearVaultRegistration = (): void => {
+    const registration = vault.registration;
+    vault.registration = null;
+    registration?.clear();
+  };
   if (options.worker === undefined && options.machineDir === undefined) {
     // Resolving here, not in the worker, is what turns "this platform has no
     // private state root yet" into one line on stderr instead of a dead backend.
@@ -43,15 +53,23 @@ export async function createWorkerStoryApi(options: WorkerStoryApiOptions = {}):
   const dataLock = options.worker === undefined
     ? new RuntimeDataDirectoryLock(resolveDataDirectory(options.dataDir))
     : null;
-  if (dataLock !== null) await dataLock.acquire();
-  const lockedDataDir = dataLock?.authorityPath ?? null;
-  const transportOptions = dataLock === null
-    ? options
-    : {
-        ...options,
-        dataDir: dataLock.authorityPath,
-        freshDataDirectory: dataLock.initializedNewDirectory
-      };
+  if (dataLock !== null) {
+    try {
+      await dataLock.acquire({
+        beforeMigration: async (lockedDataDirectory) => {
+          await options.beforeVaultMigration?.(lockedDataDirectory);
+          if (options.vaultKey !== undefined) {
+            vault.registration = registerVaultKey(lockedDataDirectory, options.vaultKey);
+          }
+        }
+      });
+    } catch (error) {
+      clearVaultRegistration();
+      throw error;
+    }
+  }
+  let lockedDataDir: string | null = null;
+  let transportOptions: WorkerStoryApiOptions = options;
   let transport: WorkerTransport;
   let failureReport: Promise<Error> | null = null;
   const reportFailure = (error: Error): Promise<Error> => {
@@ -67,6 +85,18 @@ export async function createWorkerStoryApi(options: WorkerStoryApiOptions = {}):
     return failureReport;
   };
   try {
+    lockedDataDir = dataLock?.authorityPath ?? null;
+    if (lockedDataDir !== null) vault.registration?.addAlias(lockedDataDir);
+    if (dataLock === null) {
+      transportOptions = options;
+    } else {
+      if (lockedDataDir === null) throw new Error("Data-directory authority is unavailable after acquisition");
+      transportOptions = {
+        ...options,
+        dataDir: lockedDataDir,
+        freshDataDirectory: dataLock.initializedNewDirectory
+      };
+    }
     const outbox = options.outbox ?? (lockedDataDir === null
       ? null
       : new MutationOutbox(path.join(lockedDataDir, "mutation-outbox")));
@@ -74,8 +104,18 @@ export async function createWorkerStoryApi(options: WorkerStoryApiOptions = {}):
     transport = new WorkerTransport(transportOptions, outbox);
     await transport.start();
   } catch (error) {
-    await releaseOrRetainDataLock(dataLock, error);
-    throw error instanceof Error ? await reportFailure(error) : error;
+    let terminal: unknown = error;
+    try {
+      if (error instanceof Error) terminal = await reportFailure(error);
+    } catch (reportError) {
+      terminal = reportError;
+    }
+    try {
+      await releaseOrRetainDataLock(dataLock, terminal);
+    } finally {
+      clearVaultRegistration();
+    }
+    throw terminal;
   }
   const api = storyApiFromWorkerTransport(transport);
   const failure = transport.failure.then(reportFailure);
@@ -85,13 +125,24 @@ export async function createWorkerStoryApi(options: WorkerStoryApiOptions = {}):
       try {
         await transport.dispose();
       } catch (error) {
-        const reported = error instanceof Error
-          ? await reportFailure(error)
-          : error;
-        await releaseOrRetainDataLock(dataLock, reported);
-        throw reported;
+        let terminal: unknown = error;
+        try {
+          if (error instanceof Error) terminal = await reportFailure(error);
+        } catch (reportError) {
+          terminal = reportError;
+        }
+        try {
+          await releaseOrRetainDataLock(dataLock, terminal);
+        } finally {
+          clearVaultRegistration();
+        }
+        throw terminal;
       }
-      await dataLock?.release();
+      try {
+        await dataLock?.release();
+      } finally {
+        clearVaultRegistration();
+      }
     })();
     return disposal;
   };

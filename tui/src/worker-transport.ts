@@ -109,6 +109,7 @@ export class WorkerTransport {
         dataDir: resolveDataDirectory(options.dataDir),
         externalDataLock: true,
         ...(options.machineDir === undefined ? {} : { machineDir: options.machineDir }),
+        ...(options.vaultKey === undefined ? {} : { vaultKey: options.vaultKey }),
         ...(options.printLogs === true ? { printLogs: true } as const : {}),
         ...(options.freshDataDirectory === true ? { freshDataDirectory: true } as const : {})
       });

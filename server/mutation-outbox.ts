@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { exactStringPattern } from "./story-wire-patterns.js";
@@ -31,6 +31,7 @@ import {
   unlinkDurable,
   writeDurableAtomic
 } from "./story-lifecycle.js";
+import { readUnsealedFile } from "./vault-file-read.js";
 
 const LEGACY_MUTATION_ID_PATTERN = exactStringPattern("m1-[0-9a-z]+-[0-9a-f]{32}");
 const CANCELLATION_MARKER_SUFFIX = ".cancelled.json";
@@ -170,7 +171,7 @@ export class MutationOutbox {
     let intent: MutationOutboxRecord;
     try {
       intent = parseRecord(
-        JSON.parse(await readFile(this.file(mutationId), "utf8")) as unknown,
+        JSON.parse((await readUnsealedFile(this.file(mutationId))).toString("utf8")) as unknown,
         mutationId
       );
     } catch (error) {
@@ -195,7 +196,7 @@ export class MutationOutbox {
   ): Promise<ArchivedMutationOutboxRecord> {
     validateMutationId(mutationId);
     const intent = parseRecord(
-      JSON.parse(await readFile(this.file(mutationId), "utf8")) as unknown,
+      JSON.parse((await readUnsealedFile(this.file(mutationId))).toString("utf8")) as unknown,
       mutationId
     );
     const archiveDir = this.archiveDir();
@@ -235,7 +236,7 @@ export class MutationOutbox {
     for (const name of names) {
       const mutationId = name.slice(0, -5);
       validateMutationId(mutationId);
-      const value: unknown = JSON.parse(await readFile(path.join(this.dir, name), "utf8"));
+      const value: unknown = JSON.parse((await readUnsealedFile(path.join(this.dir, name))).toString("utf8"));
       records.push(parseRecord(value, mutationId));
     }
     const seenSequences = new Set<number>();
@@ -261,7 +262,7 @@ export class MutationOutbox {
       const mutationId = name.slice(0, -CANCELLATION_MARKER_SUFFIX.length);
       validateMutationId(mutationId);
       const value: unknown = JSON.parse(
-        await readFile(path.join(this.dir, name), "utf8")
+        (await readUnsealedFile(path.join(this.dir, name))).toString("utf8")
       );
       return parseCancellationMarker(value, mutationId).mutationId;
     }));
@@ -282,7 +283,7 @@ export class MutationOutbox {
     for (const name of names) {
       const mutationId = name.slice(0, -5);
       validateMutationId(mutationId);
-      const value: unknown = JSON.parse(await readFile(path.join(this.archiveDir(), name), "utf8"));
+      const value: unknown = JSON.parse((await readUnsealedFile(path.join(this.archiveDir(), name))).toString("utf8"));
       records.push(parseArchivedMutationOutboxRecord(
         value,
         mutationId,
@@ -345,10 +346,9 @@ export class MutationOutbox {
   ): Promise<ArchivedMutationOutboxRecord | null> {
     try {
       const value: unknown = JSON.parse(
-        await readFile(
+        (await readUnsealedFile(
           path.join(this.archiveDir(), `${mutationId}.json`),
-          "utf8"
-        )
+        )).toString("utf8")
       );
       return parseArchivedMutationOutboxRecord(
         value,

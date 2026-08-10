@@ -7,9 +7,9 @@ import {
   writeExportFile,
   writeStoryExport
 } from "./export-file.js";
-import { createWorkerStoryApi } from "./worker-api.js";
 import { fidelityReport } from "../../shared/fidelity.js";
 import { inlineValue, resolveExistingProject, separatedValue } from "./project-command.js";
+import { openProjectBackend } from "./vault-project-backend.js";
 
 export type ExportFormat = "markdown" | NovelAiExportFormat;
 
@@ -20,6 +20,7 @@ export interface ExportCommand {
   readonly force: boolean;
   readonly data: string | null;
   readonly global: boolean;
+  readonly passphraseFile: string | null;
 }
 
 export function parseExportCommand(argv: readonly string[]): ExportCommand {
@@ -29,18 +30,24 @@ export function parseExportCommand(argv: readonly string[]): ExportCommand {
   let force = false;
   let data: string | null = null;
   let global = false;
+  let passphraseFile: string | null = null;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
     if (argument === "--force") force = true;
     else if (argument === "--all") all = true;
     else if (argument === "--global") global = true;
+    else if (argument.startsWith("--passphrase-file=")) {
+      passphraseFile = inlineValue(argument, "--passphrase-file");
+    }
     else if (argument.startsWith("--story=")) storyId = inlineValue(argument, "--story");
     else if (argument.startsWith("--data=")) data = inlineValue(argument, "--data");
     else if (argument.startsWith("--format=")) format = archiveFormat(inlineValue(argument, "--format"));
-    else if (argument === "--story" || argument === "--data" || argument === "--format") {
+    else if (argument === "--story" || argument === "--data" || argument === "--format"
+      || argument === "--passphrase-file") {
       const value = separatedValue(argv, ++index, argument);
       if (argument === "--story") storyId = value;
       else if (argument === "--data") data = value;
+      else if (argument === "--passphrase-file") passphraseFile = value;
       else format = archiveFormat(value);
     } else throw new Error(`unknown export option: ${argument}`);
   }
@@ -50,7 +57,7 @@ export function parseExportCommand(argv: readonly string[]): ExportCommand {
   if (all && storyId !== null) {
     throw new Error("--story and --all select different stories");
   }
-  return { storyId, all, format, force, data, global };
+  return { storyId, all, format, force, data, global, passphraseFile };
 }
 
 /**
@@ -65,7 +72,7 @@ export async function runStoryExport(
 ): Promise<void> {
   const command = parseExportCommand(argv);
   const project = await resolveExistingProject(command, "export");
-  const backend = await createWorkerStoryApi({ dataDir: project.directory });
+  const backend = await openProjectBackend(project, command.passphraseFile);
   try {
     const stories = [...await backend.api.listStories()].sort(
       (left, right) => compareStoriesForExport(left, right)

@@ -374,12 +374,14 @@ test("CLI parseImportCommand parses files and flags correctly", () => {
   assert.deepEqual(parseImportCommand(["file1.md", "file2.jsonl"]), {
     files: ["file1.md", "file2.jsonl"],
     data: null,
-    global: false
+    global: false,
+    passphraseFile: null
   });
   assert.deepEqual(parseImportCommand(["--data", "myproject", "story.md"]), {
     files: ["story.md"],
     data: "myproject",
-    global: false
+    global: false,
+    passphraseFile: null
   });
   assert.throws(
     () => parseImportCommand([]),

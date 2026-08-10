@@ -119,7 +119,9 @@ export async function readDataDirectoryFormatSource(
   }
   const dataFormat = parseDataDirectoryOwnerMarkerBytes(ownerBytes, ownerMarker).dataFormat;
   requireSupportedDataDirectoryFormat(dataFormat, options.supportedFormats);
-  if (dataFormat >= 2) await validateSettingsStateV2(dataDir);
+  // Format 5 seals settings state. The owner marker is deliberately plaintext
+  // so callers can identify a locked vault before they have its Vault Key.
+  if (dataFormat >= 2 && dataFormat !== 5) await validateSettingsStateV2(dataDir);
   return { dataFormat, source: "owner-marker" };
 }
 
@@ -131,7 +133,7 @@ export async function discardOwnerMarkerNextResidue(dataDir: string): Promise<vo
   const nextPath = path.join(dataDir, DATA_DIRECTORY_OWNER_MARKER_NEXT);
   await inspectTypedPrivatePublicationResidue(
     nextPath,
-    ([1, 2, 3, 4] as const).map((dataFormat) =>
+    ([1, 2, 3, 4, 5] as const).map((dataFormat) =>
       Buffer.from(dataDirectoryOwnerMarkerText(dataFormat), "utf8")),
     OWNER_MARKER_POLICY,
     (detail, cause) => invalidMarkerError(nextPath, detail, cause)
@@ -179,8 +181,8 @@ export function parseDataDirectoryOwnerMarkerBytes(
     literal(marker.product, "1667", "data-directory owner marker.product");
     literal(marker.markerSchema, 1, "data-directory owner marker.markerSchema");
     literal(marker.lockProtocol, 1, "data-directory owner marker.lockProtocol");
-    if (marker.dataFormat !== 1 && marker.dataFormat !== 2 && marker.dataFormat !== 3 && marker.dataFormat !== 4) {
-      throw new Error("data-directory owner marker.dataFormat must be 1, 2, 3, or 4");
+    if (marker.dataFormat !== 1 && marker.dataFormat !== 2 && marker.dataFormat !== 3 && marker.dataFormat !== 4 && marker.dataFormat !== 5) {
+      throw new Error("data-directory owner marker.dataFormat must be 1, 2, 3, 4, or 5");
     }
     assertNfcJsonStrings(value, "data-directory owner marker");
     if (canonicalJson(value) !== text) {

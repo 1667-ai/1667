@@ -1,5 +1,5 @@
 import type { Dirent, Stats } from "node:fs";
-import { lstat, readFile, readdir } from "node:fs/promises";
+import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
 import type { Story } from "../shared/types.js";
 import { FileSizeLimitError, readBoundedFile } from "./bounded-file.js";
@@ -13,6 +13,7 @@ import {
 import { readOversizeLegacyManifestBytes } from "./json-schema-version.js";
 import { MAX_STORY_MANIFEST_BYTES } from "./story-v5-strict.js";
 import { parseStoryManifestBytes } from "./story-v6-codec.js";
+import { readUnsealedFile } from "./vault-file-read.js";
 import type { DeletedStoryManifestV6, LiveStoryManifestV6 } from "./story-v6-types.js";
 import {
   classifyStoryEntry,
@@ -68,7 +69,7 @@ export function storyMetadataFromSlot(
 
 export async function readOptionalStoryFile(file: string): Promise<Buffer | null> {
   try {
-    return await readFile(file);
+    return await readUnsealedFile(file);
   } catch (error) {
     if (isErrorCode(error, "ENOENT") || isErrorCode(error, "ENAMETOOLONG")) return null;
     throw error;
@@ -131,7 +132,7 @@ export async function readStoredStorySlot(root: string, storyId: string): Promis
   const legacyInfo = await lstatOptionalConstructedPath(legacyPath);
   if (legacyInfo === null) return { kind: "absent" };
   if (!legacyInfo.isFile()) throw new StoryFormatError(`Legacy story path is not a regular file: ${storyId}`);
-  const raw = await readFile(legacyPath);
+  const raw = await readUnsealedFile(legacyPath);
   return { kind: "legacy", story: parseLegacyStory(raw.toString("utf8"), storyId), raw };
 }
 

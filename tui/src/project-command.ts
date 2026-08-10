@@ -13,7 +13,7 @@ export interface ProjectSelection {
   readonly global: boolean;
 }
 
-export type ExistingProjectOperation = "import" | "export";
+export type ExistingProjectOperation = "import" | "export" | "encrypt" | "decrypt";
 
 export interface ExistingProjectRequirement {
   /** Text after "so there is" for an absent or uninitialized project. */
@@ -29,9 +29,18 @@ export async function resolveExistingProject(
 ): Promise<ResolvedProject> {
   const outcome = await resolveProject(projectRequest(selection));
   return requireExistingProject(outcome, {
-    unavailable: operation === "import" ? "nowhere to import" : "nothing to export",
+    unavailable: unavailableProjectOperationText(operation),
     displayPath: plain
   });
+}
+
+function unavailableProjectOperationText(operation: ExistingProjectOperation): string {
+  switch (operation) {
+    case "import": return "nowhere to import";
+    case "export": return "nothing to export";
+    case "encrypt": return "nothing to encrypt";
+    case "decrypt": return "nothing to decrypt";
+  }
 }
 
 /** Reject absent and uninitialized projects without creating either one. */

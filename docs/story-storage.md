@@ -47,6 +47,59 @@ HTTP server mode requires the machine tier outside the project.
 The project `.gitignore` excludes machine-local provider secret files. It also
 excludes `lock` and `run.json`.
 
+## Vault encryption
+
+Use `1667 encrypt` to seal the project files of a stopped vault:
+
+```sh
+1667 encrypt
+```
+
+1667 asks for the Vault Password two times. A non-interactive command must use
+`--passphrase-file <path>`. The passphrase file must be outside `.1667/`.
+
+Use `1667 decrypt` to unseal the project files:
+
+```sh
+1667 decrypt
+```
+
+A start in a sealed vault asks for the Vault Password. The prompt permits three
+attempts. The `export`, `import`, `import-card`, `import-lorebook`, and `profile`
+commands accept `--passphrase-file <path>`. The `serve` command does not open a
+sealed vault.
+
+Keep the Vault Password in a safe location. 1667 cannot recover a lost Vault
+Password. An interrupted operation stays safe. Run the same `encrypt` or
+`decrypt` command again to complete the operation.
+
+Vault encryption protects new project file contents on disk. It does not remove
+plaintext from old backups, snapshots, sync history, or freed disk blocks. It
+does not protect process memory or operating system swap. Generation sends the
+required story content to the selected provider. An export writes plaintext to
+the working tier.
+
+File names and directory names stay plaintext. They show story identifiers,
+object counts, object sizes, and writing activity. Object file names also show
+content hashes.
+
+These control files stay plaintext:
+
+- `lock`
+- `data-id` and its scratch file
+- `owner.json` and its publication files
+- `run.json`
+- `.gitignore`
+- `vault.json`
+- `.1667-vault-unseal-progress/` during an unseal operation
+- `stories/<id>/.1667-cleanup-needed`
+
+The unseal progress directory contains one record for each file that 1667
+unsealed. 1667 removes the directory after it publishes the format-4 marker.
+
+Provider secrets stay in the machine tier. Vault encryption does not change the
+machine tier.
+
 ## Story objects
 
 1667 stores story prose in the project tier as text revisions and chunks. A

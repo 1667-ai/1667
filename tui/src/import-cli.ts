@@ -2,24 +2,33 @@ import path from "node:path";
 import { inlineValue, resolveExistingProject, separatedValue } from "./project-command.js";
 import { readImportBytes } from "../../server/import-file.js";
 import { terminalLineText as plain } from "../../shared/terminal-text.js";
-import { createWorkerStoryApi } from "./worker-api.js";
+import { openProjectBackend } from "./vault-project-backend.js";
 import { fidelityReport } from "../../shared/fidelity.js";
 
 export interface ImportCommand {
   readonly files: readonly string[];
   readonly data: string | null;
   readonly global: boolean;
+  readonly passphraseFile: string | null;
 }
 
 export function parseImportCommand(argv: readonly string[]): ImportCommand {
   const files: string[] = [];
   let data: string | null = null;
   let global = false;
+  let passphraseFile: string | null = null;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
     if (argument === "--global") global = true;
+    else if (argument.startsWith("--passphrase-file=")) {
+      passphraseFile = inlineValue(argument, "--passphrase-file");
+    }
     else if (argument.startsWith("--data=")) data = inlineValue(argument, "--data");
-    else if (argument === "--data") data = separatedValue(argv, ++index, argument); else if (argument.startsWith("-")) {
+    else if (argument === "--data" || argument === "--passphrase-file") {
+      const value = separatedValue(argv, ++index, argument);
+      if (argument === "--data") data = value;
+      else passphraseFile = value;
+    } else if (argument.startsWith("-")) {
       throw new Error(`unknown import option: ${plain(argument)}`);
     } else {
       files.push(argument);
@@ -36,8 +45,7 @@ export function parseImportCommand(argv: readonly string[]): ImportCommand {
       throw new Error("1667 import creates stories, not Lorebooks (.lorebook); use 1667 import-lorebook");
     }
   }
-  return { files, data, global };
-
+  return { files, data, global, passphraseFile };
 }
 
 
@@ -48,7 +56,7 @@ export async function runStoryImport(
 ): Promise<void> {
   const command = parseImportCommand(argv);
   const project = await resolveExistingProject(command, "import");
-  const backend = await createWorkerStoryApi({ dataDir: project.directory });
+  const backend = await openProjectBackend(project, command.passphraseFile);
   let failed = false;
   try {
     for (const file of command.files) {

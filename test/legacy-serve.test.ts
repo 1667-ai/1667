@@ -21,6 +21,7 @@ import {
 } from "../shared/http-listener-authority.js";
 import { startHttpListener } from "../server/http-listener.js";
 import { startLegacyServe } from "../tui/src/http-commands.js";
+import { publishDataDirectoryOwnerMarker } from "../server/data-directory-format.js";
 import {
   acquireLegacyDataDirectoryLease
 } from "../server/legacy-data-directory.js";
@@ -94,6 +95,31 @@ test("legacy serve refuses a platform without retained-directory authority", {
     /requires Linux retained-directory authority/
   );
   await assert.rejects(access(stateRoot), /ENOENT/);
+});
+
+test("legacy serve refuses a sealed vault before it opens HTTP state", async (t) => {
+  const dataDir = await privateTemporaryDirectory(t, "1667-legacy-sealed-");
+  await publishDataDirectoryOwnerMarker(dataDir, 5);
+  await assert.rejects(startLegacyServe(dataDir), /cannot open a sealed vault/);
+});
+
+test("legacy serve rechecks the sealed-vault fence through its retained authority", {
+  skip: process.platform !== "linux"
+}, async (t) => {
+  const dataDir = await legacyDataDirectory(t);
+  let lockedAuthority: string | null = null;
+
+  await assert.rejects(
+    startLegacyServe(dataDir, {
+      beforeLockedVaultCheck: async (authorityPath) => {
+        lockedAuthority = authorityPath;
+        await publishDataDirectoryOwnerMarker(authorityPath, 5);
+      }
+    }),
+    /legacy HTTP serve cannot open a sealed vault/
+  );
+
+  assert.match(lockedAuthority ?? "", /^\/proc\/self\/fd\/\d+$/);
 });
 
 test("legacy serve binds a free port and opens unmarked v1 data", {

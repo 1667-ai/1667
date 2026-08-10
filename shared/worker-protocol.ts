@@ -458,6 +458,8 @@ export type MainToWorkerMessage =
        * worker. Absent only for a directly-posted bootstrap in tests.
        */
       machineDir?: string;
+      /** The in-process Vault Key. It never crosses a network boundary. */
+      vaultKey?: Uint8Array;
       /** Echo unexpected embedded errors to stderr as well as the private log. */
       printLogs?: true;
       /** Main created this directory during startup, so the worker fills it

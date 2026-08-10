@@ -199,7 +199,7 @@ test("malformed typed marker residue is preserved for diagnosis", async (t) => {
     const nextPath = path.join(dataDir, DATA_DIRECTORY_OWNER_MARKER_NEXT);
     const malformed = dataDirectoryOwnerMarkerText(2).replace(
       '"dataFormat":2',
-      '"dataFormat":5'
+      '"dataFormat":6'
     );
     await writeFile(nextPath, malformed, { mode: 0o600 });
 

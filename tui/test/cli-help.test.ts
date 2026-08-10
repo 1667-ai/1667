@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import {
   AUTH_HELP,
+  DECRYPT_HELP,
+  ENCRYPT_HELP,
   EXPORT_HELP,
   HELP,
   INIT_HELP,
@@ -27,7 +29,7 @@ test("the front page fits a short terminal and keeps usage above the fold", () =
 });
 
 test("the front page names every command that has its own page", () => {
-  for (const command of ["init", "auth", "export", "import", "import-card", "import-lorebook"]) {
+  for (const command of ["init", "encrypt", "decrypt", "auth", "export", "import", "import-card", "import-lorebook"]) {
     expect(`${command}:${HELP.includes(command)}`).toBe(`${command}:true`);
     expect(commandHelp(command)).not.toBe(null);
   }
@@ -50,6 +52,8 @@ test("the front page keeps every root option that the root parser accepts", () =
 test("each command page opens with its own usage line", () => {
   const pages: ReadonlyArray<readonly [string, string]> = [
     ["1667 init", INIT_HELP],
+    ["1667 encrypt", ENCRYPT_HELP],
+    ["1667 decrypt", DECRYPT_HELP],
     ["1667 auth", AUTH_HELP],
     ["1667 export", EXPORT_HELP],
     ["1667 import", IMPORT_HELP],
@@ -86,7 +90,7 @@ test("the front page does not send the reader to a page that does not exist", ()
   // sends a confused reader into an unknown-option error. `serve` and `upgrade`
   // answer it themselves, so they are excluded here and covered by their own
   // commands.
-  for (const command of ["init", "export", "import", "import-card", "import-lorebook", "auth"]) {
+  for (const command of ["init", "encrypt", "decrypt", "export", "import", "import-card", "import-lorebook", "auth"]) {
     expect(`${command}:${commandHelp(command) !== null}`).toBe(`${command}:true`);
   }
 });

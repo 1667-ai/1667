@@ -108,6 +108,23 @@ test("a format-3 reader refuses a format-4 directory before opening its state", 
   assert.equal(await readFile(markerPath, "utf8"), marker);
 });
 
+test("a format-4 reader refuses a sealed format-5 directory at the marker", async (t) => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "1667-format-5-compat-"));
+  t.after(async () => {
+    await rm(dataDir, { recursive: true, force: true });
+  });
+  const markerPath = path.join(dataDir, DATA_DIRECTORY_OWNER_MARKER);
+  const marker = dataDirectoryOwnerMarkerText(5);
+  await writeFile(markerPath, marker, { mode: 0o600 });
+
+  await assert.rejects(
+    readDataDirectoryFormat(dataDir, { supportedFormats: [1, 2, 3, 4] }),
+    (error: unknown) => error instanceof ServiceError
+      && error.code === "data_directory_version_unsupported"
+  );
+  assert.equal(await readFile(markerPath, "utf8"), marker);
+});
+
 test("opening a format-2 project upgrades it to the fence its writes need", async (t) => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), "1667-format-3-upgrade-"));
   t.after(async () => {

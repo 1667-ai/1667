@@ -1,6 +1,7 @@
 import { mkdir, open, readdir, rename, rm, stat, unlink, type FileHandle } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
+import { sealVaultFileForPath } from "./vault-key-registry.js";
 import { isStoryId, STORY_ID_PATTERN_SOURCE } from "./story-v5-strict.js";
 import { exactStringPattern } from "./story-wire-patterns.js";
 
@@ -108,6 +109,16 @@ export async function writeSyncedFile(
   flag: string = "w",
   mode: number = 0o666
 ): Promise<void> {
+  const storedData = sealVaultFileForPath(file, data);
+  await writeSyncedStoredFile(file, storedData, flag, mode);
+}
+
+async function writeSyncedStoredFile(
+  file: string,
+  data: string | Uint8Array,
+  flag: string = "w",
+  mode: number = 0o666
+): Promise<void> {
   const handle = await open(file, flag, mode);
   try {
     await handle.writeFile(data);
@@ -128,8 +139,9 @@ export async function writeDurableFile(
 
 export async function writeDurableAtomic(file: string, data: string | Uint8Array): Promise<CommitResult> {
   const temporary = `${file}.${randomUUID()}.tmp`;
+  const storedData = sealVaultFileForPath(file, data);
   try {
-    await writeSyncedFile(temporary, data, "wx");
+    await writeSyncedStoredFile(temporary, storedData, "wx");
     await rename(temporary, file);
     return await commitBarrier(path.basename(file), path.dirname(file));
   } finally {
