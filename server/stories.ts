@@ -56,6 +56,7 @@ import {
   switchLine as switchTreeLine
 } from "./story-nodes.js";
 import { StoryObjectStore, type LiveStoryObjectIds, type ObjectKind } from "./story-objects.js";
+import { BoundedLruMap } from "./bounded-lru-map.js";
 import { KeyedSerialQueue } from "./keyed-serial-queue.js";
 import {
   BoundedCleanupQueue,
@@ -95,6 +96,11 @@ import { chapterBreakUndoGenerationRecordIds } from "./chapter-break-undo-livene
 
 export const STORY_LIST_IO_CONCURRENCY = 4;
 export const STORY_UNCHANGED = Symbol("story-unchanged");
+/** Save/session optimization only: an evicted story simply re-verifies its
+ * Generation Record source-revision graph from disk on its next save. Sized
+ * like this codebase's other per-process session bounds (see
+ * shared/http-operation-protocol.ts's HTTP_OPERATION_SESSION_CAPACITY). */
+export const GENERATION_RECORD_GRAPH_CACHE_CAPACITY = 64;
 
 type ResolvedStory = Extract<StoredStorySlot, { kind: "legacy" | "v5" | "v6-live" }>;
 type SweepObjects = (bundleDir: string, live: LiveStoryObjectIds, signal: AbortSignal) => Promise<boolean>;
@@ -123,12 +129,14 @@ export class StoryStore {
   constructor(
     private readonly dir: string,
     private readonly sweep: SweepObjects = sweepObjects,
-    private readonly writeManifest: WriteManifest = writeDurableAtomic
+    private readonly writeManifest: WriteManifest = writeDurableAtomic,
+    generationRecordGraphCacheCapacity: number = GENERATION_RECORD_GRAPH_CACHE_CAPACITY
   ) {
     this.cleanupQueue = new BoundedCleanupQueue(
       STORY_CLEANUP_IO_CONCURRENCY,
       (storyId, signal) => this.runCleanup(storyId, signal)
     );
+    this.generationRecordGraphs = new BoundedLruMap(generationRecordGraphCacheCapacity);
   }
 
   private readonly snapshots = new WeakMap<Story, StoryRevisionSnapshot>();
@@ -139,9 +147,13 @@ export class StoryStore {
    *  fresh for every `withAggregateSession` call and cannot itself carry
    *  state between them. Guarded at adoption time by the manifest hash it
    *  was captured against (`StoryAggregateSession.capturedGenerationRecordGraph`),
-   *  so a stale entry here is simply ignored, never trusted. */
-  private readonly generationRecordGraphs =
-    new Map<string, GenerationRecordSourceRevisionSnapshot>();
+   *  so a stale entry here is simply ignored, never trusted. Bounded: this is
+   *  a save/session optimization, not a source of truth, so evicting a cold
+   *  story's entry only costs a re-verify on its next save, never
+   *  correctness. Capacity is constructor-injectable (default
+   *  GENERATION_RECORD_GRAPH_CACHE_CAPACITY) so tests can force eviction
+   *  without touching that many stories. */
+  private readonly generationRecordGraphs: BoundedLruMap<string, GenerationRecordSourceRevisionSnapshot>;
   /** One writer at a time per story. Read-modify-write is otherwise not atomic:
    *  a Stop and the stream's own commit can both load an unstamped story, both
    *  decide to write, and race — duplicating a node or losing the other's text.

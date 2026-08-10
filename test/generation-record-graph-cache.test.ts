@@ -82,6 +82,70 @@ test("repeated saves do not reparse previously-verified Generation Records", asy
   assert.deepEqual(reads, [lastRecordId]);
 });
 
+/**
+ * Boundedness regression: the same cross-session graph cache above must not
+ * grow without bound across many stories. StoryStore's optional constructor
+ * capacity (server/stories.ts's GENERATION_RECORD_GRAPH_CACHE_CAPACITY,
+ * injected here as 1) lets this test force a real eviction cheaply instead
+ * of touching 64+ stories.
+ */
+test("an evicted story's Generation Record graph safely re-verifies from disk on its next save", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-graph-lru-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const stories = new StoryStore(dir, undefined, undefined, 1);
+  await stories.init();
+  const storyA = await stories.create("Story A");
+  const storyB = await stories.create("Story B");
+
+  const reads: ObjectHash[] = [];
+  const originalReadGenerationRecord = StoryObjectStore.prototype.readGenerationRecord;
+  t.mock.method(
+    StoryObjectStore.prototype,
+    "readGenerationRecord",
+    async function (this: StoryObjectStore, hash: ObjectHash) {
+      reads.push(hash);
+      return await originalReadGenerationRecord.call(this, hash);
+    }
+  );
+
+  const settings = stubSettingsStore(dryRunSettings());
+  const generate = async (storyId: string, parentId: string | null, genId: string) => {
+    const result = await continueStory(
+      storyId,
+      { parentId, instruction: "Continue.", genId },
+      stories,
+      settings,
+      new PromptCacheRuntime(),
+      new GenerationAdmissionRegistry(),
+      () => {},
+      new AbortController().signal
+    );
+    const node = result?.nodes.find((candidate) => candidate.parentId === parentId);
+    if (node === undefined) throw new Error("continuation did not commit a take");
+    return node;
+  };
+
+  // Story A's first record is captured, then immediately evicted by the
+  // capacity-1 cache when Story B's session captures its own graph.
+  const firstA = await generate(storyA.id, null, "story-a-gen-0");
+  await generate(storyB.id, null, "story-b-gen-0");
+  assert.deepEqual(reads, [], "no read-back yet: each record is learned from the write that creates it");
+
+  // Story A's second save can no longer trust a cached graph for its first
+  // record, so it must re-verify (read back and reparse) that record — this
+  // is the bounded cache's whole cost model: eviction only ever costs a
+  // re-read, never a wrong or missing result.
+  const secondA = await generate(storyA.id, firstA.id, "story-a-gen-1");
+  assert.deepEqual(reads, [firstA.generationRecordIds![0]!], "the evicted record is re-verified exactly once");
+
+  // Correctness after eviction: both of Story A's records are still readable
+  // and resolve to the content each was actually generated with.
+  const resolvedFirst = await stories.loadGenerationRecord(storyA.id, firstA.id, firstA.generationRecordIds![0]!);
+  const resolvedSecond = await stories.loadGenerationRecord(storyA.id, secondA.id, secondA.generationRecordIds![0]!);
+  assert.equal(resolvedFirst.kind, "continue");
+  assert.equal(resolvedSecond.kind, "continue");
+});
+
 function dryRunSettings(): GenerationSettings {
   return attachProviderRuntime({
     provider: "dry-run",
