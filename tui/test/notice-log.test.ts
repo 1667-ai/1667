@@ -1,23 +1,31 @@
 import { describe, expect, test } from "bun:test";
-import type { KeyEvent } from "@opentui/core";
+import type { CliRenderer, KeyEvent } from "@opentui/core";
 import { ActionRuntime } from "../src/action-runtime.js";
 import { handleKey, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { hitAt } from "../src/hit.js";
+import { recordNotice } from "../src/notice-log.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText, plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 
 /** `F` pins or unpins the facts rail and always reports what it did, so it is
- *  the simplest real notice to raise through the real dispatcher. */
-function harness() {
+ *  the simplest real notice to raise through the real dispatcher.
+ *
+ *  `rendererSize`, when given, stands in for the real `CliRenderer` so a
+ *  test can drive an action that reads `context.renderer?.width`/`?.height`
+ *  (the log's page-scroll clamp) with the same dimensions `screen()` renders
+ *  at below, rather than the no-renderer fallback every other test here
+ *  exercises. */
+function harness(rendererSize: { width: number; height: number } | null = null) {
   const source = demoAppSource();
   const state = initialState(source, false);
   const cache = createWrapCache<ProseStyle>();
   const backend = new ActionRuntime(state, () => undefined);
+  const renderer = rendererSize === null ? null : rendererSize as unknown as CliRenderer;
   const press = (event: KeyEvent) => handleKey(
     event, state, source, cache, () => undefined, async () => undefined,
-    () => undefined, null, () => undefined, () => undefined, backend
+    () => undefined, renderer, () => undefined, () => undefined, backend
   );
   return { source, state, cache, press };
 }
@@ -53,7 +61,7 @@ describe("C-37 · the session log", () => {
     expect(rendered).toContain(raised!);
     // C-37's keys, in the keyline beside the breadcrumb (C-06).
     // C-37 requires every close key in the keyline, `!` included.
-    expect(rendered).toContain("↑↓ move · ↵ copies · x clears · ! or esc closes");
+    expect(rendered).toContain("↑↓ move · ⇧↑↓ scroll · ↵ copies · x clears · ! or esc closes");
   });
 
   test("x clears the log and esc returns to the page", async () => {
@@ -107,6 +115,116 @@ describe("C-37 · the session log", () => {
     // The keyline advertises `x`, so the glyph has to run what `x` runs.
     expect(hitAt(state.hitRows, column, row))
       .toEqual({ kind: "action", action: "clear-log" });
+  });
+});
+
+describe("C-27 · the log scrolls within a notice too tall for the surface", () => {
+  test("a notice taller than the surface can be scrolled to reveal its last row", async () => {
+    const { state, press } = harness();
+    // Feedback wraps as one flowing paragraph (Decision 24's `wrapFeedback`
+    // collapses every whitespace run, including a literal newline), so
+    // height comes from word count, not line count: enough words to wrap
+    // well past the log's body height at width 120.
+    const words = Array.from({ length: 1500 }, (_, index) => `w${index}`);
+    words.push("LASTROWMARKER");
+    recordNotice(state.notices, "toast", words.join(" "));
+
+    await press(key("!", "!"));
+    expect(state.mode).toBe("LOG");
+    const opened = screen(state);
+    expect(opened).toContain("w0 ");
+    expect(opened).not.toContain("LASTROWMARKER");
+
+    // Far more line-scrolls than the notice has rows, so this does not
+    // depend on knowing the exact wrapped row count — and proves the offset
+    // clamps at the notice's last row rather than scrolling past it. (This
+    // harness runs with no renderer, so `pagedown`'s page falls back to one
+    // row; shift+down is the same one row per press either way, and asserts
+    // the same clamp without needing a real terminal height.)
+    for (let line = 0; line < 80; line += 1) await press(key("down", "down", true));
+    const scrolled = screen(state);
+    expect(scrolled).toContain("LASTROWMARKER");
+    expect(scrolled).not.toContain("w0 ");
+
+    // Moving to a different notice resets the offset: back to the head.
+    recordNotice(state.notices, "toast", "a second, shorter notice");
+    await press(key("down"));
+    await press(key("up"));
+    expect(screen(state)).toContain("w0 ");
+  });
+
+  test("holding page-down past a notice's end does not leave page-up frozen", async () => {
+    // A renderer size is required here: the clamp this test exercises reads
+    // `context.renderer?.width`/`?.height`, and the plain `harness()` above
+    // runs with neither.
+    const { state, press } = harness({ width: 120, height: 36 });
+    const words = Array.from({ length: 1500 }, (_, index) => `w${index}`);
+    words.push("LASTROWMARKER");
+    recordNotice(state.notices, "toast", words.join(" "));
+
+    await press(key("!", "!"));
+    expect(state.mode).toBe("LOG");
+
+    // Far more pages than the notice has: before the fix, each press still
+    // added a full page to the *stored* offset with no upper bound, even
+    // though the render already clamped what that offset could show.
+    for (let page = 0; page < 20; page += 1) await press(key("pagedown"));
+    const atEnd = screen(state);
+    expect(atEnd).toContain("LASTROWMARKER");
+
+    // One page-up must visibly move the view. Before the fix, the
+    // over-scrolled stored offset absorbed this press — and the next dozen
+    // — before the rendered window moved at all: the frozen scroll this
+    // finding is about.
+    await press(key("pageup"));
+    const afterOnePageUp = screen(state);
+    expect(afterOnePageUp).not.toBe(atEnd);
+    expect(afterOnePageUp).not.toContain("LASTROWMARKER");
+  });
+
+  test("a resize after scrolling does not leave a scroll key visibly frozen", async () => {
+    // A small surface first: few rows fit, so scrolling to the end leaves a
+    // large stored offset.
+    const size = { width: 120, height: 15 };
+    const { state, press } = harness(size);
+    const words = Array.from({ length: 1500 }, (_, index) => `w${index}`);
+    words.push("LASTROWMARKER");
+    recordNotice(state.notices, "toast", words.join(" "));
+
+    await press(key("!", "!"));
+    expect(state.mode).toBe("LOG");
+    for (let line = 0; line < 200; line += 1) await press(key("down", "down", true));
+    expect(screen(state, size.width, size.height)).toContain("LASTROWMARKER");
+
+    // Grow the terminal well past that point. Nothing hooks a resize, so the
+    // stored offset stays exactly what it was — now far past the notice's
+    // new, much smaller excess. `windowStart` still clamps it correctly for
+    // this render, but the clamped value is never written back.
+    size.height = 60;
+    const grown = screen(state, size.width, size.height);
+    expect(grown).toContain("LASTROWMARKER");
+
+    // One line-scroll up at the new size must visibly move the view. Before
+    // this fix, the delta applied to the stale raw offset, which stayed far
+    // enough past the new maximum that the clamp absorbed it completely —
+    // the same symptom as the earlier page-down regression, reached by a
+    // resize instead of by holding a key.
+    await press(key("up", "up", true));
+    const afterOneLineUp = screen(state, size.width, size.height);
+    expect(afterOneLineUp).not.toBe(grown);
+  });
+
+  test("a notice that fits the surface does not move when scrolled", async () => {
+    const { state, press } = harness();
+    recordNotice(state.notices, "toast", "a short notice that fits on one screen");
+
+    await press(key("!", "!"));
+    expect(state.mode).toBe("LOG");
+    const before = screen(state);
+
+    await press(key("down", "down", true));
+    await press(key("pagedown"));
+    expect(screen(state)).toBe(before);
   });
 });
 

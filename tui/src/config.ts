@@ -55,6 +55,8 @@ export interface UserConfig {
   composeMaxHeight: number | null;
   quota: QuotaLedger;
   updates: UpdatePreferences;
+  /** The product version of the last interactive run. Null before the first run. */
+  lastRunVersion: string | null;
 }
 
 const DEFAULTS: UserConfig = {
@@ -64,7 +66,8 @@ const DEFAULTS: UserConfig = {
   wordWrap: "on",
   composeMaxHeight: null,
   quota: { date: "", words: 0 },
-  updates: { mode: "off", channel: "stable", skippedVersion: null }
+  updates: { mode: "off", channel: "stable", skippedVersion: null },
+  lastRunVersion: null
 };
 
 type ConfigRecord = Record<string, unknown>;
@@ -125,7 +128,8 @@ export function normalizeUserConfig(value: unknown): UserConfig {
       skippedVersion: isSemVer(rawUpdates.skippedVersion)
         ? rawUpdates.skippedVersion
         : null
-    }
+    },
+    lastRunVersion: isSemVer(raw.lastRunVersion) ? raw.lastRunVersion : null
   };
 }
 
@@ -140,22 +144,58 @@ export interface ConfigPersistenceOptions {
   readonly afterTemporaryFileSync?: (temporaryFile: string) => void;
 }
 
-export function loadConfig(
+/**
+ * `absent`: no file at that path (`ENOENT`) — a genuinely new install.
+ * `unreadable`: a file is there, but could not be read or did not parse —
+ * a config a caller must never overwrite, since it may be the only copy of
+ * the writer's settings and it may still be repairable by hand.
+ * `loaded`: the file parsed. Its content may still be old or partial;
+ * `normalizeUserConfig` already covers that.
+ */
+export type ConfigLoadStatus = "absent" | "loaded" | "unreadable";
+
+/** Load the config file and say which of the three outcomes happened, so a
+ *  caller that must not clobber an unreadable file can tell it apart from a
+ *  fresh install — `loadConfig` alone collapses both to the same defaults. */
+export function loadConfigWithStatus(
   options: ConfigPersistenceOptions = {}
-): UserConfig {
+): { readonly status: ConfigLoadStatus; readonly config: UserConfig } {
+  const file = options.file ?? configPath();
+  let raw: string;
   try {
-    return normalizeUserConfig(JSON.parse(
-      readFileSync(options.file ?? configPath(), "utf8")
-    ));
+    raw = readFileSync(file, "utf8");
+  } catch (error) {
+    const status = isEnoent(error) ? "absent" : "unreadable";
+    return { status, config: normalizeUserConfig(null) };
+  }
+  try {
+    return { status: "loaded", config: normalizeUserConfig(JSON.parse(raw)) };
   } catch {
-    return normalizeUserConfig(null);
+    return { status: "unreadable", config: normalizeUserConfig(null) };
   }
 }
 
+function isEnoent(error: unknown): boolean {
+  return typeof error === "object" && error !== null
+    && (error as { code?: unknown }).code === "ENOENT";
+}
+
+export function loadConfig(
+  options: ConfigPersistenceOptions = {}
+): UserConfig {
+  return loadConfigWithStatus(options).config;
+}
+
+/** Persist a config, and say whether it actually landed. A read-only or full
+ *  home must not break the app, so a write failure here is swallowed rather
+ *  than thrown — but a caller for whom persistence is the whole point (see
+ *  `announceRelease`) needs to tell that apart from success, or it acts on a
+ *  promise the disk never kept. Existing callers that ignore the result keep
+ *  working unchanged. */
 export function saveConfig(
   config: UserConfig,
   options: ConfigPersistenceOptions = {}
-): void {
+): boolean {
   let temporaryFile: string | null = null;
   try {
     const file = options.file ?? configPath();
@@ -183,8 +223,10 @@ export function saveConfig(
     renameSync(temporaryFile, file);
     temporaryFile = null;
     syncConfigDirectory(directory);
+    return true;
   } catch {
     // A read-only/full home must not break the app or truncate the last config.
+    return false;
   } finally {
     if (temporaryFile !== null) {
       try {
