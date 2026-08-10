@@ -26,6 +26,7 @@ import {
 import { streamCompletion, type GenerationRecordCollector, type TokenProbabilityCollector } from "./providers.js";
 import {
   continuationRecordEntries,
+  foldContinuationAuthorsNote,
   promptEntriesInline
 } from "./generation-record-prompt.js";
 import { finalizeGenerationRecord } from "./generation-record-finalize.js";
@@ -278,6 +279,13 @@ export async function continueStory(
     appendTo,
     parentId
   });
+  // Folded once, decided the same way the provider request itself decides it
+  // (`providerFoldsAuthorsNote`), and reused for whichever Generation Record
+  // path this attempt ends up taking below — a stop-save handoff or a direct
+  // commit — so both always cite the exact pipeline the provider received.
+  const continuationRecordSourceEntries = providerFoldsAuthorsNote(settings)
+    ? foldContinuationAuthorsNote(continuation.entries)
+    : continuation.entries;
   const continuationOutput = continuation.requiresEcho
     ? new AnchoredOutputFilter(continuation.leftAnchor, "", "", true)
     : undefined;
@@ -336,8 +344,7 @@ export async function continueStory(
       appendSegmentStart,
       collector: generationRecordCollector,
       story,
-      continuation,
-      foldAuthorsNote: providerFoldsAuthorsNote(settings),
+      entries: continuationRecordSourceEntries,
       emittedText: partialOutput.text
     });
     if (handoff !== null) generationAdmission.rememberGenerationRecordHandoff(id, genId, handoff);
@@ -362,7 +369,7 @@ export async function continueStory(
       provider: settings.provider,
       model,
       operation: continuation.prompt.operation,
-      entries: () => continuationRecordEntries(story, continuation, providerFoldsAuthorsNote(settings)),
+      entries: () => continuationRecordEntries(story, continuationRecordSourceEntries),
       collector: generationRecordCollector
     });
     const committed = await stories.commitProviderEffect(id, {

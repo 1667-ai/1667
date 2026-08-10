@@ -1,4 +1,4 @@
-import type { ContinuationPlan } from "../shared/continuation-plan.js";
+import type { ContinuationPromptEntry } from "../shared/continuation-plan.js";
 import {
   promptEntriesSourceRevisionIds,
   type GenerationRecord,
@@ -87,8 +87,11 @@ export function captureGenerationRecordHandoff(input: {
   readonly appendSegmentStart: number | null;
   readonly collector: GenerationRecordCollector;
   readonly story: Story;
-  readonly continuation: ContinuationPlan;
-  readonly foldAuthorsNote?: boolean;
+  /** The continuation's own entries, already folded (or not) exactly as the
+   *  same generation's provider request was — the caller decides that once,
+   *  via `providerFoldsAuthorsNote`, and hands the result straight through
+   *  rather than this function re-deciding it. */
+  readonly entries: readonly ContinuationPromptEntry[];
   /** Exactly what this attempt emitted to `onDelta` before it stopped —
    *  `server/generation-http.ts`'s own `partialOutput` collector, the same
    *  text the client's stream actually received. Hashed below, never
@@ -101,7 +104,7 @@ export function captureGenerationRecordHandoff(input: {
   try {
     entries = {
       ok: true,
-      entries: continuationRecordEntries(input.story, input.continuation, input.foldAuthorsNote)
+      entries: continuationRecordEntries(input.story, input.entries)
     };
   } catch (error) {
     entries = {

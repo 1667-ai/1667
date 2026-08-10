@@ -3,8 +3,8 @@ import {
   type GenerationRecordSourcePart,
   type GenerationRecordTextEntry
 } from "../shared/generation-record.js";
-import type { PromptBlock, PromptPlan, PromptRole } from "../shared/prompt-plan.js";
-import type { ContinuationPlan, ContinuationPromptEntry } from "../shared/continuation-plan.js";
+import { foldAuthorsNoteAcross, type PromptBlock, type PromptPlan, type PromptRole } from "../shared/prompt-plan.js";
+import type { ContinuationPromptEntry } from "../shared/continuation-plan.js";
 import type { Story, StoryNode } from "../shared/types.js";
 import { reusableStoredRevisionId } from "./story-node-text.js";
 
@@ -13,10 +13,14 @@ import { reusableStoredRevisionId } from "./story-node-text.js";
  * entries a Generation Record stores. Two shapes, matching how a prompt is
  * actually assembled:
  *
- * `continuationRecordEntries` is for continuation and append, seeded from
- * `ContinuationPlan.entries` rather than the rendered `PromptPlan` — the plan
- * alone has already flattened each context part down to two anonymous chat
- * turns, indistinguishable from every other turn of the same role. The
+ * `continuationRecordEntries` is for continuation and append, seeded from a
+ * `ContinuationPlan.entries` array rather than the rendered `PromptPlan` —
+ * the plan alone has already flattened each context part down to two
+ * anonymous chat turns, indistinguishable from every other turn of the same
+ * role. The caller passes that array through `foldContinuationAuthorsNote`
+ * first exactly when the same generation's provider request would also fold
+ * it (`provider-request-body.ts`'s `providerFoldsAuthorsNote`), so the
+ * stored record always matches the wire prompt it documents. The
  * richer plan still carries each part's category, node id, and its exact
  * position relative to the Author's Note, which is what the Generation
  * Record Viewer needs to show the same ordered, categorized pipeline the
@@ -42,25 +46,21 @@ import { reusableStoredRevisionId } from "./story-node-text.js";
 
 export function continuationRecordEntries(
   story: Story,
-  continuation: ContinuationPlan,
-  foldAuthorsNote = false
+  entries: readonly ContinuationPromptEntry[]
 ): GenerationRecordPromptEntry[] {
   const byId = new Map(story.nodes.map((node) => [node.id, node] as const));
-  const entries: GenerationRecordPromptEntry[] = [];
+  const built: GenerationRecordPromptEntry[] = [];
   let run: GenerationRecordSourcePart[] = [];
   const flushRun = (): void => {
     if (run.length === 0) return;
-    entries.push({ stability: "stable", kind: "source", source: "revisions", parts: run });
+    built.push({ stability: "stable", kind: "source", source: "revisions", parts: run });
     run = [];
   };
-  const plan = foldAuthorsNote
-    ? foldContinuationAuthorsNote(continuation.entries)
-    : continuation.entries;
-  for (let index = 0; index < plan.length; index++) {
-    const planEntry = plan[index]!;
+  for (let index = 0; index < entries.length; index++) {
+    const planEntry = entries[index]!;
     if (planEntry.partId === undefined) {
       flushRun();
-      entries.push(textEntry(planEntry.turn.role, planEntry.turn.blocks[0]!));
+      built.push(textEntry(planEntry.turn.role, planEntry.turn.blocks[0]!));
       continue;
     }
     // Every context part is a user instruction turn immediately followed by
@@ -70,7 +70,7 @@ export function continuationRecordEntries(
     // pairs. A plan that violates this is a bug in the plan builder, not
     // untrusted input, so this fails loudly rather than silently mispairing
     // an instruction with the wrong part's prose.
-    const prose = plan[index + 1];
+    const prose = entries[index + 1];
     if (prose === undefined || prose.partId !== planEntry.partId) {
       throw new Error(`Malformed continuation plan: part ${planEntry.partId} has no matching prose turn`);
     }
@@ -79,42 +79,19 @@ export function continuationRecordEntries(
     if (part !== null) run.push(part);
   }
   flushRun();
-  return entries;
+  return built;
 }
 
 /** Mirror `provider-request-body.ts`'s wire lowering without flattening away
- * source identity. The late system note disappears as its own turn and is
- * prepended to the following user block. When that block introduces a story
- * part, the folded text remains that source part's instruction; its prose
- * still stays behind the immutable revision reference. */
-function foldContinuationAuthorsNote(
+ * source identity: the same canonical `foldAuthorsNoteAcross` fold, applied
+ * to the richer continuation entries instead of the flat `PromptPlan` turns.
+ * When the folded block introduces a story part, the folded text remains
+ * that source part's instruction; its prose still stays behind the
+ * immutable revision reference. */
+export function foldContinuationAuthorsNote(
   entries: readonly ContinuationPromptEntry[]
-): ContinuationPromptEntry[] {
-  const noteIndex = entries.findIndex((entry) => entry.category === "note");
-  if (noteIndex === -1) return [...entries];
-  const note = entries[noteIndex]!;
-  const following = entries[noteIndex + 1];
-  if (following === undefined || following.turn.role !== "user") {
-    throw new Error("Author's Note must be followed by a user turn");
-  }
-  const noteText = note.turn.blocks
-    .filter((block) => block.kind === "authors-note")
-    .map((block) => block.text)
-    .join("");
-  const first = following.turn.blocks[0];
-  if (first === undefined) throw new Error("Prompt turns cannot be empty");
-  const foldedFollowing: ContinuationPromptEntry = {
-    ...following,
-    turn: {
-      ...following.turn,
-      blocks: [{ ...first, text: `${noteText}\n\n${first.text}` }, ...following.turn.blocks.slice(1)]
-    }
-  };
-  return entries.flatMap((entry, index) => {
-    if (index === noteIndex) return [];
-    if (index === noteIndex + 1) return [foldedFollowing];
-    return [entry];
-  });
+): readonly ContinuationPromptEntry[] {
+  return foldAuthorsNoteAcross(entries, (entry) => entry.turn, (entry, turn) => ({ ...entry, turn }));
 }
 
 function sourcePart(

@@ -1,4 +1,5 @@
 import {
+  foldAuthorsNoteAcross,
   renderPromptPlan,
   type PromptBlock,
   type PromptPlan
@@ -189,32 +190,8 @@ export function lowerPromptForProvider(
 }
 
 function foldAuthorsNote(plan: PromptPlan): PromptPlan {
-  const noteIndex = plan.turns.findIndex((turn) =>
-    turn.blocks.some((block) => block.kind === "authors-note")
-  );
-  if (noteIndex === -1) return plan;
-  const noteTurn = plan.turns[noteIndex]!;
-  const noteText = noteTurn.blocks
-    .filter((block) => block.kind === "authors-note")
-    .map((block) => block.text)
-    .join("");
-  const following = plan.turns[noteIndex + 1];
-  if (following === undefined || following.role !== "user") {
-    throw new Error("Author's Note must be followed by a user turn");
-  }
-  return {
-    ...plan,
-    turns: plan.turns.flatMap((turn, index) => {
-      if (index === noteIndex) return [];
-      if (index !== noteIndex + 1) return [turn];
-      const first = turn.blocks[0];
-      if (first === undefined) throw new Error("Prompt turns cannot be empty");
-      return [{
-        ...turn,
-        blocks: [{ ...first, text: `${noteText}\n\n${first.text}` }, ...turn.blocks.slice(1)]
-      }];
-    })
-  };
+  const turns = foldAuthorsNoteAcross(plan.turns, (turn) => turn, (_turn, folded) => folded);
+  return turns === plan.turns ? plan : { ...plan, turns };
 }
 
 function applyGenerationEffort(
