@@ -8,6 +8,7 @@ import { ServiceLifecycle } from "../server/service-lifecycle.js";
 import { StoryService } from "../server/story-service.js";
 import { ServiceError } from "../server/errors.js";
 import { PartialRewriteStash } from "../server/rewrite-partial.js";
+import { createGenerationRecord } from "../shared/generation-record.js";
 
 class CancellableStoryService extends StoryService {
   async runCancellable<T>(
@@ -86,7 +87,14 @@ test("story service disposal releases verified partial rewrite prose", async (t)
       nodeId: "node",
       expectedText: "old prose",
       expectedInstruction: "",
-      text: "sensitive provider prose"
+      text: "sensitive provider prose",
+      generationRecord: createGenerationRecord({
+        kind: "rewrite-in-place",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: { operation: "rewrite", entries: [] }
+      })
     }
   });
   assert.notEqual(partials.get("story", "node", "attempt"), null);

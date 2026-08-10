@@ -22,9 +22,21 @@ import {
  * ever being counted.
  */
 
-function baseRecord(
-  generationRecord: GenerationRecord | null | undefined
-): PartialRewriteRecord {
+/** Stands in for the small `unsupported` record `finalizeRequiredGenerationRecord`
+ *  attaches before the capture collector has resolved — the real pre-stream
+ *  state `reserve()` must budget for. */
+function unresolvedGenerationRecord(): GenerationRecord {
+  return createGenerationRecord({
+    kind: "unsupported",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    provider: { provider: "dry-run", model: "dry-run-fixture" },
+    effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+    prompt: { operation: "rewrite", entries: [] },
+    unsupportedReason: "No provider output was captured before this generation record was finalized."
+  });
+}
+
+function baseRecord(generationRecord: GenerationRecord): PartialRewriteRecord {
   return {
     storyId: "story-1",
     nodeId: "node-1",
@@ -66,7 +78,7 @@ function largeGenerationRecord(): GenerationRecord {
 }
 
 test("partialRewriteRecordRetainedBytes counts the finalized generation record's bytes", () => {
-  const withoutRecord = partialRewriteRecordRetainedBytes(baseRecord(null));
+  const withoutRecord = partialRewriteRecordRetainedBytes(baseRecord(unresolvedGenerationRecord()));
   const record = largeGenerationRecord();
   const withRecord = partialRewriteRecordRetainedBytes(baseRecord(record));
   // The prompt text alone is 1,500,000 UTF-16 code units; a fix that still
@@ -79,11 +91,12 @@ test("partialRewriteRecordRetainedBytes counts the finalized generation record's
 
 test("reserve() covers a generation record that only resolves after the reservation is made", () => {
   // Mirrors the real call site (server/generation-http.ts): the pre-stream
-  // effect's `generationRecord` is still null because the capture collector
-  // has not resolved yet, and the provider-output allowance is deliberately
-  // small so the reservation would starve if the generation record's worst
-  // case were not reserved for separately.
-  const originalRecord = baseRecord(null);
+  // effect's `generationRecord` is still the small `unsupported` stand-in
+  // because the capture collector has not resolved yet, and the
+  // provider-output allowance is deliberately small so the reservation would
+  // starve if the generation record's worst case were not reserved for
+  // separately.
+  const originalRecord = baseRecord(unresolvedGenerationRecord());
   const smallProviderOutputAllowance = 8_192;
   const maximumBytes = maximumPartialRewriteRecordRetainedBytes(
     originalRecord,

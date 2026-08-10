@@ -6,6 +6,7 @@ import { ProviderError, ServiceError } from "../server/errors.js";
 import { parseStoryManifestBytes } from "../server/story-v6-codec.js";
 import { StoryStore } from "../server/stories.js";
 import { summarySourceFingerprint } from "../server/summary-take.js";
+import { createGenerationRecord } from "../shared/generation-record.js";
 import {
   DELETE_MUTATION_ID,
   FINGERPRINT,
@@ -20,6 +21,16 @@ import {
   storyFixture,
   THIRD_MUTATION_ID
 } from "./story-mutation-fixtures.js";
+
+function generationRecordFixture() {
+  return createGenerationRecord({
+    kind: "summary-take",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    provider: { provider: "dry-run", model: "dry-run" },
+    effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+    prompt: { operation: "summary", entries: [] }
+  });
+}
 
 test("Q a receipt-only duplicate terminalizes before another start", async (t) => {
   const fixture = await setup(t, "1667-q-provider-receipt-race-");
@@ -286,7 +297,8 @@ test("Q a prepared no-op provider effect still terminalizes", async (t) => {
         summary: "Must not be duplicated",
         model: "test",
         instruction: "Summarize",
-        commitIds: { summaryNodeId: existing.id }
+        commitIds: { summaryNodeId: existing.id },
+        generationRecord: generationRecordFixture()
       }),
       () => existing
     )
@@ -342,6 +354,7 @@ test("Q freezes provider effect allocators before terminal publication", async (
           model: "test",
           instruction: "Summarize",
           commitIds: {},
+          generationRecord: generationRecordFixture(),
           cancelled: cancelledAfterPreparation.signal
         });
         cancelledAfterPreparation.abort();

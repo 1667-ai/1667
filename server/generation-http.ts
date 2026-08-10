@@ -34,7 +34,7 @@ import {
   foldContinuationAuthorsNote,
   promptEntriesInline
 } from "./generation-record-prompt.js";
-import { finalizeGenerationRecord } from "./generation-record-finalize.js";
+import { finalizeRequiredGenerationRecord } from "./generation-record-finalize.js";
 import { captureGenerationRecordHandoff } from "./generation-record-handoff.js";
 import {
   lowerPromptForProvider,
@@ -396,7 +396,7 @@ export async function continueStory(
   try {
     const parent = parentId === null ? null : nodeById(story, parentId);
     const committedText = appendTo === null ? raw.trim() : raw;
-    const generationRecord = finalizeGenerationRecord({
+    const generationRecord = finalizeRequiredGenerationRecord({
       kind: appendTo === null ? "continue" : "append",
       createdAt: new Date().toISOString(),
       ...(appendTo === null || appendSegmentStart === null
@@ -620,7 +620,7 @@ export async function rewriteNode(
     // reservation sized before streaming starts and the eventual real commit
     // must each read whatever the collector holds at that moment, not a
     // value frozen when this closure was created.
-    generationRecord: finalizeGenerationRecord({
+    generationRecord: finalizeRequiredGenerationRecord({
       kind: destination === "take" ? "rewrite-take" : "rewrite-in-place",
       createdAt: new Date().toISOString(),
       // In the resulting (committed) text's coordinates: unchanged prose

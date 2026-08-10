@@ -8,6 +8,7 @@ import {
 } from "../server/errors.js";
 import { StoryProviderRaceResolver } from "../server/story-provider-race.js";
 import { StoryMutationRecovery } from "../server/story-mutation-transaction.js";
+import { createGenerationRecord } from "../shared/generation-record.js";
 import {
   FINGERPRINT,
   FIXED_NOW,
@@ -21,6 +22,16 @@ import {
   STORY_ID,
   storyFixture
 } from "./story-mutation-fixtures.js";
+
+function generationRecordFixture() {
+  return createGenerationRecord({
+    kind: "continue",
+    createdAt: FIXED_NOW.toISOString(),
+    provider: { provider: "dry-run", model: "dry-run" },
+    effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+    prompt: { operation: "continue", entries: [] }
+  });
+}
 
 test("Q receipt-only terminal publication waits out a short story claim", async (t) => {
   const fixture = await setup(t, "1667-q-provider-receipt-claim-");
@@ -170,6 +181,7 @@ test("Q cancellation at effect preparation terminalizes exactly", async (t) => {
           expectedAppendActiveChildId: null,
           expectedActiveRootId: null,
           expectedActiveLeafId: null,
+          generationRecord: generationRecordFixture(),
           cancelled: cancelled.signal
         });
       },
@@ -226,6 +238,7 @@ test("Q preserves uncertain cancellation without a terminal receipt", async (t) 
           expectedAppendActiveChildId: null,
           expectedActiveRootId: null,
           expectedActiveLeafId: null,
+          generationRecord: generationRecordFixture(),
           cancelled: cancelled.signal
         });
       },

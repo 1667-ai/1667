@@ -19,7 +19,7 @@ import {
 } from "./provider-cache-policy.js";
 import { promptEntriesInline } from "./generation-record-prompt.js";
 import { lowerPromptForProvider } from "./provider-request-body.js";
-import { finalizeGenerationRecord } from "./generation-record-finalize.js";
+import { finalizeRequiredGenerationRecord } from "./generation-record-finalize.js";
 import { assertGenerationRecordCapacity } from "./story-node-generation-records.js";
 
 interface ChapterSummaryOptions {
@@ -69,7 +69,7 @@ export async function summarizeChapter(
     throw new GenerationStoppedError("Chapter summarization was cancelled");
   }
   const model = settings.provider === "dry-run" ? "dry-run" : settings.model;
-  const generationRecord = finalizeGenerationRecord({
+  const generationRecord = finalizeRequiredGenerationRecord({
     kind: "chapter-summary",
     createdAt: new Date().toISOString(),
     provider: settings.provider,

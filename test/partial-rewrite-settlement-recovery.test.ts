@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createDurableMutationId } from "../shared/durable-mutation-id.js";
+import { createGenerationRecord } from "../shared/generation-record.js";
 import { rewriteStreamDigest } from "../shared/rewrite-partial-contract.js";
 import type {
   StoryAggregateVersion
@@ -156,7 +157,14 @@ test("partial settlement waits for an active rewrite to publish its record", asy
         expectedInstruction: node.instruction,
         expectedUpdatedAt: node.updatedAt,
         text: "The green door opened onto the courtyard.",
-        rewriteId: "active-settlement-rewrite"
+        rewriteId: "active-settlement-rewrite",
+        generationRecord: createGenerationRecord({
+          kind: "rewrite-in-place",
+          createdAt: node.updatedAt ?? node.createdAt,
+          provider: { provider: "dry-run", model: "dry-run" },
+          effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+          prompt: { operation: "rewrite", entries: [] }
+        })
       }
     };
     const partials = partialRewriteStash(service);

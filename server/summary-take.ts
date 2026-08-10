@@ -31,7 +31,7 @@ import {
 } from "./provider-cache-policy.js";
 import { promptEntriesInline } from "./generation-record-prompt.js";
 import { lowerPromptForProvider } from "./provider-request-body.js";
-import { finalizeGenerationRecord } from "./generation-record-finalize.js";
+import { finalizeRequiredGenerationRecord } from "./generation-record-finalize.js";
 
 const SUMMARY_OUTPUT_LIMIT = 200_000;
 const MIN_SUMMARY_TOKENS = 512;
@@ -135,7 +135,7 @@ export async function createSummaryTake(
     throw new GenerationResultError(502, "The model returned no summary; nothing was saved.");
   }
   const model = settings.provider === "dry-run" ? "dry-run" : settings.model;
-  const generationRecord = finalizeGenerationRecord({
+  const generationRecord = finalizeRequiredGenerationRecord({
     kind: "summary-take",
     createdAt: new Date().toISOString(),
     provider: settings.provider,

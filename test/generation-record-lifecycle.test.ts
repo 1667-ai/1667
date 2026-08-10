@@ -367,6 +367,60 @@ test("a chapter summary stores the request record on the chapter summary take", 
   await stories.waitForMaintenance();
 });
 
+test("an append raced by a mid-stream chapter break still commits a retargeted Generation Record", async (t) => {
+  // Every construction site for ContinueStoryEffect, RewriteNodeEffect,
+  // SummaryTakeEffect, and ChapterSummaryEffect must produce a Generation
+  // Record — the type now requires one — but the retarget path in
+  // `applyContinuation` (server/story-provider-effect.ts) rebuilds that
+  // field from scratch when a chapter break lands on the append's target
+  // between request start and commit. This exercises that race through the
+  // real `continueStory` HTTP path end to end, proving the record survives
+  // the retarget instead of the append silently losing its provenance.
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-append-race-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const stories = new StoryStore(dir);
+  await stories.init();
+  const story = await stories.create("Story");
+  const created = await stories.createNode(story.id, null, "The latch was unlo", "");
+  const root = created.nodes[0]!;
+
+  let breakCreated = false;
+  const committed = await continueStory(
+    story.id,
+    {
+      appendTo: root.id,
+      expectedTextHash: sha256(root.text),
+      instruction: "",
+      genId: "gen-append-race"
+    },
+    stories,
+    stubSettingsStore(dryRunSettings()),
+    new PromptCacheRuntime(),
+    new GenerationAdmissionRegistry(),
+    async () => {
+      if (breakCreated) return;
+      breakCreated = true;
+      await stories.mutate(story.id, (fresh) => {
+        createChapterBreak(fresh, root.id, "Chapter 1");
+      });
+    },
+    new AbortController().signal
+  );
+
+  const added = committed?.nodes.find((node) => node.genId === "gen-append-race");
+  if (added === undefined) throw new Error("retargeted continuation did not create a take");
+  assert.notEqual(added.id, root.id);
+  assert.equal(added.parentId, root.id);
+  assert.equal(added.generationRecordIds?.length, 1);
+  const record = await stories.loadGenerationRecord(story.id, added.id, added.generationRecordIds![0]!);
+  // The original request streamed as an append (kind "append", ranged); the
+  // retarget rewrites it into a whole-take continuation instead of leaving
+  // the stale append shape or dropping the record outright.
+  assert.equal(record.kind, "continue");
+  assert.equal(record.range, undefined);
+  await stories.waitForMaintenance();
+});
+
 test("deleting the take sweeps its Generation Record away", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-prune-"));
   t.after(() => rm(dir, { recursive: true, force: true }));

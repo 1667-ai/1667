@@ -54,6 +54,23 @@ export function finalizeGenerationRecord(input: FinalizeGenerationRecordInput): 
   }
 }
 
+/** Every provider effect that succeeds must carry a Generation Record — this
+ *  is the one call `continueStory`, `rewriteNode`, `createSummaryTake`, and
+ *  `summarizeChapter` each make instead of `finalizeGenerationRecord`
+ *  directly, so none of them can construct their effect with a record
+ *  omitted. `finalizeGenerationRecord` returns null only when the provider
+ *  layer never reached a point worth recording (no attempt ever streamed
+ *  output) — a state each of those callers only reaches before it has any
+ *  take to attach a record to, never on the success path that builds the
+ *  effect. The explicit `unsupported` stand-in below covers that gap
+ *  honestly instead of leaving the field absent. */
+export function finalizeRequiredGenerationRecord(input: FinalizeGenerationRecordInput): GenerationRecord {
+  return finalizeGenerationRecord(input) ?? unsupportedGenerationRecord(
+    input,
+    new Error("No provider output was captured before this generation record was finalized.")
+  );
+}
+
 /** An explicit stand-in for a production path that could not safely capture
  *  a full record — never a silent omission. Callers that have not yet wired
  *  a capture seam for one generation kind can call this directly instead of

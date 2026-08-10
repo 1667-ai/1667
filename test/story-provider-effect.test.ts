@@ -11,12 +11,28 @@ import {
   type ProviderStoryEffect
 } from "../server/story-provider-effect.js";
 import { prepareProviderStoryEffect } from "../server/story-provider-preparation.js";
-import { createGenerationRecord } from "../shared/generation-record.js";
+import { createGenerationRecord, type GenerationRecord, type GenerationRecordKind } from "../shared/generation-record.js";
+import type { PromptOperation } from "../shared/prompt-plan.js";
 import { takePendingGenerationRecords } from "../server/story-node-generation-records.js";
 
 const AT = "2026-07-25T12:00:00.000Z";
 const LATER = "2026-07-25T12:01:00.000Z";
 const hydrate = async () => {};
+
+/** A concrete, minimal Generation Record for tests that only care that every
+ *  provider effect carries one, not about its contents. */
+function generationRecordFixture(
+  kind: Exclude<GenerationRecordKind, "unsupported"> = "continue",
+  operation: PromptOperation = "continue"
+): GenerationRecord {
+  return createGenerationRecord({
+    kind,
+    createdAt: AT,
+    provider: { provider: "dry-run", model: "dry-run" },
+    effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+    prompt: { operation, entries: [] }
+  });
+}
 
 function node(
   id: string,
@@ -78,7 +94,8 @@ test("provider effects are exhaustively operation-specific", () => {
       expectedParentActiveChildId: null,
       expectedAppendActiveChildId: null,
       expectedActiveRootId: "root",
-      expectedActiveLeafId: "root"
+      expectedActiveLeafId: "root",
+      generationRecord: generationRecordFixture("continue")
     },
     rewrite: {
       kind: "rewrite",
@@ -86,7 +103,8 @@ test("provider effects are exhaustively operation-specific", () => {
       expectedText: "Opening.",
       expectedInstruction: "",
       text: "Rewritten.",
-      updatedAt: LATER
+      updatedAt: LATER,
+      generationRecord: generationRecordFixture("rewrite-in-place", "rewrite")
     },
     "summary-take": {
       kind: "summary-take",
@@ -96,14 +114,16 @@ test("provider effects are exhaustively operation-specific", () => {
       summary: "Summary.",
       model: "m",
       instruction: "Summarize",
-      commitIds: {}
+      commitIds: {},
+      generationRecord: generationRecordFixture("summary-take", "summary")
     },
     "chapter-summary": {
       kind: "chapter-summary",
       breakId: "break",
       sourceFingerprint: "x",
       summary: "Summary.",
-      model: "m"
+      model: "m",
+      generationRecord: generationRecordFixture("chapter-summary", "summary")
     }
   } satisfies Record<ProviderStoryEffect["kind"], ProviderStoryEffect>;
   assert.equal(Object.keys(effects).length, 5);
@@ -127,6 +147,7 @@ test("provider effect preparation rejects an existing cancellation", () => {
       expectedAppendActiveChildId: null,
       expectedActiveRootId: "root",
       expectedActiveLeafId: "root",
+      generationRecord: generationRecordFixture("continue"),
       cancelled: cancelled.signal
     }),
     (error: unknown) => error instanceof GenerationResultError
@@ -192,7 +213,8 @@ test("continue preserves concurrent writer state and does not steal its line", a
     expectedParentActiveChildId: null,
     expectedAppendActiveChildId: null,
     expectedActiveRootId: "root",
-    expectedActiveLeafId: "root"
+    expectedActiveLeafId: "root",
+    generationRecord: generationRecordFixture("continue")
   }, hydrate);
   assert.deepEqual(current.nodes.map(({ id }) => id), [
     "root",
@@ -224,7 +246,8 @@ test("continue preserves a writer extension below its requested parent", async (
     expectedParentActiveChildId: "child",
     expectedAppendActiveChildId: null,
     expectedActiveRootId: "root",
-    expectedActiveLeafId: "child"
+    expectedActiveLeafId: "child",
+    generationRecord: generationRecordFixture("continue")
   }, hydrate);
 
   assert.equal(current.activeRootId, "root");
@@ -251,7 +274,8 @@ test("continue deduplicates a Stop save with the same generation ID", async () =
     expectedParentActiveChildId: null,
     expectedAppendActiveChildId: null,
     expectedActiveRootId: "root",
-    expectedActiveLeafId: "root"
+    expectedActiveLeafId: "root",
+    generationRecord: generationRecordFixture("continue")
   }, hydrate);
   assert.equal(applied.changed, false);
   assert.deepEqual(current.nodes.map(({ id }) => id), ["root", "partial"]);
@@ -274,7 +298,8 @@ test("append completion stays on its source after the writer switches lines", as
     expectedParentActiveChildId: null,
     expectedAppendActiveChildId: null,
     expectedActiveRootId: "source",
-    expectedActiveLeafId: "source"
+    expectedActiveLeafId: "source",
+    generationRecord: generationRecordFixture("append")
   }, hydrate);
   assert.equal(current.nodes[0]?.text, "The latch was unlocked.");
   assert.equal(current.nodes[0]?.genId, "g-append");
@@ -332,7 +357,8 @@ test("continue fails when its parent was deleted", async () => {
       expectedParentActiveChildId: null,
       expectedAppendActiveChildId: null,
       expectedActiveRootId: "root",
-      expectedActiveLeafId: "root"
+      expectedActiveLeafId: "root",
+      generationRecord: generationRecordFixture("continue")
     }, hydrate),
     GenerationResultError
   );
@@ -356,6 +382,7 @@ test("late provider-effect cancellation is a definitive terminal conflict", asyn
       expectedAppendActiveChildId: null,
       expectedActiveRootId: "root",
       expectedActiveLeafId: "root",
+      generationRecord: generationRecordFixture("append"),
       cancelled: cancelled.signal
     }, async () => {
       cancelled.abort();
@@ -432,7 +459,8 @@ test("rewrite rejects instruction-only and timestamp-only concurrent edits", asy
         expectedText: "Opening.",
         expectedInstruction: "",
         text: "Model rewrite.",
-        updatedAt: LATER
+        updatedAt: LATER,
+        generationRecord: generationRecordFixture("rewrite-in-place", "rewrite")
       }, hydrate),
       GenerationResultError
     );
@@ -457,8 +485,9 @@ test("rewrite of an ordinary take replaces in place by default and adds no node 
     attribution: null,
     rewrittenSpans: [{ start: 0, end: 5 }],
     updatedAt: LATER,
-    rewriteId: "rewrite-2"
+    rewriteId: "rewrite-2",
     // destination absent: in-place is the default.
+    generationRecord: generationRecordFixture("rewrite-in-place", "rewrite")
   }, hydrate);
 
   assert.equal(applied.changed, true);
@@ -493,7 +522,8 @@ test("rewrite of an ordinary take opts into a new sibling and keeps the source r
     updatedAt: LATER,
     rewriteId: "rewrite-2",
     takeId: "take-1",
-    destination: "take"
+    destination: "take",
+    generationRecord: generationRecordFixture("rewrite-take", "rewrite")
   }, hydrate);
 
   assert.equal(applied.changed, true);
@@ -531,7 +561,8 @@ test("replaying a committed take-mode rewrite leaves the story unchanged", async
     updatedAt: LATER,
     rewriteId: "rewrite-2",
     takeId: "take-1",
-    destination: "take"
+    destination: "take",
+    generationRecord: generationRecordFixture("rewrite-take", "rewrite")
   }, hydrate);
 
   assert.equal(applied.changed, false);
@@ -554,7 +585,8 @@ test("replaying a committed in-place rewrite leaves the story unchanged", async 
     expectedInstruction: "",
     text: "A different replay text — must not land.",
     updatedAt: LATER,
-    rewriteId: "rewrite-2"
+    rewriteId: "rewrite-2",
+    generationRecord: generationRecordFixture("rewrite-in-place", "rewrite")
   }, hydrate);
 
   assert.equal(applied.changed, false);
@@ -584,7 +616,8 @@ test("summary take validates current source and never changes navigation", async
     summary: "Summary.",
     model: "m",
     instruction: "Summarize",
-    commitIds: { summaryNodeId: "summary" }
+    commitIds: { summaryNodeId: "summary" },
+    generationRecord: generationRecordFixture("summary-take", "summary")
   }, hydrate);
   assert.equal(current.nodes[0]?.activeChildId, "writer");
   assert.equal(current.nodes.find(({ id }) => id === "summary")?.role, "summary");
@@ -597,7 +630,8 @@ test("summary take validates current source and never changes navigation", async
       summary: "Summary.",
       model: "m",
       instruction: "Summarize",
-      commitIds: { summaryNodeId: "deleted-summary" }
+      commitIds: { summaryNodeId: "deleted-summary" },
+      generationRecord: generationRecordFixture("summary-take", "summary")
     }, hydrate),
     (error: unknown) =>
       error instanceof GenerationResultError && error.code === "conflict"
@@ -630,7 +664,8 @@ test("chapter summary refresh preserves identity and transfers all summary metad
     sourceFingerprint,
     summary: "Fresh summary.",
     model: "new",
-    rewriteId: "rewrite-summary"
+    rewriteId: "rewrite-summary",
+    generationRecord: generationRecordFixture("chapter-summary", "summary")
   }, hydrate);
   assert.equal(summary.text, "Fresh summary.");
   assert.equal(summary.model, "new");
@@ -651,7 +686,8 @@ test("chapter-source drift is a definitive terminal conflict", async () => {
       breakId: "removed-break",
       sourceFingerprint: "provider-input",
       summary: "Must not commit.",
-      model: "m"
+      model: "m",
+      generationRecord: generationRecordFixture("chapter-summary", "summary")
     }, hydrate),
     (error: unknown) =>
       error instanceof GenerationResultError && error.code === "conflict"

@@ -26,6 +26,7 @@ import {
   createFailureEnvelope,
   isTimeoutClassFailure
 } from "../shared/failure-envelope.js";
+import { createGenerationRecord } from "../shared/generation-record.js";
 import { createHttpOperationLease } from "../shared/http-operation-lease.js";
 import { rewriteStreamDigest } from "../shared/rewrite-partial-contract.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
@@ -698,7 +699,14 @@ providerTest("rewrite stash byte accounting returns unused reservation and relea
       nodeId: "byte-node",
       expectedText: "old prose",
       expectedInstruction: "",
-      text: "saved prose"
+      text: "saved prose",
+      generationRecord: createGenerationRecord({
+        kind: "rewrite-in-place",
+        createdAt: "2026-07-25T12:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: { operation: "rewrite", entries: [] }
+      })
     }
   };
   const recordBytes = partialRewriteRecordRetainedBytes(record);

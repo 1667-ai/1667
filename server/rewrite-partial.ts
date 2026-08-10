@@ -184,10 +184,7 @@ export function partialRewriteRecordRetainedBytes(
  *  attach — this is that record's contribution to the retained-byte total,
  *  computed from its canonical serialized form so the estimate tracks the
  *  same bytes `MAX_GENERATION_RECORD_BYTES` bounds. */
-function generationRecordRetainedBytes(
-  record: GenerationRecord | null | undefined
-): number {
-  if (record === null || record === undefined) return 0;
+function generationRecordRetainedBytes(record: GenerationRecord): number {
   const serialized = serializeGenerationRecord(record);
   return RETAINED_GENERATION_RECORD_BASE_BYTES
     + Math.max(Buffer.byteLength(serialized), serialized.length * 2);
@@ -196,12 +193,14 @@ function generationRecordRetainedBytes(
 /** Reserve before streaming against the largest record this request can
  *  produce, including provider-secret redaction expansion and the Generation
  *  Record the eventual commit will attach. `originalRecord` is built before
- *  the stream starts, so its `effect.generationRecord` is normally still
- *  null — the collector that fills it in only resolves once the provider
- *  responds — but the reservation must already cover the worst case the
- *  later `remember()` can present. Topping the existing contribution up to
- *  the codec's own max (rather than always adding the max) keeps this
- *  correct even if a caller ever does pass an already-populated record. */
+ *  the stream starts, so its `effect.generationRecord` is normally still the
+ *  small `unsupported` stand-in `finalizeRequiredGenerationRecord`
+ *  (server/generation-record-finalize.ts) falls back to before the capture
+ *  collector resolves — but the reservation must already cover the worst
+ *  case the later `remember()` can present. Topping the existing
+ *  contribution up to the codec's own max (rather than always adding the
+ *  max) keeps this correct even if a caller ever does pass an
+ *  already-populated record. */
 export function maximumPartialRewriteRecordRetainedBytes(
   originalRecord: PartialRewriteRecord,
   maximumRetainedProviderOutputBytes: number
