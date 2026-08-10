@@ -131,6 +131,30 @@ function generatedSource(notes: ParsedReleaseNote[]): string {
   ].join("\n");
 }
 
+/**
+ * Fail unless `CHANGELOG.md` has a release section for exactly `version`.
+ * `notes:check` alone cannot catch this: it only verifies the generated
+ * file matches whatever headings already exist, and passes happily when the
+ * version being published is still sitting under `## Unreleased` with no
+ * section of its own. A tagged binary can then ship with no note for its
+ * own version — and because the "unknown previous version" upgrade path
+ * (see `release-announcement.ts`) matches a note by exact version, every
+ * pre-feature installation upgrading to that release gets nothing, and is
+ * stamped as seen regardless: its one chance to be told is gone for good.
+ * Wired into the release workflow, not into `build`/`typecheck` — everyday
+ * development legitimately has unreleased changes, and failing those would
+ * be wrong.
+ */
+export async function assertVersionHasReleaseNote(version: string): Promise<void> {
+  const changelog = await readFile(CHANGELOG_FILE, "utf8");
+  const notes = parseReleaseNotes(changelog);
+  if (notes.some((note) => note.version === version)) return;
+  throw new Error(
+    `CHANGELOG.md has no release section for ${version}. Add "## ${version} - <YYYY-MM-DD>" `
+    + "to CHANGELOG.md, then run npm run notes:write, before publishing this version."
+  );
+}
+
 const mode = process.argv[2];
 if (mode === "--write") {
   const changelog = await readFile(CHANGELOG_FILE, "utf8");
@@ -140,6 +164,12 @@ if (mode === "--write") {
   const changelog = await readFile(CHANGELOG_FILE, "utf8");
   const notes = parseReleaseNotes(changelog);
   await assertExact(OUTPUT_FILE, generatedSource(notes), ARTIFACT_OPTIONS);
+} else if (mode === "--check-version") {
+  const version = process.argv[3];
+  if (version === undefined) {
+    throw new Error("Usage: tsx scripts/release-notes.ts --check-version <version>");
+  }
+  await assertVersionHasReleaseNote(version);
 } else {
-  throw new Error("Usage: tsx scripts/release-notes.ts --write|--check");
+  throw new Error("Usage: tsx scripts/release-notes.ts --write|--check|--check-version <version>");
 }

@@ -182,6 +182,38 @@ describe("C-27 · the log scrolls within a notice too tall for the surface", () 
     expect(afterOnePageUp).not.toContain("LASTROWMARKER");
   });
 
+  test("a resize after scrolling does not leave a scroll key visibly frozen", async () => {
+    // A small surface first: few rows fit, so scrolling to the end leaves a
+    // large stored offset.
+    const size = { width: 120, height: 15 };
+    const { state, press } = harness(size);
+    const words = Array.from({ length: 1500 }, (_, index) => `w${index}`);
+    words.push("LASTROWMARKER");
+    recordNotice(state.notices, "toast", words.join(" "));
+
+    await press(key("!", "!"));
+    expect(state.mode).toBe("LOG");
+    for (let line = 0; line < 200; line += 1) await press(key("down", "down", true));
+    expect(screen(state, size.width, size.height)).toContain("LASTROWMARKER");
+
+    // Grow the terminal well past that point. Nothing hooks a resize, so the
+    // stored offset stays exactly what it was — now far past the notice's
+    // new, much smaller excess. `windowStart` still clamps it correctly for
+    // this render, but the clamped value is never written back.
+    size.height = 60;
+    const grown = screen(state, size.width, size.height);
+    expect(grown).toContain("LASTROWMARKER");
+
+    // One line-scroll up at the new size must visibly move the view. Before
+    // this fix, the delta applied to the stale raw offset, which stayed far
+    // enough past the new maximum that the clamp absorbed it completely —
+    // the same symptom as the earlier page-down regression, reached by a
+    // resize instead of by holding a key.
+    await press(key("up", "up", true));
+    const afterOneLineUp = screen(state, size.width, size.height);
+    expect(afterOneLineUp).not.toBe(grown);
+  });
+
   test("a notice that fits the surface does not move when scrolled", async () => {
     const { state, press } = harness();
     recordNotice(state.notices, "toast", "a short notice that fits on one screen");

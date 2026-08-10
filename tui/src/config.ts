@@ -186,10 +186,16 @@ export function loadConfig(
   return loadConfigWithStatus(options).config;
 }
 
+/** Persist a config, and say whether it actually landed. A read-only or full
+ *  home must not break the app, so a write failure here is swallowed rather
+ *  than thrown — but a caller for whom persistence is the whole point (see
+ *  `announceRelease`) needs to tell that apart from success, or it acts on a
+ *  promise the disk never kept. Existing callers that ignore the result keep
+ *  working unchanged. */
 export function saveConfig(
   config: UserConfig,
   options: ConfigPersistenceOptions = {}
-): void {
+): boolean {
   let temporaryFile: string | null = null;
   try {
     const file = options.file ?? configPath();
@@ -217,8 +223,10 @@ export function saveConfig(
     renameSync(temporaryFile, file);
     temporaryFile = null;
     syncConfigDirectory(directory);
+    return true;
   } catch {
     // A read-only/full home must not break the app or truncate the last config.
+    return false;
   } finally {
     if (temporaryFile !== null) {
       try {

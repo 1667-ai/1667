@@ -152,14 +152,47 @@ describe("announceRelease (wiring)", () => {
     // `runInteractive`, the same way the archive-import fidelity report
     // test does.
     recordSessionNotices(state);
-    const texts = state.notices.entries.map((entry) => String(entry.text));
-    // Newest first: the toast headline lands above the full body it points to.
-    expect(texts[0]).toBe(EXPECTED_TOAST);
-    expect(texts[1]).toContain("current release body");
-    expect(texts[1]).toContain("intervening release body");
+    // Exactly one entry: the toast headline is deliberately not recorded a
+    // second time (`announceRelease` marks it already-seen). It carries
+    // nothing the body doesn't already say, and a second entry would land
+    // above the body and steal focus onto a sentence that only repeats the
+    // toast the writer already read.
+    expect(state.notices.entries).toHaveLength(1);
+    const [body] = state.notices.entries;
+    expect(body!.text).toContain("current release body");
+    expect(body!.text).toContain("intervening release body");
 
     expect(source.config.lastRunVersion).toBe(AI_1667_PRODUCT_VERSION);
     expect(loadConfig({ file }).lastRunVersion).toBe(AI_1667_PRODUCT_VERSION);
+  });
+
+  // Regression: `saveConfig` swallows a read-only or full config directory
+  // rather than throwing. Before this fix, `announceRelease` announced
+  // anyway, breaking the one-shot promise: the next launch reads the same
+  // unstamped file and announces again, forever.
+  test("does not announce when the stamp fails to persist", async () => {
+    const file = await scratchConfigFile();
+    saveConfig(normalizeUserConfig({ lastRunVersion: "0.0.1" }), { file });
+    const source = wiringSource(file);
+    const state = initialState(source, false);
+
+    announceRelease(state, source, {
+      file,
+      // config.ts's crash-injection seam, the same one config.test.ts uses,
+      // firing after the durable temp write but before the rename that
+      // would make it visible — a stand-in for a read-only or full
+      // directory, without needing real filesystem permissions in a test.
+      afterTemporaryFileSync: () => {
+        throw new Error("simulated write failure");
+      }
+    }, WIRING_NOTES);
+
+    expect(state.toast).toBeNull();
+    expect(state.notices.entries).toHaveLength(0);
+    // The file on disk keeps the old version: the write never landed.
+    expect(loadConfig({ file }).lastRunVersion).toBe("0.0.1");
+    // In memory, too — we do not claim a stamp that did not persist.
+    expect(source.config.lastRunVersion).toBe("0.0.1");
   });
 
   test("an upgrade whose range has no matching notes still stamps lastRunVersion", async () => {
@@ -350,6 +383,37 @@ describe("the announcement reaches a rendered frame", () => {
 
     expect(rendered).toContain(`Updated to ${AI_1667_PRODUCT_VERSION}`);
     expect(rendered).toContain("press ! for what changed");
+  });
+
+  // Regression: the toast promises "press ! for what changed". Before this
+  // fix, the log's own repaint re-recorded the toast headline as a second,
+  // newer entry and focused that instead — so pressing `!` expanded the
+  // sentence the writer had already read, with the actual notes collapsed
+  // one row below. Asserted against the rendered frame, not the entries
+  // array: the entries array is what let the earlier version of this test
+  // believe the bug was the intended behavior.
+  test("opening the log after an announcing run focuses the release notes, not the toast headline", async () => {
+    const file = await scratchConfigFile();
+    saveConfig(normalizeUserConfig({ lastRunVersion: "0.0.1" }), { file });
+    const source = wiringSource(file);
+    const state = initialState(source, false);
+
+    announceRelease(state, source, { file }, WIRING_NOTES);
+    expect(state.toast).toBe(EXPECTED_TOAST);
+    // The repaint that runs right after this call in `runInteractive`.
+    recordSessionNotices(state);
+
+    state.mode = "LOG";
+    const rendered = frameText(renderStoryScreen(state, {
+      width: 120, height: 36, wrapCache: createWrapCache<ProseStyle>()
+    }).lines);
+
+    // The one notice in the session is the release notes, expanded and
+    // focused — not a second entry that only repeats the toast sentence.
+    expect(rendered).toContain("1 notice this session");
+    expect(rendered).toContain("current release body");
+    expect(rendered).toContain("intervening release body");
+    expect(rendered).not.toContain(EXPECTED_TOAST);
   });
 
   // The regression finding #2 exists for: a release-note body is routinely

@@ -131,6 +131,17 @@ export function clearNoticeLog(log: NoticeLog): void {
   setNoticeCursor(log, 0);
 }
 
+/** Mark a channel's current text as already recorded, with no entry written
+ *  for it. For a caller that just wrote the full account directly through
+ *  `recordNotice`, so the channel's own short text is not worth a second,
+ *  redundant entry: without this, the next `recordNotices` pass (from the
+ *  following `repaint`) would see that text as new and record it anyway,
+ *  unshifting it above the entry that already carries the whole story and
+ *  moving focus onto it. */
+export function markNoticeSeen(log: NoticeLog, channel: NoticeChannel, text: string): void {
+  log.seen[channel] = text;
+}
+
 /** C-37's keys, in one place the way the request viewer keeps its own: `↑↓`
  *  move · `⇧↑↓` scrolls a line and `pgup`/`pgdn` a page within the focused
  *  notice, the same vocabulary and action names `reference-bindings.ts` uses

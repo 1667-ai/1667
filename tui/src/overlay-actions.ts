@@ -233,13 +233,13 @@ async function logAction(
   }
   if (resolved.action === "scroll-line-down" || resolved.action === "scroll-line-up") {
     const delta = resolved.action === "scroll-line-down" ? 1 : -1;
-    log.scrollOffset = clampedNoticeScrollOffset(log, log.scrollOffset + delta, terminalWidth, terminalHeight);
+    log.scrollOffset = scrolledNoticeOffset(log, delta, terminalWidth, terminalHeight);
     return;
   }
   if (resolved.action === "scroll-down" || resolved.action === "scroll-up") {
     const page = terminalHeight === undefined ? 1 : logBodyHeight(terminalHeight);
     const delta = resolved.action === "scroll-down" ? page : -page;
-    log.scrollOffset = clampedNoticeScrollOffset(log, log.scrollOffset + delta, terminalWidth, terminalHeight);
+    log.scrollOffset = scrolledNoticeOffset(log, delta, terminalWidth, terminalHeight);
     return;
   }
   if (resolved.action === "clear-log") {
@@ -270,6 +270,26 @@ function clampedNoticeScrollOffset(
 ): number {
   const maxOffset = maxNoticeScrollOffset(log, terminalWidth ?? 80, terminalHeight ?? 24);
   return Math.max(0, Math.min(maxOffset, requested));
+}
+
+/** Apply a scroll delta to the *currently valid* clamped offset, not to the
+ *  raw stored one. A terminal resize since the last scroll leaves
+ *  `log.scrollOffset` stale — `windowStart` clamps it for display but never
+ *  writes the clamped value back — so growing the terminal can leave it well
+ *  past the new maximum. Basing the delta on the stale value there would
+ *  produce a keypress that visibly does nothing, or jumps the wrong
+ *  distance, until enough presses absorb the gap: the same symptom
+ *  `clampedNoticeScrollOffset` exists to prevent, reached by a different
+ *  route. No resize hook and no new state: the very next scroll keypress
+ *  after a resize is what re-grounds the offset. */
+function scrolledNoticeOffset(
+  log: NoticeLog,
+  delta: number,
+  terminalWidth: number | undefined,
+  terminalHeight: number | undefined
+): number {
+  const current = clampedNoticeScrollOffset(log, log.scrollOffset, terminalWidth, terminalHeight);
+  return clampedNoticeScrollOffset(log, current + delta, terminalWidth, terminalHeight);
 }
 
 /** The reference only reads and scrolls; `open-keys` owns the reset. Page

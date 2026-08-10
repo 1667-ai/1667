@@ -3,7 +3,7 @@ import { compareSemVer } from "../../shared/semver.js";
 import { RELEASE_NOTES, type ReleaseNote } from "../../shared/release-notes.js";
 import type { AppSource } from "./app.js";
 import { loadConfigWithStatus, saveConfig, type ConfigLoadStatus, type ConfigPersistenceOptions } from "./config.js";
-import { recordNotice } from "./notice-log.js";
+import { markNoticeSeen, recordNotice } from "./notice-log.js";
 import type { RuntimeState } from "./state.js";
 
 export interface ReleaseAnnouncement {
@@ -151,7 +151,11 @@ export function announceRelease(
   // Unconditional (for every case but `unreadable`, already returned above):
   // a version with no notes for this writer's range must still be recorded,
   // or every later launch of this same build would repeat the check forever.
-  if (fresh.config.lastRunVersion !== currentVersion) {
+  // `stamped` tracks whether the file on disk is actually known to carry
+  // `currentVersion` — either because it already did, or because this write
+  // just landed — not merely that a write was attempted.
+  let stamped = fresh.config.lastRunVersion === currentVersion;
+  if (!stamped) {
     // Persist onto `fresh.config` — the copy this function just read — never
     // onto `source.config`, the snapshot `main.ts` loaded earlier at
     // startup. `~/.config/1667/config.json` is machine-global, not
@@ -159,24 +163,47 @@ export function announceRelease(
     // change the theme, an update preference, or the quota ledger between
     // that earlier load and this call. Stamping over the stale startup
     // snapshot would silently revert whatever that other process just wrote.
-    saveConfig({ ...fresh.config, lastRunVersion: currentVersion }, options);
-    // In memory, though, adopt only this one field. `source.config`'s other
-    // fields already built this session's palette and behavior before this
-    // function ever ran, so swapping the concurrent process's fresher
-    // values in here would change a running session's settings underneath
-    // it — a worse bug than the disk overwrite this guards against. Disk
-    // gets the fresh copy; memory keeps its own snapshot except for
-    // `lastRunVersion`. This asymmetry is deliberate — do not "tidy" it
-    // into full adoption.
-    source.config = { ...source.config, lastRunVersion: currentVersion };
-    state.config = source.config;
+    stamped = saveConfig({ ...fresh.config, lastRunVersion: currentVersion }, options);
+    if (stamped) {
+      // In memory, though, adopt only this one field. `source.config`'s
+      // other fields already built this session's palette and behavior
+      // before this function ever ran, so swapping the concurrent
+      // process's fresher values in here would change a running session's
+      // settings underneath it — a worse bug than the disk overwrite this
+      // guards against. Disk gets the fresh copy; memory keeps its own
+      // snapshot except for `lastRunVersion`. This asymmetry is
+      // deliberate — do not "tidy" it into full adoption.
+      source.config = { ...source.config, lastRunVersion: currentVersion };
+      state.config = source.config;
+    }
   }
 
+  // `saveConfig` swallows a read-only or full config directory rather than
+  // throwing, so a failed write is silent unless checked here. Announcing
+  // anyway would break the one-shot promise: the next launch reads the same
+  // unstamped file and reaches this same branch again, nagging the writer
+  // on every future start of this same build. Staying quiet on a broken
+  // config directory is the safer failure.
+  if (!stamped) return;
+
   if (announcement === null) return;
-  // Never clobber a toast startup already raised for another reason.
-  if (state.toast === null) state.toast = announcement.toast;
   // The toast holds a few rows; the announcement's full body does not. This
   // is the same split the archive-import fidelity report uses: the toast
   // headline, and the whole account written to the log directly.
   recordNotice(state.notices, "toast", announcement.body);
+  // Never clobber a toast startup already raised for another reason.
+  if (state.toast === null) {
+    state.toast = announcement.toast;
+    // Mark the headline itself already-seen. Without this, the very next
+    // `repaint()`'s `recordSessionNotices` would see `state.toast` as a new
+    // notice and record it too — unshifting the headline above the body
+    // `recordNotice` just wrote and moving focus onto a sentence that only
+    // repeats what the toast already said ("press ! for what changed"
+    // pointing at itself). This is a deliberate departure from the
+    // archive-import fidelity report's pattern: its headline carries a
+    // distinct summary worth its own entry, and this one carries nothing
+    // the body doesn't already say in full. Do not "restore consistency"
+    // by reverting this.
+    markNoticeSeen(state.notices, "toast", announcement.toast);
+  }
 }

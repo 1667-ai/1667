@@ -158,6 +158,7 @@ jobs:
           set -euo pipefail
           timestamp="$(node --import tsx scripts/release-npm-ci.ts timestamp)"
           node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
+          node --import tsx scripts/release-notes.ts --check-version "$VERSION"
           node --import tsx scripts/release-evidence.ts \
             --tag "v$VERSION" \
             --protected-ref "refs/remotes/origin/$DEFAULT_BRANCH" \
@@ -269,6 +270,7 @@ jobs:
           set -euo pipefail
           timestamp="$(node --import tsx scripts/release-npm-ci.ts timestamp)"
           node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
+          node --import tsx scripts/release-notes.ts --check-version "$VERSION"
           node --import tsx scripts/release-evidence.ts \
             --tag "v$VERSION" \
             --protected-ref "refs/remotes/origin/$DEFAULT_BRANCH" \
@@ -432,6 +434,7 @@ jobs:
           timestamp="$(node --import tsx scripts/release-npm-ci.ts timestamp)"
           node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
           node --import tsx scripts/release-completion.ts ready
+          node --import tsx scripts/release-notes.ts --check-version "$VERSION"
           node --import tsx scripts/release-evidence.ts \
             --tag "v$VERSION" \
             --protected-ref "refs/remotes/origin/$DEFAULT_BRANCH" \
@@ -589,6 +592,7 @@ jobs:
           timestamp="$(node --import tsx scripts/release-npm-ci.ts timestamp)"
           node --import tsx scripts/release-completion.ts replay "$VERSION" "$GITHUB_SHA"
           node --import tsx scripts/release-completion.ts ready
+          node --import tsx scripts/release-notes.ts --check-version "$VERSION"
           node --import tsx scripts/release-evidence.ts \
             --tag "v$VERSION" \
             --protected-ref "refs/remotes/origin/$DEFAULT_BRANCH" \
