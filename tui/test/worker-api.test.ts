@@ -670,8 +670,42 @@ describe("embedded backend worker", () => {
       await settling;
       expect(await outbox.list()).toEqual([]);
 
-      // Restoring a chapter break re-installs removed summary nodes, so it
-      // keeps the full tier as well.
+      // Removing a chapter break detaches summary Generation Records. Its
+      // full-tier receipt keeps their object graph live for a later restore.
+      const removing = backend.api.removeChapterBreak("story-1", "break-1");
+      const previewRemoval = await waitForRequest(worker, "previewChapterBreakRemoval");
+      const removed = {
+        break: {
+          id: "break-1",
+          parentPartId: "node-1",
+          title: "Kept chapter",
+          createdAt: new Date().toISOString()
+        },
+        summaries: []
+      };
+      worker.message({
+        type: "result",
+        id: previewRemoval.id,
+        value: {
+          removed,
+          removedFingerprint: "a".repeat(64),
+          aggregateVersion: { kind: "v6", revision: "00000000000000000001" }
+        }
+      });
+      const remove = await waitForRequest(worker, "removeChapterBreak");
+      expect(remove.durability).toBe(undefined);
+      const removeIntents = await outbox.list();
+      expect(removeIntents).toHaveLength(1);
+      expect(removeIntents[0]!.method).toBe("removeChapterBreak");
+      worker.message({
+        type: "result",
+        id: remove.id,
+        value: { payload: { id: "story-1", nodes: [], path: [] }, removed }
+      });
+      await removing;
+      expect(await outbox.list()).toEqual([]);
+
+      // Restoring the detached summary nodes keeps the full tier as well.
       const restoring = backend.api.restoreChapterBreak("story-1", "break-1", {
         break: {
           id: "break-1",
