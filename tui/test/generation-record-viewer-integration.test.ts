@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../../shared/generation-record.js";
 import { handleKey, initialState } from "../src/app.js";
+import { ActionRuntime } from "../src/action-runtime.js";
 import { ApiHttpError } from "../src/api-error.js";
 import { demoAppSource } from "../src/demo.js";
 import { renderStoryScreen } from "../src/screens/story.js";
@@ -36,6 +37,24 @@ function harness() {
   const press = (name: string, shift = false) =>
     handleKey(key(name, shift), state, source, cache, () => {}, async () => {}, () => {});
   return { source, state, cache, press };
+}
+
+/** Like `harness()`, but wires one persistent `ActionRuntime` across every
+ *  key press instead of the per-call default — matching how the real app
+ *  wires a single long-lived backend (`app.ts`'s render loop), so
+ *  `backend.whenIdle()` waiters registered by one press actually see a
+ *  later press's task release the runtime. */
+function persistentBackendHarness() {
+  const source = demoAppSource();
+  const state = initialState(source, false);
+  const cache = createWrapCache<ProseStyle>();
+  const backend = new ActionRuntime(state, () => {});
+  const press = (name: string, shift = false) =>
+    handleKey(
+      key(name, shift), state, source, cache, () => {}, async () => {}, () => {},
+      null, () => undefined, () => undefined, backend
+    );
+  return { source, state, cache, backend, press };
 }
 
 const SUMMARY_OLD: GenerationRecordSummary = { id: "r-old", kind: "continue", createdAt: "2026-01-01T00:00:00.000Z" };
@@ -184,6 +203,66 @@ describe("generation record viewer: stale async responses never paint over a new
     // The stale older-event answer must not overwrite the current selection.
     expect(state.record?.eventIndex).toBe(1);
     expect(state.record?.detail?.kind).toBe("append");
+  });
+
+  test("rapid switching past a still-loading event keeps the newest selection loading, not stuck busy", async () => {
+    // A persistent backend (not a fresh one per key press) so a retry queued
+    // by one press can see a later press's task actually free the runtime —
+    // exactly how the real app wires one long-lived `ActionRuntime`.
+    const { source, state, press } = persistentBackendHarness();
+    const SUMMARY_MID: GenerationRecordSummary = {
+      id: "r-mid",
+      kind: "continue",
+      createdAt: "2026-01-01T12:00:00.000Z"
+    };
+    source.api.getGenerationRecords = async () => [SUMMARY_OLD, SUMMARY_MID, SUMMARY_NEW];
+    source.api.getGenerationRecord = async (_storyId, _nodeId, recordId) =>
+      recordId === SUMMARY_NEW.id ? record("append") : Promise.reject(new Error("not requested yet"));
+    await press("h");
+    expect(state.record?.eventIndex).toBe(2);
+    expect(state.record?.detail?.kind).toBe("append");
+
+    const midGate = deferred<ResolvedGenerationRecord>();
+    const oldGate = deferred<ResolvedGenerationRecord>();
+    source.api.getGenerationRecord = async (_storyId, _nodeId, recordId) => {
+      if (recordId === SUMMARY_MID.id) return await midGate.promise;
+      if (recordId === SUMMARY_OLD.id) return await oldGate.promise;
+      throw new Error(`unexpected record id ${recordId}`);
+    };
+
+    // First Left: MID's detail load starts and owns the shared runtime.
+    const toMid = press("left");
+    expect(state.record?.eventIndex).toBe(1);
+    expect(state.record?.detailLoading).toBe(true);
+
+    // A second, rapid Left commits OLD as the selection while MID's load is
+    // still in flight and still owns the runtime — the load this action
+    // starts is immediately refused as busy.
+    const toOld = press("left");
+    expect(state.record?.eventIndex).toBe(0);
+    // Regression: the newest selection must stay loading, queued to retry
+    // once the runtime frees up — not stuck showing a "Busy" detailError
+    // forever, since nothing else will ever retry it on the writer's behalf.
+    expect(state.record?.detailLoading).toBe(true);
+    expect(state.record?.detailError).toBe(null);
+
+    oldGate.resolve(record("rewrite-take"));
+    midGate.resolve(record("continue"));
+    await toMid;
+    await toOld;
+    // Both `press` calls settle as soon as their own load either lands or is
+    // queued to retry — neither one waits out the retry loop itself, so
+    // drain the microtask queue until the queued retry has had its turn.
+    for (let turn = 0; turn < 40 && state.record?.detail === null && state.record?.detailError === null; turn += 1) {
+      await Promise.resolve();
+    }
+
+    // MID's own late response was discarded — OLD, not MID, is current —
+    // and the queued retry landed OLD's own detail once the runtime freed.
+    expect(state.record?.eventIndex).toBe(0);
+    expect(state.record?.detail?.kind).toBe("rewrite-take");
+    expect(state.record?.detailLoading).toBe(false);
+    expect(state.record?.detailError).toBe(null);
   });
 
 });

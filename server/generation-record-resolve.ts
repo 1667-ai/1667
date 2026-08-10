@@ -5,8 +5,16 @@ import type {
   ResolvedGenerationRecordPromptEntry,
   ResolvedGenerationRecordSourcePart
 } from "../shared/generation-record.js";
+import { mapWithConcurrency } from "./concurrency.js";
 import { StoryFormatError } from "./story-format.js";
 import { createStoryReadCache, type StoryObjectStore, type StoryReadCache } from "./story-objects.js";
+
+/** Matches `StoryObjectStore`'s own `TEXT_IO_CONCURRENCY` — the bound it
+ *  already applies to bulk full-text reads elsewhere (`readTexts`,
+ *  `storeTexts`). A source entry can carry up to `MAX_GENERATION_RECORD_
+ *  SOURCE_PARTS` (8,192) parts, so resolving them with a plain `Promise.all`
+ *  could open thousands of file descriptors at once. */
+const SOURCE_PART_IO_CONCURRENCY = 4;
 
 /**
  * Resolves a stored, reference-based Generation Record into the read model
@@ -23,7 +31,14 @@ export async function resolveGenerationRecord(
   objects: StoryObjectStore
 ): Promise<ResolvedGenerationRecord> {
   const cache = createStoryReadCache();
-  const entries = await Promise.all(record.prompt.entries.map((entry) => resolvePromptEntry(entry, objects, cache)));
+  // Resolve source entries one at a time. Each source entry has its own
+  // bounded worker pool below. This keeps the limit global to one detail
+  // read instead of multiplying it by the number of source entries.
+  const entries = await mapWithConcurrency(
+    record.prompt.entries,
+    1,
+    (entry) => resolvePromptEntry(entry, objects, cache)
+  );
   return { ...record, prompt: { operation: record.prompt.operation, entries } };
 }
 
@@ -33,20 +48,24 @@ async function resolvePromptEntry(
   cache: StoryReadCache
 ): Promise<ResolvedGenerationRecordPromptEntry> {
   if (entry.source !== "revisions") return entry;
-  const parts = await Promise.all(entry.parts.map(async (part): Promise<ResolvedGenerationRecordSourcePart> => {
-    const text = await objects.readText(part.revisionId, cache);
-    if (text.length !== part.textLength) {
-      throw new StoryFormatError(
-        `Generation record source text length mismatch for node ${part.nodeId}: expected ${part.textLength}, read ${text.length}`
-      );
+  const parts = await mapWithConcurrency(
+    entry.parts,
+    SOURCE_PART_IO_CONCURRENCY,
+    async (part): Promise<ResolvedGenerationRecordSourcePart> => {
+      const text = await objects.readText(part.revisionId, cache);
+      if (text.length !== part.textLength) {
+        throw new StoryFormatError(
+          `Generation record source text length mismatch for node ${part.nodeId}: expected ${part.textLength}, read ${text.length}`
+        );
+      }
+      return {
+        nodeId: part.nodeId,
+        category: part.category,
+        instruction: part.instruction,
+        revisionId: part.revisionId,
+        text
+      };
     }
-    return {
-      nodeId: part.nodeId,
-      category: part.category,
-      instruction: part.instruction,
-      revisionId: part.revisionId,
-      text
-    };
-  }));
+  );
   return { stability: entry.stability, kind: entry.kind, source: entry.source, parts };
 }

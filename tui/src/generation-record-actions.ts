@@ -199,7 +199,28 @@ async function loadSelectedDetail(
   record.detail = null;
   record.detailError = null;
   record.detailLoading = true;
-  const ran = await context.backend.run("loading generation record", async (task) => {
+  const admitted = await runDetailFetch(state, source, context, nodeId, recordId);
+  const current = state.record;
+  if (!admitted && current !== null && selectsRecord(current, nodeId, recordId)) {
+    // A faster later selection may already own the runtime. Rather than
+    // declaring this — the latest — selection "busy", keep it in its
+    // loading state and retry once the runtime frees up. If the writer
+    // moves on again before then, `selectsRecord` below stops the retry.
+    context.backend.observe(retryDetailFetchWhenIdle(state, source, context, nodeId, recordId));
+  }
+}
+
+/** Runs the actual detail fetch under the shared runtime and, on success or
+ *  failure alike, publishes the result only if this event is still selected
+ *  — the same stale-response guard `loadSelectedDetail` always used. */
+async function runDetailFetch(
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext,
+  nodeId: string,
+  recordId: string
+): Promise<boolean> {
+  return context.backend.run("loading generation record", async (task) => {
     let detail: ResolvedGenerationRecord | null = null;
     let detailError: GenerationRecordDetailError | null = null;
     try {
@@ -213,11 +234,30 @@ async function loadSelectedDetail(
     current.detail = detail;
     current.detailError = detailError;
     current.detailLoading = false;
-  });
-  const current = state.record;
-  if (!ran && current !== null && selectsRecord(current, nodeId, recordId)) {
-    current.detailLoading = false;
-    current.detailError = { kind: "failed", message: "Busy. Try again once the current task finishes." };
+  }, { reportBusy: false });
+}
+
+async function retryDetailFetchWhenIdle(
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext,
+  nodeId: string,
+  recordId: string
+): Promise<void> {
+  while (true) {
+    const current = state.record;
+    if (current === null || !selectsRecord(current, nodeId, recordId)) return;
+    if (!await context.backend.whenIdle()) return;
+    const stillCurrent = state.record;
+    if (stillCurrent === null || !selectsRecord(stillCurrent, nodeId, recordId)) return;
+    const cached = stillCurrent.cache.get(recordId);
+    if (cached !== undefined) {
+      stillCurrent.detail = cached;
+      stillCurrent.detailError = null;
+      stillCurrent.detailLoading = false;
+      return;
+    }
+    if (await runDetailFetch(state, source, context, nodeId, recordId)) return;
   }
 }
 
