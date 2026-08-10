@@ -1,5 +1,5 @@
 import { activePath, computeRollups } from "../shared/story-tree.js";
-import type { NodeStub, Story, StoryPayload } from "../shared/types.js";
+import type { NodeStub, Story, StoryPathNode, StoryPayload } from "../shared/types.js";
 import { MAX_AUTHORS_NOTE_CHARS, storedAuthorsNoteDepth } from "../shared/authors-note.js";
 import { MAX_AUTHOR_BRIEF_CHARS, storedAuthorBrief } from "../shared/author-brief.js";
 import { humanEditIsMeaningful } from "../shared/human-edit.js";
@@ -75,7 +75,7 @@ export function buildStoryPayload(
     }),
     // Shallow copies keep handlers from mutating store state through the
     // response; structuredClone here cost ~29ms on 20k-part paths.
-    path: activePath(story).map((node) => {
+    path: activePath(story).map((node): StoryPathNode => {
       // A path node is prose the reader already has; its Generation Record
       // history is fetched on demand (see GenerationRecordSummary and
       // loadGenerationRecordSummaries), so the ordered id list itself never

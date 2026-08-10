@@ -1,8 +1,7 @@
 import {
   assertChapterBreak,
   assertPromptReadyStoryPayload,
-  assertStoryNode,
-  MAX_GENERATION_RECORD_IDS
+  assertStoryNode
 } from "../../shared/types.js";
 import type {
   ChapterBreak,
@@ -558,16 +557,8 @@ export function decodeChapterBreakRemovedResponse(
 
 function decodeRemovedChapterSummary(value: unknown): StoryNode {
   const summary = responseRecord(value, "removed chapter summary");
-  const { generationRecordIds, ...pathNode } = summary;
-  assertStoryNode(pathNode);
-  if (generationRecordIds === undefined) return pathNode as unknown as StoryNode;
-  if (!Array.isArray(generationRecordIds)
-    || generationRecordIds.length === 0
-    || generationRecordIds.length > MAX_GENERATION_RECORD_IDS
-    || generationRecordIds.some((id) => typeof id !== "string" || !/^[a-f0-9]{64}$/u.test(id))) {
-    throw new Error("The server returned invalid removed chapter summary Generation Record ids.");
-  }
-  return { ...pathNode, generationRecordIds: [...generationRecordIds] } as unknown as StoryNode;
+  assertStoryNode(summary);
+  return summary;
 }
 
 export function responseRecord(value: unknown, label: string): Record<string, unknown> {

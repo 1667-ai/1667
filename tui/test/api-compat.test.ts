@@ -596,6 +596,23 @@ test("HTTP StoryApi validates chapter summaries at ingress and preserves legacy 
   expect((await rejection(api.loadStory("story")) as Error).message).toContain("story payload.title");
 });
 
+test("HTTP StoryApi rejects Generation Record ids on an ordinary story path node", async () => {
+  // StoryPayload.path only ever carries a count (see buildStoryPayload) — an
+  // id list there would mean the server leaked full Generation Record
+  // history into an ordinary story load.
+  const story = {
+    ...storyPayload("story"),
+    path: [storyNode("part", { generationRecordIds: ["a".repeat(64)] })]
+  };
+  globalThis.fetch = (async (input) => String(input).endsWith("/api/health")
+    ? Response.json(metadata())
+    : Response.json(story)) as typeof fetch;
+  const api = createApi("http://127.0.0.1:7373");
+
+  expect((await rejection(api.loadStory("story")) as Error).message)
+    .toContain("Generation Record ids in a story path");
+});
+
 test("HTTP StoryApi rejects malformed direct and chapter endpoint envelopes", async () => {
   let response: unknown = { ...storyPayload("story"), nodes: null };
   globalThis.fetch = (async (input) => {
@@ -655,8 +672,23 @@ test("HTTP StoryApi rejects malformed direct and chapter endpoint envelopes", as
     [{ ...validRemoval, removed: null }, "removed chapter-break"],
     [{ ...validRemoval, removed: { break: {}, summaries: [] } }, "chapter break.id"],
     [{ ...validRemoval, removed: { break: validBreak, summaries: {} } }, "summaries"],
-    [{ ...validRemoval, removed: { break: validBreak, summaries: [validSummary, { id: "summary" }] } }, "story path node"],
-    [{ ...validRemoval, removed: { break: validBreak, summaries: [{ ...validSummary, generationRecordIds: ["bad"] }] } }, "Generation Record ids"]
+    [{ ...validRemoval, removed: { break: validBreak, summaries: [validSummary, { id: "summary" }] } }, "story node"],
+    [{ ...validRemoval, removed: { break: validBreak, summaries: [{ ...validSummary, generationRecordIds: ["bad"] }] } }, "Generation Record ids"],
+    // A removed chapter summary is a full domain node: it may carry the
+    // ordered id list, but never the wire-only path count, and never both
+    // at once (that impossible state used to slip through — see
+    // decodeRemovedChapterSummary's old strip-then-recast).
+    [{ ...validRemoval, removed: { break: validBreak, summaries: [{ ...validSummary, generationRecordCount: 2 }] } }, "Generation Record count"],
+    [
+      {
+        ...validRemoval,
+        removed: {
+          break: validBreak,
+          summaries: [{ ...validSummary, generationRecordIds: [recordId], generationRecordCount: 1 }]
+        }
+      },
+      "Generation Record count"
+    ]
   ] as const) {
     response = malformed;
     expect((await rejection(api.removeChapterBreak("story", "break")) as Error).message)
