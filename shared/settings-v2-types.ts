@@ -78,6 +78,11 @@ export interface ModelCapabilitiesV2 {
   readonly assistantPrefill: FeatureSupportV2;
   readonly reasoningEffort: FeatureSupportV2;
   readonly promptCaching: FeatureSupportV2;
+  /** Whether the route ever returns reasoning content to display as a
+   *  thought. Absent means unknown, the same as a model discovered before
+   *  this capability existed — it renders the same as `"unknown"`, never
+   *  `"supported"`. */
+  readonly reasoningContent?: FeatureSupportV2;
 }
 
 export interface ModelDefinitionV2 {
@@ -94,6 +99,11 @@ export type GenerationEffortV2 = (typeof GENERATION_EFFORT_V2_VALUES)[number];
 
 export const PROMPT_CACHE_POLICY_V2_VALUES = ["off", "auto", "long"] as const;
 export type PromptCachePolicyV2 = (typeof PROMPT_CACHE_POLICY_V2_VALUES)[number];
+
+/** How a part's reasoning renders: `off` never shows a thought, `marker` is
+ *  the default ghost gutter word, `open` arrives unfolded. */
+export const REASONING_DISPLAY_V2_VALUES = ["off", "marker", "open"] as const;
+export type ReasoningDisplayV2 = (typeof REASONING_DISPLAY_V2_VALUES)[number];
 
 export const SAMPLING_SCALAR_KNOB_V2_VALUES = [
   "topP",
@@ -224,6 +234,17 @@ export interface GenerationProfileV2 {
   /** Alternative tokens to ask the provider for with each generated token.
    *  Absent means the request asks for none. */
   readonly tokenProbabilities?: number;
+  /** How a thought displays while reading. Absent means `"marker"`, the
+   *  default fold state. */
+  readonly reasoning?: ReasoningDisplayV2;
+  /** Discard reasoning on arrival instead of storing it with the take.
+   *  Absent means false, so a document saved before this field existed —
+   *  and every other document that never sets it — keeps "Keep thoughts"
+   *  on, the default. Named for the non-default action, the inverse of
+   *  `ModelConnectionV2.allowInsecureHttp`, which names the non-default
+   *  action for a field whose default is off rather than on. Only literal
+   *  `true` is ever persisted. */
+  readonly discardReasoning?: true;
 }
 
 export interface SettingsRoutingV2 {

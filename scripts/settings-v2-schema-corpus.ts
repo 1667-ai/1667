@@ -21,6 +21,8 @@ import {
 import type { GenerationSettings } from "../shared/types.js";
 import {
   EMPTY_SAMPLING_V2,
+  type FeatureSupportV2,
+  type ReasoningDisplayV2,
   type SamplingSettingsV2,
   type SettingsDocumentV2,
   type SettingsStateV2
@@ -93,6 +95,7 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
   // tokenProbabilities key still has to parse identically to one written
   // before the field existed, which "converted-openai" already covers.
   const tokenProbabilitiesOpenAi = withTokenProbabilities(sampledOpenAi, 8);
+  const reasoningOpenAi = withReasoning(withReasoningCapability(convertedOpenAi), "open", true);
   const candidate = applyEffectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2, openAi);
   const staged = reduceSettingsStateV2(INITIAL_SETTINGS_STATE_V2, {
     kind: "save-document",
@@ -180,6 +183,7 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     validText("document-empty-sampling", "document", canonicalJson(emptySampling)),
     validText("document-sampling-legacy-fields-absent", "document", legacySamplingText),
     valid("document-with-token-probabilities", "document", tokenProbabilitiesOpenAi),
+    valid("document-with-reasoning", "document", reasoningOpenAi),
     valid("converted-anthropic", "document", convertedAnthropic),
     valid("converted-loopback", "document", convertedLocal),
     valid("stored-bearer", "document", storedBearer),
@@ -251,6 +255,29 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
       "document",
       withTokenProbabilities(sampledOpenAi, MAX_ALTERNATIVE_TOKENS + 1),
       false
+    ),
+    invalid(
+      "document-reasoning-invalid-value",
+      "document",
+      withRawReasoning(withReasoningCapability(convertedOpenAi), "thinking"),
+      false
+    ),
+    // The route reports that it returns no reasoning content at all, so an
+    // explicit non-`off` value is refused at parse time — the schema alone
+    // cannot see that route-level fact, so this one is schema-valid but
+    // codec-invalid, exactly like `document-newer-reserved-protocol` above.
+    invalid(
+      "document-reasoning-on-model-returning-none",
+      "document",
+      withReasoning(withReasoningCapability(convertedOpenAi, "unsupported"), "marker"),
+      true
+    ),
+    // An undiscovered capability must not narrow the row: whether an
+    // arbitrary endpoint emits reasoning is unknowable before the request.
+    valid(
+      "document-reasoning-on-unproven-model",
+      "document",
+      withReasoning(convertedOpenAi, "marker")
     ),
     // The generated schema bounds dryBreakers.items with maxLength: 40,
     // which JSON Schema defines as a count of Unicode characters — a
@@ -328,6 +355,68 @@ function withTokenProbabilities(
     profiles: {
       ...document.profiles,
       [profileId]: { ...profile, tokenProbabilities }
+    }
+  };
+}
+
+/** Declares what the default profile's model reports about returning
+ *  reasoning content. Only `"unsupported"` narrows the route to `off`
+ *  (`shared/reasoning-display-capabilities.ts`). */
+function withReasoningCapability(
+  document: SettingsDocumentV2,
+  reasoningContent: FeatureSupportV2 = "supported"
+): SettingsDocumentV2 {
+  const profileId = document.routing.default;
+  const profile = document.profiles[profileId];
+  const model = profile === undefined ? undefined : document.models[profile.modelId];
+  if (profile === undefined || model === undefined) {
+    throw new Error("Canonical settings are missing the default profile's model");
+  }
+  return {
+    ...document,
+    models: {
+      ...document.models,
+      [profile.modelId]: {
+        ...model,
+        capabilities: { ...model.capabilities, reasoningContent }
+      }
+    }
+  };
+}
+
+function withReasoning(
+  document: SettingsDocumentV2,
+  reasoning: ReasoningDisplayV2,
+  discardReasoning?: true
+): SettingsDocumentV2 {
+  const profileId = document.routing.default;
+  const profile = document.profiles[profileId];
+  if (profile === undefined) throw new Error("Canonical settings are missing the default profile");
+  return {
+    ...document,
+    profiles: {
+      ...document.profiles,
+      [profileId]: {
+        ...profile,
+        reasoning,
+        ...(discardReasoning === undefined ? {} : { discardReasoning })
+      }
+    }
+  };
+}
+
+/** Same as `withReasoning`, but for a deliberately malformed value a corpus
+ *  "invalid" case needs — e.g. one `ReasoningDisplayV2` itself would reject
+ *  at compile time. */
+function withRawReasoning(document: SettingsDocumentV2, reasoning: unknown): unknown {
+  const profileId = document.routing.default;
+  const profile = document.profiles[profileId];
+  if (profile === undefined) throw new Error("Canonical settings are missing the default profile");
+  return {
+    ...document,
+    profiles: {
+      ...document.profiles,
+      [profileId]: { ...profile, reasoning }
     }
   };
 }

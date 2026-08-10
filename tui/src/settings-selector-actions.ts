@@ -11,6 +11,7 @@ import {
 import {
   cycleCachePolicyControl,
   cycleEffortControl,
+  cycleKeepThoughtsControl,
   cycleProfileControl,
   cycleRouteControl,
   cycleTextPromptFormatControl,
@@ -18,6 +19,7 @@ import {
   type ScalarMagnitude
 } from "./settings-profile-controls.js";
 import { cycleTokenProbabilitiesControl } from "./settings-token-probabilities-row.js";
+import { cycleReasoningControl } from "./settings-reasoning-row.js";
 import { isSettingsScalarRow } from "./settings-scalar.js";
 import type {
   RuntimeState,
@@ -92,6 +94,12 @@ export async function cycleSettingsRow(
     } else if (row === "token-probabilities") {
       const value = cycleTokenProbabilitiesControl(overlay, step);
       if (value !== null) state.toast = `alt count · ${value} · s saves settings`;
+    } else if (row === "reasoning") {
+      const value = cycleReasoningControl(overlay, step);
+      if (value !== null) state.toast = `reasoning · ${value} · s saves settings`;
+    } else if (row === "keep-thoughts") {
+      const value = cycleKeepThoughtsControl(overlay, step);
+      if (value !== null) state.toast = `keep thoughts · ${value} · s saves settings`;
     } else if (row === "default-route") {
       const value = cycleRouteControl(overlay, "default", step);
       if (value !== null) state.toast = `default route · ${value} · s saves settings`;

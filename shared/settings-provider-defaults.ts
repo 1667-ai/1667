@@ -36,8 +36,17 @@ export function defaultConnectionTimeouts(provider: Provider): ConnectionTimeout
     : NETWORK_CONNECTION_TIMEOUTS;
 }
 
+/** Raw text completion has no channel a model could return reasoning on, so
+ *  this is the one protocol that can refuse the capability up front rather
+ *  than leaving it unknown until a response arrives. */
+const TEXT_COMPLETION_MODEL_CAPABILITIES: ModelCapabilitiesV2 = {
+  ...NETWORK_MODEL_CAPABILITIES,
+  reasoningContent: "unsupported"
+};
+
 export function defaultModelCapabilities(provider: Provider): ModelCapabilitiesV2 {
   if (provider === "dry-run") return DRY_RUN_MODEL_CAPABILITIES;
+  if (provider === "text-completion") return TEXT_COMPLETION_MODEL_CAPABILITIES;
   return NETWORK_MODEL_CAPABILITIES;
 }
 

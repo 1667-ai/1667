@@ -5,6 +5,7 @@ import type {
   GenerationEffortV2,
   ModelCapabilitiesV2,
   ModelConnectionV2,
+  ReasoningDisplayV2,
   SamplingSettingsV2,
   SettingsProtocolV2,
   SettingsPresetV2
@@ -43,6 +44,17 @@ export interface ProviderRuntime {
    *  from `GenerationProfileV2.tokenProbabilities`. Null means the request
    *  asks for none — the default for every existing and legacy runtime. */
   readonly tokenProbabilities: number | null;
+  /** From `GenerationProfileV2.reasoning`, resolved through
+   *  `providerRuntimeFromV2`/`legacyProviderRuntime`. Absent only on a
+   *  legacy test/runtime attachment built without it; every real runtime
+   *  resolves an absent profile field to `"marker"`, the default fold
+   *  state, rather than leaving this field itself absent. */
+  readonly reasoning?: ReasoningDisplayV2;
+  /** From `GenerationProfileV2.discardReasoning`, resolved the same way.
+   *  Absent only on a legacy test/runtime attachment; every real runtime
+   *  resolves an absent profile field to `true` — reasoning is kept —
+   *  rather than leaving this field itself absent. */
+  readonly keepReasoning?: boolean;
   readonly capabilities: ModelCapabilitiesV2;
   readonly sampling: SamplingSettingsV2;
 }
@@ -93,7 +105,9 @@ export function providerRuntimeFromV2(
   environment?: NodeJS.ProcessEnv,
   storedSecrets?: ReadonlyMap<string, string>,
   sampling: SamplingSettingsV2 = EMPTY_SAMPLING_V2,
-  tokenProbabilities: number | null = null
+  tokenProbabilities: number | null = null,
+  reasoning: ReasoningDisplayV2 = "marker",
+  keepReasoning = true
 ): ProviderRuntime {
   const runtime: ProviderRuntime = {
     preset: connection.preset,
@@ -105,6 +119,8 @@ export function providerRuntimeFromV2(
     allowInsecureHttp: connection.allowInsecureHttp === true,
     effort,
     tokenProbabilities,
+    reasoning,
+    keepReasoning,
     capabilities,
     sampling
   };
@@ -483,6 +499,8 @@ function legacyProviderRuntime(settings: GenerationSettings): ProviderRuntime {
     allowInsecureHttp: false,
     effort: "default",
     tokenProbabilities: null,
+    reasoning: "marker",
+    keepReasoning: true,
     sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature: "unknown",

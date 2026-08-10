@@ -486,7 +486,10 @@ function applyIncompleteGenerationDraft(
               capabilities: {
                 ...route.model.capabilities,
                 promptCaching: provider === "dry-run" ? "unsupported" : "unknown",
-                reasoningEffort: provider === "dry-run" ? "unsupported" : "unknown"
+                reasoningEffort: provider === "dry-run" ? "unsupported" : "unknown",
+                // Always restated rather than inherited: a route moved off
+                // text completion must lose that protocol's refusal.
+                reasoningContent: provider === "text-completion" ? "unsupported" : "unknown"
               }
             }
           : {}),

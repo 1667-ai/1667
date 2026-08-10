@@ -84,6 +84,34 @@ export function declareSelectedModelSupportsEffort(
   }, profileId);
 }
 
+export function declareSelectedModelReturnsReasoning(
+  state: ReturnType<typeof settingsHarness>["state"],
+  reasoningContent: "supported" | "unsupported" = "supported"
+): void {
+  const overlay = state.settings;
+  const document = overlay?.draft.document;
+  const profileId = overlay?.draft.selectedProfileId;
+  if (overlay === null || overlay === undefined
+    || document === null || document === undefined
+    || profileId === null || profileId === undefined) {
+    throw new Error("selected profile missing");
+  }
+  const modelId = document.profiles[profileId]!.modelId;
+  overlay.draft = settingsTextDraftForDocument({
+    ...document,
+    models: {
+      ...document.models,
+      [modelId]: {
+        ...document.models[modelId]!,
+        capabilities: {
+          ...document.models[modelId]!.capabilities,
+          reasoningContent
+        }
+      }
+    }
+  }, profileId);
+}
+
 export function savedView(
   view: EditableSettingsView,
   document: SettingsDocumentV2

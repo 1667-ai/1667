@@ -196,6 +196,8 @@ export type SettingsRowId =
   | "effort"
   | "cache-policy"
   | "token-probabilities"
+  | "reasoning"
+  | "keep-thoughts"
   | "default-route"
   | "prose-route"
   | "utility-route"

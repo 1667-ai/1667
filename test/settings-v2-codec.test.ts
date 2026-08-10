@@ -322,6 +322,110 @@ test("tokenProbabilities bounds reject 0 and past the alternative ceiling", () =
   assert.doesNotThrow(() => withTokenProbabilities(MAX_ALTERNATIVE_TOKENS));
 });
 
+// reasoning and discardReasoning are optional profile fields, wired the same
+// way tokenProbabilities is above: absent by default, so a document saved
+// before either field existed keeps meaning exactly what it did.
+test("reasoning and discardReasoning parse as closed optional profile fields and project to runtime", () => {
+  const base = convertGenerationSettingsV1(legacy(
+    "openai-compatible",
+    "https://models.example/v1",
+    "model-fixture",
+    null
+  ));
+  const modelId = base.profiles.default!.modelId;
+  const document = parseSettingsDocumentV2({
+    ...base,
+    models: {
+      ...base.models,
+      [modelId]: {
+        ...base.models[modelId]!,
+        capabilities: { ...base.models[modelId]!.capabilities, reasoningContent: "supported" }
+      }
+    },
+    profiles: {
+      ...base.profiles,
+      default: { ...base.profiles.default!, reasoning: "open", discardReasoning: true }
+    }
+  });
+  assert.equal(document.profiles.default?.reasoning, "open");
+  assert.equal(document.profiles.default?.discardReasoning, true);
+  assert.deepEqual(parseSettingsDocumentV2Text(formatSettingsDocumentV2(document)), document);
+  const runtime = providerRuntimeFor(effectiveGenerationSettings(document));
+  assert.equal(runtime.reasoning, "open");
+  assert.equal(runtime.keepReasoning, false);
+});
+
+// The same regression this file already covers for tokenProbabilities: a
+// codec that ever spread `reasoning: undefined` or `discardReasoning:
+// undefined` into the parsed profile would make `canonicalJson` throw the
+// moment this document's hash is computed below.
+test("reasoning and discardReasoning stay absent through a document round trip when unset", () => {
+  const document = parseSettingsDocumentV2(INITIAL_SETTINGS_DOCUMENT_V2);
+  assert.equal(Object.hasOwn(document.profiles.default!, "reasoning"), false);
+  assert.equal(Object.hasOwn(document.profiles.default!, "discardReasoning"), false);
+  assert.equal(formatSettingsDocumentV2(document), INITIAL_SETTINGS_DOCUMENT_V2_TEXT);
+  assert.equal(hashSettingsDocumentV2(document), INITIAL_SETTINGS_DOCUMENT_V2_HASH);
+  const runtime = providerRuntimeFor(effectiveGenerationSettings(document));
+  assert.equal(runtime.reasoning, "marker");
+  assert.equal(runtime.keepReasoning, true);
+});
+
+test("reasoning stays selectable on an unproven model and is refused only where the model returns none", () => {
+  const base = convertGenerationSettingsV1(legacy(
+    "openai-compatible",
+    "https://models.example/v1",
+    "model-fixture",
+    null
+  ));
+  const modelId = base.profiles.default!.modelId;
+  const model = base.models[modelId]!;
+  const parseWith = (reasoning: unknown, reasoningContent?: string) => parseSettingsDocumentV2({
+    ...base,
+    models: {
+      ...base.models,
+      [modelId]: {
+        ...model,
+        capabilities: {
+          ...model.capabilities,
+          ...(reasoningContent === undefined ? {} : { reasoningContent })
+        }
+      }
+    },
+    profiles: {
+      ...base.profiles,
+      default: { ...base.profiles.default!, reasoning }
+    }
+  });
+  // The migrated model declares no `reasoningContent`, so it resolves to
+  // "unknown". Whether an arbitrary endpoint emits reasoning cannot be known
+  // before the request, and a thought that never arrives renders nothing, so
+  // an undeclared capability must not narrow the choice.
+  assert.doesNotThrow(() => parseWith("off"));
+  assert.doesNotThrow(() => parseWith("marker"));
+  assert.doesNotThrow(() => parseWith("open"));
+  // A model that reports it returns none keeps `off` and refuses the rest.
+  assert.doesNotThrow(() => parseWith("off", "unsupported"));
+  assert.throws(() => parseWith("marker", "unsupported"), /reasoning/);
+  assert.throws(() => parseWith("open", "unsupported"), /reasoning/);
+  assert.throws(() => parseWith("thinking"), /reasoning/);
+});
+
+test("discardReasoning only ever parses as the literal true", () => {
+  const base = convertGenerationSettingsV1(legacy(
+    "openai-compatible",
+    "https://models.example/v1",
+    "model-fixture",
+    null
+  ));
+  assert.throws(() => parseSettingsDocumentV2({
+    ...base,
+    profiles: {
+      ...base.profiles,
+      default: { ...base.profiles.default!, discardReasoning: false }
+    }
+  }), /discardReasoning/);
+});
+
 test("sampling bounds and closed-shape rules fail before request lowering", () => {
   const base = convertGenerationSettingsV1(legacy(
     "openai-compatible",
