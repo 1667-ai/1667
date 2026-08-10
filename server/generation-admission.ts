@@ -209,10 +209,15 @@ export class GenerationAdmissionRegistry {
   /** Called once a stop-save commit has finished acting on whatever
    *  `generationRecordHandoffFor` returned it — whether that meant attaching
    *  a fresh Generation Record or discarding a duplicate genId's replay.
-   *  Releases the handoff's revision pin, since nothing else will read this
-   *  slot's record again for that purpose. Safe to call for a genId with no
-   *  pin (or none at all) — a no-op, not an error, so a caller never has to
-   *  first check whether a handoff existed. */
+   *  Releases the handoff's revision pin and clears the handoff itself, since
+   *  nothing will read this slot's record again for that purpose: the source
+   *  revisions it pinned are no longer guaranteed live once the pin drops, so
+   *  a later `generationRecordHandoffFor` for a reused genId must not hand
+   *  back a handoff whose revisions may already be gone. `model` stays —
+   *  `modelFor` still needs it (see `node-commit.ts`'s retried-commit path,
+   *  which reads it after this same genId's handoff was already released).
+   *  Safe to call for a genId with no pin (or none at all) — a no-op, not an
+   *  error, so a caller never has to first check whether a handoff existed. */
   releaseGenerationRecordHandoff(storyId: string, genId: string): void {
     const existing = this.modelAttributions.find(
       (candidate) => candidate.storyId === storyId && candidate.genId === genId
@@ -220,6 +225,7 @@ export class GenerationAdmissionRegistry {
     if (existing === undefined) return;
     existing.releaseRevisionPin?.();
     existing.releaseRevisionPin = null;
+    existing.record = null;
   }
 
   /** Drops the oldest slot once the bound is reached, releasing whatever

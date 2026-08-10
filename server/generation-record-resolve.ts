@@ -28,8 +28,10 @@ const SOURCE_PART_IO_CONCURRENCY = 4;
  */
 export async function resolveGenerationRecord(
   record: GenerationRecord,
-  objects: StoryObjectStore
+  objects: StoryObjectStore,
+  signal?: AbortSignal
 ): Promise<ResolvedGenerationRecord> {
+  signal?.throwIfAborted();
   const cache = createStoryReadCache();
   // Resolve source entries one at a time. Each source entry has its own
   // bounded worker pool below. This keeps the limit global to one detail
@@ -37,22 +39,27 @@ export async function resolveGenerationRecord(
   const entries = await mapWithConcurrency(
     record.prompt.entries,
     1,
-    (entry) => resolvePromptEntry(entry, objects, cache)
+    (entry) => resolvePromptEntry(entry, objects, cache, signal)
   );
+  signal?.throwIfAborted();
   return { ...record, prompt: { operation: record.prompt.operation, entries } };
 }
 
 async function resolvePromptEntry(
   entry: GenerationRecordPromptEntry,
   objects: StoryObjectStore,
-  cache: StoryReadCache
+  cache: StoryReadCache,
+  signal?: AbortSignal
 ): Promise<ResolvedGenerationRecordPromptEntry> {
+  signal?.throwIfAborted();
   if (entry.source !== "revisions") return entry;
   const parts = await mapWithConcurrency(
     entry.parts,
     SOURCE_PART_IO_CONCURRENCY,
     async (part): Promise<ResolvedGenerationRecordSourcePart> => {
+      signal?.throwIfAborted();
       const text = await objects.readText(part.revisionId, cache);
+      signal?.throwIfAborted();
       if (text.length !== part.textLength) {
         throw new StoryFormatError(
           `Generation record source text length mismatch for node ${part.nodeId}: expected ${part.textLength}, read ${text.length}`

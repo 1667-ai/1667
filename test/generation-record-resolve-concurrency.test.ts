@@ -95,3 +95,51 @@ test("resolving a Generation Record's source parts bounds concurrent revision re
     parts.map((part) => part.nodeId)
   );
 });
+
+test("cancelling Generation Record resolution stops scheduling source reads", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-resolve-cancel-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const objects = new StoryObjectStore(dir);
+  await objects.init();
+  const text = "source text";
+  const revisionId = await objects.storeText(text);
+  const parts: GenerationRecordSourcePart[] = Array.from({ length: 100 }, (_, index) => ({
+    nodeId: `node-${index}`,
+    category: "recent",
+    instruction: "",
+    revisionId,
+    textLength: text.length
+  }));
+  const record: GenerationRecord = {
+    format: GENERATION_RECORD_FORMAT,
+    schemaVersion: GENERATION_RECORD_SCHEMA_VERSION,
+    kind: "continue",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    provider: { provider: "dry-run", model: "cancel-fixture" },
+    effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+    prompt: {
+      operation: "continue",
+      entries: [{ stability: "stable", kind: "source", source: "revisions", parts }]
+    }
+  };
+  const controller = new AbortController();
+  const cancellation = new Error("record detail cancelled");
+  let calls = 0;
+  const originalReadText = StoryObjectStore.prototype.readText;
+  t.mock.method(
+    StoryObjectStore.prototype,
+    "readText",
+    async function (this: StoryObjectStore, hash: ObjectHash, cache?: StoryReadCache) {
+      calls += 1;
+      if (calls === 1) setTimeout(() => controller.abort(cancellation), 1);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return await originalReadText.call(this, hash, cache ?? createStoryReadCache());
+    }
+  );
+
+  await assert.rejects(
+    resolveGenerationRecord(record, objects, controller.signal),
+    (error) => error === cancellation
+  );
+  assert.ok(calls <= 4, `cancellation must stop new source reads after the active batch, got ${calls}`);
+});

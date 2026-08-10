@@ -649,9 +649,9 @@ async function handleApi(
   if (head === "stories" && id !== undefined && sub === "nodes" && subId !== undefined
     && action === "generation-records" && method === "GET") {
     if (extra === undefined) {
-      return sendJson(response, 200, await service.getGenerationRecords(id, subId));
+      return sendJson(response, 200, await service.getGenerationRecords(id, subId, operation.signal));
     }
-    return sendJson(response, 200, await service.getGenerationRecord(id, subId, extra));
+    return sendJson(response, 200, await service.getGenerationRecord(id, subId, extra, operation.signal));
   }
   if (head === "stories" && id !== undefined && sub === "prune-unused-takes" && method === "POST") {
     return sendJson(response, 200, await mutate("pruneUnusedTakes", {

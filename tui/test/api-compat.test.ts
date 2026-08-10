@@ -1170,6 +1170,18 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
       return Response.json({ kind: "estimate", reason: "no-source" });
     }
     if (path.endsWith("/export")) return new Response("# Story\n");
+    if (path.endsWith("/generation-records")) return Response.json([]);
+    if (path.includes("/generation-records/")) {
+      return Response.json({
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: { operation: "continue", entries: [] }
+      });
+    }
     if (path === "/api/import/sillytavern") {
       return Response.json({
         payload: storyPayload("imported"),
@@ -1201,6 +1213,8 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
   await api.discoverModels(DEMO_SETTINGS_VIEW.effective);
   await api.countPromptTokens([{ role: "user", content: "Hi" }]);
   await api.exportMarkdown("story");
+  await api.getGenerationRecords("story", "node");
+  await api.getGenerationRecord("story", "node", "a".repeat(64));
   await api.importSillyTavern("{}");
   await api.importMarkdown("Opening prose.", "Draft title");
   await api.importNovelAI("{}");
@@ -1216,6 +1230,8 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
     WORKER_PROVIDER_CHECK_TIMEOUT_MS,
     WORKER_PROVIDER_CHECK_TIMEOUT_MS,
     WORKER_PROVIDER_CHECK_TIMEOUT_MS,
+    HTTP_OPERATION_LIFETIME_MS.transfer,
+    HTTP_OPERATION_LIFETIME_MS.transfer,
     HTTP_OPERATION_LIFETIME_MS.transfer,
     HTTP_OPERATION_LIFETIME_MS.transfer,
     HTTP_OPERATION_LIFETIME_MS.transfer,

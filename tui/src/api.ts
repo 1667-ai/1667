@@ -120,6 +120,8 @@ export {
 const HTTP_REQUEST_TIMEOUT_MS = 15_000;
 export const HTTP_GENERATION_REQUEST_TIMEOUT_MS =
   HTTP_OPERATION_LIFETIME_MS.generation;
+export const HTTP_GENERATION_RECORD_READ_TIMEOUT_MS =
+  HTTP_OPERATION_LIFETIME_MS.transfer;
 export interface ContinueTarget {
   parentId?: string | null;
   appendTo?: string;
@@ -164,8 +166,8 @@ export interface StoryApi {
   /** One take's stored token probabilities. Rejects (404, distinguishably by
    *  message) when the take has none. */
   getTokenProbabilities(storyId: string, nodeId: string): Promise<TokenProbabilityRecord>;
-  /** Every Generation Record event on one take, oldest first — a summary
-   *  list cheap enough to fetch before any single event's own detail. */
+  /** Every Generation Record event on one take, oldest first. The transport
+   *  uses the transfer deadline because a full valid history can be large. */
   getGenerationRecords(storyId: string, nodeId: string): Promise<GenerationRecordSummary[]>;
   /** One Generation Record, resolved: every source part's prose read back
    *  from its exact historical revision. Rejects (404) for an id the take's
@@ -741,12 +743,16 @@ export function createApi(
     getGenerationRecords: (storyId, nodeId) => request(
       "GET",
       `/api/stories/${storyId}/nodes/${nodeId}/generation-records`,
-      decodeGenerationRecordSummariesResponse
+      decodeGenerationRecordSummariesResponse,
+      undefined,
+      HTTP_GENERATION_RECORD_READ_TIMEOUT_MS
     ),
     getGenerationRecord: (storyId, nodeId, recordId) => request(
       "GET",
       `/api/stories/${storyId}/nodes/${nodeId}/generation-records/${recordId}`,
-      decodeGenerationRecordResponse
+      decodeGenerationRecordResponse,
+      undefined,
+      HTTP_GENERATION_RECORD_READ_TIMEOUT_MS
     ),
     switchLine: (storyId, nodeId, options = {}) => mutateStoryPayload(
       storyId,

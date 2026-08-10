@@ -14,10 +14,11 @@ import {
   chunkId,
   chunkText,
   createRevision,
+  type ObjectHash,
   revisionId,
   sha256
 } from "../server/story-format.js";
-import { StoryStore } from "../server/stories.js";
+import { STORY_LIST_IO_CONCURRENCY, StoryStore } from "../server/stories.js";
 import { createSummaryTake } from "../server/summary-take.js";
 import type { SettingsStore } from "../server/settings.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
@@ -246,6 +247,56 @@ test("an append at the Generation Record limit refuses without persisting an unr
   assert.equal(node.generationRecordIds?.length, MAX_GENERATION_RECORD_IDS);
   assert.equal(node.text, beforeText);
   await stories.waitForMaintenance();
+});
+
+test("cancelling a full Generation Record history read releases its bounded work", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-history-cancel-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const stories = new StoryStore(dir);
+  await stories.init();
+  const story = await stories.create("Story");
+  const result = await continueStory(
+    story.id,
+    { parentId: null, instruction: "Continue.", genId: "gen-history-cancel" },
+    stories,
+    stubSettingsStore(dryRunSettings()),
+    new PromptCacheRuntime(),
+    new GenerationAdmissionRegistry(),
+    () => {},
+    new AbortController().signal
+  );
+  const node = result?.nodes[0];
+  const recordId = node?.generationRecordIds?.[0];
+  if (node === undefined || recordId === undefined) throw new Error("continuation did not store a Generation Record");
+  await stories.mutate(story.id, (fresh) => {
+    fresh.nodes.find((candidate) => candidate.id === node.id)!.generationRecordIds =
+      Array.from({ length: MAX_GENERATION_RECORD_IDS }, () => recordId);
+  });
+  await stories.waitForMaintenance();
+
+  const controller = new AbortController();
+  const cancellation = new Error("history read cancelled");
+  let calls = 0;
+  const originalRead = StoryObjectStore.prototype.readGenerationRecord;
+  t.mock.method(
+    StoryObjectStore.prototype,
+    "readGenerationRecord",
+    async function (this: StoryObjectStore, id: ObjectHash) {
+      calls += 1;
+      if (calls === 1) setTimeout(() => controller.abort(cancellation), 1);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return await originalRead.call(this, id);
+    }
+  );
+
+  await assert.rejects(
+    stories.loadGenerationRecordSummaries(story.id, node.id, controller.signal),
+    (error) => error === cancellation
+  );
+  assert.ok(
+    calls <= STORY_LIST_IO_CONCURRENCY,
+    `cancellation must stop new history reads after the active batch, got ${calls}`
+  );
 });
 
 test("an in-place rewrite records the replaced range as a Generation Record", async (t) => {

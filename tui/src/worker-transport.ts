@@ -1,5 +1,6 @@
 import {
   GENERATION_METHODS,
+  GENERATION_RECORD_READ_METHODS,
   LEGACY_WORKER_PROTOCOL_VERSION,
   PROVIDER_CHECK_METHODS,
   STREAM_METHODS,
@@ -7,6 +8,7 @@ import {
   WORKER_CANCEL_GRACE_MS,
   WORKER_MUTATION_DEADLINE_MS,
   WORKER_PROVIDER_CHECK_TIMEOUT_MS,
+  WORKER_GENERATION_RECORD_READ_TIMEOUT_MS,
   WORKER_PROTOCOL_VERSION,
   WORKER_STREAM_DEADLINE_MS,
   WORKER_UNARY_TIMEOUT_MS,
@@ -283,7 +285,9 @@ export class WorkerTransport {
       const stream = STREAM_METHODS.has(method);
       const readTimeoutMs = PROVIDER_CHECK_METHODS.has(method)
         ? WORKER_PROVIDER_CHECK_TIMEOUT_MS
-        : this.options.unaryTimeoutMs ?? WORKER_UNARY_TIMEOUT_MS;
+        : GENERATION_RECORD_READ_METHODS.has(method)
+          ? WORKER_GENERATION_RECORD_READ_TIMEOUT_MS
+          : this.options.unaryTimeoutMs ?? WORKER_UNARY_TIMEOUT_MS;
       // Never reject while a live worker can keep committing. A mutation
       // deadline fails the transport, terminates the worker, and retains its outbox.
       const timeoutMs = stream || mutating

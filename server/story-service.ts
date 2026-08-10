@@ -260,17 +260,26 @@ export class StoryService extends StoryServiceRuntime {
 
   /** Every Generation Record event on one take, oldest first, projected to
    *  what a history list needs — see StoryStore.loadGenerationRecordSummaries. */
-  async getGenerationRecords(id: string, nodeId: string): Promise<GenerationRecordSummary[]> {
+  async getGenerationRecords(
+    id: string,
+    nodeId: string,
+    signal?: AbortSignal
+  ): Promise<GenerationRecordSummary[]> {
     this.ensureOpen();
-    return await this.stories.loadGenerationRecordSummaries(id, nodeId);
+    return await this.stories.loadGenerationRecordSummaries(id, nodeId, signal);
   }
 
   /** One take's one Generation Record, fetched on demand. Throws a 404 —
    *  distinguishably by message — when the story, the take, or the take's
    *  matching record is missing. */
-  async getGenerationRecord(id: string, nodeId: string, recordId: string): Promise<ResolvedGenerationRecord> {
+  async getGenerationRecord(
+    id: string,
+    nodeId: string,
+    recordId: string,
+    signal?: AbortSignal
+  ): Promise<ResolvedGenerationRecord> {
     this.ensureOpen();
-    return await this.stories.loadGenerationRecord(id, nodeId, recordId);
+    return await this.stories.loadGenerationRecord(id, nodeId, recordId, signal);
   }
 
   async renameStory(

@@ -350,13 +350,15 @@ async function invokeReadOnly(
     case "getGenerationRecords":
       return await service.getGenerationRecords(
         requireString(input.storyId, "storyId"),
-        requireString(input.nodeId, "nodeId")
+        requireString(input.nodeId, "nodeId"),
+        signal
       );
     case "getGenerationRecord":
       return await service.getGenerationRecord(
         requireString(input.storyId, "storyId"),
         requireString(input.nodeId, "nodeId"),
-        requireString(input.recordId, "recordId")
+        requireString(input.recordId, "recordId"),
+        signal
       );
     case "getSettings": return await service.getSettings();
     case "checkModelServer":

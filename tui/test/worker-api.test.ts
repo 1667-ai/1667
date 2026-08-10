@@ -17,8 +17,10 @@ import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 import { platformPerformanceBudget } from "../../test/performance-budget.js";
 import {
   LEGACY_WORKER_PROTOCOL_VERSION,
+  GENERATION_RECORD_READ_METHODS,
   PROVIDER_CHECK_METHODS,
   WORKER_BUILD_IDENTITY,
+  WORKER_GENERATION_RECORD_READ_TIMEOUT_MS,
   WORKER_PROVIDER_CHECK_TIMEOUT_MS,
   WORKER_PROTOCOL_VERSION,
   type MainToWorkerMessage,
@@ -958,6 +960,27 @@ describe("embedded backend worker", () => {
         value: { kind: "estimate", reason: "no-source" }
       });
       expect(await pending).toEqual({ kind: "estimate", reason: "no-source" });
+    } finally {
+      await backend.dispose();
+    }
+  });
+
+  test("gives Generation Record reads the transfer deadline", async () => {
+    const worker = new FakeWorker(true);
+    const backend = await createWorkerStoryApi({
+      worker,
+      readyTimeoutMs: 100,
+      unaryTimeoutMs: 5
+    });
+    try {
+      expect(GENERATION_RECORD_READ_METHODS.has("getGenerationRecords")).toBeTrue();
+      const pending = backend.api.getGenerationRecords("story", "node");
+      const request = await waitForRequest(worker, "getGenerationRecords");
+      expect(request.deadlineMs - Date.now()).toBeGreaterThan(
+        WORKER_GENERATION_RECORD_READ_TIMEOUT_MS - 1_000
+      );
+      worker.message({ type: "result", id: request.id, value: [] });
+      expect(await pending).toEqual([]);
     } finally {
       await backend.dispose();
     }

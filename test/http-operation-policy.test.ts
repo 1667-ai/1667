@@ -45,6 +45,14 @@ test("HTTP operation policy is exact and assigns frozen lifetime classes", () =>
     }
   );
   assert.deepEqual(
+    httpOperationPolicy("GET", "/api/stories/story/nodes/node/generation-records"),
+    { method: "getGenerationRecords", lifetime: "transfer" }
+  );
+  assert.deepEqual(
+    httpOperationPolicy("GET", `/api/stories/story/nodes/node/generation-records/${"a".repeat(64)}`),
+    { method: "getGenerationRecord", lifetime: "transfer" }
+  );
+  assert.deepEqual(
     httpOperationPolicy("PUT", "/api/stories/story/authors-note"),
     { method: "setAuthorsNote", lifetime: "local" }
   );

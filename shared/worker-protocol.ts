@@ -63,6 +63,9 @@ export const MUTATION_INPUT_PROTOCOL_VERSION = WORKER_PROTOCOL_VERSION;
 export const WORKER_BUILD_IDENTITY = AI_1667_BUILD_IDENTITY;
 export const WORKER_UNARY_TIMEOUT_MS = 15_000;
 export const WORKER_PROVIDER_CHECK_TIMEOUT_MS = 30_000;
+/** Generation Record reads can scan a complete bounded history or resolve a
+ * complete bounded source pipeline. Give these reads the transfer deadline. */
+export const WORKER_GENERATION_RECORD_READ_TIMEOUT_MS = 120_000;
 export const WORKER_MUTATION_DEADLINE_MS = 5 * 60_000;
 export const WORKER_STREAM_DEADLINE_MS = 30 * 60_000;
 export const WORKER_STARTUP_HEARTBEAT_MS = 2_000;
@@ -303,6 +306,11 @@ export const PROVIDER_CHECK_METHODS: ReadonlySet<WorkerMethod> = new Set([
   "discoverModels",
   "resolveSamplingBias",
   "countPromptTokens"
+]);
+
+export const GENERATION_RECORD_READ_METHODS: ReadonlySet<WorkerMethod> = new Set([
+  "getGenerationRecords",
+  "getGenerationRecord"
 ]);
 
 export const MUTATING_METHODS: ReadonlySet<MutatingWorkerMethod> = new Set([

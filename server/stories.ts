@@ -521,16 +521,24 @@ export class StoryStore {
 
   /** Every Generation Record event on one node, oldest first, projected down
    *  to what a history list needs. Reads every record this node has — always
-   *  a small, request-bounded set (MAX_GENERATION_RECORD_IDS), never the
-   *  whole story — so unlike a single on-demand read this does open more
-   *  than one object, exactly the way a history list must. */
-  async loadGenerationRecordSummaries(id: string, nodeId: string): Promise<GenerationRecordSummary[]> {
+   *  a bounded set (MAX_GENERATION_RECORD_IDS), never the whole story. The
+   *  caller supplies a cancellation signal because a full valid history can
+   *  require many object reads. */
+  async loadGenerationRecordSummaries(
+    id: string,
+    nodeId: string,
+    signal?: AbortSignal
+  ): Promise<GenerationRecordSummary[]> {
     return await this.withIo(id, async () => {
+      signal?.throwIfAborted();
       const stored = await this.requireGenerationRecordNode(id, nodeId);
+      signal?.throwIfAborted();
       const ids = stored.generationRecordIds ?? [];
       const objects = new StoryObjectStore(this.bundlePath(id));
-      return await mapWithConcurrency(ids, STORY_LIST_IO_CONCURRENCY, async (recordId) => {
+      const summaries = await mapWithConcurrency(ids, STORY_LIST_IO_CONCURRENCY, async (recordId) => {
+        signal?.throwIfAborted();
         const record = await objects.readGenerationRecord(recordId);
+        signal?.throwIfAborted();
         return {
           id: recordId,
           kind: record.kind,
@@ -538,6 +546,8 @@ export class StoryStore {
           ...(record.range === undefined ? {} : { range: record.range })
         };
       });
+      signal?.throwIfAborted();
+      return summaries;
     });
   }
 
@@ -549,15 +559,23 @@ export class StoryStore {
    *  back from its exact historical revision, not left as a bare reference
    *  the caller has no other way to open — see
    *  server/generation-record-resolve.ts. */
-  async loadGenerationRecord(id: string, nodeId: string, recordId: string): Promise<ResolvedGenerationRecord> {
+  async loadGenerationRecord(
+    id: string,
+    nodeId: string,
+    recordId: string,
+    signal?: AbortSignal
+  ): Promise<ResolvedGenerationRecord> {
     return await this.withIo(id, async () => {
+      signal?.throwIfAborted();
       const stored = await this.requireGenerationRecordNode(id, nodeId);
+      signal?.throwIfAborted();
       if (!(stored.generationRecordIds ?? []).includes(recordId)) {
         throw new HttpError(404, "This take has no such Generation Record.");
       }
       const objects = new StoryObjectStore(this.bundlePath(id));
       const record = await objects.readGenerationRecord(recordId);
-      return await resolveGenerationRecord(record, objects);
+      signal?.throwIfAborted();
+      return await resolveGenerationRecord(record, objects, signal);
     });
   }
 
