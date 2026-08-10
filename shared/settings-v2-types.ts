@@ -392,6 +392,13 @@ export type SettingsView =
       readonly effective: GenerationSettings;
       /** The active continuation route. Format 1 falls back to `effective`. */
       readonly effectiveProse: GenerationSettings;
+      /** The active prose route's `GenerationProfileV2.reasoning`, resolved
+       *  the same safe way as `effectiveProse` itself — never the editable
+       *  `document`, which can show a pending activation candidate while
+       *  `effectiveProse` still names the settings actually in force. Absent
+       *  means `"marker"`, the same default an absent profile field resolves
+       *  to everywhere else. Format 1 has no profile to read one from. */
+      readonly effectiveProseReasoning?: ReasoningDisplayV2;
       readonly lastActivationOutcome: null;
     }
   | {
@@ -404,6 +411,8 @@ export type SettingsView =
       readonly effective: GenerationSettings;
       /** The active continuation route, never a pending document projection. */
       readonly effectiveProse: GenerationSettings;
+      /** See the format-1 variant's own doc — same field, same resolution. */
+      readonly effectiveProseReasoning?: ReasoningDisplayV2;
       readonly lastActivationOutcome: SettingsActivationOutcomeV2 | null;
     };
 

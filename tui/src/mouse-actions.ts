@@ -165,7 +165,8 @@ export function createSelectionSafeMouseGate(): SelectionSafeMouseGate {
 
 function deferredStoryClick(action: ResolvedKey | null): action is ResolvedKey & { rowId: string } {
   return action?.rowId !== undefined
-    && (action.action === "focus-index" || action.action === "toggle-prompt");
+    && (action.action === "focus-index" || action.action === "toggle-prompt"
+      || action.action === "toggle-thought");
 }
 
 function sameDeferredStoryClick(pending: ResolvedKey, released: ResolvedKey | null): boolean {
@@ -347,6 +348,9 @@ export function mouseToAction(
   }
   if (target.kind === "prompt" && event.button === 0 && state.mode === "NAV") {
     return { action: "toggle-prompt", index: target.index, rowId: target.rowId };
+  }
+  if (target.kind === "thought" && event.button === 0 && state.mode === "NAV") {
+    return { action: "toggle-thought", index: target.index, rowId: target.rowId };
   }
   if (target.kind === "composer" && event.button === 0) return { action: "compose" };
   if (target.kind === "part") {

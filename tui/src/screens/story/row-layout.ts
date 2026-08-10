@@ -34,9 +34,17 @@ import {
   registerNextDeadline,
   type FrameDeadlineCollector
 } from "../../animation-deadline.js";
-import { streamTrimBounds } from "../../stream-text.js";
+import { streamForPart, streamTrimBounds } from "../../stream-text.js";
 import type { WrapContentIdentity } from "../../wrap.js";
 import { STORY_GUTTER } from "../../composer-geometry.js";
+import { thoughtGutterContext, type ThoughtGutterContext } from "../../reasoning-model.js";
+import {
+  focusedFoldedThoughtLine,
+  ghostThoughtMark,
+  thinkingGutterLine0,
+  thinkingGutterLine1,
+  unfoldedThoughtBlock
+} from "./thought-block.js";
 
 /** The complete braille cycle. The dots travel once around the cell and arrive
  *  back where they started, so the mark reads as one turn. Four of these ten
@@ -114,13 +122,16 @@ export function layoutStoryRow(
     return fixedLayout(renderChapterSummary(row, measure, narrow, focused, expanded, detail));
   }
 
-  const prefixMask = (narrow ? 1 : 0) | (state.showInstructions ? 2 : 0) | (row.isSummary ? 4 : 0);
   const wrapWidth = measure - (row.isSummary ? 2 : 0);
   const sourceStart = row.isSummary
     ? 0
     : starterLogoSourceStart(row.node.text, row.humanSpans, wrapWidth);
   const wrappedTextInput = sourceStart === 0 ? row.node.text : row.node.text.slice(sourceStart);
   const stream = streamForPart(state.stream, row.id);
+  const streaming = stream !== null;
+  const thought = thoughtGutterContext(row, rowIndex, state, streaming, stream);
+  const prefixMask = (narrow ? 1 : 0) | (state.showInstructions ? 2 : 0) | (row.isSummary ? 4 : 0)
+    | (thought.show && thought.unfolded ? 8 : 0);
   const identityContext = wrapIdentityContext(row, state);
   const identity = storyPartWrapIdentity(
     row,
@@ -141,22 +152,25 @@ export function layoutStoryRow(
   const wrappedBody = cache.lineCount(row.id, wrapWidth, wrappedTextInput, identity)
     ?? prepare().wrapped.length;
   const wrapped = wrappedBody + (sourceStart === 0 ? 0 : 1);
-  const streaming = stream !== null;
   const gutterRows = streaming && !narrow ? 2
     : focused && !narrow && !row.isSummary
-      ? (row.siblingCount > 1 ? 2 : 1) + GUTTER_VERBS.length
+      ? (row.siblingCount > 1 ? 2 : 1) + GUTTER_VERBS.length + (thought.show && !thought.unfolded ? 1 : 0)
       : 0;
   let prefix: FrameLine[] | null = null;
   const preparePrefix = () => prefix ??= partPrefix(
-    row, rowIndex, allParts, state, measure, narrow, focused, streaming, prefixMask, deadlines
+    row, rowIndex, allParts, state, measure, narrow, focused, streaming, prefixMask, thought, deadlines
   );
   const expandedPrompt = (prefixMask & 2) !== 0 && state.expandedPromptIds.has(row.id);
-  const prefixRows = expandedPrompt ? preparePrefix().length : prefixHeight(prefixMask);
+  // An unfolded thought block's height is as variable as an expanded
+  // prompt's own wrap — neither fits the fixed `prefixHeight` formula, so
+  // both fall back to measuring the real, fully-built prefix once.
+  const needsMeasuredPrefix = expandedPrompt || (prefixMask & 8) !== 0;
+  const prefixRows = needsMeasuredPrefix ? preparePrefix().length : prefixHeight(prefixMask);
   const stickyGutter = focused && !narrow && !row.isSummary && !streaming
     ? {
         start: prefixRows,
         lines: Array.from({ length: gutterRows }, (_, lineIndex) =>
-          gutterFor(row, true, false, lineIndex, state.now, deadlines))
+          gutterFor(row, true, false, lineIndex, thought, state.now, deadlines))
       }
     : null;
   const promptRowIndex = narrow ? 1 : 0;
@@ -174,7 +188,7 @@ export function layoutStoryRow(
     stickyPrompt,
     render: () => [
       ...preparePrefix(),
-      ...renderPartBody(row, state, focused, narrow, prepare(), gutterRows, deadlines)
+      ...renderPartBody(row, state, focused, narrow, prepare(), gutterRows, thought, deadlines)
     ]
   };
 }
@@ -243,12 +257,23 @@ function partPrefix(
   focused: boolean,
   streaming: boolean,
   mask: number,
+  thought: ThoughtGutterContext,
   deadlines?: FrameDeadlineCollector
 ): FrameLine[] {
   const lines: FrameLine[] = [];
   if ((mask & 1) !== 0) lines.push(renderBoundary(part, measure, focused, streaming, state.now, deadlines));
   if ((mask & 2) !== 0) {
     lines.push(...renderPrompt(part, rowIndex, state.expandedPromptIds.has(part.id), measure, narrow));
+  }
+  if ((mask & 8) !== 0) {
+    // Above the prose, the same slot the expanded instruction renders in —
+    // see `renderPrompt` just above. Ordered after the prompt so reading
+    // order stays "what was asked" → "what the model thought" → "what it
+    // wrote". `resolved` is never null here: `thought.show` is what set this
+    // bit, and `thoughtGutterContext` only ever computes it alongside one.
+    for (const row of unfoldedThoughtBlock(thought.hit, measure, thought.resolved!)) {
+      lines.push(prefixLine(narrow, row.gutter, row.prose));
+    }
   }
   if ((mask & 4) !== 0) {
     const previousSummary = allParts.slice(0, part.number - 1).findLastIndex((candidate) => candidate.isSummary);
@@ -324,6 +349,7 @@ function renderPartBody(
   narrow: boolean,
   prepared: ReturnType<typeof wrapPart>,
   gutterRows: number,
+  thought: ThoughtGutterContext,
   deadlines?: FrameDeadlineCollector
 ): FrameLine[] {
   const { stream, appending, wrapped, sourceStart, compactLogo } = prepared;
@@ -336,22 +362,27 @@ function renderPartBody(
   if (compactLogo) {
     lines.push(prefixLine(
       narrow,
-      gutterFor(part, focused, streaming, 0, state.now, deadlines),
+      gutterFor(part, focused, streaming, 0, thought, state.now, deadlines),
       compactStarterLogo(focused)
     ));
   }
   for (const line of wrapped) {
     const lineIndex = lines.length;
-    lines.push(prefixLine(narrow, gutterFor(part, focused, streaming, lineIndex, state.now, deadlines),
+    lines.push(prefixLine(narrow, gutterFor(part, focused, streaming, lineIndex, thought, state.now, deadlines),
       styledWrapped(line, focused ? "prose" : "prose · dim", focused ? "human edit" : "human edit dim",
         "rewritten", state, part, streaming && !appending, deadlines, sourceStart)));
   }
   const proseTip = lines.length - 1;
   for (let lineIndex = lines.length; lineIndex < gutterRows; lineIndex += 1) {
-    lines.push(prefixLine(narrow, gutterFor(part, focused, streaming, lineIndex, state.now, deadlines), []));
+    lines.push(prefixLine(narrow, gutterFor(part, focused, streaming, lineIndex, thought, state.now, deadlines), []));
   }
   // Machine insertion stays visually distinct from the writer's solid block.
   if (streaming && proseTip >= 0) lines[proseTip]!.push(segment("▏", "chrome"));
+  // Reasoning is arriving and no prose has landed yet: the prose column
+  // shows only the dim caret, on the row the `thinking` gutter line claims —
+  // `wrapped` is empty (nothing to loop above), so nothing has planted the
+  // caret yet the way the `proseTip` branch above just did for ordinary text.
+  else if (streaming && thought.thinking && lines.length > 0) lines[0]!.push(segment("▏", "chrome"));
   return lines;
 }
 
@@ -690,10 +721,15 @@ function wrapIdentityContext(
   };
 }
 
-function streamForPart(stream: StreamView | null, partId: string): StreamView | null {
-  return stream?.targetId === partId ? stream : null;
-}
-
+/** Every thought-gutter decision `gutterFor`, `partPrefix` and
+ *  `renderPartBody` need for one row, computed once in `layoutStoryRow` and
+ *  threaded through rather than recomputed at each call site — the same
+ *  reason `streaming`/`prepared` are computed once and passed down.
+ *
+ * `show`/`unfolded` are both false whenever `state.reasoning === "off"`:
+ * `off` renders nothing, ever, and gating it once here is what makes every
+ * downstream reader — the gutter marks, the unfolded block, the streaming
+ * line — inherit that instead of each needing its own `!== "off"` check. */
 export interface GutterVerb { token: string | null; label: string; action: KeyAction }
 
 export const GUTTER_VERBS: ReadonlyArray<readonly GutterVerb[]> = [
@@ -745,10 +781,21 @@ function gutterFor(
   focused: boolean,
   streaming: boolean,
   lineIndex: number,
+  thought: ThoughtGutterContext,
   now = 0,
   deadlines?: FrameDeadlineCollector
 ): FrameLine {
   if (streaming) {
+    // Reasoning is arriving and no prose has started: swap the usual
+    // writing/esc-stops pair for thinking/esc-peeks. Once prose starts, or
+    // once `reasoning` is off, this falls through to the ordinary pair —
+    // `thought.thinking` is already false in both cases (see
+    // `thoughtGutterContext`).
+    if (thought.thinking) {
+      if (lineIndex === 0) return thinkingGutterLine0(thought.resolved!.tokenCount);
+      if (lineIndex === 1) return thinkingGutterLine1(thought.hit);
+      return [];
+    }
     if (lineIndex === 0) return [segment(`${streamLivenessMark(now, deadlines)} writing`, "focus / accent")];
     if (lineIndex === 1) return [actionHint("esc stops", "cancel")];
     return [];
@@ -770,14 +817,31 @@ function gutterFor(
       const pad = takeCounterWidth(part) - width;
       return pad > 0 ? [...segments, segment(" ".repeat(pad))] : segments;
     }
+    // Folded and focused: one extra row, right after the counter/dots and
+    // ahead of the verb menu — `layoutStoryRow`'s `gutterRows` and the verb
+    // offset just below both already account for it. Unfolded skips this:
+    // its own `thought · N`/`T folds` pair lives in the block's own prefix
+    // rows instead (`unfoldedThoughtBlock`), so repeating it here would say
+    // the same thing twice.
+    const thoughtLineIndex = part.siblingCount > 1 ? 2 : 1;
+    if (thought.show && !thought.unfolded && lineIndex === thoughtLineIndex) {
+      return focusedFoldedThoughtLine(thought.hit);
+    }
     if (!part.isSummary) {
-      const verbs = GUTTER_VERBS[lineIndex - (part.siblingCount > 1 ? 2 : 1)];
+      const verbOffset = (part.siblingCount > 1 ? 2 : 1) + (thought.show && !thought.unfolded ? 1 : 0);
+      const verbs = GUTTER_VERBS[lineIndex - verbOffset];
       if (verbs !== undefined) return gutterVerbSegments(verbs);
     }
   }
   if (lineIndex === 0) {
     if (part.isSummary) return [segment("◈", "summary")];
     if (part.siblingCount > 1) return [segment(`×${part.siblingCount}`, "chrome")];
+    // No fork tick or summary diamond claims this row's one unfocused gutter
+    // cell: give the ghost thought word the cell instead. A part that has
+    // both a fork count and a thought keeps the fork count — the reader's
+    // place in the tree outranks a decorative margin word, and focusing the
+    // part still reveals `thought · T shows` a moment later.
+    if (thought.show && !thought.unfolded) return ghostThoughtMark(thought.hit);
   }
   return [];
 }

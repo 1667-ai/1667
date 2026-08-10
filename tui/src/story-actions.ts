@@ -34,9 +34,12 @@ import {
   createStoryViewModel,
   lastPartRowIndex,
   rowIndexForNode,
-  rowPart
+  rowPart,
+  type StoryViewModel
 } from "./model.js";
 import { createBreakAtFocus, jumpAdjacentChapter } from "./chapter-actions.js";
+import { partHasThought } from "./reasoning-model.js";
+import { ensureThoughtLoaded } from "./reasoning-actions.js";
 import { generate, generationBusy } from "./generation-action.js";
 import {
   partActionRequiresPersistedTarget,
@@ -98,26 +101,31 @@ export async function navAction(
     state.focusIndex = Math.min(count - 1, state.focusIndex + 1);
     followStoryViewport(state);
     rememberFocus(state, source);
+    queueThoughtLoad(state, source, context, view);
   }
   else if (resolved.action === "focus-index") {
     state.focusIndex = Math.max(0, Math.min(count - 1, resolved.index ?? state.focusIndex));
     followStoryViewport(state);
     rememberFocus(state, source);
+    queueThoughtLoad(state, source, context, view);
   }
   else if (resolved.action === "focus-previous") {
     state.focusIndex = Math.max(0, state.focusIndex - 1);
     followStoryViewport(state);
     rememberFocus(state, source);
+    queueThoughtLoad(state, source, context, view);
   }
   else if (resolved.action === "top") {
     state.focusIndex = 0;
     pinStoryViewport(state, 0);
     rememberFocus(state, source);
+    queueThoughtLoad(state, source, context, view);
   }
   else if (resolved.action === "leaf") {
     state.focusIndex = lastPartRowIndex(view);
     followStoryViewport(state);
     rememberFocus(state, source);
+    queueThoughtLoad(state, source, context, view);
   }
   else if (resolved.action === "toggle-instructions") state.showInstructions = !state.showInstructions;
   else if (resolved.action === "toggle-prompt") {
@@ -131,6 +139,23 @@ export async function navAction(
       if (expanded.has(part.id)) expanded.delete(part.id);
       else expanded.add(part.id);
       state.expandedPromptIds = expanded;
+    }
+  }
+  else if (resolved.action === "toggle-thought") {
+    // Keyboard `T` always names the focused row (no `resolved.index`); a
+    // click on another part's own waymark carries that part's index instead
+    // — the same split `toggle-prompt` makes just above.
+    const index = Math.max(0, Math.min(count - 1, resolved.index ?? state.focusIndex));
+    const part = rowPart(view, index);
+    if (part !== null && partHasThought(part, state)) {
+      state.focusIndex = index;
+      followStoryViewport(state);
+      rememberFocus(state, source);
+      const expanded = new Set(state.expandedThoughtIds);
+      if (expanded.has(part.id)) expanded.delete(part.id);
+      else expanded.add(part.id);
+      state.expandedThoughtIds = expanded;
+      queueThoughtLoad(state, source, context, view);
     }
   }
   else if (resolved.action === "compose") openDirectComposer(state);
@@ -180,12 +205,36 @@ export async function navAction(
       await runPartAction("retake-with-prompt", state, source, context);
     }
   }
-  else if (resolved.action === "take-next") await switchTake(state, source, 1, context);
-  else if (resolved.action === "take-previous") await switchTake(state, source, -1, context);
+  else if (resolved.action === "take-next") {
+    await switchTake(state, source, 1, context);
+    queueThoughtLoad(state, source, context, createStoryViewModel(state.payload, state.stream));
+  }
+  else if (resolved.action === "take-previous") {
+    await switchTake(state, source, -1, context);
+    queueThoughtLoad(state, source, context, createStoryViewModel(state.payload, state.stream));
+  }
   else if (resolved.action === "take-at" && resolved.take !== undefined) {
     await switchTakeAt(state, source, resolved.take, context);
+    queueThoughtLoad(state, source, context, createStoryViewModel(state.payload, state.stream));
   }
   else if (resolved.action === "undo") await undoChapterBreakChange(state, source, context);
+}
+
+/** Kick off a fetch for the now-focused part's stored thought when the row
+ *  layout is about to need it — see `ensureThoughtLoaded`
+ *  (reasoning-actions.ts). Called wherever focus lands somewhere new: every
+ *  `rememberFocus` call site above, `toggle-thought`, and every take switch
+ *  (a take swaps which node id the focused part names, per-take reasoning
+ *  keyed the same way token probabilities already are). A no-op in every
+ *  case that does not need it — see that function's own guards. */
+function queueThoughtLoad(
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext,
+  view: StoryViewModel
+): void {
+  const part = rowPart(view, state.focusIndex);
+  if (part !== null) ensureThoughtLoaded(state, source, context, part);
 }
 
 export function closeActions(state: RuntimeState): void {

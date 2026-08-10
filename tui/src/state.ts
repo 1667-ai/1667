@@ -25,10 +25,12 @@ import type { CommandSelectionId } from "./command-model.js";
 import type {
   DiscardPendingSettingsCommand,
   ModelDiscoveryResultV2,
+  ReasoningDisplayV2,
   SaveSettingsCommand,
   SamplingScalarKnobV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import type { ReasoningRecord } from "../../shared/reasoning.js";
 import type { SamplingBiasResolutionResult } from "../../shared/sampling-capabilities.js";
 import type {
   ComposerSelectionProjection,
@@ -102,6 +104,16 @@ export interface StreamReasoning {
    *  reasoning deltas. */
   tokenCount: number;
 }
+
+/** The on-demand fetch of one take's stored thought, mirroring
+ *  `TokenProbabilitiesViewerState`'s own loading/ready/empty shape one level
+ *  down — see `reasoning-actions.ts`'s `ensureThoughtLoaded`. Keyed by node
+ *  id in `StoryScreenState.thoughts`: a node id names one immutable take, so
+ *  an entry once written is never re-fetched or invalidated. */
+export type ThoughtCacheEntry =
+  | { status: "loading" }
+  | { status: "ready"; record: ReasoningRecord }
+  | { status: "error" };
 
 export interface TagPrompt {
   nodeId: string;
@@ -512,6 +524,15 @@ export interface StoryScreenState extends OverlayState {
   showInstructions: boolean;
   /** Prompt rows expanded inline for reading and terminal text selection. */
   expandedPromptIds: Set<string>;
+  /** Parts whose thought fold state was explicitly flipped away from
+   *  `reasoning`'s own ambient default — see `thoughtUnfolded`
+   *  (reasoning-model.ts), which is the only reader that should ever
+   *  interpret membership; every writer just toggles it, the same way
+   *  `story-actions.ts` toggles `expandedPromptIds`. */
+  expandedThoughtIds: Set<string>;
+  /** On-demand fetch state for a stored thought, by node id — see
+   *  `ThoughtCacheEntry` and `ensureThoughtLoaded` (reasoning-actions.ts). */
+  thoughts: Map<string, ThoughtCacheEntry>;
   composer: ComposerState;
   editor: DocumentEditorSession | null;
   /** Atomic edited-prompt owner; null means the persistent Direct composer. */
@@ -545,6 +566,14 @@ export interface StoryScreenState extends OverlayState {
   freshLandedAt: ReadonlyMap<string, number>;
   now: number;
   model: string;
+  /** The active prose route's fold state for a thought — see
+   *  `deriveGenerationRuntime`/`reasoningModeForView` (runtime-settings.ts),
+   *  which populates this the same way it populates `model`. `off` gates
+   *  every thought affordance shut: no waymark, no block, no keyline entry,
+   *  no streaming line — checked at each of those sites individually rather
+   *  than once here, so a reviewer can see the gate at the exact place it
+   *  matters. */
+  reasoning: ReasoningDisplayV2;
   contextWindow: number | null;
   /** Maximum provider response size. The context meter shows this as secondary
    *  text only; bar growth uses a likely-response estimate from recent prose. */

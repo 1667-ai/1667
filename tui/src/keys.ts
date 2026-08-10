@@ -35,7 +35,7 @@ import { resolveLogKey } from "./notice-log.js";
 
 export type KeyAction =
   | "focus-next" | "focus-previous" | "take-next" | "take-previous" | "take-at"
-  | "undo" | "top" | "leaf" | "toggle-instructions" | "toggle-prompt" | "compose"
+  | "undo" | "top" | "leaf" | "toggle-instructions" | "toggle-prompt" | "toggle-thought" | "compose"
   | "cancel" | "quit" | "send" | "send-as-take" | "newline" | "history-previous"
   | "save-edit" | "save-edit-inplace" | "commit-field"
   | "history-next" | "backspace" | "input" | "none" | "open-map"

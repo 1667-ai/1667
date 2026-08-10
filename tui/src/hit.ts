@@ -30,6 +30,9 @@ export type HitTarget =
   | { kind: "inline-action"; action: KeyAction }
   /** A rendered part prompt; left-click toggles its inline expansion. */
   | { kind: "prompt"; index: number; rowId: string }
+  /** A part's thought waymark or unfolded block; left-click toggles its fold
+   *  state, same as pressing `T` with that part focused. */
+  | { kind: "thought"; index: number; rowId: string }
   | {
       kind: "composer";
       /** Exact field identity for multi-buffer editors. */

@@ -12,6 +12,13 @@ export function emptyStreamText(): Pick<StreamView, "text" | "trimStart" | "trim
   return { text: "", trimStart: 0, trimEnd: 0 };
 }
 
+/** Whether the live stream is the one generation currently landing in this
+ *  exact part — shared by row-layout.ts and reasoning-model.ts so neither
+ *  has to import the other for it. */
+export function streamForPart(stream: StreamView | null, partId: string): StreamView | null {
+  return stream?.targetId === partId ? stream : null;
+}
+
 /** The three shapes a stream can commit as: a fresh sibling take, an append
  * to the settled leaf, or a splice into an existing node's settled text. */
 export type StreamMode = "take" | "append" | "rewrite";

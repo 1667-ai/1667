@@ -1,7 +1,9 @@
 import {
+  REASONING_DISPLAY_V2_VALUES,
   SETTINGS_ACTIVATION_ERROR_CODE_V2_VALUES,
   type ModelDiscoveryResultV2,
   type ModelDiscoverySourceV2,
+  type ReasoningDisplayV2,
   type SettingsActivationOutcomeV2,
   type SettingsDocumentV2,
   type SettingsMutationResult,
@@ -38,9 +40,12 @@ export function decodeSettingsViewResponse(
   const response = closedRecord(value, "settings view", [
     "dataFormat", "editable", "stateGeneration", "activeRevision",
     "pendingRevision", "document", "effective", "effectiveProse", "lastActivationOutcome"
-  ]);
+  ], ["effectiveProseReasoning"]);
   const effective = decodeGenerationSettingsResponse(response.effective);
   const effectiveProse = decodeGenerationSettingsResponse(response.effectiveProse);
+  const effectiveProseReasoning = Object.hasOwn(response, "effectiveProseReasoning")
+    ? reasoningDisplayValue(response.effectiveProseReasoning, "settings view.effectiveProseReasoning")
+    : undefined;
   if (response.dataFormat === 1) {
     if (response.editable !== false || response.stateGeneration !== null
       || response.activeRevision !== null || response.pendingRevision !== null
@@ -56,6 +61,7 @@ export function decodeSettingsViewResponse(
       document: null,
       effective,
       effectiveProse,
+      effectiveProseReasoning,
       lastActivationOutcome: null
     };
   }
@@ -72,10 +78,15 @@ export function decodeSettingsViewResponse(
     document: decodeDocument(response.document),
     effective,
     effectiveProse,
+    effectiveProseReasoning,
     lastActivationOutcome: response.lastActivationOutcome === null
       ? null
       : decodeActivationOutcome(response.lastActivationOutcome)
   };
+}
+
+function reasoningDisplayValue(value: unknown, label: string): ReasoningDisplayV2 {
+  return oneOf(value, REASONING_DISPLAY_V2_VALUES, label);
 }
 
 function decodeActivationOutcome(value: unknown): SettingsActivationOutcomeV2 {
@@ -170,14 +181,22 @@ export function decodeModelDiscoveryResult(value: unknown): ModelDiscoveryResult
   };
 }
 
+/** `optional` fields may be present or absent without failing the closed-set
+ *  check either way — unlike `fields`, which must all be present. Mirrors
+ *  `closedShape`/`closedRecord` (server/story-wire-validation.ts), the
+ *  server-side validator's own required/optional split for exactly this
+ *  reason: an additive field (`effectiveProseReasoning`) must stay decodable
+ *  whether or not a given response — or a test fixture built from an older
+ *  literal — happens to carry it. */
 function closedRecord(
   value: unknown,
   label: string,
-  fields: readonly string[]
+  fields: readonly string[],
+  optional: readonly string[] = []
 ): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) invalid(label);
   const record = value as Record<string, unknown>;
-  const allowed = new Set(fields);
+  const allowed = new Set([...fields, ...optional]);
   if (Object.keys(record).some((key) => !allowed.has(key))
     || fields.some((key) => !Object.hasOwn(record, key))) {
     invalid(label);
