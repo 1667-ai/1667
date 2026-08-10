@@ -373,6 +373,9 @@ function assertNodeStub(value: unknown): void {
   if (node.generationRecordCount !== undefined) {
     requirePositiveInteger(node.generationRecordCount, "story node stub", "generationRecordCount");
   }
+  if (node.generationRecordIds !== undefined) {
+    throw new Error("The server returned Generation Record ids in a story node stub.");
+  }
   optionalLiteral(node, "reasoning", true, "story node stub");
   optionalLiteral(node, "role", "summary", "story node stub");
   if (node.chapterBreakId !== undefined && typeof node.chapterBreakId !== "string") {

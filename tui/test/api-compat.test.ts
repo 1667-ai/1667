@@ -613,6 +613,23 @@ test("HTTP StoryApi rejects Generation Record ids on an ordinary story path node
     .toContain("Generation Record ids in a story path");
 });
 
+test("HTTP StoryApi rejects Generation Record ids on an ordinary story node stub", async () => {
+  // StoryPayload.nodes stubs only ever carry generationRecordCount (see
+  // buildStoryPayload) — an id list there would leak full Generation Record
+  // history into an ordinary story load, same as the path boundary above.
+  const story = {
+    ...storyPayload("story"),
+    nodes: [storyStub("part", { generationRecordIds: ["a".repeat(64)] })]
+  };
+  globalThis.fetch = (async (input) => String(input).endsWith("/api/health")
+    ? Response.json(metadata())
+    : Response.json(story)) as typeof fetch;
+  const api = createApi("http://127.0.0.1:7373");
+
+  expect((await rejection(api.loadStory("story")) as Error).message)
+    .toContain("Generation Record ids in a story node stub");
+});
+
 test("HTTP StoryApi rejects malformed direct and chapter endpoint envelopes", async () => {
   let response: unknown = { ...storyPayload("story"), nodes: null };
   globalThis.fetch = (async (input) => {

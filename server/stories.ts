@@ -30,6 +30,10 @@ import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../share
 import { resolveGenerationRecord } from "./generation-record-resolve.js";
 import type { ReasoningRecord } from "../shared/reasoning.js";
 import { decodeStoryBundle, encodeStoryBundle, hydrateStoryNodes } from "./story-codec.js";
+import {
+  peekPendingGenerationRecords,
+  restorePendingGenerationRecords
+} from "./story-node-generation-records.js";
 import { putStoryTag, removeStoryTag } from "./story-tags.js";
 import {
   afterCommit,
@@ -814,6 +818,17 @@ export class StoryStore {
     reuseFrom?: StoryObjectStore
   ): Promise<{ commit: CommitResult; manifest: StoryManifestV5; objects: StoryObjectStore }> {
     const temp = stagingBundlePath(this.dir, story.id);
+    // encodeStoryBundle below drains each node's pending Generation Records as
+    // soon as its bytes land in this *staging* store — but staging is not yet
+    // the published bundle. A failure anywhere after that write (including
+    // publishBundle's own rename) hits the catch below, which discards the
+    // whole staging directory; without this snapshot, a same-story retry
+    // would see an empty pending queue and skip re-writing those bytes,
+    // publishing a Generation Record id whose object was never durably
+    // stored anywhere. See story-node-generation-records.ts.
+    const pendingSnapshots = story.nodes
+      .map((node) => [node, peekPendingGenerationRecords(node)] as const)
+      .filter(([, records]) => records.length > 0);
     try {
       const objects = new StoryObjectStore(temp);
       await objects.init();
@@ -829,6 +844,7 @@ export class StoryStore {
       await this.hydrateManifest(parseManifest(raw, story.id), temp);
       return { commit: await publishBundle(temp, this.dir, story.id), manifest, objects };
     } catch (error) {
+      for (const [node, records] of pendingSnapshots) restorePendingGenerationRecords(node, records);
       await rm(temp, { recursive: true, force: true }).catch(() => undefined);
       throw error;
     }

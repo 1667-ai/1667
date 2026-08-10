@@ -119,3 +119,28 @@ export async function storePendingGenerationRecords(
   }
   pendingGenerationRecords.delete(node);
 }
+
+/** Non-destructive snapshot of a node's currently pending records, in queue
+ *  order — immune to the in-place `shift()` mutation `storePendingGenerationRecords`
+ *  performs on the same array. A caller that stages an encode's writes
+ *  somewhere revocable (see `publishNewBundle`) takes this snapshot first, so
+ *  it has something to restore if the staged write is later discarded. */
+export function peekPendingGenerationRecords(node: StoryNode): readonly GenerationRecord[] {
+  return [...(pendingGenerationRecords.get(node) ?? [])];
+}
+
+/** Restore a node's pending queue to an earlier snapshot from
+ *  `peekPendingGenerationRecords`, undoing whatever `storePendingGenerationRecords`
+ *  drained from it in the meantime.
+ *
+ *  Correct only when nothing could have appended to the node's queue between
+ *  the snapshot and this call — true for `publishNewBundle`, which holds this
+ *  story's slot in `KeyedSerialQueue` for its whole staging-then-publish
+ *  span, so the live queue at restore time is always exactly an unconsumed
+ *  suffix of the snapshot. Overwriting with the full snapshot therefore both
+ *  restores any fully-drained (deleted) entry and repairs any partially
+ *  drained one, instead of requiring the caller to diff the two. */
+export function restorePendingGenerationRecords(node: StoryNode, records: readonly GenerationRecord[]): void {
+  if (records.length === 0) return;
+  pendingGenerationRecords.set(node, [...records]);
+}
