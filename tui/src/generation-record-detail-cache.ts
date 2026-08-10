@@ -1,4 +1,5 @@
 import type { ResolvedGenerationRecord } from "../../shared/generation-record.js";
+import { BoundedLruMap } from "../../shared/bounded-lru-map.js";
 
 /** How many resolved details the Generation Record Viewer keeps warm at
  *  once. A take can carry up to `MAX_GENERATION_RECORD_IDS` (4,096, see
@@ -22,24 +23,5 @@ export interface GenerationRecordDetailCache {
 export function createGenerationRecordDetailCache(
   bound: number = GENERATION_RECORD_DETAIL_CACHE_BOUND
 ): GenerationRecordDetailCache {
-  const entries = new Map<string, ResolvedGenerationRecord>();
-  return {
-    get(id) {
-      const detail = entries.get(id);
-      if (detail === undefined) return undefined;
-      // Reinsert to move this key to the end — Map iteration order is
-      // insertion order, so the front is always the least recently used.
-      entries.delete(id);
-      entries.set(id, detail);
-      return detail;
-    },
-    set(id, detail) {
-      entries.delete(id);
-      entries.set(id, detail);
-      if (entries.size > bound) {
-        const oldest = entries.keys().next().value;
-        if (oldest !== undefined) entries.delete(oldest);
-      }
-    }
-  };
+  return new BoundedLruMap<string, ResolvedGenerationRecord>(bound);
 }

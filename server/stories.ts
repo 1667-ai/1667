@@ -11,6 +11,7 @@ import {
   type StorySummary
 } from "../shared/types.js";
 import type { StoryAggregateVersion } from "../shared/story-aggregate-version.js";
+import { BoundedLruMap } from "../shared/bounded-lru-map.js";
 import { ServiceError as HttpError } from "./errors.js";
 import { mapWithConcurrency } from "./concurrency.js";
 import {
@@ -76,7 +77,6 @@ import {
   unionLiveWithPins,
   type ProviderSnapshotPins
 } from "./story-provider-snapshot-pins.js";
-import { BoundedLruMap } from "./bounded-lru-map.js";
 import { KeyedSerialQueue } from "./keyed-serial-queue.js";
 import {
   BoundedCleanupQueue,

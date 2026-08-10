@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BoundedLruMap } from "../server/bounded-lru-map.js";
+import { BoundedLruMap } from "../shared/bounded-lru-map.js";
 
 test("bounded LRU map evicts the least recently used entry once over capacity", () => {
   const cache = new BoundedLruMap<string, string>(3);
