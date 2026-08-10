@@ -50,9 +50,7 @@ import {
 describe("embedded backend worker", () => {
   test("implements the complete StoryApi contract without HTTP", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "1667-worker-api-"));
-    const previousData = process.env.AI_1667_DATA;
-    process.env.AI_1667_DATA = dataDir;
-    const backend = await createWorkerStoryApi();
+    const backend = await createWorkerStoryApi({ dataDir });
     const api = backend.api;
     try {
       const defaults = await api.getSettings();
@@ -363,17 +361,13 @@ describe("embedded backend worker", () => {
         } satisfies Partial<WorkerApiError>);
     } finally {
       await backend.dispose();
-      if (previousData === undefined) delete process.env.AI_1667_DATA;
-      else process.env.AI_1667_DATA = previousData;
       await rm(dataDir, { recursive: true, force: true });
     }
   }, 30_000);
 
   test("normalizes undefined optional fields to HTTP JSON semantics", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "1667-worker-undefined-"));
-    const previousData = process.env.AI_1667_DATA;
-    process.env.AI_1667_DATA = dataDir;
-    const backend = await createWorkerStoryApi();
+    const backend = await createWorkerStoryApi({ dataDir });
     try {
       let story = await backend.api.createStory("Undefined parity");
       story = await backend.api.createNode(story.id, { parentId: null, text: "Root." });
@@ -403,8 +397,6 @@ describe("embedded backend worker", () => {
       expect(story.facts[0]).toMatchObject({ tag: "Place", text: "New" });
     } finally {
       await backend.dispose();
-      if (previousData === undefined) delete process.env.AI_1667_DATA;
-      else process.env.AI_1667_DATA = previousData;
       await rm(dataDir, { recursive: true, force: true });
     }
   }, 20_000);
