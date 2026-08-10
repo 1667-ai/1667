@@ -28,9 +28,19 @@ export function parseWorkerBootstrap(
     ...(message.machineDir === undefined
       ? {}
       : { machineDir: requireString(message.machineDir, "machineDir") }),
+    ...(message.vaultKey === undefined
+      ? {}
+      : { vaultKey: requireVaultKey(message.vaultKey) }),
     ...(message.printLogs === true ? { printLogs: true } as const : {}),
     ...(message.freshDataDirectory === true ? { freshDataDirectory: true } as const : {})
   };
+}
+
+function requireVaultKey(value: unknown): Uint8Array {
+  if (!(value instanceof Uint8Array) || value.byteLength !== 32) {
+    throw new ServiceError(400, "vaultKey must be a 32-byte byte array");
+  }
+  return new Uint8Array(value);
 }
 
 export function parseWorkerRequest(

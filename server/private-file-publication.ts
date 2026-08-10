@@ -21,6 +21,10 @@ import {
   retainedDirectoryOpenFlags
 } from "./retained-directory-authority.js";
 import { withReservedPathOwnership } from "./reserved-path-owner.js";
+import {
+  sealVaultFileForPath,
+  vaultStoredByteLimit
+} from "./vault-key-registry.js";
 
 /**
  * No-replace publication of reserved private files.
@@ -64,8 +68,10 @@ export async function publishPrivateFileNoReplace(
   policy: PrivateFilePolicy
 ): Promise<void> {
   requireBoundedBytes(bytes, policy);
+  const storedBytes = sealVaultFileForPath(file, bytes);
+  const storedPolicy = vaultStoragePolicy(file, policy);
   await withReservedPathOwnership(file, async () =>
-    await publishOwned(file, bytes, policy));
+    await publishOwned(file, storedBytes, storedPolicy));
 }
 
 async function publishOwned(
@@ -143,7 +149,7 @@ export async function recoverPrivatePublication(
   policy: PrivateFilePolicy
 ): Promise<void> {
   await withReservedPathOwnership(file, async () =>
-    await recoverOwned(file, policy));
+    await recoverOwned(file, vaultStoragePolicy(file, policy)));
 }
 
 async function recoverOwned(
@@ -189,20 +195,27 @@ export async function readOptionalPrivateFile(
   policy: PrivateFilePolicy
 ): Promise<Buffer | null> {
   return await withReservedPathOwnership(file, async () =>
-    await readOptionalOwned(file, policy));
+    await readOptionalOwned(file, policy, vaultStoragePolicy(file, policy)));
 }
 
 async function readOptionalOwned(
   file: string,
-  policy: PrivateFilePolicy
+  policy: PrivateFilePolicy,
+  storedPolicy: PrivateFilePolicy
 ): Promise<Buffer | null> {
   if (await optionalPathInfo(privatePublicationScratchPath(file)) !== null) {
-    await recoverOwned(file, policy);
+    await recoverOwned(file, storedPolicy);
   }
   try {
     if (await optionalPathInfo(file) === null) return null;
     await inspectPrivateDirectory(path.dirname(file), policy.label);
-    return await readBoundedRegularFile(file, policy.maxBytes, regularFileOptions(policy, 1));
+    const stored = await readBoundedRegularFile(
+      file,
+      policy.maxBytes,
+      regularFileOptions(policy, 1)
+    );
+    requireBoundedBytes(stored, policy);
+    return stored;
   } catch (error) {
     if (isErrorCode(error, "ENOENT")) return null;
     throw error;
@@ -225,14 +238,16 @@ export async function readOptionalPrivateFiles(
   return await Promise.all(files.map(
     async (file) => await withReservedPathOwnership(file, async () => {
       if (await optionalPathInfo(privatePublicationScratchPath(file)) !== null) {
-        await recoverOwned(file, policy);
+        await recoverOwned(file, vaultStoragePolicy(file, policy));
       }
       try {
-        return await readBoundedRegularFile(
+        const stored = await readBoundedRegularFile(
           file,
           policy.maxBytes,
           regularFileOptions(policy, 1)
         );
+        requireBoundedBytes(stored, policy);
+        return stored;
       } catch (error) {
         if (isErrorCode(error, "ENOENT")) return null;
         throw error;
@@ -245,10 +260,11 @@ export async function removePrivateFile(
   file: string,
   policy: PrivateFilePolicy
 ): Promise<void> {
+  const storedPolicy = vaultStoragePolicy(file, policy);
   await withReservedPathOwnership(file, async () => {
-    await recoverOwned(file, policy);
+    await recoverOwned(file, storedPolicy);
     try {
-      await inspectPrivateRegularFile(file, policy, 1);
+      await inspectPrivateRegularFile(file, storedPolicy, 1);
       await unlink(file);
     } catch (error) {
       if (isErrorCode(error, "ENOENT")) return;
@@ -330,6 +346,11 @@ function strictScratchPolicy(policy: PrivateFilePolicy): PrivateFilePolicy {
   return policy.allowLegacyReadMode
     ? { label: policy.label, maxBytes: policy.maxBytes }
     : policy;
+}
+
+function vaultStoragePolicy(file: string, policy: PrivateFilePolicy): PrivateFilePolicy {
+  const maxBytes = vaultStoredByteLimit(file, policy.maxBytes);
+  return maxBytes === policy.maxBytes ? policy : { ...policy, maxBytes };
 }
 
 function requirePrivateDirectory(info: Stats, directory: string, label: string): void {

@@ -32,6 +32,7 @@ repository contains the terminal user interface (TUI) and its backend runtime.
 - Manage chapter boundaries and chapter summaries in the Chapters view.
 - Edit story parts, facts, and chapter summaries in the full-screen editor.
 - Use the embedded backend worker without a network port.
+- Seal project files at rest with a Vault Password.
 - Stop a generation and save model text that already arrived.
 - Connect to OpenAI-compatible endpoints or Anthropic Messages endpoints.
 

@@ -3,7 +3,7 @@ import type { StorySummary } from "../../shared/types.js";
 import { readImportBytes } from "../../server/import-file.js";
 import { selectStory } from "./story-selector.js";
 import { terminalLineText as plain } from "../../shared/terminal-text.js";
-import { createWorkerStoryApi } from "./worker-api.js";
+import { openProjectBackend } from "./vault-project-backend.js";
 import { countNoun, fidelityReport } from "../../shared/fidelity.js";
 
 export interface LorebookImportCommand {
@@ -11,6 +11,7 @@ export interface LorebookImportCommand {
   readonly files: readonly string[];
   readonly data: string | null;
   readonly global: boolean;
+  readonly passphraseFile: string | null;
 }
 
 export function parseLorebookImportCommand(argv: readonly string[]): LorebookImportCommand {
@@ -18,16 +19,21 @@ export function parseLorebookImportCommand(argv: readonly string[]): LorebookImp
   let story: string | null = null;
   let data: string | null = null;
   let global = false;
+  let passphraseFile: string | null = null;
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
     if (argument === "--global") global = true;
+    else if (argument.startsWith("--passphrase-file=")) {
+      passphraseFile = inlineValue(argument, "--passphrase-file");
+    }
     else if (argument.startsWith("--story=")) story = inlineValue(argument, "--story");
     else if (argument.startsWith("--data=")) data = inlineValue(argument, "--data");
-    else if (argument === "--story" || argument === "--data") {
+    else if (argument === "--story" || argument === "--data" || argument === "--passphrase-file") {
       const value = separatedValue(argv, ++index, argument);
       if (argument === "--story") story = value;
-      else data = value;
+      else if (argument === "--data") data = value;
+      else passphraseFile = value;
     } else if (argument.startsWith("-")) {
       throw new Error(`unknown import-lorebook option: ${plain(argument)}`);
     } else {
@@ -57,7 +63,7 @@ export function parseLorebookImportCommand(argv: readonly string[]): LorebookImp
     }
   }
 
-  return { story, files, data, global };
+  return { story, files, data, global, passphraseFile };
 }
 
 export async function runLorebookImport(
@@ -67,7 +73,7 @@ export async function runLorebookImport(
 ): Promise<void> {
   const command = parseLorebookImportCommand(argv);
   const project = await resolveExistingProject(command, "import");
-  const backend = await createWorkerStoryApi({ dataDir: project.directory });
+  const backend = await openProjectBackend(project, command.passphraseFile);
   let failed = false;
 
   try {

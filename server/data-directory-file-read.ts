@@ -1,5 +1,9 @@
 import { constants, type Stats } from "node:fs";
 import { lstat, open, type FileHandle } from "node:fs/promises";
+import {
+  unsealVaultFileForPath,
+  vaultStoredByteLimit
+} from "./vault-key-registry.js";
 
 export interface BoundedRegularFileOptions {
   readonly requirePrivate?: boolean;
@@ -19,6 +23,7 @@ export async function readBoundedRegularFile(
   maxBytes: number,
   options: BoundedRegularFileOptions = {}
 ): Promise<Buffer> {
+  const storedMaxBytes = vaultStoredByteLimit(file, maxBytes);
   const policy = {
     ...options,
     requirePrivate: options.requirePrivate ?? false,
@@ -27,10 +32,10 @@ export async function readBoundedRegularFile(
   let handle: FileHandle | undefined;
   try {
     const pathInfo = await lstat(file);
-    requireBoundedRegularFile(pathInfo, file, maxBytes, policy);
+    requireBoundedRegularFile(pathInfo, file, storedMaxBytes, policy);
     handle = await open(file, constants.O_RDONLY | noFollowFlag());
     const before = await handle.stat();
-    requireBoundedRegularFile(before, file, maxBytes, policy);
+    requireBoundedRegularFile(before, file, storedMaxBytes, policy);
     requireSameFileIdentity(pathInfo, before, file);
 
     const bytes = Buffer.alloc(Number(before.size) + 1);
@@ -42,7 +47,7 @@ export async function readBoundedRegularFile(
     }
 
     const after = await handle.stat();
-    requireBoundedRegularFile(after, file, maxBytes, policy);
+    requireBoundedRegularFile(after, file, storedMaxBytes, policy);
     if (
       total !== Number(before.size)
       || !sameFileSnapshot(before, after)
@@ -50,9 +55,13 @@ export async function readBoundedRegularFile(
       throw new Error(`Reserved data-directory file changed while being read: ${file}`);
     }
     const finalPathInfo = await lstat(file);
-    requireBoundedRegularFile(finalPathInfo, file, maxBytes, policy);
+    requireBoundedRegularFile(finalPathInfo, file, storedMaxBytes, policy);
     requireSameFileIdentity(after, finalPathInfo, file);
-    return bytes.subarray(0, total);
+    const plaintext = unsealVaultFileForPath(file, bytes.subarray(0, total));
+    if (plaintext.byteLength > maxBytes) {
+      throw new Error(`Reserved data-directory file exceeds its ${maxBytes}-byte size limit: ${file}`);
+    }
+    return plaintext;
   } finally {
     await handle?.close();
   }
@@ -72,6 +81,7 @@ export async function readBoundedMutableAuthorityFile(
   maxBytes: number,
   options: MutableAuthorityFileOptions = {}
 ): Promise<Buffer> {
+  const storedMaxBytes = vaultStoredByteLimit(file, maxBytes);
   const linkedPolicy = {
     requirePrivate: options.requirePrivate ?? false,
     allowedLinkCounts: [1]
@@ -101,11 +111,11 @@ export async function readBoundedMutableAuthorityFile(
     try {
       const pathInfo = await lstat(file);
       if (replacementInFlight(pathInfo, attempt)) continue;
-      requireBoundedRegularFile(pathInfo, file, maxBytes, linkedPolicy);
+      requireBoundedRegularFile(pathInfo, file, storedMaxBytes, linkedPolicy);
       handle = await open(file, constants.O_RDONLY | noFollowFlag());
       const before = await handle.stat();
       if (replacementInFlight(before, attempt)) continue;
-      requireBoundedRegularFile(before, file, maxBytes, openedPolicy);
+      requireBoundedRegularFile(before, file, storedMaxBytes, openedPolicy);
       if (!sameFileIdentity(pathInfo, before)) continue;
 
       const bytes = Buffer.alloc(Number(before.size) + 1);
@@ -118,7 +128,7 @@ export async function readBoundedMutableAuthorityFile(
 
       const after = await handle.stat();
       if (replacementInFlight(after, attempt)) continue;
-      requireBoundedRegularFile(after, file, maxBytes, openedPolicy);
+      requireBoundedRegularFile(after, file, storedMaxBytes, openedPolicy);
       if (
         total !== Number(before.size)
         || !sameMutableAuthoritySnapshot(before, after)
@@ -129,11 +139,15 @@ export async function readBoundedMutableAuthorityFile(
         await requireDistinctLinkedReplacement(
           file,
           after,
-          maxBytes,
+          storedMaxBytes,
           linkedPolicy
         );
       }
-      return bytes.subarray(0, total);
+      const plaintext = unsealVaultFileForPath(file, bytes.subarray(0, total));
+      if (plaintext.byteLength > maxBytes) {
+        throw new Error(`Mutable data-directory authority exceeds its ${maxBytes}-byte size limit: ${file}`);
+      }
+      return plaintext;
     } finally {
       await handle?.close();
     }

@@ -44,10 +44,13 @@ export class RuntimeDataDirectoryLock {
     return this.lock.initializedNewDirectory;
   }
 
-  async acquire(): Promise<string> {
+  async acquire(
+    options: { readonly beforeMigration?: (lockedDataDirectory: string) => Promise<void> } = {}
+  ): Promise<string> {
     return await this.serializeRunRecord(async () => {
       try {
         const canonicalDir = await this.lock.acquire();
+        await options.beforeMigration?.(canonicalDir);
         await this.lock.migrateSettingsFormat();
         this.acquired = true;
         this.canonicalDir = canonicalDir;

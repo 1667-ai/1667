@@ -8,7 +8,9 @@ const PRODUCTION_ROOTS = ["server", "tui/src"] as const;
 const RAW_LOCK_IMPORT = /from\s+["'][^"']*data-directory-lock\.js["']/;
 const ALLOWED_RAW_IMPORTS = [
   "server/data-directory-migration.ts",
-  "server/runtime-data-directory.ts"
+  "server/runtime-data-directory.ts",
+  // Vault lifecycle commands must lock format 5 before a Vault Key exists.
+  "server/vault-lifecycle.ts"
 ];
 
 test("production runtime code cannot bypass prepared data-directory acquisition", async () => {

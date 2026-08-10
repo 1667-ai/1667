@@ -1,0 +1,22 @@
+{
+  "sealedFile": {
+    "magicHex": "0031363637560101",
+    "overheadBytes": 36,
+    "nonceBytes": 12,
+    "tagBytes": 16
+  },
+  "keyslot": {
+    "format": 1,
+    "kdf": {
+      "name": "scrypt",
+      "n": 131072,
+      "r": 8,
+      "p": 1,
+      "saltBytes": 32
+    },
+    "sealedKey": {
+      "nonceBytes": 12,
+      "dataBytes": 48
+    }
+  }
+}

@@ -3,7 +3,7 @@ import type { StorySummary } from "../../shared/types.js";
 import { readImportBytes } from "../../server/import-file.js";
 import { selectStory } from "./story-selector.js";
 import { terminalLineText as plain } from "../../shared/terminal-text.js";
-import { createWorkerStoryApi } from "./worker-api.js";
+import { openProjectBackend } from "./vault-project-backend.js";
 import { fidelityReport } from "../../shared/fidelity.js";
 
 export interface CardImportCommand {
@@ -11,6 +11,7 @@ export interface CardImportCommand {
   readonly files: readonly string[];
   readonly data: string | null;
   readonly global: boolean;
+  readonly passphraseFile: string | null;
 }
 
 export function parseCardImportCommand(argv: readonly string[]): CardImportCommand {
@@ -18,15 +19,20 @@ export function parseCardImportCommand(argv: readonly string[]): CardImportComma
   let story: string | null = null;
   let data: string | null = null;
   let global = false;
+  let passphraseFile: string | null = null;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
     if (argument === "--global") global = true;
+    else if (argument.startsWith("--passphrase-file=")) {
+      passphraseFile = inlineValue(argument, "--passphrase-file");
+    }
     else if (argument.startsWith("--story=")) story = inlineValue(argument, "--story");
     else if (argument.startsWith("--data=")) data = inlineValue(argument, "--data");
-    else if (argument === "--story" || argument === "--data") {
+    else if (argument === "--story" || argument === "--data" || argument === "--passphrase-file") {
       const value = separatedValue(argv, ++index, argument);
       if (argument === "--story") story = value;
-      else data = value;
+      else if (argument === "--data") data = value;
+      else passphraseFile = value;
     } else if (argument.startsWith("-")) {
       throw new Error(`unknown import-card option: ${plain(argument)}`);
     } else {
@@ -44,7 +50,7 @@ export function parseCardImportCommand(argv: readonly string[]): CardImportComma
   if (global && data !== null) {
     throw new Error("--global and --data select different projects");
   }
-  return { story, files, data, global };
+  return { story, files, data, global, passphraseFile };
 }
 
 export async function runCardImport(
@@ -54,7 +60,7 @@ export async function runCardImport(
 ): Promise<void> {
   const command = parseCardImportCommand(argv);
   const project = await resolveExistingProject(command, "import");
-  const backend = await createWorkerStoryApi({ dataDir: project.directory });
+  const backend = await openProjectBackend(project, command.passphraseFile);
   let failed = false;
   try {
     const story = selectStory(await backend.api.listStories(), command.story);
@@ -87,6 +93,3 @@ export async function runCardImport(
   }
   if (failed) process.exitCode = 1;
 }
-
-
-

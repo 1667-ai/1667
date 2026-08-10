@@ -11,7 +11,7 @@ import type { SettingsDocumentV2, SettingsMutationResult } from "../../shared/se
 import { applyProfileTransfer } from "./profile-transfer-apply.js";
 import { writeExportFile } from "./export-file.js";
 import { inlineValue, resolveExistingProject, separatedValue } from "./project-command.js";
-import { createWorkerStoryApi } from "./worker-api.js";
+import { openProjectBackend } from "./vault-project-backend.js";
 import { settingsActivationFailureText } from "./settings-overlay-model.js";
 import type { StoryApi } from "./api.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
@@ -32,6 +32,7 @@ export interface ProfileCommand {
   readonly data: string | null;
   readonly global: boolean;
   readonly force: boolean;
+  readonly passphraseFile: string | null;
 }
 
 export function parseProfileCommand(argv: readonly string[]): ProfileCommand {
@@ -41,16 +42,22 @@ export function parseProfileCommand(argv: readonly string[]): ProfileCommand {
   let data: string | null = null;
   let global = false;
   let force = false;
+  let passphraseFile: string | null = null;
   const files: string[] = [];
   for (let index = 1; index < argv.length; index += 1) {
     const argument = argv[index]!;
     if (argument === "--global") global = true;
     else if (argument === "--force") force = true;
+    else if (argument.startsWith("--passphrase-file=")) {
+      passphraseFile = inlineValue(argument, "--passphrase-file");
+    }
     else if (argument.startsWith("--profile=")) profile = inlineValue(argument, "--profile");
     else if (argument.startsWith("--data=")) data = inlineValue(argument, "--data");
-    else if (argument === "--profile" || argument === "--data") {
+    else if (argument === "--profile" || argument === "--data" || argument === "--passphrase-file") {
       const value = separatedValue(argv, ++index, argument);
-      if (argument === "--profile") profile = value; else data = value;
+      if (argument === "--profile") profile = value;
+      else if (argument === "--data") data = value;
+      else passphraseFile = value;
     } else if (argument.startsWith("-")) throw new Error(`unknown profile option: ${plain(argument)}`);
     else files.push(argument);
   }
@@ -58,7 +65,7 @@ export function parseProfileCommand(argv: readonly string[]): ProfileCommand {
   if (action === "import" && files.length === 0) throw new Error("profile import requires at least one file argument");
   if (action === "export" && files.length > 0) throw new Error("profile export does not accept a file argument");
   if (action === "import" && force) throw new Error("--force applies only to profile export");
-  return { action, profile, files, data, global, force };
+  return { action, profile, files, data, global, force, passphraseFile };
 }
 
 export async function runProfileCommand(
@@ -70,7 +77,7 @@ export async function runProfileCommand(
   const command = parseProfileCommand(argv);
   const project = await resolveExistingProject(command, command.action);
   const backend = dependencies.createBackend === undefined
-    ? await createWorkerStoryApi({ dataDir: project.directory })
+    ? await openProjectBackend(project, command.passphraseFile)
     : await dependencies.createBackend({ dataDir: project.directory });
   let failed = false;
   try {

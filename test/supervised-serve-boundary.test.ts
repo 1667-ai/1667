@@ -26,8 +26,11 @@ import {
 import {
   assertSupervisedMachineTierOutsideProject,
   resolveSupervisedProject,
-  recoverDescriptors
+  recoverDescriptors,
+  runSupervisedServeChild
 } from "../server/supervised-serve-child.js";
+import { DataDirectoryLock } from "../server/data-directory-lock.js";
+import { publishDataDirectoryOwnerMarker } from "../server/data-directory-format.js";
 import { PlatformStateRootError } from "../server/platform-state-root.js";
 import { toPublicServiceError } from "../server/service-error-policy.js";
 import { localStartupFailure } from "../server/local-startup-failure.js";
@@ -114,6 +117,63 @@ test("supervised serve keeps machine state outside the project", async (t) => {
     ),
     /machine tier outside the project/
   );
+});
+
+test("supervised serve rechecks the sealed-vault fence through its retained authority", {
+  skip: process.platform !== "linux"
+}, async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-supervised-vault-race-"));
+  const machineDir = await mkdtemp(path.join(tmpdir(), "1667-supervised-machine-"));
+  t.after(async () => await Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(machineDir, { recursive: true, force: true })
+  ]));
+  const dataDirectory = path.join(root, ".1667");
+  const initializer = new DataDirectoryLock(dataDirectory);
+  await initializer.acquire();
+  await initializer.release();
+
+  const previousMachineDirectory = process.env[MACHINE_TIER_OVERRIDE_VARIABLE];
+  const processWithIpc = process as NodeJS.Process & {
+    send?: (message: unknown) => boolean;
+  };
+  const previousSend = processWithIpc.send;
+  const previousExitCode = process.exitCode;
+  const messages: unknown[] = [];
+  process.env[MACHINE_TIER_OVERRIDE_VARIABLE] = machineDir;
+  processWithIpc.send = (message) => {
+    messages.push(message);
+    return true;
+  };
+  t.after(() => {
+    if (previousMachineDirectory === undefined) {
+      delete process.env[MACHINE_TIER_OVERRIDE_VARIABLE];
+    } else {
+      process.env[MACHINE_TIER_OVERRIDE_VARIABLE] = previousMachineDirectory;
+    }
+    if (previousSend === undefined) delete processWithIpc.send;
+    else processWithIpc.send = previousSend;
+    process.exitCode = previousExitCode;
+  });
+
+  let lockedAuthority: string | null = null;
+  await runSupervisedServeChild([
+    "--data", root,
+    "--port", "0",
+    "--secret-fd", "4"
+  ], {
+    beforeLockedVaultCheck: async (authorityPath) => {
+      lockedAuthority = authorityPath;
+      await publishDataDirectoryOwnerMarker(authorityPath, 5);
+    }
+  });
+
+  assert.match(lockedAuthority ?? "", /^\/proc\/self\/fd\/\d+$/);
+  assert.equal(process.exitCode, 1);
+  assert.deepEqual(messages, [{
+    type: "fatal",
+    message: "serve cannot open a sealed vault; use the TUI or an offline command with --passphrase-file"
+  }]);
 });
 
 test("machine-tier boundary rejects a bind-mounted project descendant", () => {

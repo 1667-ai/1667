@@ -34,6 +34,10 @@ import { resolveDiagnosticMachineTier } from "./diagnostic-machine-tier.js";
 import { executeWorkerRequest } from "./worker-request-executor.js";
 import { localStartupFailure } from "./local-startup-failure.js";
 import { errorFromFailureIncident } from "./reported-service-error.js";
+import {
+  registerVaultKey,
+  type VaultKeyRegistration
+} from "./vault-key-registry.js";
 
 interface WorkerRuntime {
   postMessage(message: WorkerToMainMessage): void;
@@ -55,6 +59,7 @@ let errorReporter = WorkerErrorReporter.disabled();
 let initializing = false;
 const active = new Map<string, ActiveRequest>();
 let stopping = false;
+let vaultRegistration: VaultKeyRegistration | null = null;
 
 runtime.onmessage = (event) => {
   void receive(event.data).catch(async (error: unknown) => {
@@ -262,7 +267,12 @@ async function shutdown(): Promise<void> {
   }
   await Promise.allSettled([...active.values()].map((request) => request.done));
   clearInterval(startupHeartbeat);
-  await service?.dispose();
+  try {
+    await service?.dispose();
+  } finally {
+    vaultRegistration?.clear();
+    vaultRegistration = null;
+  }
   await errorReporter.close().catch(() => undefined);
   errorReporter = WorkerErrorReporter.disabled();
   runtime.postMessage({ type: "stopped" });
@@ -291,6 +301,9 @@ async function bootstrap(message: Extract<MainToWorkerMessage, { type: "bootstra
   errorReporter = candidateReporter;
   let candidate: StoryService | null = null;
   try {
+    if (message.vaultKey !== undefined) {
+      vaultRegistration = registerVaultKey(message.dataDir, message.vaultKey);
+    }
     candidate = new StoryService({
       dataDir: message.dataDir,
       machineDir,
@@ -331,6 +344,8 @@ async function bootstrap(message: Extract<MainToWorkerMessage, { type: "bootstra
       );
       throw errorFromFailureIncident(reported);
     } finally {
+      vaultRegistration?.clear();
+      vaultRegistration = null;
       await candidateReporter.close().catch(() => undefined);
       if (errorReporter === candidateReporter) {
         errorReporter = WorkerErrorReporter.disabled();

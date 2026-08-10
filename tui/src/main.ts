@@ -34,6 +34,7 @@ import { runCardImport } from "./card-import-cli.js";
 import { runLorebookImport } from "./lorebook-import-cli.js";
 import { runProfileCommand } from "./profile-cli.js";
 import { runHttpCommand } from "./http-commands.js";
+import { runVaultDecrypt, runVaultEncrypt } from "./vault-cli.js";
 
 import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.js";
 import {
@@ -58,6 +59,11 @@ import {
   canPromptForProject,
   confirmProjectCreation
 } from "./project-prompt.js";
+import {
+  openSealedVault,
+  revalidateSealedVault,
+  revalidateUnsealedVault
+} from "./vault-open.js";
 
 interface Arguments {
   url: string | null;
@@ -92,6 +98,14 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   }
   if (argv[0] === "init") {
     await runProjectInit(argv.slice(1));
+    return;
+  }
+  if (argv[0] === "encrypt") {
+    await runVaultEncrypt(argv.slice(1));
+    return;
+  }
+  if (argv[0] === "decrypt") {
+    await runVaultDecrypt(argv.slice(1));
     return;
   }
   if (argv[0] === "export") {
@@ -355,16 +369,24 @@ async function attachOrigin(args: Arguments): Promise<string> {
  * Open the project this invocation names, asking once when none exists.
  * Returns null when the person declines, which is not an error.
  */
-async function openProject(args: Arguments): Promise<ResolvedProject | null> {
+interface OpenedProject {
+  readonly project: ResolvedProject;
+  readonly vault: Awaited<ReturnType<typeof openSealedVault>>;
+}
+
+async function openProject(args: Arguments): Promise<OpenedProject | null> {
   const outcome = await resolveProject(projectRequest(args));
   if (outcome.kind === "project") {
     // An explicitly named project — `--data` or `--global` — is explicit intent
     // to have one, so it is created. Discovery only ever finds existing ones.
     if (!outcome.project.exists) {
       await createProjectTier(outcome.project.directory);
-      return { ...outcome.project, exists: true };
+      return { project: { ...outcome.project, exists: true }, vault: null };
     }
-    return outcome.project;
+    return {
+      project: outcome.project,
+      vault: await openSealedVault(outcome.project.directory)
+    };
   }
   const streams = { input: process.stdin, output: process.stdout };
   if (!canPromptForProject(streams)) {
@@ -380,7 +402,7 @@ async function openProject(args: Arguments): Promise<ResolvedProject | null> {
     );
     return null;
   }
-  return await initializeProject(outcome.cwd);
+  return { project: await initializeProject(outcome.cwd), vault: null };
 }
 
 function serviceErrorCode(error: unknown): string {
@@ -434,14 +456,27 @@ interface LoadedSource {
 async function loadSource(args: Arguments): Promise<LoadedSource | null> {
   if (args.demo) return { source: demoAppSource(args.dense), dispose: async () => {} };
   let dataDir: string | null = null;
+  let vaultOptions: {
+    readonly vaultKey: Buffer;
+    readonly beforeVaultMigration: (lockedDataDirectory: string) => Promise<void>;
+  } | undefined;
   // Exports land in the project root, beside the writing. A client
   // attached to a server has no project of its own and writes where it started.
   let exportDirectory = process.cwd();
   if (args.embedded) {
-    const project = await openProject(args);
-    if (project === null) return null;
-    dataDir = project.directory;
-    exportDirectory = project.root;
+    const opened = await openProject(args);
+    if (opened === null) return null;
+    dataDir = opened.project.directory;
+    exportDirectory = opened.project.root;
+    const vault = opened.vault;
+    if (vault !== null) {
+      vaultOptions = {
+        vaultKey: vault.key,
+        beforeVaultMigration: async (lockedDataDirectory: string) => {
+          await revalidateSealedVault(lockedDataDirectory, vault.keyslotBytes);
+        }
+      };
+    }
   }
   const storyFolder = dataDir === null
     ? ""
@@ -450,7 +485,8 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
   const worker = dataDir === null ? null : await createWorkerStoryApi({
     dataDir,
     printLogs: args.printLogs,
-    onRecoveryWarnings: (warnings) => backendRecovery.publish(warnings)
+    onRecoveryWarnings: (warnings) => backendRecovery.publish(warnings),
+    ...(vaultOptions ?? { beforeVaultMigration: revalidateUnsealedVault })
   });
   let httpAttach = worker === null
     ? await attachHttpServer(await attachOrigin(args), {

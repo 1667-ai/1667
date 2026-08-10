@@ -147,7 +147,8 @@ describe("export command line", () => {
       format: "markdown",
       force: false,
       data: null,
-      global: false
+      global: false,
+      passphraseFile: null
     });
     expect(parseExportCommand(["--story", "st1_abc", "--force"])).toMatchObject({
       storyId: "st1_abc",
@@ -308,7 +309,7 @@ describe("export help", () => {
     // No flag picks a branch, so the help has to say where that choice lives.
     expect(block).toContain("choose it in the app first");
     // Usage must list every selector the parser honours, and only those.
-    for (const flag of ["--story", "--all", "--format", "--force", "--data", "--global"]) {
+    for (const flag of ["--story", "--all", "--format", "--force", "--passphrase-file", "--data", "--global"]) {
       expect(`${flag}:${EXPORT_HELP.includes(flag)}`).toBe(`${flag}:true`);
     }
     // The front page must still name the command, or nobody reaches this page.
@@ -320,7 +321,8 @@ describe("export help", () => {
       format: "markdown",
       force: true,
       data: "book",
-      global: false
+      global: false,
+      passphraseFile: null
     });
   });
 });

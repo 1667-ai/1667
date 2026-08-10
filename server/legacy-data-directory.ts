@@ -111,7 +111,11 @@ async function validateRetainedLegacyDataDirectory(
 /** Retain, lock, and validate one legacy directory as one authority. */
 export async function acquireLegacyDataDirectoryLease(
   dataDirInput: string,
-  machineDirectory: string
+  machineDirectory: string,
+  options: {
+    /** Checked before validation and again after this function owns all data locks. */
+    readonly validateAuthority?: (authorityPath: string) => Promise<void>;
+  } = {}
 ): Promise<LegacyDataDirectoryLease> {
   assertLegacyDataDirectoryPlatform();
   const authorityInput = path.resolve(dataDirInput);
@@ -149,12 +153,17 @@ export async function acquireLegacyDataDirectoryLease(
       dataDir,
       directoryHandle.fd
     );
+    await options.validateAuthority?.(authorityPath);
     await validateRetainedLegacyDataDirectory(authorityPath, dataDir);
     for (const fileName of LEGACY_LEASE_FILES) {
       leases.push(await acquireLegacyFileLock(
         path.join(authorityPath, fileName)
       ));
     }
+    // A peer can publish the format fence after the first validation and
+    // before this process takes the lease. Check it again through the retained
+    // authority before any service setup starts.
+    await options.validateAuthority?.(authorityPath);
     await assertLockingFilesystem(
       path.join(authorityPath, DATA_DIRECTORY_LOCK),
       dataDir

@@ -27,6 +27,10 @@ export interface WorkerStoryApiOptions {
   machineDir?: string;
   /** Set by the lock owner when startup created the data directory. */
   freshDataDirectory?: boolean;
+  /** Vault Key held only by the opening process and its worker. */
+  vaultKey?: Uint8Array;
+  /** Revalidates a sealed vault after this process owns its lock. */
+  beforeVaultMigration?: (lockedDataDirectory: string) => Promise<void>;
   /** Echo unexpected embedded errors to stderr as well as the private log. */
   printLogs?: boolean;
   readyTimeoutMs?: number;

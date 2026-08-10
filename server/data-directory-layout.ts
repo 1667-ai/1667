@@ -1,10 +1,10 @@
 import { privatePublicationScratchPath } from "./private-file-publication.js";
 
-/** Format 4 is format 3 plus the optional author note on a story. Nothing
- * moved on disk, so the number is the whole fence — an older executable
+/** Format 5 is format 4 plus sealed vault files. The file layout does not
+ * change, so the number is the whole fence — an older executable
  * refuses the directory at the marker rather than failing later on data it
  * believed it understood. */
-export type DataDirectoryFormat = 1 | 2 | 3 | 4;
+export type DataDirectoryFormat = 1 | 2 | 3 | 4 | 5;
 
 /**
  * Project-tier names. The product prefix these once carried existed to
@@ -23,6 +23,8 @@ export const DATA_DIRECTORY_OWNER_MARKER = "owner.json";
 export const DATA_DIRECTORY_OWNER_MARKER_NEXT = "owner.json.next";
 /** Advisory record of the process serving this project. Never authoritative. */
 export const PROJECT_RUN_RECORD_FILE = "run.json";
+/** Plaintext Keyslot for a sealed vault. */
+export const VAULT_KEYSLOT_FILE = "vault.json";
 
 /**
  * Names written by older builds. Nothing creates them; `1667 init
@@ -105,6 +107,7 @@ export const PROJECT_CONTROL_ENTRY_NAMES = Object.freeze([
   DATA_DIRECTORY_OWNER_MARKER_NEXT,
   DATA_DIRECTORY_OWNER_MARKER_NEXT_SCRATCH,
   PROJECT_RUN_RECORD_FILE,
+  VAULT_KEYSLOT_FILE,
   LEGACY_DATA_OWNER_MARKER,
   LEGACY_DATA_OWNER_MARKER_NEXT,
   LEGACY_EXCLUSION_FENCE,

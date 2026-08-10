@@ -16,6 +16,15 @@ read_when:
 | backend | The service that stores stories and sends provider requests |
 | character card | A V1 or V2 character card file that another tool wrote |
 | project | A project root and its `.1667/` directory |
+| vault | One project whose project files can be sealed |
+| sealed file | A project file that contains ciphertext on disk |
+| seal | To encrypt the bytes of one project file with the Vault Key |
+| unseal | To decrypt the bytes of one sealed file with the Vault Key |
+| Vault Key | The random key that seals the files of one vault |
+| Vault Password | The secret text that opens the Vault Key |
+| Keyslot | The plaintext `vault.json` control file that contains the sealed Vault Key |
+| control file | A project file that must stay plaintext so that 1667 can open a vault |
+| unseal progress directory | The plaintext `.1667-vault-unseal-progress/` directory that records an interrupted unseal operation |
 | reserved file | A control file that 1667 writes one time and does not change |
 | scratch file | The temporary publication copy of one reserved file |
 | story part | One unit of story prose |
