@@ -486,8 +486,14 @@ The **Keep thought** row controls storage. Keep thought is on by default.
 close the story. Set Keep thought to off to save no thought. 1667 then
 shows each thought while the model writes it, but keeps none of it.
 
-A model can return no reasoning text. The Reasoning row then shows `‹ — ›`
-and gives the reason.
+Some routes cannot return reasoning text. A text completion route is one,
+because that protocol has no field for it. The Reasoning row then shows
+`‹ — ›` and gives the reason.
+
+1667 cannot know in advance whether the other routes return reasoning
+text. Thus the Reasoning row keeps your selection on all of them. If a
+model writes no reasoning text, its take gets no thought marker, and the
+Reasoning row does not change.
 
 ## Credentials and deadlines
 
