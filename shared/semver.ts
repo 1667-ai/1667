@@ -59,6 +59,11 @@ export function compareSemVer(left: string, right: string): number {
   return 0;
 }
 
+/** True when a channel head is an applicable upgrade from an exact version identity. */
+export function isSemVerUpgradeAvailable(channelHead: string, currentVersion: string): boolean {
+  return channelHead !== currentVersion && compareSemVer(channelHead, currentVersion) >= 0;
+}
+
 function requireSemVer(value: string): SemVer {
   const parsed = parseSemVer(value);
   if (parsed === null) throw new TypeError(`Invalid semantic version: ${value}`);

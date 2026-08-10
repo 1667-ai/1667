@@ -1,4 +1,4 @@
-import { compareSemVer } from "../../shared/semver.js";
+import { isSemVerUpgradeAvailable } from "../../shared/semver.js";
 import { RELEASE_LAUNCHER_PACKAGE } from "../../shared/release-targets.js";
 import {
   UPDATE_CHECK_INITIAL_DELAY_MS,
@@ -109,13 +109,7 @@ export function updateNotice(
   latest: string,
   observation: UpgradeObservation
 ): string | null {
-  // Exact version string equality is the only current identity. SemVer
-  // precedence ignores build metadata, so equal precedence with different
-  // build metadata is still a notifyable target (same rule as planUpgrade).
-  if (latest === observation.currentVersion) return null;
-  const comparison = compareSemVer(latest, observation.currentVersion);
-  if (comparison < 0) return null;
-  // comparison > 0: newer precedence. comparison === 0: build-metadata-only change.
+  if (!isSemVerUpgradeAvailable(latest, observation.currentVersion)) return null;
   return `1667 ${latest} available · see npmjs.com/package/${RELEASE_LAUNCHER_PACKAGE}`;
 }
 

@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compareSemVer, isSemVer, parseSemVer } from "../shared/semver.js";
+import {
+  compareSemVer,
+  isSemVer,
+  isSemVerUpgradeAvailable,
+  parseSemVer
+} from "../shared/semver.js";
 
 test("strict SemVer parsing accepts canonical versions without integer-size limits", () => {
   const parsed = parseSemVer("999999999999999999999.2.3-alpha.1+build.7");
@@ -34,4 +39,11 @@ test("SemVer precedence follows the normative prerelease ordering", () => {
   }
   assert.equal(compareSemVer("1.2.3+first", "1.2.3+second"), 0);
   assert.throws(() => compareSemVer("latest", "1.2.3"), TypeError);
+});
+
+test("upgrade availability follows precedence and exact version identity", () => {
+  assert.equal(isSemVerUpgradeAvailable("0.5.6-rc.1", "0.5.5"), true);
+  assert.equal(isSemVerUpgradeAvailable("0.5.5", "0.5.5"), false);
+  assert.equal(isSemVerUpgradeAvailable("0.5.5+build.2", "0.5.5+build.1"), true);
+  assert.equal(isSemVerUpgradeAvailable("0.5.5-rc.1", "0.5.5"), false);
 });

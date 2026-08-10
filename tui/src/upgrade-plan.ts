@@ -1,4 +1,4 @@
-import { compareSemVer, isSemVer } from "../../shared/semver.js";
+import { isSemVer, isSemVerUpgradeAvailable } from "../../shared/semver.js";
 import {
   NpmUpgradeRegistry,
   type NpmVersionMetadata,
@@ -100,14 +100,8 @@ export async function planUpgrade(
       "The requested version is no longer the selected channel head."
     );
   }
-  // Exact SemVer string equality is the only up-to-date identity. Same precedence
-  // with different build metadata stays an available, applicable target.
-  if (latest === observation.currentVersion) {
-    return upToDatePlan(observation.currentVersion, latest, command.channel);
-  }
-  const comparison = compareSemVer(latest, observation.currentVersion);
-  if (comparison < 0) {
-    if (version !== null) {
+  if (!isSemVerUpgradeAvailable(latest, observation.currentVersion)) {
+    if (version !== null && latest !== observation.currentVersion) {
       throw new UpgradeFailure("unsupported_target", "Downgrades are not supported.");
     }
     return upToDatePlan(observation.currentVersion, latest, command.channel);
