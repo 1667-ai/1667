@@ -24,6 +24,13 @@ This file records notable changes to 1667. Product terms use the definitions in
   message that names the limit. Before this fix, the refusal could arrive
   after the writer's next keystroke had already cleared it from view.
 
+- **1667 shows the release notes after an upgrade.** The first run of a new
+  build shows a toast: `Updated to <version> · press ! for what changed`.
+  Press `!` to open the log. The log shows the release note for each version
+  between your last run and this one. 1667 shows this one time for each
+  upgrade. A fresh install shows nothing, because a new writer has no earlier
+  version to compare against.
+
 - **1667 shows what a model thinks before it writes.** Some models write
   reasoning text before prose. 1667 calls this text a thought and keeps it
   apart from your story. The margin shows `⟳ thinking` while the model works,

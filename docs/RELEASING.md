@@ -165,6 +165,12 @@ package must contain this content before publication.
 
 ## Required trusted inputs
 
+Add the new version's section to `CHANGELOG.md` before you collect these
+inputs. Then run `npm run notes:write` and commit the updated
+`shared/release-notes.ts`. The build embeds this file in the executable. A
+release without this step ships a binary whose own release notes stop one
+version early.
+
 Collect these inputs before preflight:
 
 1. Use a clean source commit.

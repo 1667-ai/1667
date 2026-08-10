@@ -55,6 +55,8 @@ export interface UserConfig {
   composeMaxHeight: number | null;
   quota: QuotaLedger;
   updates: UpdatePreferences;
+  /** The product version of the last interactive run. Null before the first run. */
+  lastRunVersion: string | null;
 }
 
 const DEFAULTS: UserConfig = {
@@ -64,7 +66,8 @@ const DEFAULTS: UserConfig = {
   wordWrap: "on",
   composeMaxHeight: null,
   quota: { date: "", words: 0 },
-  updates: { mode: "off", channel: "stable", skippedVersion: null }
+  updates: { mode: "off", channel: "stable", skippedVersion: null },
+  lastRunVersion: null
 };
 
 type ConfigRecord = Record<string, unknown>;
@@ -125,7 +128,8 @@ export function normalizeUserConfig(value: unknown): UserConfig {
       skippedVersion: isSemVer(rawUpdates.skippedVersion)
         ? rawUpdates.skippedVersion
         : null
-    }
+    },
+    lastRunVersion: isSemVer(raw.lastRunVersion) ? raw.lastRunVersion : null
   };
 }
 

@@ -22,8 +22,10 @@ import {
 import type { HttpRecoveryWarning } from "../../shared/http-protocol.js";
 import {
   AI_1667_BUILD_IDENTITY,
+  AI_1667_PRODUCT_VERSION,
   formatBuildVersion
 } from "../../shared/build-identity.js";
+import { releaseAnnouncement } from "./release-announcement.js";
 import { RecoveryWarningFeed } from "./recovery-warning-feed.js";
 import { runProcessUpgrade } from "./upgrade-cli.js";
 import { createBackgroundUpdateStarter } from "./update-runtime.js";
@@ -543,6 +545,7 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
       ...(worker === null ? {} : { backendFailure: worker.failure }),
       backendRecovery,
       ...(startUpdateCheck === null ? {} : { startUpdateCheck }),
+      releaseAnnouncement: releaseAnnouncement(config.lastRunVersion, AI_1667_PRODUCT_VERSION),
       config,
       readingPositions };
     return {
