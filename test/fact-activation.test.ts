@@ -228,6 +228,36 @@ test("a huge recursion-enabled Fact no longer crowds a small one out of the chai
   assert.equal(selected.traces.get("chain")?.round, 1);
 });
 
+// A fair share cuts a Fact's own text, and that cut must not fabricate a word
+// boundary the real text does not have. Before this test's fix, a Fact's
+// share was taken as a raw tail slice: if the cut landed mid-word, the kept
+// fragment read as a fresh word at the front of the recursion segment (or
+// right after the "\n\n" join separator — both non-word, so the boundary
+// check passes) even though the real text has a word character right there.
+test("a fair-share cut never fabricates a word boundary the real text does not have", () => {
+  // Exactly one recursion-enabled Fact feeds the window, so its fair share is
+  // the whole MAX_FACT_RECURSION_UTF16 budget — arithmetic this test controls
+  // completely. Built so the tail-slice cut lands exactly between "x" and
+  // "trigger": 100 filler characters, then "x", then "trigger " (embedded,
+  // preceded by a word character), then enough filler that "trigger " plus
+  // the filler is exactly the window size.
+  const embedded = "trigger";
+  const afterCut = `${embedded} ${"z".repeat(MAX_FACT_RECURSION_UTF16 - embedded.length - 1)}`;
+  assert.equal(afterCut.length, MAX_FACT_RECURSION_UTF16, "fixture must sit exactly at the share");
+  const bigText = `${"z".repeat(100)}x${afterCut}`;
+
+  const big: StoryFact = { ...alwaysFact("big"), id: "big", text: bigText };
+  const chain: StoryFact = { ...fact(embedded), id: "chain" };
+
+  const selected = selectActiveFactsWithTrace([big, chain]);
+
+  assert.equal(
+    selected.facts.some(({ id }) => id === "chain"),
+    false,
+    "\"trigger\" is embedded inside \"xtrigger\" in the real text and must not activate a Fact keyed on it"
+  );
+});
+
 function fact(key: string): StoryFact {
   return {
     id: `fact-${key}`,

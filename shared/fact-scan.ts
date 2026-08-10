@@ -127,12 +127,40 @@ function maxMinShares(lengths: readonly number[], budget: number): number[] {
   return shares;
 }
 
-/** The last `limit` UTF-16 units of `text`, never split between a surrogate
- * pair — the same boundary rule `boundedSegment`'s own suffix trim uses. */
+/** The last `limit` UTF-16 units of `text`, aligned so the retained text
+ * never starts mid-word — never split between a surrogate pair either, the
+ * same rule `boundedSegment`'s own suffix trim uses.
+ *
+ * A raw tail cut can land inside a word: "xtrigger" cut between "x" and
+ * "trigger" hands the matcher a fragment that reads as the whole word
+ * "trigger" starting fresh — preceded by nothing (or by another Fact's
+ * "\n\n" join separator), both of which pass the boundary check — even
+ * though the real text has "x" right there and a real scan would refuse
+ * the match. Dropping the partial leading word removes that fabricated
+ * boundary along with the rest of the excess. Text that already fits `limit`
+ * returns unchanged: only a cut this function actually makes can create an
+ * artificial boundary to fix. */
 function tailSlice(text: string, limit: number): string {
   if (limit <= 0) return "";
   if (text.length <= limit) return text;
-  return text.slice(suffixStart(text, text.length - limit));
+  const start = suffixStart(text, text.length - limit);
+  return text.slice(skipPartialWord(text, start));
+}
+
+/** `start` cuts `text` mid-word when the scalar just before it is a word
+ * scalar; advance past the rest of that word (surrogate-safe) so the
+ * retained text begins at a real word boundary, same as the text would
+ * naturally start after any other non-word character. */
+function skipPartialWord(text: string, start: number): number {
+  const before = scalarBefore(text, start);
+  if (before === null || !isWord(before)) return start;
+  let index = start;
+  while (index < text.length) {
+    const scalar = scalarAt(text, index);
+    if (scalar === null || !isWord(scalar)) break;
+    index += scalar.length;
+  }
+  return index;
 }
 function segment(text: string, before: string | null): FactScanSegment {
   return { text: text.normalize("NFC"), folded: normalizeFactText(text), before };
