@@ -251,6 +251,7 @@ function cloneRange(range: GenerationRecordRange, label: string): GenerationReco
  *  carry an identical `range` field. */
 export function parseGenerationRecordRange(value: unknown, label: string): GenerationRecordRange {
   const range = requireRecord(value, label);
+  requireKeys(range, ["start", "end"], [], label);
   return cloneRange(
     { start: requireSafeInteger(range.start, `${label}.start`), end: requireSafeInteger(range.end, `${label}.end`) },
     label
@@ -271,6 +272,7 @@ function cloneProvider(provider: GenerationRecordProvider, label: string): Gener
  *  identity is never rewritten by resolution. */
 export function parseGenerationRecordProvider(value: unknown, label: string): GenerationRecordProvider {
   const provider = requireRecord(value, label);
+  requireKeys(provider, ["provider", "model"], [], label);
   return cloneProvider({
     provider: requireString(provider.provider, `${label}.provider`) as GenerationRecordProvider["provider"],
     model: requireString(provider.model, `${label}.model`)
@@ -339,6 +341,7 @@ function cloneAdjustment(adjustment: GenerationRecordAdjustment, label: string):
  *  `prompt` changes shape under resolution, never `effective`. */
 export function parseGenerationRecordEffectiveParameters(value: unknown, label: string): GenerationRecordEffectiveParameters {
   const effective = requireRecord(value, label);
+  requireKeys(effective, ["wireProtocol", "fields", "adjustments"], [], label);
   const fields = requireArray(effective.fields, `${label}.fields`).map((field, index) => parseField(field, `${label}.fields[${index}]`));
   const adjustments = requireArray(effective.adjustments, `${label}.adjustments`)
     .map((adjustment, index) => parseAdjustment(adjustment, `${label}.adjustments[${index}]`));
@@ -351,6 +354,7 @@ export function parseGenerationRecordEffectiveParameters(value: unknown, label: 
 
 function parseField(value: unknown, label: string): GenerationRecordField {
   const field = requireRecord(value, label);
+  requireKeys(field, ["field", "value"], [], label);
   const raw = field.value;
   if (typeof raw !== "string" && typeof raw !== "number" && typeof raw !== "boolean") {
     throw new GenerationRecordFormatError(`${label}.value must be a string, number, or boolean`);
@@ -360,6 +364,7 @@ function parseField(value: unknown, label: string): GenerationRecordField {
 
 function parseAdjustment(value: unknown, label: string): GenerationRecordAdjustment {
   const adjustment = requireRecord(value, label);
+  requireKeys(adjustment, ["stage", "field", "action"], ["attempt", "toField"], label);
   return cloneAdjustment({
     stage: requireString(adjustment.stage, `${label}.stage`) as GenerationRecordAdjustmentStage,
     field: requireString(adjustment.field, `${label}.field`),

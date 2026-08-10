@@ -989,6 +989,23 @@ test("HTTP StoryApi rejects malformed successful responses for every response fa
       },
       () => api.getGenerationRecord("story", "node", "a".repeat(64)),
       "Generation Record.prompt.entries[0].parts[0].nodeId"
+    ],
+    [
+      {
+        format: "1667-generation-record",
+        schemaVersion: 1,
+        kind: "continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        // The resolved detail route reuses the stored codec's provider
+        // parser unchanged (shared/generation-record-resolved.ts); an
+        // unrecognized key must be rejected here too, not just on the
+        // stored side.
+        provider: { provider: "dry-run", model: "dry-run", credential: "leaked" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: { operation: "continue", entries: [] }
+      },
+      () => api.getGenerationRecord("story", "node", "a".repeat(64)),
+      "Generation Record.provider"
     ]
   ];
   for (const [payload, request, expected] of malformed) {
