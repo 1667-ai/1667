@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Every generated take keeps its request details.** Press `h` on a take to
+  open the Generation Record Viewer. It shows the provider, the model, the
+  effective settings, provider adjustments, and the ordered request pipeline.
+  It keeps the request text from that generation after a later edit. It never
+  stores a credential, a custom header value, or a base URL. Thanks @10fra for
+  the request.
+
 - **1667 shows what a model thinks before it writes.** Some models write
   reasoning text before prose. 1667 calls this text a thought and keeps it
   apart from your story. The margin shows `⟳ thinking` while the model works,

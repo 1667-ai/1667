@@ -107,12 +107,13 @@ describe("arrow-first key routing", () => {
     expect(resolveKey(key("escape"), "ARCHIVE").action).toBe("cancel");
   });
 
-  test("NAV uses arrows for parts and takes; h/j/k are unbound", () => {
+  test("NAV uses arrows for parts and takes; h opens request history", () => {
     expect(resolveKey(key("down"), "NAV").action).toBe("focus-next");
     expect(resolveKey(key("up"), "NAV").action).toBe("focus-previous");
     expect(resolveKey(key("right"), "NAV").action).toBe("take-next");
     expect(resolveKey(key("left"), "NAV").action).toBe("take-previous");
-    for (const dead of ["h", "j", "k"]) {
+    expect(resolveKey(key("h"), "NAV").action).toBe("open-records");
+    for (const dead of ["j", "k"]) {
       expect(resolveKey(key(dead), "NAV").action).toBe("none");
     }
     // "l" for "logprobs" (issue #291 phase 4) — the one vi-motion letter NAV
@@ -142,7 +143,8 @@ describe("arrow-first key routing", () => {
     expect(resolveKey(key("a"), "MAP", path).action).toBe("toggle-path-takes");
     expect(resolveKey(key("t"), "MAP", path).action).toBe("tag");
     expect(resolveKey(key("b"), "MAP", path).action).toBe("none");
-    for (const dead of ["h", "j", "k", "l"]) {
+    expect(resolveKey(key("h"), "MAP", path).action).toBe("open-records");
+    for (const dead of ["j", "k", "l"]) {
       expect(resolveKey(key(dead), "MAP", path).action).toBe("none");
     }
   });
@@ -158,7 +160,8 @@ describe("arrow-first key routing", () => {
       // Only mass has an order to cycle; the tree is the graph order itself.
       expect(resolveKey(key("s"), "MAP", options).action)
         .toBe(mapView === "mass" ? "map-cycle-sort" : "none");
-      for (const dead of ["h", "j", "k"]) {
+      expect(resolveKey(key("h"), "MAP", options).action).toBe("open-records");
+      for (const dead of ["j", "k"]) {
         expect(resolveKey(key(dead), "MAP", options).action).toBe("none");
       }
     }

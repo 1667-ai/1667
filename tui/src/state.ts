@@ -42,6 +42,8 @@ import type { SettingsTextDraft } from "./settings-text.js";
 import type { SettingsModelPicker } from "./settings-model-picker.js";
 import type { TokenProbabilityRecord } from "../../shared/token-probabilities.js";
 import type { TokenProbabilityEmptyReason } from "./token-probabilities-model.js";
+import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../../shared/generation-record.js";
+import type { GenerationRecordDetailCache } from "./generation-record-detail-cache.js";
 import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 import type { PromptProjectionIdentity } from "./request-context.js";
 import type { StoryScalarField } from "./story-scalar-fields.js";
@@ -394,6 +396,81 @@ export interface TokenProbabilitiesViewerState {
   empty: TokenProbabilityEmptyReason | null;
 }
 
+/** Why a Generation Record detail fetch settled without a record to show —
+ *  distinct from `kind: "unsupported"`, which is a valid resolved record
+ *  (see `GenerationRecord.unsupportedReason`) rendered in the body, not an
+ *  error here. */
+export type GenerationRecordDetailError =
+  /** The take's own history no longer lists this id (deleted, or a stale
+   *  cached id from a take that has since moved on). */
+  | { kind: "missing" }
+  /** The server answered, but its shape failed the client's own decoder. */
+  | { kind: "corrupt"; message: string }
+  /** Any other transport or service failure. */
+  | { kind: "failed"; message: string };
+
+/** One fetch of a take's Generation Record summary list — see
+ *  `GenerationRecordViewerState.list`. `status` mirrors `ThoughtCacheEntry`'s
+ *  own discriminant, so `summaries` can never be read back while `loading`
+ *  still holds, or held over stale from a previous status. */
+export type GenerationRecordListState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | {
+      status: "ready";
+      /** Oldest first, mirroring `loadGenerationRecordSummaries`. */
+      summaries: readonly GenerationRecordSummary[];
+    };
+
+/** One fetch of the selected event's resolved Generation Record — see
+ *  `GenerationRecordViewerState.detail`. Every non-idle variant carries the
+ *  `recordId` it is about, so a staleness check compares identities
+ *  directly instead of re-deriving one from `eventIndex` against `list`.
+ *  `idle` is the pre-selection state: nothing chosen yet, or `list` came
+ *  back empty. */
+export type GenerationRecordDetailState =
+  | { status: "idle" }
+  | { status: "loading"; recordId: string }
+  | { status: "error"; recordId: string; error: GenerationRecordDetailError }
+  | { status: "ready"; recordId: string; detail: ResolvedGenerationRecord };
+
+/** The Generation Record Viewer (RECORD mode): the read-only history of
+ *  every captured request that produced or changed one take, opened with
+ *  `h` from NAV or any MAP view without moving that view's own focus.
+ *
+ *  `list` and `detail` are two independent async stages, each its own
+ *  discriminated union so loading/error/ready stay mutually exclusive by
+ *  construction — the same way `ThoughtCacheEntry` closes off a thought
+ *  cache entry from claiming to be both loading and ready. The summary list
+ *  loads once per `nodeId`, and each event's detail loads once per
+ *  `(nodeId, eventIndex)` pair — re-checked against `state.record` after
+ *  every await, so closing the viewer or moving to a different take or event
+ *  before a fetch settles can never paint its answer over the wrong place. */
+export interface GenerationRecordViewerState {
+  /** The take being inspected. Re-resolved against the live payload on every
+   *  render, so a concurrent edit degrades to an honest empty state instead
+   *  of describing a take that moved out from under it. */
+  nodeId: string;
+  returnMode: "NAV" | "MAP";
+  list: GenerationRecordListState;
+  /** Index into `list.summaries`; meaningless unless `list.status` is
+   *  `"ready"`. Initialized to the newest (last) entry. */
+  eventIndex: number;
+  /** Selected message/pipeline row within the current event's body. Reclamped
+   *  at render time against the live entry count, the same way
+   *  `RequestViewerState.cursor` is reclamped against message count. */
+  entryIndex: number;
+  /** Negative means reveal the focused entry on the next render. */
+  scrollTop: number;
+  detail: GenerationRecordDetailState;
+  /** Bounded LRU of details already fetched this session, keyed by record
+   *  id, so paging back to a recent event repaints instantly instead of
+   *  re-fetching it. Paging past the bound (see
+   *  GENERATION_RECORD_DETAIL_CACHE_BOUND) evicts the oldest untouched entry
+   *  instead of retaining every take's full history for the session. */
+  cache: GenerationRecordDetailCache;
+}
+
 /** The last answer the token-count lane published, held against the exact
  *  projection inputs and the route that produced it. The render path trusts it
  *  only while both still match, so a rendered mark always describes the prompt
@@ -541,6 +618,8 @@ export interface StoryScreenState extends OverlayState {
   request: RequestViewerState | null;
   /** The read-only token probability viewer, or null when it is closed. */
   probs: TokenProbabilitiesViewerState | null;
+  /** The read-only Generation Record Viewer, or null when it is closed. */
+  record: GenerationRecordViewerState | null;
   toast: string | null;
   /** C-37: every notice the session has shown, so a capped channel never
    *  loses a message for good. `!` opens it. */

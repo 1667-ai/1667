@@ -1,6 +1,11 @@
 import type { RewriteNodeEffect } from "./story-provider-effect.js";
 import { stripEchoedContext } from "./rewrite-output.js";
 import { ServiceError } from "./errors.js";
+import {
+  MAX_GENERATION_RECORD_BYTES,
+  serializeGenerationRecord,
+  type GenerationRecord
+} from "../shared/generation-record.js";
 
 /**
  * One rewrite's splice decisions, shared byte-for-byte by the full commit in
@@ -127,18 +132,41 @@ export interface PartialRewriteRecord {
   readonly effect: Omit<RewriteNodeEffect, "cancelled" | "updatedAt">;
 }
 
+/** The same splice fields as `PartialRewriteRecord.effect`, minus the
+ *  Generation Record — everything `rewriteNode` (server/generation-http.ts)
+ *  can compute before a stream has run and a record can be captured.
+ *  `maximumPartialRewriteRecordRetainedBytes` sizes a pre-stream reservation
+ *  from exactly this shape. */
+export type PartialRewriteEffectBase = Omit<RewriteNodeEffect, "cancelled" | "updatedAt" | "generationRecord">;
+
+export interface PartialRewriteRecordBase {
+  readonly storyId: string;
+  readonly nodeId: string;
+  readonly attemptId: string;
+  readonly streamedDigest: string;
+  readonly effect: PartialRewriteEffectBase;
+}
+
 const MAX_STASHED_PARTIALS = 64;
 export const MAX_STASHED_PARTIAL_BYTES = 64 * 1024 * 1024;
 
 const RETAINED_RECORD_BASE_BYTES = 512;
 const RETAINED_STRING_BASE_BYTES = 16;
 const RETAINED_RANGE_BYTES = 32;
+const RETAINED_GENERATION_RECORD_BASE_BYTES = 512;
+/** Worst case a finalized `effect.generationRecord` can ever retain: the
+ *  codec's own `MAX_GENERATION_RECORD_BYTES` cap on its canonical UTF-8
+ *  encoding, doubled the same way `retainedStringBytes` doubles a string's
+ *  byte length to bound its UTF-16 storage. */
+const MAXIMUM_GENERATION_RECORD_RETAINED_BYTES = RETAINED_GENERATION_RECORD_BASE_BYTES
+  + MAX_GENERATION_RECORD_BYTES * 2;
 
-/** Deterministic upper estimate for the variable storage one partial record
- * retains. The entry-count limit covers fixed Map and object overhead. */
-export function partialRewriteRecordRetainedBytes(
-  record: PartialRewriteRecord
-): number {
+/** Every field a stashed rewrite retains apart from its Generation Record.
+ *  Shared by the real post-capture accounting
+ *  (`partialRewriteRecordRetainedBytes`) and the pre-stream reservation
+ *  (`maximumPartialRewriteRecordRetainedBytes`), which sizes these same
+ *  fields before a stream — and so before any Generation Record — exists. */
+function partialRewriteBaseRetainedBytes(record: PartialRewriteRecordBase): number {
   const effect = record.effect;
   let bytes = RETAINED_RECORD_BASE_BYTES
     + retainedStringBytes(record.storyId)
@@ -167,18 +195,44 @@ export function partialRewriteRecordRetainedBytes(
   return bytes;
 }
 
+/** Deterministic upper estimate for the variable storage one partial record
+ * retains. The entry-count limit covers fixed Map and object overhead. */
+export function partialRewriteRecordRetainedBytes(
+  record: PartialRewriteRecord
+): number {
+  return partialRewriteBaseRetainedBytes(record)
+    + generationRecordRetainedBytes(record.effect.generationRecord);
+}
+
+/** Every stashed rewrite carries the Generation Record its own commit will
+ *  attach — this is that record's contribution to the retained-byte total,
+ *  computed from its canonical serialized form so the estimate tracks the
+ *  same bytes `MAX_GENERATION_RECORD_BYTES` bounds. */
+function generationRecordRetainedBytes(record: GenerationRecord): number {
+  const serialized = serializeGenerationRecord(record);
+  return RETAINED_GENERATION_RECORD_BASE_BYTES
+    + Math.max(Buffer.byteLength(serialized), serialized.length * 2);
+}
+
 /** Reserve before streaming against the largest record this request can
- * produce, including provider-secret redaction expansion. */
+ *  produce, including provider-secret redaction expansion and the Generation
+ *  Record the eventual commit will attach. No Generation Record exists yet
+ *  at this point — capture only resolves once the stream runs — so this
+ *  takes the base splice fields alone and reserves the codec's own worst
+ *  case (`MAXIMUM_GENERATION_RECORD_RETAINED_BYTES`) for whatever record
+ *  `remember()` is later given, rather than measuring a stand-in record built
+ *  just to be sized. */
 export function maximumPartialRewriteRecordRetainedBytes(
-  originalRecord: PartialRewriteRecord,
+  base: PartialRewriteRecordBase,
   maximumRetainedProviderOutputBytes: number
 ): number {
   if (!Number.isSafeInteger(maximumRetainedProviderOutputBytes)
     || maximumRetainedProviderOutputBytes < 0) {
     throw new Error("Partial rewrite output reservation must be a non-negative safe integer");
   }
-  const maximumRecordBytes = partialRewriteRecordRetainedBytes(originalRecord)
-    + maximumRetainedProviderOutputBytes;
+  const maximumRecordBytes = partialRewriteBaseRetainedBytes(base)
+    + maximumRetainedProviderOutputBytes
+    + MAXIMUM_GENERATION_RECORD_RETAINED_BYTES;
   if (!Number.isSafeInteger(maximumRecordBytes)) {
     throw new Error("Partial rewrite storage reservation exceeds the safe integer range");
   }

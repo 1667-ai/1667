@@ -32,7 +32,7 @@ import {
   type StoryManifestV5,
   type TextRevisionV1
 } from "./story-format.js";
-import { cloneAttribution, cloneRewrittenSpans } from "./story-format-nodes.js";
+import { cloneAttribution, cloneGenerationRecordIds, cloneRewrittenSpans } from "./story-format-nodes.js";
 import { createStoryReadCache, StoryObjectStore } from "./story-objects.js";
 import {
   attachStoredNodeText,
@@ -46,6 +46,7 @@ import {
   reusableReasoningId,
   reusableTokenProbabilityId
 } from "./story-node-text.js";
+import { storePendingGenerationRecords } from "./story-node-generation-records.js";
 import { takePendingTokenProbabilities } from "./story-node-token-probabilities.js";
 import { takePendingReasoning } from "./story-node-reasoning.js";
 import { reusableRevisionId, type StoryRevisionSnapshot } from "./story-snapshot.js";
@@ -118,6 +119,23 @@ export async function encodeStoryBundle(
     );
   }
 
+  // Every id already in node.generationRecordIds is durable — either read
+  // back from the manifest this Story decoded from, or appended synchronously
+  // by appendPendingGenerationRecord when this process minted it — so the
+  // array itself needs no reuse lookup the way a node's single revisionId
+  // does. Only hashes this commit just minted still need their bytes
+  // written — every one of them, in append order, since a node can carry
+  // more than one pending record. storePendingGenerationRecords only drops a
+  // record from the side table once its own write settles, so a transient
+  // failure here (including one that lands after some records in this same
+  // loop already wrote) leaves every unwritten record queued for the next
+  // encode of this same Story object, instead of losing the only in-memory
+  // copy of its bytes. A fully drained node's queue still clears, so a later
+  // unrelated encode never stores any of its records twice.
+  for (const node of story.nodes) {
+    await storePendingGenerationRecords(node, (pending) => objects.storeGenerationRecord(pending, reuseFrom));
+  }
+
   // Same reasoning as the token-probabilities loop above: at most one node
   // per encode ever carries a pending reasoning record, so a plain
   // sequential pass costs nothing extra.
@@ -151,6 +169,9 @@ export async function encodeStoryBundle(
     ...(node.human === undefined ? {} : { human: node.human }),
     revisionId: requireEncodedRevision(revisionIds[index], node.id),
     ...(tokenProbabilityIds[index] === undefined ? {} : { tokenProbabilityId: tokenProbabilityIds[index] }),
+    ...(cloneGenerationRecordIds(node.generationRecordIds) === undefined
+      ? {}
+      : { generationRecordIds: cloneGenerationRecordIds(node.generationRecordIds) }),
     ...(reasoningIds[index] === undefined ? {} : { reasoningId: reasoningIds[index] }),
     ...(node.attribution === undefined ? {} : { attribution: cloneAttribution(node.attribution) }),
     ...(node.rewrittenSpans === undefined ? {} : { rewrittenSpans: cloneRewrittenSpans(node.rewrittenSpans) }),
@@ -256,6 +277,11 @@ export async function decodeStoryBundle(
       // Presence only — the record itself is fetched on demand, never loaded
       // with the story. See shared/token-probabilities.ts.
       ...(stored.tokenProbabilityId === undefined ? {} : { tokenProbabilities: true as const }),
+      // The ordered id list itself, not a presence flag — the reader fetches
+      // one Generation Record at a time by id. See shared/generation-record.ts.
+      ...(cloneGenerationRecordIds(stored.generationRecordIds) === undefined
+        ? {}
+        : { generationRecordIds: cloneGenerationRecordIds(stored.generationRecordIds) }),
       // Presence only, mirroring tokenProbabilities above. See
       // shared/reasoning.ts.
       ...(stored.reasoningId === undefined ? {} : { reasoning: true as const }),

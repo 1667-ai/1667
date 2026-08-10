@@ -11,8 +11,10 @@ import { StoryFormatError, sha256, type ObjectHash } from "./story-format.js";
 /** The kinds of immutable object a story bundle stores. A revision's chunks
  * are the prose; a revision is the ordered chunk list; a probabilities
  * object is one take's captured token probabilities (issue #291 phase 3); a
- * reasoning object is one take's captured thought (shared/reasoning.ts). */
-export type ObjectKind = "chunks" | "revisions" | "probabilities" | "reasoning";
+ * generation-records object is one Generation Record event (Generation
+ * Records project); a reasoning object is one take's captured thought
+ * (shared/reasoning.ts). */
+export type ObjectKind = "chunks" | "revisions" | "probabilities" | "generation-records" | "reasoning";
 
 export class SweepCancelled extends Error {}
 

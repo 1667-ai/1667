@@ -139,6 +139,9 @@ function cloneNode(node: StoryNode): StoryNode {
     ...(node.coveredExtent === undefined ? {} : { coveredExtent: { ...node.coveredExtent } }),
     ...(node.attribution == null ? {} : {
       attribution: { ...node.attribution, ranges: node.attribution.ranges.map((range) => ({ ...range })) }
-    })
+    }),
+    ...(node.generationRecordIds === undefined
+      ? {}
+      : { generationRecordIds: [...node.generationRecordIds] })
   };
 }

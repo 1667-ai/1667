@@ -24,6 +24,10 @@ import {
   decodeTokenProbabilitiesResponse,
   decodeReasoningResponse,
 } from "./api-response-decoders.js";
+import {
+  decodeGenerationRecordSummariesResponse,
+  decodeGenerationRecordResponse,
+} from "./generation-record-response-decoders.js";
 import type {
   SamplingBiasResolutionResult
 } from "../../shared/sampling-capabilities.js";
@@ -34,6 +38,7 @@ import type { LorebookImport } from "../../shared/lorebook-entry.js";
 import type { CardImportPlan } from "../../shared/card-import.js";
 import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 import type { TokenProbabilityRecord } from "../../shared/token-probabilities.js";
+import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../../shared/generation-record.js";
 import type { ReasoningRecord } from "../../shared/reasoning.js";
 
 import type {
@@ -118,6 +123,8 @@ export {
 const HTTP_REQUEST_TIMEOUT_MS = 15_000;
 export const HTTP_GENERATION_REQUEST_TIMEOUT_MS =
   HTTP_OPERATION_LIFETIME_MS.generation;
+export const HTTP_GENERATION_RECORD_READ_TIMEOUT_MS =
+  HTTP_OPERATION_LIFETIME_MS.transfer;
 export interface ContinueTarget {
   parentId?: string | null;
   appendTo?: string;
@@ -196,6 +203,13 @@ export interface StoryApi {
   /** One take's stored token probabilities. Rejects (404, distinguishably by
    *  message) when the take has none. */
   getTokenProbabilities(storyId: string, nodeId: string): Promise<TokenProbabilityRecord>;
+  /** Every Generation Record event on one take, oldest first. The transport
+   *  uses the transfer deadline because a full valid history can be large. */
+  getGenerationRecords(storyId: string, nodeId: string): Promise<GenerationRecordSummary[]>;
+  /** One Generation Record, resolved: every source part's prose read back
+   *  from its exact historical revision. Rejects (404) for an id the take's
+   *  own history no longer lists. */
+  getGenerationRecord(storyId: string, nodeId: string, recordId: string): Promise<ResolvedGenerationRecord>;
   /** One take's stored thought. Rejects (404, distinguishably by message)
    *  when the take has none. */
   getReasoning(storyId: string, nodeId: string): Promise<ReasoningRecord>;
@@ -759,6 +773,20 @@ export function createApi(
       "GET",
       `/api/stories/${storyId}/nodes/${nodeId}/token-probabilities`,
       decodeTokenProbabilitiesResponse
+    ),
+    getGenerationRecords: (storyId, nodeId) => request(
+      "GET",
+      `/api/stories/${storyId}/nodes/${nodeId}/generation-records`,
+      decodeGenerationRecordSummariesResponse,
+      undefined,
+      HTTP_GENERATION_RECORD_READ_TIMEOUT_MS
+    ),
+    getGenerationRecord: (storyId, nodeId, recordId) => request(
+      "GET",
+      `/api/stories/${storyId}/nodes/${nodeId}/generation-records/${recordId}`,
+      decodeGenerationRecordResponse,
+      undefined,
+      HTTP_GENERATION_RECORD_READ_TIMEOUT_MS
     ),
     getReasoning: (storyId, nodeId) => request(
       "GET",

@@ -3,6 +3,7 @@ import { ServiceError } from "./errors.js";
 import { currentModel } from "./generation-http.js";
 import type { GenerationAdmissionRegistry } from "./generation-admission.js";
 import { DEFAULT_INSTRUCTION } from "./generation-prompts.js";
+import { generationRecordForHandoff, type GenerationRecordHandoff } from "./generation-record-handoff.js";
 import type { SettingsStore } from "./settings.js";
 import { commitTake, createEditedTake } from "./story-nodes.js";
 import type { StoryStore } from "./stories.js";
@@ -26,42 +27,66 @@ export async function commitNode(
 
   return await stories.withLock(id, async () => {
     const story = await stories.loadForMutation(id);
-    if (mutationNodeId !== undefined && story.nodes.some((node) => node.id === mutationNodeId)) return story;
-    if (body.sourceNodeId !== undefined) {
-      await stories.hydratePath(story, body.sourceNodeId);
-      createEditedTake(
-        story,
-        body.sourceNodeId,
-        body.expectedTextHash,
+    // Everything below runs once, under this genId's handoff lease when
+    // there is one (a human take has no genId, so nothing to lease) — the
+    // registry releases the handoff only once this resolves, and retains it
+    // if anything here throws.
+    const commitWithHandoff = async (handoff: GenerationRecordHandoff | undefined): Promise<void> => {
+      if (mutationNodeId !== undefined && story.nodes.some((node) => node.id === mutationNodeId)) {
+        // A retried commit for a mutationNodeId already saved: nothing left
+        // to do, and resolving here still releases the lease above exactly
+        // as a fresh commit would.
+        return;
+      }
+      if (body.sourceNodeId !== undefined) {
+        await stories.hydratePath(story, body.sourceNodeId);
+        createEditedTake(
+          story,
+          body.sourceNodeId,
+          body.expectedTextHash,
+          instruction,
+          rawText.trim(),
+          mutationNodeId
+        );
+        await stories.save(story);
+        return;
+      }
+      const model = genId === null
+        ? "human"
+        : generationAdmission.modelFor(id, genId) ?? await currentModel(settings);
+      const requestedAppendTo = body.appendTo ?? null;
+      const appendCrossesBreak = requestedAppendTo !== null
+        && story.chapterBreaks.some((chapterBreak) => chapterBreak.parentPartId === requestedAppendTo);
+      const appendTo = appendCrossesBreak ? null : requestedAppendTo;
+      const expectedTextHash = appendTo !== null && body.appendTo !== undefined
+        ? body.expectedTextHash
+        : null;
+      const parentId = body.parentId ?? null;
+      const text = appendTo === null ? rawText.trim() : rawText;
+      // A stop-and-save commit for a generated take: whatever the streaming
+      // request that produced this text captured before it stopped, keyed by
+      // the same genId. Absent for a human take, a duplicate settle (dedup
+      // above returns before this runs), or a genId this process never saw
+      // stream anything.
+      const generationRecord = generationRecordForHandoff(handoff, appendTo, text, new Date().toISOString());
+      const { duplicate } = commitTake(story, {
+        parentId: appendCrossesBreak ? requestedAppendTo : appendTo === null ? parentId : null,
+        appendTo,
+        expectedTextHash,
         instruction,
-        rawText.trim(),
-        mutationNodeId
-      );
-      await stories.save(story);
-      return story;
+        text,
+        model,
+        genId,
+        generationRecord,
+        ...(mutationNodeId === undefined ? {} : { nodeId: mutationNodeId })
+      });
+      if (!duplicate) await stories.save(story);
+    };
+    if (genId === null) {
+      await commitWithHandoff(undefined);
+    } else {
+      await generationAdmission.withGenerationRecordHandoff(id, genId, commitWithHandoff);
     }
-    const model = genId === null
-      ? "human"
-      : generationAdmission.modelFor(id, genId) ?? await currentModel(settings);
-    const requestedAppendTo = body.appendTo ?? null;
-    const appendCrossesBreak = requestedAppendTo !== null
-      && story.chapterBreaks.some((chapterBreak) => chapterBreak.parentPartId === requestedAppendTo);
-    const appendTo = appendCrossesBreak ? null : requestedAppendTo;
-    const expectedTextHash = appendTo !== null && body.appendTo !== undefined
-      ? body.expectedTextHash
-      : null;
-    const parentId = body.parentId ?? null;
-    const { duplicate } = commitTake(story, {
-      parentId: appendCrossesBreak ? requestedAppendTo : appendTo === null ? parentId : null,
-      appendTo,
-      expectedTextHash,
-      instruction,
-      text: appendTo === null ? rawText.trim() : rawText,
-      model,
-      genId,
-      ...(mutationNodeId === undefined ? {} : { nodeId: mutationNodeId })
-    });
-    if (!duplicate) await stories.save(story);
     return story;
   });
 }

@@ -12,6 +12,7 @@ import { parseManifest, serializeManifest, sha256 } from "../server/story-format
 import { commitTake } from "../server/story-nodes.js";
 import { StoryStore } from "../server/stories.js";
 import type { SettingsStore } from "../server/settings.js";
+import { createGenerationRecord } from "../shared/generation-record.js";
 import { createReasoningRecord, MAX_REASONING_BYTES, type CapturedReasoning } from "../shared/reasoning.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
@@ -354,7 +355,14 @@ test("an in-place rewrite that produces no thought clears the take's old one", a
     expectedInstruction: node.instruction,
     text: "Replaced prose, no fresh thought this attempt.",
     updatedAt: new Date().toISOString(),
-    reasoning: null
+    reasoning: null,
+    generationRecord: createGenerationRecord({
+      kind: "rewrite-in-place",
+      createdAt: new Date().toISOString(),
+      provider: { provider: "dry-run", model: "dry-run" },
+      effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+      prompt: { operation: "rewrite", entries: [] }
+    })
   });
   assert.equal(rewritten.id, node.id, "an in-place rewrite keeps the same take id");
   assert.equal(rewritten.reasoning, undefined);

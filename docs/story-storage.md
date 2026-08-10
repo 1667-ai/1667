@@ -108,6 +108,12 @@ tokens the model weighed for one take, when that take requested them. Each
 time 1667 saves the project, it removes a stored object that no take refers
 to.
 
+A story can also hold a Generation Record: the durable record of one model
+request that created or changed a take. 1667 loads a Generation Record only
+when you open it. A Generation Record never contains a credential, a custom
+header value, a base URL, or provider response text. See [Generation
+Record](model-providers.md#generation-record).
+
 ## Project lock
 
 One writer can own a project. An advisory lock on `.1667/lock` enforces this
@@ -166,7 +172,8 @@ Use `--format` to write an Archive:
 
 A `.story` Archive contains the selected prose in order. It also contains the
 Facts, the Memory, and the Author's Note. It does not contain directions,
-unselected takes, summary parts, chapter boundaries, or retry history.
+unselected takes, summary parts, chapter boundaries, retry history, or
+Generation Records.
 
 A `.scenario` Archive contains the selected prose in one prompt. It contains
 the same Facts, Memory, and Author's Note as a `.story` Archive. It does not

@@ -19,6 +19,7 @@ import type {
 } from "../shared/types.js";
 import type { FactBudgetDrop } from "../shared/fact-budget.js";
 import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
+import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../shared/generation-record.js";
 import type { ReasoningRecord } from "../shared/reasoning.js";
 import type {
   ProviderRecoveryContext
@@ -256,6 +257,30 @@ export class StoryService extends StoryServiceRuntime {
   async getTokenProbabilities(id: string, nodeId: string): Promise<TokenProbabilityRecord> {
     this.ensureOpen();
     return await this.stories.loadTokenProbabilities(id, nodeId);
+  }
+
+  /** Every Generation Record event on one take, oldest first, projected to
+   *  what a history list needs — see StoryStore.loadGenerationRecordSummaries. */
+  async getGenerationRecords(
+    id: string,
+    nodeId: string,
+    signal?: AbortSignal
+  ): Promise<GenerationRecordSummary[]> {
+    this.ensureOpen();
+    return await this.stories.loadGenerationRecordSummaries(id, nodeId, signal);
+  }
+
+  /** One take's one Generation Record, fetched on demand. Throws a 404 —
+   *  distinguishably by message — when the story, the take, or the take's
+   *  matching record is missing. */
+  async getGenerationRecord(
+    id: string,
+    nodeId: string,
+    recordId: string,
+    signal?: AbortSignal
+  ): Promise<ResolvedGenerationRecord> {
+    this.ensureOpen();
+    return await this.stories.loadGenerationRecord(id, nodeId, recordId, signal);
   }
 
   /** One take's stored thought. Throws a 404 — distinguishably by message —

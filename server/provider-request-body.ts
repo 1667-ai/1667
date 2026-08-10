@@ -1,4 +1,5 @@
 import {
+  foldAuthorsNoteAcross,
   renderPromptPlan,
   type PromptBlock,
   type PromptPlan
@@ -27,13 +28,7 @@ export async function buildOpenAiChatRequestBody(
   cache: PromptCacheWirePlan,
   request: StorySamplingRequest = {}
 ): Promise<Record<string, unknown>> {
-  const loweredPrompt = promptCacheAdapter(
-    "openai-chat-completions",
-    providerRuntimeFor(settings).preset,
-    settings.baseUrl
-  ) === "openai-official"
-    ? prompt
-    : foldAuthorsNote(prompt);
+  const loweredPrompt = lowerPromptForProvider(settings, prompt);
   let messages: unknown;
   const cacheFields: Record<string, unknown> = {};
   switch (cache.kind) {
@@ -110,7 +105,7 @@ export async function buildAnthropicMessagesRequestBody(
   cache: PromptCacheWirePlan,
   request: StorySamplingRequest = {}
 ): Promise<Record<string, unknown>> {
-  const loweredPrompt = foldAuthorsNote(prompt);
+  const loweredPrompt = lowerPromptForProvider(settings, prompt);
   let system: string | readonly TextContentBlock[];
   let messages: unknown;
   switch (cache.kind) {
@@ -176,33 +171,27 @@ export async function buildAnthropicMessagesRequestBody(
 }
 
 /** Fold the late note when the protocol has no in-conversation system turn. */
+export function providerFoldsAuthorsNote(settings: GenerationSettings): boolean {
+  if (settings.provider === "anthropic") return true;
+  if (settings.provider !== "openai-compatible") return false;
+  return promptCacheAdapter(
+    "openai-chat-completions",
+    providerRuntimeFor(settings).preset,
+    settings.baseUrl
+  ) !== "openai-official";
+}
+
+/** Return the exact prompt shape that the selected provider receives. */
+export function lowerPromptForProvider(
+  settings: GenerationSettings,
+  prompt: PromptPlan
+): PromptPlan {
+  return providerFoldsAuthorsNote(settings) ? foldAuthorsNote(prompt) : prompt;
+}
+
 function foldAuthorsNote(plan: PromptPlan): PromptPlan {
-  const noteIndex = plan.turns.findIndex((turn) =>
-    turn.blocks.some((block) => block.kind === "authors-note")
-  );
-  if (noteIndex === -1) return plan;
-  const noteTurn = plan.turns[noteIndex]!;
-  const noteText = noteTurn.blocks
-    .filter((block) => block.kind === "authors-note")
-    .map((block) => block.text)
-    .join("");
-  const following = plan.turns[noteIndex + 1];
-  if (following === undefined || following.role !== "user") {
-    throw new Error("Author's Note must be followed by a user turn");
-  }
-  return {
-    ...plan,
-    turns: plan.turns.flatMap((turn, index) => {
-      if (index === noteIndex) return [];
-      if (index !== noteIndex + 1) return [turn];
-      const first = turn.blocks[0];
-      if (first === undefined) throw new Error("Prompt turns cannot be empty");
-      return [{
-        ...turn,
-        blocks: [{ ...first, text: `${noteText}\n\n${first.text}` }, ...turn.blocks.slice(1)]
-      }];
-    })
-  };
+  const turns = foldAuthorsNoteAcross(plan.turns, (turn) => turn, (_turn, folded) => folded);
+  return turns === plan.turns ? plan : { ...plan, turns };
 }
 
 function applyGenerationEffort(

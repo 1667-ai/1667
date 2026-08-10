@@ -101,6 +101,10 @@ const DEFINITIONS = {
   composeOpenRequest: route("compose-chord", "r", "COMPOSE", "open-request", { ctrl: true }),
   // "l" for "logprobs" — the header the viewer itself shows.
   navOpenProbs: route("nav", "l", "NAV", "open-probs"),
+  // "h" opens the Generation Record Viewer on the focused take without
+  // moving NAV's or MAP's own focus — every MAP view, including tree/mass.
+  navOpenRecords: route("nav", "h", "NAV", "open-records"),
+  mapOpenRecords: route("map", "h", "MAP", "open-records"),
   navOpenSearch: route("nav", "/", "NAV", "open-search", { sequence: "/" }),
   navOpenKeysQuestion: route("nav", "?", "NAV", "open-keys"),
   // Decision 24 gives global feedback a letter key of its own, unbound

@@ -9,7 +9,7 @@ export type CommandId =
   | "authors-note" | "author-brief" | "facts-budget" | "phrase-bias" | "banned-strings"
   | "direct-take" | "retake" | "rewrite-selection" | "prune"
   | "tags" | "chapters" | "chapter" | "prompts"
-  | "next-request" | "token-probabilities"
+  | "next-request" | "token-probabilities" | "generation-records"
   | "settings" | "reconnect" | "disconnect" | "export-profile" | "theme";
 
 export type CommandSelectionId = Exclude<CommandId, "theme"> | `theme:${ThemeName}`;
@@ -115,6 +115,11 @@ const COMMANDS: readonly PaletteCommand[] = [
   {
     id: "token-probabilities", section: "view", name: "token probabilities", shortcut: "l",
     description: "the alternative tokens the model weighed for this take",
+    requires: (context) => context.hasProse
+  },
+  {
+    id: "generation-records", section: "view", name: "generation records", shortcut: "h",
+    description: "every captured request that produced or changed this take",
     requires: (context) => context.hasProse
   },
 

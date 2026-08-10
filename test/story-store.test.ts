@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { assertWithinBudget, cpuBudget, startTiming } from "./performance-budget.js";
+import { createGenerationRecord } from "../shared/generation-record.js";
 import { activeLineFingerprintSource } from "../shared/story-text.js";
 import { activePath } from "../shared/story-tree.js";
 import { MAX_STORY_LINE_COPY_PARTS, type Story, type StoryNode } from "../shared/types.js";
@@ -594,6 +595,13 @@ test("story store: summary cancellation after lazy hydration saves no take", asy
       model: "test",
       instruction: "Summarize",
       commitIds: {},
+      generationRecord: createGenerationRecord({
+        kind: "summary-take",
+        createdAt: NOW,
+        provider: { provider: "dry-run", model: "dry-run" },
+        effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+        prompt: { operation: "summary", entries: [] }
+      }),
       cancelled: abort.signal
     }),
     (error: unknown) => error instanceof HttpError && error.status === 409 && /cancelled/.test(error.message)
@@ -685,7 +693,10 @@ test("story objects reject symlinked roots and shards before writes or sweep", a
     process.platform === "win32" ? "junction" : "dir"
   );
 
-  await assert.rejects(objects.sweep({ revisions: [], leaves: { probabilities: [], reasoning: [] } }), /Unsafe chunks object shard/);
+  await assert.rejects(
+    objects.sweep({ revisions: [], leaves: { probabilities: [], reasoning: [] }, generationRecords: [] }),
+    /Unsafe chunks object shard/
+  );
   assert.equal(await readFile(outsideObject, "utf8"), text);
 });
 

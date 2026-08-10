@@ -60,6 +60,10 @@ import {
   openTokenProbabilities,
   tokenProbabilitiesAction
 } from "./token-probabilities-actions.js";
+import {
+  generationRecordAction,
+  openGenerationRecordViewer
+} from "./generation-record-actions.js";
 
 import type { AppSource } from "./app.js";
 import type { FactsOverlayState, RuntimeState } from "./state.js";
@@ -104,6 +108,16 @@ export async function handleOverlayAction(
   }
   if (state.mode === "PROBS" && state.probs !== null) {
     await tokenProbabilitiesAction(resolved, state, source, context);
+    return true;
+  }
+  if (resolved.action === "open-records") {
+    if (state.mode === "NAV" || state.mode === "MAP") {
+      await openGenerationRecordViewer(state, source, context);
+    }
+    return true;
+  }
+  if (state.mode === "RECORD" && state.record !== null) {
+    await generationRecordAction(resolved, state, source, context);
     return true;
   }
   if (resolved.action === "open-log") {
@@ -495,6 +509,7 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
     }
   }
   else if (command.id === "token-probabilities") await openTokenProbabilities(state, source, context);
+  else if (command.id === "generation-records") await openGenerationRecordViewer(state, source, context);
   else if (command.id === "tag-line") openTag(state);
   else if (command.id === "authors-note") openAuthorsNoteEditor(state);
   else if (command.id === "author-brief") openAuthorBriefEditor(state);

@@ -58,6 +58,14 @@ export class MutationReceiptFailureTerminalizer {
       : new MutationReceiptPersistenceError(error);
     return errorFromFailureIncident(await this.reportFailure(failure));
   }
+
+  /** Reports without altering control flow: for corruption found outside a
+   *  receipt's own save/load path (e.g. an unrelated file hit while
+   *  hydrating the chapter-break liveness index), where surfacing it must
+   *  not block every other story's cleanup. */
+  async diagnose(error: unknown): Promise<void> {
+    await this.reportFailure(error);
+  }
 }
 
 export function isMutationReceiptPersistenceError(

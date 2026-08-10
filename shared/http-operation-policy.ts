@@ -41,6 +41,8 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   deleteStory: "local",
   exportMarkdown: "transfer",
   getTokenProbabilities: "local",
+  getGenerationRecords: "transfer",
+  getGenerationRecord: "transfer",
   getReasoning: "local",
   switchLine: "local",
   createNode: "local",
@@ -178,6 +180,17 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
   const sub = parts[4];
   const subId = parts[5];
   const action = parts[6];
+  const extra = parts[7];
+  // The canonical path shape allows at most one trailing segment beyond
+  // `action`, and only the Generation Record detail route consumes it as a
+  // record id. Every other route must reject it here, before any branch
+  // below gets a chance to match on a shared prefix (e.g. "rewrite") while
+  // ignoring a segment that follows it.
+  if (parts.length > 8
+    || (extra !== undefined
+      && !(sub === "nodes" && action === "generation-records" && httpMethod === "GET"))) {
+    throw new Error(`No HTTP operation policy for ${httpMethod} ${path}`);
+  }
   if (sub === undefined && parts.length === 4) {
     if (httpMethod === "GET") return "loadStory";
     if (httpMethod === "PATCH") return "renameStory";
@@ -244,6 +257,12 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
       && httpMethod === "POST") return "commitPartialRewrite";
     if (subId !== undefined && action === "token-probabilities"
       && httpMethod === "GET") return "getTokenProbabilities";
+    if (subId !== undefined && action === "generation-records") {
+      if (parts[7] === undefined && parts.length === 7
+        && httpMethod === "GET") return "getGenerationRecords";
+      if (parts[7] !== undefined && parts.length === 8
+        && httpMethod === "GET") return "getGenerationRecord";
+    }
     if (subId !== undefined && action === "reasoning"
       && httpMethod === "GET") return "getReasoning";
   }

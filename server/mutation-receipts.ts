@@ -21,6 +21,9 @@ import {
 import {
   chapterBreakRemovalFingerprint
 } from "./chapter-breaks.js";
+import { ChapterBreakLivenessIndex } from "./chapter-break-undo-liveness.js";
+import { MUTATION_ID_PATTERN } from "./mutation-ledger-scalars.js";
+import type { ObjectHash } from "./story-format.js";
 import {
   isTerminalGenerationFailure,
   markRetryablePartialSettlementFailure,
@@ -77,6 +80,7 @@ export {
 export class MutationReceiptStore {
   private readonly queues = new Map<string, Promise<unknown>>();
   private readonly failureTerminalizer: MutationReceiptFailureTerminalizer;
+  private readonly chapterBreakLiveness = new ChapterBreakLivenessIndex();
 
   constructor(
     private readonly dir: string,
@@ -90,6 +94,25 @@ export class MutationReceiptStore {
 
   async init(): Promise<void> {
     await mkdirDurable(this.dir);
+    await this.chapterBreakLiveness.hydrate(
+      this.dir,
+      (mutationId, error) => this.failureTerminalizer.diagnose(
+        new Error(
+          [
+            "Corrupt mutation receipt found while indexing chapter-break undo liveness.",
+            ...(MUTATION_ID_PATTERN.test(mutationId) ? [`mutationId=${mutationId}`] : [])
+          ].join(" "),
+          { cause: error }
+        )
+      )
+    );
+  }
+
+  /** Generation Record ids one story's durable chapter-break removal
+   *  receipts still hold live. Synchronous: backed by an in-memory view kept
+   *  current by `save`, never by scanning the receipt directory. */
+  liveGenerationRecordIds(storyId: string): readonly ObjectHash[] {
+    return this.chapterBreakLiveness.liveGenerationRecordIds(storyId);
   }
 
   async inspect(
@@ -198,13 +221,21 @@ export class MutationReceiptStore {
         },
         preserveChapterBreakRemoval: async (expectedFingerprint, load) => {
           requireChapterBreakRemovalFingerprint(expectedFingerprint);
+          const storyId = removalStoryId(method, input);
           const existingArtifact = receipt.artifact;
           if (existingArtifact !== undefined) {
             if (existingArtifact.kind !== "chapter-break-removal"
               || existingArtifact.fingerprint !== expectedFingerprint
+              || (existingArtifact.storyId !== undefined
+                && storyId !== undefined
+                && existingArtifact.storyId !== storyId)
               || chapterBreakRemovalFingerprint(existingArtifact.value)
                 !== expectedFingerprint) {
               throw corruptMutationReceipt(mutationId);
+            }
+            if (existingArtifact.storyId === undefined && storyId !== undefined) {
+              existingArtifact.storyId = storyId;
+              await this.save(receipt);
             }
             return structuredClone(existingArtifact.value);
           }
@@ -215,6 +246,7 @@ export class MutationReceiptStore {
           receipt.artifact = {
             kind: "chapter-break-removal",
             fingerprint: expectedFingerprint,
+            ...(storyId === undefined ? {} : { storyId }),
             value
           };
           await this.save(receipt);
@@ -349,6 +381,11 @@ export class MutationReceiptStore {
         error
       );
     }
+    // Every durable save, not only chapter-break removals: `observe` is a
+    // no-op for any other artifact/result shape, and folding it in here
+    // (rather than at each call site) means liveness can never be visible
+    // before the write it describes is actually durable.
+    this.chapterBreakLiveness.observe(receipt);
   }
 
   private file(mutationId: string): string {
@@ -367,6 +404,14 @@ export class MutationReceiptStore {
       if (this.queues.get(mutationId) === settled) this.queues.delete(mutationId);
     }
   }
+}
+
+function removalStoryId(method: MutatingWorkerMethod, input: unknown): string | undefined {
+  if (method !== "removeChapterBreak" || input === null || typeof input !== "object" || Array.isArray(input)) {
+    return undefined;
+  }
+  const storyId = (input as Record<string, unknown>).storyId;
+  return typeof storyId === "string" ? storyId : undefined;
 }
 
 export function mutationFingerprint(

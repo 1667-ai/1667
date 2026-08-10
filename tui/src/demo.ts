@@ -649,6 +649,8 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     acknowledgeUnknownOutcomes: async () => demo.autonameStory(),
     deleteStory: async () => { demo.deleteStory(); return { ok: true }; },
     getTokenProbabilities: async () => unavailable("Token probabilities"),
+    getGenerationRecords: async () => [],
+    getGenerationRecord: async () => unavailable("Generation records"),
     getReasoning: async () => unavailable("A thought"),
     switchLine: async (_storyId, nodeId, options = {}) => demo.switchTo(nodeId, options),
     createNode: async (_storyId, body) => {
