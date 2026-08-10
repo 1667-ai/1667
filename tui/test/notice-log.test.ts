@@ -255,4 +255,113 @@ describe("decision 24 · feedback wraps before it truncates", () => {
     // The tail carries the way out, and `!` reaches the whole message.
     expect(rendered).toContain("! full · , opens settings");
   });
+
+  // Regression guard: the log's own markdown parsing (below) must never
+  // reach a capped channel. Decision 24's flatten-and-cap law only stays
+  // honest if the toast keeps rendering `**`/`` ` `` literally, unparsed.
+  test("the toast still collapses to one line and does not interpret markdown", () => {
+    const { state } = harness();
+    state.toast = "**bold** and `code` stay literal · , opens settings";
+    const rendered = screen(state);
+    expect(rendered).toContain("**bold** and `code` stay literal · , opens settings");
+  });
+});
+
+describe("the log renders a notice's markdown instead of showing it raw", () => {
+  function frame(state: ReturnType<typeof harness>["state"], width = 120, height = 36) {
+    return renderStoryScreen(state, { width, height, wrapCache: createWrapCache<ProseStyle>() }).lines;
+  }
+
+  test("a release-notes body keeps its heading and list items on separate rows", async () => {
+    const { state, press } = harness();
+    const body = [
+      "1667 0.6.0 · what changed since 0.1.2",
+      "",
+      "0.2.1 — 2026-08-01",
+      "- **Facts can now activate only when request context matches their "
+        + "keys.** The default `always` mode keeps the existing behavior.",
+      "- The install command now shows its progress."
+    ].join("\n");
+    recordNotice(state.notices, "toast", body);
+
+    await press(key("!", "!"));
+    expect(state.mode).toBe("LOG");
+    const rows = frame(state).map(plainLine);
+
+    const headlineRow = rows.findIndex((row) => row.includes("what changed since 0.1.2"));
+    const versionRow = rows.findIndex((row) => row.includes("0.2.1 — 2026-08-01"));
+    const factsRow = rows.findIndex((row) => row.includes("Facts can now activate"));
+    const installRow = rows.findIndex((row) => row.includes("install command"));
+
+    // Every part landed somewhere, in source order...
+    expect(headlineRow).toBeGreaterThan(-1);
+    expect(versionRow).toBeGreaterThan(headlineRow);
+    expect(factsRow).toBeGreaterThan(versionRow);
+    expect(installRow).toBeGreaterThan(factsRow);
+    // ...on rows of their own, rather than running together the way the old
+    // flatten-to-one-line bug did.
+    expect(rows[headlineRow]).not.toContain("0.2.1");
+    expect(rows[versionRow]).not.toContain("Facts");
+    expect(rows[factsRow]).not.toContain("install command");
+    // Each list item still opens with its bullet.
+    expect(rows[factsRow]).toContain("- Facts can now activate");
+    expect(rows[installRow]).toContain("- The install command");
+  });
+
+  test("**bold** renders bold with the markers gone", async () => {
+    const { state, press } = harness();
+    recordNotice(state.notices, "toast", "- **Facts can now activate.** Plain trailing text.");
+    await press(key("!", "!"));
+    const lines = frame(state);
+    const row = lines.find((line) => plainLine(line).includes("Facts can now activate"));
+    expect(row).toBeDefined();
+
+    const bold = row!.find((part) => part.text === "Facts can now activate.");
+    expect(bold?.bold).toBe(true);
+    expect(plainLine(row!)).not.toContain("**");
+  });
+
+  test("`code` renders styled with the backticks gone", async () => {
+    const { state, press } = harness();
+    recordNotice(state.notices, "toast", "- The default `always` mode keeps the existing behavior.");
+    await press(key("!", "!"));
+    const lines = frame(state);
+    const row = lines.find((line) => plainLine(line).includes("always"));
+    expect(row).toBeDefined();
+
+    const code = row!.find((part) => part.text === "always");
+    expect(code).toBeDefined();
+    expect(code!.role).toBe("chrome");
+    expect(code!.bold).not.toBe(true);
+    expect(plainLine(row!)).not.toContain("`");
+  });
+
+  test("a long list item's continuation lines get a hanging indent", async () => {
+    const { state, press } = harness();
+    const words = Array.from({ length: 40 }, (_, index) => `word${index}`).join(" ");
+    recordNotice(state.notices, "toast", `- ${words}`);
+    await press(key("!", "!"));
+    const rows = frame(state).map(plainLine);
+
+    const firstRow = rows.findIndex((row) => row.includes("word0 "));
+    expect(firstRow).toBeGreaterThan(-1);
+    const continuation = rows[firstRow + 1]!;
+    expect(continuation).toBeDefined();
+    // BODY_COLUMN is 12 cells; a list continuation hangs two further in, so
+    // its text starts at column 14 rather than column 12.
+    expect(continuation.slice(0, 14).trim()).toBe("");
+    expect(continuation.slice(14, 15)).not.toBe(" ");
+  });
+
+  test("an unfocused preview strips markdown markers instead of showing them raw", async () => {
+    const { state, press } = harness();
+    recordNotice(state.notices, "toast", "**Bold headline.** More text follows.");
+    recordNotice(state.notices, "toast", "a second, shorter notice");
+    await press(key("!", "!"));
+    const rows = frame(state).map(plainLine);
+
+    const preview = rows.find((row) => row.includes("Bold headline"));
+    expect(preview).toBeDefined();
+    expect(preview).not.toContain("**");
+  });
 });
