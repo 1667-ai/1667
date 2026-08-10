@@ -458,6 +458,10 @@ from the prose of a take. 1667 never writes a thought into your story.
 A thought belongs to one take. If you change to a different take, 1667
 shows the thought of that take.
 
+A thought does not use the output limit of its take. 1667 counts the
+bytes of a thought against a separate limit. Thus a long thought does not
+make the prose shorter.
+
 While the model thinks, the margin shows `⟳ thinking` and the number of
 thought tokens. If the model reports no count, 1667 shows `⟳ thinking`
 without a number. Press `Esc` to stop the generation.
