@@ -5,13 +5,14 @@ import path from "node:path";
 import test from "node:test";
 import { continueStory } from "../server/generation-http.js";
 import { GenerationAdmissionRegistry } from "../server/generation-admission.js";
+import { reasoningCapture } from "../server/reasoning-capture.js";
 import { LEGACY_PROMPT_CACHE_CONTEXT, PromptCacheRuntime } from "../server/provider-cache-policy.js";
 import { attachProviderRuntime } from "../server/provider-runtime.js";
 import { parseManifest, serializeManifest, sha256 } from "../server/story-format.js";
 import { commitTake } from "../server/story-nodes.js";
 import { StoryStore } from "../server/stories.js";
 import type { SettingsStore } from "../server/settings.js";
-import type { CapturedReasoning } from "../shared/reasoning.js";
+import { createReasoningRecord, MAX_REASONING_BYTES, type CapturedReasoning } from "../shared/reasoning.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { ApiHttpError } from "../tui/src/api-error.js";
@@ -87,10 +88,7 @@ test("a writer who keeps no thoughts still streams one, but stores nothing", asy
     new GenerationAdmissionRegistry(),
     () => {},
     new AbortController().signal,
-    undefined,
-    undefined,
-    undefined,
-    (delta) => { streamed += delta.text; }
+    { onReasoning: (delta) => { streamed += delta.text; } }
   );
   const node = result?.nodes[0];
   if (node === undefined) throw new Error("continuation did not commit a take");
@@ -106,6 +104,35 @@ test("a writer who keeps no thoughts still streams one, but stores nothing", asy
   const manifestRaw = await readFile(path.join(dir, story.id, "manifest.json"), "utf8");
   assert.equal(manifestRaw.includes("reasoningId"), false);
   await stories.waitForMaintenance();
+});
+
+test("a thought longer than the storage bound keeps its prefix, not nothing", async () => {
+  // Capture and storage share one bound (MAX_REASONING_BYTES): a stream this
+  // long used to accumulate without limit and then lose everything at
+  // commit time, because createReasoningRecord only enforced the bound
+  // after the whole thought was already built, and attachTakeReasoning
+  // (server/story-node-reasoning.ts) swallows that failure silently. Real
+  // providers stream reasoning far too slowly to reach that bound in a
+  // test, so this drives the same capture a live stream drives —
+  // `reasoningCapture`, the one entry point `continueStory` and
+  // `rewriteNode` both call — directly with many separate deltas, the same
+  // shape an SSE stream delivers them in.
+  const { collector, onReasoning } = reasoningCapture(dryRunSettings(), undefined);
+  const chunk = "the model keeps thinking. ".repeat(2_000);
+  const deltaCount = 100;
+  for (let index = 0; index < deltaCount; index += 1) {
+    await onReasoning({ text: chunk, tokenCount: index + 1 });
+  }
+  const captured = collector.record;
+  if (captured === null) throw new Error("a kept stream must still capture a prefix");
+  assert.ok(captured.text.length > 0, "the capture kept a prefix, not nothing");
+  const wholeStream = chunk.repeat(deltaCount);
+  assert.ok(captured.text.length < wholeStream.length, "the capture actually truncated");
+  assert.equal(wholeStream.startsWith(captured.text), true, "the kept text is a genuine prefix");
+  // The one place the bound is defined still accepts what capture kept —
+  // capture never disagrees with storage about where the line is.
+  const record = createReasoningRecord(captured);
+  assert.ok(Buffer.byteLength(JSON.stringify(record), "utf8") <= MAX_REASONING_BYTES);
 });
 
 test("a human take stores no thought, and asking for one 404s distinguishably", async (t) => {
