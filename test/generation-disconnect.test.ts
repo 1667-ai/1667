@@ -107,7 +107,7 @@ test("generation operations refuse unsupported story mutations before settings, 
       run: (stories, settings, signal, providerStarted) =>
         createSummaryTake(
           "story", { nodeId: "root" }, stories, settings, new PromptCacheRuntime(),
-          () => {}, signal, providerStarted
+          () => {}, signal, {}, { providerStarted }
         )
     },
     {
@@ -129,7 +129,7 @@ test("generation operations refuse unsupported story mutations before settings, 
         new GenerationAdmissionRegistry(),
         () => {},
         signal,
-        providerStarted
+        { providerStarted }
       )
     },
     {
@@ -143,7 +143,10 @@ test("generation operations refuse unsupported story mutations before settings, 
         new PromptCacheRuntime(),
         () => {},
         signal,
-        providerStarted
+        undefined,
+        undefined,
+        undefined,
+        { providerStarted }
       )
     }
   ];

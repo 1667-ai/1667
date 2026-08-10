@@ -10,12 +10,11 @@ import {
   ServiceError as HttpError
 } from "./errors.js";
 import { streamCompletion, type StreamOutcome } from "./providers.js";
-import { providerRuntimeFor } from "./provider-runtime.js";
-import { withReasoningCapture, type ReasoningCollector } from "./reasoning-capture.js";
+import { reasoningCapture } from "./reasoning-capture.js";
 import { countWords } from "./story-codec.js";
 import { sha256 } from "./story-format.js";
-import type { DeltaConsumer, ReasoningConsumer } from "./generation-stream.js";
-import type { BindGenerationIntent } from "./generation-http.js";
+import type { DeltaConsumer } from "./generation-stream.js";
+import type { GenerationStreamHooks } from "./generation-http.js";
 import { clipAttribution } from "./story-nodes.js";
 import type { SettingsStore } from "./settings.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
@@ -63,14 +62,10 @@ export async function createSummaryTake(
   promptCacheRuntime: PromptCacheRuntime,
   onDelta: DeltaConsumer,
   signal: AbortSignal,
-  providerStarted: () => void | Promise<void> = () => {},
   commitIds: SummaryCommitIds = {},
-  bindIntent?: BindGenerationIntent,
-  /** Reasoning text, kept apart from `onDelta`'s summary prose. Trailing and
-   *  optional so every existing caller of `createSummaryTake` stays valid
-   *  unchanged. */
-  onReasoning?: ReasoningConsumer
+  hooks: GenerationStreamHooks = {}
 ): Promise<string | null> {
+  const { providerStarted = () => {}, bindIntent, onReasoning } = hooks;
   if (signal.aborted) return null;
   if (body.offset !== undefined && typeof body.offset !== "number") {
     throw new HttpError(400, "offset must be a number when provided");
@@ -97,15 +92,13 @@ export async function createSummaryTake(
     providerTerminal: false
   };
   let raw = "";
-  const reasoningCollector: ReasoningCollector = { record: null };
-  // Absent resolves to kept, so a document written before the setting existed keeps thoughts.
-  const keepReasoning = providerRuntimeFor(settings).keepReasoning !== false;
+  const reasoning = reasoningCapture(settings, onReasoning);
   try {
     for await (const delta of streamCompletion(summarySettings(settings, plan.outputBudget), plan.prompt, signal, {
       outcome,
       providerStarted,
       promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
-      onReasoning: withReasoningCapture(reasoningCollector, onReasoning, keepReasoning)
+      onReasoning: reasoning.onReasoning
     })) {
       raw += delta;
       if (raw.length > SUMMARY_OUTPUT_LIMIT) {
@@ -138,7 +131,7 @@ export async function createSummaryTake(
       instruction: summaryNodeInstruction(source.title),
       cancelled: signal,
       commitIds,
-      reasoning: reasoningCollector.record
+      reasoning: reasoning.collector.record
     });
   } catch (error) {
     if (error instanceof HttpError && error.code === "story_manifest_requires_successor") throw error;

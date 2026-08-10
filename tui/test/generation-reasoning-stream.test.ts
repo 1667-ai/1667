@@ -33,14 +33,17 @@ describe("reasoning stream through the real worker transport", () => {
       const reasoningDeltas: Array<{ text: string; tokenCount: number }> = [];
       const proseDeltas: string[] = [];
       const realContinueStory = api.continueStory.bind(api);
-      api.continueStory = (storyId, instruction, genId, target, onDelta, signal, onStopped, onReasoning, onReasoningStopped) =>
+      api.continueStory = (storyId, instruction, genId, target, onDelta, signal, callbacks = {}) =>
         realContinueStory(storyId, instruction, genId, target, (text) => {
           proseDeltas.push(text);
           onDelta(text);
-        }, signal, onStopped, (delta) => {
-          reasoningDeltas.push(delta);
-          onReasoning?.(delta);
-        }, onReasoningStopped);
+        }, signal, {
+          ...callbacks,
+          onReasoning: (delta) => {
+            reasoningDeltas.push(delta);
+            callbacks.onReasoning?.(delta);
+          }
+        });
 
       const source: AppSource = {
         payload: seeded,

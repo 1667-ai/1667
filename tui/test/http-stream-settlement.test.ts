@@ -59,7 +59,7 @@ test("HTTP rewrite terminal stays authoritative beyond the stop control handoff"
     },
     stopped.signal,
     undefined,
-    (text) => tails.push(text)
+    { onStopped: (text) => tails.push(text) }
   );
 
   expect(result).toBe("committed-take");
@@ -97,7 +97,7 @@ test("HTTP done in the same SSE buffer stays authoritative after onDelta stops",
     },
     stopped.signal,
     undefined,
-    (text) => tails.push(text)
+    { onStopped: (text) => tails.push(text) }
   );
 
   expect(result).toBe("committed-take");
@@ -158,7 +158,7 @@ test("HTTP error in the same SSE buffer stays authoritative after Stop and faile
     },
     stopped.signal,
     undefined,
-    (text) => tails.push(text)
+    { onStopped: (text) => tails.push(text) }
   ));
 
   expect(error instanceof ApiHttpError).toBe(true);
@@ -345,8 +345,7 @@ test("HTTP reasoning frames route to onReasoning, counted, and never to onDelta 
     (text) => { deltas.push(text); },
     stopped.signal,
     undefined,
-    undefined,
-    (delta) => { reasoning.push(delta); }
+    { onReasoning: (delta) => { reasoning.push(delta); } }
   );
 
   expect(result).toBe("committed-take");
@@ -399,12 +398,14 @@ test("HTTP reasoning tail is withheld after Stop and delivered once at terminal 
     (text) => { deltas.push(text); },
     stopped.signal,
     undefined,
-    (tail) => { tails.push(tail); },
-    (delta) => {
-      reasoning.push(delta);
-      stopped.abort();
-    },
-    (tail) => { reasoningTails.push(tail); }
+    {
+      onStopped: (tail) => { tails.push(tail); },
+      onReasoning: (delta) => {
+        reasoning.push(delta);
+        stopped.abort();
+      },
+      onReasoningStopped: (tail) => { reasoningTails.push(tail); }
+    }
   );
 
   expect(result).toBe(null);

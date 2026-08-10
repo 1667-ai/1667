@@ -134,6 +134,40 @@ export interface NovelAiStoryImportResult {
 /** Invariant relied on by the connection monitor's failure detection: any
  *  method that streams takes its AbortSignal as the LAST parameter. Keep new
  *  methods on that shape or teach connection.ts about the exception. */
+/** The optional side channels a streamed generation call reports, bundled
+ *  into one trailing parameter instead of a run of positional callbacks.
+ *  The positional list had grown enough that a caller once passed
+ *  `onReasoning` into the slot meant for a different callback and it still
+ *  type-checked, because every one of these is function-shaped —
+ *  `onStopped`/`onReasoning`/`onReasoningStopped` exist only for a
+ *  generation that keeps a stopped attempt's partial output —
+ *  `continueStory`'s saved fragment, `rewriteNode`'s stashed partial
+ *  replacement. `createSummaryTake`, which always discards a stopped
+ *  attempt whole (summary-action.ts's `reloadAfterStop`), takes the
+ *  narrower `SummaryStreamCallbacks` below instead of this bag: there is no
+ *  withheld tail on either channel for it to deliver. */
+export interface StreamCallbacks {
+  /** Receives, exactly once at terminal settlement, stream text that
+   * arrived after `signal` aborted. `onDelta` never fires after the
+   * abort, so a caller that saves stopped text must take this tail too.
+   * Both transports produce it when they drain text after a Stop. */
+  onStopped?: (text: string) => void;
+  /** Same shape as `onDelta`, on the reasoning ("thinking") channel —
+   * never the same callback, so reasoning can never reach a caller that
+   * only asked for prose. */
+  onReasoning?: (delta: ReasoningDelta) => void;
+  /** Same contract as `onStopped`, on the reasoning channel. */
+  onReasoningStopped?: (text: string) => void;
+}
+
+/** `createSummaryTake`'s own callback bag. See `StreamCallbacks`'s doc for
+ *  why `onStopped`/`onReasoningStopped` are missing here, not merely
+ *  unused. */
+export interface SummaryStreamCallbacks {
+  /** Same shape as `onDelta`, on the reasoning channel. */
+  onReasoning?: (delta: ReasoningDelta) => void;
+}
+
 export interface StoryApi {
   listStories(): Promise<StorySummary[]>;
   searchStories(request: SearchRequest, signal?: AbortSignal): Promise<SearchResponse>;
@@ -228,17 +262,7 @@ export interface StoryApi {
     target: ContinueTarget,
     onDelta: (text: string) => void,
     signal: AbortSignal,
-    /** Receives, exactly once at terminal settlement, stream text that
-     * arrived after `signal` aborted. `onDelta` never fires after the
-     * abort, so a caller that saves stopped text must take this tail too.
-     * Both transports produce it when they drain text after a Stop. */
-    onStopped?: (text: string) => void,
-    /** Same shape as `onDelta`, on the reasoning ("thinking") channel —
-     * never the same callback, so reasoning can never reach a caller that
-     * only asked for prose. */
-    onReasoning?: (delta: ReasoningDelta) => void,
-    /** Same contract as `onStopped`, on the reasoning channel. */
-    onReasoningStopped?: (text: string) => void
+    callbacks?: StreamCallbacks
   ): Promise<{ payload: StoryPayload; droppedFacts: readonly FactBudgetDrop[] } | null>;
   rewriteNode(
     storyId: string,
@@ -252,14 +276,7 @@ export interface StoryApi {
      * to record commitment one layer below where its own await resolves, so
      * a refresh that then rejects cannot hide a take that already landed. */
     onCommitted?: (takeId: string) => void,
-    /** Same contract as `continueStory`'s `onStopped`: the post-abort stream
-     * tail, delivered exactly once at terminal settlement. A caller that
-     * settles a stopped rewrite must take this tail too. */
-    onStopped?: (text: string) => void,
-    /** Same shape as `onDelta`, on the reasoning channel. */
-    onReasoning?: (delta: ReasoningDelta) => void,
-    /** Same contract as `onStopped`, on the reasoning channel. */
-    onReasoningStopped?: (text: string) => void
+    callbacks?: StreamCallbacks
   ): Promise<string | null>;
   /** Settle a stopped or timed-out rewrite (issue #339): ask the backend to
    * commit the verified partial it stashed for this part. `streamedDigest`
@@ -277,8 +294,7 @@ export interface StoryApi {
     body: { nodeId: string; offset?: number; expected?: string },
     onDelta: (text: string) => void,
     signal: AbortSignal,
-    /** Same shape as `onDelta`, on the reasoning channel. */
-    onReasoning?: (delta: ReasoningDelta) => void
+    callbacks?: SummaryStreamCallbacks
   ): Promise<string | null>;
 }
 
@@ -442,9 +458,7 @@ export function createApi(
     payload: unknown,
     onDelta: (text: string) => void,
     signal: AbortSignal,
-    onStopped?: (text: string) => void,
-    onReasoning?: (delta: ReasoningDelta) => void,
-    onReasoningStopped?: (text: string) => void
+    callbacks: StreamCallbacks = {}
   ) => {
     if (signal.aborted) return null;
     try {
@@ -477,9 +491,7 @@ export function createApi(
                   lease.signal,
                   signal,
                   lease.headers,
-                  onStopped,
-                  onReasoning,
-                  onReasoningStopped
+                  callbacks
                 ),
               shouldRetry: (error) => !(error instanceof ApiError
                 || error instanceof SseIdleTimeoutError)
@@ -926,32 +938,28 @@ export function createApi(
       ),
     ...providerMethods({ request }),
     ...importMethods({ runAbsentImportMutation, request, versions, expectedVersion }),
-    continueStory: async (storyId, instruction, genId, target, onDelta, signal, onStopped, onReasoning, onReasoningStopped) => {
+    continueStory: async (storyId, instruction, genId, target, onDelta, signal, callbacks) => {
       const done = await stream(
         storyId,
         `/api/stories/${storyId}/continue`,
         { instruction, genId, ...target },
         onDelta,
         signal,
-        onStopped,
-        onReasoning,
-        onReasoningStopped
+        callbacks
       );
       if (done === null) return null;
       const result = decodeContinueStoryResponse(done);
       versions.rememberPayload(result.payload);
       return result;
     },
-    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted, onStopped, onReasoning, onReasoningStopped) => {
+    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted, callbacks) => {
       const done = await stream(
         storyId,
         `/api/stories/${storyId}/nodes/${nodeId}/rewrite`,
         body,
         onDelta,
         signal,
-        onStopped,
-        onReasoning,
-        onReasoningStopped
+        callbacks
       );
       if (done === null) return null;
       if (typeof done.nodeId !== "string") throw new Error("The server did not return the rewritten take.");
@@ -986,15 +994,14 @@ export function createApi(
         return await settlePartialRewriteFailure(intent, error);
       }
     },
-    createSummaryTake: async (storyId, body, onDelta, signal, onReasoning) => {
+    createSummaryTake: async (storyId, body, onDelta, signal, callbacks) => {
       const done = await stream(
         storyId,
         `/api/stories/${storyId}/summary-take`,
         body,
         onDelta,
         signal,
-        undefined,
-        onReasoning
+        callbacks
       );
       if (done === null) return null;
       if (typeof done.nodeId !== "string") throw new Error("The server did not return the new summary take.");
@@ -1092,10 +1099,9 @@ async function streamSse(
   signal: AbortSignal,
   callerSignal: AbortSignal,
   protocolHeaders: Readonly<Record<string, string>>,
-  onStopped?: (text: string) => void,
-  onReasoning?: (delta: ReasoningDelta) => void,
-  onReasoningStopped?: (text: string) => void
+  callbacks: StreamCallbacks = {}
 ): Promise<Record<string, unknown> | null> {
+  const { onStopped, onReasoning, onReasoningStopped } = callbacks;
   let response: Response;
   const streamAbort = new AbortController();
   const transportSignal = AbortSignal.any([signal, streamAbort.signal]);

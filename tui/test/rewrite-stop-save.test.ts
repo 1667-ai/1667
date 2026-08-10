@@ -49,7 +49,7 @@ describe("partial rewrite commit through the real worker transport", () => {
       const stoppedTails: string[] = [];
       let settleText: string | null = null;
       const realRewriteNode = api.rewriteNode.bind(api);
-      api.rewriteNode = (storyId, nodeId, body, onDelta, signal, onCommitted, onStopped) =>
+      api.rewriteNode = (storyId, nodeId, body, onDelta, signal, onCommitted, callbacks = {}) =>
         realRewriteNode(
           storyId,
           nodeId,
@@ -60,9 +60,12 @@ describe("partial rewrite commit through the real worker transport", () => {
           },
           signal,
           onCommitted,
-          (tail) => {
-            stoppedTails.push(tail);
-            onStopped?.(tail);
+          {
+            ...callbacks,
+            onStopped: (tail) => {
+              stoppedTails.push(tail);
+              callbacks.onStopped?.(tail);
+            }
           }
         );
       const realCommitPartialRewrite = api.commitPartialRewrite.bind(api);
