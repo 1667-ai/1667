@@ -8,7 +8,7 @@ import {
 } from "./provider-sse-probability-budget.js";
 import {
   INSPECTION_PREFIX_CHARS,
-  prefixProvesNoProse
+  prefixProvesSafeToDiscard
 } from "./provider-sse-prose-check.js";
 import {
   providerErrorSummary,
@@ -606,12 +606,12 @@ export class BoundedProviderSseParser {
   /** The only place an event that crossed its byte budget is allowed to
    *  become a silent discard rather than the loud failure that existed
    *  before issue #107's relaxation. A request that asked for probabilities
-   *  may still lose this one event — but only once prefixProvesNoProse has
-   *  positively established, from the bounded inspectionPrefix, that it
-   *  carries no prose. Any doubt resolves exactly like the unrelaxed path:
-   *  a hard failure, unchanged. */
+   *  may still lose this one event — but only once prefixProvesSafeToDiscard
+   *  has positively established, from the bounded inspectionPrefix, that it
+   *  carries no prose and no terminal or error state. Any doubt resolves
+   *  exactly like the unrelaxed path: a hard failure, unchanged. */
   private decideOversizedEvent(): void {
-    if (this.discardOversizedEvents && prefixProvesNoProse(this.inspectionPrefix)) {
+    if (this.discardOversizedEvents && prefixProvesSafeToDiscard(this.inspectionPrefix)) {
       this.discardingCurrentEvent = true;
       return;
     }
