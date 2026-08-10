@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { link, mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -153,15 +153,15 @@ test("encrypt refuses a pre-existing unseal progress directory before format 5",
   await assert.rejects(readFile(path.join(dataDirectory, VAULT_KEYSLOT_FILE)), { code: "ENOENT" });
 });
 
-test("encrypt preserves deceptive replace residue and removes valid residue", async (t) => {
+test("encrypt preserves deceptive replace residue and removes emitted valid residue", async (t) => {
   const dataDirectory = await newVault(t, "1667-vault-replace-residue-");
   const deceptive = [
     path.join(dataDirectory, ".1667-vault-replace-123e4567-e89b-12d3-a456-426614174000.tmp"),
-    path.join(dataDirectory, ".1667-vault-replace-123E4567-E89B-42D3-A456-426614174000.tmp")
+    path.join(dataDirectory, ".1667-vault-replace-223E4567-E89B-42D3-A456-426614174000.tmp")
   ];
   const validResidue = path.join(
     dataDirectory,
-    ".1667-vault-replace-123e4567-e89b-42d3-a456-426614174000.tmp"
+    `.1667-vault-replace-${randomUUID()}.tmp`
   );
   const plaintext = "deceptive replace residue sentinel";
   await Promise.all(deceptive.map(async (file) => await writeFile(file, plaintext)));

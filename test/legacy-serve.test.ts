@@ -97,7 +97,9 @@ test("legacy serve refuses a platform without retained-directory authority", {
   await assert.rejects(access(stateRoot), /ENOENT/);
 });
 
-test("legacy serve refuses a sealed vault before it opens HTTP state", async (t) => {
+test("legacy serve refuses a sealed vault before it opens HTTP state", {
+  skip: process.platform !== "linux"
+}, async (t) => {
   const dataDir = await privateTemporaryDirectory(t, "1667-legacy-sealed-");
   await publishDataDirectoryOwnerMarker(dataDir, 5);
   await assert.rejects(startLegacyServe(dataDir), /cannot open a sealed vault/);

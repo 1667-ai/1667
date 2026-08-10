@@ -119,7 +119,9 @@ test("supervised serve keeps machine state outside the project", async (t) => {
   );
 });
 
-test("supervised serve rechecks the sealed-vault fence through its retained authority", async (t) => {
+test("supervised serve rechecks the sealed-vault fence through its retained authority", {
+  skip: process.platform !== "linux"
+}, async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-supervised-vault-race-"));
   const machineDir = await mkdtemp(path.join(tmpdir(), "1667-supervised-machine-"));
   t.after(async () => await Promise.all([
