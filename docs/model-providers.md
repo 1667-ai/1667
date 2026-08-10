@@ -442,6 +442,11 @@ either way.
 token contains the credential that 1667 sent, 1667 stores no alternative
 token for that take. The generation keeps its prose.
 
+Some servers send the alternative tokens of a full generation in one
+message. KoboldCpp is one. 1667 accepts a message that the alt count and
+the output limit together permit. A larger message gives no alternative
+token for that take. The generation keeps its prose.
+
 Select a story part that has prose. Press `l` to open the token probability
 viewer. The viewer shows the take's prose with the selected token marked.
 Below the prose, it shows the alternative tokens the model weighed at that
