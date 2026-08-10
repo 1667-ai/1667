@@ -105,15 +105,26 @@ function noticeRows(notice: SessionNotice, focused: boolean, width: number): Fra
     segment(stamp(notice.at).padEnd(STAMP_WIDTH), "chrome")
   ];
   if (!focused) {
-    return [[...head, segment(truncate(oneLine(notice.text), measure), "prose · dim")]];
+    return [[...head, segment(truncate(oneLine(notice), measure), "prose · dim")]];
   }
   // The log is the one uncapped surface (C-37): the focused notice keeps its
-  // markdown paragraph, list and emphasis structure instead of collapsing to
-  // one flowing line the way the capped toast/banner/check channels do
-  // (Decision 24's `wrapFeedback`, deliberately untouched by this).
-  const { text, runs } = parseNoticeMarkup(notice.text);
-  const wrapped = wrapText(text, runs, measure);
-  const blocks = noticeMarkupBlocks(text);
+  // line structure instead of collapsing to one flowing line the way the
+  // capped toast/banner/check channels do (Decision 24's `wrapFeedback`,
+  // deliberately untouched by this). Only a `markdown` notice — release
+  // notes, today the one caller — also gets its `**bold**`/`` `code` ``/list
+  // markers interpreted. A `plain` notice, which is most of them and carries
+  // arbitrary user- or backend-supplied text, renders exactly as written:
+  // interpreting markup there would let a story renamed to `**draft**` come
+  // back from the log quietly rewritten to bold.
+  return notice.kind === "markdown"
+    ? markdownNoticeRows(notice.text, measure, head)
+    : plainNoticeRows(notice.text, measure, head);
+}
+
+function markdownNoticeRows(text: string, measure: number, head: FrameLine): FrameLine[] {
+  const { text: cleaned, runs } = parseNoticeMarkup(text);
+  const wrapped = wrapText(cleaned, runs, measure);
+  const blocks = noticeMarkupBlocks(cleaned);
   let blockIndex = 0;
   return wrapped.map((row, index): FrameLine => {
     while (blockIndex + 1 < blocks.length && row.start >= blocks[blockIndex + 1]!.start) {
@@ -130,6 +141,21 @@ function noticeRows(notice: SessionNotice, focused: boolean, width: number): Fra
     return index === 0
       ? [...head, ...rowSegments]
       : [segment(" ".repeat(BODY_COLUMN)), ...rowSegments];
+  });
+}
+
+/** A plain notice's text, wrapped with no markup interpretation at all —
+ *  `wrapText` still wraps it one paragraph per source `\n` (so a multi-line
+ *  notice, an import fidelity report say, keeps its own line breaks), but
+ *  every character renders exactly as the app wrote it. No style runs, no
+ *  list detection, no hanging indent: those are markdown-notice concerns. */
+function plainNoticeRows(text: string, measure: number, head: FrameLine): FrameLine[] {
+  const wrapped = wrapText(text, [], measure);
+  return wrapped.map((row, index): FrameLine => {
+    const content: FrameSegment[] = row.text.length === 0 ? [] : [segment(row.text, "prose")];
+    return index === 0
+      ? [...head, ...content]
+      : [segment(" ".repeat(BODY_COLUMN)), ...content];
   });
 }
 
@@ -240,10 +266,13 @@ function renderBreadcrumb(
 }
 
 /** The unfocused preview row: one flowing line, same as `wrapFeedback`'s own
- *  collapse, but markdown-aware so a preview never shows a raw `**` or a
- *  backtick — only the focused row gets the full paragraph/list structure. */
-function oneLine(text: string): string {
-  return parseNoticeMarkup(text).text.replace(/\s+/gu, " ").trim();
+ *  collapse. A `markdown` notice's markers are stripped first, the same as
+ *  the focused row's own parse, so a preview never shows a raw `**` or a
+ *  backtick. A `plain` notice skips that parse entirely — its `**`/backtick
+ *  characters, if it has any, are the writer's own text, not a marker. */
+function oneLine(notice: SessionNotice): string {
+  const text = notice.kind === "markdown" ? parseNoticeMarkup(notice.text).text : notice.text;
+  return text.replace(/\s+/gu, " ").trim();
 }
 
 /** Wall-clock, because a notice's usefulness is "when did this happen". */
