@@ -50,7 +50,7 @@ import {
 describe("embedded backend worker", () => {
   test("implements the complete StoryApi contract without HTTP", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "1667-worker-api-"));
-    const backend = await createWorkerStoryApi({ dataDir });
+    const backend = await createWorkerStoryApi({ dataDir, printLogs: true });
     const api = backend.api;
     try {
       const defaults = await api.getSettings();
