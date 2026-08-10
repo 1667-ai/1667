@@ -449,6 +449,40 @@ position, with their probabilities and log probabilities. Use `←` and `→`
 to move between tokens. Use `↑` and `↓` to move between alternatives. Use
 `Tab` to move to the next story part.
 
+## Thoughts
+
+Some models write reasoning text before they write prose. 1667 calls this
+text a thought. A thought is not story prose. 1667 keeps a thought apart
+from the prose of a take. 1667 never writes a thought into your story.
+
+A thought belongs to one take. If you change to a different take, 1667
+shows the thought of that take.
+
+While the model thinks, the margin shows `⟳ thinking` and the number of
+thought tokens. If the model reports no count, 1667 shows `⟳ thinking`
+without a number. Press `Esc` to stop the generation.
+
+The **Reasoning** row in Settings selects how 1667 shows a thought:
+
+| Reasoning mode | What 1667 shows |
+| --- | --- |
+| off | Nothing. 1667 shows no thought. |
+| marker | The thought marker in the margin. This is the default. |
+| open | Each thought, unfolded, above the prose of its story part. |
+
+Select a story part that has a thought. Press `T` to unfold the thought.
+1667 shows the thought above the prose of the story part. A rail and an
+indent keep the thought apart from the prose. Press `T` again to fold the
+thought. The `T` key does nothing on a story part that has no thought.
+
+The **Keep thought** row controls storage. Keep thought is on by default.
+1667 then saves each thought with its take. The thought stays after you
+close the story. Set Keep thought to off to save no thought. 1667 then
+shows each thought while the model writes it, but keeps none of it.
+
+A model can return no reasoning text. The Reasoning row then shows `‹ — ›`
+and gives the reason.
+
 ## Credentials and deadlines
 
 A connection can refer to a stored credential or an environment variable.
