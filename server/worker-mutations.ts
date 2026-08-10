@@ -62,7 +62,7 @@ import { hasCommittedGeneration } from "./story-nodes.js";
 import { buildStoryPayload } from "./story-payload.js";
 import type { StoryService } from "./story-service.js";
 import { requireRecord, requireString } from "./validation.js";
-import { parseWorkerContinueTarget } from "./worker-continue-target.js";
+import { parseWorkerContinueImages, parseWorkerContinueTarget } from "./worker-continue-target.js";
 import { partsFromNovelAiStory } from "./import-nai.js";
 import { partsFromNovelAiScenario } from "./import-scenario.js";
 import { partsFromSillyTavernJsonl, sillyTavernFidelity } from "./import-st.js";
@@ -897,11 +897,13 @@ const MUTATIONS: MutationRegistry = {
   continueStory: define<"continueStory">({
     parse: (value) => {
       const input = requireRecord(value, "continueStory input");
+      const images = parseWorkerContinueImages(input.images);
       return {
         storyId: requireString(input.storyId, "storyId"),
         instruction: requireStringValue(input.instruction, "instruction"),
         genId: requireString(input.genId, "genId"),
-        target: parseWorkerContinueTarget(input.target)
+        target: parseWorkerContinueTarget(input.target),
+        ...(images.length === 0 ? {} : { images })
       };
     },
     storyId: (input) => input.storyId,
@@ -917,7 +919,8 @@ const MUTATIONS: MutationRegistry = {
       return await service.continueStory(input.storyId, {
         ...input.target,
         instruction: input.instruction,
-        genId: input.genId
+        genId: input.genId,
+        ...("images" in input ? { images: input.images } : {})
       }, context.onDelta, context.signal, {
         ...generationHooks(plan, {}, context.storyMutationRequest),
         onReasoning: context.onReasoning

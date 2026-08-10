@@ -5,6 +5,14 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **1667 prepares to send images to a model.** This release contains the
+  complete Image Input implementation and keeps every entry point closed. It
+  cannot attach an image yet. 1667 releases a new storage schema in two steps:
+  this release reads and validates the successor story and settings documents
+  and refuses to change them, and the next release writes them. That order lets
+  a writer go back one version without losing a story or a setting. The next
+  release opens the feature.
+
 - **The log now shows a release note with its paragraphs and list kept.**
   Before this fix, the log joined a release note into one line, and it
   showed the raw `**` and backtick marks. The log now keeps each paragraph

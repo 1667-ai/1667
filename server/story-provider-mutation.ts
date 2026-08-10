@@ -74,7 +74,10 @@ export class StoryProviderMutationStore {
     private readonly recovery: StoryMutationRecovery,
     private readonly activeStarts: ActiveProviderStarts,
     private readonly now: StoryMutationClock,
-    private readonly hooks: StoryMutationHooks = {}
+    private readonly hooks: StoryMutationHooks = {},
+    /** Threaded straight from `StoryMutationStoreOptions.imageInputActivation`;
+     *  see the comment there for what sets it and what never does. */
+    private readonly imageInputActivation?: boolean
   ) {
     this.races = new StoryProviderRaceResolver(
       stories,
@@ -118,15 +121,33 @@ export class StoryProviderMutationStore {
 
     const { request, storyId } = admitted;
     const { story, releaseSnapshot } = admitted.opened;
+    // Pinned once `startProvider` learns the active prompt's Image Object
+    // ids, released here on every exit path: success, provider failure, or
+    // an admission error thrown before the provider ever started. Pinning
+    // this early, alongside the durable provider-started receipt rather
+    // than only at commit, keeps a Draft Image's object readable through
+    // the whole provider round trip even if its Draft Lease expires while
+    // the model is still working (rollout plan: "Pin each admitted Image
+    // Object in ProviderSnapshotPins until the provider request ends").
+    let pinnedImageObjectIds: readonly string[] = [];
     try {
       try {
         const runtime = new ScopedProviderStoryRuntime(story);
         let started: StartedMutationRecord | null = null;
         let startedPromise: Promise<StartedMutationRecord> | null = null;
         const startProvider = async (): Promise<void> => {
+          // Read now, not when startedPromise's callback eventually runs:
+          // this closure fires the instant the caller is ready to send
+          // provider bytes, which is exactly when generation-http.ts has
+          // already declared the active prompt's Image Object ids (if any).
+          const imageObjectIds = runtime.imageObjectIds;
+          if (imageObjectIds.length > 0 && pinnedImageObjectIds.length === 0) {
+            this.stories.pinImages(storyId, imageObjectIds);
+            pinnedImageObjectIds = imageObjectIds;
+          }
           startedPromise ??= this.coordinator.runStoryPhase(
             request,
-            async () => await this.publishStarted(storyId, request, method)
+            async () => await this.publishStarted(storyId, request, method, imageObjectIds)
           );
           started = await startedPromise;
         };
@@ -211,6 +232,7 @@ export class StoryProviderMutationStore {
         throw error;
       }
     } finally {
+      this.stories.releaseImagePins(storyId, pinnedImageObjectIds);
       releaseSnapshot();
     }
   }
@@ -278,7 +300,8 @@ export class StoryProviderMutationStore {
   private async publishStarted(
     storyId: string,
     request: MutationCoordinatorRequest<StoryMutationTarget>,
-    method: ProviderMutationMethod
+    method: ProviderMutationMethod,
+    imageObjectIds: readonly string[] = []
   ): Promise<StartedMutationRecord> {
     return await this.stories.withAggregateSession(storyId, async (session) => {
       await this.recovery.finalizeAggregateTransaction(
@@ -318,7 +341,8 @@ export class StoryProviderMutationStore {
         fingerprintHash: request.fingerprint,
         method,
         oldStateHash,
-        createdAt: timestamp(this.now)
+        createdAt: timestamp(this.now),
+        ...(imageObjectIds.length === 0 ? {} : { imageObjectIds })
       };
       const manifest = reduceStoryV6({
         kind: "present",
@@ -357,7 +381,7 @@ export class StoryProviderMutationStore {
     ProviderStoryMutationCommit<never>,
     "story" | "result" | "aggregateVersion"
   >> {
-    return await this.stories.withAggregateSession(storyId, async (session) => {
+    const outcome = await this.stories.withAggregateSession(storyId, async (session) => {
       await this.prepareTerminalPhase(session, request, method, started);
       if (session.snapshot.manifest.kind !== "live") {
         throw providerOutcomeUnknown(request.mutationId);
@@ -396,6 +420,25 @@ export class StoryProviderMutationStore {
         throw terminal.error;
       }
     });
+    // Only after the manifest and receipt above are durable, never before
+    // (rollout plan). Runs in its own `ioQueue` turn, outside the aggregate
+    // session claim `withAggregateSession` just released, so it can never
+    // re-enter that same per-story queue. Best effort: the take already
+    // committed durably, so a lease this call fails to remove is harmless.
+    // It simply expires on its own schedule, and once the successor schema
+    // is active the manifest's own Image Object ids protect the object
+    // regardless.
+    if (runtime.draftLeaseIds.length > 0) {
+      try {
+        await this.stories.consumeDraftLeases(storyId, runtime.draftLeaseIds);
+      } catch (error) {
+        console.warn(
+          `Draft Lease cleanup failed after a committed generation for story ${storyId}: `
+          + `${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+    return outcome;
   }
 
   private async commitTerminalError(
@@ -456,7 +499,7 @@ export class StoryProviderMutationStore {
   ): Promise<Extract<MutationResult, { kind: "story" }>> {
     const oldStateHash = session.snapshot.manifestHash;
     const replacement = outcome.kind === "success"
-      ? await session.prepareContent(outcome.story)
+      ? await session.prepareContent(outcome.story, { activation: this.imageInputActivation })
       : null;
     const provider = {
       mutationId: request.mutationId,

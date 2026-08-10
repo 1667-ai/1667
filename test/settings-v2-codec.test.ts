@@ -60,6 +60,15 @@ import {
   SETTINGS_V2_SCHEMA_SHA256
 } from "../shared/settings-v2-schema-identity.js";
 import { assertSettingsV2SchemaCorpus } from "../scripts/settings-v2-schema-validation.js";
+import { resolveImageInputCapability } from "../shared/image-input-capabilities.js";
+import {
+  formatSettingsDocumentV3,
+  parseSettingsDocumentV3Text,
+  parseSettingsStateV3Text
+} from "../server/settings-v3-codec.js";
+import { convertSettingsDocumentV2ToV3 } from "../server/settings-v3-conversion.js";
+import { validateSettingsDocumentV3 } from "../server/settings-v3-validation.js";
+import { INITIAL_SETTINGS_DOCUMENT_V3_TEXT } from "../server/settings-v3-default.js";
 
 interface CorpusCase {
   name: string;
@@ -88,10 +97,31 @@ test("settings schema, corpus, and hash vectors are canonical and identity-pinne
 
 for (const fixture of corpus.cases) {
   test(`settings v2 corpus: ${fixture.name}`, () => {
-    const parse = fixture.kind === "document" ? parseSettingsDocumentV2Text : parseSettingsStateV2Text;
+    const parse = corpusFixtureParser(fixture);
     if (fixture.valid) assert.doesNotThrow(() => parse(fixture.text));
     else assert.throws(() => parse(fixture.text));
   });
+}
+
+/** Schema 3's corpus cases carry `schemaVersion: 3`; every other case is
+ *  schema 2. Peeking the JSON is safe here: only a schema-3 fixture built by
+ *  `settingsV2CorpusV3` ever needs the schema-3 codec, and every corpus
+ *  fixture's `text` is syntactically valid JSON even when it is schema- or
+ *  codec-invalid (a fixture that is not valid JSON at all would fail this
+ *  peek the same way `assertSettingsV2SchemaCorpus` treats it: not schema
+ *  valid), so falling back to the schema-2 parser on a peek failure matches
+ *  this loop's original, schema-2-only behavior. */
+function corpusFixtureParser(fixture: CorpusCase): (text: string) => unknown {
+  let schemaVersion: unknown;
+  try {
+    schemaVersion = (JSON.parse(fixture.text) as { schemaVersion?: unknown }).schemaVersion;
+  } catch {
+    schemaVersion = undefined;
+  }
+  if (schemaVersion === 3) {
+    return fixture.kind === "document" ? parseSettingsDocumentV3Text : parseSettingsStateV3Text;
+  }
+  return fixture.kind === "document" ? parseSettingsDocumentV2Text : parseSettingsStateV2Text;
 }
 
 test("fixed initial document and state bytes have raw and domain-separated hashes", () => {
@@ -1088,6 +1118,151 @@ test("document validation rejects authentication/custom header collisions and pr
       }
     }
   }), /owned by the transport or authentication slot/);
+});
+
+test("schema 3 reads and validates; schema 2 refuses to mutate a schema-3 document", () => {
+  const documentV3 = JSON.parse(INITIAL_SETTINGS_DOCUMENT_V3_TEXT) as Record<string, unknown>;
+  const parsedV3 = parseSettingsDocumentV3Text(INITIAL_SETTINGS_DOCUMENT_V3_TEXT);
+  assert.equal(parsedV3.schemaVersion, 3);
+  assert.equal(
+    parsedV3.models["builtin:dry-run"]!.capabilities.imageInput,
+    "unsupported"
+  );
+  // The schema-2 codec, the only codec this release ever writes through,
+  // refuses a schema-3 document outright, rather than silently downgrading
+  // or mutating it.
+  assert.throws(
+    () => parseSettingsDocumentV2(documentV3),
+    /schemaVersion must be 2/
+  );
+});
+
+test("v2 to v3 migration: dry-run models become unsupported, every other model becomes unknown", () => {
+  const networkModel = convertGenerationSettingsV1(legacy(
+    "openai-compatible",
+    "https://api.openai.com/v1",
+    "gpt-4o",
+    "OPENAI_API_KEY"
+  ));
+  const migrated = convertSettingsDocumentV2ToV3(networkModel);
+  const migratedModel = migrated.models[migrated.profiles[migrated.routing.default]!.modelId]!;
+  assert.equal(migratedModel.capabilities.imageInput, "unknown");
+
+  const dryRun = convertGenerationSettingsV1(legacy("dry-run", "", "", null));
+  const migratedDryRun = convertSettingsDocumentV2ToV3(dryRun);
+  const dryRunModel = migratedDryRun.models[migratedDryRun.profiles[migratedDryRun.routing.default]!.modelId]!;
+  assert.equal(dryRunModel.capabilities.imageInput, "unsupported");
+});
+
+test("imageTokenCeiling round-trips when present and stays absent when omitted", () => {
+  const migrated = convertSettingsDocumentV2ToV3(convertGenerationSettingsV1(legacy(
+    "openai-compatible",
+    "https://api.openai.com/v1",
+    "gpt-4o",
+    "OPENAI_API_KEY"
+  )));
+  const modelId = migrated.profiles[migrated.routing.default]!.modelId;
+  const model = migrated.models[modelId]!;
+  assert.equal(model.capabilities.imageTokenCeiling, undefined);
+
+  const withCeiling = validateSettingsDocumentV3({
+    ...migrated,
+    models: {
+      ...migrated.models,
+      [modelId]: {
+        ...model,
+        capabilities: { ...model.capabilities, imageInput: "supported", imageTokenCeiling: 4_096 }
+      }
+    }
+  });
+  assert.equal(withCeiling.models[modelId]!.capabilities.imageTokenCeiling, 4_096);
+  const roundTripped = parseSettingsDocumentV3Text(formatSettingsDocumentV3(withCeiling));
+  assert.equal(roundTripped.models[modelId]!.capabilities.imageTokenCeiling, 4_096);
+});
+
+test("imageTokenCeiling is schema-valid but codec-invalid without imageInput === supported", () => {
+  const migrated = convertSettingsDocumentV2ToV3(convertGenerationSettingsV1(legacy(
+    "openai-compatible",
+    "https://api.openai.com/v1",
+    "gpt-4o",
+    "OPENAI_API_KEY"
+  )));
+  const modelId = migrated.profiles[migrated.routing.default]!.modelId;
+  const model = migrated.models[modelId]!;
+  assert.throws(
+    () => validateSettingsDocumentV3({
+      ...migrated,
+      models: {
+        ...migrated.models,
+        [modelId]: {
+          ...model,
+          capabilities: { ...model.capabilities, imageInput: "unknown", imageTokenCeiling: 4_096 }
+        }
+      }
+    }),
+    /imageTokenCeiling requires imageInput to be "supported"/
+  );
+});
+
+test("image input capability resolution: strict gate, override precedence, and safe strategies only", () => {
+  // Only "supported" authorizes an image, and the protocol gates first.
+  assert.equal(
+    resolveImageInputCapability({ protocol: "dry-run", remoteModelId: "claude-sonnet-5" }).support,
+    "unsupported"
+  );
+  assert.equal(
+    resolveImageInputCapability({ protocol: "text-completions", remoteModelId: "claude-sonnet-5" }).support,
+    "unsupported"
+  );
+  // Exact built-in model knowledge, with no override.
+  assert.equal(
+    resolveImageInputCapability({ protocol: "anthropic-messages", remoteModelId: "claude-sonnet-5" }).support,
+    "supported"
+  );
+  assert.equal(
+    resolveImageInputCapability({ protocol: "openai-chat-completions", remoteModelId: "gpt-4o" }).support,
+    "supported"
+  );
+  // An unlisted model has no built-in strategy and no override: unknown.
+  assert.equal(
+    resolveImageInputCapability({ protocol: "openai-chat-completions", remoteModelId: "totally-unlisted-model" })
+      .support,
+    "unknown"
+  );
+  // A stored "unknown" override counts as no override.
+  assert.equal(
+    resolveImageInputCapability({
+      protocol: "anthropic-messages",
+      remoteModelId: "claude-sonnet-5",
+      override: "unknown"
+    }).support,
+    "supported"
+  );
+  // An explicit "unsupported" override wins over built-in knowledge.
+  assert.equal(
+    resolveImageInputCapability({
+      protocol: "anthropic-messages",
+      remoteModelId: "claude-sonnet-5",
+      override: "unsupported"
+    }).support,
+    "unsupported"
+  );
+  // "supported" on a model with no safe strategy (no built-in knowledge and
+  // no explicit ceiling) resolves to "unknown", never a guessed fallback.
+  const noStrategy = resolveImageInputCapability({
+    protocol: "openai-chat-completions",
+    remoteModelId: "some-custom-endpoint-model",
+    override: "supported"
+  });
+  assert.equal(noStrategy.support, "unknown");
+  // The same override with an explicit ceiling has a safe strategy.
+  const withCeiling = resolveImageInputCapability({
+    protocol: "openai-chat-completions",
+    remoteModelId: "some-custom-endpoint-model",
+    override: "supported",
+    overrideTokenCeiling: 2_000
+  });
+  assert.equal(withCeiling.support, "supported");
 });
 
 function legacy(

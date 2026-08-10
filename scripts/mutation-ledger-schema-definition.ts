@@ -69,16 +69,25 @@ export function mutationLedgerSchema(): Schema {
     UserMutationResult: {
       oneOf: [ref("StoryResult"), ref("SettingsResult"), ref("ErrorResult")]
     },
-    Started: closed({
-      schema: { const: 1 },
-      kind: { const: "started" },
-      aggregateKey: ref("StoryAggregateKey"),
-      mutationId: ref("MutationId"),
-      fingerprintHash: ref("Hash256"),
-      method: { enum: [...PROVIDER_MUTATION_METHODS] },
-      oldStateHash: ref("Hash256"),
-      createdAt: ref("TimeMs")
-    }),
+    Started: closedWithOptional(
+      {
+        schema: { const: 1 },
+        kind: { const: "started" },
+        aggregateKey: ref("StoryAggregateKey"),
+        mutationId: ref("MutationId"),
+        fingerprintHash: ref("Hash256"),
+        method: { enum: [...PROVIDER_MUTATION_METHODS] },
+        oldStateHash: ref("Hash256"),
+        createdAt: ref("TimeMs")
+      },
+      {
+        // Ordered Image Object ids the provider request is about to send.
+        // Optional so an on-disk record from before Image Input still
+        // parses; when present it is never empty, mirroring every other
+        // "absence means none" list in this codebase.
+        imageObjectIds: { type: "array", minItems: 1, maxItems: 4, items: ref("Hash256") }
+      }
+    ),
     PreparedUserMutation: closed({
       schema: { const: 1 },
       kind: { const: "prepared" },
@@ -159,6 +168,20 @@ export function mutationLedgerSchema(): Schema {
 
 function closed(properties: Record<string, Schema>): Schema {
   return { type: "object", additionalProperties: false, properties, required: Object.keys(properties) };
+}
+
+/** Like `closed`, but `optional`'s keys are allowed and validated when
+ * present without being required. This is the JSON Schema shape for an
+ * OPTIONAL closed-shape key: `server/story-wire-validation.ts`'s
+ * `closedShape` with a non-empty second argument is the same idea on the
+ * parser side. */
+function closedWithOptional(required: Record<string, Schema>, optional: Record<string, Schema>): Schema {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: { ...required, ...optional },
+    required: Object.keys(required)
+  };
 }
 
 function ref(name: string): Schema {

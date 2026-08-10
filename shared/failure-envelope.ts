@@ -34,6 +34,24 @@ const FAILURE_CODE_VALUES = [
   "operation_unknown",
   "operation_expired",
   "operation_session_terminal",
+  // Image Input. Every one of these is refused before the request reaches a
+  // provider, so none of them may enter PREPARED_DOMAIN_ERRORS: a durable
+  // prepared result must describe work a provider actually saw.
+  "image_input_not_supported",
+  "image_type_not_supported",
+  "image_invalid",
+  "image_source_too_large",
+  "image_normalization_failed",
+  "image_attachment_expired",
+  "image_attachment_duplicate",
+  "image_draft_quota_exceeded",
+  "image_stage_busy",
+  "image_context_too_large",
+  "provider_request_too_large",
+  // A settings document written by a later release. This release reads and
+  // validates it, and refuses to change it, so a writer who moves back one
+  // version keeps every setting instead of losing the file.
+  "settings_requires_successor",
   "internal"
 ] as const;
 

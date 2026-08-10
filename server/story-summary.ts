@@ -1,9 +1,9 @@
 import { activePath, hasFork, leafCount } from "../shared/story-tree.js";
 import type { Story, StorySummary } from "../shared/types.js";
 import { countWords } from "./story-codec.js";
-import type { StoryManifestV4, StoryManifestV5 } from "./story-format.js";
+import type { StoryManifestV4, StoryManifestV5, StoryManifestV7 } from "./story-format.js";
 
-export function buildStorySummary(source: Story | StoryManifestV4 | StoryManifestV5): StorySummary {
+export function buildStorySummary(source: Story | StoryManifestV4 | StoryManifestV5 | StoryManifestV7): StorySummary {
   if ("schemaVersion" in source) {
     const path = activePath(source);
     return {

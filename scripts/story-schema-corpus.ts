@@ -10,6 +10,7 @@ export interface StoryManifestCorpusCase {
 
 const NOW = "2026-01-01T00:00:00.000Z";
 const HASH = "a".repeat(64);
+const IMAGE_HASH = "c".repeat(64);
 const MUTATION_ID = `m1.1767225600000.${"b".repeat(32)}`;
 const ZERO = "00000000000000000000";
 const ONE = "00000000000000000001";
@@ -72,6 +73,65 @@ interface DeletedFixture {
   lastTransaction: { receiptKind: string; mutationId: string; phase: string };
 }
 
+/** The successor content payload: every V5Fixture field, one version tag. */
+interface V7Fixture extends Omit<V5Fixture, "schemaVersion"> {
+  schemaVersion: 7;
+}
+
+/** The successor envelope: every LiveFixture field, wrapping a V7Fixture. */
+interface Live8Fixture extends Omit<LiveFixture, "schemaVersion" | "content"> {
+  schemaVersion: 8;
+  content: V7Fixture;
+}
+
+function imageAttachment(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    objectId: IMAGE_HASH,
+    mediaType: "image/png",
+    width: 800,
+    height: 600,
+    byteLength: 123_456,
+    ...overrides
+  };
+}
+
+function v7Manifest(): V7Fixture {
+  return { ...v5Manifest(), schemaVersion: 7 };
+}
+
+/** A one-node V7 manifest whose root take carries one Image Attachment. It is
+ * the successor counterpart of `nodeV5` below, with a real (non-empty)
+ * active path so a wrapping V8 envelope's summary can match it. */
+function v7ManifestWithImages(): V7Fixture {
+  const manifest = v7Manifest();
+  manifest.nodes = [{ ...storedNode(), imageAttachments: [imageAttachment()] }];
+  manifest.activeRootId = "root";
+  return manifest;
+}
+
+function live8Manifest(content: V7Fixture): Live8Fixture {
+  return {
+    format: "1667-story",
+    schemaVersion: 8,
+    kind: "live",
+    id: content.id,
+    revision: ONE,
+    previousManifestHash: null,
+    content,
+    summary: {
+      id: content.id,
+      title: content.title,
+      updatedAt: content.updatedAt,
+      partCount: content.nodes.length,
+      words: ZERO,
+      forked: false,
+      lineCount: content.nodes.length === 0 ? ZERO : ONE
+    },
+    unresolvedProvider: null,
+    lastTransaction: null
+  };
+}
+
 export function storyManifestCorpus(): StoryManifestCorpusCase[] {
   const v5 = v5Manifest();
   const live = liveManifest(v5);
@@ -88,6 +148,10 @@ export function storyManifestCorpus(): StoryManifestCorpusCase[] {
   nodeV5.activeRootId = "root";
   const richV5 = richV5Manifest();
   const deterministicV5 = { ...v5, id: DETERMINISTIC_ID };
+  const v7 = v7Manifest();
+  const v7WithImages = v7ManifestWithImages();
+  const live8Empty = live8Manifest(v7);
+  const live8Images = live8Manifest(v7WithImages);
 
   return [
     valid("v5-minimal", v5.id, `${JSON.stringify(v5, null, 2)}\n`),
@@ -272,7 +336,27 @@ export function storyManifestCorpus(): StoryManifestCorpusCase[] {
     invalid("v6-deleted-started-transaction", deleted.id, canonicalJson({
       ...deleted,
       lastTransaction: { ...deleted.lastTransaction, phase: "started" }
-    }))
+    })),
+    valid("v8-live-with-images", live8Images.id, canonicalJson(live8Images)),
+    valid("v8-live-without-images", live8Empty.id, canonicalJson(live8Empty)),
+    invalid("v7-bare-payload-without-envelope", v7.id, JSON.stringify(v7), true),
+    invalid("v7-unknown-node-key", v7WithImages.id, JSON.stringify({
+      ...v7WithImages,
+      nodes: [{ ...v7WithImages.nodes[0], surprise: true }]
+    })),
+    invalidNestedV7("v7-image-attachments-over-bound", v7WithImages, (copy) => {
+      copy.nodes[0]!.imageAttachments = [0, 1, 2, 3, 4].map((index) =>
+        imageAttachment({ objectId: index.toString().repeat(64) }));
+    }),
+    invalidNestedV7("v7-image-attachments-empty", v7WithImages, (copy) => {
+      copy.nodes[0]!.imageAttachments = [];
+    }),
+    invalidNestedV7("v7-image-attachments-duplicate-object-id", v7WithImages, (copy) => {
+      copy.nodes[0]!.imageAttachments = [imageAttachment(), imageAttachment()];
+    }, true),
+    invalidNestedV7("v7-token-probability-hash-final-newline", v7WithImages, (copy) => {
+      copy.nodes[0]!.tokenProbabilityId = `${HASH}\n`;
+    })
   ];
 }
 
@@ -452,4 +536,20 @@ function invalidNestedV5(
   const copy = structuredClone(source);
   mutate(copy);
   return invalid(name, copy.id, JSON.stringify(copy));
+}
+
+/** Mirrors `invalidNestedV5`, for the successor content payload. A duplicate
+ *  `objectId` is the one case here that needs `schemaValid = true`: nothing
+ *  in the JSON Schema expresses "unique by field," so two structurally valid
+ *  Image Attachments only fail at the runtime parser
+ *  (`shared/image-attachment.ts`'s `assertStoryImageAttachments`). */
+function invalidNestedV7(
+  name: string,
+  source: V7Fixture,
+  mutate: (copy: V7Fixture) => void,
+  schemaValid = false
+): StoryManifestCorpusCase {
+  const copy = structuredClone(source);
+  mutate(copy);
+  return invalid(name, copy.id, JSON.stringify(copy), schemaValid);
 }

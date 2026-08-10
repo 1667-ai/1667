@@ -43,6 +43,7 @@ import { reduceStoryV6 } from "./story-v6-reducer.js";
 import {
   formatV6,
   parseStoryManifestBytes,
+  requireV6Manifest,
   storySummaryV6FromContent
 } from "./story-v6-codec.js";
 import type { StoryManifestV6 } from "./story-v6-types.js";
@@ -236,13 +237,18 @@ export class StoryCreationMutationStore {
       await objects.init();
       const content = await encodeStoryBundle(story, objects);
       await objects.flush();
-      const manifest = reduceStoryV6({ kind: "absent" }, {
+      const built = reduceStoryV6({ kind: "absent" }, {
         kind: method === "createStory" ? "create-prepared" : "import-prepared",
         mutationId: request.mutationId,
         content,
         summary: storySummaryV6FromContent(content)
       });
-      if (manifest === null) throw new Error("Creation reducer returned absence");
+      if (built === null) throw new Error("Creation reducer returned absence");
+      // Creation always encodes without the successor option (a brand-new
+      // story has no takes yet, so it can never carry an Image Attachment),
+      // so the reducer's general result narrows back to the plain V6 envelope
+      // this whole method is written against.
+      const manifest = requireV6Manifest(built, `Story creation for ${storyId}`);
       await objects.verifyGraph(liveObjectIds(content));
       await writeDurableFile(
         path.join(residue, "manifest.json"),
@@ -317,7 +323,11 @@ export class StoryCreationMutationStore {
         const loaded = await this.stories.loadVersioned(storyId);
         return {
           story: loaded.story,
-          result: creationStoryResult(snapshot.manifest)
+          // `slot.kind === "v6-live"` above already fixes the schema; this
+          // only carries that fact through `storyAggregateSnapshot`'s general
+          // return type. See the comment on the `create` method's own
+          // narrowing above.
+          result: creationStoryResult(requireV6Manifest(snapshot.manifest, `Story creation recovery for ${storyId}`))
         };
       } catch (error) {
         throw committedCreationRecoveryError(request.mutationId, error);

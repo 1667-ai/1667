@@ -25,6 +25,7 @@ import {
   hashSettingsDocumentV2,
   hashSettingsStateV2
 } from "./settings-v2-codec.js";
+import type { SettingsWriteSchemaOptions } from "./settings-v3-conversion.js";
 import {
   effectiveGenerationRuntime,
   effectiveApiKeyEnv,
@@ -79,8 +80,10 @@ import {
   publishStagedSettingsState,
   readSettingsState,
   readSettingsStateFiles,
+  readSettingsStateSlot,
   stageSettingsState
 } from "./settings-state-file.js";
+import { requireMutableSettingsStateSlot } from "./settings-state-slot.js";
 import { requireFreshUnseenMutationId } from "./mutation-id-policy.js";
 import { parseSettingsDocumentV2 } from "./settings-v2-codec.js";
 import { storedCredentialSecretId } from "../shared/settings-stored-credential.js";
@@ -110,6 +113,12 @@ export interface SettingsV2StoreOptions {
   readonly activationMode?: SettingsActivationMode;
   /** The machine tier. Absent means this directory is its own machine tier. */
   readonly secretsDir?: string;
+  /** Forces the settings-state write schema ahead of activation, for testing
+   *  the schema-3 write path (`settingsWriteSchemaVersion`,
+   *  server/settings-v3-conversion.ts). Absent resolves through
+   *  `resolveImageInputActivation()`, a hardcoded false in this release.
+   *  Production wiring never sets this. */
+  readonly imageInputActivation?: boolean;
 }
 
 /** Format-2 settings authority: admission, receipts, aggregate replacement,
@@ -125,6 +134,7 @@ export class SettingsV2Store {
   private readonly activationMode: SettingsActivationMode;
   private readonly secretsDir: string;
   private readonly prunesSecrets: boolean;
+  private readonly writeSchemaOptions: SettingsWriteSchemaOptions;
 
   constructor(
     private readonly dataDir: string,
@@ -142,10 +152,21 @@ export class SettingsV2Store {
     this.now = options.now ?? (() => new Date());
     this.validateCandidate = options.validateCandidate ?? defaultCandidateValidator;
     this.activationMode = options.activationMode ?? "activation-capable";
+    this.writeSchemaOptions = { imageInputActivation: options.imageInputActivation };
   }
 
   async init(): Promise<void> {
     await this.ledger.init();
+    const slot = await readSettingsStateSlot(this.dataDir);
+    if (slot.kind === "v3-requires-successor") {
+      // A schema-3 authority is successor-owned: this release never staged
+      // it, so there is nothing of its own to recover, activate, or prune.
+      // It only proves the state opens and its active document supports a
+      // route, exactly like the schema-2 path below, then stops.
+      assertRuntimeDocumentSupported(activeSettingsDocument(slot.readOnlyView));
+      settingsViewFromState(slot.readOnlyView);
+      return;
+    }
     let state = await this.recoverReceiptTransaction();
     const preActivation = state;
     state = await this.recoverActivation(state);
@@ -374,6 +395,10 @@ export class SettingsV2Store {
     request: MutationCoordinatorRequest<SettingsMutationTarget>,
     signal?: AbortSignal
   ): Promise<SettingsMutationResult> {
+    // Refuse before any write touches disk: a schema-3 authority requires a
+    // successor release to change, so this check runs before the mutation
+    // recovery below reads or writes anything.
+    requireMutableSettingsStateSlot(await readSettingsStateSlot(this.dataDir));
     const current = await this.recoverReceiptTransaction();
     const existing = await this.ledger.loadUserReceipt("settings", request.mutationId);
     if (existing.prepared === null && existing.completed === null) {
@@ -509,7 +534,7 @@ export class SettingsV2Store {
       next,
       this.timestamp()
     );
-    await stageSettingsState(this.dataDir, next);
+    await stageSettingsState(this.dataDir, next, this.writeSchemaOptions);
     // Replacement takes effect on save by design; a post-stage failure is recoverable by re-entering the key.
     for (const [secretId, value] of connectionSecretEntries) {
       if (value !== null) await writeProviderSecret(this.secretsDir, secretId, value);
@@ -768,7 +793,7 @@ export class SettingsV2Store {
   }
 
   private async replaceInternal(state: SettingsStateV2): Promise<SettingsStateV2> {
-    await stageSettingsState(this.dataDir, state);
+    await stageSettingsState(this.dataDir, state, this.writeSchemaOptions);
     await publishStagedSettingsState(this.dataDir);
     return state;
   }

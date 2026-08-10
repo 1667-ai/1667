@@ -62,7 +62,12 @@ export const RELEASE_BUN_RUNTIME: ReleaseRuntimeComponent = Object.freeze({
 });
 
 /** Root-lockfile packages whose code the bundler pulls into the executable. */
-const NPM_BUNDLED_PACKAGES = Object.freeze(["fs-ext-extra-prebuilt", "msgpackr", "tiktoken"] as const);
+const NPM_BUNDLED_PACKAGES = Object.freeze([
+  "@silvia-odwyer/photon-node",
+  "fs-ext-extra-prebuilt",
+  "msgpackr",
+  "tiktoken"
+] as const);
 
 export interface ExcludedReleasePackage {
   readonly name: string;

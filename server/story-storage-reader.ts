@@ -6,15 +6,19 @@ import { FileSizeLimitError, readBoundedFile } from "./bounded-file.js";
 import { ServiceError } from "./errors.js";
 import { StoryFormatError } from "./story-format-facts.js";
 import {
+  liveObjectIds,
   parseLegacyStory,
   parseLegacyManifestWithoutSizeLimit,
+  STORY_SUCCESSOR_SCHEMA_VERSION,
   type StoryManifestV5
 } from "./story-format.js";
+import type { LiveStoryObjectIds } from "./story-objects.js";
 import { readOversizeLegacyManifestBytes } from "./json-schema-version.js";
 import { MAX_STORY_MANIFEST_BYTES } from "./story-v5-strict.js";
 import { parseStoryManifestBytes } from "./story-v6-codec.js";
 import { readUnsealedFile } from "./vault-file-read.js";
-import type { DeletedStoryManifestV6, LiveStoryManifestV6 } from "./story-v6-types.js";
+import type { DeletedStoryManifestV6, LiveStoryManifestV6, ParsedStoryManifest } from "./story-v6-types.js";
+import type { DeletedStoryManifestV8, LiveStoryManifestV8 } from "./story-v8-types.js";
 import {
   classifyStoryEntry,
   isStoryId,
@@ -50,13 +54,25 @@ export type StoredStorySlot =
       manifest: DeletedStoryManifestV6;
       manifestBytes: Buffer;
       mutationBlockedByResidue?: true;
+    }
+  | {
+      kind: "v8-live";
+      manifest: LiveStoryManifestV8;
+      manifestBytes: Buffer;
+      mutationBlockedByResidue?: true;
+    }
+  | {
+      kind: "v8-deleted";
+      manifest: DeletedStoryManifestV8;
+      manifestBytes: Buffer;
+      mutationBlockedByResidue?: true;
     };
 
 export type MutableStorySlot = Extract<StoredStorySlot, { kind: "absent" | "legacy" | "v5" }>;
 export type StoryMetadata = Pick<Story, "id" | "title" | "createdAt" | "origin">;
 
 export function storyMetadataFromSlot(
-  slot: Extract<StoredStorySlot, { kind: "legacy" | "v5" | "v6-live" }>
+  slot: Extract<StoredStorySlot, { kind: "legacy" | "v5" | "v6-live" | "v8-live" }>
 ): StoryMetadata {
   const source = slot.kind === "legacy" ? slot.story : slot.kind === "v5" ? slot.manifest : slot.manifest.content;
   return {
@@ -83,7 +99,12 @@ export function requireMutableStorySlot(
   if ("mutationBlockedByResidue" in slot && slot.mutationBlockedByResidue === true) {
     throw new ServiceError(409, `Story ${storyId} has an unfinished storage transition`, "resource_busy");
   }
-  if (slot.kind === "v6-live" || slot.kind === "v6-deleted") {
+  if (
+    slot.kind === "v6-live"
+    || slot.kind === "v6-deleted"
+    || slot.kind === "v8-live"
+    || slot.kind === "v8-deleted"
+  ) {
     throw new ServiceError(
       409,
       `Story ${storyId} uses a manifest that requires a successor release for mutation`,
@@ -93,6 +114,55 @@ export function requireMutableStorySlot(
   if (slot.kind === "residue") {
     throw new ServiceError(409, `Story ${storyId} has an unfinished storage transition`, "resource_busy");
   }
+}
+
+const EMPTY_LIVE_STORY_OBJECT_IDS: LiveStoryObjectIds = {
+  revisions: [],
+  leaves: { probabilities: [], reasoning: [], images: [] },
+  generationRecords: []
+};
+
+/**
+ * The ids one sweep pass must protect for a slot, switched over every
+ * `StoredStorySlot` member so a kind this function does not know about fails
+ * to compile instead of silently sweeping as if nothing were live. This is
+ * the third site of the same bug class: two earlier call sites each narrowed
+ * `StoredStorySlot` by hand and separately forgot a successor member
+ * (`requirePresentStorySlot` in server/story-aggregate-session.ts,
+ * `server/story-reaper.ts`). Routing every sweep-scoped read through one
+ * exhaustive function, instead of one more hand-written `if` chain, makes a
+ * fourth miss a compiler error rather than a review-discipline hope.
+ *
+ * A live kind (`v5`, `v6-live`, `v8-live`) protects its manifest's own ids.
+ * A deleted kind (`v6-deleted`, `v8-deleted`) protects none of its own, but
+ * still returns an explicit empty set rather than `null`: the caller must
+ * still run its sweep pass so any object the manifest no longer references
+ * gets reaped, the difference between "reap what is left" and "the cleanup
+ * marker stays set forever" (the exact defect this function replaces).
+ * Every other kind (`absent`, `residue`, `legacy`) has no story-object
+ * bundle for a sweep to examine, so there is nothing for a sweep to do.
+ */
+export function storySlotSweepLiveIds(slot: StoredStorySlot): LiveStoryObjectIds | null {
+  switch (slot.kind) {
+    case "v5":
+      return liveObjectIds(slot.manifest);
+    case "v6-live":
+    case "v8-live":
+      return liveObjectIds(slot.manifest.content);
+    case "v6-deleted":
+    case "v8-deleted":
+      return EMPTY_LIVE_STORY_OBJECT_IDS;
+    case "absent":
+    case "residue":
+    case "legacy":
+      return null;
+    default:
+      return assertNeverStorySlotKind(slot);
+  }
+}
+
+function assertNeverStorySlotKind(slot: never): never {
+  throw new StoryFormatError(`Unhandled story slot kind: ${String((slot as { kind: unknown }).kind)}`);
 }
 
 /** Resolve canonical state and reserved successor siblings as one filesystem slot. */
@@ -117,14 +187,7 @@ export async function readStoredStorySlot(root: string, storyId: string): Promis
   if (canonical !== null) {
     const manifestFile = path.join(bundle, "manifest.json");
     const parsed = await parseStoredManifest(manifestFile, storyId);
-    const slot: StoredStorySlot = parsed.kind === "v5" ? {
-      kind: "v5",
-      manifest: parsed.manifest,
-      manifestBytes: parsed.manifestBytes,
-      sourceSchemaVersion: parsed.sourceSchemaVersion
-    } : parsed.kind === "v6-live"
-      ? { kind: "v6-live", manifest: parsed.manifest, manifestBytes: parsed.manifestBytes }
-      : { kind: "v6-deleted", manifest: parsed.manifest, manifestBytes: parsed.manifestBytes };
+    const slot = slotFromParsedManifest(parsed);
     return residues.length === 0 ? slot : { ...slot, mutationBlockedByResidue: true };
   }
 
@@ -136,6 +199,34 @@ export async function readStoredStorySlot(root: string, storyId: string): Promis
   return { kind: "legacy", story: parseLegacyStory(raw.toString("utf8"), storyId), raw };
 }
 
+/** One `if` per parsed kind, not a shared ternary, so each branch's `kind`
+ * literal stays tied to its own `manifest` type. A single object built from
+ * `parsed.kind` and `parsed.manifest` directly would widen both to the union
+ * of every remaining variant and stop matching any one member of
+ * `StoredStorySlot`. */
+function slotFromParsedManifest(
+  parsed: ParsedStoryManifest & { manifestBytes: Buffer }
+): Exclude<StoredStorySlot, { kind: "absent" | "residue" | "legacy" }> {
+  if (parsed.kind === "v5") {
+    return {
+      kind: "v5",
+      manifest: parsed.manifest,
+      manifestBytes: parsed.manifestBytes,
+      sourceSchemaVersion: parsed.sourceSchemaVersion
+    };
+  }
+  if (parsed.kind === "v6-live") {
+    return { kind: "v6-live", manifest: parsed.manifest, manifestBytes: parsed.manifestBytes };
+  }
+  if (parsed.kind === "v6-deleted") {
+    return { kind: "v6-deleted", manifest: parsed.manifest, manifestBytes: parsed.manifestBytes };
+  }
+  if (parsed.kind === "v8-live") {
+    return { kind: "v8-live", manifest: parsed.manifest, manifestBytes: parsed.manifestBytes };
+  }
+  return { kind: "v8-deleted", manifest: parsed.manifest, manifestBytes: parsed.manifestBytes };
+}
+
 async function parseStoredManifest(file: string, storyId: string) {
   try {
     const bytes = await readBoundedFile(file, MAX_STORY_MANIFEST_BYTES, `story ${storyId} manifest`);
@@ -145,6 +236,11 @@ async function parseStoredManifest(file: string, storyId: string) {
     const raw = await readOversizeLegacyManifestBytes(file, `story ${storyId} manifest`);
     if (raw === null) throw error;
     const parsed = parseLegacyManifestWithoutSizeLimit(raw.toString("utf8"), storyId);
+    // parseLegacyManifestWithoutSizeLimit only ever accepts 2, 3, or 4; see
+    // the matching comment in server/story-v6-codec.ts.
+    if (parsed.sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION) {
+      throw new StoryFormatError(`Story ${storyId} legacy manifest reported an impossible schema version`);
+    }
     return {
       kind: "v5" as const,
       manifest: parsed.manifest,

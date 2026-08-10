@@ -20,6 +20,14 @@ import {
   SETTINGS_DOCUMENT_V2_HASH_DOMAIN,
   SETTINGS_STATE_V2_HASH_DOMAIN
 } from "../server/settings-v2-hash.js";
+import {
+  INITIAL_SETTINGS_DOCUMENT_V3_HASH,
+  INITIAL_SETTINGS_DOCUMENT_V3_SHA256,
+  INITIAL_SETTINGS_DOCUMENT_V3_TEXT,
+  INITIAL_SETTINGS_STATE_V3_HASH,
+  INITIAL_SETTINGS_STATE_V3_SHA256,
+  INITIAL_SETTINGS_STATE_V3_TEXT
+} from "../server/settings-v3-default.js";
 import { settingsV2Corpus } from "./settings-v2-schema-corpus.js";
 import { settingsV2Schema } from "./settings-v2-schema-definition.js";
 import { assertSettingsV2SchemaCorpus } from "./settings-v2-schema-validation.js";
@@ -53,6 +61,18 @@ const vectorsText = canonicalJson({
       sha256: INITIAL_SETTINGS_STATE_V2_SHA256,
       hashDomain: SETTINGS_STATE_V2_HASH_DOMAIN,
       domainHash: INITIAL_SETTINGS_STATE_V2_HASH
+    },
+    initialDocumentV3: {
+      canonicalText: INITIAL_SETTINGS_DOCUMENT_V3_TEXT,
+      sha256: INITIAL_SETTINGS_DOCUMENT_V3_SHA256,
+      hashDomain: SETTINGS_DOCUMENT_V2_HASH_DOMAIN,
+      domainHash: INITIAL_SETTINGS_DOCUMENT_V3_HASH
+    },
+    initialStateV3: {
+      canonicalText: INITIAL_SETTINGS_STATE_V3_TEXT,
+      sha256: INITIAL_SETTINGS_STATE_V3_SHA256,
+      hashDomain: SETTINGS_STATE_V2_HASH_DOMAIN,
+      domainHash: INITIAL_SETTINGS_STATE_V3_HASH
     }
   }
 });

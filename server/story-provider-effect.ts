@@ -4,6 +4,7 @@ import { resolveRewriteDestination, type RewriteDestination, type Story, type St
 import type { CapturedTokenProbabilities } from "../shared/token-probabilities.js";
 import type { GenerationRecord } from "../shared/generation-record.js";
 import type { CapturedReasoning } from "../shared/reasoning.js";
+import type { StoryImageAttachment } from "../shared/image-attachment.js";
 import {
   GenerationResultError,
   GenerationStoppedError,
@@ -18,6 +19,8 @@ import { attachTakeTokenProbabilities } from "./story-node-token-probabilities.j
 import { attachTakeReasoning, clearTakeReasoning } from "./story-node-reasoning.js";
 import {
   appendContinuationToNode,
+  assertNoAppendImageAttachments,
+  attachTakeImageAttachments,
   commitTake,
   createInactiveTakeFromCut,
   createTake,
@@ -60,6 +63,10 @@ export interface ContinueStoryEffect extends TakeCommit {
    *  append attach it, unaligned — see TakeCommit.reasoning and
    *  server/story-node-reasoning.ts. */
   readonly reasoning?: CapturedReasoning | null;
+  /** Only ever set by a continuation commit that resolved Image Attachments
+   *  for the take being generated. See `TakeCommit.imageAttachments`
+   *  (server/story-nodes.ts) for the append restriction this must honor. */
+  readonly imageAttachments?: readonly StoryImageAttachment[] | null;
   readonly cancelled?: AbortSignal;
   /** Narrows `TakeCommit.generationRecord` from optional to required: every
    *  successful continuation is a provider effect, and a provider effect
@@ -271,8 +278,11 @@ async function applyContinuation(
       ? generationRecordRetargetedToNewTake(effect.generationRecord)
       : effect.generationRecord,
     // Same normalization, for the same reason; see TakeCommit.reasoning.
-    reasoning: effect.reasoning ?? undefined
+    reasoning: effect.reasoning ?? undefined,
+    // Same normalization, for the same reason; see TakeCommit.imageAttachments.
+    imageAttachments: effect.imageAttachments ?? undefined
   };
+  assertNoAppendImageAttachments(commit);
   const parent = commit.parentId === null
     ? null
     : nodeById(story, commit.parentId);
@@ -329,6 +339,7 @@ async function applyContinuation(
       }
       appendPendingGenerationRecord(added, commit.generationRecord);
       attachTakeReasoning(added, commit.reasoning);
+      attachTakeImageAttachments(added, commit.imageAttachments);
       if (story.nodes.length === 1 && story.title === "Untitled") {
         story.title = titleFrom(
           commit.genId === null ? added.text : commit.instruction

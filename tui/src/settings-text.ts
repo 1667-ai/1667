@@ -1,6 +1,7 @@
 import {
   EMPTY_SAMPLING_V2,
   PROMPT_CACHE_POLICY_V2_VALUES,
+  type FeatureSupportV2,
   type SamplingSettingsV2,
   type PromptCachePolicyV2,
   type ModelConnectionV2,
@@ -490,6 +491,14 @@ function applyIncompleteGenerationDraft(
                 // Always restated rather than inherited: a route moved off
                 // text completion must lose that protocol's refusal.
                 reasoningContent: provider === "text-completion" ? "unsupported" : "unknown"
+                // Schema 3 adds `imageInput` as a required sibling of these
+                // keys. This spread stays on schema 2 (release N keeps
+                // writing schema 2), which has no `imageInput` field to
+                // restate. `imageInputForModelChangeV3` below carries the
+                // exact value this spread would need to add once a schema-3
+                // draft path replaces it. Do not let a future edit here add
+                // `imageInput` inline without also restating it, the same
+                // drift hazard `reasoningContent` guards against above.
               }
             }
           : {}),
@@ -559,4 +568,15 @@ function parseJsonValue(
   } catch {
     return { error: `${key} must contain valid JSON` };
   }
+}
+
+/** Schema 3's per-key counterpart to the `reasoningContent` restatement
+ *  inside `applyIncompleteGenerationDraft` above: `imageInput` must be
+ *  restated explicitly on every model-identity change, never inherited from
+ *  the old record, or a stale `"supported"` would survive the change.
+ *  `dry-run` stays `"unsupported"`; every other provider becomes
+ *  `"unknown"`. Exact built-in model knowledge resolves it from there
+ *  (shared/image-input-capabilities.ts), not the model-change reset. */
+export function imageInputForModelChangeV3(provider: Provider): FeatureSupportV2 {
+  return provider === "dry-run" ? "unsupported" : "unknown";
 }

@@ -24,7 +24,15 @@ import {
   SAMPLING_BANNED_STRINGS_POLICY,
   SAMPLING_PHRASE_BIAS_POLICY
 } from "../shared/sampling-validation-policy.js";
+import {
+  MAX_ACTIVE_PROMPT_IMAGES,
+  MAX_IMAGE_OBJECT_BYTES,
+  MAX_NORMALIZED_IMAGE_DIMENSION,
+  STORED_IMAGE_MEDIA_TYPES
+} from "../shared/image-attachment.js";
 import { HASH_PATTERN } from "../server/story-format-facts.js";
+import { STORY_SUCCESSOR_SCHEMA_VERSION } from "../server/story-format.js";
+import { STORY_SCHEMA_VERSION_V8 } from "../server/story-v6-codec.js";
 import { exactStringPatternSource } from "../server/story-wire-patterns.js";
 import {
   REVISION_ONE,
@@ -80,6 +88,23 @@ export function storyManifestSchema(): Schema {
     }, ["source", "ranges"]),
     CoveredExtent: closed({ fromPartId: ref("Identifier"), toPartId: ref("Identifier") }),
     StoredNodeV5: nodeSchema(),
+    StoredNodeV7: nodeSchema({ imageAttachments: ref("ImageAttachments") }),
+    StoredImageMediaType: { enum: [...STORED_IMAGE_MEDIA_TYPES] },
+    ImageAttachment: closed({
+      objectId: ref("Hash256"),
+      mediaType: ref("StoredImageMediaType"),
+      width: boundedInteger(1, MAX_NORMALIZED_IMAGE_DIMENSION),
+      height: boundedInteger(1, MAX_NORMALIZED_IMAGE_DIMENSION),
+      byteLength: boundedInteger(1, MAX_IMAGE_OBJECT_BYTES)
+    }),
+    // Absence means no images; an empty array is invalid. So the array
+    // itself, not just its items, carries a minimum length.
+    ImageAttachments: {
+      type: "array",
+      minItems: 1,
+      maxItems: MAX_ACTIVE_PROMPT_IMAGES,
+      items: ref("ImageAttachment")
+    },
     StoredFactV5: closed({
       id: ref("Identifier"),
       tag: { oneOf: [{ type: "null" }, boundedString(MAX_FACT_TAG_CHARS)] },
@@ -117,7 +142,8 @@ export function storyManifestSchema(): Schema {
       phrase: { type: "string", minLength: 1, maxLength: SAMPLING_PHRASE_BIAS_POLICY.maxPhraseScalars },
       weight: boundedInteger(SAMPLING_PHRASE_BIAS_POLICY.minimum, SAMPLING_PHRASE_BIAS_POLICY.maximum)
     }),
-    StrictV5Payload: strictV5Schema(),
+    StrictV5Payload: strictContentSchema(5, "StoredNodeV5"),
+    StrictV7Payload: strictContentSchema(STORY_SUCCESSOR_SCHEMA_VERSION, "StoredNodeV7"),
     ProviderPointer: closed({ mutationId: ref("MutationId"), fingerprintHash: ref("Hash256") }),
     StartedUserTransactionPointer: closed({
       receiptKind: { const: "user" }, mutationId: ref("MutationId"), phase: { const: "started" }
@@ -137,19 +163,32 @@ export function storyManifestSchema(): Schema {
       forked: { type: "boolean" },
       lineCount: ref("UInt64String")
     }),
-    LiveV6: liveV6Schema(),
-    DeletedV6: deletedV6Schema()
+    LiveV6: liveV6Schema(6, "StrictV5Payload"),
+    DeletedV6: deletedV6Schema(6),
+    LiveV8: liveV6Schema(STORY_SCHEMA_VERSION_V8, "StrictV7Payload"),
+    DeletedV8: deletedV6Schema(STORY_SCHEMA_VERSION_V8)
   };
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
-    $id: "https://1667.invalid/schema/story-manifest-p1.json",
-    title: "1667 strict V5 and V6 story manifests",
-    oneOf: [ref("StrictV5Payload"), ref("LiveV6"), ref("DeletedV6")],
+    $id: "https://1667.invalid/schema/story-manifest-p2.json",
+    title: "1667 strict V5, V6, V7, and V8 story manifests",
+    oneOf: [
+      ref("StrictV5Payload"),
+      ref("LiveV6"),
+      ref("DeletedV6"),
+      ref("StrictV7Payload"),
+      ref("LiveV8"),
+      ref("DeletedV8")
+    ],
     $defs: definitions
   };
 }
 
-function nodeSchema(): Schema {
+/** `extraProperties` is how the successor node shape (`StoredNodeV7`) adds
+ * `imageAttachments` without repeating every field the two shapes share. It
+ * mirrors `NODE7` in `server/story-v7-strict.ts`, which derives from
+ * `NODE.required`/`NODE.allowed` the same way instead of re-listing them. */
+function nodeSchema(extraProperties: Record<string, Schema> = {}): Schema {
   const properties: Record<string, Schema> = {
     id: ref("Identifier"),
     parentId: nullable(ref("Identifier")),
@@ -182,7 +221,8 @@ function nodeSchema(): Schema {
     reasoningId: ref("Hash256"),
     attribution: nullable(ref("Attribution")),
     rewrittenSpans: { type: "array", maxItems: MAX_REWRITTEN_SPANS, items: ref("TextRange") },
-    activeChildId: nullable(ref("Identifier"))
+    activeChildId: nullable(ref("Identifier")),
+    ...extraProperties
   };
   return {
     ...closed(properties, ["id", "parentId", "instruction", "model", "createdAt", "revisionId", "activeChildId"]),
@@ -197,10 +237,14 @@ function nodeSchema(): Schema {
   };
 }
 
-function strictV5Schema(): Schema {
+/** `StrictV5Payload` and `StrictV7Payload` share every manifest-root field;
+ * the successor only widens which node shape `nodes[]` may hold. Mirrors
+ * `assertManifestCommonFields` in `server/story-v5-strict.ts`, which the
+ * runtime parser shares the same way. */
+function strictContentSchema(schemaVersion: number, nodeRef: string): Schema {
   return closed({
     format: { const: "1667-story" },
-    schemaVersion: { const: 5 },
+    schemaVersion: { const: schemaVersion },
     id: ref("StoryId"),
     title: boundedString(MAX_STORY_TITLE_CHARS),
     createdAt: ref("V5Timestamp"),
@@ -235,7 +279,7 @@ function strictV5Schema(): Schema {
     firstChapterTitle: boundedString(MAX_STORY_TITLE_CHARS),
     factsBudgetTokens: boundedInteger(1, MAX_STORY_FACTS_BUDGET_TOKENS),
     activeWordCount: unsignedInteger(),
-    nodes: { type: "array", maxItems: MAX_STORY_COLLECTION_ITEMS, items: ref("StoredNodeV5") },
+    nodes: { type: "array", maxItems: MAX_STORY_COLLECTION_ITEMS, items: ref(nodeRef) },
     facts: { type: "array", maxItems: MAX_FACTS, items: ref("StoredFactV5") },
     activeRootId: nullable(ref("Identifier")),
     bookmarks: { type: "array", maxItems: MAX_STORY_COLLECTION_ITEMS, items: ref("StoredTagV5") },
@@ -247,16 +291,19 @@ function strictV5Schema(): Schema {
   ]);
 }
 
-function liveV6Schema(): Schema {
+/** Shared by `LiveV6` and `LiveV8`: one envelope shape, two possible content
+ * versions. Mirrors `LIVE` in `server/story-v6-codec.ts`, reused verbatim by
+ * the runtime V8 parser for exactly this reason. */
+function liveV6Schema(schemaVersion: number, contentRef: string): Schema {
   return {
     ...closed({
       format: { const: "1667-story" },
-      schemaVersion: { const: 6 },
+      schemaVersion: { const: schemaVersion },
       kind: { const: "live" },
       id: ref("StoryId"),
       revision: ref("Revision20"),
       previousManifestHash: nullable(ref("Hash256")),
-      content: ref("StrictV5Payload"),
+      content: ref(contentRef),
       summary: ref("StorySummaryV6"),
       unresolvedProvider: nullable(ref("ProviderPointer")),
       lastTransaction: nullable(ref("UserTransactionPointer"))
@@ -279,10 +326,10 @@ function liveV6Schema(): Schema {
   };
 }
 
-function deletedV6Schema(): Schema {
+function deletedV6Schema(schemaVersion: number): Schema {
   return closed({
     format: { const: "1667-story" },
-    schemaVersion: { const: 6 },
+    schemaVersion: { const: schemaVersion },
     kind: { const: "deleted" },
     id: ref("StoryId"),
     revision: { allOf: [ref("Revision20"), { not: { const: REVISION_ONE } }] },

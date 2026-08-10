@@ -164,7 +164,10 @@ function parseDocuments(
   return result;
 }
 
-function parseActivation(value: unknown): SettingsActivationV2 {
+/** Exported for reuse by server/settings-v3-state-validation.ts: activation,
+ *  outcome, and transaction-pointer shapes do not reference a document
+ *  version, so schema 3's state validator reuses these verbatim. */
+export function parseActivation(value: unknown): SettingsActivationV2 {
   const activation = closedRecord(value, "settings state.activation", ACTIVATION);
   return {
     transactionId: requireMutationId(activation.transactionId, "settings state.activation.transactionId"),
@@ -179,7 +182,7 @@ function parseActivation(value: unknown): SettingsActivationV2 {
   };
 }
 
-function parseOutcome(value: unknown, generation: number, clock: number): SettingsActivationOutcomeV2 {
+export function parseOutcome(value: unknown, generation: number, clock: number): SettingsActivationOutcomeV2 {
   const outcome = closedRecord(value, "settings state.lastActivationOutcome", OUTCOME);
   const result = oneOf(
     outcome.result,
@@ -224,7 +227,7 @@ function parseOutcome(value: unknown, generation: number, clock: number): Settin
   return { ...common, result, errorCode };
 }
 
-function parseTransactionPointer(value: unknown): SettingsTransactionPointerV2 {
+export function parseTransactionPointer(value: unknown): SettingsTransactionPointerV2 {
   const candidate = value as Record<string, unknown> | null;
   if (candidate?.receiptKind === "user") {
     const pointer = closedRecord(value, "settings state.lastTransaction", USER_POINTER);
@@ -345,7 +348,7 @@ function nullableDocumentRevision(
   return value === null ? null : requireDocumentRevision(value, label, documents);
 }
 
-function parseRevisionKey(value: string): number {
+export function parseRevisionKey(value: string): number {
   if (!/^[1-9][0-9]{0,15}$/u.test(value)) {
     throw new SettingsFormatError(`settings document revision key ${JSON.stringify(value)} is invalid`);
   }
@@ -356,14 +359,14 @@ function parseRevisionKey(value: string): number {
   return revision;
 }
 
-function requireMutationId(value: unknown, label: string): string {
+export function requireMutationId(value: unknown, label: string): string {
   if (typeof value !== "string" || !MUTATION_ID_PATTERN.test(value)) {
     throw new SettingsFormatError(`${label} is invalid`);
   }
   return value;
 }
 
-function requireHash(value: unknown, label: string): string {
+export function requireHash(value: unknown, label: string): string {
   if (typeof value !== "string" || !HASH256_PATTERN.test(value)) {
     throw new SettingsFormatError(`${label} is invalid`);
   }

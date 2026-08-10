@@ -189,7 +189,7 @@ export class StoryCatalog {
       if (manifestBytes > MAX_CATALOG_PAGE_MANIFEST_BYTES) {
         throw new Error("Catalog page exceeded its manifest byte budget");
       }
-      if (slot.kind === "v6-deleted") {
+      if (slot.kind === "v6-deleted" || slot.kind === "v8-deleted") {
         await this.reapDeleted?.(entry.storyId);
         continue;
       }
@@ -359,8 +359,8 @@ function parsePageInput(value: unknown): ListStoriesPageInput {
 
 function bytesRead(slot: StoredStorySlot): number {
   if (slot.kind === "legacy") return slot.raw.byteLength;
-  if (slot.kind === "v5" || slot.kind === "v6-live"
-    || slot.kind === "v6-deleted") {
+  if (slot.kind === "v5" || slot.kind === "v6-live" || slot.kind === "v6-deleted"
+    || slot.kind === "v8-live" || slot.kind === "v8-deleted") {
     return slot.manifestBytes.byteLength;
   }
   return 0;
@@ -377,7 +377,11 @@ function summaryFromSlot(slot: StoredStorySlot): StorySummary | null {
       }
     };
   }
-  if (slot.kind === "v6-live") {
+  // "v6" here names the concurrency-token shape (a revision counter), not
+  // the schema version, a V8 envelope is revision-tracked exactly like a V6
+  // one (see the matching comment on `aggregateVersionFromSlot` in
+  // server/stories.ts). `storySummaryFromV6` already accepts either envelope.
+  if (slot.kind === "v6-live" || slot.kind === "v8-live") {
     return {
       ...storySummaryFromV6(slot.manifest),
       aggregateVersion: {

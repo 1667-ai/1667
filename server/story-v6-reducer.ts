@@ -1,6 +1,8 @@
 import { HASH_PATTERN, StoryFormatError } from "./story-format-facts.js";
 import { storyIdForMutation } from "./story-identity.js";
+import { STORY_SUCCESSOR_SCHEMA_VERSION } from "./story-format.js";
 import { isStoryId } from "./story-v5-strict.js";
+import { STORY_SCHEMA_VERSION_V6, STORY_SCHEMA_VERSION_V8 } from "./story-v6-codec.js";
 import {
   DECIMAL_20_PATTERN,
   REVISION_ONE,
@@ -15,12 +17,13 @@ import type {
 } from "./story-v6-events.js";
 import type {
   Hash256,
-  LiveStoryManifestV6,
+  LiveStoryEnvelopeManifest,
   MutationId,
   PreparedUserTransactionPointer,
   ProviderPointer,
   Revision20,
-  StoryManifestV6,
+  StoryEnvelopeContent,
+  StoryEnvelopeManifest,
   StorySummaryV6,
   TimeMs,
   UserTransactionPointer
@@ -33,24 +36,20 @@ import type {
 export function reduceStoryV6(
   state: StoryV6ReducerState,
   event: StoryV6Event
-): StoryManifestV6 | null {
+): StoryEnvelopeManifest | null {
   if (event.kind === "create-prepared" || event.kind === "import-prepared") {
     if (state.kind !== "absent") return illegal(state, event);
     requireMutationId(event.mutationId);
     const storyId = storyIdForMutation(event.mutationId);
     requireReplacementIdentity(storyId, event.summary, event.content.id);
-    return {
-      format: "1667-story",
-      schemaVersion: 6,
-      kind: "live",
+    return liveEnvelope({
       id: storyId,
       revision: REVISION_ONE,
       previousManifestHash: null,
-      content: event.content,
       summary: event.summary,
       unresolvedProvider: null,
       lastTransaction: preparedPointer(event.mutationId)
-    };
+    }, event.content);
   }
 
   if (state.kind !== "present") return illegal(state, event);
@@ -130,10 +129,9 @@ export function reduceStoryV6(
       requireLive(manifest, event);
       requireMutationId(event.mutationId);
       requireTimeMs(event.deletedAt);
-      return {
-        format: "1667-story",
-        schemaVersion: 6,
-        kind: "deleted",
+      const deleted = {
+        format: "1667-story" as const,
+        kind: "deleted" as const,
         id: manifest.id,
         revision: incrementRevision(manifest.revision),
         previousManifestHash,
@@ -141,6 +139,12 @@ export function reduceStoryV6(
         unresolvedProvider: manifest.unresolvedProvider,
         lastTransaction: preparedPointer(event.mutationId)
       };
+      // A deleted envelope carries no content, so this has nothing to gain
+      // from the successor schema; it keeps the version the live document it
+      // replaces already had, exactly as `formatV6`/`formatV8` each expect.
+      return manifest.schemaVersion === STORY_SCHEMA_VERSION_V8
+        ? { ...deleted, schemaVersion: STORY_SCHEMA_VERSION_V8 }
+        : { ...deleted, schemaVersion: STORY_SCHEMA_VERSION_V6 };
     }
     case "receipt-retry":
     case "receipt-gc":
@@ -154,30 +158,51 @@ export function reduceStoryV6(
 }
 
 interface NextLiveValues {
-  content: LiveStoryManifestV6["content"];
+  content: StoryEnvelopeContent;
   summary: StorySummaryV6;
   unresolvedProvider: ProviderPointer | null;
 }
 
+interface LiveEnvelopeFields {
+  id: string;
+  revision: Revision20;
+  previousManifestHash: Hash256 | null;
+  summary: StorySummaryV6;
+  unresolvedProvider: ProviderPointer | null;
+  lastTransaction: UserTransactionPointer | null;
+}
+
+/** The one place a live replacement picks its envelope: V8 exactly when the
+ *  content just produced is the successor payload, V6 otherwise. Both
+ *  `create-prepared`/`import-prepared` (a fresh story) and every existing-story
+ *  replacement (`nextLive` below) go through this, so a session's `imageInput`
+ *  activation decision (`server/story-aggregate-session.ts`) is the only thing
+ *  that ever steers a document toward V8: this function only reacts to the
+ *  content version that decision already produced. */
+function liveEnvelope(fields: LiveEnvelopeFields, content: StoryEnvelopeContent): LiveStoryEnvelopeManifest {
+  return content.schemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION
+    ? { format: "1667-story", kind: "live", schemaVersion: STORY_SCHEMA_VERSION_V8, content, ...fields }
+    : { format: "1667-story", kind: "live", schemaVersion: STORY_SCHEMA_VERSION_V6, content, ...fields };
+}
+
 function nextLive(
-  manifest: LiveStoryManifestV6,
+  manifest: LiveStoryEnvelopeManifest,
   previousManifestHash: Hash256,
   lastTransaction: UserTransactionPointer | null,
   values: NextLiveValues
-): LiveStoryManifestV6 {
-  return {
-    ...manifest,
+): LiveStoryEnvelopeManifest {
+  return liveEnvelope({
+    id: manifest.id,
     revision: incrementRevision(manifest.revision),
     previousManifestHash,
-    content: values.content,
     summary: values.summary,
     unresolvedProvider: values.unresolvedProvider,
     lastTransaction
-  };
+  }, values.content);
 }
 
 function terminalReplacement(
-  manifest: LiveStoryManifestV6,
+  manifest: LiveStoryEnvelopeManifest,
   outcome: ProviderTerminalOutcome
 ): Pick<NextLiveValues, "content" | "summary"> {
   if (outcome.kind === "error") return { content: manifest.content, summary: manifest.summary };
@@ -186,7 +211,10 @@ function terminalReplacement(
   return { content: outcome.content, summary: outcome.summary };
 }
 
-function requireLive(manifest: StoryManifestV6, event: StoryV6Event): asserts manifest is LiveStoryManifestV6 {
+function requireLive(
+  manifest: StoryEnvelopeManifest,
+  event: StoryV6Event
+): asserts manifest is LiveStoryEnvelopeManifest {
   if (manifest.kind !== "live") {
     throw new StoryFormatError(`Illegal story V6 transition: ${manifest.kind} + ${event.kind}`);
   }

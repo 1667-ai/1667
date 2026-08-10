@@ -111,6 +111,12 @@ import {
 import { HttpApiConnection } from "./http-api-connection.js";
 import { importMethods } from "./api-import-methods.js";
 import { providerMethods } from "./api-provider-methods.js";
+import { imageMethods } from "./api-image-methods.js";
+import type {
+  DraftImageReference,
+  SourceImageMediaType,
+  StoryImageAttachment
+} from "../../shared/image-attachment.js";
 
 export type { RemovedChapterBreak } from "./api-response-decoders.js";
 export {
@@ -268,6 +274,15 @@ export interface StoryApi {
   importScenario(jsonText: string): Promise<NovelAiStoryImportResult>;
   importLorebook(storyId: string, archiveBytes: Uint8Array): Promise<{ payload: StoryPayload; importResult: LorebookImport }>;
   importCard(storyId: string, cardBytes: Uint8Array): Promise<{ payload: StoryPayload; plan: CardImportPlan }>;
+  /** Stage one Source Image as a Draft Image. Not a story mutation. */
+  stageStoryImage(
+    storyId: string,
+    mediaType: SourceImageMediaType,
+    bytes: Uint8Array
+  ): Promise<{ leaseId: string; attachment: StoryImageAttachment }>;
+  /** Idempotently remove one Draft Lease. Releasing an absent or already
+   *  expired lease succeeds with no error. Not a story mutation. */
+  releaseStoryImage(storyId: string, leaseId: string): Promise<void>;
 
   continueStory(
     storyId: string,
@@ -276,7 +291,13 @@ export interface StoryApi {
     target: ContinueTarget,
     onDelta: (text: string) => void,
     signal: AbortSignal,
-    callbacks?: StreamCallbacks
+    callbacks?: StreamCallbacks,
+    /** Ordered Draft Image references for the take being generated. They ride
+     *  beside `instruction` and `genId` rather than inside `target`, because
+     *  `target` is a closed union about append versus parent. A Retake's
+     *  inherited attachments are never sent: the server derives those from the
+     *  current manifest. */
+    images?: readonly DraftImageReference[]
   ): Promise<{ payload: StoryPayload; droppedFacts: readonly FactBudgetDrop[] } | null>;
   rewriteNode(
     storyId: string,
@@ -364,7 +385,12 @@ export function createApi(
     timeoutMs = HTTP_REQUEST_TIMEOUT_MS,
     expectedAggregateVersion?: StoryAggregateVersion,
     callerSignal?: AbortSignal,
-    mutationId?: string
+    mutationId?: string,
+    /** Overrides the default `application/octet-stream` a `Uint8Array` body
+     *  otherwise sends — a Draft Image upload needs its real media type so
+     *  the server's Content-Type check can tell PNG from JPEG from WebP.
+     *  Ignored for a string or absent body. */
+    binaryContentType?: string
   ): Promise<T> => {
     // A unary request retains the one backend-action owner until settlement,
     // so plain requests get a hard timeout. Local/control input remains live;
@@ -403,16 +429,19 @@ export function createApi(
                 ? {}
                 : {
                   "content-type": body instanceof Uint8Array
-                    ? "application/octet-stream"
+                    ? binaryContentType ?? "application/octet-stream"
                     : "application/json"
                 })
             },
-            // An archive body is already bytes. JSON.stringify would send it as
-            // an index object, which the byte-reading route then reads as text.
+            // A byte body is already bytes. JSON.stringify would send it as
+            // an index object, which the byte-reading route then reads as
+            // text. Send the Uint8Array itself: global fetch accepts it
+            // directly, and `createDirectLoopbackFetch` (--url mode) accepts
+            // only a string or a Uint8Array — never an ArrayBuffer.
             body: body === undefined
               ? undefined
               : body instanceof Uint8Array
-                ? body.slice().buffer as ArrayBuffer
+                ? body.slice()
                 : JSON.stringify(body),
             redirect: "error",
             signal: lease.signal
@@ -966,11 +995,19 @@ export function createApi(
       ),
     ...providerMethods({ request }),
     ...importMethods({ runAbsentImportMutation, request, versions, expectedVersion }),
-    continueStory: async (storyId, instruction, genId, target, onDelta, signal, callbacks) => {
+    ...imageMethods({ request }),
+    continueStory: async (storyId, instruction, genId, target, onDelta, signal, callbacks, images) => {
       const done = await stream(
         storyId,
         `/api/stories/${storyId}/continue`,
-        { instruction, genId, ...target },
+        {
+          instruction,
+          genId,
+          ...target,
+          // Absent rather than empty when there are no images, so a text-only
+          // request body stays exactly what it was before image input existed.
+          ...(images === undefined || images.length === 0 ? {} : { images })
+        },
         onDelta,
         signal,
         callbacks

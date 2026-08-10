@@ -59,7 +59,7 @@ import {
   type StoryAcknowledgementCommit
 } from "./story-unknown-outcome.js";
 import { reduceStoryV6 } from "./story-v6-reducer.js";
-import type { StoryManifestV6 } from "./story-v6-types.js";
+import type { StoryEnvelopeManifest } from "./story-v6-types.js";
 import {
   STORY_UNCHANGED,
   type StoryStore
@@ -105,6 +105,12 @@ export interface StoryMutationStoreOptions {
   readonly ledger?: MutationLedgerStore;
   readonly now?: StoryMutationClock;
   readonly hooks?: StoryMutationStoreHooks;
+  /** Forces (or forbids) the successor story write path for every mutation
+   *  this store commits. Absent resolves through `resolveImageInputActivation()`
+   *  at the one site that decides it (`StoryAggregateSession.prepareContent`);
+   *  this store only threads the value through. Production wiring never sets
+   *  this; only tests that exercise the successor path do. */
+  readonly imageInputActivation?: boolean;
 }
 
 /** Successor-Q façade for local, provider, acknowledgement, and deletion
@@ -113,6 +119,7 @@ export class StoryMutationStore {
   private readonly ledger: MutationLedgerStore;
   private readonly now: StoryMutationClock;
   private readonly hooks: StoryMutationStoreHooks;
+  private readonly imageInputActivation: boolean | undefined;
   private readonly recovery: StoryMutationRecovery;
   private readonly activeProviderStarts: ActiveProviderStarts;
   private readonly providers: StoryProviderMutationStore;
@@ -127,6 +134,7 @@ export class StoryMutationStore {
     this.ledger = options.ledger ?? new MutationLedgerStore(dataDir);
     this.now = options.now ?? (() => new Date());
     this.hooks = options.hooks ?? {};
+    this.imageInputActivation = options.imageInputActivation;
     this.recovery = new StoryMutationRecovery(this.ledger, this.now);
     this.activeProviderStarts = new ActiveProviderStarts();
     this.providers = new StoryProviderMutationStore(
@@ -136,7 +144,8 @@ export class StoryMutationStore {
       this.recovery,
       this.activeProviderStarts,
       this.now,
-      this.hooks
+      this.hooks,
+      this.imageInputActivation
     );
     this.unknownOutcomes = new StoryUnknownOutcomeStore(
       stories,
@@ -245,7 +254,7 @@ export class StoryMutationStore {
               };
             }
             value = outcome;
-            replacement = await session.prepareContent(story);
+            replacement = await session.prepareContent(story, { activation: this.imageInputActivation });
           } catch (error) {
             // A manifest-only mutation has no replay to keep deterministic,
             // so a domain rejection needs no receipt-only record either.
@@ -457,7 +466,7 @@ function prepareLocalRecord(
   method: LocalStoryMutationMethod,
   request: MutationCoordinatorRequest<StoryMutationTarget>,
   session: StoryAggregateSession,
-  manifest: StoryManifestV6,
+  manifest: StoryEnvelopeManifest,
   preparedAt: string
 ): PreparedUserMutationRecord {
   return {

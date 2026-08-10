@@ -1,6 +1,7 @@
 import type { Story } from "../shared/types.js";
 import { isNodeTextHydrated, refreshStoredNodeText } from "./story-node-text.js";
 import {
+  manifestImageIds,
   manifestReasoningIds,
   manifestTokenProbabilityIds,
   StoryFormatError,
@@ -8,6 +9,7 @@ import {
   sha256,
   type ObjectHash,
   type StoryManifestV5,
+  type StoryManifestV7,
   type TextRevisionV1
 } from "./story-format.js";
 
@@ -32,11 +34,16 @@ export interface StoryRevisionSnapshot {
   /** Every take's stored reasoning id in this manifest, mirroring
    *  `probabilityIds` exactly. */
   reasoningIds: Set<ObjectHash>;
+  /** Every Image Object id this manifest's nodes reference, mirroring
+   *  `probabilityIds` and `reasoningIds`. A node can carry several (see
+   *  `manifestImageIds`), so this is a flattened set, not a one-per-node
+   *  collection. */
+  imageIds: Set<ObjectHash>;
 }
 
 export function captureStorySnapshot(
   story: Story,
-  manifest: StoryManifestV5,
+  manifest: StoryManifestV5 | StoryManifestV7,
   revisions: ReadonlyMap<ObjectHash, TextRevisionV1>
 ): StoryRevisionSnapshot {
   if (story.nodes.length !== manifest.nodes.length) throw new StoryFormatError("Snapshot node count mismatch");
@@ -58,11 +65,15 @@ export function captureStorySnapshot(
     nodes,
     revisions: graph,
     probabilityIds: new Set(manifestTokenProbabilityIds(manifest)),
-    reasoningIds: new Set(manifestReasoningIds(manifest))
+    reasoningIds: new Set(manifestReasoningIds(manifest)),
+    imageIds: new Set(manifestImageIds(manifest))
   };
 }
 
-export function isCurrentSnapshot(snapshot: StoryRevisionSnapshot, manifest: StoryManifestV5): boolean {
+export function isCurrentSnapshot(
+  snapshot: StoryRevisionSnapshot,
+  manifest: StoryManifestV5 | StoryManifestV7
+): boolean {
   return snapshot.manifestFingerprint === manifestFingerprint(manifest);
 }
 
@@ -75,6 +86,6 @@ export function reusableRevisionId(
   return source?.text !== undefined && source.text === text ? source.revisionId : undefined;
 }
 
-function manifestFingerprint(manifest: StoryManifestV5): ObjectHash {
+function manifestFingerprint(manifest: StoryManifestV5 | StoryManifestV7): ObjectHash {
   return sha256(Buffer.from(serializeManifest(manifest), "utf8"));
 }

@@ -8,6 +8,7 @@ export interface StandaloneProductBuildOptions {
   readonly outputFile: string;
   readonly buildIdentity: BuildIdentity;
   readonly tiktokenWasmBase64: string;
+  readonly photonWasmBase64: string;
   readonly embeddedWorkerSource: string | undefined;
 }
 
@@ -34,6 +35,9 @@ export function buildStandaloneProduct<Result>(
       __AI_1667_BUILD_IDENTITY__: JSON.stringify(options.buildIdentity),
       __AI_1667_TIKTOKEN_WASM_BASE64__: JSON.stringify(
         options.tiktokenWasmBase64
+      ),
+      __AI_1667_PHOTON_WASM_BASE64__: JSON.stringify(
+        options.photonWasmBase64
       ),
       __AI_1667_EMBEDDED_WORKER_SOURCE__:
         options.embeddedWorkerSource === undefined

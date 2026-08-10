@@ -31,9 +31,9 @@ import type {
 import { requireFreshUnseenMutationId } from "./mutation-id-policy.js";
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import { storyProjection } from "./story-aggregate-state.js";
-import { hashStoryV6ManifestBytes } from "./story-manifest-hash.js";
-import { formatV6 } from "./story-v6-codec.js";
-import type { StoryManifestV6 } from "./story-v6-types.js";
+import { hashStoryV6ManifestBytes, hashStoryV8ManifestBytes } from "./story-manifest-hash.js";
+import { formatV6, formatV8, STORY_SCHEMA_VERSION_V8 } from "./story-v6-codec.js";
+import type { StoryEnvelopeManifest } from "./story-v6-types.js";
 import { StoryDurabilityError } from "./story-lifecycle.js";
 
 export type StoryMutationClock = () => Date;
@@ -58,7 +58,7 @@ export class InjectedStoryMutationCrash extends Error {
 export interface PreparedStoryTransaction {
   readonly session: StoryAggregateSession;
   readonly ledger: MutationLedgerStore;
-  readonly manifest: StoryManifestV6;
+  readonly manifest: StoryEnvelopeManifest;
   readonly prepared: PreparedRecord;
   readonly now: StoryMutationClock;
   readonly hooks?: StoryMutationHooks;
@@ -70,7 +70,7 @@ export interface PreparedStoryTransaction {
  * owned by recovery in both tiers, so the crash surface stays identical. */
 async function stageManifestForCommit(
   session: StoryAggregateSession,
-  manifest: StoryManifestV6,
+  manifest: StoryEnvelopeManifest,
   hooks: StoryMutationHooks
 ): Promise<void> {
   await session.stageManifest(manifest);
@@ -142,7 +142,7 @@ export async function commitPreparedStoryTransaction(
  */
 export async function commitManifestOnlyStoryTransaction(
   session: StoryAggregateSession,
-  manifest: StoryManifestV6,
+  manifest: StoryEnvelopeManifest,
   hooks: StoryMutationHooks = {}
 ): Promise<void> {
   await stageManifestForCommit(session, manifest, hooks);
@@ -410,7 +410,7 @@ export function completedRecord(
 }
 
 export function storyResult(
-  manifest: StoryManifestV6
+  manifest: StoryEnvelopeManifest
 ): Extract<MutationResult, { kind: "story" }> {
   return {
     kind: "story",
@@ -420,8 +420,10 @@ export function storyResult(
   };
 }
 
-export function hashStoryManifest(manifest: StoryManifestV6): string {
-  return hashStoryV6ManifestBytes(Buffer.from(formatV6(manifest), "utf8"));
+export function hashStoryManifest(manifest: StoryEnvelopeManifest): string {
+  return manifest.schemaVersion === STORY_SCHEMA_VERSION_V8
+    ? hashStoryV8ManifestBytes(Buffer.from(formatV8(manifest), "utf8"))
+    : hashStoryV6ManifestBytes(Buffer.from(formatV6(manifest), "utf8"));
 }
 
 export function storyIdFromScope(scope: `story:${string}`): string {
@@ -456,7 +458,7 @@ export function timestamp(now: StoryMutationClock): string {
 }
 
 function replacementEvidence(
-  manifest: StoryManifestV6 | null
+  manifest: StoryEnvelopeManifest | null
 ): ReplacementRecoveryEvidence | null {
   if (manifest === null) return null;
   return {

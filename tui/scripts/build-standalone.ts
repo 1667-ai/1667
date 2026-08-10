@@ -59,11 +59,18 @@ const tiktokenWasmBase64 = await readFile(
   createRequire(import.meta.url).resolve("tiktoken/tiktoken_bg.wasm"),
   "base64"
 );
+const photonWasmBase64 = await readFile(
+  createRequire(import.meta.url).resolve(
+    "@silvia-odwyer/photon-node/photon_rs_bg.wasm"
+  ),
+  "base64"
+);
 const embeddedWorkerSource = process.platform === "win32"
   ? await buildEmbeddedWorker(
       workerEntry,
       buildIdentity,
-      tiktokenWasmBase64
+      tiktokenWasmBase64,
+      photonWasmBase64
     )
   : undefined;
 
@@ -74,6 +81,7 @@ const result = await buildStandaloneProduct(standaloneCompiler, {
   outputFile,
   buildIdentity,
   tiktokenWasmBase64,
+  photonWasmBase64,
   embeddedWorkerSource
 });
 
@@ -88,7 +96,8 @@ if (!result.success) {
 async function buildEmbeddedWorker(
   entrypoint: string,
   identity: BuildIdentity,
-  tiktokenWasmBase64: string
+  tiktokenWasmBase64: string,
+  photonWasmBase64: string
 ): Promise<string> {
   const result = await Bun.build({
     entrypoints: [entrypoint],
@@ -97,6 +106,9 @@ async function buildEmbeddedWorker(
       __AI_1667_BUILD_IDENTITY__: JSON.stringify(identity),
       __AI_1667_TIKTOKEN_WASM_BASE64__: JSON.stringify(
         tiktokenWasmBase64
+      ),
+      __AI_1667_PHOTON_WASM_BASE64__: JSON.stringify(
+        photonWasmBase64
       )
     },
     external: ["koffi"],
@@ -110,6 +122,9 @@ async function buildEmbeddedWorker(
   const source = await result.outputs[0]!.text();
   if (!source.includes(tiktokenWasmBase64)) {
     throw new Error("Embedded Windows worker omitted the tokenizer WASM");
+  }
+  if (!source.includes(photonWasmBase64)) {
+    throw new Error("Embedded Windows worker omitted the photon WASM");
   }
   return source;
 }

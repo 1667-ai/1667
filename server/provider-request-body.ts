@@ -2,7 +2,8 @@ import {
   foldAuthorsNoteAcross,
   renderPromptPlan,
   type PromptBlock,
-  type PromptPlan
+  type PromptPlan,
+  type PromptTurn
 } from "../shared/prompt-plan.js";
 import { promptCacheAdapter } from "./provider-cache-policy.js";
 import type { GenerationSettings } from "../shared/types.js";
@@ -22,33 +23,45 @@ type TextContentBlock = Record<string, unknown> & {
   text: string;
 };
 
+/** No Image Object bytes are ever supplied by default: every existing caller
+ *  that never sends an image gets exactly the same body it always did. */
+const NO_IMAGE_BYTES: ReadonlyMap<string, Uint8Array> = new Map();
+
 export async function buildOpenAiChatRequestBody(
   settings: GenerationSettings,
   prompt: PromptPlan,
   cache: PromptCacheWirePlan,
-  request: StorySamplingRequest = {}
+  request: StorySamplingRequest = {},
+  /** Normalized Image bytes, by object id, supplied by the caller after local
+   *  admission has already checked the active-prompt image budget. Base64
+   *  encoding happens only here, inside the adapter: a block whose object is
+   *  missing from this map is a programming error, not a request the writer
+   *  could cause. */
+  imageBytes: ReadonlyMap<string, Uint8Array> = NO_IMAGE_BYTES
 ): Promise<Record<string, unknown>> {
   const loweredPrompt = lowerPromptForProvider(settings, prompt);
   let messages: unknown;
   const cacheFields: Record<string, unknown> = {};
   switch (cache.kind) {
     case "omit":
-      messages = stringMessages(loweredPrompt);
+      messages = stringMessages(loweredPrompt, imageBytes);
       break;
     case "openai-automatic":
-      messages = stringMessages(loweredPrompt);
+      messages = stringMessages(loweredPrompt, imageBytes);
       cacheFields.prompt_cache_key = cache.key;
       if (cache.retention !== null) cacheFields.prompt_cache_retention = cache.retention;
       break;
     case "openai-explicit-off":
-      messages = stringMessages(loweredPrompt);
+      messages = stringMessages(loweredPrompt, imageBytes);
       cacheFields.prompt_cache_options = { mode: "explicit" };
       break;
     case "openai-explicit":
-      messages = structuredMessages(loweredPrompt, cacheableLocationKeys(loweredPrompt, cache.breakpoints), (block) => ({
-        ...block,
-        prompt_cache_breakpoint: { mode: "explicit" }
-      }));
+      messages = structuredMessages(
+        loweredPrompt,
+        cacheableLocationKeys(loweredPrompt, cache.breakpoints),
+        (block) => ({ ...block, prompt_cache_breakpoint: { mode: "explicit" } }),
+        imageBytes
+      );
       cacheFields.prompt_cache_key = cache.key;
       cacheFields.prompt_cache_options = { mode: "explicit" };
       break;
@@ -103,7 +116,9 @@ export async function buildAnthropicMessagesRequestBody(
   settings: GenerationSettings,
   prompt: PromptPlan,
   cache: PromptCacheWirePlan,
-  request: StorySamplingRequest = {}
+  request: StorySamplingRequest = {},
+  /** See `buildOpenAiChatRequestBody`'s `imageBytes`. */
+  imageBytes: ReadonlyMap<string, Uint8Array> = NO_IMAGE_BYTES
 ): Promise<Record<string, unknown>> {
   const loweredPrompt = lowerPromptForProvider(settings, prompt);
   let system: string | readonly TextContentBlock[];
@@ -111,34 +126,41 @@ export async function buildAnthropicMessagesRequestBody(
   switch (cache.kind) {
     case "omit": {
       const rendered = renderPromptPlan(loweredPrompt);
+      assertAnthropicSystemIsTextOnly(loweredPrompt);
       system = rendered
         .filter((message) => message.role === "system")
         .map((message) => message.content)
         .join("\n\n");
-      messages = rendered
-        .filter((message) => message.role !== "system")
-        .map((message) => ({ role: message.role, content: message.content }));
+      messages = loweredPrompt.turns.flatMap((turn, turnIndex) => {
+        if (turn.role === "system") return [];
+        const message = rendered[turnIndex]!;
+        return [{
+          role: message.role,
+          content: turnHasImages(turn)
+            ? turn.blocks.map((block) => anthropicContentBlock(block, imageBytes))
+            : message.content
+        }];
+      });
       break;
     }
     case "anthropic-explicit": {
+      assertAnthropicSystemIsTextOnly(loweredPrompt);
       const selected = [...cacheableLocationKeys(loweredPrompt, [cache.breakpoint])][0]!;
-      const annotate = (location: PromptBlockLocation, block: TextContentBlock): TextContentBlock =>
-        locationKey(location) !== selected
-          ? block
-          : {
-              ...block,
-              cache_control: cache.ttl === "1h"
-                ? { type: "ephemeral", ttl: "1h" }
-                : { type: "ephemeral" }
-            };
-      system = structuredAnthropicSystem(loweredPrompt, annotate);
+      const isSelected = (location: PromptBlockLocation): boolean => locationKey(location) === selected;
+      const annotateSystem = (location: PromptBlockLocation, block: TextContentBlock): TextContentBlock =>
+        isSelected(location) ? withAnthropicCacheControl(block, cache.ttl) : block;
+      system = structuredAnthropicSystem(loweredPrompt, annotateSystem);
       messages = loweredPrompt.turns.flatMap((turn, turnIndex) =>
         turn.role === "system"
           ? []
           : [{
               role: turn.role,
-              content: turn.blocks.map((block, blockIndex) =>
-                annotate({ turn: turnIndex, block: blockIndex }, textBlock(block)))
+              content: turn.blocks.map((block, blockIndex) => {
+                const content = anthropicContentBlock(block, imageBytes);
+                return isSelected({ turn: turnIndex, block: blockIndex })
+                  ? withAnthropicCacheControl(content, cache.ttl)
+                  : content;
+              })
             }]);
       break;
     }
@@ -189,6 +211,10 @@ export function lowerPromptForProvider(
   return providerFoldsAuthorsNote(settings) ? foldAuthorsNote(prompt) : prompt;
 }
 
+/** `foldAuthorsNoteAcross` (shared/prompt-plan.ts) folds into the first TEXT
+ *  block of the following user turn: an image block, when the turn has one,
+ *  always comes before that text block, so it is skipped rather than folded
+ *  into. */
 function foldAuthorsNote(plan: PromptPlan): PromptPlan {
   const turns = foldAuthorsNoteAcross(plan.turns, (turn) => turn, (_turn, folded) => folded);
   return turns === plan.turns ? plan : { ...plan, turns };
@@ -220,20 +246,39 @@ function applyGenerationEffort(
   body.output_config = { effort: runtime.effort };
 }
 
-function stringMessages(prompt: PromptPlan): readonly Record<string, string>[] {
-  return renderPromptPlan(prompt)
-    .map((message) => ({ role: message.role, content: message.content }));
+/** A turn's `content` stays the plain string it always was unless the turn
+ *  actually carries an image: this is what keeps every text-only body byte-
+ *  identical while making images expressible in every cache mode. */
+function turnHasImages(turn: PromptTurn): boolean {
+  return turn.blocks.some((block) => block.kind === "image");
+}
+
+function stringMessages(
+  prompt: PromptPlan,
+  imageBytes: ReadonlyMap<string, Uint8Array>
+): readonly Record<string, unknown>[] {
+  const rendered = renderPromptPlan(prompt);
+  return prompt.turns.map((turn, turnIndex) => {
+    const message = rendered[turnIndex]!;
+    return {
+      role: message.role,
+      content: turnHasImages(turn)
+        ? turn.blocks.map((block) => openAiContentBlock(block, imageBytes))
+        : message.content
+    };
+  });
 }
 
 function structuredMessages(
   prompt: PromptPlan,
   selected: ReadonlySet<string>,
-  annotate: (block: TextContentBlock) => TextContentBlock
+  annotate: (block: Record<string, unknown>) => Record<string, unknown>,
+  imageBytes: ReadonlyMap<string, Uint8Array>
 ): readonly Record<string, unknown>[] {
   return prompt.turns.map((turn, turnIndex) => ({
     role: turn.role,
     content: turn.blocks.map((block, blockIndex) => {
-      const content = textBlock(block);
+      const content = openAiContentBlock(block, imageBytes);
       return selected.has(locationKey({ turn: turnIndex, block: blockIndex }))
         ? annotate(content)
         : content;
@@ -241,6 +286,8 @@ function structuredMessages(
   }));
 }
 
+/** Anthropic `system` content stays text-only. `textBlock` throws if a system
+ *  turn ever carries an image block, which asserts that promise here too. */
 function structuredAnthropicSystem(
   prompt: PromptPlan,
   annotate: (location: PromptBlockLocation, block: TextContentBlock) => TextContentBlock
@@ -254,11 +301,32 @@ function structuredAnthropicSystem(
         && systemIndex < systemTurns.length - 1
         ? "\n\n"
         : "";
+      const content = textBlock(block);
       return annotate(
         { turn: turnIndex, block: blockIndex },
-        { type: "text", text: block.text + separator }
+        { ...content, text: content.text + separator }
       );
     }));
+}
+
+/** Throws when any system turn carries an image block, ahead of building the
+ *  actual system content, so the assertion covers both the "omit" plain-text
+ *  system string and the "anthropic-explicit" structured one. */
+function assertAnthropicSystemIsTextOnly(prompt: PromptPlan): void {
+  const hasImage = prompt.turns.some((turn) => turn.role === "system" && turnHasImages(turn));
+  if (hasImage) {
+    throw new Error("Anthropic system content must be text-only");
+  }
+}
+
+function withAnthropicCacheControl<T extends Record<string, unknown>>(
+  block: T,
+  ttl: "5m" | "1h"
+): T & { cache_control: Record<string, unknown> } {
+  return {
+    ...block,
+    cache_control: ttl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" }
+  };
 }
 
 function cacheableLocationKeys(
@@ -282,8 +350,65 @@ function cacheableLocationKeys(
   return keys;
 }
 
+/** Also the assertion that a given block is text: throws for an image block,
+ *  which is exactly what a text-only surface (Anthropic `system`) must do if
+ *  one ever reaches it. */
 function textBlock(block: PromptBlock): TextContentBlock {
+  if (block.kind === "image") {
+    throw new Error("An image block cannot render as text content");
+  }
   return { type: "text", text: block.text };
+}
+
+/** OpenAI Chat Completions image content part: a base64 data URL. Base64 is
+ *  computed only here, from bytes the caller supplied after local admission;
+ *  it never exists anywhere else in the prompt pipeline. */
+function openAiContentBlock(
+  block: PromptBlock,
+  imageBytes: ReadonlyMap<string, Uint8Array>
+): Record<string, unknown> {
+  if (block.kind !== "image") return textBlock(block);
+  const bytes = requireImageBytes(imageBytes, block.image.objectId);
+  return {
+    type: "image_url",
+    image_url: { url: `data:${block.image.mediaType};base64,${base64Encode(bytes)}` }
+  };
+}
+
+/** Anthropic Messages image content block: base64 with an explicit media
+ *  type. Base64 is computed only here, same as `openAiContentBlock`. */
+function anthropicContentBlock(
+  block: PromptBlock,
+  imageBytes: ReadonlyMap<string, Uint8Array>
+): Record<string, unknown> {
+  if (block.kind !== "image") return textBlock(block);
+  const bytes = requireImageBytes(imageBytes, block.image.objectId);
+  return {
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: block.image.mediaType,
+      data: base64Encode(bytes)
+    }
+  };
+}
+
+/** A block naming an object absent from the supplied bytes is a programming
+ *  error: local admission must already have refused any object the caller
+ *  cannot supply. The object id is safe to name; the bytes never are. */
+function requireImageBytes(
+  imageBytes: ReadonlyMap<string, Uint8Array>,
+  objectId: string
+): Uint8Array {
+  const bytes = imageBytes.get(objectId);
+  if (bytes === undefined) {
+    throw new Error(`Prompt image object has no supplied bytes: ${objectId}`);
+  }
+  return bytes;
+}
+
+function base64Encode(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString("base64");
 }
 
 function locationKey(location: PromptBlockLocation): string {

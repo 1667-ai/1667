@@ -11,6 +11,7 @@ import {
 } from "../server/story-format.js";
 import {
   formatV6,
+  formatV8,
   MAX_DELETED_STORY_MANIFEST_BYTES,
   parseStoryManifestBytes,
   parseStoryManifestText,
@@ -54,6 +55,7 @@ for (const fixture of corpus.cases) {
       if (fixture.name.startsWith("v6-live")) assert.equal(parsed.kind, "v6-live");
       if (fixture.name === "v6-deleted") assert.equal(parsed.kind, "v6-deleted");
       if (fixture.name.startsWith("v5-")) assert.equal(parsed.kind, "v5");
+      if (fixture.name.startsWith("v8-live")) assert.equal(parsed.kind, "v8-live");
     } else {
       assert.throws(() => parseStoryManifestText(fixture.text, fixture.expectedId));
     }
@@ -76,6 +78,48 @@ test("story V6: formatter and summary adapter preserve the canonical live contra
     forked: false,
     lineCount: 0
   });
+});
+
+test("story V8: successor manifests round-trip with and without Image Attachments", () => {
+  const withImages = corpus.cases.find((entry) => entry.name === "v8-live-with-images");
+  const withoutImages = corpus.cases.find((entry) => entry.name === "v8-live-without-images");
+  assert.ok(withImages);
+  assert.ok(withoutImages);
+
+  const parsedWithImages = parseStoryManifestText(withImages.text, withImages.expectedId);
+  if (parsedWithImages.kind !== "v8-live") assert.fail("Expected the V8 fixture to parse as live");
+  assert.equal(parsedWithImages.manifest.content.schemaVersion, 7);
+  assert.equal(formatV8(parsedWithImages.manifest), withImages.text);
+  assert.deepEqual(parsedWithImages.manifest.content.nodes[0]?.imageAttachments, [{
+    objectId: "c".repeat(64),
+    mediaType: "image/png",
+    width: 800,
+    height: 600,
+    byteLength: 123_456
+  }]);
+  assert.deepEqual(storySummaryFromV6(parsedWithImages.manifest), {
+    id: "story-one",
+    title: "Story",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    partCount: 1,
+    words: 0,
+    forked: false,
+    lineCount: 1
+  });
+
+  const parsedWithoutImages = parseStoryManifestText(withoutImages.text, withoutImages.expectedId);
+  if (parsedWithoutImages.kind !== "v8-live") assert.fail("Expected the V8 fixture to parse as live");
+  assert.equal(parsedWithoutImages.manifest.content.nodes.length, 0);
+  assert.equal(formatV8(parsedWithoutImages.manifest), withoutImages.text);
+});
+
+test("story V8: a successor manifest is refused unless wrapped in its own envelope", () => {
+  const bare = corpus.cases.find((entry) => entry.name === "v7-bare-payload-without-envelope");
+  assert.ok(bare);
+  assert.throws(
+    () => parseStoryManifestText(bare.text, bare.expectedId),
+    /successor|V8/
+  );
 });
 
 test("story V6: StoryTavern identities normalize without changing story state", () => {

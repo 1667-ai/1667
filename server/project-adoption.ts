@@ -18,7 +18,7 @@ import {
 } from "./data-directory-format.js";
 import { readBoundedRegularFile } from "./data-directory-file-read.js";
 import { loadGenerationSettingsV1 } from "./settings-v1-store.js";
-import { parseSettingsStateV2Bytes } from "./settings-v2-codec.js";
+import { parseSettingsStateSlotBytes } from "./settings-state-slot.js";
 import { syncDirectory } from "./story-lifecycle.js";
 import { MAX_SETTINGS_STATE_BYTES } from "./settings-v2-scalars.js";
 import { ServiceError } from "./errors.js";
@@ -109,7 +109,9 @@ async function requireReadableSettings(
     throw refused(`${file} is missing, so its settings cannot be adopted`);
   }
   try {
-    parseSettingsStateV2Bytes(
+    // Read-only probe: a schema-3 authority is adoptable too, since this
+    // build can read and present it, even though it cannot change it.
+    parseSettingsStateSlotBytes(
       await readBoundedRegularFile(file, MAX_SETTINGS_STATE_BYTES)
     );
   } catch (error) {

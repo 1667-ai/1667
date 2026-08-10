@@ -147,6 +147,11 @@ export class StoryServiceGeneration {
                   {
                     ...hooks,
                     onFactsDropped,
+                    // The story's own Draft Lease / Image Object reader:
+                    // `stories` here is the scoped provider runtime, which
+                    // has no filesystem access of its own, so image
+                    // resolution goes through the full `StoryStore` instead.
+                    imageStore: this.dependencies.stories,
                     providerStarted: async () => {
                       await providerStarted();
                       await hooks.providerStarted?.();
@@ -171,7 +176,7 @@ export class StoryServiceGeneration {
           this.dependencies.generationAdmission,
           onDelta,
           active,
-          { ...hooks, onFactsDropped }
+          { ...hooks, onFactsDropped, imageStore: this.dependencies.stories }
         );
         return story === null ? null : { payload: buildStoryPayload(story), droppedFacts };
       })

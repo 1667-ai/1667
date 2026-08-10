@@ -19,17 +19,21 @@ import { countWords } from "../shared/story-text.js";
 import {
   STORY_FORMAT,
   STORY_SCHEMA_VERSION,
+  STORY_SUCCESSOR_SCHEMA_VERSION,
   StoryFormatError,
   optionalBannedStrings,
   optionalPhraseBias,
   parseManifest,
+  parseManifestV7,
   serializeManifest,
   validateNodeAttribution,
+  validateNodeImageAttachments,
   validateNodeRewrittenSpans,
   type ObjectHash,
   type StoredFactV1,
   type StoredNodeV1,
   type StoryManifestV5,
+  type StoryManifestV7,
   type TextRevisionV1
 } from "./story-format.js";
 import { cloneAttribution, cloneGenerationRecordIds, cloneRewrittenSpans } from "./story-format-nodes.js";
@@ -52,6 +56,7 @@ import { takePendingReasoning } from "./story-node-reasoning.js";
 import { reusableRevisionId, type StoryRevisionSnapshot } from "./story-snapshot.js";
 import { setStoryAutonameId, storyAutonameId } from "./story-metadata.js";
 import { boundedString } from "./story-wire-validation.js";
+import { resolveImageInputActivation } from "../shared/image-input-release.js";
 
 export interface DecodedStoryBundle {
   story: Story;
@@ -72,12 +77,45 @@ interface StoryBundleState {
 
 const storyBundles = new WeakMap<Story, StoryBundleState>();
 
-export async function encodeStoryBundle(
+/** Governs whether one `encodeStoryBundle` call writes the successor content
+ *  payload (`STORY_SUCCESSOR_SCHEMA_VERSION`), with any `imageAttachments` a
+ *  node carries, or the current payload (`STORY_SCHEMA_VERSION`), with them
+ *  omitted. Absent defaults to the release-wide switch
+ *  (`shared/image-input-release.ts`). Production wiring never passes this;
+ *  the three-signature overload below keeps every caller that omits it
+ *  pinned to `StoryManifestV5` at the type level, not only at runtime. */
+export interface EncodeStoryBundleOptions {
+  activation?: boolean;
+}
+
+export function encodeStoryBundle(
   story: Story,
   objects: StoryObjectStore,
   reuseFrom?: StoryObjectStore,
   snapshot?: StoryRevisionSnapshot
-): Promise<StoryManifestV5> {
+): Promise<StoryManifestV5>;
+export function encodeStoryBundle(
+  story: Story,
+  objects: StoryObjectStore,
+  reuseFrom: StoryObjectStore | undefined,
+  snapshot: StoryRevisionSnapshot | undefined,
+  options: { activation: true }
+): Promise<StoryManifestV7>;
+export function encodeStoryBundle(
+  story: Story,
+  objects: StoryObjectStore,
+  reuseFrom?: StoryObjectStore,
+  snapshot?: StoryRevisionSnapshot,
+  options?: EncodeStoryBundleOptions
+): Promise<StoryManifestV5 | StoryManifestV7>;
+export async function encodeStoryBundle(
+  story: Story,
+  objects: StoryObjectStore,
+  reuseFrom?: StoryObjectStore,
+  snapshot?: StoryRevisionSnapshot,
+  options: EncodeStoryBundleOptions = {}
+): Promise<StoryManifestV5 | StoryManifestV7> {
+  const activation = resolveImageInputActivation(options.activation);
   const authorsNote = story.authorsNote === undefined || story.authorsNote === ""
     ? undefined
     : boundedString(story.authorsNote, "story.authorsNote", MAX_AUTHORS_NOTE_CHARS);
@@ -92,6 +130,7 @@ export async function encodeStoryBundle(
   for (const node of story.nodes) if (isNodeTextHydrated(node)) {
     validateNodeAttribution(node);
     validateNodeRewrittenSpans(node);
+    validateNodeImageAttachments(node);
   }
   await objects.init();
   const revisionIds: Array<ObjectHash | undefined> = story.nodes.map((node) =>
@@ -173,6 +212,13 @@ export async function encodeStoryBundle(
       ? {}
       : { generationRecordIds: cloneGenerationRecordIds(node.generationRecordIds) }),
     ...(reasoningIds[index] === undefined ? {} : { reasoningId: reasoningIds[index] }),
+    // The successor schema carries this field; the current schema does not
+    // yet know it exists. An inactive release therefore omits it rather than
+    // writing a document the previous stable executable cannot open, even if
+    // a node happens to carry one already.
+    ...(activation && node.imageAttachments !== undefined
+      ? { imageAttachments: node.imageAttachments.map((attachment) => ({ ...attachment })) }
+      : {}),
     ...(node.attribution === undefined ? {} : { attribution: cloneAttribution(node.attribution) }),
     ...(node.rewrittenSpans === undefined ? {} : { rewrittenSpans: cloneRewrittenSpans(node.rewrittenSpans) }),
     activeChildId: node.activeChildId
@@ -196,9 +242,13 @@ export async function encodeStoryBundle(
     updatedAt: fact.updatedAt,
     ...(fact.sourcePartId === undefined ? {} : { sourcePartId: fact.sourcePartId })
   }));
-  const manifest: StoryManifestV5 = {
+  // Typed explicitly (schemaVersion omitted, since only the two branches
+  // below know which literal to stamp): a bare object literal here would let
+  // TypeScript widen `format` to `string`, and the two returns below would
+  // then reject it as "not `1667-story`" even though the runtime value is
+  // exactly right.
+  const manifestCommon: Omit<StoryManifestV5, "schemaVersion"> = {
     format: STORY_FORMAT,
-    schemaVersion: STORY_SCHEMA_VERSION,
     id: story.id,
     title: story.title,
     createdAt: story.createdAt,
@@ -229,11 +279,16 @@ export async function encodeStoryBundle(
     recentNodeIds: [...story.recentNodeIds],
     chapterBreaks: story.chapterBreaks.map((chapterBreak) => ({ ...chapterBreak }))
   };
+  if (activation) {
+    const manifest: StoryManifestV7 = { ...manifestCommon, schemaVersion: STORY_SUCCESSOR_SCHEMA_VERSION };
+    return parseManifestV7(serializeManifest(manifest), story.id);
+  }
+  const manifest: StoryManifestV5 = { ...manifestCommon, schemaVersion: STORY_SCHEMA_VERSION };
   return parseManifest(serializeManifest(manifest), story.id);
 }
 
 export async function decodeStoryBundle(
-  manifest: StoryManifestV5,
+  manifest: StoryManifestV5 | StoryManifestV7,
   bundleDir: string,
   options: { activeOnly?: boolean } = {}
 ): Promise<DecodedStoryBundle> {
@@ -285,12 +340,18 @@ export async function decodeStoryBundle(
       // Presence only, mirroring tokenProbabilities above. See
       // shared/reasoning.ts.
       ...(stored.reasoningId === undefined ? {} : { reasoning: true as const }),
+      // Unlike the two presence flags above, the full ordered list travels
+      // with the take. See the field comment on StoryNode.imageAttachments.
+      ...(stored.imageAttachments === undefined
+        ? {}
+        : { imageAttachments: stored.imageAttachments.map((attachment) => ({ ...attachment })) }),
       activeChildId: stored.activeChildId
     };
     attachStoredNodeText(node, stored, text);
     if (text !== null) {
       validateNodeAttribution(node);
       validateNodeRewrittenSpans(node);
+      validateNodeImageAttachments(node);
     }
     return node;
   });

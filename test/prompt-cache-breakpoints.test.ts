@@ -7,8 +7,15 @@ import {
   promptCacheBoundaries
 } from "../server/prompt-cache-breakpoints.js";
 import { continuationPlan } from "../shared/continuation-plan.js";
-import type { PromptPlan } from "../shared/prompt-plan.js";
+import type { PromptBlock, PromptPlan, StablePromptBlock, VolatilePromptBlock } from "../shared/prompt-plan.js";
 import type { StoryNode } from "../shared/types.js";
+
+/** Every block these fixtures build is text. Narrows an indexed lookup back
+ *  to a text block, so a fixture can still edit `.text` on a copy. */
+function asTextBlock(block: PromptBlock): StablePromptBlock | VolatilePromptBlock {
+  if (block.kind === "image") throw new Error("test fixture block must be text");
+  return block;
+}
 
 test("o200k tokenizer uses exact model tokens", () => {
   assert.equal(countO200kPromptTextTokens(["hello world"]), 2);
@@ -110,7 +117,7 @@ test("volatile edits preserve boundary identity while stable edits invalidate it
       blocks: [
         ...first.turns[0]!.blocks.slice(0, 2),
         {
-          ...first.turns[0]!.blocks[2]!,
+          ...asTextBlock(first.turns[0]!.blocks[2]!),
           text: "Do something wholly different."
         }
       ]
@@ -138,7 +145,7 @@ test("volatile edits preserve boundary identity while stable edits invalidate it
       blocks: [
         first.turns[0]!.blocks[0]!,
         {
-          ...first.turns[0]!.blocks[1]!,
+          ...asTextBlock(first.turns[0]!.blocks[1]!),
           text: "The canonical facts changed."
         },
         first.turns[0]!.blocks[2]!

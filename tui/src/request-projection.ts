@@ -16,6 +16,12 @@ import type { FactActivationResult } from "../../shared/fact-activation.js";
 import { isChapterSummary } from "../../shared/story-tree.js";
 import { estimateTokens } from "../../shared/tokens.js";
 import { isChapterSummaryNodeStub, type StoryPayload } from "../../shared/types.js";
+import type { StoryImageAttachment } from "../../shared/image-attachment.js";
+import {
+  estimateImageTokens,
+  resolveImageInputCapability,
+  type ImageTokenStrategy
+} from "../../shared/image-input-capabilities.js";
 import { continuationIntent } from "./continuation-intent.js";
 import { factRequestStatuses, type FactRequestStatus } from "./facts-model.js";
 
@@ -25,6 +31,12 @@ export interface ContextBreakdown {
   recent: number;
   summary: number;
   note: number;
+  /** Estimated visual tokens for every Image Attachment in the prompt —
+   *  stable ones already on a story part, and the volatile ones this
+   *  request would newly attach. Always a client-side estimate: no counted
+   *  grade ever reaches this category (see `NextRequestEstimate.imageTokens`
+   *  and `rail.ts`'s `totalWithVisualTokens`). */
+  visual: number;
 }
 
 export interface RequestTokenEstimate {
@@ -47,6 +59,12 @@ export interface RequestTokenEstimate {
    *  the Facts panel, and the request viewer all describe a prompt that was
    *  not the one sent. */
   droppedFacts: readonly FactBudgetDrop[];
+  /** Estimated visual tokens for every Image Attachment in the prompt, keyed
+   *  by its object id. Every image in `breakdown.visual`'s sum has an entry
+   *  here, including a `0` entry for a model this estimate has no known
+   *  strategy for (see `estimatedImageTokenStrategy`) — so a reader can tell
+   *  "no images" apart from "images this build cannot estimate". */
+  imageTokens: ReadonlyMap<string, number>;
 }
 
 export interface NextRequestEstimate extends RequestTokenEstimate {
@@ -91,6 +109,18 @@ interface NextRequestBaseContext {
    *  previewed here rather than guessed at (see droppedFacts above). */
   contextWindow: number | null;
   maxTokens: number;
+  /** Resolved model id, read only for a display-side visual-token estimate
+   *  (`estimatedImageTokenStrategy` below) — never used to gate whether an
+   *  image may be attached; that authoritative gate lives in
+   *  `image-input-runtime.ts` against the real configured protocol. Optional
+   *  so a caller built before Image Input keeps compiling; absence
+   *  estimates zero visual tokens for every image. */
+  remoteModelId?: string;
+  /** Draft Images attached to the composer this request would submit,
+   *  previewed exactly as `continuationPlan`'s own `newImages` parameter
+   *  would send them. Optional for the same reason as `remoteModelId`;
+   *  absence previews no new image. */
+  draftImages?: readonly StoryImageAttachment[];
 }
 
 export type NextRequestContext = NextRequestBaseContext & (
@@ -137,7 +167,8 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     request.assistantPrefill,
     null,
     payload.chapterBreaks,
-    promptNodes(payload)
+    promptNodes(payload),
+    request.draftImages ?? []
   );
   // The same window-pressure selection server/generation-admission.ts's
   // assertFixedContextFits runs on the real request (shared/fact-admission.ts's
@@ -155,7 +186,7 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
   // its own-cap re-check runs against budgetedFacts.kept, which is already
   // under every Fact's own cap, so it never finds a new own-cap drop there.
   const droppedFacts = [...budgetedFacts.dropped, ...windowAdmission.dropped];
-  const breakdown: ContextBreakdown = { voice: 0, facts: 0, recent: 0, summary: 0, note: 0 };
+  const breakdown: ContextBreakdown = { voice: 0, facts: 0, recent: 0, summary: 0, note: 0, visual: 0 };
   const tokensByPart = new Map<string, number>();
   const messages = renderPromptPlan(plan.prompt);
   const messageTokenCounts = messages.map((message) => messageTokens(message.content));
@@ -165,6 +196,22 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     breakdown[entry.category] += tokens;
     if (entry.category !== "recent" && entry.category !== "summary") continue;
     tokensByPart.set(entry.partId, (tokensByPart.get(entry.partId) ?? 0) + tokens);
+  }
+  // Visual tokens never ride messageTokenCounts: renderPromptPlan's output
+  // is text only (shared/prompt-plan.ts's ImagePromptBlock has no `text`),
+  // so this is a second pass over the same plan, keyed by object id for the
+  // request viewer's own per-block lookup.
+  const imageStrategy = estimatedImageTokenStrategy(request.remoteModelId ?? "");
+  const imageTokens = new Map<string, number>();
+  for (const entry of plan.entries) {
+    for (const block of entry.turn.blocks) {
+      if (block.kind !== "image") continue;
+      const tokens = imageStrategy === null
+        ? 0
+        : estimateImageTokens(imageStrategy, block.image.width, block.image.height);
+      imageTokens.set(block.image.objectId, tokens);
+      breakdown.visual += tokens;
+    }
   }
   const structuralPartIds = new Set(plan.contextPartIds);
   const stubById = new Map(payload.nodes.map((node) => [node.id, node] as const));
@@ -235,7 +282,8 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
       new Set(budgetedFacts.activation.unevaluated)
     ),
     activation: budgetedFacts.activation,
-    droppedFacts
+    droppedFacts,
+    imageTokens
   };
 }
 
@@ -245,4 +293,22 @@ function promptNodes(payload: StoryPayload): PromptPart[] {
 
 function messageTokens(content: string): number {
   return estimateTokens(content) + 4;
+}
+
+/** A display-only best-effort strategy lookup, distinct from the
+ *  authoritative `resolveImageInputCapability` gate `image-input-runtime.ts`
+ *  runs against the real configured protocol before an attachment action.
+ *  This meter only has a resolved model id (see `NextRequestBaseContext`),
+ *  not the protocol, so it tries both image-capable protocols in turn — an
+ *  exact model id can only ever match one vendor's closed table
+ *  (shared/image-input-capabilities.ts), so this finds the same formula
+ *  `resolveImageInputCapability` would with the real protocol, or finds
+ *  none, exactly like that function refuses to guess one. */
+function estimatedImageTokenStrategy(remoteModelId: string): ImageTokenStrategy | null {
+  if (remoteModelId.length === 0) return null;
+  for (const protocol of ["anthropic-messages", "openai-chat-completions"] as const) {
+    const resolution = resolveImageInputCapability({ protocol, remoteModelId });
+    if (resolution.support === "supported") return resolution.strategy;
+  }
+  return null;
 }

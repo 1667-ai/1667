@@ -401,6 +401,9 @@ function stablePrefix(prompt: PromptPlan): string {
         continue;
       }
       assert.equal(reachedVolatile, false, "stable content followed volatile content");
+      // These fixtures never build an image block, so this never fires; it
+      // exists only to narrow `block` back to one with `.text`.
+      if (block.kind === "image") continue;
       content += block.text;
     }
     if (content.length > 0) turns.push({ role: turn.role, content });
@@ -410,8 +413,7 @@ function stablePrefix(prompt: PromptPlan): string {
 
 function volatileSuffix(prompt: PromptPlan): string {
   return prompt.turns.flatMap((turn) => turn.blocks)
-    .filter((block) => block.stability === "volatile")
-    .map((block) => block.text)
+    .flatMap((block) => block.stability === "volatile" && block.kind !== "image" ? [block.text] : [])
     .join("");
 }
 
@@ -421,7 +423,7 @@ function prefixHash(prompt: PromptPlan): string {
 
 function assertNonceIsVolatile(prompt: PromptPlan, nonce: string): void {
   const containing = prompt.turns.flatMap((turn) => turn.blocks)
-    .filter((block) => block.text.includes(nonce));
+    .flatMap((block) => block.kind !== "image" && block.text.includes(nonce) ? [block] : []);
   assert.ok(containing.length > 0, `missing nonce ${nonce}`);
   assert.ok(containing.every((block) => block.stability === "volatile"), `${nonce} escaped the volatile suffix`);
 }

@@ -123,16 +123,44 @@ export function resolveTokenCount(
 
 /** Category totals from a per-message array aligned with `entries` — the same
  * grouping `nextRequestEstimate` does for the client's own estimate, reused so
- * a counted per-message split earns identical category math. */
+ * a counted per-message split earns identical category math.
+ *
+ * `visual` is never in `entries`/`perMessage` — `countPromptTokens` takes
+ * text-only `ChatMessage[]`, so no image block ever reaches either — and
+ * stays zero here regardless of what a caller passes. A caller that wants
+ * the visual estimate folded in adds `estimate.breakdown.visual` itself, the
+ * same way `totalWithVisualTokens` does for the combined total. */
 export function breakdownFromPerMessage(
   entries: readonly { category: keyof ContextBreakdown }[],
   perMessage: readonly number[]
 ): ContextBreakdown {
-  const breakdown: ContextBreakdown = { voice: 0, facts: 0, recent: 0, summary: 0, note: 0 };
+  const breakdown: ContextBreakdown = { voice: 0, facts: 0, recent: 0, summary: 0, note: 0, visual: 0 };
   entries.forEach((entry, index) => {
     breakdown[entry.category] += perMessage[index] ?? 0;
   });
   return breakdown;
+}
+
+/** `resolveTokenCount`'s total covers text only: `countPromptTokens` never
+ *  sees an image block, so a real provider count can never include visual
+ *  tokens. `estimate.tokens` (the client-only fallback `resolveTokenCount`
+ *  uses when there is no counted answer) already sums every
+ *  `ContextBreakdown` category, visual included, so this only has to add
+ *  the addend back on top of an actual counted total — and either way, a
+ *  total with any estimated component downgrades to `"estimate"`: it is no
+ *  longer exact the moment part of it is a guess. */
+export function totalWithVisualTokens(
+  estimate: Pick<NextRequestEstimate, "breakdown">,
+  resolved: Pick<ResolvedTokenCount, "total" | "totalGrade">,
+  count: PromptTokenCount | null
+): { total: number; totalGrade: TokenCountGrade } {
+  const visual = estimate.breakdown.visual;
+  if (visual <= 0) return { total: resolved.total, totalGrade: resolved.totalGrade };
+  const alreadyIncluded = count === null || count.kind !== "counted";
+  return {
+    total: alreadyIncluded ? resolved.total : resolved.total + visual,
+    totalGrade: "estimate"
+  };
 }
 
 /** Read-only mirror of the facts store and the next request projection.
@@ -170,8 +198,9 @@ export function buildRailModel(
   // Mirror what generation actually sends: the assembler drops everything
   // before the latest summary, and directions travel with their parts.
   const resolved = resolveTokenCount(estimate, count);
-  const contextTokens = resolved.total;
-  const breakdown = breakdownFromPerMessage(estimate.plan.entries, resolved.perMessage);
+  const totalWithVisual = totalWithVisualTokens(estimate, resolved, count);
+  const contextTokens = totalWithVisual.total;
+  const breakdown = { ...breakdownFromPerMessage(estimate.plan.entries, resolved.perMessage), visual: estimate.breakdown.visual };
   const responseGrowth = Math.max(0, growthTokens);
   const over = contextWindow !== null && contextWindow > 0
     && contextTokens + responseGrowth > contextWindow;
@@ -186,7 +215,7 @@ export function buildRailModel(
     activeKeyedCount: facts.filter(({ activation, status }) =>
       activation === "keyed" && status.kind === "sent").length,
     contextTokens,
-    totalGrade: resolved.totalGrade,
+    totalGrade: totalWithVisual.totalGrade,
     perMessageGrade: resolved.perMessageGrade,
     growthTokens: responseGrowth,
     maxOutputTokens: Math.max(0, maxOutputTokens),

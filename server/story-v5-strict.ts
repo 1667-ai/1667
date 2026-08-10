@@ -42,7 +42,7 @@ export const MAX_STORY_TIMESTAMP_CHARS = 64;
 export const STORY_ID_PATTERN_SOURCE = "(?:[A-Za-z0-9-]{1,255}|st1_[a-z2-7]{51}[aq])";
 export const STORY_ID_PATTERN = exactStringPattern(STORY_ID_PATTERN_SOURCE);
 
-const ROOT = closedShape([
+export const ROOT = closedShape([
   "format", "schemaVersion", "id", "title", "createdAt", "updatedAt", "activeWordCount",
   "nodes", "facts", "activeRootId", "bookmarks", "recentNodeIds", "chapterBreaks"
 ], [
@@ -50,7 +50,7 @@ const ROOT = closedShape([
   "autonameId", "firstChapterTitle", "factsBudgetTokens"
 ]);
 const ORIGIN = closedShape(["storyId", "storyTitle", "partId", "offset", "createdAt"]);
-const NODE = closedShape([
+export const NODE = closedShape([
   "id", "parentId", "instruction", "model", "createdAt", "revisionId", "activeChildId"
 ], [
   "preview", "words", "tokens", "updatedAt", "genId", "rewriteId", "role", "chapterBreakId",
@@ -88,6 +88,19 @@ export function assertStrictV5Manifest(
   const manifest = closedRecord(value, `story ${expectedId} manifest`, ROOT);
   literal(manifest.format, expectedFormat, "manifest.format");
   literal(manifest.schemaVersion, 5, "manifest.schemaVersion");
+  assertManifestCommonFields(manifest, expectedId, assertNode);
+}
+
+/** Every manifest-root field that means the same thing regardless of which
+ * node shape the content payload carries. The successor content payload
+ * (`server/story-v7-strict.ts`) reuses this rather than repeating it, passing
+ * its own node asserter so the one place the two shapes actually differ,
+ * `nodes[]`, stays the caller's choice. */
+export function assertManifestCommonFields(
+  manifest: Record<string, unknown>,
+  expectedId: string,
+  assertManifestNode: (value: unknown, label: string) => void
+): void {
   const id = requireStoryId(manifest.id, "manifest.id");
   if (id !== expectedId) throw new StoryFormatError(`Story id mismatch: expected ${expectedId}, found ${id}`);
   boundedString(manifest.title, "manifest.title", MAX_STORY_TITLE_CHARS);
@@ -117,7 +130,7 @@ export function assertStrictV5Manifest(
     safeInteger(manifest.factsBudgetTokens, "manifest.factsBudgetTokens", { min: 1, max: MAX_STORY_FACTS_BUDGET_TOKENS });
   }
   boundedArray(manifest.nodes, "manifest.nodes", MAX_STORY_COLLECTION_ITEMS)
-    .forEach((entry, index) => assertNode(entry, `manifest.nodes[${index}]`));
+    .forEach((entry, index) => assertManifestNode(entry, `manifest.nodes[${index}]`));
   boundedArray(manifest.facts, "manifest.facts", MAX_FACTS)
     .forEach((entry, index) => assertFact(entry, `manifest.facts[${index}]`));
   nullableIdentifier(manifest.activeRootId, "manifest.activeRootId");
@@ -129,7 +142,7 @@ export function assertStrictV5Manifest(
     .forEach((entry, index) => assertChapterBreak(entry, `manifest.chapterBreaks[${index}]`));
 }
 
-function assertOrigin(value: unknown): void {
+export function assertOrigin(value: unknown): void {
   const origin = closedRecord(value, "manifest.origin", ORIGIN);
   requireStoryId(origin.storyId, "manifest.origin.storyId");
   boundedString(origin.storyTitle, "manifest.origin.storyTitle", MAX_STORY_TITLE_CHARS);
@@ -140,6 +153,14 @@ function assertOrigin(value: unknown): void {
 
 function assertNode(value: unknown, label: string): void {
   const node = closedRecord(value, label, NODE);
+  assertNodeCommonFields(node, label);
+}
+
+/** Every stored-node field that means the same thing regardless of which
+ * closed key set the caller already checked. The successor node shape
+ * (`server/story-v7-strict.ts`) calls this after its own `closedRecord` pass
+ * admits `imageAttachments`, then validates that one extra field itself. */
+export function assertNodeCommonFields(node: Record<string, unknown>, label: string): void {
   identifier(node.id, `${label}.id`);
   nullableIdentifier(node.parentId, `${label}.parentId`);
   boundedString(node.instruction, `${label}.instruction`, MAX_STORY_INSTRUCTION_CHARS);
@@ -253,31 +274,31 @@ function assertPhraseBiasEntry(value: unknown, label: string): void {
   });
 }
 
-function identifier(value: unknown, label: string): string {
+export function identifier(value: unknown, label: string): string {
   return boundedString(value, label, MAX_STORY_IDENTIFIER_CHARS, { minLength: 1 });
 }
 
-function optionalIdentifier(value: unknown, label: string): string | undefined {
+export function optionalIdentifier(value: unknown, label: string): string | undefined {
   return optionalBoundedString(value, label, MAX_STORY_IDENTIFIER_CHARS, { minLength: 1 });
 }
 
-function nullableIdentifier(value: unknown, label: string): string | null {
+export function nullableIdentifier(value: unknown, label: string): string | null {
   return nullableBoundedString(value, label, MAX_STORY_IDENTIFIER_CHARS, { minLength: 1 });
 }
 
-function optionalInteger(value: unknown, label: string): number | undefined {
+export function optionalInteger(value: unknown, label: string): number | undefined {
   return value === undefined ? undefined : safeInteger(value, label, { min: 0 });
 }
 
-function timestamp(value: unknown, label: string): string {
+export function timestamp(value: unknown, label: string): string {
   return dateString(value, label, MAX_STORY_TIMESTAMP_CHARS);
 }
 
-function optionalTimestamp(value: unknown, label: string): string | undefined {
+export function optionalTimestamp(value: unknown, label: string): string | undefined {
   return value === undefined ? undefined : timestamp(value, label);
 }
 
-function assertHash(value: unknown, label: string): void {
+export function assertHash(value: unknown, label: string): void {
   if (typeof value !== "string" || !HASH_PATTERN.test(value)) {
     throw new StoryFormatError(`Invalid ${label}`);
   }

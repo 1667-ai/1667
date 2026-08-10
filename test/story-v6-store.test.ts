@@ -6,15 +6,16 @@ import test from "node:test";
 import type { Story, StoryNode } from "../shared/types.js";
 import { ServiceError } from "../server/errors.js";
 import { markCleanupPending, CLEANUP_MARKER_FILENAME } from "../server/story-cleanup.js";
-import { sha256, type StoryManifestV5 } from "../server/story-format.js";
+import { sha256, type StoryManifestV5, type StoryManifestV7 } from "../server/story-format.js";
 import { StoryService } from "../server/story-service.js";
 import { buildStorySummary } from "../server/story-summary.js";
 import { StoryStore } from "../server/stories.js";
 import { STORY_CREATE_RESIDUE_PREFIX } from "../server/story-residue.js";
-import { formatV6 } from "../server/story-v6-codec.js";
+import { formatV6, formatV8 } from "../server/story-v6-codec.js";
 import { MAX_STORY_MANIFEST_BYTES } from "../server/story-v5-strict.js";
 import { MAX_LEGACY_STORY_MANIFEST_BYTES } from "../server/json-schema-version.js";
 import type { DeletedStoryManifestV6, LiveStoryManifestV6 } from "../server/story-v6-types.js";
+import type { LiveStoryManifestV8 } from "../server/story-v8-types.js";
 import { parseWorkerMutation, preflightWorkerMutation } from "../server/worker-mutations.js";
 
 const NOW = "2026-01-01T00:00:00.000Z";
@@ -79,6 +80,41 @@ test("story V6 store: every mutation refuses before hydration, writes, deletion,
   await store.waitForMaintenance();
   assert.equal(sweepCalls, 0);
   await access(path.join(root, story.id, CLEANUP_MARKER_FILENAME));
+  assert.deepEqual(await readFile(path.join(root, story.id, "manifest.json")), beforeManifest);
+});
+
+test("story V8 store: every mutation refuses, the manifest and directory listing stay byte-identical, and reads keep working", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-v8-refusal-"));
+  const seed = new StoryStore(root);
+  await seed.init();
+  const story = fixture("successor-v8-story", "Written before the successor schema");
+  await seed.save(story);
+  await promoteLive8(root, story.id);
+  const beforeManifest = await readFile(path.join(root, story.id, "manifest.json"));
+  const beforeEntries = await readdir(root);
+  let sweepCalls = 0;
+  const store = new StoryStore(root, async () => { sweepCalls += 1; return true; });
+  t.after(async () => { await store.waitForMaintenance(); await rm(root, { recursive: true, force: true }); });
+
+  let mutationCalled = false;
+  await assert.rejects(() => store.assertMutationSupported(story.id), hasServiceError(SUCCESSOR_CODE));
+  await assert.rejects(() => store.loadForMutation(story.id), hasServiceError(SUCCESSOR_CODE));
+  await assert.rejects(() => store.mutate(story.id, () => { mutationCalled = true; }), hasServiceError(SUCCESSOR_CODE));
+  await assert.rejects(() => store.save(story), hasServiceError(SUCCESSOR_CODE));
+  await assert.rejects(() => store.remove(story.id), hasServiceError(SUCCESSOR_CODE));
+  await assert.rejects(() => store.create("Replacement", story.id), hasServiceError(SUCCESSOR_CODE));
+  assert.equal(mutationCalled, false);
+  assert.equal(sweepCalls, 0);
+
+  // Every refusal above ran before any hydration, write, or cleanup could
+  // touch the story: the manifest bytes and the directory listing are
+  // exactly what promoteLive8 left behind.
+  assert.deepEqual(await readdir(root), beforeEntries);
+  assert.deepEqual(await readFile(path.join(root, story.id, "manifest.json")), beforeManifest);
+
+  // Read-only paths keep working against a successor document.
+  assert.equal((await store.load(story.id)).nodes[0]!.text, "Written before the successor schema");
+  assert.deepEqual((await store.list()).map(({ id }) => id), [story.id]);
   assert.deepEqual(await readFile(path.join(root, story.id, "manifest.json")), beforeManifest);
 });
 
@@ -200,6 +236,35 @@ async function promoteLive(root: string, id: string): Promise<LiveStoryManifestV
     lastTransaction: null
   };
   await writeFile(file, formatV6(manifest));
+  return manifest;
+}
+
+/** Mirrors `promoteLive`, writing a V8 envelope around an equivalent V7
+ * content payload instead. That successor counterpart is something no code
+ * in this release ever produces; this helper exists only to prove that this
+ * release refuses to mutate one it finds on disk. */
+async function promoteLive8(root: string, id: string): Promise<LiveStoryManifestV8> {
+  const file = path.join(root, id, "manifest.json");
+  const v5Content = JSON.parse(await readFile(file, "utf8")) as StoryManifestV5;
+  const content: StoryManifestV7 = { ...v5Content, schemaVersion: 7 };
+  const summary = buildStorySummary(content);
+  const manifest: LiveStoryManifestV8 = {
+    format: "1667-story",
+    schemaVersion: 8,
+    kind: "live",
+    id,
+    revision: "00000000000000000001",
+    previousManifestHash: null,
+    content,
+    summary: {
+      ...summary,
+      words: uint64(summary.words),
+      lineCount: uint64(summary.lineCount)
+    },
+    unresolvedProvider: null,
+    lastTransaction: null
+  };
+  await writeFile(file, formatV8(manifest));
   return manifest;
 }
 
