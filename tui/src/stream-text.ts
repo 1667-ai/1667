@@ -1,4 +1,4 @@
-import type { StreamView } from "./state.js";
+import type { StreamReasoning, StreamView } from "./state.js";
 
 const TRIM_CHARACTER = /^\s$/u;
 const LEGACY_TRIM_SCAN_LIMIT = 8_192;
@@ -84,4 +84,59 @@ function validBounds(
     && start! >= 0
     && end! >= start!
     && end! <= length;
+}
+
+export function emptyStreamReasoning(): StreamReasoning {
+  return { text: "", trimStart: 0, trimEnd: 0, tokenCount: 0 };
+}
+
+/** Same incremental trim-bound tracking as `appendStreamText`, on
+ *  `stream.reasoning` rather than `stream.text` — see that function's own
+ *  comment. Creates `stream.reasoning` on first use. `tokenCount` is set
+ *  unconditionally, even when `delta` is empty, so a provider-reported
+ *  count can update without requiring accompanying text. */
+export function appendStreamReasoning(
+  stream: StreamView,
+  delta: string,
+  tokenCount: number
+): void {
+  const reasoning = stream.reasoning ??= emptyStreamReasoning();
+  reasoning.tokenCount = tokenCount;
+  if (delta.length === 0) return;
+  const current = streamReasoningTrimBounds(stream);
+  const oldLength = reasoning.text.length;
+  const appended = trimBounds(delta);
+  reasoning.text += delta;
+  if (appended.end > appended.start) {
+    reasoning.trimStart = current.end > current.start
+      ? current.start
+      : oldLength + appended.start;
+    reasoning.trimEnd = oldLength + appended.end;
+  } else {
+    reasoning.trimStart = current.start;
+    reasoning.trimEnd = current.end;
+  }
+}
+
+export function streamHasSubstantiveReasoning(stream: StreamView): boolean {
+  if (stream.reasoning === undefined) return false;
+  const bounds = streamReasoningTrimBounds(stream);
+  return bounds.end > bounds.start;
+}
+
+export function streamReasoningTrimmedText(stream: StreamView): string {
+  if (stream.reasoning === undefined) return "";
+  const bounds = streamReasoningTrimBounds(stream);
+  return stream.reasoning.text.slice(bounds.start, bounds.end);
+}
+
+function streamReasoningTrimBounds(stream: StreamView): StreamTrimBounds {
+  const reasoning = stream.reasoning ?? emptyStreamReasoning();
+  if (validBounds(reasoning.trimStart, reasoning.trimEnd, reasoning.text.length)) {
+    return { start: reasoning.trimStart!, end: reasoning.trimEnd! };
+  }
+  if (reasoning.text.length > LEGACY_TRIM_SCAN_LIMIT) {
+    throw new Error("Large stream reasoning text is missing incremental trim metadata.");
+  }
+  return trimBounds(reasoning.text);
 }

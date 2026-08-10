@@ -607,7 +607,7 @@ test("SSE diagnostics redact complete credentials before truncation", async (t) 
   );
 });
 
-test("configured first-content deadline aborts a stalled provider stream", async (t) => {
+test("configured first-activity deadline aborts a stalled provider stream", async (t) => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input) => {
     assert.ok(input instanceof Request);
@@ -634,7 +634,7 @@ test("configured first-content deadline aborts a stalled provider stream", async
       PROMPT,
       new AbortController().signal
     )),
-    /did not produce a content delta/
+    /did not produce stream activity/
   );
 });
 
@@ -943,7 +943,7 @@ test("non-success stream body deadlines preserve the known provider status", asy
   );
 });
 
-test("usage-only SSE events do not satisfy the first-content deadline", async (t) => {
+test("usage-only SSE events do not satisfy the first-activity deadline", async (t) => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input) => {
     assert.ok(input instanceof Request);
@@ -973,8 +973,213 @@ test("usage-only SSE events do not satisfy the first-content deadline", async (t
       PROMPT,
       new AbortController().signal
     )),
-    /did not produce a content delta/
+    /did not produce stream activity/
   );
+});
+
+test("OpenAI-compatible reasoning activity prevents a first-activity timeout without entering story prose", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(
+          'data: {"choices":[{"delta":{"reasoning_content":"plan"}}]}\n\n'
+        ));
+        const timer = setTimeout(() => {
+          controller.enqueue(new TextEncoder().encode(
+            'data: {"choices":[{"delta":{"content":"prose"}}]}\n\ndata: [DONE]\n\n'
+          ));
+          controller.close();
+        }, 30);
+        input.signal.addEventListener("abort", () => {
+          clearTimeout(timer);
+          controller.error(input.signal.reason);
+        }, { once: true });
+      }
+    }), { headers: { "content-type": "text/event-stream" } });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  let output = "";
+  for await (const delta of streamCompletion(
+    attached({
+      timeouts: {
+        responseHeaderMs: 50,
+        firstTokenMs: 20,
+        idleMs: 80,
+        totalMs: 200
+      }
+    }),
+    PROMPT,
+    new AbortController().signal
+  )) output += delta;
+
+  assert.equal(output, "prose");
+});
+
+test("Anthropic thinking activity prevents a first-activity timeout without entering story prose", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(
+          'data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"plan"}}\n\n'
+        ));
+        const timer = setTimeout(() => {
+          controller.enqueue(new TextEncoder().encode([
+            'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"prose"}}',
+            'data: {"type":"message_stop"}',
+            "",
+            ""
+          ].join("\n\n")));
+          controller.close();
+        }, 30);
+        input.signal.addEventListener("abort", () => {
+          clearTimeout(timer);
+          controller.error(input.signal.reason);
+        }, { once: true });
+      }
+    }), { headers: { "content-type": "text/event-stream" } });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  let output = "";
+  for await (const delta of streamCompletion(
+    attached({
+      timeouts: {
+        responseHeaderMs: 50,
+        firstTokenMs: 20,
+        idleMs: 80,
+        totalMs: 200
+      }
+    }, {
+      provider: "anthropic",
+      baseUrl: "https://api.anthropic.com"
+    }),
+    PROMPT,
+    new AbortController().signal
+  )) output += delta;
+
+  assert.equal(output, "prose");
+});
+
+test("OpenAI-compatible reasoning deltas reach onReasoning, counted, and never the prose stream", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode([
+          'data: {"choices":[{"delta":{"reasoning_content":"weigh"}}]}',
+          'data: {"choices":[{"delta":{"reasoning_content":" options"}}]}',
+          'data: {"choices":[{"delta":{"content":"prose"}}]}',
+          "data: [DONE]",
+          "",
+          ""
+        ].join("\n\n")));
+        controller.close();
+      }
+    }), { headers: { "content-type": "text/event-stream" } });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const reasoning: Array<{ text: string; tokenCount: number }> = [];
+  const output = await collect(streamCompletion(
+    attached(),
+    PROMPT,
+    new AbortController().signal,
+    { onReasoning: (delta) => { reasoning.push(delta); } }
+  ));
+
+  assert.equal(output, "prose");
+  assert.deepEqual(reasoning, [
+    { text: "weigh", tokenCount: 1 },
+    { text: " options", tokenCount: 2 }
+  ]);
+});
+
+test("Anthropic thinking deltas reach onReasoning, counted, and never the prose stream", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode([
+          'data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"weigh"}}',
+          'data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":" options"}}',
+          'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"prose"}}',
+          'data: {"type":"message_stop"}',
+          "",
+          ""
+        ].join("\n\n")));
+        controller.close();
+      }
+    }), { headers: { "content-type": "text/event-stream" } });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const reasoning: Array<{ text: string; tokenCount: number }> = [];
+  const output = await collect(streamCompletion(
+    attached({}, {
+      provider: "anthropic",
+      baseUrl: "https://api.anthropic.com"
+    }),
+    PROMPT,
+    new AbortController().signal,
+    { onReasoning: (delta) => { reasoning.push(delta); } }
+  ));
+
+  assert.equal(output, "prose");
+  assert.deepEqual(reasoning, [
+    { text: "weigh", tokenCount: 1 },
+    { text: " options", tokenCount: 2 }
+  ]);
+});
+
+test("dry-run fabricates short reasoning through onReasoning, separate from its prose", async () => {
+  const reasoningChunks: string[] = [];
+  const output = await collect(streamCompletion(
+    attached({}, { provider: "dry-run" }),
+    PROMPT,
+    new AbortController().signal,
+    { onReasoning: (delta) => { reasoningChunks.push(delta.text); } }
+  ));
+
+  const reasoningText = reasoningChunks.join("");
+  assert.ok(reasoningText.length > 0);
+  assert.ok(reasoningText.length < 200, "dry-run reasoning stays short");
+  assert.ok(!output.includes(reasoningText.trim()));
+  assert.ok(!reasoningText.includes(output.trim()));
+});
+
+test("streamCompletion without onReasoning drops reasoning deltas silently", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode([
+          'data: {"choices":[{"delta":{"reasoning_content":"weigh"}}]}',
+          'data: {"choices":[{"delta":{"content":"prose"}}]}',
+          "data: [DONE]",
+          "",
+          ""
+        ].join("\n\n")));
+        controller.close();
+      }
+    }), { headers: { "content-type": "text/event-stream" } });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const output = await collect(streamCompletion(
+    attached(),
+    PROMPT,
+    new AbortController().signal
+  ));
+
+  assert.equal(output, "prose");
 });
 
 test("configured idle deadline aborts after the first stream event", async (t) => {

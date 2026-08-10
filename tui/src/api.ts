@@ -1,6 +1,7 @@
 import { httpCapabilityScopeForApiPath } from "../../shared/http-capability-scope.js";
 import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.js";
 import type { HttpFetch } from "./direct-loopback-http.js";
+import type { ReasoningDelta } from "./worker-pending.js";
 import {
   readSseEvents,
   readSseText,
@@ -226,7 +227,13 @@ export interface StoryApi {
      * arrived after `signal` aborted. `onDelta` never fires after the
      * abort, so a caller that saves stopped text must take this tail too.
      * Both transports produce it when they drain text after a Stop. */
-    onStopped?: (text: string) => void
+    onStopped?: (text: string) => void,
+    /** Same shape as `onDelta`, on the reasoning ("thinking") channel —
+     * never the same callback, so reasoning can never reach a caller that
+     * only asked for prose. */
+    onReasoning?: (delta: ReasoningDelta) => void,
+    /** Same contract as `onStopped`, on the reasoning channel. */
+    onReasoningStopped?: (text: string) => void
   ): Promise<{ payload: StoryPayload; droppedFacts: readonly FactBudgetDrop[] } | null>;
   rewriteNode(
     storyId: string,
@@ -243,7 +250,11 @@ export interface StoryApi {
     /** Same contract as `continueStory`'s `onStopped`: the post-abort stream
      * tail, delivered exactly once at terminal settlement. A caller that
      * settles a stopped rewrite must take this tail too. */
-    onStopped?: (text: string) => void
+    onStopped?: (text: string) => void,
+    /** Same shape as `onDelta`, on the reasoning channel. */
+    onReasoning?: (delta: ReasoningDelta) => void,
+    /** Same contract as `onStopped`, on the reasoning channel. */
+    onReasoningStopped?: (text: string) => void
   ): Promise<string | null>;
   /** Settle a stopped or timed-out rewrite (issue #339): ask the backend to
    * commit the verified partial it stashed for this part. `streamedDigest`
@@ -260,7 +271,9 @@ export interface StoryApi {
     storyId: string,
     body: { nodeId: string; offset?: number; expected?: string },
     onDelta: (text: string) => void,
-    signal: AbortSignal
+    signal: AbortSignal,
+    /** Same shape as `onDelta`, on the reasoning channel. */
+    onReasoning?: (delta: ReasoningDelta) => void
   ): Promise<string | null>;
 }
 
@@ -424,7 +437,9 @@ export function createApi(
     payload: unknown,
     onDelta: (text: string) => void,
     signal: AbortSignal,
-    onStopped?: (text: string) => void
+    onStopped?: (text: string) => void,
+    onReasoning?: (delta: ReasoningDelta) => void,
+    onReasoningStopped?: (text: string) => void
   ) => {
     if (signal.aborted) return null;
     try {
@@ -457,7 +472,9 @@ export function createApi(
                   lease.signal,
                   signal,
                   lease.headers,
-                  onStopped
+                  onStopped,
+                  onReasoning,
+                  onReasoningStopped
                 ),
               shouldRetry: (error) => !(error instanceof ApiError
                 || error instanceof SseIdleTimeoutError)
@@ -899,28 +916,32 @@ export function createApi(
       ),
     ...providerMethods({ request }),
     ...importMethods({ runAbsentImportMutation, request, versions, expectedVersion }),
-    continueStory: async (storyId, instruction, genId, target, onDelta, signal, onStopped) => {
+    continueStory: async (storyId, instruction, genId, target, onDelta, signal, onStopped, onReasoning, onReasoningStopped) => {
       const done = await stream(
         storyId,
         `/api/stories/${storyId}/continue`,
         { instruction, genId, ...target },
         onDelta,
         signal,
-        onStopped
+        onStopped,
+        onReasoning,
+        onReasoningStopped
       );
       if (done === null) return null;
       const result = decodeContinueStoryResponse(done);
       versions.rememberPayload(result.payload);
       return result;
     },
-    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted, onStopped) => {
+    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted, onStopped, onReasoning, onReasoningStopped) => {
       const done = await stream(
         storyId,
         `/api/stories/${storyId}/nodes/${nodeId}/rewrite`,
         body,
         onDelta,
         signal,
-        onStopped
+        onStopped,
+        onReasoning,
+        onReasoningStopped
       );
       if (done === null) return null;
       if (typeof done.nodeId !== "string") throw new Error("The server did not return the rewritten take.");
@@ -955,13 +976,15 @@ export function createApi(
         return await settlePartialRewriteFailure(intent, error);
       }
     },
-    createSummaryTake: async (storyId, body, onDelta, signal) => {
+    createSummaryTake: async (storyId, body, onDelta, signal, onReasoning) => {
       const done = await stream(
         storyId,
         `/api/stories/${storyId}/summary-take`,
         body,
         onDelta,
-        signal
+        signal,
+        undefined,
+        onReasoning
       );
       if (done === null) return null;
       if (typeof done.nodeId !== "string") throw new Error("The server did not return the new summary take.");
@@ -1059,7 +1082,9 @@ async function streamSse(
   signal: AbortSignal,
   callerSignal: AbortSignal,
   protocolHeaders: Readonly<Record<string, string>>,
-  onStopped?: (text: string) => void
+  onStopped?: (text: string) => void,
+  onReasoning?: (delta: ReasoningDelta) => void,
+  onReasoningStopped?: (text: string) => void
 ): Promise<Record<string, unknown> | null> {
   let response: Response;
   const streamAbort = new AbortController();
@@ -1106,11 +1131,22 @@ async function streamSse(
     stoppedDelivered = true;
     onStopped?.(stoppedTail);
   };
+  // Reasoning gets its own withheld-tail accumulator and its own delivery,
+  // so it can never be concatenated onto `stoppedTail` and read back as
+  // story prose.
+  let stoppedReasoningTail = "";
+  let stoppedReasoningDelivered = false;
+  const deliverReasoningStopped = () => {
+    if (stoppedReasoningDelivered || stoppedReasoningTail.length === 0) return;
+    stoppedReasoningDelivered = true;
+    onReasoningStopped?.(stoppedReasoningTail);
+  };
   try {
     await readSseEvents(response.body, (data) => {
       const event = JSON.parse(data) as {
         type: string;
         text?: string;
+        tokenCount?: unknown;
         message?: string;
         code?: unknown;
         status?: unknown;
@@ -1119,6 +1155,14 @@ async function streamSse(
       if (event.type === "delta" && typeof event.text === "string") {
         if (callerSignal.aborted) stoppedTail += event.text;
         else onDelta(event.text);
+      }
+      if (
+        event.type === "reasoning"
+        && typeof event.text === "string"
+        && typeof event.tokenCount === "number"
+      ) {
+        if (callerSignal.aborted) stoppedReasoningTail += event.text;
+        else onReasoning?.({ text: event.text, tokenCount: event.tokenCount });
       }
       if (event.type === "error") {
         terminalEvidence = "error";
@@ -1139,6 +1183,7 @@ async function streamSse(
     if (terminalEvidence === "error") throw error;
     if (callerSignal.aborted) {
       deliverStopped();
+      deliverReasoningStopped();
       return null;
     }
     if (signal.aborted) throw operationDeadlineError(signal.reason);
@@ -1146,6 +1191,7 @@ async function streamSse(
   }
   if (completed === null && callerSignal.aborted) {
     deliverStopped();
+    deliverReasoningStopped();
     return null;
   }
   if (completed === null && signal.aborted) throw operationDeadlineError(signal.reason);

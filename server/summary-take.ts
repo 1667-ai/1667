@@ -12,7 +12,7 @@ import {
 import { streamCompletion, type StreamOutcome } from "./providers.js";
 import { countWords } from "./story-codec.js";
 import { sha256 } from "./story-format.js";
-import type { DeltaConsumer } from "./generation-stream.js";
+import type { DeltaConsumer, ReasoningConsumer } from "./generation-stream.js";
 import type { BindGenerationIntent } from "./generation-http.js";
 import { clipAttribution } from "./story-nodes.js";
 import type { SettingsStore } from "./settings.js";
@@ -63,7 +63,11 @@ export async function createSummaryTake(
   signal: AbortSignal,
   providerStarted: () => void | Promise<void> = () => {},
   commitIds: SummaryCommitIds = {},
-  bindIntent?: BindGenerationIntent
+  bindIntent?: BindGenerationIntent,
+  /** Reasoning text, kept apart from `onDelta`'s summary prose. Trailing and
+   *  optional so every existing caller of `createSummaryTake` stays valid
+   *  unchanged. */
+  onReasoning?: ReasoningConsumer
 ): Promise<string | null> {
   if (signal.aborted) return null;
   if (body.offset !== undefined && typeof body.offset !== "number") {
@@ -95,7 +99,8 @@ export async function createSummaryTake(
     for await (const delta of streamCompletion(summarySettings(settings, plan.outputBudget), plan.prompt, signal, {
       outcome,
       providerStarted,
-      promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation)
+      promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
+      onReasoning
     })) {
       raw += delta;
       if (raw.length > SUMMARY_OUTPUT_LIMIT) {

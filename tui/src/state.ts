@@ -81,6 +81,26 @@ export interface StreamView {
   pendingDraft?: PendingGenerationDraft;
   /** Exact legacy retake editor restored by an empty stop, if any. */
   restoredRetakePrompt?: RetakePromptSession;
+  /** Model reasoning ("thinking") text for this stream, kept structurally
+   *  apart from `text`/`trimStart`/`trimEnd` — its own text, its own
+   *  incremental trim bounds, its own token count. Undefined until this
+   *  stream's first reasoning delta arrives; a route that returns no
+   *  reasoning leaves it undefined for the whole stream. */
+  reasoning?: StreamReasoning;
+}
+
+/** See `StreamView.reasoning`. Mirrors `StreamView`'s own
+ *  `text`/`trimStart`/`trimEnd` shape exactly, one level down, so reasoning
+ *  can never be read back as story prose by sharing a field with it. */
+export interface StreamReasoning {
+  text: string;
+  /** Incrementally maintained String.trim() bounds in UTF-16 offsets. */
+  trimStart?: number;
+  trimEnd?: number;
+  /** Running total for the whole reasoning stream so far — a
+   *  provider-reported count when available, otherwise a count of received
+   *  reasoning deltas. */
+  tokenCount: number;
 }
 
 export interface TagPrompt {

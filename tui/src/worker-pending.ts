@@ -6,6 +6,14 @@ import {
   type WorkerOperationId
 } from "../../shared/worker-protocol.js";
 
+/** One increment of model reasoning ("thinking") text, kept apart from a
+ *  call's prose. `tokenCount` is the running total for the whole reasoning
+ *  stream so far. */
+export interface ReasoningDelta {
+  readonly text: string;
+  readonly tokenCount: number;
+}
+
 export interface PendingCall {
   readonly id: WorkerOperationId;
   readonly method: WorkerMethod;
@@ -27,8 +35,14 @@ export interface PendingCall {
    * here and hands the whole tail to `onStopped` at terminal settlement,
    * so a Stop save still receives every byte the server delivered. */
   stoppedTail: string;
+  /** Same withholding, on the reasoning channel: reasoning text that
+   * arrived after abort is never handed to `onReasoning`, only ever to
+   * `onReasoningStopped` once, at terminal settlement. */
+  stoppedReasoningTail: string;
   onDelta?: (text: string) => void;
   onStopped?: (text: string) => void;
+  onReasoning?: (delta: ReasoningDelta) => void;
+  onReasoningStopped?: (text: string) => void;
   resolve(value: unknown): void;
   reject(error: unknown): void;
   startCancellationGrace(timeoutMs: number, onTimeout: () => void): void;
@@ -58,6 +72,8 @@ interface OpenPendingCall {
   durableIntent: boolean;
   onDelta?: (text: string) => void;
   onStopped?: (text: string) => void;
+  onReasoning?: (delta: ReasoningDelta) => void;
+  onReasoningStopped?: (text: string) => void;
   signal?: AbortSignal;
   timeoutMs: number;
   onAbort?(id: WorkerOperationId): void;
@@ -143,9 +159,12 @@ export class PendingRequestRegistry {
       receivedDeltaBatches: 0,
       receivedUtf16Units: 0,
       stoppedTail: "",
+      stoppedReasoningTail: "",
       ...(options.mutationId === undefined ? {} : { mutationId: options.mutationId }),
       ...(options.onDelta === undefined ? {} : { onDelta: options.onDelta }),
       ...(options.onStopped === undefined ? {} : { onStopped: options.onStopped }),
+      ...(options.onReasoning === undefined ? {} : { onReasoning: options.onReasoning }),
+      ...(options.onReasoningStopped === undefined ? {} : { onReasoningStopped: options.onReasoningStopped }),
       resolve: (value) => resolvePromise(value as T),
       reject: rejectPromise,
       startCancellationGrace,

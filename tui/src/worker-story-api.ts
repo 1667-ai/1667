@@ -412,7 +412,7 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       return result;
     },
 
-    continueStory: async (storyId, instruction, genId, target, onDelta, signal, onStopped) => {
+    continueStory: async (storyId, instruction, genId, target, onDelta, signal, onStopped, onReasoning, onReasoningStopped) => {
       return await runProviderMutation(storyId, async () => {
         const result = await transport.call(
           "continueStory",
@@ -420,6 +420,8 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
           {
             onDelta,
             ...(onStopped === undefined ? {} : { onStopped }),
+            ...(onReasoning === undefined ? {} : { onReasoning }),
+            ...(onReasoningStopped === undefined ? {} : { onReasoningStopped }),
             signal,
             expectedAggregateVersion: await expectedVersion(storyId)
           }
@@ -429,7 +431,7 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
           : { payload: rememberPayload(result.payload), droppedFacts: result.droppedFacts };
       });
     },
-    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted, onStopped) => {
+    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted, onStopped, onReasoning, onReasoningStopped) => {
       return await runProviderMutation(storyId, async () => {
         const result = await transport.call(
           "rewriteNode",
@@ -437,6 +439,8 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
           {
             onDelta,
             ...(onStopped === undefined ? {} : { onStopped }),
+            ...(onReasoning === undefined ? {} : { onReasoning }),
+            ...(onReasoningStopped === undefined ? {} : { onReasoningStopped }),
             signal,
             expectedAggregateVersion: await expectedVersion(storyId)
           }
@@ -463,13 +467,14 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         nodeId: result.nodeId
       };
     },
-    createSummaryTake: async (storyId, body, onDelta, signal) => {
+    createSummaryTake: async (storyId, body, onDelta, signal, onReasoning) => {
       return await runProviderMutation(storyId, async () => {
         const result = await transport.call(
           "createSummaryTake",
           { storyId, body },
           {
             onDelta,
+            ...(onReasoning === undefined ? {} : { onReasoning }),
             signal,
             expectedAggregateVersion: await expectedVersion(storyId)
           }

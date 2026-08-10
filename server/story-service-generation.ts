@@ -9,7 +9,7 @@ import {
 } from "./generation-http.js";
 import type { GenerationAdmissionRegistry } from "./generation-admission.js";
 import type { PartialRewriteStash } from "./rewrite-partial.js";
-import type { DeltaConsumer } from "./generation-stream.js";
+import type { DeltaConsumer, ReasoningConsumer } from "./generation-stream.js";
 import type { PromptCacheRuntime } from "./provider-cache-policy.js";
 import {
   parseRewrite,
@@ -26,6 +26,10 @@ export interface GenerationMutationHooks {
   providerStarted?: () => void | Promise<void>;
   bindIntent?: BindGenerationIntent;
   mutationRequest?: unknown;
+  /** Reasoning ("thinking") text, kept apart from `onDelta`'s story prose at
+   *  every hop from here down to the provider. Read only by
+   *  `continueStory`, `rewriteNode`, and `createSummaryTake` below. */
+  onReasoning?: ReasoningConsumer;
 }
 
 export interface StoryServiceGenerationDependencies {
@@ -146,7 +150,8 @@ export class StoryServiceGeneration {
                     await hooks.providerStarted?.();
                   },
                   hooks.bindIntent,
-                  onFactsDropped
+                  onFactsDropped,
+                  hooks.onReasoning
                 )) !== null,
               replayValue: () => true
             }
@@ -168,7 +173,8 @@ export class StoryServiceGeneration {
           active,
           hooks.providerStarted,
           hooks.bindIntent,
-          onFactsDropped
+          onFactsDropped,
+          hooks.onReasoning
         );
         return story === null ? null : { payload: buildStoryPayload(story), droppedFacts };
       })
@@ -214,7 +220,8 @@ export class StoryServiceGeneration {
                 options.rewriteId,
                 options.takeId,
                 options.bindIntent,
-                this.dependencies.rewritePartials
+                this.dependencies.rewritePartials,
+                options.onReasoning
               ),
             replayValue: () => replayValue
           }
@@ -237,7 +244,8 @@ export class StoryServiceGeneration {
         options.rewriteId,
         options.takeId,
         options.bindIntent,
-        this.dependencies.rewritePartials
+        this.dependencies.rewritePartials,
+        options.onReasoning
       )
     );
   }
@@ -278,7 +286,8 @@ export class StoryServiceGeneration {
                   summaryNodeId: options.summaryNodeId,
                   cutNodeId: options.cutNodeId
                 },
-                options.bindIntent
+                options.bindIntent,
+                options.onReasoning
               ),
             replayValue: () => options.summaryNodeId ?? null
           }
@@ -301,7 +310,8 @@ export class StoryServiceGeneration {
           summaryNodeId: options.summaryNodeId,
           cutNodeId: options.cutNodeId
         },
-        options.bindIntent
+        options.bindIntent,
+        options.onReasoning
       )
     );
   }

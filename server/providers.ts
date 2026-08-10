@@ -69,7 +69,22 @@ export interface StreamCompletionOptions {
   readonly promptCache?: PromptCacheRequest;
   readonly storySampling?: StorySamplingBias;
   readonly tokenProbabilities?: TokenProbabilityCollector;
+  readonly onReasoning?: ReasoningConsumer;
 }
+
+/** One increment of model reasoning ("thinking") text, kept strictly apart
+ * from story prose: prose reaches a caller only through `streamCompletion`'s
+ * `AsyncGenerator<string>`, reasoning only through `onReasoning` below, and
+ * the two never share a redactor or a decoded-byte budget. `tokenCount` is
+ * the running total for the reasoning stream so far — a provider-reported
+ * count when the stream trivially exposes one, otherwise the number of
+ * reasoning deltas received (never a fabricated denominator). */
+export interface ReasoningStreamDelta {
+  readonly text: string;
+  readonly tokenCount: number;
+}
+
+export type ReasoningConsumer = (delta: ReasoningStreamDelta) => void | Promise<void>;
 
 export function streamCompletion(
   settings: GenerationSettings,
@@ -95,7 +110,7 @@ async function* streamOpenAiCompatible(
   signal: AbortSignal,
   options: StreamCompletionOptions
 ): AsyncGenerator<string> {
-  const { outcome, providerStarted, promptCache, storySampling, tokenProbabilities } = options;
+  const { outcome, providerStarted, promptCache, storySampling, tokenProbabilities, onReasoning } = options;
   const { headers, secrets } = resolveProviderHeaders(settings, {
     "content-type": "application/json"
   });
@@ -126,6 +141,20 @@ async function* streamOpenAiCompatible(
     for (let attempt = 0; ; attempt++) {
       let streamed = false;
       const outputRedactor = createProviderStreamRedactor(secrets);
+      // Reasoning gets its own redactor and its own decoded-byte budget:
+      // fresh per attempt, exactly like `outputRedactor`, so a retried
+      // attempt's partial reasoning is never mixed with the one that
+      // succeeds and so reasoning bytes never count against the prose
+      // budget or vice versa.
+      const reasoningRedactor = createProviderStreamRedactor(secrets);
+      let reasoningDecodedBytes = 0;
+      let reasoningTokenCount = 0;
+      const flushReasoning = async (): Promise<void> => {
+        const tail = reasoningRedactor.finish();
+        if (tail.length > 0 && onReasoning !== undefined) {
+          await onReasoning({ text: tail, tokenCount: reasoningTokenCount });
+        }
+      };
       // Fresh per attempt: only the attempt that actually finishes ever
       // calls capture.finish() below, so a retried attempt's partial capture
       // (if any) is never mixed with the one that succeeds.
@@ -142,7 +171,7 @@ async function* streamOpenAiCompatible(
           redactProviderSecrets,
           providerStarted,
           prepared.commit,
-          isOpenAiContentDelta,
+          isOpenAiActivityEvent,
           isOpenAiTerminalEvent,
           signal,
           () => clearTimeout(totalTimer)
@@ -152,6 +181,7 @@ async function* streamOpenAiCompatible(
             if (outcome !== undefined) outcome.providerTerminal = true;
             const tail = outputRedactor.finish();
             if (tail.length > 0) yield tail;
+            await flushReasoning();
             capture.finish();
             return;
           }
@@ -167,14 +197,27 @@ async function* streamOpenAiCompatible(
             const safe = outputRedactor.push(delta);
             if (safe.length > 0) yield safe;
           }
+          const reasoningDelta = isObject(choice) && isObject(choice.delta)
+            ? choice.delta.reasoning_content
+            : undefined;
+          if (typeof reasoningDelta === "string" && reasoningDelta.length > 0) {
+            reasoningDecodedBytes = requireOutputWithinLimit(settings, reasoningDecodedBytes, reasoningDelta);
+            const safeReasoning = reasoningRedactor.push(reasoningDelta);
+            if (safeReasoning.length > 0 && onReasoning !== undefined) {
+              reasoningTokenCount = openAiReasoningTokenCount(parsed) ?? reasoningTokenCount + 1;
+              await onReasoning({ text: safeReasoning, tokenCount: reasoningTokenCount });
+            }
+          }
         }
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
+        await flushReasoning();
         capture.finish();
         return;
       } catch (error) {
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
+        await flushReasoning();
         if (error === totalDeadlineFailure) {
           throw new ProviderError("Model request exceeded its total deadline.", null, "", {
             timeout: "provider-total"
@@ -252,7 +295,7 @@ async function* streamAnthropic(
   signal: AbortSignal,
   options: StreamCompletionOptions
 ): AsyncGenerator<string> {
-  const { outcome, providerStarted, promptCache, storySampling } = options;
+  const { outcome, providerStarted, promptCache, storySampling, onReasoning } = options;
   const { headers, secrets } = resolveProviderHeaders(settings, {
     "content-type": "application/json",
     "anthropic-version": "2023-06-01"
@@ -280,6 +323,18 @@ async function* streamAnthropic(
   try {
     for (let attempt = 0; ; attempt++) {
       const outputRedactor = createProviderStreamRedactor(secrets);
+      // Reasoning gets its own redactor and its own decoded-byte budget,
+      // fresh per attempt, exactly like `outputRedactor` — see the matching
+      // comment in streamOpenAiCompatible above.
+      const reasoningRedactor = createProviderStreamRedactor(secrets);
+      let reasoningDecodedBytes = 0;
+      let reasoningTokenCount = 0;
+      const flushReasoning = async (): Promise<void> => {
+        const tail = reasoningRedactor.finish();
+        if (tail.length > 0 && onReasoning !== undefined) {
+          await onReasoning({ text: tail, tokenCount: reasoningTokenCount });
+        }
+      };
       let streamed = false;
       try {
         for await (const data of providerSseEvents(
@@ -292,7 +347,7 @@ async function* streamAnthropic(
           redactProviderSecrets,
           providerStarted,
           prepared.commit,
-          isAnthropicContentDelta,
+          isAnthropicActivityEvent,
           isAnthropicTerminalEvent,
           signal,
           () => clearTimeout(totalTimer)
@@ -311,6 +366,7 @@ async function* streamAnthropic(
             if (outcome !== undefined) outcome.providerTerminal = true;
             const tail = outputRedactor.finish();
             if (tail.length > 0) yield tail;
+            await flushReasoning();
             return;
           }
           if (parsed.type === "message_delta" && isObject(parsed.delta) && typeof parsed.delta.stop_reason === "string" && outcome !== undefined) {
@@ -324,13 +380,26 @@ async function* streamAnthropic(
               if (safe.length > 0) yield safe;
             }
           }
+          if (parsed.type === "content_block_delta" && isObject(parsed.delta) && parsed.delta.type === "thinking_delta") {
+            const thinking = parsed.delta.thinking;
+            if (typeof thinking === "string" && thinking.length > 0) {
+              reasoningDecodedBytes = requireOutputWithinLimit(settings, reasoningDecodedBytes, thinking);
+              const safeReasoning = reasoningRedactor.push(thinking);
+              if (safeReasoning.length > 0 && onReasoning !== undefined) {
+                reasoningTokenCount += 1;
+                await onReasoning({ text: safeReasoning, tokenCount: reasoningTokenCount });
+              }
+            }
+          }
         }
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
+        await flushReasoning();
         return;
       } catch (error) {
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
+        await flushReasoning();
         if (error === totalDeadlineFailure) {
           throw new ProviderError("Model request exceeded its total deadline.", null, "", {
             timeout: "provider-total"
@@ -393,17 +462,16 @@ function dropRejectedAnthropicSampling(
   return true;
 }
 
-function isOpenAiContentDelta(data: string): boolean {
+function isOpenAiActivityEvent(data: string): boolean {
   if (data === "[DONE]") return false;
   try {
     const parsed = JSON.parse(data) as unknown;
     const choice = isObject(parsed) && Array.isArray(parsed.choices)
       ? parsed.choices[0]
       : undefined;
-    const content = isObject(choice) && isObject(choice.delta)
-      ? choice.delta.content
-      : undefined;
-    return typeof content === "string" && content.length > 0;
+    if (!isObject(choice) || !isObject(choice.delta)) return false;
+    return hasNonEmptyString(choice.delta.content)
+      || hasNonEmptyString(choice.delta.reasoning_content);
   } catch {
     return false;
   }
@@ -413,18 +481,39 @@ function isOpenAiTerminalEvent(data: string): boolean {
   return data === "[DONE]";
 }
 
-function isAnthropicContentDelta(data: string): boolean {
+function isAnthropicActivityEvent(data: string): boolean {
   try {
     const parsed = JSON.parse(data) as unknown;
-    return isObject(parsed)
-      && parsed.type === "content_block_delta"
-      && isObject(parsed.delta)
-      && parsed.delta.type === "text_delta"
-      && typeof parsed.delta.text === "string"
-      && parsed.delta.text.length > 0;
+    if (
+      !isObject(parsed)
+      || parsed.type !== "content_block_delta"
+      || !isObject(parsed.delta)
+    ) return false;
+    return (parsed.delta.type === "text_delta" && hasNonEmptyString(parsed.delta.text))
+      || (parsed.delta.type === "thinking_delta" && hasNonEmptyString(parsed.delta.thinking));
   } catch {
     return false;
   }
+}
+
+function hasNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+/** Some OpenAI-compatible endpoints report a running reasoning-token count
+ * on `usage.completion_tokens_details.reasoning_tokens`, mirroring OpenAI's
+ * own non-streaming shape. Read it when present rather than only ever
+ * counting deltas — most endpoints never send it mid-stream, so this stays
+ * `null` for them and the delta count below carries the whole story. */
+function openAiReasoningTokenCount(parsed: Record<string, unknown>): number | null {
+  const usage = isObject(parsed.usage) ? parsed.usage : undefined;
+  const details = usage !== undefined && isObject(usage.completion_tokens_details)
+    ? usage.completion_tokens_details
+    : undefined;
+  const reported = details?.reasoning_tokens;
+  return typeof reported === "number" && Number.isFinite(reported) && reported >= 0
+    ? reported
+    : null;
 }
 
 function isAnthropicTerminalEvent(data: string): boolean {
@@ -456,8 +545,20 @@ async function* streamDryRun(
   signal: AbortSignal,
   options: StreamCompletionOptions
 ): AsyncGenerator<string> {
-  const { outcome, storySampling, tokenProbabilities } = options;
+  const { outcome, storySampling, tokenProbabilities, onReasoning } = options;
   requireLogitBiasFamilyAvailable(settings, "dry-run", storySampling);
+  // Fabricated reasoning, obviously synthetic and short, so the reasoning
+  // path is exercisable end to end without a network provider. Arrives
+  // before the prose loop, mirroring a real reasoning model's stream shape.
+  let reasoningTokenCount = 0;
+  for (const word of DRY_RUN_REASONING_TEXT.match(/\s*\S+/g) ?? []) {
+    if (signal.aborted) return;
+    reasoningTokenCount += 1;
+    if (onReasoning !== undefined) {
+      await onReasoning({ text: word, tokenCount: reasoningTokenCount });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 8));
+  }
   const messages = renderPromptPlan(prompt);
   const instruction = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   const text = prompt.operation === "rewrite"
@@ -495,6 +596,10 @@ async function* streamDryRun(
   }
   capture.finish();
 }
+
+/** Short and obviously fabricated: dry-run reasoning exists to exercise the
+ * reasoning path, never to look like a real thought. */
+const DRY_RUN_REASONING_TEXT = "(dry-run) weighing two openings before picking one.";
 
 function dryRunSummary(prompt: PromptPlan): string {
   const blocks = prompt.turns.flatMap((turn) => turn.blocks);

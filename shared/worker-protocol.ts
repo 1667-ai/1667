@@ -515,7 +515,19 @@ export type WorkerToMainMessage =
        * bounded delta messages before this terminal. */
       unsentText?: string;
     }
-  | { type: "delta"; id: WorkerOperationId; sequence: number; text: string }
+  | {
+      type: "delta";
+      id: WorkerOperationId;
+      sequence: number;
+      text: string;
+      /** Present only when `text` is model reasoning ("thinking") rather
+       *  than story prose — absent means prose, exactly as before this
+       *  field existed. A reasoning delta still consumes the same
+       *  monotonic `sequence` and the same ack/credit window as a prose
+       *  delta; only the channel differs. `tokenCount` is the running total
+       *  for the whole reasoning stream so far. */
+      reasoning?: { tokenCount: number };
+    }
   | {
       type: "complete";
       id: WorkerOperationId;

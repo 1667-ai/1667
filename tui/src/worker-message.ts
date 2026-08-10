@@ -135,21 +135,44 @@ function decodeOperationMessage(
 function decodeDeltaMessage(
   message: Record<string, unknown>
 ): WorkerToMainMessage | null {
-  if (!hasExactKeys(message, ["type", "id", "sequence", "text"])) return null;
+  if (!hasExactKeys(message, ["type", "id", "sequence", "text"], ["reasoning"])) return null;
   const id = decodeOperationId(message.id);
+  const reasoning = decodeDeltaReasoning(message.reasoning);
   if (id === null
     || typeof message.sequence !== "number"
     || !Number.isSafeInteger(message.sequence)
     || message.sequence < 0
-    || typeof message.text !== "string") {
+    || typeof message.text !== "string"
+    || reasoning === undefined) {
     return null;
   }
   return Object.freeze({
     type: "delta",
     id,
     sequence: message.sequence,
-    text: message.text
+    text: message.text,
+    ...(reasoning === null ? {} : { reasoning })
   });
+}
+
+/** null = the field was absent (a prose delta, the common case); undefined
+ *  = present but malformed, which the caller treats as a decode failure. */
+function decodeDeltaReasoning(
+  value: unknown
+): { tokenCount: number } | null | undefined {
+  if (value === undefined) return null;
+  if (
+    value === null
+    || typeof value !== "object"
+    || Array.isArray(value)
+    || !hasExactKeys(value as Record<string, unknown>, ["tokenCount"])
+  ) return undefined;
+  const tokenCount = (value as Record<string, unknown>).tokenCount;
+  return typeof tokenCount === "number"
+    && Number.isSafeInteger(tokenCount)
+    && tokenCount >= 0
+    ? Object.freeze({ tokenCount })
+    : undefined;
 }
 
 function decodeErrorMessage(

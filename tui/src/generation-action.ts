@@ -28,6 +28,7 @@ import type { ProseStyle, WrapCache } from "./wrap.js";
 import { followStoryViewport } from "./viewport-intent.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import {
+  appendStreamReasoning,
   appendStreamText,
   emptyStreamText,
   streamHasSubstantiveText,
@@ -218,6 +219,23 @@ export async function generate(
       (tail) => {
         if (!owns() || !storyCurrent()) return;
         appendStreamText(stream, tail);
+        if (state.stream === stream) repaint();
+      },
+      // Same ownership guard as onDelta, on the reasoning channel. Reasoning
+      // is never persisted in this pass — it only ever lives on the live
+      // stream view — so it appends and repaints exactly like prose, without
+      // any of prose's commit bookkeeping.
+      (delta) => {
+        if (!owns()
+          || !storyCurrent()
+          || (state.stream !== stream && !signal.aborted)) return;
+        appendStreamReasoning(stream, delta.text, delta.tokenCount);
+        if (state.stream === stream) repaint();
+      },
+      // Same withheld-tail contract as onStopped, on the reasoning channel.
+      (tail) => {
+        if (!owns() || !storyCurrent()) return;
+        appendStreamReasoning(stream, tail, stream.reasoning?.tokenCount ?? 0);
         if (state.stream === stream) repaint();
       }
     );

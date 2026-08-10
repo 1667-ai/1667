@@ -35,7 +35,8 @@ import { activeBudgetedFacts, activeBudgetedFactsForRewrite } from "../shared/fa
 import { formatFactsMessage } from "../shared/story-facts.js";
 import {
   streamModel,
-  type DeltaConsumer
+  type DeltaConsumer,
+  type ReasoningConsumer
 } from "./generation-stream.js";
 import { activeLeaf, activePath, nodeById, pathTo } from "../shared/story-tree.js";
 import { resolveRewriteDestination, type GenerationSettings, type Story } from "../shared/types.js";
@@ -154,7 +155,11 @@ export async function continueStory(
    *  exists. A caller that wants to tell the writer what happened (rather
    *  than the pre-flight guess the context meter shows before the request is
    *  sent) reads it here; the committed Story carries no trace of it. */
-  onFactsDropped?: (dropped: readonly FactBudgetDrop[]) => void
+  onFactsDropped?: (dropped: readonly FactBudgetDrop[]) => void,
+  /** Reasoning ("thinking") text, kept apart from `onDelta`'s story prose at
+   *  every step between here and the provider. Trailing and optional so
+   *  every existing caller of `continueStory` stays valid unchanged. */
+  onReasoning?: ReasoningConsumer
 ): Promise<Story | null> {
   if (signal.aborted) return null;
   const requestedInstruction = (optionalString(body.instruction) ?? "").trim();
@@ -276,7 +281,8 @@ export async function continueStory(
         continuation.prompt.operation
       ),
       storySampling: storySamplingBias(story),
-      tokenProbabilities
+      tokenProbabilities,
+      onReasoning
     });
   } catch (error) {
     // A clean provider timeout after the opening already diverged from the
@@ -351,7 +357,11 @@ export async function rewriteNode(
   rewriteId?: string,
   takeId?: string,
   bindIntent?: BindGenerationIntent,
-  partials?: PartialRewriteStash
+  partials?: PartialRewriteStash,
+  /** Reasoning text, kept apart from `onDelta`'s replacement prose. Trailing
+   *  and optional so every existing caller of `rewriteNode` stays valid
+   *  unchanged. */
+  onReasoning?: ReasoningConsumer
 ): Promise<string | null> {
   if (signal.aborted) return null;
   const start = body.start;
@@ -537,7 +547,8 @@ export async function rewriteNode(
         output,
         providerStarted,
         promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
-        storySampling: storySamplingBias(story)
+        storySampling: storySamplingBias(story),
+        onReasoning
       });
     } catch (error) {
       if (timeoutProvenanceOf(error) !== null) {

@@ -46,6 +46,7 @@ import {
 } from "./worker-error.js";
 import { settleWorkerTerminal } from "./worker-terminal.js";
 import { openPendingWorkerCall } from "./worker-call-allocation.js";
+import type { ReasoningDelta } from "./worker-pending.js";
 import { prepareWorkerMutationIntent } from "./worker-mutation-publication.js";
 import type { WorkerRecoveryWarning, WorkerStoryApiOptions } from "./worker-api-contract.js";
 import { embeddedWorkerHostCause } from "./worker-host-diagnostics.js";
@@ -168,6 +169,12 @@ export class WorkerTransport {
        * worker's own reclaimed tail). `onDelta` is never called after the
        * abort. */
       onStopped?: (text: string) => void;
+      /** Same shape as `onDelta`, on the reasoning ("thinking") channel —
+       * never the same callback, so reasoning can never reach a caller
+       * that only asked for prose. */
+      onReasoning?: (delta: ReasoningDelta) => void;
+      /** Same withholding as `onStopped`, on the reasoning channel. */
+      onReasoningStopped?: (text: string) => void;
       signal?: AbortSignal;
       expectedAggregateVersion?: StoryAggregateVersion;
     } = {}
@@ -202,6 +209,8 @@ export class WorkerTransport {
     options: {
       onDelta?: (text: string) => void;
       onStopped?: (text: string) => void;
+      onReasoning?: (delta: ReasoningDelta) => void;
+      onReasoningStopped?: (text: string) => void;
       signal?: AbortSignal;
       expectedAggregateVersion?: StoryAggregateVersion;
     }
@@ -301,6 +310,8 @@ export class WorkerTransport {
         durableIntent: intent !== undefined,
         ...(options.onDelta === undefined ? {} : { onDelta: options.onDelta }),
         ...(options.onStopped === undefined ? {} : { onStopped: options.onStopped }),
+        ...(options.onReasoning === undefined ? {} : { onReasoning: options.onReasoning }),
+        ...(options.onReasoningStopped === undefined ? {} : { onReasoningStopped: options.onReasoningStopped }),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
         timeoutMs,
         deadlineAfterMs,
@@ -447,12 +458,18 @@ export class WorkerTransport {
       pending.receivedDeltaBatches += 1;
       pending.receivedUtf16Units += message.text.length;
       try {
-        // After the caller's signal aborts, `onDelta` must never run again.
-        // The text still arrived from the server, so it is withheld into
-        // the stopped tail (delivered once at terminal settlement) rather
-        // than dropped, and the batch is still acknowledged so worker
-        // credit keeps flowing toward that terminal.
-        if (pending.cancelled) pending.stoppedTail += message.text;
+        // After the caller's signal aborts, neither `onDelta` nor
+        // `onReasoning` must run again. The text still arrived from the
+        // server, so it is withheld into the matching stopped tail
+        // (delivered once at terminal settlement) rather than dropped, and
+        // the batch is still acknowledged so worker credit keeps flowing
+        // toward that terminal. The `reasoning` field is the only thing
+        // that decides the channel — same sequence, same ack, same credit
+        // machinery either way.
+        if (message.reasoning !== undefined) {
+          if (pending.cancelled) pending.stoppedReasoningTail += message.text;
+          else pending.onReasoning?.({ text: message.text, tokenCount: message.reasoning.tokenCount });
+        } else if (pending.cancelled) pending.stoppedTail += message.text;
         else pending.onDelta?.(message.text);
         this.worker.postMessage({ type: "ack", id: message.id, sequence: message.sequence });
       } catch (error) {
