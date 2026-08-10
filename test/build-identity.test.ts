@@ -32,11 +32,14 @@ test("source identity is explicit and cannot masquerade as a packaged build", ()
   // banned-strings routes and makes `scope` required on every resolved
   // sampling-bias entry. v18 makes `nativeBannedStrings` required on a
   // "resolved" resolveSamplingBias response (KoboldCpp's native bannedStrings
-  // transport, issue #311). An older peer must fail at preflight.
+  // transport, issue #311). v19 adds a take's thought: `effectiveProseReasoning`
+  // on the settings view, and `reasoning` and `discardReasoning` on a
+  // Generation Profile. A v18 client decodes both as closed records that know
+  // none of those names. An older peer must fail at preflight.
   assert.equal(
     HTTP_API_PROTOCOL_VERSION,
-    18,
-    "KoboldCpp's native bannedStrings transport requires HTTP API v18"
+    19,
+    "the settings view and profile thought fields require HTTP API v19"
   );
   const source = createSourceBuildIdentity("1.2.3");
   assert.deepEqual(source, {

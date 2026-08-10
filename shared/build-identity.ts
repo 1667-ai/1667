@@ -40,10 +40,20 @@ export const AI_1667_PRODUCT = "1667" as const;
  * cached result. No released build advertises v17 (the newest release is
  * v0.2.1); this bump only protects two from-source builds either side of
  * this change from that exact mismatch, and the reasoning above stops
- * applying the moment v17 itself ships. */
-export const HTTP_API_PROTOCOL_VERSION = 18;
-export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 18;
-export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 18;
+ * applying the moment v17 itself ships. v19 carries a take's thought: the
+ * settings view gains `effectiveProseReasoning`, and a Generation Profile
+ * gains `reasoning` and `discardReasoning`. Both are optional to a v19
+ * client, so a v19 client against a v18 server is fine — it reads their
+ * absence as the defaults. The break is the other pairing. A v18 client
+ * decodes both shapes as closed records that know none of those three
+ * names, so a v19 server's answer throws on a field the client has no
+ * concept of. That lands on Settings, which every other surface waits on,
+ * so the whole panel fails rather than one row. Without this bump both
+ * builds advertise v18, pass preflight as an exact match, and only then
+ * disagree. */
+export const HTTP_API_PROTOCOL_VERSION = 19;
+export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 19;
+export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 19;
 
 export type ArtifactTarget = "source" | BuiltArtifactTarget;
 
