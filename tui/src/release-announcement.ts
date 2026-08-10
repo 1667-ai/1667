@@ -1,4 +1,4 @@
-import { AI_1667_PRODUCT_VERSION } from "../../shared/build-identity.js";
+import { AI_1667_BUILD_IDENTITY, AI_1667_PRODUCT_VERSION } from "../../shared/build-identity.js";
 import { compareSemVer } from "../../shared/semver.js";
 import { RELEASE_NOTES, type ReleaseNote } from "../../shared/release-notes.js";
 import type { AppSource } from "./app.js";
@@ -119,16 +119,30 @@ function noteText(note: ReleaseNote): string {
  * order across files.
  *
  * A demo source never touches disk and never speaks past the tour's own
- * script. `options` lets tests redirect the config file; production leaves
- * it at the default, the real config path.
+ * script, and neither does a source build: `packaged` defaults to
+ * `AI_1667_BUILD_IDENTITY.artifactTarget !== "source"`, the same idiom
+ * `resolveEmbeddedDataDirectory` and `createBackgroundUpdateStarter`
+ * (main.ts, update-runtime.ts) already use for a build-identity-gated
+ * decision — the global read stays a default a caller can override, not a
+ * hardcoded check, so this function stays directly testable. A source build
+ * takes its version from `package.json`, which routinely names a version
+ * with no release note yet: an ungated source run would stamp that version
+ * as seen and burn the real release's one announcement before it even
+ * ships. The deliberate cost this buys: the feature cannot be exercised by
+ * running from source, only from a built standalone executable. There is no
+ * workaround flag for that — tests override `packaged` directly instead.
+ *
+ * `options` lets tests redirect the config file; production leaves it at
+ * the default, the real config path.
  */
 export function announceRelease(
   state: RuntimeState,
   source: AppSource,
   options: ConfigPersistenceOptions = {},
-  notes: readonly ReleaseNote[] = RELEASE_NOTES
+  notes: readonly ReleaseNote[] = RELEASE_NOTES,
+  packaged: boolean = AI_1667_BUILD_IDENTITY.artifactTarget !== "source"
 ): void {
-  if (source.demo) return;
+  if (source.demo || !packaged) return;
   // Read fresh rather than trusting `source.config`: that snapshot came from
   // `main.ts`'s own `loadConfig` call earlier in startup, and `loadConfig`
   // alone cannot tell "absent" from "unreadable" (see `loadConfigWithStatus`
@@ -164,18 +178,25 @@ export function announceRelease(
     // that earlier load and this call. Stamping over the stale startup
     // snapshot would silently revert whatever that other process just wrote.
     stamped = saveConfig({ ...fresh.config, lastRunVersion: currentVersion }, options);
-    if (stamped) {
-      // In memory, though, adopt only this one field. `source.config`'s
-      // other fields already built this session's palette and behavior
-      // before this function ever ran, so swapping the concurrent
-      // process's fresher values in here would change a running session's
-      // settings underneath it — a worse bug than the disk overwrite this
-      // guards against. Disk gets the fresh copy; memory keeps its own
-      // snapshot except for `lastRunVersion`. This asymmetry is
-      // deliberate — do not "tidy" it into full adoption.
-      source.config = { ...source.config, lastRunVersion: currentVersion };
-      state.config = source.config;
-    }
+  }
+  // Sync memory whenever the disk is *known* to carry `currentVersion` —
+  // whether this call's own write just landed above, or another process
+  // (or an earlier run) had already stamped it before this read. The second
+  // case is easy to miss: skipping the sync there leaves `source.config`
+  // holding the stale startup value, and the next ordinary save this
+  // session makes — a theme change, a facts-rail toggle, `recordHumanWords`
+  // — writes that stale version back over the correct one, repeating the
+  // announcement on the following launch.
+  if (stamped && source.config.lastRunVersion !== currentVersion) {
+    // Adopt only this one field. `source.config`'s other fields already
+    // built this session's palette and behavior before this function ever
+    // ran, so swapping a concurrent process's fresher values in here would
+    // change a running session's settings underneath it — a worse bug than
+    // the disk overwrite this guards against. Disk gets the fresh copy;
+    // memory keeps its own snapshot except for `lastRunVersion`. This
+    // asymmetry is deliberate — do not "tidy" it into full adoption.
+    source.config = { ...source.config, lastRunVersion: currentVersion };
+    state.config = source.config;
   }
 
   // `saveConfig` swallows a read-only or full config directory rather than

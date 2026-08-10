@@ -132,22 +132,21 @@ function generatedSource(notes: ParsedReleaseNote[]): string {
 }
 
 /**
- * Fail unless `CHANGELOG.md` has a release section for exactly `version`.
- * `notes:check` alone cannot catch this: it only verifies the generated
- * file matches whatever headings already exist, and passes happily when the
- * version being published is still sitting under `## Unreleased` with no
- * section of its own. A tagged binary can then ship with no note for its
- * own version — and because the "unknown previous version" upgrade path
- * (see `release-announcement.ts`) matches a note by exact version, every
- * pre-feature installation upgrading to that release gets nothing, and is
- * stamped as seen regardless: its one chance to be told is gone for good.
- * Wired into the release workflow, not into `build`/`typecheck` — everyday
- * development legitimately has unreleased changes, and failing those would
- * be wrong.
+ * Fail unless `notes` has a release entry for exactly `version`. Distinct
+ * from the artifact-staleness check `assertExact` performs below: a missing
+ * `CHANGELOG.md` section and a stale generated file are different mistakes
+ * with different fixes, so each throws its own message naming which one
+ * happened. `notes:check` alone cannot catch a missing section — it only
+ * verifies the generated file matches whatever headings already exist, and
+ * passes happily when the version being published is still sitting under
+ * `## Unreleased` with no section of its own. A tagged binary can then ship
+ * with no note for its own version — and because the "unknown previous
+ * version" upgrade path (see `release-announcement.ts`) matches a note by
+ * exact version, every pre-feature installation upgrading to that release
+ * gets nothing, and is stamped as seen regardless: its one chance to be told
+ * is gone for good.
  */
-export async function assertVersionHasReleaseNote(version: string): Promise<void> {
-  const changelog = await readFile(CHANGELOG_FILE, "utf8");
-  const notes = parseReleaseNotes(changelog);
+function assertVersionHasReleaseNote(notes: readonly ParsedReleaseNote[], version: string): void {
   if (notes.some((note) => note.version === version)) return;
   throw new Error(
     `CHANGELOG.md has no release section for ${version}. Add "## ${version} - <YYYY-MM-DD>" `
@@ -165,11 +164,18 @@ if (mode === "--write") {
   const notes = parseReleaseNotes(changelog);
   await assertExact(OUTPUT_FILE, generatedSource(notes), ARTIFACT_OPTIONS);
 } else if (mode === "--check-version") {
+  // Both guarantees live in one gate on purpose (see the P1 this fixed):
+  // wiring "the version has a section" and "the artifact is current" as two
+  // separate workflow steps let a future edit drop one without the other.
+  // A single mode that always runs both cannot be partially wired.
   const version = process.argv[3];
   if (version === undefined) {
     throw new Error("Usage: tsx scripts/release-notes.ts --check-version <version>");
   }
-  await assertVersionHasReleaseNote(version);
+  const changelog = await readFile(CHANGELOG_FILE, "utf8");
+  const notes = parseReleaseNotes(changelog);
+  assertVersionHasReleaseNote(notes, version);
+  await assertExact(OUTPUT_FILE, generatedSource(notes), ARTIFACT_OPTIONS);
 } else {
   throw new Error("Usage: tsx scripts/release-notes.ts --write|--check|--check-version <version>");
 }

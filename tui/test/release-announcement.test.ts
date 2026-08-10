@@ -57,6 +57,11 @@ const WIRING_NOTES: readonly ReleaseNote[] = [
 ];
 const EXPECTED_TOAST = `Updated to ${AI_1667_PRODUCT_VERSION} · press ! for what changed`;
 const EXPECTED_COMPOSE_TOAST = `Updated to ${AI_1667_PRODUCT_VERSION} · esc then ! for what changed`;
+// `announceRelease` defaults `packaged` to the real build identity, which
+// under `bun test` is always "source" (see shared/build-identity.ts) — a
+// source build never stamps or announces. Every wiring test below drives
+// the packaged path explicitly instead.
+const PACKAGED = true;
 
 function wiringSource(file: string, demo = false) {
   const base = demoAppSource();
@@ -145,7 +150,7 @@ describe("announceRelease (wiring)", () => {
     const state = initialState(source, false);
     expect(state.toast).toBeNull();
 
-    announceRelease(state, source, { file }, WIRING_NOTES);
+    announceRelease(state, source, { file }, WIRING_NOTES, PACKAGED);
 
     expect(state.toast).toBe(EXPECTED_TOAST);
     // Simulate the repaint that runs right after this call in
@@ -185,7 +190,7 @@ describe("announceRelease (wiring)", () => {
       afterTemporaryFileSync: () => {
         throw new Error("simulated write failure");
       }
-    }, WIRING_NOTES);
+    }, WIRING_NOTES, PACKAGED);
 
     expect(state.toast).toBeNull();
     expect(state.notices.entries).toHaveLength(0);
@@ -201,11 +206,69 @@ describe("announceRelease (wiring)", () => {
     const source = wiringSource(file);
     const state = initialState(source, false);
 
-    announceRelease(state, source, { file }, []);
+    announceRelease(state, source, { file }, [], PACKAGED);
 
     expect(state.toast).toBeNull();
     expect(state.notices.entries).toHaveLength(0);
     expect(source.config.lastRunVersion).toBe(AI_1667_PRODUCT_VERSION);
+    expect(loadConfig({ file }).lastRunVersion).toBe(AI_1667_PRODUCT_VERSION);
+  });
+
+  // Regression: a source build takes its version from package.json, which
+  // routinely names a version with no release note yet (the maintainer runs
+  // the source build routinely). Without this gate, that run would stamp
+  // the unreleased version as seen, burning the real release's one
+  // announcement before it even ships.
+  test("a non-packaged (source) build neither stamps nor announces", async () => {
+    const file = await scratchConfigFile();
+    saveConfig(normalizeUserConfig({ lastRunVersion: "0.0.1" }), { file });
+    const source = wiringSource(file);
+    const state = initialState(source, false);
+
+    // No `packaged` override: exercises the real default, which follows the
+    // real build identity. `bun test` runs from source, so this is exactly
+    // the case the gate exists for — the same as running `bun test` or
+    // `bun src/standalone.ts` in this repo right now.
+    announceRelease(state, source, { file }, WIRING_NOTES);
+
+    expect(state.toast).toBeNull();
+    expect(state.notices.entries).toHaveLength(0);
+    // Neither the disk nor memory is touched.
+    expect(loadConfig({ file }).lastRunVersion).toBe("0.0.1");
+    expect(source.config.lastRunVersion).toBe("0.0.1");
+  });
+
+  // Regression: `stamped` started `true` whenever the disk already carried
+  // `currentVersion`, and the in-memory sync lived only inside the branch
+  // that ran a fresh write — so an already-current stamp (a concurrent
+  // process, or an earlier phase of this same startup) was never adopted
+  // into `source.config`/`state.config`. The next ordinary save that
+  // session made would then write the stale in-memory version back over
+  // the correct one on disk.
+  test("a stamp already current on disk before this run is still adopted in memory", async () => {
+    const file = await scratchConfigFile();
+    // Simulate a concurrent process (or an earlier phase of this same
+    // startup) having already stamped the current version, before this
+    // call's own fresh read.
+    saveConfig(normalizeUserConfig({ lastRunVersion: AI_1667_PRODUCT_VERSION }), { file });
+
+    // This source's own in-memory snapshot predates that stamp, as if
+    // main.ts's startup load ran before the concurrent write landed.
+    const base = demoAppSource();
+    const source = { ...base, demo: false, config: { ...base.config, lastRunVersion: "0.0.1" } };
+    const state = initialState(source, false);
+
+    announceRelease(state, source, { file }, WIRING_NOTES, PACKAGED);
+
+    // Adopted in memory even though this call itself never wrote anything —
+    // the disk was already correct when it read.
+    expect(source.config.lastRunVersion).toBe(AI_1667_PRODUCT_VERSION);
+    expect(state.config.lastRunVersion).toBe(AI_1667_PRODUCT_VERSION);
+
+    // Proves it matters: an ordinary later save this session makes (a theme
+    // change, a facts-rail toggle, recordHumanWords) must not revert the
+    // file to the stale version this session started with.
+    saveConfig(source.config, { file });
     expect(loadConfig({ file }).lastRunVersion).toBe(AI_1667_PRODUCT_VERSION);
   });
 
@@ -217,7 +280,7 @@ describe("announceRelease (wiring)", () => {
     expect(source.demo).toBe(true);
     const state = initialState(source, false);
 
-    announceRelease(state, source, { file }, WIRING_NOTES);
+    announceRelease(state, source, { file }, WIRING_NOTES, PACKAGED);
 
     expect(state.toast).toBeNull();
     expect(state.notices.entries).toHaveLength(0);
@@ -232,7 +295,7 @@ describe("announceRelease (wiring)", () => {
     expect(source.config.lastRunVersion).toBeNull();
     const state = initialState(source, false);
 
-    announceRelease(state, source, { file }, WIRING_NOTES);
+    announceRelease(state, source, { file }, WIRING_NOTES, PACKAGED);
 
     expect(state.toast).toBeNull();
     expect(state.notices.entries).toHaveLength(0);
@@ -257,7 +320,7 @@ describe("announceRelease (wiring)", () => {
     const source = wiringSource(file);
     const state = initialState(source, false);
 
-    announceRelease(state, source, { file }, WIRING_NOTES);
+    announceRelease(state, source, { file }, WIRING_NOTES, PACKAGED);
 
     // Not silence: an existing installation gets the note for the exact
     // version it landed on, per the "unknown" case.
@@ -286,7 +349,7 @@ describe("announceRelease (wiring)", () => {
     const source = wiringSource(file);
     const state = initialState(source, false);
 
-    announceRelease(state, source, { file }, WIRING_NOTES);
+    announceRelease(state, source, { file }, WIRING_NOTES, PACKAGED);
 
     expect(state.toast).toBeNull();
     expect(state.notices.entries).toHaveLength(0);
@@ -304,7 +367,7 @@ describe("announceRelease (wiring)", () => {
     const state = initialState(source, false);
     state.mode = "COMPOSE";
 
-    announceRelease(state, source, { file }, WIRING_NOTES);
+    announceRelease(state, source, { file }, WIRING_NOTES, PACKAGED);
 
     expect(state.toast).toBe(EXPECTED_COMPOSE_TOAST);
   });
@@ -327,7 +390,7 @@ describe("announceRelease (wiring)", () => {
     // after that load but before this process reaches announceRelease.
     saveConfig(normalizeUserConfig({ lastRunVersion: "0.0.1", theme: "bond" }), { file });
 
-    announceRelease(state, source, { file }, WIRING_NOTES);
+    announceRelease(state, source, { file }, WIRING_NOTES, PACKAGED);
 
     const persisted = loadConfig({ file });
     // The concurrent write survives...
@@ -352,7 +415,7 @@ describe("the stamp makes the announcement one-shot", () => {
     // Drive the real path once.
     const firstSource = wiringSource(file);
     const firstState = initialState(firstSource, false);
-    announceRelease(firstState, firstSource, { file }, WIRING_NOTES);
+    announceRelease(firstState, firstSource, { file }, WIRING_NOTES, PACKAGED);
     expect(firstState.toast).toBe(EXPECTED_TOAST);
 
     // Drive it again, from a fresh state and a fresh read of exactly what
@@ -360,7 +423,7 @@ describe("the stamp makes the announcement one-shot", () => {
     const secondSource = wiringSource(file);
     expect(secondSource.config.lastRunVersion).toBe(AI_1667_PRODUCT_VERSION);
     const secondState = initialState(secondSource, false);
-    announceRelease(secondState, secondSource, { file }, WIRING_NOTES);
+    announceRelease(secondState, secondSource, { file }, WIRING_NOTES, PACKAGED);
 
     expect(secondState.toast).toBeNull();
     expect(secondState.notices.entries).toHaveLength(0);
@@ -374,7 +437,7 @@ describe("the announcement reaches a rendered frame", () => {
     const source = wiringSource(file);
     const state = initialState(source, false);
 
-    announceRelease(state, source, { file }, WIRING_NOTES);
+    announceRelease(state, source, { file }, WIRING_NOTES, PACKAGED);
     expect(state.toast).toBe(EXPECTED_TOAST);
 
     const rendered = frameText(renderStoryScreen(state, {
@@ -398,7 +461,7 @@ describe("the announcement reaches a rendered frame", () => {
     const source = wiringSource(file);
     const state = initialState(source, false);
 
-    announceRelease(state, source, { file }, WIRING_NOTES);
+    announceRelease(state, source, { file }, WIRING_NOTES, PACKAGED);
     expect(state.toast).toBe(EXPECTED_TOAST);
     // The repaint that runs right after this call in `runInteractive`.
     recordSessionNotices(state);
@@ -433,7 +496,7 @@ describe("the announcement reaches a rendered frame", () => {
       + " LASTROWMARKER";
     announceRelease(state, source, { file }, [
       { version: AI_1667_PRODUCT_VERSION, date: "2026-08-10", body: longBody }
-    ]);
+    ], PACKAGED);
     expect(state.toast).toBe(EXPECTED_TOAST);
     // `announceRelease` already wrote the full body directly via
     // `recordNotice`, with the cursor on it. Not calling `recordSessionNotices`
