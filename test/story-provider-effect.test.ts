@@ -392,7 +392,15 @@ test("a chapter summary rewrite always replaces in place, even when a take is re
     rewriteId: "rewrite-2",
     // A chapter summary cannot take a sibling — this proves the override
     // wins even when the caller asks for one.
-    destination: "take"
+    destination: "take",
+    generationRecord: createGenerationRecord({
+      kind: "rewrite-take",
+      createdAt: AT,
+      range: { start: 0, end: 14 },
+      provider: { provider: "dry-run", model: "dry-run" },
+      effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+      prompt: { operation: "rewrite", entries: [] }
+    })
   }, hydrate);
   assert.equal(target.text, "Model rewrite.");
   assert.equal(target.attribution, null);
@@ -404,6 +412,8 @@ test("a chapter summary rewrite always replaces in place, even when a take is re
   assert.equal(target.genId, "original-gen");
   assert.equal(target.coveredExtent?.toPartId, "root");
   assert.equal(target.editedByUser, true);
+  const [record] = takePendingGenerationRecords(target);
+  assert.equal(record?.kind, "rewrite-in-place");
   // A chapter summary is a dead end no take can branch from (`createTake`
   // refuses a chapter-summary parent); its rewrite keeps splicing in place
   // instead of minting a sibling.

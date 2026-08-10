@@ -92,3 +92,23 @@ export function generationRecordRetargetedToNewTake(record: GenerationRecord): G
     ...(record.unsupportedReason === undefined ? {} : { unsupportedReason: record.unsupportedReason })
   });
 }
+
+/** A rewrite requested against `take` can still land in place — a
+ *  chapter-summary target always replaces in place, no matter what the
+ *  caller asked for (`applyRewrite`, server/story-provider-effect.ts, is the
+ *  one place that decides this). The record built before that decision was
+ *  known still says `rewrite-take`; correct it here so the immutable record
+ *  never claims a take that was never minted. The splice range is unaffected
+ *  by where the result lands, so it carries over unchanged. */
+export function generationRecordSettledInPlace(record: GenerationRecord): GenerationRecord {
+  if (record.kind !== "rewrite-take") return record;
+  return createGenerationRecord({
+    kind: "rewrite-in-place",
+    createdAt: record.createdAt,
+    ...(record.range === undefined ? {} : { range: record.range }),
+    provider: record.provider,
+    effective: record.effective,
+    prompt: record.prompt,
+    ...(record.unsupportedReason === undefined ? {} : { unsupportedReason: record.unsupportedReason })
+  });
+}

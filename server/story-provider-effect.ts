@@ -12,7 +12,7 @@ import { sha256 } from "./story-format.js";
 import { setStoryAutonameId } from "./story-metadata.js";
 import { nodeRewriteId, setNodeRewriteId } from "./story-node-text.js";
 import { appendPendingGenerationRecord } from "./story-node-generation-records.js";
-import { generationRecordRetargetedToNewTake } from "./generation-record-finalize.js";
+import { generationRecordRetargetedToNewTake, generationRecordSettledInPlace } from "./generation-record-finalize.js";
 import { attachTakeTokenProbabilities } from "./story-node-token-probabilities.js";
 import {
   appendContinuationToNode,
@@ -370,7 +370,7 @@ async function applyRewrite(
     target.updatedAt = effect.updatedAt;
     setNodeRewriteId(target, effect.rewriteId);
     if (effect.generationRecord !== undefined && effect.generationRecord !== null) {
-      appendPendingGenerationRecord(target, effect.generationRecord);
+      appendPendingGenerationRecord(target, generationRecordSettledInPlace(effect.generationRecord));
     }
     return { changed: true, value: target };
   }

@@ -8,6 +8,7 @@ import { demoAppSource } from "../src/demo.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
+import { GENERATION_RECORD_DETAIL_CACHE_BOUND } from "../src/generation-record-detail-cache.js";
 
 /**
  * Integration coverage for states a real dry-run generation cannot
@@ -265,4 +266,72 @@ describe("generation record viewer: stale async responses never paint over a new
     expect(state.record?.detailError).toBe(null);
   });
 
+});
+
+describe("generation record viewer: the detail cache stays bounded while paging", () => {
+  function summaries(count: number): GenerationRecordSummary[] {
+    return Array.from({ length: count }, (_, index) => ({
+      id: `r-${index}`,
+      kind: "continue",
+      createdAt: new Date(2026, 0, index + 1).toISOString()
+    }));
+  }
+
+  function countingDetailFetch(source: ReturnType<typeof demoAppSource>) {
+    const fetchCounts = new Map<string, number>();
+    source.api.getGenerationRecord = async (_storyId, _nodeId, recordId) => {
+      fetchCounts.set(recordId, (fetchCounts.get(recordId) ?? 0) + 1);
+      return record("continue");
+    };
+    return fetchCounts;
+  }
+
+  test("paging back and forth within the bound never re-fetches an already-seen event", async () => {
+    const { source, state, press } = harness();
+    const list = summaries(GENERATION_RECORD_DETAIL_CACHE_BOUND);
+    source.api.getGenerationRecords = async () => list;
+    const fetchCounts = countingDetailFetch(source);
+
+    await press("h");
+    expect(state.record?.eventIndex).toBe(list.length - 1);
+    for (let i = list.length - 1; i > 0; i -= 1) await press("left");
+    expect(state.record?.eventIndex).toBe(0);
+    // Walking every event exactly fills the cache to its bound — one entry
+    // per event, none evicted yet — so the walk back must be all hits.
+    for (let i = 0; i < list.length - 1; i += 1) await press("right");
+    expect(state.record?.eventIndex).toBe(list.length - 1);
+
+    expect(fetchCounts.size).toBe(list.length);
+    for (const count of fetchCounts.values()) expect(count).toBe(1);
+  });
+
+  test("paging one event past the bound evicts the longest-untouched entry, forcing a re-fetch", async () => {
+    const { source, state, press } = harness();
+    // One more event than the cache holds, so walking every event once
+    // over-fills it by exactly one entry.
+    const list = summaries(GENERATION_RECORD_DETAIL_CACHE_BOUND + 1);
+    source.api.getGenerationRecords = async () => list;
+    const fetchCounts = countingDetailFetch(source);
+    const newestId = list[list.length - 1]!.id;
+
+    await press("h");
+    expect(state.record?.eventIndex).toBe(list.length - 1);
+    expect(fetchCounts.get(newestId)).toBe(1);
+
+    // Walk all the way back to the oldest event. This caches every other
+    // event along the way — one more than the bound allows — so the one
+    // entry never touched again after its own fetch (the newest event,
+    // opened first and then immediately left behind) is the one that falls
+    // out.
+    for (let i = list.length - 1; i > 0; i -= 1) await press("left");
+    expect(state.record?.eventIndex).toBe(0);
+
+    // Walking back to the newest event re-visits every entry still cached
+    // (no further eviction) until it reaches the one entry that was
+    // evicted, which must be fetched again from the network.
+    for (let i = 0; i < list.length - 1; i += 1) await press("right");
+    expect(state.record?.eventIndex).toBe(list.length - 1);
+
+    expect(fetchCounts.get(newestId)).toBe(2);
+  });
 });

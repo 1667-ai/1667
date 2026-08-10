@@ -41,6 +41,7 @@ import type { SettingsModelPicker } from "./settings-model-picker.js";
 import type { TokenProbabilityRecord } from "../../shared/token-probabilities.js";
 import type { TokenProbabilityEmptyReason } from "./token-probabilities-model.js";
 import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../../shared/generation-record.js";
+import type { GenerationRecordDetailCache } from "./generation-record-detail-cache.js";
 import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 import type { PromptProjectionIdentity } from "./request-context.js";
 import type { StoryScalarField } from "./story-scalar-fields.js";
@@ -407,10 +408,12 @@ export interface GenerationRecordViewerState {
   detail: ResolvedGenerationRecord | null;
   detailLoading: boolean;
   detailError: GenerationRecordDetailError | null;
-  /** Every detail already fetched this session, keyed by record id, so
-   *  paging back to an earlier event repaints instantly instead of
-   *  re-fetching it. */
-  cache: Map<string, ResolvedGenerationRecord>;
+  /** Bounded LRU of details already fetched this session, keyed by record
+   *  id, so paging back to a recent event repaints instantly instead of
+   *  re-fetching it. Paging past the bound (see
+   *  GENERATION_RECORD_DETAIL_CACHE_BOUND) evicts the oldest untouched entry
+   *  instead of retaining every take's full history for the session. */
+  cache: GenerationRecordDetailCache;
 }
 
 /** The last answer the token-count lane published, held against the exact

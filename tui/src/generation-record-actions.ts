@@ -7,6 +7,7 @@ import { ApiFailureError } from "./api-error.js";
 import { createAtlasLayout } from "./atlas-layout.js";
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
+import { createGenerationRecordDetailCache } from "./generation-record-detail-cache.js";
 import { visibleEntryCount } from "./generation-record-pipeline.js";
 import type { ResolvedKey } from "./keys.js";
 import { createStoryViewModel, rowPart } from "./model.js";
@@ -39,7 +40,7 @@ export async function openGenerationRecordViewer(
     detail: null,
     detailLoading: false,
     detailError: null,
-    cache: new Map()
+    cache: createGenerationRecordDetailCache()
   };
   state.mode = "RECORD";
   context.repaint();
