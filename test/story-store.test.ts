@@ -685,7 +685,7 @@ test("story objects reject symlinked roots and shards before writes or sweep", a
     process.platform === "win32" ? "junction" : "dir"
   );
 
-  await assert.rejects(objects.sweep({ revisions: [], leaves: { probabilities: [], reasoning: [] } }), /Unsafe chunks object shard/);
+  await assert.rejects(objects.sweep({ revisions: [], leaves: { probabilities: [], reasoning: [], images: [] } }), /Unsafe chunks object shard/);
   assert.equal(await readFile(outsideObject, "utf8"), text);
 });
 

@@ -11,8 +11,25 @@ import { StoryFormatError, sha256, type ObjectHash } from "./story-format.js";
 /** The kinds of immutable object a story bundle stores. A revision's chunks
  * are the prose; a revision is the ordered chunk list; a probabilities
  * object is one take's captured token probabilities (issue #291 phase 3); a
- * reasoning object is one take's captured thought (shared/reasoning.ts). */
-export type ObjectKind = "chunks" | "revisions" | "probabilities" | "reasoning";
+ * reasoning object is one take's captured thought (shared/reasoning.ts); an
+ * images object is one Normalized Image's raw bytes
+ * (shared/image-attachment.ts), hashed and stored with no JSON codec. */
+export type ObjectKind = "chunks" | "revisions" | "probabilities" | "reasoning" | "images";
+
+/** The on-disk extension for one object kind, kept as the single table every
+ * writer and reader shares. `objectFilename` below, `objectPath`
+ * (server/story-objects.ts), and the sweep's suffix strip all read this same
+ * table rather than repeating the choice, so the three can never disagree —
+ * a disagreement would make the sweep silently ignore or delete files of
+ * that kind. Text kinds keep `.json`; `chunks` keeps its historical `.txt`;
+ * an image is binary, so it gets its own extension and no JSON codec. */
+export const OBJECT_EXTENSIONS: Record<ObjectKind, string> = {
+  chunks: ".txt",
+  revisions: ".json",
+  probabilities: ".json",
+  reasoning: ".json",
+  images: ".bin"
+};
 
 export class SweepCancelled extends Error {}
 
@@ -41,7 +58,7 @@ export function verifyExactObject(
 }
 
 export function objectFilename(kind: ObjectKind, hash: ObjectHash): string {
-  return `${hash}${kind === "chunks" ? ".txt" : ".json"}`;
+  return `${hash}${OBJECT_EXTENSIONS[kind]}`;
 }
 
 export function isLinkFallback(error: unknown): boolean {

@@ -315,6 +315,11 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       await transport.call("getTokenProbabilities", { storyId, nodeId }),
     getReasoning: async (storyId, nodeId) =>
       await transport.call("getReasoning", { storyId, nodeId }),
+    stageStoryImage: async (storyId, mediaType, bytes) =>
+      await transport.call("stageStoryImage", { storyId, mediaType, bytes }),
+    releaseStoryImage: async (storyId, leaseId) => {
+      await transport.call("releaseStoryImage", { storyId, leaseId });
+    },
     restoreChapterBreak: async (storyId, breakId, removed) => rememberPayload(
       await transport.call(
         "restoreChapterBreak",
@@ -414,12 +419,21 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       return result;
     },
 
-    continueStory: async (storyId, instruction, genId, target, onDelta, signal, callbacks: StreamCallbacks = {}) => {
+    continueStory: async (storyId, instruction, genId, target, onDelta, signal, callbacks: StreamCallbacks = {}, images) => {
       const { onStopped, onReasoning, onReasoningStopped } = callbacks;
       return await runProviderMutation(storyId, async () => {
         const result = await transport.call(
           "continueStory",
-          { storyId, instruction, genId, target },
+          {
+            storyId,
+            instruction,
+            genId,
+            target,
+            // Absent rather than empty when there are no images. The mutation
+            // fingerprint canonicalizes this input, so a text-only request
+            // must keep exactly the shape it had before image input existed.
+            ...(images === undefined || images.length === 0 ? {} : { images })
+          },
           {
             onDelta,
             ...(onStopped === undefined ? {} : { onStopped }),

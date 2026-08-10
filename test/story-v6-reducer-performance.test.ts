@@ -47,6 +47,10 @@ test("story V6 reducer performance: many small transitions stay inexpensive", (c
       summary
     });
     if (output === null || output.kind !== "live") assert.fail("Expected live output");
+    // This test only ever feeds V5 content, so the reducer's general
+    // V6-or-V8 return type is always V6 here; check it explicitly rather
+    // than casting.
+    if (output.schemaVersion !== 6) assert.fail("Expected a V6 manifest");
     manifest = output;
   }
   const timing = read();

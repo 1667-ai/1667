@@ -53,6 +53,7 @@ import { renderFactsPanel } from "./facts-panel.js";
 import { renderSamplingPanel } from "./sampling-panel.js";
 import { renderCardImportPanel } from "./card-import-panel.js";
 import { renderArchiveImportPanel } from "./archive-import-panel.js";
+import { renderImageAttachPanel } from "./image-attach-panel.js";
 import { renderProfileTransferPanel } from "./profile-transfer-panel.js";
 
 export { SETTINGS_FOOTER_ACTIONS } from "./settings-panel-footers.js";
@@ -95,6 +96,7 @@ export const CARD_IMPORT_FOOTER_ACTIONS = [
   { token: "esc", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 export const ARCHIVE_IMPORT_FOOTER_ACTIONS = CARD_IMPORT_FOOTER_ACTIONS;
+export const IMAGE_ATTACH_FOOTER_ACTIONS = CARD_IMPORT_FOOTER_ACTIONS;
 type PanelState = Omit<OverlayState, "hitRows"> & {
   mode: StoryScreenState["mode"];
   tag: StoryScreenState["tag"];
@@ -141,6 +143,11 @@ export function renderPanels(
   else if (state.card !== null) {
     composition = renderCardImportPanel(
       dimPage(base), local, width, height, CARD_IMPORT_FOOTER_ACTIONS
+    );
+  }
+  else if (state.image != null) {
+    composition = renderImageAttachPanel(
+      dimPage(base), local, width, height, IMAGE_ATTACH_FOOTER_ACTIONS
     );
   }
   else if (state.actions != null) composition = renderActions(dimPage(base), local, width, height);

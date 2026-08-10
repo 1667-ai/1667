@@ -2,6 +2,7 @@ import { assembleChapterContext, type PromptPart } from "./chapters.js";
 import { normalizeAuthorsNote, type AuthorsNotePlacement } from "./authors-note.js";
 import type { PromptPlan, PromptTurn } from "./prompt-plan.js";
 import { isOfficialAnthropicBaseUrl } from "./settings-provider-defaults.js";
+import type { StoryImageAttachment } from "./image-attachment.js";
 import type { ChapterBreak, GenerationSettings, StoryNode } from "./types.js";
 
 export const DEFAULT_INSTRUCTION = "Continue the story.";
@@ -49,12 +50,28 @@ export function continuationPlan(
   assistantPrefill: boolean,
   tag: string | null,
   chapterBreaks: readonly ChapterBreak[],
-  nodes: readonly PromptPart[]
+  nodes: readonly PromptPart[],
+  /** Images attached to the request being generated, not to any existing
+   *  story part. Ordered as the writer attached them. A request that carries
+   *  one always opens a new-passage user turn: no assistant prefill, no
+   *  boundary echo.
+   *
+   *  The caller resolves the ordered `{leaseId, objectId}` pairs on the
+   *  continueStory input envelope into `StoryImageAttachment` values and
+   *  passes them here. It also refuses a request that combines a non-empty
+   *  `newImages` list with `appendTo !== null`: an append mutates an existing
+   *  part, and a stored part records the exact provider input it was
+   *  generated from, so a new image can only ever start a new child
+   *  take. This function forces the new-passage turn either way; it cannot
+   *  refuse the append itself because it never sees `appendTo`. */
+  newImages: readonly StoryImageAttachment[] = []
 ): ContinuationPlan {
   const note = authorsNote === null ? null : normalizeAuthorsNote(authorsNote.text);
   const sourceContext = assembleChapterContext(parts, chapterBreaks, nodes);
   const contextPartIds = sourceContext.map((part) => part.id);
-  const continuePassage = appendLast && (sourceContext.at(-1)?.text.trim().length ?? 0) > 0;
+  const continuePassage = appendLast
+    && newImages.length === 0
+    && (sourceContext.at(-1)?.text.trim().length ?? 0) > 0;
   // Migrated empty endpoints are structural line endings, not provider messages.
   const context = sourceContext.filter((part) => part.text.trim().length > 0);
   const prelude: ContinuationPromptEntry[] = [
@@ -98,15 +115,24 @@ export function continuationPlan(
   ];
   const partEntries: PartPromptEntry[] = context.flatMap((part): PartPromptEntry[] => {
       const category = part.role === "summary" ? "summary" as const : "recent" as const;
+      const images = partImageAttachments(part);
       return [
         { category, turn: {
           role: "user",
-          blocks: [{
-            stability: "stable",
-            kind: "source",
-            text: part.instruction.trim() || DEFAULT_INSTRUCTION,
-            boundaryAfter: "none"
-          }]
+          blocks: [
+            ...images.map((image) => ({
+              stability: "stable" as const,
+              kind: "image" as const,
+              image,
+              boundaryAfter: "none" as const
+            })),
+            {
+              stability: "stable" as const,
+              kind: "source" as const,
+              text: part.instruction.trim() || DEFAULT_INSTRUCTION,
+              boundaryAfter: "none" as const
+            }
+          ]
         }, partId: part.id },
         { category, turn: {
           role: "assistant",
@@ -149,12 +175,20 @@ export function continuationPlan(
       category: "voice",
       turn: {
         role: "user",
-        blocks: [{
-          stability: "volatile",
-          kind: "request",
-          text: instruction.trim().length === 0 ? DEFAULT_INSTRUCTION : instruction,
-          boundaryAfter: "none"
-        }]
+        blocks: [
+          ...newImages.map((image) => ({
+            stability: "volatile" as const,
+            kind: "image" as const,
+            image,
+            boundaryAfter: "none" as const
+          })),
+          {
+            stability: "volatile" as const,
+            kind: "request" as const,
+            text: instruction.trim().length === 0 ? DEFAULT_INSTRUCTION : instruction,
+            boundaryAfter: "none" as const
+          }
+        ]
       }
     });
     assertAuthorsNoteFollowedByUser(entries);
@@ -281,6 +315,16 @@ function isClaudeWithoutPrefill(model: string): boolean {
   const major = Number(version[1]);
   const minor = Number(version[2] ?? 0);
   return major > 4 || (major === 4 && minor >= 6);
+}
+
+/** A story part's own Image Attachments, when it has any. Chapter-summary
+ *  parts (`PromptPart`) never carry one: a summary replaces the images along
+ *  with the prose it replaces, which is how images live and die with normal
+ *  context substitution. */
+function partImageAttachments(part: StoryNode | PromptPart): readonly StoryImageAttachment[] {
+  return "imageAttachments" in part && part.imageAttachments !== undefined
+    ? part.imageAttachments
+    : [];
 }
 
 function lastCharacters(value: string, count: number): string {

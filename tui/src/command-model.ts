@@ -7,7 +7,7 @@ export type CommandId =
   | "export" | "summary" | "tag-line"
   | "switch-story" | "rename-story" | "folder" | "autoname" | "import-card" | "import-archive"
   | "authors-note" | "author-brief" | "facts-budget" | "phrase-bias" | "banned-strings"
-  | "direct-take" | "retake" | "rewrite-selection" | "prune"
+  | "direct-take" | "retake" | "rewrite-selection" | "prune" | "attach-image"
   | "tags" | "chapters" | "chapter" | "prompts"
   | "next-request" | "token-probabilities"
   | "settings" | "reconnect" | "disconnect" | "export-profile" | "theme";
@@ -99,6 +99,7 @@ const COMMANDS: readonly PaletteCommand[] = [
   { id: "banned-strings", section: "story", name: "banned strings", description: "ban strings for this story only, adding to the profile's own", mutating: true },
 
   { id: "direct-take", section: "take", name: "direct take", description: "write the next take from an instruction", shortcut: "i" },
+  { id: "attach-image", section: "take", name: "attach image", description: "attach an image file to the next take" },
   { id: "retake", section: "take", name: "retake", description: "retake the focused part as a sibling", shortcut: "r", mutating: true },
   {
     id: "rewrite-selection", section: "take", name: "rewrite selection",

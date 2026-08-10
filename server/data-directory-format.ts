@@ -9,6 +9,7 @@ import { readBoundedRegularFile } from "./data-directory-file-read.js";
 import { type DataDirectoryFormatReadOptions, requireSupportedDataDirectoryFormat } from "./data-directory-format-compatibility.js";
 import { ServiceError } from "./errors.js";
 import { parseSettingsStateV2Bytes } from "./settings-v2-codec.js";
+import { parseSettingsStateSlotBytes } from "./settings-state-slot.js";
 import { INITIAL_SETTINGS_STATE_V2_TEXT } from "./settings-v2-default.js";
 import { MAX_SETTINGS_STATE_BYTES } from "./settings-v2-scalars.js";
 import {
@@ -219,6 +220,11 @@ async function readLegacyPreviewDataFormat(dataDir: string, ownerMissingError: u
   return 1;
 }
 
+/** Named for the file it reads (SETTINGS_STATE_V2_FILE is the one settings
+ *  authority path, regardless of the schema its bytes hold). It only proves
+ *  the file parses under a schema this build understands — schema 2 as
+ *  always, or the schema-3 successor a newer release may have written — so a
+ *  writer who moved back one release still opens their data directory. */
 async function validateSettingsStateV2(dataDir: string): Promise<void> {
   const statePath = path.join(dataDir, SETTINGS_STATE_V2_FILE);
   try {
@@ -227,7 +233,7 @@ async function validateSettingsStateV2(dataDir: string): Promise<void> {
       MAX_SETTINGS_STATE_BYTES
     );
     if (bytes === null) throw new Error("Format-2 settings state is missing");
-    parseSettingsStateV2Bytes(bytes);
+    parseSettingsStateSlotBytes(bytes);
   } catch (error) {
     const failure = new ServiceError(
       500,

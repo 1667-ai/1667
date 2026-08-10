@@ -2,6 +2,7 @@ import { createComposer } from "./composer-model.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import type { PendingGenerationDraft, PromptIntent, RetakePromptSession, RuntimeState } from "./state.js";
 import { followStoryViewport } from "./viewport-intent.js";
+import { draftImagesFor } from "./draft-image.js";
 
 export type ComposerOwnershipState = Pick<RuntimeState,
   "mode" | "composer" | "composerScrollTop" | "history" | "historyIndex"
@@ -13,7 +14,12 @@ type RetakeFocusState = Pick<RuntimeState,
 >;
 
 /** Resume the persistent Direct editor. Explicit Direct ownership also retires
- * a pending retake so late settlement cannot resurrect it. */
+ * a pending retake so late settlement cannot resurrect it.
+ *
+ * `state.composer` swapping back to the retained Direct `ComposerState`
+ * object is also what swaps its Draft Images back into view: they live in a
+ * `WeakMap` keyed on that exact object (`draft-image.ts`), not on this
+ * state, so no separate field here needs to move in step with it. */
 export function resumeDirectComposer(
   state: ComposerOwnershipState,
   expected: RetakePromptSession | null = state.retakePrompt,
@@ -54,6 +60,7 @@ export function capturePendingDirectDraft(
     cursor: state.composer.cursor,
     fullscreen: state.composer.fullscreen,
     composerScrollTop: state.composerScrollTop,
+    images: draftImagesFor(state.composer),
     restored: false
   };
 }
@@ -134,7 +141,9 @@ export function focusVisibleRetakeTarget(
 
 /** Bind a restored legacy/implicit retake draft to the same atomic model.
  *  Only `generate()`'s own stopped-stream reconstruction calls this, and it
- *  only ever rebuilds a retake — a rewrite never threads through that path. */
+ *  only ever rebuilds a retake — a rewrite never threads through that path.
+ *  Its fresh composer starts with no Draft Images: this path only ever
+ *  rebuilds a retake from `stream.instruction`, which never carried one. */
 export function createRestoredRetakeComposer(
   state: ComposerOwnershipState,
   nodeId: string,

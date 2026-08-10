@@ -8,11 +8,13 @@ import type {
   StoryV6Event,
   StoryV6ReducerState
 } from "../server/story-v6-events.js";
+import { requireV6Manifest } from "../server/story-v6-codec.js";
 import { reduceStoryV6 } from "../server/story-v6-reducer.js";
 import type {
   DeletedStoryManifestV6,
   LiveStoryManifestV6,
   ProviderPointer,
+  StoryEnvelopeManifest,
   StoryManifestV6,
   StorySummaryV6
 } from "../server/story-v6-types.js";
@@ -423,12 +425,15 @@ function prepared(mutationId: string) {
   return { receiptKind: "user" as const, mutationId, phase: "prepared" as const };
 }
 
-function requireManifest(value: StoryManifestV6 | null): StoryManifestV6 {
+// This file drives the reducer with V5-content, V6-envelope input only, so
+// every result is a V6 manifest; `requireV6Manifest` carries that fact
+// through the reducer's general (V6-or-V8) return type instead of casting.
+function requireManifest(value: StoryEnvelopeManifest | null): StoryManifestV6 {
   if (value === null) assert.fail("Expected a manifest");
-  return value;
+  return requireV6Manifest(value, "story V6 reducer test");
 }
 
-function requireLive(value: StoryManifestV6 | null): LiveStoryManifestV6 {
+function requireLive(value: StoryEnvelopeManifest | null): LiveStoryManifestV6 {
   const manifest = requireManifest(value);
   if (manifest.kind !== "live") assert.fail("Expected a live manifest");
   return manifest;

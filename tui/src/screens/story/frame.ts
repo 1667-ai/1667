@@ -9,7 +9,7 @@ export type LogoDisplayRole =
   | "logo cyan" | "logo blue" | "logo violet";
 
 export type DisplayRole = PaletteRole | "brass dim" | "human edit dim" | "rewritten" | "danger text" | "context warning"
-  | "context voice" | "context facts" | "context recent" | "context summary" | "context note"
+  | "context voice" | "context facts" | "context recent" | "context summary" | "context note" | "context visual"
   | "context growth" | "context growth pulse" | "fresh 1" | "fresh 2"
   | "match wash" | "match ink"
   | LogoDisplayRole;
@@ -381,6 +381,12 @@ const ALIAS_COLOR: Record<DisplayAlias, (palette: Palette) => ColorInput> = {
   "context recent": (palette) => palette.color("focus / accent"),
   "context summary": (palette) => palette.color("summary"),
   "context note": (palette) => palette.color("tag · canon"),
+  // A sixth meter slice, added after the original five (doc 12b's own
+  // comment above). "tag · discarded" is a hue none of the other five
+  // borrow and sits clear of "tag · draft" (the growth-pulse hue, which can
+  // paint in the same frame as this swatch), so an attached image reads as
+  // its own category rather than blending into voice or recent.
+  "context visual": (palette) => palette.color("tag · discarded"),
   // Forecast cells must stay off the request-fill palette (focus / accent,
   // context warning, danger). Brass and draft cool keep both pulse phases
   // distinct from every severity's request ink without reading as an alert.

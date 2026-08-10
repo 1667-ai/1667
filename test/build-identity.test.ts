@@ -35,11 +35,15 @@ test("source identity is explicit and cannot masquerade as a packaged build", ()
   // transport, issue #311). v19 adds a take's thought: `effectiveProseReasoning`
   // on the settings view, and `reasoning` and `discardReasoning` on a
   // Generation Profile. A v18 client decodes both as closed records that know
-  // none of those names. An older peer must fail at preflight.
+  // none of those names. v20 adds the two story image routes and eleven image
+  // failure codes: a v20 client takes a 404 on the stage route against a v19
+  // server, and a v19 client collapses every image code it does not know to
+  // `internal`, so it cannot tell a writer that a Draft Lease expired. An
+  // older peer must fail at preflight.
   assert.equal(
     HTTP_API_PROTOCOL_VERSION,
-    19,
-    "the settings view and profile thought fields require HTTP API v19"
+    20,
+    "the story image routes and image failure codes require HTTP API v20"
   );
   const source = createSourceBuildIdentity("1.2.3");
   assert.deepEqual(source, {

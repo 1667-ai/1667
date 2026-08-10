@@ -83,7 +83,15 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   // Settling a stashed partial contacts no provider; it is one local
   // splice-and-save.
   commitPartialRewrite: "local",
-  createSummaryTake: "generation"
+  createSummaryTake: "generation",
+  // No lifetime class is exactly the 60-second stage deadline. "transfer"
+  // (120 s) is the smallest class at or above it; the client requests
+  // exactly 60,000 ms, which `resolveHttpOperationReservation` clamps to
+  // the class max, so the reservation still gets exactly 60 s.
+  stageStoryImage: "transfer",
+  // A lease removal touches no normalizer child and no large body; it is
+  // one bounded filesystem operation, the same budget as deleteBookmark.
+  releaseStoryImage: "local"
 } as const satisfies Record<WorkerMethod, HttpOperationLifetime>;
 
 /** Frozen HTTP route-to-command policy shared by reservation and clients. */
@@ -254,6 +262,10 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
   }
   if (sub === "import-lorebook" && parts.length === 5 && httpMethod === "POST") return "importLorebook";
   if (sub === "import-card" && parts.length === 5 && httpMethod === "POST") return "importCard";
+  if (sub === "images" && subId === undefined && parts.length === 5
+    && httpMethod === "POST") return "stageStoryImage";
+  if (sub === "images" && subId !== undefined && parts.length === 6
+    && httpMethod === "DELETE") return "releaseStoryImage";
   if (sub === "facts" && action === undefined) {
 
     if (subId === undefined && parts.length === 5

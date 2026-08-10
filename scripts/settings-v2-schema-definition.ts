@@ -124,6 +124,28 @@ export function settingsV2Schema(): Schema {
       overrides: ref("ScalarMetadata"),
       capabilities: ref("Capabilities")
     }),
+    // Schema 3: every model capability record gains a required `imageInput`.
+    // `imageTokenCeiling`'s "valid only when imageInput is supported" rule
+    // has no `dependentRequired` expression through the shared `closed()`
+    // helper, so the schema stays permissive there and the codec
+    // (server/settings-v3-validation.ts) enforces it.
+    CapabilitiesV3: closed({
+      temperature: support(),
+      assistantPrefill: support(),
+      reasoningEffort: support(),
+      promptCaching: support(),
+      reasoningContent: support(),
+      imageInput: support(),
+      imageTokenCeiling: ref("TokenCount")
+    }, ["temperature", "assistantPrefill", "reasoningEffort", "promptCaching", "imageInput"]),
+    ModelV3: closed({
+      connectionId: ref("SettingsId"),
+      remoteId: boundedString(MAX_SETTINGS_REMOTE_ID_SCALARS),
+      name: boundedString(MAX_SETTINGS_NAME_SCALARS, 1),
+      discovered: ref("ScalarMetadata"),
+      overrides: ref("ScalarMetadata"),
+      capabilities: ref("CapabilitiesV3")
+    }),
     Profile: closed({
       name: boundedString(MAX_SETTINGS_NAME_SCALARS, 1),
       modelId: ref("SettingsId"),
@@ -185,6 +207,7 @@ export function settingsV2Schema(): Schema {
     }, [...SAMPLING_KNOB_V2_REQUIRED_VALUES]),
     Connections: settingsMap("Connection"),
     Models: settingsMap("Model"),
+    ModelsV3: settingsMap("ModelV3"),
     Profiles: settingsMap("Profile"),
     Routing: closed({
       default: ref("SettingsId"),
@@ -198,6 +221,14 @@ export function settingsV2Schema(): Schema {
       schemaVersion: { const: 2 },
       connections: ref("Connections"),
       models: ref("Models"),
+      profiles: ref("Profiles"),
+      routing: ref("Routing"),
+      writing: ref("Writing")
+    }),
+    DocumentV3: closed({
+      schemaVersion: { const: 3 },
+      connections: ref("Connections"),
+      models: ref("ModelsV3"),
       profiles: ref("Profiles"),
       routing: ref("Routing"),
       writing: ref("Writing")
@@ -246,11 +277,30 @@ export function settingsV2Schema(): Schema {
       propertyNames: { pattern: exactStringPatternSource("[1-9][0-9]{0,15}") },
       additionalProperties: ref("Document")
     },
+    DocumentsV3: {
+      type: "object",
+      minProperties: 1,
+      maxProperties: 2,
+      propertyNames: { pattern: exactStringPatternSource("[1-9][0-9]{0,15}") },
+      additionalProperties: ref("DocumentV3")
+    },
     State: closed({
       schemaVersion: { const: 2 },
       stateGeneration: ref("PositiveSafeInteger"),
       settingsRevisionClock: ref("PositiveSafeInteger"),
       documents: ref("Documents"),
+      activeRevision: ref("PositiveSafeInteger"),
+      pendingRevision: nullable(ref("PositiveSafeInteger")),
+      previousRevision: nullable(ref("PositiveSafeInteger")),
+      activation: nullable(ref("Activation")),
+      lastActivationOutcome: nullable(ref("ActivationOutcome")),
+      lastTransaction: nullable(ref("TransactionPointer"))
+    }),
+    StateV3: closed({
+      schemaVersion: { const: 3 },
+      stateGeneration: ref("PositiveSafeInteger"),
+      settingsRevisionClock: ref("PositiveSafeInteger"),
+      documents: ref("DocumentsV3"),
       activeRevision: ref("PositiveSafeInteger"),
       pendingRevision: nullable(ref("PositiveSafeInteger")),
       previousRevision: nullable(ref("PositiveSafeInteger")),
@@ -263,7 +313,7 @@ export function settingsV2Schema(): Schema {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     $id: "https://1667.invalid/schema/settings-v2-release-a.json",
     title: "1667 settings v2 document and aggregate state",
-    oneOf: [ref("Document"), ref("State")],
+    oneOf: [ref("Document"), ref("State"), ref("DocumentV3"), ref("StateV3")],
     $defs: definitions
   };
 }

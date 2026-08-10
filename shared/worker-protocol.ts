@@ -33,6 +33,11 @@ import type { FactBudgetDrop } from "./fact-budget.js";
 import type { TokenProbabilityRecord } from "./token-probabilities.js";
 import type { ReasoningRecord } from "./reasoning.js";
 import type { SamplingBiasResolutionResult } from "./sampling-capabilities.js";
+import type {
+  DraftImageReference,
+  SourceImageMediaType,
+  StoryImageAttachment
+} from "./image-attachment.js";
 
 import type {
   ListStoriesPageInput,
@@ -252,7 +257,19 @@ export interface WorkerMethodContract {
   importLorebook: { input: { storyId: string; archiveBytes: Uint8Array }; output: { payload: StoryPayload; importResult: LorebookImport } };
   importCard: { input: { storyId: string; cardBytes: Uint8Array }; output: { payload: StoryPayload; plan: CardImportPlan } };
   continueStory: {
-    input: { storyId: string; instruction: string; genId: string; target: { parentId?: string | null; appendTo?: string; expectedTextHash?: string } };
+    input: {
+      storyId: string;
+      instruction: string;
+      genId: string;
+      target: { parentId?: string | null; appendTo?: string; expectedTextHash?: string };
+      /** Ordered Draft Image references for the take being generated, beside
+       *  `instruction` and `genId` rather than inside `target`: `target` is
+       *  a closed union about append versus parent, and images are neither.
+       *  Absent or empty means no new Draft Images; a Retake's inherited
+       *  attachments are never submitted here, the server derives them from
+       *  the current manifest. See `shared/image-attachment.ts`. */
+      images?: readonly DraftImageReference[];
+    };
     /** droppedFacts is what admission actually shed to fit the fixed prompt —
      *  empty both when nothing had to give and when a crash-recovery replay
      *  has no way to know. See server/generation-admission.ts. */
@@ -270,6 +287,29 @@ export interface WorkerMethodContract {
   createSummaryTake: {
     input: { storyId: string; body: { nodeId: string; offset?: number; expected?: string } };
     output: string | null;
+  };
+  /** Stage one Source Image as a Draft Image: normalize it, store the
+   *  result as a content-addressed Image Object, and publish a Draft Lease
+   *  that keeps it alive. NOT a story mutation — it carries no `mutationId`
+   *  and no `expectedAggregateVersion`, and it must never join
+   *  `MutatingWorkerMethod`: the durable outbox serializes a mutation
+   *  intent with `JSON.stringify` (server/mutation-outbox.ts), which would
+   *  turn `bytes` into an index object. The embedded transport carries
+   *  `bytes` through structured clone, unchanged. */
+  stageStoryImage: {
+    input: {
+      storyId: string;
+      mediaType: SourceImageMediaType;
+      bytes: Uint8Array;
+    };
+    output: { leaseId: string; attachment: StoryImageAttachment };
+  };
+  /** Idempotently remove one Draft Lease. Releasing an absent or already
+   *  expired lease succeeds with no error. NOT a story mutation, for the
+   *  same reason as `stageStoryImage`. */
+  releaseStoryImage: {
+    input: { storyId: string; leaseId: string };
+    output: { ok: true };
   };
 }
 
@@ -564,7 +604,8 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "discoverModels", "resolveSamplingBias", "countPromptTokens",
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "importCard", "continueStory",
 
-  "rewriteNode", "commitPartialRewrite", "createSummaryTake"
+  "rewriteNode", "commitPartialRewrite", "createSummaryTake",
+  "stageStoryImage", "releaseStoryImage"
 ]);
 
 export function isWorkerMethod(value: unknown): value is WorkerMethod {

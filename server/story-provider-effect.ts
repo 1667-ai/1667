@@ -3,6 +3,7 @@ import { activePath, isChapterSummary, nodeById } from "../shared/story-tree.js"
 import { resolveRewriteDestination, type RewriteDestination, type Story, type StoryNode } from "../shared/types.js";
 import type { CapturedTokenProbabilities } from "../shared/token-probabilities.js";
 import type { CapturedReasoning } from "../shared/reasoning.js";
+import type { StoryImageAttachment } from "../shared/image-attachment.js";
 import {
   GenerationResultError,
   GenerationStoppedError,
@@ -15,6 +16,8 @@ import { attachTakeTokenProbabilities } from "./story-node-token-probabilities.j
 import { attachTakeReasoning, clearTakeReasoning } from "./story-node-reasoning.js";
 import {
   appendContinuationToNode,
+  assertNoAppendImageAttachments,
+  attachTakeImageAttachments,
   commitTake,
   createInactiveTakeFromCut,
   createTake,
@@ -57,6 +60,10 @@ export interface ContinueStoryEffect extends TakeCommit {
    *  append attach it, unaligned — see TakeCommit.reasoning and
    *  server/story-node-reasoning.ts. */
   readonly reasoning?: CapturedReasoning | null;
+  /** Only ever set by a continuation commit that resolved Image Attachments
+   *  for the take being generated. See `TakeCommit.imageAttachments`
+   *  (server/story-nodes.ts) for the append restriction this must honor. */
+  readonly imageAttachments?: readonly StoryImageAttachment[] | null;
   readonly cancelled?: AbortSignal;
 }
 
@@ -248,8 +255,11 @@ async function applyContinuation(
     // now forwards this field; see TakeCommit.tokenProbabilities.
     tokenProbabilities: effect.tokenProbabilities ?? undefined,
     // Same normalization, for the same reason; see TakeCommit.reasoning.
-    reasoning: effect.reasoning ?? undefined
+    reasoning: effect.reasoning ?? undefined,
+    // Same normalization, for the same reason; see TakeCommit.imageAttachments.
+    imageAttachments: effect.imageAttachments ?? undefined
   };
+  assertNoAppendImageAttachments(commit);
   const parent = commit.parentId === null
     ? null
     : nodeById(story, commit.parentId);
@@ -304,6 +314,7 @@ async function applyContinuation(
         attachTakeTokenProbabilities(added, commit.tokenProbabilities, commit.text, 0);
       }
       attachTakeReasoning(added, commit.reasoning);
+      attachTakeImageAttachments(added, commit.imageAttachments);
       if (story.nodes.length === 1 && story.title === "Untitled") {
         story.title = titleFrom(
           commit.genId === null ? added.text : commit.instruction

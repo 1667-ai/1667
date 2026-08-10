@@ -35,6 +35,8 @@ import { deriveStoryFrameLayout, type StoryFrameLayout } from "../story-frame-la
 import { createWrapCache, type ProseStyle, type WrapCache } from "../wrap.js";
 import { renderFactsRail } from "./story/facts-rail.js";
 import { renderFactEditorLayout } from "./story/fact-editor-layout.js";
+import { spliceDraftImageRows } from "./story/draft-image-rows.js";
+import { draftImagesFor } from "../draft-image.js";
 import { dimPage, panelHorizontalGeometry, placePanel, raisedSegment } from "./overlay.js";
 import { renderKeysOverlay } from "./keys-modal.js";
 import { renderMapScreen } from "./map.js";
@@ -560,7 +562,8 @@ function renderPageComposer(state: StoryScreenState, view: StoryViewModel, width
     narrow,
     softWrap: state.config.wordWrap === "on"
   });
-  return { lines: composer.lines, scrollTop: composer.scrollTop };
+  const withImages = spliceDraftImageRows(composer, draftImagesFor(state.composer), indent);
+  return { lines: withImages.lines, scrollTop: withImages.scrollTop };
 }
 
 /** Decision 24 caps a toast at four wrapped rows; the gutter gives 22 usable
@@ -687,7 +690,8 @@ function renderFullscreenComposer(
     narrow: width < 100,
     softWrap: state.config.wordWrap === "on"
   });
-  const lines = [...composer.lines, renderStoryStatus(state, view, width, width < 100, estimate)]
+  const withImages = spliceDraftImageRows(composer, draftImagesFor(state.composer), "");
+  const lines = [...withImages.lines, renderStoryStatus(state, view, width, width < 100, estimate)]
     .slice(0, height)
     .map((line) => fitLine(line, width));
   const hitRows: HitRows = Array.from({ length: height }, (_, row): HitRow | null => row < height - 1

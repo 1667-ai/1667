@@ -1,10 +1,19 @@
 import type { GenerationSettings } from "../shared/types.js";
 import {
+  activeImageAttachments,
   renderPromptPlan,
   type ChatMessage,
+  type PromptBlock,
   type PromptOperation,
-  type PromptPlan
+  type PromptPlan,
+  type StablePromptBlock,
+  type VolatilePromptBlock
 } from "../shared/prompt-plan.js";
+import {
+  assertImageBearingBodyFits,
+  assertImageContextAdmitted
+} from "./generation-admission.js";
+import type { ImageInputCapabilityResolution } from "../shared/image-input-capabilities.js";
 import { ProviderError } from "./errors.js";
 import {
   isProviderObject as isObject,
@@ -77,6 +86,27 @@ export interface StreamCompletionOptions {
   readonly tokenProbabilities?: TokenProbabilityCollector;
   readonly onReasoning?: ReasoningConsumer;
   readonly providerSecrets?: ProviderSecretsCollector;
+  /** Normalized Image bytes, by object id, for every image block the prompt
+   *  carries. Required when the prompt has an image; omitted by every caller
+   *  that never attaches one, which is every caller today. See
+   *  server/provider-request-body.ts's `imageBytes` parameter.
+   *
+   *  TODO(image-prompt): server/generation-http.ts must load each active
+   *  image's Normalized Image bytes from the story object store, only after
+   *  `assertImageContextAdmitted` and the fixed-context admission both pass,
+   *  and supply them here. Never read the object store before admission: a
+   *  request that will be refused must never pay for that read. */
+  readonly imageBytes?: ReadonlyMap<string, Uint8Array>;
+  /** The resolved Image Input capability for this exact model and protocol
+   *  (shared/image-input-capabilities.ts's `resolveImageInputCapability`).
+   *  Omitted, this fails closed: a prompt that carries an image without one
+   *  is refused rather than silently sent.
+   *
+   *  TODO(image-prompt): server/generation-http.ts must call
+   *  `resolveImageInputCapability` with the request's protocol, remote model
+   *  id, and the model's stored `imageInput` override (schema 3 settings)
+   *  and pass the result here. */
+  readonly imageCapability?: ImageInputCapabilityResolution;
 }
 
 /** Filled once a stream resolves the provider's own credentials — the exact
@@ -118,13 +148,20 @@ async function* streamOpenAiCompatible(
   signal: AbortSignal,
   options: StreamCompletionOptions
 ): AsyncGenerator<string> {
-  const { outcome, providerStarted, promptCache, storySampling, tokenProbabilities, onReasoning, providerSecrets } = options;
+  const {
+    outcome, providerStarted, promptCache, storySampling, tokenProbabilities,
+    onReasoning, providerSecrets, imageBytes, imageCapability
+  } = options;
+  assertImageContextAdmitted(prompt, imageCapability);
   const { headers, secrets } = resolveProviderHeaders(settings, {
     "content-type": "application/json"
   });
   if (providerSecrets !== undefined) providerSecrets.secrets = secrets;
   const prepared = preparePromptCache(promptCache, prompt);
-  const body = await buildOpenAiChatRequestBody(settings, prompt, prepared.wire, { signal, storySampling });
+  const body = await buildOpenAiChatRequestBody(
+    settings, prompt, prepared.wire, { signal, storySampling }, imageBytes
+  );
+  assertImageBearingBodyFits(body, activeImageAttachments(prompt).length > 0);
   const runtime = providerRuntimeFor(settings);
   const explicitEffort = runtime.effort !== "default";
   const tokenProbabilityKey = tokenProbabilityRefusalKey(settings);
@@ -290,14 +327,21 @@ async function* streamAnthropic(
   signal: AbortSignal,
   options: StreamCompletionOptions
 ): AsyncGenerator<string> {
-  const { outcome, providerStarted, promptCache, storySampling, onReasoning, providerSecrets } = options;
+  const {
+    outcome, providerStarted, promptCache, storySampling, onReasoning,
+    providerSecrets, imageBytes, imageCapability
+  } = options;
+  assertImageContextAdmitted(prompt, imageCapability);
   const { headers, secrets } = resolveProviderHeaders(settings, {
     "content-type": "application/json",
     "anthropic-version": "2023-06-01"
   });
   if (providerSecrets !== undefined) providerSecrets.secrets = secrets;
   const prepared = preparePromptCache(promptCache, prompt);
-  const body = await buildAnthropicMessagesRequestBody(settings, prompt, prepared.wire, { signal, storySampling });
+  const body = await buildAnthropicMessagesRequestBody(
+    settings, prompt, prepared.wire, { signal, storySampling }, imageBytes
+  );
+  assertImageBearingBodyFits(body, activeImageAttachments(prompt).length > 0);
   const refusalKey = samplingRefusalKey(settings);
   if (SAMPLING_REFUSED.has(refusalKey)) delete body.temperature;
   const runtime = providerRuntimeFor(settings);
@@ -528,6 +572,10 @@ async function* streamDryRun(
   options: StreamCompletionOptions
 ): AsyncGenerator<string> {
   const { outcome, storySampling, tokenProbabilities, onReasoning } = options;
+  // Dry-run never dispatches to a provider, and the dry-run protocol never
+  // authorizes images (shared/image-input-capabilities.ts), so any image on
+  // this prompt is refused here rather than silently dropped.
+  assertImageContextAdmitted(prompt);
   requireLogitBiasFamilyAvailable(settings, "dry-run", storySampling);
   // Fabricated reasoning, obviously synthetic and short, so the reasoning
   // path is exercisable end to end without a network provider. Arrives
@@ -583,10 +631,29 @@ async function* streamDryRun(
  * reasoning path, never to look like a real thought. */
 const DRY_RUN_REASONING_TEXT = "(dry-run) weighing two openings before picking one.";
 
+// Rewrite and summary operations never carry an image block (Image Input
+// stays out of scope for both), so these predicates exist only to let
+// TypeScript narrow `.find`/`.filter` results back to a block with `.text`.
+function isSourceTextBlock(block: PromptBlock): block is StablePromptBlock {
+  return block.kind === "source";
+}
+
+function isCompletionMarkerBlock(block: PromptBlock): block is VolatilePromptBlock {
+  return block.kind === "completion-marker";
+}
+
+function isSelectionTextBlock(block: PromptBlock): block is VolatilePromptBlock {
+  return block.kind === "selection";
+}
+
+function isBoundaryTextBlock(block: PromptBlock): block is VolatilePromptBlock {
+  return block.kind === "boundary";
+}
+
 function dryRunSummary(prompt: PromptPlan): string {
   const blocks = prompt.turns.flatMap((turn) => turn.blocks);
-  const source = blocks.find((block) => block.kind === "source")?.text ?? "";
-  const completionMarker = blocks.find((block) => block.kind === "completion-marker")
+  const source = blocks.find(isSourceTextBlock)?.text ?? "";
+  const completionMarker = blocks.find(isCompletionMarkerBlock)
     ?.text.match(/\[\[summary-complete-[a-f0-9]+\]\]/)?.[0]
     ?? "[[summary-complete-dry-run]]";
   const excerpt = source.replace(/^\[Part \d+\]\n/gm, "").trim().slice(0, 1_200);
@@ -611,8 +678,8 @@ function dryRunSummary(prompt: PromptPlan): string {
 function dryRunRewrite(prompt: PromptPlan): string {
   const standIn = "placeholder prose from dry-run mode — connect a real model in Settings for real rewrites".split(" ");
   const blocks = prompt.turns.flatMap((turn) => turn.blocks);
-  const selectionText = blocks.find((block) => block.kind === "selection")?.text ?? "";
-  const boundaryText = blocks.filter((block) => block.kind === "boundary").map((block) => block.text).join("\n");
+  const selectionText = blocks.find(isSelectionTextBlock)?.text ?? "";
+  const boundaryText = blocks.filter(isBoundaryTextBlock).map((block) => block.text).join("\n");
   // Phrase rewrites carry no end marker; their tag is on the excerpt block.
   const marker = /\[\[end-(rw-[a-f0-9]+)\]\]/.exec(boundaryText);
   const tag = marker?.[1] ?? /<(rw-[a-f0-9]+)-excerpt>/.exec(selectionText)?.[1];

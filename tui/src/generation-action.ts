@@ -4,7 +4,7 @@ import type { ActionTask } from "./action-runtime.js";
 import { ApiFailureError } from "./api-error.js";
 import { textHash } from "./api.js";
 import type { AppSource } from "./app.js";
-import { setComposerText } from "./composer-model.js";
+import { setComposerText, type ComposerState } from "./composer-model.js";
 import {
   createRestoredRetakeComposer,
   focusVisibleRetakeTarget,
@@ -12,7 +12,9 @@ import {
   resumeDirectComposer
 } from "./composer-ownership.js";
 import { continuationIntent } from "./continuation-intent.js";
+import { draftImageReferences, draftImagesFor, setDraftImages } from "./draft-image.js";
 import { factDropNotice } from "./facts-model.js";
+import { imageAttachmentFailureAction, IMAGE_REATTACH_NOTICE } from "./image-attachment-failure.js";
 import { isPlainNavigation } from "./keys.js";
 import { createStoryViewModel, lastPartRowIndex, rowIndexForNode, rowPart } from "./model.js";
 import { recordNotice } from "./notice-log.js";
@@ -197,6 +199,14 @@ export async function generate(
     const apiTarget = append
       ? { appendTo: leaf!.id, expectedTextHash: appendBaseHash! }
       : { parentId };
+    // The ordered Draft Images this submission captured. They come from the
+    // pending draft rather than from the live composer, because the composer
+    // is cleared the moment the request goes out and a retry after a failure
+    // must send exactly what the first attempt sent. A Retake's inherited
+    // attachments are absent here on purpose: the server derives those from
+    // the current manifest, so the client never names a committed object.
+    const draftImages = pendingDraft?.images ?? [];
+    const imageReferences = draftImageReferences(draftImages);
     const result = await source.api.continueStory(
       storyId,
       instruction,
@@ -239,7 +249,8 @@ export async function generate(
           appendStreamReasoning(stream, tail, stream.reasoning?.tokenCount ?? 0);
           if (state.stream === stream) repaint();
         }
-      }
+      },
+      imageReferences
     );
     if (result !== null && storyCurrent()) {
       const updated = result.payload;
@@ -276,7 +287,7 @@ export async function generate(
           pendingDraft,
           settlementMayOwnFocus()
         );
-        state.toast = message;
+        state.toast = withdrawExpiredDraftImages(pendingDraft, error) ?? message;
       }
     }
   } finally {
@@ -357,9 +368,11 @@ export function restorePendingGenerationDraft(
         return false;
       }
       draft.restored = true;
+      restoreDraftImages(retakePrompt.composer, draft.images);
       if (!revealIfUnclaimed || !isPlainNavigation(state)) return true;
     }
     draft.restored = true;
+    restoreDraftImages(retakePrompt.composer, draft.images);
     if (revealIfUnclaimed && isPlainNavigation(state)) revealRetakeComposer(state, retakePrompt);
     return true;
   }
@@ -383,12 +396,45 @@ export function restorePendingGenerationDraft(
     state.composer.cursor = draft.cursor;
     state.composer.fullscreen = draft.fullscreen;
     state.composerScrollTop = draft.composerScrollTop;
+    restoreDraftImages(state.composer, draft.images);
     // Mode restoration is focus transfer, not merely data recovery. Claim it
     // only as the direct result of this request while the original NAV screen
     // is otherwise untouched; late input and transient surfaces keep focus.
     if (revealIfUnclaimed && isPlainNavigation(state)) state.mode = "COMPOSE";
   }
   return true;
+}
+
+/** A failed generation's Draft Images were never cleared from `composer` at
+ *  send time — only a successful admission clears them
+ *  (`clearPendingGenerationDraft`) — so this is a no-op on the common path.
+ *  It stays explicit rather than relying on that as an implicit invariant,
+ *  and it is the one place `draft.images` (absent for a caller outside this
+ *  slice, e.g. a rewrite's own submission) is read back in. */
+function restoreDraftImages(
+  composer: ComposerState,
+  images: PendingGenerationDraft["images"]
+): void {
+  if (images === undefined) return;
+  setDraftImages(composer, images);
+}
+
+/** Strip Draft Images from a failed draft when the failure names an expired
+ *  Draft Lease specifically (`imageAttachmentFailureAction`) — the staged
+ *  bytes are gone, so nothing here can retry with them. Returns the notice
+ *  to show in place of the plain failure message, or null when the failure
+ *  was not about an expired lease, or the draft had no images to drop. */
+function withdrawExpiredDraftImages(
+  draft: PendingGenerationDraft | null,
+  error: unknown
+): string | null {
+  if (draft === null) return null;
+  const code = error instanceof ApiFailureError ? error.code : null;
+  if (imageAttachmentFailureAction(code) !== "reattach") return null;
+  const composer = draft.kind === "direct" ? draft.composer : draft.retakePrompt.composer;
+  if (draftImagesFor(composer).length === 0) return null;
+  setDraftImages(composer, []);
+  return IMAGE_REATTACH_NOTICE;
 }
 
 /** Return an empty stopped request to the composer without taking ownership
@@ -578,6 +624,15 @@ export function clearPendingGenerationDraft(
     delete stream.restoredRetakePrompt;
   }
   if (draft === null || state.pendingGenerationDraft !== draft) return;
+  // Clear Draft Images only now that the mutation has admitted them — never
+  // at send time, unlike the instruction text, which clears optimistically
+  // and is restored on failure. Guarded by reference identity so a newer
+  // attachment made while this request was in flight (composer reopened
+  // mid-stream) is never clobbered by a stale success.
+  const draftComposer = draft.kind === "direct" ? draft.composer : draft.retakePrompt.composer;
+  if (draft.images !== undefined && draftImagesFor(draftComposer) === draft.images) {
+    setDraftImages(draftComposer, []);
+  }
   if (draft.kind === "direct") {
     const unchangedRestoredOwner = draft.restored
       && state.composer === draft.composer

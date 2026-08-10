@@ -45,6 +45,7 @@ import type { TokenProbabilityEmptyReason } from "./token-probabilities-model.js
 import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 import type { PromptProjectionIdentity } from "./request-context.js";
 import type { StoryScalarField } from "./story-scalar-fields.js";
+import type { DraftImage } from "./draft-image.js";
 
 export type BackendTaskKind = "action" | "connection-reconcile" | "explicit-retry";
 
@@ -141,6 +142,11 @@ export type CardImportPrompt = FilePathPrompt;
 
 export type ArchiveImportPrompt = FilePathPrompt;
 
+/** The `attach image` command's path prompt: the reliable SSH and `--url`
+ *  path, and the only path this build offers on any host — see
+ *  `image-attach-actions.ts`. */
+export type ImageAttachPrompt = FilePathPrompt;
+
 export type TextPrompt =
   | {
       kind: "filter";
@@ -201,6 +207,7 @@ export type SettingsRowId =
   | "api-key-env"
   | "profile"
   | "model"
+  | "image-input"
   | "temperature"
   | "max-tokens"
   | "sampling"
@@ -510,6 +517,13 @@ export interface OverlayState {
   commands: CommandsOverlayState | null;
   card: CardImportPrompt | null;
   archive: ArchiveImportPrompt | null;
+  /** The `attach image` path prompt, or null/absent when it is closed.
+   *  Optional so `initialState` (app.ts) and every existing fixture that
+   *  builds an `OverlayState`/`RuntimeState` literal before Image Input
+   *  keeps compiling without listing it. Read through `imageAttachPrompt`
+   *  (`image-attach-actions.ts`), which normalizes the missing case to
+   *  `null`. */
+  image?: ImageAttachPrompt | null;
   chapters: ChaptersOverlayState | null;
   settings: SettingsOverlayState | null;
   summary: SummaryOverlayState | null;
@@ -632,6 +646,14 @@ export type PendingGenerationDraft =
       cursor: number;
       fullscreen: boolean;
       composerScrollTop: number;
+      /** Draft Images submitted with this draft, exactly as
+       *  `capturePendingDirectDraft` captured them (see `draft-image.ts`,
+       *  which keys the live array off `composer` in a `WeakMap` the same
+       *  way this module keys its own document/history side tables —
+       *  optional so a caller built before Image Input keeps compiling).
+       *  Restored alongside the text after a failure; cleared only once the
+       *  mutation admits them (`clearPendingGenerationDraft`). */
+      images?: readonly DraftImage[];
       restored: boolean;
     }
   | {
@@ -639,6 +661,7 @@ export type PendingGenerationDraft =
       text: string;
       /** Exact movable prompt owner; target identity comes from the session. */
       retakePrompt: RetakePromptSession;
+      images?: readonly DraftImage[];
       restored: boolean;
     };
 

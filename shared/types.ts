@@ -4,6 +4,7 @@ import { MAX_AUTHOR_BRIEF_CHARS } from "./author-brief.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "./unicode.js";
 import { FactActivationError } from "./fact-metadata.js";
 import { parseFactMetadata } from "./fact-validation.js";
+import { assertStoryImageAttachments, type StoryImageAttachment } from "./image-attachment.js";
 import type { FactActivation, FactPriority, FactRecursion, FactSecondaryMode } from "./fact-metadata.js";
 import {
   SamplingValidationError,
@@ -147,6 +148,12 @@ export interface StoryNode {
    *  GET /api/stories/:id/nodes/:nodeId/reasoning, never carried
    *  automatically with the story. See shared/reasoning.ts. */
   reasoning?: true;
+  /** This take's Image Attachments, in the successor story schema only. Unlike
+   *  `reasoning`, the full ordered list travels with the story. Each entry is
+   *  already small and bounded, so there is no separate on-demand fetch.
+   *  Absence means no images. An empty array is invalid. See
+   *  shared/image-attachment.ts. */
+  imageAttachments?: readonly StoryImageAttachment[];
   /** Which child continues the line through this node. null = no preference
    *  recorded (leaf, or story ends here on purpose). Must be a child's id. */
   activeChildId: string | null;
@@ -192,6 +199,9 @@ interface NodeStubBase {
   tokenProbabilities?: true;
   /** See StoryNode.reasoning. */
   reasoning?: true;
+  /** Presence only, mirroring `reasoning` and `tokenProbabilities`. See
+   *  StoryNode.imageAttachments. */
+  images?: true;
   hasInstruction: boolean;
   activeChildId: string | null;
 }
@@ -338,6 +348,7 @@ function assertNodeStub(value: unknown): void {
   optionalLiteral(node, "editedByUser", true, "story node stub");
   optionalLiteral(node, "tokenProbabilities", true, "story node stub");
   optionalLiteral(node, "reasoning", true, "story node stub");
+  optionalLiteral(node, "images", true, "story node stub");
   optionalLiteral(node, "role", "summary", "story node stub");
   if (node.chapterBreakId !== undefined && typeof node.chapterBreakId !== "string") {
     invalidField("story node stub", "chapterBreakId");
@@ -358,6 +369,9 @@ export function assertStoryNode(value: unknown): asserts value is StoryNode {
   optionalLiteral(node, "tokenProbabilities", true, "story path node");
   optionalLiteral(node, "reasoning", true, "story path node");
   optionalLiteral(node, "role", "summary", "story path node");
+  if (node.imageAttachments !== undefined) {
+    assertStoryImageAttachments(node.imageAttachments, "story path node.imageAttachments");
+  }
   if (node.coveredExtent !== undefined) assertCoveredExtent(node.coveredExtent, "story path node.coveredExtent");
   if (node.attribution !== undefined && node.attribution !== null) {
     const attribution = requireRecord(node.attribution, "The server returned invalid human attribution.");

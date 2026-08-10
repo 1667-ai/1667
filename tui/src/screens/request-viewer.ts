@@ -7,8 +7,11 @@ import {
   formatTokensGraded,
   formatTokensScaled,
   resolveTokenCount,
+  totalWithVisualTokens,
   type ResolvedTokenCount
 } from "../rail.js";
+import { imageAttachmentLabel, imageMediaTypeLabel } from "../../../shared/image-attachment.js";
+import { formatImageBytes } from "../draft-image.js";
 import type { PromptTokenCount, TokenCountGrade } from "../../../shared/tokenize-source.js";
 import type { RequestViewerState, StoryScreenState } from "../state.js";
 import { wrapText } from "../wrap.js";
@@ -87,7 +90,7 @@ export function renderRequestViewer(
   count: PromptTokenCount | null = null
 ): RequestViewerFrame {
   const resolved = resolveTokenCount(estimate, count);
-  const header = requestHeader(context, estimate, story.model, story.contextWindow, width, resolved);
+  const header = requestHeader(context, estimate, story.model, story.contextWindow, width, resolved, count);
   const cursor = Math.max(0, Math.min(Math.max(0, estimate.messages.length - 1), request.cursor));
   const body = requestBody(estimate, width, cursor, resolved);
   const bodyHeight = Math.max(0, height - header.length - 2);
@@ -175,8 +178,10 @@ function requestHeader(
   model: string,
   contextWindow: number | null,
   width: number,
-  resolved: ResolvedTokenCount
+  resolved: ResolvedTokenCount,
+  count: PromptTokenCount | null
 ): FrameLine[] {
+  const totalWithVisual = totalWithVisualTokens(estimate, resolved, count);
   const window = contextWindow === null ? "unknown" : formatTokensScaled(contextWindow);
   const boundary = estimate.plan.requiresEcho
     ? "boundary echo"
@@ -187,17 +192,17 @@ function requestHeader(
   // last visible cell — the same width budget the neighbouring segments use,
   // widest candidate first (see requestValue in context-meter.ts).
   const suffixCandidates = [
-    ` · context window ${window} · ${tokenSourceLabel(resolved.totalGrade)} · ${boundary}`,
+    ` · context window ${window} · ${tokenSourceLabel(totalWithVisual.totalGrade)} · ${boundary}`,
     windowAndBoundary
   ];
   const routeSuffix = suffixCandidates.find((candidate) =>
     width - visibleWidth(routePrefix) - visibleWidth(candidate) >= 1
   ) ?? windowAndBoundary;
   const modelWidth = Math.max(0, width - visibleWidth(routePrefix) - visibleWidth(routeSuffix));
-  const breakdown = breakdownFromPerMessage(estimate.plan.entries, resolved.perMessage);
+  const breakdown = { ...breakdownFromPerMessage(estimate.plan.entries, resolved.perMessage), visual: estimate.breakdown.visual };
   const lines: FrameLine[] = [
     titleLine(
-      `next request ━ ${estimate.messages.length} messages ━ ${formatTokensGraded(resolved.total, resolved.totalGrade)}`,
+      `next request ━ ${estimate.messages.length} messages ━ ${formatTokensGraded(totalWithVisual.total, totalWithVisual.totalGrade)}`,
       width
     ),
     [
@@ -210,7 +215,8 @@ function requestHeader(
         + ` · facts ${formatTokensGraded(breakdown.facts, resolved.perMessageGrade)}`
         + ` · note ${formatTokensGraded(breakdown.note, resolved.perMessageGrade)}`
         + ` · story ${formatTokensGraded(breakdown.recent, resolved.perMessageGrade)}`
-        + ` · summaries ${formatTokensGraded(breakdown.summary, resolved.perMessageGrade)}`,
+        + ` · summaries ${formatTokensGraded(breakdown.summary, resolved.perMessageGrade)}`
+        + (breakdown.visual > 0 ? ` · images ${formatTokensEstimate(breakdown.visual)}` : ""),
       "chrome"
     )]
   ];
@@ -251,6 +257,10 @@ function requestBody(
 ): { rows: BodyRow[]; starts: number[] } {
   const rows: BodyRow[] = [];
   const starts: number[] = [];
+  // Counts every image across the whole prompt in wire order, matching the
+  // composer's own row numbering (shared/image-attachment.ts's
+  // imageAttachmentLabel) rather than resetting per message.
+  let imageOrdinal = 0;
   const substitutions = substitutionNotices(estimate);
   if (substitutions.length > 0) {
     rows.push(
@@ -320,6 +330,28 @@ function requestBody(
       ],
       target
     });
+    // Image blocks carry no text (shared/prompt-plan.ts's ImagePromptBlock
+    // has no `text` field), so `message.content` never describes them. This
+    // renders their metadata explicitly, one row per image, ahead of the
+    // wrapped text — and never a data URL: only the position, media type,
+    // dimensions, byte length, and an estimated token count, the same
+    // closed metadata shape the story bundle itself stores.
+    for (const block of entry.turn.blocks) {
+      if (block.kind !== "image") continue;
+      imageOrdinal += 1;
+      const attachment = block.image;
+      const tokens = estimate.imageTokens.get(attachment.objectId);
+      const label = `[${imageAttachmentLabel(imageOrdinal - 1)} · ${imageMediaTypeLabel(attachment.mediaType)}`
+        + ` · ${attachment.width}×${attachment.height} · ${formatImageBytes(attachment.byteLength)}`
+        + (tokens !== undefined && tokens > 0 ? ` · ${formatTokensEstimate(tokens)} tokens` : "")
+        + "]";
+      for (const wrapped of wrapText(label, [], Math.max(1, width - 4))) {
+        rows.push({
+          line: [segment("  ", "chrome"), segment(wrapped.text, "focus / accent")],
+          target: null
+        });
+      }
+    }
     for (const wrapped of wrapText(message.content, [], Math.max(1, width - 4))) {
       rows.push({
         line: [segment("  ", "chrome"), segment(wrapped.text, "prose")],

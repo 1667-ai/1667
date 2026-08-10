@@ -22,7 +22,8 @@ import {
   serializeManifest,
   sha256,
   type ObjectHash,
-  type StoryManifestV5
+  type StoryManifestV5,
+  type StoryManifestV7
 } from "./story-format.js";
 import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
 import type { ReasoningRecord } from "../shared/reasoning.js";
@@ -94,12 +95,38 @@ import {
   requirePresentStorySlot,
   StoryAggregateSession
 } from "./story-aggregate-session.js";
+import {
+  createDraftImageLeaseId,
+  createDraftImageLeaseRecord,
+  listDraftImageLeases,
+  publishDraftImageLease,
+  readDraftImageLease,
+  removeDraftImageLease,
+  type DraftImageLeaseRecord
+} from "./story-image-lease.js";
+import {
+  createStoryImageAttachment,
+  DRAFT_IMAGE_LEASE_LIFETIME_MS,
+  isDraftImageLeaseId,
+  MAX_PROJECT_DRAFT_IMAGE_BYTES,
+  MAX_PROJECT_DRAFT_IMAGE_LEASES,
+  MAX_STORY_DRAFT_IMAGE_BYTES,
+  MAX_STORY_DRAFT_IMAGE_LEASES,
+  type DraftImageReference,
+  type StoryImageAttachment
+} from "../shared/image-attachment.js";
+import type { NormalizedImage } from "./image-normalize.js";
 
 export const STORY_LIST_IO_CONCURRENCY = 4;
 export const STORY_UNCHANGED = Symbol("story-unchanged");
 
-type ResolvedStory = Extract<StoredStorySlot, { kind: "legacy" | "v5" | "v6-live" }>;
-type SweepObjects = (bundleDir: string, live: LiveStoryObjectIds, signal: AbortSignal) => Promise<boolean>;
+type ResolvedStory = Extract<StoredStorySlot, { kind: "legacy" | "v5" | "v6-live" | "v8-live" }>;
+type SweepObjects = (
+  bundleDir: string,
+  live: LiveStoryObjectIds,
+  signal: AbortSignal,
+  liveImageIds?: readonly ObjectHash[]
+) => Promise<boolean>;
 type WriteManifest = (file: string, data: string) => Promise<CommitResult>;
 interface SwitchLineOptions { expectedLineFingerprint?: string; stopAtNode?: boolean }
 /** One story's provider-snapshot pins, kept apart by object kind — mixing
@@ -113,7 +140,13 @@ interface SwitchLineOptions { expectedLineFingerprint?: string; stopAtNode?: boo
 type ProviderSnapshotPins = Record<ObjectKind, Map<ObjectHash, number>>;
 
 function emptyProviderSnapshotPins(): ProviderSnapshotPins {
-  return { chunks: new Map(), revisions: new Map(), probabilities: new Map(), reasoning: new Map() };
+  return {
+    chunks: new Map(),
+    revisions: new Map(),
+    probabilities: new Map(),
+    reasoning: new Map(),
+    images: new Map()
+  };
 }
 
 /** Deduplicated per-kind copy of one `LiveStoryObjectIds`, taken once so a
@@ -148,8 +181,8 @@ function unionLiveWithPins(live: LiveStoryObjectIds, pinned: ProviderSnapshotPin
   };
 }
 
-const sweepObjects: SweepObjects = async (bundleDir, live, signal) =>
-  await new StoryObjectStore(bundleDir).sweep(live, signal);
+const sweepObjects: SweepObjects = async (bundleDir, live, signal, liveImageIds = []) =>
+  await new StoryObjectStore(bundleDir).sweep(live, signal, liveImageIds);
 
 export class StoryStore {
   constructor(
@@ -251,6 +284,252 @@ export class StoryStore {
     };
   }
 
+  /** Pin Image Object ids that are not yet reachable from any manifest: a
+   *  Draft Image a generation admitted, still referenced only by its Draft
+   *  Lease. Shares the same per-story pin map `pinProviderSnapshot` uses, so
+   *  the sweep protects both kinds of pin together (`unionLiveWithPins`
+   *  below). A no-op for an empty list, so a caller with no images to pin
+   *  need not branch. */
+  pinImages(storyId: string, objectIds: readonly ObjectHash[]): void {
+    if (objectIds.length === 0) return;
+    const pins = this.providerSnapshotPins.get(storyId) ?? emptyProviderSnapshotPins();
+    this.providerSnapshotPins.set(storyId, pins);
+    addPins(pins.images, objectIds);
+  }
+
+  /** Release exactly the ids a matching `pinImages` call added. Idempotent
+   *  and safe to call with an empty list (a no-op), so a caller that never
+   *  pinned anything can release unconditionally in a `finally`. */
+  releaseImagePins(storyId: string, objectIds: readonly ObjectHash[]): void {
+    if (objectIds.length === 0) return;
+    const pins = this.providerSnapshotPins.get(storyId);
+    if (pins === undefined) return;
+    releasePins(pins.images, objectIds);
+    if (Object.values(pins).every((map) => map.size === 0)) {
+      this.providerSnapshotPins.delete(storyId);
+    }
+    this.cleanupQueue.schedule(storyId);
+  }
+
+  /**
+   * Stage one already-normalized Source Image as a Draft Image: store its
+   * bytes as a content-addressed Image Object and publish a Draft Lease that
+   * keeps it alive. This is NOT a story mutation — it takes no `withLock`
+   * turn, no mutation coordinator scope, and writes no manifest. It claims
+   * one `ioQueue` turn, the same turn every foreground read and write
+   * already shares with the sweep, so a staging write and a sweep can never
+   * race each other.
+   *
+   * The caller must already hold the process-wide image stage permit
+   * (server/image-stage-permit.ts) and must have normalized `image` before
+   * calling this (server/story-image-stage.ts does both).
+   */
+  async stageImage(
+    storyId: string,
+    image: NormalizedImage
+  ): Promise<{ leaseId: string; attachment: StoryImageAttachment }> {
+    return await this.withIo(storyId, async () => {
+      await this.requireStageableStory(storyId);
+      const bundleDir = this.bundlePath(storyId);
+      const bytes = Buffer.from(image.bytes);
+      const attachment = createStoryImageAttachment({
+        objectId: sha256(bytes),
+        mediaType: image.mediaType,
+        width: image.width,
+        height: image.height,
+        byteLength: bytes.byteLength
+      });
+      await this.enforceDraftImageQuotas(storyId, attachment);
+      const cleanup = await StoryCleanupIntent.begin(bundleDir, storyId);
+      const objects = new StoryObjectStore(bundleDir, {
+        // Recovery intent precedes the first Image Object byte, exactly like
+        // every other object write in this store.
+        beforeFirstWrite: () => cleanup.publish()
+      });
+      await objects.storeImage(bytes);
+      await objects.flush();
+      const now = Date.now();
+      const record = createDraftImageLeaseRecord({
+        leaseId: createDraftImageLeaseId(),
+        attachment,
+        createdAt: now,
+        expiresAt: now + DRAFT_IMAGE_LEASE_LIFETIME_MS
+      });
+      await publishDraftImageLease(bundleDir, record);
+      // The lease is the durable protection for the object just written; a
+      // later cleanup pass (server/stories.ts's `runCleanup`) rediscovers it
+      // from disk and keeps the object alive for as long as the lease is
+      // live. Nothing here retires the marker `cleanup.publish()` set.
+      this.cleanupQueue.schedule(storyId);
+      return { leaseId: record.leaseId, attachment };
+    });
+  }
+
+  /** Idempotently remove one Draft Lease. Releasing an absent, already
+   *  released, or already expired lease succeeds with no error — the design
+   *  the DELETE route depends on for its "no content" response. A malformed
+   *  id (never sent by a client that only ever echoes an id this store
+   *  minted) is a client error, not the internal failure a bare
+   *  `StoryFormatError` from the path resolver would otherwise surface as. */
+  async releaseImage(storyId: string, leaseId: string): Promise<void> {
+    if (!isDraftImageLeaseId(leaseId)) {
+      throw new HttpError(400, "Invalid Draft Lease id", "invalid_request");
+    }
+    await this.withIo(storyId, async () => {
+      await removeDraftImageLease(this.bundlePath(storyId), leaseId);
+      this.cleanupQueue.schedule(storyId);
+    });
+  }
+
+  /**
+   * Validate one Draft Image reference from a `continueStory` request and
+   * durably refresh its Draft Lease to the full lifetime. The rollout plan
+   * requires this: "at generation admission, durably refresh each consumed
+   * lease for the full lifetime", so a Draft Lease never expires out from
+   * under a generation already admitted to use it. Runs in one story
+   * `ioQueue` turn, the same turn staging itself uses.
+   *
+   * Refuses with `image_attachment_expired` when the lease is absent,
+   * already expired, or names a different Image Object than the reference
+   * claims. The client sends both halves precisely so this mismatch can be
+   * caught before any object byte is read.
+   */
+  async resolveDraftImage(storyId: string, reference: DraftImageReference): Promise<StoryImageAttachment> {
+    return await this.withIo(storyId, async () => {
+      const bundleDir = this.bundlePath(storyId);
+      const now = Date.now();
+      const lease = await readDraftImageLease(bundleDir, reference.leaseId);
+      if (lease === null || lease.expiresAt <= now || lease.objectId !== reference.objectId) {
+        throw expiredAttachment();
+      }
+      const attachment: StoryImageAttachment = {
+        objectId: lease.objectId,
+        mediaType: lease.mediaType,
+        width: lease.width,
+        height: lease.height,
+        byteLength: lease.byteLength
+      };
+      // Refresh by remove-then-republish under the same leaseId: both
+      // `story-image-lease.ts` primitives are already crash-safe on their
+      // own, and every lease mutation for this story already serializes
+      // through this same `ioQueue` turn, so no concurrent writer can ever
+      // observe the file absent between the two steps.
+      await removeDraftImageLease(bundleDir, lease.leaseId);
+      await publishDraftImageLease(bundleDir, createDraftImageLeaseRecord({
+        leaseId: lease.leaseId,
+        attachment,
+        createdAt: now,
+        expiresAt: now + DRAFT_IMAGE_LEASE_LIFETIME_MS
+      }));
+      return attachment;
+    });
+  }
+
+  /** Read one Image Object's bytes, hash-verified like every other object
+   *  read (`StoryObjectStore.readObject`). Callers must load bytes only
+   *  after local admission passes, never earlier, so a refused request
+   *  never reads a byte it will not send. */
+  async loadImage(storyId: string, objectId: string): Promise<Buffer> {
+    return await this.withIo(storyId, async () =>
+      await new StoryObjectStore(this.bundlePath(storyId)).readImage(objectId));
+  }
+
+  /** Remove every Draft Lease a commit consumed, once the manifest and
+   *  receipt that consumed it are durable, never before. Idempotent per
+   *  lease: an absent lease (already removed by a previous attempt, or
+   *  never staged by this process) is success, matching `releaseImage`. */
+  async consumeDraftLeases(storyId: string, leaseIds: readonly string[]): Promise<void> {
+    if (leaseIds.length === 0) return;
+    await this.withIo(storyId, async () => {
+      for (const leaseId of leaseIds) await removeDraftImageLease(this.bundlePath(storyId), leaseId);
+      this.cleanupQueue.schedule(storyId);
+    });
+  }
+
+  /** Staging works for any story a reader can already load — including a
+   *  successor-schema story a V5 mutation cannot touch — because it never
+   *  writes the manifest. Only "does this story exist and does it have a
+   *  stable identity" matters here. */
+  private async requireStageableStory(storyId: string): Promise<void> {
+    const slot = await readStoredStorySlot(this.dir, storyId);
+    if (slot.kind === "absent" || slot.kind === "v6-deleted" || slot.kind === "v8-deleted") {
+      throw new HttpError(404, `Story not found: ${storyId}`);
+    }
+    if (slot.kind === "residue") {
+      throw new HttpError(409, `Story ${storyId} has an unfinished storage transition`, "resource_busy");
+    }
+  }
+
+  /**
+   * Enforce the story and project Draft Image quotas from the rollout plan,
+   * atomically with respect to every other stage or release: the caller
+   * already holds the process-wide image permit, which admits only one
+   * active stage at a time, so no concurrent stage can observe or create a
+   * different quota state while this runs. A concurrent release or cleanup
+   * sweep can only shrink the counted totals, never grow them, so a race
+   * with either can only make this check MORE permissive than a fully
+   * serialized one, never less safe.
+   *
+   * Expired leases are excluded from every count. The story's own expired
+   * leases are removed here, since this call already holds that story's
+   * `ioQueue` turn; another story's expired leases are simply not counted,
+   * and are reaped by that story's own cleanup pass instead.
+   */
+  private async enforceDraftImageQuotas(
+    storyId: string,
+    candidate: StoryImageAttachment
+  ): Promise<void> {
+    const now = Date.now();
+    const storyLeases = await this.liveLeasesRemovingExpired(storyId, now);
+    if (storyLeases.length + 1 > MAX_STORY_DRAFT_IMAGE_LEASES) {
+      throw quotaExceeded();
+    }
+    const storyBytes = storyLeases.reduce((sum, lease) => sum + lease.byteLength, 0)
+      + candidate.byteLength;
+    if (storyBytes > MAX_STORY_DRAFT_IMAGE_BYTES) {
+      throw quotaExceeded();
+    }
+
+    const allStoryIds = await catalogStoryIds(this.dir);
+    let projectLeaseCount = 1; // The lease this call is about to publish.
+    const uniqueObjectBytes = new Map<string, number>([[candidate.objectId, candidate.byteLength]]);
+    for (const otherId of allStoryIds) {
+      const leases = otherId === storyId
+        ? storyLeases
+        : (await listDraftImageLeases(this.bundlePath(otherId))).filter((lease) => lease.expiresAt > now);
+      projectLeaseCount += leases.length;
+      for (const lease of leases) uniqueObjectBytes.set(lease.objectId, lease.byteLength);
+    }
+    if (projectLeaseCount > MAX_PROJECT_DRAFT_IMAGE_LEASES) {
+      throw quotaExceeded();
+    }
+    let projectBytes = 0;
+    for (const bytes of uniqueObjectBytes.values()) projectBytes += bytes;
+    if (projectBytes > MAX_PROJECT_DRAFT_IMAGE_BYTES) {
+      throw quotaExceeded();
+    }
+  }
+
+  /** This story's live Draft Leases, with every expired lease physically
+   *  removed first. Safe to call from inside an already-claimed `ioQueue`
+   *  turn for `storyId` — every caller here is. */
+  private async liveLeasesRemovingExpired(
+    storyId: string,
+    now: number
+  ): Promise<readonly DraftImageLeaseRecord[]> {
+    const bundleDir = this.bundlePath(storyId);
+    const leases = await listDraftImageLeases(bundleDir);
+    const live: DraftImageLeaseRecord[] = [];
+    for (const lease of leases) {
+      if (lease.expiresAt <= now) {
+        await removeDraftImageLease(bundleDir, lease.leaseId);
+      } else {
+        live.push(lease);
+      }
+    }
+    return live;
+  }
+
   async list(): Promise<StorySummary[]> {
     const ids = await catalogStoryIds(this.dir);
     const summaries = await mapWithConcurrency(ids, STORY_LIST_IO_CONCURRENCY, async (id) => this.withIo(id, async () => {
@@ -260,7 +539,7 @@ export class StoryStore {
         ...buildStorySummary(slot.manifest),
         aggregateVersion: aggregateVersionFromSlot(slot)
       };
-      if (slot.kind === "v6-live") return {
+      if (slot.kind === "v6-live" || slot.kind === "v8-live") return {
         ...storySummaryFromV6(slot.manifest),
         aggregateVersion: aggregateVersionFromSlot(slot)
       };
@@ -575,7 +854,7 @@ export class StoryStore {
     if (slot.kind === "residue") {
       throw new HttpError(409, `Story ${id} has an unfinished storage transition`, "resource_busy");
     }
-    if (slot.kind === "absent" || slot.kind === "v6-deleted") {
+    if (slot.kind === "absent" || slot.kind === "v6-deleted" || slot.kind === "v8-deleted") {
       throw new HttpError(404, `Story not found: ${id}`);
     }
     return slot;
@@ -616,6 +895,7 @@ export class StoryStore {
           objects.adoptKnownGraph(snapshot.revisions, { committed: true });
           objects.adoptCommittedIds("probabilities", [...snapshot.probabilityIds]);
           objects.adoptCommittedIds("reasoning", [...snapshot.reasoningIds]);
+          objects.adoptCommittedIds("images", [...snapshot.imageIds]);
         }
         const manifest = await encodeStoryBundle(story, objects, reuseFrom, snapshot);
         const nextLive = liveObjectIds(manifest);
@@ -687,7 +967,7 @@ export class StoryStore {
     }
   }
 
-  private async hydrateManifest(manifest: StoryManifestV5, bundleDir: string): Promise<Story> {
+  private async hydrateManifest(manifest: StoryManifestV5 | StoryManifestV7, bundleDir: string): Promise<Story> {
     const decoded = await decodeStoryBundle(manifest, bundleDir, { activeOnly: true });
     this.snapshots.set(decoded.story, captureStorySnapshot(decoded.story, manifest, decoded.liveRevisions));
     return decoded.story;
@@ -719,7 +999,16 @@ export class StoryStore {
       if (signal.aborted) return;
       const slot = await readStoredStorySlot(this.dir, id);
       await afterCommit(`cleaning old objects for story ${id}`, async () => {
-        if (!await cleanupPending(this.bundlePath(id))) return;
+        const bundleDir = this.bundlePath(id);
+        // Every expired lease is removed up front, before either quota
+        // check or sweep can see it, exactly like the rollout plan requires.
+        // A remaining live lease protects its Image Object even when the
+        // manifest names nothing: the story sweep marks Image Objects from
+        // the manifest AND from live Draft Leases.
+        const liveLeases = await this.liveLeasesRemovingExpired(id, Date.now());
+        const liveImageIds = liveLeases.map((lease) => lease.objectId);
+        const hasLiveLease = liveLeases.length > 0;
+        if (!await cleanupPending(bundleDir)) return;
         // A single `live` value, not two independently-nullable ones: the two
         // used to be computed by identical-shaped ternaries, which meant one
         // could in principle end up null while the other did not — a branch
@@ -731,7 +1020,7 @@ export class StoryStore {
         const live = content !== null
           ? liveObjectIds(content)
           : slot.kind === "v6-deleted"
-            ? { revisions: [], leaves: { probabilities: [], reasoning: [] } }
+            ? { revisions: [], leaves: { probabilities: [], reasoning: [], images: [] } }
             : null;
         if (live === null) return;
         const pinned = this.providerSnapshotPins.get(id);
@@ -739,11 +1028,16 @@ export class StoryStore {
         const protectedIds: LiveStoryObjectIds = pinned === undefined
           ? live
           : unionLiveWithPins(live, pinned);
-        const completed = await this.sweep(this.bundlePath(id), protectedIds, signal);
+        const completed = await this.sweep(bundleDir, protectedIds, signal, liveImageIds);
+        // A live Draft Lease keeps its Image Object marked without ever
+        // appearing in the manifest, so the marker must stay even when the
+        // sweep otherwise found nothing to retire: the next pass, after the
+        // lease expires, is what finally reaps that object.
         if (completed
           && !beganWithPins
-          && !this.providerSnapshotPins.has(id)) {
-          await clearCleanupPending(this.bundlePath(id), id);
+          && !this.providerSnapshotPins.has(id)
+          && !hasLiveLease) {
+          await clearCleanupPending(bundleDir, id);
         }
       });
     }, true);
@@ -771,6 +1065,22 @@ function releasePins(pins: Map<ObjectHash, number>, ids: readonly ObjectHash[]):
 
 function isErrorCode(error: unknown, code: string): boolean { return error instanceof Error && "code" in error && error.code === code; }
 
+function quotaExceeded(): HttpError {
+  return new HttpError(
+    422,
+    "Staging this image would exceed a Draft Image quota.",
+    "image_draft_quota_exceeded"
+  );
+}
+
+function expiredAttachment(): HttpError {
+  return new HttpError(
+    400,
+    "This Draft Image is no longer available. Attach the image again.",
+    "image_attachment_expired"
+  );
+}
+
 /** The live V5 content a slot carries, discriminated on `slot.kind` exactly
  *  once — a legacy or V6-deleted slot has none. */
 function manifestContentFromSlot(slot: StoredStorySlot): StoryManifestV5 | null {
@@ -780,8 +1090,11 @@ function manifestContentFromSlot(slot: StoredStorySlot): StoryManifestV5 | null 
 }
 
 function aggregateVersionFromSlot(
-  slot: Extract<StoredStorySlot, { kind: "v5" | "v6-live" | "v6-deleted" }>
+  slot: Extract<StoredStorySlot, { kind: "v5" | "v6-live" | "v6-deleted" | "v8-live" | "v8-deleted" }>
 ): StoryAggregateVersion {
+  // A successor envelope's revision counter is the same concurrency token
+  // shape as a V6 envelope's. "v6" here names the token shape (a revision
+  // counter, as opposed to "v5"'s manifest hash), not the schema version.
   return slot.kind === "v5"
     ? { kind: "v5", manifestHash: hashStoryV5ManifestBytes(slot.manifestBytes) }
     : { kind: "v6", revision: slot.manifest.revision };

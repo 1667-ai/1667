@@ -10,6 +10,7 @@ import {
 import type { GenerationSettings } from "../shared/types.js";
 import type { PromptCacheRequest } from "./provider-cache-policy.js";
 import type { StorySamplingBias } from "./sampling-phrase-bias.js";
+import type { ImageInputCapabilityResolution } from "../shared/image-input-capabilities.js";
 export type { ReasoningConsumer, ReasoningStreamDelta } from "./providers.js";
 
 interface ModelOutputFilter {
@@ -34,6 +35,14 @@ export interface StreamModelOptions {
   readonly tokenProbabilities?: TokenProbabilityCollector;
   readonly onReasoning?: ReasoningConsumer;
   readonly providerSecrets?: ProviderSecretsCollector;
+  /** See `StreamCompletionOptions.imageBytes` (server/providers.ts): Image
+   *  Object bytes for every image block the prompt carries, keyed by object
+   *  id. Loaded only after local admission passes. */
+  readonly imageBytes?: ReadonlyMap<string, Uint8Array>;
+  /** See `StreamCompletionOptions.imageCapability`. Absent for a text-only
+   *  request, the same "no image, no new behavior" rule the option's
+   *  producer (server/generation-http.ts's `continueStory`) already holds. */
+  readonly imageCapability?: ImageInputCapabilityResolution;
 }
 
 /** Transport-neutral model stream. null means the stream was interrupted by
@@ -46,7 +55,10 @@ export async function streamModel(
   onDelta: DeltaConsumer,
   options: StreamModelOptions = {}
 ): Promise<string | null> {
-  const { output, providerStarted, promptCache, storySampling, tokenProbabilities, onReasoning, providerSecrets } = options;
+  const {
+    output, providerStarted, promptCache, storySampling, tokenProbabilities,
+    onReasoning, providerSecrets, imageBytes, imageCapability
+  } = options;
   const outcome: StreamOutcome = {
     finishReason: null,
     providerTerminal: false
@@ -65,6 +77,8 @@ export async function streamModel(
       tokenProbabilities,
       onReasoning,
       providerSecrets,
+      imageBytes,
+      imageCapability,
       outcome
     })) {
       await emit(output?.push(delta) ?? delta);

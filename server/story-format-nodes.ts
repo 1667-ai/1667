@@ -1,4 +1,5 @@
 import { isTagStatus, MAX_RECENT_LINES, type HumanEditAttribution, type TextRange } from "../shared/types.js";
+import { assertStoryImageAttachments, ImageAttachmentError, type StoryImageAttachment } from "../shared/image-attachment.js";
 import {
   StoryFormatError,
   arrayField,
@@ -22,7 +23,8 @@ import type {
   StoredPartV2,
   StoryManifestV3,
   StoryManifestV4,
-  StoryManifestV5
+  StoryManifestV5,
+  StoryManifestV7
 } from "./story-format.js";
 import { SYNTHETIC_EMPTY_REVISION_ID } from "./story-empty-revision.js";
 import { parseStoredChapterNode } from "./story-format-chapters.js";
@@ -215,7 +217,7 @@ export function parseV4Manifest(input: unknown): StoryManifestV4 {
  *  `liveObjectIds` below exists to remove. `manifestTokenProbabilityIds`
  *  stays exported — server/story-snapshot.ts wants it alone, since it builds
  *  its revision map a different way (per node, not from this list). */
-function manifestRevisionIds(manifest: StoryManifestV4 | StoryManifestV5): ObjectHash[] {
+function manifestRevisionIds(manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7): ObjectHash[] {
   return manifest.nodes.filter((node) => node.syntheticEmpty !== true).map((node) => node.revisionId)
     .concat(manifest.facts.map((fact) => fact.revisionId));
 }
@@ -224,7 +226,9 @@ function manifestRevisionIds(manifest: StoryManifestV4 | StoryManifestV5): Objec
  *  field is absent whenever a generation did not ask for them — so this is
  *  typically a small subset of `manifestRevisionIds`' length, not a parallel
  *  one-to-one list. */
-export function manifestTokenProbabilityIds(manifest: StoryManifestV4 | StoryManifestV5): ObjectHash[] {
+export function manifestTokenProbabilityIds(
+  manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7
+): ObjectHash[] {
   const ids: ObjectHash[] = [];
   for (const node of manifest.nodes) {
     if (node.tokenProbabilityId !== undefined) ids.push(node.tokenProbabilityId);
@@ -234,10 +238,26 @@ export function manifestTokenProbabilityIds(manifest: StoryManifestV4 | StoryMan
 
 /** Every take's stored reasoning id, mirroring `manifestTokenProbabilityIds`
  *  exactly — most nodes have none. */
-export function manifestReasoningIds(manifest: StoryManifestV4 | StoryManifestV5): ObjectHash[] {
+export function manifestReasoningIds(manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7): ObjectHash[] {
   const ids: ObjectHash[] = [];
   for (const node of manifest.nodes) {
     if (node.reasoningId !== undefined) ids.push(node.reasoningId);
+  }
+  return ids;
+}
+
+/** Every take's stored Image Object ids, one manifest node can carry several
+ *  (`nodes[].imageAttachments[].objectId`), unlike `tokenProbabilityId` and
+ *  `reasoningId` above which each name at most one object per node. A V4 or
+ *  V5 manifest never carries `imageAttachments` at all: the field exists
+ *  only on the successor node shape (`server/story-v7-strict.ts`), so this
+ *  returns an empty list for either, exactly like the other two collectors
+ *  return nothing for a node with no stored id. */
+export function manifestImageIds(manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7): ObjectHash[] {
+  const ids: ObjectHash[] = [];
+  for (const node of manifest.nodes) {
+    if (!("imageAttachments" in node) || node.imageAttachments === undefined) continue;
+    for (const attachment of node.imageAttachments) ids.push(attachment.objectId);
   }
   return ids;
 }
@@ -248,12 +268,13 @@ export function manifestReasoningIds(manifest: StoryManifestV4 | StoryManifestV5
  *  `manifestRevisionIds`, `manifestTokenProbabilityIds`, and
  *  `manifestReasoningIds` together (issue #291 structural review, finding
  *  F1). */
-export function liveObjectIds(manifest: StoryManifestV4 | StoryManifestV5): LiveStoryObjectIds {
+export function liveObjectIds(manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7): LiveStoryObjectIds {
   return {
     revisions: manifestRevisionIds(manifest),
     leaves: {
       probabilities: manifestTokenProbabilityIds(manifest),
-      reasoning: manifestReasoningIds(manifest)
+      reasoning: manifestReasoningIds(manifest),
+      images: manifestImageIds(manifest)
     }
   };
 }
@@ -398,6 +419,7 @@ function parseStoredNode(value: unknown, index: number): StoredNodeV1 {
   const reasoningId = node.reasoningId === undefined
     ? undefined
     : requireHash(node.reasoningId, `${label}.reasoningId`);
+  const imageAttachments = parseStoredImageAttachments(node.imageAttachments, `${label}.imageAttachments`);
   const stored: StoredNodeV1 = {
     id: stringField(node, "id"),
     parentId,
@@ -416,6 +438,7 @@ function parseStoredNode(value: unknown, index: number): StoredNodeV1 {
     revisionId: requireHash(node.revisionId, `${label}.revisionId`),
     ...(tokenProbabilityId === undefined ? {} : { tokenProbabilityId }),
     ...(reasoningId === undefined ? {} : { reasoningId }),
+    ...(imageAttachments === undefined ? {} : { imageAttachments }),
     ...(attribution === undefined ? {} : { attribution }),
     ...(rewrittenSpans === undefined ? {} : { rewrittenSpans }),
     activeChildId
@@ -556,5 +579,25 @@ function optionalTrue(value: unknown, label: string): true | undefined {
 export function optionalRole(value: unknown, label: string): "summary" | undefined {
   if (value === undefined) return undefined;
   if (value !== "summary") throw new StoryFormatError(`${label} must be "summary"`);
+  return value;
+}
+
+/** Parse one stored node's Image Attachments, independent of which schema
+ *  version is on disk. It mirrors how `tokenProbabilityId` and `reasoningId`
+ *  above are read the same way regardless of source version. A successor
+ *  manifest's closed node shape already ran this check
+ *  (`server/story-v7-strict.ts`); this call is what protects a legacy V2-V4
+ *  source, which has no closed-shape pass of its own. */
+function parseStoredImageAttachments(
+  value: unknown,
+  label: string
+): readonly StoryImageAttachment[] | undefined {
+  if (value === undefined) return undefined;
+  try {
+    assertStoryImageAttachments(value, label);
+  } catch (error) {
+    if (error instanceof ImageAttachmentError) throw new StoryFormatError(error.message);
+    throw error;
+  }
   return value;
 }

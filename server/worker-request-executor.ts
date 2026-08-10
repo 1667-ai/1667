@@ -37,6 +37,8 @@ import {
 } from "./worker-mutations.js";
 import { WorkerRequestCancellation } from "./worker-request-cancellation.js";
 import { WorkerRequestFailureResponder } from "./worker-request-failure-responder.js";
+import { acquireImageStagePermit } from "./image-stage-permit.js";
+import { isSourceImageMediaType } from "../shared/image-attachment.js";
 
 type WorkerRequest = Extract<MainToWorkerMessage, { type: "request" }>;
 type WorkerTerminalMessage = Extract<
@@ -384,6 +386,42 @@ async function invokeReadOnly(
       );
     case "countPromptTokens":
       return await service.countPromptTokens(input.messages, signal);
+    case "stageStoryImage": {
+      const storyId = requireString(input.storyId, "storyId");
+      const mediaType = input.mediaType;
+      if (!isSourceImageMediaType(mediaType)) {
+        throw new ServiceError(
+          415,
+          "mediaType must be image/png, image/jpeg, or image/webp",
+          "image_type_not_supported"
+        );
+      }
+      const bytes = input.bytes;
+      // Structured clone keeps a Uint8Array a Uint8Array. Anything else is a
+      // protocol violation, and rebuilding bytes from an index object would
+      // hide the sender's bug (mirrors the archiveBytes check in
+      // server/worker-mutations.ts).
+      if (!(bytes instanceof Uint8Array)) {
+        throw new ServiceError(400, "bytes must be a Uint8Array", "image_invalid");
+      }
+      const release = await acquireImageStagePermit(signal);
+      try {
+        return await service.stageStoryImage(storyId, mediaType, bytes);
+      } finally {
+        release();
+      }
+    }
+    case "releaseStoryImage": {
+      const storyId = requireString(input.storyId, "storyId");
+      const leaseId = requireString(input.leaseId, "leaseId");
+      const release = await acquireImageStagePermit(signal);
+      try {
+        await service.releaseStoryImage(storyId, leaseId);
+        return { ok: true };
+      } finally {
+        release();
+      }
+    }
     default:
       throw new ServiceError(
         400,

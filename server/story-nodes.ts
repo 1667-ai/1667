@@ -23,6 +23,7 @@ import {
 } from "../shared/types.js";
 import type { CapturedTokenProbabilities } from "../shared/token-probabilities.js";
 import type { CapturedReasoning } from "../shared/reasoning.js";
+import type { StoryImageAttachment } from "../shared/image-attachment.js";
 import { sliceWellFormedUtf16Prefix } from "../shared/unicode.js";
 import { ServiceError as HttpError } from "./errors.js";
 import { attributionAfterHumanEdit, rewrittenSpansAfterHumanEdit } from "../shared/human-edit.js";
@@ -291,6 +292,29 @@ export interface TakeCommit {
    *  the take's existing thought untouched rather than clearing it — see
    *  `server/story-node-reasoning.ts`. */
   reasoning?: CapturedReasoning | null;
+  /** Only ever set by a continuation commit that resolved Image Attachments
+   *  for the take being generated (inherited, drafted, or both; see
+   *  `server/generation-http.ts`). A stored part records the exact provider
+   *  input it was generated from, so this must never be set together with
+   *  `appendTo`: an append mutates an EXISTING part, and `commitTake` below
+   *  refuses that combination rather than silently dropping it. Absent or
+   *  empty both mean no images, matching `StoryNode.imageAttachments`'s own
+   *  "absence means none, empty is invalid" rule. */
+  imageAttachments?: readonly StoryImageAttachment[] | null;
+}
+
+/** Refuse a commit that would add an Image Attachment to an append: an
+ *  append mutates a part that a model already generated from a specific
+ *  provider input, so a new image can only ever start a new child take
+ *  (settled decision, image-input rollout plan). Every caller upstream of
+ *  this function (`server/generation-http.ts`) must already have refused
+ *  such a request before committing; this is the shared last-resort guard,
+ *  not the primary refusal a writer sees. */
+export function assertNoAppendImageAttachments(commit: Pick<TakeCommit, "appendTo" | "imageAttachments">): void {
+  if (commit.appendTo === null) return;
+  if (commit.imageAttachments === undefined || commit.imageAttachments === null) return;
+  if (commit.imageAttachments.length === 0) return;
+  throw new Error("An append commit must never carry an Image Attachment");
 }
 
 export function hasCommittedGeneration(
@@ -308,6 +332,7 @@ export function commitTake(story: Story, commit: TakeCommit): { duplicate: boole
   if (commit.genId !== null && hasCommittedGeneration(story, commit.genId)) {
     return { duplicate: true };
   }
+  assertNoAppendImageAttachments(commit);
   if (commit.appendTo !== null) {
     if (commit.expectedTextHash === null) throw new HttpError(400, "appendTo requires expectedTextHash");
     appendToActiveLeaf(
@@ -339,10 +364,31 @@ export function commitTake(story: Story, commit: TakeCommit): { duplicate: boole
     attachTakeTokenProbabilities(node, commit.tokenProbabilities, commit.text, 0);
   }
   attachTakeReasoning(node, commit.reasoning);
+  attachTakeImageAttachments(node, commit.imageAttachments);
   if (story.nodes.length === 1 && story.title === "Untitled") {
     story.title = titleFrom(commit.genId === null ? node.text : commit.instruction);
   }
   return { duplicate: false };
+}
+
+/** Attach a new take's resolved Image Attachments, when it has any. Unlike
+ *  `attachTakeTokenProbabilities`/`attachTakeReasoning`, the ordered list IS
+ *  the stored value, with no separate object hash to mint at encode time,
+ *  so this sets `StoryNode.imageAttachments` directly rather than going
+ *  through a pending side table. `server/story-codec.ts`'s
+ *  `encodeStoryBundle` already reads this property straight off the node
+ *  (clones it into the stored shape when the successor schema is active),
+ *  and `server/story-payload.ts`'s response projection already clones it
+ *  too, so a direct property assignment is both correct and the established
+ *  pattern for this field. Absent or empty input leaves the node untouched:
+ *  a freshly created node already has no `imageAttachments` property, and
+ *  storing an empty array is invalid (`shared/image-attachment.ts`). */
+export function attachTakeImageAttachments(
+  node: StoryNode,
+  attachments: readonly StoryImageAttachment[] | null | undefined
+): void {
+  if (attachments === undefined || attachments === null || attachments.length === 0) return;
+  node.imageAttachments = attachments;
 }
 
 export function titleFrom(instruction: string): string {

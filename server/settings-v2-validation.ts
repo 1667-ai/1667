@@ -106,7 +106,10 @@ export function validateSettingsDocumentV2(
   };
 }
 
-function parseConnections(
+/** Exported for reuse by server/settings-v3-validation.ts: connections,
+ *  profiles, routing, and scalar metadata are identical between schema 2 and
+ *  schema 3, so only the model/capabilities parser differs between them. */
+export function parseConnections(
   value: unknown,
   credentialNames: Set<string>,
   caseInsensitive: boolean
@@ -350,7 +353,7 @@ function parseModels(
   return result;
 }
 
-function parseMetadata(value: unknown, label: string): ModelScalarMetadataV2 {
+export function parseMetadata(value: unknown, label: string): ModelScalarMetadataV2 {
   const metadata = closedRecord(value, label, METADATA);
   return {
     ...(metadata.contextWindow === undefined ? {} : {
@@ -384,7 +387,7 @@ function parseCapabilities(value: unknown, label: string): ModelCapabilitiesV2 {
   };
 }
 
-function parseProfiles(
+export function parseProfiles(
   value: unknown,
   models: Readonly<Record<string, ModelDefinitionV2>>,
   connections: Readonly<Record<string, ModelConnectionV2>>
@@ -468,7 +471,7 @@ function parseProfiles(
   return result;
 }
 
-function parseRouting(
+export function parseRouting(
   value: unknown,
   profiles: Readonly<Record<string, GenerationProfileV2>>
 ): SettingsDocumentV2["routing"] {
@@ -485,7 +488,7 @@ function parseRouting(
   return result;
 }
 
-function settingsMap(value: unknown, label: string): Record<string, unknown> {
+export function settingsMap(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new SettingsFormatError(`${label} must be an object`);
   }
@@ -518,7 +521,7 @@ function routeReference(
   return id;
 }
 
-function oneOf<const T extends readonly string[]>(value: unknown, choices: T, label: string): T[number] {
+export function oneOf<const T extends readonly string[]>(value: unknown, choices: T, label: string): T[number] {
   if (typeof value !== "string" || !(choices as readonly string[]).includes(value)) {
     throw new SettingsFormatError(`${label} must be one of ${choices.join(" | ")}`);
   }

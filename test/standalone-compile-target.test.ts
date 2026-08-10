@@ -48,11 +48,19 @@ test("product build request receives the selected baseline target", async () => 
       artifactTarget: "darwin-x64"
     }),
     tiktokenWasmBase64: "d2FzbQ==",
+    photonWasmBase64: "cGhvdG9u",
     embeddedWorkerSource: undefined
   });
   assert.deepEqual(calls, ["product"]);
   assert.equal(observed[0]?.compile.target, "bun-darwin-x64-baseline");
   assert.deepEqual(observed[0]?.external, ["koffi"]);
+  // Both WASM payloads must reach the compiled binary. A missing define makes
+  // the binary read the file from the build machine instead. That works on the
+  // build machine and fails everywhere else.
+  assert.equal(
+    observed[0]?.define?.__AI_1667_PHOTON_WASM_BASE64__,
+    JSON.stringify("cGhvdG9u")
+  );
 });
 
 test("prompt-tokenizer build request receives the selected baseline target", async () => {

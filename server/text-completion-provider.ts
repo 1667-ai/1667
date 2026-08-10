@@ -2,6 +2,7 @@ import { renderPromptPlan, type PromptPlan } from "../shared/prompt-plan.js";
 import { renderTextPrompt } from "../shared/text-prompt.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { ProviderError } from "./errors.js";
+import { assertImageContextAdmitted } from "./generation-admission.js";
 import type { PromptCacheRequest } from "./provider-cache-policy.js";
 import { llamaCppTemplateRequest } from "./llama-cpp-template.js";
 import { postProviderJson } from "./provider-json.js";
@@ -48,6 +49,10 @@ export async function* streamTextCompletion(
   signal: AbortSignal,
   options: TextCompletionOptions
 ): AsyncGenerator<string> {
+  // No text-completion protocol authorizes images
+  // (shared/image-input-capabilities.ts), so any image on this prompt is
+  // refused here rather than silently dropped from the raw prompt text.
+  assertImageContextAdmitted(prompt);
   const preparedCache = options.promptCache?.runtime.prepare(
     options.promptCache.context,
     options.promptCache.scope,

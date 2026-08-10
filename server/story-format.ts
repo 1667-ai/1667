@@ -18,6 +18,11 @@ import {
   validateSamplingPhraseBias
 } from "../shared/sampling-validation-policy.js";
 import type { SamplingPhraseBiasEntryV2 } from "../shared/settings-v2-types.js";
+import {
+  assertStoryImageAttachments,
+  ImageAttachmentError,
+  type StoryImageAttachment
+} from "../shared/image-attachment.js";
 import { parseChapterBreaks, validateChapterRecords } from "./story-format-chapters.js";
 import { assertWellFormedUnicode } from "./story-format-unicode.js";
 import {
@@ -41,15 +46,21 @@ import {
   parseV4Manifest
 } from "./story-format-nodes.js";
 import { assertStrictV5Manifest, MAX_STORY_MANIFEST_BYTES } from "./story-v5-strict.js";
+import { assertStrictV7Manifest } from "./story-v7-strict.js";
 
 export { HASH_PATTERN, StoryFormatError, requireHash } from "./story-format-facts.js";
-export { liveObjectIds, manifestReasoningIds, manifestTokenProbabilityIds } from "./story-format-nodes.js";
+export { liveObjectIds, manifestImageIds, manifestReasoningIds, manifestTokenProbabilityIds } from "./story-format-nodes.js";
 export { hasUnpairedSurrogate } from "./story-format-unicode.js";
 export const STORY_FORMAT = "1667-story";
 /** StoryTavern objects are content-addressed. Read their exact identifiers so
  * migration does not invalidate hashes; every new object uses 1667 instead. */
 export const STORYTAVERN_STORY_FORMAT = "storytavern-story";
 export const STORY_SCHEMA_VERSION = 5;
+/** The successor content payload version. It adds `imageAttachments` to a
+ * stored take. A V5 manifest cannot gain that field in place, because its
+ * shape is frozen; only a document that declares this version may carry it,
+ * and only inside the V8 envelope (`server/story-v6-codec.ts`). */
+export const STORY_SUCCESSOR_SCHEMA_VERSION = 7;
 export const REVISION_FORMAT = "1667-text-revision";
 export const STORYTAVERN_REVISION_FORMAT = "storytavern-text-revision";
 export const REVISION_SCHEMA_VERSION = 1;
@@ -163,6 +174,10 @@ export interface StoredNodeV1 {
    *  produced none, when retention was off, or when a rewrite replaced the
    *  take's text without producing a fresh thought of its own. */
   reasoningId?: ObjectHash;
+  /** This take's Image Attachments. Only a successor-schema manifest
+   *  (`STORY_SUCCESSOR_SCHEMA_VERSION`) may carry it; a V5 manifest rejects
+   *  the key. Absent means no images. See shared/image-attachment.ts. */
+  imageAttachments?: readonly StoryImageAttachment[];
   attribution?: HumanEditAttribution | null;
   rewrittenSpans?: TextRange[];
   activeChildId: string | null;
@@ -217,6 +232,15 @@ export interface StoryManifestV5 extends Omit<StoryManifestV4, "schemaVersion"> 
   /** Estimated-token cap across every emitted Fact; absent means uncapped. */
   factsBudgetTokens?: number;
   chapterBreaks: ChapterBreak[];
+}
+
+/** The successor content payload. Every field is identical to
+ * `StoryManifestV5`; the only difference is the version tag, because
+ * `nodes[].imageAttachments` may now be present. Read and validated by this
+ * release; written only when the release-wide activation switch is on
+ * (`shared/image-input-release.ts`), and only inside the V8 envelope. */
+export interface StoryManifestV7 extends Omit<StoryManifestV5, "schemaVersion"> {
+  schemaVersion: typeof STORY_SUCCESSOR_SCHEMA_VERSION;
 }
 
 export interface TextRevisionV1 {
@@ -333,18 +357,41 @@ export function revisionId(revision: TextRevisionV1): ObjectHash {
   return sha256(Buffer.from(serializeRevision(revision), "utf8"));
 }
 
-export function serializeManifest(manifest: StoryManifestV5): string {
+export function serializeManifest(manifest: StoryManifestV5 | StoryManifestV7): string {
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 
 export function parseManifest(raw: string, expectedId: string): StoryManifestV5 {
-  return parseManifestWithVersion(raw, expectedId).manifest;
+  const parsed = parseManifestWithVersion(raw, expectedId);
+  if (parsed.manifest.schemaVersion !== STORY_SCHEMA_VERSION) {
+    throw new StoryFormatError(`Expected a V${STORY_SCHEMA_VERSION} story manifest for ${expectedId}`);
+  }
+  return parsed.manifest;
 }
 
-export interface ParsedManifestVersion {
-  manifest: StoryManifestV5;
-  sourceSchemaVersion: 2 | 3 | 4 | typeof STORY_SCHEMA_VERSION;
+/** The successor counterpart of `parseManifest`, for the one write path that
+ * builds a V7 payload deliberately (`server/story-codec.ts`, activation on). */
+export function parseManifestV7(raw: string, expectedId: string): StoryManifestV7 {
+  const parsed = parseManifestWithVersion(raw, expectedId);
+  if (parsed.manifest.schemaVersion !== STORY_SUCCESSOR_SCHEMA_VERSION) {
+    throw new StoryFormatError(`Expected a V${STORY_SUCCESSOR_SCHEMA_VERSION} story manifest for ${expectedId}`);
+  }
+  return parsed.manifest;
 }
+
+/** A discriminated union, not one loosely-typed pair of fields: tying
+ * `manifest` to the exact `sourceSchemaVersion` that produced it is what lets
+ * a caller that already checked `sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION`
+ * narrow `manifest` to `StoryManifestV7` without an unsafe cast. */
+export type ParsedManifestVersion =
+  | {
+      manifest: StoryManifestV5;
+      sourceSchemaVersion: 2 | 3 | 4 | typeof STORY_SCHEMA_VERSION;
+    }
+  | {
+      manifest: StoryManifestV7;
+      sourceSchemaVersion: typeof STORY_SUCCESSOR_SCHEMA_VERSION;
+    };
 
 /** Parse and normalize while retaining the on-disk version for migration-only
  * maintenance that cannot be inferred after old fact states collapse. */
@@ -374,6 +421,7 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
       && value.schemaVersion !== 3
       && value.schemaVersion !== 4
       && value.schemaVersion !== STORY_SCHEMA_VERSION
+      && value.schemaVersion !== STORY_SUCCESSOR_SCHEMA_VERSION
     )
   ) {
     throw new StoryFormatError(`Unsupported story format in ${expectedId}`);
@@ -381,47 +429,51 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
   if (value.schemaVersion === STORY_SCHEMA_VERSION) {
     assertStrictV5Manifest(value, expectedId, value.format);
   }
+  if (value.schemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION) {
+    assertStrictV7Manifest(value, expectedId, value.format);
+  }
   const id = stringField(value, "id");
   if (id !== expectedId) throw new StoryFormatError(`Story id mismatch: expected ${expectedId}, found ${id}`);
   const origin = optionalOrigin(value.origin);
   const sourceSchemaVersion = value.schemaVersion;
+  const isCurrentOrSuccessor = sourceSchemaVersion === STORY_SCHEMA_VERSION
+    || sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION;
   const stored = sourceSchemaVersion === 2 || sourceSchemaVersion === 3
     ? convertV3ToV4(parseLegacyManifest(value))
     : parseV4Manifest(value);
-  const chapterBreaks = sourceSchemaVersion === STORY_SCHEMA_VERSION
+  const chapterBreaks = isCurrentOrSuccessor
     ? parseChapterBreaks(value.chapterBreaks)
     : [];
-  const autonameId = sourceSchemaVersion === STORY_SCHEMA_VERSION
+  const autonameId = isCurrentOrSuccessor
     ? optionalString(value.autonameId, "autonameId")
     : undefined;
   // Chapter one's name. Older schema versions predate it, and an empty name is
   // an absent one, so it never survives as a field that means nothing.
-  const firstChapterTitle = sourceSchemaVersion === STORY_SCHEMA_VERSION
+  const firstChapterTitle = isCurrentOrSuccessor
     ? optionalString(value.firstChapterTitle, "firstChapterTitle")
     : undefined;
-  const authorsNote = sourceSchemaVersion === STORY_SCHEMA_VERSION
+  const authorsNote = isCurrentOrSuccessor
     ? optionalString(value.authorsNote, "authorsNote")
     : undefined;
-  const authorsNoteDepth = sourceSchemaVersion === STORY_SCHEMA_VERSION
+  const authorsNoteDepth = isCurrentOrSuccessor
     && value.authorsNoteDepth !== undefined
     ? integerValue(value.authorsNoteDepth, "authorsNoteDepth")
     : undefined;
-  const authorBrief = sourceSchemaVersion === STORY_SCHEMA_VERSION
+  const authorBrief = isCurrentOrSuccessor
     ? optionalString(value.authorBrief, "authorBrief")
     : undefined;
-  const phraseBias = sourceSchemaVersion === STORY_SCHEMA_VERSION
+  const phraseBias = isCurrentOrSuccessor
     ? optionalPhraseBias(value.phraseBias)
     : undefined;
-  const bannedStrings = sourceSchemaVersion === STORY_SCHEMA_VERSION
+  const bannedStrings = isCurrentOrSuccessor
     ? optionalBannedStrings(value.bannedStrings)
     : undefined;
-  const factsBudgetTokens = sourceSchemaVersion === STORY_SCHEMA_VERSION
+  const factsBudgetTokens = isCurrentOrSuccessor
     ? optionalFactsBudgetTokens(value.factsBudgetTokens)
     : undefined;
   validateChapterRecords(chapterBreaks, stored.nodes);
-  const parsed: StoryManifestV5 = {
+  const common = {
     ...stored,
-    schemaVersion: STORY_SCHEMA_VERSION,
     ...(autonameId === undefined ? {} : { autonameId }),
     ...(firstChapterTitle === undefined || firstChapterTitle === ""
       ? {}
@@ -438,6 +490,18 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
     ...(factsBudgetTokens === undefined ? {} : { factsBudgetTokens }),
     chapterBreaks
   };
+  // Built as two separate returns, not one shared object with a
+  // union-typed `manifest`, so each branch keeps `manifest` tied to the
+  // exact `sourceSchemaVersion` that produced it. See the comment on
+  // `ParsedManifestVersion`.
+  if (sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION) {
+    const parsed: StoryManifestV7 = { ...common, schemaVersion: STORY_SUCCESSOR_SCHEMA_VERSION };
+    return {
+      manifest: origin === undefined ? parsed : { ...parsed, origin },
+      sourceSchemaVersion
+    };
+  }
+  const parsed: StoryManifestV5 = { ...common, schemaVersion: STORY_SCHEMA_VERSION };
   return {
     manifest: origin === undefined ? parsed : { ...parsed, origin },
     sourceSchemaVersion
@@ -536,6 +600,21 @@ export function validateNodeRewrittenSpans(node: StoryNode): void {
       throw new StoryFormatError(`Node ${node.id} has an invalid rewritten span`);
     }
     previousEnd = range.end;
+  }
+}
+
+/** Bound and validate one take's Image Attachments, reusing the shared bound
+ *  and duplicate-objectId check every producer of a `StoryImageAttachment`
+ *  goes through (`shared/image-attachment.ts`). The writer decides separately
+ *  whether the successor schema is active enough to persist the field; this
+ *  only checks that a present list is internally valid. */
+export function validateNodeImageAttachments(node: StoryNode): void {
+  if (node.imageAttachments === undefined) return;
+  try {
+    assertStoryImageAttachments(node.imageAttachments, `Node ${node.id} imageAttachments`);
+  } catch (error) {
+    if (error instanceof ImageAttachmentError) throw new StoryFormatError(error.message);
+    throw error;
   }
 }
 

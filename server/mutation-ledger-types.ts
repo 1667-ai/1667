@@ -167,6 +167,20 @@ export interface StartedMutationRecord {
   readonly method: ProviderMutationMethod;
   readonly oldStateHash: Hash256;
   readonly createdAt: TimeMs;
+  /** Ordered Image Object ids the provider request this record starts is
+   *  about to send, when it sends any. OPTIONAL on this closed shape, absent
+   *  meaning none, so an on-disk record from before Image Input still
+   *  parses. Present only for `continueStory`. It is part of this record's
+   *  canonical bytes like every other field, so it participates in receipt
+   *  identity through the record hash the same way `fingerprintHash` does:
+   *  a retry that would carry different images produces a different hash
+   *  and fails the fence in server/story-provider-mutation.ts's
+   *  `prepareTerminalPhase`. Bounded well under
+   *  `MAX_MUTATION_LEDGER_RECORD_BYTES` by the same active-prompt image
+   *  count limit the story side enforces (`shared/image-attachment.ts`'s
+   *  `MAX_ACTIVE_PROMPT_IMAGES`). Kept live until manifest commit or a
+   *  terminal abort. See `server/story-provider-receipt.ts`. */
+  readonly imageObjectIds?: readonly Hash256[];
 }
 
 export interface PreparedUserMutationRecord {

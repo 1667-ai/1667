@@ -4,8 +4,10 @@ import {
   applyBasicModelDiscovery,
   applyBasicSettingsDraft,
   basicSettingsForDisplay,
-  basicSettingsFromDocument
+  basicSettingsFromDocument,
+  defaultModelCapabilitiesForModelChangeV3
 } from "../shared/settings-basic-draft.js";
+import { imageInputForModelChangeV3 } from "../tui/src/settings-text.js";
 import { applySamplingSettings } from "../shared/sampling-capabilities.js";
 import {
   attachProviderRuntime,
@@ -346,6 +348,25 @@ test("model identity changes reset owned metadata and use Anthropic capabilities
     idleMs: 120_000,
     totalMs: 1_800_000
   });
+});
+
+test("schema 3's model-identity-change reset: dry-run stays unsupported, every other provider becomes unknown", () => {
+  // Site 1: shared/settings-basic-draft.ts replaces the whole capability
+  // record on a model-identity change; defaultModelCapabilitiesForModelChangeV3
+  // is the "correct default" that replacement needs.
+  assert.equal(defaultModelCapabilitiesForModelChangeV3("dry-run").imageInput, "unsupported");
+  for (const provider of ["anthropic", "openai-compatible", "text-completion"] as const) {
+    assert.equal(defaultModelCapabilitiesForModelChangeV3(provider).imageInput, "unknown");
+  }
+
+  // Site 2: tui/src/settings-text.ts restates capability keys one by one:
+  // the known drift hazard. imageInputForModelChangeV3 is the value that
+  // restatement needs for imageInput, matching the whole-record default
+  // above so the two reset sites never disagree.
+  assert.equal(imageInputForModelChangeV3("dry-run"), "unsupported");
+  for (const provider of ["anthropic", "openai-compatible", "text-completion"] as const) {
+    assert.equal(imageInputForModelChangeV3(provider), "unknown");
+  }
 });
 
 test("an Anthropic protocol on a custom gateway never claims the official preset", () => {

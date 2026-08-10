@@ -35,6 +35,7 @@ import { libraryAction, openLibrary } from "./library-actions.js";
 import { openSearch } from "./search-actions.js";
 import { cardImportAction, openCardImport } from "./card-import-actions.js";
 import { archiveImportAction, openArchiveImport } from "./archive-import-actions.js";
+import { imageAttachAction, openImageAttach } from "./image-attach-actions.js";
 import { publishStories } from "./overlay-publication.js";
 import { retryBackendState } from "./recovery-orchestration.js";
 import {
@@ -166,6 +167,7 @@ export async function handleOverlayAction(
   if (state.mode === "COMMANDS" && state.commands !== null) return await commandsAction(resolved, state, source, context);
   if (state.mode === "CARD" && state.card !== null) return await cardImportAction(resolved, state, source, context);
   if (state.mode === "ARCHIVE" && state.archive !== null) return await archiveImportAction(resolved, state, source, context);
+  if (state.mode === "IMAGE" && state.image != null) return await imageAttachAction(resolved, state, source, context);
   if (state.mode === "SETTINGS" && state.settings !== null) {
     const handled = await settingsOverlayAction(
       resolved,
@@ -531,6 +533,7 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
   else if (command.id === "folder") state.toast = source.storyFolder;
   else if (command.id === "import-card") openCardImport(state, returnMode);
   else if (command.id === "import-archive") openArchiveImport(state, returnMode);
+  else if (command.id === "attach-image") openImageAttach(state, source, returnMode);
   else if (command.id === "disconnect" && state.demo) {
     state.connection = connectionFailed(connectionSucceeded(), new Error("demo disconnect"), state.now);
     state.toast = "simulated connection loss";

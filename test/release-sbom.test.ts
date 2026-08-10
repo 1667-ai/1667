@@ -262,6 +262,7 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
     "@opentui/core",
     "@opentui/core-linux-x64",
     "@opentui/core-linux-x64-musl",
+    "@silvia-odwyer/photon-node",
     "bun",
     "fs-ext-extra-prebuilt",
     "msgpackr",
@@ -687,7 +688,7 @@ test("an inventory the repository's lockfiles do not support is refused", () => 
       { npmLockfile: { packages: {} }, bunLockfile: sources.bunLockfile },
       "linux-x64"
     ),
-    /has no node_modules\/fs-ext-extra-prebuilt entry/u
+    /has no node_modules\/@silvia-odwyer\/photon-node entry/u
   );
 });
 

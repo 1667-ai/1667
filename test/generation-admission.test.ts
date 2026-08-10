@@ -281,9 +281,9 @@ test("Facts shedding and a deep Author's Note compose: shedding a Fact neither m
   // fixedPromptTexts excludes the note by block kind, so admission counts its
   // cost exactly once (via the authorsNote argument), never through otherFixed.
   const noteBlocks = plan.prompt.turns.flatMap((turn) => turn.blocks)
-    .filter((block) => block.kind === "authors-note");
+    .flatMap((block) => block.kind === "authors-note" ? [block.text] : []);
   assert.equal(noteBlocks.length, 1);
-  assert.equal(noteBlocks[0]?.text, authorsNote);
+  assert.equal(noteBlocks[0], authorsNote);
 });
 
 function node(id: string, instruction: string, text: string): StoryNode {

@@ -4,7 +4,20 @@ import {
   type FixedContextAdmission,
   type FixedContextSettings
 } from "../shared/fact-admission.js";
-import type { PromptPlan } from "../shared/prompt-plan.js";
+import {
+  activeImageAttachments,
+  type PromptPlan
+} from "../shared/prompt-plan.js";
+import {
+  base64Length,
+  MAX_ACTIVE_PROMPT_IMAGES,
+  MAX_ACTIVE_PROMPT_IMAGE_BASE64_LENGTH,
+  MAX_IMAGE_PROVIDER_BODY_BYTES
+} from "../shared/image-attachment.js";
+import {
+  imageInputAuthorized,
+  type ImageInputCapabilityResolution
+} from "../shared/image-input-capabilities.js";
 import type { StoryFact } from "../shared/types.js";
 import { ServiceError } from "./errors.js";
 
@@ -24,9 +37,12 @@ export function assertFixedContextFits(
   settings: FixedContextSettings,
   candidateFacts: readonly StoryFact[],
   authorsNote: string | null,
-  otherFixed: readonly string[]
+  otherFixed: readonly string[],
+  /** Visual tokens for the active prompt's images. See
+   *  shared/fact-admission.ts's `fixedContextTokens`. Defaults to 0. */
+  fixedImageTokens = 0
 ): FixedContextAdmission {
-  const selection = selectFactsForFixedContext(settings, candidateFacts, authorsNote, otherFixed);
+  const selection = selectFactsForFixedContext(settings, candidateFacts, authorsNote, otherFixed, fixedImageTokens);
   if (selection.fits) {
     return { facts: selection.facts, factsMessage: selection.factsMessage, dropped: selection.dropped };
   }
@@ -69,14 +85,93 @@ export function admitFactsIntoPrompt<P extends { prompt: PromptPlan }>(
   settings: FixedContextSettings,
   candidateFacts: readonly StoryFact[],
   authorsNote: string | null,
-  build: (factsMessage: string | null) => P
+  build: (factsMessage: string | null) => P,
+  /** Visual tokens for the active prompt's images. See
+   *  shared/fact-admission.ts's `fixedContextTokens`. Defaults to 0.
+   *
+   *  The caller sums `estimateImageTokens` (shared/image-input-capabilities.ts)
+   *  over every active image, using the capability resolution's own strategy,
+   *  and passes the total here before it calls `build`. It uses the same
+   *  active image list that `assertImageContextAdmitted` checks, so one image
+   *  can never be counted for the budget and skipped for admission.
+   *  `server/generation-image-attachments.ts` does this work. */
+  fixedImageTokens = 0
 ): { plan: P; admission: FixedContextAdmission } {
   return admitFactsWith(
-    (facts, note, otherFixed) => assertFixedContextFits(settings, facts, note, otherFixed),
+    (facts, note, otherFixed, images) => assertFixedContextFits(settings, facts, note, otherFixed, images),
     candidateFacts,
     authorsNote,
-    build
+    build,
+    fixedImageTokens
   );
+}
+
+/**
+ * Reject an image-bearing prompt before it reaches a provider. Every check
+ * here returns immediately for a plan with no image block, so a text-only
+ * request is exactly as it was before Image Input existed.
+ *
+ * `capability` is the already-resolved verdict from
+ * shared/image-input-capabilities.ts's `resolveImageInputCapability`, for the
+ * exact model and protocol the request will use. A caller with no capability
+ * to give (dry-run, text-completion, or a caller not yet wired for images)
+ * passes nothing, which fails closed: any image on such a request is
+ * refused.
+ */
+export function assertImageContextAdmitted(
+  plan: PromptPlan,
+  capability?: ImageInputCapabilityResolution
+): void {
+  const images = activeImageAttachments(plan);
+  if (images.length === 0) return;
+  if (capability === undefined || !imageInputAuthorized(capability)) {
+    throw new ServiceError(
+      400,
+      "The selected model or connection does not support image input.",
+      "image_input_not_supported"
+    );
+  }
+  if (images.length > MAX_ACTIVE_PROMPT_IMAGES) {
+    throw new ServiceError(
+      400,
+      `The active prompt carries more than ${MAX_ACTIVE_PROMPT_IMAGES} images. ` +
+      "Remove a draft image, or let older image-bearing context roll out of the active prompt.",
+      "image_context_too_large"
+    );
+  }
+  const combinedBase64Length = images.reduce(
+    (sum, image) => sum + base64Length(image.byteLength),
+    0
+  );
+  if (combinedBase64Length > MAX_ACTIVE_PROMPT_IMAGE_BASE64_LENGTH) {
+    throw new ServiceError(
+      400,
+      "The active prompt's combined image size is too large for one request. " +
+      "Remove a draft image, or let older image-bearing context roll out of the active prompt.",
+      "image_context_too_large"
+    );
+  }
+}
+
+/**
+ * Reject a request body that is too large to send, only when it actually
+ * carries an image. This bound exists to keep a base64-inflated body inside
+ * what a provider accepts; a text-only body is never checked here, and stays
+ * exactly as it was before Image Input existed.
+ */
+export function assertImageBearingBodyFits(
+  body: Record<string, unknown>,
+  hasImages: boolean
+): void {
+  if (!hasImages) return;
+  const byteLength = Buffer.byteLength(JSON.stringify(body), "utf8");
+  if (byteLength > MAX_IMAGE_PROVIDER_BODY_BYTES) {
+    throw new ServiceError(
+      413,
+      "The image-bearing request body is too large for the provider.",
+      "provider_request_too_large"
+    );
+  }
 }
 
 interface GenerationModelAttribution {

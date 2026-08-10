@@ -82,6 +82,7 @@ export const SETTINGS_ROW_IDS = [
   "api-key",
   "profile",
   "model",
+  "image-input",
   "temperature",
   "max-tokens",
   "sampling",
