@@ -416,6 +416,8 @@ export function isLocalDurabilityMutation(
  *
  * - `createNode` with a `genId` settles a stopped generation; its text is
  *   paid streamed prose held only in caller memory.
+ * - `removeChapterBreak` detaches summary Generation Records. Its receipt
+ *   keeps their object graph live until a later restore can publish it again.
  * - `restoreChapterBreak` re-installs removed summary nodes whose text may
  *   be paid provider output already deleted from the store.
  * - `commitPartialRewrite` settles a stopped or timed-out rewrite; its
@@ -431,7 +433,7 @@ export function isManifestOnlyDurabilityEligible(
   input: unknown
 ): method is LocalDurabilityMutationMethod {
   if (!isLocalDurabilityMutation(method)) return false;
-  if (method === "restoreChapterBreak") return false;
+  if (method === "removeChapterBreak" || method === "restoreChapterBreak") return false;
   if (method === "commitPartialRewrite") return false;
   if (method === "importLorebook" || method === "importCard") return false;
   if (method === "createNode") return !createNodeCarriesGeneration(input);

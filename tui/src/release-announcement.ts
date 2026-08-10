@@ -211,7 +211,10 @@ export function announceRelease(
   // The toast holds a few rows; the announcement's full body does not. This
   // is the same split the archive-import fidelity report uses: the toast
   // headline, and the whole account written to the log directly.
-  recordNotice(state.notices, "toast", announcement.body);
+  // `announcement.body` is release-note markdown (headline, version
+  // headers, and each note's own `**bold**`/`` `code` ``/list-item body) —
+  // the one caller `notice-log.ts` documents as passing `"markdown"`.
+  recordNotice(state.notices, "toast", announcement.body, "markdown");
   // Never clobber a toast startup already raised for another reason.
   if (state.toast === null) {
     state.toast = announcement.toast;

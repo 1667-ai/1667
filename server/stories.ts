@@ -111,6 +111,7 @@ import {
 import { isStoryId } from "./story-v5-strict.js";
 import {
   requirePresentStorySlot,
+  stagedStoryManifestExists,
   StoryAggregateSession,
   type GenerationRecordSourceRevisionSnapshot
 } from "./story-aggregate-session.js";
@@ -999,11 +1000,16 @@ export class StoryStore {
         const liveImageIds = liveLeases.map((lease) => lease.objectId);
         const hasLiveLease = liveLeases.length > 0;
         if (!await cleanupPending(bundleDir)) return;
+        // A staged successor can reference objects that the current manifest
+        // does not reference. Recovery owns the staged file and schedules a
+        // later cleanup after it publishes or discards that file.
+        if (await stagedStoryManifestExists(bundleDir)) return;
         // One exhaustive lookup, not a hand-written `if` chain: every kind
         // `storySlotSweepLiveIds` does not explicitly decide for fails to
         // compile there instead of silently sweeping as if nothing were
-        // live (server/story-storage-reader.ts). This also keeps `live` a
-        // single value rather than two independently-nullable ones.
+        // live (server/story-storage-reader.ts). That is stronger than the
+        // single-value discipline this block used to rely on, and it is what
+        // caught the successor kinds the hand-written chains had missed.
         const live = storySlotSweepLiveIds(slot);
         if (live === null) return;
         const pinned = this.providerSnapshotPins.get(id);
