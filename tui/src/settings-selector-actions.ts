@@ -1,8 +1,8 @@
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
 import { saveConfig, THEME_NAMES, type ThemeName } from "./config.js";
+import { cycleAllowInsecureHttp } from "./settings-allow-insecure.js";
 import {
-  cycleAllowInsecureHttp,
   cycleSettingsModel,
   cycleSettingsProvider,
   settingsModelDisplayText,

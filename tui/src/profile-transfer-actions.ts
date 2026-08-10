@@ -5,6 +5,7 @@ import { STARTER_PROFILES } from "../../shared/generation-profile-starters.js";
 import { completeFilePath, errorMessage, expandLeadingTilde } from "./path-completion.js";
 import { recordNotice } from "./notice-log.js";
 import { applyProfileTransfer } from "./profile-transfer-apply.js";
+import { cloneSettingsProfileDraft } from "./settings-draft-transition.js";
 import { settingsTextDraftForDocument } from "./settings-text.js";
 import { readFromClipboard } from "./clipboard.js";
 import { pasteInto, type ResolvedKey } from "./keys.js";
@@ -157,7 +158,14 @@ function applyCandidate(
   const sourceId = overlay.draft.selectedProfileId!;
   const fitted = applyProfileTransfer(document, sourceId, candidate);
   if ("error" in fitted) { prompt.error = fitted.error; return; }
-  overlay.draft = settingsTextDraftForDocument(fitted.document, fitted.profileId);
+  cloneSettingsProfileDraft(
+    overlay,
+    settingsTextDraftForDocument(
+      fitted.document,
+      fitted.profileId
+    ),
+    sourceId
+  );
   overlay.deleteArmedProfileId = null;
   overlay.result = null;
   if (overlay.conflict !== null) overlay.conflict.armed = false;

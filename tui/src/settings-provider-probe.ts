@@ -1,11 +1,15 @@
 import { applyBasicSettingsProbeDraft } from "../../shared/settings-basic-draft.js";
 import type {
+  ModelConnectionV2,
   ProviderProbeTarget,
   SettingsDocumentV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../../shared/types.js";
-import { resolveSettingsProfile } from "../../shared/settings-route.js";
+import {
+  resolveSettingsProfile,
+  selectSettingsRoute
+} from "../../shared/settings-route.js";
 import { storedCredentialSecretId } from "../../shared/settings-stored-credential.js";
 
 /** Editable format-2 drafts must retain document-only connection policy across
@@ -49,5 +53,55 @@ export function settingsProviderProbeTarget(
     ...(typeof pendingSecret !== "string" || secretId === null
       ? {}
       : { secrets: { [secretId]: pendingSecret } })
+  };
+}
+
+export function settingsModelTargetFingerprint(
+  view: SettingsView,
+  settings: GenerationSettings,
+  connectionSecrets: Readonly<Record<string, string | null>>,
+  draftDocument?: SettingsDocumentV2 | null,
+  selectedProfileId?: string | null
+): string {
+  const target = settingsProviderProbeTarget(
+    view,
+    settings,
+    connectionSecrets,
+    draftDocument,
+    selectedProfileId
+  );
+  const connection = "kind" in target
+    ? modelDiscoveryConnectionTarget(
+        selectSettingsRoute(target.document, target.purpose).connection
+      )
+    : null;
+  const secretIntent = "kind" in target
+    ? Object.keys(target.secrets ?? {})
+      .sort((left, right) => left.localeCompare(right))
+      .map((id) => [id, "replace"] as const)
+    : [];
+  return JSON.stringify([
+    settings.provider,
+    settings.baseUrl,
+    settings.apiKeyEnv,
+    settings.allowInsecureHttp === true,
+    connection,
+    secretIntent
+  ]);
+}
+
+function modelDiscoveryConnectionTarget(
+  connection: ModelConnectionV2
+) {
+  return {
+    preset: connection.preset,
+    protocol: connection.protocol,
+    baseUrl: connection.baseUrl,
+    auth: connection.auth,
+    headers: connection.headers,
+    timeoutMs: connection.timeouts.totalMs,
+    ...(connection.allowInsecureHttp === true
+      ? { allowInsecureHttp: true as const }
+      : {})
   };
 }

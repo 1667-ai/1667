@@ -45,6 +45,13 @@ import {
 } from "./settings-prompt-editor.js";
 import { activeSettingsEdit } from "./settings-edit-state.js";
 import {
+  acknowledgeAllSettingsModelSelections,
+  cloneSettingsProfileDraft,
+  replaceSettingsDraft,
+  settingsContextWindowIsManual,
+  settingsHasAutomaticModelSelections
+} from "./settings-draft-transition.js";
+import {
   applySettingsRowEdit,
   beginSettingsRowEdit,
   boundedSettingsCursor,
@@ -68,7 +75,11 @@ import {
   isolateSettingsProfileModel
 } from "./settings-profile-draft.js";
 import { discardUnreferencedConnectionSecretWrites } from "./settings-secret-sidecar.js";
-import { settingsTextDraftForDocument, settingsTextDraftWithGeneration } from "./settings-text.js";
+import {
+  settingsTextDraftForDocument,
+  settingsTextDraftForView,
+  settingsTextDraftWithGeneration
+} from "./settings-text.js";
 import { modelPickerRequired } from "./settings-model-picker.js";
 import { openProfileTransfer, profileTransferAction } from "./profile-transfer-actions.js";
 import {
@@ -291,7 +302,14 @@ function manageSettingsProfile(
       state.toast = `profile kept · ${created.error}`;
       return;
     }
-    overlay.draft = settingsTextDraftForDocument(created.document, created.profileId);
+    cloneSettingsProfileDraft(
+      overlay,
+      settingsTextDraftForDocument(
+        created.document,
+        created.profileId
+      ),
+      profileId
+    );
     overlay.deleteArmedProfileId = null;
     overlay.result = null;
     overlay.conflict = overlay.conflict === null ? null : { ...overlay.conflict, armed: false };
@@ -313,7 +331,13 @@ function manageSettingsProfile(
     state.toast = `profile kept · ${deleted.error}`;
     return;
   }
-  overlay.draft = settingsTextDraftForDocument(deleted.document, deleted.profileId);
+  replaceSettingsDraft(
+    overlay,
+    settingsTextDraftForDocument(
+      deleted.document,
+      deleted.profileId
+    )
+  );
   discardUnreferencedConnectionSecretWrites(overlay);
   overlay.deleteArmedProfileId = null;
   overlay.result = null;
@@ -334,7 +358,12 @@ async function saveSettingsDraft(
   // A staged view means the last activation attempt did not commit; saving
   // the unmodified candidate is the retry, so the no-op guards step aside.
   const stagedRetry = overlay.view.pendingRevision !== null;
-  if (overlay.saveIntent === undefined && !settingsDraftChanged(overlay) && !stagedRetry) {
+  if (overlay.saveIntent === undefined
+    && !settingsDraftChanged(overlay)
+    && !stagedRetry) {
+    if (settingsHasAutomaticModelSelections(overlay)) {
+      acknowledgeAllSettingsModelSelections(overlay);
+    }
     overlay.conflict = null;
     return;
   }
@@ -358,9 +387,10 @@ async function saveSettingsDraft(
         ? overlay.modelDiscovery
         : null;
       const savedDocument = applyBasicSettingsDraft(
-        draft.document,
-        draft.generation,
-        draft.selectedProfileId
+          draft.document,
+          draft.generation,
+          draft.selectedProfileId,
+          settingsContextWindowIsManual(overlay)
       );
       const selectedRemoteId = resolveSettingsProfile(
         savedDocument,
@@ -375,7 +405,8 @@ async function saveSettingsDraft(
           : savedDocument,
         discovery,
         draft.generation.contextWindow,
-        draft.selectedProfileId
+        draft.selectedProfileId,
+        settingsContextWindowIsManual(overlay)
       );
       document = applySamplingSettings(
         document,
@@ -396,10 +427,20 @@ async function saveSettingsDraft(
     }
     if (
       !stagedRetry
-      && document === overlay.view.document
+      && sameSettingsDraft(
+        settingsTextDraftForDocument(document, draft.selectedProfileId),
+        settingsTextDraftForView(overlay.view, draft.selectedProfileId)
+      )
       && Object.keys(connectionSecrets).length === 0
     ) {
-      overlay.draft = overlay.base;
+      acknowledgeAllSettingsModelSelections(overlay);
+      replaceSettingsDraft(
+        overlay,
+        settingsTextDraftForView(
+          overlay.view,
+          overlay.draft.selectedProfileId
+        )
+      );
       overlay.conflict = null;
       return;
     }

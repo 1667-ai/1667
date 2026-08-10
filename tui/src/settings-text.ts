@@ -25,6 +25,7 @@ import {
   promptCacheContextForProfile
 } from "../../shared/prompt-cache-capabilities.js";
 import {
+  isolateSettingsProfileModel,
   prepareSettingsProfileGenerationEdit,
   selectedSettingsProfileId
 } from "./settings-profile-draft.js";
@@ -86,7 +87,7 @@ export function settingsTextDraftForView(
 
 export function settingsTextDraftForDocument(
   document: SettingsDocumentV2,
-  preferredProfileId?: string | null
+  preferredProfileId: string | null | undefined
 ): SettingsTextDraft {
   const selectedProfileId = selectedSettingsProfileId(document, preferredProfileId);
   const route = resolveSettingsProfile(document, selectedProfileId);
@@ -101,7 +102,8 @@ export function settingsTextDraftForDocument(
 
 export function settingsTextDraftWithGeneration(
   draft: SettingsTextDraft,
-  generation: GenerationSettings
+  generation: GenerationSettings,
+  retainContextWindowOverride = false
 ): SettingsTextDraft {
   if (draft.document === null || draft.selectedProfileId === null) {
     return { ...draft, generation };
@@ -113,7 +115,12 @@ export function settingsTextDraftWithGeneration(
     generation
   );
   const projected = settingsTextDraftForDocument(
-    applySettingsGenerationDraft(document, generation, draft.selectedProfileId),
+    applySettingsGenerationDraft(
+      document,
+      generation,
+      draft.selectedProfileId,
+      retainContextWindowOverride
+    ),
     draft.selectedProfileId
   );
   if (generation.provider !== "dry-run") return projected;
@@ -175,14 +182,29 @@ export function settingsTextDraftWithDetectedContext(
   draft: SettingsTextDraft,
   contextWindow: number
 ): SettingsTextDraft {
-  const synchronized = settingsTextDraftWithGeneration(draft, {
-    ...draft.generation,
-    contextWindow: null
-  });
-  return settingsTextDraftWithGeneration(synchronized, {
-    ...synchronized.generation,
-    contextWindow
-  });
+  const document = draft.document;
+  const profileId = draft.selectedProfileId;
+  if (document === null || profileId === null) {
+    return {
+      ...draft,
+      generation: { ...draft.generation, contextWindow }
+    };
+  }
+  const isolated = isolateSettingsProfileModel(document, profileId);
+  const route = resolveSettingsProfile(isolated, profileId);
+  const overrides = { ...route.model.overrides };
+  delete overrides.contextWindow;
+  return settingsTextDraftForDocument({
+    ...isolated,
+    models: {
+      ...isolated.models,
+      [route.profile.modelId]: {
+        ...route.model,
+        discovered: { ...route.model.discovered, contextWindow },
+        overrides
+      }
+    }
+  }, profileId);
 }
 
 /** Identify only form values that the selected document cannot project. This
@@ -373,10 +395,16 @@ export function parseSettings(value: string, base: SettingsTextDraft): SettingsT
 function applySettingsGenerationDraft(
   document: SettingsDocumentV2,
   generation: GenerationSettings,
-  profileId: string
+  profileId: string,
+  retainContextWindowOverride = false
 ): SettingsDocumentV2 {
   try {
-    return applyBasicSettingsProbeDraft(document, generation, profileId);
+    return applyBasicSettingsProbeDraft(
+      document,
+      generation,
+      profileId,
+      retainContextWindowOverride
+    );
   } catch {
     return applyIncompleteGenerationDraft(document, generation, profileId);
   }

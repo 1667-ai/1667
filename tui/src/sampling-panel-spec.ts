@@ -15,6 +15,7 @@ import type {
   SamplingPhraseBiasEntryV2,
   SamplingSettingsV2
 } from "../../shared/settings-v2-types.js";
+import { replaceSettingsDraft } from "./settings-draft-transition.js";
 import type { SamplingListPanel, SettingsOverlayState } from "./state.js";
 
 /**
@@ -320,7 +321,7 @@ export function updateSamplingDraft(
         sampling,
         overlay.draft.selectedProfileId
       );
-  overlay.draft = { ...overlay.draft, document, sampling };
+  replaceSettingsDraft(overlay, { ...overlay.draft, document, sampling });
   if (overlay.conflict !== null) overlay.conflict.armed = false;
   overlay.result = null;
   if (overlay.sampling !== null) overlay.sampling.result = "draft updated · save in Settings";

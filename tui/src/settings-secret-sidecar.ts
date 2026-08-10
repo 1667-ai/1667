@@ -8,6 +8,7 @@ import { storedCredentialSecretId } from "../../shared/settings-stored-credentia
 import { MAX_SETTINGS_ID_SCALARS } from "../../server/settings-v2-scalars.js";
 import type { SettingsOverlayState } from "./state.js";
 import { isolateSettingsProfileConnection } from "./settings-profile-draft.js";
+import { replaceSettingsDraft } from "./settings-draft-transition.js";
 import {
   settingsTextDraftForDocument,
   settingsTextDraftWithGeneration
@@ -38,11 +39,18 @@ export function applyStoredApiKeyEdit(
       overlay.draft.document,
       overlay.draft.selectedProfileId
     );
-    overlay.draft = settingsTextDraftForDocument(document, overlay.draft.selectedProfileId);
-    overlay.draft = settingsTextDraftWithGeneration(overlay.draft, {
-      ...overlay.draft.generation,
-      apiKeyEnv: null
-    });
+    const generation = overlay.draft.generation;
+    replaceSettingsDraft(
+      overlay,
+      settingsTextDraftForDocument(document, overlay.draft.selectedProfileId)
+    );
+    replaceSettingsDraft(
+      overlay,
+      settingsTextDraftWithGeneration(overlay.draft, {
+        ...generation,
+        apiKeyEnv: null
+      })
+    );
     const selected = selectedConnection(overlay);
     const existingSecretId = storedCredentialSecretId(selected.connection.auth);
     if (value.length === 0) {
@@ -148,13 +156,16 @@ function replaceSelectedConnectionAuth(
     throw new Error("Stored API keys require editable format-2 settings");
   }
   const selected = profileConnectionInDocument(document, profileId);
-  overlay.draft = settingsTextDraftForDocument({
-    ...document,
-    connections: {
-      ...document.connections,
-      [selected.connectionId]: { ...selected.connection, auth }
-    }
-  }, profileId);
+  replaceSettingsDraft(
+    overlay,
+    settingsTextDraftForDocument({
+      ...document,
+      connections: {
+        ...document.connections,
+        [selected.connectionId]: { ...selected.connection, auth }
+      }
+    }, profileId)
+  );
 }
 
 function storedAuthFor(

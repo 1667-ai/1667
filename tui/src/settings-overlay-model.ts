@@ -8,7 +8,6 @@ import {
   settingsRowIsLocal,
   type LocalConfigRow
 } from "./settings-local-rows.js";
-
 export { LOCAL_CONFIG_ROWS, settingsRowIsLocal, type LocalConfigRow };
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import type { UserConfig } from "./config.js";
@@ -22,7 +21,19 @@ import {
   nextSettingsProviderChoice,
   type SettingsProviderChoice
 } from "./settings-provider-choices.js";
-import { settingsModelChoices } from "./settings-model-discovery.js";
+import {
+  applySettingsManualContextDraft,
+  replaceSettingsDraft,
+  replaceSettingsProviderDraft
+} from "./settings-draft-transition.js";
+import {
+  applyCachedSettingsModelChoice,
+  applySettingsModelChoice
+} from "./settings-model-selection.js";
+import {
+  settingsModelChoices,
+  settingsModelSelectionTargetIdentity
+} from "./settings-model-discovery.js";
 import { isSettingsScalarRow } from "./settings-scalar.js";
 import { modelPickerRequired } from "./settings-model-picker.js";
 import {
@@ -51,7 +62,6 @@ import {
   settingsDraftChanged,
   settingsFieldKey
 } from "./settings-overlay-reconciliation.js";
-
 export {
   promptCacheRowValue,
   settingsModelDisplayText,
@@ -117,6 +127,7 @@ export function initialSettingsOverlay(
     view,
     base: draft,
     draft,
+    modelSelectionByProfile: {},
     connectionSecrets: {},
     cursor: 0,
     edit: null,
@@ -128,6 +139,7 @@ export function initialSettingsOverlay(
     discoveringModels: false,
     modelDiscovery: null,
     modelDiscoveryIdentity: null,
+    modelDiscoveryResultTargetIdentity: null,
     modelDiscoveryGeneration: 0,
     modelDiscoveryAbortController: null,
     modelDiscoveryTargetIdentity: null,
@@ -260,7 +272,10 @@ export function applySettingsRowEdit(
       rawValue
     );
     if ("error" in renamed) return { kind: "error", message: renamed.error };
-    overlay.draft = settingsTextDraftForDocument(renamed, overlay.draft.selectedProfileId);
+    replaceSettingsDraft(
+      overlay,
+      settingsTextDraftForDocument(renamed, overlay.draft.selectedProfileId)
+    );
     overlay.edit = null;
     overlay.result = null;
     return { kind: "draft" };
@@ -272,13 +287,12 @@ export function applySettingsRowEdit(
     overlay.draft
   );
   if ("error" in parsed) return { kind: "error", message: parsed.error };
+  const modelChanged = edit.row === "model"
+    && parsed.generation.model !== overlay.draft.generation.model;
   const identityChanged = (
     edit.row === "base-url"
       && parsed.generation.baseUrl !== overlay.draft.generation.baseUrl
-  ) || (
-    edit.row === "model"
-      && parsed.generation.model !== overlay.draft.generation.model
-  );
+  ) || modelChanged;
   const next = identityChanged
     ? {
         ...parsed,
@@ -286,9 +300,32 @@ export function applySettingsRowEdit(
       }
     : parsed;
   try {
-    overlay.draft = settingsTextDraftWithGeneration(overlay.draft, next.generation);
+    if (edit.row === "model") {
+      applySettingsModelChoice(overlay, {
+        remoteId: next.generation.model,
+        contextWindow: modelChanged ? null : next.generation.contextWindow
+      }, undefined, { kind: "typed" });
+    } else {
+      if (edit.row === "context-window"
+        && next.generation.contextWindow !== null) {
+        applySettingsManualContextDraft(overlay, next.generation);
+      } else {
+        replaceSettingsDraft(
+          overlay,
+          settingsTextDraftWithGeneration(overlay.draft, next.generation)
+        );
+      }
+    }
   } catch (error) {
     return { kind: "error", message: error instanceof Error ? error.message : String(error) };
+  }
+  if (edit.row === "model") {
+    const error = applyCachedSettingsModelChoice(
+      overlay,
+      settingsModelChoices(overlay),
+      settingsModelSelectionTargetIdentity(overlay)
+    );
+    if (error !== null) return { kind: "error", message: error };
   }
   if (edit.row === "api-key-env") discardUnreferencedConnectionSecretWrites(overlay);
   if (!settingsDraftChanged(overlay)) overlay.conflict = null;
@@ -302,10 +339,13 @@ export function applySystemPromptDraft(
   systemPrompt: string
 ): void {
   disarmSettingsConflict(overlay);
-  overlay.draft = settingsTextDraftWithGeneration(overlay.draft, {
-    ...overlay.draft.generation,
-    systemPrompt
-  });
+  replaceSettingsDraft(
+    overlay,
+    settingsTextDraftWithGeneration(overlay.draft, {
+      ...overlay.draft.generation,
+      systemPrompt
+    })
+  );
   if (sameSettingsDraft(overlay.draft, overlay.base)) overlay.conflict = null;
   overlay.result = null;
 }
@@ -384,15 +424,21 @@ export function cycleSettingsProvider(
     selectedConnectionPreset(overlay)
   );
   const preserveStoredApiKey = hasStoredApiKey(overlay);
-  overlay.draft = settingsTextDraftWithGeneration(overlay.draft, {
-    ...overlay.draft.generation,
-    provider: choice.provider,
-    ...choice.defaults,
-    ...(preserveStoredApiKey ? { apiKeyEnv: null } : {})
-  });
+  replaceSettingsProviderDraft(
+    overlay,
+    settingsTextDraftWithGeneration(overlay.draft, {
+      ...overlay.draft.generation,
+      provider: choice.provider,
+      ...choice.defaults,
+      ...(preserveStoredApiKey ? { apiKeyEnv: null } : {})
+    })
+  );
   const textPreset = textPresetForChoice(choice);
   if (textPreset !== null) {
-    overlay.draft = settingsTextDraftWithTextPreset(overlay.draft, textPreset);
+    replaceSettingsDraft(
+      overlay,
+      settingsTextDraftWithTextPreset(overlay.draft, textPreset)
+    );
   }
   rekeyPendingStoredSecret(overlay);
   discardUnreferencedConnectionSecretWrites(overlay);
@@ -432,30 +478,8 @@ export function cycleSettingsModel(
     ? step === 1 ? 0 : choices.length - 1
     : (current + step + choices.length) % choices.length;
   const choice = choices[index]!;
-  if (choice.remoteId === overlay.draft.generation.model) {
-    return choice.remoteId;
-  }
-  overlay.draft = settingsTextDraftWithGeneration(overlay.draft, {
-    ...overlay.draft.generation,
-    model: choice.remoteId,
-    contextWindow: choice.contextWindow
-  });
-  overlay.result = null;
-  if (!settingsDraftChanged(overlay)) overlay.conflict = null;
-  else disarmSettingsConflict(overlay);
+  applySettingsModelChoice(overlay, choice);
   return choice.remoteId;
-}
-
-export function cycleAllowInsecureHttp(overlay: SettingsOverlayState): boolean {
-  const allowInsecureHttp = overlay.draft.generation.allowInsecureHttp !== true;
-  const generation = { ...overlay.draft.generation };
-  if (allowInsecureHttp) generation.allowInsecureHttp = true;
-  else delete generation.allowInsecureHttp;
-  overlay.draft = settingsTextDraftWithGeneration(overlay.draft, generation);
-  overlay.result = null;
-  if (!settingsDraftChanged(overlay)) overlay.conflict = null;
-  else disarmSettingsConflict(overlay);
-  return allowInsecureHttp;
 }
 
 function maskSecretText(value: string): string {

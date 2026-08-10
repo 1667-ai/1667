@@ -9,11 +9,13 @@ import {
   modelPickerRows
 } from "./settings-model-picker.js";
 import {
+  applySettingsModelChoice
+} from "./settings-model-selection.js";
+import {
   applySettingsRowEdit,
   disarmSettingsConflict,
   settingsDraftChanged
 } from "./settings-overlay-model.js";
-import { settingsTextDraftWithGeneration } from "./settings-text.js";
 import {
   applySettingsLocalToggle,
   applySettingsTheme
@@ -89,13 +91,10 @@ export function settingsModelPickerAction(
   const model = chosen?.remoteId ?? picker.query.trim();
   overlay.modelPicker = null;
   if (model.length === 0) return;
-  overlay.draft = settingsTextDraftWithGeneration(overlay.draft, {
-    ...overlay.draft.generation,
-    model,
+  applySettingsModelChoice(overlay, {
+    remoteId: model,
     contextWindow: chosen?.contextWindow ?? null
-  });
-  overlay.result = null;
-  disarmSettingsConflict(overlay);
+  }, undefined, chosen === undefined ? { kind: "typed" } : { kind: "manual" });
   state.toast = `model · ${model} · s saves settings`;
 }
 
