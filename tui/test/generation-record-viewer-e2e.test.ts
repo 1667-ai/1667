@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { KeyEvent } from "@opentui/core";
-import { MAX_GENERATION_RECORD_TEXT_CHARS } from "../../shared/generation-record.js";
+import { MAX_GENERATION_RECORD_TEXT_CHARS, type ResolvedGenerationRecord } from "../../shared/generation-record.js";
 import { textHash } from "../src/api.js";
 import { handleKey, initialState } from "../src/app.js";
 import type { AppSource } from "../src/app.js";
@@ -12,8 +12,24 @@ import { resolveGenerationRecordKey } from "../src/generation-record-actions.js"
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
+import type { GenerationRecordListState, GenerationRecordViewerState } from "../src/state.js";
 import { createWorkerStoryApi, type WorkerStoryApi } from "../src/worker-api.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
+
+/** The currently loaded resolved record, or null while idle, loading, or
+ *  errored — the same narrowing `screens/generation-record-viewer.ts` and
+ *  `generation-record-actions.ts` do at each of their own call sites. */
+function resolvedDetail(record: GenerationRecordViewerState | null | undefined): ResolvedGenerationRecord | null {
+  return record != null && record.detail.status === "ready" ? record.detail.detail : null;
+}
+
+/** The loaded summary list, or null while loading, errored, or absent —
+ *  the same narrowing `resolvedDetail` does for the detail stage. */
+function readySummaries(
+  record: GenerationRecordViewerState | null | undefined
+): Extract<GenerationRecordListState, { status: "ready" }> | null {
+  return record != null && record.list.status === "ready" ? record.list : null;
+}
 
 /**
  * The Generation Record Viewer, driven end-to-end through a real dry-run
@@ -138,12 +154,11 @@ describe("generation record viewer: end-to-end dry-run generation", () => {
     expect(state.record).not.toBe(null);
     expect(state.record?.nodeId).toBe(leafId);
     expect(state.record?.returnMode).toBe("NAV");
-    expect(state.record?.listLoading).toBe(false);
-    expect(state.record?.summaries?.length).toBe(2);
+    expect(readySummaries(state.record)?.summaries.length).toBe(2);
     // Newest first: the append is index 1, oldest-first (server/stories.ts's
     // `loadGenerationRecordSummaries`).
     expect(state.record?.eventIndex).toBe(1);
-    expect(state.record?.detail?.kind).toBe("append");
+    expect(resolvedDetail(state.record)?.kind).toBe("append");
     // h never moves NAV's own focus or mutates the story it is reading.
     expect(state.focusIndex).toBe(focusBefore);
     expect(state.payload).toBe(payloadBefore);
@@ -188,27 +203,27 @@ describe("generation record viewer: end-to-end dry-run generation", () => {
 
     await press("h");
     expect(state.record?.eventIndex).toBe(1);
-    expect(state.record?.detail?.kind).toBe("append");
+    expect(resolvedDetail(state.record)?.kind).toBe("append");
 
     await press("left");
     expect(state.record?.eventIndex).toBe(0);
-    expect(state.record?.detail?.kind).toBe("continue");
+    expect(resolvedDetail(state.record)?.kind).toBe("continue");
     // A boundary press stays put rather than wrapping or throwing.
     await press("left");
     expect(state.record?.eventIndex).toBe(0);
 
     await press("right");
     expect(state.record?.eventIndex).toBe(1);
-    expect(state.record?.detail?.kind).toBe("append");
+    expect(resolvedDetail(state.record)?.kind).toBe("append");
     // Cached: reselecting the already-loaded event does not clear detail
     // while a fresh fetch would be in flight.
     await press("left");
-    expect(state.record?.detail?.kind).toBe("continue");
+    expect(resolvedDetail(state.record)?.kind).toBe("continue");
 
     // g/G move the entry cursor to the first and last pipeline row of the
     // *current* event — the request viewer's own meaning for the same keys —
     // never between events, which is left/right's job.
-    const entries = generationRecordPipelineRows(state.record!.detail!);
+    const entries = generationRecordPipelineRows(resolvedDetail(state.record)!);
     expect(state.record?.entryIndex).toBe(0);
     await press("g", true);
     expect(state.record?.entryIndex).toBe(Math.max(0, entries.length - 1));
@@ -290,8 +305,8 @@ describe("generation record viewer: end-to-end dry-run generation", () => {
     const cache = createWrapCache<ProseStyle>();
 
     await handleKey(key("h"), state, source, cache, () => {}, async () => {}, () => {});
-    expect(state.record?.detail?.kind).toBe("unsupported");
-    expect(state.record?.detail?.prompt.entries).toEqual([]);
+    expect(resolvedDetail(state.record)?.kind).toBe("unsupported");
+    expect(resolvedDetail(state.record)?.prompt.entries).toEqual([]);
 
     const frame = frameText(renderStoryScreen(state, { width: 120, height: 40, wrapCache: cache }).lines);
     expect(frame).toContain("unsupported");
@@ -331,9 +346,8 @@ describe("generation record viewer: end-to-end dry-run generation", () => {
     const cache = createWrapCache<ProseStyle>();
 
     await handleKey(key("h"), state, source, cache, () => {}, async () => {}, () => {});
-    const detail = state.record?.detail;
+    const detail = resolvedDetail(state.record);
     expect(detail).not.toBe(null);
-    expect(detail).not.toBe(undefined);
     const entries = detail!.prompt.entries;
     const kinds = entries.map((entry) => entry.kind);
     const noteIndex = kinds.indexOf("authors-note");
@@ -420,7 +434,7 @@ describe("generation record viewer: end-to-end dry-run generation", () => {
     state.focusIndex = rowIndexForNode(createStoryViewModel(source.payload), leafId);
     const cache = createWrapCache<ProseStyle>();
     await handleKey(key("h"), state, source, cache, () => {}, async () => {}, () => {});
-    expect(state.record?.detail).not.toBe(null);
+    expect(resolvedDetail(state.record)).not.toBe(null);
 
     for (const width of [80, 120]) {
       const composition = renderStoryScreen(state, { width, height: 40, wrapCache: cache });

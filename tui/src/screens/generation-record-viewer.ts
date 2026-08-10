@@ -39,10 +39,11 @@ export function renderGenerationRecordViewerScreen(
   deadlines?: FrameDeadlineCollector
 ) {
   const node = state.payload.nodes.find((candidate) => candidate.id === recordState.nodeId) ?? null;
-  const summary = recordState.summaries?.[recordState.eventIndex] ?? null;
+  const summary = recordState.list.status === "ready" ? recordState.list.summaries[recordState.eventIndex] ?? null : null;
+  const detailValue = recordState.detail.status === "ready" ? recordState.detail.detail : null;
   const entryIndex = Math.max(
     0,
-    Math.min(Math.max(0, visibleEntryCount(recordState.detail) - 1), recordState.entryIndex)
+    Math.min(Math.max(0, visibleEntryCount(detailValue) - 1), recordState.entryIndex)
   );
   const header = recordHeader(recordState, summary, width);
   const body = recordBody(recordState, node, entryIndex, width);
@@ -84,9 +85,9 @@ export function renderGenerationRecordViewerScreen(
 }
 
 function recordEventPosition(recordState: GenerationRecordViewerState): string {
-  if (recordState.listLoading) return "loading…";
-  if (recordState.listError !== null) return "list failed";
-  const total = recordState.summaries?.length ?? 0;
+  if (recordState.list.status === "loading") return "loading…";
+  if (recordState.list.status === "error") return "list failed";
+  const total = recordState.list.summaries.length;
   return total === 0 ? "no events" : `event ${recordState.eventIndex + 1}/${total}`;
 }
 
@@ -95,7 +96,7 @@ function recordHeader(
   summary: GenerationRecordSummary | null,
   width: number
 ): FrameLine[] {
-  const detail = recordState.detail;
+  const detail = recordState.detail.status === "ready" ? recordState.detail.detail : null;
   const entryCount = visibleEntryCount(detail);
   const stored = detail === null
     ? ""
@@ -140,17 +141,17 @@ function recordBody(
   entryIndex: number,
   width: number
 ): { rows: RequestDocumentRow[]; starts: number[] } {
-  if (recordState.listLoading) return emptyBody("Loading this take's Generation Records…");
-  if (recordState.listError !== null) {
-    return emptyBody(`Could not load this take's Generation Records. ${recordState.listError}`);
+  if (recordState.list.status === "loading") return emptyBody("Loading this take's Generation Records…");
+  if (recordState.list.status === "error") {
+    return emptyBody(`Could not load this take's Generation Records. ${recordState.list.message}`);
   }
-  if (recordState.summaries === null || recordState.summaries.length === 0) {
+  if (recordState.list.summaries.length === 0) {
     return emptyBody("This take has no Generation Records.");
   }
-  if (recordState.detailLoading) return emptyBody("Loading this event's Generation Record…");
-  if (recordState.detailError !== null) return emptyBody(detailErrorText(recordState.detailError));
-  const detail = recordState.detail;
-  if (detail === null) return emptyBody("This event's Generation Record is not available.");
+  if (recordState.detail.status === "loading") return emptyBody("Loading this event's Generation Record…");
+  if (recordState.detail.status === "error") return emptyBody(detailErrorText(recordState.detail.error));
+  if (recordState.detail.status === "idle") return emptyBody("This event's Generation Record is not available.");
+  const detail = recordState.detail.detail;
 
   const rows: RequestDocumentRow[] = [];
   const warning = humanEditWarning(node ?? undefined);

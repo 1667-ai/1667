@@ -409,13 +409,40 @@ export type GenerationRecordDetailError =
   /** Any other transport or service failure. */
   | { kind: "failed"; message: string };
 
+/** One fetch of a take's Generation Record summary list — see
+ *  `GenerationRecordViewerState.list`. `status` mirrors `ThoughtCacheEntry`'s
+ *  own discriminant, so `summaries` can never be read back while `loading`
+ *  still holds, or held over stale from a previous status. */
+export type GenerationRecordListState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | {
+      status: "ready";
+      /** Oldest first, mirroring `loadGenerationRecordSummaries`. */
+      summaries: readonly GenerationRecordSummary[];
+    };
+
+/** One fetch of the selected event's resolved Generation Record — see
+ *  `GenerationRecordViewerState.detail`. Every non-idle variant carries the
+ *  `recordId` it is about, so a staleness check compares identities
+ *  directly instead of re-deriving one from `eventIndex` against `list`.
+ *  `idle` is the pre-selection state: nothing chosen yet, or `list` came
+ *  back empty. */
+export type GenerationRecordDetailState =
+  | { status: "idle" }
+  | { status: "loading"; recordId: string }
+  | { status: "error"; recordId: string; error: GenerationRecordDetailError }
+  | { status: "ready"; recordId: string; detail: ResolvedGenerationRecord };
+
 /** The Generation Record Viewer (RECORD mode): the read-only history of
  *  every captured request that produced or changed one take, opened with
  *  `h` from NAV or any MAP view without moving that view's own focus.
  *
- *  Two independent async stages, each with its own staleness guard the same
- *  way `TokenProbabilitiesViewerState` guards its single stage: the summary
- *  list loads once per `nodeId`, and each event's detail loads once per
+ *  `list` and `detail` are two independent async stages, each its own
+ *  discriminated union so loading/error/ready stay mutually exclusive by
+ *  construction — the same way `ThoughtCacheEntry` closes off a thought
+ *  cache entry from claiming to be both loading and ready. The summary list
+ *  loads once per `nodeId`, and each event's detail loads once per
  *  `(nodeId, eventIndex)` pair — re-checked against `state.record` after
  *  every await, so closing the viewer or moving to a different take or event
  *  before a fetch settles can never paint its answer over the wrong place. */
@@ -425,13 +452,9 @@ export interface GenerationRecordViewerState {
    *  of describing a take that moved out from under it. */
   nodeId: string;
   returnMode: "NAV" | "MAP";
-  /** Oldest first, mirroring `loadGenerationRecordSummaries` — null while the
-   *  first fetch is in flight or has failed. */
-  summaries: readonly GenerationRecordSummary[] | null;
-  listLoading: boolean;
-  listError: string | null;
-  /** Index into `summaries`; meaningless while `summaries` is null or empty.
-   *  Initialized to the newest (last) entry. */
+  list: GenerationRecordListState;
+  /** Index into `list.summaries`; meaningless unless `list.status` is
+   *  `"ready"`. Initialized to the newest (last) entry. */
   eventIndex: number;
   /** Selected message/pipeline row within the current event's body. Reclamped
    *  at render time against the live entry count, the same way
@@ -439,9 +462,7 @@ export interface GenerationRecordViewerState {
   entryIndex: number;
   /** Negative means reveal the focused entry on the next render. */
   scrollTop: number;
-  detail: ResolvedGenerationRecord | null;
-  detailLoading: boolean;
-  detailError: GenerationRecordDetailError | null;
+  detail: GenerationRecordDetailState;
   /** Bounded LRU of details already fetched this session, keyed by record
    *  id, so paging back to a recent event repaints instantly instead of
    *  re-fetching it. Paging past the bound (see

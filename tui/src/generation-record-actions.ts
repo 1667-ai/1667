@@ -1,8 +1,4 @@
 import type { KeyEvent } from "@opentui/core";
-import type {
-  GenerationRecordSummary,
-  ResolvedGenerationRecord
-} from "../../shared/generation-record.js";
 import { ApiFailureError } from "./api-error.js";
 import { createAtlasLayout } from "./atlas-layout.js";
 import type { ActionContext } from "./action-context.js";
@@ -11,7 +7,13 @@ import { createGenerationRecordDetailCache } from "./generation-record-detail-ca
 import { visibleEntryCount } from "./generation-record-pipeline.js";
 import type { ResolvedKey } from "./keys.js";
 import { createStoryViewModel, rowPart } from "./model.js";
-import type { GenerationRecordDetailError, GenerationRecordViewerState, RuntimeState } from "./state.js";
+import type {
+  GenerationRecordDetailError,
+  GenerationRecordDetailState,
+  GenerationRecordListState,
+  GenerationRecordViewerState,
+  RuntimeState
+} from "./state.js";
 import { projectStreamedPayload } from "./stream-projection.js";
 
 /** Open the read-only Generation Record Viewer (RECORD mode) without moving
@@ -31,15 +33,11 @@ export async function openGenerationRecordViewer(
   state.record = {
     nodeId,
     returnMode,
-    summaries: null,
-    listLoading: true,
-    listError: null,
+    list: { status: "loading" },
     eventIndex: 0,
     entryIndex: 0,
     scrollTop: -1,
-    detail: null,
-    detailLoading: false,
-    detailError: null,
+    detail: { status: "idle" },
     cache: createGenerationRecordDetailCache()
   };
   state.mode = "RECORD";
@@ -125,7 +123,8 @@ export async function generationRecordAction(
     record.entryIndex = 0;
     record.scrollTop = -1;
   } else if (resolved.action === "leaf") {
-    record.entryIndex = Math.max(0, visibleEntryCount(record.detail) - 1);
+    const detail = record.detail.status === "ready" ? record.detail.detail : null;
+    record.entryIndex = Math.max(0, visibleEntryCount(detail) - 1);
     record.scrollTop = -1;
   }
 }
@@ -137,8 +136,8 @@ async function selectEvent(
   index: number
 ): Promise<void> {
   const record = state.record;
-  if (record === null || record.summaries === null || record.summaries.length === 0) return;
-  const clamped = Math.max(0, Math.min(record.summaries.length - 1, index));
+  if (record === null || record.list.status !== "ready" || record.list.summaries.length === 0) return;
+  const clamped = Math.max(0, Math.min(record.list.summaries.length - 1, index));
   if (clamped === record.eventIndex) return;
   record.eventIndex = clamped;
   record.entryIndex = 0;
@@ -153,28 +152,28 @@ async function loadSummaries(
   nodeId: string
 ): Promise<void> {
   const ran = await context.backend.run("loading generation records", async (task) => {
-    let summaries: GenerationRecordSummary[] | null = null;
-    let listError: string | null = null;
+    let list: GenerationRecordListState;
     try {
-      summaries = await source.api.getGenerationRecords(task.storyId, nodeId);
+      const summaries = await source.api.getGenerationRecords(task.storyId, nodeId);
+      list = { status: "ready", summaries };
     } catch (error) {
-      listError = error instanceof Error ? error.message : "Could not load this take's Generation Records.";
+      list = {
+        status: "error",
+        message: error instanceof Error ? error.message : "Could not load this take's Generation Records."
+      };
     }
     if (state.record === null || state.record.nodeId !== nodeId) return;
-    state.record.listLoading = false;
-    state.record.listError = listError;
-    state.record.summaries = summaries;
-    if (summaries !== null && summaries.length > 0) state.record.eventIndex = summaries.length - 1;
+    state.record.list = list;
+    if (list.status === "ready" && list.summaries.length > 0) state.record.eventIndex = list.summaries.length - 1;
   });
   if (!ran) {
     if (state.record !== null && state.record.nodeId === nodeId) {
-      state.record.listLoading = false;
-      state.record.listError = "Busy. Try again once the current task finishes.";
+      state.record.list = { status: "error", message: "Busy. Try again once the current task finishes." };
     }
     return;
   }
   if (state.record !== null && state.record.nodeId === nodeId
-    && state.record.summaries !== null && state.record.summaries.length > 0) {
+    && state.record.list.status === "ready" && state.record.list.summaries.length > 0) {
     await loadSelectedDetail(state, source, context);
   }
 }
@@ -185,21 +184,17 @@ async function loadSelectedDetail(
   context: ActionContext
 ): Promise<void> {
   const record = state.record;
-  if (record === null || record.summaries === null) return;
-  const summary = record.summaries[record.eventIndex];
+  if (record === null || record.list.status !== "ready") return;
+  const summary = record.list.summaries[record.eventIndex];
   if (summary === undefined) return;
   const nodeId = record.nodeId;
   const recordId = summary.id;
   const cached = record.cache.get(recordId);
   if (cached !== undefined) {
-    record.detail = cached;
-    record.detailError = null;
-    record.detailLoading = false;
+    record.detail = { status: "ready", recordId, detail: cached };
     return;
   }
-  record.detail = null;
-  record.detailError = null;
-  record.detailLoading = true;
+  record.detail = { status: "loading", recordId };
   const admitted = await runDetailFetch(state, source, context, nodeId, recordId);
   const current = state.record;
   if (!admitted && current !== null && selectsRecord(current, nodeId, recordId)) {
@@ -222,19 +217,17 @@ async function runDetailFetch(
   recordId: string
 ): Promise<boolean> {
   return context.backend.run("loading generation record", async (task) => {
-    let detail: ResolvedGenerationRecord | null = null;
-    let detailError: GenerationRecordDetailError | null = null;
+    let detail: GenerationRecordDetailState;
     try {
-      detail = await source.api.getGenerationRecord(task.storyId, nodeId, recordId);
+      const resolved = await source.api.getGenerationRecord(task.storyId, nodeId, recordId);
+      detail = { status: "ready", recordId, detail: resolved };
     } catch (error) {
-      detailError = classifyDetailError(error);
+      detail = { status: "error", recordId, error: classifyDetailError(error) };
     }
     const current = state.record;
     if (current === null || !selectsRecord(current, nodeId, recordId)) return;
-    if (detail !== null) current.cache.set(recordId, detail);
+    if (detail.status === "ready") current.cache.set(recordId, detail.detail);
     current.detail = detail;
-    current.detailError = detailError;
-    current.detailLoading = false;
   }, { reportBusy: false });
 }
 
@@ -253,9 +246,7 @@ async function retryDetailFetchWhenIdle(
     if (stillCurrent === null || !selectsRecord(stillCurrent, nodeId, recordId)) return;
     const cached = stillCurrent.cache.get(recordId);
     if (cached !== undefined) {
-      stillCurrent.detail = cached;
-      stillCurrent.detailError = null;
-      stillCurrent.detailLoading = false;
+      stillCurrent.detail = { status: "ready", recordId, detail: cached };
       return;
     }
     if (await runDetailFetch(state, source, context, nodeId, recordId)) return;
@@ -263,7 +254,9 @@ async function retryDetailFetchWhenIdle(
 }
 
 function selectsRecord(record: GenerationRecordViewerState, nodeId: string, recordId: string): boolean {
-  return record.nodeId === nodeId && record.summaries?.[record.eventIndex]?.id === recordId;
+  return record.nodeId === nodeId
+    && record.list.status === "ready"
+    && record.list.summaries[record.eventIndex]?.id === recordId;
 }
 
 function classifyDetailError(error: unknown): GenerationRecordDetailError {

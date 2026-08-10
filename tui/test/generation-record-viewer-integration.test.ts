@@ -9,6 +9,7 @@ import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { GENERATION_RECORD_DETAIL_CACHE_BOUND } from "../src/generation-record-detail-cache.js";
+import type { GenerationRecordViewerState } from "../src/state.js";
 
 /**
  * Integration coverage for states a real dry-run generation cannot
@@ -29,6 +30,13 @@ function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
   return { promise, resolve };
+}
+
+/** The currently loaded resolved record, or null while idle, loading, or
+ *  errored — the same narrowing `screens/generation-record-viewer.ts` and
+ *  `generation-record-actions.ts` do at each of their own call sites. */
+function resolvedDetail(record: GenerationRecordViewerState | null | undefined): ResolvedGenerationRecord | null {
+  return record != null && record.detail.status === "ready" ? record.detail.detail : null;
 }
 
 function harness() {
@@ -95,8 +103,8 @@ describe("generation record viewer: empty and failure states keep the known take
     source.api.getGenerationRecords = async () => [];
     await press("h");
     expect(state.mode).toBe("RECORD");
-    expect(state.record?.summaries).toEqual([]);
-    expect(state.record?.detail).toBe(null);
+    expect(state.record?.list).toEqual({ status: "ready", summaries: [] });
+    expect(state.record?.detail).toEqual({ status: "idle" });
     const frame = frameText(renderStoryScreen(state, { width: 100, height: 30, wrapCache: cache }).lines);
     expect(frame).toContain("This take has no Generation Records.");
     // The header still identifies the known take even with nothing to show.
@@ -107,7 +115,7 @@ describe("generation record viewer: empty and failure states keep the known take
     const { source, state, cache, press } = harness();
     source.api.getGenerationRecords = async () => { throw new Error("network unreachable"); };
     await press("h");
-    expect(state.record?.listError).toBe("network unreachable");
+    expect(state.record?.list).toEqual({ status: "error", message: "network unreachable" });
     const frame = frameText(renderStoryScreen(state, { width: 100, height: 30, wrapCache: cache }).lines);
     expect(frame).toContain("Could not load this take's Generation Records. network unreachable");
   });
@@ -117,7 +125,7 @@ describe("generation record viewer: empty and failure states keep the known take
     source.api.getGenerationRecords = async () => [SUMMARY_OLD];
     source.api.getGenerationRecord = async () => { throw missingError(); };
     await press("h");
-    expect(state.record?.detailError).toEqual({ kind: "missing" });
+    expect(state.record?.detail).toEqual({ status: "error", recordId: SUMMARY_OLD.id, error: { kind: "missing" } });
     const frame = frameText(renderStoryScreen(state, { width: 100, height: 30, wrapCache: cache }).lines);
     expect(frame).toContain("no longer available");
   });
@@ -127,7 +135,11 @@ describe("generation record viewer: empty and failure states keep the known take
     source.api.getGenerationRecords = async () => [SUMMARY_OLD];
     source.api.getGenerationRecord = async () => { throw serverError(); };
     await press("h");
-    expect(state.record?.detailError?.kind).toBe("failed");
+    expect(state.record?.detail).toEqual({
+      status: "error",
+      recordId: SUMMARY_OLD.id,
+      error: { kind: "failed", message: "database unavailable" }
+    });
     const frame = frameText(renderStoryScreen(state, { width: 100, height: 30, wrapCache: cache }).lines);
     expect(frame).toContain("database unavailable");
   });
@@ -139,7 +151,11 @@ describe("generation record viewer: empty and failure states keep the known take
       throw new Error("The server returned an invalid Generation Record. kind is invalid");
     };
     await press("h");
-    expect(state.record?.detailError?.kind).toBe("corrupt");
+    expect(state.record?.detail).toEqual({
+      status: "error",
+      recordId: SUMMARY_OLD.id,
+      error: { kind: "corrupt", message: "The server returned an invalid Generation Record. kind is invalid" }
+    });
     const frame = frameText(renderStoryScreen(state, { width: 100, height: 30, wrapCache: cache }).lines);
     expect(frame).toContain("invalid Generation Record");
   });
@@ -148,8 +164,10 @@ describe("generation record viewer: empty and failure states keep the known take
     const { source, state, press } = harness();
     state.backendTask = { id: 999, kind: "action", label: "something else", storyId: state.payload.id };
     await press("h");
-    expect(state.record?.listLoading).toBe(false);
-    expect(state.record?.listError).toContain("Busy");
+    expect(state.record?.list).toEqual({
+      status: "error",
+      message: "Busy. Try again once the current task finishes."
+    });
     state.backendTask = null;
   });
 });
@@ -160,7 +178,7 @@ describe("generation record viewer: stale async responses never paint over a new
     const gate = deferred<GenerationRecordSummary[]>();
     source.api.getGenerationRecords = async () => await gate.promise;
     const opening = press("h");
-    expect(state.record?.listLoading).toBe(true);
+    expect(state.record?.list).toEqual({ status: "loading" });
 
     await press("escape");
     expect(state.mode).toBe("NAV");
@@ -181,7 +199,7 @@ describe("generation record viewer: stale async responses never paint over a new
       recordId === SUMMARY_NEW.id ? record("append") : Promise.reject(new Error("not requested yet"));
     await press("h");
     expect(state.record?.eventIndex).toBe(1);
-    expect(state.record?.detail?.kind).toBe("append");
+    expect(resolvedDetail(state.record)?.kind).toBe("append");
 
     const gate = deferred<ResolvedGenerationRecord>();
     source.api.getGenerationRecord = async (_storyId, _nodeId, recordId) => {
@@ -190,20 +208,20 @@ describe("generation record viewer: stale async responses never paint over a new
     };
     const leaving = press("left");
     expect(state.record?.eventIndex).toBe(0);
-    expect(state.record?.detailLoading).toBe(true);
+    expect(state.record?.detail).toEqual({ status: "loading", recordId: SUMMARY_OLD.id });
 
     // Back to the newer event before the older one's fetch ever settles —
     // its own detail is already cached from the initial open, so this
     // resolves without touching the network at all.
     await press("right");
     expect(state.record?.eventIndex).toBe(1);
-    expect(state.record?.detail?.kind).toBe("append");
+    expect(resolvedDetail(state.record)?.kind).toBe("append");
 
     gate.resolve(record("continue"));
     await leaving;
     // The stale older-event answer must not overwrite the current selection.
     expect(state.record?.eventIndex).toBe(1);
-    expect(state.record?.detail?.kind).toBe("append");
+    expect(resolvedDetail(state.record)?.kind).toBe("append");
   });
 
   test("rapid switching past a still-loading event keeps the newest selection loading, not stuck busy", async () => {
@@ -221,7 +239,7 @@ describe("generation record viewer: stale async responses never paint over a new
       recordId === SUMMARY_NEW.id ? record("append") : Promise.reject(new Error("not requested yet"));
     await press("h");
     expect(state.record?.eventIndex).toBe(2);
-    expect(state.record?.detail?.kind).toBe("append");
+    expect(resolvedDetail(state.record)?.kind).toBe("append");
 
     const midGate = deferred<ResolvedGenerationRecord>();
     const oldGate = deferred<ResolvedGenerationRecord>();
@@ -234,7 +252,7 @@ describe("generation record viewer: stale async responses never paint over a new
     // First Left: MID's detail load starts and owns the shared runtime.
     const toMid = press("left");
     expect(state.record?.eventIndex).toBe(1);
-    expect(state.record?.detailLoading).toBe(true);
+    expect(state.record?.detail).toEqual({ status: "loading", recordId: SUMMARY_MID.id });
 
     // A second, rapid Left commits OLD as the selection while MID's load is
     // still in flight and still owns the runtime — the load this action
@@ -242,10 +260,9 @@ describe("generation record viewer: stale async responses never paint over a new
     const toOld = press("left");
     expect(state.record?.eventIndex).toBe(0);
     // Regression: the newest selection must stay loading, queued to retry
-    // once the runtime frees up — not stuck showing a "Busy" detailError
-    // forever, since nothing else will ever retry it on the writer's behalf.
-    expect(state.record?.detailLoading).toBe(true);
-    expect(state.record?.detailError).toBe(null);
+    // once the runtime frees up — not stuck showing a "Busy" error forever,
+    // since nothing else will ever retry it on the writer's behalf.
+    expect(state.record?.detail).toEqual({ status: "loading", recordId: SUMMARY_OLD.id });
 
     oldGate.resolve(record("rewrite-take"));
     midGate.resolve(record("continue"));
@@ -254,16 +271,18 @@ describe("generation record viewer: stale async responses never paint over a new
     // Both `press` calls settle as soon as their own load either lands or is
     // queued to retry — neither one waits out the retry loop itself, so
     // drain the microtask queue until the queued retry has had its turn.
-    for (let turn = 0; turn < 40 && state.record?.detail === null && state.record?.detailError === null; turn += 1) {
+    for (let turn = 0; turn < 40 && state.record?.detail.status === "loading"; turn += 1) {
       await Promise.resolve();
     }
 
     // MID's own late response was discarded — OLD, not MID, is current —
     // and the queued retry landed OLD's own detail once the runtime freed.
     expect(state.record?.eventIndex).toBe(0);
-    expect(state.record?.detail?.kind).toBe("rewrite-take");
-    expect(state.record?.detailLoading).toBe(false);
-    expect(state.record?.detailError).toBe(null);
+    expect(state.record?.detail).toEqual({
+      status: "ready",
+      recordId: SUMMARY_OLD.id,
+      detail: record("rewrite-take")
+    });
   });
 
 });
