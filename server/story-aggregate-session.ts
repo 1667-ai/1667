@@ -52,7 +52,7 @@ import type {
   StoryManifestV6
 } from "./story-v6-types.js";
 import { MAX_STORY_MANIFEST_BYTES } from "./story-v5-strict.js";
-import { StoryObjectStore } from "./story-objects.js";
+import { LEAF_OBJECT_KINDS, StoryObjectStore, type LeafObjectKind } from "./story-objects.js";
 
 const MANIFEST_FILE = "manifest.json";
 const NEXT_MANIFEST_FILE = `${MANIFEST_FILE}.next`;
@@ -182,16 +182,15 @@ export class StoryAggregateSession {
       // blocking unrelated saves.
       objects.adoptKnownGraph(this.liveGraph.revisions, { committed: true });
       objects.adoptCommittedIds("revisions", previousLive.revisions);
-      objects.adoptCommittedIds("probabilities", previousLive.probabilities);
-      objects.adoptCommittedIds("reasoning", previousLive.reasoning);
+      for (const kind of LEAF_OBJECT_KINDS) objects.adoptCommittedIds(kind, previousLive.leaves[kind]);
     }
     const content = await encodeStoryBundle(story, objects);
     await objects.flush();
     const nextLive = liveObjectIds(content);
     await objects.verifyGraph(nextLive);
     const nextRevisionIds = new Set(nextLive.revisions);
-    const nextProbabilityIds = new Set(nextLive.probabilities);
-    const nextReasoningIds = new Set(nextLive.reasoning);
+    const nextLeafIds = {} as Record<LeafObjectKind, Set<ObjectHash>>;
+    for (const kind of LEAF_OBJECT_KINDS) nextLeafIds[kind] = new Set(nextLive.leaves[kind]);
     // Parsing normalizes V2-V4 sources before this diff can run (old fact
     // states collapse to their selected revision), so objects the
     // normalization dropped never appear in previousLive.revisions. Mirror
@@ -199,8 +198,8 @@ export class StoryAggregateSession {
     this.preparedCleanupRetirement = await cleanup.settle(
       this.legacySchemaSource
         || previousLive.revisions.some((id) => !nextRevisionIds.has(id))
-        || previousLive.probabilities.some((id) => !nextProbabilityIds.has(id))
-        || previousLive.reasoning.some((id) => !nextReasoningIds.has(id))
+        || LEAF_OBJECT_KINDS.some((kind) =>
+            previousLive.leaves[kind].some((id) => !nextLeafIds[kind].has(id)))
     ) === "retire-marker";
     return {
       story,

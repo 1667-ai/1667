@@ -37,12 +37,18 @@ import {
   tokenProbabilityRefusalKey,
   type TokenProbabilityCollector
 } from "./token-probability-capture.js";
+import {
+  createReasoningRelay,
+  type ReasoningConsumer,
+  type ReasoningStreamDelta
+} from "./provider-reasoning-relay.js";
 import { requireLogitBiasFamilyAvailable } from "./provider-sampling.js";
 import type { StorySamplingBias } from "./sampling-phrase-bias.js";
 export { ProviderError } from "./errors.js";
 export type { ChatMessage, PromptPlan } from "../shared/prompt-plan.js";
 export { forgetRefusedTokenProbabilities } from "./token-probability-capture.js";
 export type { TokenProbabilityCollector } from "./token-probability-capture.js";
+export type { ReasoningConsumer, ReasoningStreamDelta } from "./provider-reasoning-relay.js";
 
 /** The provider terminal and its optional finish reason. A protocol terminal
  * can occur without a finish reason. */
@@ -71,20 +77,6 @@ export interface StreamCompletionOptions {
   readonly tokenProbabilities?: TokenProbabilityCollector;
   readonly onReasoning?: ReasoningConsumer;
 }
-
-/** One increment of model reasoning ("thinking") text, kept strictly apart
- * from story prose: prose reaches a caller only through `streamCompletion`'s
- * `AsyncGenerator<string>`, reasoning only through `onReasoning` below, and
- * the two never share a redactor or a decoded-byte budget. `tokenCount` is
- * the running total for the reasoning stream so far — a provider-reported
- * count when the stream trivially exposes one, otherwise the number of
- * reasoning deltas received (never a fabricated denominator). */
-export interface ReasoningStreamDelta {
-  readonly text: string;
-  readonly tokenCount: number;
-}
-
-export type ReasoningConsumer = (delta: ReasoningStreamDelta) => void | Promise<void>;
 
 export function streamCompletion(
   settings: GenerationSettings,
@@ -141,20 +133,11 @@ async function* streamOpenAiCompatible(
     for (let attempt = 0; ; attempt++) {
       let streamed = false;
       const outputRedactor = createProviderStreamRedactor(secrets);
-      // Reasoning gets its own redactor and its own decoded-byte budget:
-      // fresh per attempt, exactly like `outputRedactor`, so a retried
+      // Fresh per attempt, exactly like `outputRedactor`: a retried
       // attempt's partial reasoning is never mixed with the one that
-      // succeeds and so reasoning bytes never count against the prose
-      // budget or vice versa.
-      const reasoningRedactor = createProviderStreamRedactor(secrets);
-      let reasoningDecodedBytes = 0;
-      let reasoningTokenCount = 0;
-      const flushReasoning = async (): Promise<void> => {
-        const tail = reasoningRedactor.finish();
-        if (tail.length > 0 && onReasoning !== undefined) {
-          await onReasoning({ text: tail, tokenCount: reasoningTokenCount });
-        }
-      };
+      // succeeds, and reasoning bytes never count against the prose budget
+      // or vice versa (server/provider-reasoning-relay.ts).
+      const reasoning = createReasoningRelay(settings, secrets, onReasoning);
       // Fresh per attempt: only the attempt that actually finishes ever
       // calls capture.finish() below, so a retried attempt's partial capture
       // (if any) is never mixed with the one that succeeds.
@@ -181,7 +164,7 @@ async function* streamOpenAiCompatible(
             if (outcome !== undefined) outcome.providerTerminal = true;
             const tail = outputRedactor.finish();
             if (tail.length > 0) yield tail;
-            await flushReasoning();
+            await reasoning.finish();
             capture.finish();
             return;
           }
@@ -201,23 +184,18 @@ async function* streamOpenAiCompatible(
             ? choice.delta.reasoning_content
             : undefined;
           if (typeof reasoningDelta === "string" && reasoningDelta.length > 0) {
-            reasoningDecodedBytes = requireOutputWithinLimit(settings, reasoningDecodedBytes, reasoningDelta);
-            const safeReasoning = reasoningRedactor.push(reasoningDelta);
-            if (safeReasoning.length > 0 && onReasoning !== undefined) {
-              reasoningTokenCount = openAiReasoningTokenCount(parsed) ?? reasoningTokenCount + 1;
-              await onReasoning({ text: safeReasoning, tokenCount: reasoningTokenCount });
-            }
+            await reasoning.push(reasoningDelta, openAiReasoningTokenCount(parsed));
           }
         }
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
-        await flushReasoning();
+        await reasoning.finish();
         capture.finish();
         return;
       } catch (error) {
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
-        await flushReasoning();
+        await reasoning.finish();
         if (error === totalDeadlineFailure) {
           throw new ProviderError("Model request exceeded its total deadline.", null, "", {
             timeout: "provider-total"
@@ -323,18 +301,9 @@ async function* streamAnthropic(
   try {
     for (let attempt = 0; ; attempt++) {
       const outputRedactor = createProviderStreamRedactor(secrets);
-      // Reasoning gets its own redactor and its own decoded-byte budget,
-      // fresh per attempt, exactly like `outputRedactor` — see the matching
-      // comment in streamOpenAiCompatible above.
-      const reasoningRedactor = createProviderStreamRedactor(secrets);
-      let reasoningDecodedBytes = 0;
-      let reasoningTokenCount = 0;
-      const flushReasoning = async (): Promise<void> => {
-        const tail = reasoningRedactor.finish();
-        if (tail.length > 0 && onReasoning !== undefined) {
-          await onReasoning({ text: tail, tokenCount: reasoningTokenCount });
-        }
-      };
+      // Fresh per attempt, exactly like `outputRedactor` — see
+      // server/provider-reasoning-relay.ts.
+      const reasoning = createReasoningRelay(settings, secrets, onReasoning);
       let streamed = false;
       try {
         for await (const data of providerSseEvents(
@@ -366,7 +335,7 @@ async function* streamAnthropic(
             if (outcome !== undefined) outcome.providerTerminal = true;
             const tail = outputRedactor.finish();
             if (tail.length > 0) yield tail;
-            await flushReasoning();
+            await reasoning.finish();
             return;
           }
           if (parsed.type === "message_delta" && isObject(parsed.delta) && typeof parsed.delta.stop_reason === "string" && outcome !== undefined) {
@@ -383,23 +352,18 @@ async function* streamAnthropic(
           if (parsed.type === "content_block_delta" && isObject(parsed.delta) && parsed.delta.type === "thinking_delta") {
             const thinking = parsed.delta.thinking;
             if (typeof thinking === "string" && thinking.length > 0) {
-              reasoningDecodedBytes = requireOutputWithinLimit(settings, reasoningDecodedBytes, thinking);
-              const safeReasoning = reasoningRedactor.push(thinking);
-              if (safeReasoning.length > 0 && onReasoning !== undefined) {
-                reasoningTokenCount += 1;
-                await onReasoning({ text: safeReasoning, tokenCount: reasoningTokenCount });
-              }
+              await reasoning.push(thinking);
             }
           }
         }
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
-        await flushReasoning();
+        await reasoning.finish();
         return;
       } catch (error) {
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
-        await flushReasoning();
+        await reasoning.finish();
         if (error === totalDeadlineFailure) {
           throw new ProviderError("Model request exceeded its total deadline.", null, "", {
             timeout: "provider-total"

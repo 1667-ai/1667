@@ -64,14 +64,13 @@ export class WorkerDeltaBatcher {
   }
 
   private makeChannel(channel: Channel): ChannelState {
-    // `batcher`'s callback closes over `state` before `state` exists: it
-    // only ever runs later, once `state` is assigned below, the same
-    // deferred-closure shape `DeltaBatcher` itself already relies on for its
-    // own `send` callback.
-    let state: ChannelState;
-    const batcher = new DeltaBatcher((text, bytes) => this.send(channel, state, text, bytes));
-    state = { batcher, inFlight: null, sealed: "", tokenCount: 0 };
-    return state;
+    // The callback closes over `channel` only, not the state object it
+    // reads: `send` looks that up from `this.channels[channel]` at call
+    // time, so there is no window where the callback could observe an
+    // unassigned state, by construction rather than by `DeltaBatcher`
+    // never invoking it synchronously.
+    const batcher = new DeltaBatcher((text, bytes) => this.send(channel, text, bytes));
+    return { batcher, inFlight: null, sealed: "", tokenCount: 0 };
   }
 
   push(text: string): Promise<void> {
@@ -131,7 +130,7 @@ export class WorkerDeltaBatcher {
       const tail = state.sealed;
       state.sealed = "";
       for (const text of splitUtf8(tail, MAX_DELTA_BATCH_BYTES)) {
-        this.post(this.message(channel, state, this.sequence++, text));
+        this.post(this.message(channel, this.sequence++, text));
       }
     }
   }
@@ -163,7 +162,8 @@ export class WorkerDeltaBatcher {
     this.releaseCreditWaiters();
   }
 
-  private async send(channel: Channel, state: ChannelState, text: string, bytes: number): Promise<void> {
+  private async send(channel: Channel, text: string, bytes: number): Promise<void> {
+    const state = this.channels[channel];
     // An oversized push can still own later split chunks after sealUnsent()
     // releases its first credit-blocked chunk. They were accepted by push()
     // before the deadline, so append each later handoff in source order.
@@ -179,12 +179,12 @@ export class WorkerDeltaBatcher {
     const sequence = this.sequence++;
     this.unacknowledged.set(sequence, bytes);
     this.unacknowledgedBytes += bytes;
-    this.post(this.message(channel, state, sequence, text));
+    this.post(this.message(channel, sequence, text));
   }
 
-  private message(channel: Channel, state: ChannelState, sequence: number, text: string): DeltaMessage {
+  private message(channel: Channel, sequence: number, text: string): DeltaMessage {
     return channel === "reasoning"
-      ? { type: "delta", id: this.id, sequence, text, reasoning: { tokenCount: state.tokenCount } }
+      ? { type: "delta", id: this.id, sequence, text, reasoning: { tokenCount: this.channels.reasoning.tokenCount } }
       : { type: "delta", id: this.id, sequence, text };
   }
 

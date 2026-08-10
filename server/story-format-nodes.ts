@@ -251,8 +251,10 @@ export function manifestReasoningIds(manifest: StoryManifestV4 | StoryManifestV5
 export function liveObjectIds(manifest: StoryManifestV4 | StoryManifestV5): LiveStoryObjectIds {
   return {
     revisions: manifestRevisionIds(manifest),
-    probabilities: manifestTokenProbabilityIds(manifest),
-    reasoning: manifestReasoningIds(manifest)
+    leaves: {
+      probabilities: manifestTokenProbabilityIds(manifest),
+      reasoning: manifestReasoningIds(manifest)
+    }
   };
 }
 
