@@ -65,7 +65,74 @@ export function boundedSegment(parts: readonly string[], max = MAX_FACT_SCAN_UTF
   return segment(source.slice(start), scalarBefore(source, start));
 }
 export function recursionScanSegment(texts: readonly string[]): FactScanSegment | null {
-  return boundedSegment(texts, MAX_FACT_RECURSION_UTF16);
+  return boundedSegment(fairShareRecursionTexts(texts, MAX_FACT_RECURSION_UTF16), MAX_FACT_RECURSION_UTF16);
+}
+
+/** Give every active recursion-enabled Fact a bounded, max-min-fair share of
+ * the recursion window, so one oversized Fact cannot crowd the rest out of
+ * chain matching. `boundedSegment` alone keeps only the *tail* of the joined
+ * text — fine when the join already fits, but when it does not, a single
+ * Fact placed early can lose its entire contribution to a huge Fact that
+ * follows it, even though every other Fact is tiny.
+ *
+ * When the join already fits in `max` (the common case), this returns
+ * `texts` untouched and `boundedSegment` takes its normal, unmodified path —
+ * the fair-share pass changes nothing unless the window is actually tight.
+ * Only reached over budget: each text keeps at most its water-filling share,
+ * taken from its own tail (the same "keep what's most recent" rule
+ * `boundedSegment` already applies to the join as a whole). A share of zero
+ * drops that Fact from the window entirely, same as today when there are
+ * simply too many Facts for the space available. */
+function fairShareRecursionTexts(texts: readonly string[], max: number): readonly string[] {
+  const nonEmpty = texts.filter(hasFactScanText);
+  if (nonEmpty.length === 0) return texts;
+  const separators = 2 * (nonEmpty.length - 1);
+  const joinedLength = nonEmpty.reduce((sum, text) => sum + text.length, 0) + separators;
+  if (joinedLength <= max) return texts;
+  const budget = Math.max(0, max - separators);
+  const shares = maxMinShares(nonEmpty.map((text) => text.length), budget);
+  return nonEmpty.map((text, index) => tailSlice(text, shares[index]!));
+}
+
+/** Classic max-min fair-share (water-filling): a text shorter than an equal
+ * split keeps its whole length and returns its unused share to the pool,
+ * which grows every other text's share in turn. Converges in at most
+ * `lengths.length` passes, each of which finalizes at least one text or
+ * exits. */
+function maxMinShares(lengths: readonly number[], budget: number): number[] {
+  const shares = new Array<number>(lengths.length).fill(0);
+  const remaining = new Set(lengths.map((_, index) => index));
+  let remainingBudget = budget;
+  let progressed = true;
+  while (progressed && remaining.size > 0) {
+    progressed = false;
+    const equalShare = Math.floor(remainingBudget / remaining.size);
+    for (const index of remaining) {
+      if (lengths[index]! <= equalShare) {
+        shares[index] = lengths[index]!;
+        remainingBudget -= lengths[index]!;
+        remaining.delete(index);
+        progressed = true;
+      }
+    }
+  }
+  if (remaining.size > 0) {
+    const equalShare = Math.floor(remainingBudget / remaining.size);
+    let extra = remainingBudget - equalShare * remaining.size;
+    for (const index of remaining) {
+      shares[index] = equalShare + (extra > 0 ? 1 : 0);
+      if (extra > 0) extra -= 1;
+    }
+  }
+  return shares;
+}
+
+/** The last `limit` UTF-16 units of `text`, never split between a surrogate
+ * pair — the same boundary rule `boundedSegment`'s own suffix trim uses. */
+function tailSlice(text: string, limit: number): string {
+  if (limit <= 0) return "";
+  if (text.length <= limit) return text;
+  return text.slice(suffixStart(text, text.length - limit));
 }
 function segment(text: string, before: string | null): FactScanSegment {
   return { text: text.normalize("NFC"), folded: normalizeFactText(text), before };

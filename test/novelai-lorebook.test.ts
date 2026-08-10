@@ -7,7 +7,7 @@ import {
 } from "../shared/novelai-lorebook.js";
 import { createFacts } from "../server/story-facts.js";
 import { fidelityReport } from "../shared/fidelity.js";
-import { MAX_JSON_BODY_BYTES, type Story } from "../shared/types.js";
+import { MAX_FACT_TEXT_CHARS, MAX_JSON_BODY_BYTES, type Story } from "../shared/types.js";
 
 test("factsFromLorebook maps every row of the §2.2 table", () => {
   const lorebook = {
@@ -81,9 +81,10 @@ test("fidelity report text for a Lorebook that fires every counter at once asser
   allEntries.push({ enabled: false, text: "d2" });
   allEntries.push({ enabled: false, text: "d3" });
 
-  // 2 truncated
-  allEntries.push({ enabled: true, forceActivation: true, text: ("Paragraph 1\n\n".repeat(400)) });
-  allEntries.push({ enabled: true, forceActivation: true, text: ("Paragraph 2\n\n".repeat(400)) });
+  // 2 truncated — each comfortably over MAX_FACT_TEXT_CHARS, so this keeps
+  // exercising truncation regardless of where that ceiling sits.
+  allEntries.push({ enabled: true, forceActivation: true, text: oversizedParagraphs("Paragraph 1") });
+  allEntries.push({ enabled: true, forceActivation: true, text: oversizedParagraphs("Paragraph 2") });
 
   // 1 tag cut
   allEntries.push({ enabled: true, forceActivation: true, text: "tag test", displayName: "T".repeat(60) });
@@ -111,16 +112,20 @@ test("fidelity report text for a Lorebook that fires every counter at once asser
   const importResult = factsFromLorebook(lorebook, 34);
   const formattedReport = fidelityReport(importResult.fidelity);
 
-  const expected = "41 entries read; 34 facts imported; 3 disabled entries skipped; 2 entries truncated to 4,000 characters; 2 fact bodies trimmed of surrounding whitespace; 1 tag cut to 48 characters; 2 keys dropped; 2 keyed entries have no keys and will not activate; 4 entries did not fit the 128-fact limit; unsupported search ranges, bias groups, and advanced conditions omitted";
+  const expected = `41 entries read; 34 facts imported; 3 disabled entries skipped; 2 entries truncated to ${MAX_FACT_TEXT_CHARS.toLocaleString()} characters; 2 fact bodies trimmed of surrounding whitespace; 1 tag cut to 48 characters; 2 keys dropped; 2 keyed entries have no keys and will not activate; 4 entries did not fit the 128-fact limit; unsupported search ranges, bias groups, and advanced conditions omitted`;
   assert.equal(formattedReport, expected);
 
 });
 
 test("oversized entry is cut on a paragraph boundary, never between surrogates, and createFacts accepts it", () => {
-  const paragraph1 = "A".repeat(2_000);
-  const paragraph2 = "B".repeat(1_500);
-  const paragraph3 = "C".repeat(1_000);
-  // Total length = 2000 + 2 + 1500 + 2 + 1000 = 4504 UTF-16 code units
+  // Scaled off MAX_FACT_TEXT_CHARS rather than a fresh literal, so this stays
+  // correct if the ceiling ever moves again: paragraph1 sits at the cap's
+  // floor (half the cap), paragraph1 + paragraph2 lands past the floor but
+  // before the cap (where the cut must land), and paragraph3 alone pushes
+  // the whole entry over the cap.
+  const paragraph1 = "A".repeat(Math.floor(MAX_FACT_TEXT_CHARS / 2));
+  const paragraph2 = "B".repeat(Math.floor(MAX_FACT_TEXT_CHARS * 0.375));
+  const paragraph3 = "C".repeat(Math.floor(MAX_FACT_TEXT_CHARS * 0.25));
   const oversizedText = `${paragraph1}\n\n${paragraph2}\n\n${paragraph3}`;
 
   const lorebook = {
@@ -132,9 +137,9 @@ test("oversized entry is cut on a paragraph boundary, never between surrogates, 
   assert.equal(importResult.facts.length, 1);
   const fact = importResult.facts[0]!;
 
-  // Must be cut at paragraph break before 4,000 code units (which is paragraph1 + \n\n + paragraph2 = 3502 code units)
+  // Must be cut at the paragraph break before the cap (paragraph1 + \n\n + paragraph2).
   assert.equal(fact.text, `${paragraph1}\n\n${paragraph2}`);
-  assert.ok(fact.text.length <= 4000);
+  assert.ok(fact.text.length <= MAX_FACT_TEXT_CHARS);
 
   // Assert createFacts accepts it without throwing
   const mockStory: Story = {
@@ -159,15 +164,17 @@ test("astral entry text measures in Unicode scalars, cuts on a paragraph boundar
   // One scalar, two UTF-16 code units — a scalar count and a code-unit count
   // disagree on every measurement below.
   const astral = "\u{1D54F}";
-  // 3,000 scalars are 6,000 code units. The old code-unit measure cut this
-  // text; the scalar contract keeps it whole.
-  const wholeText = astral.repeat(3_000);
-  // 4,804 scalars pass the 4,000-scalar limit, so the cut lands on the last
-  // paragraph break at or before the cap: after paragraph two, at 3,802
-  // scalars — which is 7,602 code units, past the old code-unit limit.
-  const paragraph1 = astral.repeat(2_400);
-  const paragraph2 = astral.repeat(1_400);
-  const paragraph3 = astral.repeat(1_000);
+  // Comfortably under MAX_FACT_TEXT_CHARS scalars, which is twice as many
+  // UTF-16 code units. The old code-unit measure cut this text; the scalar
+  // contract keeps it whole.
+  const wholeText = astral.repeat(Math.floor(MAX_FACT_TEXT_CHARS * 0.75));
+  // These three paragraphs together pass the scalar limit, so the cut lands
+  // on the last paragraph break at or before the cap: after paragraph two,
+  // at paragraph1 + paragraph2 scalars — twice as many code units, past
+  // where the old code-unit measure would have cut.
+  const paragraph1 = astral.repeat(Math.floor(MAX_FACT_TEXT_CHARS * 0.6));
+  const paragraph2 = astral.repeat(Math.floor(MAX_FACT_TEXT_CHARS * 0.35));
+  const paragraph3 = astral.repeat(Math.floor(MAX_FACT_TEXT_CHARS * 0.25));
   const oversizedText = `${paragraph1}\n\n${paragraph2}\n\n${paragraph3}`;
 
   const result = factsFromLorebook({
@@ -182,7 +189,7 @@ test("astral entry text measures in Unicode scalars, cuts on a paragraph boundar
   assert.equal(result.facts[0]?.text, wholeText);
   assert.equal(result.facts[1]?.text, `${paragraph1}\n\n${paragraph2}`);
   const report = fidelityReport(result.fidelity);
-  assert.ok(report.includes("1 entry truncated to 4,000 characters"), report);
+  assert.ok(report.includes(`1 entry truncated to ${MAX_FACT_TEXT_CHARS.toLocaleString()} characters`), report);
 
   const story: Story = {
     id: "astral-story",
@@ -428,3 +435,13 @@ test("a key that grows past the ceiling when folded is dropped, not left to abor
   };
   assert.equal(createFacts(story, { facts: [...result.facts] }), true);
 });
+
+/** `label` repeated, with a paragraph break after each repeat, until the
+ * result comfortably exceeds MAX_FACT_TEXT_CHARS — enough to force
+ * truncation regardless of where that ceiling sits, without hardcoding a
+ * repeat count that would go stale if it moves again. */
+function oversizedParagraphs(label: string): string {
+  const unit = `${label}\n\n`;
+  const repeats = Math.ceil((MAX_FACT_TEXT_CHARS + unit.length) / unit.length);
+  return unit.repeat(repeats);
+}

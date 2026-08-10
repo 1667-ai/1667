@@ -36,7 +36,16 @@ export const MAX_HUMAN_EDIT_RANGES = 256;
 export const MAX_REWRITTEN_SPANS = 256;
 
 export const MAX_FACTS = 128;
-export const MAX_FACT_TEXT_CHARS = 4_000;
+// Raised from 4,000 (issue-driven): the character ceiling is no longer meant
+// to be the writer-visible constraint on Fact size. NovelAI and SillyTavern
+// World Info both govern entry size by token budget, not a character cap, and
+// `selectFactsWithinBudget` (shared/fact-budget.ts) already drops an
+// over-budget Fact whole rather than truncating it — so the token budget does
+// the real governing here too. Fact text is content-addressed and carried by
+// `revisionId` in the hash-pinned schema (scripts/story-schema-definition.ts
+// `StoredFactV5`), so this constant is free to move without a schema bump or
+// a data migration.
+export const MAX_FACT_TEXT_CHARS = 100_000;
 export const MAX_FACT_TAG_CHARS = 48;
 
 export type { FactActivation, FactPriority, FactRecursion, FactSecondaryMode };

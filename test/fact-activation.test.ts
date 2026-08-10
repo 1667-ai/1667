@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { selectActiveFactsWithTrace } from "../shared/fact-activation.js";
-import { MAX_FACT_SCAN_UTF16 } from "../shared/fact-metadata.js";
+import { MAX_FACT_RECURSION_UTF16, MAX_FACT_SCAN_UTF16 } from "../shared/fact-metadata.js";
 import { parseFactKeys, splitFactKeyLine } from "../shared/fact-keys.js";
 import { compileFactPattern, factPatternMatches } from "../shared/fact-pattern.js";
 import type { StoryFact, StoryNode } from "../shared/types.js";
@@ -185,6 +185,47 @@ test("secondary gates, scan depth, and recursion select Facts in stored order", 
   assert.deepEqual(selected.facts.map(({ id }) => id), ["and", "not", "deep", "seed", "chain", "leaf"]);
   assert.equal(selected.traces.get("chain")?.round, 1);
   assert.equal(selected.traces.get("leaf")?.round, 2);
+});
+
+// A per-fact fair share of the recursion window (shared/fact-scan.ts
+// `recursionScanSegment`) only ever changes anything once the joined
+// recursion text is over MAX_FACT_RECURSION_UTF16. Below that, this pins the
+// unchanged case: several small always-active Facts all keep seeding the
+// chain exactly as before.
+test("recursion chain activation is unchanged when active Facts' text already fits the window", () => {
+  const facts: StoryFact[] = [
+    { ...alwaysFact("first"), id: "first", text: "The lantern keeper lit the wick." },
+    { ...alwaysFact("second"), id: "second", text: "A storm gathered over the bay." },
+    { ...fact("wick"), id: "chain-wick" },
+    { ...fact("storm"), id: "chain-storm" }
+  ];
+  const selected = selectActiveFactsWithTrace(facts);
+  assert.deepEqual(selected.facts.map(({ id }) => id), [
+    "first", "second", "chain-wick", "chain-storm"
+  ]);
+  assert.equal(selected.traces.get("chain-wick")?.round, 1);
+  assert.equal(selected.traces.get("chain-storm")?.round, 1);
+});
+
+// Before the fair-share fix, `recursionScanSegment` joined every active
+// recursion-enabled Fact's *full* text and kept only the tail of the join.
+// A single Fact bigger than the whole window — legal once MAX_FACT_TEXT_CHARS
+// was raised — could then occupy the entire window by itself and silently
+// erase every other active Fact's contribution to chain matching, even one
+// listed ahead of it. This pins the fix: the small Fact's "teapot" survives
+// and the chain Fact it feeds still activates.
+test("a huge recursion-enabled Fact no longer crowds a small one out of the chain-activation window", () => {
+  const small: StoryFact = { ...alwaysFact("small"), id: "small", text: "the small porcelain teapot sits here" };
+  const big: StoryFact = { ...alwaysFact("big"), id: "big", text: "b".repeat(MAX_FACT_RECURSION_UTF16 * 2) };
+  const chain: StoryFact = { ...fact("teapot"), id: "chain" };
+
+  const selected = selectActiveFactsWithTrace([small, big, chain]);
+
+  assert.deepEqual(
+    new Set(selected.facts.map(({ id }) => id)),
+    new Set(["small", "big", "chain"])
+  );
+  assert.equal(selected.traces.get("chain")?.round, 1);
 });
 
 function fact(key: string): StoryFact {
