@@ -7,6 +7,7 @@ import {
   storyIdFromMutationIntent
 } from "./mutation-outbox.js";
 import { createMutationCoordinator } from "./mutation-coordinator.js";
+import { MUTATION_RECEIPT_DIRECTORY } from "./chapter-break-undo-liveness.js";
 import { MutationReceiptStore } from "./mutation-receipts.js";
 import { PromptCacheRuntime } from "./provider-cache-policy.js";
 import { readDataDirectoryFormat } from "./data-directory-format.js";
@@ -430,7 +431,7 @@ export abstract class StoryServiceRuntime {
         await this.stories.schedulePendingCleanup(storyId)
     });
     this.mutationReceipts = new MutationReceiptStore(
-      path.join(storageRoot, "mutation-receipts"),
+      path.join(storageRoot, MUTATION_RECEIPT_DIRECTORY),
       async (id) => buildStoryPayload(await this.stories.load(id)),
       async (error) => await this.errorReporter.report(
         error,

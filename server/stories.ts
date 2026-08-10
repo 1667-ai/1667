@@ -91,6 +91,7 @@ import {
   StoryAggregateSession,
   type GenerationRecordSourceRevisionSnapshot
 } from "./story-aggregate-session.js";
+import { chapterBreakUndoGenerationRecordIds } from "./chapter-break-undo-liveness.js";
 
 export const STORY_LIST_IO_CONCURRENCY = 4;
 export const STORY_UNCHANGED = Symbol("story-unchanged");
@@ -849,13 +850,17 @@ export class StoryStore {
             : null;
         if (live === null) return;
         const pinned = this.providerSnapshotPins.get(id);
+        const undoGenerationRecords = await chapterBreakUndoGenerationRecordIds(this.dir, id, signal);
         const beganWithPins = pinned !== undefined;
         const protectedIds: LiveStoryObjectIds = pinned === undefined
-          ? live
+          ? {
+              ...live,
+              generationRecords: [...new Set([...live.generationRecords, ...undoGenerationRecords])]
+            }
           : {
               revisions: [...new Set([...live.revisions, ...pinned.revisions.keys()])],
               probabilities: [...new Set([...live.probabilities, ...pinned.probabilities.keys()])],
-              generationRecords: live.generationRecords
+              generationRecords: [...new Set([...live.generationRecords, ...undoGenerationRecords])]
             };
         const completed = await this.sweep(this.bundlePath(id), protectedIds, signal);
         if (completed

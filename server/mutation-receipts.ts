@@ -198,13 +198,21 @@ export class MutationReceiptStore {
         },
         preserveChapterBreakRemoval: async (expectedFingerprint, load) => {
           requireChapterBreakRemovalFingerprint(expectedFingerprint);
+          const storyId = removalStoryId(method, input);
           const existingArtifact = receipt.artifact;
           if (existingArtifact !== undefined) {
             if (existingArtifact.kind !== "chapter-break-removal"
               || existingArtifact.fingerprint !== expectedFingerprint
+              || (existingArtifact.storyId !== undefined
+                && storyId !== undefined
+                && existingArtifact.storyId !== storyId)
               || chapterBreakRemovalFingerprint(existingArtifact.value)
                 !== expectedFingerprint) {
               throw corruptMutationReceipt(mutationId);
+            }
+            if (existingArtifact.storyId === undefined && storyId !== undefined) {
+              existingArtifact.storyId = storyId;
+              await this.save(receipt);
             }
             return structuredClone(existingArtifact.value);
           }
@@ -215,6 +223,7 @@ export class MutationReceiptStore {
           receipt.artifact = {
             kind: "chapter-break-removal",
             fingerprint: expectedFingerprint,
+            ...(storyId === undefined ? {} : { storyId }),
             value
           };
           await this.save(receipt);
@@ -367,6 +376,14 @@ export class MutationReceiptStore {
       if (this.queues.get(mutationId) === settled) this.queues.delete(mutationId);
     }
   }
+}
+
+function removalStoryId(method: MutatingWorkerMethod, input: unknown): string | undefined {
+  if (method !== "removeChapterBreak" || input === null || typeof input !== "object" || Array.isArray(input)) {
+    return undefined;
+  }
+  const storyId = (input as Record<string, unknown>).storyId;
+  return typeof storyId === "string" ? storyId : undefined;
 }
 
 export function mutationFingerprint(

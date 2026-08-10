@@ -1,10 +1,16 @@
-import type { ChapterBreak, CoveredExtent, StoryNode } from "../shared/types.js";
+import {
+  MAX_GENERATION_RECORD_IDS,
+  type ChapterBreak,
+  type CoveredExtent,
+  type StoryNode
+} from "../shared/types.js";
 import {
   StoryFormatError,
   arrayValue,
   optionalString,
   parseRestoredAttribution,
   recordValue,
+  requireHash,
   stringField,
   timestampField
 } from "./story-format-facts.js";
@@ -83,6 +89,16 @@ export function parseRestoredChapterSummary(value: unknown, label: string): Stor
   const updatedAt = node.updatedAt === undefined ? undefined : timestampField(node, "updatedAt", label);
   const human = optionalTrue(node.human, `${label}.human`);
   const genId = optionalString(node.genId, `${label}.genId`);
+  const generationRecordIds = node.generationRecordIds === undefined
+    ? undefined
+    : arrayValue(node.generationRecordIds, `${label}.generationRecordIds`)
+      .map((id, index) => requireHash(id, `${label}.generationRecordIds[${index}]`));
+  if (generationRecordIds?.length === 0) {
+    throw new StoryFormatError(`${label}.generationRecordIds must not be empty when present`);
+  }
+  if ((generationRecordIds?.length ?? 0) > MAX_GENERATION_RECORD_IDS) {
+    throw new StoryFormatError(`${label}.generationRecordIds exceeds the ${MAX_GENERATION_RECORD_IDS}-record limit`);
+  }
   const extent = parseExtent(node.coveredExtent, `${label}.coveredExtent`);
   requireNonEmpty(extent.fromPartId, `${label}.coveredExtent.fromPartId`);
   requireNonEmpty(extent.toPartId, `${label}.coveredExtent.toPartId`);
@@ -97,6 +113,7 @@ export function parseRestoredChapterSummary(value: unknown, label: string): Stor
     ...(attribution === undefined ? {} : { attribution }),
     ...(human === undefined ? {} : { human }),
     ...(genId === undefined ? {} : { genId }),
+    ...(generationRecordIds === undefined ? {} : { generationRecordIds }),
     role: node.role === "summary" ? "summary" : undefined,
     chapterBreakId: nonEmptyStringField(node, "chapterBreakId", `${label}.chapterBreakId`),
     coveredExtent: extent,

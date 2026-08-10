@@ -643,11 +643,20 @@ test("HTTP StoryApi rejects malformed direct and chapter endpoint envelopes", as
   response = validRemoval;
   expect((await api.removeChapterBreak("story", "break")).removed.summaries[0]?.id).toBe("summary");
 
+  const recordId = "a".repeat(64);
+  response = {
+    ...validRemoval,
+    removed: { break: validBreak, summaries: [{ ...validSummary, generationRecordIds: [recordId] }] }
+  };
+  expect((await api.removeChapterBreak("story", "break")).removed.summaries[0]?.generationRecordIds)
+    .toEqual([recordId]);
+
   for (const [malformed, expected] of [
     [{ ...validRemoval, removed: null }, "removed chapter-break"],
     [{ ...validRemoval, removed: { break: {}, summaries: [] } }, "chapter break.id"],
     [{ ...validRemoval, removed: { break: validBreak, summaries: {} } }, "summaries"],
-    [{ ...validRemoval, removed: { break: validBreak, summaries: [validSummary, { id: "summary" }] } }, "story path node"]
+    [{ ...validRemoval, removed: { break: validBreak, summaries: [validSummary, { id: "summary" }] } }, "story path node"],
+    [{ ...validRemoval, removed: { break: validBreak, summaries: [{ ...validSummary, generationRecordIds: ["bad"] }] } }, "Generation Record ids"]
   ] as const) {
     response = malformed;
     expect((await rejection(api.removeChapterBreak("story", "break")) as Error).message)
