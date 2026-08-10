@@ -245,7 +245,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names. Thanks @10fra for the request.
 
-## 0.7.0-rc.1 - 2026-08-10
+## 0.7.0 - 2026-08-10
 
 - **Every generated take keeps its request details.** Press `h` on a take to
   open the Generation Record Viewer. It shows the provider, the model, the

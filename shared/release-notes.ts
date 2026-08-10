@@ -11,7 +11,7 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
-    version: "0.7.0-rc.1",
+    version: "0.7.0",
     date: "2026-08-10",
     body: "- **Every generated take keeps its request details.** Press `h` on a take to\n  open the Generation Record Viewer. It shows the provider, the model, the\n  effective settings, provider adjustments, and the ordered request pipeline.\n  It keeps the request text from that generation after a later edit. It never\n  stores a credential, a custom header value, or a base URL. Thanks @10fra for\n  the request."
   },
