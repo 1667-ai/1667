@@ -373,7 +373,13 @@ export abstract class StoryServiceRuntime {
   private configureStorage(storageRoot: string, displayPath: string): void {
     this.dataDir = displayPath;
     this.storageRoot = storageRoot;
-    this.stories = new StoryStore(path.join(storageRoot, "stories"));
+    this.stories = new StoryStore(
+      path.join(storageRoot, "stories"),
+      undefined,
+      undefined,
+      undefined,
+      path.join(storageRoot, MUTATION_RECEIPT_DIRECTORY)
+    );
     this.settings = new SettingsStore(storageRoot, {
       activationMode: this.settingsActivation,
       coordinator: this.mutationCoordinator,

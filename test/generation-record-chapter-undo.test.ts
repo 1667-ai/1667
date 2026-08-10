@@ -26,10 +26,12 @@ import { StoryStore } from "../server/stories.js";
 test("chapter-summary undo keeps its Generation Record graph live through removal cleanup", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-chapter-undo-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const stories = new StoryStore(dir);
+  const storyDir = path.join(dir, "stories");
+  const receiptDir = path.join(dir, MUTATION_RECEIPT_DIRECTORY);
+  const stories = new StoryStore(storyDir, undefined, undefined, undefined, receiptDir);
   await stories.init();
   const receipts = new MutationReceiptStore(
-    path.join(dir, MUTATION_RECEIPT_DIRECTORY),
+    receiptDir,
     async (id) => buildStoryPayload(await stories.load(id))
   );
   await receipts.init();
@@ -79,10 +81,10 @@ test("chapter-summary undo keeps its Generation Record graph live through remova
   );
 
   const storedReceipt = JSON.parse(
-    await readFile(path.join(dir, MUTATION_RECEIPT_DIRECTORY, `${mutationId}.json`), "utf8")
+    await readFile(path.join(receiptDir, `${mutationId}.json`), "utf8")
   ) as { artifact?: { storyId?: string } };
   assert.equal(storedReceipt.artifact?.storyId, story.id);
-  const objects = new StoryObjectStore(path.join(dir, story.id));
+  const objects = new StoryObjectStore(path.join(storyDir, story.id));
   await objects.readGenerationRecord(recordId);
 
   if (removed === undefined) throw new Error("chapter removal did not return its undo payload");

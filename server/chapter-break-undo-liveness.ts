@@ -10,13 +10,13 @@ export const MUTATION_RECEIPT_DIRECTORY = "mutation-receipts";
  *  The receipt is the undo payload's durable lease: it exists before the
  *  summary leaves the manifest and remains available for request replay. */
 export async function chapterBreakUndoGenerationRecordIds(
-  dataDir: string,
+  receiptDir: string,
   storyId: string,
   signal?: AbortSignal
 ): Promise<ObjectHash[]> {
   let entries;
   try {
-    entries = await readdir(path.join(dataDir, MUTATION_RECEIPT_DIRECTORY), { withFileTypes: true });
+    entries = await readdir(receiptDir, { withFileTypes: true });
   } catch (error) {
     if (isErrorCode(error, "ENOENT")) return [];
     throw error;
@@ -26,7 +26,7 @@ export async function chapterBreakUndoGenerationRecordIds(
     signal?.throwIfAborted();
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
     const mutationId = entry.name.slice(0, -".json".length);
-    const file = path.join(dataDir, MUTATION_RECEIPT_DIRECTORY, entry.name);
+    const file = path.join(receiptDir, entry.name);
     const receipt = parseMutationReceipt(JSON.parse((await readUnsealedFile(file)).toString("utf8")), mutationId);
     const result = receipt.result?.type === "chapter-break-removed" ? receipt.result : undefined;
     const artifact = receipt.artifact?.kind === "chapter-break-removal" ? receipt.artifact : undefined;
