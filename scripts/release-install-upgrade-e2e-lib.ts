@@ -3,6 +3,7 @@ import { chmod, copyFile, mkdir, readFile, realpath, writeFile } from "node:fs/p
 import path from "node:path";
 import packageJson from "../package.json" with { type: "json" };
 import { releaseTargetForRuntime } from "../shared/release-targets.js";
+import { isSemVerUpgradeAvailable } from "../shared/semver.js";
 import { isPrereleaseVersion } from "./release-publication-assets.js";
 import { INSTALL_PREVIOUS_FILE } from "../shared/install-layout.js";
 import { INSTALL_ACTIVE_EXECUTABLE } from "../shared/install-ownership-record.js";
@@ -355,7 +356,7 @@ export async function runInstallUpgradeE2e(
       `Beta channel check reported latest ${JSON.stringify(betaHead)}, expected a version.`
     );
   }
-  const betaIsNewer = betaHead !== currentVersion;
+  const betaIsNewer = isSemVerUpgradeAvailable(betaHead, currentVersion);
   const betaExpectation = {
     method: "shell",
     current: currentVersion,
