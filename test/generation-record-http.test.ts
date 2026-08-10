@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../shared/generation-record.js";
-import { API_PROTOCOL_HEADERS, fetchWithApiProtocol } from "./http-test-client.js";
+import { fetchWithApiProtocol } from "./http-test-client.js";
 import {
   doneStory,
   fakeModel,
@@ -74,9 +74,8 @@ providerTest("the HTTP routes list and read a take's Generation Records", async 
   assert.equal(sourceEntry.parts[0]?.nodeId, humanNodeId);
   assert.equal(sourceEntry.parts[0]?.text, "Written by a human, not a model.");
 
-  const notFound = await fetch(
-    `${base}/api/stories/${created.id}/nodes/${generatedNode.id}/generation-records/${"0".repeat(64)}`,
-    { headers: API_PROTOCOL_HEADERS }
+  const notFound = await fetchWithApiProtocol(
+    `${base}/api/stories/${created.id}/nodes/${generatedNode.id}/generation-records/${"0".repeat(64)}`
   );
   assert.equal(notFound.status, 404);
 });

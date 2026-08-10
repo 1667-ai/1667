@@ -89,9 +89,8 @@ providerTest(
     // "No route" rejection a shared-prefix mismatch produces below.
     assert.match(await listWithJunk.text(), /API path must use canonical nonempty segments/);
 
-    const detailNotFound = await fetch(
-      `${base}/api/stories/${story.id}/nodes/${root.id}/generation-records/${"0".repeat(64)}`,
-      { headers: API_PROTOCOL_HEADERS }
+    const detailNotFound = await fetchWithApiProtocol(
+      `${base}/api/stories/${story.id}/nodes/${root.id}/generation-records/${"0".repeat(64)}`
     );
     assert.equal(detailNotFound.status, 404);
     // The canonical detail shape (one trailing record-id segment, no more)
