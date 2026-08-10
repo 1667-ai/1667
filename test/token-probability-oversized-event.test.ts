@@ -157,6 +157,92 @@ test("a request that asked for no probabilities still refuses an oversized event
   );
 });
 
+// Structural-review finding on the fix above: discardOversizedEvents was
+// request-wide, so ANY oversized event was silently dropped once a request
+// had asked for probabilities — but a real OpenAI-compatible event can carry
+// `delta.content` (prose), `logprobs`, and finish/error fields together. A
+// mixed event over budget must never be silently discarded: it must throw,
+// exactly like an oversized event always did before this feature existed.
+test("a mixed event carrying real prose alongside an oversized logprobs payload throws instead of silently losing the prose", { timeout: 20_000 }, async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-token-probability-mixed-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const stories = new StoryStore(dir);
+  await stories.init();
+  const story = await stories.create("Story");
+
+  const maxTokens = 8_192;
+  const stepCount = stepsReachingBytes(9 * 1024 * 1024, ALT_COUNT);
+  const { steps } = buildLogprobsSteps(stepCount, ALT_COUNT);
+  const prose = "Real prose that must survive.";
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(
+    mixedProseAndLogprobsEvent(prose, steps) + "data: [DONE]\n\n",
+    { headers: { "content-type": "text/event-stream" } }
+  )) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  await assert.rejects(
+    continueStory(
+      story.id,
+      { parentId: null, instruction: "Continue.", genId: "gen-mixed" },
+      stories,
+      stubSettingsStore(koboldSettings(ALT_COUNT, maxTokens)),
+      new PromptCacheRuntime(),
+      new GenerationAdmissionRegistry(),
+      () => {},
+      new AbortController().signal
+    ),
+    /provider_response_too_large/
+  );
+
+  // Not just a rejected promise: nothing was silently committed with the
+  // prose missing.
+  const reloaded = await stories.load(story.id);
+  assert.equal(reloaded.nodes.length, 0);
+});
+
+test("an oversized event whose prefix is inconclusive (logprobs ordered before delta) throws rather than guessing", { timeout: 20_000 }, async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-token-probability-inconclusive-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const stories = new StoryStore(dir);
+  await stories.init();
+  const story = await stories.create("Story");
+
+  const maxTokens = 8_192;
+  const stepCount = stepsReachingBytes(9 * 1024 * 1024, ALT_COUNT);
+  // `delta` carries no real prose here (content: ""), so if the parser
+  // could see it, it would recognize the event as safe to drop. The point
+  // of this test is that it never gets the chance to see it: `logprobs`
+  // comes first and is large enough that `delta` sits well past the
+  // inspection prefix's cutoff.
+  const { steps } = buildLogprobsSteps(stepCount, ALT_COUNT);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(
+    logprobsBeforeDeltaEvent(steps) + "data: [DONE]\n\n",
+    { headers: { "content-type": "text/event-stream" } }
+  )) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  await assert.rejects(
+    continueStory(
+      story.id,
+      { parentId: null, instruction: "Continue.", genId: "gen-inconclusive" },
+      stories,
+      stubSettingsStore(koboldSettings(ALT_COUNT, maxTokens)),
+      new PromptCacheRuntime(),
+      new GenerationAdmissionRegistry(),
+      () => {},
+      new AbortController().signal
+    ),
+    /provider_response_too_large/
+  );
+
+  const reloaded = await stories.load(story.id);
+  assert.equal(reloaded.nodes.length, 0);
+});
+
 const VOCAB = [
   "the", "story", "moved", "forward", "quietly", "and", "then", "paused",
   "before", "a", "door", "opened", "onto", "rain", "light", "shadow",
@@ -223,6 +309,28 @@ function proseDeltaEvent(text: string): string {
 function logprobsFinalEvent(steps: readonly Record<string, unknown>[]): string {
   return `data: ${JSON.stringify({
     choices: [{ delta: {}, finish_reason: "stop", logprobs: { content: steps } }]
+  })}\n\n`;
+}
+
+/** A single event carrying real prose (`delta.content`) and a large
+ *  `logprobs` payload together — the mixed shape a real OpenAI-compatible
+ *  stream can send, and the exact case server/provider-sse.ts's
+ *  decideOversizedEvent must never silently discard: `delta` comes before
+ *  `logprobs`, matching KoboldCpp's own field order, but this time with
+ *  content the fix must not lose. */
+function mixedProseAndLogprobsEvent(prose: string, steps: readonly Record<string, unknown>[]): string {
+  return `data: ${JSON.stringify({
+    choices: [{ delta: { content: prose }, finish_reason: "stop", logprobs: { content: steps } }]
+  })}\n\n`;
+}
+
+/** The inconclusive shape: `logprobs` ordered before `delta`, so the parser's
+ *  bounded inspection prefix runs out inside the large `logprobs` payload
+ *  and never reaches `delta` at all — prefixProvesNoProse cannot prove
+ *  anything about a field it never saw, and must fail closed. */
+function logprobsBeforeDeltaEvent(steps: readonly Record<string, unknown>[]): string {
+  return `data: ${JSON.stringify({
+    choices: [{ logprobs: { content: steps }, delta: { content: "" }, finish_reason: "stop" }]
   })}\n\n`;
 }
 

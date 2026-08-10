@@ -7,6 +7,10 @@ import {
   maxSseEventBytesFor
 } from "./provider-sse-probability-budget.js";
 import {
+  INSPECTION_PREFIX_CHARS,
+  prefixProvesNoProse
+} from "./provider-sse-prose-check.js";
+import {
   providerErrorSummary,
   providerRuntimeFor,
   redactProviderBody
@@ -430,15 +434,25 @@ export class BoundedProviderSseParser {
   private pendingCr = false;
   private pendingCrContinuesEvent = false;
   /** Set once the event in progress has crossed maxEventBytes /
-   *  maxPartialEventBytes and discardOversizedEvents allows dropping it
-   *  instead of throwing (issue #107 part 1). Further bytes for this event
-   *  are counted but no longer retained — appendLinePart stops buffering
-   *  them and finishLine stops assembling `dataLines` — so a probability
-   *  event that runs past even the per-request budget above costs bounded
-   *  memory, not unbounded memory, while it is discarded. The stream's own
-   *  MAX_RAW_RESPONSE_BYTES and MAX_EVENT_COUNT checks are untouched by this
-   *  flag and remain the backstop for a provider that never stops sending. */
+   *  maxPartialEventBytes AND decideOversizedEvent has positively proven,
+   *  from inspectionPrefix, that the event carries no prose (issue #107
+   *  part 1, tightened after review: discardOversizedEvents alone is
+   *  necessary but not sufficient — see decideOversizedEvent). Further bytes
+   *  for this event are counted but no longer retained — appendLinePart
+   *  stops buffering them and finishLine stops assembling `dataLines` — so
+   *  a probability event that runs past even the per-request budget above
+   *  costs bounded memory, not unbounded memory, while it is discarded. The
+   *  stream's own MAX_RAW_RESPONSE_BYTES and MAX_EVENT_COUNT checks are
+   *  untouched by this flag and remain the backstop for a provider that
+   *  never stops sending. */
   private discardingCurrentEvent = false;
+  /** The first INSPECTION_PREFIX_CHARS of the current event's raw text —
+   *  maintained regardless of discardingCurrentEvent, because
+   *  decideOversizedEvent needs it to MAKE that decision in the first
+   *  place. Frozen once it reaches the cap; reset alongside everything else
+   *  in resetEvent so a later event's decision can never read a prior
+   *  event's leftover text. */
+  private inspectionPrefix = "";
 
   constructor(
     private readonly maxEventBytes: number = MAX_SSE_EVENT_BYTES,
@@ -500,6 +514,16 @@ export class BoundedProviderSseParser {
     const bytes = Buffer.byteLength(value);
     this.lineBytes += bytes;
     this.partialBytes += bytes;
+    // Grown BEFORE the limit check below, so whichever call first crosses
+    // the threshold already has this fragment folded into the prefix —
+    // decideOversizedEvent must never decide from a prefix that is missing
+    // the very bytes that just tripped the limit. Only bothered with when
+    // this parser is allowed to discard at all (discardOversizedEvents):
+    // the no-probabilities path always throws immediately and never reads
+    // this.
+    if (this.discardOversizedEvents && this.inspectionPrefix.length < INSPECTION_PREFIX_CHARS) {
+      this.inspectionPrefix += value.slice(0, INSPECTION_PREFIX_CHARS - this.inspectionPrefix.length);
+    }
     this.requirePartialWithinLimit();
     // Once this event is known to be discarded, stop paying to buffer
     // content nobody will ever read (see discardingCurrentEvent above).
@@ -525,9 +549,8 @@ export class BoundedProviderSseParser {
       // is still cut off here regardless (issue #107 part 1's own
       // constraint).
       if (this.eventCount > MAX_EVENT_COUNT) throw responseTooLarge();
-      if (this.eventBytes > this.maxEventBytes) {
-        if (!this.discardOversizedEvents) throw responseTooLarge();
-        this.discardingCurrentEvent = true;
+      if (!this.discardingCurrentEvent && this.eventBytes > this.maxEventBytes) {
+        this.decideOversizedEvent();
       }
       if (!this.discardingCurrentEvent) {
         const data = this.dataLines.join("\n");
@@ -540,9 +563,8 @@ export class BoundedProviderSseParser {
       this.eventBytes += this.pendingEventLineEndingBytes;
     }
     this.eventBytes += lineBytes;
-    if (this.eventBytes > this.maxEventBytes) {
-      if (!this.discardOversizedEvents) throw responseTooLarge();
-      this.discardingCurrentEvent = true;
+    if (!this.discardingCurrentEvent && this.eventBytes > this.maxEventBytes) {
+      this.decideOversizedEvent();
     }
     this.hasEventLine = true;
     this.pendingEventLineEndingBytes = endingBytes;
@@ -572,11 +594,27 @@ export class BoundedProviderSseParser {
     this.hasEventLine = false;
     this.dataLines.length = 0;
     this.discardingCurrentEvent = false;
+    this.inspectionPrefix = "";
   }
 
   private requirePartialWithinLimit(): void {
+    if (this.discardingCurrentEvent) return;
     if (this.partialBytes <= this.maxPartialEventBytes) return;
-    if (!this.discardOversizedEvents) throw responseTooLarge();
-    this.discardingCurrentEvent = true;
+    this.decideOversizedEvent();
+  }
+
+  /** The only place an event that crossed its byte budget is allowed to
+   *  become a silent discard rather than the loud failure that existed
+   *  before issue #107's relaxation. A request that asked for probabilities
+   *  may still lose this one event — but only once prefixProvesNoProse has
+   *  positively established, from the bounded inspectionPrefix, that it
+   *  carries no prose. Any doubt resolves exactly like the unrelaxed path:
+   *  a hard failure, unchanged. */
+  private decideOversizedEvent(): void {
+    if (this.discardOversizedEvents && prefixProvesNoProse(this.inspectionPrefix)) {
+      this.discardingCurrentEvent = true;
+      return;
+    }
+    throw responseTooLarge();
   }
 }
