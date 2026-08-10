@@ -735,6 +735,19 @@ export class StoryStore {
       if (duplicate !== null) requireDurableCommit(duplicate, `Removing legacy duplicate ${story.id}`);
       // Durable recovery intent must precede immutable object publication by encode.
       await cleanup.publish();
+      // encodeStoryBundle below drains each node's pending Generation Records as
+      // soon as its bytes land in this story's live bundle directory — before
+      // flush, verifyGraph, and the manifest write below make those bytes
+      // reachable from a published manifest. A failure anywhere in between
+      // schedules cleanup, which can reap the now-unreferenced object; without
+      // this snapshot, a same-story retry would see an empty pending queue and
+      // skip re-writing those bytes, publishing a Generation Record id whose
+      // object is gone. Mirrors publishNewBundle; see
+      // story-node-generation-records.ts.
+      const pendingSnapshots = story.nodes
+        .map((node) => [node, peekPendingGenerationRecords(node)] as const)
+        .filter(([, records]) => records.length > 0);
+      let manifestPublished = false;
       try {
         const objects = new StoryObjectStore(this.bundlePath(story.id));
         const candidate = this.snapshots.get(story);
@@ -769,6 +782,7 @@ export class StoryStore {
         await objects.flush();
         await objects.verifyGraph(nextLive);
         const commit = await this.writeManifest(this.manifestPath(story.id), serializeManifest(manifest));
+        manifestPublished = true;
         this.snapshots.set(story, captureStorySnapshot(story, manifest, objects.verifiedRevisionGraph()));
         requireDurableCommit(commit, `Saving story ${story.id}`);
         this.generationRecordGraphs.set(story.id, generationRecordGraphSnapshot(
@@ -787,6 +801,9 @@ export class StoryStore {
           if (!cleared) this.cleanupQueue.schedule(story.id);
         }
       } catch (error) {
+        if (!manifestPublished) {
+          for (const [node, records] of pendingSnapshots) restorePendingGenerationRecords(node, records);
+        }
         this.cleanupQueue.schedule(story.id);
         throw error;
       }
