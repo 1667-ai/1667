@@ -43,7 +43,8 @@ import {
 } from "./settings-overlay-actions.js";
 import { synchronizeSettingsModelDiscovery } from "./settings-model-discovery.js";
 import { panelContentRows } from "./screens/overlay.js";
-import { boundedNoticeCursor, clearNoticeLog, recordNotice } from "./notice-log.js";
+import { logBodyHeight } from "./screens/log.js";
+import { boundedNoticeCursor, clearNoticeLog, recordNotice, setNoticeCursor } from "./notice-log.js";
 import { copyToClipboard } from "./clipboard.js";
 import {
   openRequestViewer,
@@ -103,12 +104,12 @@ export async function handleOverlayAction(
     // The notice the writer came from is the newest one, and `recordNotices`
     // already put the cursor on it. The map is a place, so closing the log
     // has to put the writer back in it rather than on the page.
-    state.notices.cursor = boundedNoticeCursor(state.notices, state.notices.cursor);
+    setNoticeCursor(state.notices, state.notices.cursor);
     state.notices.returnMode = state.mode === "MAP" ? "MAP" : "NAV";
     state.mode = "LOG";
     return true;
   }
-  if (state.mode === "LOG") { await logAction(resolved, state); return true; }
+  if (state.mode === "LOG") { await logAction(resolved, state, context.renderer?.height); return true; }
   if (resolved.action === "open-library") { await openLibrary(state, source, context); return true; }
   if (resolved.action === "open-facts") {
     state.facts = initialFacts();
@@ -193,23 +194,36 @@ export async function handleOverlayAction(
   return false;
 }
 
-/** C-37's keys: `↑↓` move · `↵` copies · `x` clears · `!` or `esc` closes.
- *  Clearing is unceremonious — the log holds nothing the story needs. */
-async function logAction(resolved: ResolvedKey, state: RuntimeState): Promise<void> {
+/** C-37's keys: `↑↓` move · `⇧↑↓` scrolls a line and `pgup`/`pgdn` a page
+ *  within the focused notice · `↵` copies · `x` clears · `!` or `esc`
+ *  closes. Clearing is unceremonious — the log holds nothing the story needs.
+ *  `terminalHeight` sizes a scroll page exactly to what `renderLogScreen`
+ *  paints, the same way `scrollKeysReference` sizes its own page below. */
+async function logAction(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  terminalHeight?: number
+): Promise<void> {
   const log = state.notices;
   if (resolved.action === "cancel") {
     state.mode = log.returnMode;
     return;
   }
   if (resolved.action === "focus-next" || resolved.action === "focus-previous") {
-    log.cursor = boundedNoticeCursor(
-      log,
-      log.cursor + (resolved.action === "focus-next" ? 1 : -1)
-    );
+    setNoticeCursor(log, log.cursor + (resolved.action === "focus-next" ? 1 : -1));
     return;
   }
   if (resolved.action === "focus-index" && resolved.index !== undefined) {
-    log.cursor = boundedNoticeCursor(log, resolved.index);
+    setNoticeCursor(log, resolved.index);
+    return;
+  }
+  if (resolved.action === "scroll-line-down" || resolved.action === "scroll-line-up") {
+    log.scrollOffset = Math.max(0, log.scrollOffset + (resolved.action === "scroll-line-down" ? 1 : -1));
+    return;
+  }
+  if (resolved.action === "scroll-down" || resolved.action === "scroll-up") {
+    const page = terminalHeight === undefined ? 1 : logBodyHeight(terminalHeight);
+    log.scrollOffset = Math.max(0, log.scrollOffset + (resolved.action === "scroll-down" ? page : -page));
     return;
   }
   if (resolved.action === "clear-log") {

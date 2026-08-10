@@ -20,6 +20,13 @@ const STAMP_WIDTH = 10;
 /** Cells the expanded notice indents its wrapped rows by. */
 const BODY_COLUMN = 2 + STAMP_WIDTH;
 
+/** Rows the log body has to paint notices in, at a given terminal height.
+ *  Shared with `overlay-actions.ts` so a page-scroll step matches exactly
+ *  what one page of this screen shows. */
+export function logBodyHeight(height: number): number {
+  return Math.max(1, height - SHELL_ROWS);
+}
+
 /** C-37 · log: a C-02 surface holding the session's notices, newest first, the
  *  one you came from expanded. The only surface with no cap — it is what makes
  *  the caps on the other three feedback channels honest. */
@@ -31,7 +38,7 @@ export function renderLogScreen(
   hitRows: HitRows
 ): FrameComposition {
   const cursor = boundedNoticeCursor(log, log.cursor);
-  const bodyHeight = Math.max(1, height - SHELL_ROWS);
+  const bodyHeight = logBodyHeight(height);
   const body: FrameLine[] = [];
   const hits: Array<HitRow | null> = [];
   for (const [index, notice] of log.entries.entries()) {
@@ -90,15 +97,22 @@ function noticeRows(notice: SessionNotice, focused: boolean, width: number): Fra
 
 /** Keep the focused notice on screen without moving it further than it has to.
  *
- *  A notice taller than the surface starts at its own first row: this is the
- *  channel with no cap, so losing the explanation to a viewport that opened on
- *  the tail would defeat the point of it. */
+ *  A notice taller than the surface starts at its own first row by default:
+ *  this is the channel with no cap, so losing the explanation to a viewport
+ *  that opened on the tail would defeat the point of it. `log.scrollOffset`
+ *  then moves within that notice, clamped here to its own last row — the
+ *  only place with the `width` a notice's actual row count depends on. A
+ *  notice that fits beside its neighbours ignores the offset entirely, which
+ *  is what keeps it at zero: nothing in this branch ever reads it. */
 function windowStart(log: NoticeLog, cursor: number, bodyHeight: number, width: number): number {
   let row = 0;
   for (const [index, notice] of log.entries.entries()) {
     const rows = noticeRows(notice, index === cursor, width).length;
     if (index === cursor) {
-      if (rows >= bodyHeight) return row;
+      if (rows >= bodyHeight) {
+        const maxOffset = rows - bodyHeight;
+        return row + Math.max(0, Math.min(maxOffset, log.scrollOffset));
+      }
       const end = row + rows;
       return end <= bodyHeight ? 0 : Math.max(0, end - bodyHeight);
     }
@@ -129,16 +143,25 @@ function renderBreadcrumb(
 ): FrameLine {
   const leafId = state.payload.path.at(-1)?.id ?? null;
   const tag = state.payload.tags.find((item) => item.nodeId === leafId) ?? null;
+  // A narrow terminal drops `x clears` first: `! or esc closes` is the
+  // recovery key and must survive truncation, the way request-viewer.ts
+  // drops `g/G ends` at the same width rather than risk its own tail.
+  const narrow = width < 100;
   // C-37: the breadcrumb's right slot holds a scope label, never a key — the
-  // keys are in the keyline beside it, per C-06.
+  // keys are in the keyline beside it, per C-06. C-27: a notice taller than
+  // the surface scrolls, so the surface says so.
   const keys: FrameLine = [
     segment("↑", "chrome", { kind: "action", action: "focus-previous" }),
     segment("↓", "chrome", { kind: "action", action: "focus-next" }),
     segment(" move", "chrome"),
     segment(" · ", "chrome"),
-    segment("↵ copies", "chrome", { kind: "action", action: "copy-part" }),
+    segment("⇧↑↓ scroll", "chrome"),
     segment(" · ", "chrome"),
-    segment("x clears", "chrome", { kind: "action", action: "clear-log" }),
+    segment("↵ copies", "chrome", { kind: "action", action: "copy-part" }),
+    ...(narrow ? [] : [
+      segment(" · ", "chrome"),
+      segment("x clears", "chrome", { kind: "action", action: "clear-log" })
+    ]),
     segment(" · ", "chrome"),
     segment("! or esc closes", "focus / accent", { kind: "action", action: "cancel" })
   ];

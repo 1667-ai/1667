@@ -7,7 +7,6 @@ import {
   openSync,
   readFileSync,
   renameSync,
-  statSync,
   unlinkSync,
   writeFileSync
 } from "node:fs";
@@ -145,27 +144,46 @@ export interface ConfigPersistenceOptions {
   readonly afterTemporaryFileSync?: (temporaryFile: string) => void;
 }
 
-export function loadConfig(
+/**
+ * `absent`: no file at that path (`ENOENT`) — a genuinely new install.
+ * `unreadable`: a file is there, but could not be read or did not parse —
+ * a config a caller must never overwrite, since it may be the only copy of
+ * the writer's settings and it may still be repairable by hand.
+ * `loaded`: the file parsed. Its content may still be old or partial;
+ * `normalizeUserConfig` already covers that.
+ */
+export type ConfigLoadStatus = "absent" | "loaded" | "unreadable";
+
+/** Load the config file and say which of the three outcomes happened, so a
+ *  caller that must not clobber an unreadable file can tell it apart from a
+ *  fresh install — `loadConfig` alone collapses both to the same defaults. */
+export function loadConfigWithStatus(
   options: ConfigPersistenceOptions = {}
-): UserConfig {
+): { readonly status: ConfigLoadStatus; readonly config: UserConfig } {
+  const file = options.file ?? configPath();
+  let raw: string;
   try {
-    return normalizeUserConfig(JSON.parse(
-      readFileSync(options.file ?? configPath(), "utf8")
-    ));
+    raw = readFileSync(file, "utf8");
+  } catch (error) {
+    const status = isEnoent(error) ? "absent" : "unreadable";
+    return { status, config: normalizeUserConfig(null) };
+  }
+  try {
+    return { status: "loaded", config: normalizeUserConfig(JSON.parse(raw)) };
   } catch {
-    return normalizeUserConfig(null);
+    return { status: "unreadable", config: normalizeUserConfig(null) };
   }
 }
 
-/** Whether a config file exists. A file that exists without `lastRunVersion`
- *  was written by a build older than the release notes, so it means an
- *  upgrade from an unknown version, not a new install. */
-export function configFileExists(options: ConfigPersistenceOptions = {}): boolean {
-  try {
-    return statSync(options.file ?? configPath()).isFile();
-  } catch {
-    return false;
-  }
+function isEnoent(error: unknown): boolean {
+  return typeof error === "object" && error !== null
+    && (error as { code?: unknown }).code === "ENOENT";
+}
+
+export function loadConfig(
+  options: ConfigPersistenceOptions = {}
+): UserConfig {
+  return loadConfigWithStatus(options).config;
 }
 
 export function saveConfig(

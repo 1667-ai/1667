@@ -26,6 +26,10 @@ export interface NoticeLog {
   seen: Record<NoticeChannel, string | null>;
   /** Row the log surface opens on: the notice you came from. */
   cursor: number;
+  /** Rows scrolled into the focused notice, beyond wherever it opens by
+   *  default. Only meaningful for a notice taller than the surface — see
+   *  `setNoticeCursor`, which is the only place this resets. */
+  scrollOffset: number;
   /** Where `esc` returns to. The log is reachable from the map as well as the
    *  page, and closing it must not drop the writer out of the map. */
   returnMode: "NAV" | "MAP";
@@ -37,8 +41,17 @@ export function createNoticeLog(): NoticeLog {
     nextId: 1,
     seen: { toast: null, banner: null, check: null },
     cursor: 0,
+    scrollOffset: 0,
     returnMode: "NAV"
   };
+}
+
+/** Move the cursor to a bounded notice and reset the scroll offset: a
+ *  freshly focused notice always opens at its own head, per C-27. Every site
+ *  that writes `cursor` goes through this, so none can forget the reset. */
+export function setNoticeCursor(log: NoticeLog, value: number): void {
+  log.cursor = boundedNoticeCursor(log, value);
+  log.scrollOffset = 0;
 }
 
 /** What the app is saying right now, per channel. */
@@ -64,7 +77,7 @@ export function recordNotices(log: NoticeLog, sources: NoticeSources): void {
     // Newest first, and the cursor stays on the notice the writer came from.
     log.entries.unshift({ id: log.nextId, at: sources.now, channel, text });
     log.nextId += 1;
-    log.cursor = 0;
+    setNoticeCursor(log, 0);
   }
 }
 
@@ -84,7 +97,7 @@ export function recordNotice(
   if (text.trim().length === 0) return;
   log.entries.unshift({ id: log.nextId, at: now, channel, text });
   log.nextId += 1;
-  log.cursor = 0;
+  setNoticeCursor(log, 0);
 }
 
 /** The three feedback channels the app can be speaking through, read off the
@@ -115,15 +128,19 @@ export function recordSessionNotices(state: {
 
 export function clearNoticeLog(log: NoticeLog): void {
   log.entries = [];
-  log.cursor = 0;
+  setNoticeCursor(log, 0);
 }
 
 /** C-37's keys, in one place the way the request viewer keeps its own: `↑↓`
- *  move · `↵` copies · `x` clears · `!` or `esc` closes. `!` toggles, so the
- *  surface closes from wherever the writer opened it. */
+ *  move · `⇧↑↓` scrolls a line and `pgup`/`pgdn` a page within the focused
+ *  notice, the same vocabulary and action names `reference-bindings.ts` uses
+ *  for NAV · `↵` copies · `x` clears · `!` or `esc` closes. `!` toggles, so
+ *  the surface closes from wherever the writer opened it. */
 export function resolveLogKey(key: KeyEvent): ResolvedKey {
-  if (key.name === "down") return { action: "focus-next" };
-  if (key.name === "up") return { action: "focus-previous" };
+  if (key.name === "down") return { action: key.shift ? "scroll-line-down" : "focus-next" };
+  if (key.name === "up") return { action: key.shift ? "scroll-line-up" : "focus-previous" };
+  if (key.name === "pagedown") return { action: "scroll-down" };
+  if (key.name === "pageup") return { action: "scroll-up" };
   if (key.name === "return") return { action: "copy-part" };
   if (key.name === "x") return { action: "clear-log" };
   if (key.sequence === "!") return { action: "cancel" };

@@ -4,6 +4,7 @@ import { ActionRuntime } from "../src/action-runtime.js";
 import { handleKey, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { hitAt } from "../src/hit.js";
+import { recordNotice } from "../src/notice-log.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText, plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
@@ -53,7 +54,7 @@ describe("C-37 · the session log", () => {
     expect(rendered).toContain(raised!);
     // C-37's keys, in the keyline beside the breadcrumb (C-06).
     // C-37 requires every close key in the keyline, `!` included.
-    expect(rendered).toContain("↑↓ move · ↵ copies · x clears · ! or esc closes");
+    expect(rendered).toContain("↑↓ move · ⇧↑↓ scroll · ↵ copies · x clears · ! or esc closes");
   });
 
   test("x clears the log and esc returns to the page", async () => {
@@ -107,6 +108,55 @@ describe("C-37 · the session log", () => {
     // The keyline advertises `x`, so the glyph has to run what `x` runs.
     expect(hitAt(state.hitRows, column, row))
       .toEqual({ kind: "action", action: "clear-log" });
+  });
+});
+
+describe("C-27 · the log scrolls within a notice too tall for the surface", () => {
+  test("a notice taller than the surface can be scrolled to reveal its last row", async () => {
+    const { state, press } = harness();
+    // Feedback wraps as one flowing paragraph (Decision 24's `wrapFeedback`
+    // collapses every whitespace run, including a literal newline), so
+    // height comes from word count, not line count: enough words to wrap
+    // well past the log's body height at width 120.
+    const words = Array.from({ length: 1500 }, (_, index) => `w${index}`);
+    words.push("LASTROWMARKER");
+    recordNotice(state.notices, "toast", words.join(" "));
+
+    await press(key("!", "!"));
+    expect(state.mode).toBe("LOG");
+    const opened = screen(state);
+    expect(opened).toContain("w0 ");
+    expect(opened).not.toContain("LASTROWMARKER");
+
+    // Far more line-scrolls than the notice has rows, so this does not
+    // depend on knowing the exact wrapped row count — and proves the offset
+    // clamps at the notice's last row rather than scrolling past it. (This
+    // harness runs with no renderer, so `pagedown`'s page falls back to one
+    // row; shift+down is the same one row per press either way, and asserts
+    // the same clamp without needing a real terminal height.)
+    for (let line = 0; line < 80; line += 1) await press(key("down", "down", true));
+    const scrolled = screen(state);
+    expect(scrolled).toContain("LASTROWMARKER");
+    expect(scrolled).not.toContain("w0 ");
+
+    // Moving to a different notice resets the offset: back to the head.
+    recordNotice(state.notices, "toast", "a second, shorter notice");
+    await press(key("down"));
+    await press(key("up"));
+    expect(screen(state)).toContain("w0 ");
+  });
+
+  test("a notice that fits the surface does not move when scrolled", async () => {
+    const { state, press } = harness();
+    recordNotice(state.notices, "toast", "a short notice that fits on one screen");
+
+    await press(key("!", "!"));
+    expect(state.mode).toBe("LOG");
+    const before = screen(state);
+
+    await press(key("down", "down", true));
+    await press(key("pagedown"));
+    expect(screen(state)).toBe(before);
   });
 });
 

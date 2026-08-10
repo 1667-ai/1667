@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { AI_1667_PRODUCT_VERSION } from "../../shared/build-identity.js";
 import type { ReleaseNote } from "../../shared/release-notes.js";
 import { initialState } from "../src/app.js";
 import {
-  configFileExists,
   loadConfig,
+  loadConfigWithStatus,
   normalizeUserConfig,
   saveConfig
 } from "../src/config.js";
@@ -42,7 +42,11 @@ const NOTES: readonly ReleaseNote[] = [
 
 const FRESH: LastRun = { kind: "fresh" };
 const UNKNOWN: LastRun = { kind: "unknown" };
+const UNREADABLE: LastRun = { kind: "unreadable" };
 const atVersion = (version: string): LastRun => ({ kind: "version", version });
+/** `!` opens the log in NAV/MAP; the pure tests that are not specifically
+ *  about wording use this so the toast shape stays out of the way. */
+const LOG_KEY_LIVE = true;
 
 // `announceRelease` always reads the real running build's version, so its
 // fixtures bracket the real `AI_1667_PRODUCT_VERSION` rather than an
@@ -52,6 +56,7 @@ const WIRING_NOTES: readonly ReleaseNote[] = [
   { version: "0.0.5", date: "2026-07-01", body: "intervening release body" }
 ];
 const EXPECTED_TOAST = `Updated to ${AI_1667_PRODUCT_VERSION} · press ! for what changed`;
+const EXPECTED_COMPOSE_TOAST = `Updated to ${AI_1667_PRODUCT_VERSION} · esc then ! for what changed`;
 
 function wiringSource(file: string, demo = false) {
   const base = demoAppSource();
@@ -60,23 +65,27 @@ function wiringSource(file: string, demo = false) {
 
 describe("releaseAnnouncement (pure)", () => {
   test("a first run (fresh install) announces nothing", () => {
-    expect(releaseAnnouncement(FRESH, "1.3.0", NOTES)).toBeNull();
+    expect(releaseAnnouncement(FRESH, "1.3.0", LOG_KEY_LIVE, NOTES)).toBeNull();
+  });
+
+  test("an unreadable config announces nothing — there is nothing to compare against safely", () => {
+    expect(releaseAnnouncement(UNREADABLE, "1.3.0", LOG_KEY_LIVE, NOTES)).toBeNull();
   });
 
   test("a repeat run at the same version announces nothing", () => {
-    expect(releaseAnnouncement(atVersion("1.3.0"), "1.3.0", NOTES)).toBeNull();
+    expect(releaseAnnouncement(atVersion("1.3.0"), "1.3.0", LOG_KEY_LIVE, NOTES)).toBeNull();
   });
 
   test("a downgrade announces nothing", () => {
-    expect(releaseAnnouncement(atVersion("1.3.0"), "1.2.0", NOTES)).toBeNull();
+    expect(releaseAnnouncement(atVersion("1.3.0"), "1.2.0", LOG_KEY_LIVE, NOTES)).toBeNull();
   });
 
   test("an upgrade whose range has no matching notes announces nothing", () => {
-    expect(releaseAnnouncement(atVersion("1.3.0"), "1.4.0", NOTES)).toBeNull();
+    expect(releaseAnnouncement(atVersion("1.3.0"), "1.4.0", LOG_KEY_LIVE, NOTES)).toBeNull();
   });
 
   test("an upgrade spanning several notes selects every one, newest first", () => {
-    const announcement = releaseAnnouncement(atVersion("1.0.0"), "1.3.0", NOTES);
+    const announcement = releaseAnnouncement(atVersion("1.0.0"), "1.3.0", LOG_KEY_LIVE, NOTES);
     expect(announcement).not.toBeNull();
     expect(announcement!.toast).toBe("Updated to 1.3.0 · press ! for what changed");
     expect(announcement!.body).toContain("1667 1.3.0 · what changed since 1.0.0");
@@ -90,7 +99,7 @@ describe("releaseAnnouncement (pure)", () => {
   });
 
   test("an upgrade selects only notes inside (lastRunVersion, currentVersion]", () => {
-    const announcement = releaseAnnouncement(atVersion("1.1.0"), "1.2.5", NOTES);
+    const announcement = releaseAnnouncement(atVersion("1.1.0"), "1.2.5", LOG_KEY_LIVE, NOTES);
     expect(announcement).not.toBeNull();
     expect(announcement!.body).toContain("second note body");
     expect(announcement!.body).not.toContain("first note body");
@@ -99,7 +108,7 @@ describe("releaseAnnouncement (pure)", () => {
 
   describe("an upgrade from a build older than this feature (unknown)", () => {
     test("announces only the note for the exact version landed on, not a guessed range", () => {
-      const announcement = releaseAnnouncement(UNKNOWN, "1.2.0", NOTES);
+      const announcement = releaseAnnouncement(UNKNOWN, "1.2.0", LOG_KEY_LIVE, NOTES);
       expect(announcement).not.toBeNull();
       // The toast stays exactly the same shape as the known-version case.
       expect(announcement!.toast).toBe("Updated to 1.2.0 · press ! for what changed");
@@ -111,7 +120,19 @@ describe("releaseAnnouncement (pure)", () => {
     });
 
     test("announces nothing when no note matches the current version exactly", () => {
-      expect(releaseAnnouncement(UNKNOWN, "1.2.5", NOTES)).toBeNull();
+      expect(releaseAnnouncement(UNKNOWN, "1.2.5", LOG_KEY_LIVE, NOTES)).toBeNull();
+    });
+  });
+
+  describe("the toast names the real route to the log", () => {
+    test("names ! directly when the log key is live (NAV/MAP)", () => {
+      const announcement = releaseAnnouncement(atVersion("1.0.0"), "1.3.0", true, NOTES);
+      expect(announcement!.toast).toBe("Updated to 1.3.0 · press ! for what changed");
+    });
+
+    test("names esc first when the log key is not live (COMPOSE, where ! is a character)", () => {
+      const announcement = releaseAnnouncement(atVersion("1.0.0"), "1.3.0", false, NOTES);
+      expect(announcement!.toast).toBe("Updated to 1.3.0 · esc then ! for what changed");
     });
   });
 });
@@ -168,12 +189,12 @@ describe("announceRelease (wiring)", () => {
     expect(state.toast).toBeNull();
     expect(state.notices.entries).toHaveLength(0);
     expect(source.config.lastRunVersion).toBe("0.0.1");
-    expect(configFileExists({ file })).toBe(false);
+    expect(loadConfigWithStatus({ file }).status).toBe("absent");
   });
 
   test("a genuinely fresh install (no config file at all) announces nothing", async () => {
     const file = await scratchConfigFile();
-    expect(configFileExists({ file })).toBe(false);
+    expect(loadConfigWithStatus({ file }).status).toBe("absent");
     const source = wiringSource(file);
     expect(source.config.lastRunVersion).toBeNull();
     const state = initialState(source, false);
@@ -197,7 +218,7 @@ describe("announceRelease (wiring)", () => {
     // What every pre-feature build wrote: a config file with no
     // `lastRunVersion` key at all.
     saveConfig(normalizeUserConfig({ theme: "bond" }), { file });
-    expect(configFileExists({ file })).toBe(true);
+    expect(loadConfigWithStatus({ file }).status).toBe("loaded");
     expect(loadConfig({ file }).lastRunVersion).toBeNull();
 
     const source = wiringSource(file);
@@ -214,6 +235,45 @@ describe("announceRelease (wiring)", () => {
     // The unknown case never claims a range it does not know.
     expect(texts.some((text) => text.includes("what changed since"))).toBe(false);
     expect(loadConfig({ file }).lastRunVersion).toBe(AI_1667_PRODUCT_VERSION);
+  });
+
+  // Regression: the data-loss bug. Before this fix, `announceRelease` read
+  // every load failure — missing file, unreadable file, malformed JSON —
+  // as the same silent defaults, then stamped over whatever was on disk.
+  // A hand-editing mistake (here, a trailing comma) must survive untouched:
+  // the file is the writer's only copy of their settings, and it is still
+  // repairable by hand as long as nothing overwrites it first.
+  test("a malformed config.json survives announceRelease byte-for-byte, and nothing is announced", async () => {
+    const file = await scratchConfigFile();
+    const malformed = '{\n  "theme": "bond",\n}\n'; // trailing comma: invalid JSON
+    await writeFile(file, malformed, "utf8");
+    const before = await readFile(file, "utf8");
+    expect(loadConfigWithStatus({ file }).status).toBe("unreadable");
+
+    const source = wiringSource(file);
+    const state = initialState(source, false);
+
+    announceRelease(state, source, { file }, WIRING_NOTES);
+
+    expect(state.toast).toBeNull();
+    expect(state.notices.entries).toHaveLength(0);
+    const after = await readFile(file, "utf8");
+    expect(after).toBe(before);
+    // The status stays "unreadable": the file was never touched, let alone
+    // stamped with a version that would make the next run call it "unknown".
+    expect(loadConfigWithStatus({ file }).status).toBe("unreadable");
+  });
+
+  test("the toast names esc first when the writer started in COMPOSE, where ! types a character", async () => {
+    const file = await scratchConfigFile();
+    saveConfig(normalizeUserConfig({ lastRunVersion: "0.0.1" }), { file });
+    const source = wiringSource(file);
+    const state = initialState(source, false);
+    state.mode = "COMPOSE";
+
+    announceRelease(state, source, { file }, WIRING_NOTES);
+
+    expect(state.toast).toBe(EXPECTED_COMPOSE_TOAST);
   });
 });
 
@@ -241,7 +301,7 @@ describe("the stamp makes the announcement one-shot", () => {
   });
 });
 
-describe("the toast reaches a rendered frame", () => {
+describe("the announcement reaches a rendered frame", () => {
   test("an announcing run's toast appears in the rendered story screen", async () => {
     const file = await scratchConfigFile();
     saveConfig(normalizeUserConfig({ lastRunVersion: "0.0.1" }), { file });
@@ -257,5 +317,47 @@ describe("the toast reaches a rendered frame", () => {
 
     expect(rendered).toContain(`Updated to ${AI_1667_PRODUCT_VERSION}`);
     expect(rendered).toContain("press ! for what changed");
+  });
+
+  // The regression finding #2 exists for: a release-note body is routinely
+  // longer than one screen (the real 0.1.2 section alone is about 200 lines),
+  // so proving the toast renders is not proof the body is actually readable.
+  // This opens the real log the toast points to and scrolls it, the same way
+  // a writer would, to reach a marker planted at the very end of a real
+  // announcement body built by `announceRelease` itself — not a synthetic
+  // fixture standing in for it.
+  test("the full announcement body is readable through the log, including past the first screen", async () => {
+    const file = await scratchConfigFile();
+    saveConfig(normalizeUserConfig({ lastRunVersion: "0.0.1" }), { file });
+    const source = wiringSource(file);
+    const state = initialState(source, false);
+
+    const longBody = Array.from({ length: 1500 }, (_, index) => `w${index}`).join(" ")
+      + " LASTROWMARKER";
+    announceRelease(state, source, { file }, [
+      { version: AI_1667_PRODUCT_VERSION, date: "2026-08-10", body: longBody }
+    ]);
+    expect(state.toast).toBe(EXPECTED_TOAST);
+    // `announceRelease` already wrote the full body directly via
+    // `recordNotice`, with the cursor on it. Not calling `recordSessionNotices`
+    // here keeps that the only entry, so the cursor stays on the long notice
+    // this test means to scroll — the toast-headline entry it would add on
+    // top is exactly what the other wiring test above already covers.
+    state.mode = "LOG";
+    const opened = frameText(renderStoryScreen(state, {
+      width: 120, height: 36, wrapCache: createWrapCache<ProseStyle>()
+    }).lines);
+    expect(opened).toContain("w0 ");
+    expect(opened).not.toContain("LASTROWMARKER");
+
+    // Far more rows than the body actually has, matching how
+    // notice-log.test.ts drives the same clamp through the real key
+    // resolver: proves the offset stops at the notice's last row instead of
+    // needing an exact row count here.
+    state.notices.scrollOffset = 100;
+    const scrolled = frameText(renderStoryScreen(state, {
+      width: 120, height: 36, wrapCache: createWrapCache<ProseStyle>()
+    }).lines);
+    expect(scrolled).toContain("LASTROWMARKER");
   });
 });
