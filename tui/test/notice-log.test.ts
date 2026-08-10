@@ -267,7 +267,61 @@ describe("decision 24 · feedback wraps before it truncates", () => {
   });
 });
 
-describe("the log renders a notice's markdown instead of showing it raw", () => {
+describe("a plain notice is never treated as markdown", () => {
+  function frame(state: ReturnType<typeof harness>["state"], width = 120, height = 36) {
+    return renderStoryScreen(state, { width, height, wrapCache: createWrapCache<ProseStyle>() }).lines;
+  }
+
+  // Regression guard: `recordNotice` defaults to `"plain"`, and most real
+  // notices are — a renamed story, a typed model identifier, backend error
+  // text. None of that is markdown, and the log must never quietly rewrite
+  // it (a story renamed to `**draft**` must not come back bold).
+  test("** and ` in a plain notice render literally, focused and unfocused", async () => {
+    const { state, press } = harness();
+    recordNotice(state.notices, "toast", "renamed **draft** with a `feature` branch name");
+    await press(key("!", "!"));
+    const focusedRow = frame(state).map(plainLine)
+      .find((row) => row.includes("renamed"));
+    expect(focusedRow).toBeDefined();
+    expect(focusedRow).toContain("renamed **draft** with a `feature` branch name");
+
+    // Focus a second notice, so the first becomes the unfocused preview row.
+    recordNotice(state.notices, "toast", "a second, shorter notice");
+    const previewRow = frame(state).map(plainLine)
+      .find((row) => row.includes("renamed"));
+    expect(previewRow).toBeDefined();
+    expect(previewRow).toContain("renamed **draft** with a `feature` branch name");
+  });
+
+  // Guards the part of the original fix that must survive scoping it: a
+  // plain notice's own line breaks are still real structure, not markdown's
+  // tight-continuation-line joining to collapse — an import fidelity report
+  // reads one item per line.
+  test("a plain multi-line notice keeps its own line breaks", async () => {
+    const { state, press } = harness();
+    const body = [
+      "3 facts imported",
+      "1 fact skipped: over the character limit",
+      "0 facts renamed"
+    ].join("\n");
+    recordNotice(state.notices, "toast", body);
+    await press(key("!", "!"));
+    const rows = frame(state).map(plainLine);
+
+    const factsRow = rows.findIndex((row) => row.includes("3 facts imported"));
+    const skippedRow = rows.findIndex((row) => row.includes("1 fact skipped"));
+    const renamedRow = rows.findIndex((row) => row.includes("0 facts renamed"));
+
+    expect(factsRow).toBeGreaterThan(-1);
+    expect(skippedRow).toBe(factsRow + 1);
+    expect(renamedRow).toBe(skippedRow + 1);
+    // Not run together onto one row, the way markdown's own tight-line
+    // joining would have done with no blank line between them.
+    expect(rows[factsRow]).not.toContain("fact skipped");
+  });
+});
+
+describe("the log renders a markdown notice instead of showing it raw", () => {
   function frame(state: ReturnType<typeof harness>["state"], width = 120, height = 36) {
     return renderStoryScreen(state, { width, height, wrapCache: createWrapCache<ProseStyle>() }).lines;
   }
@@ -282,7 +336,7 @@ describe("the log renders a notice's markdown instead of showing it raw", () => 
         + "keys.** The default `always` mode keeps the existing behavior.",
       "- The install command now shows its progress."
     ].join("\n");
-    recordNotice(state.notices, "toast", body);
+    recordNotice(state.notices, "toast", body, "markdown");
 
     await press(key("!", "!"));
     expect(state.mode).toBe("LOG");
@@ -310,7 +364,7 @@ describe("the log renders a notice's markdown instead of showing it raw", () => 
 
   test("**bold** renders bold with the markers gone", async () => {
     const { state, press } = harness();
-    recordNotice(state.notices, "toast", "- **Facts can now activate.** Plain trailing text.");
+    recordNotice(state.notices, "toast", "- **Facts can now activate.** Plain trailing text.", "markdown");
     await press(key("!", "!"));
     const lines = frame(state);
     const row = lines.find((line) => plainLine(line).includes("Facts can now activate"));
@@ -323,7 +377,7 @@ describe("the log renders a notice's markdown instead of showing it raw", () => 
 
   test("`code` renders styled with the backticks gone", async () => {
     const { state, press } = harness();
-    recordNotice(state.notices, "toast", "- The default `always` mode keeps the existing behavior.");
+    recordNotice(state.notices, "toast", "- The default `always` mode keeps the existing behavior.", "markdown");
     await press(key("!", "!"));
     const lines = frame(state);
     const row = lines.find((line) => plainLine(line).includes("always"));
@@ -339,7 +393,7 @@ describe("the log renders a notice's markdown instead of showing it raw", () => 
   test("a long list item's continuation lines get a hanging indent", async () => {
     const { state, press } = harness();
     const words = Array.from({ length: 40 }, (_, index) => `word${index}`).join(" ");
-    recordNotice(state.notices, "toast", `- ${words}`);
+    recordNotice(state.notices, "toast", `- ${words}`, "markdown");
     await press(key("!", "!"));
     const rows = frame(state).map(plainLine);
 
@@ -355,7 +409,7 @@ describe("the log renders a notice's markdown instead of showing it raw", () => 
 
   test("an unfocused preview strips markdown markers instead of showing them raw", async () => {
     const { state, press } = harness();
-    recordNotice(state.notices, "toast", "**Bold headline.** More text follows.");
+    recordNotice(state.notices, "toast", "**Bold headline.** More text follows.", "markdown");
     recordNotice(state.notices, "toast", "a second, shorter notice");
     await press(key("!", "!"));
     const rows = frame(state).map(plainLine);
