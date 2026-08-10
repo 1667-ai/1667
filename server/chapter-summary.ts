@@ -18,6 +18,7 @@ import {
   type PromptCacheRuntime
 } from "./provider-cache-policy.js";
 import { promptEntriesInline } from "./generation-record-prompt.js";
+import { lowerPromptForProvider } from "./provider-request-body.js";
 import { finalizeGenerationRecord } from "./generation-record-finalize.js";
 
 interface ChapterSummaryOptions {
@@ -67,7 +68,7 @@ export async function summarizeChapter(
     provider: settings.provider,
     model,
     operation: prompt.operation,
-    entries: () => promptEntriesInline(prompt),
+    entries: () => promptEntriesInline(lowerPromptForProvider(settings, prompt)),
     collector: generationRecordCollector
   });
   try {

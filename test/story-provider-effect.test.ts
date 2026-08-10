@@ -11,6 +11,8 @@ import {
   type ProviderStoryEffect
 } from "../server/story-provider-effect.js";
 import { prepareProviderStoryEffect } from "../server/story-provider-preparation.js";
+import { createGenerationRecord } from "../shared/generation-record.js";
+import { takePendingGenerationRecords } from "../server/story-node-generation-records.js";
 
 const AT = "2026-07-25T12:00:00.000Z";
 const LATER = "2026-07-25T12:01:00.000Z";
@@ -278,6 +280,41 @@ test("append completion stays on its source after the writer switches lines", as
   assert.equal(current.nodes[0]?.genId, "g-append");
   assert.equal(current.activeRootId, "writer");
   assert.equal(current.nodes.length, 2);
+});
+
+test("an append retargeted by a new chapter break stores a whole-take continuation record", async () => {
+  const current = story([node("root", null, "The latch was unlo")]);
+  current.chapterBreaks = [{ id: "break", parentPartId: "root", title: "Chapter 1", createdAt: AT }];
+  await applyProviderStoryEffect(current, {
+    kind: "continue",
+    parentId: null,
+    appendTo: "root",
+    expectedTextHash: sha256("The latch was unlo"),
+    instruction: "",
+    text: "cked.",
+    model: "m2",
+    genId: "g-append-break",
+    expectedParentActiveChildId: null,
+    expectedAppendActiveChildId: null,
+    expectedActiveRootId: "root",
+    expectedActiveLeafId: "root",
+    generationRecord: createGenerationRecord({
+      kind: "append",
+      createdAt: AT,
+      range: { start: 18, end: 23 },
+      provider: { provider: "dry-run", model: "dry-run" },
+      effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
+      prompt: { operation: "continue", entries: [] }
+    })
+  }, hydrate);
+
+  const added = current.nodes.find((candidate) => candidate.genId === "g-append-break");
+  if (added === undefined) throw new Error("retargeted continuation did not create a take");
+  assert.equal(added.parentId, "root");
+  assert.equal(added.text, "cked.");
+  const [record] = takePendingGenerationRecords(added);
+  assert.equal(record?.kind, "continue");
+  assert.equal(record?.range, undefined);
 });
 
 test("continue fails when its parent was deleted", async () => {

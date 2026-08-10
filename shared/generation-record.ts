@@ -27,6 +27,7 @@ import {
   MAX_GENERATION_RECORD_FIELDS,
   MAX_GENERATION_RECORD_FIELD_NAME_CHARS,
   MAX_GENERATION_RECORD_FIELD_STRING_CHARS,
+  MAX_GENERATION_RECORD_MODEL_CHARS,
   MAX_GENERATION_RECORD_SOURCE_PARTS,
   MAX_GENERATION_RECORD_TEXT_CHARS,
   MAX_GENERATION_RECORD_UNSUPPORTED_REASON_CHARS,
@@ -252,7 +253,7 @@ function cloneProvider(provider: GenerationRecordProvider): GenerationRecordProv
   }
   return {
     provider: provider.provider,
-    model: requireBoundedString(provider.model, "provider.model", MAX_GENERATION_RECORD_FIELD_STRING_CHARS)
+    model: requireBoundedString(provider.model, "provider.model", MAX_GENERATION_RECORD_MODEL_CHARS)
   };
 }
 

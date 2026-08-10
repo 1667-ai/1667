@@ -75,3 +75,20 @@ export function unsupportedGenerationRecord(
       : "Generation record capture could not be completed for this request."
   });
 }
+
+/** A request that started as an append can become a new take at commit time
+ * when a chapter break appears behind its target while the model streams.
+ * Move the historical event into the new take's coordinate space: an append
+ * becomes a whole-take continuation, and any unsupported event loses the
+ * stale range it inherited from the old target. */
+export function generationRecordRetargetedToNewTake(record: GenerationRecord): GenerationRecord {
+  if (record.kind !== "append" && record.range === undefined) return record;
+  return createGenerationRecord({
+    kind: record.kind === "append" ? "continue" : record.kind,
+    createdAt: record.createdAt,
+    provider: record.provider,
+    effective: record.effective,
+    prompt: record.prompt,
+    ...(record.unsupportedReason === undefined ? {} : { unsupportedReason: record.unsupportedReason })
+  });
+}

@@ -74,12 +74,16 @@ export function captureGenerationRecordHandoff(input: {
   readonly collector: GenerationRecordCollector;
   readonly story: Story;
   readonly continuation: ContinuationPlan;
+  readonly foldAuthorsNote?: boolean;
 }): GenerationRecordHandoff | null {
   const effective = input.collector.effective;
   if (effective === null) return null;
   let entries: GenerationRecordHandoff["entries"];
   try {
-    entries = { ok: true, entries: continuationRecordEntries(input.story, input.continuation) };
+    entries = {
+      ok: true,
+      entries: continuationRecordEntries(input.story, input.continuation, input.foldAuthorsNote)
+    };
   } catch (error) {
     entries = {
       ok: false,

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -7,6 +9,7 @@ import { continueStory } from "../server/generation-http.js";
 import { GenerationAdmissionRegistry } from "../server/generation-admission.js";
 import { LEGACY_PROMPT_CACHE_CONTEXT, PromptCacheRuntime } from "../server/provider-cache-policy.js";
 import { attachProviderRuntime } from "../server/provider-runtime.js";
+import { ownedLoopbackHttpSupported } from "../server/provider-fetch.js";
 import { StoryObjectStore } from "../server/story-objects.js";
 import { sha256, type StoryManifestV5 } from "../server/story-format.js";
 import { StoryStore } from "../server/stories.js";
@@ -95,6 +98,69 @@ test("a continuation's Generation Record preserves the ordered, categorized pipe
   assert.equal(afterNoteEntry.parts[0]?.category, "recent");
   assert.equal(afterNoteEntry.parts[0]?.instruction, "Then the storm came.");
   assert.equal(afterNoteEntry.parts[0]?.text, "Rain lashed the windows.");
+});
+
+const providerPipelineTest = ownedLoopbackHttpSupported() ? test : test.skip;
+
+providerPipelineTest("a nonofficial OpenAI record captures the provider-folded Author's Note and a full valid model id", async (t) => {
+  let requestBody: Record<string, unknown> | null = null;
+  const server = createServer(async (request, response) => {
+    let raw = "";
+    for await (const chunk of request) raw += String(chunk);
+    requestBody = JSON.parse(raw) as Record<string, unknown>;
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "The lamp flared." }, finish_reason: null }] })}\n\n`);
+    response.end("data: [DONE]\n\n");
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-folded-note-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const stories = new StoryStore(dir);
+  await stories.init();
+  const story = await stories.create("Story");
+  const root = await stories.createNode(story.id, null, "The lighthouse stood alone.", "Hold the line.");
+  const rootId = root.nodes[0]!.id;
+  const note = "The keeper caused the storm.";
+  await stories.mutate(story.id, (current) => setAuthorsNote(current, note, 1));
+  const model = "m".repeat(512);
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+  const continued = await continueStory(
+    story.id,
+    { parentId: rootId, instruction: "Continue.", genId: "gen-folded-note" },
+    stories,
+    stubSettingsStore(openAiSettings(baseUrl, model)),
+    new PromptCacheRuntime(),
+    new GenerationAdmissionRegistry(),
+    () => {},
+    new AbortController().signal
+  );
+  const generated = continued?.nodes.find((node) => node.parentId === rootId);
+  if (generated === undefined) throw new Error("continuation did not commit a take");
+  const recordId = generated.generationRecordIds?.[0];
+  if (recordId === undefined) throw new Error("continuation did not commit a Generation Record");
+  const record = await stories.loadGenerationRecord(story.id, generated.id, recordId);
+
+  assert.equal(record.provider.model, model);
+  assert.equal(record.prompt.entries.some((entry) => entry.kind === "authors-note"), false);
+  const source = record.prompt.entries.find(
+    (entry): entry is Extract<typeof record.prompt.entries[number], { source: "revisions" }> =>
+      entry.source === "revisions"
+  );
+  assert.equal(source?.parts[0]?.instruction, `${note}\n\nHold the line.`);
+
+  const messages = (requestBody as unknown as { messages?: unknown } | null)?.messages;
+  assert.ok(Array.isArray(messages));
+  const foldedUser = messages.find((message) =>
+    message !== null && typeof message === "object"
+    && (message as { role?: unknown }).role === "user"
+    && String((message as { content?: unknown }).content).startsWith(note));
+  assert.ok(foldedUser !== undefined, "the provider request must contain the same folded user turn");
 });
 
 test("a superseded revision stays on disk while a Generation Record still cites it as source", async (t) => {
@@ -187,6 +253,40 @@ function dryRunSettings(): GenerationSettings {
       assistantPrefill: "unsupported",
       reasoningEffort: "unsupported",
       promptCaching: "unsupported"
+    }
+  }, true);
+}
+
+function openAiSettings(baseUrl: string, model: string): GenerationSettings {
+  return attachProviderRuntime({
+    provider: "openai-compatible",
+    baseUrl,
+    model,
+    apiKeyEnv: null,
+    temperature: 0.7,
+    maxTokens: 256,
+    systemPrompt: "Write.",
+    contextWindow: null
+  }, {
+    preset: "custom",
+    protocol: "openai-chat-completions",
+    auth: { type: "none" },
+    headers: [],
+    timeouts: {
+      responseHeaderMs: 2_000,
+      firstTokenMs: 2_000,
+      idleMs: 2_000,
+      totalMs: 5_000
+    },
+    allowInsecureHttp: false,
+    effort: "default",
+    tokenProbabilities: null,
+    sampling: EMPTY_SAMPLING_V2,
+    capabilities: {
+      temperature: "supported",
+      assistantPrefill: "unknown",
+      reasoningEffort: "unknown",
+      promptCaching: "unknown"
     }
   }, true);
 }

@@ -40,7 +40,11 @@ import { reusableStoredRevisionId } from "./story-node-text.js";
  * happen to share a kind never collapse into one.
  */
 
-export function continuationRecordEntries(story: Story, continuation: ContinuationPlan): GenerationRecordPromptEntry[] {
+export function continuationRecordEntries(
+  story: Story,
+  continuation: ContinuationPlan,
+  foldAuthorsNote = false
+): GenerationRecordPromptEntry[] {
   const byId = new Map(story.nodes.map((node) => [node.id, node] as const));
   const entries: GenerationRecordPromptEntry[] = [];
   let run: GenerationRecordSourcePart[] = [];
@@ -49,7 +53,9 @@ export function continuationRecordEntries(story: Story, continuation: Continuati
     entries.push({ stability: "stable", kind: "source", source: "revisions", parts: run });
     run = [];
   };
-  const plan = continuation.entries;
+  const plan = foldAuthorsNote
+    ? foldContinuationAuthorsNote(continuation.entries)
+    : continuation.entries;
   for (let index = 0; index < plan.length; index++) {
     const planEntry = plan[index]!;
     if (planEntry.partId === undefined) {
@@ -74,6 +80,41 @@ export function continuationRecordEntries(story: Story, continuation: Continuati
   }
   flushRun();
   return entries;
+}
+
+/** Mirror `provider-request-body.ts`'s wire lowering without flattening away
+ * source identity. The late system note disappears as its own turn and is
+ * prepended to the following user block. When that block introduces a story
+ * part, the folded text remains that source part's instruction; its prose
+ * still stays behind the immutable revision reference. */
+function foldContinuationAuthorsNote(
+  entries: readonly ContinuationPromptEntry[]
+): ContinuationPromptEntry[] {
+  const noteIndex = entries.findIndex((entry) => entry.category === "note");
+  if (noteIndex === -1) return [...entries];
+  const note = entries[noteIndex]!;
+  const following = entries[noteIndex + 1];
+  if (following === undefined || following.turn.role !== "user") {
+    throw new Error("Author's Note must be followed by a user turn");
+  }
+  const noteText = note.turn.blocks
+    .filter((block) => block.kind === "authors-note")
+    .map((block) => block.text)
+    .join("");
+  const first = following.turn.blocks[0];
+  if (first === undefined) throw new Error("Prompt turns cannot be empty");
+  const foldedFollowing: ContinuationPromptEntry = {
+    ...following,
+    turn: {
+      ...following.turn,
+      blocks: [{ ...first, text: `${noteText}\n\n${first.text}` }, ...following.turn.blocks.slice(1)]
+    }
+  };
+  return entries.flatMap((entry, index) => {
+    if (index === noteIndex) return [];
+    if (index === noteIndex + 1) return [foldedFollowing];
+    return [entry];
+  });
 }
 
 function sourcePart(

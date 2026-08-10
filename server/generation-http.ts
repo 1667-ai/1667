@@ -30,6 +30,10 @@ import {
 } from "./generation-record-prompt.js";
 import { finalizeGenerationRecord } from "./generation-record-finalize.js";
 import { captureGenerationRecordHandoff } from "./generation-record-handoff.js";
+import {
+  lowerPromptForProvider,
+  providerFoldsAuthorsNote
+} from "./provider-request-body.js";
 import { storySamplingBias } from "./sampling-phrase-bias.js";
 import { AnchoredOutputFilter, continuationPlan, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, supportsAssistantPrefill } from "./generation-prompts.js";
 import { admitFactsIntoPrompt, type GenerationAdmissionRegistry } from "./generation-admission.js";
@@ -319,7 +323,8 @@ export async function continueStory(
       appendSegmentStart,
       collector: generationRecordCollector,
       story,
-      continuation
+      continuation,
+      foldAuthorsNote: providerFoldsAuthorsNote(settings)
     });
     if (handoff !== null) generationAdmission.rememberGenerationRecordHandoff(id, genId, handoff);
     return null;
@@ -343,7 +348,7 @@ export async function continueStory(
       provider: settings.provider,
       model,
       operation: continuation.prompt.operation,
-      entries: () => continuationRecordEntries(story, continuation),
+      entries: () => continuationRecordEntries(story, continuation, providerFoldsAuthorsNote(settings)),
       collector: generationRecordCollector
     });
     return await stories.commitProviderEffect(id, {
@@ -498,7 +503,9 @@ export async function rewriteNode(
     destination
   });
   const rewriteGenerationRecordCollector: GenerationRecordCollector = { effective: null };
-  const rewriteGenerationRecordEntries = promptEntriesInline(plan.prompt);
+  const rewriteGenerationRecordEntries = promptEntriesInline(
+    lowerPromptForProvider(rewriteSettings, plan.prompt)
+  );
   const requireLeftAnchor = plan.leftAnchor.length > 0 && plan.prompt.turns.at(-1)?.role !== "assistant";
   const output = new AnchoredOutputFilter(plan.leftAnchor, plan.rightAnchor, plan.endMarker, requireLeftAnchor, {
     beforeTail: plan.beforeTail,

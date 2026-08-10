@@ -19,6 +19,10 @@ export const MAX_GENERATION_RECORD_ADJUSTMENTS = 16;
 export const MAX_GENERATION_RECORD_FIELDS = 32;
 export const MAX_GENERATION_RECORD_FIELD_NAME_CHARS = 128;
 export const MAX_GENERATION_RECORD_FIELD_STRING_CHARS = 256;
+/** Matches the routed settings model-id bound. A valid provider route must
+ * never finish generation and then fail only because its identity cannot fit
+ * in the historical record. */
+export const MAX_GENERATION_RECORD_MODEL_CHARS = 512;
 export const MAX_GENERATION_RECORD_UNSUPPORTED_REASON_CHARS = 2_000;
 
 export const GENERATION_RECORD_KINDS = [

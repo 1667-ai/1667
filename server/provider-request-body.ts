@@ -27,13 +27,7 @@ export async function buildOpenAiChatRequestBody(
   cache: PromptCacheWirePlan,
   request: StorySamplingRequest = {}
 ): Promise<Record<string, unknown>> {
-  const loweredPrompt = promptCacheAdapter(
-    "openai-chat-completions",
-    providerRuntimeFor(settings).preset,
-    settings.baseUrl
-  ) === "openai-official"
-    ? prompt
-    : foldAuthorsNote(prompt);
+  const loweredPrompt = lowerPromptForProvider(settings, prompt);
   let messages: unknown;
   const cacheFields: Record<string, unknown> = {};
   switch (cache.kind) {
@@ -110,7 +104,7 @@ export async function buildAnthropicMessagesRequestBody(
   cache: PromptCacheWirePlan,
   request: StorySamplingRequest = {}
 ): Promise<Record<string, unknown>> {
-  const loweredPrompt = foldAuthorsNote(prompt);
+  const loweredPrompt = lowerPromptForProvider(settings, prompt);
   let system: string | readonly TextContentBlock[];
   let messages: unknown;
   switch (cache.kind) {
@@ -176,6 +170,24 @@ export async function buildAnthropicMessagesRequestBody(
 }
 
 /** Fold the late note when the protocol has no in-conversation system turn. */
+export function providerFoldsAuthorsNote(settings: GenerationSettings): boolean {
+  if (settings.provider === "anthropic") return true;
+  if (settings.provider !== "openai-compatible") return false;
+  return promptCacheAdapter(
+    "openai-chat-completions",
+    providerRuntimeFor(settings).preset,
+    settings.baseUrl
+  ) !== "openai-official";
+}
+
+/** Return the exact prompt shape that the selected provider receives. */
+export function lowerPromptForProvider(
+  settings: GenerationSettings,
+  prompt: PromptPlan
+): PromptPlan {
+  return providerFoldsAuthorsNote(settings) ? foldAuthorsNote(prompt) : prompt;
+}
+
 function foldAuthorsNote(plan: PromptPlan): PromptPlan {
   const noteIndex = plan.turns.findIndex((turn) =>
     turn.blocks.some((block) => block.kind === "authors-note")

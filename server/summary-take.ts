@@ -24,6 +24,7 @@ import {
   type PromptCacheRuntime
 } from "./provider-cache-policy.js";
 import { promptEntriesInline } from "./generation-record-prompt.js";
+import { lowerPromptForProvider } from "./provider-request-body.js";
 import { finalizeGenerationRecord } from "./generation-record-finalize.js";
 
 const SUMMARY_OUTPUT_LIMIT = 200_000;
@@ -126,7 +127,7 @@ export async function createSummaryTake(
     provider: settings.provider,
     model,
     operation: plan.prompt.operation,
-    entries: () => promptEntriesInline(plan.prompt),
+    entries: () => promptEntriesInline(lowerPromptForProvider(settings, plan.prompt)),
     collector: generationRecordCollector
   });
   let node: StoryNode;

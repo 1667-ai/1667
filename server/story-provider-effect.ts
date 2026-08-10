@@ -12,6 +12,7 @@ import { sha256 } from "./story-format.js";
 import { setStoryAutonameId } from "./story-metadata.js";
 import { nodeRewriteId, setNodeRewriteId } from "./story-node-text.js";
 import { appendPendingGenerationRecord } from "./story-node-generation-records.js";
+import { generationRecordRetargetedToNewTake } from "./generation-record-finalize.js";
 import { attachTakeTokenProbabilities } from "./story-node-token-probabilities.js";
 import {
   appendContinuationToNode,
@@ -237,7 +238,10 @@ async function applyContinuation(
     // Normalize null to absent here, once, so every branch below reads a
     // plain TakeCommit. Every branch — append or new take, racing or not —
     // now forwards this field; see TakeCommit.tokenProbabilities.
-    tokenProbabilities: effect.tokenProbabilities ?? undefined
+    tokenProbabilities: effect.tokenProbabilities ?? undefined,
+    generationRecord: appendCrossesNewBreak && effect.generationRecord != null
+      ? generationRecordRetargetedToNewTake(effect.generationRecord)
+      : effect.generationRecord
   };
   const parent = commit.parentId === null
     ? null
