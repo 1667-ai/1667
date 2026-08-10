@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
-import { attachProviderRuntime } from "../server/provider-runtime.js";
+import { attachProviderRuntime, resolveProviderHeaders } from "../server/provider-runtime.js";
 import { ownedLoopbackHttpSupported } from "../server/provider-fetch.js";
 import {
   forgetRefusedSampling,
@@ -12,6 +12,7 @@ import {
 } from "../server/providers.js";
 import {
   ANTHROPIC_MESSAGES_EFFECTIVE_FIELDS,
+  createGenerationRecordCapture,
   OPENAI_CHAT_EFFECTIVE_FIELDS,
   snapshotEffectiveFields,
   TEXT_COMPLETION_EFFECTIVE_FIELDS
@@ -146,7 +147,14 @@ providerTest("a second request against a model that already refused logprobs rec
   await listen(server);
   t.after(() => closeServer(server));
 
-  const settings = fixtureSettings("openai-compatible", { baseUrl: baseUrlFor(server), tokenProbabilities: 5 });
+  const settings = fixtureSettings("openai-compatible", {
+    baseUrl: baseUrlFor(server),
+    tokenProbabilities: 5,
+    // "custom" deliberately never sends logprobs (preset-unknown, shared/
+    // token-probability-capabilities.ts) — this test needs a preset the
+    // capability matrix actually resolves to "available".
+    preset: "openai"
+  });
   const firstCollector: GenerationRecordCollector = { effective: null };
   await collect(streamCompletion(settings, PROMPT, new AbortController().signal, {
     generationRecord: firstCollector
@@ -193,7 +201,14 @@ providerTest("a request that never asked for logprobs records no cached-skip adj
   await listen(server);
   t.after(() => closeServer(server));
 
-  const withProbabilities = fixtureSettings("openai-compatible", { baseUrl: baseUrlFor(server), tokenProbabilities: 5 });
+  // "custom" deliberately never sends logprobs (preset-unknown, shared/
+  // token-probability-capabilities.ts) — this test needs a preset the
+  // capability matrix actually resolves to "available".
+  const withProbabilities = fixtureSettings("openai-compatible", {
+    baseUrl: baseUrlFor(server),
+    tokenProbabilities: 5,
+    preset: "openai"
+  });
   await collect(streamCompletion(withProbabilities, PROMPT, new AbortController().signal, {
     generationRecord: { effective: null }
   }));
@@ -201,7 +216,11 @@ providerTest("a request that never asked for logprobs records no cached-skip adj
 
   // A later request against the same model that never asked for logprobs in
   // the first place has nothing to skip: the field was never in its body.
-  const withoutProbabilities = fixtureSettings("openai-compatible", { baseUrl: baseUrlFor(server), tokenProbabilities: null });
+  const withoutProbabilities = fixtureSettings("openai-compatible", {
+    baseUrl: baseUrlFor(server),
+    tokenProbabilities: null,
+    preset: "openai"
+  });
   const collector: GenerationRecordCollector = { effective: null };
   const text = await collect(streamCompletion(withoutProbabilities, PROMPT, new AbortController().signal, {
     generationRecord: collector
@@ -266,26 +285,60 @@ providerTest("a request with no temperature set records no cached-skip adjustmen
   assert.deepEqual(skipped, [], "a field this request never sent is not a skip worth recording");
 });
 
-providerTest("the captured effective parameters never carry the request's credential", async (t) => {
+// Not a providerTest: a bearer credential can never legally reach a plain
+// HTTP loopback server in the first place — server/provider-fetch.ts throws
+// "Plain HTTP provider requests cannot carry authentication" before any
+// request leaves the process, on every platform, credential exclusion or
+// not. So this proves the capture boundary directly, at the two seams that
+// between them decide what a credential can reach: `resolveProviderHeaders`
+// (../server/provider-runtime.ts), which is where a credential really does
+// resolve, and `createGenerationRecordCapture`'s `finish` (../server/
+// generation-record-capture.ts), which is the only place server/providers.ts
+// ever builds an effective-parameters snapshot from.
+test("the Generation Record capture allowlist excludes every credential, header, and body secret field", (t) => {
   const secretEnv = "AI_1667_TEST_GENERATION_RECORD_SECRET";
   const secret = "provider-secret/generation-record-value";
   process.env[secretEnv] = secret;
   t.after(() => { delete process.env[secretEnv]; });
-  const server = createServer((request, response) => {
-    request.resume();
-    request.on("end", () => respondOk(response, "ok"));
-  });
-  await listen(server);
-  t.after(() => closeServer(server));
 
+  // A real credential, resolved through the same code path server/
+  // providers.ts uses — not a stand-in for one that was never sent.
+  const settings = fixtureSettings("openai-compatible", {
+    baseUrl: "http://127.0.0.1:1",
+    authEnv: secretEnv
+  });
+  const { headers, secrets } = resolveProviderHeaders(settings, { "content-type": "application/json" });
+  assert.equal(headers.authorization, `Bearer ${secret}`);
+  assert.deepEqual(secrets, [secret]);
+
+  // `createGenerationRecordCapture` only ever takes a wire body (see its call
+  // sites in server/providers.ts) — `headers` above has no path into it. Even
+  // so, plant the same credential inside the body too, under field names a
+  // future bug could plausibly use, to prove the allowlist rejects it there
+  // as well: `snapshotEffectiveFields` walks the fixed allowlist array and
+  // reads only those keys, so a field the allowlist never names is invisible
+  // to it regardless of what value it holds.
+  const body: Record<string, unknown> = {
+    model: "model-fixture",
+    messages: [{ role: "user", content: "secret prompt" }],
+    max_tokens: 321,
+    temperature: 0.25,
+    stream: true,
+    authorization: `Bearer ${secret}`,
+    api_key: secret,
+    headers: { authorization: `Bearer ${secret}` }
+  };
   const collector: GenerationRecordCollector = { effective: null };
-  const settings = fixtureSettings("openai-compatible", { baseUrl: baseUrlFor(server), authEnv: secretEnv });
-  const text = await collect(streamCompletion(settings, PROMPT, new AbortController().signal, {
-    generationRecord: collector
-  }));
-  assert.equal(text, "ok");
+  const capture = createGenerationRecordCapture(collector, "openai-chat-completions", OPENAI_CHAT_EFFECTIVE_FIELDS);
+  capture.finish(body);
+
   const effective = collector.effective;
   if (effective === null) throw new Error("expected an effective-parameters snapshot");
+  assert.ok(effective.fields.some((field) => field.field === "max_tokens" && field.value === 321));
+  assert.ok(effective.fields.some((field) => field.field === "temperature" && field.value === 0.25));
+  assert.equal(effective.fields.some((field) => field.field === "authorization"), false);
+  assert.equal(effective.fields.some((field) => field.field === "api_key"), false);
+  assert.equal(effective.fields.some((field) => field.field === "headers"), false);
   assert.equal(JSON.stringify(effective).includes(secret), false);
 });
 
@@ -295,9 +348,10 @@ function fixtureSettings(
     readonly baseUrl: string;
     readonly tokenProbabilities?: number | null;
     readonly authEnv?: string;
+    readonly preset?: SettingsPresetV2;
   }
 ): GenerationSettings {
-  const preset: SettingsPresetV2 = "custom";
+  const preset: SettingsPresetV2 = options.preset ?? "custom";
   return attachProviderRuntime({
     provider,
     baseUrl: options.baseUrl,
