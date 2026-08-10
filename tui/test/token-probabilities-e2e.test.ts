@@ -6,6 +6,7 @@ import type { KeyEvent } from "@opentui/core";
 import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
 import { handleKey, initialState } from "../src/app.js";
 import type { AppSource } from "../src/app.js";
+import { normalizeUserConfig } from "../src/config.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
@@ -85,16 +86,7 @@ function appSource(api: WorkerStoryApi["api"], settingsView: Awaited<ReturnType<
     storyFolder: "",
     exportDirectory: process.cwd(),
     connection: null,
-    config: {
-      theme: "lantern",
-      factsRail: "auto",
-      composeFocus: "off",
-      wordWrap: "on",
-      composeMaxHeight: null,
-      quota: { date: "", words: 0 },
-      updates: { mode: "notify", channel: "stable", skippedVersion: null },
-      lastRunVersion: null
-    },
+    config: normalizeUserConfig({ updates: { mode: "notify" } }),
     readingPositions: {}
   };
 }

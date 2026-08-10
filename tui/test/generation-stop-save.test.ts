@@ -5,6 +5,7 @@ import path from "node:path";
 import { platformPerformanceBudget } from "../../test/performance-budget.js";
 import { ActionRuntime } from "../src/action-runtime.js";
 import type { AppSource } from "../src/app.js";
+import { normalizeUserConfig } from "../src/config.js";
 import { DEMO_SETTINGS_VIEW } from "../src/demo.js";
 import { generate, requestGenerationStop } from "../src/generation-action.js";
 import { createWorkerStoryApi } from "../src/worker-api.js";
@@ -61,16 +62,7 @@ describe("stop save through the real worker transport", () => {
         storyFolder: "",
         exportDirectory: process.cwd(),
         connection: null,
-        config: {
-          theme: "lantern",
-          factsRail: "auto",
-          composeFocus: "off",
-          wordWrap: "on",
-          composeMaxHeight: null,
-          quota: { date: "", words: 0 },
-          updates: { mode: "notify", channel: "stable", skippedVersion: null },
-          lastRunVersion: null
-        },
+        config: normalizeUserConfig({ updates: { mode: "notify" } }),
         readingPositions: {}
       };
       const state = initialState(source, false);

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { RELEASE_NOTES } from "../../shared/release-notes.js";
+import { compareSemVer } from "../../shared/semver.js";
 
 const CHANGELOG_FILE = fileURLToPath(new URL("../../CHANGELOG.md", import.meta.url));
 
@@ -9,13 +10,21 @@ const CHANGELOG_FILE = fileURLToPath(new URL("../../CHANGELOG.md", import.meta.u
 // not a fixture: it is the codegen pipeline `npm run notes:write` runs,
 // caught the moment the two would disagree.
 describe("release notes codegen", () => {
-  test("excludes Unreleased and includes the known released versions, newest first", () => {
+  test("excludes Unreleased and includes the known released versions", () => {
     const versions = RELEASE_NOTES.map((note) => note.version);
     expect(versions).not.toContain("Unreleased");
     expect(versions).toContain("0.2.1");
     expect(versions).toContain("0.1.2");
-    // CHANGELOG.md lists 0.2.1 above 0.1.2, and the embedded list must agree.
-    expect(versions.indexOf("0.2.1")).toBeLessThan(versions.indexOf("0.1.2"));
+  });
+
+  test("is strictly newest-first across the whole array, with no duplicate version", () => {
+    // A hardcoded pair of versions would pass even if a future insert landed
+    // in the wrong place elsewhere in the list. Check every adjacent pair.
+    for (let index = 1; index < RELEASE_NOTES.length; index += 1) {
+      const previous = RELEASE_NOTES[index - 1]!;
+      const current = RELEASE_NOTES[index]!;
+      expect(compareSemVer(current.version, previous.version)).toBeLessThan(0);
+    }
   });
 
   test("one entry exists for every released heading in CHANGELOG.md", async () => {

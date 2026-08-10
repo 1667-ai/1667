@@ -7,6 +7,7 @@ import {
   openSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync
 } from "node:fs";
@@ -153,6 +154,17 @@ export function loadConfig(
     ));
   } catch {
     return normalizeUserConfig(null);
+  }
+}
+
+/** Whether a config file exists. A file that exists without `lastRunVersion`
+ *  was written by a build older than the release notes, so it means an
+ *  upgrade from an unknown version, not a new install. */
+export function configFileExists(options: ConfigPersistenceOptions = {}): boolean {
+  try {
+    return statSync(options.file ?? configPath()).isFile();
+  } catch {
+    return false;
   }
 }
 

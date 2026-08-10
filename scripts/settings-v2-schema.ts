@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { canonicalJson } from "../server/canonical-json.js";
+import { assertExact } from "./generated-artifact.js";
 import {
   ABSENT_SETTINGS_V1_HASH,
   ABSENT_SETTINGS_V1_TEXT
@@ -63,6 +64,12 @@ const identityText = [
   ""
 ].join("\n");
 
+const ARTIFACT_OPTIONS = {
+  root: ROOT,
+  label: "settings v2",
+  writeCommand: "npx tsx scripts/settings-v2-schema.ts --write"
+};
+
 const mode = process.argv[2];
 if (mode === "--write") {
   await mkdir(path.dirname(SCHEMA_FILE), { recursive: true });
@@ -74,10 +81,10 @@ if (mode === "--write") {
   ]);
 } else if (mode === "--check") {
   await Promise.all([
-    assertExact(SCHEMA_FILE, schemaText),
-    assertExact(CORPUS_FILE, corpusText),
-    assertExact(VECTORS_FILE, vectorsText),
-    assertExact(IDENTITY_FILE, identityText)
+    assertExact(SCHEMA_FILE, schemaText, ARTIFACT_OPTIONS),
+    assertExact(CORPUS_FILE, corpusText, ARTIFACT_OPTIONS),
+    assertExact(VECTORS_FILE, vectorsText, ARTIFACT_OPTIONS),
+    assertExact(IDENTITY_FILE, identityText, ARTIFACT_OPTIONS)
   ]);
 } else {
   throw new Error("Usage: tsx scripts/settings-v2-schema.ts --write|--check");
@@ -85,19 +92,4 @@ if (mode === "--write") {
 
 function sha256(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
-}
-
-async function assertExact(file: string, expected: string): Promise<void> {
-  let actual: string;
-  try {
-    actual = await readFile(file, "utf8");
-  } catch (error) {
-    throw new Error(`Generated settings v2 artifact is missing: ${path.relative(ROOT, file)}`, { cause: error });
-  }
-  if (actual !== expected) {
-    throw new Error(
-      `Generated settings v2 artifact is stale: ${path.relative(ROOT, file)}; `
-      + "run npx tsx scripts/settings-v2-schema.ts --write"
-    );
-  }
 }

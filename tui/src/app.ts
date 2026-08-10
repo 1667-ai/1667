@@ -29,9 +29,8 @@ import { createStoryViewModel, lastPartRowIndex, rowIndexForPathIndex } from "./
 import { openingFocusIndex, readingPartIdFor, type ReadingPositions } from "./reading-position.js";
 import { bindLiveReadingPositionState } from "./reading-position-persist.js";
 import { handleOverlayAction } from "./overlay-actions.js";
-import { createNoticeLog, recordNotice, recordSessionNotices } from "./notice-log.js";
-import type { ReleaseAnnouncement } from "./release-announcement.js";
-import { AI_1667_PRODUCT_VERSION } from "../../shared/build-identity.js";
+import { createNoticeLog, recordSessionNotices } from "./notice-log.js";
+import { announceRelease } from "./release-announcement.js";
 import { openSettingsPasteTarget } from "./editor-open.js";
 import { createPalette } from "./palette.js";
 import {
@@ -112,10 +111,6 @@ export interface AppSource {
   backendRecovery?: RecoveryWarningFeed;
   backendFailure?: Promise<Error>;
   startUpdateCheck?: BackgroundUpdateStarter;
-  /** What changed since the version the writer last ran, if this run is an
-   *  upgrade with notes to show. Computed once at startup from
-   *  `config.lastRunVersion` (see `release-announcement.ts`). */
-  releaseAnnouncement?: ReleaseAnnouncement | null;
   config: UserConfig;
   /** Local changing store: last focused part per story. Not settings. */
   readingPositions: ReadingPositions;
@@ -183,38 +178,6 @@ export async function renderOnce(source: AppSource, width: number, height: numbe
   backend.dispose();
   setup.renderer.destroy();
   return captured;
-}
-
-/**
- * Stamp the version this run used, and announce what changed since the
- * version this writer last ran, if `source` computed one (see
- * `release-announcement.ts`). A demo source never touches disk and never
- * speaks past the tour's own script.
- *
- * The stamp runs unconditionally of whether there is an announcement: a
- * version with no notes for this writer's range must still be recorded, or
- * every later launch of that same build would repeat the check forever.
- *
- * Exported so it can be driven directly in tests, without booting the real
- * terminal renderer that only `runInteractive` constructs.
- */
-export function applyReleaseAnnouncement(state: RuntimeState, source: AppSource): void {
-  if (source.demo) return;
-  if (source.config.lastRunVersion !== AI_1667_PRODUCT_VERSION) {
-    // Same mutation shape as story-actions.ts's toggle-rail action: update
-    // both copies state and source share, then persist.
-    source.config = { ...source.config, lastRunVersion: AI_1667_PRODUCT_VERSION };
-    state.config = source.config;
-    saveConfig(source.config);
-  }
-  const announcement = source.releaseAnnouncement;
-  if (announcement == null) return;
-  // Never clobber a toast startup already raised for another reason.
-  if (state.toast === null) state.toast = announcement.toast;
-  // The toast holds a few rows; the announcement's full body does not. This
-  // is the same split the archive-import fidelity report uses: the toast
-  // headline, and the whole account written to the log directly.
-  recordNotice(state.notices, "toast", announcement.body);
 }
 
 export async function runInteractive(source: AppSource): Promise<void> {
@@ -610,7 +573,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
   // Before the first `repaint()`, so a startup toast is part of the opening
   // frame, and before the background update check starts, so its own
   // notice cannot take the toast line first.
-  applyReleaseAnnouncement(state, source);
+  announceRelease(state, source);
   repaint();
   // One-shot requestRender frames while idle; renderables may request a live
   // loop explicitly when they own native animation.

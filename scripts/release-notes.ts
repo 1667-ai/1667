@@ -1,11 +1,13 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isSemVer } from "../shared/semver.js";
+import { compareSemVer, isSemVer } from "../shared/semver.js";
+import { assertExact } from "./generated-artifact.js";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const CHANGELOG_FILE = path.join(ROOT, "CHANGELOG.md");
 const OUTPUT_FILE = path.join(ROOT, "shared", "release-notes.ts");
+const ARTIFACT_OPTIONS = { root: ROOT, label: "release notes", writeCommand: "npm run notes:write" };
 
 export interface ParsedReleaseNote {
   readonly version: string;
@@ -18,14 +20,23 @@ export interface ParsedReleaseNote {
 // " - " separator below stays unambiguous.
 const RELEASE_HEADING = /^(.+) - (\d{4}-\d{2}-\d{2})$/;
 
+interface HeadingNote {
+  readonly note: ParsedReleaseNote;
+  readonly lineNumber: number;
+}
+
 /**
  * Parse every released section of `CHANGELOG.md`. A `## Unreleased` section
  * is not a release, and is skipped. Every other `## ` heading must read as
- * `<semver> - <YYYY-MM-DD>`, or the changelog is malformed: this throws
- * rather than silently dropping the section, so a bad heading fails the
- * build instead of shipping a binary with a gap in its own history.
+ * `<semver> - <YYYY-MM-DD>`, with a real calendar date, or the changelog is
+ * malformed: this throws rather than silently dropping the section, so a bad
+ * heading fails the build instead of shipping a binary with a gap in its own
+ * history.
  *
- * Sections are returned in file order, which is newest first.
+ * Sections must already be newest first in the file, with no duplicate
+ * version. Both are asserted, not assumed: the notes ship inside the binary
+ * in file order, so a misordered or duplicated heading would otherwise ship
+ * silently.
  */
 export function parseReleaseNotes(changelog: string): ParsedReleaseNote[] {
   const lines = changelog.split("\n");
@@ -33,7 +44,7 @@ export function parseReleaseNotes(changelog: string): ParsedReleaseNote[] {
   for (let index = 0; index < lines.length; index += 1) {
     if (lines[index]!.startsWith("## ")) headingLines.push(index);
   }
-  const notes: ParsedReleaseNote[] = [];
+  const collected: HeadingNote[] = [];
   for (let cursor = 0; cursor < headingLines.length; cursor += 1) {
     const lineIndex = headingLines[cursor]!;
     const title = lines[lineIndex]!.slice(3).trim();
@@ -41,7 +52,7 @@ export function parseReleaseNotes(changelog: string): ParsedReleaseNote[] {
     const bodyEnd = cursor + 1 < headingLines.length ? headingLines[cursor + 1]! : lines.length;
     if (title === "Unreleased") continue;
     const match = RELEASE_HEADING.exec(title);
-    if (match === null || !isSemVer(match[1]!)) {
+    if (match === null || !isSemVer(match[1]!) || !isValidReleaseDate(match[2]!)) {
       throw new Error(
         `CHANGELOG.md line ${lineIndex + 1} has a release heading 1667 cannot parse: `
         + `"## ${title}". A release heading must read "## <semver> - <YYYY-MM-DD>", `
@@ -49,9 +60,41 @@ export function parseReleaseNotes(changelog: string): ParsedReleaseNote[] {
       );
     }
     const body = trimBlankLines(lines.slice(bodyStart, bodyEnd)).join("\n");
-    notes.push({ version: match[1]!, date: match[2]!, body });
+    collected.push({ note: { version: match[1]!, date: match[2]!, body }, lineNumber: lineIndex + 1 });
   }
-  return notes;
+  assertNewestFirstWithNoDuplicates(collected);
+  return collected.map((entry) => entry.note);
+}
+
+function assertNewestFirstWithNoDuplicates(collected: readonly HeadingNote[]): void {
+  for (let index = 1; index < collected.length; index += 1) {
+    const previous = collected[index - 1]!;
+    const current = collected[index]!;
+    const comparison = compareSemVer(current.note.version, previous.note.version);
+    if (comparison === 0) {
+      throw new Error(
+        `CHANGELOG.md has two release headings for version ${current.note.version}: `
+        + `line ${previous.lineNumber} and line ${current.lineNumber}. Each released version `
+        + "must have exactly one section."
+      );
+    }
+    if (comparison > 0) {
+      throw new Error(
+        `CHANGELOG.md is not newest-first: "## ${previous.note.version} - ${previous.note.date}" `
+        + `(line ${previous.lineNumber}) sits above "## ${current.note.version} - ${current.note.date}" `
+        + `(line ${current.lineNumber}), which is a newer version. Sort release sections newest to oldest.`
+      );
+    }
+  }
+}
+
+/** Round-trip check, the same shape as `isCanonicalTimestamp` in
+ *  shared/build-identity.ts: the shape test alone admits an impossible date
+ *  such as `2026-13-45`, or a day that quietly rolls into the next month,
+ *  such as `2026-02-30`. */
+function isValidReleaseDate(value: string): boolean {
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function trimBlankLines(lines: string[]): string[] {
@@ -88,18 +131,6 @@ function generatedSource(notes: ParsedReleaseNote[]): string {
   ].join("\n");
 }
 
-async function assertExact(file: string, expected: string): Promise<void> {
-  let actual: string;
-  try {
-    actual = await readFile(file, "utf8");
-  } catch (error) {
-    throw new Error(`Generated release notes artifact is missing: ${path.relative(ROOT, file)}; run npm run notes:write`, { cause: error });
-  }
-  if (actual !== expected) {
-    throw new Error(`Generated release notes artifact is stale: ${path.relative(ROOT, file)}; run npm run notes:write`);
-  }
-}
-
 const mode = process.argv[2];
 if (mode === "--write") {
   const changelog = await readFile(CHANGELOG_FILE, "utf8");
@@ -108,7 +139,7 @@ if (mode === "--write") {
 } else if (mode === "--check") {
   const changelog = await readFile(CHANGELOG_FILE, "utf8");
   const notes = parseReleaseNotes(changelog);
-  await assertExact(OUTPUT_FILE, generatedSource(notes));
+  await assertExact(OUTPUT_FILE, generatedSource(notes), ARTIFACT_OPTIONS);
 } else {
   throw new Error("Usage: tsx scripts/release-notes.ts --write|--check");
 }

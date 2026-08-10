@@ -27,7 +27,9 @@ This file records notable changes to 1667. Product terms use the definitions in
 - **1667 shows the release notes after an upgrade.** The first run of a new
   build shows a toast: `Updated to <version> · press ! for what changed`.
   Press `!` to open the log. The log shows the release note for each version
-  between your last run and this one. 1667 shows this one time for each
+  between your last run and this one. An existing installation that predates
+  this feature shows the release note for the version it lands on, because
+  1667 cannot know its earlier version. 1667 shows this one time for each
   upgrade. A fresh install shows nothing, because a new writer has no earlier
   version to compare against.
 
