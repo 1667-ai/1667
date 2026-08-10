@@ -5,13 +5,6 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
-- **Every generated take keeps its request details.** Press `h` on a take to
-  open the Generation Record Viewer. It shows the provider, the model, the
-  effective settings, provider adjustments, and the ordered request pipeline.
-  It keeps the request text from that generation after a later edit. It never
-  stores a credential, a custom header value, or a base URL. Thanks @10fra for
-  the request.
-
 - **The log now shows a release note with its paragraphs and list kept.**
   Before this fix, the log joined a release note into one line, and it
   showed the raw `**` and backtick marks. The log now keeps each paragraph
@@ -251,6 +244,15 @@ This file records notable changes to 1667. Product terms use the definitions in
   palette opens a path prompt with `Tab` completion. The `1667 import-card`
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names. Thanks @10fra for the request.
+
+## 0.7.0-rc.1 - 2026-08-10
+
+- **Every generated take keeps its request details.** Press `h` on a take to
+  open the Generation Record Viewer. It shows the provider, the model, the
+  effective settings, provider adjustments, and the ordered request pipeline.
+  It keeps the request text from that generation after a later edit. It never
+  stores a credential, a custom header value, or a base URL. Thanks @10fra for
+  the request.
 
 ## 0.6.1 - 2026-08-10
 
