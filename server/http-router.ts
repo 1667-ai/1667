@@ -132,6 +132,14 @@ async function handleApi(
   const method = request.method ?? "GET";
   const segments = parseCanonicalApiPath(pathname);
   const [rawHead, id, sub, subId, action, extra] = segments;
+  // Only the Generation Record detail route consumes a segment past
+  // `action`, as its record id. Every other route must reject one here,
+  // before any branch below can match a shared prefix (e.g. "rewrite")
+  // while ignoring a trailing segment that follows it.
+  if (extra !== undefined
+    && !(sub === "nodes" && action === "generation-records" && method === "GET")) {
+    throw new ServiceError(404, `No route: ${method} ${pathname}`);
+  }
   response.setHeader(
     HTTP_SERVER_INSTANCE_HEADER,
     context.authRecord.instanceId

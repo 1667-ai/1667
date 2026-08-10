@@ -68,3 +68,45 @@ test("HTTP operation policy is exact and assigns frozen lifetime classes", () =>
     );
   }
 });
+
+test("HTTP operation policy rejects a trailing segment on every route except the Generation Record detail route", () => {
+  // Only the Generation Record detail route consumes a segment past its
+  // action, as a record id. A trailing segment on any other node or
+  // chapter-break route must not classify — a prefix match on the action
+  // name (e.g. "rewrite") must not paper over an ignored extra segment.
+  for (const [method, path] of [
+    ["POST", "/api/stories/story/nodes/node/rewrite/junk"],
+    ["POST", "/api/stories/story/nodes/node/rewrite-partial/junk"],
+    ["POST", "/api/stories/story/nodes/node/take-from-cut/junk"],
+    ["POST", "/api/stories/story/nodes/node/paste-line/junk"],
+    ["GET", "/api/stories/story/nodes/node/token-probabilities/junk"],
+    ["GET", "/api/stories/story/nodes/node/reasoning/junk"],
+    ["POST", "/api/stories/story/chapter-breaks/break/restore/junk"],
+    ["POST", "/api/stories/story/chapter-breaks/break/summarize/junk"],
+    ["GET", "/api/stories/story/chapter-breaks/break/preview/junk"],
+    ["POST", "/api/stories/story/unknown-outcomes/id/ack/junk"],
+    [
+      "GET",
+      `/api/stories/story/nodes/node/generation-records/${"a".repeat(64)}/junk`
+    ]
+  ]) {
+    assert.throws(
+      () => httpOperationPolicy(method!, path!),
+      /No HTTP operation policy/,
+      `${method} ${path} must not classify`
+    );
+  }
+  // The fix must not touch the canonical shapes that do belong to these
+  // routes.
+  assert.deepEqual(
+    httpOperationPolicy("POST", "/api/stories/story/nodes/node/rewrite"),
+    { method: "rewriteNode", lifetime: "generation" }
+  );
+  assert.deepEqual(
+    httpOperationPolicy(
+      "POST",
+      "/api/stories/story/chapter-breaks/break/summarize"
+    ),
+    { method: "summarizeChapter", lifetime: "generation" }
+  );
+});
