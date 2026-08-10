@@ -2,6 +2,7 @@ import { deriveChapters, summaryNodeInstruction } from "../shared/chapters.js";
 import { activePath, isChapterSummary, nodeById } from "../shared/story-tree.js";
 import { resolveRewriteDestination, type RewriteDestination, type Story, type StoryNode } from "../shared/types.js";
 import type { CapturedTokenProbabilities } from "../shared/token-probabilities.js";
+import type { CapturedReasoning } from "../shared/reasoning.js";
 import {
   GenerationResultError,
   GenerationStoppedError,
@@ -11,6 +12,7 @@ import { sha256 } from "./story-format.js";
 import { setStoryAutonameId } from "./story-metadata.js";
 import { nodeRewriteId, setNodeRewriteId } from "./story-node-text.js";
 import { attachTakeTokenProbabilities } from "./story-node-token-probabilities.js";
+import { attachTakeReasoning, clearTakeReasoning } from "./story-node-reasoning.js";
 import {
   appendContinuationToNode,
   commitTake,
@@ -50,6 +52,11 @@ export interface ContinueStoryEffect extends TakeCommit {
    *  sources) need not think about it; the one production construction site,
    *  `continueStory` in server/generation-http.ts, always supplies it. */
   readonly tokenProbabilities?: CapturedTokenProbabilities | null;
+  /** Captured by the stream when a thought arrived and retention allowed
+   *  storing it; null or absent otherwise. Both a genuinely new take and an
+   *  append attach it, unaligned — see TakeCommit.reasoning and
+   *  server/story-node-reasoning.ts. */
+  readonly reasoning?: CapturedReasoning | null;
   readonly cancelled?: AbortSignal;
 }
 
@@ -72,6 +79,13 @@ export interface RewriteNodeEffect {
   /** Absent resolves to "in-place" — see `resolveRewriteDestination`. A
    *  chapter summary overrides this to "in-place" regardless (see below). */
   readonly destination?: RewriteDestination;
+  /** Captured by the stream when this rewrite attempt produced a thought and
+   *  retention allowed storing it; null or absent otherwise. An in-place
+   *  rewrite that captures none clears whatever thought the target node had
+   *  before — see `clearTakeReasoning` in server/story-node-reasoning.ts for
+   *  why a stale thought must not survive replaced text. A take-destination
+   *  rewrite mints a fresh node, so there is nothing to clear either way. */
+  readonly reasoning?: CapturedReasoning | null;
   readonly cancelled?: AbortSignal;
 }
 
@@ -85,6 +99,9 @@ export interface SummaryTakeEffect {
   readonly instruction: string;
   readonly commitIds: SummaryCommitIds;
   readonly committedAt?: string;
+  /** Captured by the stream when the summary attempt produced a thought and
+   *  retention allowed storing it; null or absent otherwise. */
+  readonly reasoning?: CapturedReasoning | null;
   readonly cancelled?: AbortSignal;
 }
 
@@ -229,7 +246,9 @@ async function applyContinuation(
     // Normalize null to absent here, once, so every branch below reads a
     // plain TakeCommit. Every branch — append or new take, racing or not —
     // now forwards this field; see TakeCommit.tokenProbabilities.
-    tokenProbabilities: effect.tokenProbabilities ?? undefined
+    tokenProbabilities: effect.tokenProbabilities ?? undefined,
+    // Same normalization, for the same reason; see TakeCommit.reasoning.
+    reasoning: effect.reasoning ?? undefined
   };
   const parent = commit.parentId === null
     ? null
@@ -261,7 +280,8 @@ async function applyContinuation(
         commit.model,
         commit.genId ?? undefined,
         commit.committedAt,
-        commit.tokenProbabilities
+        commit.tokenProbabilities,
+        commit.reasoning
       );
     } else if (writerMoved) {
       const added = newNode(
@@ -283,6 +303,7 @@ async function applyContinuation(
       if (commit.tokenProbabilities !== undefined && commit.tokenProbabilities !== null) {
         attachTakeTokenProbabilities(added, commit.tokenProbabilities, commit.text, 0);
       }
+      attachTakeReasoning(added, commit.reasoning);
       if (story.nodes.length === 1 && story.title === "Untitled") {
         story.title = titleFrom(
           commit.genId === null ? added.text : commit.instruction
@@ -351,6 +372,11 @@ async function applyRewrite(
     target.rewrittenSpans = effect.rewrittenSpans;
     target.updatedAt = effect.updatedAt;
     setNodeRewriteId(target, effect.rewriteId);
+    // The replaced text invalidates whatever thought described the old text;
+    // clear it before deciding whether this attempt produced a fresh one to
+    // take its place (server/story-node-reasoning.ts).
+    clearTakeReasoning(target);
+    attachTakeReasoning(target, effect.reasoning);
     return { changed: true, value: target };
   }
   // Sibling of the source, same field-carrying decisions as
@@ -370,6 +396,7 @@ async function applyRewrite(
   node.rewrittenSpans = effect.rewrittenSpans;
   setNodeRewriteId(node, effect.rewriteId);
   createTake(story, node);
+  attachTakeReasoning(node, effect.reasoning);
   return { changed: true, value: node };
 }
 
@@ -425,6 +452,7 @@ async function applySummaryTake(
   );
   if (effect.committedAt !== undefined) node.createdAt = effect.committedAt;
   createTake(story, node, { activate: false });
+  attachTakeReasoning(node, effect.reasoning);
   return { changed: true, value: node };
 }
 

@@ -43,9 +43,11 @@ import {
   nodeStubTokens,
   nodeStubWords,
   reusableStoredRevisionId,
+  reusableReasoningId,
   reusableTokenProbabilityId
 } from "./story-node-text.js";
 import { takePendingTokenProbabilities } from "./story-node-token-probabilities.js";
+import { takePendingReasoning } from "./story-node-reasoning.js";
 import { reusableRevisionId, type StoryRevisionSnapshot } from "./story-snapshot.js";
 import { setStoryAutonameId, storyAutonameId } from "./story-metadata.js";
 import { boundedString } from "./story-wire-validation.js";
@@ -116,6 +118,19 @@ export async function encodeStoryBundle(
     );
   }
 
+  // Same reasoning as the token-probabilities loop above: at most one node
+  // per encode ever carries a pending reasoning record, so a plain
+  // sequential pass costs nothing extra.
+  const reasoningIds: Array<ObjectHash | undefined> = [];
+  for (const node of story.nodes) {
+    const pending = takePendingReasoning(node);
+    reasoningIds.push(
+      pending === undefined
+        ? reusableReasoningId(node)
+        : await objects.storeReasoning(pending, reuseFrom)
+    );
+  }
+
   const nodes: StoredNodeV1[] = story.nodes.map((node, index) => ({
     id: node.id,
     parentId: node.parentId,
@@ -136,6 +151,7 @@ export async function encodeStoryBundle(
     ...(node.human === undefined ? {} : { human: node.human }),
     revisionId: requireEncodedRevision(revisionIds[index], node.id),
     ...(tokenProbabilityIds[index] === undefined ? {} : { tokenProbabilityId: tokenProbabilityIds[index] }),
+    ...(reasoningIds[index] === undefined ? {} : { reasoningId: reasoningIds[index] }),
     ...(node.attribution === undefined ? {} : { attribution: cloneAttribution(node.attribution) }),
     ...(node.rewrittenSpans === undefined ? {} : { rewrittenSpans: cloneRewrittenSpans(node.rewrittenSpans) }),
     activeChildId: node.activeChildId
@@ -240,6 +256,9 @@ export async function decodeStoryBundle(
       // Presence only — the record itself is fetched on demand, never loaded
       // with the story. See shared/token-probabilities.ts.
       ...(stored.tokenProbabilityId === undefined ? {} : { tokenProbabilities: true as const }),
+      // Presence only, mirroring tokenProbabilities above. See
+      // shared/reasoning.ts.
+      ...(stored.reasoningId === undefined ? {} : { reasoning: true as const }),
       activeChildId: stored.activeChildId
     };
     attachStoredNodeText(node, stored, text);

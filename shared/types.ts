@@ -142,6 +142,11 @@ export interface StoryNode {
    *  GET /api/stories/:id/nodes/:nodeId/token-probabilities, never carried
    *  automatically with the story. See shared/token-probabilities.ts. */
   tokenProbabilities?: true;
+  /** This take's captured reasoning ("thought"). Presence only — the record
+   *  itself is fetched on demand via
+   *  GET /api/stories/:id/nodes/:nodeId/reasoning, never carried
+   *  automatically with the story. See shared/reasoning.ts. */
+  reasoning?: true;
   /** Which child continues the line through this node. null = no preference
    *  recorded (leaf, or story ends here on purpose). Must be a child's id. */
   activeChildId: string | null;
@@ -185,6 +190,8 @@ interface NodeStubBase {
   human?: true;
   /** See StoryNode.tokenProbabilities. */
   tokenProbabilities?: true;
+  /** See StoryNode.reasoning. */
+  reasoning?: true;
   hasInstruction: boolean;
   activeChildId: string | null;
 }
@@ -330,6 +337,7 @@ function assertNodeStub(value: unknown): void {
   optionalLiteral(node, "human", true, "story node stub");
   optionalLiteral(node, "editedByUser", true, "story node stub");
   optionalLiteral(node, "tokenProbabilities", true, "story node stub");
+  optionalLiteral(node, "reasoning", true, "story node stub");
   optionalLiteral(node, "role", "summary", "story node stub");
   if (node.chapterBreakId !== undefined && typeof node.chapterBreakId !== "string") {
     invalidField("story node stub", "chapterBreakId");
@@ -348,6 +356,7 @@ export function assertStoryNode(value: unknown): asserts value is StoryNode {
   optionalLiteral(node, "human", true, "story path node");
   optionalLiteral(node, "editedByUser", true, "story path node");
   optionalLiteral(node, "tokenProbabilities", true, "story path node");
+  optionalLiteral(node, "reasoning", true, "story path node");
   optionalLiteral(node, "role", "summary", "story path node");
   if (node.coveredExtent !== undefined) assertCoveredExtent(node.coveredExtent, "story path node.coveredExtent");
   if (node.attribution !== undefined && node.attribution !== null) {

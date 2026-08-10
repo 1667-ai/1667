@@ -172,6 +172,10 @@ function nodeSchema(): Schema {
     // The stored alternative tokens of this take. Absent when the generation
     // did not ask for them.
     tokenProbabilityId: ref("Hash256"),
+    // This take's stored reasoning ("thought"). Absent when the generation
+    // produced none, when retention was off, or when a rewrite replaced the
+    // take's text without producing a fresh thought of its own.
+    reasoningId: ref("Hash256"),
     attribution: nullable(ref("Attribution")),
     rewrittenSpans: { type: "array", maxItems: MAX_REWRITTEN_SPANS, items: ref("TextRange") },
     activeChildId: nullable(ref("Identifier"))

@@ -359,6 +359,11 @@ async function invokeReadOnly(
         requireString(input.storyId, "storyId"),
         requireString(input.nodeId, "nodeId")
       );
+    case "getReasoning":
+      return await service.getReasoning(
+        requireString(input.storyId, "storyId"),
+        requireString(input.nodeId, "nodeId")
+      );
     case "getSettings": return await service.getSettings();
     case "checkModelServer":
       return await service.checkModelServer(

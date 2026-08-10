@@ -54,7 +54,7 @@ const NODE = closedShape([
 ], [
   "preview", "words", "tokens", "updatedAt", "genId", "rewriteId", "role", "chapterBreakId",
   "coveredExtent", "madeAt", "editedByUser", "human", "syntheticEmpty", "tokenProbabilityId",
-  "attribution", "rewrittenSpans"
+  "reasoningId", "attribution", "rewrittenSpans"
 ]);
 const EXTENT = closedShape(["fromPartId", "toPartId"]);
 const ATTRIBUTION = closedShape(["source", "ranges"], ["deletedCharacters"]);
@@ -160,6 +160,9 @@ function assertNode(value: unknown, label: string): void {
   assertHash(node.revisionId, `${label}.revisionId`);
   if (node.tokenProbabilityId !== undefined) {
     assertHash(node.tokenProbabilityId, `${label}.tokenProbabilityId`);
+  }
+  if (node.reasoningId !== undefined) {
+    assertHash(node.reasoningId, `${label}.reasoningId`);
   }
   if (node.attribution !== undefined && node.attribution !== null) {
     assertAttribution(node.attribution, `${label}.attribution`);

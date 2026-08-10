@@ -651,6 +651,14 @@ async function handleApi(
       await service.getTokenProbabilities(id, subId)
     );
   }
+  if (head === "stories" && id !== undefined && sub === "nodes" && subId !== undefined
+    && action === "reasoning" && method === "GET") {
+    return sendJson(
+      response,
+      200,
+      await service.getReasoning(id, subId)
+    );
+  }
   if (head === "stories" && id !== undefined && sub === "prune-unused-takes" && method === "POST") {
     return sendJson(response, 200, await mutate("pruneUnusedTakes", {
       storyId: id,

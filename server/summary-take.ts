@@ -10,6 +10,8 @@ import {
   ServiceError as HttpError
 } from "./errors.js";
 import { streamCompletion, type StreamOutcome } from "./providers.js";
+import { providerRuntimeFor } from "./provider-runtime.js";
+import { withReasoningCapture, type ReasoningCollector } from "./reasoning-capture.js";
 import { countWords } from "./story-codec.js";
 import { sha256 } from "./story-format.js";
 import type { DeltaConsumer, ReasoningConsumer } from "./generation-stream.js";
@@ -95,12 +97,15 @@ export async function createSummaryTake(
     providerTerminal: false
   };
   let raw = "";
+  const reasoningCollector: ReasoningCollector = { record: null };
+  // Absent resolves to kept, so a document written before the setting existed keeps thoughts.
+  const keepReasoning = providerRuntimeFor(settings).keepReasoning !== false;
   try {
     for await (const delta of streamCompletion(summarySettings(settings, plan.outputBudget), plan.prompt, signal, {
       outcome,
       providerStarted,
       promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
-      onReasoning
+      onReasoning: withReasoningCapture(reasoningCollector, onReasoning, keepReasoning)
     })) {
       raw += delta;
       if (raw.length > SUMMARY_OUTPUT_LIMIT) {
@@ -132,7 +137,8 @@ export async function createSummaryTake(
       model,
       instruction: summaryNodeInstruction(source.title),
       cancelled: signal,
-      commitIds
+      commitIds,
+      reasoning: reasoningCollector.record
     });
   } catch (error) {
     if (error instanceof HttpError && error.code === "story_manifest_requires_successor") throw error;

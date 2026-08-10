@@ -24,6 +24,8 @@ import {
   rewrittenSpansAfterReplacement
 } from "../shared/human-edit.js";
 import { streamCompletion, type TokenProbabilityCollector } from "./providers.js";
+import { providerRuntimeFor } from "./provider-runtime.js";
+import { withReasoningCapture, type ReasoningCollector } from "./reasoning-capture.js";
 import { storySamplingBias } from "./sampling-phrase-bias.js";
 import { AnchoredOutputFilter, continuationPlan, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, supportsAssistantPrefill } from "./generation-prompts.js";
 import { admitFactsIntoPrompt, type GenerationAdmissionRegistry } from "./generation-admission.js";
@@ -269,6 +271,9 @@ export async function continueStory(
   // here) — a failure anywhere in that path leaves this null rather than
   // failing the generation; token probabilities are a diagnostic.
   const tokenProbabilities: TokenProbabilityCollector = { record: null };
+  const reasoningCollector: ReasoningCollector = { record: null };
+  // Absent resolves to kept, so a document written before the setting existed keeps thoughts.
+  const keepReasoning = providerRuntimeFor(settings).keepReasoning !== false;
   let raw: string | null;
   try {
     raw = await streamModel(settings, continuation.prompt, signal, onDelta, {
@@ -282,7 +287,7 @@ export async function continueStory(
       ),
       storySampling: storySamplingBias(story),
       tokenProbabilities,
-      onReasoning
+      onReasoning: withReasoningCapture(reasoningCollector, onReasoning, keepReasoning)
     });
   } catch (error) {
     // A clean provider timeout after the opening already diverged from the
@@ -326,6 +331,7 @@ export async function continueStory(
       expectedActiveRootId: story.activeRootId,
       expectedActiveLeafId: activePath(story).at(-1)?.id ?? null,
       tokenProbabilities: tokenProbabilities.record,
+      reasoning: reasoningCollector.record,
       cancelled: signal
     });
   } catch (error) {
@@ -522,6 +528,9 @@ export async function rewriteNode(
           effect: rewriteEffect(originalText.slice(start, end))
         }, providerOutputRetainedByteLimit(rewriteSettings))
       );
+  const reasoningCollector: ReasoningCollector = { record: null };
+  // Absent resolves to kept, so a document written before the setting existed keeps thoughts.
+  const keepReasoning = providerRuntimeFor(rewriteSettings).keepReasoning !== false;
   try {
     let streamed = "";
     const stashPartial = () => {
@@ -548,7 +557,7 @@ export async function rewriteNode(
         providerStarted,
         promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
         storySampling: storySamplingBias(story),
-        onReasoning
+        onReasoning: withReasoningCapture(reasoningCollector, onReasoning, keepReasoning)
       });
     } catch (error) {
       if (timeoutProvenanceOf(error) !== null) {
@@ -593,6 +602,7 @@ export async function rewriteNode(
       const node = await stories.commitProviderEffect(id, {
         ...rewriteEffect(spliced.text),
         updatedAt: new Date().toISOString(),
+        reasoning: reasoningCollector.record,
         cancelled: signal
       });
       if (fullRecord !== null) partials?.clear(fullRecord);

@@ -92,7 +92,7 @@ test("story objects: foreground cancellation leaves cleanup safe to retry", asyn
   const abort = new AbortController();
   abort.abort();
 
-  const live1 = { revisions: [live], probabilities: [] };
+  const live1 = { revisions: [live], probabilities: [], reasoning: [] };
   assert.equal(await objects.sweep(live1, abort.signal), false);
   await readFile(objects.objectPath("revisions", stale));
   assert.equal(await objects.sweep(live1), true);

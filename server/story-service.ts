@@ -19,6 +19,7 @@ import type {
 } from "../shared/types.js";
 import type { FactBudgetDrop } from "../shared/fact-budget.js";
 import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
+import type { ReasoningRecord } from "../shared/reasoning.js";
 import type {
   ProviderRecoveryContext
 } from "../shared/provider-recovery.js";
@@ -255,6 +256,13 @@ export class StoryService extends StoryServiceRuntime {
   async getTokenProbabilities(id: string, nodeId: string): Promise<TokenProbabilityRecord> {
     this.ensureOpen();
     return await this.stories.loadTokenProbabilities(id, nodeId);
+  }
+
+  /** One take's stored thought. Throws a 404 — distinguishably by message —
+   *  when the story, the take, or the take's stored thought is missing. */
+  async getReasoning(id: string, nodeId: string): Promise<ReasoningRecord> {
+    this.ensureOpen();
+    return await this.stories.loadReasoning(id, nodeId);
   }
 
   async renameStory(

@@ -53,6 +53,7 @@ export function buildStoryPayload(
         ...(node.updatedAt === undefined ? {} : { updatedAt: node.updatedAt }),
         ...(node.human === undefined ? {} : { human: node.human }),
         ...(node.tokenProbabilities === undefined ? {} : { tokenProbabilities: node.tokenProbabilities }),
+        ...(node.reasoning === undefined ? {} : { reasoning: node.reasoning }),
         hasInstruction: node.instruction.trim().length > 0,
         activeChildId: node.activeChildId
       };

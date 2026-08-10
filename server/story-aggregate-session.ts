@@ -183,6 +183,7 @@ export class StoryAggregateSession {
       objects.adoptKnownGraph(this.liveGraph.revisions, { committed: true });
       objects.adoptCommittedIds("revisions", previousLive.revisions);
       objects.adoptCommittedIds("probabilities", previousLive.probabilities);
+      objects.adoptCommittedIds("reasoning", previousLive.reasoning);
     }
     const content = await encodeStoryBundle(story, objects);
     await objects.flush();
@@ -190,6 +191,7 @@ export class StoryAggregateSession {
     await objects.verifyGraph(nextLive);
     const nextRevisionIds = new Set(nextLive.revisions);
     const nextProbabilityIds = new Set(nextLive.probabilities);
+    const nextReasoningIds = new Set(nextLive.reasoning);
     // Parsing normalizes V2-V4 sources before this diff can run (old fact
     // states collapse to their selected revision), so objects the
     // normalization dropped never appear in previousLive.revisions. Mirror
@@ -198,6 +200,7 @@ export class StoryAggregateSession {
       this.legacySchemaSource
         || previousLive.revisions.some((id) => !nextRevisionIds.has(id))
         || previousLive.probabilities.some((id) => !nextProbabilityIds.has(id))
+        || previousLive.reasoning.some((id) => !nextReasoningIds.has(id))
     ) === "retire-marker";
     return {
       story,

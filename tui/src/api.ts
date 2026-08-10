@@ -22,6 +22,7 @@ import {
   decodeCommitPartialRewriteResponse,
   decodeStoryResponse,
   decodeTokenProbabilitiesResponse,
+  decodeReasoningResponse,
 } from "./api-response-decoders.js";
 import type {
   SamplingBiasResolutionResult
@@ -33,6 +34,7 @@ import type { LorebookImport } from "../../shared/lorebook-entry.js";
 import type { CardImportPlan } from "../../shared/card-import.js";
 import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 import type { TokenProbabilityRecord } from "../../shared/token-probabilities.js";
+import type { ReasoningRecord } from "../../shared/reasoning.js";
 
 import type {
   TagStatus,
@@ -160,6 +162,9 @@ export interface StoryApi {
   /** One take's stored token probabilities. Rejects (404, distinguishably by
    *  message) when the take has none. */
   getTokenProbabilities(storyId: string, nodeId: string): Promise<TokenProbabilityRecord>;
+  /** One take's stored thought. Rejects (404, distinguishably by message)
+   *  when the take has none. */
+  getReasoning(storyId: string, nodeId: string): Promise<ReasoningRecord>;
   switchLine(storyId: string, nodeId: string, options?: Omit<SwitchRequest, "nodeId">): Promise<StoryPayload>;
   createNode(storyId: string, body: CreateNodeRequest): Promise<StoryPayload>;
   editNode(storyId: string, node: StoryNode, patch: { instruction?: string; text?: string }): Promise<StoryPayload>;
@@ -742,6 +747,11 @@ export function createApi(
       "GET",
       `/api/stories/${storyId}/nodes/${nodeId}/token-probabilities`,
       decodeTokenProbabilitiesResponse
+    ),
+    getReasoning: (storyId, nodeId) => request(
+      "GET",
+      `/api/stories/${storyId}/nodes/${nodeId}/reasoning`,
+      decodeReasoningResponse
     ),
     switchLine: (storyId, nodeId, options = {}) => mutateStoryPayload(
       storyId,

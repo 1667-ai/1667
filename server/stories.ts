@@ -25,6 +25,7 @@ import {
   type StoryManifestV5
 } from "./story-format.js";
 import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
+import type { ReasoningRecord } from "../shared/reasoning.js";
 import { decodeStoryBundle, encodeStoryBundle, hydrateStoryNodes } from "./story-codec.js";
 import { putStoryTag, removeStoryTag } from "./story-tags.js";
 import {
@@ -99,16 +100,17 @@ interface SwitchLineOptions { expectedLineFingerprint?: string; stopAtNode?: boo
  * them would protect a revision hash from the probabilities sweep pass (or
  * vice versa), silently defeating the pin. Shaped like StoryObjectStore's own
  * per-kind collections (server/story-objects.ts) for the same reason: only
- * `revisions` and `probabilities` are ever populated (`LiveStoryObjectIds`
- * has no `chunks`), but sharing the kind-generic shape lets `addPins` and
- * `releasePins` run as one loop each instead of one call per kind. */
+ * `revisions`, `probabilities`, and `reasoning` are ever populated
+ * (`LiveStoryObjectIds` has no `chunks`), but sharing the kind-generic shape
+ * lets `addPins` and `releasePins` run as one loop each instead of one call
+ * per kind. */
 type ProviderSnapshotPins = Record<ObjectKind, Map<ObjectHash, number>>;
-/** The two kinds `LiveStoryObjectIds` ever carries — the subset of
+/** The three kinds `LiveStoryObjectIds` ever carries — the subset of
  * `ProviderSnapshotPins`' kinds that pinning and its release loop touch. */
-const LIVE_OBJECT_KINDS = ["revisions", "probabilities"] as const satisfies readonly (keyof LiveStoryObjectIds)[];
+const LIVE_OBJECT_KINDS = ["revisions", "probabilities", "reasoning"] as const satisfies readonly (keyof LiveStoryObjectIds)[];
 
 function emptyProviderSnapshotPins(): ProviderSnapshotPins {
-  return { chunks: new Map(), revisions: new Map(), probabilities: new Map() };
+  return { chunks: new Map(), revisions: new Map(), probabilities: new Map(), reasoning: new Map() };
 }
 
 const sweepObjects: SweepObjects = async (bundleDir, live, signal) =>
@@ -200,7 +202,8 @@ export class StoryStore {
     const live = liveObjectIds(manifest.content);
     const dedupedLive: LiveStoryObjectIds = {
       revisions: [...new Set(live.revisions)],
-      probabilities: [...new Set(live.probabilities)]
+      probabilities: [...new Set(live.probabilities)],
+      reasoning: [...new Set(live.reasoning)]
     };
     const pins = this.providerSnapshotPins.get(storyId) ?? emptyProviderSnapshotPins();
     this.providerSnapshotPins.set(storyId, pins);
@@ -458,6 +461,30 @@ export class StoryStore {
     });
   }
 
+  /** One take's stored reasoning ("thought"), mirroring
+   *  `loadTokenProbabilities` exactly: 404s, distinguishably by message, when
+   *  the story, the take, or the take's stored thought is missing. */
+  async loadReasoning(id: string, nodeId: string): Promise<ReasoningRecord> {
+    return await this.withIo(id, async () => {
+      let slot: ResolvedStory;
+      try {
+        slot = await this.resolveUnlocked(id);
+      } catch (error) {
+        if (error instanceof HttpError && error.status === 404) throw new HttpError(404, `Take not found: ${nodeId}`);
+        throw error;
+      }
+      await this.schedulePendingCleanup(id);
+      if (slot.kind === "legacy") throw new HttpError(404, `Take not found: ${nodeId}`);
+      const manifest = slot.kind === "v5" ? slot.manifest : slot.manifest.content;
+      const stored = manifest.nodes.find((node) => node.id === nodeId);
+      if (stored === undefined) throw new HttpError(404, `Take not found: ${nodeId}`);
+      if (stored.reasoningId === undefined) {
+        throw new HttpError(404, "This take has no stored thought.");
+      }
+      return await new StoryObjectStore(this.bundlePath(id)).readReasoning(stored.reasoningId);
+    });
+  }
+
   /** Every part's text, not only the reading line. Search is the one reader
    *  that must see the takes nobody is standing on. */
   async loadHydrated(id: string): Promise<Story> {
@@ -557,17 +584,20 @@ export class StoryStore {
         if (snapshot !== undefined) {
           objects.adoptKnownGraph(snapshot.revisions, { committed: true });
           objects.adoptCommittedIds("probabilities", [...snapshot.probabilityIds]);
+          objects.adoptCommittedIds("reasoning", [...snapshot.reasoningIds]);
         }
         const manifest = await encodeStoryBundle(story, objects, reuseFrom, snapshot);
         const nextLive = liveObjectIds(manifest);
         const nextRevisionIds = new Set(nextLive.revisions);
         const nextProbabilityIds = new Set(nextLive.probabilities);
+        const nextReasoningIds = new Set(nextLive.reasoning);
         // V2 temporal facts normalize to only their selected revision. Force the
         // first V4 sweep so older state objects that normalization hid are reaped.
         const settled = await cleanup.settle(
           sourceSchemaVersion !== STORY_SCHEMA_VERSION
             || previousLive.revisions.some((revisionId) => !nextRevisionIds.has(revisionId))
             || previousLive.probabilities.some((id) => !nextProbabilityIds.has(id))
+            || previousLive.reasoning.some((id) => !nextReasoningIds.has(id))
         );
         await objects.flush();
         await objects.verifyGraph(nextLive);
@@ -670,7 +700,7 @@ export class StoryStore {
         const live = content !== null
           ? liveObjectIds(content)
           : slot.kind === "v6-deleted"
-            ? { revisions: [], probabilities: [] }
+            ? { revisions: [], probabilities: [], reasoning: [] }
             : null;
         if (live === null) return;
         const pinned = this.providerSnapshotPins.get(id);
@@ -679,7 +709,8 @@ export class StoryStore {
           ? live
           : {
               revisions: [...new Set([...live.revisions, ...pinned.revisions.keys()])],
-              probabilities: [...new Set([...live.probabilities, ...pinned.probabilities.keys()])]
+              probabilities: [...new Set([...live.probabilities, ...pinned.probabilities.keys()])],
+              reasoning: [...new Set([...live.reasoning, ...pinned.reasoning.keys()])]
             };
         const completed = await this.sweep(this.bundlePath(id), protectedIds, signal);
         if (completed
