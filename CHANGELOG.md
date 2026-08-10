@@ -5,6 +5,16 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Alt count no longer loses a long generation on KoboldCpp.** KoboldCpp
+  sends the alternative tokens of a whole generation in one message, so that
+  message grows with the generation. Past about a thousand tokens it crossed a
+  size limit, and 1667 ended the generation and dropped the prose. The limit
+  now follows the output limit for the generation, up to a fixed ceiling. A
+  message within that limit but still too large to keep gives no alternative
+  token for that take, and the generation keeps its prose. A message past the
+  ceiling still ends the generation, the same as any other oversized response
+  from the model. Thanks @10fra for the report.
+
 - **1667 shows what a model thinks before it writes.** Some models write
   reasoning text before prose. 1667 calls this text a thought and keeps it
   apart from your story. The margin shows `⟳ thinking` while the model works,
