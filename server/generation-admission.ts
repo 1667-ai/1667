@@ -206,19 +206,54 @@ export class GenerationAdmissionRegistry {
     )?.record ?? undefined;
   }
 
-  /** Called once a stop-save commit has finished acting on whatever
-   *  `generationRecordHandoffFor` returned it — whether that meant attaching
-   *  a fresh Generation Record or discarding a duplicate genId's replay.
-   *  Releases the handoff's revision pin and clears the handoff itself, since
+  /** The owning consume-on-success lease for a stop-save handoff: hands
+   *  whatever `rememberGenerationRecordHandoff` left for this genId (or
+   *  `undefined` if nothing did) to `work`, then releases the revision pin
+   *  and clears the record — but only once `work` has resolved. Nothing here
+   *  marks the slot claimed before `work` runs, so a `work` that throws or
+   *  rejects leaves the handoff exactly as it found it, ready for a later
+   *  retry or save to consume, instead of getting stuck behind a claim flag
+   *  no failure path ever clears.
+   *
+   *  Replaces the old, manually-coordinated `generationRecordHandoffFor` /
+   *  `releaseGenerationRecordHandoff` pair every stop-save commit path used
+   *  to glue together itself — this owns that lookup-work-release protocol
+   *  once, here, instead of node-commit.ts and story-service-local.ts each
+   *  reimplementing it. */
+  async withGenerationRecordHandoff<T>(
+    storyId: string,
+    genId: string,
+    work: (handoff: GenerationRecordHandoff | undefined) => T | PromiseLike<T>
+  ): Promise<T> {
+    const handoff = this.generationRecordHandoffFor(storyId, genId);
+    const result = await work(handoff);
+    this.releasePin(storyId, genId);
+    return result;
+  }
+
+  /** Discards a handoff that a *different*, direct attempt has just made
+   *  stale by committing durably or settling as a duplicate for the same
+   *  genId — `server/generation-http.ts`'s own completed run never captured
+   *  a handoff for itself (it never stopped), so it never has one to
+   *  consume via `withGenerationRecordHandoff`; whatever is still sitting in
+   *  this genId's slot belongs to an earlier, now-superseded stopped
+   *  attempt. Named apart from consumption so a caller can never confuse
+   *  "I used this handoff" with "this handoff no longer applies". Safe to
+   *  call for a genId with no pin at all — a no-op, not an error. */
+  discardSupersededGenerationRecordHandoff(storyId: string, genId: string): void {
+    this.releasePin(storyId, genId);
+  }
+
+  /** Releases the handoff's revision pin and clears the handoff itself, since
    *  nothing will read this slot's record again for that purpose: the source
    *  revisions it pinned are no longer guaranteed live once the pin drops, so
    *  a later `generationRecordHandoffFor` for a reused genId must not hand
    *  back a handoff whose revisions may already be gone. `model` stays —
    *  `modelFor` still needs it (see `node-commit.ts`'s retried-commit path,
    *  which reads it after this same genId's handoff was already released).
-   *  Safe to call for a genId with no pin (or none at all) — a no-op, not an
-   *  error, so a caller never has to first check whether a handoff existed. */
-  releaseGenerationRecordHandoff(storyId: string, genId: string): void {
+   *  Idempotent — a second release for an already-released (or never-pinned)
+   *  genId is a harmless no-op, not a double release. */
+  private releasePin(storyId: string, genId: string): void {
     const existing = this.modelAttributions.find(
       (candidate) => candidate.storyId === storyId && candidate.genId === genId
     );

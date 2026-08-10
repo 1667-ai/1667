@@ -10,7 +10,6 @@ import type { Provider, Story } from "../shared/types.js";
 import type { GenerationRecordCollector } from "./generation-record-capture.js";
 import { finalizeGenerationRecord, unsupportedGenerationRecord } from "./generation-record-finalize.js";
 import { continuationRecordEntries } from "./generation-record-prompt.js";
-import type { GenerationAdmissionRegistry } from "./generation-admission.js";
 import { sha256 } from "./story-format.js";
 
 /**
@@ -192,23 +191,20 @@ export function finalizeHandoffGenerationRecord(
   return record;
 }
 
-/** The stop-save Generation Record lookup both commit paths need
+/** The stop-save Generation Record builder both commit paths need
  *  (`server/node-commit.ts`'s locked path and `server/story-service-local.ts`'s
- *  session path): read back whatever `captureGenerationRecordHandoff` left in
- *  the registry for this genId, keyed the same way `modelFor` already is, and
- *  finalize it against this commit's own `appendTo`/length/time — never the
- *  original streaming request's. Returns undefined for a human take (`genId`
- *  null) or a genId this process never saw a handoff for. */
-export function generationRecordForCommit(
-  registry: GenerationAdmissionRegistry,
-  storyId: string,
-  genId: string | null,
+ *  session path): finalize whatever handoff `GenerationAdmissionRegistry.
+ *  withGenerationRecordHandoff` handed to this commit's own lease callback
+ *  against this commit's own `appendTo`/length/time — never the original
+ *  streaming request's. Returns undefined for a human take, a duplicate
+ *  settle, or a genId this process never saw a handoff for — any case where
+ *  the callback receives no handoff at all. */
+export function generationRecordForHandoff(
+  handoff: GenerationRecordHandoff | undefined,
   appendTo: string | null,
   committedText: string,
   createdAt: string
 ): GenerationRecord | undefined {
-  if (genId === null) return undefined;
-  const handoff = registry.generationRecordHandoffFor(storyId, genId);
   if (handoff === undefined) return undefined;
   return finalizeHandoffGenerationRecord(handoff, { appendTo, committedText, createdAt });
 }

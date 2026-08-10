@@ -5,7 +5,7 @@ import { ServiceError } from "./errors.js";
 import { currentModel } from "./generation-http.js";
 import { DEFAULT_INSTRUCTION } from "./generation-prompts.js";
 import type { GenerationAdmissionRegistry } from "./generation-admission.js";
-import { generationRecordForCommit } from "./generation-record-handoff.js";
+import { generationRecordForHandoff, type GenerationRecordHandoff } from "./generation-record-handoff.js";
 import { commitNode } from "./node-commit.js";
 import {
   parseCommitPartialRewrite,
@@ -267,70 +267,66 @@ export class StoryServiceLocal {
         ? "human"
         : this.dependencies.generationAdmission.modelFor(id, genId)
           ?? await currentModel(this.dependencies.settings);
-      const payload = await this.localStoryPayload(
-        mutationRequest,
-        "createNode",
-        async (story, session) => {
-          if (nodeId !== undefined
-            && story.nodes.some((node) => node.id === nodeId)) {
-            return STORY_UNCHANGED;
-          }
-          if (body.sourceNodeId !== undefined) {
-            await session.hydratePath(story, body.sourceNodeId);
-            createEditedTake(
-              story,
-              body.sourceNodeId,
-              body.expectedTextHash,
+      // Everything below runs once, under this genId's handoff lease when
+      // there is one (a human take has no genId, so nothing to lease) — the
+      // registry releases the handoff only once this resolves, and retains
+      // it if anything here throws.
+      const commitWithHandoff = (handoff: GenerationRecordHandoff | undefined): Promise<StoryPayload> =>
+        this.localStoryPayload(
+          mutationRequest,
+          "createNode",
+          async (story, session) => {
+            if (nodeId !== undefined
+              && story.nodes.some((node) => node.id === nodeId)) {
+              return STORY_UNCHANGED;
+            }
+            if (body.sourceNodeId !== undefined) {
+              await session.hydratePath(story, body.sourceNodeId);
+              createEditedTake(
+                story,
+                body.sourceNodeId,
+                body.expectedTextHash,
+                instruction,
+                rawText.trim(),
+                nodeId
+              );
+              return;
+            }
+            const requestedAppendTo = body.appendTo ?? null;
+            const appendCrossesBreak = requestedAppendTo !== null
+              && story.chapterBreaks.some(
+                (chapterBreak) => chapterBreak.parentPartId === requestedAppendTo
+              );
+            const appendTo = appendCrossesBreak ? null : requestedAppendTo;
+            if (appendTo !== null) await session.hydratePath(story, appendTo);
+            const text = appendTo === null ? rawText.trim() : rawText;
+            // A stop-and-save commit for a generated take: see the identical
+            // handoff read in server/node-commit.ts. `appendTo` is resolved
+            // above from the current story, not the one the original streaming
+            // request saw, so the record's kind and range always follow this
+            // commit's own decision.
+            const generationRecord = generationRecordForHandoff(handoff, appendTo, text, new Date().toISOString());
+            const commit = commitTake(story, {
+              parentId: appendCrossesBreak
+                ? requestedAppendTo
+                : appendTo === null ? body.parentId ?? null : null,
+              appendTo,
+              expectedTextHash: appendTo !== null && body.appendTo !== undefined
+                ? body.expectedTextHash
+                : null,
               instruction,
-              rawText.trim(),
-              nodeId
-            );
-            return;
+              text,
+              model,
+              genId,
+              generationRecord,
+              ...(nodeId === undefined ? {} : { nodeId })
+            });
+            return commit.duplicate ? STORY_UNCHANGED : undefined;
           }
-          const requestedAppendTo = body.appendTo ?? null;
-          const appendCrossesBreak = requestedAppendTo !== null
-            && story.chapterBreaks.some(
-              (chapterBreak) => chapterBreak.parentPartId === requestedAppendTo
-            );
-          const appendTo = appendCrossesBreak ? null : requestedAppendTo;
-          if (appendTo !== null) await session.hydratePath(story, appendTo);
-          const text = appendTo === null ? rawText.trim() : rawText;
-          // A stop-and-save commit for a generated take: see the identical
-          // handoff read in server/node-commit.ts. `appendTo` is resolved
-          // above from the current story, not the one the original streaming
-          // request saw, so the record's kind and range always follow this
-          // commit's own decision.
-          const generationRecord = generationRecordForCommit(
-            this.dependencies.generationAdmission,
-            id,
-            genId,
-            appendTo,
-            text,
-            new Date().toISOString()
-          );
-          const commit = commitTake(story, {
-            parentId: appendCrossesBreak
-              ? requestedAppendTo
-              : appendTo === null ? body.parentId ?? null : null,
-            appendTo,
-            expectedTextHash: appendTo !== null && body.appendTo !== undefined
-              ? body.expectedTextHash
-              : null,
-            instruction,
-            text,
-            model,
-            genId,
-            generationRecord,
-            ...(nodeId === undefined ? {} : { nodeId })
-          });
-          return commit.duplicate ? STORY_UNCHANGED : undefined;
-        }
-      );
-      // Either the record just landed durably (the story's own generic sweep
-      // now keeps its revisions live) or this commit was a no-op duplicate —
-      // both ways, this genId's handoff pin has done its job.
-      if (genId !== null) this.dependencies.generationAdmission.releaseGenerationRecordHandoff(id, genId);
-      return payload;
+        );
+      return genId === null
+        ? await commitWithHandoff(undefined)
+        : await this.dependencies.generationAdmission.withGenerationRecordHandoff(id, genId, commitWithHandoff);
     }
     return buildStoryPayload(await commitNode(
       this.dependencies.stories,

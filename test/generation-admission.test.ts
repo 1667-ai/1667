@@ -115,11 +115,11 @@ test("a generation record handoff shares the model attribution's bounded, cleara
   assert.equal(registry.generationRecordHandoffFor("overflow", "new"), undefined);
 });
 
-// A durable or duplicate stop-save release must consume the handoff itself,
-// not just its revision pin — otherwise a genId reused after release (a
+// A durable or duplicate stop-save discard must consume the handoff itself,
+// not just its revision pin — otherwise a genId reused after discard (a
 // worker retry, or an id collision) could reattach a Generation Record whose
 // source revisions are no longer guaranteed live.
-test("releasing a generation record handoff clears it, but keeps the model attribution", () => {
+test("discarding a superseded generation record handoff clears it, but keeps the model attribution", () => {
   const releasedRevisionIds: string[][] = [];
   const registry = new GenerationAdmissionRegistry((_storyId, revisionIds) => {
     const pinned = [...revisionIds];
@@ -130,27 +130,27 @@ test("releasing a generation record handoff clears it, but keeps the model attri
   registry.rememberGenerationRecordHandoff("story-a", "gen-a", fakeHandoff("model-a"));
   assert.equal(registry.generationRecordHandoffFor("story-a", "gen-a")?.model, "model-a");
 
-  registry.releaseGenerationRecordHandoff("story-a", "gen-a");
+  registry.discardSupersededGenerationRecordHandoff("story-a", "gen-a");
 
   // The pin released exactly once...
   assert.deepEqual(releasedRevisionIds, [["released"]]);
-  // ...the handoff itself is gone, so a lookup after release cannot hand
+  // ...the handoff itself is gone, so a lookup after discard cannot hand
   // back a record whose pinned revisions may already have been swept...
   assert.equal(registry.generationRecordHandoffFor("story-a", "gen-a"), undefined);
-  // ...but the cached model attribution survives release, since a retried
+  // ...but the cached model attribution survives discard, since a retried
   // commit for the same genId (server/node-commit.ts's already-saved branch)
-  // still needs it after the first attempt already released the handoff.
+  // still needs it after the first attempt already discarded the handoff.
   assert.equal(registry.modelFor("story-a", "gen-a"), "model-a");
 
-  // Calling release again for the same, already-released genId is a no-op:
-  // no double release of the pin, and the slot stays exactly as it was.
-  registry.releaseGenerationRecordHandoff("story-a", "gen-a");
+  // Discarding again for the same, already-discarded genId is a no-op: no
+  // double release of the pin, and the slot stays exactly as it was.
+  registry.discardSupersededGenerationRecordHandoff("story-a", "gen-a");
   assert.deepEqual(releasedRevisionIds, [["released"]]);
   assert.equal(registry.generationRecordHandoffFor("story-a", "gen-a"), undefined);
   assert.equal(registry.modelFor("story-a", "gen-a"), "model-a");
 
-  // Reusing the same genId for a fresh handoff after release must not reuse
-  // or resurrect the released one — it is a wholly new pin and a wholly new
+  // Reusing the same genId for a fresh handoff after discard must not reuse
+  // or resurrect the discarded one — it is a wholly new pin and a wholly new
   // record.
   registry.rememberGenerationRecordHandoff("story-a", "gen-a", fakeHandoff("model-b"));
   assert.equal(registry.generationRecordHandoffFor("story-a", "gen-a")?.model, "model-b");

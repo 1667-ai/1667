@@ -435,9 +435,9 @@ export async function continueStory(
     // one true record of this genId, so its revision pin must go now, not
     // wait for a stop-save commit that will never come. A duplicate-genId
     // commit above (`changed: false`) still resolves rather than throwing, so
-    // it releases here too. A thrown commit must not reach this line — the
+    // it discards here too. A thrown commit must not reach this line — the
     // lease and handoff stay intact for whatever retry follows.
-    generationAdmission.releaseGenerationRecordHandoff(id, genId);
+    generationAdmission.discardSupersededGenerationRecordHandoff(id, genId);
     return committed;
   } catch (error) {
     if (error instanceof HttpError
