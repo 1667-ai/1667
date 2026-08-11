@@ -1,23 +1,24 @@
 import {
-  SETTINGS_ACTIVATION_ERROR_CODE_V2_VALUES,
-  SETTINGS_ACTIVATION_OUTCOME_RESULT_V2_VALUES,
-  SETTINGS_ACTIVATION_STATE_V2_VALUES,
   type SettingsActivationOutcomeV2,
   type SettingsActivationV2,
   type SettingsDocumentV2,
   type SettingsStateV2,
   type SettingsTransactionPointerV2
 } from "../shared/settings-v2-types.js";
-import { FM1_KEY_PATTERN, MUTATION_ID_PATTERN } from "./mutation-ledger-scalars.js";
-import { hashCanonicalSettingsDocumentV2 } from "./settings-v2-hash.js";
+import { hashCanonicalSettingsDocument } from "./settings-v2-hash.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2_HASH } from "./settings-v2-initial-vectors.js";
 import {
-  HASH256_PATTERN,
   MAX_SETTINGS_DOCUMENT_BYTES,
   MAX_SETTINGS_STATE_ENVELOPE_BYTES,
   SettingsFormatError,
   requirePositiveSettingsInteger
 } from "./settings-v2-scalars.js";
+import {
+  parseActivation,
+  parseOutcome,
+  parseRevisionKey,
+  parseTransactionPointer
+} from "./settings-state-scalars.js";
 import { validateSettingsDocumentV2, type SettingsValidationOptions } from "./settings-v2-validation.js";
 import { canonicalJson } from "./canonical-json.js";
 import { closedRecord, closedShape, literal } from "./story-wire-validation.js";
@@ -25,19 +26,14 @@ import {
   MAX_CREDENTIAL_NAMES_PER_STATE
 } from "../shared/credential-slot-policy.js";
 import {
-  settingsStateCredentialNames
+  settingsStateCredentialNames,
+  type CredentialBearingSettingsDocument
 } from "../shared/settings-credential-slots.js";
 
 const STATE = closedShape([
   "schemaVersion", "stateGeneration", "settingsRevisionClock", "documents", "activeRevision",
   "pendingRevision", "previousRevision", "activation", "lastActivationOutcome", "lastTransaction"
 ]);
-const ACTIVATION = closedShape(["transactionId", "oldHash", "candidateHash", "state", "attempt"]);
-const OUTCOME = closedShape([
-  "transactionId", "candidateRevision", "result", "errorCode", "atStateGeneration"
-]);
-const USER_POINTER = closedShape(["receiptKind", "mutationId", "phase"]);
-const MIGRATION_POINTER = closedShape(["receiptKind", "key", "phase"]);
 
 export type SettingsStateRelation =
   | "clean"
@@ -48,12 +44,51 @@ export type SettingsStateRelation =
   | "rolling-back"
   | "committed";
 
-export function validateSettingsStateV2(
+/**
+ * What one settings schema version supplies to the shared state engine
+ * below: how to validate and hash its document, and the hash of the exact
+ * canonical initial document. Every other rule in `validateSettingsState`
+ * reads no document-version-specific field at all, so it runs unchanged for
+ * schema 2 and schema 3 (`server/settings-v3-state-validation.ts`).
+ */
+export interface SettingsStateSchema<V extends 2 | 3, D extends CredentialBearingSettingsDocument> {
+  readonly schemaVersion: V;
+  readonly validateDocument: (value: unknown, options: SettingsValidationOptions) => D;
+  readonly hashDocument: (document: D) => string;
+  readonly initialDocumentHash: string;
+}
+
+/** The field subset every version-free helper below needs. A concrete state
+ *  (`SettingsStateV2`, `SettingsStateV3`, or the generic envelope
+ *  `validateSettingsState` builds) always has more fields than this, so
+ *  passing one in satisfies it without a cast. */
+interface SettingsStateFields<D extends CredentialBearingSettingsDocument> {
+  readonly stateGeneration: number;
+  readonly settingsRevisionClock: number;
+  readonly documents: Readonly<Record<string, D>>;
+  readonly activeRevision: number;
+  readonly pendingRevision: number | null;
+  readonly previousRevision: number | null;
+  readonly activation: SettingsActivationV2 | null;
+  readonly lastActivationOutcome: SettingsActivationOutcomeV2 | null;
+  readonly lastTransaction: SettingsTransactionPointerV2 | null;
+}
+
+type SettingsStateEnvelope<V extends 2 | 3, D extends CredentialBearingSettingsDocument> =
+  SettingsStateFields<D> & { readonly schemaVersion: V };
+
+/** The one settings-state validator, for any schema version whose document
+ *  type and document hash are supplied through `schema`. This replaced two
+ *  near-identical ~250-line copies, one per schema version: every rule here
+ *  used to read no version-specific field at all except for which document
+ *  validator and hash to call. */
+export function validateSettingsState<V extends 2 | 3, D extends CredentialBearingSettingsDocument>(
   value: unknown,
+  schema: SettingsStateSchema<V, D>,
   options: SettingsValidationOptions = {}
-): SettingsStateV2 {
+): SettingsStateEnvelope<V, D> {
   const root = closedRecord(value, "settings state", STATE);
-  literal(root.schemaVersion, 2, "settings state.schemaVersion");
+  literal(root.schemaVersion, schema.schemaVersion, "settings state.schemaVersion");
   const stateGeneration = requirePositiveSettingsInteger(root.stateGeneration, "settings state.stateGeneration");
   const settingsRevisionClock = requirePositiveSettingsInteger(
     root.settingsRevisionClock,
@@ -62,7 +97,7 @@ export function validateSettingsStateV2(
   if (stateGeneration < settingsRevisionClock) {
     throw new SettingsFormatError("settings state.stateGeneration must not trail settingsRevisionClock");
   }
-  const documents = parseDocuments(root.documents, settingsRevisionClock, options);
+  const documents = parseDocuments(root.documents, settingsRevisionClock, schema, options);
   const activeRevision = requireDocumentRevision(root.activeRevision, "settings state.activeRevision", documents);
   const pendingRevision = nullableDocumentRevision(
     root.pendingRevision,
@@ -79,8 +114,8 @@ export function validateSettingsStateV2(
     ? null
     : parseOutcome(root.lastActivationOutcome, stateGeneration, settingsRevisionClock);
   const lastTransaction = root.lastTransaction === null ? null : parseTransactionPointer(root.lastTransaction);
-  const state: SettingsStateV2 = {
-    schemaVersion: 2,
+  const state: SettingsStateEnvelope<V, D> = {
+    schemaVersion: schema.schemaVersion,
     stateGeneration,
     settingsRevisionClock,
     documents,
@@ -93,9 +128,9 @@ export function validateSettingsStateV2(
   };
   const relation = settingsStateRelation(state);
   validateRoleDocuments(state, relation);
-  validateActivationBinding(state, relation);
+  validateActivationBinding(state, relation, schema.hashDocument);
   validateTransactionBinding(state, relation);
-  validateInitialNullPointer(state, relation);
+  validateInitialNullPointer(state, relation, schema.hashDocument, schema.initialDocumentHash);
   if (settingsStateCredentialNames(state).length
     > MAX_CREDENTIAL_NAMES_PER_STATE) {
     throw new SettingsFormatError(
@@ -105,7 +140,23 @@ export function validateSettingsStateV2(
   return state;
 }
 
-export function settingsStateRelation(state: SettingsStateV2): SettingsStateRelation {
+const SETTINGS_STATE_V2_SCHEMA: SettingsStateSchema<2, SettingsDocumentV2> = {
+  schemaVersion: 2,
+  validateDocument: validateSettingsDocumentV2,
+  hashDocument: hashCanonicalSettingsDocument,
+  initialDocumentHash: INITIAL_SETTINGS_DOCUMENT_V2_HASH
+};
+
+export function validateSettingsStateV2(
+  value: unknown,
+  options: SettingsValidationOptions = {}
+): SettingsStateV2 {
+  return validateSettingsState(value, SETTINGS_STATE_V2_SCHEMA, options);
+}
+
+export function settingsStateRelation<D extends CredentialBearingSettingsDocument>(
+  state: SettingsStateFields<D>
+): SettingsStateRelation {
   const { activeRevision: active, pendingRevision: pending, previousRevision: previous, activation } = state;
   if (activation === null) {
     if (pending === null && previous === null) return "clean";
@@ -132,11 +183,12 @@ export function settingsStateRelation(state: SettingsStateV2): SettingsStateRela
   throw new SettingsFormatError(`settings state has an invalid ${activation.state} role relation`);
 }
 
-function parseDocuments(
+function parseDocuments<V extends 2 | 3, D extends CredentialBearingSettingsDocument>(
   value: unknown,
   clock: number,
+  schema: SettingsStateSchema<V, D>,
   options: SettingsValidationOptions
-): Record<string, SettingsDocumentV2> {
+): Record<string, D> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new SettingsFormatError("settings state.documents must be an object");
   }
@@ -144,19 +196,19 @@ function parseDocuments(
   if (entries.length < 1 || entries.length > 2) {
     throw new SettingsFormatError("settings state.documents must contain one or two entries");
   }
-  const result: Record<string, SettingsDocumentV2> = {};
+  const result: Record<string, D> = {};
   const hashes = new Set<string>();
   for (const [key, raw] of entries) {
     const revision = parseRevisionKey(key);
     if (revision > clock) throw new SettingsFormatError(`settings document revision ${key} exceeds the clock`);
-    const document = validateSettingsDocumentV2(raw, options);
+    const document = schema.validateDocument(raw, options);
     const bytes = Buffer.byteLength(canonicalJson(document), "utf8");
     if (bytes > MAX_SETTINGS_DOCUMENT_BYTES) {
       throw new SettingsFormatError(
         `settings document revision ${key} exceeds its ${MAX_SETTINGS_DOCUMENT_BYTES}-byte limit`
       );
     }
-    const hash = hashCanonicalSettingsDocumentV2(document);
+    const hash = schema.hashDocument(document);
     if (hashes.has(hash)) throw new SettingsFormatError("settings state contains byte-identical document revisions");
     hashes.add(hash);
     result[key] = document;
@@ -164,94 +216,10 @@ function parseDocuments(
   return result;
 }
 
-/** Exported for reuse by server/settings-v3-state-validation.ts: activation,
- *  outcome, and transaction-pointer shapes do not reference a document
- *  version, so schema 3's state validator reuses these verbatim. */
-export function parseActivation(value: unknown): SettingsActivationV2 {
-  const activation = closedRecord(value, "settings state.activation", ACTIVATION);
-  return {
-    transactionId: requireMutationId(activation.transactionId, "settings state.activation.transactionId"),
-    oldHash: requireHash(activation.oldHash, "settings state.activation.oldHash"),
-    candidateHash: requireHash(activation.candidateHash, "settings state.activation.candidateHash"),
-    state: oneOf(
-      activation.state,
-      SETTINGS_ACTIVATION_STATE_V2_VALUES,
-      "settings state.activation.state"
-    ),
-    attempt: literal(activation.attempt, 1, "settings state.activation.attempt")
-  };
-}
-
-export function parseOutcome(value: unknown, generation: number, clock: number): SettingsActivationOutcomeV2 {
-  const outcome = closedRecord(value, "settings state.lastActivationOutcome", OUTCOME);
-  const result = oneOf(
-    outcome.result,
-    SETTINGS_ACTIVATION_OUTCOME_RESULT_V2_VALUES,
-    "settings activation outcome.result"
-  );
-  const errorCode = outcome.errorCode === null
-    ? null
-    : oneOf(
-        outcome.errorCode,
-        SETTINGS_ACTIVATION_ERROR_CODE_V2_VALUES,
-        "settings activation outcome.errorCode"
-      );
-  const candidateRevision = requirePositiveSettingsInteger(
-    outcome.candidateRevision,
-    "settings activation outcome.candidateRevision"
-  );
-  if (candidateRevision > clock) {
-    throw new SettingsFormatError("settings activation outcome candidate revision exceeds the clock");
-  }
-  const atStateGeneration = requirePositiveSettingsInteger(
-    outcome.atStateGeneration,
-    "settings activation outcome.atStateGeneration"
-  );
-  if (atStateGeneration > generation) {
-    throw new SettingsFormatError("settings activation outcome generation is in the future");
-  }
-  const common = {
-    transactionId: requireMutationId(outcome.transactionId, "settings activation outcome.transactionId"),
-    candidateRevision,
-    atStateGeneration
-  };
-  if (result === "committed") {
-    if (errorCode !== null) {
-      throw new SettingsFormatError("only a committed settings activation outcome has null errorCode");
-    }
-    return { ...common, result, errorCode };
-  }
-  if (errorCode === null) {
-    throw new SettingsFormatError("only a committed settings activation outcome has null errorCode");
-  }
-  return { ...common, result, errorCode };
-}
-
-export function parseTransactionPointer(value: unknown): SettingsTransactionPointerV2 {
-  const candidate = value as Record<string, unknown> | null;
-  if (candidate?.receiptKind === "user") {
-    const pointer = closedRecord(value, "settings state.lastTransaction", USER_POINTER);
-    return {
-      receiptKind: "user",
-      mutationId: requireMutationId(pointer.mutationId, "settings state.lastTransaction.mutationId"),
-      phase: literal(pointer.phase, "prepared", "settings state.lastTransaction.phase")
-    };
-  }
-  if (candidate?.receiptKind === "format-migration-v1") {
-    const pointer = closedRecord(value, "settings state.lastTransaction", MIGRATION_POINTER);
-    if (typeof pointer.key !== "string" || !FM1_KEY_PATTERN.test(pointer.key)) {
-      throw new SettingsFormatError("settings state.lastTransaction.key is not a canonical fm1 key");
-    }
-    return {
-      receiptKind: "format-migration-v1",
-      key: pointer.key,
-      phase: literal(pointer.phase, "prepared", "settings state.lastTransaction.phase")
-    };
-  }
-  throw new SettingsFormatError("settings state.lastTransaction.receiptKind is invalid");
-}
-
-function validateRoleDocuments(state: SettingsStateV2, relation: SettingsStateRelation): void {
+function validateRoleDocuments<D extends CredentialBearingSettingsDocument>(
+  state: SettingsStateFields<D>,
+  relation: SettingsStateRelation
+): void {
   const referenced = new Set([state.activeRevision]);
   if (state.pendingRevision !== null) referenced.add(state.pendingRevision);
   if (state.previousRevision !== null) referenced.add(state.previousRevision);
@@ -272,17 +240,21 @@ function validateRoleDocuments(state: SettingsStateV2, relation: SettingsStateRe
   }
 }
 
-function validateActivationBinding(state: SettingsStateV2, relation: SettingsStateRelation): void {
+function validateActivationBinding<D extends CredentialBearingSettingsDocument>(
+  state: SettingsStateFields<D>,
+  relation: SettingsStateRelation,
+  hashDocument: (document: D) => string
+): void {
   if (state.activation === null) return;
   const oldRevision = relation === "promoted" || relation === "committed"
     ? state.previousRevision!
     : state.activeRevision;
   const oldDocument = state.documents[String(oldRevision)]!;
   const candidateDocument = state.documents[String(state.pendingRevision!)]!;
-  if (state.activation.oldHash !== hashCanonicalSettingsDocumentV2(oldDocument)) {
+  if (state.activation.oldHash !== hashDocument(oldDocument)) {
     throw new SettingsFormatError("settings activation oldHash does not bind its old document");
   }
-  if (state.activation.candidateHash !== hashCanonicalSettingsDocumentV2(candidateDocument)) {
+  if (state.activation.candidateHash !== hashDocument(candidateDocument)) {
     throw new SettingsFormatError("settings activation candidateHash does not bind its candidate document");
   }
   if (state.activation.oldHash === state.activation.candidateHash) {
@@ -290,7 +262,10 @@ function validateActivationBinding(state: SettingsStateV2, relation: SettingsSta
   }
 }
 
-function validateTransactionBinding(state: SettingsStateV2, relation: SettingsStateRelation): void {
+function validateTransactionBinding<D extends CredentialBearingSettingsDocument>(
+  state: SettingsStateFields<D>,
+  relation: SettingsStateRelation
+): void {
   if (relation === "clean") return;
   const pointer = state.lastTransaction;
   if (pointer?.receiptKind !== "user") {
@@ -301,7 +276,12 @@ function validateTransactionBinding(state: SettingsStateV2, relation: SettingsSt
   }
 }
 
-function validateInitialNullPointer(state: SettingsStateV2, relation: SettingsStateRelation): void {
+function validateInitialNullPointer<D extends CredentialBearingSettingsDocument>(
+  state: SettingsStateFields<D>,
+  relation: SettingsStateRelation,
+  hashDocument: (document: D) => string,
+  initialDocumentHash: string
+): void {
   if (state.lastTransaction !== null) return;
   if (
     relation !== "clean"
@@ -309,7 +289,7 @@ function validateInitialNullPointer(state: SettingsStateV2, relation: SettingsSt
     || state.settingsRevisionClock !== 1
     || state.activeRevision !== 1
     || state.lastActivationOutcome !== null
-    || hashCanonicalSettingsDocumentV2(state.documents["1"]!) !== INITIAL_SETTINGS_DOCUMENT_V2_HASH
+    || hashDocument(state.documents["1"]!) !== initialDocumentHash
   ) {
     throw new SettingsFormatError(
       "null lastTransaction is reserved for the exact canonical initial settings state"
@@ -317,7 +297,11 @@ function validateInitialNullPointer(state: SettingsStateV2, relation: SettingsSt
   }
 }
 
-export function settingsStateEnvelopeBytes(state: SettingsStateV2): number {
+/** Version-free: the fixed-envelope byte bound applies to any settings
+ *  state, whichever document version it carries. */
+export function settingsStateEnvelopeBytes<D extends CredentialBearingSettingsDocument>(
+  state: SettingsStateFields<D>
+): number {
   const total = Buffer.byteLength(canonicalJson(state), "utf8");
   const documents = Object.values(state.documents)
     .reduce((sum, document) => sum + Buffer.byteLength(canonicalJson(document), "utf8"), 0);
@@ -330,52 +314,20 @@ export function settingsStateEnvelopeBytes(state: SettingsStateV2): number {
   return envelope;
 }
 
-function requireDocumentRevision(
+function requireDocumentRevision<D extends CredentialBearingSettingsDocument>(
   value: unknown,
   label: string,
-  documents: Readonly<Record<string, SettingsDocumentV2>>
+  documents: Readonly<Record<string, D>>
 ): number {
   const revision = requirePositiveSettingsInteger(value, label);
   if (!Object.hasOwn(documents, String(revision))) throw new SettingsFormatError(`${label} does not resolve`);
   return revision;
 }
 
-function nullableDocumentRevision(
+function nullableDocumentRevision<D extends CredentialBearingSettingsDocument>(
   value: unknown,
   label: string,
-  documents: Readonly<Record<string, SettingsDocumentV2>>
+  documents: Readonly<Record<string, D>>
 ): number | null {
   return value === null ? null : requireDocumentRevision(value, label, documents);
-}
-
-export function parseRevisionKey(value: string): number {
-  if (!/^[1-9][0-9]{0,15}$/u.test(value)) {
-    throw new SettingsFormatError(`settings document revision key ${JSON.stringify(value)} is invalid`);
-  }
-  const revision = Number(value);
-  if (!Number.isSafeInteger(revision) || String(revision) !== value) {
-    throw new SettingsFormatError(`settings document revision key ${JSON.stringify(value)} is not canonical`);
-  }
-  return revision;
-}
-
-export function requireMutationId(value: unknown, label: string): string {
-  if (typeof value !== "string" || !MUTATION_ID_PATTERN.test(value)) {
-    throw new SettingsFormatError(`${label} is invalid`);
-  }
-  return value;
-}
-
-export function requireHash(value: unknown, label: string): string {
-  if (typeof value !== "string" || !HASH256_PATTERN.test(value)) {
-    throw new SettingsFormatError(`${label} is invalid`);
-  }
-  return value;
-}
-
-function oneOf<const T extends readonly string[]>(value: unknown, choices: T, label: string): T[number] {
-  if (typeof value !== "string" || !(choices as readonly string[]).includes(value)) {
-    throw new SettingsFormatError(`${label} is invalid`);
-  }
-  return value as T[number];
 }

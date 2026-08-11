@@ -1,19 +1,13 @@
 import type { SettingsDocumentV2, SettingsStateV2 } from "../shared/settings-v2-types.js";
 import {
   assertNfcJsonStrings,
-  canonicalJson,
-  decodeCanonicalUtf8,
-  encodeUtf8Strict
+  canonicalJson
 } from "./canonical-json.js";
 import {
   hashSettingsDocumentV2Bytes,
   hashSettingsStateV2Bytes
 } from "./settings-v2-hash.js";
-import {
-  MAX_SETTINGS_DOCUMENT_BYTES,
-  MAX_SETTINGS_STATE_BYTES,
-  SettingsFormatError
-} from "./settings-v2-scalars.js";
+import { MAX_SETTINGS_DOCUMENT_BYTES, MAX_SETTINGS_STATE_BYTES, SettingsFormatError } from "./settings-v2-scalars.js";
 import {
   settingsStateEnvelopeBytes,
   validateSettingsStateV2
@@ -23,6 +17,14 @@ import {
   type SettingsValidationOptions
 } from "./settings-v2-validation.js";
 import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
+import {
+  assertSettingsDocumentSize,
+  assertSettingsStateSize,
+  decodeSettingsBytes,
+  deepFreezeSettings,
+  encodeSettingsText,
+  settingsCodecError
+} from "./settings-codec-shared.js";
 
 export function parseSettingsDocumentV2(
   value: unknown,
@@ -31,10 +33,10 @@ export function parseSettingsDocumentV2(
   try {
     assertNfcJsonStrings(value, "settings document");
     const document = validateSettingsDocumentV2(value, options);
-    assertDocumentSize(canonicalJson(document));
-    return deepFreeze(document);
+    assertSettingsDocumentSize(canonicalJson(document));
+    return deepFreezeSettings(document);
   } catch (error) {
-    throw settingsError("Settings document is invalid", error);
+    throw settingsCodecError("Settings document is invalid", error);
   }
 }
 
@@ -47,14 +49,14 @@ export function parseSettingsDocumentV2Bytes(
       `Settings document exceeds its ${MAX_SETTINGS_DOCUMENT_BYTES}-byte size limit`
     );
   }
-  return parseSettingsDocumentV2Text(decode(bytes, "settings document"), options);
+  return parseSettingsDocumentV2Text(decodeSettingsBytes(bytes, "settings document"), options);
 }
 
 export function parseSettingsDocumentV2Text(
   text: string,
   options: SettingsValidationOptions = {}
 ): SettingsDocumentV2 {
-  const bytes = encode(text, "settings document");
+  const bytes = encodeSettingsText(text, "settings document");
   if (bytes.byteLength > MAX_SETTINGS_DOCUMENT_BYTES) {
     throw new SettingsFormatError(
       `Settings document exceeds its ${MAX_SETTINGS_DOCUMENT_BYTES}-byte size limit`
@@ -71,10 +73,10 @@ export function formatSettingsDocumentV2(document: SettingsDocumentV2): string {
   try {
     const parsed = parseSettingsDocumentV2(document);
     const text = canonicalJson(parsed);
-    assertDocumentSize(text);
+    assertSettingsDocumentSize(text);
     return text;
   } catch (error) {
-    throw settingsError("Settings document cannot be formatted", error);
+    throw settingsCodecError("Settings document cannot be formatted", error);
   }
 }
 
@@ -94,11 +96,11 @@ export function parseSettingsStateV2(
     assertNfcJsonStrings(value, "settings state");
     const state = validateSettingsStateV2(value, options);
     const text = canonicalJson(state);
-    assertStateSize(text);
+    assertSettingsStateSize(text);
     settingsStateEnvelopeBytes(state);
-    return deepFreeze(state);
+    return deepFreezeSettings(state);
   } catch (error) {
-    throw settingsError("Settings state is invalid", error);
+    throw settingsCodecError("Settings state is invalid", error);
   }
 }
 
@@ -109,14 +111,14 @@ export function parseSettingsStateV2Bytes(
   if (bytes.byteLength > MAX_SETTINGS_STATE_BYTES) {
     throw new SettingsFormatError(`Settings state exceeds its ${MAX_SETTINGS_STATE_BYTES}-byte size limit`);
   }
-  return parseSettingsStateV2Text(decode(bytes, "settings state"), options);
+  return parseSettingsStateV2Text(decodeSettingsBytes(bytes, "settings state"), options);
 }
 
 export function parseSettingsStateV2Text(
   text: string,
   options: SettingsValidationOptions = {}
 ): SettingsStateV2 {
-  const bytes = encode(text, "settings state");
+  const bytes = encodeSettingsText(text, "settings state");
   if (bytes.byteLength > MAX_SETTINGS_STATE_BYTES) {
     throw new SettingsFormatError(`Settings state exceeds its ${MAX_SETTINGS_STATE_BYTES}-byte size limit`);
   }
@@ -131,10 +133,10 @@ export function formatSettingsStateV2(state: SettingsStateV2): string {
   try {
     const parsed = parseSettingsStateV2(state);
     const text = canonicalJson(parsed);
-    assertStateSize(text);
+    assertSettingsStateSize(text);
     return text;
   } catch (error) {
-    throw settingsError("Settings state cannot be formatted", error);
+    throw settingsCodecError("Settings state cannot be formatted", error);
   }
 }
 
@@ -144,50 +146,4 @@ export function formatSettingsStateV2Bytes(state: SettingsStateV2): Uint8Array {
 
 export function hashSettingsStateV2(state: SettingsStateV2): string {
   return hashSettingsStateV2Bytes(formatSettingsStateV2Bytes(state));
-}
-
-function assertDocumentSize(text: string): void {
-  const bytes = Buffer.byteLength(text, "utf8");
-  if (bytes > MAX_SETTINGS_DOCUMENT_BYTES) {
-    throw new SettingsFormatError(
-      `Settings document exceeds its ${MAX_SETTINGS_DOCUMENT_BYTES}-byte size limit`
-    );
-  }
-}
-
-function assertStateSize(text: string): void {
-  const bytes = Buffer.byteLength(text, "utf8");
-  if (bytes > MAX_SETTINGS_STATE_BYTES) {
-    throw new SettingsFormatError(`Settings state exceeds its ${MAX_SETTINGS_STATE_BYTES}-byte size limit`);
-  }
-}
-
-function decode(bytes: Uint8Array, label: string): string {
-  try {
-    return decodeCanonicalUtf8(bytes, label);
-  } catch (error) {
-    throw settingsError(`${label} is not strict UTF-8`, error);
-  }
-}
-
-function encode(text: string, label: string): Uint8Array {
-  try {
-    return encodeUtf8Strict(text, label);
-  } catch (error) {
-    throw settingsError(`${label} contains invalid Unicode`, error);
-  }
-}
-
-function settingsError(message: string, cause: unknown): SettingsFormatError {
-  if (cause instanceof SettingsFormatError) return cause;
-  const detail = cause instanceof Error ? `: ${cause.message}` : "";
-  return new SettingsFormatError(`${message}${detail}`, { cause });
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
-  }
-  return value;
 }

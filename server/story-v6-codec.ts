@@ -18,8 +18,10 @@ import {
   requireStoryId
 } from "./story-v5-strict.js";
 import type {
+  DeletedStoryEnvelopeManifest,
   DeletedStoryManifestV6,
   Hash256,
+  LiveStoryEnvelopeManifest,
   LiveStoryManifestV6,
   MutationId,
   ParsedStoryManifest,
@@ -170,7 +172,7 @@ export function requireV6Manifest(manifest: StoryEnvelopeManifest, context: stri
   return manifest;
 }
 
-export function storySummaryFromV6(manifest: LiveStoryManifestV6 | LiveStoryManifestV8): StorySummary {
+export function storySummaryFromLiveEnvelope(manifest: LiveStoryEnvelopeManifest): StorySummary {
   const words = safeSummaryNumber(manifest.summary.words, "summary.words");
   const lineCount = safeSummaryNumber(manifest.summary.lineCount, "summary.lineCount");
   return {
@@ -211,108 +213,87 @@ function parseV8(value: Record<string, unknown>, expectedId: string): StoryManif
   throw new StoryFormatError(`Story ${expectedId} V${STORY_SCHEMA_VERSION_V8} kind must be live or deleted`);
 }
 
-/** Mirrors `parseLive` exactly, except its content must be an exact V7
- * payload and its own `schemaVersion` literal is 8. The envelope shape
- * (`LIVE`) and every scalar/pointer parser are shared with V6: a schema
- * version identifies one document shape, and the two envelopes differ only
- * in which content version they may wrap. */
-function parseLive8(value: unknown, expectedId: string): LiveStoryManifestV8 {
-  const manifest = closedRecord(value, `story ${expectedId} V${STORY_SCHEMA_VERSION_V8} live manifest`, LIVE);
-  parseCommonLiterals8(manifest);
-  literal(manifest.kind, "live", "manifest.kind");
-  const id = matchedStoryId(manifest.id, expectedId);
-  const revision = revision20(manifest.revision, "manifest.revision");
-  const previousManifestHash = nullableHash(manifest.previousManifestHash, "manifest.previousManifestHash");
-  assertRevisionPredecessor(revision, previousManifestHash);
-  const content = parseManifestValueWithVersion(manifest.content, id);
-  if (content.sourceSchemaVersion !== STORY_SUCCESSOR_SCHEMA_VERSION) {
-    throw new StoryFormatError(
-      `V${STORY_SCHEMA_VERSION_V8} content must contain an exact V${STORY_SUCCESSOR_SCHEMA_VERSION} payload`
-    );
-  }
-  const summary = parseStorySummaryV6(manifest.summary);
-  const unresolvedProvider = nullableProviderPointer(manifest.unresolvedProvider);
-  const lastTransaction = nullableTransactionPointer(manifest.lastTransaction);
-  if (lastTransaction?.phase === "started" && (
-    unresolvedProvider === null || unresolvedProvider.mutationId !== lastTransaction.mutationId
-  )) {
-    throw new StoryFormatError("A started story transaction must match unresolvedProvider");
-  }
-  const parsed: LiveStoryManifestV8 = {
-    format: "1667-story",
-    schemaVersion: STORY_SCHEMA_VERSION_V8,
-    kind: "live",
-    id,
-    revision,
-    previousManifestHash,
-    content: content.manifest,
-    summary,
-    unresolvedProvider,
-    lastTransaction
-  };
-  assertSummaryMatchesContent(parsed);
-  return parsed;
-}
-
-/** Mirrors `parseDeleted`; see the comment on `parseLive8`. */
-function parseDeleted8(value: unknown, expectedId: string): DeletedStoryManifestV8 {
-  const manifest = closedRecord(value, `story ${expectedId} V${STORY_SCHEMA_VERSION_V8} deleted manifest`, DELETED);
-  parseCommonLiterals8(manifest);
-  literal(manifest.kind, "deleted", "manifest.kind");
-  const id = matchedStoryId(manifest.id, expectedId);
-  const revision = revision20(manifest.revision, "manifest.revision");
-  const previousManifestHash = hash256(manifest.previousManifestHash, "manifest.previousManifestHash");
-  if (revision === REVISION_ONE) throw new StoryFormatError("Deleted story revision must be greater than 1");
-  return {
-    format: "1667-story",
-    schemaVersion: STORY_SCHEMA_VERSION_V8,
-    kind: "deleted",
-    id,
-    revision,
-    previousManifestHash,
-    deletedAt: timeMs(manifest.deletedAt, "manifest.deletedAt"),
-    unresolvedProvider: nullableProviderPointer(manifest.unresolvedProvider),
-    lastTransaction: preparedTransactionPointer(manifest.lastTransaction)
-  };
-}
-
 function parseLive(value: unknown, expectedId: string): LiveStoryManifestV6 {
-  const manifest = closedRecord(value, `story ${expectedId} V6 live manifest`, LIVE);
-  parseCommonLiterals(manifest);
-  literal(manifest.kind, "live", "manifest.kind");
-  const id = matchedStoryId(manifest.id, expectedId);
-  const revision = revision20(manifest.revision, "manifest.revision");
-  const previousManifestHash = nullableHash(manifest.previousManifestHash, "manifest.previousManifestHash");
-  assertRevisionPredecessor(revision, previousManifestHash);
-  const content = parseManifestValueWithVersion(manifest.content, id);
-  if (content.sourceSchemaVersion !== 5) throw new StoryFormatError("V6 content must contain an exact V5 payload");
-  const summary = parseStorySummaryV6(manifest.summary);
-  const unresolvedProvider = nullableProviderPointer(manifest.unresolvedProvider);
-  const lastTransaction = nullableTransactionPointer(manifest.lastTransaction);
-  if (lastTransaction?.phase === "started" && (
-    unresolvedProvider === null || unresolvedProvider.mutationId !== lastTransaction.mutationId
-  )) {
-    throw new StoryFormatError("A started story transaction must match unresolvedProvider");
-  }
-  const parsed: LiveStoryManifestV6 = {
-    format: "1667-story",
-    schemaVersion: STORY_SCHEMA_VERSION_V6,
-    kind: "live",
-    id,
-    revision,
-    previousManifestHash,
-    content: content.manifest,
-    summary,
-    unresolvedProvider,
-    lastTransaction
-  };
-  assertSummaryMatchesContent(parsed);
-  return parsed;
+  return parseLiveEnvelope(value, expectedId, STORY_SCHEMA_VERSION_V6, 5) as LiveStoryManifestV6;
+}
+
+function parseLive8(value: unknown, expectedId: string): LiveStoryManifestV8 {
+  return parseLiveEnvelope(
+    value,
+    expectedId,
+    STORY_SCHEMA_VERSION_V8,
+    STORY_SUCCESSOR_SCHEMA_VERSION
+  ) as LiveStoryManifestV8;
 }
 
 function parseDeleted(value: unknown, expectedId: string): DeletedStoryManifestV6 {
-  const manifest = closedRecord(value, `story ${expectedId} V6 deleted manifest`, DELETED);
-  parseCommonLiterals(manifest);
+  return parseDeletedEnvelope(value, expectedId, STORY_SCHEMA_VERSION_V6) as DeletedStoryManifestV6;
+}
+
+function parseDeleted8(value: unknown, expectedId: string): DeletedStoryManifestV8 {
+  return parseDeletedEnvelope(value, expectedId, STORY_SCHEMA_VERSION_V8) as DeletedStoryManifestV8;
+}
+
+/**
+ * The one live-envelope parser for both schema versions. A schema version
+ * identifies one document shape, so `LIVE` and every scalar/pointer parser
+ * below are shared as-is; only the schema version literal and the expected
+ * content version change between a V6 and a V8 parse. `schemaVersion` and
+ * `contentVersion` are checked against the wire value before the return, so
+ * the closing cast only restates what those checks already proved. It is
+ * the same narrowing `parseStoryManifestBytes` does for the legacy manifest
+ * result.
+ */
+function parseLiveEnvelope(
+  value: unknown,
+  expectedId: string,
+  schemaVersion: 6 | 8,
+  contentVersion: 5 | typeof STORY_SUCCESSOR_SCHEMA_VERSION
+): LiveStoryEnvelopeManifest {
+  const manifest = closedRecord(value, `story ${expectedId} V${schemaVersion} live manifest`, LIVE);
+  parseCommonLiterals(manifest, schemaVersion);
+  literal(manifest.kind, "live", "manifest.kind");
+  const id = matchedStoryId(manifest.id, expectedId);
+  const revision = revision20(manifest.revision, "manifest.revision");
+  const previousManifestHash = nullableHash(manifest.previousManifestHash, "manifest.previousManifestHash");
+  assertRevisionPredecessor(schemaVersion, revision, previousManifestHash);
+  const content = parseManifestValueWithVersion(manifest.content, id);
+  if (content.sourceSchemaVersion !== contentVersion) {
+    throw new StoryFormatError(`V${schemaVersion} content must contain an exact V${contentVersion} payload`);
+  }
+  const summary = parseStorySummaryV6(manifest.summary);
+  const unresolvedProvider = nullableProviderPointer(manifest.unresolvedProvider);
+  const lastTransaction = nullableTransactionPointer(manifest.lastTransaction);
+  if (lastTransaction?.phase === "started" && (
+    unresolvedProvider === null || unresolvedProvider.mutationId !== lastTransaction.mutationId
+  )) {
+    throw new StoryFormatError("A started story transaction must match unresolvedProvider");
+  }
+  const parsed = {
+    format: "1667-story",
+    schemaVersion,
+    kind: "live",
+    id,
+    revision,
+    previousManifestHash,
+    content: content.manifest,
+    summary,
+    unresolvedProvider,
+    lastTransaction
+  } as LiveStoryEnvelopeManifest;
+  assertSummaryMatchesContent(parsed);
+  return parsed;
+}
+
+/** The one deleted-envelope parser for both schema versions. It carries no
+ *  content, so only `schemaVersion` differs between a V6 and a V8 parse. */
+function parseDeletedEnvelope(
+  value: unknown,
+  expectedId: string,
+  schemaVersion: 6 | 8
+): DeletedStoryEnvelopeManifest {
+  const manifest = closedRecord(value, `story ${expectedId} V${schemaVersion} deleted manifest`, DELETED);
+  parseCommonLiterals(manifest, schemaVersion);
   literal(manifest.kind, "deleted", "manifest.kind");
   const id = matchedStoryId(manifest.id, expectedId);
   const revision = revision20(manifest.revision, "manifest.revision");
@@ -320,7 +301,7 @@ function parseDeleted(value: unknown, expectedId: string): DeletedStoryManifestV
   if (revision === REVISION_ONE) throw new StoryFormatError("Deleted story revision must be greater than 1");
   return {
     format: "1667-story",
-    schemaVersion: STORY_SCHEMA_VERSION_V6,
+    schemaVersion,
     kind: "deleted",
     id,
     revision,
@@ -328,23 +309,15 @@ function parseDeleted(value: unknown, expectedId: string): DeletedStoryManifestV
     deletedAt: timeMs(manifest.deletedAt, "manifest.deletedAt"),
     unresolvedProvider: nullableProviderPointer(manifest.unresolvedProvider),
     lastTransaction: preparedTransactionPointer(manifest.lastTransaction)
-  };
+  } as DeletedStoryEnvelopeManifest;
 }
 
-function parseCommonLiterals(manifest: Record<string, unknown>): void {
+function parseCommonLiterals(manifest: Record<string, unknown>, schemaVersion: 6 | 8): void {
   if (manifest.format !== STORY_FORMAT
     && manifest.format !== STORYTAVERN_STORY_FORMAT) {
     throw new StoryFormatError("manifest.format is invalid");
   }
-  literal(manifest.schemaVersion, STORY_SCHEMA_VERSION_V6, "manifest.schemaVersion");
-}
-
-function parseCommonLiterals8(manifest: Record<string, unknown>): void {
-  if (manifest.format !== STORY_FORMAT
-    && manifest.format !== STORYTAVERN_STORY_FORMAT) {
-    throw new StoryFormatError("manifest.format is invalid");
-  }
-  literal(manifest.schemaVersion, STORY_SCHEMA_VERSION_V8, "manifest.schemaVersion");
+  literal(manifest.schemaVersion, schemaVersion, "manifest.schemaVersion");
 }
 
 export function parseStorySummaryV6(value: unknown, label = "manifest.summary"): StorySummaryV6 {
@@ -399,7 +372,7 @@ function preparedTransactionPointer(value: unknown): PreparedUserTransactionPoin
   return pointer;
 }
 
-function assertSummaryMatchesContent(manifest: LiveStoryManifestV6 | LiveStoryManifestV8): void {
+function assertSummaryMatchesContent(manifest: LiveStoryEnvelopeManifest): void {
   const expected = storySummaryV6FromContent(manifest.content);
   const actual = manifest.summary;
   if (
@@ -414,9 +387,15 @@ function assertSummaryMatchesContent(manifest: LiveStoryManifestV6 | LiveStoryMa
   ) throw new StoryFormatError(`V${manifest.schemaVersion} summary does not match its content`);
 }
 
-function assertRevisionPredecessor(revision: Revision20, previous: Hash256 | null): void {
+/** The error names the schema version it actually checked. Before this was
+ *  parameterized, a V8 document that broke this invariant raised a message
+ *  that named V6, because the V8 parser called a copy of this check that
+ *  still hardcoded the V6 wording. */
+function assertRevisionPredecessor(schemaVersion: 6 | 8, revision: Revision20, previous: Hash256 | null): void {
   if ((revision === REVISION_ONE) !== (previous === null)) {
-    throw new StoryFormatError("V6 revision 1 must have no predecessor and later revisions must have one");
+    throw new StoryFormatError(
+      `V${schemaVersion} revision 1 must have no predecessor and later revisions must have one`
+    );
   }
 }
 

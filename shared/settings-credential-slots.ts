@@ -12,7 +12,7 @@ import type { ModelConnectionV2 } from "./settings-v2-types.js";
  * server/settings-v3-state-validation.ts skip the state-wide credential
  * bound `server/settings-v2-state-validation.ts` enforces.
  */
-interface CredentialBearingSettingsDocument {
+export interface CredentialBearingSettingsDocument {
   readonly connections: Readonly<Record<string, ModelConnectionV2>>;
 }
 
