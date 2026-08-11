@@ -20,7 +20,7 @@ import {
   openFactsBudgetEditor,
   openPhraseBiasEditor
 } from "./editor-action.js";
-import { generationBusy, openTag, runPartAction } from "./story-actions.js";
+import { generationBusy, openTag, runPartAction, streamLive } from "./story-actions.js";
 import { openDirectComposer } from "./composer-ownership.js";
 import { createUnusedTakesPrunePlan } from "./prune-model.js";
 import { chaptersAction, createBreakAtFocus, openChapters } from "./chapter-actions.js";
@@ -488,7 +488,11 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
 }
 
 async function runCommand(command: PaletteCommand, state: RuntimeState, source: AppSource, context: OverlayActionContext): Promise<void> {
-  if (command.mutating === true && generationBusy(state)) {
+  // Both refusals belong here, ahead of the `state.mode = "NAV"` below: a
+  // command that refuses after that commit strands whatever surface the
+  // palette was opened from, the trap the next-request branch documents.
+  if ((command.mutating === true && generationBusy(state))
+    || (command.blockedByLiveStream === true && streamLive(state))) {
     state.toast = "stream running · esc stops it first";
     return;
   }

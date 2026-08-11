@@ -15,7 +15,7 @@ import {
   MAX_DELETED_STORY_MANIFEST_BYTES,
   parseStoryManifestBytes,
   parseStoryManifestText,
-  storySummaryFromV6
+  storySummaryFromLiveEnvelope
 } from "../server/story-v6-codec.js";
 import { MAX_STORY_MANIFEST_BYTES } from "../server/story-v5-strict.js";
 import { STORY_SCHEMA_SHA256 } from "../shared/story-schema-identity.js";
@@ -69,7 +69,7 @@ test("story V6: formatter and summary adapter preserve the canonical live contra
   if (parsed.kind !== "v6-live") assert.fail("Expected the live V6 fixture to parse as live");
   const manifest = parsed.manifest;
   assert.equal(formatV6(manifest), fixture.text);
-  assert.deepEqual(storySummaryFromV6(manifest), {
+  assert.deepEqual(storySummaryFromLiveEnvelope(manifest), {
     id: "story-one",
     title: "Story",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -97,7 +97,7 @@ test("story V8: successor manifests round-trip with and without Image Attachment
     height: 600,
     byteLength: 123_456
   }]);
-  assert.deepEqual(storySummaryFromV6(parsedWithImages.manifest), {
+  assert.deepEqual(storySummaryFromLiveEnvelope(parsedWithImages.manifest), {
     id: "story-one",
     title: "Story",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -207,6 +207,96 @@ test("story V5: nested string bounds count scalars and reject non-scalar surroga
   manifest.title = "\ud800";
   assert.throws(() => parseStoryManifestText(JSON.stringify(manifest), fixture.expectedId), /unpaired/);
 });
+
+/**
+ * The interim safety net for the shared live-envelope parser
+ * (`parseLiveEnvelope` in `server/story-v6-codec.ts`): one invariant table,
+ * run against a V6 fixture and a V8 fixture alike. A future invariant added
+ * to the shared parser always exercises both versions already, but this
+ * catches the regression the review actually found. That regression is a
+ * check that quietly stops firing, or fires with the wrong version name,
+ * for one envelope version and not the other.
+ */
+test("story V6/V8: the same invariant table rejects both live envelope versions", () => {
+  const liveFixtureText: Record<6 | 8, string> = {
+    6: mustFixture("v6-live-revision-1").text,
+    8: mustFixture("v8-live-without-images").text
+  };
+
+  interface Invariant {
+    readonly name: string;
+    readonly breakManifest: (manifest: Record<string, unknown>) => void;
+    readonly expected: (schemaVersion: 6 | 8) => RegExp;
+  }
+
+  const invariants: Invariant[] = [
+    {
+      name: "revision 1 must have no predecessor",
+      breakManifest: (manifest) => {
+        manifest.previousManifestHash = "a".repeat(64);
+      },
+      expected: (schemaVersion) => new RegExp(`V${schemaVersion} revision 1 must have no predecessor`)
+    },
+    {
+      name: "a started transaction must match unresolvedProvider",
+      breakManifest: (manifest) => {
+        manifest.lastTransaction = {
+          receiptKind: "user",
+          mutationId: "m1.1767225600000.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          phase: "started"
+        };
+      },
+      expected: () => /A started story transaction must match unresolvedProvider/
+    },
+    {
+      name: "content must contain the exact matching content version",
+      breakManifest: (manifest) => {
+        const content = manifest.content as Record<string, unknown>;
+        content.schemaVersion = 4;
+      },
+      expected: (schemaVersion) => new RegExp(`V${schemaVersion} content must contain an exact V`)
+    },
+    {
+      name: "summary must match its content",
+      breakManifest: (manifest) => {
+        const summary = manifest.summary as Record<string, unknown>;
+        summary.title = "Different Title";
+      },
+      expected: (schemaVersion) => new RegExp(`V${schemaVersion} summary does not match its content`)
+    }
+  ];
+
+  for (const invariant of invariants) {
+    for (const schemaVersion of [6, 8] as const) {
+      const manifest = JSON.parse(liveFixtureText[schemaVersion]) as Record<string, unknown>;
+      invariant.breakManifest(manifest);
+      const text = canonicalJson(manifest);
+      assert.throws(
+        () => parseStoryManifestText(text, "story-one"),
+        invariant.expected(schemaVersion),
+        `${invariant.name} (V${schemaVersion})`
+      );
+    }
+  }
+});
+
+test("story V6/V8: a deleted envelope of either version refuses revision 1", () => {
+  const deletedV6 = JSON.parse(mustFixture("v6-deleted").text) as Record<string, unknown>;
+  for (const schemaVersion of [6, 8] as const) {
+    const manifest = { ...deletedV6, schemaVersion, revision: "00000000000000000001" };
+    assert.throws(
+      () => parseStoryManifestText(canonicalJson(manifest), "story-one"),
+      /Deleted story revision must be greater than 1/,
+      `deleted revision 1 (V${schemaVersion})`
+    );
+  }
+});
+
+function mustFixture(name: string): CorpusCase {
+  const fixture = corpus.cases.find((entry) => entry.name === name);
+  assert.ok(fixture);
+  return fixture;
+}
 
 function corruptTitleByte(manifest: Record<string, unknown>): Buffer {
   const bytes = Buffer.from(JSON.stringify(manifest));

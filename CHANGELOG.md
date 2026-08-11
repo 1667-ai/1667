@@ -14,6 +14,25 @@ This file records notable changes to 1667. Product terms use the definitions in
   it stopped. It refuses only when no point fits at all, and that message now
   names a fix you can act on. Thanks to @10fra.
 
+- **1667 no longer ends a generation while a model server is still
+  processing the prompt.** Prefill is the model server's work before it
+  sends the first output token. The server sends no stream output while it
+  does this, and a large prompt takes longer to prefill than a short prompt.
+  1667 cannot tell a server that is still prefilling apart from a server
+  that failed, so it now waits for the first token until the connection's
+  own total deadline, not the shorter first-token value alone. The headers
+  deadline is unchanged: a server that has not returned response headers
+  still ends the generation quickly. Thanks @10fra for the report.
+
+- **Three connection deadlines are editable in Settings.** The new
+  **headers**, **idle**, and **total** rows sit under the **connection**
+  section. Each value already lived in the settings document, and Settings
+  now shows and edits it directly instead of a hand edit of the settings
+  file. There is no row for the first-token deadline, because 1667 waits for
+  the first token until the **total** deadline and a first-token value
+  cannot change a request. To give a slow prompt more time, raise **total**.
+  Thanks to @10fra.
+
 - **1667 prepares to send images to a model.** This release contains the
   complete Image Input implementation and keeps every entry point closed. It
   cannot attach an image yet. 1667 releases a new storage schema in two steps:

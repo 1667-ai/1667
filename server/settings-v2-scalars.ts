@@ -35,6 +35,11 @@ export const MAX_SETTINGS_URL_SCALARS = 4_096;
  * so a single value governs both — see `MAX_AUTHOR_BRIEF_CHARS`. */
 export const MAX_SETTINGS_AUTHOR_BRIEF_SCALARS = MAX_AUTHOR_BRIEF_CHARS;
 export const MAX_SETTINGS_TIMEOUT_MS = 86_400_000;
+/** `requirePositiveSettingsInteger` accepts 1 upward, so this names the floor
+ *  a timeout already had rather than adding a rule. A Settings row reads it so
+ *  it presents the domain the document accepts instead of guessing one from
+ *  whatever unit it happens to display. */
+export const MIN_SETTINGS_TIMEOUT_MS = 1;
 export const MAX_SETTINGS_TOKEN_COUNT = 1_000_000_000;
 
 export const SETTINGS_ID_PATTERN_SOURCE = "[A-Za-z0-9][A-Za-z0-9._:-]{0,127}";

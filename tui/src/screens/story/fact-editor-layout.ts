@@ -49,7 +49,11 @@ export function renderFactEditorLayout(
     composer: editor.composer,
     fullscreen: true,
     terminalWidth: options.width,
-    terminalHeight: Math.max(4, options.height - 3),
+    // The header rows below are inserted above the body, so the body composer
+    // must lay out against the height that is left. A smaller reservation
+    // scrolls the body against rows the terminal never shows, which puts the
+    // cursor below the bottom of the screen.
+    terminalHeight: Math.max(4, options.height - headerRows),
     measure: options.width,
     title: editor.title,
     footerHints: FACT_EDITOR_FOOTER,

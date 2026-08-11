@@ -155,13 +155,16 @@ export function keyslotWithState(keyslot: VaultKeyslot, state: VaultKeyslotState
 }
 
 async function deriveKey(password: string, salt: Uint8Array): Promise<Buffer> {
+  // Node.js reports a successful derivation with `null`. Bun reports it with
+  // `undefined`. The standalone executable holds the Bun runtime, so a test
+  // against `null` alone rejects every successful derivation there.
   return await new Promise((resolve, reject) => {
     scrypt(password, salt, VAULT_KEY_BYTES, {
       N: SCRYPT_COST,
       r: SCRYPT_BLOCK_SIZE,
       p: SCRYPT_PARALLELIZATION,
       maxmem: SCRYPT_MAX_MEMORY
-    }, (error, derived) => error === null ? resolve(derived) : reject(error));
+    }, (error, derived) => error == null ? resolve(derived) : reject(error));
   });
 }
 
