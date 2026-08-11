@@ -552,10 +552,11 @@ contains only the opaque secret identifier.
 Local servers such as Ollama can use a connection without a credential. 1667
 enables prompt cache controls only for exact official provider hosts.
 
-The project settings document at `.1667/settings.v2.state.json` stores four
-deadlines for each model connection: **headers**, **first token**, **idle**,
-and **total**. A new network connection uses 120 seconds for **headers**,
-for **first token**, and for **idle**. It uses 30 minutes for **total**.
+The project settings document at `.1667/settings.v2.state.json` stores three
+deadlines that 1667 applies to each model connection: **headers**, **idle**,
+and **total**. A new network connection uses 120 seconds for **headers** and
+for **idle**. It uses 30 minutes for **total**. The document also holds a
+**first token** value, which 1667 keeps but does not read.
 
 ### Change a deadline in Settings
 
@@ -570,8 +571,9 @@ The panel shows no row for **first token**. 1667 waits for the first token
 until the **total** deadline, so a **first token** value cannot change a
 request. To give a slow prompt more time, raise **total**.
 
-You can also set `connections.<id>.timeouts.responseHeaderMs`, `firstTokenMs`,
-`idleMs`, and `totalMs` directly in the project settings document.
+You can also set `connections.<id>.timeouts.responseHeaderMs`, `idleMs`, and
+`totalMs` directly in the project settings document. The document also holds
+`firstTokenMs`, which 1667 keeps but does not read.
 
 ### The header and first-token deadlines, and prefill
 
@@ -591,8 +593,11 @@ covers the whole time a server can spend on prefill after it sends headers.
 
 Increase the **total** deadline in Settings when a model server needs more
 time to answer, including time spent in prefill on a large prompt or on slow
-hardware. The **first token** value still sets a minimum wait, but the
-**total** deadline decides the actual limit for prefill.
+hardware.
+
+1667 no longer reads the **first token** value. A settings document keeps the
+`firstTokenMs` field, and 1667 accepts it, but the value changes no request.
+Only the **total** deadline limits prefill.
 
 This design has one tradeoff. A generation that never receives response
 headers still ends at the **headers** deadline. A generation that receives
