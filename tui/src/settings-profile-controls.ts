@@ -60,6 +60,7 @@ import {
   settingsProfileIds
 } from "./settings-profile-draft.js";
 import { storedApiKeyPresentation } from "./settings-secret-sidecar.js";
+import { connectionTimeoutRows } from "./settings-connection-timeouts.js";
 import {
   settingsTextDraftForDocument,
   settingsTextDraftWithCachePolicy,
@@ -176,6 +177,7 @@ export function settingsRows(
       value: storedApiKeyPresentation(overlay),
       hint: "kept on this machine, never in a story"
     },
+    ...connectionTimeoutRows(overlay),
     {
       id: "profile", section: "model", label: "profile",
       value: profileRowValue(overlay),

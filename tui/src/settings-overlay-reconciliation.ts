@@ -8,6 +8,11 @@ import {
   type LocalConfigRow
 } from "./settings-local-rows.js";
 import { renameSettingsProfile } from "./settings-profile-draft.js";
+import {
+  connectionTimeoutEditValueForDraft,
+  draftWithConnectionTimeoutEditText,
+  isConnectionTimeoutRow
+} from "./settings-connection-timeouts.js";
 import { sameConnectionSecrets } from "./settings-secret-sidecar.js";
 import {
   parseSettings,
@@ -280,6 +285,7 @@ export function draftRowEditValue(
   draft: SettingsTextDraft,
   row: Exclude<SettingsRowId, LocalConfigRow | "allow-insecure-http" | "profile" | "sampling">
 ): string {
+  if (isConnectionTimeoutRow(row)) return connectionTimeoutEditValueForDraft(row, draft);
   const settings = draft.generation;
   if (row === "provider") return settings.provider;
   if (row === "base-url") return settings.baseUrl;
@@ -326,6 +332,9 @@ function draftWithActiveEdit(
       ...draft.generation,
       systemPrompt: edit.composer.text
     });
+  }
+  if (isConnectionTimeoutRow(row)) {
+    return draftWithConnectionTimeoutEditText(draft, row, edit.composer.text);
   }
   const fieldKey = settingsFieldKey(row);
   if (fieldKey === undefined) return draft;
