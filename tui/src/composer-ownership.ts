@@ -13,6 +13,11 @@ type RetakeFocusState = Pick<RuntimeState,
   "payload" | "stream" | "focusIndex" | "viewScroll" | "viewScrollDelta"
 >;
 
+/** Claiming Direct needs the stream so it can refuse mid-stream. Every door
+ * into the Direct editor passes RuntimeState, so requiring the field here
+ * makes a caller that cannot answer the question a type error. */
+type DirectClaimState = ComposerOwnershipState & Pick<RuntimeState, "stream">;
+
 /** Resume the persistent Direct editor. Explicit Direct ownership also retires
  * a pending retake so late settlement cannot resurrect it.
  *
@@ -43,9 +48,20 @@ export function resumeDirectComposer(
   return prompt !== null;
 }
 
-export function openDirectComposer(state: ComposerOwnershipState): void {
+/** Open the persistent Direct editor, and report whether the writer got it.
+ * A claim burns the composer claim epoch, and the in-flight submission's own
+ * draft is fenced by that epoch, so claiming mid-stream strands the prompt
+ * exactly when a failed generation needs it back. Refuse instead, and leave
+ * the wording to the caller that knows which door the writer used.
+ *
+ * The condition is the live stream rather than generationBusy: Stop clears
+ * the stream but holds the abort fence until the task settles, and the writer
+ * must still be able to reopen the editor on the draft Stop just restored. */
+export function openDirectComposer(state: DirectClaimState): boolean {
+  if (state.stream !== null) return false;
   claimDirectComposer(state);
   state.mode = "COMPOSE";
+  return true;
 }
 
 export function capturePendingDirectDraft(

@@ -24,11 +24,38 @@ export function isSettingsScalarRow(row: SettingsRowId): row is SettingsScalarRo
  *  `max === null` is C-08's unbounded variant: the chip stays, the track goes,
  *  because a track against an unknown wall would be a bar against a guess. */
 export interface SettingsScalar {
-  readonly row: SettingsScalarRow;
+  /** `SettingsScalarRow` for one of this module's three profile scalars, or
+   *  a `ConnectionTimeoutRow` (settings-connection-timeouts.ts) reusing the
+   *  same chip/track/typed-edit machinery for a document-connection field
+   *  instead of a profile one. Nothing in this module branches on the value
+   *  — it is carried for the row's own identity, not read here — so widening
+   *  it to the full row-id space costs this module nothing. */
+  readonly row: SettingsRowId;
   /** null means the sentinel is showing rather than a number. */
   readonly value: number | null;
   readonly min: number;
   readonly max: number | null;
+  /** What the row will actually accept, when that is wider than the track.
+   *  A connection timeout is the case this exists for: its schema ceiling is
+   *  24 hours (server/settings-v2-scalars.ts), but a track that spanned 24
+   *  hours would pin every ordinary value against its left edge and make a
+   *  step imperceptible. So `max` stays a usable track while this carries the
+   *  real limit, and a hand-edited value between the two is left alone rather
+   *  than reported as past a maximum that does not exist. Absent means `max`
+   *  is the limit, which is every other row. */
+  readonly acceptedMax?: number | null;
+  /** The other end of the same idea: what the row accepts below its track.
+   *  A timeout's schema floor is 1 ms, which in seconds is 0.001 — far below
+   *  a track worth stepping along. Absent means `min` is the floor. */
+  readonly acceptedMin?: number | null;
+  /** The precision the row's domain has, when that is finer than the one it
+   *  displays. `decimals` above is how the current value is spelled, and a
+   *  row that derives it from that value would otherwise let the value decide
+   *  what may be typed next: a timeout showing `30s` would refuse `1.5`
+   *  purely because its present value happens to be whole. What a row accepts
+   *  must not depend on what it currently holds. Absent means `decimals`
+   *  governs both. */
+  readonly inputDecimals?: number;
   readonly step: number;
   /** Where the `┊` tick sits, or null when the row has no default to mark. */
   readonly defaultValue: number | null;
@@ -114,17 +141,23 @@ export function steppedScalarValue(
   direction: -1 | 1,
   magnitude: ScalarMagnitude
 ): number | null {
-  const max = scalar.max ?? Number.POSITIVE_INFINITY;
-  if (magnitude === "end") return direction === 1 ? scalar.max ?? scalar.value : scalar.min;
+  // The row's real limit, not its track: a value the row accepts has to be
+  // reachable by stepping, or a valid persisted setting above the track would
+  // stall against a bound that is only a visual. Rows without `acceptedMax`
+  // are unchanged, since it falls back to `max`.
+  const limit = scalar.acceptedMax ?? scalar.max;
+  const floor = scalar.acceptedMin ?? scalar.min;
+  const max = limit ?? Number.POSITIVE_INFINITY;
+  if (magnitude === "end") return direction === 1 ? limit ?? scalar.value : floor;
   if (scalar.value === null) return direction === 1 ? scalar.sentinelEntry : null;
   const step = scalar.step * (magnitude === "coarse" ? SCALAR_COARSE_MULTIPLIER : 1);
   const raw = scalar.value + step * direction;
-  if (raw < scalar.min) {
+  if (raw < floor) {
     // Stepping down off the floor returns to the sentinel where the row has
     // one, so `auto` and `default` stay reachable without typing.
-    return scalar.sentinel !== null && scalar.value === scalar.min ? null : scalar.min;
+    return scalar.sentinel !== null && scalar.value === floor ? null : floor;
   }
-  return round(Math.min(max, raw), scalar.decimals);
+  return round(Math.min(max, raw), scalar.inputDecimals ?? scalar.decimals);
 }
 
 /** The chip's text: the number as the row spells it, or the sentinel word.
@@ -153,7 +186,7 @@ export function typedScalarValue(
   }
   const value = Number(trimmed);
   if (!Number.isFinite(value)) return { refused: "not a number" };
-  if (scalar.decimals === 0 && !Number.isInteger(value)) {
+  if ((scalar.inputDecimals ?? scalar.decimals) === 0 && !Number.isInteger(value)) {
     return { refused: "whole numbers only" };
   }
   return { scalar: { ...scalar, value } };
@@ -163,11 +196,16 @@ export function typedScalarValue(
  *  what F-2 shows in the hint slot; it never blocks a keystroke. */
 export function scalarInvalidReason(scalar: SettingsScalar): string | null {
   if (scalar.value === null) return null;
-  if (scalar.value < scalar.min) {
-    return `min is ${formatBound(scalar, scalar.min)}`;
+  const floor = scalar.acceptedMin ?? scalar.min;
+  if (scalar.value < floor) {
+    return `min is ${formatBound(scalar, floor)}`;
   }
-  if (scalar.max !== null && scalar.value > scalar.max) {
-    return `max is ${formatBound(scalar, scalar.max)}`;
+  // `acceptedMax` where the row has one: the track's own ceiling is a
+  // stepping convenience there, not the limit, so a value between the two is
+  // valid and must not be reported as past a maximum.
+  const limit = scalar.acceptedMax ?? scalar.max;
+  if (limit !== null && scalar.value > limit) {
+    return `max is ${formatBound(scalar, limit)}`;
   }
   return null;
 }

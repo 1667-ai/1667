@@ -17,11 +17,11 @@
  * way to register itself into.
  */
 import { randomBytes } from "node:crypto";
-import { execFile } from "node:child_process";
 import { mkdir, open, readdir, rm, unlink, type FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_SOURCE_IMAGE_BYTES, type SourceImageMediaType } from "../../shared/image-attachment.js";
+import { runClipboardHelperProcess, type ClipboardCommandRunner } from "./clipboard-command-runner.js";
 import type { ClipboardContent } from "./clipboard.js";
 
 const CLIPBOARD_DIR = join(tmpdir(), "1667-clipboard-images");
@@ -71,7 +71,15 @@ end run
 
 let scavenged = false;
 
-export async function readClipboardImageMacOS(): Promise<ClipboardContent | null> {
+/**
+ * Read the clipboard image through `osascript`, or through an injected
+ * `runner` in a test so the marker handling and the bounded file read below
+ * are provable without spawning a real process. Every production caller
+ * keeps the default, the real subprocess runner.
+ */
+export async function readClipboardImageMacOS(
+  runner: ClipboardCommandRunner = runClipboardHelperProcess
+): Promise<ClipboardContent | null> {
   await ensureScavenged();
   await mkdir(CLIPBOARD_DIR, { recursive: true, mode: 0o700 }).catch(() => { /* best effort */ });
   const path = join(CLIPBOARD_DIR, `${randomBytes(16).toString("hex")}.tmp`);
@@ -83,7 +91,7 @@ export async function readClipboardImageMacOS(): Promise<ClipboardContent | null
     if (created === null) return null;
     await created.close();
 
-    const mediaType = await runClipboardImageHelper(path);
+    const mediaType = await runClipboardImageHelper(path, runner);
     if (mediaType === null) {
       await unlink(path).catch(() => { /* nothing usable was written */ });
       return null;
@@ -105,31 +113,31 @@ export async function readClipboardImageMacOS(): Promise<ClipboardContent | null
   }
 }
 
-function runClipboardImageHelper(path: string): Promise<SourceImageMediaType | null> {
-  return new Promise((resolve) => {
-    execFile(
-      "bash",
-      [
-        "-c",
-        `ulimit -f ${FILE_LIMIT_BLOCKS} 2>/dev/null; ulimit -v ${MEMORY_LIMIT_KB} 2>/dev/null; exec osascript -e "$1" "$2"`,
-        "bash",
-        CLIPBOARD_APPLESCRIPT,
-        path
-      ],
-      {
-        encoding: "utf8",
-        timeout: HELPER_TIMEOUT_MS,
-        killSignal: "SIGKILL",
-        maxBuffer: 4_096,
-        windowsHide: true
-      },
-      (error, stdout) => {
-        if (error !== null) { resolve(null); return; }
-        const marker = stdout.trim();
-        resolve(marker === "image/png" || marker === "image/jpeg" ? marker : null);
-      }
-    );
+/** The exact `bash`/`osascript` invocation the real runner spawns, exposed
+ *  so a test can assert its shape without executing it. */
+export function macosClipboardImageHelperCommand(path: string): readonly string[] {
+  return [
+    "bash",
+    "-c",
+    `ulimit -f ${FILE_LIMIT_BLOCKS} 2>/dev/null; ulimit -v ${MEMORY_LIMIT_KB} 2>/dev/null; exec osascript -e "$1" "$2"`,
+    "bash",
+    CLIPBOARD_APPLESCRIPT,
+    path
+  ];
+}
+
+async function runClipboardImageHelper(
+  path: string,
+  runner: ClipboardCommandRunner
+): Promise<SourceImageMediaType | null> {
+  const { error, stdout } = await runner(macosClipboardImageHelperCommand(path), {
+    timeoutMs: HELPER_TIMEOUT_MS,
+    killSignal: "SIGKILL",
+    maxBuffer: 4_096
   });
+  if (error !== null) return null;
+  const marker = stdout.trim();
+  return marker === "image/png" || marker === "image/jpeg" ? marker : null;
 }
 
 /** Read a whole already-open handle, bounded by a stat check before any

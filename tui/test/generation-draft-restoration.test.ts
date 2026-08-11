@@ -15,6 +15,9 @@ import {
   restoreStoppedGenerationDraft
 } from "../src/generation-action.js";
 import { composeAction, navAction, runPartAction } from "../src/story-actions.js";
+import { handleOverlayAction } from "../src/overlay-actions.js";
+import { pasteInto } from "../src/keys.js";
+import type { AppSource } from "../src/app.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { nextRequestContext } from "../src/request-context.js";
 import { renderStoryScreen } from "../src/screens/story.js";
@@ -38,6 +41,16 @@ function context(state: RuntimeState) {
     applyTheme: () => undefined,
     previewTheme: () => undefined,
     backend: new ActionRuntime(state, () => undefined)
+  };
+}
+
+/** NAV is the only mode that binds `open-commands` (reference-bindings.ts),
+ *  so a palette session can only ever return to NAV. */
+function openCommandPalette(state: RuntimeState): void {
+  state.mode = "COMMANDS";
+  state.commands = {
+    query: "direct take", cursor: 0, selectedId: "direct-take",
+    view: "commands", returnMode: "NAV"
   };
 }
 
@@ -545,6 +558,117 @@ describe("generation draft restoration", () => {
     expect(promptedRetake.composer).toBe(newerRetake.composer);
     expect(promptedRetake.composer.text).toBe("");
   });
+
+  // Every door into the Direct editor claims it, and a claim mid-stream burns
+  // the epoch that fences the submitted draft. Cover the doors, not one key.
+  // A retake or rewrite prompt burns the same epoch and is deliberately still
+  // allowed mid-stream, so these cover the Direct doors and not the whole
+  // class of draft loss.
+  const DIRECT_CLAIM_DOORS: Array<{
+    name: string;
+    claim: (state: RuntimeState, source: AppSource) => Promise<void>;
+    /** A refused palette command keeps the palette open, so the writer stays
+     *  where the command was typed. The other doors refuse in place in NAV. */
+    refusedMode: RuntimeState["mode"];
+  }> = [
+    {
+      name: "NAV compose",
+      refusedMode: "NAV",
+      claim: (state, source) =>
+        navAction({ action: "compose" }, state, source, context(state), () => undefined)
+    },
+    {
+      name: "actions menu Direct",
+      refusedMode: "NAV",
+      claim: (state, source) => runPartAction("direct", state, source, context(state))
+    },
+    {
+      name: "command palette direct take",
+      refusedMode: "COMMANDS",
+      claim: async (state, source) => {
+        openCommandPalette(state);
+        await handleOverlayAction({ action: "open-selected" }, state, source, context(state));
+      }
+    },
+    {
+      name: "paste into NAV",
+      refusedMode: "NAV",
+      claim: async (state) => void pasteInto(state, "pasted while it streams")
+    }
+  ];
+
+  for (const door of DIRECT_CLAIM_DOORS) {
+    test(`${door.name} during a running stream keeps the submitted draft restorable`, async () => {
+      const source = demoAppSource();
+      const state = initialState(source, false);
+      const entered = deferred<void>();
+      const gate = deferred<null>();
+      state.mode = "COMPOSE";
+      state.composer = createComposer("keep this while it streams");
+      source.api.continueStory = async () => {
+        entered.resolve();
+        return gate.promise;
+      };
+
+      const pending = composeAction({ action: "send" }, state, source, context(state));
+      await entered.promise;
+      const submittedDraft = state.pendingGenerationDraft;
+      const claimEpoch = state.composerClaimEpoch;
+      expect(state.mode).toBe("NAV");
+      expect(state.composer.text).toBe("");
+
+      await door.claim(state, source);
+
+      expect(state.mode).toBe(door.refusedMode);
+      expect(state.composerClaimEpoch).toBe(claimEpoch);
+      expect(state.composer.text).toBe("");
+      expect(state.toast).toBe("stream running · esc stops it first");
+
+      gate.resolve(null);
+      await pending;
+
+      expect(state.composer.text).toBe("keep this while it streams");
+      expect(state.pendingGenerationDraft).toMatchObject({ restored: true });
+      expect(state.pendingGenerationDraft).toBe(submittedDraft);
+    });
+  }
+
+  // The refusal gates on the live stream and not on generationBusy, which
+  // stays true through post-Stop settlement. Every door has to reopen the
+  // draft Stop just restored, or the writer cannot reach their own prompt.
+  for (const door of DIRECT_CLAIM_DOORS) {
+    test(`${door.name} reopens the restored draft while Stop settles`, async () => {
+      const source = demoAppSource();
+      const state = initialState(source, false);
+      const entered = deferred<void>();
+      state.mode = "COMPOSE";
+      state.composer = createComposer("reopen this after stopping");
+      source.api.continueStory = async (
+        _storyId, _instruction, _genId, _target, _onDelta, signal
+      ) => {
+        entered.resolve();
+        await new Promise<void>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        });
+        return null;
+      };
+
+      const pending = composeAction({ action: "send" }, state, source, context(state));
+      await entered.promise;
+      requestGenerationStop(state, () => undefined);
+
+      expect(state.stream).toBe(null);
+      expect(state.abort).not.toBe(null);
+      expect(state.composer.text).toBe("reopen this after stopping");
+      state.mode = "NAV";
+
+      await door.claim(state, source);
+
+      expect(state.mode).toBe("COMPOSE");
+      expect(state.composer.text).toContain("reopen this after stopping");
+      await pending;
+    });
+  }
 
   test("late settlement cannot resurrect a restored Direct draft the writer deleted", () => {
     const state = initialState(demoAppSource(), false);
