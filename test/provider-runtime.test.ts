@@ -683,7 +683,13 @@ test("configured response-header deadline keeps typed timeout provenance", async
         responseHeaderMs: 20,
         firstTokenMs: 100,
         idleMs: 100,
-        totalMs: 100
+        // Issue #127: the response-header deadline is now derived from the
+        // outgoing request body's size too (server/provider-first-token-
+        // deadline.ts), and for even this fixture's minimal body that
+        // derived value dominates the tiny configured 20 ms floor. totalMs
+        // has to stay well above it, or the total deadline fires first and
+        // this assertion's provenance never appears.
+        totalMs: 3_000
       }
     }), PROMPT, new AbortController().signal)),
     (error) => error instanceof ProviderError

@@ -568,21 +568,25 @@ and **idle** in seconds. The panel shows **total** in minutes.
 You can also set `connections.<id>.timeouts.responseHeaderMs`, `firstTokenMs`,
 `idleMs`, and `totalMs` directly in the project settings document.
 
-### The first-token deadline and prefill
+### The header and first-token deadlines, and prefill
 
 Prefill is the model server's work before it sends the first output token.
 Prefill computes the model's internal state for the whole prompt. Prefill
 sends no stream output. A large prompt takes longer to prefill than a short
-prompt.
+prompt. A model server can finish prefill before it sends response headers,
+or after it sends them. 1667 cannot tell which.
 
-1667 extends the **first token** deadline for a large prompt. 1667 measures
-the size of the outgoing request. 1667 compares this size against the
-**first token** value in Settings. 1667 waits for the larger of the two
-amounts.
+1667 extends both the **headers** deadline and the **first token** deadline
+for a large prompt. 1667 measures the size of the outgoing request. 1667
+compares this size against the Settings value for the affected deadline.
+1667 waits for the larger of the two amounts.
 
-The **first token** value in Settings is a floor. 1667 never waits less than
-this value. 1667 can wait longer when the prompt is large. 1667 does not wait
-without limit. A ceiling of 15 minutes applies, even for a very large prompt.
+The **headers** and **first token** values in Settings are each a floor.
+1667 never waits less than the configured value. 1667 can wait longer when
+the prompt is large. The automatic extension never waits past the **total**
+deadline for the same connection. Only the automatic extension has this
+limit. A configured value above the **total** deadline still applies exactly
+as set.
 
 Increase the **first token** value in Settings when a model server needs more
 than 120 seconds to answer a small prompt. Slow local hardware is a common

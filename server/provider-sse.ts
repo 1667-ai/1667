@@ -2,7 +2,7 @@ import type { GenerationSettings } from "../shared/types.js";
 import type { TimeoutProvenance } from "../shared/failure-envelope.js";
 import { ProviderError } from "./errors.js";
 import { providerFetch } from "./provider-fetch.js";
-import { firstTokenDeadlineMsFor } from "./provider-first-token-deadline.js";
+import { prefillPhaseDeadlineMsFor } from "./provider-first-token-deadline.js";
 import {
   EVENT_HEADROOM_MULTIPLIER,
   maxSseEventBytesFor
@@ -76,8 +76,16 @@ export async function* providerSseEvents(
     const body = JSON.stringify(requestBody);
     await providerStarted?.();
     requestPrepared?.();
+    // Issue #127: prefill can finish before or after headers flush — this
+    // program cannot see which side of that a given server lands on — so the
+    // header wait gets the same derived extension as the first-token wait
+    // below. See provider-first-token-deadline.ts for the arithmetic.
     setPhaseTimer(
-      runtime.timeouts.responseHeaderMs,
+      prefillPhaseDeadlineMsFor(
+        runtime.timeouts.responseHeaderMs,
+        Buffer.byteLength(body),
+        runtime.timeouts.totalMs
+      ),
       "Model server did not return response headers before the configured deadline.",
       "provider-response-header"
     );
@@ -136,7 +144,11 @@ export async function* providerSseEvents(
     // configured value is a floor; a large request body extends it — see
     // provider-first-token-deadline.ts for the arithmetic.
     setPhaseTimer(
-      firstTokenDeadlineMsFor(runtime.timeouts.firstTokenMs, Buffer.byteLength(body)),
+      prefillPhaseDeadlineMsFor(
+        runtime.timeouts.firstTokenMs,
+        Buffer.byteLength(body),
+        runtime.timeouts.totalMs
+      ),
       "Model server did not produce stream activity before the configured deadline.",
       "provider-first-token"
     );

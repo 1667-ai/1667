@@ -99,4 +99,28 @@ describe("connection timeout settings rows (issue #127)", () => {
     expect(firstToken?.hint).toContain("large prompt");
     expect(firstToken?.hint).toContain("automatically");
   });
+
+  test("a first-token value far past the derivation's own ceiling is a valid configured value, not flagged invalid", async () => {
+    const { source, state, press } = settingsHarness();
+    installNetworkSettings(source);
+    await openSettings(press);
+    // 20 minutes: past server/provider-first-token-deadline.ts's derivation
+    // ceiling, which bounds only the automatic per-byte allowance a large
+    // prompt earns, never a value a writer configures here directly. The
+    // settings schema allows up to MAX_SETTINGS_TIMEOUT_MS (24 hours), so
+    // this row's own bound must reach at least this far without marking the
+    // value invalid or putting it out of arrow-step reach.
+    await draftRow(press, state, "timeout-first-token", "1200");
+
+    const document = state.settings!.draft.document!;
+    const profileId = state.settings!.draft.selectedProfileId!;
+    expect(
+      resolveSettingsProfile(document, profileId).connection.timeouts.firstTokenMs
+    ).toBe(1_200_000);
+
+    const rows = settingsRows(state.settings!, state.config);
+    const firstToken = rows.find((candidate) => candidate.id === "timeout-first-token");
+    expect(firstToken?.invalid).toBe(undefined);
+    expect(firstToken?.value).toContain("1,200s");
+  });
 });

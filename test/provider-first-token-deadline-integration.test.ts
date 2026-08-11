@@ -6,14 +6,96 @@ import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 
 /**
- * Issue #127: proves the derived first-token deadline
+ * Issue #127: proves the derived prefill-phase deadline
  * (server/provider-first-token-deadline.ts) is actually wired into
- * server/provider-sse.ts's setPhaseTimer call, not merely correct in
- * isolation — see that module's own arithmetic tests
+ * server/provider-sse.ts's two setPhaseTimer calls it feeds — the
+ * response-header phase and the first-token phase — not merely correct in
+ * isolation. See that module's own arithmetic tests
  * (test/provider-first-token-deadline.test.ts). Every configured timeout and
  * every fake-server delay here is a handful of milliseconds, never the real
- * 120 s/15 min production defaults, so this suite stays fast.
+ * 120 s/30 min production defaults, so this suite stays fast.
+ *
+ * Review finding: a first pass here only delayed the SSE *stream* and left
+ * `fetch` itself resolving immediately, so it only ever exercised the
+ * first-token phase. `providerFetch` does not resolve until response
+ * headers arrive, and a server can prefill before flushing headers just as
+ * easily as after — this program has no way to see which side of that a
+ * given server lands on. The first test below delays the fetch's own
+ * settlement instead, to prove the header phase scales too.
  */
+
+test("a large request body survives a slow header response that still fails a small one, under the same tiny configured deadline", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const DELAY_MS = 200;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    return await new Promise<Response>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        resolve(new Response(
+          'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n\n',
+          { headers: { "content-type": "text/event-stream" } }
+        ));
+      }, DELAY_MS);
+      // A deadline firing aborts the request signal before fetch would ever
+      // settle on its own; a real fetch/undici call rejects its own pending
+      // promise on that same signal, so the fake one has to be told to do
+      // the same or it would just wait the delay out regardless of any
+      // deadline, proving nothing about either.
+      input.signal.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(input.signal.reason);
+      }, { once: true });
+    });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  // Tiny on purpose (issue #127's ask): with the old flat constant this
+  // configured value alone would decide the deadline, and both requests
+  // below would fail identically regardless of body size.
+  const settings = fixtureSettings({
+    responseHeaderMs: 10,
+    firstTokenMs: 5_000,
+    idleMs: 5_000,
+    totalMs: 10_000
+  });
+
+  // A near-empty body (2 bytes) derives to ~25 ms of allowance — still well
+  // under the 200 ms header delay, so this request fails exactly as the
+  // flat constant always would have.
+  await assert.rejects(
+    drain(providerSseEvents(
+      settings,
+      "https://models.example/v1/chat/completions",
+      {},
+      {},
+      [],
+      new AbortController().signal,
+      (value) => value,
+      undefined,
+      undefined,
+      (event) => event !== "[DONE]",
+      (event) => event === "[DONE]"
+    )),
+    /did not return response headers/
+  );
+
+  // A ~300 byte body derives to ~3.8 s of allowance — comfortably past the
+  // 200 ms header delay, so this request now survives the header wait where
+  // the flat 10 ms constant would have failed it too.
+  await drain(providerSseEvents(
+    settings,
+    "https://models.example/v1/chat/completions",
+    { p: "x".repeat(300) },
+    {},
+    [],
+    new AbortController().signal,
+    (value) => value,
+    undefined,
+    undefined,
+    (event) => event !== "[DONE]",
+    (event) => event === "[DONE]"
+  ));
+});
 
 test("a large request body survives a delay that still fails a small one, under the same tiny configured deadline", async (t) => {
   const originalFetch = globalThis.fetch;

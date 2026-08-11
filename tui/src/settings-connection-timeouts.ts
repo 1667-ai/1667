@@ -3,7 +3,7 @@ import type {
   SettingsDocumentV2
 } from "../../shared/settings-v2-types.js";
 import { defaultConnectionTimeouts } from "../../shared/settings-provider-defaults.js";
-import { FIRST_TOKEN_DEADLINE_CEILING_MS } from "../../server/provider-first-token-deadline.js";
+import { MAX_SETTINGS_TIMEOUT_MS } from "../../server/settings-v2-scalars.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import { markControlMutation } from "./settings-profile-cycle.js";
 import { replaceSettingsDraft } from "./settings-draft-transition.js";
@@ -90,10 +90,14 @@ const CONNECTION_TIMEOUT_ROW_SPECS: Record<ConnectionTimeoutRow, ConnectionTimeo
     unit: "seconds",
     unitSuffix: "s",
     min: 1,
-    // Matches provider-first-token-deadline.ts's own FIRST_TOKEN_DEADLINE_
-    // CEILING_MS: past that ceiling a larger configured floor changes
-    // nothing, since the derived deadline can never exceed it either.
-    max: FIRST_TOKEN_DEADLINE_CEILING_MS / MS_PER_SECOND,
+    // The schema's own ceiling (server/settings-v2-scalars.ts), not
+    // provider-first-token-deadline.ts's derivation ceiling: that one bounds
+    // only the automatic per-byte allowance a large prompt earns, never the
+    // value a writer configures here (the runtime honours a configured
+    // value above it exactly). Presenting the derivation ceiling as this
+    // row's own limit would mark a backend-valid configured value invalid
+    // and put it out of arrow-step reach.
+    max: MAX_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     step: 5,
     hint: "wait for the first token · a large prompt extends this automatically"
   },
