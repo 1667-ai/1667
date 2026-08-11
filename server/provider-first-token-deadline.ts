@@ -39,12 +39,26 @@
  * below already provide. A zero-byte body therefore returns exactly the
  * configured value, unchanged from today's flat constant.
  *
- * PER_BYTE_ALLOWANCE_MS: prefill on modest hardware running a large model
- * runs on the order of 20 tokens/second, and prompt text is roughly 4 bytes
- * per token for common tokenizers on English prose, so 20 * 4 = 80 bytes/
- * second is a defensible pessimistic floor for prefill throughput. Inverted
- * to a per-byte allowance: 1,000 ms / 80 bytes = 12.5 ms of additional
- * deadline per byte of request body.
+ * PER_BYTE_ALLOWANCE_MS multiplies two pessimistic assumptions, and both have
+ * to be floors or the product is not one.
+ *
+ * Prefill on modest hardware running a large model runs on the order of 20
+ * tokens/second. That is the first floor.
+ *
+ * The second is bytes per token, and this is where an earlier version of this
+ * comment was wrong: it used 4 bytes/token, the figure for common tokenizers
+ * on English prose. That is an average, not a lower bound. Denser input
+ * carries more tokens in the same bytes — CJK text runs around 3 bytes per
+ * token, and a byte-level fallback on unusual input can go lower still — so a
+ * request measured at 4 bytes/token would be granted less time than its real
+ * token count needs, which is exactly the abort this module exists to
+ * prevent. 2 bytes/token is the floor used instead: below the CJK case, with
+ * room under it.
+ *
+ * So 20 tokens/second * 2 bytes/token = 40 bytes/second, and inverted,
+ * 1,000 ms / 40 bytes = 25 ms of additional deadline per byte of request
+ * body. A prompt dense enough to beat even that clamps at `totalMs` below,
+ * which is the request's own outer bound in any case.
  *
  * The ceiling on the derived allowance is the connection's own `totalMs`,
  * not a fixed constant. A separate fixed ceiling was tried first (15
@@ -66,10 +80,10 @@
  * into that on purpose: a deadline that is too long only delays reporting a
  * server that was never going to answer, while one that is too short
  * destroys minutes of legitimate prefill the server was still doing. Every
- * constant here — the pessimistic 80 bytes/second, the totalMs-based
+ * constant here — the pessimistic 40 bytes/second, the totalMs-based
  * ceiling — errs toward waiting longer, not toward failing fast.
  */
-const PER_BYTE_ALLOWANCE_MS = 1_000 / 80;
+const PER_BYTE_ALLOWANCE_MS = 1_000 / 40;
 
 /** The effective deadline for a phase that can overlap prefill — the
  *  response-header phase or the first-token phase, both called with this

@@ -18,7 +18,7 @@ test("an empty request body returns exactly the configured floor", () => {
 
 test("a small prompt does not extend the configured floor", () => {
   // 500 bytes is a plausible minimal request body (a short instruction, no
-  // story context). At 12.5 ms/byte that derives to 6,250 ms — far below the
+  // story context). At 25 ms/byte that derives to 12,500 ms — far below the
   // 120 s default, so the configured floor still wins.
   assert.equal(
     prefillPhaseDeadlineMsFor(DEFAULT_CONFIGURED_MS, 500, DEFAULT_TOTAL_MS),
@@ -27,10 +27,10 @@ test("a small prompt does not extend the configured floor", () => {
 });
 
 test("a large prompt extends the deadline past the configured floor", () => {
-  // 20,000 bytes derives to 250,000 ms (12.5 ms/byte), comfortably past the
+  // 20,000 bytes derives to 500,000 ms (25 ms/byte), comfortably past the
   // 120 s default and comfortably under the 30 minute default total deadline.
   const result = prefillPhaseDeadlineMsFor(DEFAULT_CONFIGURED_MS, 20_000, DEFAULT_TOTAL_MS);
-  assert.equal(result, 250_000);
+  assert.equal(result, 500_000);
   assert.ok(result > DEFAULT_CONFIGURED_MS);
   assert.ok(result < DEFAULT_TOTAL_MS);
 });
@@ -55,7 +55,7 @@ test("a request that would derive past the total deadline clamps to it", () => {
 test("a caller-configured value larger than the derived allowance still wins", () => {
   // A writer who has explicitly raised firstTokenMs past the default for
   // slow hardware must not be overridden by a moderate prompt's much smaller
-  // derived allowance (1,000 bytes -> 12,500 ms).
+  // derived allowance (1,000 bytes -> 25,000 ms).
   const configuredMs = 600_000;
   assert.equal(
     prefillPhaseDeadlineMsFor(configuredMs, 1_000, DEFAULT_TOTAL_MS),
@@ -77,6 +77,25 @@ test("a configured value above the total deadline is honoured, not clamped down 
   assert.ok(configuredMs > totalMs);
   assert.equal(prefillPhaseDeadlineMsFor(configuredMs, 0, totalMs), configuredMs);
   assert.equal(prefillPhaseDeadlineMsFor(configuredMs, 1_000_000, totalMs), configuredMs);
+});
+
+test("a token-dense prompt still gets time for its real token count", () => {
+  // The allowance is bytes * rate, but what prefill actually costs is
+  // tokens / throughput. The rate therefore has to assume a *floor* on bytes
+  // per token, not an average: at 4 bytes/token (English prose) a CJK prompt
+  // of the same byte size carries far more tokens than the allowance was
+  // sized for, and gets cut off. 3 bytes/token is the realistic dense case.
+  const PESSIMISTIC_TOKENS_PER_SECOND = 20;
+  const DENSE_BYTES_PER_TOKEN = 3;
+  const bodyBytes = 30_000;
+  const tokens = bodyBytes / DENSE_BYTES_PER_TOKEN;
+  const secondsPrefillNeeds = tokens / PESSIMISTIC_TOKENS_PER_SECOND;
+
+  const granted = prefillPhaseDeadlineMsFor(DEFAULT_CONFIGURED_MS, bodyBytes, DEFAULT_TOTAL_MS);
+  assert.ok(
+    granted >= secondsPrefillNeeds * 1_000,
+    `granted ${granted} ms for a prompt that needs ${secondsPrefillNeeds * 1_000} ms`
+  );
 });
 
 test("the derivation is monotonic in request body size", () => {
