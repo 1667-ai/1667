@@ -13,9 +13,10 @@
  * WSL has no Windows clipboard of its own; `powershell.exe` on the Windows
  * host is reachable from a WSL shell on `PATH` and reads the same one.
  */
-import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { MAX_SOURCE_IMAGE_BYTES } from "../../shared/image-attachment.js";
+import { WINDOWS_JOB_MEMORY_LIMIT_POWERSHELL_SOURCE } from "../../shared/windows-job-memory-limit.js";
+import { runClipboardHelperProcess, type ClipboardCommandRunner } from "./clipboard-command-runner.js";
 import type { ClipboardContent } from "./clipboard.js";
 
 const HELPER_TIMEOUT_MS = 5_000;
@@ -32,37 +33,14 @@ const NO_IMAGE_MARKER = "NO_IMAGE";
  * A Job Object bounds committed memory for the whole process tree it owns.
  * `AssignProcessToJobObject` on the current process is legal as long as the
  * helper was not itself launched inside a job that forbids breakaway,
- * true for an ordinary child `powershell.exe` this module spawns.
+ * true for an ordinary child `powershell.exe` this module spawns. The
+ * P/Invoke declarations and the limit-setting function come from
+ * `shared/windows-job-memory-limit.ts`, the same source
+ * `server/image-normalize-launcher.ts` uses to bound the normalizer child.
  */
 const CLIPBOARD_IMAGE_HELPER = `
-Add-Type -Namespace ClipboardImage -Name Job -MemberDefinition @'
-[DllImport("kernel32.dll", SetLastError = true)] public static extern IntPtr CreateJobObject(IntPtr a, string lpName);
-[DllImport("kernel32.dll", SetLastError = true)] public static extern bool SetInformationJobObject(IntPtr hJob, int JobObjectInfoClass, IntPtr lpJobObjectInfo, uint cbJobObjectInfoLength);
-[DllImport("kernel32.dll", SetLastError = true)] public static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
-[DllImport("kernel32.dll")] public static extern IntPtr GetCurrentProcess();
-'@
-
-function Set-CommitLimit([long]$bytes) {
-  $job = [ClipboardImage.Job]::CreateJobObject([IntPtr]::Zero, $null)
-  if ($job -eq [IntPtr]::Zero) { return }
-  # JOBOBJECT_EXTENDED_LIMIT_INFORMATION: BasicLimitInformation (48 bytes on
-  # x64, LimitFlags at offset 32) then three 8-byte size_t fields. Setting
-  # only JOB_OBJECT_LIMIT_JOB_MEMORY (0x200) and JobMemoryLimit keeps every
-  # other field at its already-zeroed default.
-  $size = 72
-  $buf = [System.Runtime.InteropServices.Marshal]::AllocHGlobal($size)
-  try {
-    for ($i = 0; $i -lt $size; $i++) { [System.Runtime.InteropServices.Marshal]::WriteByte($buf, $i, 0) }
-    [System.Runtime.InteropServices.Marshal]::WriteInt32($buf, 32, 0x200)
-    [System.Runtime.InteropServices.Marshal]::WriteInt64($buf, 40, $bytes)
-    [void][ClipboardImage.Job]::SetInformationJobObject($job, 9, $buf, [uint32]$size)
-    [void][ClipboardImage.Job]::AssignProcessToJobObject($job, [ClipboardImage.Job]::GetCurrentProcess())
-  } finally {
-    [System.Runtime.InteropServices.Marshal]::FreeHGlobal($buf)
-  }
-}
-
-Set-CommitLimit(__COMMIT_LIMIT_BYTES__)
+${WINDOWS_JOB_MEMORY_LIMIT_POWERSHELL_SOURCE}
+Set-JobMemoryLimit -bytes __COMMIT_LIMIT_BYTES__ -processHandle ([JobMemoryLimit.Native]::GetCurrentProcess())
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -92,22 +70,24 @@ export function windowsClipboardImageCommand(): readonly string[] {
   ];
 }
 
-export async function readClipboardImageWindows(): Promise<ClipboardContent | null> {
+/**
+ * Read the clipboard image through `powershell.exe`, or through an injected
+ * `runner` in a test so the marker handling, the base64 decode, and both
+ * size bounds below are provable without spawning a real process. Every
+ * production caller keeps the default, the real subprocess runner.
+ */
+export async function readClipboardImageWindows(
+  runner: ClipboardCommandRunner = runClipboardHelperProcess
+): Promise<ClipboardContent | null> {
   const command = windowsClipboardImageCommand();
-  const executable = command[0];
-  if (executable === undefined) return null;
-  const output = await new Promise<string | null>((resolve) => {
-    execFile(executable, command.slice(1), {
-      encoding: "utf8",
-      maxBuffer: MAX_BUFFER_BYTES,
-      timeout: HELPER_TIMEOUT_MS,
-      windowsHide: true
-    }, (error, stdout) => resolve(error === null ? stdout : null));
+  const { error, stdout } = await runner(command, {
+    maxBuffer: MAX_BUFFER_BYTES,
+    timeoutMs: HELPER_TIMEOUT_MS
   });
-  if (output === null || output === NO_IMAGE_MARKER || output === TOO_LARGE_MARKER) return null;
+  if (error !== null || stdout === NO_IMAGE_MARKER || stdout === TOO_LARGE_MARKER) return null;
   let bytes: Uint8Array;
   try {
-    bytes = Buffer.from(output, "base64");
+    bytes = Buffer.from(stdout, "base64");
   } catch {
     return null;
   }

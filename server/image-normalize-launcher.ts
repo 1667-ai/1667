@@ -16,7 +16,6 @@
  * group and dies with it; on Windows only `taskkill /T /F` reaches it.
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import {
   IMAGE_STAGE_DEADLINE_MS,
@@ -28,17 +27,30 @@ import {
   type ChildResultMessage
 } from "./image-normalize-child.js";
 import { ServiceError, type ServiceErrorCode } from "./errors.js";
+import {
+  assignWindowsChildMemoryLimit,
+  pollChildMemory,
+  RSS_POLL_INTERVAL_MS
+} from "./image-normalize-memory-bound.js";
 import type { NormalizedImage } from "./image-normalize.js";
 
-/** What the design calls "a platform-enforced 512 MiB memory limit". On
- *  Linux this launcher enforces it by polling the child's own resident set
- *  size and killing its process group on breach; see the module comment on
- *  `pollChildMemory` for exactly what that does and does not guarantee. */
+/**
+ * What the design calls "a platform-enforced 512 MiB memory limit". How it
+ * is enforced is different on each platform; both mechanisms live in
+ * `server/image-normalize-memory-bound.ts`:
+ * - On Windows the child is assigned to a Job Object with this many bytes as
+ *   its `JOB_OBJECT_LIMIT_JOB_MEMORY` ceiling. That bound is enforced by the
+ *   kernel: an allocation that would cross it fails inside the child,
+ *   before this launcher does anything. See `assignWindowsChildMemoryLimit`.
+ * - On Linux and macOS this launcher polls the child's own resident set
+ *   size and kills its process group on breach. See `pollChildMemory`'s own
+ *   comment for exactly what that does and does not guarantee, because a
+ *   poll is not the same kind of bound as a Job Object.
+ */
 export const IMAGE_NORMALIZE_CHILD_MEMORY_LIMIT_BYTES = 512 * 1024 * 1024;
 
 const TERMINATION_GRACE_MS = 250;
 const SETTLEMENT_DEADLINE_MS = 500;
-const RSS_POLL_INTERVAL_MS = 200;
 const MAX_CHILD_STDERR_BYTES = 8_192;
 
 export interface LaunchImageNormalizeChildOptions {
@@ -154,7 +166,21 @@ export async function launchImageNormalizeChild(
       settle(outcomeError(resultMessage, stderrChunks, stderrBytes));
     });
 
-    if (child.stdin !== null) {
+    void sendChildInput();
+
+    /**
+     * On Windows, wait for the Job Object assignment to settle before
+     * handing the child any Source Image bytes, closing most of the window
+     * between spawn and a kernel-enforced ceiling actually being in place.
+     * `assignWindowsChildMemoryLimit` is best effort and never rejects, so
+     * this always reaches the stdin write; on POSIX it is skipped entirely,
+     * unchanged from before this bound existed.
+     */
+    async function sendChildInput(): Promise<void> {
+      if (!posix && child.pid !== undefined) {
+        await assignWindowsChildMemoryLimit(child.pid, memoryLimitBytes);
+      }
+      if (phase !== "running" || child.stdin === null) return;
       child.stdin.end(Buffer.from(sourceBytes));
     }
 
@@ -241,78 +267,6 @@ function outcomeError(
     "image_normalization_failed",
     stderrBytes > 0 ? { cause: new Error(Buffer.concat(stderrChunks).toString("utf8")) } : {}
   );
-}
-
-/**
- * Read one Source Image's worth of resident memory from `/proc/<pid>/status`
- * and kill the child's process group when it crosses `limitBytes`.
- *
- * This is a polling, best-effort watchdog, not a kernel-enforced ceiling.
- * Two harder mechanisms were tried and rejected during this slice: setting
- * `RLIMIT_AS` (the POSIX `ulimit -v` virtual-memory cap) on the child made
- * Node itself fail to start with "Fatal process out of memory: Failed to
- * reserve virtual memory for CodeRange", because V8 reserves address space
- * for its own startup (code range, pointer-compression cage) far past 512
- * MiB before any image code runs; and a Linux cgroup v2 `memory.max` limit
- * needs a cgroup subtree this process can create and move a child into,
- * which is only available when the process launching 1667 already lives
- * inside a delegated subtree (a systemd `--user` unit, for example) and is
- * not available from an interactive login session's own cgroup on this
- * development machine. Neither exists in this repository already, and
- * building a cgroup helper that silently does nothing on most developer
- * machines would be worse than being honest about a polling watchdog.
- *
- * So what actually bounds a normalization's memory:
- * - The header parser (`server/image-header.ts`) refuses any Source Image
- *   over the shared pixel and byte limits before photon ever decodes it,
- *   which bounds the raw RGBA raster to a known maximum regardless of this
- *   watchdog.
- * - On Node, the child is launched with `--max-old-space-size`, which bounds
- *   V8's own JS heap; it does not bound WASM linear memory.
- * - This watchdog polls `/proc/<pid>/status` every `RSS_POLL_INTERVAL_MS`
- *   and kills the process group on the first sample over the limit. A very
- *   fast single allocation could in principle spike and free memory between
- *   two polls without ever being observed; the pixel bound above is what
- *   keeps that gap small in practice.
- * - Linux only. macOS needs its own primitive (a Job-Object-style API does
- *   not exist there either); Windows needs a Job Object, the same mechanism
- *   the design already calls for around the clipboard image helper. Neither
- *   is implemented in this slice; both are out of reach of this Linux
- *   development machine and are proven by the packaged CI matrix instead,
- *   the same way the dependency gate itself is.
- */
-async function pollChildMemory(
-  pid: number,
-  limitBytes: number,
-  beginTermination: (error: Error) => void
-): Promise<void> {
-  if (process.platform !== "linux") return;
-  let rssBytes: number | null;
-  try {
-    rssBytes = await readProcessRssBytes(pid);
-  } catch {
-    return;
-  }
-  if (rssBytes !== null && rssBytes > limitBytes) {
-    beginTermination(new ServiceError(
-      422,
-      "Image normalization exceeded its memory limit.",
-      "image_normalization_failed"
-    ));
-  }
-}
-
-async function readProcessRssBytes(pid: number): Promise<number | null> {
-  let text: string;
-  try {
-    text = await readFile(`/proc/${pid}/status`, "utf8");
-  } catch {
-    return null;
-  }
-  const match = /^VmRSS:\s+(\d+)\s+kB$/mu.exec(text);
-  if (match === null) return null;
-  const kilobytes = Number(match[1]);
-  return Number.isFinite(kilobytes) ? kilobytes * 1024 : null;
 }
 
 /** End the whole child tree: the process group on POSIX, or the pid tree on
@@ -424,9 +378,10 @@ function childSpawnCommand(
 
 /** V8's own JS heap ceiling for the child, on Node. Set below the full
  *  memory limit so the JS heap and the WASM linear memory the header's
- *  pixel bound implicitly caps (see `pollChildMemory` above) both have room
- *  under the same overall budget. Bun has no equivalent flag: it runs on
- *  JavaScriptCore, not V8, so this only ever applies under plain Node. */
+ *  pixel bound implicitly caps (see `image-normalize-memory-bound.ts`) both
+ *  have room under the same overall budget. Bun has no equivalent flag: it
+ *  runs on JavaScriptCore, not V8, so this only ever applies under plain
+ *  Node. */
 function nodeMemoryFlags(memoryLimitBytes: number): string[] {
   const megabytes = Math.floor((memoryLimitBytes / (1024 * 1024)) * 0.7);
   return [`--max-old-space-size=${megabytes}`];

@@ -241,12 +241,16 @@ test("the launcher's deadline kills a child stuck in synchronous work", async ()
   assert.ok(elapsedMs < 4_000, `expected the deadline to end the child quickly, took ${elapsedMs}ms`);
 });
 
-// The memory watchdog itself only runs on Linux (`pollChildMemory` in
-// server/image-normalize-launcher.ts reads /proc); on another platform this
-// child would never receive a beginTermination call and would run to its own
-// completion instead of proving the watchdog, so the test is gated the same
-// way the watchdog is.
-test("the memory watchdog kills a child that grows past the configured limit", { skip: process.platform !== "linux" }, async () => {
+// The polling memory watchdog (`pollChildMemory` in
+// server/image-normalize-memory-bound.ts) only runs on Linux and macOS: it
+// reads /proc on Linux and shells out to `ps` on macOS. Windows gets a real
+// Job Object bound instead, proven by the separate test below. On any other
+// platform this child would never receive a beginTermination call and would
+// run to its own completion instead of proving the watchdog, so the test is
+// gated the same way the watchdog is.
+test("the memory watchdog kills a child that grows past the configured limit", {
+  skip: process.platform !== "linux" && process.platform !== "darwin"
+}, async () => {
   const source = await opaquePng(64, 64);
   await assert.rejects(
     () => launchImageNormalizeChild(source, "image/png", {
@@ -255,6 +259,36 @@ test("the memory watchdog kills a child that grows past the configured limit", {
       debugAllocateMb: 200
     }),
     (error: unknown) => error instanceof ServiceError && error.code === "image_normalization_failed"
+  );
+});
+
+// Windows has no /proc and no `ps`; `assignWindowsChildMemoryLimit` (also in
+// server/image-normalize-memory-bound.ts) instead assigns the child to a Job
+// Object with a committed-memory ceiling before handing it any Source Image
+// bytes, so growing past that ceiling makes Windows itself refuse the
+// child's next allocation. This test only proves anything on win32: on
+// every other platform the memory bound comes from the poll above instead,
+// which is why this is the one test in the file gated to Windows rather
+// than gated away from it.
+//
+// The exact failure code is not asserted. A denied allocation inside the
+// child can surface as a catchable error, or as a V8 "Fatal process out of
+// memory" crash that never runs any of this project's own error-handling
+// code at all; either way the child ends without a success message, and
+// `outcomeError` in server/image-normalize-launcher.ts turns that into some
+// `ServiceError`. What this test proves is that the child does not finish
+// normally when it is asked to hold four times its Job Object ceiling.
+test("the Windows Job Object bound kills a child that grows past the configured limit", {
+  skip: process.platform !== "win32"
+}, async () => {
+  const source = await opaquePng(64, 64);
+  await assert.rejects(
+    () => launchImageNormalizeChild(source, "image/png", {
+      deadlineMs: 10_000,
+      memoryLimitBytes: 64 * 1024 * 1024,
+      debugAllocateMb: 256
+    }),
+    (error: unknown) => error instanceof ServiceError
   );
 });
 
