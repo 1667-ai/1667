@@ -59,6 +59,18 @@ test("a caller-configured value larger than the derived allowance still wins", (
   );
 });
 
+test("a configured value above the ceiling is honoured, not clamped down to it", () => {
+  // MAX_SETTINGS_TIMEOUT_MS (server/settings-v2-scalars.ts) is 24 hours, so a
+  // hand-edited 20 minute deadline is a valid setting that this program used
+  // to honour exactly. The ceiling bounds the derived allowance, never the
+  // writer's own value: clamping the result would shorten that setting to 15
+  // minutes and abort generations that previously succeeded.
+  const configuredMs = 20 * 60 * 1_000;
+  assert.ok(configuredMs > FIRST_TOKEN_DEADLINE_CEILING_MS);
+  assert.equal(firstTokenDeadlineMsFor(configuredMs, 0), configuredMs);
+  assert.equal(firstTokenDeadlineMsFor(configuredMs, 1_000_000), configuredMs);
+});
+
 test("the derivation is monotonic in request body size", () => {
   const small = firstTokenDeadlineMsFor(DEFAULT_CONFIGURED_MS, 1_000);
   const large = firstTokenDeadlineMsFor(DEFAULT_CONFIGURED_MS, 50_000);

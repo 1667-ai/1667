@@ -65,12 +65,21 @@ export const FIRST_TOKEN_DEADLINE_CEILING_MS = 15 * 60 * 1_000;
 
 /** The effective first-token deadline for one request: the configured value,
  *  extended by a per-byte allowance derived from the serialized request
- *  body's size, clamped to `FIRST_TOKEN_DEADLINE_CEILING_MS`. See the module
- *  comment for the arithmetic and its justification. */
+ *  body's size. See the module comment for the arithmetic.
+ *
+ *  The ceiling bounds the **derived** allowance only, never the configured
+ *  value. A writer may set `firstTokenMs` as high as
+ *  `MAX_SETTINGS_TIMEOUT_MS` (server/settings-v2-scalars.ts, 24 hours), and
+ *  before this module existed that value was honoured exactly. Clamping the
+ *  result as a whole would shorten such a setting — a 20 minute deadline
+ *  would come back as 15 — which both contradicts "the configured value is a
+ *  floor" above and would abort generations that used to succeed. The
+ *  ceiling exists to stop *automatic* growth on an enormous prompt from
+ *  hiding a dead server, and that is the only thing it bounds. */
 export function firstTokenDeadlineMsFor(
   configuredMs: number,
   requestBodyBytes: number
 ): number {
   const derived = requestBodyBytes * PER_BYTE_ALLOWANCE_MS;
-  return Math.min(FIRST_TOKEN_DEADLINE_CEILING_MS, Math.max(configuredMs, derived));
+  return Math.max(configuredMs, Math.min(FIRST_TOKEN_DEADLINE_CEILING_MS, derived));
 }
