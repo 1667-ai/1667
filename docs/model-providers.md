@@ -552,14 +552,58 @@ contains only the opaque secret identifier.
 Local servers such as Ollama can use a connection without a credential. 1667
 enables prompt cache controls only for exact official provider hosts.
 
-The project settings document at `.1667/settings.v2.state.json` stores the
-deadlines for each model connection. New network connections use 120 seconds
-for response headers. They use 120 seconds for first content and idle content.
-They use 30 minutes for the complete request.
+The project settings document at `.1667/settings.v2.state.json` stores three
+deadlines that 1667 applies to each model connection: **headers**, **idle**,
+and **total**. A new network connection uses 120 seconds for **headers** and
+for **idle**. It uses 30 minutes for **total**. The document also holds a
+**first token** value, which 1667 keeps but does not read.
 
-Set `connections.<id>.timeouts.responseHeaderMs`, `firstTokenMs`, `idleMs`, and
-`totalMs` to change these deadlines. The Settings panel does not edit these
-advanced values.
+### Change a deadline in Settings
+
+The Settings panel shows three of the deadlines in the **connection**
+section: **headers**, **idle**, and **total**. Select a deadline row. Press
+`Left Arrow` or `Right Arrow` to step the value. Press `Enter` to type a
+value. The panel shows each deadline in seconds. 1667 stores a deadline in
+milliseconds. Thus a deadline that is not a whole number of seconds shows
+its decimals, and you can type a value with decimals.
+
+The panel shows no row for **first token**. 1667 waits for the first token
+until the **total** deadline, so a **first token** value cannot change a
+request. To give a slow prompt more time, raise **total**.
+
+You can also set `connections.<id>.timeouts.responseHeaderMs`, `idleMs`, and
+`totalMs` directly in the project settings document. The document also holds
+`firstTokenMs`, which 1667 keeps but does not read.
+
+### The header and first-token deadlines, and prefill
+
+Prefill is the model server's work before it sends the first output token.
+The server computes its internal state for the whole prompt. It sends no
+stream output while it does this. A large prompt takes longer to prefill
+than a short prompt.
+
+The **headers** deadline always uses its configured Settings value. A model
+server that has not returned response headers within that time is usually
+unreachable or misconfigured. 1667 ends the generation quickly in this case.
+
+A model server can finish prefill before it sends response headers, or after
+it sends them. 1667 cannot tell which side of that a given server is on. So
+1667 waits for the first token until the **total** deadline. This wait
+covers the whole time a server can spend on prefill after it sends headers.
+
+Increase the **total** deadline in Settings when a model server needs more
+time to answer, including time spent in prefill on a large prompt or on slow
+hardware.
+
+1667 no longer reads the **first token** value. A settings document keeps the
+`firstTokenMs` field, and 1667 accepts it, but the value changes no request.
+Only the **total** deadline limits prefill.
+
+This design has one tradeoff. A generation that never receives response
+headers still ends at the **headers** deadline. A generation that receives
+headers and then produces no output still ends, but only at the **total**
+deadline. 1667 accepts this cost: a model server that fails right after it
+sends response headers goes undetected until the **total** deadline passes.
 
 ## Connection security
 

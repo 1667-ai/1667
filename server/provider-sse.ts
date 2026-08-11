@@ -75,6 +75,22 @@ export async function* providerSseEvents(
     const body = JSON.stringify(requestBody);
     await providerStarted?.();
     requestPrepared?.();
+    // Issue #127: this deadline is the configured value, exactly as it was
+    // before this program tried to derive it from the request. A server that
+    // has not returned headers yet is usually unreachable or misconfigured,
+    // and that case must keep failing in seconds, not in the half hour the
+    // first-token phase below now tolerates.
+    //
+    // Accepted tradeoff (raised in review, not covered): a server that does
+    // not flush headers until it finishes prefilling would still be bound by
+    // this short deadline, and a legitimate prefill slower than the
+    // configured value would abort here. No observed server does this —
+    // KoboldCpp, the reference this program was built against, flushes
+    // headers immediately and prefills after, which the first-token phase
+    // below covers. Extending this deadline too, to cover a server nobody
+    // has seen, would mean an actually unreachable host takes the full total
+    // to report, which is exactly the failure this deadline exists to catch
+    // quickly.
     setPhaseTimer(
       runtime.timeouts.responseHeaderMs,
       "Model server did not return response headers before the configured deadline.",
@@ -129,8 +145,44 @@ export async function* providerSseEvents(
     }
     if (response.body === null) throw new ProviderError("Model response has no body");
 
+    // Issue #127: prefill sends nothing on the stream while it runs, its cost
+    // scales with prompt size, and nothing this program can observe tells a
+    // server still doing legitimate prefill on a large prompt apart from a
+    // dead one. Eight review rounds tried to derive a scaled deadline from
+    // the request body (bytes as a proxy for prompt size, a pessimistic
+    // tokens/second and bytes/token rate) and none of it could be made
+    // correct: tokens/second has no floor at all — hardware, model size,
+    // load, and context length all push prefill arbitrarily slow — so any
+    // rate is a guess, and a guess that is too low aborts exactly the work
+    // this phase exists to protect.
+    //
+    // So this phase does not derive anything. It runs to the connection's own
+    // total deadline, which is already ticking from the start of the request
+    // (`totalTimer` above) and is the only bound left that still means
+    // something once a prompt is large enough that prefill could plausibly
+    // take a while.
+    //
+    // `firstTokenMs` is deliberately not consulted. The total timer starts
+    // when the request does and this one starts only after headers, so the
+    // total fires first whatever `firstTokenMs` holds — a configured value
+    // could never change a single request. Reading it here would imply
+    // otherwise, and Settings no longer offers a row for it for the same
+    // reason. The field stays in `ConnectionTimeoutsV2` so existing documents
+    // keep parsing; to give a slow prompt more room, raise the total.
+    //
+    // This phase's message below is therefore effectively unreachable in
+    // production, kept only so a caller cancellation or a future narrower
+    // signal still has a typed phase to report against.
+    //
+    // Accepted tradeoff (raised in review, not covered): a server that dies
+    // after sending headers is no longer detected quickly — it consumes the
+    // whole total deadline before this program notices. That is the
+    // deliberate price of never aborting legitimate prefill: the error this
+    // phase can make is asymmetric, and a late report only delays finding out
+    // about a server that was never going to answer, while an early one
+    // destroys minutes of real work.
     setPhaseTimer(
-      runtime.timeouts.firstTokenMs,
+      runtime.timeouts.totalMs,
       "Model server did not produce stream activity before the configured deadline.",
       "provider-first-token"
     );

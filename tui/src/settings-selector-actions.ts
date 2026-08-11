@@ -21,6 +21,10 @@ import {
 import { cycleTokenProbabilitiesControl } from "./settings-token-probabilities-row.js";
 import { cycleReasoningControl } from "./settings-reasoning-row.js";
 import { isSettingsScalarRow } from "./settings-scalar.js";
+import {
+  isConnectionTimeoutRow,
+  stepConnectionTimeout
+} from "./settings-connection-timeouts.js";
 import type {
   RuntimeState,
   SettingsOverlayState,
@@ -43,6 +47,8 @@ export async function cycleSettingsRow(
   try {
     if (isSettingsScalarRow(row)) {
       stepSettingsScalar(overlay, row, step, magnitude);
+    } else if (isConnectionTimeoutRow(row)) {
+      stepConnectionTimeout(overlay, row, step, magnitude);
     } else if (row === "theme") {
       const index = THEME_NAMES.indexOf(state.config.theme);
       applySettingsTheme(

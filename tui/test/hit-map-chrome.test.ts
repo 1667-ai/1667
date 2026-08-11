@@ -749,9 +749,13 @@ describe("hit map clickable chrome", () => {
 
     // Theme, compose focus, word wrap, provider, insecure HTTP, profile,
     // effort, cache, alternatives, reasoning, keep thoughts, and three
-    // routes — plus the three C-08 scalars, whose chips open on the same
-    // column.
-    expect(opens.size).toBe(17);
+    // routes — plus the three C-08 scalars (temperature, max tokens,
+    // context) and the three connection-timeout scalars (headers, idle,
+    // total), whose chips all open on the same column. There is no
+    // first-token row: server/provider-sse.ts waits for the first token
+    // until the total deadline, so a configured value could never change a
+    // request.
+    expect(opens.size).toBe(20);
     expect(new Set(opens.values()).size).toBe(1);
   });
 

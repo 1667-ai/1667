@@ -412,7 +412,10 @@ describe("active selection copy", () => {
       returnMode: "FACTS",
       conflict: null
     };
-    const frame = renderStoryScreen(state, { width: 20, height: 12 });
+    // The Fact editor keeps a row for every Fact field above the body, so a
+    // 12-row terminal leaves the body one row. The screen must be tall enough
+    // to display the soft-wrapped rows this selection crosses.
+    const frame = renderStoryScreen(state, { width: 20, height: 24 });
     state.composerSelectionProjection = frame.derived.composerSelectionProjection;
     const projection = state.composerSelectionProjection!;
     const displayStart = projection.findIndex((cell) => cell?.start === 4);
