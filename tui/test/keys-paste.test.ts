@@ -8,7 +8,7 @@ test("paste inserts at the composer cursor and flattens single-line prompts", ()
     editor: null, settings: null, card: null, archive: null,
     prune: null, chapterDeleteArmedId: null, actions: null, retakePrompt: null,
     composerScrollTop: 0, history: [] as string[], historyIndex: 0, historyDraft: null,
-    pendingGenerationDraft: null, composerClaimEpoch: 0
+    pendingGenerationDraft: null, composerClaimEpoch: 0, stream: null
   };
   base.composer.cursor = 1;
   const compose = { ...base, mode: "COMPOSE" as const };

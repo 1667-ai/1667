@@ -74,6 +74,7 @@ export type { ActionContext } from "./action-context.js";
 export {
   generate,
   generationBusy,
+  streamLive,
   requestGenerationStop,
   restorePendingGenerationDraft,
   restoreStoppedGenerationDraft
@@ -170,7 +171,9 @@ export async function navAction(
       queueThoughtLoad(state, source, context, view);
     }
   }
-  else if (resolved.action === "compose") openDirectComposer(state);
+  else if (resolved.action === "compose") {
+    if (!openDirectComposer(state)) state.toast = "stream running · esc stops it first";
+  }
   else if (resolved.action === "new-item") await createNewStory(state, source, context);
   else if (resolved.action === "continue") {
     if (generationBusy(state)) state.toast = "stream running · esc stops it first";
@@ -355,7 +358,9 @@ export async function runPartAction(
   }
   if (id === "continue") await context.backend.run("generating prose", (task) =>
     generate(state, source, context.cache, context.repaint, "", null, null, task));
-  else if (id === "direct") openDirectComposer(state);
+  else if (id === "direct") {
+    if (!openDirectComposer(state)) state.toast = "stream running · esc stops it first";
+  }
   else if (id === "retake") await context.backend.run("retaking prose", (task) =>
     generate(state, source, context.cache, context.repaint, node.instruction, node, null, task));
   else if (id === "retake-with-prompt") openRetakeComposer(state, node.id, node.instruction, { kind: "retake" });
