@@ -24,6 +24,11 @@ export interface PaletteCommand {
   shortcut?: string;
   demoOnly?: boolean;
   mutating?: boolean;
+  /** Refuse while the model is still streaming. Narrower than `mutating`,
+   *  which gates on generationBusy and so stays shut through post-Stop
+   *  settlement. A command that only claims an editor uses this instead, so
+   *  the writer can still reach the draft Stop restored. */
+  blockedByLiveStream?: boolean;
   theme?: ThemeName;
   /** Extra live gate beyond demo/mutating, e.g. rewrite-selection needing a
    *  selection this build can actually rewrite. Absent means always allowed. */
@@ -99,7 +104,7 @@ const COMMANDS: readonly PaletteCommand[] = [
   { id: "phrase-bias", section: "story", name: "phrase bias", description: "bias phrases for this story only, adding to the profile's own", mutating: true },
   { id: "banned-strings", section: "story", name: "banned strings", description: "ban strings for this story only, adding to the profile's own", mutating: true },
 
-  { id: "direct-take", section: "take", name: "direct take", description: "write the next take from an instruction", shortcut: "i" },
+  { id: "direct-take", section: "take", name: "direct take", description: "write the next take from an instruction", shortcut: "i", blockedByLiveStream: true },
   {
     id: "attach-image", section: "take", name: "attach image",
     description: "attach an image file to the next take",
