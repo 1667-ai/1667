@@ -1,6 +1,8 @@
 import {
   REASONING_DISPLAY_V2_VALUES,
   type FeatureSupportV2,
+  type ModelCapabilitiesV2,
+  type ModelConnectionV2,
   type ReasoningDisplayV2
 } from "./settings-v2-types.js";
 import type { SelectedSettingsRouteV2 } from "./settings-route.js";
@@ -62,9 +64,16 @@ export function reasoningDisplayAvailabilityForTarget(
  *  `<think>` block into a thought. The model capability stays honest about
  *  the protocol, and the connection setting overrides it here, at the only
  *  layer that can see both. */
+export function effectiveReasoningContent(
+  connection: Pick<ModelConnectionV2, "splitThinkTags">,
+  capabilities: Pick<ModelCapabilitiesV2, "reasoningContent">
+): FeatureSupportV2 {
+  if (connection.splitThinkTags === true) return "supported";
+  return capabilities.reasoningContent ?? "unknown";
+}
+
 function routeReasoningContent(route: SelectedSettingsRouteV2): FeatureSupportV2 {
-  if (route.connection.splitThinkTags === true) return "supported";
-  return route.model.capabilities.reasoningContent ?? "unknown";
+  return effectiveReasoningContent(route.connection, route.model.capabilities);
 }
 
 /** Return only display values the exact profile route can populate. */

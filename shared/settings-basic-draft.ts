@@ -286,6 +286,7 @@ function connectionFor(
     const {
       allowInsecureHttp: _allowInsecureHttp,
       textPromptFormat: _textPromptFormat,
+      splitThinkTags: _splitThinkTags,
       ...portable
     } = current;
     return {
@@ -314,6 +315,7 @@ function connectionFor(
   const {
     allowInsecureHttp: _allowInsecureHttp,
     textPromptFormat: currentTextPromptFormat,
+    splitThinkTags: currentSplitThinkTags,
     ...portable
   } = current;
   return {
@@ -332,6 +334,13 @@ function connectionFor(
             ? "raw" as const
             : currentTextPromptFormat ?? "raw" as const
         }
+      : {}),
+    // Only a text protocol accepts the split, and a protocol change resets it
+    // the same way it resets the prompt format. Carrying it onto a chat route
+    // would write a document `parseConnections` refuses, from a row the new
+    // provider does not even show.
+    ...(protocol === "text-completions" && !protocolChanged && currentSplitThinkTags === true
+      ? { splitThinkTags: true as const }
       : {}),
     ...(draft.allowInsecureHttp === true ? { allowInsecureHttp: true as const } : {})
   };

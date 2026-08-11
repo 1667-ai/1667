@@ -25,6 +25,8 @@ import {
   type ReasoningConsumer
 } from "./provider-reasoning-relay.js";
 import { createThinkTagSplitter } from "../shared/think-tag-split.js";
+// Type-only, so the cycle back to the module that dispatches here is erased.
+import type { ProviderSecretsCollector } from "./providers.js";
 import type { StorySamplingBias } from "./sampling-phrase-bias.js";
 import {
   snapshotEffectiveFields,
@@ -44,6 +46,7 @@ interface TextCompletionOptions {
   readonly storySampling?: StorySamplingBias;
   readonly generationRecord?: GenerationRecordCollector;
   readonly onReasoning?: ReasoningConsumer;
+  readonly providerSecrets?: ProviderSecretsCollector;
 }
 
 type TextEndpoint = "llama-cpp" | "koboldcpp" | "openai";
@@ -75,6 +78,11 @@ export async function* streamTextCompletion(
   const { headers, secrets } = resolveProviderHeaders(settings, {
     "content-type": "application/json"
   });
+  // A split thought and its prose leave through two separate redactors, so a
+  // credential divided between them survives both. `reasoningSafeToStore`
+  // catches exactly that at commit time, and only if the caller is told which
+  // secrets this route resolved.
+  if (options.providerSecrets !== undefined) options.providerSecrets.secrets = secrets;
   const outputRedactor = createProviderStreamRedactor(secrets);
   // A text route carries one undifferentiated token stream, so a thinking
   // model's `<think>` block arrives inside the prose. The splitter is the

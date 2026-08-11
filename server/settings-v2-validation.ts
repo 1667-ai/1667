@@ -20,7 +20,10 @@ import { parseSampling, validateSamplingRoute } from "./settings-v2-sampling-val
 import { boundedArray, closedRecord, closedShape, literal } from "./story-wire-validation.js";
 import { MAX_ALTERNATIVE_TOKENS } from "../shared/token-probabilities.js";
 import { generationEffortAvailabilityForTarget } from "../shared/generation-effort-capabilities.js";
-import { reasoningDisplayChoicesForTarget } from "../shared/reasoning-display-capabilities.js";
+import {
+  effectiveReasoningContent,
+  reasoningDisplayChoicesForTarget
+} from "../shared/reasoning-display-capabilities.js";
 import {
   MAX_SETTINGS_AUTHOR_BRIEF_SCALARS,
   MAX_SETTINGS_CREDENTIAL_NAMES,
@@ -452,7 +455,11 @@ export function parseProfiles(
     if (
       reasoning !== undefined
       && !reasoningDisplayChoicesForTarget({
-        reasoningContent: model.capabilities.reasoningContent ?? "unknown"
+        // The connection's split is what makes a text route return reasoning
+        // at all, so this has to read the same effective value the settings
+        // UI offers from. Keying off the model alone would refuse a value the
+        // writer was just given.
+        reasoningContent: effectiveReasoningContent(connection, model.capabilities)
       }).includes(reasoning)
     ) {
       throw new SettingsFormatError(`profile ${id} sets reasoning on a model that returns none`);
