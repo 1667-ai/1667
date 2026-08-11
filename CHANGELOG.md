@@ -264,7 +264,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names. Thanks @10fra for the request.
 
-## 0.8.0-rc.1 - 2026-08-11
+## 0.8.0 - 2026-08-11
 
 - **1667 prepares to send images to a model.** This release contains the
   complete Image Input implementation and keeps every entry point closed. It
