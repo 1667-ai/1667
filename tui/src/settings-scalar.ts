@@ -129,8 +129,13 @@ export function steppedScalarValue(
   direction: -1 | 1,
   magnitude: ScalarMagnitude
 ): number | null {
-  const max = scalar.max ?? Number.POSITIVE_INFINITY;
-  if (magnitude === "end") return direction === 1 ? scalar.max ?? scalar.value : scalar.min;
+  // The row's real limit, not its track: a value the row accepts has to be
+  // reachable by stepping, or a valid persisted setting above the track would
+  // stall against a bound that is only a visual. Rows without `acceptedMax`
+  // are unchanged, since it falls back to `max`.
+  const limit = scalar.acceptedMax ?? scalar.max;
+  const max = limit ?? Number.POSITIVE_INFINITY;
+  if (magnitude === "end") return direction === 1 ? limit ?? scalar.value : scalar.min;
   if (scalar.value === null) return direction === 1 ? scalar.sentinelEntry : null;
   const step = scalar.step * (magnitude === "coarse" ? SCALAR_COARSE_MULTIPLIER : 1);
   const raw = scalar.value + step * direction;

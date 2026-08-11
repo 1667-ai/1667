@@ -63,10 +63,12 @@ interface ConnectionTimeoutRowSpec {
   readonly label: string;
   readonly unit: TimeoutUnit;
   readonly unitSuffix: string;
-  /** Stepper/track bounds only, in display units — the same relationship
-   *  CONTEXT_WINDOW_CEILING has to context-window in settings-scalar.ts: a
-   *  typed value past this is still accepted and flagged invalid, never
-   *  refused outright. */
+  /** The visible track, in display units. `max` here is where the track ends,
+   *  not where the row stops: `acceptedMax` below is the real limit, and both
+   *  validation and stepping use that. A track spanning the schema's own 24
+   *  hour ceiling would pin every ordinary value against its left edge and
+   *  make a step imperceptible, so the track stays narrow enough to be worth
+   *  looking at. */
   readonly min: number;
   readonly max: number;
   readonly step: number;
@@ -135,6 +137,27 @@ export function connectionTimeoutHint(row: ConnectionTimeoutRow): string {
   return CONNECTION_TIMEOUT_ROW_SPECS[row].hint;
 }
 
+/** How many decimals this row needs to spell its stored value exactly.
+ *
+ *  A timeout is stored as whole milliseconds and need not land on a whole
+ *  second or minute — 1,500 ms and 90,000 ms are both valid hand edits. At a
+ *  fixed zero decimals those render as `2s` and `2m`, so Settings would show
+ *  a deadline the runtime does not use, which is the one thing a settings
+ *  editor must never do. Ordinary values divide evenly and still show with no
+ *  decimal at all; only a value that needs them pays for them. Three is the
+ *  most milliseconds can ever require against a seconds divisor, and is the
+ *  cap for minutes too — a value finer than that in minutes is past what this
+ *  unit can spell, and the row shows the closest it can. */
+function timeoutDecimals(storedMs: number, divisor: number): number {
+  for (let decimals = 0; decimals < 3; decimals += 1) {
+    const factor = 10 ** decimals;
+    if (Math.round(storedMs / divisor * factor) / factor * divisor === storedMs) {
+      return decimals;
+    }
+  }
+  return 3;
+}
+
 function unitDivisor(unit: TimeoutUnit): number {
   return unit === "seconds" ? MS_PER_SECOND : MS_PER_MINUTE;
 }
@@ -163,7 +186,7 @@ function connectionTimeoutScalarForDraft(
     acceptedMax: spec.acceptedMax,
     step: spec.step,
     defaultValue: defaults[spec.field] / divisor,
-    decimals: 0,
+    decimals: timeoutDecimals(route.connection.timeouts[spec.field], divisor),
     // Every ConnectionTimeoutsV2 field is a required number — there is no
     // sentinel value this row can fall back to.
     sentinel: null,

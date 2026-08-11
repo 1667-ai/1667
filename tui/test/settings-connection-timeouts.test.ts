@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import type { SaveSettingsCommand } from "../../shared/settings-v2-types.js";
 import { settingsRows } from "../src/settings-overlay-model.js";
+import { settingsTextDraftForDocument } from "../src/settings-text.js";
 import {
   draftRow,
   key,
@@ -151,5 +152,52 @@ describe("connection timeout settings rows (issue #127)", () => {
       expect(settingsRows(state.settings!, state.config)
         .find((candidate) => candidate.id === row)?.invalid).toBe(undefined);
     });
+
+    test(`a ${row} value past its track still steps instead of stalling on it`, async () => {
+      // A value the row accepts has to be reachable and movable. Stepping
+      // bounded by the track would clamp a valid persisted setting back down
+      // to a limit that is only a visual.
+      const { source, state, press } = settingsHarness();
+      installNetworkSettings(source);
+      await openSettings(press);
+      await draftRow(press, state, row, typed);
+      await selectRow(press, state, row);
+      await press(key("right"));
+
+      const document = state.settings!.draft.document!;
+      const profileId = state.settings!.draft.selectedProfileId!;
+      const stepped = resolveSettingsProfile(document, profileId).connection.timeouts[field];
+      expect(stepped).toBeGreaterThan(ms);
+    });
   }
+
+  test("a hand-edited timeout that is not a whole second shows the value the runtime will use", async () => {
+    // Stored values are whole milliseconds and need not land on a second.
+    // This one cannot be typed into the row — the editor holds the row's
+    // current precision — but it is a valid settings.json, which is exactly
+    // how the documentation says to reach these values. Rendering 1,500 ms as
+    // `2s` would have Settings report a deadline the runtime does not use.
+    const { source, state, press } = settingsHarness();
+    installNetworkSettings(source);
+    await openSettings(press);
+
+    const overlay = state.settings!;
+    const document = overlay.draft.document!;
+    const profileId = overlay.draft.selectedProfileId!;
+    const connectionId = resolveSettingsProfile(document, profileId).model.connectionId;
+    const connection = document.connections[connectionId]!;
+    overlay.draft = settingsTextDraftForDocument({
+      ...document,
+      connections: {
+        ...document.connections,
+        [connectionId]: {
+          ...connection,
+          timeouts: { ...connection.timeouts, responseHeaderMs: 1_500 }
+        }
+      }
+    }, profileId);
+
+    expect(settingsRows(state.settings!, state.config)
+      .find((candidate) => candidate.id === "timeout-headers")?.value).toContain("1.5s");
+  });
 });
