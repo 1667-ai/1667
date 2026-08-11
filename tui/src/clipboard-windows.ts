@@ -37,10 +37,17 @@ const NO_IMAGE_MARKER = "NO_IMAGE";
  * P/Invoke declarations and the limit-setting function come from
  * `shared/windows-job-memory-limit.ts`, the same source
  * `server/image-normalize-launcher.ts` uses to bound the normalizer child.
+ *
+ * `Set-JobMemoryLimit` returns a boolean. This helper stays best-effort by
+ * design, the same tolerance `readClipboardImageWindows` already documents
+ * for a `powershell.exe` that cannot be reached, so the call is wrapped in
+ * `[void] (...)` rather than checked: an unconsumed PowerShell function
+ * return value would otherwise print to stdout and corrupt the base64 or
+ * marker text this script's caller reads back.
  */
 const CLIPBOARD_IMAGE_HELPER = `
 ${WINDOWS_JOB_MEMORY_LIMIT_POWERSHELL_SOURCE}
-Set-JobMemoryLimit -bytes __COMMIT_LIMIT_BYTES__ -processHandle ([JobMemoryLimit.Native]::GetCurrentProcess())
+[void] (Set-JobMemoryLimit -bytes __COMMIT_LIMIT_BYTES__ -processHandle ([JobMemoryLimit.Native]::GetCurrentProcess()))
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing

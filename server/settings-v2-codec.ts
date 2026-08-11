@@ -4,14 +4,12 @@ import {
   canonicalJson
 } from "./canonical-json.js";
 import {
-  hashSettingsDocumentV2Bytes,
-  hashSettingsStateV2Bytes
+  hashSettingsDocumentBytes,
+  hashSettingsStateBytes
 } from "./settings-v2-hash.js";
 import { MAX_SETTINGS_DOCUMENT_BYTES, MAX_SETTINGS_STATE_BYTES, SettingsFormatError } from "./settings-v2-scalars.js";
-import {
-  settingsStateEnvelopeBytes,
-  validateSettingsStateV2
-} from "./settings-v2-state-validation.js";
+import { settingsStateEnvelopeBytes } from "./settings-state-validation.js";
+import { validateSettingsStateV2 } from "./settings-v2-state-validation.js";
 import {
   validateSettingsDocumentV2,
   type SettingsValidationOptions
@@ -85,7 +83,7 @@ export function formatSettingsDocumentV2Bytes(document: SettingsDocumentV2): Uin
 }
 
 export function hashSettingsDocumentV2(document: SettingsDocumentV2): string {
-  return hashSettingsDocumentV2Bytes(formatSettingsDocumentV2Bytes(document));
+  return hashSettingsDocumentBytes(formatSettingsDocumentV2Bytes(document));
 }
 
 export function parseSettingsStateV2(
@@ -145,5 +143,5 @@ export function formatSettingsStateV2Bytes(state: SettingsStateV2): Uint8Array {
 }
 
 export function hashSettingsStateV2(state: SettingsStateV2): string {
-  return hashSettingsStateV2Bytes(formatSettingsStateV2Bytes(state));
+  return hashSettingsStateBytes(formatSettingsStateV2Bytes(state));
 }

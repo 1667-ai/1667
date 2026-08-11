@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import test from "node:test";
 import {
   MAX_IMAGE_OBJECT_BYTES,
@@ -6,7 +7,11 @@ import {
 } from "../shared/image-attachment.js";
 import { parseImageHeader } from "../server/image-header.js";
 import { normalizeImage } from "../server/image-normalize.js";
-import { launchImageNormalizeChild } from "../server/image-normalize-launcher.js";
+import {
+  launchImageNormalizeChild,
+  WINDOWS_JOB_MEMORY_LIMIT_NOT_INSTALLED_MESSAGE
+} from "../server/image-normalize-launcher.js";
+import { assignWindowsChildMemoryLimit } from "../server/image-normalize-memory-bound.js";
 import { ServiceError } from "../server/errors.js";
 import {
   corruptPayload,
@@ -268,28 +273,85 @@ test("the memory watchdog kills a child that grows past the configured limit", {
 // bytes, so growing past that ceiling makes Windows itself refuse the
 // child's next allocation. This test only proves anything on win32: on
 // every other platform the memory bound comes from the poll above instead,
-// which is why this is the one test in the file gated to Windows rather
-// than gated away from it.
+// which is why this is one of the tests in this file gated to Windows
+// rather than gated away from it.
 //
+// This proves the marshaled JOBOBJECT_EXTENDED_LIMIT_INFORMATION buffer is
+// accepted by the kernel, independent of whether any child ever actually
+// hits the ceiling: it calls assignWindowsChildMemoryLimit directly, the
+// same function launchImageNormalizeChild calls, against a lightweight,
+// well-behaved child that never grows past the limit. A wrong buffer
+// layout makes SetInformationJobObject or AssignProcessToJobObject return
+// false, which resolves this call to false; this test alone would have
+// caught the original offset bug, without needing an out-of-memory crash
+// to happen at all.
+test("the Windows Job Object assignment succeeds against a real child process", {
+  skip: process.platform !== "win32"
+}, async () => {
+  const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 10_000)"]);
+  try {
+    assert.notEqual(child.pid, undefined, "expected the helper child to have a pid");
+    const installed = await assignWindowsChildMemoryLimit(child.pid!, 64 * 1024 * 1024);
+    assert.equal(installed, true, "expected the Job Object assignment to succeed");
+  } finally {
+    child.kill();
+  }
+});
+
 // The exact failure code is not asserted. A denied allocation inside the
 // child can surface as a catchable error, or as a V8 "Fatal process out of
 // memory" crash that never runs any of this project's own error-handling
 // code at all; either way the child ends without a success message, and
 // `outcomeError` in server/image-normalize-launcher.ts turns that into some
-// `ServiceError`. What this test proves is that the child does not finish
-// normally when it is asked to hold four times its Job Object ceiling.
-test("the Windows Job Object bound kills a child that grows past the configured limit", {
+// `ServiceError`. Two things below together prove it was the job limit
+// specifically, not merely that the stage failed for some other reason:
+//
+// 1. A control run first, same limit, same debug-allocation mechanism, well
+//    under the ceiling (8 MiB against 64 MiB), must succeed. If Job Object
+//    assignment broke the child outright, the control would fail too, and
+//    the failing run below would prove nothing about the limit itself.
+// 2. The failing run must not carry `WINDOWS_JOB_MEMORY_LIMIT_NOT_INSTALLED_MESSAGE`
+//    (see the test above for that case proven directly) and must settle
+//    well under the 10-second deadline, ruling out the deadline timer as
+//    the cause. What is left, once "never installed" and "timed out" are
+//    both ruled out and the same setup just succeeded at a smaller size, is
+//    the job limit itself refusing the over-budget allocation.
+test("the Windows Job Object bound kills a child that grows past the configured limit, and only when the limit is actually exceeded", {
   skip: process.platform !== "win32"
 }, async () => {
   const source = await opaquePng(64, 64);
+  const memoryLimitBytes = 64 * 1024 * 1024;
+
+  const control = await launchImageNormalizeChild(source, "image/png", {
+    deadlineMs: 10_000,
+    memoryLimitBytes,
+    debugAllocateMb: 8
+  });
+  assert.equal(control.mediaType, "image/png");
+
+  const start = performance.now();
   await assert.rejects(
     () => launchImageNormalizeChild(source, "image/png", {
       deadlineMs: 10_000,
-      memoryLimitBytes: 64 * 1024 * 1024,
+      memoryLimitBytes,
       debugAllocateMb: 256
     }),
-    (error: unknown) => error instanceof ServiceError
+    (error: unknown) => {
+      assert.ok(error instanceof ServiceError, "expected a ServiceError");
+      assert.notEqual(
+        (error as ServiceError).message,
+        WINDOWS_JOB_MEMORY_LIMIT_NOT_INSTALLED_MESSAGE,
+        "the child must fail because it hit the installed limit, not because the limit was never installed"
+      );
+      return true;
+    }
   );
+  const elapsedMs = performance.now() - start;
+  // The deadline is 10s; a refused allocation settles in a couple of
+  // seconds at most (the C# compile, then a fast failure on the next
+  // allocation attempt). Settling well under the deadline rules out the
+  // timer, not the Job Object, as the cause.
+  assert.ok(elapsedMs < 8_000, `expected the job limit to end the child quickly, took ${elapsedMs}ms`);
 });
 
 test("resident memory stays bounded across repeated normalization", async () => {

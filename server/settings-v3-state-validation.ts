@@ -7,14 +7,14 @@ import { INITIAL_SETTINGS_DOCUMENT_V3_HASH } from "./settings-v3-initial-vectors
 import {
   validateSettingsState,
   type SettingsStateSchema
-} from "./settings-v2-state-validation.js";
+} from "./settings-state-validation.js";
 import { validateSettingsDocumentV3, type SettingsValidationOptions } from "./settings-v3-validation.js";
 
 /**
  * Schema 3's aggregate state codec. It supplies only what differs from
  * schema 2: how to validate a schema-3 document, how to hash one, and the
  * hash of the exact canonical schema-3 initial document. Every other rule
- * (`server/settings-v2-state-validation.ts`) is version-free and shared, so
+ * (`server/settings-state-validation.ts`) is version-free and shared, so
  * this module has nothing left to duplicate.
  */
 const SETTINGS_STATE_V3_SCHEMA: SettingsStateSchema<3, SettingsDocumentV3> = {

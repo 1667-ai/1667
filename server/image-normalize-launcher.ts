@@ -42,12 +42,28 @@ import type { NormalizedImage } from "./image-normalize.js";
  *   its `JOB_OBJECT_LIMIT_JOB_MEMORY` ceiling. That bound is enforced by the
  *   kernel: an allocation that would cross it fails inside the child,
  *   before this launcher does anything. See `assignWindowsChildMemoryLimit`.
+ *   If that assignment does not succeed, `sendChildInput` below fails the
+ *   whole stage closed rather than running the child unbounded.
  * - On Linux and macOS this launcher polls the child's own resident set
  *   size and kills its process group on breach. See `pollChildMemory`'s own
  *   comment for exactly what that does and does not guarantee, because a
  *   poll is not the same kind of bound as a Job Object.
  */
 export const IMAGE_NORMALIZE_CHILD_MEMORY_LIMIT_BYTES = 512 * 1024 * 1024;
+
+/**
+ * The message on the `ServiceError` `sendChildInput` raises when
+ * `assignWindowsChildMemoryLimit` resolves `false`. A Windows machine that
+ * cannot install a Job Object cannot normalize an image under this design:
+ * the kernel-enforced ceiling is the only bound this stage has on Windows
+ * (see `assignWindowsChildMemoryLimit`'s own comment), so a child that
+ * never received one must never receive Source Image bytes either. This
+ * message is exported so `test/image-normalize.test.ts` can assert that a
+ * failure it observes is NOT this one, proving a limit-hit failure is
+ * distinct from an installation failure.
+ */
+export const WINDOWS_JOB_MEMORY_LIMIT_NOT_INSTALLED_MESSAGE =
+  "The image normalization memory limit could not be installed on this Windows machine.";
 
 const TERMINATION_GRACE_MS = 250;
 const SETTLEMENT_DEADLINE_MS = 500;
@@ -102,6 +118,7 @@ export async function launchImageNormalizeChild(
     let pendingError: Error | null = null;
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
     let settlementTimer: ReturnType<typeof setTimeout> | undefined;
+    let rssTimer: ReturnType<typeof setTimeout> | undefined;
 
     const deadlineTimer = setTimeout(() => {
       beginTermination(new ServiceError(
@@ -111,11 +128,24 @@ export async function launchImageNormalizeChild(
       ));
     }, deadlineMs);
 
-    const rssTimer = posix && child.pid !== undefined
-      ? setInterval(() => {
-          void pollChildMemory(child.pid!, memoryLimitBytes, beginTermination);
-        }, RSS_POLL_INTERVAL_MS)
-      : undefined;
+    /**
+     * The POSIX memory poll reschedules itself with `setTimeout` after each
+     * `pollChildMemory` call resolves, instead of running on a bare
+     * `setInterval`. `pollChildMemory` spawns `ps` on macOS and reads a
+     * `/proc` file on Linux; `setInterval` never waits for an async
+     * callback to finish, so a `RSS_POLL_INTERVAL_MS` tick that is short
+     * next to either cost can queue several polls in flight at once, up to
+     * five concurrent `ps` processes for one stage. Rescheduling only after
+     * the previous poll settles keeps exactly one in flight at a time.
+     */
+    function scheduleRssPoll(): void {
+      rssTimer = setTimeout(() => {
+        void pollChildMemory(child.pid!, memoryLimitBytes, beginTermination).finally(() => {
+          if (phase === "running") scheduleRssPoll();
+        });
+      }, RSS_POLL_INTERVAL_MS);
+    }
+    if (posix && child.pid !== undefined) scheduleRssPoll();
 
     child.stdout?.on("data", (chunk: Buffer) => {
       if (phase !== "running") return;
@@ -153,7 +183,7 @@ export async function launchImageNormalizeChild(
 
     child.once("close", (code) => {
       clearTimeout(deadlineTimer);
-      if (rssTimer !== undefined) clearInterval(rssTimer);
+      if (rssTimer !== undefined) clearTimeout(rssTimer);
       if (phase === "settled") return;
       if (phase === "terminating") {
         settle(pendingError ?? new ServiceError(
@@ -170,15 +200,49 @@ export async function launchImageNormalizeChild(
 
     /**
      * On Windows, wait for the Job Object assignment to settle before
-     * handing the child any Source Image bytes, closing most of the window
-     * between spawn and a kernel-enforced ceiling actually being in place.
-     * `assignWindowsChildMemoryLimit` is best effort and never rejects, so
-     * this always reaches the stdin write; on POSIX it is skipped entirely,
-     * unchanged from before this bound existed.
+     * handing the child any Source Image bytes, closing the window between
+     * spawn and a kernel-enforced ceiling actually being in place. On POSIX
+     * this is skipped entirely, unchanged from before this bound existed.
+     *
+     * `assignWindowsChildMemoryLimit` resolves `false` for every failure
+     * mode: a missing `powershell.exe`, a refusal, a timeout, all alike.
+     * The design calls for a platform-enforced memory limit on Windows, not
+     * a best-effort one, so a child that cannot be bounded must never
+     * normalize. Sending it Source Image bytes anyway would let it decode
+     * and hold that data completely unbounded, the exact failure class this
+     * whole mechanism exists to remove. This function ends the stage with
+     * `image_normalization_failed` instead and never writes to the child's
+     * stdin.
+     *
+     * Before even attempting the assignment, refuse to spawn the helper at
+     * all against a pid this launcher already knows is gone: `child.exitCode`
+     * and `child.signalCode` are both non-null only after the child has
+     * exited, and a gone pid is exactly the pid Windows is free to recycle
+     * for an unrelated process. This is the cheap half of closing that race;
+     * `assignWindowsChildMemoryLimit`'s own script closes the much larger
+     * remaining window, the several seconds its `powershell.exe` helper
+     * spends compiling, by re-checking the target process's identity itself
+     * immediately before it opens a handle (see that function's comment).
      */
     async function sendChildInput(): Promise<void> {
       if (!posix && child.pid !== undefined) {
-        await assignWindowsChildMemoryLimit(child.pid, memoryLimitBytes);
+        if (child.exitCode !== null || child.signalCode !== null) {
+          beginTermination(new ServiceError(
+            500,
+            WINDOWS_JOB_MEMORY_LIMIT_NOT_INSTALLED_MESSAGE,
+            "image_normalization_failed"
+          ));
+          return;
+        }
+        const installed = await assignWindowsChildMemoryLimit(child.pid, memoryLimitBytes);
+        if (!installed) {
+          beginTermination(new ServiceError(
+            500,
+            WINDOWS_JOB_MEMORY_LIMIT_NOT_INSTALLED_MESSAGE,
+            "image_normalization_failed"
+          ));
+          return;
+        }
       }
       if (phase !== "running" || child.stdin === null) return;
       child.stdin.end(Buffer.from(sourceBytes));
@@ -189,7 +253,7 @@ export async function launchImageNormalizeChild(
       phase = "terminating";
       pendingError = error;
       clearTimeout(deadlineTimer);
-      if (rssTimer !== undefined) clearInterval(rssTimer);
+      if (rssTimer !== undefined) clearTimeout(rssTimer);
       killChildTree(child, "SIGTERM", posix);
       graceTimer = setTimeout(() => {
         graceTimer = undefined;
@@ -211,7 +275,7 @@ export async function launchImageNormalizeChild(
       if (phase === "settled") return;
       phase = "settled";
       clearTimeout(deadlineTimer);
-      if (rssTimer !== undefined) clearInterval(rssTimer);
+      if (rssTimer !== undefined) clearTimeout(rssTimer);
       if (graceTimer !== undefined) clearTimeout(graceTimer);
       if (settlementTimer !== undefined) clearTimeout(settlementTimer);
       if (error !== null) {

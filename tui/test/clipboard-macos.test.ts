@@ -1,4 +1,7 @@
+import { randomBytes } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { MAX_SOURCE_IMAGE_BYTES } from "../../shared/image-attachment.js";
 import { runClipboardHelperProcess, type ClipboardCommandRunner } from "../src/clipboard-command-runner.js";
@@ -113,23 +116,40 @@ describe("macOS clipboard image read, through the injectable seam", () => {
 });
 
 describe("macOS clipboard image read, on a real machine", () => {
-  test("returns no image when the clipboard holds no image", async () => {
-    if (process.platform !== "darwin") return;
-    // A headless CI runner's clipboard holds no image. Assert that
-    // honestly instead of skipping, so this test proves the real
-    // `osascript` helper's no-image path on every macOS CI run.
-    const result = await readClipboardImageMacOS();
-    expect(result).toBeNull();
-  });
+  test.skipIf(process.platform !== "darwin")(
+    "returns no image when the clipboard holds no image, proven through the real helper",
+    async () => {
+      // A headless CI runner's clipboard holds no image. Run the exact
+      // command `readClipboardImageMacOS` builds through the real
+      // subprocess runner directly, rather than through the reader
+      // function: the reader returns `null` both for a genuine "no image"
+      // reply and for the helper failing outright, so asserting on its
+      // return value alone would still pass against a syntactically broken
+      // AppleScript source. Asserting on the raw runner result instead
+      // proves `osascript` started, ran the script, and the clipboard
+      // genuinely held no image, all in one command. The path argument is
+      // never opened on this branch: the AppleScript returns "none" before
+      // it ever tries to write a file.
+      const path = join(tmpdir(), `1667-clipboard-test-${randomBytes(16).toString("hex")}.tmp`);
+      const { error, stdout } = await runClipboardHelperProcess(
+        macosClipboardImageHelperCommand(path),
+        { timeoutMs: 5_000, killSignal: "SIGKILL", maxBuffer: 4_096 }
+      );
+      expect(error).toBeNull();
+      expect(stdout.trim()).toBe("none");
+    }
+  );
 
-  test("fails closed rather than throwing when the platform tool is absent", async () => {
-    if (process.platform !== "darwin") return;
-    const result = await runClipboardHelperProcess(
-      ["/definitely/not/a/real/binary-1667-clipboard-test"],
-      { timeoutMs: 2_000, maxBuffer: 4_096 }
-    );
-    expect(result.error).not.toBeNull();
-    expect(result.stdout).toBe("");
-  });
+  test.skipIf(process.platform !== "darwin")(
+    "fails closed rather than throwing when the platform tool is absent",
+    async () => {
+      const result = await runClipboardHelperProcess(
+        ["/definitely/not/a/real/binary-1667-clipboard-test"],
+        { timeoutMs: 2_000, maxBuffer: 4_096 }
+      );
+      expect(result.error).not.toBeNull();
+      expect(result.stdout).toBe("");
+    }
+  );
 });
 

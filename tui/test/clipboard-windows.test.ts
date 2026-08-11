@@ -68,22 +68,37 @@ describe("Windows clipboard image read, through the injectable seam", () => {
 });
 
 describe("Windows clipboard image read, on a real machine", () => {
-  test("returns no image when the clipboard holds no image", async () => {
-    if (process.platform !== "win32") return;
-    // A headless CI runner's clipboard holds no image. Assert that
-    // honestly instead of skipping, so this test proves the real
-    // powershell.exe helper's no-image path on every Windows CI run.
-    const result = await readClipboardImageWindows();
-    expect(result).toBeNull();
-  });
+  test.skipIf(process.platform !== "win32")(
+    "returns no image when the clipboard holds no image, proven through the real helper",
+    async () => {
+      // A headless CI runner's clipboard holds no image. Run the exact
+      // command `readClipboardImageWindows` builds through the real
+      // subprocess runner directly, rather than through the reader
+      // function: the reader returns `null` both for a genuine "no image"
+      // reply and for the helper failing outright, so asserting on its
+      // return value alone would still pass against a syntactically broken
+      // PowerShell source. Asserting on the raw runner result instead
+      // proves powershell.exe started, Add-Type compiled, the Job Object
+      // code did not throw, and the clipboard genuinely held no image, all
+      // in one command.
+      const { error, stdout } = await runClipboardHelperProcess(windowsClipboardImageCommand(), {
+        timeoutMs: 5_000,
+        maxBuffer: Math.ceil((MAX_SOURCE_IMAGE_BYTES * 4) / 3) + 4_096
+      });
+      expect(error).toBeNull();
+      expect(stdout.trim()).toBe("NO_IMAGE");
+    }
+  );
 
-  test("fails closed rather than throwing when the platform tool is absent", async () => {
-    if (process.platform !== "win32") return;
-    const result = await runClipboardHelperProcess(
-      ["definitely-not-a-real-binary-1667-clipboard-test.exe"],
-      { timeoutMs: 2_000, maxBuffer: 4_096 }
-    );
-    expect(result.error).not.toBeNull();
-    expect(result.stdout).toBe("");
-  });
+  test.skipIf(process.platform !== "win32")(
+    "fails closed rather than throwing when the platform tool is absent",
+    async () => {
+      const result = await runClipboardHelperProcess(
+        ["definitely-not-a-real-binary-1667-clipboard-test.exe"],
+        { timeoutMs: 2_000, maxBuffer: 4_096 }
+      );
+      expect(result.error).not.toBeNull();
+      expect(result.stdout).toBe("");
+    }
+  );
 });

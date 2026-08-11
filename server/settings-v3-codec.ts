@@ -3,13 +3,13 @@ import {
   assertNfcJsonStrings,
   canonicalJson
 } from "./canonical-json.js";
-import { hashSettingsDocumentV2Bytes, hashSettingsStateV2Bytes } from "./settings-v2-hash.js";
+import { hashSettingsDocumentBytes, hashSettingsStateBytes } from "./settings-v2-hash.js";
 import {
   MAX_SETTINGS_DOCUMENT_BYTES,
   MAX_SETTINGS_STATE_BYTES,
   SettingsFormatError
 } from "./settings-v2-scalars.js";
-import { settingsStateEnvelopeBytes } from "./settings-v2-state-validation.js";
+import { settingsStateEnvelopeBytes } from "./settings-state-validation.js";
 import { validateSettingsStateV3 } from "./settings-v3-state-validation.js";
 import {
   validateSettingsDocumentV3,
@@ -81,7 +81,7 @@ export function formatSettingsDocumentV3Bytes(document: SettingsDocumentV3): Uin
 }
 
 export function hashSettingsDocumentV3(document: SettingsDocumentV3): string {
-  return hashSettingsDocumentV2Bytes(formatSettingsDocumentV3Bytes(document));
+  return hashSettingsDocumentBytes(formatSettingsDocumentV3Bytes(document));
 }
 
 export function parseSettingsStateV3(
@@ -126,5 +126,5 @@ export function formatSettingsStateV3(state: SettingsStateV3): string {
 }
 
 export function hashSettingsStateV3(state: SettingsStateV3): string {
-  return hashSettingsStateV2Bytes(Buffer.from(formatSettingsStateV3(state), "utf8"));
+  return hashSettingsStateBytes(Buffer.from(formatSettingsStateV3(state), "utf8"));
 }

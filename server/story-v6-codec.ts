@@ -7,6 +7,7 @@ import {
   STORY_FORMAT,
   STORY_SUCCESSOR_SCHEMA_VERSION,
   STORYTAVERN_STORY_FORMAT,
+  type ParsedManifestVersion,
   type StoryManifestV5,
   type StoryManifestV7
 } from "./story-format.js";
@@ -18,9 +19,10 @@ import {
   requireStoryId
 } from "./story-v5-strict.js";
 import type {
-  DeletedStoryEnvelopeManifest,
+  DeletedStoryEnvelope,
   DeletedStoryManifestV6,
   Hash256,
+  LiveStoryEnvelope,
   LiveStoryEnvelopeManifest,
   LiveStoryManifestV6,
   MutationId,
@@ -214,42 +216,84 @@ function parseV8(value: Record<string, unknown>, expectedId: string): StoryManif
 }
 
 function parseLive(value: unknown, expectedId: string): LiveStoryManifestV6 {
-  return parseLiveEnvelope(value, expectedId, STORY_SCHEMA_VERSION_V6, 5) as LiveStoryManifestV6;
+  return parseLiveEnvelope(value, expectedId, LIVE_V6);
 }
 
 function parseLive8(value: unknown, expectedId: string): LiveStoryManifestV8 {
-  return parseLiveEnvelope(
-    value,
-    expectedId,
-    STORY_SCHEMA_VERSION_V8,
-    STORY_SUCCESSOR_SCHEMA_VERSION
-  ) as LiveStoryManifestV8;
+  return parseLiveEnvelope(value, expectedId, LIVE_V8);
 }
 
 function parseDeleted(value: unknown, expectedId: string): DeletedStoryManifestV6 {
-  return parseDeletedEnvelope(value, expectedId, STORY_SCHEMA_VERSION_V6) as DeletedStoryManifestV6;
+  return parseDeletedEnvelope(value, expectedId, STORY_SCHEMA_VERSION_V6);
 }
 
 function parseDeleted8(value: unknown, expectedId: string): DeletedStoryManifestV8 {
-  return parseDeletedEnvelope(value, expectedId, STORY_SCHEMA_VERSION_V8) as DeletedStoryManifestV8;
+  return parseDeletedEnvelope(value, expectedId, STORY_SCHEMA_VERSION_V8);
 }
+
+/** The content version each envelope version must wrap: version 6 wraps an
+ *  exact V5 payload, version 8 wraps an exact successor payload. This map
+ *  ties `LiveEnvelopeSpec.requireContent`'s return type to `V`, so a spec
+ *  that pairs schema version 6 with V7 content is a compile error, not an
+ *  unwritten case. See `test/story-v6-envelope-pairing.test.ts`. */
+export interface LiveEnvelopeContentByVersion {
+  readonly 6: StoryManifestV5;
+  readonly 8: StoryManifestV7;
+}
+
+/** Pairs an envelope's schema version with the content version it must wrap.
+ *  `requireContent` compares `content.sourceSchemaVersion` against a
+ *  LITERAL, which narrows the `ParsedManifestVersion` union to the member
+ *  `LiveEnvelopeContentByVersion[V]` demands, the same way the pre-dedup,
+ *  one-version-per-function `parseLive` narrowed it. That is what lets
+ *  `parseLiveEnvelope` build its return value with no cast.
+ *
+ *  `LIVE_V6` and `LIVE_V8` below are the only two values of this type. A
+ *  call site can no longer pass the envelope version and the content
+ *  version as two independent parameters, the way the removed
+ *  `parseLiveEnvelope(value, expectedId, schemaVersion, contentVersion)`
+ *  did. Exported so a test can assert the mis-pairing is a type error. */
+export interface LiveEnvelopeSpec<V extends 6 | 8> {
+  readonly schemaVersion: V;
+  readonly requireContent: (content: ParsedManifestVersion) => LiveEnvelopeContentByVersion[V];
+}
+
+const LIVE_V6: LiveEnvelopeSpec<6> = {
+  schemaVersion: STORY_SCHEMA_VERSION_V6,
+  requireContent: (content) => {
+    if (content.sourceSchemaVersion !== 5) {
+      throw new StoryFormatError(`V${STORY_SCHEMA_VERSION_V6} content must contain an exact V5 payload`);
+    }
+    return content.manifest;
+  }
+};
+
+const LIVE_V8: LiveEnvelopeSpec<8> = {
+  schemaVersion: STORY_SCHEMA_VERSION_V8,
+  requireContent: (content) => {
+    if (content.sourceSchemaVersion !== STORY_SUCCESSOR_SCHEMA_VERSION) {
+      throw new StoryFormatError(
+        `V${STORY_SCHEMA_VERSION_V8} content must contain an exact V${STORY_SUCCESSOR_SCHEMA_VERSION} payload`
+      );
+    }
+    return content.manifest;
+  }
+};
 
 /**
  * The one live-envelope parser for both schema versions. A schema version
  * identifies one document shape, so `LIVE` and every scalar/pointer parser
- * below are shared as-is; only the schema version literal and the expected
- * content version change between a V6 and a V8 parse. `schemaVersion` and
- * `contentVersion` are checked against the wire value before the return, so
- * the closing cast only restates what those checks already proved. It is
- * the same narrowing `parseStoryManifestBytes` does for the legacy manifest
- * result.
+ * below are shared as-is; only `spec` changes between a V6 and a V8 parse.
+ * Typing `content` and `schemaVersion` as `LiveEnvelopeContentByVersion[V]`
+ * and `V`, instead of as the plain unions they narrow from, is what makes
+ * the returned object literal assignable to its return type with no cast.
  */
-function parseLiveEnvelope(
+function parseLiveEnvelope<V extends 6 | 8>(
   value: unknown,
   expectedId: string,
-  schemaVersion: 6 | 8,
-  contentVersion: 5 | typeof STORY_SUCCESSOR_SCHEMA_VERSION
-): LiveStoryEnvelopeManifest {
+  spec: LiveEnvelopeSpec<V>
+): LiveStoryEnvelope<V, LiveEnvelopeContentByVersion[V]> {
+  const { schemaVersion, requireContent } = spec;
   const manifest = closedRecord(value, `story ${expectedId} V${schemaVersion} live manifest`, LIVE);
   parseCommonLiterals(manifest, schemaVersion);
   literal(manifest.kind, "live", "manifest.kind");
@@ -257,10 +301,7 @@ function parseLiveEnvelope(
   const revision = revision20(manifest.revision, "manifest.revision");
   const previousManifestHash = nullableHash(manifest.previousManifestHash, "manifest.previousManifestHash");
   assertRevisionPredecessor(schemaVersion, revision, previousManifestHash);
-  const content = parseManifestValueWithVersion(manifest.content, id);
-  if (content.sourceSchemaVersion !== contentVersion) {
-    throw new StoryFormatError(`V${schemaVersion} content must contain an exact V${contentVersion} payload`);
-  }
+  const content = requireContent(parseManifestValueWithVersion(manifest.content, id));
   const summary = parseStorySummaryV6(manifest.summary);
   const unresolvedProvider = nullableProviderPointer(manifest.unresolvedProvider);
   const lastTransaction = nullableTransactionPointer(manifest.lastTransaction);
@@ -269,29 +310,32 @@ function parseLiveEnvelope(
   )) {
     throw new StoryFormatError("A started story transaction must match unresolvedProvider");
   }
-  const parsed = {
+  const parsed: LiveStoryEnvelope<V, LiveEnvelopeContentByVersion[V]> = {
     format: "1667-story",
     schemaVersion,
     kind: "live",
     id,
     revision,
     previousManifestHash,
-    content: content.manifest,
+    content,
     summary,
     unresolvedProvider,
     lastTransaction
-  } as LiveStoryEnvelopeManifest;
+  };
   assertSummaryMatchesContent(parsed);
   return parsed;
 }
 
 /** The one deleted-envelope parser for both schema versions. It carries no
- *  content, so only `schemaVersion` differs between a V6 and a V8 parse. */
-function parseDeletedEnvelope(
+ *  content, so only `schemaVersion` differs between a V6 and a V8 parse, and
+ *  typing that parameter as `V` (rather than as the union `6 | 8`) is what
+ *  makes the returned object literal assignable to `DeletedStoryEnvelope<V>`
+ *  without a cast. */
+function parseDeletedEnvelope<V extends 6 | 8>(
   value: unknown,
   expectedId: string,
-  schemaVersion: 6 | 8
-): DeletedStoryEnvelopeManifest {
+  schemaVersion: V
+): DeletedStoryEnvelope<V> {
   const manifest = closedRecord(value, `story ${expectedId} V${schemaVersion} deleted manifest`, DELETED);
   parseCommonLiterals(manifest, schemaVersion);
   literal(manifest.kind, "deleted", "manifest.kind");
@@ -309,7 +353,7 @@ function parseDeletedEnvelope(
     deletedAt: timeMs(manifest.deletedAt, "manifest.deletedAt"),
     unresolvedProvider: nullableProviderPointer(manifest.unresolvedProvider),
     lastTransaction: preparedTransactionPointer(manifest.lastTransaction)
-  } as DeletedStoryEnvelopeManifest;
+  };
 }
 
 function parseCommonLiterals(manifest: Record<string, unknown>, schemaVersion: 6 | 8): void {
@@ -372,7 +416,9 @@ function preparedTransactionPointer(value: unknown): PreparedUserTransactionPoin
   return pointer;
 }
 
-function assertSummaryMatchesContent(manifest: LiveStoryEnvelopeManifest): void {
+function assertSummaryMatchesContent<V extends 6 | 8>(
+  manifest: LiveStoryEnvelope<V, LiveEnvelopeContentByVersion[V]>
+): void {
   const expected = storySummaryV6FromContent(manifest.content);
   const actual = manifest.summary;
   if (

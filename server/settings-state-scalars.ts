@@ -18,9 +18,12 @@ import { closedRecord, closedShape, literal } from "./story-wire-validation.js";
  * The settings-state scalar and pointer parsers: activation, activation
  * outcome, transaction pointer, and the small scalars underneath them. None
  * of these reads a document field, so none of them is settings-schema-
- * version-specific. `server/settings-v2-state-validation.ts` calls them
- * while checking every other settings-state invariant, for schema 2 and
- * schema 3 alike.
+ * version-specific. `server/settings-state-validation.ts` calls the four
+ * exported parsers below while checking every other settings-state
+ * invariant, for schema 2 and schema 3 alike. `requireMutationId`,
+ * `requireHash`, and `oneOf` stay module-private: they have no consumer
+ * outside this file, and a public `oneOf` would collide with the
+ * differently worded one in `server/settings-v2-validation.ts`.
  */
 
 const ACTIVATION = closedShape(["transactionId", "oldHash", "candidateHash", "state", "attempt"]);
@@ -125,21 +128,21 @@ export function parseRevisionKey(value: string): number {
   return revision;
 }
 
-export function requireMutationId(value: unknown, label: string): string {
+function requireMutationId(value: unknown, label: string): string {
   if (typeof value !== "string" || !MUTATION_ID_PATTERN.test(value)) {
     throw new SettingsFormatError(`${label} is invalid`);
   }
   return value;
 }
 
-export function requireHash(value: unknown, label: string): string {
+function requireHash(value: unknown, label: string): string {
   if (typeof value !== "string" || !HASH256_PATTERN.test(value)) {
     throw new SettingsFormatError(`${label} is invalid`);
   }
   return value;
 }
 
-export function oneOf<const T extends readonly string[]>(value: unknown, choices: T, label: string): T[number] {
+function oneOf<const T extends readonly string[]>(value: unknown, choices: T, label: string): T[number] {
   if (typeof value !== "string" || !(choices as readonly string[]).includes(value)) {
     throw new SettingsFormatError(`${label} is invalid`);
   }
