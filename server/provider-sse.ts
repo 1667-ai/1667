@@ -33,7 +33,10 @@ export async function* providerSseEvents(
   isActivityEvent: (event: string) => boolean = () => true,
   isTerminalEvent: (event: string) => boolean = () => false,
   callerSignal: AbortSignal = signal,
-  providerTransportFinished?: () => void
+  providerTransportFinished?: () => void,
+  /** Test-only, threaded from `StreamCompletionOptions`. See
+   *  `prefillPhaseDeadlineMsFor`'s own parameter. */
+  prefillMsPerByte?: number
 ): AsyncGenerator<string> {
   const runtime = providerRuntimeFor(settings);
   try {
@@ -84,7 +87,8 @@ export async function* providerSseEvents(
       prefillPhaseDeadlineMsFor(
         runtime.timeouts.responseHeaderMs,
         Buffer.byteLength(body),
-        runtime.timeouts.totalMs
+        runtime.timeouts.totalMs,
+        prefillMsPerByte
       ),
       "Model server did not return response headers before the configured deadline.",
       "provider-response-header"
@@ -147,7 +151,8 @@ export async function* providerSseEvents(
       prefillPhaseDeadlineMsFor(
         runtime.timeouts.firstTokenMs,
         Buffer.byteLength(body),
-        runtime.timeouts.totalMs
+        runtime.timeouts.totalMs,
+        prefillMsPerByte
       ),
       "Model server did not produce stream activity before the configured deadline.",
       "provider-first-token"

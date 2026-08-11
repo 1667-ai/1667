@@ -45,20 +45,31 @@
  * Prefill on modest hardware running a large model runs on the order of 20
  * tokens/second. That is the first floor.
  *
- * The second is bytes per token, and this is where an earlier version of this
- * comment was wrong: it used 4 bytes/token, the figure for common tokenizers
- * on English prose. That is an average, not a lower bound. Denser input
- * carries more tokens in the same bytes — CJK text runs around 3 bytes per
- * token, and a byte-level fallback on unusual input can go lower still — so a
- * request measured at 4 bytes/token would be granted less time than its real
- * token count needs, which is exactly the abort this module exists to
- * prevent. 2 bytes/token is the floor used instead: below the CJK case, with
- * room under it.
+ * The second is bytes per token, and it took three tries to state correctly.
+ * 4 bytes/token went in first — the figure for common tokenizers on English
+ * prose. That is an average, not a bound: denser input carries more tokens in
+ * the same bytes, so the request is granted less time than its real token
+ * count needs, which is the abort this module exists to prevent. 3 (CJK) and
+ * then 2 were tried next, and each was the same mistake with a smaller
+ * number: an observation about typical text, presented as a floor.
  *
- * So 20 tokens/second * 2 bytes/token = 40 bytes/second, and inverted,
- * 1,000 ms / 40 bytes = 25 ms of additional deadline per byte of request
- * body. A prompt dense enough to beat even that clamps at `totalMs` below,
- * which is the request's own outer bound in any case.
+ * 1 byte/token is the floor, and unlike the others it is not an estimate at
+ * all. A token is produced from at least one byte of input, so no tokenizer
+ * on any text can put more than `n` tokens in `n` bytes. A byte-level
+ * fallback on unmerged input approaches exactly that. Nothing can go under
+ * it, which is what makes it the bound the other three only claimed to be.
+ *
+ * So 20 tokens/second * 1 byte/token = 20 bytes/second, and inverted,
+ * 1,000 ms / 20 bytes = 50 ms of additional deadline per byte of request
+ * body.
+ *
+ * This is deliberately generous, and for a large prompt the derived value
+ * simply reaches `totalMs` and clamps there. That is the honest end state
+ * rather than a defect: once a prompt is big enough that prefill could run
+ * for the whole request budget, there is no information left that would let
+ * this program call the connection dead any earlier, and the total deadline —
+ * which the writer configures, and which has been running since the request
+ * began — is the one bound that still means something.
  *
  * The ceiling on the derived allowance is the connection's own `totalMs`,
  * not a fixed constant. A separate fixed ceiling was tried first (15
@@ -80,10 +91,10 @@
  * into that on purpose: a deadline that is too long only delays reporting a
  * server that was never going to answer, while one that is too short
  * destroys minutes of legitimate prefill the server was still doing. Every
- * constant here — the pessimistic 40 bytes/second, the totalMs-based
+ * constant here — the pessimistic 20 bytes/second, the totalMs-based
  * ceiling — errs toward waiting longer, not toward failing fast.
  */
-const PER_BYTE_ALLOWANCE_MS = 1_000 / 40;
+const PER_BYTE_ALLOWANCE_MS = 1_000 / 20;
 
 /** The effective deadline for a phase that can overlap prefill — the
  *  response-header phase or the first-token phase, both called with this
@@ -103,8 +114,15 @@ const PER_BYTE_ALLOWANCE_MS = 1_000 / 40;
 export function prefillPhaseDeadlineMsFor(
   configuredMs: number,
   requestBodyBytes: number,
-  totalMs: number
+  totalMs: number,
+  /** Injectable only so a test can watch a phase deadline fire without
+   *  waiting the real allowance out — the same reason
+   *  `countPromptTokens` takes its own clock (server/tokenize-probe.ts). At
+   *  the real rate a phase deadline on any lifelike request body is tens of
+   *  seconds, which is correct in production and unusable in a suite. No
+   *  production caller passes this. */
+  msPerByte: number = PER_BYTE_ALLOWANCE_MS
 ): number {
-  const derived = requestBodyBytes * PER_BYTE_ALLOWANCE_MS;
+  const derived = requestBodyBytes * msPerByte;
   return Math.max(configuredMs, Math.min(totalMs, derived));
 }

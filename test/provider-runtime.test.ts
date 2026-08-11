@@ -638,7 +638,11 @@ test("configured first-activity deadline aborts a stalled provider stream", asyn
         }
       }),
       PROMPT,
-      new AbortController().signal
+      new AbortController().signal,
+      // Issue #127: the real per-byte allowance puts this deadline tens of
+      // seconds out for a body this size. The mechanism is what this asserts,
+      // so inject a rate small enough to watch it fire.
+      { prefillMsPerByte: 0 }
     )),
     /did not produce stream activity/
   );
@@ -686,12 +690,12 @@ test("configured response-header deadline keeps typed timeout provenance", async
         // Issue #127: the response-header deadline is now derived from the
         // outgoing request body's size too (server/provider-first-token-
         // deadline.ts), and for even this fixture's minimal body that
-        // derived value dominates the tiny configured 20 ms floor. totalMs
-        // has to stay well above it, or the total deadline fires first and
+        // derived value dominates the tiny configured 20 ms floor (50 ms per
+        // byte, so roughly 6 s here). totalMs has to stay well above it, or the total deadline fires first and
         // this assertion's provenance never appears.
         totalMs: 3_000
       }
-    }), PROMPT, new AbortController().signal)),
+    }), PROMPT, new AbortController().signal, { prefillMsPerByte: 0 })),
     (error) => error instanceof ProviderError
       && error.timeout === "provider-response-header"
       && /response headers/.test(error.message)
@@ -986,7 +990,11 @@ test("usage-only SSE events do not satisfy the first-activity deadline", async (
         }
       }),
       PROMPT,
-      new AbortController().signal
+      new AbortController().signal,
+      // Issue #127: the real per-byte allowance puts this deadline tens of
+      // seconds out for a body this size. The mechanism is what this asserts,
+      // so inject a rate small enough to watch it fire.
+      { prefillMsPerByte: 0 }
     )),
     /did not produce stream activity/
   );

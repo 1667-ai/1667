@@ -18,7 +18,7 @@ test("an empty request body returns exactly the configured floor", () => {
 
 test("a small prompt does not extend the configured floor", () => {
   // 500 bytes is a plausible minimal request body (a short instruction, no
-  // story context). At 25 ms/byte that derives to 12,500 ms — far below the
+  // story context). At 50 ms/byte that derives to 25,000 ms — far below the
   // 120 s default, so the configured floor still wins.
   assert.equal(
     prefillPhaseDeadlineMsFor(DEFAULT_CONFIGURED_MS, 500, DEFAULT_TOTAL_MS),
@@ -27,10 +27,10 @@ test("a small prompt does not extend the configured floor", () => {
 });
 
 test("a large prompt extends the deadline past the configured floor", () => {
-  // 20,000 bytes derives to 500,000 ms (25 ms/byte), comfortably past the
+  // 20,000 bytes derives to 1,000,000 ms (50 ms/byte), comfortably past the
   // 120 s default and comfortably under the 30 minute default total deadline.
   const result = prefillPhaseDeadlineMsFor(DEFAULT_CONFIGURED_MS, 20_000, DEFAULT_TOTAL_MS);
-  assert.equal(result, 500_000);
+  assert.equal(result, 1_000_000);
   assert.ok(result > DEFAULT_CONFIGURED_MS);
   assert.ok(result < DEFAULT_TOTAL_MS);
 });
@@ -55,7 +55,7 @@ test("a request that would derive past the total deadline clamps to it", () => {
 test("a caller-configured value larger than the derived allowance still wins", () => {
   // A writer who has explicitly raised firstTokenMs past the default for
   // slow hardware must not be overridden by a moderate prompt's much smaller
-  // derived allowance (1,000 bytes -> 25,000 ms).
+  // derived allowance (1,000 bytes -> 50,000 ms).
   const configuredMs = 600_000;
   assert.equal(
     prefillPhaseDeadlineMsFor(configuredMs, 1_000, DEFAULT_TOTAL_MS),
@@ -79,22 +79,27 @@ test("a configured value above the total deadline is honoured, not clamped down 
   assert.equal(prefillPhaseDeadlineMsFor(configuredMs, 1_000_000, totalMs), configuredMs);
 });
 
-test("a token-dense prompt still gets time for its real token count", () => {
-  // The allowance is bytes * rate, but what prefill actually costs is
-  // tokens / throughput. The rate therefore has to assume a *floor* on bytes
-  // per token, not an average: at 4 bytes/token (English prose) a CJK prompt
-  // of the same byte size carries far more tokens than the allowance was
-  // sized for, and gets cut off. 3 bytes/token is the realistic dense case.
+test("the allowance covers the densest tokenization possible, not a typical one", () => {
+  // The allowance is bytes * rate, but prefill costs tokens / throughput. So
+  // the rate has to assume a real floor on bytes per token. Successive
+  // versions of this used 4 (English prose), 3 (CJK) and 2 — each an
+  // observation about typical text, each leaving denser input short. One
+  // token per byte is the only figure that is actually a bound: a token comes
+  // from at least one byte, so no tokenizer can put more than n tokens in n
+  // bytes. This asserts that bound rather than any of the constants, so a
+  // future rate change cannot quietly drop back under it.
   const PESSIMISTIC_TOKENS_PER_SECOND = 20;
-  const DENSE_BYTES_PER_TOKEN = 3;
-  const bodyBytes = 30_000;
-  const tokens = bodyBytes / DENSE_BYTES_PER_TOKEN;
-  const secondsPrefillNeeds = tokens / PESSIMISTIC_TOKENS_PER_SECOND;
+  const DENSEST_BYTES_PER_TOKEN = 1;
+  const bodyBytes = 20_000;
+  const tokens = bodyBytes / DENSEST_BYTES_PER_TOKEN;
+  const msPrefillCouldNeed = (tokens / PESSIMISTIC_TOKENS_PER_SECOND) * 1_000;
 
-  const granted = prefillPhaseDeadlineMsFor(DEFAULT_CONFIGURED_MS, bodyBytes, DEFAULT_TOTAL_MS);
+  // Given room under the total deadline, the grant covers the worst case.
+  const generousTotalMs = 10 * msPrefillCouldNeed;
   assert.ok(
-    granted >= secondsPrefillNeeds * 1_000,
-    `granted ${granted} ms for a prompt that needs ${secondsPrefillNeeds * 1_000} ms`
+    prefillPhaseDeadlineMsFor(DEFAULT_CONFIGURED_MS, bodyBytes, generousTotalMs)
+      >= msPrefillCouldNeed,
+    "the derived allowance must cover one token per byte"
   );
 });
 

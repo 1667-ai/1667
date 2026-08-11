@@ -96,6 +96,12 @@ export interface StreamCompletionOptions {
    *  no use for a Generation Record (autoname is excluded by design). */
   readonly generationRecord?: GenerationRecordCollector;
   readonly onReasoning?: ReasoningConsumer;
+  /** Test-only. See `prefillPhaseDeadlineMsFor`
+   *  (server/provider-first-token-deadline.ts): the real per-byte allowance
+   *  puts a phase deadline tens of seconds out for any lifelike body, so a
+   *  suite that needs to watch one fire injects a smaller rate rather than
+   *  waiting. No production caller sets it. */
+  readonly prefillMsPerByte?: number;
   readonly providerSecrets?: ProviderSecretsCollector;
   /** Normalized Image bytes, by object id, for every image block the prompt
    *  carries. Required when the prompt has an image; omitted by every caller
@@ -231,7 +237,8 @@ async function* streamOpenAiCompatible(
           isOpenAiActivityEvent,
           isOpenAiTerminalEvent,
           signal,
-          () => clearTimeout(totalTimer)
+          () => clearTimeout(totalTimer),
+          options.prefillMsPerByte
         )) {
           streamed = true;
           if (data === "[DONE]") {
@@ -417,7 +424,8 @@ async function* streamAnthropic(
           isAnthropicActivityEvent,
           isAnthropicTerminalEvent,
           signal,
-          () => clearTimeout(totalTimer)
+          () => clearTimeout(totalTimer),
+          options.prefillMsPerByte
         )) {
           streamed = true;
           const parsed = parseEvent(data, secrets);
