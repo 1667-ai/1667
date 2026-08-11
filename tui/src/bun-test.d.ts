@@ -1,6 +1,13 @@
 declare module "bun:test" {
   export function describe(name: string, body: () => void): void;
-  export function test(name: string, body: () => void | Promise<void>, timeout?: number): void;
+  export const test: {
+    (name: string, body: () => void | Promise<void>, timeout?: number): void;
+    /** Registers the test as normal, but reports it as skipped, rather than
+     *  passed, when `condition` is true. Use this instead of an early
+     *  `return` inside the test body: an early return still reports a pass
+     *  having asserted nothing, while a skipped test reports honestly. */
+    skipIf(condition: boolean): (name: string, body: () => void | Promise<void>, timeout?: number) => void;
+  };
   export function afterEach(body: () => void | Promise<void>): void;
   export function expect(value: unknown): {
     toBe(expected: unknown): void;

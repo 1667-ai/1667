@@ -37,22 +37,33 @@ export interface StorySummaryV6 {
   lineCount: UInt64String;
 }
 
-export interface LiveStoryManifestV6 {
+/**
+ * The live envelope, generalized over its schema version `V` and its content
+ * payload type `C`. Every field except `content` and `schemaVersion` means
+ * the same thing at version 6 and version 8: a schema version identifies one
+ * document shape, and only the content version actually differs between
+ * them. `server/story-v6-codec.ts` has one parser for this shape,
+ * `parseLiveEnvelope`, instead of one copy per version.
+ */
+export interface LiveStoryEnvelope<V extends 6 | 8, C> {
   format: "1667-story";
-  schemaVersion: 6;
+  schemaVersion: V;
   kind: "live";
   id: StoryId;
   revision: Revision20;
   previousManifestHash: Hash256 | null;
-  content: StoryManifestV5;
+  content: C;
   summary: StorySummaryV6;
   unresolvedProvider: ProviderPointer | null;
   lastTransaction: UserTransactionPointer | null;
 }
 
-export interface DeletedStoryManifestV6 {
+/** The deleted envelope, generalized the same way as `LiveStoryEnvelope`. It
+ *  carries no content, so only `schemaVersion` varies between version 6 and
+ *  version 8. */
+export interface DeletedStoryEnvelope<V extends 6 | 8> {
   format: "1667-story";
-  schemaVersion: 6;
+  schemaVersion: V;
   kind: "deleted";
   id: StoryId;
   revision: Revision20;
@@ -61,6 +72,10 @@ export interface DeletedStoryManifestV6 {
   unresolvedProvider: ProviderPointer | null;
   lastTransaction: PreparedUserTransactionPointer;
 }
+
+export type LiveStoryManifestV6 = LiveStoryEnvelope<6, StoryManifestV5>;
+
+export type DeletedStoryManifestV6 = DeletedStoryEnvelope<6>;
 
 export type StoryManifestV6 = LiveStoryManifestV6 | DeletedStoryManifestV6;
 

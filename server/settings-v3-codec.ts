@@ -1,28 +1,37 @@
 import type { SettingsDocumentV3, SettingsStateV3 } from "../shared/settings-v2-types.js";
 import {
   assertNfcJsonStrings,
-  canonicalJson,
-  encodeUtf8Strict
+  canonicalJson
 } from "./canonical-json.js";
-import { hashSettingsDocumentV3Bytes, hashSettingsStateV3Bytes } from "./settings-v3-hash.js";
+import { hashSettingsDocumentBytes, hashSettingsStateBytes } from "./settings-v2-hash.js";
 import {
   MAX_SETTINGS_DOCUMENT_BYTES,
   MAX_SETTINGS_STATE_BYTES,
   SettingsFormatError
 } from "./settings-v2-scalars.js";
-import {
-  settingsStateEnvelopeBytesV3,
-  validateSettingsStateV3
-} from "./settings-v3-state-validation.js";
+import { settingsStateEnvelopeBytes } from "./settings-state-validation.js";
+import { validateSettingsStateV3 } from "./settings-v3-state-validation.js";
 import {
   validateSettingsDocumentV3,
   type SettingsValidationOptions
 } from "./settings-v3-validation.js";
 import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
+import {
+  assertSettingsDocumentSize,
+  assertSettingsStateSize,
+  deepFreezeSettings,
+  encodeSettingsText,
+  settingsCodecError
+} from "./settings-codec-shared.js";
 
 /** Schema 3's parse/format/hash surface. Structural sibling of
- * server/settings-v2-codec.ts. This release only reads and validates
- * through this module; nothing writes a schema-3 document or state to disk
+ * server/settings-v2-codec.ts, sharing its size, encode, freeze, and error
+ * helpers (`server/settings-codec-shared.ts`) and its document/state hash
+ * bytes functions (`server/settings-v2-hash.ts`): the hash domain separates
+ * settings hashes from every other hashed kind, not one schema version from
+ * another, so schema 3 hashes through the same bytes functions schema 2
+ * does. This release only reads and validates through this module; nothing
+ * writes a schema-3 document or state to disk
  * (`shared/image-input-release.ts`). */
 
 export function parseSettingsDocumentV3(
@@ -32,10 +41,10 @@ export function parseSettingsDocumentV3(
   try {
     assertNfcJsonStrings(value, "settings document");
     const document = validateSettingsDocumentV3(value, options);
-    assertDocumentSize(canonicalJson(document));
-    return deepFreeze(document);
+    assertSettingsDocumentSize(canonicalJson(document));
+    return deepFreezeSettings(document);
   } catch (error) {
-    throw settingsError("Settings document is invalid", error);
+    throw settingsCodecError("Settings document is invalid", error);
   }
 }
 
@@ -43,7 +52,7 @@ export function parseSettingsDocumentV3Text(
   text: string,
   options: SettingsValidationOptions = {}
 ): SettingsDocumentV3 {
-  const bytes = encode(text, "settings document");
+  const bytes = encodeSettingsText(text, "settings document");
   if (bytes.byteLength > MAX_SETTINGS_DOCUMENT_BYTES) {
     throw new SettingsFormatError(
       `Settings document exceeds its ${MAX_SETTINGS_DOCUMENT_BYTES}-byte size limit`
@@ -60,10 +69,10 @@ export function formatSettingsDocumentV3(document: SettingsDocumentV3): string {
   try {
     const parsed = parseSettingsDocumentV3(document);
     const text = canonicalJson(parsed);
-    assertDocumentSize(text);
+    assertSettingsDocumentSize(text);
     return text;
   } catch (error) {
-    throw settingsError("Settings document cannot be formatted", error);
+    throw settingsCodecError("Settings document cannot be formatted", error);
   }
 }
 
@@ -72,7 +81,7 @@ export function formatSettingsDocumentV3Bytes(document: SettingsDocumentV3): Uin
 }
 
 export function hashSettingsDocumentV3(document: SettingsDocumentV3): string {
-  return hashSettingsDocumentV3Bytes(formatSettingsDocumentV3Bytes(document));
+  return hashSettingsDocumentBytes(formatSettingsDocumentV3Bytes(document));
 }
 
 export function parseSettingsStateV3(
@@ -83,11 +92,11 @@ export function parseSettingsStateV3(
     assertNfcJsonStrings(value, "settings state");
     const state = validateSettingsStateV3(value, options);
     const text = canonicalJson(state);
-    assertStateSize(text);
-    settingsStateEnvelopeBytesV3(state);
-    return deepFreeze(state);
+    assertSettingsStateSize(text);
+    settingsStateEnvelopeBytes(state);
+    return deepFreezeSettings(state);
   } catch (error) {
-    throw settingsError("Settings state is invalid", error);
+    throw settingsCodecError("Settings state is invalid", error);
   }
 }
 
@@ -95,7 +104,7 @@ export function parseSettingsStateV3Text(
   text: string,
   options: SettingsValidationOptions = {}
 ): SettingsStateV3 {
-  const bytes = encode(text, "settings state");
+  const bytes = encodeSettingsText(text, "settings state");
   if (bytes.byteLength > MAX_SETTINGS_STATE_BYTES) {
     throw new SettingsFormatError(`Settings state exceeds its ${MAX_SETTINGS_STATE_BYTES}-byte size limit`);
   }
@@ -109,51 +118,13 @@ export function formatSettingsStateV3(state: SettingsStateV3): string {
   try {
     const parsed = parseSettingsStateV3(state);
     const text = canonicalJson(parsed);
-    assertStateSize(text);
+    assertSettingsStateSize(text);
     return text;
   } catch (error) {
-    throw settingsError("Settings state cannot be formatted", error);
+    throw settingsCodecError("Settings state cannot be formatted", error);
   }
 }
 
 export function hashSettingsStateV3(state: SettingsStateV3): string {
-  return hashSettingsStateV3Bytes(Buffer.from(formatSettingsStateV3(state), "utf8"));
-}
-
-function assertDocumentSize(text: string): void {
-  const bytes = Buffer.byteLength(text, "utf8");
-  if (bytes > MAX_SETTINGS_DOCUMENT_BYTES) {
-    throw new SettingsFormatError(
-      `Settings document exceeds its ${MAX_SETTINGS_DOCUMENT_BYTES}-byte size limit`
-    );
-  }
-}
-
-function assertStateSize(text: string): void {
-  const bytes = Buffer.byteLength(text, "utf8");
-  if (bytes > MAX_SETTINGS_STATE_BYTES) {
-    throw new SettingsFormatError(`Settings state exceeds its ${MAX_SETTINGS_STATE_BYTES}-byte size limit`);
-  }
-}
-
-function encode(text: string, label: string): Uint8Array {
-  try {
-    return encodeUtf8Strict(text, label);
-  } catch (error) {
-    throw settingsError(`${label} contains invalid Unicode`, error);
-  }
-}
-
-function settingsError(message: string, cause: unknown): SettingsFormatError {
-  if (cause instanceof SettingsFormatError) return cause;
-  const detail = cause instanceof Error ? `: ${cause.message}` : "";
-  return new SettingsFormatError(`${message}${detail}`, { cause });
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
-  }
-  return value;
+  return hashSettingsStateBytes(Buffer.from(formatSettingsStateV3(state), "utf8"));
 }
