@@ -168,7 +168,7 @@ test("the write-schema decision defaults to schema 2 and only a forced option wr
 });
 
 /**
- * `server/settings-v2-state-validation.ts` enforces
+ * `server/settings-state-validation.ts` enforces
  * `MAX_CREDENTIAL_NAMES_PER_STATE` across a state's documents.
  * `server/settings-v3-state-validation.ts` ran the same five validators but
  * skipped that one, because `settingsStateCredentialNames`

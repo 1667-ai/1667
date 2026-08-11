@@ -251,6 +251,7 @@ export function pasteInto(
     retakePrompt: RetakePromptSession | null;
     pendingGenerationDraft: PendingGenerationDraft | null;
     composerClaimEpoch: number;
+    stream: RuntimeState["stream"];
   },
   raw: string
 ): boolean {
@@ -342,7 +343,13 @@ export function pasteInto(
     return true;
   }
   if (isPlainNavigation(state)) {
-    openDirectComposer(state);
+    // A refused claim leaves no visible editor, so inserting here would bury
+    // the pasted text in a composer the writer cannot see, on top of the
+    // submitted draft. Consume the paste and say why instead.
+    if (!openDirectComposer(state)) {
+      state.toast = "stream running · esc stops it first";
+      return true;
+    }
     insertComposerText(state.composer, clean);
     return true;
   }

@@ -42,6 +42,14 @@ export function generationBusy(state: Pick<StoryScreenState, "stream" | "abort">
   return state.stream !== null || state.abort?.kind === "generation";
 }
 
+/** Narrower than generationBusy: only while the model is still streaming.
+ * Stop clears the stream but holds the abort fence until the task settles,
+ * and the writer must be able to reach the draft Stop just restored, so a
+ * composer claim gates on this and not on generationBusy. */
+export function streamLive(state: Pick<StoryScreenState, "stream">): boolean {
+  return state.stream !== null;
+}
+
 /** Escape hides the transient stream now; its task keeps the abort fence. */
 export function requestGenerationStop(state: RuntimeState, repaint: () => void): void {
   const active = state.abort?.kind === "generation" ? state.abort : null;

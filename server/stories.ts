@@ -99,7 +99,7 @@ import {
   type StoredStorySlot
 } from "./story-storage-reader.js";
 import { buildStorySummary } from "./story-summary.js";
-import { storySummaryFromV6 } from "./story-v6-codec.js";
+import { storySummaryFromLiveEnvelope } from "./story-v6-codec.js";
 import {
   applyProviderStoryEffect,
   type ProviderStoryEffect,
@@ -388,7 +388,7 @@ export class StoryStore {
         aggregateVersion: aggregateVersionFromSlot(slot)
       };
       if (slot.kind === "v6-live" || slot.kind === "v8-live") return {
-        ...storySummaryFromV6(slot.manifest),
+        ...storySummaryFromLiveEnvelope(slot.manifest),
         aggregateVersion: aggregateVersionFromSlot(slot)
       };
       return null;
