@@ -35,6 +35,15 @@ export interface SettingsScalar {
   readonly value: number | null;
   readonly min: number;
   readonly max: number | null;
+  /** What the row will actually accept, when that is wider than the track.
+   *  A connection timeout is the case this exists for: its schema ceiling is
+   *  24 hours (server/settings-v2-scalars.ts), but a track that spanned 24
+   *  hours would pin every ordinary value against its left edge and make a
+   *  step imperceptible. So `max` stays a usable track while this carries the
+   *  real limit, and a hand-edited value between the two is left alone rather
+   *  than reported as past a maximum that does not exist. Absent means `max`
+   *  is the limit, which is every other row. */
+  readonly acceptedMax?: number | null;
   readonly step: number;
   /** Where the `┊` tick sits, or null when the row has no default to mark. */
   readonly defaultValue: number | null;
@@ -172,8 +181,12 @@ export function scalarInvalidReason(scalar: SettingsScalar): string | null {
   if (scalar.value < scalar.min) {
     return `min is ${formatBound(scalar, scalar.min)}`;
   }
-  if (scalar.max !== null && scalar.value > scalar.max) {
-    return `max is ${formatBound(scalar, scalar.max)}`;
+  // `acceptedMax` where the row has one: the track's own ceiling is a
+  // stepping convenience there, not the limit, so a value between the two is
+  // valid and must not be reported as past a maximum.
+  const limit = scalar.acceptedMax ?? scalar.max;
+  if (limit !== null && scalar.value > limit) {
+    return `max is ${formatBound(scalar, limit)}`;
   }
   return null;
 }

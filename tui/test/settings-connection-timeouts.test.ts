@@ -123,4 +123,33 @@ describe("connection timeout settings rows (issue #127)", () => {
     expect(firstToken?.invalid).toBe(undefined);
     expect(firstToken?.value).toContain("1,200s");
   });
+
+  // Every timeout shares one schema ceiling, so every row has to reach it.
+  // Fixing only the row a review happened to name would leave the same defect
+  // on the other three: a hand-edited 20 minute header wait, or a 4 hour
+  // total, is a valid settings document that Settings must not report as past
+  // a maximum. The track bound above each of these stays deliberately narrow
+  // so stepping is usable; it is not the limit.
+  const PAST_TRACK_BUT_VALID = [
+    { row: "timeout-headers" as const, typed: "1200", field: "responseHeaderMs" as const, ms: 1_200_000 },
+    { row: "timeout-idle" as const, typed: "1200", field: "idleMs" as const, ms: 1_200_000 },
+    { row: "timeout-total" as const, typed: "240", field: "totalMs" as const, ms: 14_400_000 }
+  ];
+
+  for (const { row, typed, field, ms } of PAST_TRACK_BUT_VALID) {
+    test(`a ${row} value past its track but inside the schema is not flagged invalid`, async () => {
+      const { source, state, press } = settingsHarness();
+      installNetworkSettings(source);
+      await openSettings(press);
+      await draftRow(press, state, row, typed);
+
+      const document = state.settings!.draft.document!;
+      const profileId = state.settings!.draft.selectedProfileId!;
+      expect(
+        resolveSettingsProfile(document, profileId).connection.timeouts[field]
+      ).toBe(ms);
+      expect(settingsRows(state.settings!, state.config)
+        .find((candidate) => candidate.id === row)?.invalid).toBe(undefined);
+    });
+  }
 });

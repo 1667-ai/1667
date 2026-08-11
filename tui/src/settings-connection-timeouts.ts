@@ -70,6 +70,13 @@ interface ConnectionTimeoutRowSpec {
   readonly min: number;
   readonly max: number;
   readonly step: number;
+  /** The schema's own ceiling for this field in display units. `max` above is
+   *  a usable track; this is what the row actually accepts. Every timeout
+   *  shares one schema ceiling (MAX_SETTINGS_TIMEOUT_MS), so a hand-edited
+   *  value past the track — a 20 minute header wait, a 4 hour total — stays
+   *  valid and editable instead of being reported as past a maximum that the
+   *  settings document does not have. */
+  readonly acceptedMax: number;
   readonly hint: string;
 }
 
@@ -81,6 +88,7 @@ const CONNECTION_TIMEOUT_ROW_SPECS: Record<ConnectionTimeoutRow, ConnectionTimeo
     unitSuffix: "s",
     min: 1,
     max: 600,
+    acceptedMax: MAX_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     step: 5,
     hint: "wait for response headers to start arriving"
   },
@@ -90,14 +98,8 @@ const CONNECTION_TIMEOUT_ROW_SPECS: Record<ConnectionTimeoutRow, ConnectionTimeo
     unit: "seconds",
     unitSuffix: "s",
     min: 1,
-    // The schema's own ceiling (server/settings-v2-scalars.ts), not
-    // provider-first-token-deadline.ts's derivation ceiling: that one bounds
-    // only the automatic per-byte allowance a large prompt earns, never the
-    // value a writer configures here (the runtime honours a configured
-    // value above it exactly). Presenting the derivation ceiling as this
-    // row's own limit would mark a backend-valid configured value invalid
-    // and put it out of arrow-step reach.
-    max: MAX_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
+    max: 1_800,
+    acceptedMax: MAX_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     step: 5,
     hint: "wait for the first token · a large prompt extends this automatically"
   },
@@ -108,6 +110,7 @@ const CONNECTION_TIMEOUT_ROW_SPECS: Record<ConnectionTimeoutRow, ConnectionTimeo
     unitSuffix: "s",
     min: 1,
     max: 600,
+    acceptedMax: MAX_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     step: 5,
     hint: "wait between stream events once output has started"
   },
@@ -118,6 +121,7 @@ const CONNECTION_TIMEOUT_ROW_SPECS: Record<ConnectionTimeoutRow, ConnectionTimeo
     unitSuffix: "m",
     min: 1,
     max: 180,
+    acceptedMax: MAX_SETTINGS_TIMEOUT_MS / MS_PER_MINUTE,
     step: 5,
     hint: "wall-clock limit for the whole generation"
   }
@@ -156,6 +160,7 @@ function connectionTimeoutScalarForDraft(
     value: route.connection.timeouts[spec.field] / divisor,
     min: spec.min,
     max: spec.max,
+    acceptedMax: spec.acceptedMax,
     step: spec.step,
     defaultValue: defaults[spec.field] / divisor,
     decimals: 0,
