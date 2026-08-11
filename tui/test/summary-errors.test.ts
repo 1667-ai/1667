@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ActionRuntime, beginInteraction } from "../src/action-runtime.js";
-import { initialState } from "../src/app.js";
+import { initialState, type AppSource } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { startSummary } from "../src/summary-action.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
@@ -17,7 +17,7 @@ describe("summary errors", () => {
     const state = initialState(source, false);
     const cache = createWrapCache<ProseStyle>();
     const backend = new ActionRuntime(state, () => undefined);
-    const entered = deferred<string | null>();
+    const entered = deferred<Awaited<ReturnType<AppSource["api"]["createSummaryTake"]>>>();
     source.api.createSummaryTake = async () => entered.promise;
 
     const pending = startSummary(state, source, { backend, cache, repaint: () => undefined });
