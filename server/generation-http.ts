@@ -43,11 +43,20 @@ import {
 import { reasoningCapture, reasoningSafeToStore } from "./reasoning-capture.js";
 import { storySamplingBias } from "./sampling-phrase-bias.js";
 import { AnchoredOutputFilter, continuationPlan, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, supportsAssistantPrefill } from "./generation-prompts.js";
-import { admitFactsIntoPrompt, type GenerationAdmissionRegistry } from "./generation-admission.js";
+import { admitFactsIntoPrompt, assertImageContextAdmitted, type GenerationAdmissionRegistry } from "./generation-admission.js";
 import type { FactBudgetDrop } from "../shared/fact-budget.js";
 import type { SettingsStore } from "./settings.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
 import { hasCommittedGeneration, requireNode } from "./story-nodes.js";
+import {
+  activeImageContext,
+  loadActiveImageBytes,
+  resolveContinueStoryImages,
+  type ImageAttachmentStore
+} from "./generation-image-attachments.js";
+import { parseWorkerContinueImages } from "./worker-continue-target.js";
+import { providerRuntimeFor } from "./provider-runtime.js";
+import { imageInputEntryPointsOpen } from "../shared/image-input-release.js";
 import { activeBudgetedFacts, activeBudgetedFactsForRewrite } from "../shared/fact-selection.js";
 import { formatFactsMessage } from "../shared/story-facts.js";
 import {
@@ -95,6 +104,20 @@ export interface ContinueStoryHooks extends GenerationStreamHooks {
    *  than the pre-flight guess the context meter shows before the request is
    *  sent) reads it here; the committed Story carries no trace of it. */
   onFactsDropped?: (dropped: readonly FactBudgetDrop[]) => void;
+  /** The Draft Lease / Image Object reader `continueStory` uses to resolve
+   *  the request's `images` field, when it carries any. Absent is fail
+   *  closed: a request that names a Draft Image with no `imageStore`
+   *  supplied is refused rather than silently ignored. Production wiring
+   *  (`server/story-service-generation.ts`) always supplies the story's own
+   *  `StoryStore`; a caller with no images to resolve (most tests) may omit
+   *  this entirely. */
+  imageStore?: ImageAttachmentStore;
+  /** Overrides `imageInputEntryPointsOpen()`'s build-constant default.
+   *  Absent resolves through the constant, so production wiring can never
+   *  open this entry point by accident. A test that needs to drive a
+   *  request carrying a Draft Image through the full continuation path
+   *  sets this explicitly; see shared/image-input-release.ts. */
+  imageEntryPointsOpen?: boolean;
 }
 
 export async function autonameStory(
@@ -196,8 +219,21 @@ export async function continueStory(
   signal: AbortSignal,
   hooks: ContinueStoryHooks = {}
 ): Promise<Story | null> {
-  const { providerStarted = () => {}, bindIntent, onFactsDropped, onReasoning } = hooks;
+  const { providerStarted = () => {}, bindIntent, onFactsDropped, onReasoning, imageStore } = hooks;
   if (signal.aborted) return null;
+  const draftImageReferences = parseWorkerContinueImages(body.images);
+  if (draftImageReferences.length > 0 && !imageInputEntryPointsOpen(hooks.imageEntryPointsOpen)) {
+    // The whole feature is inactive in this release: refuse a request that
+    // names a Draft Image before it does any other work, the same way the
+    // staging routes refuse (shared/image-input-release.ts).
+    throw new HttpError(400, "Image input is not available in this release.", "image_input_not_supported");
+  }
+  if (draftImageReferences.length > 0 && imageStore === undefined) {
+    // Fail closed: a caller with a Draft Image to resolve but no reader to
+    // resolve it with is a programming error, not a request the writer
+    // could cause. Every production call site supplies `imageStore`.
+    throw new HttpError(500, "Image resolution is not available for this request.", "image_input_not_supported");
+  }
   const requestedInstruction = (optionalString(body.instruction) ?? "").trim();
   const instruction = requestedInstruction || DEFAULT_INSTRUCTION;
   // Stamped on whatever this generation commits, so a Stop that races the commit
@@ -225,8 +261,14 @@ export async function continueStory(
     if (activeLeaf(story)?.id !== target.id) throw new HttpError(409, "The node being continued is no longer the active leaf.");
     if (target.role === "summary") throw new HttpError(400, "Cannot write inside a summary — continue with a new node.");
     const crossesChapterBreak = story.chapterBreaks.some((chapterBreak) => chapterBreak.parentPartId === target.id);
-    parentId = crossesChapterBreak ? target.id : target.parentId;
-    if (crossesChapterBreak) {
+    // A stored part records the exact provider input it was generated from,
+    // so an append that would attach a new image can never mutate the
+    // target's existing text. It always creates a new child take instead,
+    // exactly like a chapter break appearing mid-stream already forces
+    // (settled decision; image-input rollout plan).
+    const forcesNewChild = crossesChapterBreak || draftImageReferences.length > 0;
+    parentId = forcesNewChild ? target.id : target.parentId;
+    if (forcesNewChild) {
       appendTo = null;
     } else {
       // A genuine append to this existing node's history — unlike the
@@ -253,6 +295,19 @@ export async function continueStory(
     }
     contextParts = parentId === null ? [] : pathTo(story, parentId);
   }
+  // Resolve before admission builds the prompt: a plain Retake reuses all of
+  // the target take's own attachments, a Retake with a prompt combines them
+  // with newly drafted images, and an append never carries either (settled
+  // decisions). Refuses image_attachment_duplicate/image_attachment_expired
+  // before any Image Object byte is read.
+  const resolvedImages = await resolveContinueStoryImages(
+    imageStore ?? null,
+    id,
+    story,
+    parentId,
+    appendTo,
+    draftImageReferences
+  );
   const budgetedFacts = activeBudgetedFacts(story, {
     contextParts,
     chapterBreaks: story.chapterBreaks,
@@ -270,6 +325,16 @@ export async function continueStory(
   // Record it now: a Stop that saves the partial must credit this model, even if
   // the user switches models while the stream is still running.
   generationAdmission.rememberModel(id, genId, model);
+  // Every image the active prompt will carry, whether the model authorizes
+  // it, and the visual tokens to reserve. Closes the matching TODO in
+  // server/generation-admission.ts. A text-only request resolves no
+  // capability at all, so its behavior and request bytes stay exactly as
+  // before Image Input existed (image-input design's byte-identity promise).
+  const { activeImages, capability: imageCapability, fixedImageTokens } = activeImageContext(
+    contextParts,
+    resolvedImages.attachments,
+    { protocol: providerRuntimeFor(settings).protocol ?? "dry-run", remoteModelId: model }
+  );
   // Compatible endpoints get SillyTavern-style assistant prefill. Providers that
   // reject prefill must first echo a short exact boundary which we strip below.
   const { plan: continuation, admission } = admitFactsIntoPrompt(
@@ -286,9 +351,12 @@ export async function continueStory(
       supportsAssistantPrefill(settings),
       null,
       story.chapterBreaks,
-      story.nodes
-    )
+      story.nodes,
+      resolvedImages.attachments
+    ),
+    fixedImageTokens
   );
+  assertImageContextAdmitted(continuation.prompt, imageCapability);
   // `admission.dropped` alone misses whatever the story's own Facts budget or
   // a Fact's own budgetTokens cap already removed from `budgetedFacts.kept`
   // before admission ever saw it — combine both so a Fact that never reached
@@ -334,6 +402,26 @@ export async function continueStory(
   // alongside the committed prose so a thought split across the reasoning
   // and prose channels can be caught jointly (`reasoningSafeToStore`).
   const providerSecrets: ProviderSecretsCollector = { secrets: [] };
+  // Load Image Object bytes only now: every local admission check above
+  // already passed, and each one gets verified against its own recorded
+  // metadata before it can reach a provider (image-input rollout plan).
+  // Distinct object ids only: the same Image Object can occur on more than
+  // one active story part, and loading it once still lets every occurrence
+  // reference the same bytes.
+  const imageBytes = activeImages.length === 0
+    ? undefined
+    : await loadActiveImageBytes(imageStore ?? null, id, activeImages);
+  // Declare before the provider sees any bytes, so
+  // server/story-provider-mutation.ts's `publishStarted` can read the ids
+  // back for the durable receipt and the pin that keeps them readable for
+  // the round trip (settled decision D7). Only the take's own newly
+  // resolved attachments matter here: an inherited attachment is already
+  // protected by the current manifest's own pin, and only a drafted one has
+  // a Draft Lease to remove after commit.
+  stories.declareImageResolution?.(
+    resolvedImages.attachments.map((attachment) => attachment.objectId),
+    resolvedImages.leaseIds
+  );
   let raw: string | null;
   try {
     raw = await streamModel(settings, continuation.prompt, signal, onDelta, {
@@ -350,7 +438,9 @@ export async function continueStory(
       generationRecord: generationRecordCollector,
       partialOutput,
       onReasoning: reasoning.onReasoning,
-      providerSecrets
+      providerSecrets,
+      imageBytes,
+      imageCapability
     });
   } catch (error) {
     // A clean provider timeout after the opening already diverged from the
@@ -426,6 +516,7 @@ export async function continueStory(
       tokenProbabilities: tokenProbabilities.record,
       generationRecord,
       reasoning: reasoningSafeToStore(reasoning.collector.record, committedText, providerSecrets.secrets),
+      imageAttachments: resolvedImages.attachments.length === 0 ? undefined : resolvedImages.attachments,
       cancelled: signal
     });
     // This attempt committed directly (it never stopped, so it never captured

@@ -1,7 +1,8 @@
 import { ServiceError } from "./errors.js";
 import {
   hashStoryV5ManifestBytes,
-  hashStoryV6ManifestBytes
+  hashStoryV6ManifestBytes,
+  hashStoryV8ManifestBytes
 } from "./story-manifest-hash.js";
 import type {
   StoryAggregateVersion
@@ -18,17 +19,28 @@ import {
 import { REVISION_ONE } from "./story-v6-scalars.js";
 import type {
   Hash256,
+  StoryEnvelopeManifest,
   StoryManifestV6
 } from "./story-v6-types.js";
 
+/** A story on disk, whichever schema wrote it. `withAggregateSession` only
+ *  ever opens a session over the "v5" | "v6-live" | "v6-deleted" members
+ *  (`requirePresentStorySlot`, `server/story-aggregate-session.ts`); the two
+ *  V8 members exist here because publishing a session's own upgrade
+ *  (`publishStagedManifest`) produces one of them in memory, in the same
+ *  process, without ever reopening a session over it. */
 type PersistedStorySlot = Extract<
   StoredStorySlot,
-  { kind: "v5" | "v6-live" | "v6-deleted" }
+  { kind: "v5" | "v6-live" | "v6-deleted" | "v8-live" | "v8-deleted" }
 >;
 
 export interface StoryAggregateSnapshot {
+  /** The concurrency-token family (`shared/story-aggregate-version.ts`), not
+   *  the schema version: a V8 envelope is revision-tracked exactly like a V6
+   *  one, so it is still "v6" here. Compare `manifest.schemaVersion` for the
+   *  actual document shape. */
   readonly storageKind: "v5" | "v6";
-  readonly manifest: StoryManifestV6;
+  readonly manifest: StoryEnvelopeManifest;
   readonly manifestHash: Hash256;
   readonly projection: RecoveryStoryStateProjection;
   readonly source: PersistedStorySlot;
@@ -59,7 +71,9 @@ export function storyAggregateSnapshot(
       source: slot
     };
   }
-  const manifestHash = hashStoryV6ManifestBytes(slot.manifestBytes);
+  const manifestHash = slot.kind === "v8-live" || slot.kind === "v8-deleted"
+    ? hashStoryV8ManifestBytes(slot.manifestBytes)
+    : hashStoryV6ManifestBytes(slot.manifestBytes);
   return {
     storageKind: "v6",
     manifest: slot.manifest,
@@ -104,7 +118,7 @@ export function storyAggregateVersion(
 }
 
 export function storyProjection(
-  manifest: StoryManifestV6
+  manifest: StoryEnvelopeManifest
 ): RecoveryStoryStateProjection {
   return {
     kind: "story",

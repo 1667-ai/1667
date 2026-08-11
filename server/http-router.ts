@@ -60,6 +60,13 @@ import type {
   HttpDataDirectoryIdentity
 } from "./data-directory-id.js";
 import { toPublicServiceError } from "./service-error-policy.js";
+import { requireImageInputEntryPointsOpen, withImageStagePermit } from "./image-stage-permit.js";
+import {
+  isSourceImageMediaType,
+  MAX_SOURCE_IMAGE_BYTES,
+  type SourceImageMediaType
+} from "../shared/image-attachment.js";
+import { parseWorkerContinueImages } from "./worker-continue-target.js";
 export interface HttpRouterContext {
   readonly authRecord: HttpAuthRecord;
   readonly dataDirectoryIdentity: HttpDataDirectoryIdentity | null;
@@ -469,6 +476,7 @@ async function handleApi(
   }
   if (head === "stories" && id !== undefined && sub === "continue" && method === "POST") {
     const body = await jsonBody();
+    const images = parseWorkerContinueImages(body.images);
     return await streamResponse(request, response,
       (onDelta, signal, onReasoning) => mutate("continueStory", {
         storyId: id,
@@ -487,7 +495,11 @@ async function handleApi(
               "expectedTextHash"
             )
           })
-        }
+        },
+        // D6: images ride beside instruction/genId, never inside target.
+        // This route builds `target` explicitly above, so images need their
+        // own field here or the HTTP path would silently drop them.
+        ...(images.length === 0 ? {} : { images })
       }, onDelta, signal, onReasoning),
       (result) => ({ type: "done", story: result.payload, droppedFacts: result.droppedFacts }),
       operation.signal,
@@ -774,6 +786,21 @@ async function handleApi(
     );
   }
 
+  if (head === "stories" && id !== undefined && sub === "images" && subId === undefined && method === "POST") {
+    requireImageInputEntryPointsOpen();
+    const mediaType = requireImageContentType(request);
+    return await withImageStagePermit(operation.signal, async () => {
+      const bytes = await readBufferBody(request, MAX_SOURCE_IMAGE_BYTES, operation.signal);
+      return sendJson(response, 201, await service.stageStoryImage(id, mediaType, bytes));
+    });
+  }
+  if (head === "stories" && id !== undefined && sub === "images" && subId !== undefined
+    && action === undefined && method === "DELETE") {
+    requireImageInputEntryPointsOpen();
+    await withImageStagePermit(operation.signal, () => service.releaseStoryImage(id, subId));
+    response.writeHead(204);
+    return void response.end();
+  }
   if (head === "stories" && id !== undefined && sub === "autoname" && method === "POST") {
     const expectedTitle = requireStringValue(
       (await jsonBody()).expectedTitle,
@@ -823,6 +850,34 @@ async function handleApi(
     }
     throw error;
   }
+}
+
+/**
+ * Read `Content-Type` and require it to name exactly one supported Source
+ * Image media type. Rejects an absent or malformed header, a multipart
+ * body (its content type never matches one of the three allowed values),
+ * and any `Content-Encoding` (a compressed body is bytes this route never
+ * decodes, so accepting one would silently store the wrong bytes).
+ */
+function requireImageContentType(request: IncomingMessage): SourceImageMediaType {
+  if (request.headers["content-encoding"] !== undefined) {
+    throw new ServiceError(
+      415,
+      "Image uploads do not accept a Content-Encoding.",
+      "image_type_not_supported"
+    );
+  }
+  const raw = request.headers["content-type"];
+  const header = Array.isArray(raw) ? raw[0] : raw;
+  const mediaType = header?.split(";")[0]?.trim().toLowerCase();
+  if (!isSourceImageMediaType(mediaType)) {
+    throw new ServiceError(
+      415,
+      "Image uploads must declare Content-Type image/png, image/jpeg, or image/webp.",
+      "image_type_not_supported"
+    );
+  }
+  return mediaType;
 }
 
 function isOperationCancellation(

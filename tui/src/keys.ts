@@ -25,6 +25,7 @@ import type {
   RuntimeState,
   CardImportPrompt,
   ArchiveImportPrompt,
+  ImageAttachPrompt,
   SettingsInlineEditState,
   SettingsRowId
 } from "./state.js";
@@ -50,6 +51,7 @@ export type KeyAction =
   | "delete-forward" | "delete-word-left" | "delete-word-right" | "delete-line"
   | "delete-line-start" | "delete-line-end" | "select-all"
   | "copy-selection" | "cut-selection" | "paste-clipboard" | "undo-edit" | "redo-edit"
+  | "remove-draft-image"
   | "edit-tag"
   | "open-keys" | "prune" | "tag" | "delete-tag"
   | "typewriter" | "edit" | "write" | "regenerate" | "retake-with-prompt" | "apply" | "apply-profile-transfer"
@@ -66,7 +68,7 @@ export type KeyAction =
 
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
-  | "SEARCH" | "REQUEST" | "CARD" | "ARCHIVE" | "LOG" | "PROBS" | "RECORD";
+  | "SEARCH" | "REQUEST" | "CARD" | "ARCHIVE" | "IMAGE" | "LOG" | "PROBS" | "RECORD";
 
 export interface ResolvedKey {
   action: KeyAction;
@@ -238,6 +240,7 @@ export function pasteInto(
     } | null;
     card: CardImportPrompt | null;
     archive: ArchiveImportPrompt | null;
+    image?: ImageAttachPrompt | null;
     prune: unknown | null;
     chapterDeleteArmedId: string | null;
     actions: unknown | null;
@@ -282,6 +285,12 @@ export function pasteInto(
     state.archive.path += line;
     state.archive.error = null;
     state.archive.candidates = [];
+    return true;
+  }
+  if (state.mode === "IMAGE" && state.image != null) {
+    state.image.path += line;
+    state.image.error = null;
+    state.image.candidates = [];
     return true;
   }
   const profileTransfer = state.settings?.profileTransfer;
@@ -376,7 +385,7 @@ export interface ResolveOptions {
 type OverlayTextInputState = Pick<
   RuntimeState,
   "mode" | "library" | "facts" | "card" | "archive" | "chapters" | "settings"
->;
+> & { image?: ImageAttachPrompt | null };
 
 /** One ownership check shared by key routing and chrome that advertises
  * keyboard shortcuts. Keep every overlay text field on this boundary. */
@@ -385,6 +394,7 @@ export function overlayTextInputActive(state: OverlayTextInputState): boolean {
   if (state.mode === "FACTS") return state.facts?.filtering === true;
   if (state.mode === "CARD") return state.card != null;
   if (state.mode === "ARCHIVE") return state.archive != null;
+  if (state.mode === "IMAGE") return state.image != null;
   if (state.mode === "CHAPTERS") return state.chapters?.rename != null;
   if (state.mode === "SETTINGS") {
     return state.settings?.profileTransfer?.phase === "file"
@@ -402,7 +412,7 @@ export function textOwnsKeyboard(mode: AppMode, options: ResolveOptions = {}): b
     || options.overlayTyping === true
     || mode === "COMMANDS" && options.commandsTags !== true
     || mode === "TAG" && options.tagChoosingStatus !== true
-    || mode === "CARD" || mode === "ARCHIVE";
+    || mode === "CARD" || mode === "ARCHIVE" || mode === "IMAGE";
 }
 
 export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions = {}): ResolvedKey {
@@ -654,7 +664,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "n") return { action: "new-item" };
     return { action: "none" };
   }
-  if (mode === "CARD" || mode === "ARCHIVE") {
+  if (mode === "CARD" || mode === "ARCHIVE" || mode === "IMAGE") {
     if (key.name === "return") return { action: "apply" };
     if (key.name === "tab") return { action: "complete" };
     if (key.name === "backspace") return { action: "backspace" };

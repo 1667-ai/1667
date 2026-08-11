@@ -29,6 +29,7 @@ import {
   suspendRetakeComposer
 } from "./composer-ownership.js";
 import { countWords } from "../../shared/story-text.js";
+import { draftImagesFor, removeDraftImageAt } from "./draft-image.js";
 import { humanWordsOf } from "./rail.js";
 import {
   createStoryViewModel,
@@ -442,6 +443,21 @@ export async function copyPart(state: RuntimeState, wholeLine: boolean): Promise
     : `copied ${what} · ${countWords(text).toLocaleString("en-US")} words`;
 }
 
+/** Drop one attached Draft Image and release its lease. Releasing is
+ *  idempotent and best-effort: the row is already gone from the composer
+ *  either way, so a release failure has nothing left to undo — it only
+ *  frees quota a bit sooner than the lease's own expiry would. */
+function removeDraftImage(state: RuntimeState, source: AppSource, index: number): void {
+  if (state.mode !== "COMPOSE") return;
+  const before = draftImagesFor(state.composer);
+  const removed = before[index];
+  if (removed === undefined) return;
+  removeDraftImageAt(state.composer, index);
+  const storyId = state.payload.id;
+  source.api.releaseStoryImage(storyId, removed.leaseId).catch(() => { /* best effort */ });
+  state.toast = "image removed";
+}
+
 export async function actionsMenuAction(
   resolved: ResolvedKey,
   state: RuntimeState,
@@ -506,7 +522,11 @@ export async function composeAction(
     return;
   }
   if (resolved.action === "paste-clipboard") {
-    await pasteClipboardIntoComposer(state);
+    await pasteClipboardIntoComposer(state, source, context);
+    return;
+  }
+  if (resolved.action === "remove-draft-image") {
+    removeDraftImage(state, source, resolved.index ?? -1);
     return;
   }
   if (resolved.action === "newline") { insertComposerText(state.composer, "\n"); return; }
@@ -594,11 +614,13 @@ export async function composeAction(
       }
       state.historyIndex = state.history.length;
       state.historyDraft = null;
-      const pendingDraft: PendingGenerationDraft | null = instruction.trim().length === 0 && retakeNode === null
-        ? null
-        : retakePrompt === null
-          ? capturePendingDirectDraft(state, instruction)
-          : { kind: "retake", text: instruction, retakePrompt, restored: false };
+      const attachedImages = draftImagesFor(state.composer);
+      const pendingDraft: PendingGenerationDraft | null =
+        instruction.trim().length === 0 && retakeNode === null && attachedImages.length === 0
+          ? null
+          : retakePrompt === null
+            ? capturePendingDirectDraft(state, instruction)
+            : { kind: "retake", text: instruction, retakePrompt, images: attachedImages, restored: false };
       state.pendingGenerationDraft = pendingDraft;
       state.composer.fullscreen = false;
       if (retakePrompt === null) setComposerText(state.composer, "");

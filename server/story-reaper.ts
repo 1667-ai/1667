@@ -26,7 +26,7 @@ import {
   MAX_DELETED_STORY_MANIFEST_BYTES,
   parseStoryManifestBytes
 } from "./story-v6-codec.js";
-import type { DeletedStoryManifestV6 } from "./story-v6-types.js";
+import type { DeletedStoryEnvelopeManifest } from "./story-v6-types.js";
 
 export const STORY_REAP_RETENTION_MS = 90 * 24 * 60 * 60 * 1_000;
 
@@ -150,17 +150,20 @@ export class StoryReaper {
     directory: string,
     storyId: string,
     allowUnresolvedProvider: boolean
-  ): Promise<DeletedStoryManifestV6> {
+  ): Promise<DeletedStoryEnvelopeManifest> {
     const bytes = await readBoundedRegularFile(
       path.join(directory, "manifest.json"),
       MAX_DELETED_STORY_MANIFEST_BYTES,
       { requirePrivate: true }
     );
     const parsed = parseStoryManifestBytes(bytes, storyId);
-    if (parsed.kind !== "v6-deleted") {
+    // Either envelope version reaps. A story the writer deleted after it
+    // reached version 8 is still a deleted aggregate, and refusing it here
+    // would strand its bundle on disk for good.
+    if (parsed.kind !== "v6-deleted" && parsed.kind !== "v8-deleted") {
       throw new ServiceError(
         409,
-        `Story ${storyId} is not a deleted V6 aggregate.`,
+        `Story ${storyId} is not a deleted aggregate.`,
         "conflict"
       );
     }
@@ -175,7 +178,7 @@ export class StoryReaper {
     return parsed.manifest;
   }
 
-  private isEligible(manifest: DeletedStoryManifestV6): boolean {
+  private isEligible(manifest: DeletedStoryEnvelopeManifest): boolean {
     const deletedAt = Date.parse(manifest.deletedAt);
     const now = this.now().getTime();
     if (!Number.isFinite(now)) throw new Error("Story reaper clock returned an invalid date");

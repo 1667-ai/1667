@@ -1,8 +1,13 @@
 import type { HitRow, HitRows } from "../hit.js";
 import { boundedNoticeCursor, type NoticeLog, type SessionNotice } from "../notice-log.js";
+import {
+  noticeMarkupBlocks,
+  parseNoticeMarkup,
+  type NoticeMarkupStyle
+} from "../notice-markup.js";
 import type { StoryScreenState } from "../state.js";
 import { tagGlyph, tagRole } from "../tag-presentation.js";
-import { wrapFeedback } from "./feedback-wrap.js";
+import { wrapText, type WrappedLine } from "../wrap.js";
 import { addInlineHits } from "./story/hits.js";
 import { renderSurfaceBreadcrumb } from "./surface-breadcrumb.js";
 import {
@@ -11,7 +16,8 @@ import {
   segment,
   truncate,
   type FrameComposition,
-  type FrameLine
+  type FrameLine,
+  type FrameSegment
 } from "./story/frame.js";
 
 /** Title rule, blank, closing rule, breadcrumb. */
@@ -99,14 +105,80 @@ function noticeRows(notice: SessionNotice, focused: boolean, width: number): Fra
     segment(stamp(notice.at).padEnd(STAMP_WIDTH), "chrome")
   ];
   if (!focused) {
-    return [[...head, segment(truncate(oneLine(notice.text), measure), "prose · dim")]];
+    return [[...head, segment(truncate(oneLine(notice), measure), "prose · dim")]];
   }
-  // The log is the surface with no cap, so the expanded notice wraps as far as
-  // it needs to and keeps its recovery keys on the last row.
-  const wrapped = wrapFeedback(notice.text, measure, null);
-  return wrapped.rows.map((row, index): FrameLine => index === 0
-    ? [...head, segment(row, "prose")]
-    : [segment(" ".repeat(BODY_COLUMN)), segment(row, "prose")]);
+  // The log is the one uncapped surface (C-37): the focused notice keeps its
+  // line structure instead of collapsing to one flowing line the way the
+  // capped toast/banner/check channels do (Decision 24's `wrapFeedback`,
+  // deliberately untouched by this). Only a `markdown` notice — release
+  // notes, today the one caller — also gets its `**bold**`/`` `code` ``/list
+  // markers interpreted. A `plain` notice, which is most of them and carries
+  // arbitrary user- or backend-supplied text, renders exactly as written:
+  // interpreting markup there would let a story renamed to `**draft**` come
+  // back from the log quietly rewritten to bold.
+  return notice.kind === "markdown"
+    ? markdownNoticeRows(notice.text, measure, head)
+    : plainNoticeRows(notice.text, measure, head);
+}
+
+function markdownNoticeRows(text: string, measure: number, head: FrameLine): FrameLine[] {
+  const { text: cleaned, runs } = parseNoticeMarkup(text);
+  const wrapped = wrapText(cleaned, runs, measure);
+  const blocks = noticeMarkupBlocks(cleaned);
+  let blockIndex = 0;
+  return wrapped.map((row, index): FrameLine => {
+    while (blockIndex + 1 < blocks.length && row.start >= blocks[blockIndex + 1]!.start) {
+      blockIndex += 1;
+    }
+    const block = blocks[blockIndex]!;
+    // A list item's own `- ` already sits in `row.text` on its first row; a
+    // continuation row wrapped past it, so it gets the hanging indent back
+    // instead, letting the item read as one block rather than losing its
+    // margin under the bullet above it.
+    const hanging = block.list && row.start > block.start;
+    const content = noticeRowSegments(row);
+    const rowSegments = hanging ? [segment("  "), ...content] : content;
+    return index === 0
+      ? [...head, ...rowSegments]
+      : [segment(" ".repeat(BODY_COLUMN)), ...rowSegments];
+  });
+}
+
+/** A plain notice's text, wrapped with no markup interpretation at all —
+ *  `wrapText` still wraps it one paragraph per source `\n` (so a multi-line
+ *  notice, an import fidelity report say, keeps its own line breaks), but
+ *  every character renders exactly as the app wrote it. No style runs, no
+ *  list detection, no hanging indent: those are markdown-notice concerns. */
+function plainNoticeRows(text: string, measure: number, head: FrameLine): FrameLine[] {
+  const wrapped = wrapText(text, [], measure);
+  return wrapped.map((row, index): FrameLine => {
+    const content: FrameSegment[] = row.text.length === 0 ? [] : [segment(row.text, "prose")];
+    return index === 0
+      ? [...head, ...content]
+      : [segment(" ".repeat(BODY_COLUMN)), ...content];
+  });
+}
+
+/** One wrapped row's text, split at its style runs into plain, bold and code
+ *  segments. `**bold**` keeps the `prose` role and adds the bold attribute —
+ *  emphasis, not a different kind of text. `` `code` `` takes `chrome`, the
+ *  role a technical value already carries elsewhere (the model name and
+ *  route in request-viewer.ts), rather than inventing a new look for it. */
+function noticeRowSegments(row: WrappedLine<NoticeMarkupStyle>): FrameSegment[] {
+  if (row.text.length === 0) return [];
+  const segments: FrameSegment[] = [];
+  let cursor = 0;
+  for (const run of row.styleRuns) {
+    if (run.start > cursor) segments.push(segment(row.text.slice(cursor, run.start), "prose"));
+    if (run.end > run.start) {
+      segments.push(run.style === "bold"
+        ? { text: row.text.slice(run.start, run.end), role: "prose", bold: true }
+        : segment(row.text.slice(run.start, run.end), "chrome"));
+    }
+    cursor = Math.max(cursor, run.end);
+  }
+  if (cursor < row.text.length) segments.push(segment(row.text.slice(cursor), "prose"));
+  return segments;
 }
 
 /** Keep the focused notice on screen without moving it further than it has to.
@@ -193,7 +265,13 @@ function renderBreadcrumb(
   });
 }
 
-function oneLine(text: string): string {
+/** The unfocused preview row: one flowing line, same as `wrapFeedback`'s own
+ *  collapse. A `markdown` notice's markers are stripped first, the same as
+ *  the focused row's own parse, so a preview never shows a raw `**` or a
+ *  backtick. A `plain` notice skips that parse entirely — its `**`/backtick
+ *  characters, if it has any, are the writer's own text, not a marker. */
+function oneLine(notice: SessionNotice): string {
+  const text = notice.kind === "markdown" ? parseNoticeMarkup(notice.text).text : notice.text;
   return text.replace(/\s+/gu, " ").trim();
 }
 

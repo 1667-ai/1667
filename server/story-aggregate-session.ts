@@ -6,6 +6,7 @@ import {
 import path from "node:path";
 import { activePath } from "../shared/story-tree.js";
 import type { Story } from "../shared/types.js";
+import { resolveImageInputActivation } from "../shared/image-input-release.js";
 import { ServiceError } from "./errors.js";
 import {
   decodeStoryBundle,
@@ -39,17 +40,19 @@ import {
   storyProjection,
   type StoryAggregateSnapshot
 } from "./story-aggregate-state.js";
-import { hashStoryV6ManifestBytes } from "./story-manifest-hash.js";
 import type { StoredStorySlot } from "./story-storage-reader.js";
 import {
   formatV6,
+  formatV8,
   MAX_DELETED_STORY_MANIFEST_BYTES,
   parseStoryManifestBytes,
+  STORY_SCHEMA_VERSION_V8,
   storySummaryV6FromContent
 } from "./story-v6-codec.js";
 import type {
-  LiveStoryManifestV6,
-  StoryManifestV6
+  StoryEnvelopeContent,
+  StoryEnvelopeManifest,
+  StorySummaryV6
 } from "./story-v6-types.js";
 import { MAX_STORY_MANIFEST_BYTES } from "./story-v5-strict.js";
 import { LEAF_OBJECT_KINDS, StoryObjectStore, type LeafObjectKind } from "./story-objects.js";
@@ -61,6 +64,16 @@ const MANIFEST_POLICY = {
   maxBytes: MAX_STORY_MANIFEST_BYTES
 } as const;
 
+/** A staged manifest owns immutable objects that the current manifest does
+ * not own yet. Cleanup must keep all objects until recovery publishes or
+ * discards this file. */
+export async function stagedStoryManifestExists(bundleDir: string): Promise<boolean> {
+  return await readOptionalPrivateFile(
+    path.join(bundleDir, NEXT_MANIFEST_FILE),
+    MANIFEST_POLICY
+  ) !== null;
+}
+
 type PresentStorySlot = Extract<
   StoredStorySlot,
   { kind: "v5" | "v6-live" | "v6-deleted" }
@@ -68,8 +81,19 @@ type PresentStorySlot = Extract<
 
 export interface PreparedStoryContent {
   readonly story: Story;
-  readonly content: LiveStoryManifestV6["content"];
-  readonly summary: LiveStoryManifestV6["summary"];
+  readonly content: StoryEnvelopeContent;
+  readonly summary: StorySummaryV6;
+}
+
+export interface PrepareStoryContentOptions {
+  /** The one site that decides whether ONE encode may build the successor
+   *  content payload. Absent resolves through `resolveImageInputActivation()`
+   *  (`shared/image-input-release.ts`), so production callers that never set
+   *  this stay on the release default. Even when this resolves true, the
+   *  encode only actually uses the successor payload if `story` carries an
+   *  Image Attachment; a story with none stays on the current schema, so
+   *  turning activation on never rewrites an unrelated story. */
+  readonly activation?: boolean;
 }
 
 /** A generation record source-revision graph this session hash-verified,
@@ -90,7 +114,7 @@ export class StoryAggregateSession {
   /** The staged replacement carries its own cleanup verdict, so a manifest
    * recovered from disk can never retire a marker another transaction owes. */
   private staged: {
-    readonly manifest: StoryManifestV6;
+    readonly manifest: StoryEnvelopeManifest;
     readonly clearCleanupOnPublish: boolean;
   } | null = null;
   /** Handed from prepareContent to the stageManifest call that stages its
@@ -180,7 +204,10 @@ export class StoryAggregateSession {
     await hydrateStoryNodes(story, nodeIds);
   }
 
-  async prepareContent(story: Story): Promise<PreparedStoryContent> {
+  async prepareContent(
+    story: Story,
+    options: PrepareStoryContentOptions = {}
+  ): Promise<PreparedStoryContent> {
     if (story.id !== this.storyId) throw new Error("Story mutation changed aggregate identity");
     if (this.snapshot.manifest.kind !== "live") {
       throw new ServiceError(404, `Story not found: ${this.storyId}`);
@@ -217,7 +244,20 @@ export class StoryAggregateSession {
       // whose starting manifest is still this session's starting manifest.
       objects.adoptKnownGenerationRecordGraph(this.generationRecordGraph.sourceRevisions, { committed: true });
     }
-    const content = await encodeStoryBundle(story, objects);
+    // The single site that decides whether this encode builds the successor
+    // content payload. Release-wide activation alone is not enough: a story
+    // that carries no Image Attachment stays on the current schema even with
+    // activation on, so turning the switch on never upgrades a library that
+    // has nothing to gain from it (see `PrepareStoryContentOptions`).
+    const buildSuccessorContent = resolveImageInputActivation(options.activation)
+      && storyHasImageAttachments(story);
+    const content = await encodeStoryBundle(
+      story,
+      objects,
+      undefined,
+      undefined,
+      buildSuccessorContent ? { activation: true } : {}
+    );
     await objects.flush();
     const nextLive = liveObjectIds(content);
     await objects.verifyGraph(nextLive);
@@ -253,7 +293,7 @@ export class StoryAggregateSession {
     await (await StoryCleanupIntent.begin(this.bundleDir, this.storyId)).publish();
   }
 
-  async readStagedManifest(): Promise<StoryManifestV6 | null> {
+  async readStagedManifest(): Promise<StoryEnvelopeManifest | null> {
     const bytes = await readOptionalPrivateFile(
       this.nextManifestPath(),
       MANIFEST_POLICY
@@ -263,6 +303,9 @@ export class StoryAggregateSession {
     if (parsed.kind === "v5") {
       throw new Error("Story manifest replacement cannot regress to V5");
     }
+    // `stageManifest` below picks the envelope version from the content the
+    // transaction produced (`server/story-v6-reducer.ts`), so a staged V6 or
+    // V8 `.next` file is equally a legitimate in-flight replacement here.
     const manifest = parsed.manifest;
     if (manifest.kind === "deleted"
       && bytes.byteLength > MAX_DELETED_STORY_MANIFEST_BYTES) {
@@ -271,7 +314,7 @@ export class StoryAggregateSession {
     return manifest;
   }
 
-  async stageManifest(manifest: StoryManifestV6): Promise<void> {
+  async stageManifest(manifest: StoryEnvelopeManifest): Promise<void> {
     if (manifest.id !== this.storyId) throw new Error("Story replacement changed aggregate identity");
     // Publishing any manifest from a legacy-schema V5 snapshot wraps the
     // already-normalized content into V6 and erases sourceSchemaVersion, so
@@ -279,7 +322,7 @@ export class StoryAggregateSession {
     // stage — whichever path stages it. A provider start reaches here
     // without prepareContent.
     if (this.legacySchemaSource) await this.ensureCleanupPending();
-    const bytes = Buffer.from(formatV6(manifest), "utf8");
+    const bytes = Buffer.from(formatManifestEnvelope(manifest), "utf8");
     const maxBytes = manifest.kind === "deleted"
       ? MAX_DELETED_STORY_MANIFEST_BYTES
       : MAX_STORY_MANIFEST_BYTES;
@@ -314,17 +357,12 @@ export class StoryAggregateSession {
         { cause: error }
       );
     }
-    const manifestBytes = Buffer.from(formatV6(manifest), "utf8");
-    const source = manifest.kind === "live"
-      ? { kind: "v6-live" as const, manifest, manifestBytes }
-      : { kind: "v6-deleted" as const, manifest, manifestBytes };
-    this.currentSnapshot = {
-      storageKind: "v6",
-      manifest,
-      manifestHash: hashStoryV6ManifestBytes(manifestBytes),
-      projection: storyProjection(manifest),
-      source
-    };
+    const manifestBytes = Buffer.from(formatManifestEnvelope(manifest), "utf8");
+    // Reuse the exact hashing and projection a fresh reload would apply
+    // (`storyAggregateSnapshot`), so a just-published V8 upgrade is snapshotted
+    // in memory precisely as the next `withAggregateSession` call would read
+    // it back off disk.
+    this.currentSnapshot = storyAggregateSnapshot(persistedSlotFromManifest(manifest, manifestBytes));
     this.staged = null;
     if (this.preparedGenerationRecordGraph !== null) {
       // Only prepareContent (run in this same session, against the manifest
@@ -390,4 +428,50 @@ export function requirePresentStorySlot(
       "resource_busy"
     );
   }
+  // The aggregate session exists to prepare and stage a mutation, so a
+  // successor-schema manifest must refuse it here exactly as
+  // `requireMutableStorySlot` refuses it for the older direct-write path
+  // (`server/story-storage-reader.ts`). This release never opens a session
+  // over a story that already needs a successor release to mutate.
+  if (slot.kind === "v8-live" || slot.kind === "v8-deleted") {
+    throw new ServiceError(
+      409,
+      `Story ${storyId} uses a manifest that requires a successor release for mutation`,
+      "story_manifest_requires_successor"
+    );
+  }
+}
+
+/** True once any take in `story` carries an Image Attachment. This is the
+ *  other half of `prepareContent`'s successor decision: release-wide
+ *  activation says a write MAY use the successor schema, this says one
+ *  actually NEEDS it, and only both together justify it (requirement: a story
+ *  with no attachments stays on the current schema even with activation on). */
+function storyHasImageAttachments(story: Story): boolean {
+  return story.nodes.some((node) => node.imageAttachments !== undefined);
+}
+
+/** `formatV6` and `formatV8` differ only in which schema literal they accept;
+ *  this is the one place a staged or published manifest picks between them,
+ *  by the schema version its own content already carries
+ *  (`server/story-v6-reducer.ts` is the one place that decides that version). */
+function formatManifestEnvelope(manifest: StoryEnvelopeManifest): string {
+  return manifest.schemaVersion === STORY_SCHEMA_VERSION_V8 ? formatV8(manifest) : formatV6(manifest);
+}
+
+/** The persisted-slot shape a freshly published envelope becomes, matched to
+ *  `readStoredStorySlot`'s own discriminant so `storyAggregateSnapshot` can
+ *  hash and project it exactly as a reload from disk would. */
+function persistedSlotFromManifest(
+  manifest: StoryEnvelopeManifest,
+  manifestBytes: Buffer
+): Extract<StoredStorySlot, { kind: "v6-live" | "v6-deleted" | "v8-live" | "v8-deleted" }> {
+  if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V8) {
+    return manifest.kind === "live"
+      ? { kind: "v8-live", manifest, manifestBytes }
+      : { kind: "v8-deleted", manifest, manifestBytes };
+  }
+  return manifest.kind === "live"
+    ? { kind: "v6-live", manifest, manifestBytes }
+    : { kind: "v6-deleted", manifest, manifestBytes };
 }

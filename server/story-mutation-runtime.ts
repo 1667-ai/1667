@@ -22,12 +22,28 @@ export interface ProviderStoryRuntime<
     id: string,
     effect: Effect
   ): Promise<ProviderStoryEffectValue<Effect>>;
+  /** Record the ordered Image Object ids the request being prepared is
+   *  about to send, and the Draft Lease ids that resolved them, before the
+   *  provider sees any bytes. `continueStory` (server/generation-http.ts)
+   *  calls this once it has resolved the active prompt's Image Attachments,
+   *  ahead of `providerStarted`, so `server/story-provider-mutation.ts` can
+   *  read them back: the object ids go on the durable provider-started
+   *  receipt (settled decision D7) and pin the objects for the round trip;
+   *  the lease ids are what the SAME commit removes once the manifest and
+   *  receipt are durable, never before (rollout plan). `leaseIds` is empty
+   *  whenever every attachment was inherited from an existing take rather
+   *  than newly drafted: an inherited attachment consumes no lease.
+   *  Optional: only `continueStory` ever has images to declare, and a
+   *  caller with none simply never calls this. */
+  declareImageResolution?(objectIds: readonly string[], leaseIds: readonly string[]): void;
 }
 
 /** Typed provider view used outside a story claim. The outer receipt
  * transaction performs the one authoritative V6 publication. */
 export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
   private preparedEffect: PreparedProviderStoryEffect | null = null;
+  private declaredImageObjectIds: readonly string[] = [];
+  private declaredDraftLeaseIds: readonly string[] = [];
 
   /** Node text hydrates from the bundle the story itself carries, so this
    * runtime outlives the aggregate session that decoded it. That lets the
@@ -36,6 +52,21 @@ export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
 
   get effect(): PreparedProviderStoryEffect | null {
     return this.preparedEffect;
+  }
+
+  /** See `ProviderStoryRuntime.declareImageResolution`. */
+  get imageObjectIds(): readonly string[] {
+    return this.declaredImageObjectIds;
+  }
+
+  /** See `ProviderStoryRuntime.declareImageResolution`. */
+  get draftLeaseIds(): readonly string[] {
+    return this.declaredDraftLeaseIds;
+  }
+
+  declareImageResolution(objectIds: readonly string[], leaseIds: readonly string[]): void {
+    this.declaredImageObjectIds = objectIds;
+    this.declaredDraftLeaseIds = leaseIds;
   }
 
   async loadForMutation(id: string): Promise<Story> {

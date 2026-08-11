@@ -87,6 +87,70 @@ test("direct loopback transport sends no secrets to an unproven listener", async
   assert.equal(protectedRequests, 0);
 });
 
+// D10: `tui/src/api.ts`'s binary request path used to send `body.slice().buffer`,
+// an `ArrayBuffer`. `createDirectLoopbackFetch`'s body guard accepts only a
+// string or a `Uint8Array` (see `requestBody` below), so a binary upload in
+// `--url` mode (importLorebook, importCard, and now Draft Image staging)
+// threw before it ever reached the network. Global `fetch` accepts an
+// `ArrayBuffer` too, which is why the existing tests in this repository,
+// bound to global `fetch`, never caught it. This test drives the direct
+// loopback transport itself and would have failed against the old
+// `.buffer` code with "accepts only string or byte request bodies".
+test("direct loopback transport sends a Uint8Array body byte-for-byte", async (t) => {
+  let record!: HttpAuthRecord;
+  let received: Buffer | null = null;
+  const server = createServer((request, response) => {
+    const url = new URL(request.url ?? "/", record.origin);
+    if (url.pathname === HTTP_SERVER_PROOF_PATH) {
+      const nonce = url.searchParams.get("nonce")!;
+      response.writeHead(204, {
+        [HTTP_SERVER_PROOF_HEADER]: createHttpServerProof(record, nonce)
+      });
+      response.end();
+      return;
+    }
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => chunks.push(chunk));
+    request.on("end", () => {
+      received = Buffer.concat(chunks);
+      response.end("ok");
+    });
+  });
+  const origin = await listen(t, server);
+  record = authRecord(origin);
+
+  const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 255, 0]);
+  const response = await createDirectLoopbackFetch(origin, record)(
+    `${origin}/api/private`,
+    {
+      method: "POST",
+      headers: { authorization: "Bearer private-capability" },
+      body: bytes
+    }
+  );
+
+  assert.equal(await response.text(), "ok");
+  assert.ok(received !== null);
+  assert.ok(Buffer.from(bytes).equals(received!), "the server must receive the exact bytes sent");
+});
+
+// The old code sent `body.slice().buffer as ArrayBuffer`. This proves that
+// exact shape is rejected — the regression the fix above closes.
+test("direct loopback transport rejects an ArrayBuffer body", async (t) => {
+  const server = createServer((_request, response) => response.end());
+  const origin = await listen(t, server);
+  const record = authRecord(origin);
+
+  const arrayBuffer = new Uint8Array([1, 2, 3]).slice().buffer;
+  await assert.rejects(
+    createDirectLoopbackFetch(origin, record)(
+      `${origin}/api/private`,
+      { method: "POST", body: arrayBuffer as unknown as BodyInit }
+    ),
+    /accepts only string or byte request bodies/
+  );
+});
+
 function authRecord(origin: string): HttpAuthRecord {
   return {
     schema: 1,

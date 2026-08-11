@@ -46,11 +46,13 @@ import {
   serializeReasoning,
   type ReasoningRecord
 } from "../shared/reasoning.js";
+import { MAX_IMAGE_OBJECT_BYTES } from "../shared/image-attachment.js";
 import {
   drainPromises,
   isErrorCode,
   isLinkFallback,
   objectFilename,
+  OBJECT_EXTENSIONS,
   readIfPresent,
   requireSweepActive,
   SweepCancelled,
@@ -66,15 +68,24 @@ export type { ObjectKind } from "./story-object-fs.js";
  *  `sweep`/`verifyGraph` below instead of joining this list. The next side
  *  record that fits the true-leaf shape is a one-line addition here plus a
  *  `store`/`read` pair on the store below; `sweep`, `verifyGraph`, and
- *  `readObject` need no further changes. */
-export const LEAF_OBJECT_KINDS = ["probabilities", "reasoning"] as const;
+ *  `readObject` need no further changes.
+ *
+ *  `images` joined this list once a manifest could name an Image Object
+ *  (`nodes[].imageAttachments[].objectId`, server/story-format-nodes.ts).
+ *  Unlike the other two kinds, an image can also be live through a Draft
+ *  Lease that names no manifest node yet; the caller (server/stories.ts's
+ *  `unionLiveWithPins`) folds those lease-sourced ids into `live.leaves.images`
+ *  before calling `sweep` below, so this one list still protects every image
+ *  an object store method needs to protect. */
+export const LEAF_OBJECT_KINDS = ["probabilities", "reasoning", "images"] as const;
 export type LeafObjectKind = typeof LEAF_OBJECT_KINDS[number];
 /** The label `requireHash` reports for one leaf kind's live id, kept apart
  *  from `COMMITTED_ID_LABELS` below: that one names a *committed* id, this
  *  one a *live* id, and the two read differently in a thrown message. */
 const LEAF_LIVE_ID_LABELS: Record<LeafObjectKind, string> = {
   probabilities: "live token probabilities id",
-  reasoning: "live reasoning id"
+  reasoning: "live reasoning id",
+  images: "live image id"
 };
 /** Every hash a save must protect from a concurrent sweep: the live
  *  revision graph, per leaf kind the live leaf objects, and the live
@@ -97,6 +108,7 @@ const OBJECT_MAX_BYTES: Record<ObjectKind, number> = {
   revisions: MAX_REVISION_BYTES,
   probabilities: MAX_TOKEN_PROBABILITY_BYTES,
   reasoning: MAX_REASONING_BYTES,
+  images: MAX_IMAGE_OBJECT_BYTES,
   "generation-records": MAX_GENERATION_RECORD_BYTES
 };
 const OBJECT_TEMP_PATTERN = exactStringPattern(
@@ -112,6 +124,7 @@ const COMMITTED_ID_LABELS: Record<ObjectKind, string> = {
   revisions: "committed revision id",
   probabilities: "committed token probabilities id",
   reasoning: "committed reasoning id",
+  images: "committed image id",
   "generation-records": "committed generation record id"
 };
 
@@ -147,6 +160,7 @@ export class StoryObjectStore {
     revisions: new Set(),
     probabilities: new Set(),
     reasoning: new Set(),
+    images: new Set(),
     "generation-records": new Set()
   };
   private readonly pendingObjects: Record<ObjectKind, Map<ObjectHash, Promise<void>>> = {
@@ -154,6 +168,7 @@ export class StoryObjectStore {
     revisions: new Map(),
     probabilities: new Map(),
     reasoning: new Map(),
+    images: new Map(),
     "generation-records": new Map()
   };
   private readonly knownRevisions = new Map<ObjectHash, TextRevisionV1>();
@@ -178,6 +193,7 @@ export class StoryObjectStore {
     revisions: new Set(),
     probabilities: new Set(),
     reasoning: new Set(),
+    images: new Set(),
     "generation-records": new Set()
   };
   private readonly dirtyShards = new Set<string>();
@@ -200,6 +216,7 @@ export class StoryObjectStore {
       this.withKind("revisions", true, async () => undefined),
       this.withKind("probabilities", true, async () => undefined),
       this.withKind("reasoning", true, async () => undefined),
+      this.withKind("images", true, async () => undefined),
       this.withKind("generation-records", true, async () => undefined)
     ]);
   }
@@ -262,6 +279,23 @@ export class StoryObjectStore {
     return parseReasoning(bytes.toString("utf8"), hash);
   }
 
+  /** One Normalized Image's raw bytes, content-addressed like every other
+   * object kind but with no JSON codec: the bytes stored are exactly the
+   * bytes a caller hands in, hashed as-is. Both Draft Image staging
+   * (server/stories.ts's `stageImage`) and a committed take's own object
+   * (referenced from `nodes[].imageAttachments[].objectId`, protected by
+   * `manifestImageIds` in server/story-format-nodes.ts) write through here. */
+  async storeImage(bytes: Buffer, reuseFrom?: StoryObjectStore): Promise<ObjectHash> {
+    const hash = sha256(bytes);
+    await this.putObject("images", hash, bytes, reuseFrom);
+    return hash;
+  }
+
+  /** Bounded, hash-verified read of one Normalized Image's raw bytes. */
+  async readImage(hash: ObjectHash): Promise<Buffer> {
+    return await this.readObject("images", hash);
+  }
+
   /** One Generation Record event, content-addressed like a probabilities
    * object: a bounded leaf with no chunking. */
   async storeGenerationRecord(
@@ -315,6 +349,18 @@ export class StoryObjectStore {
     return await mapWithConcurrency(hashes, TEXT_IO_CONCURRENCY, (hash) => this.readText(hash, cache));
   }
 
+  /**
+   * `live.leaves.images` carries every Image Object this sweep must protect:
+   * every id a manifest node's `imageAttachments[].objectId` names
+   * (server/story-format-nodes.ts's `manifestImageIds`, folded into
+   * `liveObjectIds`) plus every id a live Draft Lease references. Images are
+   * a leaf kind exactly like `probabilities` and `reasoning`, so this method
+   * treats all three identically; the caller (server/stories.ts's
+   * `unionLiveWithPins`) is the one place that folds a lease-sourced id into
+   * `leaves.images` before calling this, so "an object is live when the
+   * manifest names it or a lease does" is decided once, in the module that
+   * owns lease lifetime, rather than here.
+   */
   async sweep(live: LiveStoryObjectIds, signal?: AbortSignal): Promise<boolean> {
     try {
       requireSweepActive(signal);
@@ -364,7 +410,9 @@ export class StoryObjectStore {
       });
       // A leaf object has nothing beneath it to mark; the read-and-hash-verify
       // below both proves it survives and, on corruption, fails the whole
-      // sweep closed exactly like a chunk would.
+      // sweep closed exactly like a chunk would. This also covers every
+      // Image Object a live Draft Lease references but no manifest node
+      // does yet, since `liveLeaves.images` already carries those ids too.
       for (const kind of LEAF_OBJECT_KINDS) {
         await mapWithConcurrency([...liveLeaves[kind]], OBJECT_IO_CONCURRENCY, async (hash) => {
           requireSweepActive(signal);
@@ -442,8 +490,7 @@ export class StoryObjectStore {
 
   objectPath(kind: ObjectKind, hash: ObjectHash): string {
     requireHash(hash, `${kind} object id`);
-    const extension = kind === "chunks" ? ".txt" : ".json";
-    return path.join(this.bundleDir, kind, hash.slice(0, 2), `${hash}${extension}`);
+    return path.join(this.bundleDir, kind, hash.slice(0, 2), `${hash}${OBJECT_EXTENSIONS[kind]}`);
   }
 
   /** Flush all newly created object entries before a manifest can reference them. */
@@ -747,13 +794,9 @@ export class StoryObjectStore {
                   async (entry) => {
                     requireSweepActive(signal);
                     const temporary = OBJECT_TEMP_PATTERN.exec(entry.name);
-                    const hash = entry.name.endsWith(
-                      kind === "chunks" ? ".txt" : ".json"
-                    )
-                      ? entry.name.slice(
-                          0,
-                          -(kind === "chunks" ? ".txt" : ".json").length
-                        )
+                    const extension = OBJECT_EXTENSIONS[kind];
+                    const hash = entry.name.endsWith(extension)
+                      ? entry.name.slice(0, -extension.length)
                       : null;
                     const removableTemporary =
                       temporary !== null

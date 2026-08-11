@@ -1,4 +1,4 @@
-import type { ConnectionTimeoutsV2, ModelCapabilitiesV2 } from "./settings-v2-types.js";
+import type { ConnectionTimeoutsV2, ModelCapabilitiesV2, ModelCapabilitiesV3 } from "./settings-v2-types.js";
 import type { Provider } from "./types.js";
 
 /** Canonical provider defaults. This shared policy leaf has no server or UI dependencies. */
@@ -48,6 +48,18 @@ export function defaultModelCapabilities(provider: Provider): ModelCapabilitiesV
   if (provider === "dry-run") return DRY_RUN_MODEL_CAPABILITIES;
   if (provider === "text-completion") return TEXT_COMPLETION_MODEL_CAPABILITIES;
   return NETWORK_MODEL_CAPABILITIES;
+}
+
+/** Schema 3's default capability record for a fresh or identity-changed
+ *  model. `dry-run` never calls a provider, so it stays `"unsupported"`
+ *  after a model change, same as every other capability; every other
+ *  provider starts `"unknown"` until exact built-in model knowledge or an
+ *  explicit override resolves it (`shared/image-input-capabilities.ts`). */
+export function defaultModelCapabilitiesV3(provider: Provider): ModelCapabilitiesV3 {
+  return {
+    ...defaultModelCapabilities(provider),
+    imageInput: provider === "dry-run" ? "unsupported" : "unknown"
+  };
 }
 
 /** A protocol or preset label does not make an arbitrary gateway an official

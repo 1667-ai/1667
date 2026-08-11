@@ -23,6 +23,14 @@ read_when:
 | Vault Key | The random key that seals the files of one vault |
 | Vault Password | The secret text that opens the Vault Key |
 | Keyslot | The plaintext `vault.json` control file that contains the sealed Vault Key |
+| Image Input | An image that 1667 sends to a text-generation model |
+| Source Image | The image bytes that the writer gives to 1667 |
+| Normalized Image | The bounded image that 1667 makes from a Source Image |
+| Image Object | One content-addressed Normalized Image in a story bundle |
+| Image Attachment | One ordered reference from a take to an Image Object |
+| Draft Image | One Image Attachment that no take refers to yet |
+| Draft Lease | The bounded record that keeps one Draft Image live |
+| stage | To make a Normalized Image and create a Draft Lease |
 | control file | A project file that must stay plaintext so that 1667 can open a vault |
 | unseal progress directory | The plaintext `.1667-vault-unseal-progress/` directory that records an interrupted unseal operation |
 | reserved file | A control file that 1667 writes one time and does not change |

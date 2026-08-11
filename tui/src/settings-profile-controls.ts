@@ -49,6 +49,11 @@ import {
   reasoningRowValue
 } from "./settings-reasoning-row.js";
 import {
+  imageInputRowHint,
+  imageInputRowState,
+  imageInputRowValue
+} from "./settings-image-input-row.js";
+import {
   cycleSettingsProfile as cycleProfile,
   cycleSettingsRoute as cycleRoute,
   profileRouteState,
@@ -183,6 +188,11 @@ export function settingsRows(
       id: "model", section: "model", label: "model",
       value: modelRowValue(overlay),
       hint: modelRowHint(overlay)
+    },
+    {
+      id: "image-input", section: "model", label: "images",
+      value: imageInputRowValue(imageInputRowState(overlay)),
+      hint: imageInputRowHint(imageInputRowState(overlay))
     },
     scalarRow("temperature", "temperature", overlay, "how far it strays"),
     scalarRow("max-tokens", "max tokens", overlay, "longest reply"),

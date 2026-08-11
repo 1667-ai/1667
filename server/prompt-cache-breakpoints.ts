@@ -120,10 +120,21 @@ export function promptCacheBoundaries(prompt: PromptPlan): readonly PromptCacheB
     if (turn.blocks.length === 0) throw new Error("Prompt turns cannot be empty");
     updateFramed(hash, turn.role);
     turn.blocks.forEach((block, blockIndex) => {
-      if (block.text.length === 0) throw new Error("Prompt blocks cannot be empty");
-      if (block.stability === "volatile") volatile = true;
-      else if (volatile) throw new Error("Stable prompt content cannot follow volatile content");
-      updateFramed(hash, block.text);
+      // An image block has no text to fold in or check for emptiness. Its
+      // object id stands in: it is the content-addressed hash of the exact
+      // bytes the block carries, so a changed image changes this boundary
+      // the same way changed text would. Text-only turns are untouched
+      // below, so a text-only boundary hash never moves.
+      if (block.kind === "image") {
+        if (block.stability === "volatile") volatile = true;
+        else if (volatile) throw new Error("Stable prompt content cannot follow volatile content");
+        updateFramed(hash, block.image.objectId);
+      } else {
+        if (block.text.length === 0) throw new Error("Prompt blocks cannot be empty");
+        if (block.stability === "volatile") volatile = true;
+        else if (volatile) throw new Error("Stable prompt content cannot follow volatile content");
+        updateFramed(hash, block.text);
+      }
       if (block.stability === "stable" && block.boundaryAfter === "candidate") {
         boundaries.push({
           hash: hash.copy().digest("hex"),
@@ -144,7 +155,15 @@ function exactPrefixTokenCount(
   for (let turnIndex = 0; turnIndex <= boundary.turn; turnIndex += 1) {
     const turn = prompt.turns[turnIndex]!;
     const lastBlock = turnIndex === boundary.turn ? boundary.block : turn.blocks.length - 1;
-    contents.push(turn.blocks.slice(0, lastBlock + 1).map((block) => block.text).join(""));
+    // An image block contributes no text here, so its visual tokens are
+    // omitted rather than estimated. That undercounts a prefix that carries
+    // an image, which keeps this minimum-tokens gate conservative instead of
+    // ever overestimating what a breakpoint would actually save.
+    contents.push(
+      turn.blocks.slice(0, lastBlock + 1)
+        .flatMap((block) => block.kind === "image" ? [] : [block.text])
+        .join("")
+    );
   }
   return countTokens(contents);
 }

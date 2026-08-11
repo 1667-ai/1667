@@ -37,6 +37,8 @@ import {
 } from "./worker-mutations.js";
 import { WorkerRequestCancellation } from "./worker-request-cancellation.js";
 import { WorkerRequestFailureResponder } from "./worker-request-failure-responder.js";
+import { requireImageInputEntryPointsOpen, withImageStagePermit } from "./image-stage-permit.js";
+import { isSourceImageMediaType, type SourceImageMediaType } from "../shared/image-attachment.js";
 
 type WorkerRequest = Extract<MainToWorkerMessage, { type: "request" }>;
 type WorkerTerminalMessage = Extract<
@@ -397,6 +399,21 @@ async function invokeReadOnly(
       );
     case "countPromptTokens":
       return await service.countPromptTokens(input.messages, signal);
+    case "stageStoryImage": {
+      requireImageInputEntryPointsOpen();
+      const { storyId, mediaType, bytes } = parseStageStoryImageInput(input);
+      return await withImageStagePermit(signal, async () =>
+        await service.stageStoryImage(storyId, mediaType, bytes));
+    }
+    case "releaseStoryImage": {
+      requireImageInputEntryPointsOpen();
+      const storyId = requireString(input.storyId, "storyId");
+      const leaseId = requireString(input.leaseId, "leaseId");
+      return await withImageStagePermit(signal, async () => {
+        await service.releaseStoryImage(storyId, leaseId);
+        return { ok: true };
+      });
+    }
     default:
       throw new ServiceError(
         400,
@@ -465,4 +482,29 @@ function requireProviderRecoveryContext(value: unknown) {
     throw new ServiceError(400, "providerRecovery is invalid");
   }
   return value;
+}
+
+/** Validate a `stageStoryImage` worker request's fields before any permit is
+ *  acquired: `storyId`, a supported Source Image media type, and bytes that
+ *  survived structured clone as an actual `Uint8Array`. Anything else is a
+ *  protocol violation, and rebuilding bytes from an index object would hide
+ *  the sender's bug (mirrors the `archiveBytes` check in
+ *  server/worker-mutations.ts). */
+function parseStageStoryImageInput(
+  input: Readonly<Record<string, unknown>>
+): { storyId: string; mediaType: SourceImageMediaType; bytes: Uint8Array } {
+  const storyId = requireString(input.storyId, "storyId");
+  const mediaType = input.mediaType;
+  if (!isSourceImageMediaType(mediaType)) {
+    throw new ServiceError(
+      415,
+      "mediaType must be image/png, image/jpeg, or image/webp",
+      "image_type_not_supported"
+    );
+  }
+  const bytes = input.bytes;
+  if (!(bytes instanceof Uint8Array)) {
+    throw new ServiceError(400, "bytes must be a Uint8Array", "image_invalid");
+  }
+  return { storyId, mediaType, bytes };
 }

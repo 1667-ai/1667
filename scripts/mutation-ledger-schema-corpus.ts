@@ -22,6 +22,7 @@ const ZERO = "00000000000000000000";
 
 export function mutationLedgerCorpus(): MutationLedgerCorpusCase[] {
   const started = startedRecord();
+  const startedWithImages = { ...started, imageObjectIds: [HASH_B, HASH_C] };
   const storyPrepared = preparedStory();
   const providerPrepared = {
     ...storyPrepared,
@@ -51,6 +52,7 @@ export function mutationLedgerCorpus(): MutationLedgerCorpusCase[] {
 
   return [
     valid("started-provider-story", started),
+    valid("started-provider-story-with-images", startedWithImages),
     valid("prepared-story-local", storyPrepared),
     valid("prepared-story-provider-terminal", providerPrepared),
     valid("prepared-receipt-only-error", receiptOnly),
@@ -69,6 +71,13 @@ export function mutationLedgerCorpus(): MutationLedgerCorpusCase[] {
     invalid("unknown-root-key", { ...started, surprise: true }, false),
     invalid("started-settings-aggregate", { ...started, aggregateKey: "settings" }, false),
     invalid("started-local-method", { ...started, method: "renameStory" }, false),
+    invalid("started-empty-image-object-ids", { ...started, imageObjectIds: [] }, false),
+    invalid(
+      "started-too-many-image-object-ids",
+      { ...started, imageObjectIds: [HASH_A, HASH_B, HASH_C, HASH_A, HASH_B] },
+      false
+    ),
+    invalid("started-malformed-image-object-id", { ...started, imageObjectIds: ["not-a-hash"] }, false),
     invalid("prepared-story-id-mismatch", {
       ...storyPrepared,
       result: { ...storyPrepared.result, storyId: "other-story" }

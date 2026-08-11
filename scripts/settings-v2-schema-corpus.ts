@@ -18,6 +18,7 @@ import {
 import {
   reduceSettingsStateV2
 } from "../server/settings-v2-reducer.js";
+import { settingsV2CorpusV3 } from "./settings-v2-schema-corpus-v3.js";
 import type { GenerationSettings } from "../shared/types.js";
 import {
   EMPTY_SAMPLING_V2,
@@ -302,7 +303,8 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     invalid("state-started-pointer", "state", {
       ...staged,
       lastTransaction: { ...POINTER, phase: "started" }
-    }, false)
+    }, false),
+    ...settingsV2CorpusV3()
   ];
 }
 

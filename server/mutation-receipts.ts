@@ -423,9 +423,32 @@ export function mutationFingerprint(
   const canonical = canonicalJson({
     protocolVersion,
     method,
-    input: digestByteArrays(input)
+    input: digestByteArrays(fingerprintableWorkerInput(method, input))
   });
   return createHash("sha256").update(canonical).digest("hex");
+}
+
+/** Strip Draft Lease ids from a `continueStory` input before it is
+ * fingerprinted, keeping only the provider-semantic Image Object id each
+ * entry names. `mutationFingerprint` canonicalizes the WHOLE worker input, so
+ * without this two different leases naming the SAME Image Object would
+ * fingerprint differently and break replay. One retry could never recognize
+ * another as the same mutation merely because the writer restaged the same
+ * image. A no-op for every other method and for an input with no `images`
+ * field, so this changes nothing about any request that carries no image. */
+function fingerprintableWorkerInput(method: WorkerMethod, input: unknown): unknown {
+  if (method !== "continueStory") return input;
+  if (input === null || typeof input !== "object" || Array.isArray(input)) return input;
+  const record = input as Record<string, unknown>;
+  if (!Array.isArray(record.images)) return input;
+  return {
+    ...record,
+    images: record.images.map((entry) =>
+      entry !== null && typeof entry === "object" && !Array.isArray(entry)
+        ? { objectId: (entry as Record<string, unknown>).objectId }
+        : entry
+    )
+  };
 }
 
 /** Replace byte arrays with a digest of their contents.

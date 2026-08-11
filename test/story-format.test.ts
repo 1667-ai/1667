@@ -124,7 +124,11 @@ test("story objects: foreground cancellation leaves cleanup safe to retry", asyn
   const abort = new AbortController();
   abort.abort();
 
-  const live1 = { revisions: [live], leaves: { probabilities: [], reasoning: [] }, generationRecords: [] };
+  const live1 = {
+    revisions: [live],
+    leaves: { probabilities: [], reasoning: [], images: [] },
+    generationRecords: []
+  };
   assert.equal(await objects.sweep(live1, abort.signal), false);
   await readFile(objects.objectPath("revisions", stale));
   assert.equal(await objects.sweep(live1), true);
@@ -705,4 +709,38 @@ test("story format: author brief round-trips, omits empty values, and enforces s
     () => buildStoryPayload({ ...base, authorBrief: "😀".repeat(65_537) }),
     /65,536 Unicode scalar values/
   );
+});
+
+test("story format: a story with Image Attachments stays version 5 with activation off, and gains them with activation on", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-image-activation-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const attachment = {
+    objectId: "c".repeat(64),
+    mediaType: "image/png" as const,
+    width: 800,
+    height: 600,
+    byteLength: 123_456
+  };
+  const story: Story = {
+    id: "story-images", title: "Tree", createdAt: NOW, updatedAt: NOW,
+    nodes: [{ ...node("root", null, "Opening"), imageAttachments: [attachment] }],
+    activeRootId: "root", tags: [], recentNodeIds: [], facts: [], chapterBreaks: []
+  };
+  const objects = new StoryObjectStore(dir);
+
+  // Off (the release default): the successor field never reaches disk, and
+  // the manifest stays exactly the current version.
+  const inactive = await encodeStoryBundle(story, objects);
+  assert.equal(inactive.schemaVersion, 5);
+  assert.equal("imageAttachments" in inactive.nodes[0]!, false);
+  assert.equal((await decodeStoryBundle(inactive, dir)).story.nodes[0]!.imageAttachments, undefined);
+
+  // On (test-only): the same in-memory story now writes the successor
+  // version, with the attachment carried on the stored node and read back
+  // unchanged.
+  const active = await encodeStoryBundle(story, objects, undefined, undefined, { activation: true });
+  assert.equal(active.schemaVersion, 7);
+  assert.deepEqual(active.nodes[0]!.imageAttachments, [attachment]);
+  const decoded = await decodeStoryBundle(active, dir);
+  assert.deepEqual(decoded.story.nodes[0]!.imageAttachments, [attachment]);
 });

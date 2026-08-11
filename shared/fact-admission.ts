@@ -29,7 +29,12 @@ function upperBoundTokens(text: string): number {
 function fixedContextTokens(
   factsMessage: string | null,
   authorsNote: string | null,
-  otherFixed: readonly string[]
+  otherFixed: readonly string[],
+  /** Visual tokens for the active prompt's images, from the capability
+   *  resolver's per-model strategy (shared/image-input-capabilities.ts). Zero
+   *  when the caller has no images or has not computed a strategy, which
+   *  leaves every existing token count unchanged. */
+  fixedImageTokens = 0
 ): number {
   const notePresent = authorsNote !== null && authorsNote.trim().length > 0;
   const fixedTexts = [
@@ -38,7 +43,7 @@ function fixedContextTokens(
     ...otherFixed
   ];
   const framing = (fixedTexts.length + 2) * 4;
-  return fixedTexts.reduce((sum, text) => sum + upperBoundTokens(text), framing);
+  return fixedTexts.reduce((sum, text) => sum + upperBoundTokens(text), framing) + fixedImageTokens;
 }
 
 export interface FixedContextAdmission {
@@ -105,7 +110,10 @@ export function selectFactsForFixedContext(
   settings: FixedContextSettings,
   candidateFacts: readonly StoryFact[],
   authorsNote: string | null,
-  otherFixed: readonly string[]
+  otherFixed: readonly string[],
+  /** See `fixedContextTokens`. Defaults to 0, so a caller that never passes
+   *  images gets the exact same selection as before image support existed. */
+  fixedImageTokens = 0
 ): FixedContextSelection {
   const notePresent = authorsNote !== null && authorsNote.trim().length > 0;
   // A Fact over its own declared cap is dropped outright, independent of
@@ -122,12 +130,12 @@ export function selectFactsForFixedContext(
   if (settings.contextWindow === null || (initialMessage === null && !notePresent)) {
     return {
       facts: ownCapSurvivors, factsMessage: initialMessage, dropped: ownCapDrops,
-      fits: true, fixedTokens: fixedContextTokens(initialMessage, authorsNote, otherFixed),
+      fits: true, fixedTokens: fixedContextTokens(initialMessage, authorsNote, otherFixed, fixedImageTokens),
       usableTokens: null, droppableCount, overBudgetCause: null
     };
   }
   const usable = settings.contextWindow - settings.maxTokens;
-  const initialFixed = fixedContextTokens(initialMessage, authorsNote, otherFixed);
+  const initialFixed = fixedContextTokens(initialMessage, authorsNote, otherFixed, fixedImageTokens);
   if (initialFixed <= usable) {
     return {
       facts: ownCapSurvivors, factsMessage: initialMessage, dropped: ownCapDrops,
@@ -143,7 +151,7 @@ export function selectFactsForFixedContext(
   // never drift from what the request actually sends, because it never
   // estimates that cost — it always measures it.
   const fits = (facts: readonly StoryFact[]): boolean =>
-    fixedContextTokens(formatFactsMessage(facts), authorsNote, otherFixed) <= usable;
+    fixedContextTokens(formatFactsMessage(facts), authorsNote, otherFixed, fixedImageTokens) <= usable;
   const keptAfterShedding = (shedCount: number): readonly StoryFact[] => {
     const shedIds = new Set(sheddable.slice(0, shedCount).map((fact) => fact.id));
     return ownCapSurvivors.filter((candidate) => !shedIds.has(candidate.id));
@@ -168,7 +176,7 @@ export function selectFactsForFixedContext(
     .slice(0, shedCount)
     .map((fact) => ({ factId: fact.id, reason: "priority" }));
   const factsMessage = formatFactsMessage(kept);
-  const fixed = fixedContextTokens(factsMessage, authorsNote, otherFixed);
+  const fixed = fixedContextTokens(factsMessage, authorsNote, otherFixed, fixedImageTokens);
   // Shedding can land exactly on a fit, not just short of one — reaching
   // this branch does not by itself mean "still over budget". Gate on the
   // real outcome, so `overBudgetCause` stays null whenever the returned
@@ -209,15 +217,19 @@ export function admitFactsWith<P extends { prompt: PromptPlan }>(
   select: (
     candidateFacts: readonly StoryFact[],
     authorsNote: string | null,
-    otherFixed: readonly string[]
+    otherFixed: readonly string[],
+    fixedImageTokens: number
   ) => FixedContextAdmission,
   candidateFacts: readonly StoryFact[],
   authorsNote: string | null,
-  build: (factsMessage: string | null) => P
+  build: (factsMessage: string | null) => P,
+  /** See `fixedContextTokens`. Defaults to 0, unchanged from before image
+   *  support existed. */
+  fixedImageTokens = 0
 ): { plan: P; admission: FixedContextAdmission } {
   const initialFactsMessage = formatFactsMessage(candidateFacts);
   const initial = build(initialFactsMessage);
-  const admission = select(candidateFacts, authorsNote, fixedPromptTexts(initial.prompt));
+  const admission = select(candidateFacts, authorsNote, fixedPromptTexts(initial.prompt), fixedImageTokens);
   const plan = sameFactSequence(admission.facts, candidateFacts) ? initial : build(admission.factsMessage);
   return { plan, admission };
 }
@@ -241,12 +253,16 @@ export function previewFixedContextAdmission<P extends { prompt: PromptPlan }>(
   settings: FixedContextSettings,
   candidateFacts: readonly StoryFact[],
   authorsNote: string | null,
-  build: (factsMessage: string | null) => P
+  build: (factsMessage: string | null) => P,
+  /** See `fixedContextTokens`. Defaults to 0, unchanged from before image
+   *  support existed. */
+  fixedImageTokens = 0
 ): { plan: P; admission: FixedContextAdmission } {
   return admitFactsWith(
-    (facts, note, otherFixed) => selectFactsForFixedContext(settings, facts, note, otherFixed),
+    (facts, note, otherFixed, images) => selectFactsForFixedContext(settings, facts, note, otherFixed, images),
     candidateFacts,
     authorsNote,
-    build
+    build,
+    fixedImageTokens
   );
 }

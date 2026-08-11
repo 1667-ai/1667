@@ -119,11 +119,12 @@ describe("chapter view models", () => {
     const hits: HitRows = Array.from({ length: 24 }, () => null);
     const estimate = {
       tokens: 0,
-      breakdown: { voice: 0, facts: 0, recent: 0, summary: 0, note: 0 },
+      breakdown: { voice: 0, facts: 0, recent: 0, summary: 0, note: 0, visual: 0 },
       chapters: [],
       factStatuses: new Map(),
       activation: { facts: [], traces: new Map(), unevaluated: [] },
-      droppedFacts: []
+      droppedFacts: [],
+      imageTokens: new Map()
     };
 
     const frame = frameText(renderPanels(base, state, hits, 120, 24, estimate).lines);

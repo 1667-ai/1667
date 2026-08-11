@@ -1,10 +1,18 @@
 import type { GenerationSettings } from "../shared/types.js";
 import {
+  activeImageAttachments,
   renderPromptPlan,
   type ChatMessage,
   type PromptOperation,
-  type PromptPlan
+  type PromptPlan,
+  type StablePromptBlock,
+  type VolatilePromptBlock
 } from "../shared/prompt-plan.js";
+import {
+  assertImageBearingBodyFits,
+  assertImageContextAdmitted
+} from "./generation-admission.js";
+import type { ImageInputCapabilityResolution } from "../shared/image-input-capabilities.js";
 import { ProviderError } from "./errors.js";
 import {
   isProviderObject as isObject,
@@ -89,6 +97,27 @@ export interface StreamCompletionOptions {
   readonly generationRecord?: GenerationRecordCollector;
   readonly onReasoning?: ReasoningConsumer;
   readonly providerSecrets?: ProviderSecretsCollector;
+  /** Normalized Image bytes, by object id, for every image block the prompt
+   *  carries. Required when the prompt has an image; omitted by every caller
+   *  that never attaches one. See server/provider-request-body.ts's
+   *  `imageBytes` parameter.
+   *
+   *  `server/generation-http.ts`'s `continueStory` loads each active image's
+   *  Normalized Image bytes from the story object store, only after
+   *  `assertImageContextAdmitted` and the fixed-context admission both pass,
+   *  and supplies them here. It never reads the object store before
+   *  admission, so a request that will be refused never pays for that read. */
+  readonly imageBytes?: ReadonlyMap<string, Uint8Array>;
+  /** The resolved Image Input capability for this exact model and protocol
+   *  (shared/image-input-capabilities.ts's `resolveImageInputCapability`).
+   *  Omitted, this fails closed: a prompt that carries an image without one
+   *  is refused rather than silently sent.
+   *
+   *  `server/generation-http.ts`'s `continueStory` calls
+   *  `resolveImageInputCapability` with the request's protocol, remote model
+   *  id, and the model's stored `imageInput` override (schema 3 settings),
+   *  and passes the result here. */
+  readonly imageCapability?: ImageInputCapabilityResolution;
 }
 
 /** Filled once a stream resolves the provider's own credentials — the exact
@@ -130,13 +159,20 @@ async function* streamOpenAiCompatible(
   signal: AbortSignal,
   options: StreamCompletionOptions
 ): AsyncGenerator<string> {
-  const { outcome, providerStarted, promptCache, storySampling, tokenProbabilities, onReasoning, providerSecrets } = options;
+  const {
+    outcome, providerStarted, promptCache, storySampling, tokenProbabilities,
+    onReasoning, providerSecrets, imageBytes, imageCapability
+  } = options;
+  assertImageContextAdmitted(prompt, imageCapability);
   const { headers, secrets } = resolveProviderHeaders(settings, {
     "content-type": "application/json"
   });
   if (providerSecrets !== undefined) providerSecrets.secrets = secrets;
   const prepared = preparePromptCache(promptCache, prompt);
-  const body = await buildOpenAiChatRequestBody(settings, prompt, prepared.wire, { signal, storySampling });
+  const body = await buildOpenAiChatRequestBody(
+    settings, prompt, prepared.wire, { signal, storySampling }, imageBytes
+  );
+  assertImageBearingBodyFits(body, activeImageAttachments(prompt).length > 0);
   const runtime = providerRuntimeFor(settings);
   const explicitEffort = runtime.effort !== "default";
   const generationRecord = createGenerationRecordCapture(
@@ -316,14 +352,21 @@ async function* streamAnthropic(
   signal: AbortSignal,
   options: StreamCompletionOptions
 ): AsyncGenerator<string> {
-  const { outcome, providerStarted, promptCache, storySampling, onReasoning, providerSecrets } = options;
+  const {
+    outcome, providerStarted, promptCache, storySampling, onReasoning,
+    providerSecrets, imageBytes, imageCapability
+  } = options;
+  assertImageContextAdmitted(prompt, imageCapability);
   const { headers, secrets } = resolveProviderHeaders(settings, {
     "content-type": "application/json",
     "anthropic-version": "2023-06-01"
   });
   if (providerSecrets !== undefined) providerSecrets.secrets = secrets;
   const prepared = preparePromptCache(promptCache, prompt);
-  const body = await buildAnthropicMessagesRequestBody(settings, prompt, prepared.wire, { signal, storySampling });
+  const body = await buildAnthropicMessagesRequestBody(
+    settings, prompt, prepared.wire, { signal, storySampling }, imageBytes
+  );
+  assertImageBearingBodyFits(body, activeImageAttachments(prompt).length > 0);
   const generationRecord = createGenerationRecordCapture(
     options.generationRecord,
     "anthropic-messages",
@@ -572,6 +615,10 @@ async function* streamDryRun(
   options: StreamCompletionOptions
 ): AsyncGenerator<string> {
   const { outcome, storySampling, tokenProbabilities, onReasoning } = options;
+  // Dry-run never dispatches to a provider, and the dry-run protocol never
+  // authorizes images (shared/image-input-capabilities.ts), so any image on
+  // this prompt is refused here rather than silently dropped.
+  assertImageContextAdmitted(prompt);
   requireLogitBiasFamilyAvailable(settings, "dry-run", storySampling);
   if (options.generationRecord !== undefined) options.generationRecord.effective = dryRunEffectiveParameters();
   // Fabricated reasoning, obviously synthetic and short, so the reasoning
@@ -628,8 +675,17 @@ async function* streamDryRun(
  * reasoning path, never to look like a real thought. */
 const DRY_RUN_REASONING_TEXT = "(dry-run) weighing two openings before picking one.";
 
+// Rewrite and summary operations never carry an image block (Image Input
+// stays out of scope for both). An image block has no `.text`, so narrow it
+// away once, right where the blocks are gathered, every remaining member of
+// the union has `.text`, so no further narrowing is needed downstream.
+function textBlocksOf(prompt: PromptPlan): readonly (StablePromptBlock | VolatilePromptBlock)[] {
+  return prompt.turns.flatMap((turn) => turn.blocks)
+    .filter((block): block is StablePromptBlock | VolatilePromptBlock => block.kind !== "image");
+}
+
 function dryRunSummary(prompt: PromptPlan): string {
-  const blocks = prompt.turns.flatMap((turn) => turn.blocks);
+  const blocks = textBlocksOf(prompt);
   const source = blocks.find((block) => block.kind === "source")?.text ?? "";
   const completionMarker = blocks.find((block) => block.kind === "completion-marker")
     ?.text.match(/\[\[summary-complete-[a-f0-9]+\]\]/)?.[0]
@@ -655,7 +711,7 @@ function dryRunSummary(prompt: PromptPlan): string {
  *  get a word back, not a fixed sentence spliced into the prose. */
 function dryRunRewrite(prompt: PromptPlan): string {
   const standIn = "placeholder prose from dry-run mode — connect a real model in Settings for real rewrites".split(" ");
-  const blocks = prompt.turns.flatMap((turn) => turn.blocks);
+  const blocks = textBlocksOf(prompt);
   const selectionText = blocks.find((block) => block.kind === "selection")?.text ?? "";
   const boundaryText = blocks.filter((block) => block.kind === "boundary").map((block) => block.text).join("\n");
   // Phrase rewrites carry no end marker; their tag is on the excerpt block.

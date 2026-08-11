@@ -58,6 +58,7 @@ export function buildStoryPayload(
           ? {}
           : { generationRecordCount: node.generationRecordIds.length }),
         ...(node.reasoning === undefined ? {} : { reasoning: node.reasoning }),
+        ...(node.imageAttachments === undefined ? {} : { images: true as const }),
         ...(humanEditIsMeaningful(node.attribution) ? { editedByUser: true as const } : {}),
         hasInstruction: node.instruction.trim().length > 0,
         activeChildId: node.activeChildId
@@ -92,6 +93,9 @@ export function buildStoryPayload(
         }),
         ...(node.rewrittenSpans === undefined ? {} : {
           rewrittenSpans: node.rewrittenSpans.map((range) => ({ ...range }))
+        }),
+        ...(node.imageAttachments === undefined ? {} : {
+          imageAttachments: node.imageAttachments.map((attachment) => ({ ...attachment }))
         })
       };
     }),

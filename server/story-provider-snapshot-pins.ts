@@ -22,6 +22,7 @@ export function emptyProviderSnapshotPins(): ProviderSnapshotPins {
     revisions: new Map(),
     probabilities: new Map(),
     reasoning: new Map(),
+    images: new Map(),
     "generation-records": new Map()
   };
 }
@@ -57,14 +58,23 @@ export function releaseLivePins(pins: ProviderSnapshotPins, live: LiveStoryObjec
   for (const kind of LEAF_OBJECT_KINDS) releasePins(pins[kind], live.leaves[kind]);
 }
 
-/** The union a sweep must protect: everything live, plus everything a
- * provider snapshot still has pinned (`runCleanup` in server/stories.ts).
- * Generation Records are never pinned (see `dedupeLiveObjectIds`), so
- * `live`'s own list passes through unchanged. */
-export function unionLiveWithPins(live: LiveStoryObjectIds, pinned: ProviderSnapshotPins): LiveStoryObjectIds {
+/** The union a sweep must protect: everything live, everything a provider
+ * snapshot still has pinned (`runCleanup` in server/stories.ts), and every
+ * Image Object a live Draft Lease references but no manifest node names yet
+ * (`runCleanup` passes that story's lease-sourced ids as `liveImageIds`).
+ * This is the one place "an object is live when the manifest names it or a
+ * lease does" is decided; `StoryObjectStore.sweep` itself is kind-generic
+ * and knows nothing about leases. Generation Records are never pinned (see
+ * `dedupeLiveObjectIds`), so `live`'s own list passes through unchanged. */
+export function unionLiveWithPins(
+  live: LiveStoryObjectIds,
+  pinned: ProviderSnapshotPins,
+  liveImageIds: readonly ObjectHash[] = []
+): LiveStoryObjectIds {
   const leaves = {} as Record<LeafObjectKind, readonly ObjectHash[]>;
   for (const kind of LEAF_OBJECT_KINDS) {
-    leaves[kind] = [...new Set([...live.leaves[kind], ...pinned[kind].keys()])];
+    const leaseIds = kind === "images" ? liveImageIds : [];
+    leaves[kind] = [...new Set([...live.leaves[kind], ...pinned[kind].keys(), ...leaseIds])];
   }
   return {
     revisions: [...new Set([...live.revisions, ...pinned.revisions.keys()])],

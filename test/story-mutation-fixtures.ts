@@ -77,12 +77,19 @@ export const FINGERPRINT = "a".repeat(64);
 export const OTHER_FINGERPRINT = "b".repeat(64);
 export const FIXED_NOW = new Date("2026-01-01T00:00:00.000Z");
 
+export interface SetupOptions {
+  /** Forwarded to `StoryMutationStoreOptions.imageInputActivation`. Absent
+   *  matches production: the successor story write path stays off. */
+  readonly imageInputActivation?: boolean;
+}
+
 export async function setup(
   t: Pick<import("node:test").TestContext, "after">,
   prefix: string,
   hooks: StoryMutationStoreHooks = {},
   createStories: (storiesDir: string) => StoryStore =
-    (storiesDir) => new StoryStore(storiesDir)
+    (storiesDir) => new StoryStore(storiesDir),
+  options: SetupOptions = {}
 ) {
   const dataDir = await mkdtemp(path.join(tmpdir(), prefix));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
@@ -98,7 +105,7 @@ export async function setup(
     stories,
     coordinator,
     dataDir,
-    { ledger, hooks, now: () => FIXED_NOW }
+    { ledger, hooks, now: () => FIXED_NOW, imageInputActivation: options.imageInputActivation }
   );
   await mutations.init();
   return {

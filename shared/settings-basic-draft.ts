@@ -1,4 +1,5 @@
 import type {
+  ModelCapabilitiesV3,
   ModelDiscoveryResultV2,
   ModelConnectionV2,
   ModelScalarMetadataV2,
@@ -11,6 +12,7 @@ import type { GenerationSettings, Provider } from "./types.js";
 import {
   defaultConnectionTimeouts,
   defaultModelCapabilities,
+  defaultModelCapabilitiesV3,
   isOfficialAnthropicBaseUrl
 } from "./settings-provider-defaults.js";
 import { classifyHttpHost } from "./http-host-class.js";
@@ -196,6 +198,17 @@ export function applyBasicModelDiscovery(
       }
     }
   };
+}
+
+/** Schema 3's whole-record capability reset for a changed model identity:
+ *  the successor-schema counterpart to the `capabilities:
+ *  defaultModelCapabilities(normalizedDraft.provider)` replacement above.
+ *  `applyBasicSettingsDocumentDraft` above stays on schema 2 (release N
+ *  keeps writing schema 2), so nothing calls this yet; it exists so the
+ *  reset rule for schema 3 is correct and tested before a later slice wires
+ *  a schema-3 draft path through here. */
+export function defaultModelCapabilitiesForModelChangeV3(provider: Provider): ModelCapabilitiesV3 {
+  return defaultModelCapabilitiesV3(provider);
 }
 
 export function settingsDocumentSupportsBasicEditor(document: SettingsDocumentV2): boolean {

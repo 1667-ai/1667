@@ -103,10 +103,19 @@ machine tier.
 ## Story objects
 
 1667 stores story prose in the project tier as text revisions and chunks. A
-story can also hold a third kind of stored object. It holds the alternative
-tokens the model weighed for one take, when that take requested them. Each
-time 1667 saves the project, it removes a stored object that no take refers
-to.
+story can also hold these other kinds of stored object:
+
+- The alternative tokens the model weighed for one take, when that take
+  requested them.
+- The thought a model wrote before its prose, when the take keeps one.
+- A Normalized Image that the writer attached to one take.
+
+1667 names each stored object with the SHA-256 of its exact bytes. Each time
+1667 saves the project, it removes a stored object that no take refers to.
+
+1667 also keeps one Draft Lease for each attached image that no take refers to
+yet. A Draft Lease protects its image from removal. The lease expires after 24
+hours. 1667 then removes the lease first and the image afterwards.
 
 A story can also hold a Generation Record: the durable record of one model
 request that created or changed a take. 1667 loads a Generation Record only

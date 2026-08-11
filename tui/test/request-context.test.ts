@@ -233,7 +233,7 @@ describe("stream-aware next-request projection", () => {
       expect(estimate.messages).toEqual(rendered);
       expect(estimate.messages).toHaveLength(estimate.plan.entries.length);
 
-      const breakdown = { voice: 0, facts: 0, recent: 0, summary: 0, note: 0 };
+      const breakdown = { voice: 0, facts: 0, recent: 0, summary: 0, note: 0, visual: 0 };
       let total = 0;
       for (let index = 0; index < estimate.plan.entries.length; index += 1) {
         const entry = estimate.plan.entries[index]!;
@@ -241,7 +241,10 @@ describe("stream-aware next-request projection", () => {
         expect(message).toEqual(rendered[index]);
         expect(message).toEqual({
           role: entry.turn.role,
-          content: entry.turn.blocks.map((block) => block.text).join("")
+          content: entry.turn.blocks
+            .filter((block): block is Exclude<typeof block, { kind: "image" }> => block.kind !== "image")
+            .map((block) => block.text)
+            .join("")
         });
         const tokens = estimateTokens(message.content) + 4;
         expect(estimate.messageTokenCounts[index]).toBe(tokens);

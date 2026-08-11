@@ -652,6 +652,8 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     getGenerationRecords: async () => [],
     getGenerationRecord: async () => unavailable("Generation records"),
     getReasoning: async () => unavailable("A thought"),
+    stageStoryImage: async () => unavailable("Image staging"),
+    releaseStoryImage: async () => unavailable("Image release"),
     switchLine: async (_storyId, nodeId, options = {}) => demo.switchTo(nodeId, options),
     createNode: async (_storyId, body) => {
       if (body.appendTo !== undefined) {

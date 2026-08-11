@@ -3,7 +3,13 @@ import {
   type GenerationRecordSourcePart,
   type GenerationRecordTextEntry
 } from "../shared/generation-record.js";
-import { foldAuthorsNoteAcross, type PromptBlock, type PromptPlan, type PromptRole } from "../shared/prompt-plan.js";
+import {
+  foldAuthorsNoteAcross,
+  type PromptBlock,
+  type PromptPlan,
+  type PromptRole,
+  type PromptTurn
+} from "../shared/prompt-plan.js";
 import type { ContinuationPromptEntry } from "../shared/continuation-plan.js";
 import type { Story, StoryNode } from "../shared/types.js";
 import { reusableStoredRevisionId } from "./story-node-text.js";
@@ -60,7 +66,7 @@ export function continuationRecordEntries(
     const planEntry = entries[index]!;
     if (planEntry.partId === undefined) {
       flushRun();
-      built.push(textEntry(planEntry.turn.role, planEntry.turn.blocks[0]!));
+      built.push(textEntry(planEntry.turn.role, firstTextBlock(planEntry.turn)));
       continue;
     }
     // Every context part is a user instruction turn immediately followed by
@@ -117,17 +123,41 @@ function sourcePart(
   return {
     nodeId: node.id,
     category: instructionEntry.category,
-    instruction: instructionEntry.turn.blocks[0]!.text,
+    instruction: firstTextBlock(instructionEntry.turn).text,
     revisionId,
     textLength: node.text.length
   };
 }
 
 export function promptEntriesInline(plan: PromptPlan): GenerationRecordPromptEntry[] {
-  return plan.turns.flatMap((turn) => turn.blocks.map((block) => textEntry(turn.role, block)));
+  return plan.turns.flatMap((turn) =>
+    turn.blocks.filter(isTextBlock).map((block) => textEntry(turn.role, block))
+  );
 }
 
-function textEntry(role: PromptRole, block: PromptBlock): GenerationRecordTextEntry {
+/** Every `PromptBlock` this module can represent as prose. An image block
+ *  carries no `text` and never enters a Generation Record entry — the same
+ *  "never store the bytes, never a description" rule that keeps base64 out
+ *  of every other record (see shared/image-attachment.ts). A turn that
+ *  carries images always carries them before its text block
+ *  (shared/prompt-plan.ts's `ImagePromptBlock`), so skipping leading image
+ *  blocks and citing the first text block still cites the exact instruction
+ *  the provider read. */
+type TextPromptBlock = Exclude<PromptBlock, { kind: "image" }>;
+
+function isTextBlock(block: PromptBlock): block is TextPromptBlock {
+  return block.kind !== "image";
+}
+
+function firstTextBlock(turn: PromptTurn): TextPromptBlock {
+  const block = turn.blocks.find(isTextBlock);
+  if (block === undefined) {
+    throw new Error("Prompt turn has no text block to cite in a Generation Record");
+  }
+  return block;
+}
+
+function textEntry(role: PromptRole, block: TextPromptBlock): GenerationRecordTextEntry {
   return {
     role,
     stability: block.stability,

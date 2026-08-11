@@ -22,6 +22,14 @@ let clipboardReader: ClipboardReader = async () => null;
 let clipboardWriter: ClipboardWriter = async () => "internal";
 bunTest.mock.module("../src/clipboard.js", () => ({
   readFromClipboard: () => clipboardReader(),
+  // Every composer-backed field this suite exercises (settings values,
+  // Sampling fields, Fact fields) reads the typed union through
+  // composer-surface-action.ts now; this mock answers it with the same
+  // plain text every clipboardReader fixture in this file already sets up.
+  readClipboardContent: async () => {
+    const text = await clipboardReader();
+    return text === null ? null : { type: "text", text };
+  },
   copyToClipboard: (text: string) => clipboardWriter(text)
 }));
 

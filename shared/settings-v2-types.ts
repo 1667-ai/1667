@@ -94,6 +94,31 @@ export interface ModelDefinitionV2 {
   readonly capabilities: ModelCapabilitiesV2;
 }
 
+/** Schema 3's model capability record: every field `ModelCapabilitiesV2` has,
+ *  plus a required `imageInput`. This is a separate type, not an in-place
+ *  addition to `ModelCapabilitiesV2`, because the settings schema release
+ *  rule forbids adding `imageInput` to persisted schema 2: schema 2's wire
+ *  shape and hash vectors must stay byte-identical, so an older executable
+ *  can still read a schema-2 document after a downgrade. */
+export interface ModelCapabilitiesV3 extends ModelCapabilitiesV2 {
+  readonly imageInput: FeatureSupportV2;
+  /** A conservative per-image visual-token ceiling for an explicit
+   *  `"supported"` override with no built-in image-token strategy. Present
+   *  only when `imageInput` is `"supported"`; the codec enforces that
+   *  pairing, because the JSON Schema `closed()` helper cannot express a
+   *  cross-field rule. */
+  readonly imageTokenCeiling?: number;
+}
+
+export interface ModelDefinitionV3 {
+  readonly connectionId: string;
+  readonly remoteId: string;
+  readonly name: string;
+  readonly discovered: ModelScalarMetadataV2;
+  readonly overrides: ModelScalarMetadataV2;
+  readonly capabilities: ModelCapabilitiesV3;
+}
+
 export const GENERATION_EFFORT_V2_VALUES = ["default", "off", "low", "medium", "high"] as const;
 export type GenerationEffortV2 = (typeof GENERATION_EFFORT_V2_VALUES)[number];
 
@@ -264,6 +289,21 @@ export interface SettingsDocumentV2 {
   };
 }
 
+/** Schema 3's document: identical to `SettingsDocumentV2` except every model
+ *  capability record carries the required `imageInput` field. This release
+ *  reads and validates schema 3; it keeps writing schema 2 until image input
+ *  activates (`shared/image-input-release.ts`). */
+export interface SettingsDocumentV3 {
+  readonly schemaVersion: 3;
+  readonly connections: Readonly<Record<string, ModelConnectionV2>>;
+  readonly models: Readonly<Record<string, ModelDefinitionV3>>;
+  readonly profiles: Readonly<Record<string, GenerationProfileV2>>;
+  readonly routing: SettingsRoutingV2;
+  readonly writing: {
+    readonly defaultAuthorBrief: string;
+  };
+}
+
 export type ModelDiscoverySourceV2 =
   | "anthropic-models"
   | "openai-models"
@@ -370,6 +410,22 @@ export interface SettingsStateV2 {
   readonly stateGeneration: number;
   readonly settingsRevisionClock: number;
   readonly documents: Readonly<Record<string, SettingsDocumentV2>>;
+  readonly activeRevision: number;
+  readonly pendingRevision: number | null;
+  readonly previousRevision: number | null;
+  readonly activation: SettingsActivationV2 | null;
+  readonly lastActivationOutcome: SettingsActivationOutcomeV2 | null;
+  readonly lastTransaction: SettingsTransactionPointerV2 | null;
+}
+
+/** Schema 3's aggregate state envelope: identical to `SettingsStateV2` except
+ *  its documents are schema 3. Nothing in this release writes one; it exists
+ *  so a schema-3 state (produced by a later release) reads and validates. */
+export interface SettingsStateV3 {
+  readonly schemaVersion: 3;
+  readonly stateGeneration: number;
+  readonly settingsRevisionClock: number;
+  readonly documents: Readonly<Record<string, SettingsDocumentV3>>;
   readonly activeRevision: number;
   readonly pendingRevision: number | null;
   readonly previousRevision: number | null;

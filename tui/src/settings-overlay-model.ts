@@ -89,6 +89,7 @@ export const SETTINGS_ROW_IDS = [
   ...CONNECTION_TIMEOUT_ROWS,
   "profile",
   "model",
+  "image-input",
   "temperature",
   "max-tokens",
   "sampling",

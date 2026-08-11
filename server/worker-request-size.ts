@@ -3,6 +3,7 @@ import {
   MAX_JSON_BODY_BYTES,
   MAX_STORED_TITLE_CHARS
 } from "../shared/types.js";
+import { MAX_SOURCE_IMAGE_BYTES } from "../shared/image-attachment.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
 import {
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
@@ -20,11 +21,14 @@ export function validateWorkerRequestSize(
   protocolVersion?: number
 ): void {
   const input = requireRecord(value, `${method} input`);
-  if (method === "importLorebook" || method === "importCard") {
-    // The only imports whose body is bytes rather than text.
-    const bytes = method === "importLorebook" ? input.archiveBytes : input.cardBytes;
+  if (method === "importLorebook" || method === "importCard" || method === "stageStoryImage") {
+    // The only calls whose body is bytes rather than text.
+    const bytes = method === "importLorebook" ? input.archiveBytes
+      : method === "importCard" ? input.cardBytes
+      : input.bytes;
     const byteLength = bytes instanceof Uint8Array ? bytes.byteLength : 0;
-    if (byteLength > MAX_IMPORT_BYTES) {
+    const limit = method === "stageStoryImage" ? MAX_SOURCE_IMAGE_BYTES : MAX_IMPORT_BYTES;
+    if (byteLength > limit) {
       throw new ServiceError(413, "Request body too large");
     }
     return;
@@ -165,6 +169,10 @@ function logicalRequestBody(
     case "importScenario":
     case "importLorebook":
     case "importCard":
+      return undefined;
+    // storyId and leaseId are both tiny, grammar-checked strings; releasing
+    // carries no body worth bounding here.
+    case "releaseStoryImage":
       return undefined;
 
   }

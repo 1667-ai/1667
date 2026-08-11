@@ -40,9 +40,19 @@ import {
 } from "./story-manifest-hash.js";
 import { closedRecord, closedShape, literal } from "./story-wire-validation.js";
 
-const STARTED = closedShape([
-  "schema", "kind", "aggregateKey", "mutationId", "fingerprintHash", "method", "oldStateHash", "createdAt"
-]);
+const STARTED = closedShape(
+  ["schema", "kind", "aggregateKey", "mutationId", "fingerprintHash", "method", "oldStateHash", "createdAt"],
+  ["imageObjectIds"]
+);
+/** Bounds `imageObjectIds`' length. Mirrors `shared/image-attachment.ts`'s
+ * `MAX_ACTIVE_PROMPT_IMAGES`, the same active-prompt image count limit the
+ * story side enforces, so this record can never grow anywhere near
+ * `MAX_MUTATION_LEDGER_RECORD_BYTES` on account of this field. Duplicated
+ * as a literal rather than imported: `shared/image-attachment.ts` is a
+ * `shared/` module and this parser's other bounds are all local constants
+ * of their own, so a literal keeps the layering consistent with the rest of
+ * this file. */
+const MAX_STARTED_IMAGE_OBJECT_IDS = 4;
 const PREPARED_MUTATION = closedShape([
   "schema", "kind", "purpose", "aggregateKey", "key", "fingerprintHash", "method", "oldStateHash",
   "newStateHash", "startedRecordHash", "result", "preparedAt"
@@ -154,6 +164,7 @@ function parseStarted(value: unknown): StartedMutationRecord {
   if (!isProviderMutationMethod(method)) {
     throw new MutationLedgerFormatError("Started records require a provider story method");
   }
+  const imageObjectIds = parseStartedImageObjectIds(record.imageObjectIds);
   return {
     schema: 1,
     kind: "started",
@@ -162,8 +173,26 @@ function parseStarted(value: unknown): StartedMutationRecord {
     fingerprintHash: requireHash256(record.fingerprintHash, "started.fingerprintHash"),
     method,
     oldStateHash: requireHash256(record.oldStateHash, "started.oldStateHash"),
-    createdAt: requireTimeMs(record.createdAt, "started.createdAt")
+    createdAt: requireTimeMs(record.createdAt, "started.createdAt"),
+    ...(imageObjectIds === undefined ? {} : { imageObjectIds })
   };
+}
+
+/** Absence means none. When present, non-empty and bounded, mirroring
+ * `shared/image-attachment.ts`'s "absence means none, empty is invalid"
+ * rule for the same reason: an empty array and an absent field would
+ * otherwise be two on-disk encodings of the same fact. */
+function parseStartedImageObjectIds(value: unknown): readonly string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new MutationLedgerFormatError("started.imageObjectIds must be a non-empty array when present");
+  }
+  if (value.length > MAX_STARTED_IMAGE_OBJECT_IDS) {
+    throw new MutationLedgerFormatError(
+      `started.imageObjectIds exceeds the ${MAX_STARTED_IMAGE_OBJECT_IDS}-entry limit`
+    );
+  }
+  return value.map((entry, index) => requireHash256(entry, `started.imageObjectIds[${index}]`));
 }
 
 function parsePrepared(value: unknown): PreparedRecord {

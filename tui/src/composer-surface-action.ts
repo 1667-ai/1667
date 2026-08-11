@@ -1,4 +1,4 @@
-import { readFromClipboard } from "./clipboard.js";
+import { readClipboardContent } from "./clipboard.js";
 import {
   composerClipboardAction,
   type ComposerClipboardHost
@@ -80,7 +80,7 @@ async function pasteComposerClipboard(
     cursor: composer.cursor,
     anchor: composer.anchor
   };
-  const text = await readFromClipboard();
+  const content = await readClipboardContent();
   if (!options.isCurrent()
     || host.interactionVersion !== claim.interactionVersion
     || composer.text !== claim.text
@@ -88,11 +88,19 @@ async function pasteComposerClipboard(
     || composer.anchor !== claim.anchor) {
     return;
   }
-  if (text === null) {
+  if (content === null) {
     host.toast = "clipboard unreadable · paste with ⌘V or ctrl+shift+v";
     return;
   }
-  const clean = sanitizePastedText(text);
+  // Every field this helper serves besides the story composer is plain
+  // text (a rename, a settings value, a Fact field): an image clipboard
+  // result has nothing to insert here. The story composer's own paste path
+  // (compose-clipboard.ts) is the one place a clipboard image attaches.
+  if (content.type === "image") {
+    host.toast = "clipboard has no insertable text";
+    return;
+  }
+  const clean = sanitizePastedText(content.text);
   if (clean.length === 0) {
     host.toast = "clipboard has no insertable text";
     return;

@@ -1,4 +1,5 @@
 import type { StoryPayload } from "../../shared/types.js";
+import { draftImagesFor } from "./draft-image.js";
 import { createStoryViewModel, rowPart, type StoryViewModel } from "./model.js";
 import type { NextRequestContext } from "./request-projection.js";
 import type { StoryScreenState } from "./state.js";
@@ -7,7 +8,7 @@ import { streamHasSubstantiveText } from "./stream-text.js";
 type RequestContextState = Pick<
   StoryScreenState,
   "payload" | "stream" | "focusIndex" | "mode" | "composer" | "retakePrompt"
-  | "systemPrompt" | "assistantPrefill" | "request" | "contextWindow" | "maxTokens"
+  | "systemPrompt" | "assistantPrefill" | "request" | "contextWindow" | "maxTokens" | "model"
 >;
 
 /** The generation seam and prompt settings used by every next-request meter.
@@ -36,7 +37,14 @@ export function nextRequestContext(
     instruction: composeRequest && !rewriteComposer ? state.composer.text : "",
     assistantPrefill: state.assistantPrefill,
     contextWindow: state.contextWindow,
-    maxTokens: state.maxTokens
+    maxTokens: state.maxTokens,
+    remoteModelId: state.model,
+    // A rewrite composer never carries a Draft Image (attaching one is
+    // refused for a rewrite — see image-input-runtime.ts's callers); its
+    // composer's own Draft Images stay empty, so this needs no extra branch.
+    draftImages: composeRequest
+      ? draftImagesFor(state.composer).map((image) => image.attachment)
+      : []
   };
   return activeRetakeNodeId !== null
     && view.visiblePayload.path.some((node) => node.id === activeRetakeNodeId)

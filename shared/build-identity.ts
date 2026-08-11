@@ -50,10 +50,18 @@ export const AI_1667_PRODUCT = "1667" as const;
  * concept of. That lands on Settings, which every other surface waits on,
  * so the whole panel fails rather than one row. Without this bump both
  * builds advertise v18, pass preflight as an exact match, and only then
- * disagree. */
-export const HTTP_API_PROTOCOL_VERSION = 19;
-export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 19;
-export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 19;
+ * disagree. v20 carries Image Input: two story image routes (POST
+ * /api/stories/:id/images and DELETE /api/stories/:id/images/:leaseId) and
+ * eleven image failure codes. A v20 client against a v19 server takes a 404
+ * on the stage route, which is worse than the v16 count route was, because a
+ * failed count quietly falls back to an estimate while a failed stage leaves
+ * the writer holding an image the model will never see. The other pairing
+ * fails differently and more quietly: a v19 client collapses every code it
+ * does not know to `internal`, so an expired Draft Lease reads as an internal
+ * error and that client cannot tell the writer to attach the image again. */
+export const HTTP_API_PROTOCOL_VERSION = 20;
+export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 20;
+export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 20;
 
 export type ArtifactTarget = "source" | BuiltArtifactTarget;
 

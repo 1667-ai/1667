@@ -22,6 +22,11 @@ import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
 import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../shared/generation-record.js";
 import type { ReasoningRecord } from "../shared/reasoning.js";
 import type {
+  SourceImageMediaType,
+  StoryImageAttachment
+} from "../shared/image-attachment.js";
+import { stageStoryImage as stageDraftImage } from "./story-image-stage.js";
+import type {
   ProviderRecoveryContext
 } from "../shared/provider-recovery.js";
 import type { ChatMessage, PromptRole } from "../shared/prompt-plan.js";
@@ -288,6 +293,27 @@ export class StoryService extends StoryServiceRuntime {
   async getReasoning(id: string, nodeId: string): Promise<ReasoningRecord> {
     this.ensureOpen();
     return await this.stories.loadReasoning(id, nodeId);
+  }
+
+  /** Stage one Source Image as a Draft Image: normalize it, store the
+   *  result as a content-addressed Image Object, and publish a Draft Lease.
+   *  Not a story mutation. The caller must already hold the process-wide
+   *  image stage permit (server/image-stage-permit.ts). */
+  async stageStoryImage(
+    id: string,
+    mediaType: SourceImageMediaType,
+    bytes: Uint8Array
+  ): Promise<{ leaseId: string; attachment: StoryImageAttachment }> {
+    this.ensureOpen();
+    return await stageDraftImage(this.stories, id, mediaType, bytes);
+  }
+
+  /** Idempotently remove one Draft Lease. Releasing an absent or already
+   *  expired lease succeeds with no error. Not a story mutation. The caller
+   *  must already hold the process-wide image stage permit. */
+  async releaseStoryImage(id: string, leaseId: string): Promise<void> {
+    this.ensureOpen();
+    await this.stories.releaseImage(id, leaseId);
   }
 
   async renameStory(

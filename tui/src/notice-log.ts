@@ -10,12 +10,22 @@ import type { ResolvedKey } from "./keys.js";
  *  is also written here, truncated or not. */
 export type NoticeChannel = "toast" | "banner" | "check";
 
+/** How the log's focused row should read `text`. `plain` is the default and
+ *  the common case: most notices carry arbitrary user- or backend-supplied
+ *  values — a story title, a typed model identifier, a file path, backend
+ *  error text — and must render exactly as written, or the log stops being
+ *  the faithful record C-37 promises. `markdown` opts a notice into the
+ *  small CHANGELOG.md subset `notice-markup.ts` parses (release notes are
+ *  the one caller today); everything else stays `plain` on purpose. */
+export type NoticeMarkupKind = "plain" | "markdown";
+
 export interface SessionNotice {
   readonly id: number;
   /** Client wall-clock time the message first appeared. */
   readonly at: number;
   readonly channel: NoticeChannel;
   readonly text: string;
+  readonly kind: NoticeMarkupKind;
 }
 
 export interface NoticeLog {
@@ -64,7 +74,11 @@ export interface NoticeSources {
 
 /** Write anything new to the log. Idempotent: calling it twice for the same
  *  frame records nothing the second time, which is what lets both the
- *  dispatcher and the repaint call it without agreeing on who owns the seam. */
+ *  dispatcher and the repaint call it without agreeing on who owns the seam.
+ *
+ *  Always `plain`: a toast, a banner and a check message are app text built
+ *  around arbitrary values (a story title, a model name, a provider error) —
+ *  none of them are markdown, and none should ever be parsed as it. */
 export function recordNotices(log: NoticeLog, sources: NoticeSources): void {
   for (const channel of ["toast", "banner", "check"] as const) {
     const text = sources[channel];
@@ -75,7 +89,7 @@ export function recordNotices(log: NoticeLog, sources: NoticeSources): void {
     // dispatcher nulls a toast before the reducer can set the same one back.
     if (text === null || text.trim().length === 0) continue;
     // Newest first, and the cursor stays on the notice the writer came from.
-    log.entries.unshift({ id: log.nextId, at: sources.now, channel, text });
+    log.entries.unshift({ id: log.nextId, at: sources.now, channel, text, kind: "plain" });
     log.nextId += 1;
     setNoticeCursor(log, 0);
   }
@@ -87,15 +101,20 @@ export function recordNotices(log: NoticeLog, sources: NoticeSources): void {
  * C-37 is what makes that cap honest, so the whole report is written here while
  * the toast keeps the headline. This is a discrete event rather than a channel
  * state, so it bypasses the repeat guard: importing the same file twice is two
- * events. */
+ * events.
+ *
+ * `kind` defaults to `plain`, so every existing caller keeps its current,
+ * correct behavior with no edit. Pass `"markdown"` only where `text` really
+ * is markdown — `release-announcement.ts` is the one caller that does. */
 export function recordNotice(
   log: NoticeLog,
   channel: NoticeChannel,
   text: string,
+  kind: NoticeMarkupKind = "plain",
   now = Date.now()
 ): void {
   if (text.trim().length === 0) return;
-  log.entries.unshift({ id: log.nextId, at: now, channel, text });
+  log.entries.unshift({ id: log.nextId, at: now, channel, text, kind });
   log.nextId += 1;
   setNoticeCursor(log, 0);
 }

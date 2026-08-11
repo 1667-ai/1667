@@ -45,7 +45,8 @@ const CATEGORIES: readonly Category[] = [
   ["facts", "context facts"],
   ["recent", "context recent"],
   ["summary", "context summary"],
-  ["note", "context note"]
+  ["note", "context note"],
+  ["visual", "context visual"]
 ];
 
 /** The rail footer, doc 12a collapsed and doc 12b expanded. The breakdown
@@ -149,7 +150,11 @@ function expandedMeter(
     ...window === null ? [] : [breakdownBar(model, window, growthRole), []],
     legendRow(CATEGORIES.slice(0, 2), model),
     legendRow(CATEGORIES.slice(2, 4), model),
-    ...model.breakdown.note > 0 ? [legendRow(CATEGORIES.slice(4), model)] : [],
+    // Author's Note and visual-token rows both stay collapsed until they
+    // have something to say — an untouched story shows neither.
+    ...model.breakdown.note > 0 || model.breakdown.visual > 0
+      ? [legendRow(CATEGORIES.slice(4, 6), model)]
+      : [],
     rule(),
     ...totalsLines(model, forecast, severity),
     [segment("view next request · ⌃r", "focus / accent", {

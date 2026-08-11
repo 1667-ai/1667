@@ -18,12 +18,19 @@ This file records notable changes to 1667. Product terms use the definitions in
   Settings now shows and edits it directly, instead of requiring a hand
   edit of the settings file. Thanks to @10fra.
 
-- **Every generated take keeps its request details.** Press `h` on a take to
-  open the Generation Record Viewer. It shows the provider, the model, the
-  effective settings, provider adjustments, and the ordered request pipeline.
-  It keeps the request text from that generation after a later edit. It never
-  stores a credential, a custom header value, or a base URL. Thanks @10fra for
-  the request.
+- **1667 prepares to send images to a model.** This release contains the
+  complete Image Input implementation and keeps every entry point closed. It
+  cannot attach an image yet. 1667 releases a new storage schema in two steps:
+  this release reads and validates the successor story and settings documents
+  and refuses to change them, and the next release writes them. That order lets
+  a writer go back one version without losing a story or a setting. The next
+  release opens the feature.
+
+- **The log now shows a release note with its paragraphs and list kept.**
+  Before this fix, the log joined a release note into one line, and it
+  showed the raw `**` and backtick marks. The log now keeps each paragraph
+  and each list item on its own line. It also shows bold text and code text
+  in their own style, with the marks removed.
 
 - **1667 shows what a model thinks before it writes.** Some models write
   reasoning text before prose. 1667 calls this text a thought and keeps it
@@ -258,6 +265,15 @@ This file records notable changes to 1667. Product terms use the definitions in
   palette opens a path prompt with `Tab` completion. The `1667 import-card`
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names. Thanks @10fra for the request.
+
+## 0.7.0 - 2026-08-10
+
+- **Every generated take keeps its request details.** Press `h` on a take to
+  open the Generation Record Viewer. It shows the provider, the model, the
+  effective settings, provider adjustments, and the ordered request pipeline.
+  It keeps the request text from that generation after a later edit. It never
+  stores a credential, a custom header value, or a base URL. Thanks @10fra for
+  the request.
 
 ## 0.6.1 - 2026-08-10
 

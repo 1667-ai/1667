@@ -49,19 +49,24 @@ export function noticeSection(label: string, notices: string[], width: number): 
 }
 
 /** One message's rows: a full-width divider, the caller's own header line,
- *  the wrapped message content, and a trailing blank row. Knows nothing of
- *  `NextRequestEstimate` or its plan — the caller builds the header (role,
- *  category, token count, selection styling) and hands it over already
- *  built, so this stays reusable for any document of message-shaped rows. */
+ *  any caller-supplied rows between the header and the content (an image
+ *  block's metadata, which carries no text to wrap — see
+ *  tui/src/screens/request-viewer.ts), the wrapped message content, and a
+ *  trailing blank row. Knows nothing of `NextRequestEstimate` or its plan —
+ *  the caller builds the header (role, category, token count, selection
+ *  styling) and hands it over already built, so this stays reusable for any
+ *  document of message-shaped rows. */
 export function messageDocumentRows(
   target: HitTarget,
   header: FrameLine,
   content: string,
-  width: number
+  width: number,
+  extraRows: readonly RequestDocumentRow[] = []
 ): RequestDocumentRow[] {
   const rows: RequestDocumentRow[] = [
     { line: [segment("─".repeat(Math.max(0, width)), "chrome", target)], target },
-    { line: header, target }
+    { line: header, target },
+    ...extraRows
   ];
   for (const wrapped of wrapText(content, [], Math.max(1, width - 4))) {
     rows.push({ line: [segment("  ", "chrome"), segment(wrapped.text, "prose")], target: null });

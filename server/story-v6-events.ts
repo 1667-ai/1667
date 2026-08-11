@@ -1,19 +1,19 @@
-import type { StoryManifestV5 } from "./story-format.js";
 import type {
   Hash256,
   MutationId,
   ProviderPointer,
-  StoryManifestV6,
+  StoryEnvelopeContent,
+  StoryEnvelopeManifest,
   StorySummaryV6,
   TimeMs
 } from "./story-v6-types.js";
 
 export type StoryV6ReducerState =
   | { kind: "absent" }
-  | { kind: "present"; manifest: StoryManifestV6; manifestHash: Hash256 };
+  | { kind: "present"; manifest: StoryEnvelopeManifest; manifestHash: Hash256 };
 
 export interface PreparedStoryContent {
-  content: StoryManifestV5;
+  content: StoryEnvelopeContent;
   summary: StorySummaryV6;
 }
 
