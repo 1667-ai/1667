@@ -307,7 +307,7 @@ test("the Windows Job Object assignment succeeds against a real child process", 
 // specifically, not merely that the stage failed for some other reason:
 //
 // 1. A control run first, same limit, same debug-allocation mechanism, well
-//    under the ceiling (8 MiB against 64 MiB), must succeed. If Job Object
+//    under the ceiling (32 MiB against 512 MiB), must succeed. If Job Object
 //    assignment broke the child outright, the control would fail too, and
 //    the failing run below would prove nothing about the limit itself.
 // 2. The failing run must not carry `WINDOWS_JOB_MEMORY_LIMIT_NOT_INSTALLED_MESSAGE`
@@ -316,16 +316,27 @@ test("the Windows Job Object assignment succeeds against a real child process", 
 //    the cause. What is left, once "never installed" and "timed out" are
 //    both ruled out and the same setup just succeeded at a smaller size, is
 //    the job limit itself refusing the over-budget allocation.
+//
+// The ceiling here is 512 MiB, not a tighter number, because this test ran
+// on real Windows hardware once with a 64 MiB ceiling and the CONTROL run
+// died. A Node child commits far more than 64 MiB before it runs a line of
+// image code: V8's own startup, the module graph, and the photon WASM
+// instance. Measured on Linux, this same child idles at about 105 MiB
+// before it touches an image (see the arithmetic on
+// `IMAGE_NORMALIZE_CHILD_MEMORY_LIMIT_BYTES` in
+// server/image-normalize-launcher.ts for the full measurement). 512 MiB
+// gives a real Node child comfortable room to start on any platform, while
+// 32 MiB and 640 MiB still land clearly under and clearly over it.
 test("the Windows Job Object bound kills a child that grows past the configured limit, and only when the limit is actually exceeded", {
   skip: process.platform !== "win32"
 }, async () => {
   const source = await opaquePng(64, 64);
-  const memoryLimitBytes = 64 * 1024 * 1024;
+  const memoryLimitBytes = 512 * 1024 * 1024;
 
   const control = await launchImageNormalizeChild(source, "image/png", {
     deadlineMs: 10_000,
     memoryLimitBytes,
-    debugAllocateMb: 8
+    debugAllocateMb: 32
   });
   assert.equal(control.mediaType, "image/png");
 
@@ -334,7 +345,7 @@ test("the Windows Job Object bound kills a child that grows past the configured 
     () => launchImageNormalizeChild(source, "image/png", {
       deadlineMs: 10_000,
       memoryLimitBytes,
-      debugAllocateMb: 256
+      debugAllocateMb: 640
     }),
     (error: unknown) => {
       assert.ok(error instanceof ServiceError, "expected a ServiceError");

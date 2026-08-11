@@ -35,8 +35,8 @@ import {
 import type { NormalizedImage } from "./image-normalize.js";
 
 /**
- * What the design calls "a platform-enforced 512 MiB memory limit". How it
- * is enforced is different on each platform; both mechanisms live in
+ * What the design calls "a platform-enforced memory limit". How it is
+ * enforced is different on each platform; both mechanisms live in
  * `server/image-normalize-memory-bound.ts`:
  * - On Windows the child is assigned to a Job Object with this many bytes as
  *   its `JOB_OBJECT_LIMIT_JOB_MEMORY` ceiling. That bound is enforced by the
@@ -48,8 +48,56 @@ import type { NormalizedImage } from "./image-normalize.js";
  *   size and kills its process group on breach. See `pollChildMemory`'s own
  *   comment for exactly what that does and does not guarantee, because a
  *   poll is not the same kind of bound as a Job Object.
+ *
+ * The value is 2 GiB, not the 512 MiB an earlier round of this design
+ * specified. 512 MiB was chosen before the Windows Job Object was actually
+ * installed, so it never refused anything. Once the Job Object started
+ * being enforced for real, `test/image-normalize.test.ts` failed on real
+ * Windows hardware, in the CONTROL run that is supposed to succeed, not in
+ * the run that is supposed to fail. 512 MiB was not enough room for a Node
+ * child to even start.
+ *
+ * The arithmetic behind 2 GiB:
+ * - `MAX_SOURCE_IMAGE_PIXELS` in `shared/image-attachment.ts` admits a
+ *   Source Image up to 32,000,000 pixels. Decoded to RGBA, that raster
+ *   alone is 32,000,000 * 4 bytes, about 122 MiB, before photon does
+ *   anything else with it.
+ * - `server/image-normalize.ts` does more work on that raster before it
+ *   shrinks. `hasTransparency`, and `rotateClockwise90` when an EXIF tag
+ *   calls for it, each pull a full copy of the raster out of photon's WASM
+ *   memory into the JavaScript heap. A rotation also writes a second,
+ *   freshly permuted raster into a NEW WASM image before the old one is
+ *   freed. Several ~122 MiB copies are briefly alive together, before
+ *   garbage collection can reclaim any of them.
+ * - That is reasoning, not proof. This repository was built and measured
+ *   on Linux, so the figures below are real measurements of this
+ *   repository's own child process, normalizing a real 32-megapixel source
+ *   through the real decode, orient, resize, and encode pipeline, not a
+ *   synthetic allocation:
+ *   - Node, run the way a source checkout runs this child (`--import
+ *     tsx`): about 105 MiB resident at idle, about 933 MiB resident at
+ *     peak for a 32-megapixel source with a three-quarter-turn EXIF
+ *     rotation, the worst orientation measured.
+ *   - Bun, run the way a compiled standalone binary runs this child (no
+ *     tsx, no transform step): about 66 MiB resident at idle, about
+ *     1,150 MiB resident at the same peak. Bun's peak is HIGHER than
+ *     Node's despite its lower idle cost, so the packaged runtime is not
+ *     automatically the safer one.
+ * - Two gaps this measurement cannot close, because this machine has no
+ *   Windows to measure: a Windows Job Object bounds COMMITTED memory, not
+ *   resident set size, and Windows can plausibly commit more than Linux's
+ *   resident-set accounting would show for the identical work; and this
+ *   measurement decoded a smooth, gradient-filled test image, which may
+ *   compress and decode somewhat differently than a real photograph at the
+ *   same pixel count.
+ * - 2 GiB is a deliberately generous round number over the highest figure
+ *   actually measured (1,150 MiB), chosen to cover both gaps rather than to
+ *   sit close to a number this machine cannot fully verify. If a future
+ *   Windows CI run shows this is still not enough, or shows it was too
+ *   generous, change this constant against that real number, not against
+ *   another estimate.
  */
-export const IMAGE_NORMALIZE_CHILD_MEMORY_LIMIT_BYTES = 512 * 1024 * 1024;
+export const IMAGE_NORMALIZE_CHILD_MEMORY_LIMIT_BYTES = 2 * 1024 * 1024 * 1024;
 
 /**
  * The message on the `ServiceError` `sendChildInput` raises when

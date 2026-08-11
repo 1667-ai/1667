@@ -84,8 +84,9 @@ const WINDOWS_JOB_ASSIGN_TIMEOUT_MS = 15_000;
  * virtual-memory cap) on the child made Node itself fail to start with
  * "Fatal process out of memory: Failed to reserve virtual memory for
  * CodeRange", because V8 reserves address space for its own startup (code
- * range, pointer-compression cage) far past 512 MiB before any image code
- * runs; and a Linux cgroup v2 `memory.max` limit needs a cgroup subtree this
+ * range, pointer-compression cage) measured in gigabytes, far past any
+ * ceiling this design could pick, before any image code runs; and a Linux
+ * cgroup v2 `memory.max` limit needs a cgroup subtree this
  * process can create and move a child into, which is only available when
  * the process launching 1667 already lives inside a delegated subtree (a
  * systemd `--user` unit, for example) and is not available from an
@@ -199,9 +200,9 @@ async function readMacosRssBytes(pid: number): Promise<number | null> {
  * caller spawned the target pid. If the target process died in that window,
  * Windows can recycle its pid for an unrelated process before this script
  * ever calls `OpenProcess`, and a bare pid check has nothing left to catch
- * it: the wrong process would be assigned to a 512 MiB job, and a
- * `PROCESS_TERMINATE` handle would be held on it for the rest of this
- * stage's termination ladder.
+ * it: the wrong process would be assigned to the job, with this call's
+ * memory ceiling applied to it, and a `PROCESS_TERMINATE` handle would be
+ * held on it for the rest of this stage's termination ladder.
  *
  * The script below closes the dominant part of that window by reading the
  * target process's own `StartTime` twice: once as its very first
