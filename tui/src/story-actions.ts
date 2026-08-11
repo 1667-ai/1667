@@ -148,7 +148,18 @@ export async function navAction(
     // — the same split `toggle-prompt` makes just above.
     const index = Math.max(0, Math.min(count - 1, resolved.index ?? state.focusIndex));
     const part = rowPart(view, index);
-    if (part !== null && partHasThought(part, state)) {
+    // The keys list carries T unconditionally (keys-modal.ts), and the gutter
+    // waymark only appears once a thought exists, so a writer reaches this
+    // with nothing to unfold often. Say which of the two reasons applies: a
+    // silent return here is indistinguishable from a dead key. `off` is its
+    // own answer because the fold state this toggles renders nothing then.
+    if (state.reasoning === "off") {
+      state.toast = "thoughts are off · settings turns them on";
+    }
+    else if (part === null || !partHasThought(part, state)) {
+      state.toast = "no thought on this take";
+    }
+    else {
       state.focusIndex = index;
       followStoryViewport(state);
       rememberFocus(state, source);
