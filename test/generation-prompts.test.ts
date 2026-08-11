@@ -21,7 +21,12 @@ test("empty Continue ends on the unfinished assistant passage", () => {
 
   assert.equal(messages.at(-1)?.role, "assistant");
   assert.equal(messages.at(-1)?.content, "The latch was unlo");
-  assert.equal(messages.some((message) => /exact final character/.test(message.content)), true);
+  // A prefilled continuation carries no operation-contract text at all
+  // (issue #138's `appendOperationContract`): nothing can follow the
+  // unfinished assistant passage without breaking the prefill, so the
+  // "continue from the exact boundary" instruction is not sent here — the
+  // prefill mechanism itself already enforces that.
+  assert.equal(messages.some((message) => /exact final character/.test(message.content)), false);
   assert.equal(messages.some((message) => message.role === "user" && /final character/i.test(message.content)), false);
 });
 

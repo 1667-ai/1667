@@ -6,7 +6,7 @@ import { phraseRewritePlan, rewritePlan } from "../server/generation-prompts.js"
 import { streamCompletion } from "../server/providers.js";
 import { promptCacheBoundaries } from "../server/prompt-cache-breakpoints.js";
 import { summaryTakePrompt } from "../server/summary-take.js";
-import { continuationPlan } from "../shared/continuation-plan.js";
+import { continuationPlan, type ContinuationPlan } from "../shared/continuation-plan.js";
 import {
   fixedPromptTexts,
   renderPromptPlan,
@@ -82,12 +82,12 @@ test("continue renders the existing provider wire shape exactly", () => {
   assert.deepEqual(renderPromptPlan(prompt), [
     { role: "system", content: "Write vivid prose." },
     { role: "system", content: "CANONICAL FACTS" },
+    { role: "user", content: "Open the door." },
+    { role: "assistant", content: "The latch clicked." },
     {
       role: "system",
       content: "Write the next passage of the story in response to the final user direction. Return only story prose: no summary, explanation, or commentary."
     },
-    { role: "user", content: "Open the door." },
-    { role: "assistant", content: "The latch clicked." },
     { role: "user", content: "A stranger enters." }
   ]);
 });
@@ -135,6 +135,86 @@ test("requested continuation defaults an empty instruction before rendering", ()
   });
 });
 
+/**
+ * Issue #138: a local server (llama.cpp/KoboldCpp) reuses its KV cache only
+ * for an unchanged prompt *prefix*. The operation contract used to be the
+ * third message, ahead of every story part, and its text depended on
+ * whether the request continues a passage or starts a new part — so writing
+ * ordinarily, alternating between the two, rewrote a message ahead of the
+ * whole story and forced a full reprocess. These tests cover the property
+ * that actually fixes that: the two requests share an unchanged prefix
+ * through the last story part, regardless of which way the request goes.
+ */
+test("continuing a passage and starting a new part share a byte-identical prompt prefix through the last story part", () => {
+  const parts = [
+    node("part-1", "Open the door.", "The latch clicked."),
+    node("part-2", "Cross the threshold.", "Dust motes hung in the still, cold air")
+  ];
+  const continuePrefill = continuationPlan(
+    "Write vivid prose.", "CANONICAL FACTS", null, parts, "unused for a continuation",
+    true, true, "ct-continue", [], parts
+  );
+  const continueEcho = continuationPlan(
+    "Write vivid prose.", "CANONICAL FACTS", null, parts, "unused for a continuation",
+    true, false, "ct-continue", [], parts
+  );
+  const newPart = continuationPlan(
+    "Write vivid prose.", "CANONICAL FACTS", null, parts, "A stranger enters.",
+    false, true, "ct-new", [], parts
+  );
+
+  assert.deepEqual(prefixThroughLastPart(continuePrefill), prefixThroughLastPart(newPart));
+  assert.deepEqual(prefixThroughLastPart(continueEcho), prefixThroughLastPart(newPart));
+});
+
+test("the shared prefix survives an Author's Note too, at every part count", () => {
+  for (const count of [1, 2, 3, 5]) {
+    const parts = Array.from({ length: count }, (_, index) =>
+      node(`part-${index + 1}`, `Direction ${index + 1}.`, `Passage ${index + 1} prose`)
+    );
+    const authorsNote = { text: "Keep the danger quiet.", depth: 1 };
+    const continuePrefill = continuationPlan(
+      "Voice.", "Facts.", authorsNote, parts, "unused", true, true, "ct-continue", [], parts
+    );
+    const newPart = continuationPlan(
+      "Voice.", "Facts.", authorsNote, parts, "Go on.", false, true, "ct-new", [], parts
+    );
+    assert.deepEqual(
+      prefixThroughLastPart(continuePrefill),
+      prefixThroughLastPart(newPart),
+      `part count ${count}`
+    );
+  }
+});
+
+test("the operation contract appears exactly once, in both the new-part and the boundary-echo continuation, but not when a prefill continues the passage directly", () => {
+  const parts = [node("part-1", "Open the door.", "The latch clicked, then")];
+  const countContracts = (prompt: PromptPlan): number =>
+    prompt.turns.flatMap((turn) => turn.blocks)
+      .filter((block) => block.kind === "operation-contract").length;
+
+  const newPart = continuationPlan(
+    "Voice.", null, null, parts, "A stranger enters.", false, true, "ct-new", [], parts
+  );
+  const continueEcho = continuationPlan(
+    "Voice.", null, null, parts, "unused", true, false, "ct-echo", [], parts
+  );
+  const continuePrefill = continuationPlan(
+    "Voice.", null, null, parts, "unused", true, true, "ct-prefill", [], parts
+  );
+
+  assert.equal(countContracts(newPart.prompt), 1);
+  assert.equal(countContracts(continueEcho.prompt), 1);
+  // A prefilled continuation ends on the story's own unfinished assistant
+  // message so a compatible provider can extend that exact token stream —
+  // nothing can follow it without breaking the prefill. The contract text
+  // has nowhere left to go without either breaking that or reopening the
+  // prefix instability this fix removes, so it is not sent on this path;
+  // the prefill mechanism itself already enforces exact, unprefaced
+  // continuation. See shared/continuation-plan.ts's `appendOperationContract`.
+  assert.equal(countContracts(continuePrefill.prompt), 0);
+});
+
 test("continuation inserts one late Author's Note before the final part at every part count", () => {
   for (const count of [0, 1, 2, 3, 5]) {
     const parts = Array.from({ length: count }, (_, index) =>
@@ -155,7 +235,14 @@ test("continuation inserts one late Author's Note before the final part at every
     const noteIndexes = withNote.entries
       .map((entry, index) => entry.category === "note" ? index : -1)
       .filter((index) => index >= 0);
-    assert.deepEqual(noteIndexes, [3 + Math.max(0, count - 1) * 2]);
+    // The prelude is two entries now (Author Brief, Facts) — the operation
+    // contract no longer rides ahead of the story, so it no longer pushes
+    // the note's index out by one. Zero parts is the exception: the note has
+    // nowhere to land but last, which is exactly where the contract would
+    // also land, so the contract inserts ahead of the note instead
+    // (`appendOperationContract`) and the index is back to where the old
+    // three-entry prelude would have put it.
+    assert.deepEqual(noteIndexes, [count === 0 ? 3 : 2 + Math.max(0, count - 1) * 2]);
     const noteIndex = noteIndexes[0]!;
     assert.equal(withNote.entries[noteIndex]!.turn.role, "system");
     assert.equal(withNote.entries[noteIndex + 1]!.turn.role, "user");
@@ -169,6 +256,10 @@ test("continuation inserts one late Author's Note before the final part at every
     const noNote = continuationPlan(
       "Voice.", "Facts.", null, parts, "Request.", false, true, "ct-note", [], parts
     );
+    // The trailing operation contract is never itself a candidate (it rides
+    // after the deepest one on purpose — see `appendOperationContract`), so
+    // it never enters this comparison at all: what is left lines up exactly
+    // as it did before the contract moved.
     assert.deepEqual(
       promptCacheBoundaries(withNote.prompt),
       count === 0
@@ -189,12 +280,14 @@ test("continuation places the Author's Note deeper by depth, and clamps past the
     node(`part-${index + 1}`, `Direction ${index + 1}.`, `Passage ${index + 1}.`)
   );
   // Depth counts story parts, not entries: each part is a user/assistant
-  // pair, so depth 2 lands the note before the 3rd part (index 3*2=6).
+  // pair, so depth 2 lands the note before the 3rd part (index 2*2=4). The
+  // two-entry prelude (Author Brief, Facts) sets the base offset — the
+  // operation contract no longer occupies a third prelude slot ahead of it.
   for (const [depth, expectedIndex, expectedEffectiveDepth] of [
-    [1, 9, 1],
-    [2, 7, 2],
-    [4, 3, 4],
-    [10, 3, 4] // past the available parts: clamps to the start, right after the prelude.
+    [1, 8, 1],
+    [2, 6, 2],
+    [4, 2, 4],
+    [10, 2, 4] // past the available parts: clamps to the start, right after the prelude.
   ] as const) {
     const plan = continuationPlan(
       "Voice.", "Facts.", { text: "Guide it.", depth }, parts, "Request.", false, true, "ct-depth", [], parts
@@ -250,7 +343,7 @@ test("stable rendered-prefix hashes are golden for every generation operation", 
   assert.deepEqual(Object.fromEntries(
     Object.entries(plans).map(([operation, prompt]) => [operation, prefixHash(prompt)])
   ), {
-    continue: "1579f46b0d865dde5d634e8cae9bc3763c3f09dbf62ba72e3c8477d36931d9b3",
+    continue: "56cea2ce8ddeca5b7666ec28a55942abe6083fded20f7d07ff4771a52cfb3afb",
     rewrite: "915a92f74c89251f1a90cae595e7682f7f4287a1bc273ac9e2fc01099cbd4462",
     phrase: "928f1145fa90b9f398b67be8eb84164fdc17ce58b2e85704505f322ff8099752",
     title: "8ce79bf5ea50fb067d4a53a1f228b0df1b2a3c4ff6f4b698c781d00cbf3c8d72",
@@ -345,7 +438,19 @@ test("all declared cache candidates are stable and each operation ends its stabl
     assert.ok(candidates.length > 0);
     assert.ok(candidates.every((block) => block.stability === "stable"));
     const lastStable = blocks.findLast((block) => block.stability === "stable");
-    assert.equal(lastStable?.boundaryAfter, "candidate");
+    if (lastStable?.kind === "operation-contract") {
+      // A continuation's trailing operation contract (issue #138) is stable
+      // but deliberately not itself a candidate: unlike a story part, its
+      // hash is recomputed over the whole growing story on every request,
+      // so offering it as the deepest OpenAI breakpoint would make the
+      // previous request's remembered breakpoint unfindable the moment the
+      // story grows by even one part (see `appendOperationContract`). The
+      // prompt's real stable prefix still ends at a candidate; the contract
+      // is just small, always-fresh overhead riding after it.
+      assert.notEqual(candidates.at(-1), undefined);
+    } else {
+      assert.equal(lastStable?.boundaryAfter, "candidate");
+    }
   }
 });
 
@@ -375,6 +480,19 @@ test("dry-run rewrite reads the semantic selection, not delimiter-like source pr
   assert.match(output, /^placeholder prose from dry-run mode/);
   assert.match(output, /\[\[end-rw-deadbeef\]\]$/);
 });
+
+/** The rendered messages through and including the last story part — the
+ *  segment a local server's KV cache needs held byte-identical across a
+ *  continue-a-passage request and a start-a-new-part request for the same
+ *  story (issue #138). `entries` and `prompt.turns` stay index-aligned
+ *  (`continuationResult` builds `prompt.turns` as `entries.map(e => e.turn)`),
+ *  so the last entry that carries a `partId` names exactly where that
+ *  segment ends, regardless of what either request appends after it. */
+function prefixThroughLastPart(plan: ContinuationPlan): unknown {
+  const lastPartIndex = plan.entries.findLastIndex((entry) => entry.partId !== undefined);
+  if (lastPartIndex === -1) throw new Error("expected at least one story part entry");
+  return renderPromptPlan(plan.prompt).slice(0, lastPartIndex + 1);
+}
 
 function stable(
   kind: "author-brief" | "facts" | "operation-contract" | "source",
