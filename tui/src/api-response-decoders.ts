@@ -500,6 +500,29 @@ export function decodeContinueStoryResponse(
   };
 }
 
+function decodeNarrowedSummaryPoint(value: unknown): { nodeId: string; offset: number | null } {
+  const record = responseRecord(value, "narrowed summary point");
+  return {
+    nodeId: stringField(record, "nodeId", "narrowed summary point"),
+    offset: nullablePositiveIntegerField(record, "offset", "narrowed summary point")
+  };
+}
+
+/** `narrowedTo` is the point actually summarized, only when it differs from
+ *  the one requested — see server/summary-take.ts's `fittingSummaryPoint`
+ *  and shared/worker-protocol.ts's `createSummaryTake`. */
+export function decodeSummaryTakeResponse(
+  value: unknown
+): { nodeId: string; narrowedTo: { nodeId: string; offset: number | null } | null } {
+  const record = responseRecord(value, "summary-take result");
+  return {
+    nodeId: stringField(record, "nodeId", "summary-take result"),
+    narrowedTo: record.narrowedTo === null || record.narrowedTo === undefined
+      ? null
+      : decodeNarrowedSummaryPoint(record.narrowedTo)
+  };
+}
+
 /** The `rewrite-partial` route wraps the worker output so a null (nothing
  * stashed, or the bytes differ) is distinguishable from a transport error. */
 export function decodeCommitPartialRewriteResponse(

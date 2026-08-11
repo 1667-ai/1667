@@ -37,10 +37,24 @@ prompt)`. The requested word target scales with that budget and is capped
 relative to the source (`max(250, 2× source words)`), so a short source is not
 padded to thousands of words.
 
-A prefix leaving under roughly 512 output tokens is rejected with `422` before
-any model call. The fixes are an earlier summary point or continuing from an
-existing summary take. Window-bound truncation therefore says to choose an
-earlier point, not to increase Max output tokens.
+### Choosing a point that fits
+
+A prefix that leaves under roughly 512 output tokens has no room for a
+summary. Before the server refuses the request, it searches backward from
+the requested point for the latest point that still fits. It measures each
+candidate by building the real prompt, the same way it measures the
+requested point. It never estimates from text length.
+
+The search only drops whole parts. It never cuts a part's text to make it
+fit. Every dropped part stays in the story. The writer can summarize them
+later, starting from the new summary node.
+
+The response reports the point actually used when it differs from the
+requested point. See Wire protocol below.
+
+The server refuses the request only when no point fits, not even the
+story's earliest single part. The `422` message then names two fixes: raise
+the context window in Settings, or lower Max output tokens.
 
 ## Consistency
 
@@ -70,15 +84,34 @@ the refreshed payload is adopted.
 ```
 
 `offset` and `expected` are optional. Pre-flight failures such as an unknown
-node, stale selection, or unfittable prefix are plain HTTP errors. Otherwise
-the response is SSE: `delta` events while the model writes, then `done` with
-`{ "nodeId": "new-summary-node-id" }`, or a terminal `error` event.
+node or a stale selection are plain HTTP errors. A prefix that leaves no
+room for a summary at any point is also a plain HTTP error (`422`); see
+Output budget above.
+
+Otherwise the response is SSE: `delta` events while the model writes, then
+`done`:
+
+```json
+{
+  "nodeId": "new-summary-node-id",
+  "narrowedTo": { "nodeId": "earlier-node-id", "offset": null }
+}
+```
+
+`narrowedTo` is `null` when the summary covers the requested point.
+Otherwise it names the earlier point the server actually summarized. A
+terminal `error` event replaces `done` when the request fails after
+streaming starts.
 
 ## UI and mutation rules
 
 Entry points are the summary action on every non-summary part and **Summary
 take** in the selection popover. Only one summary runs at a time. The header
 shows live word progress and Cancel.
+
+When the server summarizes an earlier point than the writer asked for (see
+Choosing a point that fits above), the TUI shows a toast naming how many of
+the requested parts the summary actually covers.
 
 Only the summarized prefix, title, and autoname lock while generation runs.
 The composer and later parts remain usable. An empty Continue that would append

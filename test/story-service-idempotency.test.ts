@@ -364,7 +364,7 @@ test("pending dry-run summaries reconcile by deterministic node ID", async (t) =
 
     const recovered = await runWorkerMutation(service, summaryId, "createSummaryTake", input);
     const after = await service.loadStory(story.id);
-    assert.equal(recovered, first);
+    assert.deepEqual(recovered, first);
     assert.equal(after.nodes.length, before.nodes.length);
   } finally {
     await service.dispose();
@@ -384,7 +384,8 @@ test("pending pre-provider summaries resume with deterministic commit IDs", asyn
     await writePendingReceipt(service, summaryId, "createSummaryTake", input);
 
     const result = await runWorkerMutation(service, summaryId, "createSummaryTake", input);
-    assert.equal(typeof result, "string");
+    assert.equal(typeof result, "object");
+    assert.ok(result !== null && typeof result.nodeId === "string");
     assert.equal((await service.loadStory(story.id)).nodes.filter((node) => node.role === "summary").length, 1);
   } finally {
     await service.dispose();

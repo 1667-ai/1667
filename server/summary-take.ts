@@ -55,6 +55,23 @@ export interface SummaryCommitIds {
   cutNodeId?: string;
 }
 
+/** `createSummaryTake`'s own hooks bag: everything `GenerationStreamHooks`
+ *  has, plus the one callback specific to point selection. */
+export interface SummaryTakeHooks extends GenerationStreamHooks {
+  /** Fired once, synchronously, before streaming starts — but only when the
+   *  point actually summarized differs from the one the writer requested
+   *  (see `fittingSummaryPoint` below): the requested prefix alone did not
+   *  leave room for its summary, so an earlier point that does was chosen
+   *  instead. The committed take's own `point` field already carries this
+   *  same value; this hook exists so a caller that reports an outcome the
+   *  writer did not literally request has a way to learn it before the
+   *  reload that would otherwise be the only way to notice — the same
+   *  reason `continueStory` fires `onFactsDropped`
+   *  (server/generation-http.ts) rather than leaving that discovery to the
+   *  committed Story alone. */
+  onSummaryPointNarrowed?: (point: SummaryPoint) => void;
+}
+
 export function requireSummaryActive(signal?: AbortSignal): void {
   if (signal?.aborted !== true) return;
   throw new GenerationStoppedError(
@@ -71,26 +88,45 @@ export async function createSummaryTake(
   onDelta: DeltaConsumer,
   signal: AbortSignal,
   commitIds: SummaryCommitIds = {},
-  hooks: GenerationStreamHooks = {}
+  hooks: SummaryTakeHooks = {}
 ): Promise<string | null> {
-  const { providerStarted = () => {}, bindIntent, onReasoning } = hooks;
+  const { providerStarted = () => {}, bindIntent, onReasoning, onSummaryPointNarrowed } = hooks;
   if (signal.aborted) return null;
   if (body.offset !== undefined && typeof body.offset !== "number") {
     throw new HttpError(400, "offset must be a number when provided");
   }
-  const point: SummaryPoint = {
+  const requestedPoint: SummaryPoint = {
     nodeId: requireString(body.nodeId, "nodeId"),
     offset: typeof body.offset === "number" ? body.offset : null
   };
-  const expected = optionalString(body.expected);
+  const requestedExpected = optionalString(body.expected);
   const source = await stories.loadForMutation(id);
   if (signal.aborted) return null;
-  await stories.hydratePath(source, point.nodeId);
+  await stories.hydratePath(source, requestedPoint.nodeId);
   if (signal.aborted) return null;
-  const prefix = summarizedPath(source, point, expected);
-  const fingerprint = summarySourceFingerprint(source.title, prefix, point);
+  // Validates the exact point the writer asked for (offset in range,
+  // `expected` still matching) before any fallback search runs, so a bad
+  // request still fails the same way it always has.
+  const requestedPrefix = summarizedPath(source, requestedPoint, requestedExpected);
   const { settings, promptCache } = await settingsStore.loadGeneration("utility");
   if (signal.aborted) return null;
+  // Issue #139: a story that has grown to fill the context window could
+  // request a summary and be refused outright — the one operation that
+  // shortens the prompt was refused for being too long itself. Search for
+  // the latest point that fits instead of failing straight away; see
+  // `fittingSummaryPoint`'s own comment for why this is a binary search
+  // over parts, not a size estimate.
+  const resolved = fittingSummaryPoint(settings, source, requestedPoint, requestedPrefix);
+  if (resolved === null) throw new HttpError(422, NOTHING_FITS_SUMMARY_MESSAGE);
+  const { point, prefix } = resolved;
+  // `expected` guarded the requested point's exact cut boundary; an earlier
+  // point never cuts mid-part (see `fittingSummaryPoint`), so a stale
+  // `expected` from the original request would describe nothing real about
+  // it — drop it rather than carry a value that no longer applies.
+  const narrowed = point.nodeId !== requestedPoint.nodeId || point.offset !== requestedPoint.offset;
+  const expected = narrowed ? null : requestedExpected;
+  if (narrowed) onSummaryPointNarrowed?.(point);
+  const fingerprint = summarySourceFingerprint(source.title, prefix, point);
   await bindIntent?.(settings, { kind: "summary", title: source.title, prefix, point, expected });
   const tag = randomUUID().slice(0, 8);
   const marker = `[[summary-complete-${tag}]]`;
@@ -246,6 +282,26 @@ interface SummaryPlan {
   windowBound: boolean;
 }
 
+/** Real, re-measured room left for a summary of one candidate prefix — the
+ *  one place that renders the prompt and counts its tokens, shared by
+ *  `planSummary`'s throwing check below and `fittingSummaryPoint`'s search
+ *  further down, so neither can drift from what a request actually sends.
+ *  `room: null` means no context window is configured, so nothing is ever
+ *  too big to fit. */
+function summaryPromptRoom(
+  settings: GenerationSettings,
+  title: string,
+  prefix: readonly StoryNode[],
+  tag: string,
+  outputBudget: number
+): { prompt: PromptPlan; room: number | null } {
+  const prompt = summaryTakePrompt(title, prefix, outputBudget, tag);
+  if (settings.contextWindow === null) return { prompt, room: null };
+  const messages = renderPromptPlan(prompt);
+  const input = messages.reduce((sum, message) => sum + estimateTokens(message.content) + 4, 0);
+  return { prompt, room: Math.floor(settings.contextWindow * 0.9) - input };
+}
+
 function planSummary(
   settings: GenerationSettings,
   title: string,
@@ -254,16 +310,78 @@ function planSummary(
   maxOutputTokens = settings.maxTokens
 ): SummaryPlan {
   const outputBudget = Math.min(settings.maxTokens, maxOutputTokens);
-  const prompt = summaryTakePrompt(title, prefix, outputBudget, tag);
-  if (settings.contextWindow === null) return { prompt, outputBudget, windowBound: false };
-  const messages = renderPromptPlan(prompt);
-  const input = messages.reduce((sum, message) => sum + estimateTokens(message.content) + 4, 0);
-  const room = Math.floor(settings.contextWindow * 0.9) - input;
+  const { prompt, room } = summaryPromptRoom(settings, title, prefix, tag, outputBudget);
+  if (room === null) return { prompt, outputBudget, windowBound: false };
   if (room < Math.min(MIN_SUMMARY_TOKENS, outputBudget)) {
     throw new HttpError(422, "The story prefix alone nearly fills the configured context window, leaving no room for its summary. Choose an earlier summary point or grow the story from an existing summary.");
   }
   if (room >= outputBudget) return { prompt, outputBudget, windowBound: false };
   return { prompt: summaryTakePrompt(title, prefix, room, tag), outputBudget: room, windowBound: true };
+}
+
+/** A fixed stand-in tag for search probes below — never sent to a model, so
+ *  its exact value does not matter, only that it is the same length as a
+ *  real one (`randomUUID().slice(0, 8)`), so every probe's token count
+ *  stays exactly comparable to the real prompt `createSummaryTake` builds
+ *  once the search settles on a point. */
+const SEARCH_PROBE_TAG = "00000000";
+
+function summaryPrefixFits(settings: GenerationSettings, title: string, prefix: readonly StoryNode[]): boolean {
+  const { room } = summaryPromptRoom(settings, title, prefix, SEARCH_PROBE_TAG, settings.maxTokens);
+  return room === null || room >= Math.min(MIN_SUMMARY_TOKENS, settings.maxTokens);
+}
+
+const NOTHING_FITS_SUMMARY_MESSAGE =
+  "No point in this story leaves room for a summary — even its earliest single part nearly fills the configured context window. Raise the context window in Settings, or lower Max output tokens, and try again.";
+
+/**
+ * The latest point, at or before `requestedPoint`, whose prefix leaves room
+ * for its own summary — or null when even the earliest single part does
+ * not (issue #139).
+ *
+ * Searched, not modeled: prefix cost is monotonic in how many parts are
+ * kept, because dropping a whole part from the end can only shrink the
+ * rendered prompt, never grow it. That is the same shape
+ * shared/fact-admission.ts's `selectFactsForFixedContext` already relies on
+ * for shedding Facts under window pressure, so this follows it — a binary
+ * search over how many trailing parts to drop, each candidate measured for
+ * real by rendering its actual prompt (`summaryPrefixFits`), never
+ * estimated from text length.
+ *
+ * Every candidate before `requestedPoint` uses the earlier part's own full
+ * text (`offset: null`) rather than a partial cut: an earlier point already
+ * covers less of the story than requested, and cutting it further would
+ * additionally trim text inside a part `summarizedPath` was never asked to
+ * trim — the "silently drops story" outcome issue #139 rejected in favor of
+ * choosing a point that keeps every included part whole.
+ */
+function fittingSummaryPoint(
+  settings: GenerationSettings,
+  source: Story,
+  requestedPoint: SummaryPoint,
+  requestedPrefix: readonly StoryNode[]
+): { point: SummaryPoint; prefix: readonly StoryNode[] } | null {
+  if (summaryPrefixFits(settings, source.title, requestedPrefix)) {
+    return { point: requestedPoint, prefix: requestedPrefix };
+  }
+  const fullPath = contextSlice(pathTo(source, requestedPoint.nodeId));
+  const partCount = fullPath.length;
+  const candidateAt = (dropCount: number): { point: SummaryPoint; prefix: readonly StoryNode[] } => {
+    if (dropCount === 0) return { point: requestedPoint, prefix: requestedPrefix };
+    const point: SummaryPoint = { nodeId: fullPath[partCount - 1 - dropCount]!.id, offset: null };
+    return { point, prefix: summarizedPath(source, point, null) };
+  };
+  const fits = (dropCount: number): boolean => summaryPrefixFits(settings, source.title, candidateAt(dropCount).prefix);
+  // Not even the earliest single part fits alone — no point in this story
+  // leaves room for a summary.
+  if (!fits(partCount - 1)) return null;
+  let low = 1;
+  let high = partCount - 1;
+  while (low < high) {
+    const mid = low + Math.floor((high - low) / 2);
+    if (fits(mid)) high = mid; else low = mid + 1;
+  }
+  return candidateAt(low);
 }
 
 export function summaryTakePrompt(

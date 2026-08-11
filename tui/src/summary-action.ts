@@ -1,9 +1,9 @@
 import { activeLineFingerprintSource } from "../../shared/story-text.js";
-import { textHash } from "./api.js";
+import { textHash, type NarrowedSummaryPoint } from "./api.js";
 import type { AppSource } from "./app.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import type { RuntimeState, SummaryOverlayState } from "./state.js";
-import { summaryStretch } from "./summary-model.js";
+import { summaryPointProgress, summaryStretch } from "./summary-model.js";
 import type { ActionContext } from "./action-context.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
@@ -11,6 +11,23 @@ import { adoptSameStoryPayload } from "./story-adoption.js";
 type SummaryActionContext = Pick<ActionContext, "backend" | "cache" | "repaint">;
 
 const SUMMARY_STOPPING_TOAST = "summary draft discarded · waiting for backend settlement";
+
+/** `createSummaryTake` chose an earlier point than requested (issue #139):
+ *  tell the writer how much of the story the summary actually covers,
+ *  reusing the same eligible-parts count (`stretch`) the summary overlay
+ *  already showed while it streamed, so the two never disagree about what
+ *  was on offer. */
+function narrowedSummaryToast(
+  requestedPath: readonly { id: string }[],
+  stretch: { start: number; total: number },
+  narrowedTo: NarrowedSummaryPoint
+): string {
+  const used = summaryPointProgress(requestedPath, stretch, narrowedTo.nodeId);
+  if (used === null) {
+    return "◈ summary take saved · covers less of the story than requested — the full prefix filled the context window";
+  }
+  return `◈ summary take saved · covers ${used} of ${stretch.total} ${used === 1 ? "part" : "parts"} — the rest filled the context window`;
+}
 
 /** The backend task owns summary creation through switch/reload settlement. */
 export async function startSummary(
@@ -29,7 +46,8 @@ export async function startSummary(
   }
 
   await context.backend.run("summarizing story", async (task) => {
-    const stretch = summaryStretch(state.payload.path);
+    const requestedPath = state.payload.path;
+    const stretch = summaryStretch(requestedPath);
     const controller = new AbortController();
     const summary: SummaryOverlayState = {
       start: stretch.start,
@@ -46,13 +64,14 @@ export async function startSummary(
     context.repaint();
 
     try {
-      const nodeId = await source.api.createSummaryTake(task.storyId, { nodeId: leaf.id }, (delta) => {
+      const result = await source.api.createSummaryTake(task.storyId, { nodeId: leaf.id }, (delta) => {
         if (!task.owns() || state.summary !== summary) return;
         summary.text += delta;
         context.repaint();
       }, controller.signal);
       if (controller.signal.aborted) return await reloadAfterStop(state, source, task.storyId, task.storyCurrent, context.cache);
-      if (nodeId === null || !task.storyCurrent()) return;
+      if (result === null || !task.storyCurrent()) return;
+      const { nodeId, narrowedTo } = result;
 
       const expectedLineFingerprint = await fingerprint;
       if (controller.signal.aborted) return await reloadAfterStop(state, source, task.storyId, task.storyCurrent, context.cache);
@@ -72,7 +91,7 @@ export async function startSummary(
         state.toast = "◈ summary saved as a take · line changed while it wrote";
       } else {
         state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(switched), switched.path[index]!.id));
-        state.toast = "◈ summary take saved";
+        state.toast = narrowedTo === null ? "◈ summary take saved" : narrowedSummaryToast(requestedPath, stretch, narrowedTo);
       }
       rememberFocus(state, source);
       state.summary = null;

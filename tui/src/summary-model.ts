@@ -7,6 +7,21 @@ export function summaryStretch(path: readonly { role?: "summary" }[]): { start: 
   return { start, end, total: Math.max(0, end - start + 1) };
 }
 
+/** How many of `stretch.total` eligible parts `nodeId` actually covers,
+ *  1-based — the server's own answer, via `createSummaryTake`'s
+ *  `narrowedTo`, to "how much of the request got summarized" (issue #139).
+ *  `path` is the pre-summary active path `stretch` was computed from. null
+ *  when `nodeId` is not on that path at all — defensive only, since every
+ *  point a real response reports is already an ancestor on it. */
+export function summaryPointProgress(
+  path: readonly { id: string }[],
+  stretch: { start: number },
+  nodeId: string
+): number | null {
+  const index = path.findIndex((node) => node.id === nodeId);
+  return index === -1 ? null : index - stretch.start + 2;
+}
+
 /** Providers do not expose source-consumption events. Honor an explicit ¶ marker; otherwise report honest word progress. */
 export function deriveSummaryProgress(text: string, totalParts: number): SummaryProgress {
   const matches = [...text.matchAll(/¶\s*(\d+)(?:\s+of\s+(\d+))?/gi)];

@@ -5,6 +5,15 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **A story that fills the context window can summarize again.** Before this
+  fix, a story that grew to fill the model's context window could not write
+  and could not summarize either: the one operation that shortens the story
+  was refused for being too long itself. 1667 now looks backward for an
+  earlier point that still fits and summarizes there instead. It tells you
+  when the summary covers less than you asked for, and names the point where
+  it stopped. It refuses only when no point fits at all, and that message now
+  names a fix you can act on. Thanks to @10fra.
+
 - **1667 prepares to send images to a model.** This release contains the
   complete Image Input implementation and keeps every entry point closed. It
   cannot attach an image yet. 1667 releases a new storage schema in two steps:

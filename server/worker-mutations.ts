@@ -972,7 +972,9 @@ const MUTATIONS: MutationRegistry = {
       if (needsCompatibilityGenerationRecovery(plan, context)) {
         const story = await service.stories.loadForMutation(input.storyId);
         if (plan.generationAction(story.nodes.some((node) => node.id === summaryNodeId)) === "return-committed") {
-          return summaryNodeId;
+          // Recovery has no way to know what a prior attempt's search chose
+          // — only that the point it settled on already committed.
+          return { nodeId: summaryNodeId, narrowedTo: null };
         }
       }
       return await service.createSummaryTake(

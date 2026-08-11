@@ -19,7 +19,7 @@ import type { SettingsStore } from "./settings.js";
 import type { StoryMutationStore } from "./story-mutation-store.js";
 import { buildStoryPayload } from "./story-payload.js";
 import type { StoryStore } from "./stories.js";
-import { createSummaryTake } from "./summary-take.js";
+import { createSummaryTake, type SummaryPoint } from "./summary-take.js";
 import { requireString } from "./validation.js";
 
 /** The hooks a caller of `StoryServiceGeneration`'s streamed mutations may
@@ -260,8 +260,15 @@ export class StoryServiceGeneration {
       summaryNodeId?: string;
       cutNodeId?: string;
     } = {}
-  ): Promise<string | null> {
+  ): Promise<{ nodeId: string; narrowedTo: SummaryPoint | null } | null> {
     const body = parseSummaryTake(value);
+    // The point actually summarized lives only inside createSummaryTake's own
+    // call stack — this closure is how it survives past the provider-operation
+    // boundary below, the same way continueStory's `droppedFacts` does above.
+    // A crash-recovery replay that skips straight to the committed node never
+    // reaches this callback, so it stays null rather than guessing.
+    let narrowedTo: SummaryPoint | null = null;
+    const onSummaryPointNarrowed = (point: SummaryPoint): void => { narrowedTo = point; };
     if (options.mutationRequest !== undefined) {
       return await this.dependencies.cancellable(signal, async (active) => {
         const committed =
@@ -285,6 +292,7 @@ export class StoryServiceGeneration {
                 },
                 {
                   ...options,
+                  onSummaryPointNarrowed,
                   providerStarted: async () => {
                     await providerStarted();
                     await options.providerStarted?.();
@@ -294,25 +302,28 @@ export class StoryServiceGeneration {
             replayValue: () => options.summaryNodeId ?? null
           }
         );
-        return committed.value;
+        return committed.value === null ? null : { nodeId: committed.value, narrowedTo };
       });
     }
     return await this.dependencies.cancellable(
       signal,
-      (active) => createSummaryTake(
-        id,
-        body,
-        this.dependencies.stories,
-        this.dependencies.settings,
-        this.dependencies.promptCache,
-        onDelta,
-        active,
-        {
-          summaryNodeId: options.summaryNodeId,
-          cutNodeId: options.cutNodeId
-        },
-        options
-      )
+      async (active) => {
+        const nodeId = await createSummaryTake(
+          id,
+          body,
+          this.dependencies.stories,
+          this.dependencies.settings,
+          this.dependencies.promptCache,
+          onDelta,
+          active,
+          {
+            summaryNodeId: options.summaryNodeId,
+            cutNodeId: options.cutNodeId
+          },
+          { ...options, onSummaryPointNarrowed }
+        );
+        return nodeId === null ? null : { nodeId, narrowedTo };
+      }
     );
   }
 
