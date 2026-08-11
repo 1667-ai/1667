@@ -30,7 +30,7 @@ describe("connection timeout settings rows (issue #127)", () => {
       { row: "timeout-headers", typed: "42", field: "responseHeaderMs", expectedMs: 42_000 },
       { row: "timeout-first-token", typed: "77", field: "firstTokenMs", expectedMs: 77_000 },
       { row: "timeout-idle", typed: "15", field: "idleMs", expectedMs: 15_000 },
-      { row: "timeout-total", typed: "10", field: "totalMs", expectedMs: 600_000 }
+      { row: "timeout-total", typed: "600", field: "totalMs", expectedMs: 600_000 }
     ] as const;
 
     for (const { row, typed, field, expectedMs } of cases) {
@@ -58,7 +58,7 @@ describe("connection timeout settings rows (issue #127)", () => {
     await draftRow(press, state, "timeout-headers", "42");
     await draftRow(press, state, "timeout-first-token", "77");
     await draftRow(press, state, "timeout-idle", "15");
-    await draftRow(press, state, "timeout-total", "10");
+    await draftRow(press, state, "timeout-total", "600");
     await press(key("s"));
 
     expect(commands).toHaveLength(1);
@@ -134,7 +134,7 @@ describe("connection timeout settings rows (issue #127)", () => {
   const PAST_TRACK_BUT_VALID = [
     { row: "timeout-headers" as const, typed: "1200", field: "responseHeaderMs" as const, ms: 1_200_000 },
     { row: "timeout-idle" as const, typed: "1200", field: "idleMs" as const, ms: 1_200_000 },
-    { row: "timeout-total" as const, typed: "240", field: "totalMs" as const, ms: 14_400_000 }
+    { row: "timeout-total" as const, typed: "14400", field: "totalMs" as const, ms: 14_400_000 }
   ];
 
   for (const { row, typed, field, ms } of PAST_TRACK_BUT_VALID) {
@@ -170,6 +170,25 @@ describe("connection timeout settings rows (issue #127)", () => {
       expect(stepped).toBeGreaterThan(ms);
     });
   }
+
+  test("a fractional value can be typed even when the row currently holds a whole one", async () => {
+    // What a row accepts must not depend on what it currently holds. Deriving
+    // the typed precision from the stored value made a row showing `120s`
+    // refuse `1.5` outright, so a writer could never reach a sub-second
+    // deadline the document accepts.
+    const { source, state, press } = settingsHarness();
+    installNetworkSettings(source);
+    await openSettings(press);
+    await draftRow(press, state, "timeout-headers", "1.5");
+
+    const document = state.settings!.draft.document!;
+    const profileId = state.settings!.draft.selectedProfileId!;
+    expect(
+      resolveSettingsProfile(document, profileId).connection.timeouts.responseHeaderMs
+    ).toBe(1_500);
+    expect(settingsRows(state.settings!, state.config)
+      .find((candidate) => candidate.id === "timeout-headers")?.invalid).toBe(undefined);
+  });
 
   test("a hand-edited timeout that is not a whole second shows the value the runtime will use", async () => {
     // Stored values are whole milliseconds and need not land on a second.

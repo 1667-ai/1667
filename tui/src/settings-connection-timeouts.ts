@@ -3,7 +3,7 @@ import type {
   SettingsDocumentV2
 } from "../../shared/settings-v2-types.js";
 import { defaultConnectionTimeouts } from "../../shared/settings-provider-defaults.js";
-import { MAX_SETTINGS_TIMEOUT_MS } from "../../server/settings-v2-scalars.js";
+import { MAX_SETTINGS_TIMEOUT_MS, MIN_SETTINGS_TIMEOUT_MS } from "../../server/settings-v2-scalars.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import { markControlMutation } from "./settings-profile-cycle.js";
 import { replaceSettingsDraft } from "./settings-draft-transition.js";
@@ -57,6 +57,8 @@ type TimeoutUnit = "seconds" | "minutes";
 
 const MS_PER_SECOND = 1_000;
 const MS_PER_MINUTE = 60_000;
+/** Enough to spell any whole millisecond against a seconds divisor. */
+const TIMEOUT_INPUT_DECIMALS = 3;
 
 interface ConnectionTimeoutRowSpec {
   readonly field: keyof ConnectionTimeoutsV2;
@@ -79,6 +81,10 @@ interface ConnectionTimeoutRowSpec {
    *  valid and editable instead of being reported as past a maximum that the
    *  settings document does not have. */
   readonly acceptedMax: number;
+  /** The schema floor (1 ms) in display units, for the same reason
+   *  `acceptedMax` exists: a valid short deadline must not read as invalid
+   *  merely because the track starts higher. */
+  readonly acceptedMin: number;
   readonly hint: string;
 }
 
@@ -91,6 +97,7 @@ const CONNECTION_TIMEOUT_ROW_SPECS: Record<ConnectionTimeoutRow, ConnectionTimeo
     min: 1,
     max: 600,
     acceptedMax: MAX_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
+    acceptedMin: MIN_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     step: 5,
     hint: "wait for response headers to start arriving"
   },
@@ -102,6 +109,7 @@ const CONNECTION_TIMEOUT_ROW_SPECS: Record<ConnectionTimeoutRow, ConnectionTimeo
     min: 1,
     max: 1_800,
     acceptedMax: MAX_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
+    acceptedMin: MIN_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     step: 5,
     hint: "wait for the first token · a large prompt extends this automatically"
   },
@@ -113,18 +121,23 @@ const CONNECTION_TIMEOUT_ROW_SPECS: Record<ConnectionTimeoutRow, ConnectionTimeo
     min: 1,
     max: 600,
     acceptedMax: MAX_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
+    acceptedMin: MIN_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     step: 5,
     hint: "wait between stream events once output has started"
   },
   "timeout-total": {
     field: "totalMs",
     label: "total",
-    unit: "minutes",
-    unitSuffix: "m",
+    // Seconds, like the other three. Minutes reads better but cannot spell a
+    // stored millisecond at any decimal count (1 ms is 0.0000166… minutes),
+    // so the row would have to misreport some valid documents to use it.
+    unit: "seconds",
+    unitSuffix: "s",
     min: 1,
-    max: 180,
-    acceptedMax: MAX_SETTINGS_TIMEOUT_MS / MS_PER_MINUTE,
-    step: 5,
+    max: 10_800,
+    acceptedMax: MAX_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
+    acceptedMin: MIN_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
+    step: 30,
     hint: "wall-clock limit for the whole generation"
   }
 };
@@ -184,6 +197,10 @@ function connectionTimeoutScalarForDraft(
     min: spec.min,
     max: spec.max,
     acceptedMax: spec.acceptedMax,
+    acceptedMin: spec.acceptedMin,
+    // Milliseconds against a seconds divisor: three decimals spells any
+    // stored value exactly, whatever the current one happens to be.
+    inputDecimals: TIMEOUT_INPUT_DECIMALS,
     step: spec.step,
     defaultValue: defaults[spec.field] / divisor,
     decimals: timeoutDecimals(route.connection.timeouts[spec.field], divisor),
