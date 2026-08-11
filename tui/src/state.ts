@@ -208,7 +208,6 @@ export type SettingsRowId =
   | "api-key"
   | "api-key-env"
   | "timeout-headers"
-  | "timeout-first-token"
   | "timeout-idle"
   | "timeout-total"
   | "profile"

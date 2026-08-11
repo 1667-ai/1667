@@ -160,13 +160,19 @@ export async function* providerSseEvents(
     // total deadline, which is already ticking from the start of the request
     // (`totalTimer` above) and is the only bound left that still means
     // something once a prompt is large enough that prefill could plausibly
-    // take a while: `Math.max` here only matters when a writer has set
-    // `firstTokenMs` above `totalMs`, in which case that explicit choice is
-    // still honoured. In the ordinary case the total timer fires first and
-    // reports "exceeded its total deadline" — this phase's own message below
-    // is now effectively unreachable in production, kept only so a caller
-    // cancellation or a future narrower signal still has a typed phase to
-    // report against.
+    // take a while.
+    //
+    // `firstTokenMs` is deliberately not consulted. The total timer starts
+    // when the request does and this one starts only after headers, so the
+    // total fires first whatever `firstTokenMs` holds — a configured value
+    // could never change a single request. Reading it here would imply
+    // otherwise, and Settings no longer offers a row for it for the same
+    // reason. The field stays in `ConnectionTimeoutsV2` so existing documents
+    // keep parsing; to give a slow prompt more room, raise the total.
+    //
+    // This phase's message below is therefore effectively unreachable in
+    // production, kept only so a caller cancellation or a future narrower
+    // signal still has a typed phase to report against.
     //
     // Accepted tradeoff (raised in review, not covered): a server that dies
     // after sending headers is no longer detected quickly — it consumes the
@@ -176,7 +182,7 @@ export async function* providerSseEvents(
     // about a server that was never going to answer, while an early one
     // destroys minutes of real work.
     setPhaseTimer(
-      Math.max(runtime.timeouts.firstTokenMs, runtime.timeouts.totalMs),
+      runtime.timeouts.totalMs,
       "Model server did not produce stream activity before the configured deadline.",
       "provider-first-token"
     );

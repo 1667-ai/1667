@@ -35,13 +35,11 @@ import type { SettingsRowPresentation } from "./settings-profile-controls.js";
  *  editing only, never a schema change. */
 export type ConnectionTimeoutRow =
   | "timeout-headers"
-  | "timeout-first-token"
   | "timeout-idle"
   | "timeout-total";
 
 export const CONNECTION_TIMEOUT_ROWS = [
   "timeout-headers",
-  "timeout-first-token",
   "timeout-idle",
   "timeout-total"
 ] as const satisfies readonly ConnectionTimeoutRow[];
@@ -100,18 +98,6 @@ const CONNECTION_TIMEOUT_ROW_SPECS: Record<ConnectionTimeoutRow, ConnectionTimeo
     acceptedMin: MIN_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     step: 5,
     hint: "wait for response headers to start arriving"
-  },
-  "timeout-first-token": {
-    field: "firstTokenMs",
-    label: "first token",
-    unit: "seconds",
-    unitSuffix: "s",
-    min: 1,
-    max: 1_800,
-    acceptedMax: MAX_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
-    acceptedMin: MIN_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
-    step: 5,
-    hint: "wait for the first token · never ends before the total deadline"
   },
   "timeout-idle": {
     field: "idleMs",

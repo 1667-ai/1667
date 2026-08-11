@@ -28,7 +28,6 @@ describe("connection timeout settings rows (issue #127)", () => {
 
     const cases = [
       { row: "timeout-headers", typed: "42", field: "responseHeaderMs", expectedMs: 42_000 },
-      { row: "timeout-first-token", typed: "77", field: "firstTokenMs", expectedMs: 77_000 },
       { row: "timeout-idle", typed: "15", field: "idleMs", expectedMs: 15_000 },
       { row: "timeout-total", typed: "600", field: "totalMs", expectedMs: 600_000 }
     ] as const;
@@ -42,7 +41,7 @@ describe("connection timeout settings rows (issue #127)", () => {
     }
   });
 
-  test("the four edited timeouts survive a save round trip", async () => {
+  test("the three edited timeouts survive a save round trip, leaving first token alone", async () => {
     const { source, state, press } = settingsHarness();
     const current = installNetworkSettings(source);
     const commands: SaveSettingsCommand[] = [];
@@ -55,8 +54,11 @@ describe("connection timeout settings rows (issue #127)", () => {
     source.api.getSettings = async () => source.settingsView;
 
     await openSettings(press);
+    const installedFirstTokenMs = resolveSettingsProfile(
+      state.settings!.draft.document!,
+      state.settings!.draft.selectedProfileId!
+    ).connection.timeouts.firstTokenMs;
     await draftRow(press, state, "timeout-headers", "42");
-    await draftRow(press, state, "timeout-first-token", "77");
     await draftRow(press, state, "timeout-idle", "15");
     await draftRow(press, state, "timeout-total", "600");
     await press(key("s"));
@@ -67,7 +69,8 @@ describe("connection timeout settings rows (issue #127)", () => {
     const timeouts = resolveSettingsProfile(document, profileId).connection.timeouts;
     expect(timeouts).toEqual({
       responseHeaderMs: 42_000,
-      firstTokenMs: 77_000,
+      // Untouched: no row edits it, and the runtime never reads it.
+      firstTokenMs: installedFirstTokenMs,
       idleMs: 15_000,
       totalMs: 600_000
     });
@@ -92,12 +95,18 @@ describe("connection timeout settings rows (issue #127)", () => {
     expect(after).toBe(before + 5_000);
   });
 
-  test("the first-token row's hint says it never ends before the total deadline", async () => {
+  test("no row is offered for the first-token deadline, which cannot affect a request", async () => {
+    // server/provider-sse.ts waits for the first token until the total
+    // deadline, and the total timer starts earlier, so a configured
+    // firstTokenMs can never change a request. A row for it would save
+    // successfully and do nothing.
     const { state, press } = settingsHarness();
     await openSettings(press);
-    const rows = settingsRows(state.settings!, state.config);
-    const firstToken = rows.find((candidate) => candidate.id === "timeout-first-token");
-    expect(firstToken?.hint).toContain("total deadline");
+    const ids = settingsRows(state.settings!, state.config).map((row) => row.id);
+    expect(ids).not.toContain("timeout-first-token");
+    expect(ids).toContain("timeout-headers");
+    expect(ids).toContain("timeout-idle");
+    expect(ids).toContain("timeout-total");
   });
 
   // Every timeout shares one schema ceiling, so every row has to reach it.
@@ -108,7 +117,6 @@ describe("connection timeout settings rows (issue #127)", () => {
   // so stepping is usable; it is not the limit.
   const PAST_TRACK_BUT_VALID = [
     { row: "timeout-headers" as const, typed: "1200", field: "responseHeaderMs" as const, ms: 1_200_000 },
-    { row: "timeout-first-token" as const, typed: "2000", field: "firstTokenMs" as const, ms: 2_000_000 },
     { row: "timeout-idle" as const, typed: "1200", field: "idleMs" as const, ms: 1_200_000 },
     { row: "timeout-total" as const, typed: "14400", field: "totalMs" as const, ms: 14_400_000 }
   ];

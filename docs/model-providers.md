@@ -559,12 +559,16 @@ for **first token**, and for **idle**. It uses 30 minutes for **total**.
 
 ### Change a deadline in Settings
 
-The Settings panel shows the four deadlines in the **connection** section.
-Select a deadline row. Press `Left Arrow` or `Right Arrow` to step the value.
-Press `Enter` to type a value. The panel shows all four deadlines in
-seconds. 1667 stores a deadline in milliseconds. Thus a deadline that is
-not a whole number of seconds shows its decimals, and you can type a
-value with decimals.
+The Settings panel shows three of the deadlines in the **connection**
+section: **headers**, **idle**, and **total**. Select a deadline row. Press
+`Left Arrow` or `Right Arrow` to step the value. Press `Enter` to type a
+value. The panel shows each deadline in seconds. 1667 stores a deadline in
+milliseconds. Thus a deadline that is not a whole number of seconds shows
+its decimals, and you can type a value with decimals.
+
+The panel shows no row for **first token**. 1667 waits for the first token
+until the **total** deadline, so a **first token** value cannot change a
+request. To give a slow prompt more time, raise **total**.
 
 You can also set `connections.<id>.timeouts.responseHeaderMs`, `firstTokenMs`,
 `idleMs`, and `totalMs` directly in the project settings document.

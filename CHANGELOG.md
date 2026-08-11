@@ -15,11 +15,14 @@ This file records notable changes to 1667. Product terms use the definitions in
   deadline is unchanged: a server that has not returned response headers
   still ends the generation quickly. Thanks @10fra for the report.
 
-- **The four connection deadlines are editable in Settings.** The new
-  **headers**, **first token**, **idle**, and **total** rows sit under the
-  **connection** section. Each value already lived in the settings document;
-  Settings now shows and edits it directly, instead of requiring a hand
-  edit of the settings file. Thanks to @10fra.
+- **Three connection deadlines are editable in Settings.** The new
+  **headers**, **idle**, and **total** rows sit under the **connection**
+  section. Each value already lived in the settings document, and Settings
+  now shows and edits it directly instead of a hand edit of the settings
+  file. There is no row for the first-token deadline, because 1667 waits for
+  the first token until the **total** deadline and a first-token value
+  cannot change a request. To give a slow prompt more time, raise **total**.
+  Thanks to @10fra.
 
 - **1667 prepares to send images to a model.** This release contains the
   complete Image Input implementation and keeps every entry point closed. It
