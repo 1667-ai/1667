@@ -45,7 +45,7 @@ import {
 const DOCUMENT = closedShape(["schemaVersion", "connections", "models", "profiles", "routing", "writing"]);
 const CONNECTION = closedShape(
   ["name", "preset", "protocol", "baseUrl", "auth", "headers", "timeouts"],
-  ["allowInsecureHttp", "textPromptFormat"]
+  ["allowInsecureHttp", "textPromptFormat", "splitThinkTags"]
 );
 const TIMEOUTS = closedShape(["responseHeaderMs", "firstTokenMs", "idleMs", "totalMs"]);
 const AUTH_NONE = closedShape(["type"]);
@@ -139,6 +139,9 @@ export function parseConnections(
       );
     }
     const timeouts = parseTimeouts(connection.timeouts, `connection ${id}.timeouts`);
+    const splitThinkTags = connection.splitThinkTags === undefined
+      ? undefined
+      : literal(connection.splitThinkTags, true, `connection ${id}.splitThinkTags`);
     const allowInsecureHttp = connection.allowInsecureHttp === undefined
       ? undefined
       : literal(connection.allowInsecureHttp, true, `connection ${id}.allowInsecureHttp`);
@@ -148,6 +151,13 @@ export function parseConnections(
     if (protocol !== "text-completions" && textPromptFormat !== undefined) {
       throw new SettingsFormatError(
         `connection ${id}.textPromptFormat requires text-completions`
+      );
+    }
+    // A chat route already carries reasoning in its own field, so the split
+    // would be a second, worse source for the same thing.
+    if (protocol !== "text-completions" && splitThinkTags !== undefined) {
+      throw new SettingsFormatError(
+        `connection ${id}.splitThinkTags requires text-completions`
       );
     }
     if (textPromptFormat === "server-template" && preset !== "llama-cpp") {
@@ -164,7 +174,8 @@ export function parseConnections(
       headers,
       timeouts,
       ...(textPromptFormat === undefined ? {} : { textPromptFormat }),
-      ...(allowInsecureHttp === true ? { allowInsecureHttp: true as const } : {})
+      ...(allowInsecureHttp === true ? { allowInsecureHttp: true as const } : {}),
+      ...(splitThinkTags === true ? { splitThinkTags: true as const } : {})
     };
   }
   return result;

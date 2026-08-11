@@ -55,12 +55,24 @@ export function reasoningDisplayAvailabilityForTarget(
   };
 }
 
+/** What one route can actually return, which is not always what the model
+ *  alone says. A text protocol reports `reasoningContent: "unsupported"`
+ *  because that wire format carries no reasoning field, but a connection with
+ *  `splitThinkTags` on makes one: the split is precisely what turns a
+ *  `<think>` block into a thought. The model capability stays honest about
+ *  the protocol, and the connection setting overrides it here, at the only
+ *  layer that can see both. */
+function routeReasoningContent(route: SelectedSettingsRouteV2): FeatureSupportV2 {
+  if (route.connection.splitThinkTags === true) return "supported";
+  return route.model.capabilities.reasoningContent ?? "unknown";
+}
+
 /** Return only display values the exact profile route can populate. */
 export function reasoningDisplayChoicesForRoute(
   route: SelectedSettingsRouteV2
 ): readonly ReasoningDisplayV2[] {
   return reasoningDisplayChoicesForTarget({
-    reasoningContent: route.model.capabilities.reasoningContent ?? "unknown"
+    reasoningContent: routeReasoningContent(route)
   });
 }
 
@@ -71,7 +83,7 @@ export function reasoningDisplayAvailabilityForRoute(
   display: ReasoningDisplayV2
 ): ReasoningDisplayAvailability {
   return reasoningDisplayAvailabilityForTarget({
-    reasoningContent: route.model.capabilities.reasoningContent ?? "unknown",
+    reasoningContent: routeReasoningContent(route),
     modelName: route.model.name,
     connectionName: route.connection.name
   }, display);

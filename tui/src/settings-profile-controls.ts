@@ -158,6 +158,15 @@ export function settingsRows(
         : "text completions only"
     },
     {
+      id: "split-think-tags", section: "connection", label: "split thoughts",
+      value: settings.provider === "text-completion"
+        ? `[ ${splitThinkTags(overlay) ? "on" : "off"} ]`
+        : "—",
+      hint: settings.provider === "text-completion"
+        ? "keep a <think> block as the take's thought"
+        : "text completions only"
+    },
+    {
       id: "base-url", section: "connection", label: "base URL",
       value: settings.baseUrl || "—",
       hint: "the endpoint requests go to",
@@ -414,6 +423,46 @@ function keepThoughts(overlay: SettingsOverlayState): boolean {
   const profileId = overlay.draft.selectedProfileId;
   if (document === null || profileId === null) return true;
   return document.profiles[profileId]?.discardReasoning !== true;
+}
+
+/** Whether this route's connection splits a `<think>` block out of the token
+ *  stream. A chat route carries reasoning in its own field, so only a text
+ *  connection ever stores this. */
+function splitThinkTags(overlay: SettingsOverlayState): boolean {
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  if (document === null || profileId === null) return false;
+  return resolveSettingsProfile(document, profileId).connection.splitThinkTags === true;
+}
+
+/** Toggle the split for the routed connection. Returns the new state, or null
+ *  when no text connection owns the row. */
+export function cycleSplitThinkTags(overlay: SettingsOverlayState): boolean | null {
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  if (
+    document === null
+    || profileId === null
+    || overlay.draft.generation.provider !== "text-completion"
+  ) return null;
+  const route = resolveSettingsProfile(document, profileId);
+  const enabled = route.connection.splitThinkTags !== true;
+  // Absence is the off state, the same shape `allowInsecureHttp` persists.
+  const { splitThinkTags: _dropped, ...rest } = route.connection;
+  replaceSettingsDraft(
+    overlay,
+    settingsTextDraftForDocument({
+      ...document,
+      connections: {
+        ...document.connections,
+        [route.model.connectionId]: enabled
+          ? { ...rest, splitThinkTags: true as const }
+          : rest
+      }
+    }, profileId)
+  );
+  markControlMutation(overlay);
+  return enabled;
 }
 
 export function cycleTextPromptFormatControl(
