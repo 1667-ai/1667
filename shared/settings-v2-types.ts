@@ -405,11 +405,14 @@ export type SettingsTransactionPointerV2 =
       readonly phase: "prepared";
     };
 
-export interface SettingsStateV2 {
-  readonly schemaVersion: 2;
+/** The field list for one settings-state aggregate, generic over its schema
+ *  version and its document type. `SettingsStateV2` and `SettingsStateV3` are
+ *  the only two instantiations; neither restates a field. */
+export interface SettingsStateEnvelope<V extends 2 | 3, D> {
+  readonly schemaVersion: V;
   readonly stateGeneration: number;
   readonly settingsRevisionClock: number;
-  readonly documents: Readonly<Record<string, SettingsDocumentV2>>;
+  readonly documents: Readonly<Record<string, D>>;
   readonly activeRevision: number;
   readonly pendingRevision: number | null;
   readonly previousRevision: number | null;
@@ -418,21 +421,13 @@ export interface SettingsStateV2 {
   readonly lastTransaction: SettingsTransactionPointerV2 | null;
 }
 
-/** Schema 3's aggregate state envelope: identical to `SettingsStateV2` except
- *  its documents are schema 3. Nothing in this release writes one; it exists
- *  so a schema-3 state (produced by a later release) reads and validates. */
-export interface SettingsStateV3 {
-  readonly schemaVersion: 3;
-  readonly stateGeneration: number;
-  readonly settingsRevisionClock: number;
-  readonly documents: Readonly<Record<string, SettingsDocumentV3>>;
-  readonly activeRevision: number;
-  readonly pendingRevision: number | null;
-  readonly previousRevision: number | null;
-  readonly activation: SettingsActivationV2 | null;
-  readonly lastActivationOutcome: SettingsActivationOutcomeV2 | null;
-  readonly lastTransaction: SettingsTransactionPointerV2 | null;
-}
+export type SettingsStateV2 = SettingsStateEnvelope<2, SettingsDocumentV2>;
+
+/** Schema 3's aggregate state: identical field list to `SettingsStateV2`
+ *  except its documents are schema 3. Nothing in this release writes one; it
+ *  exists so a schema-3 state (produced by a later release) reads and
+ *  validates. */
+export type SettingsStateV3 = SettingsStateEnvelope<3, SettingsDocumentV3>;
 
 export const SETTINGS_ROUTE_PURPOSE_VALUES = ["default", "prose", "utility"] as const;
 export type SettingsRoutePurpose = (typeof SETTINGS_ROUTE_PURPOSE_VALUES)[number];
