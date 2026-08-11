@@ -200,7 +200,7 @@ jobs:
         if: matrix.target != 'darwin-x64' && matrix.target != 'windows-x64'
         run: npm test
 
-      - name: Run Windows platform and Installer tests
+      - name: Run Windows platform, installer, and image tests
         if: matrix.target == 'windows-x64'
         run: >-
           node --import tsx --import ./test/setup.ts --test
@@ -208,6 +208,7 @@ jobs:
           test/windows-platform-acl-edge-cases.test.ts
           test/release-install-script.test.ts
           test/release-install-powershell.test.ts
+          test/image-normalize.test.ts
 
       - name: Run Intel macOS platform tests without benchmark contention
         if: matrix.target == 'darwin-x64'
@@ -218,10 +219,15 @@ jobs:
         working-directory: tui
         run: bun test --timeout 30000
 
-      - name: Run Windows upgrade contract tests
+      - name: Run Windows upgrade, ownership, and clipboard tests
         if: matrix.target == 'windows-x64'
         working-directory: tui
-        run: bun test --timeout 30000 test/upgrade-cli.test.ts test/install-ownership-authority.test.ts
+        run: >-
+          bun test --timeout 30000
+          test/upgrade-cli.test.ts
+          test/install-ownership-authority.test.ts
+          test/clipboard-command-runner.test.ts
+          test/clipboard-windows.test.ts
 
       - name: Run Intel macOS TUI tests without filesystem contention
         if: matrix.target == 'darwin-x64'

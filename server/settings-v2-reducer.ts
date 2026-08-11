@@ -13,7 +13,7 @@ import { SettingsFormatError } from "./settings-v2-scalars.js";
 import {
   settingsStateRelation,
   type SettingsStateRelation
-} from "./settings-v2-state-validation.js";
+} from "./settings-state-validation.js";
 import { canonicalJson } from "./canonical-json.js";
 
 type UserSettingsPointer = Extract<SettingsTransactionPointerV2, { receiptKind: "user" }>;
