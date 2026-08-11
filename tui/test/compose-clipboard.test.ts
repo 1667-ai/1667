@@ -53,7 +53,7 @@ function setRoute(source: AppSource, protocol: SettingsProtocolV2, remoteId: str
 }
 
 describe("a clipboard image and the release gate", () => {
-  test("falls back to the pre-Image-Input unreadable toast, never an error, while entry points are closed, the release default", async () => {
+  test("falls back to the pre-Image-Input unreadable toast, never an error, while entry points are closed", async () => {
     clipboardContent = { type: "image", mediaType: "image/png", bytes: new Uint8Array([1, 2, 3]) };
     const source = demoAppSource();
     setRoute(source, "anthropic-messages", "claude-sonnet-5");
@@ -62,7 +62,10 @@ describe("a clipboard image and the release gate", () => {
     let staged = false;
     source.api.stageStoryImage = async () => { staged = true; throw new Error("must not stage while entry points are closed"); };
 
-    await pasteClipboardIntoComposer(state, source, backendContext(state));
+    // This release's own default opens the gate (shared/image-input-release.ts),
+    // so a genuine predecessor's refusal needs the explicit override; the
+    // test right below drives the bare default instead.
+    await pasteClipboardIntoComposer(state, source, backendContext(state), false);
 
     expect(staged).toBeFalse();
     expect(state.toast).toBe("clipboard unreadable · paste with ⌘V or ctrl+shift+v");

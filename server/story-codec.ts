@@ -88,6 +88,19 @@ export interface EncodeStoryBundleOptions {
   activation?: boolean;
 }
 
+/** True once any take in `story` carries an Image Attachment. This is the
+ *  other half of the successor-content decision: release-wide activation
+ *  says a write MAY use the successor schema; this says one actually NEEDS
+ *  it. `encodeStoryBundle` requires both, so turning the release-wide switch
+ *  on never upgrades a story that has nothing to gain from the successor
+ *  schema, on any call path. Exported so every caller that must reason about
+ *  the same decision ahead of time, such as the aggregate session choosing
+ *  whether to accept an in-flight Image Attachment, shares this one rule
+ *  instead of restating it. */
+export function storyHasImageAttachments(story: Story): boolean {
+  return story.nodes.some((node) => node.imageAttachments !== undefined);
+}
+
 export function encodeStoryBundle(
   story: Story,
   objects: StoryObjectStore,
@@ -115,7 +128,14 @@ export async function encodeStoryBundle(
   snapshot?: StoryRevisionSnapshot,
   options: EncodeStoryBundleOptions = {}
 ): Promise<StoryManifestV5 | StoryManifestV7> {
-  const activation = resolveImageInputActivation(options.activation);
+  // Both halves are required: the release-wide switch says a write MAY use
+  // the successor schema, and storyHasImageAttachments says this story
+  // actually NEEDS it. A story with no Image Attachment must serialize
+  // exactly as it does today, on every call path, with the switch on. That
+  // is what keeps a library nobody attached an image to readable by the
+  // previous release forever. This is the one place that decides it, so no
+  // caller has to restate the rule to get it right.
+  const activation = resolveImageInputActivation(options.activation) && storyHasImageAttachments(story);
   const authorsNote = story.authorsNote === undefined || story.authorsNote === ""
     ? undefined
     : boundedString(story.authorsNote, "story.authorsNote", MAX_AUTHORS_NOTE_CHARS);

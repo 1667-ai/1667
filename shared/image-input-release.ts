@@ -18,7 +18,7 @@
  * behavior pass an explicit option to the store they build; see
  * `imageInputActivation` on the story and settings store options.
  */
-export const IMAGE_INPUT_ACTIVATED = false;
+export const IMAGE_INPUT_ACTIVATED = true;
 
 /** Resolve the effective activation for one store. A caller that passes
  *  nothing gets the release default, so production wiring can never turn the

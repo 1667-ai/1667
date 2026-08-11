@@ -728,16 +728,18 @@ test("story format: a story with Image Attachments stays version 5 with activati
   };
   const objects = new StoryObjectStore(dir);
 
-  // Off (the release default): the successor field never reaches disk, and
-  // the manifest stays exactly the current version.
-  const inactive = await encodeStoryBundle(story, objects);
+  // Off (test-only: this build's release default is on, so the caller
+  // overrides it explicitly, the same way a predecessor-safety test does):
+  // the successor field never reaches disk, and the manifest stays exactly
+  // the current version.
+  const inactive = await encodeStoryBundle(story, objects, undefined, undefined, { activation: false });
   assert.equal(inactive.schemaVersion, 5);
   assert.equal("imageAttachments" in inactive.nodes[0]!, false);
   assert.equal((await decodeStoryBundle(inactive, dir)).story.nodes[0]!.imageAttachments, undefined);
 
-  // On (test-only): the same in-memory story now writes the successor
-  // version, with the attachment carried on the stored node and read back
-  // unchanged.
+  // On (test-only, and also this build's release default): the same
+  // in-memory story now writes the successor version, with the attachment
+  // carried on the stored node and read back unchanged.
   const active = await encodeStoryBundle(story, objects, undefined, undefined, { activation: true });
   assert.equal(active.schemaVersion, 7);
   assert.deepEqual(active.nodes[0]!.imageAttachments, [attachment]);

@@ -35,12 +35,12 @@ describe("grouped command palette model", () => {
     }
   });
 
-  test("attach image is unavailable while image input's entry points are closed, the release default", () => {
-    // shared/image-input-release.ts: the whole feature is inactive in this
-    // release. The command stays defined and reachable by id, wired and
-    // ready for a slice-6 flip; only its palette availability is gated.
+  test("attach image is available once image input's entry points are open, this release's default", () => {
+    // shared/image-input-release.ts: this release activates the feature, so
+    // the release-wide switch opens every entry point together, including
+    // this command's palette availability.
     const model = commandPaletteModel("", false);
-    expect(model.selectable.some((match) => match.command.id === "attach-image")).toBeFalse();
+    expect(model.selectable.some((match) => match.command.id === "attach-image")).toBeTrue();
   });
 
   test("filters across descriptions without losing group or theme commands", () => {

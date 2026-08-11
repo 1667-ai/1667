@@ -598,12 +598,14 @@ test("format-2 probes restore the active private-HTTP transport policy", async (
 });
 
 test("the settings write schema version defaults to the image-input activation constant", () => {
-  // Release N ships with image input inactive, so the default is schema 2:
-  // this release keeps writing schema 2 unconditionally.
-  assert.equal(settingsWriteSchemaVersion(), 2);
-  assert.equal(settingsWriteSchemaVersion({}), 2);
-  assert.equal(settingsWriteSchemaVersion({ imageInputActivation: false }), 2);
-  // Only an explicit test option proves the schema-3 write decision ahead of
-  // activation; production wiring never sets this.
+  // This release ships with image input active, so the default is schema 3:
+  // production wiring, which never passes an option, writes schema 3
+  // unconditionally.
+  assert.equal(settingsWriteSchemaVersion(), 3);
+  assert.equal(settingsWriteSchemaVersion({}), 3);
   assert.equal(settingsWriteSchemaVersion({ imageInputActivation: true }), 3);
+  // Only an explicit test option proves the schema-2 write decision still
+  // exists, for a predecessor-refusal fixture; production wiring never sets
+  // this.
+  assert.equal(settingsWriteSchemaVersion({ imageInputActivation: false }), 2);
 });

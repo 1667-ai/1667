@@ -384,7 +384,7 @@ export class StoryMutationStore {
         );
       }
       return await work(session, terminal, tier);
-    });
+    }, this.imageInputActivation);
   }
 
   async runProviderOperation<

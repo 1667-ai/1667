@@ -190,7 +190,7 @@ export class StoryProviderMutationStore {
               result: storyResult(session.snapshot.manifest),
               aggregateVersion: storyAggregateVersion(session.snapshot),
               value
-            }))
+            }), this.imageInputActivation)
           );
         }
         if (runtime.effect === null) {
@@ -288,7 +288,7 @@ export class StoryProviderMutationStore {
           story,
           releaseSnapshot: pin.release
         };
-      });
+      }, this.imageInputActivation);
     } catch (error) {
       pin.release?.();
       throw error;
@@ -368,7 +368,7 @@ export class StoryProviderMutationStore {
       }
       await session.publishStagedManifest();
       return record;
-    });
+    }, this.imageInputActivation);
   }
 
   private async commitTerminal(
@@ -419,7 +419,7 @@ export class StoryProviderMutationStore {
         );
         throw terminal.error;
       }
-    });
+    }, this.imageInputActivation);
     // Only after the manifest and receipt above are durable, never before
     // (rollout plan). Runs in its own `ioQueue` turn, outside the aggregate
     // session claim `withAggregateSession` just released, so it can never
@@ -457,7 +457,7 @@ export class StoryProviderMutationStore {
         started,
         { kind: "error", code }
       );
-    });
+    }, this.imageInputActivation);
   }
 
   private async prepareTerminalPhase(

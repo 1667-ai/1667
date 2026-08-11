@@ -123,7 +123,16 @@ export async function migrateSettingsFormatV1ToV2UnderLock(
   }
 
   if (residue.current === null && residue.next === null) {
-    await fenced(assertDataDirectory, () => stageSettingsState(dataDir, expectedState));
+    // This bootstrap establishes the format-2 baseline itself, not an
+    // image-input-aware settings save, so it must never inherit the
+    // release-wide activation switch: even a build with no image-input
+    // source code at all must be able to open the directory this migration
+    // produces, the read-before-write guarantee the whole schema-3 release
+    // exists to keep (shared/image-input-release.ts).
+    await fenced(
+      assertDataDirectory,
+      () => stageSettingsState(dataDir, expectedState, { imageInputActivation: false })
+    );
     await runHook(options.hooks?.afterStateStaged, assertDataDirectory);
     residue = { current: null, next: expectedState };
   }

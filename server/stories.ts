@@ -198,11 +198,12 @@ export class StoryStore {
 
   async withAggregateSession<T>(
     id: string,
-    work: (session: StoryAggregateSession) => Promise<T>
+    work: (session: StoryAggregateSession) => Promise<T>,
+    activation?: boolean
   ): Promise<T> {
     return await this.withLock(id, async () => await this.withIo(id, async () => {
       const slot = await readStoredStorySlot(this.dir, id);
-      requirePresentStorySlot(slot, id);
+      requirePresentStorySlot(slot, id, activation);
       const session = new StoryAggregateSession(this.dir, id, slot, this.generationRecordGraphs.get(id) ?? null);
       await session.init();
       const result = await work(session);
@@ -214,12 +215,13 @@ export class StoryStore {
 
   async withOptionalAggregateSession<T>(
     id: string,
-    work: (session: StoryAggregateSession | null) => Promise<T>
+    work: (session: StoryAggregateSession | null) => Promise<T>,
+    activation?: boolean
   ): Promise<T> {
     return await this.withLock(id, async () => await this.withIo(id, async () => {
       const slot = await readStoredStorySlot(this.dir, id);
       if (slot.kind === "absent") return await work(null);
-      requirePresentStorySlot(slot, id);
+      requirePresentStorySlot(slot, id, activation);
       const session = new StoryAggregateSession(this.dir, id, slot, this.generationRecordGraphs.get(id) ?? null);
       await session.init();
       const result = await work(session);

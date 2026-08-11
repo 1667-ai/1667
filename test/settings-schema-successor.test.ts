@@ -57,12 +57,15 @@ async function writeSuccessorSettingsState(dataDir: string, document: SettingsDo
   await writeFile(statePath(dataDir), formatSettingsStateV3(state), { mode: 0o600 });
 }
 
-test("a schema-3 settings state opens and every setting reads correctly", async (t) => {
+test("a schema-3 settings state opens and every setting reads correctly, activation off", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-settings-successor-read-");
   const sourceDocument = credentialedDocument("IMAGE_INPUT_SUCCESSOR_READ_ENV");
   await writeSuccessorSettingsState(dataDir, convertSettingsDocumentV2ToV3(sourceDocument));
 
-  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
+  // A predecessor that resolves activation off: this build's own default is
+  // on, so the override is explicit, the same way every other
+  // predecessor-refusal fixture in this suite proves it.
+  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME, imageInputActivation: false });
   await store.init();
 
   const view = await store.loadView();
@@ -86,7 +89,7 @@ test("a schema-3 settings state opens and every setting reads correctly", async 
   assert.equal(effective.apiKeyEnv, "IMAGE_INPUT_SUCCESSOR_READ_ENV");
 });
 
-test("every mutation against a schema-3 state refuses and leaves the file byte identical", async (t) => {
+test("every mutation against a schema-3 state refuses and leaves the file byte identical, activation off", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-settings-successor-refuse-");
   await writeSuccessorSettingsState(
     dataDir,
@@ -94,9 +97,11 @@ test("every mutation against a schema-3 state refuses and leaves the file byte i
   );
   const before = await sha256(statePath(dataDir));
 
-  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
+  // A predecessor that resolves activation off: see the read test above for
+  // why the override is explicit in this build.
+  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME, imageInputActivation: false });
   await store.init();
-  assert.equal(await sha256(statePath(dataDir)), before, "init() never writes for a schema-3 authority");
+  assert.equal(await sha256(statePath(dataDir)), before, "init() never writes for a schema-3 authority it cannot own");
 
   await assert.rejects(
     store.save(saveCommand(MUTATION_B, 2, writingDocument("Blocked by the successor schema."))),
@@ -115,9 +120,61 @@ test("every mutation against a schema-3 state refuses and leaves the file byte i
   assert.equal(await sha256(statePath(dataDir)), before, "a refused discard leaves the file untouched");
 });
 
-test("a schema-2 directory still reads and saves exactly as before", async (t) => {
+/**
+ * The rollback guarantee itself, proven end to end rather than by
+ * inspection: a document a real save actually wrote with activation on is
+ * read correctly, and refused rather than corrupted, by a fresh store that
+ * resolves activation off. That fresh store stands in for a genuine
+ * predecessor, or this same build after a rollback.
+ * `writeSuccessorSettingsState` above stands in for this exact outcome in
+ * the read/refuse tests near it, built by hand from
+ * `convertSettingsDocumentV2ToV3` so those tests can stay narrowly about the
+ * read and refusal mechanics; this test instead drives the real write path
+ * (`SettingsV2Store.save`) to prove the mechanics they assume are actually
+ * true of it.
+ */
+test("a real save with activation on is read correctly, and refused rather than corrupted, by activation off", async (t) => {
+  const dataDir = await initializedFormat2Directory(t, "1667-settings-successor-roundtrip-");
+
+  const writer = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
+  await writer.init();
+  await writer.save(saveCommand(MUTATION_A, 1, writingDocument("Written with activation on.")));
+  const afterWrite = await readFile(statePath(dataDir));
+  assert.equal(
+    (JSON.parse(afterWrite.toString("utf8")) as { schemaVersion: unknown }).schemaVersion,
+    3,
+    "the real save path reaches schema 3 with this build's own default activation"
+  );
+
+  // A fresh store over the exact same directory, a genuine predecessor that
+  // resolves activation off.
+  const reader = new SettingsV2Store(dataDir, { now: () => FIXED_TIME, imageInputActivation: false });
+  await reader.init();
+  assert.equal(
+    (await reader.loadView()).effective.systemPrompt,
+    "Written with activation on.",
+    "a predecessor reads the successor's document correctly"
+  );
+
+  await assert.rejects(
+    reader.save(saveCommand(MUTATION_B, 2, writingDocument("Must never reach disk."))),
+    hasServiceCode("settings_requires_successor")
+  );
+  assert.deepEqual(
+    await readFile(statePath(dataDir)),
+    afterWrite,
+    "a refused save leaves the file byte identical, never corrupted"
+  );
+});
+
+test("a schema-2 directory still reads and saves exactly as before, activation off", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-settings-successor-v2-unaffected-");
-  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
+  // A predecessor that resolves activation off: see the read test above for
+  // why the override is explicit in this build. Without it this release's
+  // own default writes schema 3 (test/settings-store-release-a.test.ts's
+  // "the settings write schema version defaults to the image-input
+  // activation constant" covers that default directly).
+  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME, imageInputActivation: false });
   await store.init();
 
   const saved = await store.save(saveCommand(MUTATION_A, 1, writingDocument("Still schema 2.")));
@@ -128,44 +185,57 @@ test("a schema-2 directory still reads and saves exactly as before", async (t) =
   assert.equal(raw.schemaVersion, 2);
 });
 
-test("the write-schema decision defaults to schema 2 and only a forced option writes schema 3", async (t) => {
+test("the write-schema decision defaults to this build's own activation, and an activated build keeps mutating its own write", async (t) => {
   const defaultDir = await initializedFormat2Directory(t, "1667-settings-successor-write-default-");
   const defaultStore = new SettingsV2Store(defaultDir, { now: () => FIXED_TIME });
   await defaultStore.init();
-  await defaultStore.save(saveCommand(MUTATION_A, 1, writingDocument("Default write stays schema 2.")));
-  const defaultRaw = JSON.parse(await readFile(statePath(defaultDir), "utf8")) as { schemaVersion: unknown };
-  assert.equal(defaultRaw.schemaVersion, 2);
+  await defaultStore.save(saveCommand(MUTATION_A, 1, writingDocument("Default write reaches schema 3.")));
 
-  const forcedDir = await initializedFormat2Directory(t, "1667-settings-successor-write-forced-");
-  const forcedStore = new SettingsV2Store(forcedDir, { now: () => FIXED_TIME, imageInputActivation: true });
-  await forcedStore.init();
-  await forcedStore.save(saveCommand(MUTATION_A, 1, writingDocument("Forced write reaches schema 3.")));
-
-  const forcedRaw = JSON.parse(await readFile(statePath(forcedDir), "utf8")) as {
-    schemaVersion: unknown;
-    documents: Record<string, { models: Record<string, { capabilities: ModelCapabilitiesV3 }> }>;
-  };
-  assert.equal(forcedRaw.schemaVersion, 3);
+  const firstRaw = await readRawState(defaultDir);
+  assert.equal(firstRaw.schemaVersion, 3);
   assert.equal(
-    forcedRaw.documents["2"]?.models["builtin:dry-run"]?.capabilities.imageInput,
+    activeModelCapabilities(firstRaw).imageInput,
     "unsupported",
     "the dry-run model gets the migration's fixed imageInput value"
   );
 
-  // The same, now-activated store still reads its own write correctly...
+  // A second save against the same directory, no restart and no forced
+  // option: still schema 3, because this release owns writing schema 3
+  // going forward once activated, not only for a single proof write. The
+  // dry-run model's imageInput carries forward rather than resetting.
+  await defaultStore.save(saveCommand(MUTATION_B, 2, writingDocument("Second write stays schema 3.")));
+  const secondRaw = await readRawState(defaultDir);
+  assert.equal(secondRaw.schemaVersion, 3);
+  assert.equal(activeModelCapabilities(secondRaw).imageInput, "unsupported");
   assert.equal(
-    (await forcedStore.loadView()).effective.systemPrompt,
-    "Forced write reaches schema 3."
+    (await defaultStore.loadView()).effective.systemPrompt,
+    "Second write stays schema 3."
   );
-  // ...and refuses to mutate it, exactly like a genuine predecessor reading a
-  // successor's file: forcing the write option on does not make this release
-  // an ongoing schema-3 writer, only a one-shot proof that the decision
-  // function is wired to the write path.
-  await assert.rejects(
-    forcedStore.save(saveCommand(MUTATION_B, 3, writingDocument("A second forced write still refuses."))),
-    hasServiceCode("settings_requires_successor")
-  );
+
+  // A store that explicitly resolves activation false, a genuine
+  // predecessor, always stays schema 2, even in this build.
+  const offDir = await initializedFormat2Directory(t, "1667-settings-successor-write-off-");
+  const offStore = new SettingsV2Store(offDir, { now: () => FIXED_TIME, imageInputActivation: false });
+  await offStore.init();
+  await offStore.save(saveCommand(MUTATION_A, 1, writingDocument("Explicit-off write stays schema 2.")));
+  assert.equal((await readRawState(offDir)).schemaVersion, 2);
 });
+
+interface RawSettingsState {
+  readonly schemaVersion: unknown;
+  readonly activeRevision: number;
+  readonly documents: Record<string, { models: Record<string, { capabilities: ModelCapabilitiesV3 }> }>;
+}
+
+async function readRawState(dataDir: string): Promise<RawSettingsState> {
+  return JSON.parse(await readFile(statePath(dataDir), "utf8")) as RawSettingsState;
+}
+
+function activeModelCapabilities(raw: RawSettingsState): ModelCapabilitiesV3 {
+  const capabilities = raw.documents[String(raw.activeRevision)]?.models["builtin:dry-run"]?.capabilities;
+  if (capabilities === undefined) throw new Error("active document has no builtin:dry-run model");
+  return capabilities;
+}
 
 /**
  * `server/settings-state-validation.ts` enforces

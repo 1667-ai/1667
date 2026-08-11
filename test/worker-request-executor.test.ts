@@ -17,6 +17,7 @@ import {
   ServiceError
 } from "../server/errors.js";
 import { rewriteStreamDigest } from "../shared/rewrite-partial-contract.js";
+import { IMAGE_INPUT_ACTIVATED } from "../shared/image-input-release.js";
 import { StoryService } from "../server/story-service.js";
 import { WorkerDeltaBatcher } from "../server/worker-delta-batcher.js";
 import { executeWorkerRequest } from "../server/worker-request-executor.js";
@@ -334,7 +335,14 @@ test("a live worker retries an exact partial settlement while its stash remains 
   }
 });
 
-test("stageStoryImage and releaseStoryImage both refuse before reaching the service while image input's entry points are closed, the release default", async () => {
+// Pins the closed-release refusal directly: `requireImageInputEntryPointsOpen`
+// (server/image-stage-permit.ts) must run before either method call reaches
+// `StoryService`, so a closed release never touches the service at all. Once
+// `IMAGE_INPUT_ACTIVATED` is true, the same call reaches the service by
+// design, so this specific test has nothing left to pin and is skipped
+// rather than adapted; the parallel HTTP-boundary test carries the same
+// convention (test/image-stage-http.test.ts).
+test("stageStoryImage and releaseStoryImage both refuse before reaching the service while image input's entry points are closed, the release default", { skip: IMAGE_INPUT_ACTIVATED }, async () => {
   const service = {
     stageStoryImage: async () => { throw new Error("must not reach the service while entry points are closed"); },
     releaseStoryImage: async () => { throw new Error("must not reach the service while entry points are closed"); }

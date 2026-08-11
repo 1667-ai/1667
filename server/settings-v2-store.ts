@@ -4,6 +4,7 @@ import {
   type SettingsDocumentV2,
   type SettingsMutationResult,
   type SettingsStateV2,
+  type SettingsStateV3,
   type SettingsRoutePurpose,
   type SettingsView
 } from "../shared/settings-v2-types.js";
@@ -83,7 +84,8 @@ import {
   readSettingsStateSlot,
   stageSettingsState
 } from "./settings-state-file.js";
-import { requireMutableSettingsStateSlot } from "./settings-state-slot.js";
+import { requireMutableSettingsStateSlot, settingsStateSlotPriorV3 } from "./settings-state-slot.js";
+import { resolveImageInputActivation } from "../shared/image-input-release.js";
 import { requireFreshUnseenMutationId } from "./mutation-id-policy.js";
 import { parseSettingsDocumentV2 } from "./settings-v2-codec.js";
 import { storedCredentialSecretId } from "../shared/settings-stored-credential.js";
@@ -158,18 +160,27 @@ export class SettingsV2Store {
   async init(): Promise<void> {
     await this.ledger.init();
     const slot = await readSettingsStateSlot(this.dataDir);
-    if (slot.kind === "v3-requires-successor") {
-      // A schema-3 authority is successor-owned: this release never staged
-      // it, so there is nothing of its own to recover, activate, or prune.
-      // It only proves the state opens and its active document supports a
-      // route, exactly like the schema-2 path below, then stops.
+    if (
+      slot.kind === "v3-requires-successor"
+      && !resolveImageInputActivation(this.writeSchemaOptions.imageInputActivation)
+    ) {
+      // A schema-3 authority this build cannot write is successor-owned:
+      // there is nothing of its own to recover, activate, or prune. It only
+      // proves the state opens and its active document supports a route,
+      // exactly like the schema-2 path below, then stops.
       assertRuntimeDocumentSupported(activeSettingsDocument(slot.readOnlyView));
       settingsViewFromState(slot.readOnlyView);
       return;
     }
+    // A schema-3 authority this build's activation makes mutable falls
+    // through to the same recovery every schema-2 authority uses: the
+    // pipeline below is schema-2-typed throughout, and `priorV3` is what
+    // lets its eventual write carry this authority's own
+    // `imageInput`/`imageTokenCeiling` data forward instead of resetting it.
+    const priorV3 = settingsStateSlotPriorV3(slot);
     let state = await this.recoverReceiptTransaction();
     const preActivation = state;
-    state = await this.recoverActivation(state);
+    state = await this.recoverActivation(state, priorV3);
     await this.deleteSupersededSecrets([preActivation], state);
     if (this.prunesSecrets) {
       await removeProviderSecretsScratch(this.secretsDir);
@@ -395,10 +406,15 @@ export class SettingsV2Store {
     request: MutationCoordinatorRequest<SettingsMutationTarget>,
     signal?: AbortSignal
   ): Promise<SettingsMutationResult> {
-    // Refuse before any write touches disk: a schema-3 authority requires a
-    // successor release to change, so this check runs before the mutation
-    // recovery below reads or writes anything.
-    requireMutableSettingsStateSlot(await readSettingsStateSlot(this.dataDir));
+    // Refuse before any write touches disk: a schema-3 authority this
+    // build's activation cannot write requires a successor release to
+    // change, so this check runs before the mutation recovery below reads or
+    // writes anything. `priorV3` is this same read's schema-3 authority, if
+    // any, threaded to every write this mutation makes so it carries
+    // `imageInput`/`imageTokenCeiling` forward instead of resetting it.
+    const slot = await readSettingsStateSlot(this.dataDir);
+    requireMutableSettingsStateSlot(slot, this.writeSchemaOptions.imageInputActivation);
+    const priorV3 = settingsStateSlotPriorV3(slot);
     const current = await this.recoverReceiptTransaction();
     const existing = await this.ledger.loadUserReceipt("settings", request.mutationId);
     if (existing.prepared === null && existing.completed === null) {
@@ -534,7 +550,7 @@ export class SettingsV2Store {
       next,
       this.timestamp()
     );
-    await stageSettingsState(this.dataDir, next, this.writeSchemaOptions);
+    await stageSettingsState(this.dataDir, next, this.writeSchemaOptions, priorV3);
     // Replacement takes effect on save by design; a post-stage failure is recoverable by re-entering the key.
     for (const [secretId, value] of connectionSecretEntries) {
       if (value !== null) await writeProviderSecret(this.secretsDir, secretId, value);
@@ -560,7 +576,7 @@ export class SettingsV2Store {
       && this.activationMode === "activation-capable"
       && settingsStateRelation(next) === "staged"
     ) {
-      settled = await this.activateStaged(next);
+      settled = await this.activateStaged(next, priorV3);
       // A committed activation may drop the old revision; only now are its
       // replaced stored secrets unreferenced, so prune again.
       await this.pruneUnreferencedSecrets(settled);
@@ -714,30 +730,36 @@ export class SettingsV2Store {
     await discardStagedSettingsState(this.dataDir);
   }
 
-  private async recoverActivation(initial: SettingsStateV2): Promise<SettingsStateV2> {
+  private async recoverActivation(
+    initial: SettingsStateV2,
+    priorV3: SettingsStateV3 | null
+  ): Promise<SettingsStateV2> {
     let state = initial;
     for (let edge = 0; edge < 6; edge += 1) {
       const relation = settingsStateRelation(state);
       if (relation === "clean") return state;
       if (relation === "staged") {
         return this.activationMode === "activation-capable"
-          ? await this.activateStaged(state)
+          ? await this.activateStaged(state, priorV3)
           : state;
       }
       const event = recoveryEventForSettingsStateV2(state);
       if (event === null) throw corruptSettingsStateReceipt("settings activation");
-      state = await this.replaceInternal(reduceSettingsStateV2(state, event));
+      state = await this.replaceInternal(reduceSettingsStateV2(state, event), priorV3);
     }
     throw corruptSettingsStateReceipt("settings activation edge bound");
   }
 
-  private async activateStaged(state: SettingsStateV2): Promise<SettingsStateV2> {
+  private async activateStaged(
+    state: SettingsStateV2,
+    priorV3: SettingsStateV3 | null
+  ): Promise<SettingsStateV2> {
     const pointer = state.lastTransaction;
     if (pointer?.receiptKind !== "user") throw corruptSettingsStateReceipt("staged settings");
     let next = await this.replaceInternal(reduceSettingsStateV2(state, {
       kind: "begin-validation",
       transactionId: pointer.mutationId
-    }));
+    }), priorV3);
     const candidate = pendingSettingsDocument(next);
     const storedSecrets = await readProviderSecrets(this.secretsDir);
     if (!credentialReferencesResolve(
@@ -748,7 +770,7 @@ export class SettingsV2Store {
       return await this.replaceInternal(reduceSettingsStateV2(next, {
         kind: "validation-failed",
         errorCode: "credential_unresolved"
-      }));
+      }), priorV3);
     }
     let candidateReady = false;
     try {
@@ -784,16 +806,19 @@ export class SettingsV2Store {
       return await this.replaceInternal(reduceSettingsStateV2(next, {
         kind: "validation-failed",
         errorCode: "candidate_invalid"
-      }));
+      }), priorV3);
     }
     for (const kind of ["prepare", "promote", "commit", "finish-commit"] as const) {
-      next = await this.replaceInternal(reduceSettingsStateV2(next, { kind }));
+      next = await this.replaceInternal(reduceSettingsStateV2(next, { kind }), priorV3);
     }
     return next;
   }
 
-  private async replaceInternal(state: SettingsStateV2): Promise<SettingsStateV2> {
-    await stageSettingsState(this.dataDir, state, this.writeSchemaOptions);
+  private async replaceInternal(
+    state: SettingsStateV2,
+    priorV3: SettingsStateV3 | null
+  ): Promise<SettingsStateV2> {
+    await stageSettingsState(this.dataDir, state, this.writeSchemaOptions, priorV3);
     await publishStagedSettingsState(this.dataDir);
     return state;
   }

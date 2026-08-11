@@ -23,12 +23,14 @@ import type {
   StoryManifestV6
 } from "./story-v6-types.js";
 
-/** A story on disk, whichever schema wrote it. `withAggregateSession` only
- *  ever opens a session over the "v5" | "v6-live" | "v6-deleted" members
- *  (`requirePresentStorySlot`, `server/story-aggregate-session.ts`); the two
- *  V8 members exist here because publishing a session's own upgrade
- *  (`publishStagedManifest`) produces one of them in memory, in the same
- *  process, without ever reopening a session over it. */
+/** A story on disk, whichever schema wrote it. `withAggregateSession` opens a
+ *  session over every member except "absent", "legacy", and "residue"
+ *  (`requirePresentStorySlot`, `server/story-aggregate-session.ts`): a V8
+ *  member reaches it only once the release-wide activation switch resolves
+ *  true, since only then does this release own writing that schema itself,
+ *  and refuses it otherwise. Independently of that, publishing a session's
+ *  own upgrade (`publishStagedManifest`) also produces a V8 member in
+ *  memory, in the same process, without reopening a session over it. */
 type PersistedStorySlot = Extract<
   StoredStorySlot,
   { kind: "v5" | "v6-live" | "v6-deleted" | "v8-live" | "v8-deleted" }

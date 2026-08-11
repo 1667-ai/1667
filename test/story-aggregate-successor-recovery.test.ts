@@ -30,8 +30,9 @@ import {
 /**
  * G12, the rest of the required coverage: recovery from a crash staged
  * between the manifest replacement and its publish, for both envelope
- * versions, and the predecessor refusal that must survive activation being
- * off in this release even once a story has already reached V8.
+ * versions, and the predecessor refusal: a build that resolves activation
+ * off must still refuse every mutation once a story has already reached V8,
+ * even though this release's own default resolves activation on.
  */
 
 function attachment(objectId: string): StoryImageAttachment {
@@ -191,14 +192,16 @@ test("Q activation off: a V8 document still refuses every mutation and still rea
   const beforeBytes = await readFile(fixture.manifestFile);
   assert.equal(parseStoryManifestBytes(beforeBytes, STORY_ID).kind, "v8-live");
 
-  // A later process, or the same one with activation resolved off (this
-  // release's default): the successor document it did not just create in
-  // this session must still refuse every mutation.
+  // A later process that resolves activation off, a genuine predecessor: the
+  // successor document it did not just create in this session must still
+  // refuse every mutation. This build's own release default is on, so the
+  // override is explicit here, the same way a rollback-safety test overrides
+  // it everywhere else in this suite.
   const sealed = new StoryMutationStore(
     fixture.stories,
     createMutationCoordinator(),
     fixture.dataDir,
-    { ledger: fixture.ledger, now: () => FIXED_NOW }
+    { ledger: fixture.ledger, now: () => FIXED_NOW, imageInputActivation: false }
   );
   await sealed.init();
   await assert.rejects(
