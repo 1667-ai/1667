@@ -552,14 +552,41 @@ contains only the opaque secret identifier.
 Local servers such as Ollama can use a connection without a credential. 1667
 enables prompt cache controls only for exact official provider hosts.
 
-The project settings document at `.1667/settings.v2.state.json` stores the
-deadlines for each model connection. New network connections use 120 seconds
-for response headers. They use 120 seconds for first content and idle content.
-They use 30 minutes for the complete request.
+The project settings document at `.1667/settings.v2.state.json` stores four
+deadlines for each model connection: **headers**, **first token**, **idle**,
+and **total**. New network connections use 120 seconds for **headers**. New
+network connections use 120 seconds for **first token** and for **idle**. New
+network connections use 30 minutes for **total**.
 
-Set `connections.<id>.timeouts.responseHeaderMs`, `firstTokenMs`, `idleMs`, and
-`totalMs` to change these deadlines. The Settings panel does not edit these
-advanced values.
+### Change a deadline in Settings
+
+The Settings panel shows the four deadlines in the **connection** section.
+Select a deadline row. Press `Left Arrow` or `Right Arrow` to step the value.
+Press `Enter` to type a value. The panel shows **headers**, **first token**,
+and **idle** in seconds. The panel shows **total** in minutes.
+
+You can also set `connections.<id>.timeouts.responseHeaderMs`, `firstTokenMs`,
+`idleMs`, and `totalMs` directly in the project settings document.
+
+### The first-token deadline and prefill
+
+Prefill is the model server's work before it sends the first output token.
+Prefill computes the model's internal state for the whole prompt. Prefill
+sends no stream output. A large prompt takes longer to prefill than a short
+prompt.
+
+1667 extends the **first token** deadline for a large prompt. 1667 measures
+the size of the outgoing request. 1667 compares this size against the
+**first token** value in Settings. 1667 waits for the larger of the two
+amounts.
+
+The **first token** value in Settings is a floor. 1667 never waits less than
+this value. 1667 can wait longer when the prompt is large. 1667 does not wait
+without limit. A ceiling of 15 minutes applies, even for a very large prompt.
+
+Increase the **first token** value in Settings when a model server needs more
+than 120 seconds to answer a small prompt. Slow local hardware is a common
+cause.
 
 ## Connection security
 
