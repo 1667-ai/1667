@@ -111,7 +111,7 @@ const CONNECTION_TIMEOUT_ROW_SPECS: Record<ConnectionTimeoutRow, ConnectionTimeo
     acceptedMax: MAX_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     acceptedMin: MIN_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     step: 5,
-    hint: "wait for the first token · a large prompt extends this automatically"
+    hint: "wait for the first token · never ends before the total deadline"
   },
   "timeout-idle": {
     field: "idleMs",

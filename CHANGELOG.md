@@ -5,14 +5,15 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
-- **The header and first-token deadlines no longer end a generation during
-  legitimate prefill.** Prefill is the model server's work before it sends
-  the first output token. Prefill sends no stream output, and a large prompt
-  takes longer to prefill than a short prompt. A model server can finish
-  prefill before it sends response headers or after, so 1667 now extends
-  both deadlines for a large prompt. The automatic extension never waits
-  past the connection's own total deadline. A connection that never answers
-  still ends the generation. Thanks @10fra for the report.
+- **1667 no longer ends a generation while a model server is still
+  processing the prompt.** Prefill is the model server's work before it
+  sends the first output token. The server sends no stream output while it
+  does this, and a large prompt takes longer to prefill than a short prompt.
+  1667 cannot tell a server that is still prefilling apart from a server
+  that failed, so it now waits for the first token until the connection's
+  own total deadline, not the shorter first-token value alone. The headers
+  deadline is unchanged: a server that has not returned response headers
+  still ends the generation quickly. Thanks @10fra for the report.
 
 - **The four connection deadlines are editable in Settings.** The new
   **headers**, **first token**, **idle**, and **total** rows sit under the

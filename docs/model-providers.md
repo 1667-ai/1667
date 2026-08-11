@@ -572,26 +572,29 @@ You can also set `connections.<id>.timeouts.responseHeaderMs`, `firstTokenMs`,
 ### The header and first-token deadlines, and prefill
 
 Prefill is the model server's work before it sends the first output token.
-It computes the model's internal state for the whole prompt, and it sends no
+The server computes its internal state for the whole prompt. It sends no
 stream output while it does this. A large prompt takes longer to prefill
-than a short prompt. A model server can finish prefill before it sends response headers,
-or after it sends them. 1667 cannot tell which.
+than a short prompt.
 
-1667 extends both the **headers** deadline and the **first token** deadline
-for a large prompt. 1667 measures the size of the outgoing request. 1667
-compares this size against the Settings value for the affected deadline.
-1667 waits for the larger of the two amounts.
+The **headers** deadline always uses its configured Settings value. A model
+server that has not returned response headers within that time is usually
+unreachable or misconfigured. 1667 ends the generation quickly in this case.
 
-The **headers** and **first token** values in Settings are each a floor.
-1667 never uses less than the configured value, and a large prompt can
-increase it. The automatic extension stops at the **total** deadline for the
-same connection. Only the automatic extension has this
-limit. A configured value above the **total** deadline still applies exactly
-as set.
+A model server can finish prefill before it sends response headers, or after
+it sends them. 1667 cannot tell which side of that a given server is on. So
+1667 waits for the first token until the **total** deadline. This wait
+covers the whole time a server can spend on prefill after it sends headers.
 
-Increase the **first token** value in Settings when a model server needs more
-than 120 seconds to answer a small prompt. Slow local hardware is a common
-cause.
+Increase the **total** deadline in Settings when a model server needs more
+time to answer, including time spent in prefill on a large prompt or on slow
+hardware. The **first token** value still sets a minimum wait, but the
+**total** deadline decides the actual limit for prefill.
+
+This design has one tradeoff. A generation that never receives response
+headers still ends at the **headers** deadline. A generation that receives
+headers and then produces no output still ends, but only at the **total**
+deadline. 1667 accepts this cost: a model server that fails right after it
+sends response headers goes undetected until the **total** deadline passes.
 
 ## Connection security
 

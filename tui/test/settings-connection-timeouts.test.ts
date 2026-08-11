@@ -92,37 +92,12 @@ describe("connection timeout settings rows (issue #127)", () => {
     expect(after).toBe(before + 5_000);
   });
 
-  test("the first-token row's hint says a large prompt extends it automatically", async () => {
+  test("the first-token row's hint says it never ends before the total deadline", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
     const rows = settingsRows(state.settings!, state.config);
     const firstToken = rows.find((candidate) => candidate.id === "timeout-first-token");
-    expect(firstToken?.hint).toContain("large prompt");
-    expect(firstToken?.hint).toContain("automatically");
-  });
-
-  test("a first-token value far past the derivation's own ceiling is a valid configured value, not flagged invalid", async () => {
-    const { source, state, press } = settingsHarness();
-    installNetworkSettings(source);
-    await openSettings(press);
-    // 20 minutes: past server/provider-first-token-deadline.ts's derivation
-    // ceiling, which bounds only the automatic per-byte allowance a large
-    // prompt earns, never a value a writer configures here directly. The
-    // settings schema allows up to MAX_SETTINGS_TIMEOUT_MS (24 hours), so
-    // this row's own bound must reach at least this far without marking the
-    // value invalid or putting it out of arrow-step reach.
-    await draftRow(press, state, "timeout-first-token", "1200");
-
-    const document = state.settings!.draft.document!;
-    const profileId = state.settings!.draft.selectedProfileId!;
-    expect(
-      resolveSettingsProfile(document, profileId).connection.timeouts.firstTokenMs
-    ).toBe(1_200_000);
-
-    const rows = settingsRows(state.settings!, state.config);
-    const firstToken = rows.find((candidate) => candidate.id === "timeout-first-token");
-    expect(firstToken?.invalid).toBe(undefined);
-    expect(firstToken?.value).toContain("1,200s");
+    expect(firstToken?.hint).toContain("total deadline");
   });
 
   // Every timeout shares one schema ceiling, so every row has to reach it.
@@ -133,6 +108,7 @@ describe("connection timeout settings rows (issue #127)", () => {
   // so stepping is usable; it is not the limit.
   const PAST_TRACK_BUT_VALID = [
     { row: "timeout-headers" as const, typed: "1200", field: "responseHeaderMs" as const, ms: 1_200_000 },
+    { row: "timeout-first-token" as const, typed: "2000", field: "firstTokenMs" as const, ms: 2_000_000 },
     { row: "timeout-idle" as const, typed: "1200", field: "idleMs" as const, ms: 1_200_000 },
     { row: "timeout-total" as const, typed: "14400", field: "totalMs" as const, ms: 14_400_000 }
   ];

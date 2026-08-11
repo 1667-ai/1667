@@ -607,7 +607,7 @@ test("SSE diagnostics redact complete credentials before truncation", async (t) 
   );
 });
 
-test("configured first-activity deadline aborts a stalled provider stream", async (t) => {
+test("a stalled provider stream survives its first-token floor and fails at the total deadline", async (t) => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input) => {
     assert.ok(input instanceof Request);
@@ -621,31 +621,34 @@ test("configured first-activity deadline aborts a stalled provider stream", asyn
   }) as typeof fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
 
+  const startedAt = Date.now();
   await assert.rejects(
     drain(streamCompletion(
       attached({
         timeouts: {
           responseHeaderMs: 50,
+          // Issue #127: the first-token phase deadline is
+          // Math.max(firstTokenMs, totalMs) (server/provider-sse.ts), so this
+          // tiny configured floor can never fire on its own — the
+          // connection's total deadline below is what actually reports, and
+          // the assertion after this rejection proves the stream ran well
+          // past this floor first.
           firstTokenMs: 20,
           idleMs: 20,
-          // Issue #127: the effective first-token deadline is now derived from
-          // the outgoing request body's size (server/provider-first-token-
-          // deadline.ts), and for even this fixture's minimal body that
-          // derived value dominates the tiny configured 20 ms floor. totalMs
-          // has to stay well above it, or the total deadline fires first and
-          // this assertion's message never appears.
-          totalMs: 3_000
+          totalMs: 300
         }
       }),
       PROMPT,
-      new AbortController().signal,
-      // Issue #127: the real per-byte allowance puts this deadline tens of
-      // seconds out for a body this size. The mechanism is what this asserts,
-      // so inject a rate small enough to watch it fire.
-      { prefillMsPerByte: 0 }
+      new AbortController().signal
     )),
-    /did not produce stream activity/
+    (error) => error instanceof ProviderError
+      && error.timeout === "provider-total"
+      && /total deadline/.test(error.message)
   );
+  // A stream that aborted at the old first-token-derived deadline would have
+  // failed within tens of milliseconds. Surviving well past that tiny floor
+  // is the proof that the total deadline, not the phase timer, ended this.
+  assert.ok(Date.now() - startedAt >= 250);
 });
 
 test("caller cancellation is preserved while waiting for response headers", async (t) => {
@@ -687,19 +690,112 @@ test("configured response-header deadline keeps typed timeout provenance", async
         responseHeaderMs: 20,
         firstTokenMs: 100,
         idleMs: 100,
-        // Issue #127: the response-header deadline is now derived from the
-        // outgoing request body's size too (server/provider-first-token-
-        // deadline.ts), and for even this fixture's minimal body that
-        // derived value dominates the tiny configured 20 ms floor (50 ms per
-        // byte, so roughly 6 s here). totalMs has to stay well above it, or the total deadline fires first and
-        // this assertion's provenance never appears.
         totalMs: 3_000
       }
-    }), PROMPT, new AbortController().signal, { prefillMsPerByte: 0 })),
+    }), PROMPT, new AbortController().signal)),
     (error) => error instanceof ProviderError
       && error.timeout === "provider-response-header"
       && /response headers/.test(error.message)
   );
+});
+
+test("a stream that sends headers and then stays silent survives past the first-token floor to the total deadline", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    // Headers arrive immediately; the body then never sends anything — a
+    // server that flushed headers before hanging mid-prefill, the case
+    // provider-sse.ts's first-token phase now has to tolerate.
+    return new Response(new ReadableStream({
+      start(controller) {
+        input.signal.addEventListener("abort", () => controller.error(input.signal.reason), {
+          once: true
+        });
+      }
+    }), { headers: { "content-type": "text/event-stream" } });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const settings = attached({
+    timeouts: {
+      responseHeaderMs: 50,
+      // A tiny floor on purpose: issue #127's fix means this value alone can
+      // no longer end the generation, because the effective first-token
+      // deadline is Math.max(firstTokenMs, totalMs).
+      firstTokenMs: 10,
+      idleMs: 10,
+      totalMs: 300
+    }
+  });
+
+  const startedAt = Date.now();
+  await assert.rejects(
+    drain(providerSseEvents(
+      settings,
+      "https://models.example/v1/chat/completions",
+      { p: "x" },
+      {},
+      [],
+      new AbortController().signal,
+      (value) => value,
+      undefined,
+      undefined,
+      (event) => event !== "[DONE]",
+      (event) => event === "[DONE]"
+    )),
+    (error) => error instanceof ProviderError
+      && error.timeout === "provider-total"
+      && /total deadline/.test(error.message)
+  );
+  // Survived well past the 10 ms first-token and idle floors: the total
+  // deadline, not a phase timer, is what ended this.
+  assert.ok(Date.now() - startedAt >= 250);
+});
+
+test("a server that never sends response headers still fails at the configured header deadline, whatever the body size", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    if (input.signal.aborted) throw input.signal.reason;
+    return await new Promise<Response>((_resolve, reject) => {
+      input.signal.addEventListener("abort", () => reject(input.signal.reason), { once: true });
+    });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const settings = attached({
+    timeouts: {
+      // Issue #127: this stays exactly the configured value. Before this
+      // branch's fix, a body this large (20,000 bytes) would have derived a
+      // far longer wait; now the header phase never looks at the body at
+      // all.
+      responseHeaderMs: 30,
+      firstTokenMs: 100,
+      idleMs: 100,
+      totalMs: 3_000
+    }
+  });
+
+  const startedAt = Date.now();
+  await assert.rejects(
+    drain(providerSseEvents(
+      settings,
+      "https://models.example/v1/chat/completions",
+      { p: "x".repeat(20_000) },
+      {},
+      [],
+      new AbortController().signal,
+      (value) => value,
+      undefined,
+      undefined,
+      (event) => event !== "[DONE]",
+      (event) => event === "[DONE]"
+    )),
+    (error) => error instanceof ProviderError
+      && error.timeout === "provider-response-header"
+      && /response headers/.test(error.message)
+  );
+  assert.ok(Date.now() - startedAt < 300);
 });
 
 test("caller cancellation is preserved while reading an error body", async (t) => {
@@ -959,7 +1055,7 @@ test("non-success stream body deadlines preserve the known provider status", asy
   );
 });
 
-test("usage-only SSE events do not satisfy the first-activity deadline", async (t) => {
+test("usage-only SSE events do not satisfy first activity, so a stall still runs to the total deadline", async (t) => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input) => {
     assert.ok(input instanceof Request);
@@ -976,6 +1072,12 @@ test("usage-only SSE events do not satisfy the first-activity deadline", async (
   }) as typeof fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
 
+  // Issue #127's fix means the tiny firstTokenMs floor below can never fire
+  // on its own (see "a stalled provider stream survives its first-token
+  // floor..." above) — what this test actually proves is narrower: a
+  // usage-only event (no delta content) does not count as first activity, so
+  // the connection keeps running against that phase's deadline (now the
+  // total) instead of settling into the idle deadline.
   await assert.rejects(
     drain(streamCompletion(
       attached({
@@ -983,20 +1085,15 @@ test("usage-only SSE events do not satisfy the first-activity deadline", async (
           responseHeaderMs: 50,
           firstTokenMs: 20,
           idleMs: 50,
-          // See the identical comment on "configured first-activity deadline
-          // aborts a stalled provider stream" above — issue #127's derived
-          // first-token deadline dominates the tiny configured floor here too.
-          totalMs: 3_000
+          totalMs: 300
         }
       }),
       PROMPT,
-      new AbortController().signal,
-      // Issue #127: the real per-byte allowance puts this deadline tens of
-      // seconds out for a body this size. The mechanism is what this asserts,
-      // so inject a rate small enough to watch it fire.
-      { prefillMsPerByte: 0 }
+      new AbortController().signal
     )),
-    /did not produce stream activity/
+    (error) => error instanceof ProviderError
+      && error.timeout === "provider-total"
+      && /total deadline/.test(error.message)
   );
 });
 
