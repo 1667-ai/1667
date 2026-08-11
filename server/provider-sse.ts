@@ -2,6 +2,7 @@ import type { GenerationSettings } from "../shared/types.js";
 import type { TimeoutProvenance } from "../shared/failure-envelope.js";
 import { ProviderError } from "./errors.js";
 import { providerFetch } from "./provider-fetch.js";
+import { firstTokenDeadlineMsFor } from "./provider-first-token-deadline.js";
 import {
   EVENT_HEADROOM_MULTIPLIER,
   maxSseEventBytesFor
@@ -129,8 +130,13 @@ export async function* providerSseEvents(
     }
     if (response.body === null) throw new ProviderError("Model response has no body");
 
+    // Issue #127: prefill sends nothing on the stream while it runs, and its
+    // cost scales with prompt size, so a flat deadline cannot tell a server
+    // still doing legitimate prefill on a large prompt from a dead one. The
+    // configured value is a floor; a large request body extends it — see
+    // provider-first-token-deadline.ts for the arithmetic.
     setPhaseTimer(
-      runtime.timeouts.firstTokenMs,
+      firstTokenDeadlineMsFor(runtime.timeouts.firstTokenMs, Buffer.byteLength(body)),
       "Model server did not produce stream activity before the configured deadline.",
       "provider-first-token"
     );

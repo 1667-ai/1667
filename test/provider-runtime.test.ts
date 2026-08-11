@@ -628,7 +628,13 @@ test("configured first-activity deadline aborts a stalled provider stream", asyn
           responseHeaderMs: 50,
           firstTokenMs: 20,
           idleMs: 20,
-          totalMs: 100
+          // Issue #127: the effective first-token deadline is now derived from
+          // the outgoing request body's size (server/provider-first-token-
+          // deadline.ts), and for even this fixture's minimal body that
+          // derived value dominates the tiny configured 20 ms floor. totalMs
+          // has to stay well above it, or the total deadline fires first and
+          // this assertion's message never appears.
+          totalMs: 3_000
         }
       }),
       PROMPT,
@@ -967,7 +973,10 @@ test("usage-only SSE events do not satisfy the first-activity deadline", async (
           responseHeaderMs: 50,
           firstTokenMs: 20,
           idleMs: 50,
-          totalMs: 100
+          // See the identical comment on "configured first-activity deadline
+          // aborts a stalled provider stream" above — issue #127's derived
+          // first-token deadline dominates the tiny configured floor here too.
+          totalMs: 3_000
         }
       }),
       PROMPT,
