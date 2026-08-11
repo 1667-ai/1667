@@ -24,7 +24,13 @@ export function isSettingsScalarRow(row: SettingsRowId): row is SettingsScalarRo
  *  `max === null` is C-08's unbounded variant: the chip stays, the track goes,
  *  because a track against an unknown wall would be a bar against a guess. */
 export interface SettingsScalar {
-  readonly row: SettingsScalarRow;
+  /** `SettingsScalarRow` for one of this module's three profile scalars, or
+   *  a `ConnectionTimeoutRow` (settings-connection-timeouts.ts) reusing the
+   *  same chip/track/typed-edit machinery for a document-connection field
+   *  instead of a profile one. Nothing in this module branches on the value
+   *  — it is carried for the row's own identity, not read here — so widening
+   *  it to the full row-id space costs this module nothing. */
+  readonly row: SettingsRowId;
   /** null means the sentinel is showing rather than a number. */
   readonly value: number | null;
   readonly min: number;

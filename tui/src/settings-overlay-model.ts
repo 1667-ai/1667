@@ -35,6 +35,12 @@ import {
   settingsModelSelectionTargetIdentity
 } from "./settings-model-discovery.js";
 import { isSettingsScalarRow } from "./settings-scalar.js";
+import {
+  applyConnectionTimeoutEdit,
+  CONNECTION_TIMEOUT_ROWS,
+  connectionTimeoutEditValue,
+  isConnectionTimeoutRow
+} from "./settings-connection-timeouts.js";
 import { modelPickerRequired } from "./settings-model-picker.js";
 import {
   parseSettings,
@@ -80,6 +86,7 @@ export const SETTINGS_ROW_IDS = [
   "base-url",
   "allow-insecure-http",
   "api-key",
+  ...CONNECTION_TIMEOUT_ROWS,
   "profile",
   "model",
   "temperature",
@@ -170,6 +177,7 @@ export function settingsRowEditValue(
       ? "legacy profile"
       : document.profiles[profileId]?.name ?? "unavailable";
   }
+  if (isConnectionTimeoutRow(row)) return connectionTimeoutEditValue(row, overlay);
   return draftRowEditValue(overlay.draft, row);
 }
 
@@ -278,6 +286,14 @@ export function applySettingsRowEdit(
       overlay,
       settingsTextDraftForDocument(renamed, overlay.draft.selectedProfileId)
     );
+    overlay.edit = null;
+    overlay.result = null;
+    return { kind: "draft" };
+  }
+  if (isConnectionTimeoutRow(edit.row)) {
+    const applied = applyConnectionTimeoutEdit(overlay, edit.row, value);
+    if (applied.kind === "error") return applied;
+    if (!settingsDraftChanged(overlay)) overlay.conflict = null;
     overlay.edit = null;
     overlay.result = null;
     return { kind: "draft" };
@@ -407,6 +423,7 @@ export function settingsRowHasArrows(
     ? overlay.draft.generation.provider === "text-completion"
     : settingsRowCycles(row)
     || isSettingsScalarRow(row)
+    || isConnectionTimeoutRow(row)
     // A cycler stops at eight; past that the option column owns the choice.
     || row === "model" && settingsModelChoices(overlay).length > 0
       && !modelPickerRequired(overlay);
