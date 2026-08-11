@@ -72,12 +72,26 @@ export async function removeSmokeTree(target: string): Promise<void> {
   }
 }
 
+/**
+ * Windows reports one condition, a handle that is still closing, through
+ * whichever layer noticed it first. `EBUSY`, `EPERM`, `EACCES`, and
+ * `ENOTEMPTY` are that same condition, so all four retry.
+ *
+ * `EACCES` was absent, so a removal that hit it failed on the first attempt
+ * while the other three each got the full retry window. That asymmetry is the
+ * bug this list fixes.
+ *
+ * Retrying is not proof that nothing leaked. A process that never releases a
+ * handle exhausts every attempt and still throws, which is what a real leak
+ * looks like here, and is how one earlier leak was found.
+ */
 function isRemovalContention(error: unknown): boolean {
   return error instanceof Error
     && "code" in error
     && (
       error.code === "EBUSY"
       || error.code === "EPERM"
+      || error.code === "EACCES"
       || error.code === "ENOTEMPTY"
     );
 }

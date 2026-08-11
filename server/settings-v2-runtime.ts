@@ -11,7 +11,7 @@ import { providerRuntimeFor } from "./provider-runtime.js";
 import { effectiveGenerationSettings } from "./settings-v2-conversion.js";
 import { classifyHttpHost, SettingsFormatError } from "./settings-v2-scalars.js";
 import { selectSettingsRoute } from "../shared/settings-route.js";
-import { settingsStateRelation } from "./settings-v2-state-validation.js";
+import { settingsStateRelation } from "./settings-state-validation.js";
 import {
   corruptSettingsStateReceipt,
   invalidSettingsMutation

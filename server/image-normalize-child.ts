@@ -117,9 +117,15 @@ function applyDebugAllocation(): void {
  */
 export async function runImageNormalizeChild(argv: readonly string[]): Promise<void> {
   applyDebugStall();
-  applyDebugAllocation();
   try {
     const sourceBytes = await readBoundedStdin(MAX_SOURCE_IMAGE_BYTES + 1);
+    // Applied only after stdin is fully received, not at process startup.
+    // On Windows, the launcher holds the child's stdin, and therefore this
+    // point, until its Job Object assignment has actually settled (see
+    // `sendChildInput` in `server/image-normalize-launcher.ts`); allocating
+    // before that point would let a test commit memory before any kernel
+    // ceiling exists to refuse it, proving nothing about the ceiling itself.
+    applyDebugAllocation();
     const declaredMediaType = declaredMediaTypeFrom(argv);
     const result = await normalizeImage(sourceBytes, declaredMediaType);
     await writeStdout(result.bytes);

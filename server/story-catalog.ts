@@ -24,7 +24,7 @@ import {
   type StoredStorySlot
 } from "./story-storage-reader.js";
 import { buildStorySummary } from "./story-summary.js";
-import { storySummaryFromV6 } from "./story-v6-codec.js";
+import { storySummaryFromLiveEnvelope } from "./story-v6-codec.js";
 import {
   isEphemeralBundleName,
   reapEphemeralBundle
@@ -380,10 +380,11 @@ function summaryFromSlot(slot: StoredStorySlot): StorySummary | null {
   // "v6" here names the concurrency-token shape (a revision counter), not
   // the schema version, a V8 envelope is revision-tracked exactly like a V6
   // one (see the matching comment on `aggregateVersionFromSlot` in
-  // server/stories.ts). `storySummaryFromV6` already accepts either envelope.
+  // server/stories.ts). `storySummaryFromLiveEnvelope` already accepts
+  // either envelope.
   if (slot.kind === "v6-live" || slot.kind === "v8-live") {
     return {
-      ...storySummaryFromV6(slot.manifest),
+      ...storySummaryFromLiveEnvelope(slot.manifest),
       aggregateVersion: {
         kind: "v6",
         revision: slot.manifest.revision
