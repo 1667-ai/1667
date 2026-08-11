@@ -25,8 +25,13 @@ import {
   type ReasoningConsumer
 } from "./provider-reasoning-relay.js";
 import { createThinkTagSplitter } from "../shared/think-tag-split.js";
-// Type-only, so the cycle back to the module that dispatches here is erased.
-import type { ProviderSecretsCollector } from "./providers.js";
+/** Structural mirror of `ProviderSecretsCollector` (server/providers.ts).
+ *  Declared here rather than imported: that module imports this one, so any
+ *  back-import closes a cycle, and a cycle through the provider entry point
+ *  leaves it half-initialised for an unrelated importer. */
+interface TextProviderSecretsCollector {
+  secrets: readonly string[];
+}
 import type { StorySamplingBias } from "./sampling-phrase-bias.js";
 import {
   snapshotEffectiveFields,
@@ -46,7 +51,7 @@ interface TextCompletionOptions {
   readonly storySampling?: StorySamplingBias;
   readonly generationRecord?: GenerationRecordCollector;
   readonly onReasoning?: ReasoningConsumer;
-  readonly providerSecrets?: ProviderSecretsCollector;
+  readonly providerSecrets?: TextProviderSecretsCollector;
 }
 
 type TextEndpoint = "llama-cpp" | "koboldcpp" | "openai";
