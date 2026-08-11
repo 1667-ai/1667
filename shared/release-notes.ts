@@ -11,7 +11,7 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
-    version: "0.8.0-rc.1",
+    version: "0.8.0",
     date: "2026-08-11",
     body: "- **1667 prepares to send images to a model.** This release contains the\n  complete Image Input implementation and keeps every entry point closed. It\n  cannot attach an image yet. 1667 releases a new storage schema in two steps:\n  this release reads and validates the successor story and settings documents\n  and refuses to change them, and the next release writes them. That order lets\n  a writer go back one version without losing a story or a setting. The next\n  release opens the feature."
   },
