@@ -124,16 +124,16 @@ providerTest("generation HTTP: append at a summarized chapter break creates a ch
   assert.equal(saved.path[1]!.parentId, leaf.id);
   assert.equal(saved.path[1]!.text, "A new chapter opened.");
   const messages = model.requests[1]!.messages as Array<{ role: string; content: string }>;
-  // The operation contract now rides after the story, immediately ahead of
-  // the final turn (issue #138), so it lands between the summary and the
-  // request rather than ahead of the whole story.
-  assert.deepEqual(messages.at(-3), { role: "assistant", content: summary.text });
-  assert.deepEqual(messages.at(-2), {
-    role: "system",
+  // The operation contract now rides after the story, folded into the same
+  // final turn as the request rather than a message of its own — PR #148:
+  // a system message here, after the summary's assistant turn, would break
+  // local chat templates that only accept a leading system message.
+  assert.deepEqual(messages.at(-2), { role: "assistant", content: summary.text });
+  assert.deepEqual(messages.at(-1), {
+    role: "user",
     content: "Write the next passage of the story in response to the final user direction. "
-      + "Return only story prose: no summary, explanation, or commentary."
+      + "Return only story prose: no summary, explanation, or commentary.\n\nContinue the story."
   });
-  assert.deepEqual(messages.at(-1), { role: "user", content: "Continue the story." });
 });
 
 providerTest("generation HTTP: a take under a parent preserves the old child as a sibling", async (t) => {
@@ -153,17 +153,17 @@ providerTest("generation HTTP: a take under a parent preserves the old child as 
   assert.equal(saved.path[1]!.genId, "new-take");
   assert.equal(saved.path[1]!.text, "A different turn.");
   const messages = model.requests[0]!.messages as Array<{ role: string; content: string }>;
-  // The operation contract now rides after the story, immediately ahead of
-  // the final turn (issue #138), so it lands between the last part and the
-  // request rather than ahead of the whole story.
-  assert.deepEqual(messages.slice(-3), [
+  // The operation contract now rides after the story, folded into the same
+  // final turn as the request rather than a message of its own — PR #148:
+  // a system message here, after the last part's assistant turn, would
+  // break local chat templates that only accept a leading system message.
+  assert.deepEqual(messages.slice(-2), [
     { role: "assistant", content: "Opening." },
     {
-      role: "system",
+      role: "user",
       content: "Write the next passage of the story in response to the final user direction. "
-        + "Return only story prose: no summary, explanation, or commentary."
-    },
-    { role: "user", content: "Turn elsewhere." }
+        + "Return only story prose: no summary, explanation, or commentary.\n\nTurn elsewhere."
+    }
   ]);
 });
 

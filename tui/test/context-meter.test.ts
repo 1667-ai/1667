@@ -1299,7 +1299,7 @@ describe("honest next-request context meter", () => {
     state.mode = "COMPOSE";
     state.composer.fullscreen = true;
     const expected = new Map([
-      [80, " COMPOSE · fullscreen   the la… · ⚑ canon-storm · ¶ 12/13 · 3/5 next ~884/32.8k"],
+      [80, " COMPOSE · fullscreen   the la… · ⚑ canon-storm · ¶ 12/13 · 3/5 next ~880/32.8k"],
       [100, " COMPOSE · fullscreen   the lantern keeper · ⚑ canon-storm · part 12/13 · take 3/5        qwen3-32b"],
       [110, " COMPOSE · fullscreen   the lantern keeper · ⚑ canon-storm · part 12/13 · take 3/5 · 307 words      qwen3-32b"],
       [120, composeStatusWithBuildTag(120)]

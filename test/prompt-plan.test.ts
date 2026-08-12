@@ -85,10 +85,9 @@ test("continue renders the existing provider wire shape exactly", () => {
     { role: "user", content: "Open the door." },
     { role: "assistant", content: "The latch clicked." },
     {
-      role: "system",
-      content: "Write the next passage of the story in response to the final user direction. Return only story prose: no summary, explanation, or commentary."
-    },
-    { role: "user", content: "A stranger enters." }
+      role: "user",
+      content: "Write the next passage of the story in response to the final user direction. Return only story prose: no summary, explanation, or commentary.\n\nA stranger enters."
+    }
   ]);
 });
 
@@ -129,10 +128,11 @@ test("requested continuation defaults an empty instruction before rendering", ()
     [source]
   ).prompt;
 
-  assert.deepEqual(renderPromptPlan(prompt).at(-1), {
-    role: "user",
-    content: "Continue the story."
-  });
+  const last = renderPromptPlan(prompt).at(-1);
+  assert.equal(last?.role, "user");
+  // The contract now leads the same turn (issue #138 / PR #148), so the
+  // default instruction is this message's tail, not its whole content.
+  assert.equal(last?.content.endsWith("\n\nContinue the story."), true);
 });
 
 /**
@@ -211,8 +211,64 @@ test("the operation contract appears exactly once, in both the new-part and the 
   // has nowhere left to go without either breaking that or reopening the
   // prefix instability this fix removes, so it is not sent on this path;
   // the prefill mechanism itself already enforces exact, unprefaced
-  // continuation. See shared/continuation-plan.ts's `appendOperationContract`.
+  // continuation. See shared/continuation-plan.ts's `operationContractBlock`.
   assert.equal(countContracts(continuePrefill.prompt), 0);
+});
+
+/**
+ * PR #148 review finding: `appendOperationContract` used to emit the
+ * contract as its own `role: "system"` turn placed after the story parts —
+ * so a minimal prompt (no Author Brief, no Facts) rendered as
+ * `user, assistant, system, user`. Many llama.cpp/KoboldCpp chat templates
+ * (Gemma's among the strictest) accept a system message only first and then
+ * enforce strict user/assistant alternation; a system turn appearing after
+ * an assistant turn makes those templates fail to render or mis-serialize —
+ * exactly the class of local server issue #138 exists to help, so the fix
+ * traded away compatibility for a cache win. `operationContractBlock` now
+ * folds the contract into the final turn instead, as a leading block rather
+ * than a message of its own, so no system turn ever follows an assistant
+ * turn. This is the general property, checked on the rendered plan, not a
+ * spot check of one shape.
+ */
+test("no system-role message ever follows an assistant message, with or without an Author Brief and Facts", () => {
+  const parts = [
+    node("part-1", "Open the door.", "The latch clicked."),
+    node("part-2", "Cross the threshold.", "Dust motes hung in the still, cold air")
+  ];
+
+  const assertNoSystemAfterAssistant = (prompt: PromptPlan, label: string): void => {
+    let sawAssistant = false;
+    for (const message of renderPromptPlan(prompt)) {
+      if (message.role === "assistant") {
+        sawAssistant = true;
+        continue;
+      }
+      assert.equal(
+        sawAssistant && message.role === "system",
+        false,
+        `${label}: a system message followed an assistant message`
+      );
+    }
+  };
+
+  for (const [brief, facts] of [
+    ["Write vivid prose.", "CANONICAL FACTS"],
+    ["", null]
+  ] as const) {
+    const label = `brief=${JSON.stringify(brief)} facts=${JSON.stringify(facts)}`;
+    const direct = continuationPlan(
+      brief, facts, null, parts, "A stranger enters.", false, true, "ct-new", [], parts
+    );
+    const boundaryEcho = continuationPlan(
+      brief, facts, null, parts, "unused", true, false, "ct-echo", [], parts
+    );
+    const continuePrefill = continuationPlan(
+      brief, facts, null, parts, "unused", true, true, "ct-prefill", [], parts
+    );
+    assertNoSystemAfterAssistant(direct.prompt, `${label} direct`);
+    assertNoSystemAfterAssistant(boundaryEcho.prompt, `${label} boundary echo`);
+    assertNoSystemAfterAssistant(continuePrefill.prompt, `${label} continue (prefill)`);
+  }
 });
 
 test("continuation inserts one late Author's Note before the final part at every part count", () => {
@@ -236,13 +292,12 @@ test("continuation inserts one late Author's Note before the final part at every
       .map((entry, index) => entry.category === "note" ? index : -1)
       .filter((index) => index >= 0);
     // The prelude is two entries now (Author Brief, Facts) — the operation
-    // contract no longer rides ahead of the story, so it no longer pushes
-    // the note's index out by one. Zero parts is the exception: the note has
-    // nowhere to land but last, which is exactly where the contract would
-    // also land, so the contract inserts ahead of the note instead
-    // (`appendOperationContract`) and the index is back to where the old
-    // three-entry prelude would have put it.
-    assert.deepEqual(noteIndexes, [count === 0 ? 3 : 2 + Math.max(0, count - 1) * 2]);
+    // contract no longer rides ahead of the story as a prelude entry, and
+    // (PR #148) no longer rides as an entry of its own at all: it folds into
+    // whichever turn already carries the final instruction or boundary echo
+    // (`operationContractBlock`), so it never shifts the note's index,
+    // including at zero parts.
+    assert.deepEqual(noteIndexes, [2 + Math.max(0, count - 1) * 2]);
     const noteIndex = noteIndexes[0]!;
     assert.equal(withNote.entries[noteIndex]!.turn.role, "system");
     assert.equal(withNote.entries[noteIndex + 1]!.turn.role, "user");
@@ -257,7 +312,7 @@ test("continuation inserts one late Author's Note before the final part at every
       "Voice.", "Facts.", null, parts, "Request.", false, true, "ct-note", [], parts
     );
     // The trailing operation contract is never itself a candidate (it rides
-    // after the deepest one on purpose — see `appendOperationContract`), so
+    // after the deepest one on purpose — see `operationContractBlock`), so
     // it never enters this comparison at all: what is left lines up exactly
     // as it did before the contract moved.
     assert.deepEqual(
@@ -343,7 +398,7 @@ test("stable rendered-prefix hashes are golden for every generation operation", 
   assert.deepEqual(Object.fromEntries(
     Object.entries(plans).map(([operation, prompt]) => [operation, prefixHash(prompt)])
   ), {
-    continue: "56cea2ce8ddeca5b7666ec28a55942abe6083fded20f7d07ff4771a52cfb3afb",
+    continue: "02ae792c942a28b0e8c802f604c14d465f26daecf1f1faecd3d06eb89577a80e",
     rewrite: "915a92f74c89251f1a90cae595e7682f7f4287a1bc273ac9e2fc01099cbd4462",
     phrase: "928f1145fa90b9f398b67be8eb84164fdc17ce58b2e85704505f322ff8099752",
     title: "8ce79bf5ea50fb067d4a53a1f228b0df1b2a3c4ff6f4b698c781d00cbf3c8d72",

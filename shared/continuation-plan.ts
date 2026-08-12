@@ -1,6 +1,6 @@
 import { assembleChapterContext, type PromptPart } from "./chapters.js";
 import { normalizeAuthorsNote, type AuthorsNotePlacement } from "./authors-note.js";
-import type { PromptPlan, PromptTurn } from "./prompt-plan.js";
+import type { PromptBlock, PromptPlan, PromptTurn } from "./prompt-plan.js";
 import { isOfficialAnthropicBaseUrl } from "./settings-provider-defaults.js";
 import type { StoryImageAttachment } from "./image-attachment.js";
 import type { ChapterBreak, GenerationSettings, StoryNode } from "./types.js";
@@ -79,8 +79,9 @@ export function continuationPlan(
   // that carried it changed on every switch between continuing a passage and
   // starting a new part — the one thing a local server's KV cache needs held
   // constant to reuse the (potentially huge) unchanged story prefix. It now
-  // rides near the end instead, via `appendOperationContract` below, so the
-  // prelude here is the same bytes regardless of which way the request goes.
+  // rides near the end instead, folded into the final turn by
+  // `operationContractBlock` below, so the prelude here is the same bytes
+  // regardless of which way the request goes.
   const prelude: ContinuationPromptEntry[] = [
     ...(systemPrompt.trim().length === 0 ? [] : [{
       category: "voice" as const,
@@ -166,12 +167,12 @@ export function continuationPlan(
         ...partEntries.slice(insertionIndex).map(sealPartEntry)
       ];
   if (!continuePassage) {
-    const withContract = appendOperationContract(entries, CONTINUE_CONTRACT);
-    withContract.push({
+    entries.push({
       category: "voice",
       turn: {
         role: "user",
         blocks: [
+          operationContractBlock(CONTINUE_CONTRACT),
           ...newImages.map((image) => ({
             stability: "volatile" as const,
             kind: "image" as const,
@@ -187,25 +188,23 @@ export function continuationPlan(
         ]
       }
     });
-    assertAuthorsNoteFollowedByUser(withContract);
-    return continuationResult(withContract, contextPartIds, "", false);
+    assertAuthorsNoteFollowedByUser(entries);
+    return continuationResult(entries, contextPartIds, "", false);
   }
   if (assistantPrefill) {
     // A prefilled continuation ends with the story's own unfinished assistant
     // message, unchanged, so the provider can extend that exact token stream
     // — nothing can follow it without turning the completion into a fresh
-    // turn instead of a continuation. Any contract message would have to
-    // land either after that passage (breaking the prefill) or ahead of it
-    // (reopening the same prefix instability this function exists to close).
-    // The instruction is not lost: the prefill mechanism itself already
-    // enforces exact, unprefaced continuation, which is what the contract
-    // text would otherwise have to say. See shared/continuation-plan.ts's
-    // module comment / issue #138 for the full reasoning.
+    // turn instead of a continuation. The contract text has nowhere left to
+    // go without either breaking that or reopening the same prefix
+    // instability this function exists to close, so it is not sent on this
+    // path. The instruction is not lost: the prefill mechanism itself
+    // already enforces exact, unprefaced continuation, which is what the
+    // contract text would otherwise have to say. See issue #138.
     assertAuthorsNoteFollowedByUser(entries);
     return continuationResult(entries, contextPartIds, "", false);
   }
 
-  const withContract = appendOperationContract(entries, APPEND_CONTRACT);
   const leftAnchor = lastCharacters(context.at(-1)?.text.trimEnd() ?? "", BOUNDARY_ANCHOR_CHARACTERS);
   let boundaryInstruction = "Continue the unfinished assistant passage directly. Return only new continuation text, with no preamble or explanation.";
   if (leftAnchor.length > 0) {
@@ -218,67 +217,58 @@ export function continuationPlan(
       `<${boundaryTag}-left>${leftAnchor}</${boundaryTag}-left>`
     ].join("\n");
   }
-  withContract.push({
+  entries.push({
     category: "voice",
     turn: {
       role: "user",
-      blocks: [{
-        stability: "volatile",
-        kind: "boundary",
-        text: boundaryInstruction,
-        boundaryAfter: "none"
-      }]
+      blocks: [
+        operationContractBlock(APPEND_CONTRACT),
+        {
+          stability: "volatile",
+          kind: "boundary",
+          text: boundaryInstruction,
+          boundaryAfter: "none"
+        }
+      ]
     }
   });
-  assertAuthorsNoteFollowedByUser(withContract);
-  return continuationResult(withContract, contextPartIds, leftAnchor, leftAnchor.length > 0);
+  assertAuthorsNoteFollowedByUser(entries);
+  return continuationResult(entries, contextPartIds, leftAnchor, leftAnchor.length > 0);
 }
 
-/** Place the operation contract as the last stable message, immediately
- *  ahead of whatever volatile turn the caller pushes next (the new-part
- *  instruction, or the boundary echo) — after every story part, instead of
- *  ahead of all of them, so its mode-dependent text no longer sits in the
- *  part of the prompt a local server's KV cache needs unchanged to reuse the
- *  story it already processed (issue #138).
+/** The operation contract as a leading block on the final turn — never a
+ *  message of its own. A `role: "system"` turn landing after the story's own
+ *  user/assistant pairs breaks local chat templates that accept a system
+ *  message only first and then enforce strict alternation (Gemma's among
+ *  them, and exactly the class of server issue #138 exists to help): the
+ *  template either refuses to render or mis-serializes it. Folding the text
+ *  into the turn that already carries the writer's instruction, or the
+ *  boundary echo, keeps the role sequence exactly as it always was — no
+ *  system turn ever follows an assistant one — while the contract still
+ *  sits after every story part, so the prompt prefix through the last story
+ *  part stays byte-identical across modes, which is the cache-reuse
+ *  property #138 exists to fix.
  *
- *  One placement cannot honor "immediately ahead of the final turn" literally:
- *  when an Author's Note has clamped to zero trailing parts, it is already
- *  the entry the following user turn must land on directly
- *  (`assertAuthorsNoteFollowedByUser`), and the contract — a system turn —
- *  cannot wedge between them without breaking that fold. It lands just ahead
- *  of the note instead, which is the latest position that still respects the
- *  fold.
+ *  It is `stable`, `boundaryAfter: "none"`, and ordered first in the turn's
+ *  block list: `renderTurns` and `promptCacheBoundaries` (shared/prompt-plan.ts,
+ *  server/prompt-cache-breakpoints.ts) both refuse stable content that
+ *  follows volatile content anywhere in the plan, and this turn's other
+ *  blocks are always volatile. Not a candidate for the same reason it never
+ *  was one at the end of the plan: its hash is recomputed over the whole
+ *  growing story on every request, so it could never serve as a stable,
+ *  reusable OpenAI breakpoint the way a story part's own boundary does.
  *
- *  Its own `boundaryAfter` stays `"none"`, deliberately not a candidate
- *  OpenAI cache breakpoint: unlike a story part, whose trailing hash is
- *  fixed forever once written, this block's hash is recomputed over the
- *  whole growing story on every request. Marking it a candidate would make
- *  it "the newest" every single time, and since that hash never recurs once
- *  the story grows by even one part, the *previous* request's remembered
- *  breakpoint would never be found again — trading away the rolling,
- *  warm-cache reuse `server/prompt-cache-breakpoints.ts` otherwise gets for
- *  free from a part boundary that never moves once it exists. */
-function appendOperationContract(
-  entries: readonly ContinuationPromptEntry[],
-  text: string
-): ContinuationPromptEntry[] {
-  const contractEntry: ContinuationPromptEntry = {
-    category: "voice",
-    turn: {
-      role: "system",
-      blocks: [{
-        stability: "stable",
-        kind: "operation-contract",
-        text,
-        boundaryAfter: "none"
-      }]
-    }
+ *  The trailing `\n\n` is not decorative: blocks concatenate with no
+ *  separator (`renderTurns`), so without it the contract's final sentence
+ *  would run directly into the instruction or boundary text that follows —
+ *  "...commentary.Continue north." — instead of reading as two paragraphs. */
+function operationContractBlock(text: string): PromptBlock {
+  return {
+    stability: "stable",
+    kind: "operation-contract",
+    text: `${text}\n\n`,
+    boundaryAfter: "none"
   };
-  const last = entries.at(-1);
-  if (last !== undefined && last.category === "note") {
-    return [...entries.slice(0, -1), contractEntry, last];
-  }
-  return [...entries, contractEntry];
 }
 
 function sealPartEntry(entry: PartPromptEntry): PartPromptEntry {
