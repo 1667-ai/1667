@@ -24,6 +24,7 @@ import {
 } from "./overlay.js";
 import { panelRowWindow, cellPadStart } from "./panel-table-layout.js";
 import { renderComposerInput } from "./story/composer.js";
+import { wrapFeedback } from "./feedback-wrap.js";
 import {
   truncate,
   visibleWidth,
@@ -47,7 +48,7 @@ export function renderSamplingPanel(
   const nested = settings.sampling!;
   const horizontal = panelHorizontalGeometry(width, 76);
   const contentWidth = horizontal.contentWidth;
-  const status = nested.result === null ? [] : [samplingStatus(nested.result, contentWidth)];
+  const status = nested.result === null ? [] : samplingStatus(nested.result, contentWidth);
   const content = nested.panel === "sampling"
     ? renderSamplingLayer(settings, contentWidth, height, status)
     : renderSamplingListLayer(settings, contentWidth, height, status, nested.panel);
@@ -429,9 +430,28 @@ function plainRow(prefix: string, value: string, width: number, selected: boolea
   ];
 }
 
-function samplingStatus(text: string, width: number): FrameLine {
+/** Decision 24's wrapping law, applied to the sampling panel's own status
+ *  row. This clipped to one line, which is worst for the message that most
+ *  needs reading: a rejected save states the reason in the tail, so a
+ *  provider refusal arrived as a sentence cut mid-word with no way to see
+ *  the rest. Continuation rows hang under the glyph, so the wrap measures
+ *  against the room they actually get. */
+const STATUS_ROW_CAP = 4;
+const STATUS_HANGING_INDENT = 2;
+
+function samplingStatus(text: string, width: number): FrameLine[] {
   const danger = text.includes("kept") || text.includes("disabled") || text.includes("limit");
-  return [raisedSegment(truncate(`  ${danger ? "▲" : "●"} ${text}`, width), danger ? "danger text" : "focus / accent")];
+  const role = danger ? "danger text" : "focus / accent";
+  const wrapped = wrapFeedback(
+    text, Math.max(8, width - 4 - STATUS_HANGING_INDENT), STATUS_ROW_CAP, "! full"
+  );
+  if (wrapped.rows.length === 0) return [];
+  return wrapped.rows.map((row, index): FrameLine => [
+    raisedSegment(
+      truncate(index === 0 ? `  ${danger ? "▲" : "●"} ${row}` : `    ${row}`, width),
+      role
+    )
+  ]);
 }
 
 interface SamplingFooter {
