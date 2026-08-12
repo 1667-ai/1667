@@ -248,14 +248,15 @@ export async function generateSummaryText(
   parts: readonly StoryNode[],
   signal: AbortSignal,
   options: {
-    maxOutputTokens?: number;
+    /** The size the prompt asks for, not a ceiling. See `planSummary`. */
+    targetTokens?: number;
     providerStarted?: () => void | Promise<void>;
     promptCache?: PromptCacheRequest;
   } = {}
 ): Promise<GeneratedSummaryText> {
   const tag = randomUUID().slice(0, 8);
   const marker = `[[summary-complete-${tag}]]`;
-  const plan = planSummary(settings, title, parts, tag, options.maxOutputTokens);
+  const plan = planSummary(settings, title, parts, tag, options.targetTokens);
   const outcome: StreamOutcome = {
     finishReason: null,
     providerTerminal: false
@@ -313,21 +314,35 @@ function summaryPromptRoom(
   return { prompt, room: Math.floor(settings.contextWindow * 0.9) - input };
 }
 
+/** `targetTokens` sizes the summary the prompt asks for. It is not the
+ *  ceiling: the ceiling is the profile's own max output, so a summary that
+ *  runs slightly past its target can still finish its last sentence and emit
+ *  the completion marker `extractConfirmedSummary` requires. Holding the two
+ *  at one number truncated every chapter summary exactly at its target, which
+ *  left no marker, so the result was refused and nothing was saved. */
 function planSummary(
   settings: GenerationSettings,
   title: string,
   prefix: readonly StoryNode[],
   tag: string,
-  maxOutputTokens = settings.maxTokens
+  targetTokens = settings.maxTokens
 ): SummaryPlan {
-  const outputBudget = Math.min(settings.maxTokens, maxOutputTokens);
-  const { prompt, room } = summaryPromptRoom(settings, title, prefix, tag, outputBudget);
-  if (room === null) return { prompt, outputBudget, windowBound: false };
-  if (room < Math.min(MIN_SUMMARY_TOKENS, outputBudget)) {
+  const cap = settings.maxTokens;
+  const target = Math.max(1, Math.min(targetTokens, cap));
+  const { prompt, room } = summaryPromptRoom(settings, title, prefix, tag, target);
+  if (room === null) return { prompt, outputBudget: cap, windowBound: false };
+  if (room < Math.min(MIN_SUMMARY_TOKENS, cap)) {
     throw new HttpError(422, "The story prefix alone nearly fills the configured context window, leaving no room for its summary. Choose an earlier summary point or grow the story from an existing summary.");
   }
-  if (room >= outputBudget) return { prompt, outputBudget, windowBound: false };
-  return { prompt: summaryTakePrompt(title, prefix, room, tag), outputBudget: room, windowBound: true };
+  if (room >= cap) return { prompt, outputBudget: cap, windowBound: false };
+  // The window, not the profile, is the binding constraint here. Ask for no
+  // more than fits, and cap at exactly what is left.
+  const bounded = Math.min(target, room);
+  return {
+    prompt: bounded === target ? prompt : summaryTakePrompt(title, prefix, bounded, tag),
+    outputBudget: room,
+    windowBound: true
+  };
 }
 
 /** A fixed stand-in tag for search probes below — never sent to a model, so
