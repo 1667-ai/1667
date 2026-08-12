@@ -898,7 +898,7 @@ describe("honest next-request context meter", () => {
         meter: rail.filter((line) => /free|next request|─{12}/.test(plainLine(line))).length,
         header: text.includes("facts · 5"),
         expanded: text.includes("context · request + response"),
-        request: text.includes("next request  ~874 / 8k") || text.includes("~874 / 8k · 7.1k free")
+        request: text.includes("next request  ~927 / 8k") || text.includes("~927 / 8k · 7.1k free")
       };
     };
 
@@ -935,16 +935,16 @@ describe("honest next-request context meter", () => {
     const meter = (rows: number) => contextMeterLines(model, false, rows).map((line) => plainLine(line).trim());
 
     expect(meter(4)).toEqual([
-      "─".repeat(33), "next request  ~874 / 8k", `▮▮${"▮".repeat(18)}    7.1k free`,
+      "─".repeat(33), "next request  ~927 / 8k", `▮▮${"▮".repeat(18)}    7.1k free`,
       "ch 12 · summarize frees ~12.3k"
     ]);
     // The rule is decoration; the gauge repeats what the numbers already say.
     // Both go before the chapter's fix, which is the one actionable line here.
     expect(meter(3)).toEqual([
-      "next request  ~874 / 8k", `▮▮${"▮".repeat(18)}    7.1k free`, "ch 12 · summarize frees ~12.3k"
+      "next request  ~927 / 8k", `▮▮${"▮".repeat(18)}    7.1k free`, "ch 12 · summarize frees ~12.3k"
     ]);
-    expect(meter(2)).toEqual(["next request  ~874 / 8k", "ch 12 · summarize frees ~12.3k"]);
-    expect(meter(1)).toEqual(["next request  ~874 / 8k"]);
+    expect(meter(2)).toEqual(["next request  ~927 / 8k", "ch 12 · summarize frees ~12.3k"]);
+    expect(meter(1)).toEqual(["next request  ~927 / 8k"]);
     expect(meter(0)).toEqual([]);
 
     // With no window there is no gauge to shed, and the way to set one is the
@@ -952,7 +952,7 @@ describe("honest next-request context meter", () => {
     const unknown = (rows: number) =>
       contextMeterLines({ ...model, window: null, chapterNotice: null }, false, rows)
         .map((line) => plainLine(line).trim());
-    expect(unknown(2)).toEqual(["next request  ~874 tokens", "set context window · settings (,)"]);
+    expect(unknown(2)).toEqual(["next request  ~927 tokens", "set context window · settings (,)"]);
   });
 
   test("a fact-drop notice states the count and dominant reason, ahead of the chapter notice", () => {
@@ -973,23 +973,23 @@ describe("honest next-request context meter", () => {
     // Both notices fit: the drop notice leads, naming the majority reason
     // among this request's drops ("total-budget", 2 of 3).
     expect(meter(5)).toEqual([
-      "─".repeat(33), "next request  ~874 / 8k", `▮▮${"▮".repeat(18)}    7.1k free`,
+      "─".repeat(33), "next request  ~927 / 8k", `▮▮${"▮".repeat(18)}    7.1k free`,
       "3 facts dropped · over budget",
       "ch 12 · summarize frees ~12.3k"
     ]);
     expect(meter(3)).toEqual([
-      "next request  ~874 / 8k", "3 facts dropped · over budget", "ch 12 · summarize frees ~12.3k"
+      "next request  ~927 / 8k", "3 facts dropped · over budget", "ch 12 · summarize frees ~12.3k"
     ]);
     // Two notices no longer both fit alongside the request line: shedding is
     // still all-or-nothing per tail (as it already was for remedy+chapter),
     // so at this height neither notice survives — only the request does.
-    expect(meter(2)).toEqual(["next request  ~874 / 8k"]);
+    expect(meter(2)).toEqual(["next request  ~927 / 8k"]);
 
     // With no chapter notice competing for the row, the drop notice alone
     // survives down to the same floor the chapter notice used to reach.
     const withoutChapterNotice = { ...model, chapterNotice: null };
     expect(contextMeterLines(withoutChapterNotice, false, 2).map((line) => plainLine(line).trim()))
-      .toEqual(["next request  ~874 / 8k", "3 facts dropped · over budget"]);
+      .toEqual(["next request  ~927 / 8k", "3 facts dropped · over budget"]);
 
     // Review finding J: "priority" means window pressure selected a droppable
     // Fact, not that the Fact itself is ranked low — a keyed Fact at any
@@ -998,12 +998,12 @@ describe("honest next-request context meter", () => {
     // own rank.
     const single = { ...withoutChapterNotice, droppedFacts: [{ factId: "fact-a", reason: "priority" as const }] };
     expect(contextMeterLines(single, false, 2).map((line) => plainLine(line).trim())).toEqual([
-      "next request  ~874 / 8k", "1 fact dropped · over window"
+      "next request  ~927 / 8k", "1 fact dropped · over window"
     ]);
 
     const none = { ...withoutChapterNotice, droppedFacts: [] };
     expect(contextMeterLines(none, false, 2).map((line) => plainLine(line).trim())).toEqual([
-      "next request  ~874 / 8k", `▮▮${"▮".repeat(18)}    7.1k free`
+      "next request  ~927 / 8k", `▮▮${"▮".repeat(18)}    7.1k free`
     ]);
   });
 
@@ -1299,7 +1299,7 @@ describe("honest next-request context meter", () => {
     state.mode = "COMPOSE";
     state.composer.fullscreen = true;
     const expected = new Map([
-      [80, " COMPOSE · fullscreen   the la… · ⚑ canon-storm · ¶ 12/13 · 3/5 next ~880/32.8k"],
+      [80, " COMPOSE · fullscreen   the la… · ⚑ canon-storm · ¶ 12/13 · 3/5 next ~933/32.8k"],
       [100, " COMPOSE · fullscreen   the lantern keeper · ⚑ canon-storm · part 12/13 · take 3/5        qwen3-32b"],
       [110, " COMPOSE · fullscreen   the lantern keeper · ⚑ canon-storm · part 12/13 · take 3/5 · 307 words      qwen3-32b"],
       [120, composeStatusWithBuildTag(120)]

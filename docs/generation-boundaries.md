@@ -110,6 +110,17 @@ and completion markers form the volatile suffix. The renderer rejects any
 stable block placed after volatility begins; provider adapters and the TUI
 context meter both consume the same model.
 
+A continuation sends the operation contract in two parts. The first part does
+not change with the operation. It stays in the stable prefix, ahead of the
+story parts. The second part changes with the operation. It rides as the first
+block of the final user turn, after all story parts.
+
+This division has two reasons. A stable prefix that does not change lets a
+local server keep its KV cache when the writer changes between a continuation
+of a passage and a new part. A contract in the stable prefix also reaches the
+assistant prefill, which has no final user turn. Do not move text that changes
+with the operation into the stable prefix. Do not remove the first part.
+
 Continuation admission is owned by `StoryService` and keyed by the exact
 `(storyId, genId)` tuple. A committed ID returns the stored story before
 settings or provider work. A duplicate while the first call is still active is

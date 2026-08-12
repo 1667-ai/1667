@@ -19,6 +19,21 @@ const CONTINUE_CONTRACT = [
   "Return only story prose: no summary, explanation, or commentary."
 ].join(" ");
 
+/** The part of the contract that holds whichever way the request goes, so it
+ *  can ride in the prelude without reopening the prefix instability of issue
+ *  #138. `APPEND_CONTRACT` and `CONTINUE_CONTRACT` change with the mode, so a
+ *  prelude that carried either of them changed on every switch between
+ *  continuing a passage and starting a new part, which is the one thing a
+ *  local server's KV cache needs held constant. This text does not change,
+ *  so the prompt prefix stays byte-identical across modes and the writer
+ *  keeps a directive even on the path that has no final user turn to carry
+ *  one — the assistant prefill. See issue #176. */
+const STORY_CONTRACT = [
+  "You are writing prose for an ongoing story.",
+  "Return only story text: no preamble, summary, explanation, commentary, or headings.",
+  "Never restart, retell, or quote passages that are already written."
+].join(" ");
+
 export type ContinuationPromptEntry =
   | { category: "voice" | "facts"; turn: PromptTurn; partId?: never }
   /** `partsAfterNote` is the placement the plan really used, which is the
@@ -74,14 +89,18 @@ export function continuationPlan(
     && (sourceContext.at(-1)?.text.trim().length ?? 0) > 0;
   // Migrated empty endpoints are structural line endings, not provider messages.
   const context = sourceContext.filter((part) => part.text.trim().length > 0);
-  // The operation contract used to ride here, as the third message ahead of
-  // every story part. Its text depends on `continuePassage`, so a prelude
-  // that carried it changed on every switch between continuing a passage and
-  // starting a new part — the one thing a local server's KV cache needs held
-  // constant to reuse the (potentially huge) unchanged story prefix. It now
-  // rides near the end instead, folded into the final turn by
-  // `operationContractBlock` below, so the prelude here is the same bytes
-  // regardless of which way the request goes.
+  // The mode-dependent half of the operation contract used to ride here, as
+  // the third message ahead of every story part. Its text depends on
+  // `continuePassage`, so a prelude that carried it changed on every switch
+  // between continuing a passage and starting a new part — the one thing a
+  // local server's KV cache needs held constant to reuse the (potentially
+  // huge) unchanged story prefix. That half rides near the end now, folded
+  // into the final turn by `operationContractBlock` below.
+  //
+  // `STORY_CONTRACT` stays here because it does not depend on the mode: the
+  // prelude is the same bytes whichever way the request goes, so the cache
+  // property holds, and the writer's directives survive on the one path that
+  // has no final user turn to carry them. See issue #176.
   const prelude: ContinuationPromptEntry[] = [
     ...(systemPrompt.trim().length === 0 ? [] : [{
       category: "voice" as const,
@@ -108,6 +127,18 @@ export function continuationPlan(
         }]
       }
     }]),
+    {
+      category: "voice" as const,
+      turn: {
+        role: "system" as const,
+        blocks: [{
+          stability: "stable" as const,
+          kind: "operation-contract" as const,
+          text: STORY_CONTRACT,
+          boundaryAfter: "candidate" as const
+        }]
+      }
+    }
   ];
   const partEntries: PartPromptEntry[] = context.flatMap((part): PartPromptEntry[] => {
       const category = part.role === "summary" ? "summary" as const : "recent" as const;
