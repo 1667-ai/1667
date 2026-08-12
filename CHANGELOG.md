@@ -264,7 +264,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names. Thanks @10fra for the request.
 
-## 0.9.1-rc.1 - 2026-08-12
+## 0.9.1 - 2026-08-12
 
 - **You can save an empty Author Brief.** Clear the Author Brief in Settings
   when you do not want a system instruction. 1667 now accepts and saves the
