@@ -7,13 +7,14 @@ import {
 import { formatSettingsStateV2Bytes } from "./settings-v2-codec.js";
 import {
   parseSettingsStateSlotBytes,
-  settingsStateSlotPriorV3,
+  requireSettingsWriteAuthority,
   settingsStateSlotReadOnlyView,
   upgradeSettingsStateV2ToV3,
   type SettingsStateSlot
 } from "./settings-state-slot.js";
 import { formatSettingsStateV3 } from "./settings-v3-codec.js";
 import {
+  settingsStateNeedsSuccessorSchema,
   settingsWriteSchemaVersion,
   type SettingsWriteSchemaOptions
 } from "./settings-v3-conversion.js";
@@ -30,20 +31,13 @@ import {
 export interface SettingsStateFiles {
   readonly current: SettingsStateV2;
   readonly next: SettingsStateV2 | null;
-  /** `current`'s own schema-3 authority, when the file on disk is schema 3
-   *  and this build's activation makes it mutable. This is the mutation
-   *  pipeline's `imageInput`/`imageTokenCeiling` carry-forward source for
-   *  whatever this read starts (`settingsStateSlotPriorV3`,
-   *  `upgradeSettingsStateV2ToV3`). Null for a schema-2 authority, which has
-   *  no schema-3 data to carry. */
-  readonly currentPriorV3: SettingsStateV3 | null;
 }
 
 /** Both settings-state files together, each schema-2-or-3-transparent: a
  *  genuine schema-2 file parses as itself, and a schema-3 file downgrades to
  *  the same schema-2-shaped working view. A schema-3 file can be this
  *  release's own prior write, or a predecessor-refused one; the caller
- *  decides which by calling `requireMutableSettingsStateSlot` first, see
+ *  decides which by calling `requireSettingsWriteAuthority` first, see
  *  settings-v2-store.ts. That downgraded view is what the whole mutation
  *  pipeline (`server/settings-v2-reducer.ts`, `server/settings-v2-mutation.ts`)
  *  already operates on. A `.next` residue can be either schema too, exactly
@@ -59,14 +53,13 @@ export async function readSettingsStateFiles(dataDir: string): Promise<SettingsS
   const currentSlot = parseSettingsStateSlotBytes(currentBytes);
   return {
     current: settingsStateSlotReadOnlyView(currentSlot),
-    currentPriorV3: settingsStateSlotPriorV3(currentSlot),
     next: nextBytes === null ? null : settingsStateSlotReadOnlyView(parseSettingsStateSlotBytes(nextBytes))
   };
 }
 
 /** The current settings-state authority's exact kind: schema 2 (mutable) or
  *  schema 3 (successor-owned, read-only). A mutation must call this and
- *  `requireMutableSettingsStateSlot` (server/settings-state-slot.ts) before
+ *  `requireSettingsWriteAuthority` (server/settings-state-slot.ts) before
  *  it stages or writes anything. */
 export async function readSettingsStateSlot(dataDir: string): Promise<SettingsStateSlot> {
   const bytes = await readOptionalMutableSettingsAuthority(
@@ -85,37 +78,69 @@ export async function readSettingsState(dataDir: string): Promise<SettingsStateV
   return settingsStateSlotReadOnlyView(await readSettingsStateSlot(dataDir));
 }
 
-/** Stage one settings-state replacement. `writeSchemaOptions` is the one
- *  site (`settingsWriteSchemaVersion`, server/settings-v3-conversion.ts)
- *  that decides which schema the bytes on disk use; every production caller
- *  passes no options, so it resolves through `resolveImageInputActivation()`,
- *  the release-wide switch. `priorV3` is this same directory's own prior
- *  schema-3 authority, if any (`SettingsStateFiles.currentPriorV3`, read at
- *  the start of the same mutation this call settles). It is passed through
- *  so a schema-3 write carries `imageInput`/`imageTokenCeiling` forward
- *  instead of resetting it (`upgradeSettingsStateV2ToV3`). Absent for a directory's
- *  first-ever schema-3 write, exactly like a fresh migration. */
+/** Stage one settings-state replacement. `writeSchemaOptions` feeds
+ *  `settingsWriteSchemaVersion` (server/settings-v3-conversion.ts), the one
+ *  site that decides which schema the bytes on disk use; every production
+ *  caller passes no options, so activation resolves through
+ *  `resolveImageInputActivation()`, the release-wide switch.
+ *  `formatSettingsStateForWrite` below reads this directory's own current
+ *  authority itself, at the moment it needs it, rather than trusting a
+ *  `priorV3` value a caller captured earlier in the same mutation: this is
+ *  what keeps every write's schema decision, and its
+ *  `imageInput`/`imageTokenCeiling` carry-forward source when it writes
+ *  schema 3, grounded in what is actually on disk right now, including
+ *  every write this same activation dance already published
+ *  (`SettingsV2Store.activateStaged` stages and publishes up to six times in
+ *  one activation). It also means a schema-2 `current` file can never stage
+ *  a schema-3 `.next`: with no schema-3 authority to read, the write stays
+ *  schema 2 regardless of what the caller asked for, so a predecessor can
+ *  never find a `.next` residue its strict reader cannot parse
+ *  (test/settings-schema-successor.test.ts). */
 export async function stageSettingsState(
   dataDir: string,
   state: SettingsStateV2,
-  writeSchemaOptions: SettingsWriteSchemaOptions = {},
-  priorV3: SettingsStateV3 | null = null
+  writeSchemaOptions: SettingsWriteSchemaOptions = {}
 ): Promise<void> {
   await writePrivateSettingsFile(
     nextPath(dataDir),
-    formatSettingsStateForWrite(state, writeSchemaOptions, priorV3)
+    await formatSettingsStateForWrite(dataDir, state, writeSchemaOptions)
   );
 }
 
-function formatSettingsStateForWrite(
+async function formatSettingsStateForWrite(
+  dataDir: string,
   state: SettingsStateV2,
-  writeSchemaOptions: SettingsWriteSchemaOptions,
-  priorV3: SettingsStateV3 | null
-): Uint8Array {
-  if (settingsWriteSchemaVersion(writeSchemaOptions) === 2) {
+  writeSchemaOptions: SettingsWriteSchemaOptions
+): Promise<Uint8Array> {
+  const priorV3 = await currentPriorV3ForWrite(dataDir, writeSchemaOptions);
+  const needsSuccessorSchema = settingsStateNeedsSuccessorSchema(state, priorV3);
+  if (settingsWriteSchemaVersion(needsSuccessorSchema, writeSchemaOptions) === 2) {
     return formatSettingsStateV2Bytes(state);
   }
   return Buffer.from(formatSettingsStateV3(upgradeSettingsStateV2ToV3(state, priorV3)), "utf8");
+}
+
+/** This directory's own current schema-3 authority, read fresh, for
+ *  `formatSettingsStateForWrite` above. Absent when there is no current file
+ *  yet (a directory's first-ever write, the format-2 bootstrap in
+ *  server/settings-format-migration.ts, which stages before `current` exists),
+ *  or when the current file is schema 2. Goes through the same
+ *  `requireSettingsWriteAuthority` gate every other write boundary uses
+ *  (server/settings-state-slot.ts), so a build that cannot own a schema-3
+ *  authority never carries one forward here either, even if a caller's
+ *  `writeSchemaOptions` disagreed with what an earlier check in the same
+ *  mutation already established. */
+async function currentPriorV3ForWrite(
+  dataDir: string,
+  writeSchemaOptions: SettingsWriteSchemaOptions
+): Promise<SettingsStateV3 | null> {
+  const bytes = await readOptionalMutableSettingsAuthority(currentPath(dataDir), MAX_SETTINGS_STATE_BYTES);
+  if (bytes === null) return null;
+  const authority = requireSettingsWriteAuthority(
+    parseSettingsStateSlotBytes(bytes),
+    writeSchemaOptions.imageInputActivation
+  );
+  return authority.kind === "v3-owned" ? authority.prior : null;
 }
 
 export async function publishStagedSettingsState(

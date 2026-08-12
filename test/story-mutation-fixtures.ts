@@ -78,7 +78,11 @@ export const OTHER_FINGERPRINT = "b".repeat(64);
 export const FIXED_NOW = new Date("2026-01-01T00:00:00.000Z");
 
 export interface SetupOptions {
-  /** Forwarded to `StoryMutationStoreOptions.imageInputActivation`. Absent
+  /** Forwarded to `StoryMutationStoreOptions.imageInputActivation` and, when
+   *  `createStories` is left at its default, to the `StoryStore` it builds
+   *  too — `StoryStore` owns the gate that decides whether a session may
+   *  reopen a successor story, so the two must agree or a mutation the
+   *  fixture expects to succeed (or refuse) hits the wrong one. Absent
    *  matches production: the successor story write path stays off. */
   readonly imageInputActivation?: boolean;
 }
@@ -87,14 +91,15 @@ export async function setup(
   t: Pick<import("node:test").TestContext, "after">,
   prefix: string,
   hooks: StoryMutationStoreHooks = {},
-  createStories: (storiesDir: string) => StoryStore =
-    (storiesDir) => new StoryStore(storiesDir),
+  createStories?: (storiesDir: string) => StoryStore,
   options: SetupOptions = {}
 ) {
   const dataDir = await mkdtemp(path.join(tmpdir(), prefix));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const storiesDir = path.join(dataDir, "stories");
-  const stories = createStories(storiesDir);
+  const stories = createStories !== undefined
+    ? createStories(storiesDir)
+    : new StoryStore(storiesDir, undefined, undefined, undefined, undefined, options.imageInputActivation);
   await stories.init();
   await stories.save(storyFixture());
   const manifestFile = path.join(storiesDir, STORY_ID, "manifest.json");

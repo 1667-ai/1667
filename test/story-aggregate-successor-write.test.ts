@@ -102,14 +102,19 @@ test("Q activation off: a full Continue commit writes byte-identical V6 manifest
   assert.ok(!afterBytes.toString("utf8").includes("imageAttachments"));
 
   // Byte proof: independently re-derive the V5 content payload through the
-  // exact functions this release always used (`encodeStoryBundle`'s 2-arg
-  // overload and `formatV6`, neither touched by this change) and assert the
+  // exact functions this release always used (`encodeStoryBundle`'s no-options
+  // call and `formatV6`, neither touched by this change) and assert the
   // reconstruction is byte-for-byte identical to what the production commit
   // path actually wrote. Any drift in either the content or the envelope
   // would break this equality.
   const reference = new StoryObjectStore(`${fixture.dataDir}/stories/${STORY_ID}`);
   await reference.init();
   const referenceContent = await encodeStoryBundle(commit.story, reference);
+  // encodeStoryBundle's return type is honest about both schemas it can
+  // produce; this story carries no Image Attachment, so the reconstruction
+  // must land on the current one, same as the production commit above.
+  assert.equal(referenceContent.schemaVersion, 5);
+  if (referenceContent.schemaVersion !== 5) return;
   const referenceManifest: StoryManifestV6 = { ...parsed.manifest, content: referenceContent };
   const referenceBytes = Buffer.from(formatV6(referenceManifest), "utf8");
   assert.deepEqual(referenceBytes, afterBytes);

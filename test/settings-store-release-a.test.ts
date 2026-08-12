@@ -597,15 +597,23 @@ test("format-2 probes restore the active private-HTTP transport policy", async (
   assert.equal(providerRuntimeFor(admitted).allowInsecureHttp, true);
 });
 
-test("the settings write schema version defaults to the image-input activation constant", () => {
-  // This release ships with image input active, so the default is schema 3:
-  // production wiring, which never passes an option, writes schema 3
-  // unconditionally.
-  assert.equal(settingsWriteSchemaVersion(), 3);
-  assert.equal(settingsWriteSchemaVersion({}), 3);
-  assert.equal(settingsWriteSchemaVersion({ imageInputActivation: true }), 3);
-  // Only an explicit test option proves the schema-2 write decision still
-  // exists, for a predecessor-refusal fixture; production wiring never sets
-  // this.
-  assert.equal(settingsWriteSchemaVersion({ imageInputActivation: false }), 2);
+test("the settings write schema version needs both activation and a non-derivable value to reach schema 3", () => {
+  // This release ships with image input active, but activation alone is
+  // never enough: `needsSuccessorSchema` false means nothing on the document
+  // being written needs schema 3, so every one of these stays schema 2, even
+  // production wiring's own default (an omitted `needsSuccessorSchema`
+  // argument does not exist; every real call site computes it from
+  // `settingsStateNeedsSuccessorSchema`, exercised directly in
+  // test/settings-schema-successor.test.ts).
+  assert.equal(settingsWriteSchemaVersion(false), 2);
+  assert.equal(settingsWriteSchemaVersion(false, {}), 2);
+  assert.equal(settingsWriteSchemaVersion(false, { imageInputActivation: true }), 2);
+  // A predecessor, activation explicitly false: schema 2 regardless of need,
+  // because a predecessor never owns writing schema 3 at all.
+  assert.equal(settingsWriteSchemaVersion(true, { imageInputActivation: false }), 2);
+  // Both true, activation and a document that genuinely needs schema 3,
+  // is the only combination that reaches it.
+  assert.equal(settingsWriteSchemaVersion(true), 3);
+  assert.equal(settingsWriteSchemaVersion(true, {}), 3);
+  assert.equal(settingsWriteSchemaVersion(true, { imageInputActivation: true }), 3);
 });

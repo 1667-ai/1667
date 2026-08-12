@@ -263,7 +263,8 @@ test("an append that carries a new image creates a child and leaves its parent u
     loadImage: async () => Buffer.from(bytes)
   };
   const settingsStore = {
-    loadGeneration: async () => ({ settings: anthropicSettings(), promptCache: LEGACY_PROMPT_CACHE_CONTEXT })
+    loadGeneration: async () => ({ settings: anthropicSettings(), promptCache: LEGACY_PROMPT_CACHE_CONTEXT }),
+    loadImageInputCapability: async () => null
   } as unknown as SettingsStore;
 
   const fakeAnthropic = (async () => new Response(
@@ -314,7 +315,8 @@ test("continueStory refuses a Draft Image reference while image input's entry po
     commitProviderEffect: async (): Promise<never> => { throw new Error("must not be reached"); }
   };
   const settingsStore = {
-    loadGeneration: async () => ({ settings: anthropicSettings(), promptCache: LEGACY_PROMPT_CACHE_CONTEXT })
+    loadGeneration: async () => ({ settings: anthropicSettings(), promptCache: LEGACY_PROMPT_CACHE_CONTEXT }),
+    loadImageInputCapability: async () => null
   } as unknown as SettingsStore;
 
   await assert.rejects(

@@ -1,4 +1,5 @@
 import type {
+  FeatureSupportV2,
   ModelCapabilitiesV2,
   ModelCapabilitiesV3,
   ModelDefinitionV2,
@@ -15,28 +16,24 @@ import { hashSettingsDocumentV2, parseSettingsDocumentV2, parseSettingsStateV2By
 import { hashCanonicalSettingsDocument } from "./settings-v2-hash.js";
 import { MAX_SETTINGS_STATE_BYTES, SettingsFormatError } from "./settings-v2-scalars.js";
 import { parseSettingsStateV3, parseSettingsStateV3Text } from "./settings-v3-codec.js";
-import { advanceSettingsDocumentV3, priorSettingsModelsV3 } from "./settings-v3-conversion.js";
+import { advanceSettingsDocumentV3, priorModelsForRevisionV3 } from "./settings-v3-conversion.js";
 import { resolveImageInputActivation } from "../shared/image-input-release.js";
 
 /**
  * What the settings-state file actually holds. Structural sibling of
  * `StoredStorySlot` (server/story-storage-reader.ts): a discriminated union
- * of every shape the file may hold, with `MutableSettingsStateSlot` naming
- * the subset a write may act on.
- *
- * Schema 3 is the settings successor (server/settings-v3-codec.ts). Every
- * release reads and validates it. Whether a `"v3-requires-successor"` slot
+ * of every shape the file may hold. Whether a `"v3-requires-successor"` slot
  * is actually mutable is not decided here, at parse time, but in
- * `requireMutableSettingsStateSlot` below: a release that resolves
- * activation true owns writing schema 3 and keeps mutating its own prior
- * schema-3 authority exactly like schema 2, the same rule the story side's
- * V8 envelope follows (`shared/image-input-release.ts`); a release that
+ * `requireSettingsWriteAuthority` below: a release that resolves activation
+ * true owns writing schema 3 and keeps mutating its own prior schema-3
+ * authority exactly like schema 2, the same rule the story side's V8
+ * envelope follows (`shared/image-input-release.ts`); a release that
  * resolves activation false refuses every mutation against it, forever.
  * `readOnlyView` is a schema-2-shaped projection of a schema-3 state, used
  * both for plain reads and as the mutation pipeline's own working view when
  * activation makes the slot mutable. Nothing in this codebase treats a bare
  * `SettingsStateV2` value as proof that a save may proceed; every mutation
- * path calls `requireMutableSettingsStateSlot` first, which inspects `kind`
+ * path calls `requireSettingsWriteAuthority` first, which inspects `kind`
  * and activation, not a projected value, so the projection can never be
  * mistaken for something a save may write back without that check.
  */
@@ -48,8 +45,6 @@ export type SettingsStateSlot =
       readonly readOnlyView: SettingsStateV2;
     };
 
-export type MutableSettingsStateSlot = Extract<SettingsStateSlot, { kind: "v2" }>;
-
 /** The read-only presentation of one settings state, transparent to schema
  *  version: a genuine schema-2 state as itself, a schema-3 state downgraded
  *  for reading. Every plain settings read goes through this, and so does the
@@ -60,36 +55,93 @@ export function settingsStateSlotReadOnlyView(slot: SettingsStateSlot): Settings
   return slot.kind === "v2" ? slot.state : slot.readOnlyView;
 }
 
-/** The schema-3 authority a `"v3-requires-successor"` slot carries, for a
- *  caller about to write a replacement that must carry its
- *  `imageInput`/`imageTokenCeiling` data forward (`priorSettingsModelsV3`,
- *  server/settings-v3-conversion.ts). A `"v2"` slot has no schema-3
- *  authority of its own to carry forward. Callers that reach this after
- *  `requireMutableSettingsStateSlot` already resolved activation true own
- *  writing whatever this returns; a caller that has not made that check yet
- *  must not treat a non-null result as permission to write. */
-export function settingsStateSlotPriorV3(slot: SettingsStateSlot): SettingsStateV3 | null {
-  return slot.kind === "v3-requires-successor" ? slot.state : null;
+/** One model's stored image-input data: schema 3's `imageInput`, an explicit
+ *  writer verdict, and its optional `imageTokenCeiling`. */
+export interface StoredImageInputCapability {
+  readonly imageInput: FeatureSupportV2;
+  readonly imageTokenCeiling?: number;
 }
 
-/** Refuse a mutation against a schema-3 settings state, unless this build
- *  resolves activation true, in which case this release owns writing schema
- *  3 and keeps mutating its own prior authority. Call this before any write
- *  so a genuine refusal happens before the file changes, and the file stays
- *  byte identical. `activation` defaults through `resolveImageInputActivation()`,
- *  the same release-wide switch every other image-input gate reads; a caller
- *  overrides it only to prove the predecessor's permanent refusal in a test. */
-export function requireMutableSettingsStateSlot(
+/** `slot`'s stored image-input data for one model ID, read straight from its
+ *  schema-3 active document when it has one. A `"v2"` slot, or a model ID
+ *  absent from a `"v3-requires-successor"` slot's active document, has none:
+ *  schema 2 cannot carry the field at all, and `resolveImageInputCapability`
+ *  (shared/image-input-capabilities.ts) already treats a missing override the
+ *  same as an absent one.
+ *
+ *  Deliberately NOT part of `settingsStateSlotReadOnlyView`'s schema-2-shaped
+ *  projection above: that view is re-validated against the closed schema-2
+ *  JSON Schema, and a schema-2 write re-serializes it byte for byte, so
+ *  embedding `imageInput`/`imageTokenCeiling` there would either be rejected
+ *  by that validation or leak into schema-2 bytes, exactly the outcome
+ *  `downgradeModelCapabilitiesV3ToV2` below exists to prevent. This function
+ *  is the separate, out-of-band channel a caller uses instead.
+ *
+ *  This is the read half of the rollback guarantee running in the other
+ *  direction. `settingsStateNeedsSuccessorSchema` (server/settings-v3-conversion.ts)
+ *  keeps this release from writing an override no production path can create
+ *  yet; the day a later release adds one, a writer who marks a model
+ *  `"unsupported"` and then rolls back to THIS release must still have that
+ *  verdict honored on read. Dropping it would silently send an image to a
+ *  model they said cannot read one. A caller that resolves image
+ *  capability must pass this function's result to `resolveImageInputCapability`
+ *  as `ImageInputContext.override`/`overrideTokenCeiling`, the explicit
+ *  override its documented resolution order already expects, ahead of exact
+ *  built-in model knowledge. */
+export function settingsStateSlotImageInputCapability(
+  slot: SettingsStateSlot,
+  modelId: string
+): StoredImageInputCapability | null {
+  if (slot.kind === "v2") return null;
+  const active = slot.state.documents[String(slot.state.activeRevision)];
+  const model = active?.models[modelId];
+  if (model === undefined) return null;
+  return {
+    imageInput: model.capabilities.imageInput,
+    imageTokenCeiling: model.capabilities.imageTokenCeiling
+  };
+}
+
+/** What one slot authorizes a write to do: a `"v2"` slot has no schema-3
+ *  authority of its own to carry forward; a `"v3-owned"` slot is this
+ *  build's own prior schema-3 authority (`priorModelsForRevisionV3`,
+ *  server/settings-v3-conversion.ts, is what a write carries it forward
+ *  through). This is the only way to obtain `prior`: permission and the
+ *  carry-forward source are one call, so a caller can never hold one without
+ *  having already earned it, unlike a bare `SettingsStateV3 | null` a
+ *  caller could extract from a slot without checking `kind` or activation
+ *  first. */
+export type SettingsWriteAuthority =
+  | { readonly kind: "v2" }
+  | { readonly kind: "v3-owned"; readonly prior: SettingsStateV3 };
+
+/** Resolve what one write against `slot` may do, or refuse it. A `"v2"` slot
+ *  is always writable. A `"v3-requires-successor"` slot is writable only when
+ *  this build resolves activation true, in which case this release owns
+ *  writing schema 3 and keeps mutating its own prior authority. Otherwise
+ *  this throws, before the file changes, so the file stays byte identical.
+ *  `activation` defaults through `resolveImageInputActivation()`, the same
+ *  release-wide switch every other image-input gate reads; a caller
+ *  overrides it only to prove the predecessor's permanent refusal in a test.
+ *
+ *  Both `SettingsV2Store.init()` and `SettingsV2Store`'s save/discard path
+ *  call this same function: `init()` catches the refusal to start up
+ *  read-only instead of propagating it, because a schema-3 authority this
+ *  build cannot write is successor-owned at startup, not a request error;
+ *  a save or discard lets it propagate as the 409 a client sees. */
+export function requireSettingsWriteAuthority(
   slot: SettingsStateSlot,
   activation?: boolean
-): void {
-  if (slot.kind === "v3-requires-successor" && !resolveImageInputActivation(activation)) {
+): SettingsWriteAuthority {
+  if (slot.kind === "v2") return { kind: "v2" };
+  if (!resolveImageInputActivation(activation)) {
     throw new ServiceError(
       409,
       "Settings use a schema that only a newer release can change. Update 1667, then save again.",
       "settings_requires_successor"
     );
   }
+  return { kind: "v3-owned", prior: slot.state };
 }
 
 /**
@@ -115,7 +167,7 @@ export function parseSettingsStateSlotBytes(bytes: Uint8Array): SettingsStateSlo
     return {
       kind: "v3-requires-successor",
       state: successor,
-      readOnlyView: downgradeSettingsStateV3ToV2ReadOnly(successor)
+      readOnlyView: downgradeSettingsStateV3ToV2(successor)
     };
   }
 }
@@ -157,10 +209,10 @@ function parseSettingsStateV3FromBytes(bytes: Uint8Array): SettingsStateV3 {
  * the revision numbers. None of them hash a document, so none of them need
  * rebinding.
  */
-function downgradeSettingsStateV3ToV2ReadOnly(state: SettingsStateV3): SettingsStateV2 {
+function downgradeSettingsStateV3ToV2(state: SettingsStateV3): SettingsStateV2 {
   const documents: Record<string, SettingsDocumentV2> = {};
   for (const [revision, document] of Object.entries(state.documents)) {
-    documents[revision] = downgradeSettingsDocumentV3ToV2ReadOnly(document);
+    documents[revision] = downgradeSettingsDocumentV3ToV2(document);
   }
   return Object.freeze({
     schemaVersion: 2,
@@ -177,7 +229,7 @@ function downgradeSettingsStateV3ToV2ReadOnly(state: SettingsStateV3): SettingsS
 }
 
 /** Rebind `state.activation`'s hashes to the schema-2 documents
- *  `downgradeSettingsStateV3ToV2ReadOnly` above just projected. This mirrors
+ *  `downgradeSettingsStateV3ToV2` above just projected. This mirrors
  *  `advanceSettingsActivationV3`'s upgrade-direction rebind. Each
  *  schema-3 document `state.activation.oldHash`/`candidateHash` bound is
  *  found by its own hash (`hashCanonicalSettingsDocument`), then the
@@ -218,8 +270,16 @@ function documentAtHashV3(
 /** Downgrade one schema-3 document: drop `imageInput` and `imageTokenCeiling`
  *  from every model's capabilities. Every other field is identical between
  *  the two schemas. Re-validating through `parseSettingsDocumentV2` proves
- *  the projection is a genuine schema-2 document and freezes it. */
-function downgradeSettingsDocumentV3ToV2ReadOnly(document: SettingsDocumentV3): SettingsDocumentV2 {
+ *  the projection is a genuine schema-2 document and freezes it.
+ *
+ *  This projection is not a display-only read anymore: it is also the
+ *  mutation pipeline's own working view of a schema-3 slot activation makes
+ *  mutable (`SettingsStateSlot`'s doc comment above), so a schema-3-only
+ *  capability field this function forgets to drop would silently ride along
+ *  on the writer's next save. `settingsStateSlotImageInputCapability` above
+ *  is the separate, out-of-band channel a caller uses to still read
+ *  `imageInput`/`imageTokenCeiling` without embedding them here. */
+function downgradeSettingsDocumentV3ToV2(document: SettingsDocumentV3): SettingsDocumentV2 {
   const models: Record<string, ModelDefinitionV2> = {};
   for (const [id, model] of Object.entries(document.models)) {
     models[id] = downgradeModelDefinitionV3ToV2(model);
@@ -245,11 +305,17 @@ function downgradeModelDefinitionV3ToV2(model: ModelDefinitionV3): ModelDefiniti
   };
 }
 
+/** Every schema-2 capability field, derived by omitting exactly the two
+ *  schema-3-only keys rather than hand-listing schema 2's fields one at a
+ *  time: a future OPTIONAL schema-2 capability field this file does not yet
+ *  know about round-trips automatically instead of being silently dropped
+ *  the way a hand-listed set would drop it (`reasoningContent` was already a
+ *  near miss here once). `Omit<ModelCapabilitiesV3, ...>` is structurally
+ *  `ModelCapabilitiesV2`, because schema 3 adds exactly those two fields and
+ *  nothing else. */
 function downgradeModelCapabilitiesV3ToV2(capabilities: ModelCapabilitiesV3): ModelCapabilitiesV2 {
-  const { temperature, assistantPrefill, reasoningEffort, promptCaching, reasoningContent } = capabilities;
-  return reasoningContent === undefined
-    ? { temperature, assistantPrefill, reasoningEffort, promptCaching }
-    : { temperature, assistantPrefill, reasoningEffort, promptCaching, reasoningContent };
+  const { imageInput: _imageInput, imageTokenCeiling: _imageTokenCeiling, ...capabilitiesV2 } = capabilities;
+  return capabilitiesV2;
 }
 
 /**
@@ -270,22 +336,27 @@ function downgradeModelCapabilitiesV3ToV2(capabilities: ModelCapabilitiesV3): Mo
  * exactly as soundly as a null one.
  *
  * `priorState` is this release's own prior schema-3 authority for this same
- * directory, when one exists (`settingsStateSlotPriorV3`, absent for a
- * directory's first-ever schema-3 write). Passing it through
- * `priorSettingsModelsV3`/`advanceSettingsDocumentV3` (server/settings-v3-conversion.ts)
- * is what keeps a model's `imageInput`/`imageTokenCeiling` from resetting on
- * every later save: without it, this function would re-derive the fresh
- * migration default for every model on every write, discarding whatever a
- * capability resolver or an explicit override had already recorded.
+ * directory, when one exists (`requireSettingsWriteAuthority` below, absent
+ * for a directory's first-ever schema-3 write). Passing it through
+ * `priorModelsForRevisionV3`/`advanceSettingsDocumentV3` (server/settings-v3-conversion.ts),
+ * matched to `state.documents` one revision key at a time rather than
+ * flattened into one map, is what keeps a model's `imageInput`/`imageTokenCeiling`
+ * from resetting on every later save without letting an outgoing active
+ * document overwrite a candidate document that is mid-promotion: without it,
+ * this function would re-derive the fresh migration default for every model
+ * on every write, discarding whatever a capability resolver or an explicit
+ * override had already recorded.
  */
 export function upgradeSettingsStateV2ToV3(
   state: SettingsStateV2,
   priorState: SettingsStateV3 | null = null
 ): SettingsStateV3 {
-  const priorModels = priorSettingsModelsV3(priorState);
   const documents: Record<string, SettingsDocumentV3> = {};
   for (const [revision, document] of Object.entries(state.documents)) {
-    documents[revision] = advanceSettingsDocumentV3(document, priorModels);
+    documents[revision] = advanceSettingsDocumentV3(
+      document,
+      priorModelsForRevisionV3(priorState, revision)
+    );
   }
   return parseSettingsStateV3({
     schemaVersion: 3,

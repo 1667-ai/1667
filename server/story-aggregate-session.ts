@@ -11,8 +11,7 @@ import { ServiceError } from "./errors.js";
 import {
   decodeStoryBundle,
   encodeStoryBundle,
-  hydrateStoryNodes,
-  storyHasImageAttachments
+  hydrateStoryNodes
 } from "./story-codec.js";
 import { pathTo } from "../shared/story-tree.js";
 import {
@@ -245,19 +244,18 @@ export class StoryAggregateSession {
       // whose starting manifest is still this session's starting manifest.
       objects.adoptKnownGenerationRecordGraph(this.generationRecordGraph.sourceRevisions, { committed: true });
     }
-    // The single site that decides whether this encode builds the successor
-    // content payload. Release-wide activation alone is not enough: a story
-    // that carries no Image Attachment stays on the current schema even with
-    // activation on, so turning the switch on never upgrades a library that
-    // has nothing to gain from it (see `PrepareStoryContentOptions`).
-    const buildSuccessorContent = resolveImageInputActivation(options.activation)
-      && storyHasImageAttachments(story);
+    // encodeStoryBundle is the single site that decides whether this encode
+    // builds the successor content payload: release-wide activation alone is
+    // not enough, since a story that carries no Image Attachment stays on
+    // the current schema even with activation on (see
+    // `PrepareStoryContentOptions`). Pass the release-wide half straight
+    // through and let the encoder apply the other half.
     const content = await encodeStoryBundle(
       story,
       objects,
       undefined,
       undefined,
-      buildSuccessorContent ? { activation: true } : {}
+      { activation: resolveImageInputActivation(options.activation) }
     );
     await objects.flush();
     const nextLive = liveObjectIds(content);

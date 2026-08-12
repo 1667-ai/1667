@@ -13,6 +13,7 @@ import {
   SettingsV2Store,
   type SettingsV2StoreOptions
 } from "./settings-v2-store.js";
+import type { StoredImageInputCapability } from "./settings-state-slot.js";
 import { assertRuntimeGenerationSettingsSupported } from "./settings-v2-runtime.js";
 import {
   LEGACY_PROMPT_CACHE_CONTEXT,
@@ -118,6 +119,22 @@ export class SettingsStore {
         true
       )
     };
+  }
+
+  /** The requested route's stored image-input override, straight from
+   *  `SettingsV2Store.loadImageInputCapability` (server/settings-v2-store.ts).
+   *  Format 1 has no schema-3 authority to read one from, so it always
+   *  resolves `null` — the same "no override" value
+   *  `resolveImageInputCapability` (shared/image-input-capabilities.ts)
+   *  already treats an absent override as. A caller builds this route's
+   *  `ImageInputContext` by passing this result straight through as
+   *  `override`/`overrideTokenCeiling`, with no translation needed. */
+  async loadImageInputCapability(
+    purpose: SettingsRoutePurpose = "default"
+  ): Promise<StoredImageInputCapability | null> {
+    const initialized = this.requireInitialized();
+    if (initialized.dataFormat === 1) return null;
+    return await initialized.store.loadImageInputCapability(purpose);
   }
 
   async loadView(): Promise<SettingsView> {

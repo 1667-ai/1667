@@ -449,6 +449,7 @@ function koboldSettings(tokenProbabilities: number | null, maxTokens: number): G
 
 function stubSettingsStore(settings: GenerationSettings): SettingsStore {
   return {
-    loadGeneration: async () => ({ settings, promptCache: LEGACY_PROMPT_CACHE_CONTEXT })
+    loadGeneration: async () => ({ settings, promptCache: LEGACY_PROMPT_CACHE_CONTEXT }),
+    loadImageInputCapability: async () => null
   } as unknown as SettingsStore;
 }

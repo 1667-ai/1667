@@ -196,9 +196,14 @@ test("Q activation off: a V8 document still refuses every mutation and still rea
   // successor document it did not just create in this session must still
   // refuse every mutation. This build's own release default is on, so the
   // override is explicit here, the same way a rollback-safety test overrides
-  // it everywhere else in this suite.
+  // it everywhere else in this suite. `StoryStore` owns the gate, so the
+  // predecessor needs its own store instance built with the override, not
+  // `fixture.stories`, which was built with activation on.
+  const predecessorStories = new StoryStore(
+    `${fixture.dataDir}/stories`, undefined, undefined, undefined, undefined, false
+  );
   const sealed = new StoryMutationStore(
-    fixture.stories,
+    predecessorStories,
     createMutationCoordinator(),
     fixture.dataDir,
     { ledger: fixture.ledger, now: () => FIXED_NOW, imageInputActivation: false }

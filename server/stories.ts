@@ -145,7 +145,15 @@ export class StoryStore {
     private readonly sweep: SweepObjects = sweepObjects,
     private readonly writeManifest: WriteManifest = writeDurableAtomic,
     generationRecordGraphCacheCapacity: number = GENERATION_RECORD_GRAPH_CACHE_CAPACITY,
-    private readonly liveGenerationRecordIds: ChapterBreakUndoLiveness = NO_CHAPTER_BREAK_UNDO_LIVENESS
+    private readonly liveGenerationRecordIds: ChapterBreakUndoLiveness = NO_CHAPTER_BREAK_UNDO_LIVENESS,
+    /** Whether a session this store opens may reopen a successor-schema
+     *  story for mutation. Absent resolves through
+     *  `resolveImageInputActivation()` (`shared/image-input-release.ts`), so
+     *  production wiring stays on the release default. This store owns the
+     *  concept: `withAggregateSession` and `withOptionalAggregateSession`
+     *  read it directly instead of taking it per call, so every caller that
+     *  opens a session over the same store gets the same gate. */
+    private readonly imageInputActivation?: boolean
   ) {
     this.cleanupQueue = new BoundedCleanupQueue(
       STORY_CLEANUP_IO_CONCURRENCY,
@@ -198,12 +206,11 @@ export class StoryStore {
 
   async withAggregateSession<T>(
     id: string,
-    work: (session: StoryAggregateSession) => Promise<T>,
-    activation?: boolean
+    work: (session: StoryAggregateSession) => Promise<T>
   ): Promise<T> {
     return await this.withLock(id, async () => await this.withIo(id, async () => {
       const slot = await readStoredStorySlot(this.dir, id);
-      requirePresentStorySlot(slot, id, activation);
+      requirePresentStorySlot(slot, id, this.imageInputActivation);
       const session = new StoryAggregateSession(this.dir, id, slot, this.generationRecordGraphs.get(id) ?? null);
       await session.init();
       const result = await work(session);
@@ -215,13 +222,12 @@ export class StoryStore {
 
   async withOptionalAggregateSession<T>(
     id: string,
-    work: (session: StoryAggregateSession | null) => Promise<T>,
-    activation?: boolean
+    work: (session: StoryAggregateSession | null) => Promise<T>
   ): Promise<T> {
     return await this.withLock(id, async () => await this.withIo(id, async () => {
       const slot = await readStoredStorySlot(this.dir, id);
       if (slot.kind === "absent") return await work(null);
-      requirePresentStorySlot(slot, id, activation);
+      requirePresentStorySlot(slot, id, this.imageInputActivation);
       const session = new StoryAggregateSession(this.dir, id, slot, this.generationRecordGraphs.get(id) ?? null);
       await session.init();
       const result = await work(session);
@@ -926,7 +932,11 @@ export class StoryStore {
     story: Story,
     legacyBytes: Buffer | null,
     reuseFrom?: StoryObjectStore
-  ): Promise<{ commit: CommitResult; manifest: StoryManifestV5; objects: StoryObjectStore }> {
+  ): Promise<{
+    commit: CommitResult;
+    manifest: StoryManifestV5 | StoryManifestV7;
+    objects: StoryObjectStore;
+  }> {
     const temp = stagingBundlePath(this.dir, story.id);
     // encodeStoryBundle below drains each node's pending Generation Records as
     // soon as its bytes land in this *staging* store — but staging is not yet

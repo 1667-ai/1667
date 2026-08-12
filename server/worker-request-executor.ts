@@ -57,7 +57,14 @@ export async function executeWorkerRequest(
   publishTerminal: (
     message: WorkerTerminalMessage,
     state: "completed" | "canceled"
-  ) => void
+  ) => void,
+  /** Overrides `imageInputEntryPointsOpen()`'s build-constant default for the
+   *  `stageStoryImage` / `releaseStoryImage` gate below. Absent resolves
+   *  through the constant, so production wiring (server/worker.ts) can never
+   *  open or close this entry point by accident; see
+   *  `ContinueStoryHooks.imageEntryPointsOpen` (server/generation-http.ts)
+   *  for the same seam on the generation path. */
+  imageEntryPointsOpen?: boolean
 ): Promise<void> {
   const stream = STREAM_METHODS.has(message.method);
   try {
@@ -75,7 +82,8 @@ export async function executeWorkerRequest(
         service,
         message.method,
         message.input,
-        cancellation.signal
+        cancellation.signal,
+        imageEntryPointsOpen
       );
     } else {
       value = await executeWorkerMutationWithRetry(
@@ -318,7 +326,8 @@ async function invokeReadOnly(
   service: StoryService,
   method: WorkerMethod,
   value: unknown,
-  signal: AbortSignal
+  signal: AbortSignal,
+  imageEntryPointsOpen?: boolean
 ): Promise<unknown> {
   if (signal.aborted) {
     throw new ServiceError(
@@ -400,13 +409,13 @@ async function invokeReadOnly(
     case "countPromptTokens":
       return await service.countPromptTokens(input.messages, signal);
     case "stageStoryImage": {
-      requireImageInputEntryPointsOpen();
+      requireImageInputEntryPointsOpen(imageEntryPointsOpen);
       const { storyId, mediaType, bytes } = parseStageStoryImageInput(input);
       return await withImageStagePermit(signal, async () =>
         await service.stageStoryImage(storyId, mediaType, bytes));
     }
     case "releaseStoryImage": {
-      requireImageInputEntryPointsOpen();
+      requireImageInputEntryPointsOpen(imageEntryPointsOpen);
       const storyId = requireString(input.storyId, "storyId");
       const leaseId = requireString(input.leaseId, "leaseId");
       return await withImageStagePermit(signal, async () => {

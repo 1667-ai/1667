@@ -64,7 +64,8 @@ test("rewrite admission reserves the rewrite's own output budget, not the global
     loadForMutation: async () => story
   } as unknown as ProviderStoryRuntime<"rewriteNode">;
   const settingsStore = {
-    loadGeneration: async () => ({ settings, promptCache: LEGACY_PROMPT_CACHE_CONTEXT })
+    loadGeneration: async () => ({ settings, promptCache: LEGACY_PROMPT_CACHE_CONTEXT }),
+    loadImageInputCapability: async () => null
   } as unknown as SettingsStore;
   const stop = new Error("stop before streaming — bindIntent captured the admitted facts");
   let capturedFacts: string | null | undefined;
@@ -151,7 +152,8 @@ test("continueStory reports own-cap and story-budget drops, not only window-pres
     contextWindow: null
   };
   const settingsStore = {
-    loadGeneration: async () => ({ settings, promptCache: LEGACY_PROMPT_CACHE_CONTEXT })
+    loadGeneration: async () => ({ settings, promptCache: LEGACY_PROMPT_CACHE_CONTEXT }),
+    loadImageInputCapability: async () => null
   } as unknown as SettingsStore;
   const stop = new Error("stop before streaming — onFactsDropped already fired");
   const bindIntent = async (): Promise<void> => { throw stop; };

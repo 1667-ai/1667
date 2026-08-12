@@ -105,11 +105,16 @@ export interface StoryMutationStoreOptions {
   readonly ledger?: MutationLedgerStore;
   readonly now?: StoryMutationClock;
   readonly hooks?: StoryMutationStoreHooks;
-  /** Forces (or forbids) the successor story write path for every mutation
-   *  this store commits. Absent resolves through `resolveImageInputActivation()`
-   *  at the one site that decides it (`StoryAggregateSession.prepareContent`);
-   *  this store only threads the value through. Production wiring never sets
-   *  this; only tests that exercise the successor path do. */
+  /** Forces (or forbids) the successor content payload for every
+   *  `prepareContent` call this store makes. Absent resolves through
+   *  `resolveImageInputActivation()` at the one site that decides whether a
+   *  given encode actually uses it (`encodeStoryBundle`,
+   *  server/story-codec.ts); this store only threads the value through.
+   *  Unrelated to whether the underlying `StoryStore` may reopen a
+   *  successor-schema story for mutation at all — that gate is the
+   *  `StoryStore`'s own `imageInputActivation`, set at its construction.
+   *  Production wiring never sets this; only tests that exercise the
+   *  successor path do. */
   readonly imageInputActivation?: boolean;
 }
 
@@ -384,7 +389,7 @@ export class StoryMutationStore {
         );
       }
       return await work(session, terminal, tier);
-    }, this.imageInputActivation);
+    });
   }
 
   async runProviderOperation<

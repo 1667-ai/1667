@@ -81,9 +81,12 @@ const storyBundles = new WeakMap<Story, StoryBundleState>();
  *  payload (`STORY_SUCCESSOR_SCHEMA_VERSION`), with any `imageAttachments` a
  *  node carries, or the current payload (`STORY_SCHEMA_VERSION`), with them
  *  omitted. Absent defaults to the release-wide switch
- *  (`shared/image-input-release.ts`). Production wiring never passes this;
- *  the three-signature overload below keeps every caller that omits it
- *  pinned to `StoryManifestV5` at the type level, not only at runtime. */
+ *  (`shared/image-input-release.ts`). Production wiring never passes this.
+ *  This is only half the decision: `encodeStoryBundle` also requires `story`
+ *  to actually carry an Image Attachment, so a caller cannot know the
+ *  resulting schema version from `options` alone. Read the returned
+ *  manifest's `schemaVersion` instead of assuming it from what was passed
+ *  in. */
 export interface EncodeStoryBundleOptions {
   activation?: boolean;
 }
@@ -101,26 +104,6 @@ export function storyHasImageAttachments(story: Story): boolean {
   return story.nodes.some((node) => node.imageAttachments !== undefined);
 }
 
-export function encodeStoryBundle(
-  story: Story,
-  objects: StoryObjectStore,
-  reuseFrom?: StoryObjectStore,
-  snapshot?: StoryRevisionSnapshot
-): Promise<StoryManifestV5>;
-export function encodeStoryBundle(
-  story: Story,
-  objects: StoryObjectStore,
-  reuseFrom: StoryObjectStore | undefined,
-  snapshot: StoryRevisionSnapshot | undefined,
-  options: { activation: true }
-): Promise<StoryManifestV7>;
-export function encodeStoryBundle(
-  story: Story,
-  objects: StoryObjectStore,
-  reuseFrom?: StoryObjectStore,
-  snapshot?: StoryRevisionSnapshot,
-  options?: EncodeStoryBundleOptions
-): Promise<StoryManifestV5 | StoryManifestV7>;
 export async function encodeStoryBundle(
   story: Story,
   objects: StoryObjectStore,
