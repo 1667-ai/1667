@@ -302,6 +302,21 @@ test("all-empty sampling normalizes away and preserves the initial settings iden
 // tokenProbabilities (issue #291 phase 1) is an optional profile scalar,
 // wired the same way `sampling` is above: absent by default, so a document
 // saved before the field existed keeps meaning exactly what it did.
+// An empty author brief is a real choice: it leaves the model unsteered, and
+// `renderContinuationPlan` already omits the system block for one. A minimum
+// length of a single scalar was the only thing refusing it.
+test("an empty default author brief saves and round-trips", () => {
+  const base = convertGenerationSettingsV1(legacy(
+    "openai-compatible",
+    "https://models.example/v1",
+    "model-fixture",
+    null
+  ));
+  const document = parseSettingsDocumentV2({ ...base, writing: { defaultAuthorBrief: "" } });
+  assert.equal(document.writing.defaultAuthorBrief, "");
+  assert.deepEqual(parseSettingsDocumentV2Text(formatSettingsDocumentV2(document)), document);
+});
+
 test("tokenProbabilities parses as a closed optional profile scalar and round-trips", () => {
   const base = convertGenerationSettingsV1(legacy(
     "openai-compatible",
