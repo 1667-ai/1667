@@ -13,6 +13,7 @@ import {
   SettingsV2Store,
   type SettingsV2StoreOptions
 } from "./settings-v2-store.js";
+import type { StoredImageInputCapability } from "./settings-state-slot.js";
 import { assertRuntimeGenerationSettingsSupported } from "./settings-v2-runtime.js";
 import {
   LEGACY_PROMPT_CACHE_CONTEXT,
@@ -58,6 +59,12 @@ type InitializedSettingsStore =
 export interface LoadedGenerationSettings {
   readonly settings: GenerationSettings;
   readonly promptCache: PromptCacheContext;
+  /** The requested route's stored image-input override, from the exact same
+   *  read that produced `settings` above (`SettingsV2Store.loadRuntime`,
+   *  server/settings-v2-store.ts). `null` for a format-1 directory, which has
+   *  no schema-3 authority to read one from, and for a format 2+ directory
+   *  whose active document carries no override for this route's model. */
+  readonly imageInputCapability: StoredImageInputCapability | null;
 }
 
 export class SettingsStore {
@@ -106,7 +113,8 @@ export class SettingsStore {
     if (initialized.dataFormat === 1) {
       return {
         settings: await loadGenerationSettingsV1(this.dir),
-        promptCache: LEGACY_PROMPT_CACHE_CONTEXT
+        promptCache: LEGACY_PROMPT_CACHE_CONTEXT,
+        imageInputCapability: null
       };
     }
     const runtime = await initialized.store.loadRuntime(purpose);

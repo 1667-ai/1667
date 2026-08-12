@@ -367,8 +367,46 @@ export function revisionId(revision: TextRevisionV1): ObjectHash {
   return sha256(Buffer.from(serializeRevision(revision), "utf8"));
 }
 
-export function serializeManifest(manifest: StoryManifestV5 | StoryManifestV7): string {
+/** Serialize the plain V5 manifest for a direct write to a story's
+ *  `manifest.json`, with no envelope. There is no bare successor slot kind,
+ *  by design: `parseStoryManifestBytes` (`server/story-v6-codec.ts`)
+ *  deliberately refuses `StoryManifestV7` content unless it is wrapped in a
+ *  V8 envelope, so bytes this function wrote from a `StoryManifestV7` value
+ *  would be unreadable, and unrecoverable, the instant they landed on disk.
+ *  Accepting only `StoryManifestV5` makes that a compile error at every
+ *  direct-write call site (`server/stories.ts`'s `saveUnlocked` v5 branch
+ *  and `publishNewBundle`) instead of a runtime corruption. A caller that
+ *  genuinely never writes the result bare, such as `encodeStoryBundle`'s own
+ *  round-trip normalization or a snapshot fingerprint, wants
+ *  `serializeManifestContent` instead; do not widen this signature back to
+ *  make one of those compile. */
+export function serializeManifest(manifest: StoryManifestV5): string {
+  return serializeManifestContent(manifest);
+}
+
+/** Serialize either content version. Only for a caller that never writes the
+ *  result bare to a story's `manifest.json`: `encodeStoryBundle`'s own
+ *  round-trip normalization (`server/story-codec.ts`, both branches
+ *  immediately re-parse what this returns) and the in-memory fingerprint
+ *  that guards a revision snapshot's reuse (`server/story-snapshot.ts`).
+ *  Every direct write to a story's manifest file goes through
+ *  `serializeManifest` instead, which accepts only `StoryManifestV5`. */
+export function serializeManifestContent(manifest: StoryManifestV5 | StoryManifestV7): string {
   return `${JSON.stringify(manifest, null, 2)}\n`;
+}
+
+/** Narrow an encode result to the plain V5 manifest for a write path that
+ *  has no way to carry successor content: there is no bare successor slot
+ *  kind, by design. Throws instead of handing `serializeManifest` a
+ *  `StoryManifestV7` value it cannot accept, so a write that should never
+ *  produce successor content fails loudly if it ever does, rather than
+ *  corrupting the story it was trying to save. Mirrors `requireV6Manifest`
+ *  (`server/story-v6-codec.ts`) one schema pair down. */
+export function requireV5Manifest(manifest: StoryManifestV5 | StoryManifestV7, context: string): StoryManifestV5 {
+  if (manifest.schemaVersion !== STORY_SCHEMA_VERSION) {
+    throw new StoryFormatError(`${context} must produce a V${STORY_SCHEMA_VERSION} story manifest`);
+  }
+  return manifest;
 }
 
 export function parseManifest(raw: string, expectedId: string): StoryManifestV5 {

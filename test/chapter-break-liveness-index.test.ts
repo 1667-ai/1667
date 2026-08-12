@@ -134,10 +134,7 @@ test("story cleanup consults chapter-break undo liveness without rescanning the 
   let receipts: MutationReceiptStore | undefined;
   const stories = new StoryStore(
     storyDir,
-    undefined,
-    undefined,
-    undefined,
-    (storyId) => receipts!.liveGenerationRecordIds(storyId)
+    { liveGenerationRecordIds: (storyId) => receipts!.liveGenerationRecordIds(storyId) }
   );
   await stories.init();
   receipts = new MutationReceiptStore(receiptDir, async (id) => buildStoryPayload(await stories.load(id)));

@@ -61,7 +61,7 @@ test("story V6 store: every mutation refuses before hydration, writes, deletion,
   const beforeManifest = await readFile(path.join(root, story.id, "manifest.json"));
   const beforeEntries = await readdir(root);
   let sweepCalls = 0;
-  const store = new StoryStore(root, async () => { sweepCalls += 1; return true; });
+  const store = new StoryStore(root, { sweep: async () => { sweepCalls += 1; return true; } });
   t.after(async () => { await store.waitForMaintenance(); await rm(root, { recursive: true, force: true }); });
 
   let mutationCalled = false;
@@ -93,7 +93,7 @@ test("story V8 store: every mutation refuses, the manifest and directory listing
   const beforeManifest = await readFile(path.join(root, story.id, "manifest.json"));
   const beforeEntries = await readdir(root);
   let sweepCalls = 0;
-  const store = new StoryStore(root, async () => { sweepCalls += 1; return true; });
+  const store = new StoryStore(root, { sweep: async () => { sweepCalls += 1; return true; } });
   t.after(async () => { await store.waitForMaintenance(); await rm(root, { recursive: true, force: true }); });
 
   let mutationCalled = false;

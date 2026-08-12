@@ -13,7 +13,6 @@ import {
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import { readSettingsState } from "../server/settings-state-file.js";
 import { settingsMutationFingerprint } from "../server/settings-v2-mutation.js";
-import { settingsWriteSchemaVersion } from "../server/settings-v3-conversion.js";
 import type { SettingsDocumentV2 } from "../shared/settings-v2-types.js";
 import {
   BlockingLookupLedger,
@@ -595,15 +594,4 @@ test("format-2 probes restore the active private-HTTP transport policy", async (
 
   const admitted = await store.assertProviderProbeSupported(serializedProbe);
   assert.equal(providerRuntimeFor(admitted).allowInsecureHttp, true);
-});
-
-test("the settings write schema version defaults to the image-input activation constant", () => {
-  // Release N ships with image input inactive, so the default is schema 2:
-  // this release keeps writing schema 2 unconditionally.
-  assert.equal(settingsWriteSchemaVersion(), 2);
-  assert.equal(settingsWriteSchemaVersion({}), 2);
-  assert.equal(settingsWriteSchemaVersion({ imageInputActivation: false }), 2);
-  // Only an explicit test option proves the schema-3 write decision ahead of
-  // activation; production wiring never sets this.
-  assert.equal(settingsWriteSchemaVersion({ imageInputActivation: true }), 3);
 });

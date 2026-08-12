@@ -14,6 +14,13 @@ This file records notable changes to 1667. Product terms use the definitions in
   it stopped. It refuses only when no point fits at all, and that message now
   names a fix you can act on. Thanks to @10fra.
 
+- **You can attach an image to a request.** Paste an image, or run `attach
+  image` and give a path. The composer shows a row for each attached image.
+  1667 sends the images with your instruction, and the take keeps them, so a
+  later request in the same line sends them again. 1667 offers this only when
+  the selected model states that it accepts images. 1667 does not offer image
+  attachment when it cannot tell. Thanks to @10fra.
+
 - **1667 no longer ends a generation while a model server is still
   processing the prompt.** Prefill is the model server's work before it
   sends the first output token. The server sends no stream output while it
