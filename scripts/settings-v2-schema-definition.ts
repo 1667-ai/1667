@@ -216,7 +216,7 @@ export function settingsV2Schema(): Schema {
       utility: ref("SettingsId")
     }, ["default"]),
     Writing: closed({
-      defaultAuthorBrief: boundedString(MAX_SETTINGS_AUTHOR_BRIEF_SCALARS, 1)
+      defaultAuthorBrief: boundedString(MAX_SETTINGS_AUTHOR_BRIEF_SCALARS)
     }),
     Document: closed({
       schemaVersion: { const: 2 },
