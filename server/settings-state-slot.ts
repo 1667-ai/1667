@@ -20,16 +20,17 @@ import { parseSettingsStateV3Text } from "./settings-v3-codec.js";
 /**
  * What the settings-state file actually holds. Structural sibling of
  * `StoredStorySlot` (server/story-storage-reader.ts): a discriminated union
- * of every shape the file may hold. A `"v3"` slot is
- * never mutable by this release: `settingsWriteSchemaVersion`
- * (server/settings-v3-conversion.ts) never writes schema 3, so an on-disk
+ * of every shape the file may hold, with `MutableSettingsStateSlot` naming
+ * the subset a write may act on. A `"v3"` slot is never mutable by this
+ * release: this release's settings writer never produces schema 3 (there is
+ * no successor settings writer in this build at all), so an on-disk
  * schema-3 authority can only belong to a later release, and this release
  * must leave it exactly as it found it, forever, the same way a genuine
- * predecessor always has (`requireSettingsWriteAuthority` below is what
+ * predecessor always has (`requireMutableSettingsStateSlot` below is what
  * refuses it). `readOnlyView` is a schema-2-shaped projection of a
  * schema-3 state, used for every plain read. Nothing in this codebase
  * treats a bare `SettingsStateV2` value as proof that a save may proceed;
- * every mutation path calls `requireSettingsWriteAuthority` first, which
+ * every mutation path calls `requireMutableSettingsStateSlot` first, which
  * inspects `kind`, not a projected value, so the projection can never be
  * mistaken for something a save may write back without that check.
  */
@@ -41,11 +42,13 @@ export type SettingsStateSlot =
       readonly readOnlyView: SettingsStateV2;
     };
 
+export type MutableSettingsStateSlot = Extract<SettingsStateSlot, { kind: "v2" }>;
+
 /** The read-only presentation of one settings state, transparent to schema
  *  version: a genuine schema-2 state as itself, a schema-3 state downgraded
  *  for reading. Every plain settings read goes through this. A
  *  `"v3"` slot never has a mutation working view of its
- *  own: `requireSettingsWriteAuthority` below refuses every mutation
+ *  own: `requireMutableSettingsStateSlot` below refuses every mutation
  *  against it, so nothing ever needs one. */
 export function settingsStateSlotReadOnlyView(slot: SettingsStateSlot): SettingsStateV2 {
   return slot.kind === "v2" ? slot.state : slot.readOnlyView;
@@ -74,9 +77,9 @@ export interface StoredImageInputCapability {
  *  is the separate, out-of-band channel a caller uses instead.
  *
  *  This is the read half of the rollback guarantee running in the other
- *  direction. `settingsWriteSchemaVersion` (server/settings-v3-conversion.ts)
- *  keeps this release from ever writing schema 3, so no production path can
- *  create an override here yet; the day a later release adds one, a writer
+ *  direction. This release's settings writer never produces schema 3 at
+ *  all, so no production path can create an override here yet; the day a
+ *  later release adds one, a writer
  *  who marks a model `"unsupported"` and then rolls back to THIS release
  *  must still have that verdict honored on read. Dropping it would silently
  *  send an image to a model they said cannot read one. A caller that
@@ -98,50 +101,22 @@ export function settingsStateSlotImageInputCapability(
   };
 }
 
-/** What one `"v2"` slot authorizes a write to do: nothing beyond
- *  confirmation the slot is writable at all. A `"v3"`
- *  slot never earns one; see `settingsWriteAuthority` below. */
-export interface SettingsWriteAuthority {
-  readonly kind: "v2";
-}
-
-/** Resolve what one write against `slot` may do, or `null` to refuse it. A
- *  `"v2"` slot is always writable. A `"v3"` slot never
- *  is: this release's settings writer never produces schema 3
- *  (`settingsWriteSchemaVersion`, server/settings-v3-conversion.ts), so an
- *  on-disk schema-3 authority can only be a later release's, never this
- *  one's own prior write, and this release must leave it exactly as it
- *  found it. Non-throwing so a caller can branch on the refusal instead of
- *  using a thrown error for ordinary control flow; `requireSettingsWriteAuthority`
- *  below is the throwing wrapper for a caller that wants the refusal to
- *  propagate as an error. */
-function settingsWriteAuthority(slot: SettingsStateSlot): SettingsWriteAuthority | null {
-  return slot.kind === "v2" ? { kind: "v2" } : null;
-}
-
-/** Throwing wrapper over `settingsWriteAuthority`, for
- *  `SettingsV2Store`'s save/discard path, where a refusal is exactly the
- *  409 a client should see. Before the file changes, so a refusal always
- *  leaves the file byte identical.
- *
- *  `activation` is accepted only for call-site compatibility with
- *  `SettingsV2Store`, which still threads its own `imageInputActivation`
- *  option through here; it no longer changes the outcome. A schema-3 slot
- *  refuses unconditionally now that this release's writer never produces
- *  schema 3, so there is nothing left for an activation override to
- *  decide. */
-export function requireSettingsWriteAuthority(
+/** Refuse a mutation against a schema-3 settings state. Call this before any
+ *  write so the refusal happens before the file changes, and the file stays
+ *  byte identical. A schema-3 slot refuses unconditionally: this release's
+ *  settings writer never produces schema 3, so an on-disk schema-3
+ *  authority can only be a later release's, never this one's own prior
+ *  write, and this release must leave it exactly as it found it. */
+export function requireMutableSettingsStateSlot(
   slot: SettingsStateSlot
-): SettingsWriteAuthority {
-  const authority = settingsWriteAuthority(slot);
-  if (authority === null) {
+): asserts slot is MutableSettingsStateSlot {
+  if (slot.kind === "v3") {
     throw new ServiceError(
       409,
       "Settings use a schema that only a newer release can change. Update 1667, then save again.",
       "settings_requires_successor"
     );
   }
-  return authority;
 }
 
 /**
@@ -190,7 +165,7 @@ function parseSettingsStateV3FromBytes(bytes: Uint8Array): SettingsStateV3 {
  * state's revision table is projected, there are at most two, the active
  * document and a pending candidate mid-activation, so a reader sees a
  * consistent picture regardless of the successor's own in-progress
- * transitions. This is a read-only presentation: `requireSettingsWriteAuthority`
+ * transitions. This is a read-only presentation: `requireMutableSettingsStateSlot`
  * (above) refuses every mutation against a `"v3"` slot, so
  * this projection is never re-validated as a mutation pipeline's own working
  * view and never needs to be. It is still re-validated once per document,
@@ -202,7 +177,7 @@ function parseSettingsStateV3FromBytes(bytes: Uint8Array): SettingsStateV3 {
  * `imageInput`/`imageTokenCeiling` project to the same schema-2 bytes, since
  * this function drops exactly those two fields. That is expected here, for a
  * read-only view, and is why this release never treats `readOnlyView` as
- * something a save may write back (`requireSettingsWriteAuthority` refuses
+ * something a save may write back (`requireMutableSettingsStateSlot` refuses
  * first, unconditionally, before any code path could re-validate the
  * documents map for uniqueness).
  *
@@ -278,7 +253,7 @@ function documentAtHashV3(
  *
  *  A dropped capability field is never silently lost: this release refuses
  *  every mutation against a `"v3"` slot
- *  (`requireSettingsWriteAuthority` above), so nothing ever writes this
+ *  (`requireMutableSettingsStateSlot` above), so nothing ever writes this
  *  projection back. `settingsStateSlotImageInputCapability` above is the
  *  separate, out-of-band channel a caller uses to still read
  *  `imageInput`/`imageTokenCeiling` without embedding them here. */

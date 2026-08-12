@@ -92,7 +92,7 @@ test("repeated saves do not reparse previously-verified Generation Records", asy
 test("an evicted story's Generation Record graph safely re-verifies from disk on its next save", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-graph-lru-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const stories = new StoryStore(dir, undefined, undefined, 1);
+  const stories = new StoryStore(dir, { generationRecordGraphCacheCapacity: 1 });
   await stories.init();
   const storyA = await stories.create("Story A");
   const storyB = await stories.create("Story B");
@@ -181,7 +181,6 @@ function dryRunSettings(): GenerationSettings {
 
 function stubSettingsStore(settings: GenerationSettings): SettingsStore {
   return {
-    loadGeneration: async () => ({ settings, promptCache: LEGACY_PROMPT_CACHE_CONTEXT }),
-    loadImageInputCapability: async () => null
+    loadGeneration: async () => ({ settings, promptCache: LEGACY_PROMPT_CACHE_CONTEXT, imageInputCapability: null })
   } as unknown as SettingsStore;
 }

@@ -261,7 +261,6 @@ function dryRunSettings(): GenerationSettings {
 function stubSettingsStore(settings: GenerationSettings): SettingsStore {
   return {
     load: async () => settings,
-    loadGeneration: async () => ({ settings, promptCache: LEGACY_PROMPT_CACHE_CONTEXT }),
-    loadImageInputCapability: async () => null
+    loadGeneration: async () => ({ settings, promptCache: LEGACY_PROMPT_CACHE_CONTEXT, imageInputCapability: null })
   } as unknown as SettingsStore;
 }

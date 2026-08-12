@@ -13,7 +13,6 @@ import {
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import { readSettingsState } from "../server/settings-state-file.js";
 import { settingsMutationFingerprint } from "../server/settings-v2-mutation.js";
-import { settingsWriteSchemaVersion } from "../server/settings-v3-conversion.js";
 import type { SettingsDocumentV2 } from "../shared/settings-v2-types.js";
 import {
   BlockingLookupLedger,
@@ -595,14 +594,4 @@ test("format-2 probes restore the active private-HTTP transport policy", async (
 
   const admitted = await store.assertProviderProbeSupported(serializedProbe);
   assert.equal(providerRuntimeFor(admitted).allowInsecureHttp, true);
-});
-
-test("the settings write schema version is always 2: the successor writer ships with a later release", () => {
-  // The successor settings schema begins the day a release can store a
-  // capability override in an incoming write. `ModelCapabilitiesV2`, the
-  // shape every incoming write arrives as, is a closed record with no
-  // `imageInput` field, so no override can structurally arrive here for
-  // this build to decide about (server/settings-v3-conversion.ts). Every
-  // write stays schema 2, unconditionally.
-  assert.equal(settingsWriteSchemaVersion(), 2);
 });

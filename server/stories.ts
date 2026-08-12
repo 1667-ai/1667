@@ -139,30 +139,42 @@ interface SwitchLineOptions { expectedLineFingerprint?: string; stopAtNode?: boo
 const sweepObjects: SweepObjects = async (bundleDir, live, signal) =>
   await new StoryObjectStore(bundleDir).sweep(live, signal);
 
+export interface StoryStoreOptions {
+  readonly sweep?: SweepObjects;
+  readonly writeManifest?: WriteManifest;
+  readonly generationRecordGraphCacheCapacity?: number;
+  readonly liveGenerationRecordIds?: ChapterBreakUndoLiveness;
+  /** Whether a session this store opens may reopen a successor-schema story
+   *  for mutation, and whether an encode this store issues directly
+   *  (`saveUnlocked`'s legacy-save branch, `publishNewBundle`) may write one.
+   *  Absent resolves through `resolveImageInputActivation()`
+   *  (`shared/image-input-release.ts`), so production wiring stays on the
+   *  release default. This store owns the concept and reads it at every one
+   *  of its own write sites, and `StoryMutationStore` and
+   *  `StoryProviderMutationStore`, which both already hold this same
+   *  `StoryStore`, read it from here too rather than taking a second,
+   *  independently settable copy of their own. A single source keeps a
+   *  story's reopen gate and every one of its write gates from ever being
+   *  set differently: setting them apart would let a store write a story in
+   *  the successor schema through one path and then refuse to reopen its own
+   *  write through another. */
+  readonly imageInputActivation?: boolean;
+}
+
 export class StoryStore {
+  private readonly sweep: SweepObjects;
+  private readonly writeManifest: WriteManifest;
+  private readonly liveGenerationRecordIds: ChapterBreakUndoLiveness;
+  readonly imageInputActivation?: boolean;
+
   constructor(
     private readonly dir: string,
-    private readonly sweep: SweepObjects = sweepObjects,
-    private readonly writeManifest: WriteManifest = writeDurableAtomic,
-    generationRecordGraphCacheCapacity: number = GENERATION_RECORD_GRAPH_CACHE_CAPACITY,
-    private readonly liveGenerationRecordIds: ChapterBreakUndoLiveness = NO_CHAPTER_BREAK_UNDO_LIVENESS,
-    /** Whether a session this store opens may reopen a successor-schema
-     *  story for mutation. Absent resolves through
-     *  `resolveImageInputActivation()` (`shared/image-input-release.ts`), so
-     *  production wiring stays on the release default. This store owns the
-     *  concept: `withAggregateSession` and `withOptionalAggregateSession`
-     *  read it directly instead of taking it per call, so every caller that
-     *  opens a session over the same store gets the same gate.
-     *
-     *  Public (not `private`) so `StoryMutationStore` and
-     *  `StoryProviderMutationStore`, which both already hold this same
-     *  `StoryStore`, read it from here rather than taking a second,
-     *  independently settable copy of their own. A single source keeps a
-     *  story's reopen gate and its `prepareContent` write gate from ever
-     *  being set differently: setting them apart would let a story be
-     *  written in the successor schema and then never be reopenable. */
-    readonly imageInputActivation?: boolean
+    options: StoryStoreOptions = {}
   ) {
+    this.sweep = options.sweep ?? sweepObjects;
+    this.writeManifest = options.writeManifest ?? writeDurableAtomic;
+    this.liveGenerationRecordIds = options.liveGenerationRecordIds ?? NO_CHAPTER_BREAK_UNDO_LIVENESS;
+    this.imageInputActivation = options.imageInputActivation;
     this.cleanupQueue = new BoundedCleanupQueue(
       STORY_CLEANUP_IO_CONCURRENCY,
       (storyId, signal) => this.runCleanup(storyId, signal)
@@ -178,7 +190,9 @@ export class StoryStore {
       (id, work) => this.withIo(id, work),
       (id) => this.cleanupQueue.schedule(id)
     );
-    this.generationRecordGraphs = new BoundedLruMap(generationRecordGraphCacheCapacity);
+    this.generationRecordGraphs = new BoundedLruMap(
+      options.generationRecordGraphCacheCapacity ?? GENERATION_RECORD_GRAPH_CACHE_CAPACITY
+    );
   }
 
   private readonly draftImages: StoryDraftImageStore;
@@ -868,7 +882,13 @@ export class StoryStore {
         if (previousGenerationRecordGraph?.manifestHash === hashStoryV5ManifestBytes(slot.manifestBytes)) {
           objects.adoptKnownGenerationRecordGraph(previousGenerationRecordGraph.sourceRevisions, { committed: true });
         }
-        const manifest = await encodeStoryBundle(story, objects, reuseFrom, snapshot);
+        const manifest = await encodeStoryBundle(
+          story,
+          objects,
+          reuseFrom,
+          snapshot,
+          { activation: this.imageInputActivation }
+        );
         const nextLive = liveObjectIds(manifest);
         const nextRevisionIds = new Set(nextLive.revisions);
         const nextLeafIds = {} as Record<LeafObjectKind, Set<ObjectHash>>;
@@ -942,7 +962,7 @@ export class StoryStore {
     reuseFrom?: StoryObjectStore
   ): Promise<{
     commit: CommitResult;
-    manifest: StoryManifestV5 | StoryManifestV7;
+    manifest: StoryManifestV5;
     objects: StoryObjectStore;
   }> {
     const temp = stagingBundlePath(this.dir, story.id);
@@ -965,7 +985,23 @@ export class StoryStore {
         await mkdir(backupDir, { recursive: true });
         await writeDurableFile(path.join(backupDir, "v1.json"), legacyBytes);
       }
-      const manifest = await encodeStoryBundle(story, objects, reuseFrom);
+      const manifest = await encodeStoryBundle(story, objects, reuseFrom, undefined, {
+        activation: this.imageInputActivation
+      });
+      // publishNewBundle only ever serves an "absent" or "legacy" slot
+      // (`saveUnlocked` above only reaches here when the slot is not "v5"):
+      // a freshly created story's first save always starts with zero nodes
+      // (`create()`), and a legacy V1 source predates Image Attachments
+      // entirely, so neither can ever carry one. encodeStoryBundle therefore
+      // never has anything to upgrade here. This check states that
+      // invariant where it could break instead of letting the return type
+      // promise a successor manifest this function cannot actually produce:
+      // `parseManifest` below is V5-only and throws on a V7 payload.
+      if (manifest.schemaVersion !== STORY_SCHEMA_VERSION) {
+        throw new StoryFormatError(
+          `publishNewBundle produced a successor manifest for a story that should never have one: ${story.id}`
+        );
+      }
       const raw = serializeManifest(manifest);
       await objects.flush();
       requireDurableCommit(await writeDurableAtomic(path.join(temp, "manifest.json"), raw), `Staging story ${story.id}`);

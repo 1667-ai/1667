@@ -99,7 +99,7 @@ export async function setup(
   const storiesDir = path.join(dataDir, "stories");
   const stories = createStories !== undefined
     ? createStories(storiesDir)
-    : new StoryStore(storiesDir, undefined, undefined, undefined, undefined, options.imageInputActivation);
+    : new StoryStore(storiesDir, { imageInputActivation: options.imageInputActivation });
   await stories.init();
   await stories.save(storyFixture());
   const manifestFile = path.join(storiesDir, STORY_ID, "manifest.json");

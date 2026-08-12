@@ -10,7 +10,6 @@ import {
   settingsStateSlotReadOnlyView,
   type SettingsStateSlot
 } from "./settings-state-slot.js";
-import { type SettingsWriteSchemaOptions } from "./settings-v3-conversion.js";
 import { MAX_SETTINGS_STATE_BYTES } from "./settings-v2-scalars.js";
 import {
   publishSettingsFile,
@@ -23,22 +22,19 @@ import {
 
 export interface SettingsStateFiles {
   readonly current: SettingsStateV2;
-  readonly next: SettingsStateV2 | null;
+  readonly next: SettingsStateSlot | null;
 }
 
-/** Both settings-state files together, each schema-2-or-3-transparent: a
- *  genuine schema-2 file parses as itself, and a schema-3 file downgrades to
- *  the same schema-2-shaped read-only view. A schema-3 file is always a
- *  later release's write: this release's own writer never produces one
- *  (`settingsWriteSchemaVersion`, server/settings-v3-conversion.ts), so
- *  `requireSettingsWriteAuthority` (server/settings-state-slot.ts) refuses
- *  every mutation against it, unconditionally. That downgraded view is what
- *  the whole read pipeline (`server/settings-v2-reducer.ts`,
- *  `server/settings-v2-mutation.ts`) operates on for its non-mutating
- *  reads. A `.next` residue can be either schema too, exactly like
- *  `current`: a later release's own crash between staging a schema-3
- *  replacement and publishing it leaves one behind the same way a schema-2
- *  crash always has. */
+/** Both settings-state files together. `current` is always mutable by this
+ *  build (a schema-3 `current` never reaches here; the caller that needs to
+ *  branch on that reads `readSettingsStateSlot` instead), so it is safe to
+ *  present as the plain schema-2-shaped read-only view. `next` is returned
+ *  as its full slot, undowngraded: it can be either schema, exactly like
+ *  `current` can, because a later release's own crash between staging a
+ *  schema-3 replacement and publishing it leaves one behind the same way a
+ *  schema-2 crash always has, and the caller (`recoverUnpublishedNext`,
+ *  server/settings-v2-store.ts) needs to see which schema it is to decide
+ *  whether a receipt could ever apply to it. */
 export async function readSettingsStateFiles(dataDir: string): Promise<SettingsStateFiles> {
   const [currentBytes, nextBytes] = await Promise.all([
     readOptionalMutableSettingsAuthority(currentPath(dataDir), MAX_SETTINGS_STATE_BYTES),
@@ -48,13 +44,13 @@ export async function readSettingsStateFiles(dataDir: string): Promise<SettingsS
   const currentSlot = parseSettingsStateSlotBytes(currentBytes);
   return {
     current: settingsStateSlotReadOnlyView(currentSlot),
-    next: nextBytes === null ? null : settingsStateSlotReadOnlyView(parseSettingsStateSlotBytes(nextBytes))
+    next: nextBytes === null ? null : parseSettingsStateSlotBytes(nextBytes)
   };
 }
 
 /** The current settings-state authority's exact kind: schema 2 (mutable) or
  *  schema 3 (successor-owned, read-only). A mutation must call this and
- *  `requireSettingsWriteAuthority` (server/settings-state-slot.ts) before
+ *  `requireMutableSettingsStateSlot` (server/settings-state-slot.ts) before
  *  it stages or writes anything. */
 export async function readSettingsStateSlot(dataDir: string): Promise<SettingsStateSlot> {
   const bytes = await readOptionalMutableSettingsAuthority(
@@ -73,28 +69,15 @@ export async function readSettingsState(dataDir: string): Promise<SettingsStateV
   return settingsStateSlotReadOnlyView(await readSettingsStateSlot(dataDir));
 }
 
-/** Stage one settings-state replacement, always as schema 2
- *  (`settingsWriteSchemaVersion`, server/settings-v3-conversion.ts, never
- *  resolves to schema 3 in this release). `writeSchemaOptions` no longer
- *  changes the outcome; it stays a parameter only because this function's
- *  own callers (`SettingsV2Store`, server/settings-format-migration.ts)
- *  still pass one.
- *
- *  An earlier version of this function read this directory's own current
- *  schema-3 authority fresh, at the moment it staged, to decide whether the
- *  write needed schema 3 and, when it did, to carry a model's
- *  `imageInput`/`imageTokenCeiling` forward from that authority. Neither
- *  decision exists anymore: this release's settings writer never produces
- *  schema 3, so there is nothing to decide and nothing to carry forward.
- *  That is also what keeps a schema-2 `current` file from ever staging a
- *  schema-3 `.next`, so a predecessor can never find a `.next` residue its
- *  strict reader cannot parse (test/settings-schema-successor.test.ts). */
+/** Stage one settings-state replacement. Always schema 2: this release's
+ *  settings writer never produces schema 3, so a schema-2 `current` file can
+ *  never stage a schema-3 `.next`, and a predecessor can never find a
+ *  `.next` residue its strict reader cannot parse
+ *  (test/settings-schema-successor.test.ts). */
 export async function stageSettingsState(
   dataDir: string,
-  state: SettingsStateV2,
-  writeSchemaOptions: SettingsWriteSchemaOptions = {}
+  state: SettingsStateV2
 ): Promise<void> {
-  void writeSchemaOptions;
   await writePrivateSettingsFile(nextPath(dataDir), formatSettingsStateV2Bytes(state));
 }
 

@@ -200,7 +200,8 @@ test("Q activation off: a V8 document still refuses every mutation and still rea
   // predecessor needs its own store instance built with the override, not
   // `fixture.stories`, which was built with activation on.
   const predecessorStories = new StoryStore(
-    `${fixture.dataDir}/stories`, undefined, undefined, undefined, undefined, false
+    `${fixture.dataDir}/stories`,
+    { imageInputActivation: false }
   );
   const sealed = new StoryMutationStore(
     predecessorStories,

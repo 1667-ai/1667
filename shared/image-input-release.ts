@@ -15,15 +15,14 @@
  * the staging and release routes, a Continue request naming a Draft Image)
  * is open while this constant is true.
  *
- * This release does NOT write the successor SETTINGS document.
- * `settingsWriteSchemaVersion` (server/settings-v3-conversion.ts) always
- * writes schema 2, regardless of this constant: the gate that would enable a
- * settings-schema-3 write can only read a value from the schema-3 file
- * already on disk, and that file can only exist if the gate already fired, a
- * closed loop no build could ever satisfy honestly. The successor settings
- * WRITER ships with the release that can store a capability override,
- * because only that release ever holds the incoming value the decision
- * needs.
+ * This release does NOT write the successor SETTINGS document. There is no
+ * successor settings writer in this build at all, and no switch that could
+ * turn one on: the gate that would enable a settings-schema-3 write can only
+ * read a value from the schema-3 file already on disk, and that file can
+ * only exist if the gate already fired, a closed loop no build could ever
+ * satisfy honestly. The successor settings WRITER ships with the release
+ * that can store a capability override, because only that release ever
+ * holds the incoming value the decision needs.
  *
  * Deliberately not an environment variable. A writer who set one would produce
  * a document the previous stable executable cannot read, which is the exact

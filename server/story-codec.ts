@@ -94,13 +94,10 @@ export interface EncodeStoryBundleOptions {
 /** True once any take in `story` carries an Image Attachment. This is the
  *  other half of the successor-content decision: release-wide activation
  *  says a write MAY use the successor schema; this says one actually NEEDS
- *  it. `encodeStoryBundle` requires both, so turning the release-wide switch
- *  on never upgrades a story that has nothing to gain from the successor
- *  schema, on any call path. Exported so every caller that must reason about
- *  the same decision ahead of time, such as the aggregate session choosing
- *  whether to accept an in-flight Image Attachment, shares this one rule
- *  instead of restating it. */
-export function storyHasImageAttachments(story: Story): boolean {
+ *  it. `encodeStoryBundle` below requires both, so turning the release-wide
+ *  switch on never upgrades a story that has nothing to gain from the
+ *  successor schema. */
+function storyHasImageAttachments(story: Story): boolean {
   return story.nodes.some((node) => node.imageAttachments !== undefined);
 }
 

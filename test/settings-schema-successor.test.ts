@@ -43,9 +43,10 @@ import {
 /**
  * G1: schema 3 is defined but was not wired into the store. These tests
  * cover the wiring: a schema-3 state on disk opens and reads correctly, a
- * mutation against it refuses without touching the file, an ordinary
- * schema-2 directory is unaffected, and the write-schema decision produces
- * the schema the caller asked for.
+ * mutation against it refuses unconditionally without touching the file, an
+ * ordinary schema-2 directory is unaffected, and every settings write stays
+ * schema 2 — there is no switch, and no code path, that could ever write
+ * schema 3 in this build.
  */
 
 function statePath(dataDir: string): string {
@@ -91,7 +92,7 @@ async function writeSuccessorSettingsState(dataDir: string, document: SettingsDo
  *  (server/settings-state-validation.ts) does not inspect a clean state's
  *  pointer contents beyond its shape, so this needs no matching ledger
  *  receipt to pass validation. A store only ever READS a schema-3 state
- *  (`requireSettingsWriteAuthority`, server/settings-state-slot.ts, refuses
+ *  (`requireMutableSettingsStateSlot`, server/settings-state-slot.ts, refuses
  *  every mutation against one, unconditionally), so it never reaches
  *  `recoverReceiptTransaction` and never needs a matching receipt to open
  *  it. */
@@ -116,8 +117,9 @@ async function writeSettledSuccessorSettingsState(dataDir: string, state: Settin
 
 /** `document` with one model's capabilities patched, standing in for a
  *  future override-storage feature this release does not build
- *  (server/settings-v3-conversion.ts's `settingsWriteSchemaVersion` doc
- *  comment explains why no production path can do this yet). */
+ *  (`convertSettingsDocumentV2ToV3`'s doc comment,
+ *  server/settings-v3-conversion.ts, explains why no production path can do
+ *  this yet). */
 function withModelCapabilities(
   document: SettingsDocumentV3,
   modelId: string,
@@ -150,15 +152,14 @@ function anthropicCredentialedDocument(environmentName: string, remoteId: string
   });
 }
 
-test("a schema-3 settings state opens and every setting reads correctly, activation off", async (t) => {
+test("a schema-3 settings state opens and every setting reads correctly", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-settings-successor-read-");
   const sourceDocument = credentialedDocument("IMAGE_INPUT_SUCCESSOR_READ_ENV");
   await writeSuccessorSettingsState(dataDir, convertSettingsDocumentV2ToV3(sourceDocument));
 
-  // A predecessor that resolves activation off: this build's own default is
-  // on, so the override is explicit, the same way every other
-  // predecessor-refusal fixture in this suite proves it.
-  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME, imageInputActivation: false });
+  // Every build reads a schema-3 authority the same way: there is no
+  // settings activation switch to resolve differently.
+  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
   await store.init();
 
   const view = await store.loadView();
@@ -182,7 +183,7 @@ test("a schema-3 settings state opens and every setting reads correctly, activat
   assert.equal(effective.apiKeyEnv, "IMAGE_INPUT_SUCCESSOR_READ_ENV");
 });
 
-test("every mutation against a schema-3 state refuses and leaves the file byte identical, activation off", async (t) => {
+test("every mutation against a schema-3 state refuses unconditionally and leaves the file byte identical", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-settings-successor-refuse-");
   await writeSuccessorSettingsState(
     dataDir,
@@ -190,9 +191,7 @@ test("every mutation against a schema-3 state refuses and leaves the file byte i
   );
   const before = await sha256(statePath(dataDir));
 
-  // A predecessor that resolves activation off: see the read test above for
-  // why the override is explicit in this build.
-  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME, imageInputActivation: false });
+  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
   await store.init();
   assert.equal(await sha256(statePath(dataDir)), before, "init() never writes for a schema-3 authority it cannot own");
 
@@ -214,14 +213,15 @@ test("every mutation against a schema-3 state refuses and leaves the file byte i
 });
 
 /**
- * The rollback guarantee's everyday case: `settingsWriteSchemaVersion`
- * (server/settings-v3-conversion.ts) always writes schema 2, so an ordinary
- * save stays schema 2 and a genuine predecessor reads and mutates it exactly
- * as if this release did not exist. This is G1's blocking finding: activation
- * alone used to upgrade every save unconditionally, which would have locked a
- * writer's rollback path for nothing gained.
+ * The rollback guarantee's everyday case: every settings write stays schema
+ * 2 (there is no successor settings writer in this build at all), so an
+ * ordinary save stays schema 2 and a genuine predecessor reads and mutates
+ * it exactly as if this release did not exist. This is G1's blocking
+ * finding, from when this store still had an activation switch: it used to
+ * upgrade every save unconditionally, which would have locked a writer's
+ * rollback path for nothing gained.
  */
-test("a real save with activation on but nothing that needs schema 3 stays schema 2, and a predecessor mutates it too", async (t) => {
+test("an ordinary save always stays schema 2, and a predecessor mutates it too", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-settings-successor-ordinary-save-");
 
   const writer = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
@@ -231,13 +231,13 @@ test("a real save with activation on but nothing that needs schema 3 stays schem
   assert.equal(
     (JSON.parse(afterWrite.toString("utf8")) as { schemaVersion: unknown }).schemaVersion,
     2,
-    "activation alone never upgrades a document with nothing to gain from schema 3"
+    "an ordinary save never upgrades a document with nothing to gain from schema 3"
   );
 
-  // A fresh store over the exact same directory, a genuine predecessor that
-  // resolves activation off. Nothing special to prove here beyond ordinary
-  // schema-2 behavior, because that is exactly what this write produced.
-  const reader = new SettingsV2Store(dataDir, { now: () => FIXED_TIME, imageInputActivation: false });
+  // A fresh store over the exact same directory: an ordinary genuine
+  // predecessor. Nothing special to prove here beyond ordinary schema-2
+  // behavior, because that is exactly what this write produced.
+  const reader = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
   await reader.init();
   assert.equal(
     (await reader.loadView()).effective.systemPrompt,
@@ -257,20 +257,19 @@ test("a real save with activation on but nothing that needs schema 3 stays schem
  * byte-identical schema-2 document once that field is dropped
  * (`downgradeSettingsDocumentV3ToV2`, server/settings-state-slot.ts) — the
  * ordinary case for exactly what a later release's capability-override
- * writer produces. Before the fix, `requireSettingsWriteAuthority` treated a
- * schema-3 authority as this build's own to mutate whenever activation
- * resolved true, this build's own default, so `SettingsV2Store.init()` fell
- * through to the schema-2 recovery pipeline, which re-validates the
- * downgraded documents map and throws on the two byte-identical revisions.
+ * writer produces. Before the fix, an early activation switch let this
+ * build treat a schema-3 authority as its own to mutate, so
+ * `SettingsV2Store.init()` fell through to the schema-2 recovery pipeline,
+ * which re-validates the downgraded documents map and throws on the two
+ * byte-identical revisions.
  *
- * This release's settings writer never owns a schema-3 authority
- * (`settingsWriteSchemaVersion`, server/settings-v3-conversion.ts, always
- * writes schema 2), so `requireSettingsWriteAuthority` now refuses a
- * schema-3 slot unconditionally, the same way a genuine predecessor always
- * has, regardless of activation. This test builds exactly the crashing
- * pair, WITHOUT overriding activation (this build's own default is the
- * setting that used to crash), and proves `init()` opens the directory
- * without writing anything and every mutation is still refused.
+ * This release's settings writer never produces schema 3, and there is no
+ * activation switch left to reconsider that:
+ * `requireMutableSettingsStateSlot` (server/settings-state-slot.ts) refuses
+ * a schema-3 slot unconditionally, the same way a genuine predecessor
+ * always has. This test builds exactly the crashing pair and proves
+ * `init()` opens the directory without writing anything and every mutation
+ * is still refused.
  */
 test("a rolled-back writer opens a schema-3 directory whose candidate revision differs from active only by a capability, and still refuses to mutate it", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-settings-successor-rollback-pair-");
@@ -298,8 +297,9 @@ test("a rolled-back writer opens a schema-3 directory whose candidate revision d
   await writeFile(statePath(dataDir), formatSettingsStateV3(state), { mode: 0o600 });
   const before = await sha256(statePath(dataDir));
 
-  // This build's own default activation, never overridden: the crash this
-  // proves fixed only reproduced when activation resolved true.
+  // No activation switch to override: the crash this proves fixed only
+  // reproduced when an early build let activation make a schema-3 slot
+  // mutable at all.
   const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
   await store.init();
   assert.equal(
@@ -325,14 +325,9 @@ test("a rolled-back writer opens a schema-3 directory whose candidate revision d
   assert.equal(await sha256(statePath(dataDir)), before, "a refused discard leaves the file untouched");
 });
 
-test("a schema-2 directory still reads and saves exactly as before, activation off", async (t) => {
+test("a schema-2 directory still reads and saves exactly as before", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-settings-successor-v2-unaffected-");
-  // A predecessor that resolves activation off: see the read test above for
-  // why the override is explicit in this build, even though an ordinary save
-  // stays schema 2 either way today (test/settings-store-release-a.test.ts's
-  // "the settings write schema version is always 2" test covers this
-  // directly).
-  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME, imageInputActivation: false });
+  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
   await store.init();
 
   const saved = await store.save(saveCommand(MUTATION_A, 1, writingDocument("Still schema 2.")));
@@ -344,39 +339,30 @@ test("a schema-2 directory still reads and saves exactly as before, activation o
 });
 
 /**
- * G1's blocking finding, under repetition: before `settingsWriteSchemaVersion`
- * always wrote schema 2, this exact sequence (a fresh directory, this build's
- * own default activation, two ordinary saves in a row) upgraded to schema 3
- * on the first save and stayed there, because activation alone was the whole
- * decision. Two consecutive saves prove the gate holds under repetition, not
- * only once.
+ * G1's blocking finding, under repetition: before this release removed the
+ * successor settings writer entirely, this exact sequence (a fresh
+ * directory, two ordinary saves in a row) upgraded to schema 3 on the first
+ * save and stayed there, because an early activation switch was the whole
+ * decision. Two consecutive saves prove every write stays schema 2 under
+ * repetition, not only once.
  */
-test("repeated ordinary saves never drift into schema 3, with activation on or off", async (t) => {
-  const defaultDir = await initializedFormat2Directory(t, "1667-settings-successor-write-default-");
-  const defaultStore = new SettingsV2Store(defaultDir, { now: () => FIXED_TIME });
-  await defaultStore.init();
-  await defaultStore.save(saveCommand(MUTATION_A, 1, writingDocument("First write, activation on.")));
-  const firstRaw = await readRawState(defaultDir);
-  assert.equal(firstRaw.schemaVersion, 2, "activation alone never upgrades a first save with nothing to gain");
+test("repeated ordinary saves never drift into schema 3", async (t) => {
+  const dataDir = await initializedFormat2Directory(t, "1667-settings-successor-write-repeated-");
+  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
+  await store.init();
+  await store.save(saveCommand(MUTATION_A, 1, writingDocument("First write.")));
+  const firstRaw = await readRawState(dataDir);
+  assert.equal(firstRaw.schemaVersion, 2, "an ordinary save never upgrades a document with nothing to gain from schema 3");
 
   // A second save against the same directory, no restart: still schema 2,
   // because nothing about this document ever needed schema 3.
-  await defaultStore.save(saveCommand(MUTATION_B, 2, writingDocument("Second write, still nothing to gain.")));
-  const secondRaw = await readRawState(defaultDir);
+  await store.save(saveCommand(MUTATION_B, 2, writingDocument("Second write, still nothing to gain.")));
+  const secondRaw = await readRawState(dataDir);
   assert.equal(secondRaw.schemaVersion, 2);
   assert.equal(
-    (await defaultStore.loadView()).effective.systemPrompt,
+    (await store.loadView()).effective.systemPrompt,
     "Second write, still nothing to gain."
   );
-
-  // A store that explicitly resolves activation false, a genuine
-  // predecessor: schema 2 for the same reason as above, not merely because
-  // activation happens to be off too.
-  const offDir = await initializedFormat2Directory(t, "1667-settings-successor-write-off-");
-  const offStore = new SettingsV2Store(offDir, { now: () => FIXED_TIME, imageInputActivation: false });
-  await offStore.init();
-  await offStore.save(saveCommand(MUTATION_A, 1, writingDocument("Explicit-off write stays schema 2.")));
-  assert.equal((await readRawState(offDir)).schemaVersion, 2);
 });
 
 interface RawSettingsState {
@@ -403,10 +389,10 @@ async function readRawState(dataDir: string): Promise<RawSettingsState> {
  * mid-activation is a document a predecessor cannot even parse, let alone
  * refuse gracefully. Its store would fail to initialize.
  *
- * `server/settings-state-file.ts`'s `formatSettingsStateForWrite` closes most
- * of this by construction: it reads its own `current` file fresh, at the
- * moment it stages a `.next`, so a schema-2 `current` can never stage a
- * schema-3 `.next` in the first place (see that function's doc comment). This
+ * This release's settings writer never produces schema 3 at all — there is
+ * no successor settings writer in this build — so a schema-2 `current` can
+ * never stage a schema-3 `.next` in the first place
+ * (`stageSettingsState`'s doc comment, server/settings-state-file.ts). This
  * fixture is the reason that guarantee has to hold, kept as a fixture rather
  * than only a code comment, and it is exactly what the tolerant round-trip
  * test above cannot see.
@@ -427,7 +413,7 @@ test("a schema-3 .next residue cannot be parsed by the predecessor's own strict 
  * must reach `resolveImageInputCapability` (shared/image-input-capabilities.ts)
  * as its documented explicit override, not be silently dropped by the read
  * path. No production code path can store one yet
- * (`settingsWriteSchemaVersion`'s doc comment, server/settings-v3-conversion.ts),
+ * (`convertSettingsDocumentV2ToV3`'s doc comment, server/settings-v3-conversion.ts),
  * so both tests below construct a schema-3 document directly, standing in
  * for a future override-storage feature, and read it through the real
  * settings parser (`parseSettingsStateSlotBytes`) rather than inspecting the
@@ -463,7 +449,7 @@ test("a stored imageInput \"unsupported\" override reaches the resolver and bloc
   // Read through the real path, exactly like a caller building an
   // `ImageInputContext` for this route would: `loadRuntime`'s own snapshot
   // (server/settings-v2-store.ts), the same one that resolves `settings`.
-  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME, imageInputActivation: false });
+  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
   await store.init();
   const stored = (await store.loadRuntime()).imageInputCapability;
   assert.deepEqual(stored, { imageInput: "unsupported", imageTokenCeiling: undefined });
@@ -506,7 +492,7 @@ test("a stored imageInput \"supported\" override with a token ceiling authorizes
   });
   assert.equal(imageInputAuthorized(withoutOverride), false, "sanity: an unlisted model is never authorized without an override");
 
-  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME, imageInputActivation: false });
+  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
   await store.init();
   const stored = (await store.loadRuntime()).imageInputCapability;
   assert.deepEqual(stored, { imageInput: "supported", imageTokenCeiling: 4_096 });
@@ -568,7 +554,7 @@ test("a settings replacement landing mid-read cannot pair one snapshot's setting
   const newText = successorStateText(newDocument);
   await writeFile(statePath(dataDir), oldText, { mode: 0o600 });
 
-  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME, imageInputActivation: false });
+  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
   await store.init();
 
   const pause = await pauseNextFileRead(t, Buffer.byteLength(oldText, "utf8") + 1);
