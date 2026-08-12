@@ -88,11 +88,13 @@ export function validateSettingsDocumentV2(
   const profiles = parseProfiles(root.profiles, models, connections);
   const routing = parseRouting(root.routing, profiles);
   const writing = closedRecord(root.writing, "settings document.writing", WRITING);
+  // Empty is a real choice: `renderContinuationPlan` already omits the system
+  // block for a blank brief, so nothing downstream needs one. The minimum was
+  // the only thing refusing a writer who wants the model unsteered.
   const defaultAuthorBrief = requireBoundedSettingsString(
     writing.defaultAuthorBrief,
     "settings document.writing.defaultAuthorBrief",
-    MAX_SETTINGS_AUTHOR_BRIEF_SCALARS,
-    1
+    MAX_SETTINGS_AUTHOR_BRIEF_SCALARS
   );
   if (credentialNames.size > MAX_SETTINGS_CREDENTIAL_NAMES) {
     throw new SettingsFormatError(
