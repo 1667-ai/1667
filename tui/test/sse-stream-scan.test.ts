@@ -98,14 +98,14 @@ test("a delta separator split across two network chunks is still parsed, in orde
   const api = createApi("http://127.0.0.1:7373");
   await api.loadStory("story");
   const received: string[] = [];
-  const nodeId = await api.createSummaryTake(
+  const result = await api.createSummaryTake(
     "story",
     { nodeId: "root" },
     (text) => received.push(text),
     new AbortController().signal
   );
 
-  expect(nodeId).toBe("the-new-take");
+  expect(result?.nodeId).toBe("the-new-take");
   expect(received).toEqual(deltas);
   expect(received.join("")).toBe(deltas.join(""));
 });
@@ -133,7 +133,7 @@ test("a large final payload with no line break until the end still parses in bou
   await api.loadStory("story");
 
   const read = startTiming();
-  const nodeId = await api.createSummaryTake(
+  const result = await api.createSummaryTake(
     "story",
     { nodeId: "root" },
     () => {},
@@ -148,7 +148,7 @@ test("a large final payload with no line break until the end still parses in bou
     read()
   );
 
-  expect(nodeId).toBe(hugeNodeId);
+  expect(result?.nodeId).toBe(hugeNodeId);
 });
 
 test("an attached HTTP stream that stops sending data fails before its generation lease", async () => {

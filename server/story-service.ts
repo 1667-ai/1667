@@ -93,6 +93,7 @@ import type {
 import type { MutatingWorkerMethod } from "../shared/worker-protocol.js";
 import type { StoryCatalogPage } from "../shared/story-catalog.js";
 import type { GenerationMutationHooks } from "./story-service-generation.js";
+import type { SummaryPoint } from "./summary-take.js";
 import {
   StoryServiceRuntime,
   type StoryServiceUndiagnosedOptions
@@ -1078,7 +1079,7 @@ export class StoryService extends StoryServiceRuntime {
     onDelta: DeltaConsumer,
     signal: AbortSignal,
     options: GenerationMutationHooks & { summaryNodeId?: string; cutNodeId?: string } = {}
-  ): Promise<string | null> {
+  ): Promise<{ nodeId: string; narrowedTo: SummaryPoint | null } | null> {
     return await this.storyGeneration.createSummaryTake(
       id,
       value,

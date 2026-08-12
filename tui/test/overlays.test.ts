@@ -16,7 +16,7 @@ import {
 } from "../src/facts-model.js";
 import { fuzzyFilter, fuzzyMatch } from "../src/fuzzy.js";
 import { libraryRows, libraryTotals, typedTitleMatches } from "../src/library-model.js";
-import { deriveSummaryProgress, summaryStretch } from "../src/summary-model.js";
+import { deriveSummaryProgress, narrowedSummaryToast, summaryStretch } from "../src/summary-model.js";
 import { promptCacheRowValue } from "../src/settings-overlay-model.js";
 import { convertGenerationSettingsV1 } from "../../server/settings-v2-conversion.js";
 import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
@@ -104,6 +104,30 @@ describe("summary model", () => {
     const path = [{}, {}, {}, { role: "summary" as const }, {}, {}];
     expect(summaryStretch(path)).toEqual({ start: 5, end: 6, total: 2 });
     expect(summaryStretch([{}, {}])).toEqual({ start: 1, end: 2, total: 2 });
+  });
+  test("a summary narrowed by exactly one part reports one fewer part than the stretch total (issue #139 P2)", () => {
+    const path = [
+      { id: "root" },
+      { id: "a" },
+      { id: "b" },
+      { id: "old-summary", role: "summary" as const },
+      { id: "leaf-predecessor" },
+      { id: "leaf" }
+    ];
+    const stretch = summaryStretch(path);
+    expect(stretch).toEqual({ start: 5, end: 6, total: 2 });
+    // The server dropped exactly the leaf, narrowing to the leaf's
+    // immediate predecessor — one part short of the full stretch. Assert
+    // the rendered toast text, the number the writer actually sees, not
+    // summaryPointProgress's raw return value: an off-by-one here would
+    // slip past a test that only checked the internal number in isolation
+    // if the two ever used inconsistent 1-based/0-based conventions.
+    const toast = narrowedSummaryToast(path, stretch, { nodeId: "leaf-predecessor" });
+    expect(toast).toContain("covers 1 of 2 parts");
+    expect(toast).not.toContain("covers 2 of 2");
+    // Summarizing all the way through the leaf itself (not narrowed) covers
+    // the full stretch — the boundary this off-by-one could also invert.
+    expect(narrowedSummaryToast(path, stretch, { nodeId: "leaf" })).toContain("covers 2 of 2 parts");
   });
   test("progress honors a ¶ marker and falls back to words", () => {
     expect(deriveSummaryProgress("¶ 3 of 9 recorded so far", 9)).toMatchObject({ consumedParts: 3, totalParts: 9 });

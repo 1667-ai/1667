@@ -61,6 +61,7 @@ import { storyAutonameId } from "./story-metadata.js";
 import { hasCommittedGeneration } from "./story-nodes.js";
 import { buildStoryPayload } from "./story-payload.js";
 import type { StoryService } from "./story-service.js";
+import { narrowedSummaryPoint } from "./summary-take.js";
 import { requireRecord, requireString } from "./validation.js";
 import { parseWorkerContinueImages, parseWorkerContinueTarget } from "./worker-continue-target.js";
 import { partsFromNovelAiStory } from "./import-nai.js";
@@ -972,7 +973,14 @@ const MUTATIONS: MutationRegistry = {
       if (needsCompatibilityGenerationRecovery(plan, context)) {
         const story = await service.stories.loadForMutation(input.storyId);
         if (plan.generationAction(story.nodes.some((node) => node.id === summaryNodeId)) === "return-committed") {
-          return summaryNodeId;
+          // The committed take's own parentId names the point actually
+          // summarized (see server/summary-take.ts's narrowedSummaryPoint)
+          // — reconstructed rather than persisted as a side channel, since
+          // every input this needs is already durable.
+          return {
+            nodeId: summaryNodeId,
+            narrowedTo: narrowedSummaryPoint(story, summaryNodeId, input.body.nodeId, plan.entityId("summary-cut"))
+          };
         }
       }
       return await service.createSummaryTake(

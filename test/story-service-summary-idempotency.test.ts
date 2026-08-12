@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -19,11 +19,15 @@ import type {
 import type { ProviderStoryRuntime } from "../server/story-mutation-runtime.js";
 import type { StoryMutationStore } from "../server/story-mutation-store.js";
 import { StoryService } from "../server/story-service.js";
+import { summaryTakePrompt } from "../server/summary-take.js";
 import {
   executeWorkerMutation,
   parseWorkerMutation,
   preflightWorkerMutation
 } from "../server/worker-mutations.js";
+import { renderPromptPlan } from "../shared/prompt-plan.js";
+import { estimateTokens } from "../shared/tokens.js";
+import type { StoryNode, StoryPayload } from "../shared/types.js";
 
 class SummaryIdempotencyService extends StoryService {
   get mutationStore(): StoryMutationStore {
@@ -117,11 +121,13 @@ test("summary cancellation after effect preparation replays the committed node",
     controller.signal,
     expectedAggregateVersion
   );
-  assert.equal(typeof committed, "string");
+  assert.equal(typeof committed, "object");
+  assert.ok(committed !== null);
+  assert.equal(typeof committed.nodeId, "string");
   assert.equal(controller.signal.aborted, true);
   assert.equal(
     (await service.loadStory(story.id)).nodes.find(
-      (node) => node.id === committed
+      (node) => node.id === committed.nodeId
     )?.role,
     "summary"
   );
@@ -134,9 +140,206 @@ test("summary cancellation after effect preparation replays the committed node",
     new AbortController().signal,
     expectedAggregateVersion
   );
-  assert.equal(replayed, committed);
+  assert.deepEqual(replayed, committed);
   assert.equal(requests, 1);
 });
+
+test("a summary narrowed to an earlier point commits that point and replays it identically on retry", async (t) => {
+  const { service, story, part3Id } = await narrowingFixture(t);
+  const fetchMock = mockNarrowedFetch(t);
+
+  const input = {
+    storyId: story.id,
+    body: { nodeId: story.path.at(-1)!.id }
+  };
+  const summaryMutationId = createDurableMutationId();
+  const expectedAggregateVersion = (
+    await service.stories.loadVersioned(story.id)
+  ).aggregateVersion!;
+
+  const first = await runWorkerMutation(
+    service,
+    summaryMutationId,
+    "createSummaryTake",
+    input,
+    new AbortController().signal,
+    expectedAggregateVersion
+  );
+  assert.ok(first !== null);
+  // The latest point that fits is part three's — parts one and two also fit
+  // on their own (they are strictly smaller), so this pins down "latest",
+  // not merely "an earlier point that works".
+  assert.deepEqual(first.narrowedTo, { nodeId: part3Id, offset: null });
+  assert.match(fetchMock.lastPrompt(), /PART-THREE/);
+  assert.doesNotMatch(fetchMock.lastPrompt(), /PART-FOUR/);
+  assert.equal(fetchMock.requestCount(), 1);
+
+  const committedNode = (await service.loadStory(story.id)).nodes
+    .find((node) => node.id === first.nodeId);
+  assert.equal(committedNode?.role, "summary");
+  // The committed take's own point matches what was actually summarized,
+  // not the point the request named.
+  assert.equal(committedNode?.parentId, part3Id);
+
+  const replayed = await runWorkerMutation(
+    service,
+    summaryMutationId,
+    "createSummaryTake",
+    input,
+    new AbortController().signal,
+    expectedAggregateVersion
+  );
+  assert.deepEqual(replayed, first);
+  assert.equal(fetchMock.requestCount(), 1);
+  assert.equal(
+    (await service.loadStory(story.id)).nodes.filter((node) => node.role === "summary").length,
+    1
+  );
+});
+
+test("a narrowed summary replayed through committed-node recovery still reports the narrowing", async (t) => {
+  const { service, story, part3Id } = await narrowingFixture(t);
+  const fetchMock = mockNarrowedFetch(t);
+
+  const input = {
+    storyId: story.id,
+    body: { nodeId: story.path.at(-1)!.id }
+  };
+  const summaryMutationId = createDurableMutationId();
+  const expectedAggregateVersion = (
+    await service.stories.loadVersioned(story.id)
+  ).aggregateVersion!;
+
+  const first = await runWorkerMutation(
+    service,
+    summaryMutationId,
+    "createSummaryTake",
+    input,
+    new AbortController().signal,
+    expectedAggregateVersion
+  );
+  assert.ok(first !== null);
+  assert.deepEqual(first.narrowedTo, { nodeId: part3Id, offset: null });
+  assert.equal(fetchMock.requestCount(), 1);
+
+  // Simulate a crash between the durable story commit and the receipt's own
+  // finalization: the story already carries the summary node, but the
+  // receipt still reads "pending" — exactly what routes the next attempt
+  // through worker-mutations.ts's committed-node recovery branch instead of
+  // a live replay through createSummaryTake (and its search) again.
+  const receiptFile = path.join(
+    service.dataDir,
+    "mutation-receipts",
+    `${summaryMutationId}.json`
+  );
+  const receipt = JSON.parse(await readFile(receiptFile, "utf8")) as Record<string, unknown>;
+  receipt.state = "pending";
+  delete receipt.result;
+  await writeFile(receiptFile, `${JSON.stringify(receipt)}\n`);
+
+  const recovered = await runWorkerMutation(
+    service,
+    summaryMutationId,
+    "createSummaryTake",
+    input,
+    new AbortController().signal,
+    expectedAggregateVersion
+  );
+  // Recovery reconstructs the same report a live response gave — the
+  // writer is told the summary was narrowed either way, not only when the
+  // original request happens to answer live.
+  assert.deepEqual(recovered, first);
+  // Recovery answers from the already-committed node; it must not re-run
+  // the provider.
+  assert.equal(fetchMock.requestCount(), 1);
+});
+
+/** Four parts, each big enough that the token gap between including three
+ *  and including four dwarfs the fixed prompt overhead (system prompt,
+ *  instructions, completion marker) — see server/summary-take.ts's
+ *  summaryTakePrompt. Computed from the real prompt builder rather than
+ *  estimated, so this fixture cannot drift from what the server itself
+ *  measures (issue #139). Settings are configured so the full four-part
+ *  prefix does not fit but the first three parts do, forcing the server to
+ *  narrow to part three — the latest point that still fits. */
+async function narrowingFixture(t: test.TestContext): Promise<{
+  service: StoryService;
+  story: StoryPayload;
+  part3Id: string;
+}> {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-summary-narrow-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const initial = await service.getSettings();
+  assert.equal(initial.dataFormat, 2);
+
+  const title = "Narrowed retry";
+  const texts = ["PART-ONE", "PART-TWO", "PART-THREE", "PART-FOUR"]
+    .map((label) => `${label} ${"word ".repeat(500)}`.trim());
+  const inputTokensFor = (count: number): number => {
+    const parts = texts.slice(0, count).map((text) => ({ text })) as unknown as readonly StoryNode[];
+    const prompt = summaryTakePrompt(title, parts, 50, "00000000");
+    return renderPromptPlan(prompt).reduce((sum, message) => sum + estimateTokens(message.content) + 4, 0);
+  };
+  const input3 = inputTokensFor(3);
+  const input4 = inputTokensFor(4);
+  assert.ok(input4 - input3 > 100, "fixture needs a clear per-part token gap");
+  const maxTokens = 50;
+  const contextWindow = Math.ceil((input3 + maxTokens + 20) / 0.9);
+  assert.ok(
+    Math.floor(contextWindow * 0.9) - input4 < maxTokens,
+    "fixture must not also leave room for all four parts"
+  );
+
+  await service.saveSettings({
+    transportOperationId: crypto.randomUUID(),
+    mutationId: createDurableMutationId(),
+    expectedStateGeneration: initial.stateGeneration,
+    document: applyEffectiveGenerationSettings(initial.document, {
+      ...initial.effective,
+      provider: "openai-compatible",
+      baseUrl: "https://fixture.invalid/v1",
+      model: "fixture",
+      contextWindow,
+      maxTokens
+    })
+  });
+
+  let story = await service.createStory(title);
+  story = await service.createNode(story.id, { parentId: null, text: texts[0]! });
+  for (const text of texts.slice(1)) {
+    story = await service.createNode(story.id, { parentId: story.path.at(-1)!.id, text });
+  }
+  const part3Id = story.path[2]!.id;
+  return { service, story, part3Id };
+}
+
+function mockNarrowedFetch(t: test.TestContext): {
+  requestCount: () => number;
+  lastPrompt: () => string;
+} {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  let requests = 0;
+  let lastPrompt = "";
+  globalThis.fetch = (async (request, init) => {
+    requests += 1;
+    const text = request instanceof Request
+      ? await request.clone().text()
+      : String(init?.body);
+    const body = JSON.parse(text) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    lastPrompt = body.messages.findLast((message) => message.role === "user")?.content ?? "";
+    const marker = /\[\[summary-complete-[a-f0-9]+\]\]/.exec(lastPrompt)?.[0];
+    assert.ok(marker);
+    return openAiStream(`Narrowed recap.\n${marker}`);
+  }) as typeof fetch;
+  return { requestCount: () => requests, lastPrompt: () => lastPrompt };
+}
 
 function abortAfterPreparedEffect<Method extends ProviderMutationMethod>(
   stories: ProviderStoryRuntime<Method>,

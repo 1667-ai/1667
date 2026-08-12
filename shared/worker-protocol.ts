@@ -296,7 +296,14 @@ export interface WorkerMethodContract {
   };
   createSummaryTake: {
     input: { storyId: string; body: { nodeId: string; offset?: number; expected?: string } };
-    output: string | null;
+    /** `narrowedTo` is the point actually summarized, when it differs from
+     *  the one the request named — the requested prefix alone did not leave
+     *  room for its summary, so the server chose the latest earlier point
+     *  that does (server/summary-take.ts's `fittingSummaryPoint`, issue
+     *  #139). Null both when the requested point already fit and when a
+     *  crash-recovery replay has no way to know, the same "nothing to
+     *  report" shape `continueStory`'s `droppedFacts` uses above. */
+    output: { nodeId: string; narrowedTo: { nodeId: string; offset: number | null } | null } | null;
   };
   /** Stage one Source Image as a Draft Image: normalize it, store the
    *  result as a content-addressed Image Object, and publish a Draft Lease
