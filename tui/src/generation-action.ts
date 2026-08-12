@@ -50,6 +50,27 @@ export function streamLive(state: Pick<StoryScreenState, "stream">): boolean {
   return state.stream !== null;
 }
 
+/** The refusals that describe a running generation and nothing else. `app.ts`
+ *  retires a toast on the next keystroke and nothing else does, so one of
+ *  these outliving its own generation sits on screen stating something untrue
+ *  until the writer happens to press a key. A settlement's own word, a
+ *  failure or a saved take, is deliberately not in this set and always
+ *  survives. */
+const GENERATION_BUSY_TOASTS: ReadonlySet<string> = new Set([
+  "stream running · esc stops it first",
+  "stream running · esc stops it first · draft kept",
+  // Refused because the target row was still virtual. Settlement is exactly
+  // the moment that stops being true (story-actions.ts's persisted-target
+  // guard), so this one goes stale the same way.
+  "generation still landing · wait before changing this part"
+]);
+
+/** Retire a busy refusal whose generation has now settled. Call this wherever
+ *  the abort fence drops, so the message goes when its condition goes. */
+export function retireGenerationBusyToast(state: Pick<RuntimeState, "toast">): void {
+  if (state.toast !== null && GENERATION_BUSY_TOASTS.has(state.toast)) state.toast = null;
+}
+
 /** Escape hides the transient stream now; its task keeps the abort fence. */
 export function requestGenerationStop(state: RuntimeState, repaint: () => void): void {
   const active = state.abort?.kind === "generation" ? state.abort : null;
@@ -142,7 +163,10 @@ export async function generate(
   try {
     appendBaseHash = append ? await textHash(leaf!.text) : undefined;
   } catch (error) {
-    if (state.abort === active) state.abort = null;
+    if (state.abort === active) {
+      state.abort = null;
+      retireGenerationBusyToast(state);
+    }
     if (signal.aborted) {
       restorePendingGenerationDraft(
         state,
@@ -160,7 +184,10 @@ export async function generate(
     return repaint();
   }
   if (signal.aborted || !owns() || !storyCurrent()) {
-    if (state.abort === active) state.abort = null;
+    if (state.abort === active) {
+      state.abort = null;
+      retireGenerationBusyToast(state);
+    }
     if (signal.aborted) {
       restorePendingGenerationDraft(
         state,
@@ -340,7 +367,10 @@ export async function generate(
         settlementMayOwnFocus()
       );
     }
-    if (state.abort === active) state.abort = null;
+    if (state.abort === active) {
+      state.abort = null;
+      retireGenerationBusyToast(state);
+    }
     if (state.stream === stream && !preserveStoppedStream) {
       const focus = captureStoryFocus(state);
       state.stream = null;
