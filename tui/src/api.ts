@@ -21,6 +21,7 @@ import {
   decodeSettingsViewResponse,
   decodeCommitPartialRewriteResponse,
   decodeStoryResponse,
+  decodeSummaryTakeResponse,
   decodeTokenProbabilitiesResponse,
   decodeReasoningResponse,
 } from "./api-response-decoders.js";
@@ -181,6 +182,14 @@ export interface SummaryStreamCallbacks {
   onReasoning?: (delta: ReasoningDelta) => void;
 }
 
+/** The point `createSummaryTake` actually summarized, when it was earlier
+ *  than the one requested — see server/summary-take.ts's
+ *  `fittingSummaryPoint` and shared/worker-protocol.ts's `createSummaryTake`. */
+export interface NarrowedSummaryPoint {
+  nodeId: string;
+  offset: number | null;
+}
+
 export interface StoryApi {
   listStories(): Promise<StorySummary[]>;
   searchStories(request: SearchRequest, signal?: AbortSignal): Promise<SearchResponse>;
@@ -330,7 +339,7 @@ export interface StoryApi {
     onDelta: (text: string) => void,
     signal: AbortSignal,
     callbacks?: SummaryStreamCallbacks
-  ): Promise<string | null>;
+  ): Promise<{ nodeId: string; narrowedTo: NarrowedSummaryPoint | null } | null>;
 }
 
 export interface HttpApiAccess {
@@ -1069,9 +1078,9 @@ export function createApi(
         callbacks
       );
       if (done === null) return null;
-      if (typeof done.nodeId !== "string") throw new Error("The server did not return the new summary take.");
+      const result = decodeSummaryTakeResponse(done);
       await loadVersionedStory(storyId);
-      return done.nodeId;
+      return result;
     }
   };
 }

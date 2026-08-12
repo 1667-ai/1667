@@ -520,7 +520,7 @@ async function handleApi(
         signal,
         onReasoning
       ),
-      (nodeId) => ({ type: "done", nodeId }),
+      (result) => ({ type: "done", nodeId: result.nodeId, narrowedTo: result.narrowedTo }),
       operation.signal,
       context.errorReporter,
       "createSummaryTake",

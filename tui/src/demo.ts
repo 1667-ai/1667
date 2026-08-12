@@ -810,7 +810,10 @@ export function demoStoryApi(demo: DemoController): StoryApi {
       }
       if (signal.aborted) return null;
       const payload = demo.addSummaryTake(landed);
-      return payload.path.at(-1)?.id ?? null;
+      const nodeId = payload.path.at(-1)?.id;
+      // The demo fixture always summarizes the whole requested prefix, so it
+      // never has an earlier point to report.
+      return nodeId === undefined ? null : { nodeId, narrowedTo: null };
     }
   };
 }

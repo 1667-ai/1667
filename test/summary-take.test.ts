@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { SUMMARY_TARGET_TOKENS } from "../shared/chapters.js";
 import { sha256 } from "../server/story-format.js";
-import type { GenerationSettings, StoryPayload } from "../shared/types.js";
+import { summaryTakePrompt } from "../server/summary-take.js";
+import { renderPromptPlan } from "../shared/prompt-plan.js";
+import { estimateTokens } from "../shared/tokens.js";
+import type { GenerationSettings, StoryNode, StoryPayload } from "../shared/types.js";
 import {
   API_PROTOCOL_HEADERS,
   fetchWithApiProtocol
@@ -225,14 +228,82 @@ providerTest("summary take: an unset creative temperature still uses the continu
   assert.equal(model.requests[0]!.temperature, 0.2);
 });
 
-providerTest("summary take: an unfittable prefix stays a plain 422", async (t) => {
+providerTest("summary take: when even the earliest single part does not fit, the refusal names an action and nothing is committed", async (t) => {
   const model = await fakeModel(t, (_body, response) => stream(response, ["unused"]));
   const base = await testApp(t, summarySettings(model.baseUrl, 100, 64));
   const story = await seededStory(base, "A long enough source prefix to consume the tiny window.".repeat(20));
   const response = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/summary-take`, post({ nodeId: story.path[0]!.id }));
   assert.equal(response.status, 422);
-  assert.match(await response.text(), /leaving no room/);
+  const message = await response.text();
+  assert.match(message, /No point in this story leaves room for a summary/);
+  assert.match(message, /Settings/);
   assert.equal(model.requests.length, 0);
+  assert.equal((await getStory(base, story.id)).nodes.length, 1);
+});
+
+providerTest("summary take: a prefix that already fits is summarized at the requested point and reports no narrowing", async (t) => {
+  const model = await fakeModel(t, (body, response) => stream(response, [`Recap.\n${markerFrom(promptFrom(body))}`]));
+  const base = await testApp(t, summarySettings(model.baseUrl, 4096, 512));
+  const story = await seededStory(base, "A short source that fits easily inside the window.");
+  const response = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/summary-take`, post({ nodeId: story.path[0]!.id }));
+  const events = await response.text();
+  assert.match(events, /"type":"done"/);
+  assert.match(events, /"narrowedTo":null/);
+  const summaryId = doneNodeId(events);
+  const saved = await getStory(base, story.id);
+  assert.equal(saved.nodes.find((node) => node.id === summaryId)?.parentId, story.path[0]!.id);
+});
+
+providerTest("summary take: a prefix too big for the window is summarized at the latest point that fits, and reports it", async (t) => {
+  // Four parts, each big enough that the token gap between including three
+  // and including four dwarfs the fixed prompt overhead (system prompt,
+  // instructions, completion marker). Computed from the real prompt
+  // builder, not estimated, so this fixture cannot drift from what the
+  // server itself measures (issue #139).
+  const title = "Summary";
+  const texts = ["PART-ONE", "PART-TWO", "PART-THREE", "PART-FOUR"]
+    .map((label) => `${label} ${"word ".repeat(500)}`.trim());
+  const inputTokensFor = (count: number): number => {
+    const parts = texts.slice(0, count).map((text) => ({ text })) as unknown as readonly StoryNode[];
+    const prompt = summaryTakePrompt(title, parts, 50, "00000000");
+    return renderPromptPlan(prompt).reduce((sum, message) => sum + estimateTokens(message.content) + 4, 0);
+  };
+  const input3 = inputTokensFor(3);
+  const input4 = inputTokensFor(4);
+  assert.ok(input4 - input3 > 100, "fixture needs a clear per-part token gap");
+  const maxTokens = 50;
+  const contextWindow = Math.ceil((input3 + maxTokens + 20) / 0.9);
+  assert.ok(
+    Math.floor(contextWindow * 0.9) - input4 < maxTokens,
+    "fixture must not also leave room for all four parts"
+  );
+
+  const model = await fakeModel(t, (body, response) => stream(response, [`Recap.\n${markerFrom(promptFrom(body))}`]));
+  const base = await testApp(t, summarySettings(model.baseUrl, contextWindow, maxTokens));
+  const created = await json<StoryPayload>(`${base}/api/stories`, post({ title }));
+  let story = await json<StoryPayload>(`${base}/api/stories/${created.id}/nodes`, post({ parentId: null, text: texts[0]! }));
+  for (const text of texts.slice(1)) {
+    story = await json(`${base}/api/stories/${story.id}/nodes`, post({ parentId: story.path.at(-1)!.id, text }));
+  }
+  const part3Id = story.path[2]!.id;
+
+  const response = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/summary-take`, post({ nodeId: story.path.at(-1)!.id }));
+  const events = await response.text();
+  assert.match(events, /"type":"done"/);
+  // The latest point that fits is part three's — parts one and two also fit
+  // on their own (they are strictly smaller), so this pins down "latest",
+  // not merely "an earlier point that works".
+  assert.match(events, new RegExp(`"narrowedTo":\\{"nodeId":"${part3Id}","offset":null\\}`));
+  assert.match(promptFrom(model.requests[0]!), /PART-THREE/);
+  assert.doesNotMatch(promptFrom(model.requests[0]!), /PART-FOUR/);
+
+  const summaryId = doneNodeId(events);
+  const saved = await getStory(base, story.id);
+  const summaryNode = saved.nodes.find((node) => node.id === summaryId)!;
+  assert.equal(summaryNode.role, "summary");
+  // The committed take's own point matches what was actually summarized,
+  // not the point the request named.
+  assert.equal(summaryNode.parentId, part3Id);
 });
 
 function promptFrom(body: Record<string, unknown>): string {

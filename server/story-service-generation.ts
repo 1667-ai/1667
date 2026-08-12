@@ -19,7 +19,7 @@ import type { SettingsStore } from "./settings.js";
 import type { StoryMutationStore } from "./story-mutation-store.js";
 import { buildStoryPayload } from "./story-payload.js";
 import type { StoryStore } from "./stories.js";
-import { createSummaryTake } from "./summary-take.js";
+import { createSummaryTake, narrowedSummaryPoint, type SummaryPoint } from "./summary-take.js";
 import { requireString } from "./validation.js";
 
 /** The hooks a caller of `StoryServiceGeneration`'s streamed mutations may
@@ -260,8 +260,9 @@ export class StoryServiceGeneration {
       summaryNodeId?: string;
       cutNodeId?: string;
     } = {}
-  ): Promise<string | null> {
+  ): Promise<{ nodeId: string; narrowedTo: SummaryPoint | null } | null> {
     const body = parseSummaryTake(value);
+    const requestedNodeId = requireString(body.nodeId, "nodeId");
     if (options.mutationRequest !== undefined) {
       return await this.dependencies.cancellable(signal, async (active) => {
         const committed =
@@ -294,25 +295,47 @@ export class StoryServiceGeneration {
             replayValue: () => options.summaryNodeId ?? null
           }
         );
-        return committed.value;
+        if (committed.value === null) return null;
+        // Reads the point actually summarized back off the committed take's
+        // own parentId — `committed.story` is the current story either way,
+        // whether this attempt ran createSummaryTake live or the ledger
+        // answered a replay that never called it at all (issue #139 review:
+        // a hook a live run fills in has nothing to fill it in with on a
+        // replay, so the writer saw no narrowing warning on a recovered
+        // response).
+        return {
+          nodeId: committed.value,
+          narrowedTo: narrowedSummaryPoint(committed.story, committed.value, requestedNodeId, options.cutNodeId)
+        };
       });
     }
     return await this.dependencies.cancellable(
       signal,
-      (active) => createSummaryTake(
-        id,
-        body,
-        this.dependencies.stories,
-        this.dependencies.settings,
-        this.dependencies.promptCache,
-        onDelta,
-        active,
-        {
-          summaryNodeId: options.summaryNodeId,
-          cutNodeId: options.cutNodeId
-        },
-        options
-      )
+      async (active) => {
+        const nodeId = await createSummaryTake(
+          id,
+          body,
+          this.dependencies.stories,
+          this.dependencies.settings,
+          this.dependencies.promptCache,
+          onDelta,
+          active,
+          {
+            summaryNodeId: options.summaryNodeId,
+            cutNodeId: options.cutNodeId
+          },
+          options
+        );
+        if (nodeId === null) return null;
+        // No durable receipt wraps this branch (server/story-service.ts's
+        // "local durability tier" doc comment), so createSummaryTake always
+        // just ran — the reload is still the single source of truth for
+        // what it actually summarized, the same way the mutationRequest
+        // branch above reads it, rather than a second, parallel mechanism
+        // that could drift from it.
+        const story = await this.dependencies.stories.loadForMutation(id);
+        return { nodeId, narrowedTo: narrowedSummaryPoint(story, nodeId, requestedNodeId, options.cutNodeId) };
+      }
     );
   }
 

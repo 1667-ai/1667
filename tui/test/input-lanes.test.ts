@@ -461,7 +461,7 @@ describe("responsive input lanes", () => {
 
   test("summary cancel restores NAV while its authoritative reload keeps ownership", async () => {
     const source = demoAppSource();
-    const createGate = deferred<string | null>();
+    const createGate = deferred<Awaited<ReturnType<AppSource["api"]["createSummaryTake"]>>>();
     const createEntered = deferred<void>();
     const reloadGate = deferred<StoryPayload>();
     const reloadEntered = deferred<void>();
