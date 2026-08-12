@@ -55,7 +55,7 @@ export async function summarizeChapter(
     chapter.parts,
     signal,
     {
-      maxOutputTokens: SUMMARY_TARGET_TOKENS,
+      targetTokens: SUMMARY_TARGET_TOKENS,
       providerStarted: options.providerStarted,
       promptCache: createPromptCacheRequest(
         promptCacheRuntime,
