@@ -203,6 +203,7 @@ export type SettingsRowId =
   | "word-wrap"
   | "provider"
   | "text-prompt-format"
+  | "split-think-tags"
   | "base-url"
   | "allow-insecure-http"
   | "api-key"

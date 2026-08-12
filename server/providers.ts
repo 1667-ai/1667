@@ -128,9 +128,10 @@ export interface StreamCompletionOptions {
  *  than resolving credentials a second, possibly divergent way — `settings`
  *  at that point may not be the exact object a provider adjusted internally
  *  (`server/summary-take.ts`'s `summarySettings`, for one). Left at its
- *  caller-supplied default (empty) by dry-run and text-completion, which
- *  resolve no credentials and, for text-completion, never stream reasoning
- *  for a caller to check. */
+ *  caller-supplied default (empty) by dry-run alone, which resolves no
+ *  credentials. A text route fills it like any other: it resolves auth and
+ *  custom headers, and a connection with `splitThinkTags` on streams
+ *  reasoning that a caller has to check against the prose. */
 export interface ProviderSecretsCollector {
   secrets: readonly string[];
 }

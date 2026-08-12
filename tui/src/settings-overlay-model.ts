@@ -83,6 +83,7 @@ export const SETTINGS_ROW_IDS = [
   "word-wrap",
   "provider",
   "text-prompt-format",
+  "split-think-tags",
   "base-url",
   "allow-insecure-http",
   "api-key",
@@ -401,6 +402,7 @@ export function settingsRowCycles(row: SettingsRowId): boolean {
     || row === "word-wrap"
     || row === "provider"
     || row === "text-prompt-format"
+    || row === "split-think-tags"
     || row === "allow-insecure-http"
     || row === "profile"
     || row === "effort"
@@ -420,7 +422,7 @@ export function settingsRowHasArrows(
   overlay: SettingsOverlayState,
   row: SettingsRowId
 ): boolean {
-  return row === "text-prompt-format"
+  return row === "text-prompt-format" || row === "split-think-tags"
     ? overlay.draft.generation.provider === "text-completion"
     : settingsRowCycles(row)
     || isSettingsScalarRow(row)
