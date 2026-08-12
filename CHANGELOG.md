@@ -264,6 +264,21 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names. Thanks @10fra for the request.
 
+## 0.9.1-rc.1 - 2026-08-12
+
+- **You can save an empty Author Brief.** Clear the Author Brief in Settings
+  when you do not want a system instruction. 1667 now accepts and saves the
+  empty value. Thanks to @10fra.
+
+- **Chapter summaries can finish.** 1667 no longer limits a chapter summary to
+  the same token count that it asks the model to target. The configured Max
+  output tokens value now gives the model space to finish. Thanks to @10fra.
+
+- **A generation refusal disappears when generation ends.** If you press a key
+  that 1667 refuses during generation, the refusal now clears when generation
+  ends. It no longer tells you to stop a generation that has already ended.
+  Thanks to @10fra.
+
 ## 0.9.0 - 2026-08-12
 
 - **A story that fills the context window can summarize again.** Before this
