@@ -91,20 +91,24 @@ test("a nested vault registration takes precedence over its containing vault", a
   t.after(async () => await rm(outer, { recursive: true, force: true }));
   const inner = path.join(outer, "nested", ".1667");
   await mkdir(inner, { recursive: true });
-  const outerKey = randomBytes(32);
-  const innerKey = randomBytes(32);
-  const outerRegistration = registerVaultKey(outer, outerKey);
-  const innerRegistration = registerVaultKey(inner, innerKey);
-  t.after(() => {
-    innerRegistration.clear();
-    outerRegistration.clear();
-  });
 
-  assert.deepEqual(
-    vaultKeyForPath(path.join(inner, "story.json")),
-    innerKey
-  );
-  assert.equal(vaultKeyForPath(path.join(inner, "vault.json")), null);
+  // Containment decides which vault seals a file, so the order the two vaults
+  // registered in must not change any of these four answers.
+  for (const outerFirst of [true, false]) {
+    const outerKey = randomBytes(32);
+    const innerKey = randomBytes(32);
+    const registrations = outerFirst
+      ? [registerVaultKey(outer, outerKey), registerVaultKey(inner, innerKey)]
+      : [registerVaultKey(inner, innerKey), registerVaultKey(outer, outerKey)];
+    try {
+      assert.deepEqual(vaultKeyForPath(path.join(inner, "story.json")), innerKey);
+      assert.equal(vaultKeyForPath(path.join(inner, "vault.json")), null);
+      assert.deepEqual(vaultKeyForPath(path.join(outer, "story.json")), outerKey);
+      assert.equal(vaultKeyForPath(path.join(outer, "vault.json")), null);
+    } finally {
+      for (const registration of registrations) registration.clear();
+    }
+  }
 });
 
 test("only the documented story cleanup marker remains plaintext", async (t) => {
