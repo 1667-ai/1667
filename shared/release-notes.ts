@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.1-rc.1",
+    date: "2026-08-12",
+    body: "- **You can save an empty Author Brief.** Clear the Author Brief in Settings\n  when you do not want a system instruction. 1667 now accepts and saves the\n  empty value. Thanks to @10fra.\n\n- **Chapter summaries can finish.** 1667 no longer limits a chapter summary to\n  the same token count that it asks the model to target. The configured Max\n  output tokens value now gives the model space to finish. Thanks to @10fra.\n\n- **A generation refusal disappears when generation ends.** If you press a key\n  that 1667 refuses during generation, the refusal now clears when generation\n  ends. It no longer tells you to stop a generation that has already ended.\n  Thanks to @10fra."
+  },
+  {
     version: "0.9.0",
     date: "2026-08-12",
     body: "- **A story that fills the context window can summarize again.** Before this\n  fix, a story that grew to fill the model's context window could not write\n  and could not summarize either: the one operation that shortens the story\n  was refused for being too long itself. 1667 now looks backward for an\n  earlier point that still fits and summarizes there instead. It tells you\n  when the summary covers less than you asked for, and names the point where\n  it stopped. It refuses only when no point fits at all, and that message now\n  names a fix you can act on. Thanks to @10fra.\n\n- **You can attach an image to a request.** Paste an image, or run `attach\n  image` and give a path. The composer shows a row for each attached image.\n  1667 sends the images with your instruction, and the take keeps them, so a\n  later request in the same line sends them again. 1667 offers this only when\n  the selected model states that it accepts images. 1667 does not offer image\n  attachment when it cannot tell. Thanks to @10fra."
