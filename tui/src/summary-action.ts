@@ -4,6 +4,7 @@ import type { AppSource } from "./app.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import type { RuntimeState, SummaryOverlayState } from "./state.js";
 import { narrowedSummaryToast, summaryStretch } from "./summary-model.js";
+import { retireGenerationBusyToast } from "./generation-action.js";
 import type { ActionContext } from "./action-context.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
@@ -86,7 +87,10 @@ export async function startSummary(
         state.toast = error instanceof Error ? error.message : String(error);
       }
     } finally {
-      if (state.abort === active) state.abort = null;
+      if (state.abort === active) {
+        state.abort = null;
+        retireGenerationBusyToast(state);
+      }
       if (state.summary === summary) {
         state.summary = null;
         if (state.mode === "SUMMARY") state.mode = "NAV";

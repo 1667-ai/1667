@@ -670,6 +670,44 @@ describe("generation draft restoration", () => {
     });
   }
 
+  // `app.ts` retires a toast on the next keystroke and nothing else does, so a
+  // refusal that outlives its own generation sits there stating something
+  // untrue until the writer presses a key.
+  test("a busy refusal goes when the generation it described settles", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const entered = deferred<void>();
+    const gate = deferred<{ payload: typeof state.payload; droppedFacts: [] }>();
+    state.mode = "COMPOSE";
+    state.composer = createComposer("a direction");
+    source.api.continueStory = async () => {
+      entered.resolve();
+      return gate.promise;
+    };
+
+    const pending = composeAction({ action: "send" }, state, source, context(state));
+    await entered.promise;
+    await navAction({ action: "compose" }, state, source, context(state), () => undefined);
+    expect(state.toast).toBe("stream running · esc stops it first");
+
+    gate.resolve({ payload: { ...state.payload, title: "landed" }, droppedFacts: [] });
+    await pending;
+
+    expect(state.toast).toBe(null);
+  });
+
+  test("a settlement's own word survives, and is not mistaken for a stale refusal", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    state.mode = "COMPOSE";
+    state.composer = createComposer("this one fails");
+    source.api.continueStory = async () => { throw new Error("provider request failed"); };
+
+    await composeAction({ action: "send" }, state, source, context(state));
+
+    expect(state.toast).toBe("provider request failed");
+  });
+
   test("late settlement cannot resurrect a restored Direct draft the writer deleted", () => {
     const state = initialState(demoAppSource(), false);
     const draft = capturePendingDirectDraft(state, "submitted direction");
