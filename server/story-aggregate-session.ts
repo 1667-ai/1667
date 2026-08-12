@@ -76,7 +76,7 @@ export async function stagedStoryManifestExists(bundleDir: string): Promise<bool
 
 type PresentStorySlot = Extract<
   StoredStorySlot,
-  { kind: "v5" | "v6-live" | "v6-deleted" }
+  { kind: "v5" | "v6-live" | "v6-deleted" | "v8-live" | "v8-deleted" }
 >;
 
 export interface PreparedStoryContent {
@@ -86,13 +86,17 @@ export interface PreparedStoryContent {
 }
 
 export interface PrepareStoryContentOptions {
-  /** The one site that decides whether ONE encode may build the successor
-   *  content payload. Absent resolves through `resolveImageInputActivation()`
-   *  (`shared/image-input-release.ts`), so production callers that never set
-   *  this stay on the release default. Even when this resolves true, the
-   *  encode only actually uses the successor payload if `story` carries an
-   *  Image Attachment; a story with none stays on the current schema, so
-   *  turning activation on never rewrites an unrelated story. */
+  /** Threaded straight through to `encodeStoryBundle` (server/story-codec.ts),
+   *  the one site that actually resolves it (`resolveImageInputActivation()`,
+   *  shared/image-input-release.ts) and decides whether this encode may
+   *  build the successor content payload. `prepareContent` below does not
+   *  resolve this itself; resolving it twice would leave two call sites both
+   *  claiming to be the deciding one. Absent resolves through the release
+   *  default, so production callers that never set this get it. Even when
+   *  this resolves true, the encode only actually uses the successor
+   *  payload if `story` carries an Image Attachment; a story with none
+   *  stays on the current schema, so turning activation on never rewrites
+   *  an unrelated story. */
   readonly activation?: boolean;
 }
 
@@ -244,19 +248,20 @@ export class StoryAggregateSession {
       // whose starting manifest is still this session's starting manifest.
       objects.adoptKnownGenerationRecordGraph(this.generationRecordGraph.sourceRevisions, { committed: true });
     }
-    // The single site that decides whether this encode builds the successor
-    // content payload. Release-wide activation alone is not enough: a story
-    // that carries no Image Attachment stays on the current schema even with
-    // activation on, so turning the switch on never upgrades a library that
-    // has nothing to gain from it (see `PrepareStoryContentOptions`).
-    const buildSuccessorContent = resolveImageInputActivation(options.activation)
-      && storyHasImageAttachments(story);
+    // encodeStoryBundle is the single site that decides whether this encode
+    // builds the successor content payload: release-wide activation alone is
+    // not enough, since a story that carries no Image Attachment stays on
+    // the current schema even with activation on (see
+    // `PrepareStoryContentOptions`). Pass `options.activation` through
+    // unresolved and let the encoder be the one place that calls
+    // `resolveImageInputActivation` on it; resolving it here too would
+    // leave two call sites both claiming to be the deciding one.
     const content = await encodeStoryBundle(
       story,
       objects,
       undefined,
       undefined,
-      buildSuccessorContent ? { activation: true } : {}
+      { activation: options.activation }
     );
     await objects.flush();
     const nextLive = liveObjectIds(content);
@@ -409,7 +414,8 @@ export class StoryAggregateSession {
 
 export function requirePresentStorySlot(
   slot: StoredStorySlot,
-  storyId: string
+  storyId: string,
+  activation?: boolean
 ): asserts slot is PresentStorySlot {
   if ("mutationBlockedByResidue" in slot && slot.mutationBlockedByResidue === true) {
     throw new ServiceError(
@@ -431,24 +437,23 @@ export function requirePresentStorySlot(
   // The aggregate session exists to prepare and stage a mutation, so a
   // successor-schema manifest must refuse it here exactly as
   // `requireMutableStorySlot` refuses it for the older direct-write path
-  // (`server/story-storage-reader.ts`). This release never opens a session
-  // over a story that already needs a successor release to mutate.
-  if (slot.kind === "v8-live" || slot.kind === "v8-deleted") {
+  // (`server/story-storage-reader.ts`) does for every release, activated or
+  // not: that path has no ledger-backed recovery for successor content and
+  // must never open one. This gate is different: once this release resolves
+  // activation true, it is the release that writes V8 itself, so it must
+  // keep opening a session over the very story it just wrote. Only a build
+  // that resolves activation false, a predecessor, or a test proving the
+  // predecessor's refusal, still refuses every V8 mutation here.
+  if (
+    !resolveImageInputActivation(activation)
+    && (slot.kind === "v8-live" || slot.kind === "v8-deleted")
+  ) {
     throw new ServiceError(
       409,
       `Story ${storyId} uses a manifest that requires a successor release for mutation`,
       "story_manifest_requires_successor"
     );
   }
-}
-
-/** True once any take in `story` carries an Image Attachment. This is the
- *  other half of `prepareContent`'s successor decision: release-wide
- *  activation says a write MAY use the successor schema, this says one
- *  actually NEEDS it, and only both together justify it (requirement: a story
- *  with no attachments stays on the current schema even with activation on). */
-function storyHasImageAttachments(story: Story): boolean {
-  return story.nodes.some((node) => node.imageAttachments !== undefined);
 }
 
 /** `formatV6` and `formatV8` differ only in which schema literal they accept;

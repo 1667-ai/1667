@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, open, readFile, rm, type FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
@@ -165,4 +165,70 @@ export function hasServiceCode(code: string): (error: unknown) => boolean {
 
 export function hasFsCode(code: string): (error: unknown) => boolean {
   return (error) => error instanceof Error && "code" in error && error.code === code;
+}
+
+export interface ReadPause {
+  readonly entered: Promise<void>;
+  release(): void;
+}
+
+interface ReadableFileHandlePrototype {
+  read(
+    buffer: Buffer,
+    offset: number,
+    length: number,
+    position: number
+  ): Promise<{ readonly bytesRead: number; readonly buffer: Buffer }>;
+}
+
+/** Pause the next whole-file read whose buffer matches `bufferByteLength`
+ *  exactly (offset 0) until the caller releases it, so a test can open a
+ *  window between "a read of the settings-state authority has started" and
+ *  "the read completed." `server/data-directory-file-read.ts`'s
+ *  `readBoundedMutableAuthorityFile` allocates one buffer sized to the
+ *  file's own stat size plus one byte and reads the whole file into it in
+ *  one call, so `bufferByteLength` is `Buffer.byteLength(fileText, "utf8")
+ *  + 1` — the same convention `test/settings-state-atomic-read.test.ts`
+ *  uses for the schema-2 case. Matches by buffer length rather than file
+ *  path because a `FileHandle` does not expose the path it opened; pick a
+ *  length unique to the settings-state snapshot under test. */
+export async function pauseNextFileRead(
+  t: TestContext,
+  bufferByteLength: number
+): Promise<ReadPause> {
+  const probe = await open(import.meta.filename, "r");
+  const prototype = Object.getPrototypeOf(probe) as ReadableFileHandlePrototype;
+  await probe.close();
+  const originalRead = prototype.read;
+  let enteredResolve!: () => void;
+  let releaseResolve!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    enteredResolve = resolve;
+  });
+  const released = new Promise<void>((resolve) => {
+    releaseResolve = resolve;
+  });
+  let paused = false;
+
+  t.mock.method(prototype, "read", async function (
+    this: FileHandle,
+    buffer: Buffer,
+    offset: number,
+    length: number,
+    position: number
+  ) {
+    if (!paused && offset === 0 && buffer.byteLength === bufferByteLength) {
+      paused = true;
+      enteredResolve();
+      await released;
+    }
+    return await originalRead.call(this, buffer, offset, length, position);
+  });
+
+  return {
+    entered,
+    release(): void {
+      releaseResolve();
+    }
+  };
 }

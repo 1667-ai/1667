@@ -25,7 +25,7 @@ import {
   optionalPhraseBias,
   parseManifest,
   parseManifestV7,
-  serializeManifest,
+  serializeManifestContent,
   validateNodeAttribution,
   validateNodeImageAttachments,
   validateNodeRewrittenSpans,
@@ -81,33 +81,26 @@ const storyBundles = new WeakMap<Story, StoryBundleState>();
  *  payload (`STORY_SUCCESSOR_SCHEMA_VERSION`), with any `imageAttachments` a
  *  node carries, or the current payload (`STORY_SCHEMA_VERSION`), with them
  *  omitted. Absent defaults to the release-wide switch
- *  (`shared/image-input-release.ts`). Production wiring never passes this;
- *  the three-signature overload below keeps every caller that omits it
- *  pinned to `StoryManifestV5` at the type level, not only at runtime. */
+ *  (`shared/image-input-release.ts`). Production wiring never passes this.
+ *  This is only half the decision: `encodeStoryBundle` also requires `story`
+ *  to actually carry an Image Attachment, so a caller cannot know the
+ *  resulting schema version from `options` alone. Read the returned
+ *  manifest's `schemaVersion` instead of assuming it from what was passed
+ *  in. */
 export interface EncodeStoryBundleOptions {
   activation?: boolean;
 }
 
-export function encodeStoryBundle(
-  story: Story,
-  objects: StoryObjectStore,
-  reuseFrom?: StoryObjectStore,
-  snapshot?: StoryRevisionSnapshot
-): Promise<StoryManifestV5>;
-export function encodeStoryBundle(
-  story: Story,
-  objects: StoryObjectStore,
-  reuseFrom: StoryObjectStore | undefined,
-  snapshot: StoryRevisionSnapshot | undefined,
-  options: { activation: true }
-): Promise<StoryManifestV7>;
-export function encodeStoryBundle(
-  story: Story,
-  objects: StoryObjectStore,
-  reuseFrom?: StoryObjectStore,
-  snapshot?: StoryRevisionSnapshot,
-  options?: EncodeStoryBundleOptions
-): Promise<StoryManifestV5 | StoryManifestV7>;
+/** True once any take in `story` carries an Image Attachment. This is the
+ *  other half of the successor-content decision: release-wide activation
+ *  says a write MAY use the successor schema; this says one actually NEEDS
+ *  it. `encodeStoryBundle` below requires both, so turning the release-wide
+ *  switch on never upgrades a story that has nothing to gain from the
+ *  successor schema. */
+function storyHasImageAttachments(story: Story): boolean {
+  return story.nodes.some((node) => node.imageAttachments !== undefined);
+}
+
 export async function encodeStoryBundle(
   story: Story,
   objects: StoryObjectStore,
@@ -115,7 +108,14 @@ export async function encodeStoryBundle(
   snapshot?: StoryRevisionSnapshot,
   options: EncodeStoryBundleOptions = {}
 ): Promise<StoryManifestV5 | StoryManifestV7> {
-  const activation = resolveImageInputActivation(options.activation);
+  // Both halves are required: the release-wide switch says a write MAY use
+  // the successor schema, and storyHasImageAttachments says this story
+  // actually NEEDS it. A story with no Image Attachment must serialize
+  // exactly as it does today, on every call path, with the switch on. That
+  // is what keeps a library nobody attached an image to readable by the
+  // previous release forever. This is the one place that decides it, so no
+  // caller has to restate the rule to get it right.
+  const activation = resolveImageInputActivation(options.activation) && storyHasImageAttachments(story);
   const authorsNote = story.authorsNote === undefined || story.authorsNote === ""
     ? undefined
     : boundedString(story.authorsNote, "story.authorsNote", MAX_AUTHORS_NOTE_CHARS);
@@ -281,10 +281,10 @@ export async function encodeStoryBundle(
   };
   if (activation) {
     const manifest: StoryManifestV7 = { ...manifestCommon, schemaVersion: STORY_SUCCESSOR_SCHEMA_VERSION };
-    return parseManifestV7(serializeManifest(manifest), story.id);
+    return parseManifestV7(serializeManifestContent(manifest), story.id);
   }
   const manifest: StoryManifestV5 = { ...manifestCommon, schemaVersion: STORY_SCHEMA_VERSION };
-  return parseManifest(serializeManifest(manifest), story.id);
+  return parseManifest(serializeManifestContent(manifest), story.id);
 }
 
 export async function decodeStoryBundle(

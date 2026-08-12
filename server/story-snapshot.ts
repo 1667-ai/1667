@@ -5,7 +5,7 @@ import {
   manifestReasoningIds,
   manifestTokenProbabilityIds,
   StoryFormatError,
-  serializeManifest,
+  serializeManifestContent,
   sha256,
   type ObjectHash,
   type StoryManifestV5,
@@ -87,5 +87,5 @@ export function reusableRevisionId(
 }
 
 function manifestFingerprint(manifest: StoryManifestV5 | StoryManifestV7): ObjectHash {
-  return sha256(Buffer.from(serializeManifest(manifest), "utf8"));
+  return sha256(Buffer.from(serializeManifestContent(manifest), "utf8"));
 }

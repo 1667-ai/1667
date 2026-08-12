@@ -4,21 +4,12 @@ import {
   SETTINGS_STATE_V2_FILE,
   SETTINGS_STATE_V2_NEXT_FILE
 } from "./data-directory-layout.js";
-import {
-  formatSettingsStateV2Bytes,
-  parseSettingsStateV2Bytes
-} from "./settings-v2-codec.js";
+import { formatSettingsStateV2Bytes } from "./settings-v2-codec.js";
 import {
   parseSettingsStateSlotBytes,
   settingsStateSlotReadOnlyView,
-  upgradeSettingsStateV2ToV3,
   type SettingsStateSlot
 } from "./settings-state-slot.js";
-import { formatSettingsStateV3 } from "./settings-v3-codec.js";
-import {
-  settingsWriteSchemaVersion,
-  type SettingsWriteSchemaOptions
-} from "./settings-v3-conversion.js";
 import { MAX_SETTINGS_STATE_BYTES } from "./settings-v2-scalars.js";
 import {
   publishSettingsFile,
@@ -31,25 +22,29 @@ import {
 
 export interface SettingsStateFiles {
   readonly current: SettingsStateV2;
-  readonly next: SettingsStateV2 | null;
+  readonly next: SettingsStateSlot | null;
 }
 
-/** Strictly schema 2, current and staged-next together. The mutation-recovery
- *  path (`SettingsV2Store.recoverReceiptTransaction`) is the only caller, and
- *  it only ever reaches this after `readSettingsStateSlot` has already
- *  confirmed the current authority is schema 2 — see settings-v2-store.ts.
- *  A schema-3 `.next` residue is out of scope for this release: nothing here
- *  ever writes one, and a successor that left one behind resolves it on its
- *  own restart. */
+/** Both settings-state files together. `current` is always mutable by this
+ *  build (a schema-3 `current` never reaches here; the caller that needs to
+ *  branch on that reads `readSettingsStateSlot` instead), so it is safe to
+ *  present as the plain schema-2-shaped read-only view. `next` is returned
+ *  as its full slot, undowngraded: it can be either schema, exactly like
+ *  `current` can, because a later release's own crash between staging a
+ *  schema-3 replacement and publishing it leaves one behind the same way a
+ *  schema-2 crash always has, and the caller (`recoverUnpublishedNext`,
+ *  server/settings-v2-store.ts) needs to see which schema it is to decide
+ *  whether a receipt could ever apply to it. */
 export async function readSettingsStateFiles(dataDir: string): Promise<SettingsStateFiles> {
   const [currentBytes, nextBytes] = await Promise.all([
     readOptionalMutableSettingsAuthority(currentPath(dataDir), MAX_SETTINGS_STATE_BYTES),
     readOptionalSettingsFile(nextPath(dataDir), MAX_SETTINGS_STATE_BYTES)
   ]);
   if (currentBytes === null) throw new Error("Format-2 settings state is missing");
+  const currentSlot = parseSettingsStateSlotBytes(currentBytes);
   return {
-    current: parseSettingsStateV2Bytes(currentBytes),
-    next: nextBytes === null ? null : parseSettingsStateV2Bytes(nextBytes)
+    current: settingsStateSlotReadOnlyView(currentSlot),
+    next: nextBytes === null ? null : parseSettingsStateSlotBytes(nextBytes)
   };
 }
 
@@ -74,29 +69,16 @@ export async function readSettingsState(dataDir: string): Promise<SettingsStateV
   return settingsStateSlotReadOnlyView(await readSettingsStateSlot(dataDir));
 }
 
-/** Stage one settings-state replacement. `writeSchemaOptions` is the one
- *  site (`settingsWriteSchemaVersion`, server/settings-v3-conversion.ts)
- *  that decides which schema the bytes on disk use. Every production caller
- *  passes no options, so `settingsWriteSchemaVersion` resolves through
- *  `resolveImageInputActivation()` — a hardcoded false in this release —
- *  and this always writes schema 2, exactly as before. Only a test that
- *  overrides `imageInputActivation` reaches the schema-3 branch. */
+/** Stage one settings-state replacement. Always schema 2: this release's
+ *  settings writer never produces schema 3, so a schema-2 `current` file can
+ *  never stage a schema-3 `.next`, and a predecessor can never find a
+ *  `.next` residue its strict reader cannot parse
+ *  (test/settings-schema-successor.test.ts). */
 export async function stageSettingsState(
   dataDir: string,
-  state: SettingsStateV2,
-  writeSchemaOptions: SettingsWriteSchemaOptions = {}
+  state: SettingsStateV2
 ): Promise<void> {
-  await writePrivateSettingsFile(nextPath(dataDir), formatSettingsStateForWrite(state, writeSchemaOptions));
-}
-
-function formatSettingsStateForWrite(
-  state: SettingsStateV2,
-  writeSchemaOptions: SettingsWriteSchemaOptions
-): Uint8Array {
-  if (settingsWriteSchemaVersion(writeSchemaOptions) === 2) {
-    return formatSettingsStateV2Bytes(state);
-  }
-  return Buffer.from(formatSettingsStateV3(upgradeSettingsStateV2ToV3(state)), "utf8");
+  await writePrivateSettingsFile(nextPath(dataDir), formatSettingsStateV2Bytes(state));
 }
 
 export async function publishStagedSettingsState(

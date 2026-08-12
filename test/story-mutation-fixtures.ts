@@ -78,8 +78,12 @@ export const OTHER_FINGERPRINT = "b".repeat(64);
 export const FIXED_NOW = new Date("2026-01-01T00:00:00.000Z");
 
 export interface SetupOptions {
-  /** Forwarded to `StoryMutationStoreOptions.imageInputActivation`. Absent
-   *  matches production: the successor story write path stays off. */
+  /** Forwarded to the `StoryStore` this fixture builds, when `createStories`
+   *  is left at its default. `StoryMutationStore` no longer takes a copy of
+   *  its own: it reads activation straight off the `StoryStore` it is given,
+   *  so a custom `createStories` factory's own choice is always the one that
+   *  applies, and the two can never be set to disagree. Absent matches
+   *  production: the successor story write path stays off. */
   readonly imageInputActivation?: boolean;
 }
 
@@ -87,14 +91,15 @@ export async function setup(
   t: Pick<import("node:test").TestContext, "after">,
   prefix: string,
   hooks: StoryMutationStoreHooks = {},
-  createStories: (storiesDir: string) => StoryStore =
-    (storiesDir) => new StoryStore(storiesDir),
+  createStories?: (storiesDir: string) => StoryStore,
   options: SetupOptions = {}
 ) {
   const dataDir = await mkdtemp(path.join(tmpdir(), prefix));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const storiesDir = path.join(dataDir, "stories");
-  const stories = createStories(storiesDir);
+  const stories = createStories !== undefined
+    ? createStories(storiesDir)
+    : new StoryStore(storiesDir, { imageInputActivation: options.imageInputActivation });
   await stories.init();
   await stories.save(storyFixture());
   const manifestFile = path.join(storiesDir, STORY_ID, "manifest.json");
@@ -105,7 +110,7 @@ export async function setup(
     stories,
     coordinator,
     dataDir,
-    { ledger, hooks, now: () => FIXED_NOW, imageInputActivation: options.imageInputActivation }
+    { ledger, hooks, now: () => FIXED_NOW }
   );
   await mutations.init();
   return {

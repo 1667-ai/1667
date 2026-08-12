@@ -123,6 +123,37 @@ describe("thought waymark", () => {
     expect(leafLine?.indexOf("thought")).toBe(16);
   });
 
+  test("T says why it did nothing instead of reading as a dead key", async () => {
+    const cache = createWrapCache<ProseStyle>();
+
+    // The keys list offers T on every take, so pressing it on one without a
+    // thought is ordinary. p1 has none.
+    const noThought = makeFixture();
+    noThought.state.reasoning = "marker";
+    noThought.state.focusIndex = 0;
+    await dispatch(
+      { action: "toggle-thought" }, noThought.state, noThought.source,
+      cache, () => {}, async () => {}, () => {}
+    );
+    expect(noThought.state.toast).toBe("no thought on this take");
+    expect(noThought.state.expandedThoughtIds.size).toBe(0);
+
+    // `off` renders no thought at all, so the fold this would flip is
+    // invisible. Saying so beats mutating state nothing draws.
+    const off = makeFixture();
+    off.state.reasoning = "off";
+    off.state.thoughts.set("p3", {
+      status: "ready",
+      record: createReasoningRecord({ text: "Three ways down.", tokenCount: 1_400 })
+    });
+    await dispatch(
+      { action: "toggle-thought" }, off.state, off.source,
+      cache, () => {}, async () => {}, () => {}
+    );
+    expect(off.state.toast).toBe("thoughts are off · settings turns them on");
+    expect(off.state.expandedThoughtIds.size).toBe(0);
+  });
+
   test("T unfolds the focused part's thought, and folds it back", async () => {
     const { source, state } = makeFixture();
     state.reasoning = "marker";

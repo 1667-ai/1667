@@ -345,6 +345,33 @@ describe("inline settings menu", () => {
       });
   });
 
+  test("the split-thoughts row turns a text connection's think split on and off", async () => {
+    const { state, press } = harness();
+    await openSettings(press);
+    await selectRow(press, state, "provider");
+    for (let attempts = 0;
+      settingsProviderChoice(state.settings!.draft.generation).id !== "text-completion"
+        && attempts < SETTINGS_PROVIDER_CHOICES.length;
+      attempts += 1) {
+      await press(key("right"));
+    }
+    expect(state.settings?.draft.generation.provider).toBe("text-completion");
+    expect(selectSettingsRoute(state.settings!.draft.document!).connection.splitThinkTags)
+      .toBe(undefined);
+
+    await selectRow(press, state, "split-think-tags");
+    await press(key("right"));
+    expect(selectSettingsRoute(state.settings!.draft.document!).connection.splitThinkTags)
+      .toBe(true);
+
+    // Off is absence, not a stored false, the same shape allowInsecureHttp
+    // persists, so the saved document stays minimal.
+    await press(key("right"));
+    expect(
+      "splitThinkTags" in selectSettingsRoute(state.settings!.draft.document!).connection
+    ).toBeFalse();
+  });
+
   test("local provider choices apply safe localhost defaults", async () => {
     const localChoices = SETTINGS_PROVIDER_CHOICES.filter(
       (choice) => choice.plaintextDefaultRequiresOwnedLoopback === true

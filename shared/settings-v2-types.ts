@@ -63,6 +63,11 @@ export interface ModelConnectionV2 {
   readonly textPromptFormat?: TextPromptFormatV2;
   /** Absence means false. Only literal true is persisted. */
   readonly allowInsecureHttp?: true;
+  /** Split a `<think>` block out of a text route's token stream and keep it
+   *  as the take's thought. Absence means false, and only literal true is
+   *  persisted, the same shape as `allowInsecureHttp`. A raw text route
+   *  otherwise passes every token through to the prose. */
+  readonly splitThinkTags?: true;
 }
 
 export const FEATURE_SUPPORT_V2_VALUES = ["supported", "unsupported", "unknown"] as const;

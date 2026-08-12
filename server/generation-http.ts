@@ -318,7 +318,21 @@ export async function continueStory(
   const authorsNotePlacement: AuthorsNotePlacement | null = authorsNote === null
     ? null
     : { text: authorsNote, depth: resolveAuthorsNoteDepth(story.authorsNoteDepth) };
-  const { settings, promptCache } = await settingsStore.loadGeneration("prose");
+  // One read, not two: `settings` and `imageInputCapability` both come out of
+  // `settingsStore.loadGeneration`'s single snapshot
+  // (`SettingsV2Store.loadRuntime`, server/settings-v2-store.ts). Reading
+  // them as two independent calls let a settings save land between the two
+  // reads and pair one route's provider settings with a DIFFERENT route's
+  // stored capability. `imageInputCapability` is the active route's own
+  // stored image-input override, if this directory carries one — a
+  // rolled-back writer's own explicit verdict, honored on read even though no
+  // path in this release can set it yet. It is resolved unconditionally,
+  // alongside settings, rather than only when the request turns out to carry
+  // an image: `activeImageContext` below never calls
+  // `resolveImageInputCapability` for a text-only request, so this value sits
+  // unused for the common case, and the request's own text-only bytes never
+  // change either way.
+  const { settings, promptCache, imageInputCapability } = await settingsStore.loadGeneration("prose");
   if (signal.aborted) return null;
   const authorBrief = resolveAuthorBrief(story.authorBrief, settings.systemPrompt);
   const model = settings.provider === "dry-run" ? "dry-run" : settings.model;
@@ -330,10 +344,18 @@ export async function continueStory(
   // server/generation-admission.ts. A text-only request resolves no
   // capability at all, so its behavior and request bytes stay exactly as
   // before Image Input existed (image-input design's byte-identity promise).
+  // The stored override rides in ahead of built-in model knowledge, exactly
+  // the explicit-override-first order `resolveImageInputCapability`
+  // (shared/image-input-capabilities.ts) already documents.
   const { activeImages, capability: imageCapability, fixedImageTokens } = activeImageContext(
     contextParts,
     resolvedImages.attachments,
-    { protocol: providerRuntimeFor(settings).protocol ?? "dry-run", remoteModelId: model }
+    {
+      protocol: providerRuntimeFor(settings).protocol ?? "dry-run",
+      remoteModelId: model,
+      override: imageInputCapability?.imageInput,
+      overrideTokenCeiling: imageInputCapability?.imageTokenCeiling
+    }
   );
   // Compatible endpoints get SillyTavern-style assistant prefill. Providers that
   // reject prefill must first echo a short exact boundary which we strip below.

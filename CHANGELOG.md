@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **You can attach an image to a request.** Paste an image, or run `attach
+  image` and give a path. The composer shows a row for each attached image.
+  1667 sends the images with your instruction, and the take keeps them, so a
+  later request in the same line sends them again. 1667 offers this only when
+  the selected model states that it accepts images. 1667 does not offer image
+  attachment when it cannot tell. Thanks to @10fra.
+
 - **1667 no longer ends a generation while a model server is still
   processing the prompt.** Prefill is the model server's work before it
   sends the first output token. The server sends no stream output while it
@@ -23,14 +30,6 @@ This file records notable changes to 1667. Product terms use the definitions in
   the first token until the **total** deadline and a first-token value
   cannot change a request. To give a slow prompt more time, raise **total**.
   Thanks to @10fra.
-
-- **1667 prepares to send images to a model.** This release contains the
-  complete Image Input implementation and keeps every entry point closed. It
-  cannot attach an image yet. 1667 releases a new storage schema in two steps:
-  this release reads and validates the successor story and settings documents
-  and refuses to change them, and the next release writes them. That order lets
-  a writer go back one version without losing a story or a setting. The next
-  release opens the feature.
 
 - **The log now shows a release note with its paragraphs and list kept.**
   Before this fix, the log joined a release note into one line, and it
@@ -271,6 +270,16 @@ This file records notable changes to 1667. Product terms use the definitions in
   palette opens a path prompt with `Tab` completion. The `1667 import-card`
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names. Thanks @10fra for the request.
+
+## 0.8.0 - 2026-08-11
+
+- **1667 prepares to send images to a model.** This release contains the
+  complete Image Input implementation and keeps every entry point closed. It
+  cannot attach an image yet. 1667 releases a new storage schema in two steps:
+  this release reads and validates the successor story and settings documents
+  and refuses to change them, and the next release writes them. That order lets
+  a writer go back one version without losing a story or a setting. The next
+  release opens the feature.
 
 ## 0.7.0 - 2026-08-10
 
