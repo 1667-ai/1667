@@ -74,10 +74,7 @@ export class StoryProviderMutationStore {
     private readonly recovery: StoryMutationRecovery,
     private readonly activeStarts: ActiveProviderStarts,
     private readonly now: StoryMutationClock,
-    private readonly hooks: StoryMutationHooks = {},
-    /** Threaded straight from `StoryMutationStoreOptions.imageInputActivation`;
-     *  see the comment there for what sets it and what never does. */
-    private readonly imageInputActivation?: boolean
+    private readonly hooks: StoryMutationHooks = {}
   ) {
     this.races = new StoryProviderRaceResolver(
       stories,
@@ -498,8 +495,11 @@ export class StoryProviderMutationStore {
       | { kind: "error"; code: PreparedDomainError }
   ): Promise<Extract<MutationResult, { kind: "story" }>> {
     const oldStateHash = session.snapshot.manifestHash;
+    // Read straight off `this.stories`, the same `StoryStore` this session
+    // came from, rather than a second, independently settable activation
+    // option: see `StoryStore`'s own `imageInputActivation` doc comment.
     const replacement = outcome.kind === "success"
-      ? await session.prepareContent(outcome.story, { activation: this.imageInputActivation })
+      ? await session.prepareContent(outcome.story, { activation: this.stories.imageInputActivation })
       : null;
     const provider = {
       mutationId: request.mutationId,

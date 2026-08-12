@@ -318,19 +318,21 @@ export async function continueStory(
   const authorsNotePlacement: AuthorsNotePlacement | null = authorsNote === null
     ? null
     : { text: authorsNote, depth: resolveAuthorsNoteDepth(story.authorsNoteDepth) };
-  const [{ settings, promptCache }, imageInputCapability] = await Promise.all([
-    settingsStore.loadGeneration("prose"),
-    // The active route's own stored image-input override, if this directory
-    // carries one — a rolled-back writer's own explicit verdict, honored on
-    // read even though no path in this release can set it yet (see
-    // SettingsStore.loadImageInputCapability, server/settings.ts). Read
-    // unconditionally, alongside settings, rather than only when the request
-    // turns out to carry an image: `activeImageContext` below never calls
-    // `resolveImageInputCapability` for a text-only request, so this value
-    // sits unused for the common case, and the request's own text-only bytes
-    // never change either way.
-    settingsStore.loadImageInputCapability("prose")
-  ]);
+  // One read, not two: `settings` and `imageInputCapability` both come out of
+  // `settingsStore.loadGeneration`'s single snapshot
+  // (`SettingsV2Store.loadRuntime`, server/settings-v2-store.ts). Reading
+  // them as two independent calls let a settings save land between the two
+  // reads and pair one route's provider settings with a DIFFERENT route's
+  // stored capability. `imageInputCapability` is the active route's own
+  // stored image-input override, if this directory carries one — a
+  // rolled-back writer's own explicit verdict, honored on read even though no
+  // path in this release can set it yet. It is resolved unconditionally,
+  // alongside settings, rather than only when the request turns out to carry
+  // an image: `activeImageContext` below never calls
+  // `resolveImageInputCapability` for a text-only request, so this value sits
+  // unused for the common case, and the request's own text-only bytes never
+  // change either way.
+  const { settings, promptCache, imageInputCapability } = await settingsStore.loadGeneration("prose");
   if (signal.aborted) return null;
   const authorBrief = resolveAuthorBrief(story.authorBrief, settings.systemPrompt);
   const model = settings.provider === "dry-run" ? "dry-run" : settings.model;

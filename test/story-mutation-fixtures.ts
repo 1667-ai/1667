@@ -78,12 +78,12 @@ export const OTHER_FINGERPRINT = "b".repeat(64);
 export const FIXED_NOW = new Date("2026-01-01T00:00:00.000Z");
 
 export interface SetupOptions {
-  /** Forwarded to `StoryMutationStoreOptions.imageInputActivation` and, when
-   *  `createStories` is left at its default, to the `StoryStore` it builds
-   *  too — `StoryStore` owns the gate that decides whether a session may
-   *  reopen a successor story, so the two must agree or a mutation the
-   *  fixture expects to succeed (or refuse) hits the wrong one. Absent
-   *  matches production: the successor story write path stays off. */
+  /** Forwarded to the `StoryStore` this fixture builds, when `createStories`
+   *  is left at its default. `StoryMutationStore` no longer takes a copy of
+   *  its own: it reads activation straight off the `StoryStore` it is given,
+   *  so a custom `createStories` factory's own choice is always the one that
+   *  applies, and the two can never be set to disagree. Absent matches
+   *  production: the successor story write path stays off. */
   readonly imageInputActivation?: boolean;
 }
 
@@ -110,7 +110,7 @@ export async function setup(
     stories,
     coordinator,
     dataDir,
-    { ledger, hooks, now: () => FIXED_NOW, imageInputActivation: options.imageInputActivation }
+    { ledger, hooks, now: () => FIXED_NOW }
   );
   await mutations.init();
   return {

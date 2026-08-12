@@ -86,13 +86,17 @@ export interface PreparedStoryContent {
 }
 
 export interface PrepareStoryContentOptions {
-  /** The one site that decides whether ONE encode may build the successor
-   *  content payload. Absent resolves through `resolveImageInputActivation()`
-   *  (`shared/image-input-release.ts`), so production callers that never set
-   *  this stay on the release default. Even when this resolves true, the
-   *  encode only actually uses the successor payload if `story` carries an
-   *  Image Attachment; a story with none stays on the current schema, so
-   *  turning activation on never rewrites an unrelated story. */
+  /** Threaded straight through to `encodeStoryBundle` (server/story-codec.ts),
+   *  the one site that actually resolves it (`resolveImageInputActivation()`,
+   *  shared/image-input-release.ts) and decides whether this encode may
+   *  build the successor content payload. `prepareContent` below does not
+   *  resolve this itself; resolving it twice would leave two call sites both
+   *  claiming to be the deciding one. Absent resolves through the release
+   *  default, so production callers that never set this get it. Even when
+   *  this resolves true, the encode only actually uses the successor
+   *  payload if `story` carries an Image Attachment; a story with none
+   *  stays on the current schema, so turning activation on never rewrites
+   *  an unrelated story. */
   readonly activation?: boolean;
 }
 
@@ -248,14 +252,16 @@ export class StoryAggregateSession {
     // builds the successor content payload: release-wide activation alone is
     // not enough, since a story that carries no Image Attachment stays on
     // the current schema even with activation on (see
-    // `PrepareStoryContentOptions`). Pass the release-wide half straight
-    // through and let the encoder apply the other half.
+    // `PrepareStoryContentOptions`). Pass `options.activation` through
+    // unresolved and let the encoder be the one place that calls
+    // `resolveImageInputActivation` on it; resolving it here too would
+    // leave two call sites both claiming to be the deciding one.
     const content = await encodeStoryBundle(
       story,
       objects,
       undefined,
       undefined,
-      { activation: resolveImageInputActivation(options.activation) }
+      { activation: options.activation }
     );
     await objects.flush();
     const nextLive = liveObjectIds(content);

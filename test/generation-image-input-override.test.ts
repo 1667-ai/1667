@@ -18,12 +18,12 @@ import { opaquePng } from "./image-fixtures.js";
  * consult a stored image-input override before it lets an image reach a
  * provider, not only `shared/image-input-capabilities.ts`'s resolver in
  * isolation. `test/settings-schema-successor.test.ts` already proves the
- * settings-store read side in isolation (`SettingsV2Store.loadImageInputCapability`
- * plus `resolveImageInputCapability` called by hand); these two tests instead
- * drive the real `continueStory` function a request actually takes, with a
- * `SettingsStore` double standing in for disk I/O and a mocked
- * `globalThis.fetch` standing in for the network, so the assertions are about
- * `continueStory`'s own behavior, not the resolver's.
+ * settings-store read side in isolation (`SettingsV2Store.loadRuntime`'s
+ * `imageInputCapability` plus `resolveImageInputCapability` called by hand);
+ * these two tests instead drive the real `continueStory` function a request
+ * actually takes, with a `SettingsStore` double standing in for disk I/O and
+ * a mocked `globalThis.fetch` standing in for the network, so the assertions
+ * are about `continueStory`'s own behavior, not the resolver's.
  *
  * Both tests use `StoryStore` for real: real Draft Image staging, real
  * `resolveDraftImage`/`loadImage`, and (for the authorized case) real commit.
@@ -42,8 +42,15 @@ function fakeSettingsStore(
   capability: StoredImageInputCapability | null
 ): SettingsStore {
   return {
-    loadGeneration: async () => ({ settings, promptCache: LEGACY_PROMPT_CACHE_CONTEXT }),
-    loadImageInputCapability: async () => capability
+    // `settings` and `capability` come back from the one `loadGeneration`
+    // call, matching `SettingsV2Store.loadRuntime`'s combined snapshot
+    // (server/settings-v2-store.ts): `continueStory` no longer makes a
+    // separate call to fetch the capability.
+    loadGeneration: async () => ({
+      settings,
+      promptCache: LEGACY_PROMPT_CACHE_CONTEXT,
+      imageInputCapability: capability
+    })
   } as unknown as SettingsStore;
 }
 

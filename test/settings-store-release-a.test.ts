@@ -597,23 +597,12 @@ test("format-2 probes restore the active private-HTTP transport policy", async (
   assert.equal(providerRuntimeFor(admitted).allowInsecureHttp, true);
 });
 
-test("the settings write schema version needs both activation and a non-derivable value to reach schema 3", () => {
-  // This release ships with image input active, but activation alone is
-  // never enough: `needsSuccessorSchema` false means nothing on the document
-  // being written needs schema 3, so every one of these stays schema 2, even
-  // production wiring's own default (an omitted `needsSuccessorSchema`
-  // argument does not exist; every real call site computes it from
-  // `settingsStateNeedsSuccessorSchema`, exercised directly in
-  // test/settings-schema-successor.test.ts).
-  assert.equal(settingsWriteSchemaVersion(false), 2);
-  assert.equal(settingsWriteSchemaVersion(false, {}), 2);
-  assert.equal(settingsWriteSchemaVersion(false, { imageInputActivation: true }), 2);
-  // A predecessor, activation explicitly false: schema 2 regardless of need,
-  // because a predecessor never owns writing schema 3 at all.
-  assert.equal(settingsWriteSchemaVersion(true, { imageInputActivation: false }), 2);
-  // Both true, activation and a document that genuinely needs schema 3,
-  // is the only combination that reaches it.
-  assert.equal(settingsWriteSchemaVersion(true), 3);
-  assert.equal(settingsWriteSchemaVersion(true, {}), 3);
-  assert.equal(settingsWriteSchemaVersion(true, { imageInputActivation: true }), 3);
+test("the settings write schema version is always 2: the successor writer ships with a later release", () => {
+  // The successor settings schema begins the day a release can store a
+  // capability override in an incoming write. `ModelCapabilitiesV2`, the
+  // shape every incoming write arrives as, is a closed record with no
+  // `imageInput` field, so no override can structurally arrive here for
+  // this build to decide about (server/settings-v3-conversion.ts). Every
+  // write stays schema 2, unconditionally.
+  assert.equal(settingsWriteSchemaVersion(), 2);
 });

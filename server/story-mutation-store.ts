@@ -105,17 +105,6 @@ export interface StoryMutationStoreOptions {
   readonly ledger?: MutationLedgerStore;
   readonly now?: StoryMutationClock;
   readonly hooks?: StoryMutationStoreHooks;
-  /** Forces (or forbids) the successor content payload for every
-   *  `prepareContent` call this store makes. Absent resolves through
-   *  `resolveImageInputActivation()` at the one site that decides whether a
-   *  given encode actually uses it (`encodeStoryBundle`,
-   *  server/story-codec.ts); this store only threads the value through.
-   *  Unrelated to whether the underlying `StoryStore` may reopen a
-   *  successor-schema story for mutation at all — that gate is the
-   *  `StoryStore`'s own `imageInputActivation`, set at its construction.
-   *  Production wiring never sets this; only tests that exercise the
-   *  successor path do. */
-  readonly imageInputActivation?: boolean;
 }
 
 /** Successor-Q façade for local, provider, acknowledgement, and deletion
@@ -124,7 +113,6 @@ export class StoryMutationStore {
   private readonly ledger: MutationLedgerStore;
   private readonly now: StoryMutationClock;
   private readonly hooks: StoryMutationStoreHooks;
-  private readonly imageInputActivation: boolean | undefined;
   private readonly recovery: StoryMutationRecovery;
   private readonly activeProviderStarts: ActiveProviderStarts;
   private readonly providers: StoryProviderMutationStore;
@@ -139,7 +127,6 @@ export class StoryMutationStore {
     this.ledger = options.ledger ?? new MutationLedgerStore(dataDir);
     this.now = options.now ?? (() => new Date());
     this.hooks = options.hooks ?? {};
-    this.imageInputActivation = options.imageInputActivation;
     this.recovery = new StoryMutationRecovery(this.ledger, this.now);
     this.activeProviderStarts = new ActiveProviderStarts();
     this.providers = new StoryProviderMutationStore(
@@ -149,8 +136,7 @@ export class StoryMutationStore {
       this.recovery,
       this.activeProviderStarts,
       this.now,
-      this.hooks,
-      this.imageInputActivation
+      this.hooks
     );
     this.unknownOutcomes = new StoryUnknownOutcomeStore(
       stories,
@@ -259,7 +245,13 @@ export class StoryMutationStore {
               };
             }
             value = outcome;
-            replacement = await session.prepareContent(story, { activation: this.imageInputActivation });
+            // Read straight off `this.stories`, the `StoryStore` this
+            // mutation store was built with, rather than taking a second,
+            // independently settable activation option: the store already
+            // owns the concept (`StoryStore`'s own `imageInputActivation`
+            // doc comment), so this is the same gate that decided whether
+            // this session could reopen the story in the first place.
+            replacement = await session.prepareContent(story, { activation: this.stories.imageInputActivation });
           } catch (error) {
             // A manifest-only mutation has no replay to keep deterministic,
             // so a domain rejection needs no receipt-only record either.

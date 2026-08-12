@@ -152,8 +152,16 @@ export class StoryStore {
      *  production wiring stays on the release default. This store owns the
      *  concept: `withAggregateSession` and `withOptionalAggregateSession`
      *  read it directly instead of taking it per call, so every caller that
-     *  opens a session over the same store gets the same gate. */
-    private readonly imageInputActivation?: boolean
+     *  opens a session over the same store gets the same gate.
+     *
+     *  Public (not `private`) so `StoryMutationStore` and
+     *  `StoryProviderMutationStore`, which both already hold this same
+     *  `StoryStore`, read it from here rather than taking a second,
+     *  independently settable copy of their own. A single source keeps a
+     *  story's reopen gate and its `prepareContent` write gate from ever
+     *  being set differently: setting them apart would let a story be
+     *  written in the successor schema and then never be reopenable. */
+    readonly imageInputActivation?: boolean
   ) {
     this.cleanupQueue = new BoundedCleanupQueue(
       STORY_CLEANUP_IO_CONCURRENCY,

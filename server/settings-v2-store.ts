@@ -87,7 +87,7 @@ import {
   requireSettingsWriteAuthority,
   settingsStateSlotImageInputCapability,
   settingsStateSlotReadOnlyView,
-  type StoredImageInputCapability
+  type SettingsStateSlot
 } from "./settings-state-slot.js";
 import { requireFreshUnseenMutationId } from "./mutation-id-policy.js";
 import { parseSettingsDocumentV2 } from "./settings-v2-codec.js";
@@ -166,16 +166,12 @@ export class SettingsV2Store {
   async init(): Promise<void> {
     await this.ledger.init();
     const slot = await readSettingsStateSlot(this.dataDir);
-    try {
-      requireSettingsWriteAuthority(slot, this.writeSchemaOptions.imageInputActivation);
-    } catch (error) {
-      // The same refusal `save()`/`discardPending()` surface as a request's
-      // 409 is expected here, at startup: a schema-3 authority this build
-      // cannot write is successor-owned, so there is nothing of its own to
-      // recover, activate, or prune. It only proves the state opens and its
-      // active document supports a route, exactly like the writable path
-      // below, then stops. It never propagates past init().
-      if (slot.kind !== "v3-requires-successor") throw error;
+    // A successor-owned authority is not this build's to change, and that is
+    // an ordinary startup state rather than a failure, so it is a branch here
+    // rather than a caught throw. There is nothing of its own to recover,
+    // activate, or prune. Opening proves the state parses and its active
+    // document supports a route, exactly like the writable path below.
+    if (slot.kind === "v3") {
       assertRuntimeDocumentSupported(activeSettingsDocument(slot.readOnlyView));
       settingsViewFromState(slot.readOnlyView);
       return;
@@ -202,10 +198,31 @@ export class SettingsV2Store {
     return settingsViewFromState(await readSettingsState(this.dataDir));
   }
 
+  /** The route's runtime settings AND its stored image-input override,
+   *  `imageInput`/`imageTokenCeiling`, read from the exact same snapshot
+   *  (`readRuntimeSnapshot` below): one disk read of the settings-state slot,
+   *  resolved to one route. Earlier this shipped as two public methods,
+   *  `loadRuntime` and `loadImageInputCapability`, each opening the state
+   *  file on its own. A caller running them concurrently (`generation-http.ts`
+   *  once did, via `Promise.all`) could have a settings save land between the
+   *  two reads, pairing one route's provider settings with a DIFFERENT
+   *  route's stored capability — a mismatch that can wrongly authorize an
+   *  image under the wrong provider settings, or wrongly refuse a valid one.
+   *  Folding both into this one method makes that pairing impossible rather
+   *  than merely unlikely: there is only one read to race with, and both
+   *  values fall out of it.
+   *
+   *  `imageInputCapability` is `null` when this directory has no schema-3
+   *  authority for this model (a `"v2"` authority, or a model the active
+   *  schema-3 document does not carry). `null` and
+   *  `resolveImageInputCapability`'s (shared/image-input-capabilities.ts) own
+   *  no-override default agree, so a caller passes it straight through as
+   *  `ImageInputContext.override`/`overrideTokenCeiling` with no translation. */
   async loadRuntime(purpose: SettingsRoutePurpose = "default") {
-    const { state, storedSecrets } = await this.readRuntimeSnapshot();
+    const { slot, state, storedSecrets } = await this.readRuntimeSnapshot();
+    const document = activeSettingsDocument(state);
     const runtime = effectiveGenerationRuntime(
-      activeSettingsDocument(state),
+      document,
       purpose,
       {},
       this.environment,
@@ -213,38 +230,29 @@ export class SettingsV2Store {
       storedSecrets
     );
     assertRuntimeGenerationSettingsSupported(runtime.settings);
-    return runtime;
+    // Same `document` object `effectiveGenerationRuntime` just resolved a
+    // route from, above — a second call to the same pure route-selection
+    // function, not a second read. `selectSettingsRoute` is deterministic
+    // given a document and a purpose, so this always names the same model
+    // the settings above came from.
+    const modelId = selectSettingsRoute(document, purpose).profile.modelId;
+    return {
+      ...runtime,
+      imageInputCapability: settingsStateSlotImageInputCapability(slot, modelId)
+    };
   }
 
-  /** The active route's own stored image-input data, `imageInput` and
-   *  `imageTokenCeiling`, read straight from this directory's schema-3
-   *  authority when it has one for this model, or `null` when it does not
-   *  (a `"v2"` authority, or a model this authority's active document does
-   *  not carry). `null` and `resolveImageInputCapability`'s (shared/image-input-capabilities.ts)
-   *  own no-override default agree, so a caller passes this result straight
-   *  through as `ImageInputContext.override`/`overrideTokenCeiling` without
-   *  translating `null` first.
-   *
-   *  This is the settings side of honoring a stored image-input override on
-   *  read: the day a later release adds a way to store one, whatever built
-   *  this route's `ImageInputContext` (server/generation-http.ts today) has
-   *  only to call this and thread the result through, instead of this
-   *  release silently dropping a verdict a rolled-back writer set. */
-  async loadImageInputCapability(
-    purpose: SettingsRoutePurpose = "default"
-  ): Promise<StoredImageInputCapability | null> {
-    const slot = await readSettingsStateSlot(this.dataDir);
-    const state = settingsStateSlotReadOnlyView(slot);
-    const route = selectSettingsRoute(activeSettingsDocument(state), purpose);
-    return settingsStateSlotImageInputCapability(slot, route.profile.modelId);
-  }
-
-  /** One coherent (state, secrets) pair. Secrets are written before the state
-   * that references them is published, and pruned only after the state that
-   * unreferences them is published — so the only torn pair a reader can see
-   * is an old effective revision next to a secret file that already lost its
-   * credential. Retrying that exact condition converges on the newer state. */
+  /** One coherent (slot, state, secrets) triple. Secrets are written before
+   * the state that references them is published, and pruned only after the
+   * state that unreferences them is published — so the only torn triple a
+   * reader can see is an old effective revision next to a secret file that
+   * already lost its credential. Retrying that exact condition converges on
+   * the newer state. `slot` is the undowngraded read (`readSettingsStateSlot`),
+   * kept alongside its schema-2-projected `state` so a caller can also read
+   * schema-3-only data, such as a stored image-input capability, off the
+   * exact same read that produced `state` — see `loadRuntime` above. */
   private async readRuntimeSnapshot(): Promise<{
+    readonly slot: SettingsStateSlot;
     readonly state: SettingsStateV2;
     readonly storedSecrets: Awaited<ReturnType<typeof readProviderSecrets>>;
   }> {
@@ -252,11 +260,12 @@ export class SettingsV2Store {
       if (attempt > 0) {
         await new Promise((resolve) => setTimeout(resolve, attempt * 5));
       }
-      const state = await readSettingsState(this.dataDir);
+      const slot = await readSettingsStateSlot(this.dataDir);
+      const state = settingsStateSlotReadOnlyView(slot);
       const storedSecrets = await readProviderSecrets(this.secretsDir);
       const referenced = storedSecretIdsInDocument(activeSettingsDocument(state));
       if ([...referenced].every((secretId) => storedSecrets.has(secretId))) {
-        return { state, storedSecrets };
+        return { slot, state, storedSecrets };
       }
     }
     throw new ServiceError(
@@ -445,7 +454,7 @@ export class SettingsV2Store {
     // carry-forward source fresh from disk itself, at the moment it writes,
     // rather than from a value captured here.
     const slot = await readSettingsStateSlot(this.dataDir);
-    requireSettingsWriteAuthority(slot, this.writeSchemaOptions.imageInputActivation);
+    requireSettingsWriteAuthority(slot);
     const current = await this.recoverReceiptTransaction();
     const existing = await this.ledger.loadUserReceipt("settings", request.mutationId);
     if (existing.prepared === null && existing.completed === null) {

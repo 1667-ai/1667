@@ -146,7 +146,7 @@ test("Q crash between staging and publishing recovers a V8 replacement", async (
     fixture.stories,
     createMutationCoordinator(),
     fixture.dataDir,
-    { ledger: fixture.ledger, now: () => FIXED_NOW, imageInputActivation: true }
+    { ledger: fixture.ledger, now: () => FIXED_NOW }
   );
   await recovered.init();
   // Same reasoning as the V6 case above: the crash predates publish, so
@@ -206,7 +206,7 @@ test("Q activation off: a V8 document still refuses every mutation and still rea
     predecessorStories,
     createMutationCoordinator(),
     fixture.dataDir,
-    { ledger: fixture.ledger, now: () => FIXED_NOW, imageInputActivation: false }
+    { ledger: fixture.ledger, now: () => FIXED_NOW }
   );
   await sealed.init();
   await assert.rejects(

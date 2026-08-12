@@ -39,6 +39,7 @@ import { WorkerRequestCancellation } from "./worker-request-cancellation.js";
 import { WorkerRequestFailureResponder } from "./worker-request-failure-responder.js";
 import { requireImageInputEntryPointsOpen, withImageStagePermit } from "./image-stage-permit.js";
 import { isSourceImageMediaType, type SourceImageMediaType } from "../shared/image-attachment.js";
+import { imageInputEntryPointsOpen } from "../shared/image-input-release.js";
 
 type WorkerRequest = Extract<MainToWorkerMessage, { type: "request" }>;
 type WorkerTerminalMessage = Extract<
@@ -58,13 +59,17 @@ export async function executeWorkerRequest(
     message: WorkerTerminalMessage,
     state: "completed" | "canceled"
   ) => void,
-  /** Overrides `imageInputEntryPointsOpen()`'s build-constant default for the
-   *  `stageStoryImage` / `releaseStoryImage` gate below. Absent resolves
-   *  through the constant, so production wiring (server/worker.ts) can never
-   *  open or close this entry point by accident; see
+  /** Resolved once, here, at the entry boundary: defaults to
+   *  `imageInputEntryPointsOpen()`'s build constant, so production wiring
+   *  (server/worker.ts) can never open or close this entry point by
+   *  accident. A test that needs to drive the `stageStoryImage` /
+   *  `releaseStoryImage` gate below past the release default passes an
+   *  explicit value here; every function this value threads through
+   *  (`invokeReadOnly` below) then takes an already-resolved `boolean`, never
+   *  another optional override to resolve again. See
    *  `ContinueStoryHooks.imageEntryPointsOpen` (server/generation-http.ts)
    *  for the same seam on the generation path. */
-  imageEntryPointsOpen?: boolean
+  imageEntryPointsOpen: boolean = imageInputEntryPointsOpen()
 ): Promise<void> {
   const stream = STREAM_METHODS.has(message.method);
   try {
@@ -327,7 +332,7 @@ async function invokeReadOnly(
   method: WorkerMethod,
   value: unknown,
   signal: AbortSignal,
-  imageEntryPointsOpen?: boolean
+  imageEntryPointsOpen: boolean
 ): Promise<unknown> {
   if (signal.aborted) {
     throw new ServiceError(

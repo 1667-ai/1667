@@ -59,6 +59,12 @@ type InitializedSettingsStore =
 export interface LoadedGenerationSettings {
   readonly settings: GenerationSettings;
   readonly promptCache: PromptCacheContext;
+  /** The requested route's stored image-input override, from the exact same
+   *  read that produced `settings` above (`SettingsV2Store.loadRuntime`,
+   *  server/settings-v2-store.ts). `null` for a format-1 directory, which has
+   *  no schema-3 authority to read one from, and for a format 2+ directory
+   *  whose active document carries no override for this route's model. */
+  readonly imageInputCapability: StoredImageInputCapability | null;
 }
 
 export class SettingsStore {
@@ -107,7 +113,8 @@ export class SettingsStore {
     if (initialized.dataFormat === 1) {
       return {
         settings: await loadGenerationSettingsV1(this.dir),
-        promptCache: LEGACY_PROMPT_CACHE_CONTEXT
+        promptCache: LEGACY_PROMPT_CACHE_CONTEXT,
+        imageInputCapability: null
       };
     }
     const runtime = await initialized.store.loadRuntime(purpose);
@@ -119,22 +126,6 @@ export class SettingsStore {
         true
       )
     };
-  }
-
-  /** The requested route's stored image-input override, straight from
-   *  `SettingsV2Store.loadImageInputCapability` (server/settings-v2-store.ts).
-   *  Format 1 has no schema-3 authority to read one from, so it always
-   *  resolves `null` — the same "no override" value
-   *  `resolveImageInputCapability` (shared/image-input-capabilities.ts)
-   *  already treats an absent override as. A caller builds this route's
-   *  `ImageInputContext` by passing this result straight through as
-   *  `override`/`overrideTokenCeiling`, with no translation needed. */
-  async loadImageInputCapability(
-    purpose: SettingsRoutePurpose = "default"
-  ): Promise<StoredImageInputCapability | null> {
-    const initialized = this.requireInitialized();
-    if (initialized.dataFormat === 1) return null;
-    return await initialized.store.loadImageInputCapability(purpose);
   }
 
   async loadView(): Promise<SettingsView> {

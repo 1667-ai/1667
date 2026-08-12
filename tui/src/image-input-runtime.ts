@@ -25,7 +25,8 @@ export const IMAGE_INPUT_ENTRY_POINTS_CLOSED_MESSAGE = "image input is not avail
  * This never passes a stored `override`/`overrideTokenCeiling`, unlike the
  * server's own `ImageInputContext` construction
  * (`server/generation-http.ts`'s `continueStory`, which reads one through
- * `SettingsStore.loadImageInputCapability`). `settingsView.document` is a
+ * `SettingsStore.loadGeneration`'s `imageInputCapability`).
+ * `settingsView.document` is a
  * schema-2-shaped read model on purpose
  * (`server/settings-state-slot.ts`'s `settingsStateSlotReadOnlyView` doc
  * comment): it never carries `imageInput`/`imageTokenCeiling`, so there is
