@@ -30,16 +30,22 @@ import { reusableStoredRevisionId } from "./story-node-text.js";
  * richer plan still carries each part's category, node id, and its exact
  * position relative to the Author's Note, which is what the Generation
  * Record Viewer needs to show the same ordered, categorized pipeline the
- * Next Request preview does. Every non-part entry becomes its own text
- * entry, in order; every run of context parts becomes one `source` entry
- * whose `parts` array preserves per-part identity (node id, category, and
- * the part's own short instruction, kept inline since it is not
- * content-addressed the way the part's prose is) without inlining the
- * prose itself — that is the one potentially unbounded input a request
- * carries, so it rides as a revision reference instead, resolved on demand
- * by `server/generation-record-resolve.ts`. Splitting only at the Author's
- * Note keeps the entry count fixed no matter how deep the story runs; the
- * depth lives in `parts`, not in the top-level entry array.
+ * Next Request preview does. Every non-part entry becomes one text entry per
+ * text block it carries, in order — the final turn carries two (the
+ * operation contract, then the request or the boundary echo; issue #138 /
+ * PR #148 folds the contract into that turn instead of giving it one of its
+ * own), and a record that showed only the first would both mislabel the
+ * entry as `operation-contract` and silently drop the request's own text, so
+ * every text block gets its own entry, the same one-entry-per-block rule
+ * `promptEntriesInline` below already uses. Every run of context parts
+ * becomes one `source` entry whose `parts` array preserves per-part identity
+ * (node id, category, and the part's own short instruction, kept inline
+ * since it is not content-addressed the way the part's prose is) without
+ * inlining the prose itself — that is the one potentially unbounded input a
+ * request carries, so it rides as a revision reference instead, resolved on
+ * demand by `server/generation-record-resolve.ts`. Splitting only at the
+ * Author's Note keeps the entry count fixed no matter how deep the story
+ * runs; the depth lives in `parts`, not in the top-level entry array.
  *
  * `promptEntriesInline` is for every other operation (a rewrite, a summary,
  * a chapter summary), whose prompt is a flat `PromptPlan` with no richer
@@ -66,7 +72,11 @@ export function continuationRecordEntries(
     const planEntry = entries[index]!;
     if (planEntry.partId === undefined) {
       flushRun();
-      built.push(textEntry(planEntry.turn.role, firstTextBlock(planEntry.turn)));
+      const textBlocks = planEntry.turn.blocks.filter(isTextBlock);
+      if (textBlocks.length === 0) {
+        throw new Error("Prompt turn has no text block to cite in a Generation Record");
+      }
+      for (const block of textBlocks) built.push(textEntry(planEntry.turn.role, block));
       continue;
     }
     // Every context part is a user instruction turn immediately followed by

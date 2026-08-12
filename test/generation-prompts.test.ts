@@ -21,7 +21,12 @@ test("empty Continue ends on the unfinished assistant passage", () => {
 
   assert.equal(messages.at(-1)?.role, "assistant");
   assert.equal(messages.at(-1)?.content, "The latch was unlo");
-  assert.equal(messages.some((message) => /exact final character/.test(message.content)), true);
+  // A prefilled continuation carries no operation-contract text at all
+  // (issue #138's `appendOperationContract`): nothing can follow the
+  // unfinished assistant passage without breaking the prefill, so the
+  // "continue from the exact boundary" instruction is not sent here — the
+  // prefill mechanism itself already enforces that.
+  assert.equal(messages.some((message) => /exact final character/.test(message.content)), false);
   assert.equal(messages.some((message) => message.role === "user" && /final character/i.test(message.content)), false);
 });
 
@@ -39,7 +44,11 @@ test("requested continuation remains a new user turn", () => {
     [part("Open the door.", "The latch clicked.")]
   ));
 
-  assert.deepEqual(messages.at(-1), { role: "user", content: "A stranger enters." });
+  const last = messages.at(-1);
+  assert.equal(last?.role, "user");
+  // The operation contract now leads the same turn (issue #138 / PR #148),
+  // so the writer's instruction is this message's tail, not its whole content.
+  assert.equal(last?.content.endsWith("\n\nA stranger enters."), true);
 });
 
 test("structural empty endpoints never become empty assistant messages", () => {
@@ -49,12 +58,16 @@ test("structural empty endpoints never become empty assistant messages", () => {
   const requested = continuationPlan("Write.", null, null, parts, "Go elsewhere.", false, true, "ct-empty", [], parts);
   const requestedMessages = rendered(requested);
   assert.equal(requestedMessages.some(({ role, content }) => role === "assistant" && content.trim().length === 0), false);
-  assert.deepEqual(requestedMessages.at(-1), { role: "user", content: "Go elsewhere." });
+  // The operation contract now leads the same turn (issue #138 / PR #148),
+  // so the writer's instruction is this message's tail, not its whole content.
+  assert.equal(requestedMessages.at(-1)?.role, "user");
+  assert.equal(requestedMessages.at(-1)?.content.endsWith("\n\nGo elsewhere."), true);
 
   const appended = continuationPlan("Write.", null, null, [empty], "Continue the story.", true, true, "ct-empty", [], [empty]);
   const appendedMessages = rendered(appended);
   assert.equal(appendedMessages.some(({ role }) => role === "assistant"), false);
-  assert.deepEqual(appendedMessages.at(-1), { role: "user", content: "Continue the story." });
+  assert.equal(appendedMessages.at(-1)?.role, "user");
+  assert.equal(appendedMessages.at(-1)?.content.endsWith("\n\nContinue the story."), true);
   assert.equal(appendedMessages.some(({ content }) => /unfinished passage/.test(content)), false);
 });
 

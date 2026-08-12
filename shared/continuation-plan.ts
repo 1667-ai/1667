@@ -1,6 +1,6 @@
 import { assembleChapterContext, type PromptPart } from "./chapters.js";
 import { normalizeAuthorsNote, type AuthorsNotePlacement } from "./authors-note.js";
-import type { PromptPlan, PromptTurn } from "./prompt-plan.js";
+import type { PromptBlock, PromptPlan, PromptTurn } from "./prompt-plan.js";
 import { isOfficialAnthropicBaseUrl } from "./settings-provider-defaults.js";
 import type { StoryImageAttachment } from "./image-attachment.js";
 import type { ChapterBreak, GenerationSettings, StoryNode } from "./types.js";
@@ -74,6 +74,14 @@ export function continuationPlan(
     && (sourceContext.at(-1)?.text.trim().length ?? 0) > 0;
   // Migrated empty endpoints are structural line endings, not provider messages.
   const context = sourceContext.filter((part) => part.text.trim().length > 0);
+  // The operation contract used to ride here, as the third message ahead of
+  // every story part. Its text depends on `continuePassage`, so a prelude
+  // that carried it changed on every switch between continuing a passage and
+  // starting a new part — the one thing a local server's KV cache needs held
+  // constant to reuse the (potentially huge) unchanged story prefix. It now
+  // rides near the end instead, folded into the final turn by
+  // `operationContractBlock` below, so the prelude here is the same bytes
+  // regardless of which way the request goes.
   const prelude: ContinuationPromptEntry[] = [
     ...(systemPrompt.trim().length === 0 ? [] : [{
       category: "voice" as const,
@@ -100,18 +108,6 @@ export function continuationPlan(
         }]
       }
     }]),
-    {
-      category: "voice",
-      turn: {
-        role: "system",
-        blocks: [{
-          stability: "stable",
-          kind: "operation-contract",
-          text: continuePassage ? APPEND_CONTRACT : CONTINUE_CONTRACT,
-          boundaryAfter: "candidate"
-        }]
-      }
-    },
   ];
   const partEntries: PartPromptEntry[] = context.flatMap((part): PartPromptEntry[] => {
       const category = part.role === "summary" ? "summary" as const : "recent" as const;
@@ -176,6 +172,7 @@ export function continuationPlan(
       turn: {
         role: "user",
         blocks: [
+          operationContractBlock(CONTINUE_CONTRACT),
           ...newImages.map((image) => ({
             stability: "volatile" as const,
             kind: "image" as const,
@@ -195,6 +192,15 @@ export function continuationPlan(
     return continuationResult(entries, contextPartIds, "", false);
   }
   if (assistantPrefill) {
+    // A prefilled continuation ends with the story's own unfinished assistant
+    // message, unchanged, so the provider can extend that exact token stream
+    // — nothing can follow it without turning the completion into a fresh
+    // turn instead of a continuation. The contract text has nowhere left to
+    // go without either breaking that or reopening the same prefix
+    // instability this function exists to close, so it is not sent on this
+    // path. The instruction is not lost: the prefill mechanism itself
+    // already enforces exact, unprefaced continuation, which is what the
+    // contract text would otherwise have to say. See issue #138.
     assertAuthorsNoteFollowedByUser(entries);
     return continuationResult(entries, contextPartIds, "", false);
   }
@@ -215,16 +221,54 @@ export function continuationPlan(
     category: "voice",
     turn: {
       role: "user",
-      blocks: [{
-        stability: "volatile",
-        kind: "boundary",
-        text: boundaryInstruction,
-        boundaryAfter: "none"
-      }]
+      blocks: [
+        operationContractBlock(APPEND_CONTRACT),
+        {
+          stability: "volatile",
+          kind: "boundary",
+          text: boundaryInstruction,
+          boundaryAfter: "none"
+        }
+      ]
     }
   });
   assertAuthorsNoteFollowedByUser(entries);
   return continuationResult(entries, contextPartIds, leftAnchor, leftAnchor.length > 0);
+}
+
+/** The operation contract as a leading block on the final turn — never a
+ *  message of its own. A `role: "system"` turn landing after the story's own
+ *  user/assistant pairs breaks local chat templates that accept a system
+ *  message only first and then enforce strict alternation (Gemma's among
+ *  them, and exactly the class of server issue #138 exists to help): the
+ *  template either refuses to render or mis-serializes it. Folding the text
+ *  into the turn that already carries the writer's instruction, or the
+ *  boundary echo, keeps the role sequence exactly as it always was — no
+ *  system turn ever follows an assistant one — while the contract still
+ *  sits after every story part, so the prompt prefix through the last story
+ *  part stays byte-identical across modes, which is the cache-reuse
+ *  property #138 exists to fix.
+ *
+ *  It is `stable`, `boundaryAfter: "none"`, and ordered first in the turn's
+ *  block list: `renderTurns` and `promptCacheBoundaries` (shared/prompt-plan.ts,
+ *  server/prompt-cache-breakpoints.ts) both refuse stable content that
+ *  follows volatile content anywhere in the plan, and this turn's other
+ *  blocks are always volatile. Not a candidate for the same reason it never
+ *  was one at the end of the plan: its hash is recomputed over the whole
+ *  growing story on every request, so it could never serve as a stable,
+ *  reusable OpenAI breakpoint the way a story part's own boundary does.
+ *
+ *  The trailing `\n\n` is not decorative: blocks concatenate with no
+ *  separator (`renderTurns`), so without it the contract's final sentence
+ *  would run directly into the instruction or boundary text that follows —
+ *  "...commentary.Continue north." — instead of reading as two paragraphs. */
+function operationContractBlock(text: string): PromptBlock {
+  return {
+    stability: "stable",
+    kind: "operation-contract",
+    text: `${text}\n\n`,
+    boundaryAfter: "none"
+  };
 }
 
 function sealPartEntry(entry: PartPromptEntry): PartPromptEntry {
