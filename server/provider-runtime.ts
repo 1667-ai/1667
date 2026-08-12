@@ -35,6 +35,10 @@ export interface ProviderRuntime {
   readonly protocol?: SettingsProtocolV2;
   /** Text routes use raw prompts when this value is absent. */
   readonly textPromptFormat?: "raw" | "server-template" | "chatml";
+  /** From `ModelConnectionV2.splitThinkTags`. A text route otherwise passes
+   *  its tokens through untouched, so this stays off unless the writer turns
+   *  it on for a connection whose model emits `<think>`. */
+  readonly splitThinkTags?: boolean;
   readonly auth: CredentialReferenceV2;
   readonly headers: readonly CustomHeaderV2[];
   readonly timeouts: ConnectionTimeoutsV2;
@@ -113,6 +117,7 @@ export function providerRuntimeFromV2(
     preset: connection.preset,
     protocol: connection.protocol,
     textPromptFormat: connection.textPromptFormat ?? "raw",
+    splitThinkTags: connection.splitThinkTags === true,
     auth: connection.auth,
     headers: connection.headers,
     timeouts: connection.timeouts,
