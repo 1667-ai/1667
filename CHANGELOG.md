@@ -264,7 +264,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names. Thanks @10fra for the request.
 
-## 0.9.1-rc.1 - 2026-08-12
+## 0.9.1 - 2026-08-13
 
 - **You can save an empty Author Brief.** Clear the Author Brief in Settings
   when you do not want a system instruction. 1667 now accepts and saves the
@@ -277,6 +277,10 @@ This file records notable changes to 1667. Product terms use the definitions in
 - **A generation refusal disappears when generation ends.** If you press a key
   that 1667 refuses during generation, the refusal now clears when generation
   ends. It no longer tells you to stop a generation that has already ended.
+  Thanks to @10fra.
+
+- **Sampling refusal text wraps instead of stopping at the panel edge.** A
+  refusal now keeps its complete reason and recovery instruction visible.
   Thanks to @10fra.
 
 ## 0.9.0 - 2026-08-12
