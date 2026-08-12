@@ -29,12 +29,12 @@ import { opaquePng } from "./image-fixtures.js";
  * `resolveDraftImage`/`loadImage`, and (for the authorized case) real commit.
  */
 
-async function library(t: test.TestContext): Promise<StoryStore> {
+async function library(t: test.TestContext): Promise<{ stories: StoryStore; dir: string }> {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-image-override-live-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const stories = new StoryStore(dir);
   await stories.init();
-  return stories;
+  return { stories, dir };
 }
 
 function fakeSettingsStore(
@@ -67,7 +67,7 @@ function withFetch<T>(handler: typeof fetch, run: () => Promise<T>): Promise<T> 
 }
 
 test("a stored 'unsupported' override refuses the image before any provider request, even for a model the built-in table would authorize", async (t) => {
-  const stories = await library(t);
+  const { stories } = await library(t);
   const story = await stories.create("Override refusal story");
   // "gpt-4o" is in shared/image-input-capabilities.ts's built-in OpenAI
   // table: with no override, this exact route would be authorized. The bytes
@@ -124,7 +124,7 @@ test("a stored 'unsupported' override refuses the image before any provider requ
 });
 
 test("a stored 'supported' override with a token ceiling authorizes and reaches the provider with the image, for a model absent from the built-in table", async (t) => {
-  const stories = await library(t);
+  const { stories, dir } = await library(t);
   const story = await stories.create("Override authorization story");
   const pngBytes = await opaquePng(8, 8);
   const staged = await stories.stageImage(story.id, {
@@ -195,4 +195,28 @@ test("a stored 'supported' override with a token ceiling authorizes and reaches 
   const imageBlock = (userMessage?.content as Array<Record<string, unknown>>)
     .find((block) => block.type === "image_url");
   assert.ok(imageBlock !== undefined, "the outgoing provider request must carry the image block");
+
+  // The commit above went through the direct, non-aggregate path
+  // (`StoryStore.commitProviderEffect` -> `saveUnlocked`'s "v5" branch): the
+  // one place a bare-V5 story picks up an Image Attachment with no aggregate
+  // mutation request in play (server/story-service-generation.ts's
+  // raw-store branch, taken whenever a request carries no
+  // `expectedAggregateVersion`). Stopping at `result !== null` above is
+  // exactly the gap that let a severe data-loss defect through: that same
+  // commit used to write a successor-schema manifest bare, past the point
+  // where any V5 reader — including this same release, reopening its own
+  // file — could read it again. Only a fresh `StoryStore` over the same
+  // directory proves the bytes on disk are still sound.
+  const reopened = new StoryStore(dir);
+  await reopened.init();
+  const opened = await reopened.load(story.id);
+  assert.equal(opened.id, story.id, "the story must still open after the write that attached an image");
+  const metadata = await reopened.loadMetadata(story.id);
+  assert.equal(metadata.id, story.id, "the story must still resolve lightweight metadata");
+  const summaries = await reopened.list();
+  assert.ok(summaries.some((summary) => summary.id === story.id), "the story must still appear in the library list");
+  await assert.doesNotReject(
+    () => reopened.remove(story.id),
+    "the story must still be deletable"
+  );
 });

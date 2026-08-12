@@ -15,6 +15,7 @@ import type { StoryManifestV6 } from "../server/story-v6-types.js";
 import type { StoryImageAttachment } from "../shared/image-attachment.js";
 import { createGenerationRecord } from "../shared/generation-record.js";
 import {
+  DELETE_MUTATION_ID,
   FIXED_NOW,
   OTHER_FINGERPRINT,
   OTHER_MUTATION_ID,
@@ -36,7 +37,10 @@ import {
  *   V6-envelope-of-V5-content shape (proven by hash, not only by structure).
  * - activation on: a Continue that carries an Image Attachment commits as a
  *   V8 envelope, and a fresh store instance over the same data directory
- *   reads the attachment back.
+ *   reads the attachment back, lists it, and can delete it through the
+ *   envelope-aware delete path (`StoryStore.remove` refuses a V6/V8 slot by
+ *   design; deletion goes through `StoryMutationStore.runDelete` instead,
+ *   the same as production).
  * - activation on: a story with no Image Attachment stays at V6.
  */
 
@@ -176,6 +180,25 @@ test("Q activation on: a Continue carrying an Image Attachment commits as V8, an
   const reopened = new StoryStore(`${fixture.dataDir}/stories`);
   const reloaded = await reopened.loadVersioned(STORY_ID);
   assert.deepEqual(reloaded.story.nodes[0]?.imageAttachments, [image]);
+
+  // The aggregate path's own envelope write already proved readable above;
+  // list and delete are the other two operations the bare-write defect broke
+  // on the direct path (see test/generation-image-input-override.test.ts's
+  // "supported override" test), so the aggregate path gets the same coverage
+  // rather than trusting `loadVersioned` alone to stand in for all of them.
+  const summaries = await reopened.list();
+  assert.ok(summaries.some((summary) => summary.id === STORY_ID), "the story must still appear in the library list");
+  // `StoryStore.remove` refuses a V6/V8 slot outright (see
+  // `requireMutableStorySlot`, server/story-storage-reader.ts): a story on
+  // the envelope schema is deleted through the mutation ledger, exactly the
+  // way `StoryService.deleteStory` does it in production, not by reaching
+  // into `reopened` directly.
+  await assert.doesNotReject(
+    () => fixture.mutations.runDelete(
+      requestFor(DELETE_MUTATION_ID, OTHER_FINGERPRINT, commit.aggregateVersion)
+    ),
+    "the story must still be deletable"
+  );
 });
 
 test("Q activation on: a story with no Image Attachment stays at V6", async (t) => {

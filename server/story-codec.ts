@@ -25,7 +25,7 @@ import {
   optionalPhraseBias,
   parseManifest,
   parseManifestV7,
-  serializeManifest,
+  serializeManifestContent,
   validateNodeAttribution,
   validateNodeImageAttachments,
   validateNodeRewrittenSpans,
@@ -281,10 +281,10 @@ export async function encodeStoryBundle(
   };
   if (activation) {
     const manifest: StoryManifestV7 = { ...manifestCommon, schemaVersion: STORY_SUCCESSOR_SCHEMA_VERSION };
-    return parseManifestV7(serializeManifest(manifest), story.id);
+    return parseManifestV7(serializeManifestContent(manifest), story.id);
   }
   const manifest: StoryManifestV5 = { ...manifestCommon, schemaVersion: STORY_SCHEMA_VERSION };
-  return parseManifest(serializeManifest(manifest), story.id);
+  return parseManifest(serializeManifestContent(manifest), story.id);
 }
 
 export async function decodeStoryBundle(

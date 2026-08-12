@@ -16,6 +16,7 @@ import {
   parseLegacyStory,
   parseManifest,
   parseRevision,
+  requireV5Manifest,
   STORY_FORMAT,
   STORYTAVERN_REVISION_FORMAT,
   STORYTAVERN_STORY_FORMAT,
@@ -282,7 +283,7 @@ test("story format: permissive V4 split previews repair during lazy V5 migration
 
   assert.equal(migrated.nodes[1]!.preview, "a".repeat(99));
   assert.equal(hasUnpairedSurrogate(migrated.nodes[1]!.preview!), false);
-  assert.doesNotThrow(() => parseManifest(serializeManifest(migrated), manifest.id));
+  assert.doesNotThrow(() => parseManifest(serializeManifest(requireV5Manifest(migrated, "test migration")), manifest.id));
 });
 
 test("story format: V4 manifest fails closed across the tree matrix", () => {
