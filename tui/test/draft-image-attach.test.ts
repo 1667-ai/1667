@@ -84,13 +84,16 @@ function stagedImage(width = 64, height = 48, byteLength = 4_096) {
 
 /**
  * Every `openImageAttach` call below the release-gate block passes an
- * explicit `true` fourth argument, opening the gate that
- * shared/image-input-release.ts closes by default in this release. Those
- * tests are about capability resolution, the rewrite carve-out, path
- * handling, and the four-image ceiling, behavior that sits behind the
- * gate, not the gate itself, so they drive past it deliberately. The
- * release-gate block below is the one place that calls `openImageAttach`
- * with no override, pinning the production default.
+ * explicit `true` fourth argument. That matches this release's own default
+ * (shared/image-input-release.ts activates the feature), so those tests
+ * would drive past the gate either way; the explicit argument keeps them
+ * about capability resolution, the rewrite carve-out, path handling, and the
+ * four-image ceiling, behavior that sits behind the gate, not the gate
+ * itself, regardless of which release they run against. The release-gate
+ * block below instead passes an explicit `false`, proving the predecessor
+ * refusal a build that resolves activation off still owes: this release's
+ * own bare default would open the gate and pass this test's `state.toast`
+ * assertion for the wrong reason.
  */
 describe("the release gate", () => {
   test("refuses before any other check, and opens no panel, while entry points are closed", async () => {
@@ -99,7 +102,7 @@ describe("the release gate", () => {
     const state = initialState(source, false);
     state.mode = "COMPOSE";
 
-    openImageAttach(state, source);
+    openImageAttach(state, source, "COMPOSE", false);
 
     expect(state.toast).toBe(IMAGE_INPUT_ENTRY_POINTS_CLOSED_MESSAGE);
     expect(state.mode).toBe("COMPOSE");

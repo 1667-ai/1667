@@ -123,7 +123,10 @@ export async function migrateSettingsFormatV1ToV2UnderLock(
   }
 
   if (residue.current === null && residue.next === null) {
-    await fenced(assertDataDirectory, () => stageSettingsState(dataDir, expectedState));
+    await fenced(
+      assertDataDirectory,
+      () => stageSettingsState(dataDir, expectedState)
+    );
     await runHook(options.hooks?.afterStateStaged, assertDataDirectory);
     residue = { current: null, next: expectedState };
   }

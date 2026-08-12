@@ -175,13 +175,11 @@ test("one provider mutation id causes at most one provider call, even with an im
   const second = await run();
   assert.equal(providerCalls, 1, "the second call with the same mutation id must replay, not re-invoke the provider");
   assert.equal(second.story.updatedAt, first.story.updatedAt);
-  // The image itself attaches on the live commit `first` returns. In this
-  // release the successor story schema stays inactive
-  // (shared/image-input-release.ts), so a manifest re-decode, which is
-  // exactly what a replay reads back, never carries `imageAttachments`
-  // forward. Only the in-memory result of the commit that actually attached
-  // it does. That is a deliberate, documented consequence of the two-step
-  // schema release, not a defect in replay.
+  // The image itself attaches on the live commit `first` returns, and this
+  // assertion only reads that in-memory result. Whether a replay's own
+  // manifest re-decode carries `imageAttachments` forward depends on the
+  // release-wide activation switch (shared/image-input-release.ts), which
+  // this test does not override, so it is out of scope here.
   const committedNode = first.story.nodes.find((node) => node.genId === "gen-image-1");
   assert.deepEqual(committedNode?.imageAttachments, [attachment]);
 });
@@ -246,11 +244,11 @@ test("crash after manifest publish leaves the Draft Lease unconsumed; the story 
     }, () => null)
   );
   assert.equal(providerCalls, 1, "recovery must replay the already-committed result, not run the provider again");
-  // See the note in the "at most one provider call" test above: a replay
-  // reads the manifest back from disk, which never carries
-  // `imageAttachments` while the successor schema stays inactive. The
-  // committed take itself is correct either way. `replayed.result` names
-  // the same story revision the live commit produced.
+  // See the note in the "at most one provider call" test above: whether a
+  // replay's manifest re-decode carries `imageAttachments` forward depends
+  // on the release-wide activation switch, out of scope here. The committed
+  // take itself is correct either way: `replayed.result` names the same
+  // story revision the live commit produced.
   assert.equal(replayed.story.nodes.some((node) => node.genId === "gen-image-1"), true);
 });
 

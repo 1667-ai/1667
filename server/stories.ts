@@ -20,6 +20,7 @@ import {
   StoryFormatError,
   liveObjectIds,
   parseManifest,
+  requireV5Manifest,
   serializeManifest,
   sha256,
   type ObjectHash,
@@ -139,14 +140,49 @@ interface SwitchLineOptions { expectedLineFingerprint?: string; stopAtNode?: boo
 const sweepObjects: SweepObjects = async (bundleDir, live, signal) =>
   await new StoryObjectStore(bundleDir).sweep(live, signal);
 
+export interface StoryStoreOptions {
+  readonly sweep?: SweepObjects;
+  readonly writeManifest?: WriteManifest;
+  readonly generationRecordGraphCacheCapacity?: number;
+  readonly liveGenerationRecordIds?: ChapterBreakUndoLiveness;
+  /** Whether a session this store opens may reopen a successor-schema story
+   *  for mutation, and whether a write through the V8 envelope — the only
+   *  shape that can actually carry successor content — may produce one.
+   *  Absent resolves through `resolveImageInputActivation()`
+   *  (`shared/image-input-release.ts`), so production wiring stays on the
+   *  release default. This store owns the concept and reads it at its own
+   *  reopen gate, and `StoryMutationStore` and `StoryProviderMutationStore`,
+   *  which both already hold this same `StoryStore`, read it from here too
+   *  for their own envelope writes (`prepareContent`) rather than taking a
+   *  second, independently settable copy of their own. A single source keeps
+   *  a story's reopen gate and every envelope write gate from ever being set
+   *  differently: setting them apart would let a story be written in the
+   *  successor schema through one path and then never be reopenable through
+   *  another.
+   *
+   *  This store's own two direct writes to a bare `manifest.json`
+   *  (`saveUnlocked`'s "v5" branch, `publishNewBundle`) never read this
+   *  value: a bare manifest has no envelope to carry successor content, so
+   *  there is no bare successor slot kind, by design, and both force
+   *  `activation: false` on their own `encodeStoryBundle` call regardless of
+   *  what this is set to. */
+  readonly imageInputActivation?: boolean;
+}
+
 export class StoryStore {
+  private readonly sweep: SweepObjects;
+  private readonly writeManifest: WriteManifest;
+  private readonly liveGenerationRecordIds: ChapterBreakUndoLiveness;
+  readonly imageInputActivation?: boolean;
+
   constructor(
     private readonly dir: string,
-    private readonly sweep: SweepObjects = sweepObjects,
-    private readonly writeManifest: WriteManifest = writeDurableAtomic,
-    generationRecordGraphCacheCapacity: number = GENERATION_RECORD_GRAPH_CACHE_CAPACITY,
-    private readonly liveGenerationRecordIds: ChapterBreakUndoLiveness = NO_CHAPTER_BREAK_UNDO_LIVENESS
+    options: StoryStoreOptions = {}
   ) {
+    this.sweep = options.sweep ?? sweepObjects;
+    this.writeManifest = options.writeManifest ?? writeDurableAtomic;
+    this.liveGenerationRecordIds = options.liveGenerationRecordIds ?? NO_CHAPTER_BREAK_UNDO_LIVENESS;
+    this.imageInputActivation = options.imageInputActivation;
     this.cleanupQueue = new BoundedCleanupQueue(
       STORY_CLEANUP_IO_CONCURRENCY,
       (storyId, signal) => this.runCleanup(storyId, signal)
@@ -162,7 +198,9 @@ export class StoryStore {
       (id, work) => this.withIo(id, work),
       (id) => this.cleanupQueue.schedule(id)
     );
-    this.generationRecordGraphs = new BoundedLruMap(generationRecordGraphCacheCapacity);
+    this.generationRecordGraphs = new BoundedLruMap(
+      options.generationRecordGraphCacheCapacity ?? GENERATION_RECORD_GRAPH_CACHE_CAPACITY
+    );
   }
 
   private readonly draftImages: StoryDraftImageStore;
@@ -202,7 +240,7 @@ export class StoryStore {
   ): Promise<T> {
     return await this.withLock(id, async () => await this.withIo(id, async () => {
       const slot = await readStoredStorySlot(this.dir, id);
-      requirePresentStorySlot(slot, id);
+      requirePresentStorySlot(slot, id, this.imageInputActivation);
       const session = new StoryAggregateSession(this.dir, id, slot, this.generationRecordGraphs.get(id) ?? null);
       await session.init();
       const result = await work(session);
@@ -219,7 +257,7 @@ export class StoryStore {
     return await this.withLock(id, async () => await this.withIo(id, async () => {
       const slot = await readStoredStorySlot(this.dir, id);
       if (slot.kind === "absent") return await work(null);
-      requirePresentStorySlot(slot, id);
+      requirePresentStorySlot(slot, id, this.imageInputActivation);
       const session = new StoryAggregateSession(this.dir, id, slot, this.generationRecordGraphs.get(id) ?? null);
       await session.init();
       const result = await work(session);
@@ -852,7 +890,30 @@ export class StoryStore {
         if (previousGenerationRecordGraph?.manifestHash === hashStoryV5ManifestBytes(slot.manifestBytes)) {
           objects.adoptKnownGenerationRecordGraph(previousGenerationRecordGraph.sourceRevisions, { committed: true });
         }
-        const manifest = await encodeStoryBundle(story, objects, reuseFrom, snapshot);
+        // This branch writes the bare `manifest.json` a "v5" slot has always
+        // had, with no V8 envelope: there is no bare successor slot kind, by
+        // design. `activation: false` is forced, not read from
+        // `this.imageInputActivation`, so this write can never ask
+        // `encodeStoryBundle` for successor content, no matter how that
+        // switch is set — a story that gained an Image Attachment through
+        // this exact path (a generation with no aggregate mutation request,
+        // e.g. `server/story-service-generation.ts`'s raw-store branch)
+        // still commits, just without that attachment in this manifest
+        // revision, instead of writing successor content bare that
+        // `parseStoryManifestBytes` (`server/story-v6-codec.ts`) then
+        // refuses to read back. `requireV5Manifest` backs this with a
+        // compile-time guarantee: see `serializeManifest`'s own doc comment
+        // (server/story-format.ts).
+        const manifest = requireV5Manifest(
+          await encodeStoryBundle(
+            story,
+            objects,
+            reuseFrom,
+            snapshot,
+            { activation: false }
+          ),
+          `Saving story ${story.id}`
+        );
         const nextLive = liveObjectIds(manifest);
         const nextRevisionIds = new Set(nextLive.revisions);
         const nextLeafIds = {} as Record<LeafObjectKind, Set<ObjectHash>>;
@@ -924,7 +985,11 @@ export class StoryStore {
     story: Story,
     legacyBytes: Buffer | null,
     reuseFrom?: StoryObjectStore
-  ): Promise<{ commit: CommitResult; manifest: StoryManifestV5; objects: StoryObjectStore }> {
+  ): Promise<{
+    commit: CommitResult;
+    manifest: StoryManifestV5;
+    objects: StoryObjectStore;
+  }> {
     const temp = stagingBundlePath(this.dir, story.id);
     // encodeStoryBundle below drains each node's pending Generation Records as
     // soon as its bytes land in this *staging* store — but staging is not yet
@@ -945,7 +1010,23 @@ export class StoryStore {
         await mkdir(backupDir, { recursive: true });
         await writeDurableFile(path.join(backupDir, "v1.json"), legacyBytes);
       }
-      const manifest = await encodeStoryBundle(story, objects, reuseFrom);
+      // publishNewBundle only ever serves an "absent" or "legacy" slot
+      // (`saveUnlocked` above only reaches here when the slot is not "v5"):
+      // a freshly created story's first save always starts with zero nodes
+      // (`create()`), and a legacy V1 source predates Image Attachments
+      // entirely, so neither can ever carry one. `activation: false` is
+      // forced regardless, for the same reason `saveUnlocked`'s "v5" branch
+      // forces it: this writes a bare `manifest.json`, and there is no bare
+      // successor slot kind, by design. `requireV5Manifest` states the
+      // invariant where it could break instead of letting the return type
+      // promise a successor manifest this function cannot actually produce:
+      // `parseManifest` below is V5-only and throws on a V7 payload anyway.
+      const manifest = requireV5Manifest(
+        await encodeStoryBundle(story, objects, reuseFrom, undefined, {
+          activation: false
+        }),
+        `publishNewBundle for story ${story.id}`
+      );
       const raw = serializeManifest(manifest);
       await objects.flush();
       requireDurableCommit(await writeDurableAtomic(path.join(temp, "manifest.json"), raw), `Staging story ${story.id}`);

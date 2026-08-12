@@ -132,14 +132,16 @@ test("story store: lazy reads bound concurrent cleanup sweeps without a startup 
   let active = 0;
   let started = 0;
   let maxActive = 0;
-  const observed = new StoryStore(dir, async () => {
-    active += 1;
-    started += 1;
-    maxActive = Math.max(maxActive, active);
-    if (started === STORY_CLEANUP_IO_CONCURRENCY) ready();
-    await gate;
-    active -= 1;
-    return true;
+  const observed = new StoryStore(dir, {
+    sweep: async () => {
+      active += 1;
+      started += 1;
+      maxActive = Math.max(maxActive, active);
+      if (started === STORY_CLEANUP_IO_CONCURRENCY) ready();
+      await gate;
+      active -= 1;
+      return true;
+    }
   });
   t.after(async () => { release(); await observed.waitForMaintenance(); await rm(dir, { recursive: true, force: true }); });
 
@@ -179,13 +181,15 @@ test("story store: releasing the last provider pin preserves cleanup intent for 
     markSweepStarted = resolve;
   });
   let sweeps = 0;
-  const observed = new StoryStore(dir, async () => {
-    sweeps += 1;
-    if (sweeps === 1) {
-      markSweepStarted();
-      await sweepGate;
+  const observed = new StoryStore(dir, {
+    sweep: async () => {
+      sweeps += 1;
+      if (sweeps === 1) {
+        markSweepStarted();
+        await sweepGate;
+      }
+      return true;
     }
-    return true;
   });
   await observed.init();
   t.after(async () => {
@@ -627,7 +631,9 @@ test("story store: GC keeps untouched sibling revisions after deleting elsewhere
 test("story store: a durable marker retries an interrupted object sweep after restart", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-cleanup-retry-"));
   t.after(async () => { await rm(dir, { recursive: true, force: true }); });
-  const interrupted = new StoryStore(dir, async () => { throw new Error("simulated sweep interruption"); });
+  const interrupted = new StoryStore(dir, {
+    sweep: async () => { throw new Error("simulated sweep interruption"); }
+  });
   await interrupted.init();
   const story = fixture("cleanup-retry", [
     node("root", null, "Live root", "stale"), node("stale", "root", "Stale child")
@@ -715,15 +721,14 @@ test("story store: failed additive publication leaves durable recovery for orpha
   const gate = new Promise<void>((resolve) => { release = resolve; });
   let sweepReady!: () => void;
   const sweepStarted = new Promise<void>((resolve) => { sweepReady = resolve; });
-  const recovering = new StoryStore(
-    dir,
-    async (bundleDir, liveRevisionIds, signal) => {
+  const recovering = new StoryStore(dir, {
+    sweep: async (bundleDir, liveRevisionIds, signal) => {
       sweepReady();
       await gate;
       return await new StoryObjectStore(bundleDir).sweep(liveRevisionIds, signal);
     },
-    async () => { throw new Error("simulated manifest publication failure"); }
-  );
+    writeManifest: async () => { throw new Error("simulated manifest publication failure"); }
+  });
   await recovering.init();
   t.after(async () => { release(); await recovering.waitForMaintenance(); await rm(dir, { recursive: true, force: true }); });
 

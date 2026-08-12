@@ -334,7 +334,14 @@ test("a live worker retries an exact partial settlement while its stash remains 
   }
 });
 
-test("stageStoryImage and releaseStoryImage both refuse before reaching the service while image input's entry points are closed, the release default", async () => {
+// Pins the closed-release refusal directly: `requireImageInputEntryPointsOpen`
+// (server/image-stage-permit.ts) must run before either method call reaches
+// `StoryService`, so a closed release never touches the service at all. This
+// build's own release default is on, so the override below is explicit, the
+// same way a rollback-safety test overrides it everywhere else in this
+// suite — that keeps the coverage alive for the life of the constant instead
+// of going permanently dead the moment activation ships.
+test("stageStoryImage and releaseStoryImage both refuse before reaching the service while image input's entry points are closed", async () => {
   const service = {
     stageStoryImage: async () => { throw new Error("must not reach the service while entry points are closed"); },
     releaseStoryImage: async () => { throw new Error("must not reach the service while entry points are closed"); }
@@ -364,7 +371,8 @@ test("stageStoryImage and releaseStoryImage both refuse before reaching the serv
       new WorkerRequestCancellation(false),
       null,
       responder,
-      () => assert.fail(`${method} must not publish a success terminal while entry points are closed`)
+      () => assert.fail(`${method} must not publish a success terminal while entry points are closed`),
+      false
     );
 
     assert.equal(failures.length, 1, `${method} must report exactly one failure`);

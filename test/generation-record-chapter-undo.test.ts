@@ -31,10 +31,7 @@ test("chapter-summary undo keeps its Generation Record graph live through remova
   let receipts: MutationReceiptStore | undefined;
   const stories = new StoryStore(
     storyDir,
-    undefined,
-    undefined,
-    undefined,
-    (storyId) => receipts!.liveGenerationRecordIds(storyId)
+    { liveGenerationRecordIds: (storyId) => receipts!.liveGenerationRecordIds(storyId) }
   );
   await stories.init();
   receipts = new MutationReceiptStore(
@@ -133,6 +130,6 @@ function dryRunSettings(): GenerationSettings {
 
 function settingsStore(settings: GenerationSettings): SettingsStore {
   return {
-    loadGeneration: async () => ({ settings, promptCache: LEGACY_PROMPT_CACHE_CONTEXT })
+    loadGeneration: async () => ({ settings, promptCache: LEGACY_PROMPT_CACHE_CONTEXT, imageInputCapability: null })
   } as unknown as SettingsStore;
 }

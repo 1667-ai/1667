@@ -38,9 +38,11 @@ test("Q cleanup intent tracks dropped references: a take switch sweeps nothing, 
         markerAtStage = await cleanupPending(bundleDir);
       }
     },
-    (storiesDir) => new StoryStore(storiesDir, async (dir, liveRevisionIds, signal) => {
-      sweeps += 1;
-      return await new StoryObjectStore(dir).sweep(liveRevisionIds, signal);
+    (storiesDir) => new StoryStore(storiesDir, {
+      sweep: async (dir, liveRevisionIds, signal) => {
+        sweeps += 1;
+        return await new StoryObjectStore(dir).sweep(liveRevisionIds, signal);
+      }
     })
   );
   bundleDir = path.dirname(fixture.manifestFile);
@@ -116,9 +118,11 @@ test("Q legacy-schema source keeps its sweep obligation through the V6 session",
         markerAtStage = await cleanupPending(bundleDir);
       }
     },
-    (storiesDir) => new StoryStore(storiesDir, async (dir, liveRevisionIds, signal) => {
-      sweeps += 1;
-      return await new StoryObjectStore(dir).sweep(liveRevisionIds, signal);
+    (storiesDir) => new StoryStore(storiesDir, {
+      sweep: async (dir, liveRevisionIds, signal) => {
+        sweeps += 1;
+        return await new StoryObjectStore(dir).sweep(liveRevisionIds, signal);
+      }
     })
   );
   bundleDir = path.dirname(fixture.manifestFile);
@@ -163,9 +167,11 @@ test("Q provider start preserves the legacy-schema sweep obligation through its 
     t,
     "1667-q-cleanup-legacy-provider-",
     {},
-    (storiesDir) => new StoryStore(storiesDir, async (dir, liveRevisionIds, signal) => {
-      sweeps += 1;
-      return await new StoryObjectStore(dir).sweep(liveRevisionIds, signal);
+    (storiesDir) => new StoryStore(storiesDir, {
+      sweep: async (dir, liveRevisionIds, signal) => {
+        sweeps += 1;
+        return await new StoryObjectStore(dir).sweep(liveRevisionIds, signal);
+      }
     })
   );
   const bundleDir = path.dirname(fixture.manifestFile);
