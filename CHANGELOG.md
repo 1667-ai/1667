@@ -264,7 +264,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names. Thanks @10fra for the request.
 
-## 0.9.0-rc.1 - 2026-08-12
+## 0.9.0 - 2026-08-12
 
 - **A story that fills the context window can summarize again.** Before this
   fix, a story that grew to fill the model's context window could not write
