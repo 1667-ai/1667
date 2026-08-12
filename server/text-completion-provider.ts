@@ -20,6 +20,18 @@ import {
 } from "./provider-stream-output.js";
 import { providerSseEvents } from "./provider-sse.js";
 import { providerRoot, providerUrl } from "./provider-url.js";
+import {
+  createReasoningRelay,
+  type ReasoningConsumer
+} from "./provider-reasoning-relay.js";
+import { createThinkTagSplitter } from "../shared/think-tag-split.js";
+/** Structural mirror of `ProviderSecretsCollector` (server/providers.ts).
+ *  Declared here rather than imported: that module imports this one, so any
+ *  back-import closes a cycle, and a cycle through the provider entry point
+ *  leaves it half-initialised for an unrelated importer. */
+interface TextProviderSecretsCollector {
+  secrets: readonly string[];
+}
 import type { StorySamplingBias } from "./sampling-phrase-bias.js";
 import {
   snapshotEffectiveFields,
@@ -38,6 +50,8 @@ interface TextCompletionOptions {
   readonly promptCache?: PromptCacheRequest;
   readonly storySampling?: StorySamplingBias;
   readonly generationRecord?: GenerationRecordCollector;
+  readonly onReasoning?: ReasoningConsumer;
+  readonly providerSecrets?: TextProviderSecretsCollector;
 }
 
 type TextEndpoint = "llama-cpp" | "koboldcpp" | "openai";
@@ -69,7 +83,22 @@ export async function* streamTextCompletion(
   const { headers, secrets } = resolveProviderHeaders(settings, {
     "content-type": "application/json"
   });
+  // A split thought and its prose leave through two separate redactors, so a
+  // credential divided between them survives both. `reasoningSafeToStore`
+  // catches exactly that at commit time, and only if the caller is told which
+  // secrets this route resolved.
+  if (options.providerSecrets !== undefined) options.providerSecrets.secrets = secrets;
   const outputRedactor = createProviderStreamRedactor(secrets);
+  // A text route carries one undifferentiated token stream, so a thinking
+  // model's `<think>` block arrives inside the prose. The splitter is the
+  // only part that knows the tag; everything past the relay is the same code
+  // the chat route's `reasoning_content` already travels through. Opt-in per
+  // connection, because a raw route otherwise passes tokens through untouched
+  // and an always-on split would eat a literal tag out of a take.
+  const splitter = providerRuntimeFor(settings).splitThinkTags === true
+    ? createThinkTagSplitter()
+    : null;
+  const reasoning = createReasoningRelay(settings, secrets, options.onReasoning);
   let decodedBytes = 0;
   let redactorFinished = false;
   let successfulTerminal = false;
@@ -78,6 +107,22 @@ export async function* streamTextCompletion(
     if (redactorFinished) return "";
     redactorFinished = true;
     return outputRedactor.finish();
+  };
+  /** Both tails at once, in the one order that works: the splitter's held
+   *  bytes were never a tag, so they have to reach the prose redactor before
+   *  it flushes, and the relay closes only once its own tail is in. */
+  const finishStream = async (): Promise<string> => {
+    let tail = "";
+    if (splitter !== null && !redactorFinished) {
+      const rest = splitter.finish();
+      if (rest.reasoning.length > 0) await reasoning.push(rest.reasoning);
+      if (rest.prose.length > 0) {
+        decodedBytes = requireProviderOutputWithinLimit(settings, decodedBytes, rest.prose);
+        tail = outputRedactor.push(rest.prose);
+      }
+    }
+    await reasoning.finish();
+    return tail + finishRedactor();
   };
   const finishGenerationRecord = (): void => {
     if (options.generationRecord === undefined) return;
@@ -119,15 +164,22 @@ export async function* streamTextCompletion(
         updateOutcome(options.outcome, request.endpoint, event);
         const delta = textEventContent(request.endpoint, event);
         if (delta.length === 0) continue;
-        decodedBytes = requireProviderOutputWithinLimit(settings, decodedBytes, delta);
-        const safe = outputRedactor.push(delta);
+        const split = splitter === null
+          ? { prose: delta, reasoning: "" }
+          : splitter.push(delta);
+        // Reasoning keeps the relay's own redactor and byte budget, never the
+        // prose ones, so neither stream can spend the other's allowance.
+        if (split.reasoning.length > 0) await reasoning.push(split.reasoning);
+        if (split.prose.length === 0) continue;
+        decodedBytes = requireProviderOutputWithinLimit(settings, decodedBytes, split.prose);
+        const safe = outputRedactor.push(split.prose);
         if (safe.length > 0) {
           streamed = true;
           yield safe;
         }
       }
     } catch (error) {
-      const tail = finishRedactor();
+      const tail = await finishStream();
       if (tail.length > 0) {
         streamed = true;
         yield tail;
@@ -140,7 +192,7 @@ export async function* streamTextCompletion(
       if (streamed) finishGenerationRecord();
       throw error;
     }
-    const tail = finishRedactor();
+    const tail = await finishStream();
     if (tail.length > 0) yield tail;
     finishGenerationRecord();
   } finally {

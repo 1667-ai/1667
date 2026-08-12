@@ -1,7 +1,11 @@
 import {
   REASONING_DISPLAY_V2_VALUES,
   type FeatureSupportV2,
-  type ReasoningDisplayV2
+  type GenerationProfileV2,
+  type ModelCapabilitiesV2,
+  type ModelConnectionV2,
+  type ReasoningDisplayV2,
+  type SettingsDocumentV2
 } from "./settings-v2-types.js";
 import type { SelectedSettingsRouteV2 } from "./settings-route.js";
 
@@ -55,12 +59,31 @@ export function reasoningDisplayAvailabilityForTarget(
   };
 }
 
+/** What one route can actually return, which is not always what the model
+ *  alone says. A text protocol reports `reasoningContent: "unsupported"`
+ *  because that wire format carries no reasoning field, but a connection with
+ *  `splitThinkTags` on makes one: the split is precisely what turns a
+ *  `<think>` block into a thought. The model capability stays honest about
+ *  the protocol, and the connection setting overrides it here, at the only
+ *  layer that can see both. */
+export function effectiveReasoningContent(
+  connection: Pick<ModelConnectionV2, "splitThinkTags">,
+  capabilities: Pick<ModelCapabilitiesV2, "reasoningContent">
+): FeatureSupportV2 {
+  if (connection.splitThinkTags === true) return "supported";
+  return capabilities.reasoningContent ?? "unknown";
+}
+
+function routeReasoningContent(route: SelectedSettingsRouteV2): FeatureSupportV2 {
+  return effectiveReasoningContent(route.connection, route.model.capabilities);
+}
+
 /** Return only display values the exact profile route can populate. */
 export function reasoningDisplayChoicesForRoute(
   route: SelectedSettingsRouteV2
 ): readonly ReasoningDisplayV2[] {
   return reasoningDisplayChoicesForTarget({
-    reasoningContent: route.model.capabilities.reasoningContent ?? "unknown"
+    reasoningContent: routeReasoningContent(route)
   });
 }
 
@@ -71,8 +94,43 @@ export function reasoningDisplayAvailabilityForRoute(
   display: ReasoningDisplayV2
 ): ReasoningDisplayAvailability {
   return reasoningDisplayAvailabilityForTarget({
-    reasoningContent: route.model.capabilities.reasoningContent ?? "unknown",
+    reasoningContent: routeReasoningContent(route),
     modelName: route.model.name,
     connectionName: route.connection.name
   }, display);
+}
+
+/** Clear any profile's explicit reasoning display that its route can no
+ *  longer populate. Turning the split off, or moving a connection to a
+ *  protocol that cannot hold it, drops the effective capability back to the
+ *  model's own, and a display the writer chose while the split was on would
+ *  then be a document `parseProfiles` refuses, from a row that is no longer
+ *  on screen to correct it. Absence is the safe landing: it means the default
+ *  fold state, exactly as for a document saved before the field existed. */
+export function withSupportedReasoningDisplays(
+  document: SettingsDocumentV2
+): SettingsDocumentV2 {
+  let changed = false;
+  const profiles: Record<string, GenerationProfileV2> = {};
+  for (const [id, profile] of Object.entries(document.profiles)) {
+    const model = document.models[profile.modelId];
+    const connection = model === undefined
+      ? undefined
+      : document.connections[model.connectionId];
+    if (
+      profile.reasoning === undefined
+      || model === undefined
+      || connection === undefined
+      || reasoningDisplayChoicesForTarget({
+        reasoningContent: effectiveReasoningContent(connection, model.capabilities)
+      }).includes(profile.reasoning)
+    ) {
+      profiles[id] = profile;
+      continue;
+    }
+    const { reasoning: _unsupported, ...rest } = profile;
+    profiles[id] = rest;
+    changed = true;
+  }
+  return changed ? { ...document, profiles } : document;
 }

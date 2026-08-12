@@ -103,7 +103,8 @@ export function settingsV2Schema(): Schema {
       headers: { type: "array", maxItems: MAX_SETTINGS_HEADERS, items: ref("Header") },
       timeouts: ref("Timeouts"),
       textPromptFormat: { enum: TEXT_PROMPT_FORMAT_V2_VALUES },
-      allowInsecureHttp: { const: true }
+      allowInsecureHttp: { const: true },
+      splitThinkTags: { const: true }
     }, ["name", "preset", "protocol", "baseUrl", "auth", "headers", "timeouts"]),
     ScalarMetadata: closed({
       contextWindow: ref("TokenCount"),

@@ -10,6 +10,7 @@ import {
 } from "../../shared/settings-v2-types.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import { generationEffortChoicesForRoute } from "../../shared/generation-effort-capabilities.js";
+import { withSupportedReasoningDisplays } from "../../shared/reasoning-display-capabilities.js";
 import type { GenerationSettings } from "../../shared/types.js";
 import { THEME_NAMES, type UserConfig } from "./config.js";
 import type { KeyAction } from "./keys.js";
@@ -155,6 +156,15 @@ export function settingsRows(
         : "",
       hint: settings.provider === "text-completion"
         ? "raw text or a minimal instruct wrapper"
+        : "text completions only"
+    },
+    {
+      id: "split-think-tags", section: "connection", label: "split thoughts",
+      value: settings.provider === "text-completion"
+        ? `[ ${splitThinkTags(overlay) ? "on" : "off"} ]`
+        : "—",
+      hint: settings.provider === "text-completion"
+        ? "keep a <think> block as the take's thought"
         : "text completions only"
     },
     {
@@ -414,6 +424,49 @@ function keepThoughts(overlay: SettingsOverlayState): boolean {
   const profileId = overlay.draft.selectedProfileId;
   if (document === null || profileId === null) return true;
   return document.profiles[profileId]?.discardReasoning !== true;
+}
+
+/** Whether this route's connection splits a `<think>` block out of the token
+ *  stream. A chat route carries reasoning in its own field, so only a text
+ *  connection ever stores this. */
+function splitThinkTags(overlay: SettingsOverlayState): boolean {
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  if (document === null || profileId === null) return false;
+  return resolveSettingsProfile(document, profileId).connection.splitThinkTags === true;
+}
+
+/** Toggle the split for the routed connection. Returns the new state, or null
+ *  when no text connection owns the row. */
+export function cycleSplitThinkTags(overlay: SettingsOverlayState): boolean | null {
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  if (
+    document === null
+    || profileId === null
+    || overlay.draft.generation.provider !== "text-completion"
+  ) return null;
+  const route = resolveSettingsProfile(document, profileId);
+  const enabled = route.connection.splitThinkTags !== true;
+  // Absence is the off state, the same shape `allowInsecureHttp` persists.
+  const { splitThinkTags: _dropped, ...rest } = route.connection;
+  // Turning the split off lowers what this route can return, so a display the
+  // writer picked while it was on has to come off with it. Leaving it would
+  // write a document the save then refuses, with no row on screen to fix it.
+  replaceSettingsDraft(
+    overlay,
+    settingsTextDraftForDocument(withSupportedReasoningDisplays({
+      ...document,
+      connections: {
+        ...document.connections,
+        [route.model.connectionId]: enabled
+          ? { ...rest, splitThinkTags: true as const }
+          : rest
+      }
+    }), profileId)
+  );
+  markControlMutation(overlay);
+  return enabled;
 }
 
 export function cycleTextPromptFormatControl(

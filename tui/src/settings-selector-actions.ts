@@ -14,6 +14,7 @@ import {
   cycleKeepThoughtsControl,
   cycleProfileControl,
   cycleRouteControl,
+  cycleSplitThinkTags,
   cycleTextPromptFormatControl,
   stepSettingsScalar,
   type ScalarMagnitude
@@ -77,6 +78,11 @@ export async function cycleSettingsRow(
       const format = cycleTextPromptFormatControl(overlay, step);
       if (format !== null) {
         state.toast = `prompt format · ${format} · s saves settings`;
+      }
+    } else if (row === "split-think-tags") {
+      const enabled = cycleSplitThinkTags(overlay);
+      if (enabled !== null) {
+        state.toast = `split thoughts · ${enabled ? "on" : "off"} · s saves settings`;
       }
     } else if (row === "allow-insecure-http") {
       const enabled = cycleAllowInsecureHttp(overlay);
