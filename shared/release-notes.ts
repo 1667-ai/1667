@@ -13,7 +13,7 @@ export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
     version: "0.9.1",
     date: "2026-08-12",
-    body: "- **You can save an empty Author Brief.** Clear the Author Brief in Settings\n  when you do not want a system instruction. 1667 now accepts and saves the\n  empty value. Thanks to @10fra.\n\n- **Chapter summaries can finish.** 1667 no longer limits a chapter summary to\n  the same token count that it asks the model to target. The configured Max\n  output tokens value now gives the model space to finish. Thanks to @10fra.\n\n- **A generation refusal disappears when generation ends.** If you press a key\n  that 1667 refuses during generation, the refusal now clears when generation\n  ends. It no longer tells you to stop a generation that has already ended.\n  Thanks to @10fra."
+    body: "- **You can save an empty Author Brief.** Clear the Author Brief in Settings\n  when you do not want a system instruction. 1667 now accepts and saves the\n  empty value. Thanks to @10fra.\n\n- **Chapter summaries can finish.** 1667 no longer limits a chapter summary to\n  the same token count that it asks the model to target. The configured Max\n  output tokens value now gives the model space to finish. Thanks to @10fra.\n\n- **A generation refusal disappears when generation ends.** If you press a key\n  that 1667 refuses during generation, the refusal now clears when generation\n  ends. It no longer tells you to stop a generation that has already ended.\n  Thanks to @10fra.\n\n- **Sampling refusal text wraps instead of stopping at the panel edge.** A\n  refusal now keeps its complete reason and recovery instruction visible.\n  Thanks to @10fra."
   },
   {
     version: "0.9.0",

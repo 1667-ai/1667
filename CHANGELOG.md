@@ -279,6 +279,10 @@ This file records notable changes to 1667. Product terms use the definitions in
   ends. It no longer tells you to stop a generation that has already ended.
   Thanks to @10fra.
 
+- **Sampling refusal text wraps instead of stopping at the panel edge.** A
+  refusal now keeps its complete reason and recovery instruction visible.
+  Thanks to @10fra.
+
 ## 0.9.0 - 2026-08-12
 
 - **A story that fills the context window can summarize again.** Before this
