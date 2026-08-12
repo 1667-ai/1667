@@ -5,22 +5,6 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
-- **A story that fills the context window can summarize again.** Before this
-  fix, a story that grew to fill the model's context window could not write
-  and could not summarize either: the one operation that shortens the story
-  was refused for being too long itself. 1667 now looks backward for an
-  earlier point that still fits and summarizes there instead. It tells you
-  when the summary covers less than you asked for, and names the point where
-  it stopped. It refuses only when no point fits at all, and that message now
-  names a fix you can act on. Thanks to @10fra.
-
-- **You can attach an image to a request.** Paste an image, or run `attach
-  image` and give a path. The composer shows a row for each attached image.
-  1667 sends the images with your instruction, and the take keeps them, so a
-  later request in the same line sends them again. 1667 offers this only when
-  the selected model states that it accepts images. 1667 does not offer image
-  attachment when it cannot tell. Thanks to @10fra.
-
 - **1667 no longer ends a generation while a model server is still
   processing the prompt.** Prefill is the model server's work before it
   sends the first output token. The server sends no stream output while it
@@ -279,6 +263,24 @@ This file records notable changes to 1667. Product terms use the definitions in
   palette opens a path prompt with `Tab` completion. The `1667 import-card`
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names. Thanks @10fra for the request.
+
+## 0.9.0-rc.1 - 2026-08-12
+
+- **A story that fills the context window can summarize again.** Before this
+  fix, a story that grew to fill the model's context window could not write
+  and could not summarize either: the one operation that shortens the story
+  was refused for being too long itself. 1667 now looks backward for an
+  earlier point that still fits and summarizes there instead. It tells you
+  when the summary covers less than you asked for, and names the point where
+  it stopped. It refuses only when no point fits at all, and that message now
+  names a fix you can act on. Thanks to @10fra.
+
+- **You can attach an image to a request.** Paste an image, or run `attach
+  image` and give a path. The composer shows a row for each attached image.
+  1667 sends the images with your instruction, and the take keeps them, so a
+  later request in the same line sends them again. 1667 offers this only when
+  the selected model states that it accepts images. 1667 does not offer image
+  attachment when it cannot tell. Thanks to @10fra.
 
 ## 0.8.0 - 2026-08-11
 
