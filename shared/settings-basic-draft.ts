@@ -18,6 +18,7 @@ import {
 import { classifyHttpHost } from "./http-host-class.js";
 import { storedCredentialSecretId } from "./settings-stored-credential.js";
 import { resolveSettingsProfile } from "./settings-route.js";
+import { withSupportedReasoningDisplays } from "./reasoning-display-capabilities.js";
 
 /**
  * Apply the deliberately small Release A editor to the active default route.
@@ -130,7 +131,11 @@ function applyBasicSettingsDocumentDraft(
           : route.model.overrides
       };
 
-  return {
+  // A protocol change can drop `splitThinkTags`, which lowers what this
+  // route can return, so a display the writer chose while it was on has to
+  // come off with it. Otherwise this writes a document `parseProfiles`
+  // refuses, from a row the new provider does not show.
+  return withSupportedReasoningDisplays({
     ...document,
     connections: {
       ...document.connections,
@@ -149,7 +154,7 @@ function applyBasicSettingsDocumentDraft(
       }
     },
     writing: { defaultAuthorBrief: normalizedDraft.systemPrompt }
-  };
+  });
 }
 
 /** Persist metadata from the latest explicit discovery separately from a

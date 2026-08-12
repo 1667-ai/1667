@@ -11,6 +11,7 @@ import {
   applyBasicSettingsDraft,
   basicSettingsFromDocument
 } from "../shared/settings-basic-draft.js";
+import { withSupportedReasoningDisplays } from "../shared/reasoning-display-capabilities.js";
 
 const PROMPT: PromptPlan = {
   operation: "continue",
@@ -285,5 +286,45 @@ test("changing a split text connection to a chat provider drops the flag", () =>
   }
   // The flag is what `parseConnections` refuses off a text protocol, so the
   // moved document has to survive its own validator.
+  validateSettingsDocumentV2(moved);
+});
+
+// Enable, choose a display the split unlocked, disable. The row is a toggle,
+// so this is two keypresses apart and entirely ordinary.
+test("turning the split off clears a reasoning display it had unlocked", () => {
+  const document = validateSettingsDocumentV2(
+    textCompletionDocument({ split: true, reasoning: "open" })
+  );
+  assert.equal(document.profiles.default!.reasoning, "open");
+
+  const off = withSupportedReasoningDisplays({
+    ...document,
+    connections: {
+      kobold: (({ splitThinkTags: _off, ...rest }) => rest)(document.connections.kobold!)
+    }
+  });
+
+  assert.equal("reasoning" in off.profiles.default!, false);
+  // The whole point: the document the writer is left holding still saves.
+  validateSettingsDocumentV2(off);
+});
+
+test("a protocol change carrying an unlocked display still saves", () => {
+  const document = validateSettingsDocumentV2(
+    textCompletionDocument({ split: true, reasoning: "open" })
+  );
+
+  const moved = applyBasicSettingsDraft(document, {
+    ...basicSettingsFromDocument(document),
+    provider: "openai-compatible",
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-5.2",
+    apiKeyEnv: null
+  });
+
+  // The display survives here on purpose. The move rebuilds the model with no
+  // stated reasoning capability, which reads as `unknown`, and a chat route
+  // may well return reasoning. What must not survive is a document the save
+  // refuses, which is the only property worth pinning either way.
   validateSettingsDocumentV2(moved);
 });

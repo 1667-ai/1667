@@ -10,6 +10,7 @@ import {
 } from "../../shared/settings-v2-types.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import { generationEffortChoicesForRoute } from "../../shared/generation-effort-capabilities.js";
+import { withSupportedReasoningDisplays } from "../../shared/reasoning-display-capabilities.js";
 import type { GenerationSettings } from "../../shared/types.js";
 import { THEME_NAMES, type UserConfig } from "./config.js";
 import type { KeyAction } from "./keys.js";
@@ -449,9 +450,12 @@ export function cycleSplitThinkTags(overlay: SettingsOverlayState): boolean | nu
   const enabled = route.connection.splitThinkTags !== true;
   // Absence is the off state, the same shape `allowInsecureHttp` persists.
   const { splitThinkTags: _dropped, ...rest } = route.connection;
+  // Turning the split off lowers what this route can return, so a display the
+  // writer picked while it was on has to come off with it. Leaving it would
+  // write a document the save then refuses, with no row on screen to fix it.
   replaceSettingsDraft(
     overlay,
-    settingsTextDraftForDocument({
+    settingsTextDraftForDocument(withSupportedReasoningDisplays({
       ...document,
       connections: {
         ...document.connections,
@@ -459,7 +463,7 @@ export function cycleSplitThinkTags(overlay: SettingsOverlayState): boolean | nu
           ? { ...rest, splitThinkTags: true as const }
           : rest
       }
-    }, profileId)
+    }), profileId)
   );
   markControlMutation(overlay);
   return enabled;
