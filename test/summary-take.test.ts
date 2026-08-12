@@ -158,7 +158,12 @@ providerTest("summary take: output budget shrinks to window room", async (t) => 
   assert.ok((model.requests[0]!.max_tokens as number) < 1024);
 });
 
-providerTest("chapter summary: output budget stays within the compact chapter target", async (t) => {
+// The compact chapter target sizes what the prompt asks for. It is not the
+// ceiling. Holding the two at one number cut every chapter summary off at
+// exactly its target, so the completion marker never arrived and the result
+// was refused: the writer saw "increase Max output tokens" for a cap that no
+// setting could move.
+providerTest("chapter summary asks for the compact target but caps at the profile", async (t) => {
   const model = await fakeModel(t, (body, response) =>
     stream(response, [`Compact recap.\n${markerFrom(promptFrom(body))}`]));
   const base = await testApp(t, summarySettings(model.baseUrl, 4096, 1024));
@@ -170,7 +175,14 @@ providerTest("chapter summary: output budget stays within the compact chapter ta
 
   await json(`${base}/api/stories/${story.id}/chapter-breaks/${created.breakId}/summarize`, post({}));
 
-  assert.ok((model.requests[0]!.max_tokens as number) <= SUMMARY_TARGET_TOKENS);
+  const request = model.requests[0]!;
+  // Room above the target, so the last sentence and the marker both fit.
+  assert.equal(request.max_tokens, 1024);
+  assert.ok((request.max_tokens as number) > SUMMARY_TARGET_TOKENS);
+  // The prompt still asks for a compact recap, which is what the context
+  // projection assumes a chapter summary occupies.
+  const asked = Math.floor(SUMMARY_TARGET_TOKENS * 0.68).toLocaleString("en-US");
+  assert.match(promptFrom(request), new RegExp(`aim for up to ${asked} words`));
 });
 
 providerTest("chapter summary rejects an instruction-only source edit", async (t) => {
