@@ -208,6 +208,9 @@ describe("generation draft restoration", () => {
     await pending;
     expect(state.payload.title).toBe("virtual stream landed");
     expect(state.stream).toBe(null);
+    // The row is no longer virtual, so the refusal that named it is no longer
+    // true and must not wait for a keystroke to go.
+    expect(state.toast).toBe(null);
 
     const appendSource = demoAppSource();
     const appendState = initialState(appendSource, false);

@@ -58,7 +58,11 @@ export function streamLive(state: Pick<StoryScreenState, "stream">): boolean {
  *  survives. */
 const GENERATION_BUSY_TOASTS: ReadonlySet<string> = new Set([
   "stream running · esc stops it first",
-  "stream running · esc stops it first · draft kept"
+  "stream running · esc stops it first · draft kept",
+  // Refused because the target row was still virtual. Settlement is exactly
+  // the moment that stops being true (story-actions.ts's persisted-target
+  // guard), so this one goes stale the same way.
+  "generation still landing · wait before changing this part"
 ]);
 
 /** Retire a busy refusal whose generation has now settled. Call this wherever
