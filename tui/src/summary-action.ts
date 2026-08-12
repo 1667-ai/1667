@@ -1,9 +1,9 @@
 import { activeLineFingerprintSource } from "../../shared/story-text.js";
-import { textHash, type NarrowedSummaryPoint } from "./api.js";
+import { textHash } from "./api.js";
 import type { AppSource } from "./app.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import type { RuntimeState, SummaryOverlayState } from "./state.js";
-import { summaryPointProgress, summaryStretch } from "./summary-model.js";
+import { narrowedSummaryToast, summaryStretch } from "./summary-model.js";
 import type { ActionContext } from "./action-context.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
@@ -11,23 +11,6 @@ import { adoptSameStoryPayload } from "./story-adoption.js";
 type SummaryActionContext = Pick<ActionContext, "backend" | "cache" | "repaint">;
 
 const SUMMARY_STOPPING_TOAST = "summary draft discarded · waiting for backend settlement";
-
-/** `createSummaryTake` chose an earlier point than requested (issue #139):
- *  tell the writer how much of the story the summary actually covers,
- *  reusing the same eligible-parts count (`stretch`) the summary overlay
- *  already showed while it streamed, so the two never disagree about what
- *  was on offer. */
-function narrowedSummaryToast(
-  requestedPath: readonly { id: string }[],
-  stretch: { start: number; total: number },
-  narrowedTo: NarrowedSummaryPoint
-): string {
-  const used = summaryPointProgress(requestedPath, stretch, narrowedTo.nodeId);
-  if (used === null) {
-    return "◈ summary take saved · covers less of the story than requested — the full prefix filled the context window";
-  }
-  return `◈ summary take saved · covers ${used} of ${stretch.total} ${used === 1 ? "part" : "parts"} — the rest filled the context window`;
-}
 
 /** The backend task owns summary creation through switch/reload settlement. */
 export async function startSummary(

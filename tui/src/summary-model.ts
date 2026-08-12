@@ -22,6 +22,25 @@ export function summaryPointProgress(
   return index === -1 ? null : index - stretch.start + 2;
 }
 
+/** `createSummaryTake` chose an earlier point than requested (issue #139):
+ *  tell the writer how much of the story the summary actually covers,
+ *  reusing the same eligible-parts count (`stretch`) the summary overlay
+ *  already showed while it streamed, so the two never disagree about what
+ *  was on offer. */
+export function narrowedSummaryToast(
+  requestedPath: readonly { id: string }[],
+  stretch: { start: number; total: number },
+  narrowedTo: { nodeId: string }
+): string {
+  const used = summaryPointProgress(requestedPath, stretch, narrowedTo.nodeId);
+  if (used === null) {
+    return "◈ summary take saved · covers less of the story than requested — the full prefix filled the context window";
+  }
+  // "N of M parts" pluralizes on the total (the list being counted from),
+  // not the count itself — "1 of 2 parts", not "1 of 2 part".
+  return `◈ summary take saved · covers ${used} of ${stretch.total} ${stretch.total === 1 ? "part" : "parts"} — the rest filled the context window`;
+}
+
 /** Providers do not expose source-consumption events. Honor an explicit ¶ marker; otherwise report honest word progress. */
 export function deriveSummaryProgress(text: string, totalParts: number): SummaryProgress {
   const matches = [...text.matchAll(/¶\s*(\d+)(?:\s+of\s+(\d+))?/gi)];

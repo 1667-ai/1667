@@ -55,23 +55,6 @@ export interface SummaryCommitIds {
   cutNodeId?: string;
 }
 
-/** `createSummaryTake`'s own hooks bag: everything `GenerationStreamHooks`
- *  has, plus the one callback specific to point selection. */
-export interface SummaryTakeHooks extends GenerationStreamHooks {
-  /** Fired once, synchronously, before streaming starts — but only when the
-   *  point actually summarized differs from the one the writer requested
-   *  (see `fittingSummaryPoint` below): the requested prefix alone did not
-   *  leave room for its summary, so an earlier point that does was chosen
-   *  instead. The committed take's own `point` field already carries this
-   *  same value; this hook exists so a caller that reports an outcome the
-   *  writer did not literally request has a way to learn it before the
-   *  reload that would otherwise be the only way to notice — the same
-   *  reason `continueStory` fires `onFactsDropped`
-   *  (server/generation-http.ts) rather than leaving that discovery to the
-   *  committed Story alone. */
-  onSummaryPointNarrowed?: (point: SummaryPoint) => void;
-}
-
 export function requireSummaryActive(signal?: AbortSignal): void {
   if (signal?.aborted !== true) return;
   throw new GenerationStoppedError(
@@ -88,9 +71,9 @@ export async function createSummaryTake(
   onDelta: DeltaConsumer,
   signal: AbortSignal,
   commitIds: SummaryCommitIds = {},
-  hooks: SummaryTakeHooks = {}
+  hooks: GenerationStreamHooks = {}
 ): Promise<string | null> {
-  const { providerStarted = () => {}, bindIntent, onReasoning, onSummaryPointNarrowed } = hooks;
+  const { providerStarted = () => {}, bindIntent, onReasoning } = hooks;
   if (signal.aborted) return null;
   if (body.offset !== undefined && typeof body.offset !== "number") {
     throw new HttpError(400, "offset must be a number when provided");
@@ -125,7 +108,6 @@ export async function createSummaryTake(
   // it — drop it rather than carry a value that no longer applies.
   const narrowed = point.nodeId !== requestedPoint.nodeId || point.offset !== requestedPoint.offset;
   const expected = narrowed ? null : requestedExpected;
-  if (narrowed) onSummaryPointNarrowed?.(point);
   const fingerprint = summarySourceFingerprint(source.title, prefix, point);
   await bindIntent?.(settings, { kind: "summary", title: source.title, prefix, point, expected });
   const tag = randomUUID().slice(0, 8);
@@ -223,6 +205,35 @@ export function summarizedPath(story: Story, point: SummaryPoint, expected: stri
 
 export function summarySourceFingerprint(title: string, parts: readonly StoryNode[], point: SummaryPoint): string {
   return sha256(JSON.stringify({ title, point, parts: parts.map((part) => ({ id: part.id, text: part.text })) }));
+}
+
+/**
+ * Whether a committed summary take covers a narrower point than the one
+ * requested, reconstructed from the committed take's own `parentId` — the
+ * one durable fact every path to a committed summary already has, whether
+ * it just ran `createSummaryTake` live or is answering a replay that never
+ * called it at all (a crash-recovery replay through the ledger, or the
+ * "committed-node" fast path in server/worker-mutations.ts). Reading this
+ * back is preferred over a side channel that only a live run can fill in,
+ * because it can never disagree with what actually got committed (issue
+ * #139 review).
+ *
+ * `applySummaryTake` (server/story-provider-effect.ts) sets the committed
+ * node's parentId to exactly the resolved point's nodeId when that point had
+ * no offset, or to the deterministic cut take minted for it otherwise — so
+ * "not narrowed" is exactly "the parent is the point the request named",
+ * checked both ways. Returns null when the committed node cannot be found at
+ * all — defensive only, since every caller already knows it committed.
+ */
+export function narrowedSummaryPoint(
+  story: Story,
+  committedNodeId: string,
+  requestedNodeId: string,
+  cutNodeId: string | undefined
+): SummaryPoint | null {
+  const parentId = story.nodes.find((node) => node.id === committedNodeId)?.parentId ?? null;
+  if (parentId === null || parentId === requestedNodeId || parentId === cutNodeId) return null;
+  return { nodeId: parentId, offset: null };
 }
 
 export interface GeneratedSummaryText {
