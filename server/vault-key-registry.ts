@@ -50,14 +50,18 @@ export function vaultKeyForPath(file: string): Buffer | null {
   // read/write hot path for an unsealed project.
   if (keys.size === 0) return null;
   const resolved = path.resolve(file);
+  let selected: { readonly root: string; readonly registration: VaultKeyRegistrationImpl } | null = null;
   for (const [root, registration] of keys) {
     const relative = path.relative(root, resolved);
     if (relative === "" || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
       continue;
     }
-    if (!isVaultControlPath(root, resolved)) return registration.key;
+    if (selected === null || root.length > selected.root.length) {
+      selected = { root, registration };
+    }
   }
-  return null;
+  if (selected === null || isVaultControlPath(selected.root, resolved)) return null;
+  return selected.registration.key;
 }
 
 class VaultKeyRegistrationImpl implements VaultKeyRegistration {
