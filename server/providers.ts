@@ -1,4 +1,5 @@
 import type { GenerationSettings } from "../shared/types.js";
+import { sliceUnicodeScalarPrefix } from "../shared/unicode.js";
 import {
   activeImageAttachments,
   renderPromptPlan,
@@ -642,7 +643,9 @@ async function* streamDryRun(
       ? instruction.includes("fork of the different story") ? "Embers on Another Road" : "The Quiet After Rain"
       : prompt.operation === "summary"
         ? dryRunSummary(prompt)
-        : dryRunContinuation(instruction);
+        : prompt.operation === "aside"
+          ? dryRunAside(instruction)
+          : dryRunContinuation(instruction);
   // Dry run reaches no endpoint and is given no credential, so it has no
   // secret that a captured token could carry back.
   const requestedAlternatives = providerRuntimeFor(settings).tokenProbabilities;
@@ -742,6 +745,18 @@ function dryRunContinuation(instruction: string): string {
     "the lamp settled into its work, and somewhere past the margin a sentence that was not quite " +
     "finished began to pace. This is dry-run text; open Settings to connect a real model and the " +
     "story will continue in earnest from exactly this point."
+  );
+}
+
+/** Aside dry-run answer: direct, non-canon, never claims the story changed. */
+function dryRunAside(question: string): string {
+  const trimmed = question.trim().replace(/\s+/g, " ");
+  return (
+    `Aside (dry-run). You asked: "${sliceUnicodeScalarPrefix(trimmed, 200)}". ` +
+    "This is non-canon discussion only; the story text is unchanged. " +
+    "Connect a model in Settings for a real planning answer. " +
+    "Options: (1) stay close to the established facts, " +
+    "(2) introduce a soft personal cost, or (3) hold the answer as a later reveal."
   );
 }
 

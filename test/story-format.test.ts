@@ -127,7 +127,7 @@ test("story objects: foreground cancellation leaves cleanup safe to retry", asyn
 
   const live1 = {
     revisions: [live],
-    leaves: { probabilities: [], reasoning: [], images: [] },
+    leaves: { probabilities: [], reasoning: [], images: [], aside: [] },
     generationRecords: []
   };
   assert.equal(await objects.sweep(live1, abort.signal), false);

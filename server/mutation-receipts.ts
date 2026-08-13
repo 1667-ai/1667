@@ -85,7 +85,8 @@ export class MutationReceiptStore {
   constructor(
     private readonly dir: string,
     private readonly resolveStory: (id: string) => Promise<StoryPayload>,
-    reportFailure?: MutationReceiptFailureReporter
+    reportFailure?: MutationReceiptFailureReporter,
+    private readonly resolveAsideDocument?: (storyId: string) => Promise<unknown>
   ) {
     this.failureTerminalizer = new MutationReceiptFailureTerminalizer(
       reportFailure
@@ -121,6 +122,7 @@ export class MutationReceiptStore {
     readonly state: MutationReceipt["state"];
     readonly method: WorkerMethod;
     readonly fingerprint: string;
+    readonly protocolVersion: number;
   } | null> {
     const receipt = await this.load(mutationId);
     return receipt === null
@@ -128,7 +130,8 @@ export class MutationReceiptStore {
       : {
           state: receipt.state,
           method: receipt.method,
-          fingerprint: receipt.fingerprint
+          fingerprint: receipt.fingerprint,
+          protocolVersion: receipt.protocolVersion ?? LEGACY_WORKER_PROTOCOL_VERSION
         };
   }
 
@@ -325,7 +328,12 @@ export class MutationReceiptStore {
         );
       }
       receipt.state = "completed";
-      receipt.result = encodeMutationResult(value, receipt.artifact);
+      receipt.result = encodeMutationResult(
+        value,
+        receipt.artifact,
+        method,
+        input
+      );
       await this.save(receipt);
       return value;
     });
@@ -336,6 +344,12 @@ export class MutationReceiptStore {
     if (result === undefined) throw new ServiceError(500, "Mutation receipt is missing its result", "internal");
     switch (result.type) {
       case "story": return await this.resolveStory(result.id);
+      case "aside": {
+        if (this.resolveAsideDocument === undefined) {
+          throw corruptMutationReceipt(receipt.mutationId);
+        }
+        return await this.resolveAsideDocument(result.id);
+      }
       case "chapter-break-created": return {
         payload: await this.resolveStory(result.id),
         breakId: result.breakId

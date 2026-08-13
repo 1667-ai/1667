@@ -31,6 +31,7 @@ import {
 } from "./http-cors.js";
 import {
   HTTP_API_PROTOCOL_VERSION,
+  HTTP_FIDELITY_HEADER,
   HTTP_SERVER_INSTANCE_HEADER
 } from "../shared/http-protocol.js";
 import { AI_1667_BUILD_IDENTITY } from "../shared/build-identity.js";
@@ -686,6 +687,31 @@ async function handleApi(
       await service.getReasoning(id, subId)
     );
   }
+  if (head === "stories" && id !== undefined && sub === "aside" && subId === undefined && action === undefined) {
+    if (method === "GET") {
+      return sendJson(response, 200, await service.getAside(id));
+    }
+    if (method === "DELETE") {
+      return sendJson(response, 200, await mutate("clearAside", { storyId: id }));
+    }
+  }
+  if (head === "stories" && id !== undefined && sub === "aside" && subId === "ask" && method === "POST") {
+    const body = await jsonBody();
+    return await streamResponse(request, response,
+      (onDelta, signal) => mutate("askAside", {
+        storyId: id,
+        question: requireString(body.question, "question")
+      }, onDelta, signal),
+      (result) => ({ type: "done", aside: result }),
+      operation.signal,
+      context.errorReporter,
+      "askAside",
+      (failure) => operation.finish({ state: "failed", failure }),
+      {
+        preserveDoneAfterOperationAbort: () =>
+          operation.isUserCancellationAuthoritative()
+      });
+  }
   if (head === "stories" && id !== undefined && sub === "prune-unused-takes" && method === "POST") {
     return sendJson(response, 200, await mutate("pruneUnusedTakes", {
       storyId: id,
@@ -819,7 +845,10 @@ async function handleApi(
     const exported = await service.exportStory(id);
     response.writeHead(200, {
       "content-type": "text/markdown; charset=utf-8",
-      "content-disposition": `attachment; filename="${exported.filename}"`
+      "content-disposition": `attachment; filename="${exported.filename}"`,
+      // Markdown cannot carry Side Notes. Keep the exact fidelity report on
+      // the transport so HTTP callers can show the loss to the user.
+      [HTTP_FIDELITY_HEADER]: encodeURIComponent(JSON.stringify(exported.fidelity))
     });
     return void response.end(exported.markdown);
   }

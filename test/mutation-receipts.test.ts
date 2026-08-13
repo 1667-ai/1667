@@ -30,6 +30,7 @@ import {
   mutationFingerprint,
   validateUnseenMutationId
 } from "../server/mutation-receipts.js";
+import { parseMutationReceipt } from "../server/mutation-receipt-codec.js";
 import type { MutationPlan, MutationPreflightPlan } from "../server/mutation-plan.js";
 import type { StoryService } from "../server/story-service.js";
 import { parseWorkerMutation, preflightWorkerMutation } from "../server/worker-mutations.js";
@@ -44,6 +45,52 @@ const GENERATION_SETTINGS = {
   systemPrompt: "fixture",
   contextWindow: null
 };
+
+function completedReceipt(
+  method: MutatingWorkerMethod,
+  result: unknown
+): Record<string, unknown> {
+  return {
+    format: "1667-mutation",
+    schemaVersion: 1,
+    mutationId: currentMutationId("a"),
+    protocolVersion: WORKER_PROTOCOL_VERSION,
+    fingerprint: "a".repeat(64),
+    method,
+    state: "completed",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    result
+  };
+}
+
+test("Aside receipt result shapes are bound to askAside", () => {
+  const mutationId = currentMutationId("a");
+  const pointer = {
+    ...completedReceipt("askAside", { type: "aside", id: "story" }),
+    mutationId
+  };
+  assert.doesNotThrow(() => parseMutationReceipt(pointer, mutationId));
+  const canceled = {
+    ...completedReceipt("askAside", { type: "value", value: null }),
+    mutationId
+  };
+  assert.doesNotThrow(() => parseMutationReceipt(canceled, mutationId));
+  for (const result of [
+    { type: "value", value: { notes: [] } },
+    { type: "story", id: "story" }
+  ]) {
+    const invalid = {
+      ...completedReceipt("askAside", result),
+      mutationId
+    };
+    assert.throws(() => parseMutationReceipt(invalid, mutationId), /corrupt/);
+  }
+  const wrongMethod = {
+    ...completedReceipt("deleteStory", { type: "aside", id: "story" }),
+    mutationId
+  };
+  assert.throws(() => parseMutationReceipt(wrongMethod, mutationId), /corrupt/);
+});
 
 /** Receipt-mechanics tests opt into admission-neutral execution explicitly;
  * compatibility tests below pass their own preflight. */

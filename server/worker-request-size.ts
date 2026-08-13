@@ -151,6 +151,8 @@ function logicalRequestBody(
         ? undefined
         : { instruction: input.instruction, genId: input.genId, ...target };
     }
+    case "askAside":
+      return { question: input.question };
     case "listStories":
     case "listStoriesPage":
     case "loadStory":
@@ -163,6 +165,8 @@ function logicalRequestBody(
     case "deleteFact":
     case "summarizeChapter":
     case "getSettings":
+    case "getAside":
+    case "clearAside":
     case "importSillyTavern":
     case "importMarkdown":
     case "importNovelAI":

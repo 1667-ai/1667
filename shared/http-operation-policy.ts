@@ -86,6 +86,10 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   // splice-and-save.
   commitPartialRewrite: "local",
   createSummaryTake: "generation",
+  /** Bounded read of the complete Aside document (up to 1 MiB). */
+  getAside: "transfer",
+  askAside: "generation",
+  clearAside: "local",
   // No lifetime class is exactly the 60-second stage deadline. "transfer"
   // (120 s) is the smallest class at or above it; the client requests
   // exactly 60,000 ms, which `resolveHttpOperationReservation` clamps to
@@ -222,6 +226,15 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     && httpMethod === "POST") return "continueStory";
   if (sub === "summary-take" && parts.length === 5
     && httpMethod === "POST") return "createSummaryTake";
+  if (sub === "aside") {
+    if (subId === undefined && parts.length === 5) {
+      if (httpMethod === "GET") return "getAside";
+      if (httpMethod === "DELETE") return "clearAside";
+    }
+    if (subId === "ask" && parts.length === 6 && httpMethod === "POST") {
+      return "askAside";
+    }
+  }
   if (sub === "autoname" && parts.length === 5
     && httpMethod === "POST") return "autonameStory";
   if (sub === "prune-unused-takes"

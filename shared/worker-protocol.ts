@@ -12,6 +12,7 @@ import type {
   ReorderFactRequest,
   RewriteRequest,
   StoryPayload,
+  StoryMarkdownExport,
   StoryNode,
   StorySummary,
   SwitchRequest,
@@ -63,7 +64,8 @@ export const PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION = 6;
 export const PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION = 7;
 export const PRE_FACT_ACTIVATION_WORKER_PROTOCOL_VERSION = 8;
 export const PRE_FACT_ORDER_PRIORITY_BUDGET_WORKER_PROTOCOL_VERSION = 9;
-export const WORKER_PROTOCOL_VERSION = 10;
+export const PRE_ASIDE_WORKER_PROTOCOL_VERSION = 10;
+export const WORKER_PROTOCOL_VERSION = 11;
 /** Exact provider recovery changes the status and acknowledgement inputs. */
 export const MUTATION_INPUT_PROTOCOL_VERSION = WORKER_PROTOCOL_VERSION;
 export const WORKER_BUILD_IDENTITY = AI_1667_BUILD_IDENTITY;
@@ -97,6 +99,7 @@ export function isCurrentWorkerInputProtocolVersion(
     || value === PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION
     || value === PRE_FACT_ACTIVATION_WORKER_PROTOCOL_VERSION
     || value === PRE_FACT_ORDER_PRIORITY_BUDGET_WORKER_PROTOCOL_VERSION
+    || value === PRE_ASIDE_WORKER_PROTOCOL_VERSION
     || value === WORKER_PROTOCOL_VERSION;
 }
 
@@ -170,7 +173,7 @@ export interface WorkerMethodContract {
     output: StoryPayload | null;
   };
   deleteStory: { input: { id: string }; output: { ok: true } };
-  exportMarkdown: { input: { id: string }; output: string };
+  exportMarkdown: { input: { id: string }; output: StoryMarkdownExport };
   /** Reads a stored diagnostic straight from the manifest and object store —
    *  never through StoryPayload, which carries presence only. A take with no
    *  stored record fails the request (typed 404 reason) rather than
@@ -305,6 +308,21 @@ export interface WorkerMethodContract {
      *  report" shape `continueStory`'s `droppedFacts` uses above. */
     output: { nodeId: string; narrowedTo: { nodeId: string; offset: number | null } | null } | null;
   };
+  /** Read the complete bounded Aside document for one story. */
+  getAside: {
+    input: { storyId: string };
+    output: { notes: readonly { question: string; answer: string }[] };
+  };
+  /** Stream one Aside question. Null means cancelled before save. */
+  askAside: {
+    input: { storyId: string; question: string };
+    output: { notes: readonly { question: string; answer: string }[] } | null;
+  };
+  /** Clear every Side Note for one story. */
+  clearAside: {
+    input: { storyId: string };
+    output: StoryPayload;
+  };
   /** Stage one Source Image as a Draft Image: normalize it, store the
    *  result as a content-addressed Image Object, and publish a Draft Lease
    *  that keeps it alive. NOT a story mutation — it carries no `mutationId`
@@ -340,10 +358,11 @@ export type MutatingWorkerMethod =
   | "createNode" | "editNode" | "deleteNode" | "pruneUnusedTakes" | "takeFromCut" | "pasteStoryLine"
   | "putBookmark" | "deleteBookmark" | "createFact" | "patchFact" | "deleteFact" | "reorderFact"
   | "createChapterBreak" | "renameChapterBreak" | "removeChapterBreak" | "restoreChapterBreak" | "summarizeChapter"
-  | "importSillyTavern" | "importMarkdown" | "importNovelAI" | "importScenario" | "importLorebook" | "importCard" | "continueStory" | "rewriteNode" | "commitPartialRewrite" | "createSummaryTake";
+  | "importSillyTavern" | "importMarkdown" | "importNovelAI" | "importScenario" | "importLorebook" | "importCard" | "continueStory" | "rewriteNode" | "commitPartialRewrite" | "createSummaryTake"
+  | "askAside" | "clearAside";
 
 export const STREAM_METHODS: ReadonlySet<WorkerMethod> = new Set([
-  "continueStory", "rewriteNode", "createSummaryTake"
+  "continueStory", "rewriteNode", "createSummaryTake", "askAside"
 ]);
 
 /** Provider-backed calls share the long generation deadline even when their
@@ -372,7 +391,8 @@ export const MUTATING_METHODS: ReadonlySet<MutatingWorkerMethod> = new Set([
   "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut", "pasteStoryLine",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
-  "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "importCard", "continueStory", "rewriteNode", "commitPartialRewrite", "createSummaryTake"
+  "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "importCard", "continueStory", "rewriteNode", "commitPartialRewrite", "createSummaryTake",
+  "askAside", "clearAside"
 ]);
 
 export function isMutatingWorkerMethod(method: WorkerMethod): method is MutatingWorkerMethod {
@@ -394,7 +414,8 @@ export const LOCAL_DURABILITY_MUTATION_METHODS = [
   "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "setPhraseBias", "setBannedStrings", "switchLine",
   "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut", "pasteStoryLine", "commitPartialRewrite",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact",
-  "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "importLorebook", "importCard"
+  "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "importLorebook", "importCard",
+  "clearAside"
 ] as const satisfies readonly MutatingWorkerMethod[];
 
 export type LocalDurabilityMutationMethod =
@@ -629,7 +650,8 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "importCard", "continueStory",
 
   "rewriteNode", "commitPartialRewrite", "createSummaryTake",
-  "stageStoryImage", "releaseStoryImage"
+  "stageStoryImage", "releaseStoryImage",
+  "getAside", "askAside", "clearAside"
 ]);
 
 export function isWorkerMethod(value: unknown): value is WorkerMethod {

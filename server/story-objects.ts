@@ -48,6 +48,12 @@ import {
 } from "../shared/reasoning.js";
 import { MAX_IMAGE_OBJECT_BYTES } from "../shared/image-attachment.js";
 import {
+  MAX_ASIDE_DOCUMENT_BYTES,
+  parseAsideDocument,
+  serializeAsideDocument,
+  type AsideDocument
+} from "../shared/aside.js";
+import {
   drainPromises,
   isErrorCode,
   isLinkFallback,
@@ -76,8 +82,11 @@ export type { ObjectKind } from "./story-object-fs.js";
  *  Lease that names no manifest node yet; the caller (server/stories.ts's
  *  `unionLiveWithPins`) folds those lease-sourced ids into `live.leaves.images`
  *  before calling `sweep` below, so this one list still protects every image
- *  an object store method needs to protect. */
-export const LEAF_OBJECT_KINDS = ["probabilities", "reasoning", "images"] as const;
+ *  an object store method needs to protect.
+ *
+ *  `aside` is the one story-level Side Note document
+ *  (`asideDocumentId` on the V9 content payload). */
+export const LEAF_OBJECT_KINDS = ["probabilities", "reasoning", "images", "aside"] as const;
 export type LeafObjectKind = typeof LEAF_OBJECT_KINDS[number];
 /** The label `requireHash` reports for one leaf kind's live id, kept apart
  *  from `COMMITTED_ID_LABELS` below: that one names a *committed* id, this
@@ -85,7 +94,8 @@ export type LeafObjectKind = typeof LEAF_OBJECT_KINDS[number];
 const LEAF_LIVE_ID_LABELS: Record<LeafObjectKind, string> = {
   probabilities: "live token probabilities id",
   reasoning: "live reasoning id",
-  images: "live image id"
+  images: "live image id",
+  aside: "live aside document id"
 };
 /** Every hash a save must protect from a concurrent sweep: the live
  *  revision graph, per leaf kind the live leaf objects, and the live
@@ -109,7 +119,8 @@ const OBJECT_MAX_BYTES: Record<ObjectKind, number> = {
   probabilities: MAX_TOKEN_PROBABILITY_BYTES,
   reasoning: MAX_REASONING_BYTES,
   images: MAX_IMAGE_OBJECT_BYTES,
-  "generation-records": MAX_GENERATION_RECORD_BYTES
+  "generation-records": MAX_GENERATION_RECORD_BYTES,
+  aside: MAX_ASIDE_DOCUMENT_BYTES
 };
 const OBJECT_TEMP_PATTERN = exactStringPattern(
   "\\.1667-([a-f0-9]{64})-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\\.tmp"
@@ -125,7 +136,8 @@ const COMMITTED_ID_LABELS: Record<ObjectKind, string> = {
   probabilities: "committed token probabilities id",
   reasoning: "committed reasoning id",
   images: "committed image id",
-  "generation-records": "committed generation record id"
+  "generation-records": "committed generation record id",
+  aside: "committed aside document id"
 };
 
 export interface StoryObjectStoreOptions {
@@ -161,7 +173,8 @@ export class StoryObjectStore {
     probabilities: new Set(),
     reasoning: new Set(),
     images: new Set(),
-    "generation-records": new Set()
+    "generation-records": new Set(),
+    aside: new Set()
   };
   private readonly pendingObjects: Record<ObjectKind, Map<ObjectHash, Promise<void>>> = {
     chunks: new Map(),
@@ -169,7 +182,8 @@ export class StoryObjectStore {
     probabilities: new Map(),
     reasoning: new Map(),
     images: new Map(),
-    "generation-records": new Map()
+    "generation-records": new Map(),
+    aside: new Map()
   };
   private readonly knownRevisions = new Map<ObjectHash, TextRevisionV1>();
   /** Every live generation record's own referenced revision ids, cached by
@@ -194,7 +208,8 @@ export class StoryObjectStore {
     probabilities: new Set(),
     reasoning: new Set(),
     images: new Set(),
-    "generation-records": new Set()
+    "generation-records": new Set(),
+    aside: new Set()
   };
   private readonly dirtyShards = new Set<string>();
   private firstWriteBarrier: Promise<void> | null = null;
@@ -217,7 +232,8 @@ export class StoryObjectStore {
       this.withKind("probabilities", true, async () => undefined),
       this.withKind("reasoning", true, async () => undefined),
       this.withKind("images", true, async () => undefined),
-      this.withKind("generation-records", true, async () => undefined)
+      this.withKind("generation-records", true, async () => undefined),
+      this.withKind("aside", true, async () => undefined)
     ]);
   }
 
@@ -294,6 +310,20 @@ export class StoryObjectStore {
   /** Bounded, hash-verified read of one Normalized Image's raw bytes. */
   async readImage(hash: ObjectHash): Promise<Buffer> {
     return await this.readObject("images", hash);
+  }
+
+  /** One story's bounded Aside document, content-addressed like other leaves. */
+  async storeAsideDocument(document: AsideDocument, reuseFrom?: StoryObjectStore): Promise<ObjectHash> {
+    const bytes = Buffer.from(serializeAsideDocument(document), "utf8");
+    const hash = sha256(bytes);
+    await this.putObject("aside", hash, bytes, reuseFrom);
+    return hash;
+  }
+
+  /** Bounded, hash-verified read of one Aside document. */
+  async readAsideDocument(hash: ObjectHash): Promise<AsideDocument> {
+    const bytes = await this.readObject("aside", hash);
+    return parseAsideDocument(bytes.toString("utf8"), hash);
   }
 
   /** One Generation Record event, content-addressed like a probabilities

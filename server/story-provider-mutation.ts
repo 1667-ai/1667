@@ -33,7 +33,8 @@ import type { ActiveProviderStarts } from "./story-provider-active-starts.js";
 import type {
   ProviderStoryAdmission,
   ProviderStoryMutationCommit,
-  ProviderStoryRun
+  ProviderStoryRun,
+  ProviderStoryReplay
 } from "./story-provider-contract.js";
 import { applyProviderStoryEffect } from "./story-provider-effect.js";
 import {
@@ -63,6 +64,7 @@ import {
 } from "./story-mutation-transaction.js";
 import { reduceStoryV6 } from "./story-v6-reducer.js";
 import type { StoryStore } from "./stories.js";
+import { storyRecoveryAdmission } from "./story-aside-recovery.js";
 
 export class StoryProviderMutationStore {
   private readonly races: StoryProviderRaceResolver;
@@ -102,22 +104,46 @@ export class StoryProviderMutationStore {
       );
       requireFreshStoryMutation(receipt, request.mutationId, this.now);
       requireUnacknowledgedProviderReceipt(receipt, request, method);
+      const recoveryAdmission = storyRecoveryAdmission(
+        this.stories,
+        method,
+        request,
+        receipt
+      );
+      if (method === "askAside" && !recoveryAdmission.allowed) {
+        throw new ServiceError(
+          400,
+          "Aside is not available in this release.",
+          "aside_not_supported"
+        );
+      }
 
       const opened = await this.open(
         storyId,
         request,
         method,
         receipt,
-        operation.replayValue
+        operation.replayValue,
+        recoveryAdmission.allowed
       );
       return { request, storyId, opened };
     });
     if (admitted.opened.kind === "replayed") {
-      return admitted.opened.commit;
+      return {
+        ...admitted.opened.commit,
+        value: await admitted.opened.replayValue()
+      };
     }
 
     const { request, storyId } = admitted;
     const { story, releaseSnapshot } = admitted.opened;
+    // Aside admission captures the exact object identity that the prompt
+    // loaded. Recheck that identity in the short provider-start phase, after
+    // local mutations had a chance to run, so a Clear cannot disclose the old
+    // Side Note history to the provider.
+    const asideStartGuard = method === "askAside"
+      ? { expectedAsideDocumentId: story.asideDocumentId }
+      : undefined;
     // Pinned once `startProvider` learns the active prompt's Image Object
     // ids, released here on every exit path: success, provider failure, or
     // an admission error thrown before the provider ever started. Pinning
@@ -144,7 +170,13 @@ export class StoryProviderMutationStore {
           }
           startedPromise ??= this.coordinator.runStoryPhase(
             request,
-            async () => await this.publishStarted(storyId, request, method, imageObjectIds)
+            async () => await this.publishStarted(
+              storyId,
+              request,
+              method,
+              imageObjectIds,
+              asideStartGuard
+            )
           );
           started = await startedPromise;
         };
@@ -240,22 +272,38 @@ export class StoryProviderMutationStore {
     request: MutationCoordinatorRequest<StoryMutationTarget>,
     method: ProviderMutationMethod,
     receipt: StoryMutationReceipt,
-    replayValue: () => Value
+    replayValue: ProviderStoryReplay<Value>,
+    allowRecovery: boolean
   ): Promise<ProviderStoryAdmission<Value>> {
     const pin: { release: (() => void) | null } = { release: null };
     try {
       return await this.stories.withAggregateSession(storyId, async (session) => {
-        await this.recovery.finalizeAggregateTransaction(session, request.mutationId);
-        const terminal = await this.recovery.recover(session, request, receipt);
+        // An exact durable receipt owns any staged provider replacement.
+        // Recover it before finalizing an older aggregate pointer; otherwise
+        // that finalization mistakes the owned stage for a foreign one.
+        const recoverCurrentMutationFirst = allowRecovery
+          && (receipt.started?.method === method
+            || receipt.prepared?.method === method);
+        let terminal: Extract<MutationResult, { kind: "story" }> | null;
+        if (recoverCurrentMutationFirst) {
+          terminal = await this.recovery.recover(session, request, receipt);
+          await this.recovery.finalizeAggregateTransaction(
+            session,
+            request.mutationId
+          );
+        } else {
+          await this.recovery.finalizeAggregateTransaction(session, request.mutationId);
+          terminal = await this.recovery.recover(session, request, receipt);
+        }
         if (terminal !== null) {
           return {
             kind: "replayed",
             commit: {
               story: await session.loadLive(),
               result: terminal,
-              aggregateVersion: storyAggregateVersion(session.snapshot),
-              value: replayValue()
-            }
+              aggregateVersion: storyAggregateVersion(session.snapshot)
+            },
+            replayValue
           };
         }
         const current = await this.ledger.loadStoryReceipt(
@@ -285,6 +333,8 @@ export class StoryProviderMutationStore {
           story,
           releaseSnapshot: pin.release
         };
+      }, {
+        allowRecovery
       });
     } catch (error) {
       pin.release?.();
@@ -298,7 +348,10 @@ export class StoryProviderMutationStore {
     storyId: string,
     request: MutationCoordinatorRequest<StoryMutationTarget>,
     method: ProviderMutationMethod,
-    imageObjectIds: readonly string[] = []
+    imageObjectIds: readonly string[] = [],
+    asideStartGuard?: {
+      readonly expectedAsideDocumentId: Story["asideDocumentId"];
+    }
   ): Promise<StartedMutationRecord> {
     return await this.stories.withAggregateSession(storyId, async (session) => {
       await this.recovery.finalizeAggregateTransaction(
@@ -322,6 +375,16 @@ export class StoryProviderMutationStore {
         throw new GenerationResultError(
           409,
           "The story was deleted before provider work began."
+        );
+      }
+      const liveAsideDocumentId = "asideDocumentId" in session.snapshot.manifest.content
+        ? session.snapshot.manifest.content.asideDocumentId
+        : undefined;
+      if (asideStartGuard !== undefined
+        && liveAsideDocumentId !== asideStartGuard.expectedAsideDocumentId) {
+        throw new GenerationResultError(
+          409,
+          "Side Notes changed before the answer was sent; nothing was saved. Try again."
         );
       }
       this.activeStarts.remember(
@@ -499,7 +562,10 @@ export class StoryProviderMutationStore {
     // came from, rather than a second, independently settable activation
     // option: see `StoryStore`'s own `imageInputActivation` doc comment.
     const replacement = outcome.kind === "success"
-      ? await session.prepareContent(outcome.story, { activation: this.stories.imageInputActivation })
+      ? await session.prepareContent(outcome.story, {
+        activation: this.stories.imageInputActivation,
+        asideActivation: this.stories.asideActivation
+      })
       : null;
     const provider = {
       mutationId: request.mutationId,

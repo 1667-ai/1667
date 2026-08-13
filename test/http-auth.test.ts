@@ -28,6 +28,7 @@ import { startHttpListener } from "../server/http-listener.js";
 import {
   HTTP_API_PROTOCOL_VERSION,
   HTTP_CLIENT_PROTOCOL_HEADER,
+  HTTP_FIDELITY_HEADER,
   HTTP_SERVER_INSTANCE_HEADER
 } from "../shared/http-protocol.js";
 import { HttpOperationClient } from "../shared/http-operation-client.js";
@@ -438,8 +439,18 @@ linuxTest("development CORS is exact and production never emits wildcard credent
   });
   assert.equal(preflight.status, 204);
   assert.equal(preflight.headers.get("access-control-allow-origin"), developmentOrigin);
+  assert.equal(preflight.headers.get("access-control-expose-headers"), HTTP_FIDELITY_HEADER);
   assert.match(preflight.headers.get("vary") ?? "", /Origin/i);
   assert.equal(preflight.headers.get("access-control-allow-credentials"), null);
+
+  const health = await fetch(`${listener.origin}/api/health`, {
+    headers: {
+      origin: developmentOrigin,
+      ...apiHeaders(listener, "story")
+    }
+  });
+  assert.equal(health.status, 200);
+  assert.equal(health.headers.get("access-control-expose-headers"), HTTP_FIDELITY_HEADER);
 
   const rejected = await fetch(`${listener.origin}/api/stories`, {
     method: "OPTIONS",

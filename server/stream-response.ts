@@ -27,7 +27,11 @@ export async function streamResponse<T>(
   operationSignal?: AbortSignal,
   errorReporter?: InternalErrorReporter,
   operation?: string,
-  onTerminalFailure?: (failure: FailureEnvelope) => void
+  onTerminalFailure?: (failure: FailureEnvelope) => void,
+  options: {
+    /** Keep a committed result visible after a selected operation abort. */
+    readonly preserveDoneAfterOperationAbort?: (reason: unknown) => boolean;
+  } = {}
 ): Promise<void> {
   const abort = abortOnDisconnect(
     request,
@@ -87,7 +91,17 @@ export async function streamResponse<T>(
     // flushes before it decides what terminal event (if any) to send.
     await deltas.flush();
     await reasoningDeltas.flush();
-    if (value === null || signal.aborted) return void response.end();
+    // A committed utility result can opt into visibility after a user Stop.
+    // A disconnected client still owns the transport-level abort and cannot
+    // receive a terminal frame. Other streams keep cancellation semantics.
+    const preserveDoneAfterOperationAbort = operationSignal?.aborted === true
+      && !abort.signal.aborted
+      && options.preserveDoneAfterOperationAbort?.(operationSignal.reason) === true;
+    if (value === null
+      || abort.signal.aborted
+      || (signal.aborted && !preserveDoneAfterOperationAbort)) {
+      return void response.end();
+    }
     await open().send(done(value));
     response.end();
   } catch (error) {

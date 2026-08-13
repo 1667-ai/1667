@@ -13,12 +13,14 @@ import { performance } from "node:perf_hooks";
 import test from "node:test";
 import {
   formatMutationLedgerRecord,
-  hashPreparedMutationRecord
+  hashPreparedMutationRecord,
+  hashStartedMutationRecord
 } from "../server/mutation-ledger-codec.js";
 import { MUTATION_LEDGER_DIRECTORY } from "../server/mutation-ledger-paths.js";
 import { privatePublicationScratchPath } from "../server/private-file-publication.js";
 import {
   HASH_A,
+  HASH_B,
   ID,
   completedRecord,
   createUserDirectory,
@@ -36,6 +38,55 @@ import {
   wallOnlyTiming,
   startTiming
 } from "./performance-budget.js";
+import type {
+  PreparedUserMutationRecord,
+  StartedMutationRecord
+} from "../server/mutation-ledger-types.js";
+
+const STORY_AGGREGATE = "story:story-one" as const;
+
+function storyStartedRecord(): StartedMutationRecord {
+  return {
+    schema: 1,
+    kind: "started",
+    aggregateKey: STORY_AGGREGATE,
+    mutationId: ID,
+    fingerprintHash: HASH_A,
+    method: "askAside",
+    oldStateHash: HASH_A,
+    createdAt: "2026-01-01T00:00:00.000Z"
+  };
+}
+
+function storyPreparedRecord(started: StartedMutationRecord): PreparedUserMutationRecord {
+  return {
+    schema: 1,
+    kind: "prepared",
+    purpose: "mutation",
+    aggregateKey: STORY_AGGREGATE,
+    key: ID,
+    fingerprintHash: HASH_A,
+    method: "askAside",
+    oldStateHash: HASH_A,
+    newStateHash: HASH_B,
+    startedRecordHash: hashStartedMutationRecord(started),
+    result: {
+      kind: "story",
+      storyId: "story-one",
+      storyRevision: "00000000000000000002",
+      summary: {
+        id: "story-one",
+        title: "Story",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        partCount: 1,
+        words: "00000000000000000000",
+        forked: false,
+        lineCount: "00000000000000000000"
+      }
+    },
+    preparedAt: "2026-01-01T00:00:00.000Z"
+  };
+}
 
 test("malformed immutable slots are corruption, never idempotency conflicts", async (t) => {
   const { dataDir, store } = await testStore(t, "1667-ledger-partial-");
@@ -160,6 +211,28 @@ test("orphan prepared cleanup is direct, proof-bearing, and preserves other evid
     );
   });
 
+  await t.test("story prepared cleanup retains its started evidence", async (subtest) => {
+    const { store } = await testStore(subtest, "1667-ledger-cleanup-story-started-");
+    const started = storyStartedRecord();
+    const prepared = storyPreparedRecord(started);
+    await store.writeStoryRecord(started);
+    await store.writeStoryRecord(prepared);
+
+    assert.equal(
+      await store.removeOrphanPreparedUserReceipt(
+        STORY_AGGREGATE,
+        ID,
+        hashPreparedMutationRecord(prepared)
+      ),
+      true
+    );
+    const receipt = await store.loadStoryReceipt(STORY_AGGREGATE, ID);
+    assert.deepEqual(receipt.started, started);
+    assert.equal(receipt.prepared, null);
+    assert.equal(receipt.completed, null);
+    assert.equal(receipt.acknowledged, null);
+  });
+
   await t.test("mismatched proof", async (subtest) => {
     const { dataDir, store } = await testStore(subtest, "1667-ledger-cleanup-hash-");
     await store.writeUserRecord(preparedRecord());
@@ -186,7 +259,7 @@ test("orphan prepared cleanup is direct, proof-bearing, and preserves other evid
     assert.equal((await lstat(path.join(receiptDirectory(dataDir), "completed.json"))).isFile(), true);
   });
 
-  await t.test("additional admitted evidence", async (subtest) => {
+  await t.test("settings prepared plus started evidence remains rejected", async (subtest) => {
     const { dataDir, store } = await testStore(subtest, "1667-ledger-cleanup-evidence-");
     const prepared = preparedRecord();
     await store.writeUserRecord(prepared);

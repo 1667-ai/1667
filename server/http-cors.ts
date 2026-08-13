@@ -4,6 +4,7 @@ import {
 } from "../shared/http-auth.js";
 import {
   HTTP_CLIENT_PROTOCOL_HEADER,
+  HTTP_FIDELITY_HEADER,
   HTTP_SERVER_INSTANCE_HEADER
 } from "../shared/http-protocol.js";
 import { isCanonicalLoopbackOrigin } from "../shared/http-loopback-origin.js";
@@ -35,6 +36,7 @@ export function applyCorsResponseHeaders(
   const origin = request.headers.origin;
   if (developmentOrigin === null || origin !== developmentOrigin) return;
   response.setHeader("access-control-allow-origin", developmentOrigin);
+  response.setHeader("access-control-expose-headers", HTTP_FIDELITY_HEADER);
   response.setHeader("vary", appendVary(response.getHeader("vary"), "Origin"));
 }
 

@@ -109,6 +109,9 @@ read_when:
 | Platform Package | The target-specific npm package that holds one native executable |
 | Candidate | An executable that an install or upgrade operation has not made active |
 | Transaction Record | The durable file that records an incomplete install, upgrade, or rollback |
+| Aside | The full-screen mode where the writer discusses the story without changing it |
+| Side Note | One saved question-and-answer pair from Aside |
+| Aside document | The one bounded, content-addressed document that holds every Side Note for one story |
 
 Add a term to this table before you use it in another document.
 

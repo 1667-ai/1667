@@ -496,6 +496,43 @@ test("HTTP mutation cancellation remains nonterminal until its authoritative set
   );
 });
 
+test("HTTP Aside Stop loses authority when its session closes later", async () => {
+  const store = new HttpOperationSessionStore(INSTANCE_ID, {
+    secret: Buffer.alloc(32, 24)
+  });
+  const session = store.createSession("story", "11".repeat(32));
+  const reservation = await store.reserve(session.capability, {
+    method: "POST",
+    path: "/api/stories/story/aside/ask",
+    operation: "askAside",
+    mutationId: MUTATION_ID,
+    expectedAggregateVersion: {
+      kind: "v6",
+      revision: "00000000000000000001"
+    }
+  });
+  const running = store.begin(
+    session.capability,
+    reservation.ticket,
+    "POST",
+    "/api/stories/story/aside/ask"
+  );
+
+  store.cancel(session.capability, reservation.ticket);
+  assert.equal(running.isUserCancellationAuthoritative(), true);
+  assert.ok(running.signal.reason instanceof GenerationCancelledError);
+
+  const close = store.closeSession(session.capability);
+  await Promise.resolve();
+  assert.equal(running.isUserCancellationAuthoritative(), false);
+  // AbortSignal.reason stays at the first Stop. The operation record must not
+  // use that immutable value after the later session-close cancellation.
+  assert.ok(running.signal.reason instanceof GenerationCancelledError);
+
+  running.finish({ state: "canceled" });
+  await close;
+});
+
 test("local request cancellation uses a generic server reason", async () => {
   const store = new HttpOperationSessionStore(INSTANCE_ID, {
     secret: Buffer.alloc(32, 22)

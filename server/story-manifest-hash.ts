@@ -8,6 +8,8 @@ export const STORY_V6_HASH_DOMAIN = "story-v6\0";
  * for the bare V7 content payload, because this release never writes one
  * unwrapped (see `server/story-v6-codec.ts`). */
 export const STORY_V8_HASH_DOMAIN = "story-v8\0";
+/** The Aside envelope's hash domain. */
+export const STORY_V10_HASH_DOMAIN = "story-v10\0";
 export const MUTATION_STARTED_RECORD_HASH_DOMAIN = "mutation-started-v1\0";
 export const MUTATION_PREPARED_RECORD_HASH_DOMAIN = "mutation-prepared-v1\0";
 
@@ -24,6 +26,11 @@ export function hashStoryV6ManifestBytes(bytes: Uint8Array): Hash256 {
 /** Hash exact canonical V8 manifest bytes; callers are responsible for canonical validation. */
 export function hashStoryV8ManifestBytes(bytes: Uint8Array): Hash256 {
   return hashDomainSeparatedBytes(STORY_V8_HASH_DOMAIN, bytes);
+}
+
+/** Hash exact canonical V10 manifest bytes; callers are responsible for canonical validation. */
+export function hashStoryV10ManifestBytes(bytes: Uint8Array): Hash256 {
+  return hashDomainSeparatedBytes(STORY_V10_HASH_DOMAIN, bytes);
 }
 
 /** Hash exact canonical started-record bytes; this helper never rewrites the record. */

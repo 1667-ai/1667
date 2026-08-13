@@ -243,3 +243,13 @@ request with neither set still generates.
 Phrase bias and banned strings apply to a continuation request, a prompted
 retake, a highlighted rewrite, and an autoname request. A summary take does
 not use them.
+
+## Aside boundary
+
+Aside is a separate question-and-answer operation. It uses the `utility`
+Generation Profile. It does not send the Author Brief, the Author's Note,
+story phrase bias, or banned strings.
+
+Side Notes never enter Write prompts. Only the Aside prompt builder may read
+Side Note text. Continue, Direct, Retake, Rewrite, title, and summary
+builders cannot read Side Notes.

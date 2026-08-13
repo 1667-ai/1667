@@ -23,7 +23,8 @@ export function emptyProviderSnapshotPins(): ProviderSnapshotPins {
     probabilities: new Map(),
     reasoning: new Map(),
     images: new Map(),
-    "generation-records": new Map()
+    "generation-records": new Map(),
+    aside: new Map()
   };
 }
 

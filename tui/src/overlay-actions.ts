@@ -28,7 +28,24 @@ import { createStoryViewModel, lastPartRowIndex } from "./model.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import { cancelSummary, startSummary } from "./summary-action.js";
+import {
+  asideBodyHeight,
+  asideComposerRows,
+  clearAsideSurface,
+  closeAside,
+  openAside,
+  scrollAside,
+  sendAsideQuestion,
+  stopAsideAsk
+} from "./aside-actions.js";
+import { insertComposerText, setComposerText } from "./composer-model.js";
+import { composerMotion } from "./composer-motion.js";
+import { directComposerWrapWidth } from "./composer-geometry.js";
+import { composerPageRows } from "./composer-viewport.js";
+import { composerSurfaceAction } from "./composer-surface-action.js";
+import { disarmAsideClear } from "./aside-surface.js";
 import { openRewriteComposer, partIdFromTextSelection, resolveRewriteTarget } from "./rewrite-action.js";
+import type { AppSource } from "./app.js";
 import { canRewriteSelection, type ProjectedStorySelection } from "./selection-projection.js";
 import { storySelectionFromRendererSelection } from "./copy-actions.js";
 import { libraryAction, openLibrary } from "./library-actions.js";
@@ -65,8 +82,6 @@ import {
   generationRecordAction,
   openGenerationRecordViewer
 } from "./generation-record-actions.js";
-
-import type { AppSource } from "./app.js";
 import type { FactsOverlayState, RuntimeState } from "./state.js";
 import type { ActionContext } from "./action-context.js";
 
@@ -121,6 +136,10 @@ export async function handleOverlayAction(
     await generationRecordAction(resolved, state, source, context);
     return true;
   }
+  if (state.mode === "ASIDE" && state.aside !== null) {
+    await asideKeyAction(resolved, state, source, context);
+    return true;
+  }
   if (resolved.action === "open-log") {
     // The notice the writer came from is the newest one, and `recordNotices`
     // already put the cursor on it. The map is a place, so closing the log
@@ -155,7 +174,9 @@ export async function handleOverlayAction(
       view: "commands",
       returnMode: state.mode === "COMPOSE" ? "COMPOSE" : "NAV",
       selection,
-      ...retainCommandSelection(liveCommandMatches(state, "", selection), null, 0)
+      ...retainCommandSelection(liveCommandMatches(
+        state, "", selection, context.asideEntryPointsOpen
+      ), null, 0)
     };
     state.mode = "COMMANDS";
     return true;
@@ -432,7 +453,9 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
     if (resolved.action === "cancel") {
       overlay.view = "commands";
       Object.assign(overlay, retainCommandSelection(
-        liveCommandMatches(state, overlay.query), overlay.selectedId, overlay.cursor
+        liveCommandMatches(
+          state, overlay.query, undefined, context.asideEntryPointsOpen
+        ), overlay.selectedId, overlay.cursor
       ));
     }
     else if (resolved.action === "focus-next") overlay.cursor = Math.max(0,
@@ -454,7 +477,9 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
     }
     return true;
   }
-  let matches = liveCommandMatches(state, overlay.query);
+  let matches = liveCommandMatches(
+    state, overlay.query, undefined, context.asideEntryPointsOpen
+  );
   Object.assign(overlay, retainCommandSelection(matches, overlay.selectedId, overlay.cursor));
   if (resolved.action === "cancel") {
     state.commands = null;
@@ -465,7 +490,9 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
   else if (resolved.action === "focus-previous") selectCommand(overlay, matches, overlay.cursor - 1);
   else if (resolved.action === "backspace" || resolved.action === "input") {
     overlay.query = applyTextKey(overlay.query, resolved) ?? overlay.query;
-    matches = liveCommandMatches(state, overlay.query);
+    matches = liveCommandMatches(
+      state, overlay.query, undefined, context.asideEntryPointsOpen
+    );
     selectCommand(overlay, matches, 0);
   }
   else if (resolved.action === "open-selected") {
@@ -475,7 +502,9 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
   // Live theme preview: highlighting a theme command shows it immediately;
   // leaving the highlight (or the palette) reverts to the saved theme.
   if (state.commands !== null && state.commands.view === "commands") {
-    const liveMatches = liveCommandMatches(state, state.commands.query);
+    const liveMatches = liveCommandMatches(
+      state, state.commands.query, undefined, context.asideEntryPointsOpen
+    );
     Object.assign(state.commands, retainCommandSelection(
       liveMatches, state.commands.selectedId, state.commands.cursor
     ));
@@ -522,6 +551,9 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
   else if (command.id === "facts-budget") openFactsBudgetEditor(state);
   else if (command.id === "phrase-bias") openPhraseBiasEditor(state);
   else if (command.id === "banned-strings") openBannedStringsEditor(state);
+  else if (command.id === "aside") await openAside(state, source.api, {
+    entryPointsOpen: context.asideEntryPointsOpen
+  });
   else if (command.id === "switch-story") await openLibrary(state, source, context);
   else if (command.id === "rename-story") {
     const targetId = state.payload.id;
@@ -553,14 +585,18 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
   else if (command.id === "export") {
     const title = state.payload.title;
     await context.backend.run("exporting story", async (task) => {
-      const markdown = await source.api.exportMarkdown(task.storyId);
+      const exported = await source.api.exportMarkdown(task.storyId);
       if (!task.owns()) return;
       const file = await writeStoryExport({
         directory: source.exportDirectory,
         title,
-        markdown
+        markdown: exported.markdown
       });
-      if (task.interactionCurrent()) state.toast = `exported ${file}`;
+      if (task.interactionCurrent()) {
+        state.toast = exported.fidelity.length === 0
+          ? `exported ${file}`
+          : `exported ${file} · ${exported.fidelity.join("; ")}`;
+      }
     });
   } else if (command.id === "export-profile") {
     if (!source.settingsView.editable) {
@@ -629,7 +665,8 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
 function liveCommandMatches(
   state: RuntimeState,
   query: string,
-  selection: ProjectedStorySelection | null = state.commands?.selection ?? null
+  selection: ProjectedStorySelection | null = state.commands?.selection ?? null,
+  asideOpen: boolean | undefined = undefined
 ): CommandMatch[] {
   return commandMatches(
     query,
@@ -637,7 +674,8 @@ function liveCommandMatches(
     commandContext(state.payload, {
       connectionDown: state.connection.down,
       requestActive: generationBusy(state) || state.summary !== null,
-      canRewriteSelection: canRewriteSelection(selection?.spans ?? [])
+      canRewriteSelection: canRewriteSelection(selection?.spans ?? []),
+      asideEntryPointsOpen: asideOpen
     })
   );
 }
@@ -664,4 +702,102 @@ async function reconnect(state: RuntimeState, source: AppSource, context: Overla
     cache: context.cache,
     repaint: context.repaint
   });
+}
+
+async function asideKeyAction(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  source: AppSource,
+  context: OverlayActionContext
+): Promise<void> {
+  const surface = state.aside;
+  if (surface === null) return;
+  if (resolved.action === "cancel") {
+    if (surface.confirmClear) {
+      surface.confirmClear = false;
+      return;
+    }
+    // Esc while answering stops the request and restores the question.
+    // Esc when idle returns to Write.
+    if (surface.busy) {
+      // Clear has no abort path. Its missing in-flight question is the
+      // existing distinction from an Ask, so Esc remains a no-op while it
+      // commits instead of pretending to stop anything.
+      if (surface.inflightQuestion !== null) stopAsideAsk(state);
+      return;
+    }
+    closeAside(state);
+    return;
+  }
+  if (resolved.action === "scroll-line-down" || resolved.action === "scroll-line-up"
+    || resolved.action === "scroll-down" || resolved.action === "scroll-up") {
+    const width = context.renderer?.width ?? 80;
+    const height = context.renderer?.height ?? 24;
+    const composerRows = asideComposerRows(height);
+    const page = asideBodyHeight(surface, width, height, composerRows);
+    const delta = resolved.action === "scroll-line-down" || resolved.action === "scroll-down"
+      ? resolved.action === "scroll-down" ? page : 1
+      : resolved.action === "scroll-up" ? -page : -1;
+    scrollAside(surface, delta, width, height, composerRows);
+    return;
+  }
+  const width = context.renderer?.width ?? 80;
+  const height = context.renderer?.height ?? 24;
+  const motion = composerMotion(true, () => directComposerWrapWidth(width, state.config, true));
+  if (resolved.action === "cursor-up" || resolved.action === "cursor-down") {
+    motion.vertical(
+      surface.composer,
+      resolved.action === "cursor-up" ? -1 : 1,
+      resolved.extendSelection
+    );
+    return;
+  }
+  if (resolved.action === "send") {
+    if (surface.busy) return;
+    if (surface.confirmClear) {
+      context.backend.observe(context.backend.run("clearing Aside", (task) =>
+        clearAsideSurface(state, source.api, context.cache, { task })
+      ));
+      return;
+    }
+    const text = surface.composer.text;
+    if (text.trim() === "/clear") {
+      setComposerText(surface.composer, "");
+      surface.confirmClear = true;
+      return;
+    }
+    context.backend.observe(context.backend.run("asking Aside", (task) =>
+      sendAsideQuestion(state, source.api, text, {
+        task,
+        repaint: context.repaint,
+        cache: context.cache
+      })
+    ));
+    return;
+  }
+  if (resolved.action === "newline") {
+    disarmAsideClear(surface);
+    insertComposerText(surface.composer, "\n");
+    return;
+  }
+  if (resolved.action === "input" && resolved.text !== undefined) {
+    disarmAsideClear(surface);
+    insertComposerText(surface.composer, resolved.text);
+    return;
+  }
+  if (await composerSurfaceAction(resolved, state, surface.composer, {
+    isCurrent: () => state.mode === "ASIDE" && state.aside === surface,
+    pageRows: composerPageRows(height, true),
+    motion,
+    onEdit: (kind) => {
+      if (kind !== "move") disarmAsideClear(surface);
+    }
+  })) return;
+  // Keep the fallback for plain text actions that do not belong to the shared
+  // composer reducer. All structural edits above preserve cursor state.
+  const next = applyTextKey(surface.composer.text, resolved);
+  if (next !== null) {
+    disarmAsideClear(surface);
+    setComposerText(surface.composer, next);
+  }
 }

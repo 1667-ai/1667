@@ -6,6 +6,7 @@ import {
   MAX_STORED_TITLE_CHARS
 } from "../shared/types.js";
 import {
+  PRE_ASIDE_WORKER_PROTOCOL_VERSION,
   PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION,
   PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION,
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
@@ -53,6 +54,23 @@ test("protocol-v7 mutation inputs retain the protocol-v6 identity", () => {
     parsed.protocolVersion,
     PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION
   );
+});
+
+test("protocol-v10 mutation inputs survive the Aside protocol bump", () => {
+  const id = {
+    workerInstanceId: "c".repeat(32),
+    sequence: 1n
+  };
+  const parsed = parseWorkerRequest({
+    method: "renameStory",
+    input: { id: "story", title: "Title" },
+    protocolVersion: PRE_ASIDE_WORKER_PROTOCOL_VERSION,
+    mutationId: "m1.1767225600000.2123456789abcdef0123456789abcdef",
+    deadlineMs: Date.now() + 60_000
+  }, id);
+
+  assert.equal(parsed.protocolVersion, PRE_ASIDE_WORKER_PROTOCOL_VERSION);
+  assert.equal(WORKER_PROTOCOL_VERSION, PRE_ASIDE_WORKER_PROTOCOL_VERSION + 1);
 });
 
 test("worker import measures raw JSONL bytes rather than escaped protocol bytes", () => {

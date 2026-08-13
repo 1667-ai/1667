@@ -36,6 +36,8 @@ import {
   type SummaryCommitIds,
   type SummaryPoint
 } from "./summary-take.js";
+import { serializeAsideDocument, type AsideDocument } from "../shared/aside.js";
+import { setPendingAsideDocument } from "./story-aside-pending.js";
 
 export interface AutonameStoryEffect {
   readonly kind: "autoname";
@@ -144,12 +146,21 @@ export interface ChapterSummaryEffect {
   readonly generationRecord: GenerationRecord;
 }
 
+export interface AsideStoryEffect {
+  readonly kind: "aside";
+  /** Aside object ID observed before provider dispatch. */
+  readonly expectedAsideDocumentId: Story["asideDocumentId"];
+  readonly document: AsideDocument;
+  readonly cancelled?: AbortSignal;
+}
+
 export type ProviderStoryEffect =
   | AutonameStoryEffect
   | ContinueStoryEffect
   | RewriteNodeEffect
   | SummaryTakeEffect
-  | ChapterSummaryEffect;
+  | ChapterSummaryEffect
+  | AsideStoryEffect;
 
 export interface ProviderStoryEffectByMethod {
   readonly autonameStory: AutonameStoryEffect;
@@ -157,11 +168,12 @@ export interface ProviderStoryEffectByMethod {
   readonly continueStory: ContinueStoryEffect;
   readonly rewriteNode: RewriteNodeEffect;
   readonly createSummaryTake: SummaryTakeEffect;
+  readonly askAside: AsideStoryEffect;
 }
 
 type ProviderStoryEffectValueForKind<
   Kind extends ProviderStoryEffect["kind"]
-> = Kind extends "autoname" | "continue" | "chapter-summary"
+> = Kind extends "autoname" | "continue" | "chapter-summary" | "aside"
     ? Story
     : Kind extends "rewrite" | "summary-take"
       ? StoryNode
@@ -210,11 +222,31 @@ export async function applyProviderStoryEffect(
       return await applySummaryTake(story, effect, hydratePath);
     case "chapter-summary":
       return applyChapterSummary(story, effect);
+    case "aside":
+      return applyAside(story, effect);
     default: {
       const exhaustive: never = effect;
       return exhaustive;
     }
   }
+}
+
+function applyAside(
+  story: Story,
+  effect: AsideStoryEffect
+): AppliedProviderStoryEffect<Story> {
+  if (effect.cancelled?.aborted === true) {
+    throw new GenerationStoppedError("Aside was cancelled before it could be saved.");
+  }
+  if (story.asideDocumentId !== effect.expectedAsideDocumentId) {
+    throw new GenerationResultError(
+      409,
+      "Side Notes changed while the answer was being written; nothing was saved. Try again."
+    );
+  }
+  story.asideDocumentId = sha256(serializeAsideDocument(effect.document));
+  setPendingAsideDocument(story, effect.document);
+  return { changed: true, value: story };
 }
 
 function applyAutoname(

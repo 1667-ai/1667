@@ -26,7 +26,8 @@ import {
   type ObjectHash,
   type StoredNodeV1,
   type StoryManifestV5,
-  type StoryManifestV7
+  type StoryManifestV7,
+  type StoryManifestV9
 } from "./story-format.js";
 import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
 import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../shared/generation-record.js";
@@ -114,6 +115,7 @@ import {
   requirePresentStorySlot,
   stagedStoryManifestExists,
   StoryAggregateSession,
+  type AggregateSessionOptions,
   type GenerationRecordSourceRevisionSnapshot
 } from "./story-aggregate-session.js";
 import { StoryDraftImageStore } from "./story-draft-images.js";
@@ -132,7 +134,10 @@ export const STORY_UNCHANGED = Symbol("story-unchanged");
  * shared/http-operation-protocol.ts's HTTP_OPERATION_SESSION_CAPACITY). */
 export const GENERATION_RECORD_GRAPH_CACHE_CAPACITY = 64;
 
-type ResolvedStory = Extract<StoredStorySlot, { kind: "legacy" | "v5" | "v6-live" | "v8-live" }>;
+type ResolvedStory = Extract<
+  StoredStorySlot,
+  { kind: "legacy" | "v5" | "v6-live" | "v8-live" | "v10-live" }
+>;
 type SweepObjects = (bundleDir: string, live: LiveStoryObjectIds, signal: AbortSignal) => Promise<boolean>;
 type WriteManifest = (file: string, data: string) => Promise<CommitResult>;
 interface SwitchLineOptions { expectedLineFingerprint?: string; stopAtNode?: boolean }
@@ -167,6 +172,8 @@ export interface StoryStoreOptions {
    *  `activation: false` on their own `encodeStoryBundle` call regardless of
    *  what this is set to. */
   readonly imageInputActivation?: boolean;
+  /** Same role as `imageInputActivation` for the Aside successor schema. */
+  readonly asideActivation?: boolean;
 }
 
 export class StoryStore {
@@ -174,6 +181,7 @@ export class StoryStore {
   private readonly writeManifest: WriteManifest;
   private readonly liveGenerationRecordIds: ChapterBreakUndoLiveness;
   readonly imageInputActivation?: boolean;
+  readonly asideActivation?: boolean;
 
   constructor(
     private readonly dir: string,
@@ -183,6 +191,7 @@ export class StoryStore {
     this.writeManifest = options.writeManifest ?? writeDurableAtomic;
     this.liveGenerationRecordIds = options.liveGenerationRecordIds ?? NO_CHAPTER_BREAK_UNDO_LIVENESS;
     this.imageInputActivation = options.imageInputActivation;
+    this.asideActivation = options.asideActivation;
     this.cleanupQueue = new BoundedCleanupQueue(
       STORY_CLEANUP_IO_CONCURRENCY,
       (storyId, signal) => this.runCleanup(storyId, signal)
@@ -236,11 +245,18 @@ export class StoryStore {
 
   async withAggregateSession<T>(
     id: string,
-    work: (session: StoryAggregateSession) => Promise<T>
+    work: (session: StoryAggregateSession) => Promise<T>,
+    options: AggregateSessionOptions = {}
   ): Promise<T> {
     return await this.withLock(id, async () => await this.withIo(id, async () => {
       const slot = await readStoredStorySlot(this.dir, id);
-      requirePresentStorySlot(slot, id, this.imageInputActivation);
+      requirePresentStorySlot(
+        slot,
+        id,
+        this.imageInputActivation,
+        this.asideActivation,
+        options
+      );
       const session = new StoryAggregateSession(this.dir, id, slot, this.generationRecordGraphs.get(id) ?? null);
       await session.init();
       const result = await work(session);
@@ -257,7 +273,7 @@ export class StoryStore {
     return await this.withLock(id, async () => await this.withIo(id, async () => {
       const slot = await readStoredStorySlot(this.dir, id);
       if (slot.kind === "absent") return await work(null);
-      requirePresentStorySlot(slot, id, this.imageInputActivation);
+      requirePresentStorySlot(slot, id, this.imageInputActivation, this.asideActivation);
       const session = new StoryAggregateSession(this.dir, id, slot, this.generationRecordGraphs.get(id) ?? null);
       await session.init();
       const result = await work(session);
@@ -425,7 +441,7 @@ export class StoryStore {
         ...buildStorySummary(slot.manifest),
         aggregateVersion: aggregateVersionFromSlot(slot)
       };
-      if (slot.kind === "v6-live" || slot.kind === "v8-live") return {
+      if (slot.kind === "v6-live" || slot.kind === "v8-live" || slot.kind === "v10-live") return {
         ...storySummaryFromLiveEnvelope(slot.manifest),
         aggregateVersion: aggregateVersionFromSlot(slot)
       };
@@ -547,6 +563,36 @@ export class StoryStore {
       await this.save(story);
       return story;
     });
+  }
+
+  /** Load the story's Aside document. Empty when none exists. Side Note text
+   *  leaves only through this read path and the Aside prompt builder. */
+  async loadAsideDocument(id: string): Promise<import("../shared/aside.js").AsideDocument | null> {
+    return await this.withIo(id, async () => {
+      const story = await this.loadUnlocked(id);
+      if (story.asideDocumentId === undefined || story.asideDocumentId === null) return null;
+      return await this.readAsideDocumentUnlocked(id, story.asideDocumentId);
+    });
+  }
+
+  /** Read the Aside object named by an already-admitted story snapshot. */
+  async readAsideDocument(
+    id: string,
+    documentId: string
+  ): Promise<import("../shared/aside.js").AsideDocument> {
+    return await this.withIo(
+      id,
+      async () => await this.readAsideDocumentUnlocked(id, documentId)
+    );
+  }
+
+  private async readAsideDocumentUnlocked(
+    id: string,
+    documentId: string
+  ): Promise<import("../shared/aside.js").AsideDocument> {
+    const objects = new StoryObjectStore(this.bundlePath(id));
+    await objects.init();
+    return await objects.readAsideDocument(documentId);
   }
 
   async load(id: string): Promise<Story> {
@@ -830,7 +876,12 @@ export class StoryStore {
     if (slot.kind === "residue") {
       throw new HttpError(409, `Story ${id} has an unfinished storage transition`, "resource_busy");
     }
-    if (slot.kind === "absent" || slot.kind === "v6-deleted" || slot.kind === "v8-deleted") {
+    if (
+      slot.kind === "absent"
+      || slot.kind === "v6-deleted"
+      || slot.kind === "v8-deleted"
+      || slot.kind === "v10-deleted"
+    ) {
       throw new HttpError(404, `Story not found: ${id}`);
     }
     return slot;
@@ -904,13 +955,15 @@ export class StoryStore {
         // refuses to read back. `requireV5Manifest` backs this with a
         // compile-time guarantee: see `serializeManifest`'s own doc comment
         // (server/story-format.ts).
+        // Bare manifest.json has no envelope for successor content. Force
+        // both image and Aside activation off so this path never writes V7/V9.
         const manifest = requireV5Manifest(
           await encodeStoryBundle(
             story,
             objects,
             reuseFrom,
             snapshot,
-            { activation: false }
+            { activation: false, asideActivation: false }
           ),
           `Saving story ${story.id}`
         );
@@ -1039,7 +1092,10 @@ export class StoryStore {
     }
   }
 
-  private async hydrateManifest(manifest: StoryManifestV5 | StoryManifestV7, bundleDir: string): Promise<Story> {
+  private async hydrateManifest(
+    manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9,
+    bundleDir: string
+  ): Promise<Story> {
     const decoded = await decodeStoryBundle(manifest, bundleDir, { activeOnly: true });
     this.snapshots.set(decoded.story, captureStorySnapshot(decoded.story, manifest, decoded.liveRevisions));
     return decoded.story;
@@ -1136,7 +1192,19 @@ function generationRecordGraphSnapshot(
 }
 
 function aggregateVersionFromSlot(
-  slot: Extract<StoredStorySlot, { kind: "v5" | "v6-live" | "v6-deleted" | "v8-live" | "v8-deleted" }>
+  slot: Extract<
+    StoredStorySlot,
+    {
+      kind:
+        | "v5"
+        | "v6-live"
+        | "v6-deleted"
+        | "v8-live"
+        | "v8-deleted"
+        | "v10-live"
+        | "v10-deleted";
+    }
+  >
 ): StoryAggregateVersion {
   // A successor envelope's revision counter is the same concurrency token
   // shape as a V6 envelope's. "v6" here names the token shape (a revision

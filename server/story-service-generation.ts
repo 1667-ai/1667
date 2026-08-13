@@ -21,6 +21,17 @@ import { buildStoryPayload } from "./story-payload.js";
 import type { StoryStore } from "./stories.js";
 import { createSummaryTake, narrowedSummaryPoint, type SummaryPoint } from "./summary-take.js";
 import { requireString } from "./validation.js";
+import {
+  askAside,
+  viewAsideDocument,
+  type AsideDocumentView
+} from "./aside-http.js";
+import { asideEntryPointsOpen } from "../shared/aside-release.js";
+import { ServiceError } from "./errors.js";
+import {
+  mintActivatedStoryMutationRequest,
+  mintStoryMutationRequest
+} from "./story-mutation-request.js";
 
 /** The hooks a caller of `StoryServiceGeneration`'s streamed mutations may
  *  supply: `GenerationStreamHooks` (server/generation-http.ts) — the
@@ -59,11 +70,19 @@ export class StoryServiceGeneration {
       expectedTitle?: string;
     } = {}
   ): Promise<StoryPayload> {
-    if (options.mutationRequest !== undefined) {
-      return await this.dependencies.cancellable(signal, async (active) => {
+    return await this.dependencies.cancellable(signal, async (active) => {
+      const mutationRequest = options.mutationRequest !== undefined
+        ? options.mutationRequest
+        : await mintActivatedStoryMutationRequest(
+            this.dependencies.stories,
+            id,
+            "autonameStory",
+            options.autonameId ?? ""
+          );
+      if (mutationRequest !== undefined) {
         const committed =
           await this.dependencies.storyMutations.runProviderOperation(
-          options.mutationRequest,
+          mutationRequest,
           "autonameStory",
           {
             signal: active,
@@ -90,11 +109,8 @@ export class StoryServiceGeneration {
           committed.story,
           committed.aggregateVersion
         );
-      });
-    }
-    return await this.dependencies.cancellable(
-      signal,
-      async (active) => buildStoryPayload(await autonameStory(
+      }
+      return buildStoryPayload(await autonameStory(
         id,
         this.dependencies.stories,
         this.dependencies.settings,
@@ -104,8 +120,8 @@ export class StoryServiceGeneration {
         options.autonameId,
         options.expectedTitle,
         options.bindIntent
-      ))
-    );
+      ));
+    });
   }
 
   async continueStory(
@@ -127,10 +143,18 @@ export class StoryServiceGeneration {
     const onFactsDropped = (dropped: readonly FactBudgetDrop[]): void => { droppedFacts = dropped; };
     return await this.dependencies.generationAdmission.run(id, genId, () =>
       this.dependencies.cancellable(signal, async (active) => {
-        if (hooks.mutationRequest !== undefined) {
+        const mutationRequest = hooks.mutationRequest !== undefined
+          ? hooks.mutationRequest
+          : await mintActivatedStoryMutationRequest(
+              this.dependencies.stories,
+              id,
+              "continueStory",
+              genId
+            );
+        if (mutationRequest !== undefined) {
           const committed =
             await this.dependencies.storyMutations.runProviderOperation(
-            hooks.mutationRequest,
+            mutationRequest,
             "continueStory",
             {
               signal: active,
@@ -197,11 +221,19 @@ export class StoryServiceGeneration {
     const replayValue = resolveRewriteDestination(body.destination) === "take"
       ? (options.takeId ?? null)
       : nodeId;
-    if (options.mutationRequest !== undefined) {
-      return await this.dependencies.cancellable(signal, async (active) => {
+    return await this.dependencies.cancellable(signal, async (active) => {
+      const mutationRequest = options.mutationRequest !== undefined
+        ? options.mutationRequest
+        : await mintActivatedStoryMutationRequest(
+            this.dependencies.stories,
+            id,
+            "rewriteNode",
+            nodeId
+          );
+      if (mutationRequest !== undefined) {
         const committed =
           await this.dependencies.storyMutations.runProviderOperation(
-          options.mutationRequest,
+          mutationRequest,
           "rewriteNode",
           {
             signal: active,
@@ -230,11 +262,8 @@ export class StoryServiceGeneration {
           }
         );
         return committed.value;
-      });
-    }
-    return await this.dependencies.cancellable(
-      signal,
-      (active) => rewriteNode(
+      }
+      return await rewriteNode(
         id,
         nodeId,
         { ...body },
@@ -247,8 +276,8 @@ export class StoryServiceGeneration {
         options.takeId,
         this.dependencies.rewritePartials,
         options
-      )
-    );
+      );
+    });
   }
 
   async createSummaryTake(
@@ -263,11 +292,19 @@ export class StoryServiceGeneration {
   ): Promise<{ nodeId: string; narrowedTo: SummaryPoint | null } | null> {
     const body = parseSummaryTake(value);
     const requestedNodeId = requireString(body.nodeId, "nodeId");
-    if (options.mutationRequest !== undefined) {
-      return await this.dependencies.cancellable(signal, async (active) => {
+    return await this.dependencies.cancellable(signal, async (active) => {
+      const mutationRequest = options.mutationRequest !== undefined
+        ? options.mutationRequest
+        : await mintActivatedStoryMutationRequest(
+            this.dependencies.stories,
+            id,
+            "createSummaryTake",
+            requestedNodeId
+          );
+      if (mutationRequest !== undefined) {
         const committed =
           await this.dependencies.storyMutations.runProviderOperation(
-          options.mutationRequest,
+          mutationRequest,
           "createSummaryTake",
           {
             signal: active,
@@ -307,12 +344,8 @@ export class StoryServiceGeneration {
           nodeId: committed.value,
           narrowedTo: narrowedSummaryPoint(committed.story, committed.value, requestedNodeId, options.cutNodeId)
         };
-      });
-    }
-    return await this.dependencies.cancellable(
-      signal,
-      async (active) => {
-        const nodeId = await createSummaryTake(
+      }
+      const nodeId = await createSummaryTake(
           id,
           body,
           this.dependencies.stories,
@@ -334,9 +367,82 @@ export class StoryServiceGeneration {
         // branch above reads it, rather than a second, parallel mechanism
         // that could drift from it.
         const story = await this.dependencies.stories.loadForMutation(id);
-        return { nodeId, narrowedTo: narrowedSummaryPoint(story, nodeId, requestedNodeId, options.cutNodeId) };
-      }
-    );
+      return { nodeId, narrowedTo: narrowedSummaryPoint(story, nodeId, requestedNodeId, options.cutNodeId) };
+    });
+  }
+
+  /** Read the complete Aside document. Empty when none exists. */
+  async getAside(id: string): Promise<AsideDocumentView> {
+    this.dependencies.ensureOpen();
+    if (!asideEntryPointsOpen(this.dependencies.stories.asideActivation)) {
+      throw new ServiceError(400, "Aside is not available in this release.", "aside_not_supported");
+    }
+    const document = await this.dependencies.stories.loadAsideDocument(id);
+    return viewAsideDocument(document);
+  }
+
+  async askAside(
+    id: string,
+    body: Record<string, unknown>,
+    onDelta: DeltaConsumer,
+    signal: AbortSignal,
+    hooks: GenerationMutationHooks = {}
+  ): Promise<AsideDocumentView | null> {
+    this.dependencies.ensureOpen();
+    if (!asideEntryPointsOpen(this.dependencies.stories.asideActivation)
+      && hooks.mutationRequest === undefined) {
+      throw new ServiceError(400, "Aside is not available in this release.", "aside_not_supported");
+    }
+    return await this.dependencies.cancellable(signal, async (active) => {
+      // Aside commits write V9/V10 content through the aggregate session.
+      // Always use the durable provider mutation path, minting a request when
+      // the transport did not supply one (in-process callers and tests).
+      const mutationRequest = hooks.mutationRequest
+        ?? await mintStoryMutationRequest(
+          this.dependencies.stories,
+          id,
+          "askAside",
+          typeof body.question === "string" ? body.question : ""
+        );
+      const committed = await this.dependencies.storyMutations.runProviderOperation(
+        mutationRequest,
+        "askAside",
+        {
+          signal: active,
+          work: async ({ stories, providerStarted, signal }) =>
+            await askAside(
+              id,
+              body,
+              stories,
+              this.dependencies.settings,
+              this.dependencies.promptCache,
+              onDelta,
+              signal,
+              {
+                ...hooks,
+                entryPointsOpen: this.dependencies.stories.asideActivation,
+                loadDocument: async (story) => {
+                  if (story.asideDocumentId === undefined || story.asideDocumentId === null) {
+                    return null;
+                  }
+                  return await this.dependencies.stories.readAsideDocument(
+                    id,
+                    story.asideDocumentId
+                  );
+                },
+                providerStarted: async () => {
+                  await providerStarted();
+                  await hooks.providerStarted?.();
+                }
+              }
+            ),
+          replayValue: async () => viewAsideDocument(
+            await this.dependencies.stories.loadAsideDocument(id)
+          )
+        }
+      );
+      return committed.value;
+    });
   }
 
   async summarizeChapter(
@@ -348,11 +454,19 @@ export class StoryServiceGeneration {
       rewriteId?: string;
     } = {}
   ): Promise<StoryPayload> {
-    if (options.mutationRequest !== undefined) {
-      return await this.dependencies.cancellable(signal, async (active) => {
+    return await this.dependencies.cancellable(signal, async (active) => {
+      const mutationRequest = options.mutationRequest !== undefined
+        ? options.mutationRequest
+        : await mintActivatedStoryMutationRequest(
+            this.dependencies.stories,
+            id,
+            "summarizeChapter",
+            breakId
+          );
+      if (mutationRequest !== undefined) {
         const committed =
           await this.dependencies.storyMutations.runProviderOperation(
-          options.mutationRequest,
+          mutationRequest,
           "summarizeChapter",
           {
             signal: active,
@@ -380,11 +494,8 @@ export class StoryServiceGeneration {
           committed.story,
           committed.aggregateVersion
         );
-      });
-    }
-    return await this.dependencies.cancellable(
-      signal,
-      async (active) => buildStoryPayload(await summarizeChapter(
+      }
+      return buildStoryPayload(await summarizeChapter(
         id,
         breakId,
         this.dependencies.stories,
@@ -392,7 +503,7 @@ export class StoryServiceGeneration {
         this.dependencies.promptCache,
         active,
         options
-      ))
-    );
+      ));
+    });
   }
 }

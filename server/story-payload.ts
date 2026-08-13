@@ -39,6 +39,9 @@ export function buildStoryPayload(
       ? {}
       : { firstChapterTitle: story.firstChapterTitle }),
     ...(story.factsBudgetTokens === undefined ? {} : { factsBudgetTokens: story.factsBudgetTokens }),
+    ...(story.asideDocumentId !== undefined && story.asideDocumentId !== null
+      ? { hasAside: true as const }
+      : {}),
     nodes: story.nodes.map((node): NodeStub => {
       const rollup = rollups.get(node.id);
       if (rollup === undefined) throw new Error(`Missing rollup for node: ${node.id}`);

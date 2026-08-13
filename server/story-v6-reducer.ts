@@ -1,8 +1,12 @@
 import { HASH_PATTERN, StoryFormatError } from "./story-format-facts.js";
 import { storyIdForMutation } from "./story-identity.js";
-import { STORY_SUCCESSOR_SCHEMA_VERSION } from "./story-format.js";
+import { STORY_ASIDE_SCHEMA_VERSION, STORY_SUCCESSOR_SCHEMA_VERSION } from "./story-format.js";
 import { isStoryId } from "./story-v5-strict.js";
-import { STORY_SCHEMA_VERSION_V6, STORY_SCHEMA_VERSION_V8 } from "./story-v6-codec.js";
+import {
+  STORY_SCHEMA_VERSION_V6,
+  STORY_SCHEMA_VERSION_V8,
+  STORY_SCHEMA_VERSION_V10
+} from "./story-v6-codec.js";
 import {
   DECIMAL_20_PATTERN,
   REVISION_ONE,
@@ -141,7 +145,10 @@ export function reduceStoryV6(
       };
       // A deleted envelope carries no content, so this has nothing to gain
       // from the successor schema; it keeps the version the live document it
-      // replaces already had, exactly as `formatV6`/`formatV8` each expect.
+      // replaces already had.
+      if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V10) {
+        return { ...deleted, schemaVersion: STORY_SCHEMA_VERSION_V10 };
+      }
       return manifest.schemaVersion === STORY_SCHEMA_VERSION_V8
         ? { ...deleted, schemaVersion: STORY_SCHEMA_VERSION_V8 }
         : { ...deleted, schemaVersion: STORY_SCHEMA_VERSION_V6 };
@@ -172,14 +179,13 @@ interface LiveEnvelopeFields {
   lastTransaction: UserTransactionPointer | null;
 }
 
-/** The one place a live replacement picks its envelope: V8 exactly when the
- *  content just produced is the successor payload, V6 otherwise. Both
- *  `create-prepared`/`import-prepared` (a fresh story) and every existing-story
- *  replacement (`nextLive` below) go through this, so a session's `imageInput`
- *  activation decision (`server/story-aggregate-session.ts`) is the only thing
- *  that ever steers a document toward V8: this function only reacts to the
- *  content version that decision already produced. */
+/** The one place a live replacement picks its envelope: V10 for Aside content,
+ *  V8 for image-successor content, V6 otherwise. The encode path's activation
+ *  decision is the only thing that steers content version; this only reacts. */
 function liveEnvelope(fields: LiveEnvelopeFields, content: StoryEnvelopeContent): LiveStoryEnvelopeManifest {
+  if (content.schemaVersion === STORY_ASIDE_SCHEMA_VERSION) {
+    return { format: "1667-story", kind: "live", schemaVersion: STORY_SCHEMA_VERSION_V10, content, ...fields };
+  }
   return content.schemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION
     ? { format: "1667-story", kind: "live", schemaVersion: STORY_SCHEMA_VERSION_V8, content, ...fields }
     : { format: "1667-story", kind: "live", schemaVersion: STORY_SCHEMA_VERSION_V6, content, ...fields };

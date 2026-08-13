@@ -11,6 +11,8 @@ export interface ActionContext {
   renderer: CliRenderer | null;
   applyTheme: (theme: ThemeName) => void;
   previewTheme: (theme: ThemeName | null) => void;
+  /** Test seam for the release-wide Aside switch. */
+  asideEntryPointsOpen?: boolean;
 }
 
 export type BackendActionContext = Pick<ActionContext, "backend" | "cache">;
