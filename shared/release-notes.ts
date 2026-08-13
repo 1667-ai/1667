@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.4-rc.2",
+    date: "2026-08-13",
+    body: "- **The Windows Installer keeps inherited permissions on the Install Root.**\n  Before this fix, the Installer replaced the Install Root permissions. A\n  restricted user shell could create files there but could not replace those\n  permissions, so installation failed with an access denied error."
+  },
+  {
     version: "0.9.4-rc.1",
     date: "2026-08-13",
     body: "- **Local Chat Completions keep a continuation on the active assistant\n  passage.** The stable prompt now tells the model how to continue the final\n  assistant message. 1667 also sends the llama.cpp continuation fields when\n  the final message is an assistant message."

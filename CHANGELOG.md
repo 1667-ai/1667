@@ -258,6 +258,13 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
 
+## 0.9.4-rc.2 - 2026-08-13
+
+- **The Windows Installer keeps inherited permissions on the Install Root.**
+  Before this fix, the Installer replaced the Install Root permissions. A
+  restricted user shell could create files there but could not replace those
+  permissions, so installation failed with an access denied error.
+
 ## 0.9.4-rc.1 - 2026-08-13
 
 - **Local Chat Completions keep a continuation on the active assistant
