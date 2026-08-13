@@ -13,7 +13,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   that failed, so it now waits for the first token until the connection's
   own total deadline, not the shorter first-token value alone. The headers
   deadline is unchanged: a server that has not returned response headers
-  still ends the generation quickly. Thanks @10fra for the report.
+  still ends the generation quickly.
 
 - **Three connection deadlines are editable in Settings.** The new
   **headers**, **idle**, and **total** rows sit under the **connection**
@@ -22,7 +22,6 @@ This file records notable changes to 1667. Product terms use the definitions in
   file. There is no row for the first-token deadline, because 1667 waits for
   the first token until the **total** deadline and a first-token value
   cannot change a request. To give a slow prompt more time, raise **total**.
-  Thanks to @10fra.
 
 - **The log now shows a release note with its paragraphs and list kept.**
   Before this fix, the log joined a release note into one line, and it
@@ -36,29 +35,26 @@ This file records notable changes to 1667. Product terms use the definitions in
   then the word `thought` on a story part that has one. Press `T` to unfold it
   above the prose, behind a rail. The new **Reasoning** row in Settings selects
   off, marker, or open, and the new **Keep thought** row selects whether 1667
-  saves each thought with its take. Thanks to @10fra.
+  saves each thought with its take.
 
 - **A model that thinks for a long time no longer stops at the first-token
   deadline.** 1667 waited for prose. A model that thinks first sent no prose,
   so the deadline ended the generation while the model was still working. 1667
-  now accepts any stream activity, and reasoning text counts. Thanks @10fra for
-  the report.
+  now accepts any stream activity, and reasoning text counts.
 
 - **Settings loads a provider's only model before Save.** A provider or base
   URL change could return one model while the model row stayed blank. The
   writer then had to save or select the model. Settings now selects the model
   when the current model is blank. It does not replace a model name that the
-  writer typed. Thanks to @10fra.
+  writer typed.
 
 - Show live download progress for managed upgrades and the Windows Installer.
-  Thanks to @10fra.
 
 - **Prompt-token counting stops for all active provider work.** A count could
   continue before a generation showed its stream. It could also restart while
   a stopped generation was still settling. 1667 now stops an active count when
   provider work starts. It counts once after the provider owner releases the
-  operation. This behavior also applies to rewrites and summaries. Thanks
-  @10fra for the report.
+  operation. This behavior also applies to rewrites and summaries.
 
 - **1667 installs and updates in a directory that other software also uses.**
   The Installer and `1667 upgrade` refused an Install Root when any directory
@@ -97,8 +93,7 @@ This file records notable changes to 1667. Product terms use the definitions in
 - **Upgrade output says less.** An installation that 1667 can update no longer
   reads a sentence about how it was installed.
 
-- **The dependency audit is clean.** 1667 now uses `fast-uri` 3.1.5. Thanks
-  @10fra for the report.
+- **The dependency audit is clean.** 1667 now uses `fast-uri` 3.1.5.
 
 - **Generation Profiles can move between projects.** Import a NovelAI Sampler
   Preset or a Profile Export with `1667 profile import`. Export a shareable
@@ -127,7 +122,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   `Ctrl+Z` or `Command+Z` to undo an edit. Add `Shift` to redo the edit. Use
   `Command+Arrow` to move to a line end or a buffer end. Use
   `Command+Backspace` to delete to the start of a line. Use `Page Up` or
-  `Page Down` to move by one editor page. Thanks @10fra for the request.
+  `Page Down` to move by one editor page.
 - **A token probability viewer shows the alternative tokens the model
   weighed.** Press `l` on a story part to open it. The viewer shows the
   take's prose with the selected token marked, and below it the alternative
@@ -142,7 +137,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   the fields, 1667 sends the request again without them, and the generation
   keeps its prose. 1667 stores the alternatives beside the take that
   produced them, so they survive a restart, and removes them once no take
-  refers to them. Thanks @10fra for the request.
+  refers to them.
 - **Facts now support a move order, a priority, and a token budget.** Select a
   Fact in the Facts panel and press `Shift+Up Arrow` or `Shift+Down Arrow` to
   move it. The Fact editor gains a priority row (`low`, `normal`, or `high`,
@@ -152,7 +147,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   **facts budget** to cap the combined tokens every Fact in a request may
   spend. A request that does not fit now drops droppable Facts by priority
   instead of failing outright, and the context meter and the Facts panel
-  state what was dropped, and why. Thanks @10fra for the request.
+  state what was dropped, and why.
 - **The Sampling group now accepts phrase bias and banned strings.** Type a
   text phrase and a weight. Or type a banned string. 1667 tokenizes the
   phrase four ways: as typed, with a leading space, with a capital letter,
@@ -199,8 +194,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   entries, or two story entries, name the same token with different weights,
   1667 still blocks the request, the same as it already does for two
   profile entries. 1667 blocks the request even when a third entry from the
-  other side also names that token and wins it. Thanks @10fra for the
-  request.
+  other side also names that token and wins it.
 - **Character card import now reads Character Card V3.** This covers V3 JSON
   and the `ccv3` PNG chunk; when a PNG has both `ccv3` and a V1 or V2 `chara`
   fallback, 1667 reads `ccv3`. A V3 or V2 card's embedded `character_book`
@@ -210,7 +204,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   no place for, and the V3 fields this converter does not import — greetings,
   example messages, assets, creator notes, the system prompt, the
   post-history instructions, the character version, tags, and the creator.
-  CHARX, the zip container, stays unsupported. Thanks @10fra for the request.
+  CHARX, the zip container, stays unsupported.
 - **The Author's Note now has a depth setting.** Depth sets how many story
   parts from the end the note lands before. The default depth, 1, is today's
   placement: immediately before the last story part. Open the Author's Note
@@ -220,7 +214,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   palette. Select **Author brief**. A story Author Brief overrides the
   machine-wide default for that story's continuation, prompted retake,
   highlighted rewrite, and autoname requests. A story with no Author Brief of
-  its own keeps the machine-wide default. Thanks @10fra for the request.
+  its own keeps the machine-wide default.
 - **The context meter and the request viewer now count tokens.** Before, they
   counted four characters for each token. 1667 now uses the tokenize source of
   the preset: the bundled tokenizer for the official OpenAI host, the count
@@ -229,55 +223,53 @@ This file records notable changes to 1667. Product terms use the definitions in
   shows `≈`. A preset with no tokenize source keeps the `~` estimate. 1667
   counts the request after you stop typing, so a count never delays a
   keystroke. If the model server does not answer, 1667 keeps the estimate.
-  Thanks @10fra for the request.
 - **`1667 import-lorebook` now reads a SillyTavern World Info file.** Give the
   `.json` file to the command or to `import archive` in the command palette.
   1667 reads the file to know its format. A constant Entry becomes an always
   active Fact, and a keyed Entry keeps its keys. The Fidelity Report gives the
-  World Info mechanisms that a Fact has no place for. Thanks @10fra for the
-  request.
+  World Info mechanisms that a Fact has no place for.
 
 - **Settings now includes a collapsed Sampling group.** Open the group to
   edit scalar values, stop sequences, and logit bias rows. The TUI shows a
   short reason for an unavailable value. An unavailable scalar row shows
   `‹ — ›`. A save keeps the draft when a configured value is unavailable.
-  Thanks @10fra for the report.
 - **The Sampling group now offers DRY, XTC, dynamic temperature, and
   Mirostat.** llama.cpp and KoboldCpp are the presets that accept these
   parameters. The panel groups the new rows under a rule line for each
   parameter family. `mirostat` reads `off`, `v1`, or `v2`. `mirostat tau` and
-  `mirostat eta` open once Mirostat is on. Thanks @10fra for the request.
+  `mirostat eta` open once Mirostat is on.
 - **A NovelAI `.story` or `.scenario` export now carries the Facts, the Memory,
   and the Author's Note.** An export and an import carry the same items, so a
   story that leaves 1667 and comes back keeps the world that steers it. A
   Scenario now carries the story's own Author's Note in place of the author
-  brief. Thanks @10fra for the report.
+  brief.
 
 - **`1667 --help` is now one page for each command.** The first page gives the
   commands and the usual options, and it fits a short terminal. Use
   `1667 <command> --help` for what one command accepts. This command also
-  replaces the error that `1667 import --help` gave before. Thanks @10fra for
-  the report.
+  replaces the error that `1667 import --help` gave before.
 
 - **1667 can now import character cards into an existing story.** The command
   palette opens a path prompt with `Tab` completion. The `1667 import-card`
   command accepts one or more JSON or PNG files. It adds their Facts to the
-  story that `--story` names. Thanks @10fra for the request.
+  story that `--story` names.
 
-## 0.9.1-rc.1 - 2026-08-12
+## 0.9.1 - 2026-08-13
 
 - **You can save an empty Author Brief.** Clear the Author Brief in Settings
   when you do not want a system instruction. 1667 now accepts and saves the
-  empty value. Thanks to @10fra.
+  empty value.
 
 - **Chapter summaries can finish.** 1667 no longer limits a chapter summary to
   the same token count that it asks the model to target. The configured Max
-  output tokens value now gives the model space to finish. Thanks to @10fra.
+  output tokens value now gives the model space to finish.
 
 - **A generation refusal disappears when generation ends.** If you press a key
   that 1667 refuses during generation, the refusal now clears when generation
   ends. It no longer tells you to stop a generation that has already ended.
-  Thanks to @10fra.
+
+- **Sampling refusal text wraps instead of stopping at the panel edge.** A
+  refusal now keeps its complete reason and recovery instruction visible.
 
 ## 0.9.0 - 2026-08-12
 
@@ -288,14 +280,14 @@ This file records notable changes to 1667. Product terms use the definitions in
   earlier point that still fits and summarizes there instead. It tells you
   when the summary covers less than you asked for, and names the point where
   it stopped. It refuses only when no point fits at all, and that message now
-  names a fix you can act on. Thanks to @10fra.
+  names a fix you can act on.
 
 - **You can attach an image to a request.** Paste an image, or run `attach
   image` and give a path. The composer shows a row for each attached image.
   1667 sends the images with your instruction, and the take keeps them, so a
   later request in the same line sends them again. 1667 offers this only when
   the selected model states that it accepts images. 1667 does not offer image
-  attachment when it cannot tell. Thanks to @10fra.
+  attachment when it cannot tell.
 
 ## 0.8.0 - 2026-08-11
 
@@ -313,8 +305,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   open the Generation Record Viewer. It shows the provider, the model, the
   effective settings, provider adjustments, and the ordered request pipeline.
   It keeps the request text from that generation after a later edit. It never
-  stores a credential, a custom header value, or a base URL. Thanks @10fra for
-  the request.
+  stores a credential, a custom header value, or a base URL.
 
 ## 0.6.1 - 2026-08-10
 
@@ -326,7 +317,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   message within that limit but still too large to keep gives no alternative
   token for that take, and the generation keeps its prose. A message past the
   ceiling still ends the generation, the same as any other oversized response
-  from the model. Thanks @10fra for the report.
+  from the model.
 
 - **A Fact can now hold up to 100,000 characters, and an over-long Fact says
   so.** The old limit was 4,000 characters, well under what a NovelAI
@@ -352,8 +343,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   default `always` mode keeps the existing behavior. The `keyed` mode scans the
   recent assembled story context and the current instruction. The Fact editor
   sets the mode and a comma-separated key list. The Facts panel and side rail
-  show the keyed activation state for the next request. Thanks @10fra for the
-  request.
+  show the keyed activation state for the next request.
 
 - **`1667 export` now writes NovelAI archives.** Use `--format story`,
   `--format scenario`, or `--format lorebook`. Use `--all` to export every
@@ -362,27 +352,23 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 - **Stories now have an Author's Note.** Press `a` to write short steering for
   the next continuation or prompted retake. 1667 shows the note cost in the
-  context meter and warns above 300 estimated tokens. Thanks @10fra for the
-  request.
+  context meter and warns above 300 estimated tokens.
 
 - **The TUI now shows the next request plan.** Press `Ctrl+R` to open the
   request viewer. It shows each message, the estimated token counts, chapter
   summary replacements, the routed model, and the context window. It does not
-  show credentials. Thanks @10fra for the request and the design.
+  show credentials.
 
 - **`1667 import` now imports NovelAI `.story` files.** Supports Editor V2
   MessagePack documents and Editor V1 legacy stories. Story title and section
   prose are converted to 1667 story parts. Container settings, Memory, Author's
-  Note, Lorebook, and retry history are not imported. Thanks @10fra for the
-  request.
+  Note, Lorebook, and retry history are not imported.
 - **`1667 import` now imports 1667-exported Markdown files as new stories.**
   Markdown `#` headings set the story title. `##` headings become chapter
   boundaries. Prose blocks separated by blank lines become story parts.
-  Thanks @10fra for the request.
 - **1667 now publishes a native Windows x64 package.** The PowerShell Installer
   verifies the Release Archive and manages upgrades. CI tests the Windows
-  package, private state DACLs, and Installer on Windows. Thanks @10fra for the
-  request.
+  package, private state DACLs, and Installer on Windows.
 - **The install command now shows its progress.** It names each stage. It also
   shows the transfer while it downloads. The command was silent until it
   stopped. You could not see the difference between a slow network and a stopped
@@ -410,11 +396,9 @@ This file records notable changes to 1667. Product terms use the definitions in
 - **Composer errors now wrap inside the footer.** A model timeout no longer
   ends at the terminal edge.
 - **Settings now shows only useful save state.** A clean panel has no save
-  message. A changed panel shows `unsaved draft · s saves`. Thanks @10fra for
-  the reports.
+  message. A changed panel shows `unsaved draft · s saves`.
 - **Release workflows now run inline TypeScript programs as ES modules.** This
-  change prevents Node from treating these programs as CommonJS. Thanks @10fra
-  for the report.
+  change prevents Node from treating these programs as CommonJS.
 - **The starter tour now starts with a rainbow 1667 mark.** The mark is part of
   the first story part. It scrolls with the story. The TUI does not add a new
   screen or an editor for the mark.
@@ -444,7 +428,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   operation ID that an earlier request used. The client removes completed
   retry claims from the active cohort. The legacy preview validates its data
   directory before it creates lease files. A listener factory must use the
-  selected project data directory. Thanks @10fra for the report.
+  selected project data directory.
 - **Stop keeps model text that already arrived.** 1667 stops the model stream.
   It waits for the request to finish in the background. It then saves the
   arrived text with the generation ID. The saved take becomes the focused take.
@@ -452,19 +436,18 @@ This file records notable changes to 1667. Product terms use the definitions in
   show a cancellation message for a Stop that the writer requested.
 - **Enter now cycles Compose Focus in Settings.** `Enter` advances the Compose
   Focus row like the other closed-choice Settings rows. Paste does not open an
-  editor for those rows. Thanks @10fra for the report.
+  editor for those rows.
 - **The context meter now previews likely response growth.** A slow two-color
   pulse shows an estimate from recent provider prose, not the full output cap.
   The meter uses a small recent median. It excludes human nodes and summary
   nodes. With no usable history, it uses a conservative cold start near 512
   tokens. The estimate clamps to the configured max output tokens and to free
   context capacity for the projected request. The max output cap stays visible
-  as secondary text. The pulse bar never uses the cap for size. Thanks @10fra
-  for the report and the design.
+  as secondary text. The pulse bar never uses the cap for size.
 - **Fact editing now opens directly from the Facts panel.** Press `Enter` or
   double-click a Fact to open its editor. The editor includes the `people`,
   `places`, `rules`, and `items` Fact tags from StoryTavern. A saved custom Fact
-  tag becomes available for other Facts. Thanks @10fra for the design.
+  tag becomes available for other Facts.
 - **Local story changes commit with one atomic write.** A take switch, a text
   edit, a tag change, a fact change, or a chapter-break change now commits
   through one atomic publish of the story manifest. Before, each of these
@@ -488,8 +471,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   without story text, prompts, endpoints, credentials, or nested failure
   details. 1667 retries warning cleanup in the background if the first cleanup
   fails. The HTTP API protocol and the worker protocol increase from 7 to 8.
-  Thus, an older process cannot discard the exact recovery record. Thanks
-  @10fra for the reports.
+  Thus, an older process cannot discard the exact recovery record.
 - **`u` now takes back an added or removed chapter break only.** It also
   reversed a take switch, and it said so on each take switch. Two keys did one
   job: `←` and `→` already walk the takes of one part. Worse, a key named undo
@@ -497,8 +479,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   cannot: `d` prunes takes and their children, and nothing brings them back. `u`
   now reaches an added or removed chapter break, which includes the summary of a
   removed break. It does not reach a chapter rename, a summary edit, or any
-  prose. The take-switch message no longer names it. Thanks @10fra for the
-  report.
+  prose. The take-switch message no longer names it.
 - **A fresh install now opens with facts.** The tour carries five facts about
   the instrument. "A Door in the Hedge" carries four facts about its own world.
   The facts overlay no longer opens empty at the point where the tour tells you
@@ -508,18 +489,15 @@ This file records notable changes to 1667. Product terms use the definitions in
   and the pending-save notice moved below the fields, beside the check result.
   The read-only migration banner stays above the fields, because it changes
   what each field below it means. The notice area keeps a constant height, so a
-  pending save no longer moves the fields or the rows above them. Thanks
-  @10fra for the placement review.
+  pending save no longer moves the fields or the rows above them.
 - **A toast now always uses the footer line.** Before, a toast printed under the
   focused story part while the view followed focus, and in the footer after you
   scrolled away. A message about the application no longer enters the
-  manuscript, and it no longer moves with the focus. Thanks @10fra for the
-  placement review.
+  manuscript, and it no longer moves with the focus.
 - **1667 no longer announces a clean startup recovery.** The message `startup
   recovery complete · state reloaded` reported an internal step at each start.
   1667 still reloads state at each start. It now reports the recovery only with
-  a warning, or when the reload opens a different story. Thanks @10fra for the
-  report.
+  a warning, or when the reload opens a different story.
 - **Bookmarks are now tags.** A tag is a name and a status on the end of one
   story line. The old name told you that the mark kept a reading position. It
   does not. It names one version of the story, and the reading position is the
@@ -529,12 +507,11 @@ This file records notable changes to 1667. Product terms use the definitions in
   from 5 to 6, because the story payload, the tag routes and the request body
   changed. A client and a backend from different builds must be updated
   together: an older client is now refused when it connects, instead of
-  connecting and then failing to read a story. Thanks @10fra for the
-  terminology review.
+  connecting and then failing to read a story.
 - **A displaced Canon line becomes Alt.** Only one story line can be Canon. When
   you make a second line Canon, the first line becomes Alt and keeps its name,
   its colour, and its date. Before, the first line lost its status. It then
-  looked the same as a line with no tag. Thanks @10fra for the report.
+  looked the same as a line with no tag.
 - **1667 withholds its Windows x64 package.** The
   Windows machine tier installs a protected DACL for the current user and
   SYSTEM. Native tests reject reparse points. The launcher does not pin
@@ -545,28 +522,25 @@ This file records notable changes to 1667. Product terms use the definitions in
   route. Routine CI does not build this target.
 - **Pull request CI now builds three release targets.** Pull request CI builds
   macOS arm64, Linux arm64, and Linux x64. A push to `main` also builds macOS
-  x64. CI does not build Windows x64. Thanks @10fra for the CI coverage
-  decision.
+  x64. CI does not build Windows x64.
 - **Migrated StoryTavern bundles open in 1667.** 1667 accepts the predecessor
   manifest and text-revision identifiers without changing content hashes. New
-  story writes use 1667 identifiers. Thanks @10fra for the migration report.
+  story writes use 1667 identifiers.
 - **Unexpected backend failures now have private local diagnostics.** 1667
   writes bounded machine-tier logs, returns safe persisted references across
   HTTP and embedded-worker boundaries, and can mirror new entries with
-  `--print-logs`. Thanks @10fra for the failure-reporting design.
+  `--print-logs`.
 - **Public documentation now describes the current repository.** The README
   states the public status and exact CI coverage. The release guide specifies
   five release packages and five release targets. Obsolete plan documents are
-  removed. Thanks @10fra for the documentation audit.
+  removed.
 - **Repository documentation shows build status and uses a defined language
   standard.** The README shows CI and standalone-build status for `main`.
   `AGENTS.md` requires ASD-STE100 for technical documentation and README files.
-  Thanks @10fra for defining the standard.
 - **Generation does not block local writer actions.** Provider work uses short
   durable phases. The final phase applies an operation-specific result to the
   current story. Concurrent edits remain unchanged. Linux tests cover Stop
-  saves, deleted sources, manual names, and provider termination. Thanks
-  @10fra for the CI failure analysis.
+  saves, deleted sources, manual names, and provider termination.
 - **Stories use project-root storage.** 1667 searches parent directories for a
   `.1667/` project. `1667 init` creates a project. `1667 --global` opens one
   machine-wide project. `--data` selects a project root and accepts a relative
@@ -592,7 +566,6 @@ This file records notable changes to 1667. Product terms use the definitions in
   checks apply to the machine tier.
 - **The key reference explains each visible key.** The reference groups keys
   by task. It uses available terminal columns and supports arrow-key scroll.
-  Thanks @10fra for the new reference design.
 - **The TUI shows the build identity.** The status bar shows the identity. The
   key reference also shows it when a narrow terminal hides the status bar.
 - **1667 has an independent repository.** The terminal application and its

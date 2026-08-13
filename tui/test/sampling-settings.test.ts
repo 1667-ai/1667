@@ -1191,6 +1191,29 @@ function publishSamplingRefresh(
   });
 }
 
+// The status row clipped to one line, which is worst for the message that
+// most needs reading: a refused save states its reason in the tail, so the
+// writer saw a sentence cut mid-word with no way to reach the rest.
+test("a long sampling status wraps instead of losing its tail", async () => {
+  const { state, press } = settingsHarness();
+  await enterSampling(state, press);
+  // Comfortably past one row of a panel this wide, so a clip would have to
+  // drop something, and the tail is what a clip drops.
+  const reason = "logitBias must be an object, and the provider refused this"
+    + " draft because the phrase resolved to no usable token identifier at all"
+    + " · clear the entry or choose a model with an exact tokenizer";
+  state.settings!.sampling!.result = reason;
+
+  const frame = render(state, 80, 24);
+
+  // The tail carries the recovery, which is exactly what a one-line clip
+  // loses. Assert on fragments that survive a wrap boundary rather than the
+  // whole sentence, which the border splits across rows.
+  expect(frame).toContain("exact tokenizer");
+  expect(frame).toContain("logitBias must be an object");
+  expect(frame.split("\n").every((line) => visibleWidth(line) <= 80)).toBeTrue();
+});
+
 function render(
   state: ReturnType<typeof initialState>,
   width: number,
