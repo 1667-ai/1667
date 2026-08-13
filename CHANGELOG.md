@@ -254,6 +254,13 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
 
+## 0.9.5-rc.1 - 2026-08-13
+
+- **Aside adds non-canon Side Notes to a story.** Use `/aside` or the Command
+  Palette to discuss the open story. Each question and answer stays with that
+  story. Side Notes never enter Write prompts or Markdown exports. Use
+  `/clear` in Aside to remove all Side Notes from the story.
+
 ## 0.9.4 - 2026-08-13
 
 - **Banned strings can be added when the raw token bias map is empty.** The

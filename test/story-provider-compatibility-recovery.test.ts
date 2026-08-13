@@ -346,7 +346,10 @@ async function legacyProviderService(
     }),
     { encoding: "utf8", mode: 0o600 }
   );
-  const service = StoryService.withoutDiagnostics({ dataDir });
+  const service = StoryService.withoutDiagnostics({
+    dataDir,
+    asideActivation: false
+  });
   await service.init();
   return { dataDir, service };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { KeyEvent } from "@opentui/core";
+import type { KeyEvent, MouseEvent } from "@opentui/core";
 import {
   createAsideSurface,
   ASIDE_INPUT_PLACEHOLDER,
@@ -29,7 +29,8 @@ import { openDirectComposer } from "../src/composer-ownership.js";
 import { moveComposerTo, setComposerText } from "../src/composer-model.js";
 import { visibleWidth } from "../src/screens/story/frame.js";
 import { renderStoryScreen } from "../src/screens/story.js";
-import { activeTextComposer } from "../src/text-actions.js";
+import { activeTextComposer, openTextActions } from "../src/text-actions.js";
+import { mouseToAction } from "../src/mouse-actions.js";
 
 function key(
   name: string,
@@ -130,6 +131,42 @@ describe("Aside TUI contract", () => {
     expect(surface.scrollTop).toBeNull();
     surface.notes.push({ question: "new-tail", answer: "followed" });
     expect(renderAsideFrame(surface, width, height).join("\n")).toContain("new-tail");
+  });
+
+  test("the mouse wheel scrolls Side Note history", async () => {
+    const notes = Array.from({ length: 8 }, (_, index) => ({
+      question: `older-${index}`,
+      answer: `answer-${index}`
+    }));
+    const surface = createAsideSurface("s1", "Lantern Story", notes);
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    state.aside = surface;
+    state.mode = "ASIDE";
+    const width = 40;
+    const height = 12;
+    const wheelUp = {
+      type: "scroll",
+      button: 0,
+      x: 20,
+      y: 5,
+      modifiers: { shift: false, alt: false, ctrl: false },
+      scroll: { direction: "up" }
+    } as unknown as MouseEvent;
+
+    const action = mouseToAction(wheelUp, state);
+    expect(action).toEqual({ action: "scroll-line-up" });
+    await handleOverlayAction(
+      action!,
+      state,
+      source,
+      overlayContext(state, width, height)
+    );
+
+    expect(surface.scrollTop).not.toBeNull();
+
+    openTextActions(state);
+    expect(mouseToAction(wheelUp, state)).toEqual({ action: "focus-previous" });
   });
 
   test("ASIDE mode: Enter sends, Shift+Enter newlines, Esc cancels", () => {

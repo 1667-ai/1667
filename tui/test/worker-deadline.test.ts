@@ -7,6 +7,7 @@ import path from "node:path";
 import { platformPerformanceBudget } from "../../test/performance-budget.js";
 import { DataDirectoryLock } from "../../server/data-directory-lock.js";
 import { ownedLoopbackHttpSupported } from "../../server/provider-fetch.js";
+import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
 import {
   MAX_DELTA_BATCH_BYTES,
   MAX_UNACKNOWLEDGED_DELTA_BATCHES,
@@ -86,6 +87,42 @@ describe("embedded worker deadlines", () => {
         deadlineMs: Date.now() + 60_000
       });
       const rootedStory = (withRoot as Extract<WorkerToMainMessage, { type: "result" }>).value as StoryPayload;
+      if (rootedStory.aggregateVersion === undefined) {
+        throw new Error("Deadline fixture is missing successor aggregate metadata");
+      }
+      const expectedAggregateVersion = rootedStory.aggregateVersion;
+      const createdSummaryStory = await request(worker, {
+        type: "request",
+        id: operationId(),
+        method: "createStory",
+        input: { title: "Summary deadline proof" },
+        protocolVersion: WORKER_PROTOCOL_VERSION,
+        mutationId: mutationId("summary-1"),
+        deadlineMs: Date.now() + 60_000
+      });
+      expect(createdSummaryStory.type).toBe("result");
+      const summaryStory = (
+        createdSummaryStory as Extract<WorkerToMainMessage, { type: "result" }>
+      ).value as StoryPayload;
+      const summaryWithRoot = await request(worker, {
+        type: "request",
+        id: operationId(),
+        method: "createNode",
+        input: {
+          storyId: summaryStory.id,
+          body: { parentId: null, text: "The second door opened." }
+        },
+        protocolVersion: WORKER_PROTOCOL_VERSION,
+        mutationId: mutationId("summary-2"),
+        deadlineMs: Date.now() + 60_000
+      });
+      expect(summaryWithRoot.type).toBe("result");
+      const rootedSummaryStory = (
+        summaryWithRoot as Extract<WorkerToMainMessage, { type: "result" }>
+      ).value as StoryPayload;
+      if (rootedSummaryStory.aggregateVersion === undefined) {
+        throw new Error("Summary deadline fixture is missing aggregate metadata");
+      }
 
       const generationMutationId = mutationId("3");
       const generationInput = {
@@ -102,6 +139,7 @@ describe("embedded worker deadlines", () => {
         input: generationInput,
         protocolVersion: WORKER_PROTOCOL_VERSION,
         mutationId: generationMutationId,
+        expectedAggregateVersion,
         deadlineMs: Date.now() + PROVIDER_START_DEADLINE_MS
       });
       expect(await providerStartsBeforeResult(generationProviderStarted, expiredGeneration)).toBe(true);
@@ -119,6 +157,7 @@ describe("embedded worker deadlines", () => {
         input: generationInput,
         protocolVersion: WORKER_PROTOCOL_VERSION,
         mutationId: generationMutationId,
+        expectedAggregateVersion,
         deadlineMs: Date.now() + 60_000
       });
       expect(replayed).toMatchObject({
@@ -128,7 +167,10 @@ describe("embedded worker deadlines", () => {
       });
 
       const summaryMutationId = mutationId("4");
-      const summaryInput = { storyId: storyId.id, body: { nodeId: rootedStory.path[0]!.id } };
+      const summaryInput = {
+        storyId: summaryStory.id,
+        body: { nodeId: rootedSummaryStory.path[0]!.id }
+      };
       const summaryProviderStarted = nextProviderRequest(providerRequestWaiters);
       const expiredSummaryRequest = request(worker, {
         type: "request",
@@ -137,6 +179,7 @@ describe("embedded worker deadlines", () => {
         input: summaryInput,
         protocolVersion: WORKER_PROTOCOL_VERSION,
         mutationId: summaryMutationId,
+        expectedAggregateVersion: rootedSummaryStory.aggregateVersion,
         deadlineMs: Date.now() + PROVIDER_START_DEADLINE_MS
       });
       expect(await providerStartsBeforeResult(summaryProviderStarted, expiredSummaryRequest)).toBe(true);
@@ -154,6 +197,7 @@ describe("embedded worker deadlines", () => {
         input: summaryInput,
         protocolVersion: WORKER_PROTOCOL_VERSION,
         mutationId: summaryMutationId,
+        expectedAggregateVersion: rootedSummaryStory.aggregateVersion,
         deadlineMs: Date.now() + 60_000
       });
       expect(replayedSummary).toMatchObject({
@@ -232,6 +276,9 @@ describe("embedded worker deadlines", () => {
         deadlineMs: Date.now() + 60_000
       });
       const rootedStory = (withRoot as Extract<WorkerToMainMessage, { type: "result" }>).value as StoryPayload;
+      if (rootedStory.aggregateVersion === undefined) {
+        throw new Error("Deadline fixture is missing successor aggregate metadata");
+      }
 
       // The harness plays the main transport whose deadline timer fires: it
       // never acknowledges a delta, so the worker's credit window
@@ -252,6 +299,7 @@ describe("embedded worker deadlines", () => {
         },
         protocolVersion: WORKER_PROTOCOL_VERSION,
         mutationId: mutationId("3"),
+        expectedAggregateVersion: rootedStory.aggregateVersion,
         deadlineMs: Date.now() + 60_000
       }, collected.listener);
       const response = await providerResponse;
@@ -405,6 +453,6 @@ function nextMessageOfType<T extends WorkerToMainMessage["type"]>(
   });
 }
 
-function mutationId(suffix: string): string {
-  return `m1-${Date.now().toString(36)}-${suffix.padStart(32, "0")}`;
+function mutationId(_suffix: string): string {
+  return createDurableMutationId();
 }

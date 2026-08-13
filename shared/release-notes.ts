@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.5-rc.1",
+    date: "2026-08-13",
+    body: "- **Aside adds non-canon Side Notes to a story.** Use `/aside` or the Command\n  Palette to discuss the open story. Each question and answer stays with that\n  story. Side Notes never enter Write prompts or Markdown exports. Use\n  `/clear` in Aside to remove all Side Notes from the story."
+  },
+  {
     version: "0.9.4",
     date: "2026-08-13",
     body: "- **Banned strings can be added when the raw token bias map is empty.** The\n  preview now treats an omitted empty map as an empty map. It continues to\n  refuse malformed maps."

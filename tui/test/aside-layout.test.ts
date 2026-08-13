@@ -40,13 +40,28 @@ test("long Aside titles keep the full-screen composer and footer visible", () =>
     expect(lines[0]).toContain("ASIDE ·");
     expect(text).toContain("aside · prompt");
     expect(text).toContain("Why?");
-    expect(text).toContain("PageUp/PageDown");
+    expect(text).toContain("Esc write");
+    expect(text).toContain("/clear");
     expect(lines.some((line) => line.includes("┗━"))).toBeTrue();
     expect(frame.lines.flat().some((part) => part.composerStart === 0
       && part.background === "compose accent")).toBeTrue();
     expect(frame.derived.composerSelectionProjection?.some((cell) => cell?.start === 0
       && cell.end === 1)).toBeTrue();
   }
+});
+
+test("idle Aside keeps exit and Clear visible at standard width", () => {
+  const source = demoAppSource();
+  const state = initialState(source, false);
+  state.mode = "ASIDE";
+  state.aside = createAsideSurface(state.payload.id, state.payload.title);
+
+  const text = renderStoryScreen(state, { width: 80, height: 24 }).lines
+    .map(plainLine)
+    .join("\n");
+
+  expect(text).toContain("Esc write");
+  expect(text).toContain("/clear clear");
 });
 
 test("shows a submitted Aside question before the first provider delta", () => {
