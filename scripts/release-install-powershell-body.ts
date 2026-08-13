@@ -122,26 +122,6 @@ function Assert-NoReparsePoint([string]$PathValue, [switch]$AllowMissingLeaf) {
   }
 }
 
-function Protect-InstallRoot([string]$Root) {
-  $user = [Security.Principal.WindowsIdentity]::GetCurrent().User
-  if ($null -eq $user) { Fail 'The current Windows user SID is unavailable.' }
-  $system = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
-  $acl = New-Object Security.AccessControl.DirectorySecurity
-  $acl.SetOwner($user)
-  $acl.SetAccessRuleProtection($true, $false)
-  $inherit = [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
-    [Security.AccessControl.InheritanceFlags]::ObjectInherit
-  $propagation = [Security.AccessControl.PropagationFlags]::None
-  $allow = [Security.AccessControl.AccessControlType]::Allow
-  $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
-    $user, [Security.AccessControl.FileSystemRights]::FullControl,
-    $inherit, $propagation, $allow)))
-  $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
-    $system, [Security.AccessControl.FileSystemRights]::FullControl,
-    $inherit, $propagation, $allow)))
-  [IO.Directory]::SetAccessControl($Root, $acl)
-}
-
 # Path fields compare case-insensitively, because Windows paths are. The rest
 # stay case-sensitive. Rerunning the Installer with an equivalently spelled root
 # must not make the Installer reject the record it wrote itself.
@@ -410,8 +390,6 @@ function Main {
       })
     if ($other.Count -gt 0) { Fail 'Fresh Install Root is not empty.' }
   }
-  Protect-InstallRoot $root
-
   $lockPath = [IO.Path]::Combine($root, $LockName)
   $lock = $null
   try {
