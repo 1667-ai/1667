@@ -1,6 +1,6 @@
 {
   "name": "1667",
-  "version": "0.9.3",
+  "version": "0.9.4-rc.1",
   "private": true,
   "description": "A terminal environment for writing fiction with language models",
   "license": "Apache-2.0",

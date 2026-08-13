@@ -5,11 +5,6 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
-- **Local Chat Completions keep a continuation on the active assistant
-  passage.** The stable prompt now tells the model how to continue the final
-  assistant message. 1667 also sends the llama.cpp continuation fields when
-  the final message is an assistant message.
-
 - **1667 no longer ends a generation while a model server is still
   processing the prompt.** Prefill is the model server's work before it
   sends the first output token. The server sends no stream output while it
@@ -258,6 +253,13 @@ This file records notable changes to 1667. Product terms use the definitions in
   palette opens a path prompt with `Tab` completion. The `1667 import-card`
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
+
+## 0.9.4-rc.1 - 2026-08-13
+
+- **Local Chat Completions keep a continuation on the active assistant
+  passage.** The stable prompt now tells the model how to continue the final
+  assistant message. 1667 also sends the llama.cpp continuation fields when
+  the final message is an assistant message.
 
 ## 0.9.3 - 2026-08-13
 
