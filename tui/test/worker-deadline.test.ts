@@ -91,6 +91,38 @@ describe("embedded worker deadlines", () => {
         throw new Error("Deadline fixture is missing successor aggregate metadata");
       }
       const expectedAggregateVersion = rootedStory.aggregateVersion;
+      const createdSummaryStory = await request(worker, {
+        type: "request",
+        id: operationId(),
+        method: "createStory",
+        input: { title: "Summary deadline proof" },
+        protocolVersion: WORKER_PROTOCOL_VERSION,
+        mutationId: mutationId("summary-1"),
+        deadlineMs: Date.now() + 60_000
+      });
+      expect(createdSummaryStory.type).toBe("result");
+      const summaryStory = (
+        createdSummaryStory as Extract<WorkerToMainMessage, { type: "result" }>
+      ).value as StoryPayload;
+      const summaryWithRoot = await request(worker, {
+        type: "request",
+        id: operationId(),
+        method: "createNode",
+        input: {
+          storyId: summaryStory.id,
+          body: { parentId: null, text: "The second door opened." }
+        },
+        protocolVersion: WORKER_PROTOCOL_VERSION,
+        mutationId: mutationId("summary-2"),
+        deadlineMs: Date.now() + 60_000
+      });
+      expect(summaryWithRoot.type).toBe("result");
+      const rootedSummaryStory = (
+        summaryWithRoot as Extract<WorkerToMainMessage, { type: "result" }>
+      ).value as StoryPayload;
+      if (rootedSummaryStory.aggregateVersion === undefined) {
+        throw new Error("Summary deadline fixture is missing aggregate metadata");
+      }
 
       const generationMutationId = mutationId("3");
       const generationInput = {
@@ -135,7 +167,10 @@ describe("embedded worker deadlines", () => {
       });
 
       const summaryMutationId = mutationId("4");
-      const summaryInput = { storyId: storyId.id, body: { nodeId: rootedStory.path[0]!.id } };
+      const summaryInput = {
+        storyId: summaryStory.id,
+        body: { nodeId: rootedSummaryStory.path[0]!.id }
+      };
       const summaryProviderStarted = nextProviderRequest(providerRequestWaiters);
       const expiredSummaryRequest = request(worker, {
         type: "request",
@@ -144,7 +179,7 @@ describe("embedded worker deadlines", () => {
         input: summaryInput,
         protocolVersion: WORKER_PROTOCOL_VERSION,
         mutationId: summaryMutationId,
-        expectedAggregateVersion,
+        expectedAggregateVersion: rootedSummaryStory.aggregateVersion,
         deadlineMs: Date.now() + PROVIDER_START_DEADLINE_MS
       });
       expect(await providerStartsBeforeResult(summaryProviderStarted, expiredSummaryRequest)).toBe(true);
@@ -162,7 +197,7 @@ describe("embedded worker deadlines", () => {
         input: summaryInput,
         protocolVersion: WORKER_PROTOCOL_VERSION,
         mutationId: summaryMutationId,
-        expectedAggregateVersion,
+        expectedAggregateVersion: rootedSummaryStory.aggregateVersion,
         deadlineMs: Date.now() + 60_000
       });
       expect(replayedSummary).toMatchObject({
