@@ -84,7 +84,7 @@ test("continue renders the existing provider wire shape exactly", () => {
     { role: "system", content: "CANONICAL FACTS" },
     {
       role: "system",
-      content: "You are writing prose for an ongoing story. Return only story text: no preamble, summary, explanation, commentary, or headings. Never restart, retell, or quote passages that are already written."
+      content: "You are writing prose for an ongoing story. Use the final message to choose the operation. If the final message is an assistant message, it is an unfinished passage: continue directly from its exact final character, even when that character is in the middle of a word, and return only the new characters after that boundary. If the final message is a user message, follow its direction and write the next passage. In all cases, return only story text: no preamble, summary, explanation, commentary, headings, restart, retelling, or quotation of existing passages."
     },
     { role: "user", content: "Open the door." },
     { role: "assistant", content: "The latch clicked." },
@@ -462,7 +462,7 @@ test("stable rendered-prefix hashes are golden for every generation operation", 
   ), {
     // Changed by issue #176, which returned the mode-independent contract to
     // the prelude. Only `continue` moves: no other operation shares it.
-    continue: "e10472c737b09dc191c1cbb0d6807812f6e65725543c7452702893bb34dfb369",
+    continue: "b99dd1db41be3369faa1c3b0a9de3583e7ed3cae36bb8b5e7c499d89e756e116",
     rewrite: "915a92f74c89251f1a90cae595e7682f7f4287a1bc273ac9e2fc01099cbd4462",
     phrase: "928f1145fa90b9f398b67be8eb84164fdc17ce58b2e85704505f322ff8099752",
     title: "8ce79bf5ea50fb067d4a53a1f228b0df1b2a3c4ff6f4b698c781d00cbf3c8d72",

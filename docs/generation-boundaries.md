@@ -9,11 +9,15 @@ read_when:
 
 # Generation boundaries
 
-Empty Continue is not a new user turn. On providers that support assistant
-prefill, the active passage remains the final assistant message so generation
-begins after its last character. Providers known to reject prefills receive a
-short exact left-boundary echo contract; 1667 verifies and removes the
-echo before saving.
+Empty Continue is not a new user turn. On a route with a known assistant
+prefill contract, the active passage remains the final assistant message so
+generation begins after its last character. The stable operation contract
+also gives the exact continuation rule. This rule helps a small model identify
+the active passage. The llama.cpp Chat Completions route also uses
+`add_generation_prompt: false` and `continue_final_message: true`. These fields
+keep the final assistant message open. A route declared without assistant
+prefill support receives a short exact left-boundary echo contract. 1667
+verifies and removes the echo before saving.
 
 A highlighted rewrite is an infill operation with two constraints. The request
 prefills or echoes a short exact left anchor, then requires the model to reproduce
