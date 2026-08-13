@@ -39,7 +39,10 @@ import {
 test("the predecessor service keeps every Aside entry point closed", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-aside-closed-"));
   const dataDir = path.join(root, "project");
-  const service = StoryService.withoutDiagnostics({ dataDir });
+  const service = StoryService.withoutDiagnostics({
+    dataDir,
+    asideActivation: false
+  });
   await service.init();
   t.after(async () => {
     await service.dispose();
@@ -82,7 +85,10 @@ test("the inactive predecessor replays supplied Aside identities, but not new re
   assert.ok(saved !== null);
   await writer.dispose();
 
-  const predecessor = StoryService.withoutDiagnostics({ dataDir });
+  const predecessor = StoryService.withoutDiagnostics({
+    dataDir,
+    asideActivation: false
+  });
   await predecessor.init();
   const replayed = await predecessor.askAside(
     created.id,
@@ -201,7 +207,10 @@ test("activated direct local and provider mutations keep V10 writable", async (t
   assert.equal(autonamed.title, "The Quiet After Rain");
   await writer.dispose();
 
-  const predecessor = StoryService.withoutDiagnostics({ dataDir });
+  const predecessor = StoryService.withoutDiagnostics({
+    dataDir,
+    asideActivation: false
+  });
   await predecessor.init();
   await assert.rejects(
     () => predecessor.renameStory(created.id, "Must stay closed"),

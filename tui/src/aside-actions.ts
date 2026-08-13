@@ -128,7 +128,7 @@ export function asideFooterHint(surface: AsideSurfaceState): string {
   if (surface.confirmClear) return "Clear all Side Notes? Enter confirms · Esc cancels";
   if (surface.busy && surface.inflightQuestion === null) return "Clearing…";
   if (surface.busy) return "Esc stop · PageUp/PageDown scroll · Shift+Up/Down line scroll";
-  return "PageUp/PageDown scroll · Shift+Up/Down line scroll · Enter send · Shift+Enter newline · Esc write · clear: type /clear";
+  return "Esc write · /clear clear · Enter send · Shift+Enter newline · PageUp/PageDown scroll · Shift+Up/Down line scroll";
 }
 
 function asideFooterRows(surface: AsideSurfaceState, cols: number): string[] {

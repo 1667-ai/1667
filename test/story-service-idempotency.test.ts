@@ -36,7 +36,7 @@ test("pending receipts recover committed entity creation without duplicates afte
   const nodeId = mutationId("2");
   const factId = mutationId("3");
   const cutId = mutationId("4");
-  let service = StoryService.withoutDiagnostics({ dataDir });
+  let service = legacyWorkerService(dataDir);
   await service.init();
 
   await leavePendingAfterCommit(service, createId, "createStory", createInput);
@@ -51,7 +51,7 @@ test("pending receipts recover committed entity creation without duplicates afte
   const committedRevision = (await service.loadStory(storyId)).updatedAt;
   await service.dispose();
 
-  service = StoryService.withoutDiagnostics({ dataDir });
+  service = legacyWorkerService(dataDir);
   await service.init();
   try {
     const recovered = await runWorkerMutation(service, createId, "createStory", createInput);
@@ -77,7 +77,7 @@ test("pending Markdown import replay re-enters canonical creation recovery", asy
   const input = {
     markdown: "# Replayed\n\nFirst.\n\n## Later\n\nSecond."
   };
-  let service = StoryService.withoutDiagnostics({ dataDir });
+  let service = legacyWorkerService(dataDir);
   await service.init();
   const first = await leavePendingAfterCommit(
     service,
@@ -87,7 +87,7 @@ test("pending Markdown import replay re-enters canonical creation recovery", asy
   );
   await service.dispose();
 
-  service = StoryService.withoutDiagnostics({ dataDir });
+  service = legacyWorkerService(dataDir);
   await service.init();
   try {
     const replayed = await runWorkerMutation(
@@ -129,7 +129,7 @@ test("pending NovelAI import replay re-enters canonical creation recovery", asyn
       }
     })
   };
-  let service = StoryService.withoutDiagnostics({ dataDir });
+  let service = legacyWorkerService(dataDir);
   await service.init();
   const first = await leavePendingAfterCommit(
     service,
@@ -139,7 +139,7 @@ test("pending NovelAI import replay re-enters canonical creation recovery", asyn
   );
   await service.dispose();
 
-  service = StoryService.withoutDiagnostics({ dataDir });
+  service = legacyWorkerService(dataDir);
   await service.init();
   try {
     const replayed = await runWorkerMutation(
@@ -162,7 +162,7 @@ test("pending NovelAI import replay re-enters canonical creation recovery", asyn
 test("deterministic fact recovery wins before the capacity guard", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-fact-capacity-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = StoryService.withoutDiagnostics({ dataDir });
+  const service = legacyWorkerService(dataDir);
   await service.init();
   try {
     const story = await service.createStory("Full facts");
@@ -191,7 +191,7 @@ test("a patchFact replay does not mistake a priority/budget-only edit for one al
   // prior attempt had committed.
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-fact-patch-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = StoryService.withoutDiagnostics({ dataDir });
+  const service = legacyWorkerService(dataDir);
   await service.init();
   try {
     const story = await service.createFact(
@@ -233,7 +233,7 @@ test("a patchFact replay does not mistake a priority/budget-only edit for one al
 test("pending overwrite recovery never clobbers newer authoritative state", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-overwrite-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = StoryService.withoutDiagnostics({ dataDir });
+  const service = legacyWorkerService(dataDir);
   await service.init();
   try {
     const story = await service.createStory("Original");
@@ -255,7 +255,7 @@ test("pending overwrite recovery never clobbers newer authoritative state", asyn
 test("pending destructive mutations converge and clear without repeat writes", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-destructive-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = StoryService.withoutDiagnostics({ dataDir });
+  const service = legacyWorkerService(dataDir);
   await service.init();
   try {
     let story = await service.createStory("Destructive recovery");
@@ -351,7 +351,7 @@ test("pending destructive mutations converge and clear without repeat writes", a
 test("pending dry-run summaries reconcile by deterministic node ID", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-summary-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = StoryService.withoutDiagnostics({ dataDir });
+  const service = legacyWorkerService(dataDir);
   await service.init();
   try {
     let story = await service.createStory("Summary recovery");
@@ -374,7 +374,7 @@ test("pending dry-run summaries reconcile by deterministic node ID", async (t) =
 test("pending pre-provider summaries resume with deterministic commit IDs", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-summary-pending-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = StoryService.withoutDiagnostics({ dataDir });
+  const service = legacyWorkerService(dataDir);
   await service.init();
   try {
     let story = await service.createStory("Pending summary");
@@ -395,7 +395,7 @@ test("pending pre-provider summaries resume with deterministic commit IDs", asyn
 test("pending dry-run rewrites reconcile a committed take without duplicating it", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-rewrite-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = StoryService.withoutDiagnostics({ dataDir });
+  const service = legacyWorkerService(dataDir);
   await service.init();
   try {
     let story = await service.createStory("Rewrite recovery");
@@ -432,7 +432,7 @@ test("pending dry-run rewrites reconcile a committed take without duplicating it
 test("pending dry-run rewrites reconcile a committed in-place edit without duplicating it", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-rewrite-inplace-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = StoryService.withoutDiagnostics({ dataDir });
+  const service = legacyWorkerService(dataDir);
   await service.init();
   try {
     let story = await service.createStory("Rewrite recovery");
@@ -471,7 +471,7 @@ test("pending dry-run rewrites reconcile a committed in-place edit without dupli
 test("a partial-rewrite receipt replays after the volatile stash is lost", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-partial-rewrite-replay-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  let service = StoryService.withoutDiagnostics({ dataDir });
+  let service = legacyWorkerService(dataDir);
   await service.init();
   let disposed = false;
   try {
@@ -531,7 +531,7 @@ test("a partial-rewrite receipt replays after the volatile stash is lost", async
     // must still return the same take and must not apply the splice again.
     await service.dispose();
     disposed = true;
-    service = StoryService.withoutDiagnostics({ dataDir });
+    service = legacyWorkerService(dataDir);
     await service.init();
     disposed = false;
     const replayed = await runWorkerMutation(
@@ -657,7 +657,7 @@ test("a retryable partial settlement keeps its outer receipt pending", async (t)
 test("a completed partial-rewrite replay does not consume a later attempt", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-partial-rewrite-attempts-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = StoryService.withoutDiagnostics({ dataDir });
+  const service = legacyWorkerService(dataDir);
   await service.init();
   try {
     let story = await service.createStory("Partial rewrite attempts");
@@ -848,7 +848,7 @@ test("a terminal partial-rewrite conflict releases its exact stash slot", async 
 test("pending autoname resumes before admission and reconciles after commit", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-autoname-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = StoryService.withoutDiagnostics({ dataDir });
+  const service = legacyWorkerService(dataDir);
   await service.init();
   try {
     let story = await service.createStory("Original title");
@@ -875,7 +875,7 @@ test("pending autoname resumes before admission and reconciles after commit", as
 test("autoname recovery preserves newer manual titles", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-autoname-newer-title-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = StoryService.withoutDiagnostics({ dataDir });
+  const service = legacyWorkerService(dataDir);
   await service.init();
   try {
     let story = await service.createStory("Original title");
@@ -908,7 +908,7 @@ test("autoname recovery preserves newer manual titles", async (t) => {
 test("summary cancellation after provider admission completes as null", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-summary-cancel-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = StoryService.withoutDiagnostics({ dataDir });
+  const service = legacyWorkerService(dataDir);
   await service.init();
   const originalFetch = globalThis.fetch;
   try {
@@ -952,7 +952,7 @@ test("summary cancellation after provider admission completes as null", async (t
 test("replaying a cleared Author's Note recovers instead of reporting an unknown outcome", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-note-clear-replay-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = StoryService.withoutDiagnostics({ dataDir });
+  const service = legacyWorkerService(dataDir);
   await service.init();
   try {
     let story = await service.createStory("Depth story");
@@ -977,7 +977,7 @@ test("replaying a cleared Author's Note recovers instead of reporting an unknown
 test("replaying a depth-only Author's Note save recovers on a story with no note", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-note-depth-only-replay-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = StoryService.withoutDiagnostics({ dataDir });
+  const service = legacyWorkerService(dataDir);
   await service.init();
   try {
     let story = await service.createStory("Depth story");
@@ -1025,8 +1025,19 @@ async function runWorkerMutation<M extends MutatingWorkerMethod>(
           })
     }),
     undefined,
-    (plan) => preflightWorkerMutation(service, input, plan)
+    (plan) => expectedAggregateVersion === undefined
+      ? preflightWorkerMutation(service, input, plan)
+      : undefined
   );
+}
+
+/** These cases exercise retained worker requests that have no aggregate
+ * version. Keep their setup on the predecessor path. */
+function legacyWorkerService(dataDir: string): StoryService {
+  return StoryService.withoutDiagnostics({
+    dataDir,
+    asideActivation: false
+  });
 }
 
 async function leavePendingAfterCommit<M extends MutatingWorkerMethod>(

@@ -23,7 +23,10 @@ const SUCCESSOR_CODE = "story_manifest_requires_successor";
 
 test("story V6 store: existing list, read, and export surfaces support live state and hide deleted state", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-v6-read-"));
-  const service = StoryService.withoutDiagnostics({ dataDir });
+  const service = StoryService.withoutDiagnostics({
+    dataDir,
+    asideActivation: false
+  });
   await service.init();
   t.after(async () => { await service.dispose(); await rm(dataDir, { recursive: true, force: true }); });
 

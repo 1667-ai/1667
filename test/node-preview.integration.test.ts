@@ -60,7 +60,10 @@ test("a preview stops at 100 code units when the first line is long", async (t) 
 
 test("a bundle written before the first-line rule still loads and shows one line", async (t) => {
   const dataDir = await openDataDir(t);
-  let service = StoryService.withoutDiagnostics({ dataDir });
+  let service = StoryService.withoutDiagnostics({
+    dataDir,
+    asideActivation: false
+  });
   await service.init();
   const created = await service.createStory("Preview");
   const text = `${SHORT_FIRST_LINE}\n\n${SECOND_LINE}`;
@@ -74,7 +77,10 @@ test("a bundle written before the first-line rule still loads and shows one line
   stored.nodes[0]!.preview = text.slice(0, 100);
   await writeFile(file, `${JSON.stringify(stored, null, 2)}\n`);
 
-  service = StoryService.withoutDiagnostics({ dataDir });
+  service = StoryService.withoutDiagnostics({
+    dataDir,
+    asideActivation: false
+  });
   await service.init();
   t.after(() => service.dispose());
 

@@ -526,16 +526,22 @@ describe("embedded backend worker", () => {
 
   test("executes an unsent durable caller outbox after restart", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "1667-worker-unsent-outbox-"));
-    const mutationId = `m1-${Date.now().toString(36)}-${"8".padStart(32, "0")}`;
+    const mutationId = createDurableMutationId();
     const service = StoryService.withoutDiagnostics({ dataDir });
     await service.init();
     let story = await service.createStory("Sent after restart");
     story = await service.createNode(story.id, { parentId: null, text: "A summary source." });
+    const expectedAggregateVersion = story.aggregateVersion!;
     await service.dispose();
     const input = { storyId: story.id, body: { nodeId: story.nodes[0]!.id } };
     const outbox = new MutationOutbox(path.join(dataDir, "mutation-outbox"));
     await outbox.init();
-    await outbox.enqueue(mutationId, "createSummaryTake", input);
+    await outbox.enqueue(
+      mutationId,
+      "createSummaryTake",
+      input,
+      expectedAggregateVersion
+    );
 
     // Real worker startup competes with the full test pool; fake-worker tests
     // below retain the tight 100 ms liveness deadline.
@@ -550,7 +556,7 @@ describe("embedded backend worker", () => {
         backend.api.listStories().then(() => "api" as const)
       ]);
       expect(first).toBe("api");
-      await backend.recovery;
+      expect(await backend.recovery).toEqual([]);
       expect((await backend.api.loadStory(story.id)).nodes.some((node) => node.role === "summary")).toBeTrue();
       expect(await outbox.list()).toEqual([]);
     } finally {
