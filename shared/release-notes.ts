@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.4-rc.3",
+    date: "2026-08-13",
+    body: "- **Continuation prompts now match version 0.8.0.** 1667 again sends the\n  operation-specific contract before the story. It no longer sends the generic\n  story contract or llama.cpp Chat Completions continuation fields."
+  },
+  {
     version: "0.9.4-rc.2",
     date: "2026-08-13",
     body: "- **The Windows Installer keeps inherited permissions on the Install Root.**\n  Before this fix, the Installer replaced the Install Root permissions. A\n  restricted user shell could create files there but could not replace those\n  permissions, so installation failed with an access denied error."

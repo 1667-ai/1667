@@ -5,10 +5,6 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
-- **Continuation prompts now match version 0.8.0.** 1667 again sends the
-  operation-specific contract before the story. It no longer sends the generic
-  story contract or llama.cpp Chat Completions continuation fields.
-
 - **1667 no longer ends a generation while a model server is still
   processing the prompt.** Prefill is the model server's work before it
   sends the first output token. The server sends no stream output while it
@@ -257,6 +253,12 @@ This file records notable changes to 1667. Product terms use the definitions in
   palette opens a path prompt with `Tab` completion. The `1667 import-card`
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
+
+## 0.9.4-rc.3 - 2026-08-13
+
+- **Continuation prompts now match version 0.8.0.** 1667 again sends the
+  operation-specific contract before the story. It no longer sends the generic
+  story contract or llama.cpp Chat Completions continuation fields.
 
 ## 0.9.4-rc.2 - 2026-08-13
 
