@@ -7,6 +7,7 @@ import path from "node:path";
 import { platformPerformanceBudget } from "../../test/performance-budget.js";
 import { DataDirectoryLock } from "../../server/data-directory-lock.js";
 import { ownedLoopbackHttpSupported } from "../../server/provider-fetch.js";
+import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
 import {
   MAX_DELTA_BATCH_BYTES,
   MAX_UNACKNOWLEDGED_DELTA_BATCHES,
@@ -417,6 +418,6 @@ function nextMessageOfType<T extends WorkerToMainMessage["type"]>(
   });
 }
 
-function mutationId(suffix: string): string {
-  return `m1-${Date.now().toString(36)}-${suffix.padStart(32, "0")}`;
+function mutationId(_suffix: string): string {
+  return createDurableMutationId();
 }
