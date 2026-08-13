@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.2-rc.1",
+    date: "2026-08-13",
+    body: "- **Local model servers keep the story-writing instruction during a\n  continuation.** An assistant prefill has no final user message. This path\n  could omit the operation contract and make a long continuation lose focus.\n  1667 now keeps the mode-independent part of the contract in the stable\n  prompt prefix. The mode-dependent part stays in the final user message when\n  that message exists."
+  },
+  {
     version: "0.9.1",
     date: "2026-08-13",
     body: "- **You can save an empty Author Brief.** Clear the Author Brief in Settings\n  when you do not want a system instruction. 1667 now accepts and saves the\n  empty value.\n\n- **Chapter summaries can finish.** 1667 no longer limits a chapter summary to\n  the same token count that it asks the model to target. The configured Max\n  output tokens value now gives the model space to finish.\n\n- **A generation refusal disappears when generation ends.** If you press a key\n  that 1667 refuses during generation, the refusal now clears when generation\n  ends. It no longer tells you to stop a generation that has already ended.\n\n- **Sampling refusal text wraps instead of stopping at the panel edge.** A\n  refusal now keeps its complete reason and recovery instruction visible."

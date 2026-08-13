@@ -5,13 +5,6 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
-- **Local model servers keep the story-writing instruction during a
-  continuation.** An assistant prefill has no final user message. This path
-  could omit the operation contract and make a long continuation lose focus.
-  1667 now keeps the mode-independent part of the contract in the stable
-  prompt prefix. The mode-dependent part stays in the final user message when
-  that message exists.
-
 - **1667 no longer ends a generation while a model server is still
   processing the prompt.** Prefill is the model server's work before it
   sends the first output token. The server sends no stream output while it
@@ -260,6 +253,15 @@ This file records notable changes to 1667. Product terms use the definitions in
   palette opens a path prompt with `Tab` completion. The `1667 import-card`
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
+
+## 0.9.2-rc.1 - 2026-08-13
+
+- **Local model servers keep the story-writing instruction during a
+  continuation.** An assistant prefill has no final user message. This path
+  could omit the operation contract and make a long continuation lose focus.
+  1667 now keeps the mode-independent part of the contract in the stable
+  prompt prefix. The mode-dependent part stays in the final user message when
+  that message exists.
 
 ## 0.9.1 - 2026-08-13
 
