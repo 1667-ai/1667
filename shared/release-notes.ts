@@ -11,7 +11,7 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
-    version: "0.9.2-rc.1",
+    version: "0.9.2",
     date: "2026-08-13",
     body: "- **Local model servers keep the story-writing instruction during a\n  continuation.** An assistant prefill has no final user message. This path\n  could omit the operation contract and make a long continuation lose focus.\n  1667 now keeps the mode-independent part of the contract in the stable\n  prompt prefix. The mode-dependent part stays in the final user message when\n  that message exists."
   },

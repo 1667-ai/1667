@@ -254,7 +254,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
 
-## 0.9.2-rc.1 - 2026-08-13
+## 0.9.2 - 2026-08-13
 
 - **Local model servers keep the story-writing instruction during a
   continuation.** An assistant prefill has no final user message. This path
