@@ -26,6 +26,34 @@ function worldInfo(entries: Record<string, unknown>[]): string {
   });
 }
 
+/** The current standalone World Info shape, including the camelCase selective
+ * logic field written by SillyTavern. */
+function currentWorldInfo(entries: Record<string, unknown>[]): string {
+  return JSON.stringify({
+    name: "Aetheria",
+    description: "The floating world",
+    scan_depth: 3,
+    token_budget: 2048,
+    recursive_scanning: true,
+    entries: Object.fromEntries(entries.map((entry, index) => [String(index), {
+      uid: index,
+      key: [],
+      keysecondary: [],
+      comment: "",
+      content: "",
+      constant: false,
+      disable: false,
+      order: 100,
+      position: 0,
+      selective: true,
+      selectiveLogic: 0,
+      probability: 100,
+      useProbability: true,
+      ...entry
+    }]))
+  });
+}
+
 test("a World Info file is told apart from a NovelAI lorebook by shape", () => {
   assert.equal(isWorldInfo(JSON.parse(worldInfo([]))), true);
   assert.equal(isWorldInfo({ lorebookVersion: 6, entries: [] }), false);
@@ -115,6 +143,125 @@ test("World Info maps supported selective logic and scan depth", () => {
   const report = fidelityReport(result.fidelity);
   assert.ok(report.includes("2 selective logic modes omitted"), report);
   assert.ok(report.includes("1 invalid scan depth omitted"), report);
+});
+
+test("current World Info selectiveLogic maps supported modes and reports unsupported modes", () => {
+  const archive = parseLorebookArchive(Buffer.from(currentWorldInfo([
+    {
+      comment: "and-any",
+      content: "Any secondary key.",
+      key: ["primary-any"],
+      keysecondary: ["secondary-any"],
+      selectiveLogic: 0,
+      scanDepth: null
+    },
+    {
+      comment: "not-any",
+      content: "No secondary key.",
+      key: ["primary-not"],
+      keysecondary: ["secondary-not"],
+      selectiveLogic: 2,
+      scanDepth: 4
+    },
+    {
+      comment: "not-all",
+      content: "Unsupported NOT-ALL.",
+      key: ["primary-not-all"],
+      keysecondary: ["secondary-not-all"],
+      selectiveLogic: 1
+    },
+    {
+      comment: "and-all",
+      content: "Unsupported AND-ALL.",
+      key: ["primary-and-all"],
+      keysecondary: ["secondary-and-all"],
+      selectiveLogic: 3
+    }
+  ])));
+
+  const result = factsFromArchive(archive, 128);
+  assert.deepEqual(result.facts[0]?.secondaryKeys, ["secondary-any"]);
+  assert.equal(result.facts[0]?.secondaryMode, undefined, "AND-ANY is the stored default");
+  assert.deepEqual(result.facts[1]?.secondaryKeys, ["secondary-not"]);
+  assert.equal(result.facts[1]?.secondaryMode, "not");
+  assert.equal(result.facts[2]?.secondaryKeys, undefined, "NOT-ALL must not retain a misleading gate");
+  assert.equal(result.facts[3]?.secondaryKeys, undefined, "AND-ALL must not retain a misleading gate");
+
+  const report = fidelityReport(result.fidelity);
+  assert.ok(report.includes("2 selective logic modes omitted"), report);
+  assert.ok(!report.includes("invalid scan depth"), report);
+});
+
+test("legacy world_info_logic is used only when current selectiveLogic is absent", () => {
+  const archive = parseLorebookArchive(Buffer.from(currentWorldInfo([
+    {
+      comment: "Current wins",
+      content: "Current field.",
+      key: ["primary"],
+      keysecondary: ["secondary"],
+      selectiveLogic: 2,
+      world_info_logic: 0
+    },
+    {
+      comment: "Legacy fallback",
+      content: "Legacy field.",
+      key: ["legacy-primary"],
+      keysecondary: ["legacy-secondary"],
+      world_info_logic: 2,
+      selectiveLogic: undefined
+    }
+  ])));
+
+  const result = factsFromArchive(archive, 128);
+  assert.equal(result.facts[0]?.secondaryMode, "not");
+  assert.equal(result.facts[1]?.secondaryMode, "not");
+});
+
+test("conflicting or malformed selective logic is reported without falling back silently", () => {
+  const archive = parseLorebookArchive(Buffer.from(currentWorldInfo([
+    {
+      comment: "Conflicting",
+      content: "Current value wins.",
+      key: ["primary"],
+      keysecondary: ["secondary"],
+      selectiveLogic: 0,
+      world_info_logic: 2
+    },
+    {
+      comment: "Malformed current",
+      content: "Do not use the legacy value.",
+      key: ["primary-malformed"],
+      keysecondary: ["secondary-malformed"],
+      selectiveLogic: "and_any",
+      world_info_logic: 2
+    }
+  ])));
+
+  const result = factsFromArchive(archive, 128);
+  assert.equal(result.facts[0]?.secondaryMode, undefined, "current AND-ANY wins over legacy NOT-ANY");
+  assert.equal(result.facts[1]?.secondaryKeys, undefined, "malformed current logic must not fall back");
+
+  const report = fidelityReport(result.fidelity);
+  assert.ok(report.includes("1 selective logic mode omitted"), report);
+  assert.ok(report.includes("2 pairs of selective logic fields conflicted"), report);
+});
+
+test("matching unsupported selective logic fields report one unsupported mode, not a conflict", () => {
+  const archive = parseLorebookArchive(Buffer.from(currentWorldInfo([{
+    comment: "Matching unsupported fields",
+    content: "Both fields say NOT-ALL.",
+    key: ["primary"],
+    keysecondary: ["secondary"],
+    selectiveLogic: 1,
+    world_info_logic: 1
+  }])));
+
+  const result = factsFromArchive(archive, 128);
+  assert.equal(result.facts[0]?.secondaryKeys, undefined);
+
+  const report = fidelityReport(result.fidelity);
+  assert.ok(report.includes("1 selective logic mode omitted"), report);
+  assert.ok(!report.includes("conflicted"), report);
 });
 
 test("a World Info entry keeps the caps and the reporting every archive gets", () => {

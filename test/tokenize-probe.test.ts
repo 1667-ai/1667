@@ -340,18 +340,19 @@ test("a probe answering with an unreadable shape returns the probe-failed estima
 
 test("a probe that exceeds its deadline returns the probe-failed estimate", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return await new Promise<Response>((_resolve, reject) => {
       // The deadline here is ten milliseconds, so on a loaded machine it can
       // already have passed by the time this runs. An `abort` listener added
       // to a signal that has aborted never fires, and the request would then
       // hang for the whole run rather than fail.
-      if (input.signal.aborted) {
-        reject(input.signal.reason);
+      if (signal?.aborted === true) {
+        reject(signal.reason);
         return;
       }
-      input.signal.addEventListener("abort", () => reject(input.signal.reason), { once: true });
+      signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
     });
   }) as typeof fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
@@ -373,17 +374,18 @@ test("caller cancellation propagates instead of degrading to an estimate", async
   const originalFetch = globalThis.fetch;
   let markStarted!: () => void;
   const started = new Promise<void>((resolve) => { markStarted = resolve; });
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     markStarted();
     return await new Promise<Response>((_resolve, reject) => {
       // Same reason as the deadline fixture above: a signal that has already
       // aborted never delivers the event.
-      if (input.signal.aborted) {
-        reject(input.signal.reason);
+      if (signal?.aborted === true) {
+        reject(signal.reason);
         return;
       }
-      input.signal.addEventListener("abort", () => reject(input.signal.reason), { once: true });
+      signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
     });
   }) as typeof fetch;
   t.after(() => { globalThis.fetch = originalFetch; });

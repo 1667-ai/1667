@@ -3,11 +3,25 @@ import test from "node:test";
 import {
   factsFromLorebook,
   parseLorebookArchive,
-  SUPPORTED_LOREBOOK_VERSION
+  SUPPORTED_LOREBOOK_VERSION,
+  SUPPORTED_LOREBOOK_VERSIONS
 } from "../shared/novelai-lorebook.js";
 import { createFacts } from "../server/story-facts.js";
 import { fidelityReport } from "../shared/fidelity.js";
 import { MAX_FACT_TEXT_CHARS, MAX_JSON_BODY_BYTES, type Story } from "../shared/types.js";
+import { legacyNovelAiLorebook } from "./novelai-legacy-fixture.js";
+
+test("legacy NovelAI Lorebook versions keep the real core entry shape", () => {
+  assert.deepEqual(SUPPORTED_LOREBOOK_VERSIONS, [1, 3, 4, 6]);
+
+  for (const version of [1, 3, 4] as const) {
+    const result = factsFromLorebook(legacyNovelAiLorebook(version), 128);
+    assert.equal(result.facts.length, 1, `v${version}`);
+    assert.equal(result.facts[0]?.text, "A legacy entry keeps its core prose.", `v${version}`);
+    assert.equal(result.facts[0]?.tag, "Legacy Entry", `v${version}`);
+    assert.deepEqual(result.facts[0]?.keys, ["legacy"], `v${version}`);
+  }
+});
 
 test("factsFromLorebook maps every row of the §2.2 table", () => {
   const lorebook = {
@@ -293,6 +307,20 @@ test("a lorebook PNG reports a lorebook error and never a character-card error",
   assert.throws(
     () => parseLorebookArchive(truncated),
     (error: Error) => error.message.startsWith("Lorebook PNG") && !error.message.includes("Character card")
+  );
+});
+
+test("a PNG without NovelAI naidata reports the exact unsupported encoding", () => {
+  // The real Sigurd card sample has IHDR, sRGB, IDAT, and IEND only. This
+  // minimal PNG keeps that relevant property without copying third-party
+  // image bytes or guessing at a pixel/steganographic format.
+  const noArchiveMetadata = Uint8Array.from([
+    137, 80, 78, 71, 13, 10, 26, 10,
+    0, 0, 0, 0, 73, 69, 78, 68, 0, 0, 0, 0
+  ]);
+  assert.throws(
+    () => parseLorebookArchive(noArchiveMetadata),
+    /no lorebook data in this PNG · export the lorebook again from NovelAI/u
   );
 });
 
