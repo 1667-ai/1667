@@ -174,7 +174,9 @@ export async function handleOverlayAction(
       view: "commands",
       returnMode: state.mode === "COMPOSE" ? "COMPOSE" : "NAV",
       selection,
-      ...retainCommandSelection(liveCommandMatches(state, "", selection), null, 0)
+      ...retainCommandSelection(liveCommandMatches(
+        state, "", selection, context.asideEntryPointsOpen
+      ), null, 0)
     };
     state.mode = "COMMANDS";
     return true;
@@ -451,7 +453,9 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
     if (resolved.action === "cancel") {
       overlay.view = "commands";
       Object.assign(overlay, retainCommandSelection(
-        liveCommandMatches(state, overlay.query), overlay.selectedId, overlay.cursor
+        liveCommandMatches(
+          state, overlay.query, undefined, context.asideEntryPointsOpen
+        ), overlay.selectedId, overlay.cursor
       ));
     }
     else if (resolved.action === "focus-next") overlay.cursor = Math.max(0,
@@ -473,7 +477,9 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
     }
     return true;
   }
-  let matches = liveCommandMatches(state, overlay.query);
+  let matches = liveCommandMatches(
+    state, overlay.query, undefined, context.asideEntryPointsOpen
+  );
   Object.assign(overlay, retainCommandSelection(matches, overlay.selectedId, overlay.cursor));
   if (resolved.action === "cancel") {
     state.commands = null;
@@ -484,7 +490,9 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
   else if (resolved.action === "focus-previous") selectCommand(overlay, matches, overlay.cursor - 1);
   else if (resolved.action === "backspace" || resolved.action === "input") {
     overlay.query = applyTextKey(overlay.query, resolved) ?? overlay.query;
-    matches = liveCommandMatches(state, overlay.query);
+    matches = liveCommandMatches(
+      state, overlay.query, undefined, context.asideEntryPointsOpen
+    );
     selectCommand(overlay, matches, 0);
   }
   else if (resolved.action === "open-selected") {
@@ -494,7 +502,9 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
   // Live theme preview: highlighting a theme command shows it immediately;
   // leaving the highlight (or the palette) reverts to the saved theme.
   if (state.commands !== null && state.commands.view === "commands") {
-    const liveMatches = liveCommandMatches(state, state.commands.query);
+    const liveMatches = liveCommandMatches(
+      state, state.commands.query, undefined, context.asideEntryPointsOpen
+    );
     Object.assign(state.commands, retainCommandSelection(
       liveMatches, state.commands.selectedId, state.commands.cursor
     ));
@@ -541,7 +551,9 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
   else if (command.id === "facts-budget") openFactsBudgetEditor(state);
   else if (command.id === "phrase-bias") openPhraseBiasEditor(state);
   else if (command.id === "banned-strings") openBannedStringsEditor(state);
-  else if (command.id === "aside") await openAside(state, source.api);
+  else if (command.id === "aside") await openAside(state, source.api, {
+    entryPointsOpen: context.asideEntryPointsOpen
+  });
   else if (command.id === "switch-story") await openLibrary(state, source, context);
   else if (command.id === "rename-story") {
     const targetId = state.payload.id;
@@ -653,7 +665,8 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
 function liveCommandMatches(
   state: RuntimeState,
   query: string,
-  selection: ProjectedStorySelection | null = state.commands?.selection ?? null
+  selection: ProjectedStorySelection | null = state.commands?.selection ?? null,
+  asideOpen: boolean | undefined = undefined
 ): CommandMatch[] {
   return commandMatches(
     query,
@@ -661,7 +674,8 @@ function liveCommandMatches(
     commandContext(state.payload, {
       connectionDown: state.connection.down,
       requestActive: generationBusy(state) || state.summary !== null,
-      canRewriteSelection: canRewriteSelection(selection?.spans ?? [])
+      canRewriteSelection: canRewriteSelection(selection?.spans ?? []),
+      asideEntryPointsOpen: asideOpen
     })
   );
 }

@@ -1,22 +1,10 @@
 import { expect, test } from "bun:test";
-
-// Exercise the successor-only command without changing the production release
-// switch. The predecessor test in aside.test.ts still covers the default gate.
-const bunTest = await import("bun:test") as unknown as {
-  mock: { module(path: string, factory: () => Record<string, unknown>): void };
-};
-bunTest.mock.module("../../shared/aside-release.js", () => ({
-  ASIDE_ACTIVATED: true,
-  resolveAsideActivation: (option?: boolean) => option ?? true,
-  asideEntryPointsOpen: (option?: boolean) => option ?? true
-}));
-
-const { ActionRuntime } = await import("../src/action-runtime.js");
-const { initialState } = await import("../src/app.js");
-const { demoAppSource } = await import("../src/demo.js");
-const { handleOverlayAction } = await import("../src/overlay-actions.js");
-const { commandPaletteModel } = await import("../src/command-model.js");
-const { createWrapCache } = await import("../src/wrap.js");
+import { ActionRuntime } from "../src/action-runtime.js";
+import { initialState } from "../src/app.js";
+import { demoAppSource } from "../src/demo.js";
+import { handleOverlayAction } from "../src/overlay-actions.js";
+import { commandPaletteModel } from "../src/command-model.js";
+import { createWrapCache } from "../src/wrap.js";
 type ProseStyle = import("../src/wrap.js").ProseStyle;
 
 function context(state: ReturnType<typeof initialState>) {
@@ -26,7 +14,8 @@ function context(state: ReturnType<typeof initialState>) {
     repaint: () => undefined,
     renderer: null,
     applyTheme: () => undefined,
-    previewTheme: () => undefined
+    previewTheme: () => undefined,
+    asideEntryPointsOpen: true
   };
 }
 
@@ -55,7 +44,14 @@ test("activated palette Aside refuses during a live generation", async () => {
     returnMode: "NAV"
   };
 
-  const matches = commandPaletteModel("aside", false).selectable;
+  const matches = commandPaletteModel("aside", false, {
+    connectionDown: false,
+    requestActive: true,
+    hasProse: true,
+    lineTagged: false,
+    canRewriteSelection: false,
+    asideEntryPointsOpen: true
+  }).selectable;
   expect(matches).toHaveLength(1);
   expect(matches[0]!.command).toMatchObject({
     id: "aside",

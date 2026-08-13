@@ -161,7 +161,12 @@ const COMMANDS: readonly PaletteCommand[] = [
 
 export function commandContext(
   payload: StoryPayload,
-  context: { connectionDown: boolean; requestActive: boolean; canRewriteSelection: boolean }
+  context: {
+    connectionDown: boolean;
+    requestActive: boolean;
+    canRewriteSelection: boolean;
+    asideEntryPointsOpen?: boolean;
+  }
 ): CommandPaletteContext {
   const leafId = payload.path.at(-1)?.id ?? null;
   return {
@@ -169,7 +174,8 @@ export function commandContext(
     requestActive: context.requestActive,
     hasProse: payload.path.length > 0,
     lineTagged: leafId !== null && payload.tags.some((tag) => tag.nodeId === leafId),
-    canRewriteSelection: context.canRewriteSelection
+    canRewriteSelection: context.canRewriteSelection,
+    asideEntryPointsOpen: context.asideEntryPointsOpen
   };
 }
 
