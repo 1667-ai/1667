@@ -69,6 +69,9 @@ export function adoptSameStoryPayload(
     : chapterRows[Math.max(0, Math.min(chapterRows.length - 1, chapters.cursor))] ?? null;
 
   reconcileWrapCache(cache, state.payload, payload);
+  if (state.aside?.storyId === payload.id) {
+    state.aside.storyTitle = payload.title;
+  }
   state.payload = payload;
   const view = restoreStoryFocus(state, focus);
 
@@ -350,6 +353,7 @@ function reconcileStoryBoundIntent(
  * The wrap cache goes through the same boundary as every adoption: a
  * replacement that is still the open story keeps its unchanged parts. */
 export function adoptStoryState(state: RuntimeState, payload: StoryPayload, cache: ProseWrapCache): void {
+  const changingStory = state.payload.id !== payload.id;
   // Durably leave the previous story's position before replacing focus.
   flushReadingPositionPersist();
   reconcileWrapCache(cache, state.payload, payload);
@@ -395,6 +399,7 @@ export function adoptStoryState(state: RuntimeState, payload: StoryPayload, cach
   state.archive = null;
   state.settings = null;
   state.summary = null;
+  if (changingStory) state.aside = null;
   state.hitRows = [];
   followStoryViewport(state);
   state.lastViewportStart = 0;

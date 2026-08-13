@@ -106,4 +106,5 @@ async function pasteComposerClipboard(
     return;
   }
   insertComposerText(composer, options.insert?.(clean) ?? clean);
+  options.onEdit?.("insert");
 }

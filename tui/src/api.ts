@@ -56,6 +56,7 @@ import type {
   ReorderFactRequest,
   RewriteRequest,
   StoryNode,
+  StoryMarkdownExport,
   StoryPayload,
   StorySummary,
   SwitchRequest,
@@ -72,6 +73,7 @@ import type {
 import type { ChatMessage } from "../../shared/prompt-plan.js";
 import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 import {
+  HTTP_FIDELITY_HEADER,
   HTTP_API_PROTOCOL_VERSION,
   HTTP_CLIENT_PROTOCOL_HEADER,
   HTTP_SERVER_INSTANCE_HEADER,
@@ -214,7 +216,7 @@ export interface StoryApi {
     providerRecovery?: ProviderRecoveryContext
   ): Promise<StoryPayload | null>;
   deleteStory(id: string): Promise<{ ok: true }>;
-  exportMarkdown(id: string): Promise<string>;
+  exportMarkdown(id: string): Promise<StoryMarkdownExport>;
   /** One take's stored token probabilities. Rejects (404, distinguishably by
    *  message) when the take has none. */
   getTokenProbabilities(storyId: string, nodeId: string): Promise<TokenProbabilityRecord>;
@@ -228,6 +230,17 @@ export interface StoryApi {
   /** One take's stored thought. Rejects (404, distinguishably by message)
    *  when the take has none. */
   getReasoning(storyId: string, nodeId: string): Promise<ReasoningRecord>;
+  /** Complete bounded Aside document. Empty when none exists. */
+  getAside(storyId: string): Promise<{ notes: readonly { question: string; answer: string }[] }>;
+  /** Stream one Aside question. Null means cancelled before save. */
+  askAside(
+    storyId: string,
+    question: string,
+    onDelta: (text: string) => void,
+    signal: AbortSignal
+  ): Promise<AsideAskResult | null>;
+  /** Clear every Side Note for one story. */
+  clearAside(storyId: string): Promise<StoryPayload>;
   switchLine(storyId: string, nodeId: string, options?: Omit<SwitchRequest, "nodeId">): Promise<StoryPayload>;
   createNode(storyId: string, body: CreateNodeRequest): Promise<StoryPayload>;
   editNode(storyId: string, node: StoryNode, patch: { instruction?: string; text?: string }): Promise<StoryPayload>;
@@ -340,6 +353,13 @@ export interface StoryApi {
     signal: AbortSignal,
     callbacks?: SummaryStreamCallbacks
   ): Promise<{ nodeId: string; narrowedTo: NarrowedSummaryPoint | null } | null>;
+}
+
+/** Terminal Aside view plus the refreshed story, when its version refresh
+ * succeeded after the provider committed the Side Note. */
+export interface AsideAskResult {
+  readonly notes: readonly { question: string; answer: string }[];
+  readonly payload?: StoryPayload;
 }
 
 export interface HttpApiAccess {
@@ -801,7 +821,20 @@ export function createApi(
                 response.status
               );
             }
-            return text;
+            const fidelityHeader = response.headers.get(HTTP_FIDELITY_HEADER);
+            let fidelity: readonly string[] = [];
+            if (fidelityHeader !== null && fidelityHeader.length > 0) {
+              try {
+                const parsed: unknown = JSON.parse(decodeURIComponent(fidelityHeader));
+                if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "string")) {
+                  throw new Error("invalid fidelity report");
+                }
+                fidelity = parsed;
+              } catch {
+                throw new Error("The server returned an invalid Markdown export fidelity report.");
+              }
+            }
+            return { markdown: text, fidelity };
           }
         });
       },
@@ -830,6 +863,49 @@ export function createApi(
       "GET",
       `/api/stories/${storyId}/nodes/${nodeId}/reasoning`,
       decodeReasoningResponse
+    ),
+    getAside: (storyId) => request(
+      "GET",
+      `/api/stories/${storyId}/aside`,
+      (value) => {
+        if (value === null || typeof value !== "object" || !Array.isArray((value as { notes?: unknown }).notes)) {
+          throw new Error("The server did not return an Aside document.");
+        }
+        return value as { notes: readonly { question: string; answer: string }[] };
+      }
+    ),
+    askAside: async (storyId, question, onDelta, signal) => {
+      const done = await stream(
+        storyId,
+        `/api/stories/${storyId}/aside/ask`,
+        { question },
+        onDelta,
+        signal
+      );
+      if (done === null) return null;
+      if (done.aside === null) return null;
+      if (done.aside === undefined || typeof done.aside !== "object") {
+        throw new Error("The server did not return an Aside result.");
+      }
+      // The Aside terminal event carries the document view, not a StoryPayload
+      // and its aggregate version. Refresh the version before the next local
+      // mutation, or a clear/delete can use the pre-Aside revision. The Aside
+      // is already committed when this event arrives. A refresh failure must
+      // not hide that document and invite a duplicate question; forget the
+      // stale token so the next mutation loads it lazily.
+      const aside = done.aside as { notes: readonly { question: string; answer: string }[] };
+      let payload: StoryPayload | undefined;
+      try {
+        payload = await loadVersionedStory(storyId);
+      } catch {
+        versions.forget(storyId);
+      }
+      return payload === undefined ? aside : { ...aside, payload };
+    },
+    clearAside: (storyId) => mutateStoryPayload(
+      storyId,
+      "DELETE",
+      `/api/stories/${storyId}/aside`
     ),
     switchLine: (storyId, nodeId, options = {}) => mutateStoryPayload(
       storyId,

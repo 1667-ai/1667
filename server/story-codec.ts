@@ -17,6 +17,7 @@ import { factTextWithinLimit } from "../shared/fact-limits.js";
 import { activePath } from "../shared/story-tree.js";
 import { countWords } from "../shared/story-text.js";
 import {
+  STORY_ASIDE_SCHEMA_VERSION,
   STORY_FORMAT,
   STORY_SCHEMA_VERSION,
   STORY_SUCCESSOR_SCHEMA_VERSION,
@@ -25,6 +26,7 @@ import {
   optionalPhraseBias,
   parseManifest,
   parseManifestV7,
+  parseManifestV9,
   serializeManifestContent,
   validateNodeAttribution,
   validateNodeImageAttachments,
@@ -34,8 +36,14 @@ import {
   type StoredNodeV1,
   type StoryManifestV5,
   type StoryManifestV7,
+  type StoryManifestV9,
   type TextRevisionV1
 } from "./story-format.js";
+import { resolveAsideActivation } from "../shared/aside-release.js";
+import {
+  clearPendingAsideDocument,
+  peekPendingAsideDocument
+} from "./story-aside-pending.js";
 import { cloneAttribution, cloneGenerationRecordIds, cloneRewrittenSpans } from "./story-format-nodes.js";
 import { createStoryReadCache, StoryObjectStore } from "./story-objects.js";
 import {
@@ -77,28 +85,24 @@ interface StoryBundleState {
 
 const storyBundles = new WeakMap<Story, StoryBundleState>();
 
-/** Governs whether one `encodeStoryBundle` call writes the successor content
- *  payload (`STORY_SUCCESSOR_SCHEMA_VERSION`), with any `imageAttachments` a
- *  node carries, or the current payload (`STORY_SCHEMA_VERSION`), with them
- *  omitted. Absent defaults to the release-wide switch
- *  (`shared/image-input-release.ts`). Production wiring never passes this.
- *  This is only half the decision: `encodeStoryBundle` also requires `story`
- *  to actually carry an Image Attachment, so a caller cannot know the
- *  resulting schema version from `options` alone. Read the returned
- *  manifest's `schemaVersion` instead of assuming it from what was passed
- *  in. */
+/** Governs whether one `encodeStoryBundle` call writes a successor content
+ *  payload. Image activation may produce V7; Aside activation may produce
+ *  V9 (which also carries image attachments when present). Absent defaults
+ *  to the release-wide switches. Read the returned manifest's
+ *  `schemaVersion` instead of assuming it from what was passed in. */
 export interface EncodeStoryBundleOptions {
   activation?: boolean;
+  asideActivation?: boolean;
 }
 
-/** True once any take in `story` carries an Image Attachment. This is the
- *  other half of the successor-content decision: release-wide activation
- *  says a write MAY use the successor schema; this says one actually NEEDS
- *  it. `encodeStoryBundle` below requires both, so turning the release-wide
- *  switch on never upgrades a story that has nothing to gain from the
- *  successor schema. */
+/** True once any take in `story` carries an Image Attachment. */
 function storyHasImageAttachments(story: Story): boolean {
   return story.nodes.some((node) => node.imageAttachments !== undefined);
+}
+
+/** True once the story has an Aside field (hash or cleared null). */
+function storyHasAsideField(story: Story): boolean {
+  return story.asideDocumentId !== undefined;
 }
 
 export async function encodeStoryBundle(
@@ -107,15 +111,13 @@ export async function encodeStoryBundle(
   reuseFrom?: StoryObjectStore,
   snapshot?: StoryRevisionSnapshot,
   options: EncodeStoryBundleOptions = {}
-): Promise<StoryManifestV5 | StoryManifestV7> {
-  // Both halves are required: the release-wide switch says a write MAY use
-  // the successor schema, and storyHasImageAttachments says this story
-  // actually NEEDS it. A story with no Image Attachment must serialize
-  // exactly as it does today, on every call path, with the switch on. That
-  // is what keeps a library nobody attached an image to readable by the
-  // previous release forever. This is the one place that decides it, so no
-  // caller has to restate the rule to get it right.
-  const activation = resolveImageInputActivation(options.activation) && storyHasImageAttachments(story);
+): Promise<StoryManifestV5 | StoryManifestV7 | StoryManifestV9> {
+  const imageActivation = resolveImageInputActivation(options.activation) && storyHasImageAttachments(story);
+  const asideActivation = resolveAsideActivation(options.asideActivation) && storyHasAsideField(story);
+  // Aside content is a superset of image content. Prefer V9 when needed.
+  const useAside = asideActivation;
+  const useImages = imageActivation || useAside;
+  const activation = useImages;
   const authorsNote = story.authorsNote === undefined || story.authorsNote === ""
     ? undefined
     : boundedString(story.authorsNote, "story.authorsNote", MAX_AUTHORS_NOTE_CHARS);
@@ -223,6 +225,22 @@ export async function encodeStoryBundle(
     ...(node.rewrittenSpans === undefined ? {} : { rewrittenSpans: cloneRewrittenSpans(node.rewrittenSpans) }),
     activeChildId: node.activeChildId
   }));
+  // Aside document: one pending write per successful askAside. A clear sets
+  // asideDocumentId to null with no pending bytes. Keep the computed id local:
+  // serialization must not mutate the Story domain object.
+  let asideDocumentId = story.asideDocumentId ?? null;
+  const pendingAside = peekPendingAsideDocument(story);
+  if (pendingAside !== undefined) {
+    const storedAsideDocumentId = await objects.storeAsideDocument(pendingAside, reuseFrom);
+    if (asideDocumentId !== null && asideDocumentId !== storedAsideDocumentId) {
+      throw new StoryFormatError("Aside document id does not match its content");
+    }
+    // The side table is the only in-memory copy of these bytes. Consume it
+    // only after its content-addressed object is safely stored and verified.
+    clearPendingAsideDocument(story);
+    asideDocumentId = storedAsideDocumentId;
+  }
+
   const factRevisionIds = await objects.storeTexts(story.facts.map((fact) => fact.text), reuseFrom);
   const facts: StoredFactV1[] = story.facts.map((fact, index) => ({
     id: fact.id,
@@ -279,6 +297,14 @@ export async function encodeStoryBundle(
     recentNodeIds: [...story.recentNodeIds],
     chapterBreaks: story.chapterBreaks.map((chapterBreak) => ({ ...chapterBreak }))
   };
+  if (useAside) {
+    const manifest: StoryManifestV9 = {
+      ...manifestCommon,
+      schemaVersion: STORY_ASIDE_SCHEMA_VERSION,
+      asideDocumentId
+    };
+    return parseManifestV9(serializeManifestContent(manifest), story.id);
+  }
   if (activation) {
     const manifest: StoryManifestV7 = { ...manifestCommon, schemaVersion: STORY_SUCCESSOR_SCHEMA_VERSION };
     return parseManifestV7(serializeManifestContent(manifest), story.id);
@@ -288,7 +314,7 @@ export async function encodeStoryBundle(
 }
 
 export async function decodeStoryBundle(
-  manifest: StoryManifestV5 | StoryManifestV7,
+  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9,
   bundleDir: string,
   options: { activeOnly?: boolean } = {}
 ): Promise<DecodedStoryBundle> {
@@ -402,6 +428,9 @@ export async function decodeStoryBundle(
     ...(manifest.factsBudgetTokens === undefined
       ? {}
       : { factsBudgetTokens: manifest.factsBudgetTokens }),
+    ...("asideDocumentId" in manifest
+      ? { asideDocumentId: manifest.asideDocumentId }
+      : {}),
     nodes,
     activeRootId: manifest.activeRootId,
     tags: manifest.bookmarks.map((stored) => ({

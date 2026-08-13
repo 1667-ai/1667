@@ -1,5 +1,6 @@
 import type { StoryPayload } from "../../shared/types.js";
 import { imageInputEntryPointsOpen } from "../../shared/image-input-release.js";
+import { asideEntryPointsOpen } from "../../shared/aside-release.js";
 import { THEME_NAMES, type ThemeName } from "./config.js";
 import { fuzzyMatch } from "./fuzzy.js";
 
@@ -8,6 +9,7 @@ export type CommandId =
   | "export" | "summary" | "tag-line"
   | "switch-story" | "rename-story" | "folder" | "autoname" | "import-card" | "import-archive"
   | "authors-note" | "author-brief" | "facts-budget" | "phrase-bias" | "banned-strings"
+  | "aside"
   | "direct-take" | "retake" | "rewrite-selection" | "prune" | "attach-image"
   | "tags" | "chapters" | "chapter" | "prompts"
   | "next-request" | "token-probabilities" | "generation-records"
@@ -103,6 +105,14 @@ const COMMANDS: readonly PaletteCommand[] = [
   { id: "facts-budget", section: "story", name: "facts budget", description: "cap the combined estimated tokens every Fact spends in a request", mutating: true },
   { id: "phrase-bias", section: "story", name: "phrase bias", description: "bias phrases for this story only, adding to the profile's own", mutating: true },
   { id: "banned-strings", section: "story", name: "banned strings", description: "ban strings for this story only, adding to the profile's own", mutating: true },
+  {
+    id: "aside",
+    section: "story",
+    name: "aside",
+    description: "discuss this story without changing it",
+    blockedByLiveStream: true,
+    requires: () => asideEntryPointsOpen()
+  },
 
   { id: "direct-take", section: "take", name: "direct take", description: "write the next take from an instruction", shortcut: "i", blockedByLiveStream: true },
   {

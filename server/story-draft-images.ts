@@ -213,7 +213,12 @@ export class StoryDraftImageStore {
    *  stable identity" matters here. */
   private async requireStageableStory(storyId: string): Promise<void> {
     const slot = await readStoredStorySlot(this.dir, storyId);
-    if (slot.kind === "absent" || slot.kind === "v6-deleted" || slot.kind === "v8-deleted") {
+    if (
+      slot.kind === "absent"
+      || slot.kind === "v6-deleted"
+      || slot.kind === "v8-deleted"
+      || slot.kind === "v10-deleted"
+    ) {
       throw new HttpError(404, `Story not found: ${storyId}`);
     }
     if (slot.kind === "residue") {

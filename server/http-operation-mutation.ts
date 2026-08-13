@@ -1,5 +1,6 @@
 import {
   MUTATION_INPUT_PROTOCOL_VERSION,
+  PRE_ASIDE_WORKER_PROTOCOL_VERSION,
   type MutatingWorkerMethod,
   type WorkerOutput
 } from "../shared/worker-protocol.js";
@@ -29,11 +30,16 @@ export async function runHttpOperationMutation<
   onDelta: (text: string) => void | Promise<void> = () => {},
   onReasoning: (delta: ReasoningStreamDelta) => void | Promise<void> = () => {}
 ): Promise<WorkerOutput<M>> {
+  const protocolVersion = await acceptedHttpMutationProtocolVersion(
+    service,
+    mutationId,
+    method
+  );
   let parsed: ReturnType<typeof parseWorkerMutation<M>> | undefined;
   const parse = () => parsed ??= parseWorkerMutation(
     method,
     input,
-    MUTATION_INPUT_PROTOCOL_VERSION
+    protocolVersion
   );
   return await service.runMutation(
     mutationId,
@@ -56,7 +62,7 @@ export async function runHttpOperationMutation<
         fingerprint: mutationFingerprint(
           method,
           input,
-          MUTATION_INPUT_PROTOCOL_VERSION
+          protocolVersion
         ),
         scope: `story:${storyId}` as const,
         expectedAggregateVersion
@@ -68,7 +74,25 @@ export async function runHttpOperationMutation<
         storyMutationRequest
       });
     },
-    MUTATION_INPUT_PROTOCOL_VERSION,
+    protocolVersion,
     () => undefined
   );
+}
+
+/** A protocol bump added Aside methods in v11. Keep an exact HTTP retry of a
+ * retained v10 receipt on the protocol that created its fingerprint and
+ * parsed its input. New mutations and all Aside methods stay on v11. */
+async function acceptedHttpMutationProtocolVersion(
+  service: StoryService,
+  mutationId: string,
+  method: MutatingWorkerMethod
+): Promise<number> {
+  const receipt = await service.inspectMutationReceipt(mutationId, method);
+  return receipt !== null
+    && receipt.method === method
+    && receipt.protocolVersion === PRE_ASIDE_WORKER_PROTOCOL_VERSION
+    && method !== "askAside"
+    && method !== "clearAside"
+    ? PRE_ASIDE_WORKER_PROTOCOL_VERSION
+    : MUTATION_INPUT_PROTOCOL_VERSION;
 }

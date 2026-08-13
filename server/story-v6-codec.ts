@@ -4,12 +4,14 @@ import { HASH_PATTERN, StoryFormatError } from "./story-format-facts.js";
 import {
   parseLegacyManifestWithoutSizeLimit,
   parseManifestValueWithVersion,
+  STORY_ASIDE_SCHEMA_VERSION,
   STORY_FORMAT,
   STORY_SUCCESSOR_SCHEMA_VERSION,
   STORYTAVERN_STORY_FORMAT,
   type ParsedManifestVersion,
   type StoryManifestV5,
-  type StoryManifestV7
+  type StoryManifestV7,
+  type StoryManifestV9
 } from "./story-format.js";
 import { hasLegacyTopLevelSchemaVersion } from "./json-schema-version.js";
 import { buildStorySummary } from "./story-summary.js";
@@ -42,6 +44,11 @@ import type {
   LiveStoryManifestV8,
   StoryManifestV8
 } from "./story-v8-types.js";
+import type {
+  DeletedStoryManifestV10,
+  LiveStoryManifestV10,
+  StoryManifestV10
+} from "./story-v10-types.js";
 import {
   boundedString,
   closedRecord,
@@ -63,6 +70,9 @@ export const STORY_SCHEMA_VERSION_V6 = 6;
  * `STORY_SUCCESSOR_SCHEMA_VERSION` content payload the same way
  * `STORY_SCHEMA_VERSION_V6` wraps an exact V5 payload. */
 export const STORY_SCHEMA_VERSION_V8 = 8;
+/** The Aside envelope version. It wraps an exact
+ * `STORY_ASIDE_SCHEMA_VERSION` content payload. */
+export const STORY_SCHEMA_VERSION_V10 = 10;
 
 const LIVE = closedShape([
   "format", "schemaVersion", "kind", "id", "revision", "previousManifestHash", "content", "summary",
@@ -91,12 +101,30 @@ export function parseStoryManifestBytes(bytes: Uint8Array, expectedId: string): 
     // way the successor check just below does, rather than reading
     // `.manifest` and `.sourceSchemaVersion` separately and losing the
     // correlation between them.
-    if (parsed.sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION) {
+    if (
+      parsed.sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION
+      || parsed.sourceSchemaVersion === STORY_ASIDE_SCHEMA_VERSION
+    ) {
       throw new StoryFormatError(`Story ${expectedId} legacy manifest reported an impossible schema version`);
     }
     return { kind: "v5", manifest: parsed.manifest, sourceSchemaVersion: parsed.sourceSchemaVersion };
   }
   const value = parseJson(text, expectedId);
+  if (isV10Candidate(value)) {
+    if (value.kind === "deleted" && bytes.byteLength > MAX_DELETED_STORY_MANIFEST_BYTES) {
+      throw new StoryFormatError(
+        `Deleted story manifest exceeds its ${MAX_DELETED_STORY_MANIFEST_BYTES}-byte size limit`
+      );
+    }
+    const manifest = parseV10(value, expectedId);
+    assertNfcJsonStrings(value, `story ${expectedId} manifest`);
+    if (canonicalJson(value) !== text) {
+      throw new StoryFormatError(`Story ${expectedId} V${STORY_SCHEMA_VERSION_V10} manifest is not canonical JSON`);
+    }
+    return manifest.kind === "live"
+      ? { kind: "v10-live", manifest }
+      : { kind: "v10-deleted", manifest };
+  }
   if (isV8Candidate(value)) {
     if (value.kind === "deleted" && bytes.byteLength > MAX_DELETED_STORY_MANIFEST_BYTES) {
       throw new StoryFormatError(
@@ -121,6 +149,11 @@ export function parseStoryManifestBytes(bytes: Uint8Array, expectedId: string): 
       // it "v5".
       throw new StoryFormatError(
         `Story ${expectedId} successor content must be wrapped in a V${STORY_SCHEMA_VERSION_V8} envelope`
+      );
+    }
+    if (parsed.sourceSchemaVersion === STORY_ASIDE_SCHEMA_VERSION) {
+      throw new StoryFormatError(
+        `Story ${expectedId} Aside content must be wrapped in a V${STORY_SCHEMA_VERSION_V10} envelope`
       );
     }
     return { kind: "v5", manifest: parsed.manifest, sourceSchemaVersion: parsed.sourceSchemaVersion };
@@ -161,6 +194,17 @@ export function formatV8(manifest: StoryManifestV8): string {
   return text;
 }
 
+/** The Aside counterpart of `formatV8`, for the write path that builds a V10
+ * envelope deliberately (`server/story-aggregate-session.ts`, Aside on). */
+export function formatV10(manifest: StoryManifestV10): string {
+  const text = canonicalJson(manifest);
+  const parsed = parseStoryManifestText(text, manifest.id);
+  if (parsed.kind !== "v10-live" && parsed.kind !== "v10-deleted") {
+    throw new StoryFormatError(`Expected a V${STORY_SCHEMA_VERSION_V10} story manifest`);
+  }
+  return text;
+}
+
 /** Narrow a write-path result back to the plain V6 envelope for a caller that
  *  never produces the successor content payload, so it can keep the older,
  *  more specific type instead of holding `StoryEnvelopeManifest` everywhere.
@@ -189,7 +233,7 @@ export function storySummaryFromLiveEnvelope(manifest: LiveStoryEnvelopeManifest
 }
 
 export function storySummaryV6FromContent(
-  content: StoryManifestV5 | StoryManifestV7
+  content: StoryManifestV5 | StoryManifestV7 | StoryManifestV9
 ): StorySummaryV6 {
   const summary = buildStorySummary(content);
   return {
@@ -215,12 +259,22 @@ function parseV8(value: Record<string, unknown>, expectedId: string): StoryManif
   throw new StoryFormatError(`Story ${expectedId} V${STORY_SCHEMA_VERSION_V8} kind must be live or deleted`);
 }
 
+function parseV10(value: Record<string, unknown>, expectedId: string): StoryManifestV10 {
+  if (value.kind === "live") return parseLive10(value, expectedId);
+  if (value.kind === "deleted") return parseDeleted10(value, expectedId);
+  throw new StoryFormatError(`Story ${expectedId} V${STORY_SCHEMA_VERSION_V10} kind must be live or deleted`);
+}
+
 function parseLive(value: unknown, expectedId: string): LiveStoryManifestV6 {
   return parseLiveEnvelope(value, expectedId, LIVE_V6);
 }
 
 function parseLive8(value: unknown, expectedId: string): LiveStoryManifestV8 {
   return parseLiveEnvelope(value, expectedId, LIVE_V8);
+}
+
+function parseLive10(value: unknown, expectedId: string): LiveStoryManifestV10 {
+  return parseLiveEnvelope(value, expectedId, LIVE_V10);
 }
 
 function parseDeleted(value: unknown, expectedId: string): DeletedStoryManifestV6 {
@@ -231,29 +285,22 @@ function parseDeleted8(value: unknown, expectedId: string): DeletedStoryManifest
   return parseDeletedEnvelope(value, expectedId, STORY_SCHEMA_VERSION_V8);
 }
 
+function parseDeleted10(value: unknown, expectedId: string): DeletedStoryManifestV10 {
+  return parseDeletedEnvelope(value, expectedId, STORY_SCHEMA_VERSION_V10);
+}
+
 /** The content version each envelope version must wrap: version 6 wraps an
- *  exact V5 payload, version 8 wraps an exact successor payload. This map
- *  ties `LiveEnvelopeSpec.requireContent`'s return type to `V`, so a spec
- *  that pairs schema version 6 with V7 content is a compile error, not an
- *  unwritten case. See `test/story-v6-envelope-pairing.test.ts`. */
+ *  exact V5 payload, version 8 wraps an exact image-successor payload, and
+ *  version 10 wraps an exact Aside payload. This map ties
+ *  `LiveEnvelopeSpec.requireContent`'s return type to `V`. */
 export interface LiveEnvelopeContentByVersion {
   readonly 6: StoryManifestV5;
   readonly 8: StoryManifestV7;
+  readonly 10: StoryManifestV9;
 }
 
-/** Pairs an envelope's schema version with the content version it must wrap.
- *  `requireContent` compares `content.sourceSchemaVersion` against a
- *  LITERAL, which narrows the `ParsedManifestVersion` union to the member
- *  `LiveEnvelopeContentByVersion[V]` demands, the same way the pre-dedup,
- *  one-version-per-function `parseLive` narrowed it. That is what lets
- *  `parseLiveEnvelope` build its return value with no cast.
- *
- *  `LIVE_V6` and `LIVE_V8` below are the only two values of this type. A
- *  call site can no longer pass the envelope version and the content
- *  version as two independent parameters, the way the removed
- *  `parseLiveEnvelope(value, expectedId, schemaVersion, contentVersion)`
- *  did. Exported so a test can assert the mis-pairing is a type error. */
-export interface LiveEnvelopeSpec<V extends 6 | 8> {
+/** Pairs an envelope's schema version with the content version it must wrap. */
+export interface LiveEnvelopeSpec<V extends 6 | 8 | 10> {
   readonly schemaVersion: V;
   readonly requireContent: (content: ParsedManifestVersion) => LiveEnvelopeContentByVersion[V];
 }
@@ -280,15 +327,24 @@ const LIVE_V8: LiveEnvelopeSpec<8> = {
   }
 };
 
+const LIVE_V10: LiveEnvelopeSpec<10> = {
+  schemaVersion: STORY_SCHEMA_VERSION_V10,
+  requireContent: (content) => {
+    if (content.sourceSchemaVersion !== STORY_ASIDE_SCHEMA_VERSION) {
+      throw new StoryFormatError(
+        `V${STORY_SCHEMA_VERSION_V10} content must contain an exact V${STORY_ASIDE_SCHEMA_VERSION} payload`
+      );
+    }
+    return content.manifest;
+  }
+};
+
 /**
- * The one live-envelope parser for both schema versions. A schema version
+ * The one live-envelope parser for every schema version. A schema version
  * identifies one document shape, so `LIVE` and every scalar/pointer parser
- * below are shared as-is; only `spec` changes between a V6 and a V8 parse.
- * Typing `content` and `schemaVersion` as `LiveEnvelopeContentByVersion[V]`
- * and `V`, instead of as the plain unions they narrow from, is what makes
- * the returned object literal assignable to its return type with no cast.
+ * below are shared as-is; only `spec` changes between versions.
  */
-function parseLiveEnvelope<V extends 6 | 8>(
+function parseLiveEnvelope<V extends 6 | 8 | 10>(
   value: unknown,
   expectedId: string,
   spec: LiveEnvelopeSpec<V>
@@ -326,12 +382,12 @@ function parseLiveEnvelope<V extends 6 | 8>(
   return parsed;
 }
 
-/** The one deleted-envelope parser for both schema versions. It carries no
+/** The one deleted-envelope parser for every schema version. It carries no
  *  content, so only `schemaVersion` differs between a V6 and a V8 parse, and
  *  typing that parameter as `V` (rather than as the union `6 | 8`) is what
  *  makes the returned object literal assignable to `DeletedStoryEnvelope<V>`
  *  without a cast. */
-function parseDeletedEnvelope<V extends 6 | 8>(
+function parseDeletedEnvelope<V extends 6 | 8 | 10>(
   value: unknown,
   expectedId: string,
   schemaVersion: V
@@ -356,7 +412,7 @@ function parseDeletedEnvelope<V extends 6 | 8>(
   };
 }
 
-function parseCommonLiterals(manifest: Record<string, unknown>, schemaVersion: 6 | 8): void {
+function parseCommonLiterals(manifest: Record<string, unknown>, schemaVersion: 6 | 8 | 10): void {
   if (manifest.format !== STORY_FORMAT
     && manifest.format !== STORYTAVERN_STORY_FORMAT) {
     throw new StoryFormatError("manifest.format is invalid");
@@ -416,7 +472,7 @@ function preparedTransactionPointer(value: unknown): PreparedUserTransactionPoin
   return pointer;
 }
 
-function assertSummaryMatchesContent<V extends 6 | 8>(
+function assertSummaryMatchesContent<V extends 6 | 8 | 10>(
   manifest: LiveStoryEnvelope<V, LiveEnvelopeContentByVersion[V]>
 ): void {
   const expected = storySummaryV6FromContent(manifest.content);
@@ -437,7 +493,7 @@ function assertSummaryMatchesContent<V extends 6 | 8>(
  *  parameterized, a V8 document that broke this invariant raised a message
  *  that named V6, because the V8 parser called a copy of this check that
  *  still hardcoded the V6 wording. */
-function assertRevisionPredecessor(schemaVersion: 6 | 8, revision: Revision20, previous: Hash256 | null): void {
+function assertRevisionPredecessor(schemaVersion: 6 | 8 | 10, revision: Revision20, previous: Hash256 | null): void {
   if ((revision === REVISION_ONE) !== (previous === null)) {
     throw new StoryFormatError(
       `V${schemaVersion} revision 1 must have no predecessor and later revisions must have one`
@@ -512,4 +568,9 @@ function isV6Candidate(value: unknown): value is Record<string, unknown> {
 function isV8Candidate(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     && (value as Record<string, unknown>).schemaVersion === STORY_SCHEMA_VERSION_V8;
+}
+
+function isV10Candidate(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    && (value as Record<string, unknown>).schemaVersion === STORY_SCHEMA_VERSION_V10;
 }

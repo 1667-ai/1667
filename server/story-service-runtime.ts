@@ -26,6 +26,7 @@ import { StorySearch } from "./story-search.js";
 import { StoryCreationMutationStore } from "./story-creation-mutation.js";
 import { StoryMutationStore } from "./story-mutation-store.js";
 import { assertNoProjectTierSecrets } from "./project-secret-fence.js";
+import { viewAsideDocument } from "./aside-http.js";
 import { buildStoryPayload } from "./story-payload.js";
 import { StoryReaper } from "./story-reaper.js";
 import { StoryServiceChapters } from "./story-service-chapters.js";
@@ -58,6 +59,8 @@ interface StoryServiceCommonOptions {
   /** External-lock owners report the freshness their own lock observed; a
    * service-owned lock answers for itself. */
   freshDataDirectory?: boolean;
+  /** Test and maintenance override for the Aside successor write gate. */
+  asideActivation?: boolean;
 }
 
 type StoryServiceDiagnostics =
@@ -113,6 +116,7 @@ export abstract class StoryServiceRuntime {
   private readonly starterVault: "seed-when-new" | undefined;
   private readonly externalFreshDataDirectory: boolean;
   private readonly machineDir: string | undefined;
+  private readonly asideActivation: boolean | undefined;
   private readonly active = new Set<AbortController>();
   private readonly activeOperations = new Set<Promise<unknown>>();
   private readonly archivedMutationCleanup =
@@ -150,6 +154,7 @@ export abstract class StoryServiceRuntime {
     }
     this.externalFreshDataDirectory = options.freshDataDirectory === true;
     this.machineDir = options.machineDir;
+    this.asideActivation = options.asideActivation;
     this.errorReporter = options.diagnostics === "disabled"
       ? InternalErrorReporter.disabled()
       : options.errorReporter;
@@ -381,7 +386,9 @@ export abstract class StoryServiceRuntime {
         // through `this.stories.load`), so this must read the field lazily.
         // StoryStore never calls it before both are constructed and
         // initialized.
-        liveGenerationRecordIds: (storyId) => this.mutationReceipts.liveGenerationRecordIds(storyId)
+        liveGenerationRecordIds: (storyId) =>
+          this.mutationReceipts.liveGenerationRecordIds(storyId),
+        asideActivation: this.asideActivation
       }
     );
     this.settings = new SettingsStore(storageRoot, {
@@ -446,6 +453,9 @@ export abstract class StoryServiceRuntime {
       async (error) => await this.errorReporter.report(
         error,
         { service: "mutation-receipt" }
+      ),
+      async (storyId) => viewAsideDocument(
+        await this.stories.loadAsideDocument(storyId)
       )
     );
   }

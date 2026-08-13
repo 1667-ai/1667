@@ -48,6 +48,8 @@ const FAILURE_CODE_VALUES = [
   "image_stage_busy",
   "image_context_too_large",
   "provider_request_too_large",
+  // Aside entry points closed for this release, or a predecessor build.
+  "aside_not_supported",
   // A settings document written by a later release. This release reads and
   // validates it, and refuses to change it, so a writer who moves back one
   // version keeps every setting instead of losing the file.

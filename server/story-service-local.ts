@@ -47,6 +47,12 @@ import {
 } from "./story-nodes.js";
 import { buildStoryPayload } from "./story-payload.js";
 import { STORY_UNCHANGED, type StoryStore } from "./stories.js";
+import { asideEntryPointsOpen } from "../shared/aside-release.js";
+import { clearPendingAsideDocument } from "./story-aside-pending.js";
+import {
+  mintActivatedStoryMutationRequest,
+  mintStoryMutationRequest
+} from "./story-mutation-request.js";
 
 export interface StoryServiceLocalDependencies {
   readonly stories: StoryStore;
@@ -71,6 +77,14 @@ export class StoryServiceLocal {
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
     const normalized = title.trim();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(
+        this.dependencies.stories,
+        id,
+        "renameStory",
+        normalized
+      );
+    }
     if (mutationRequest !== undefined) {
       return await this.localStoryPayload(
         mutationRequest,
@@ -94,6 +108,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "setAuthorsNote", note);
+    }
     if (this.dependencies.dataFormat() < 4) {
       throw new ServiceError(
         409,
@@ -124,6 +141,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "setAuthorBrief", brief);
+    }
     if (this.dependencies.dataFormat() < 4) {
       throw new ServiceError(
         409,
@@ -154,6 +174,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "setFactsBudget", String(budgetTokens));
+    }
     if (mutationRequest !== undefined) {
       return await this.localStoryPayload(
         mutationRequest,
@@ -176,6 +199,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "setPhraseBias", JSON.stringify(phraseBias));
+    }
     if (mutationRequest !== undefined) {
       return await this.localStoryPayload(
         mutationRequest,
@@ -198,6 +224,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "setBannedStrings", JSON.stringify(bannedStrings));
+    }
     if (mutationRequest !== undefined) {
       return await this.localStoryPayload(
         mutationRequest,
@@ -221,6 +250,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "switchLine", nodeId);
+    }
     const options = parseSwitchOptions(value);
     if (options.expectedLineFingerprint !== undefined
       && !HASH_PATTERN.test(options.expectedLineFingerprint)) {
@@ -252,6 +284,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "createNode", nodeId ?? "");
+    }
     const body = parseCreateNode(value);
     if (mutationRequest !== undefined) {
       const rawText = body.text;
@@ -356,6 +391,9 @@ export class StoryServiceLocal {
     settleTakeId?: string
   ): Promise<{ payload: StoryPayload; nodeId: string } | null> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "commitPartialRewrite", nodeId);
+    }
     const body = parseCommitPartialRewrite(value);
     const claimedRecord = await this.dependencies.rewritePartials.claim(
       id,
@@ -485,6 +523,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "editNode", nodeId);
+    }
     const edit = parseEditNode(value);
     if (mutationRequest !== undefined) {
       return await this.localStoryPayload(
@@ -514,6 +555,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "deleteNode", nodeId);
+    }
     if (typeof expectedSubtreeCount !== "number"
       || !Number.isSafeInteger(expectedSubtreeCount)) {
       throw new ServiceError(400, "expectedSubtreeCount must be an integer");
@@ -538,6 +582,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "pruneUnusedTakes", JSON.stringify(value));
+    }
     const expected = parsePruneUnusedTakes(value);
     if (mutationRequest !== undefined) {
       return await this.localStoryPayload(
@@ -561,6 +608,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "takeFromCut", nodeId);
+    }
     const body = parseTakeFromCut(value);
     if (mutationRequest !== undefined) {
       return await this.localStoryPayload(
@@ -601,6 +651,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "pasteStoryLine", targetParentId);
+    }
     const body = parsePasteStoryLine(value);
     if (mutationRequest !== undefined) {
       return await this.localStoryPayload(
@@ -634,6 +687,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "putBookmark", nodeId);
+    }
     if (mutationRequest !== undefined) {
       return await this.localStoryPayload(
         mutationRequest,
@@ -664,6 +720,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "deleteBookmark", nodeId);
+    }
     if (mutationRequest !== undefined) {
       return await this.localStoryPayload(
         mutationRequest,
@@ -683,6 +742,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "createFact", JSON.stringify(body));
+    }
     if (mutationRequest !== undefined) {
       return await this.localStoryPayload(
         mutationRequest,
@@ -730,6 +792,9 @@ export class StoryServiceLocal {
     }
   ): Promise<{ payload: StoryPayload; report: Report }> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "createFact");
+    }
     let produced: Report | null = null;
     const mutate = async (story: Story) => {
       const report = await plan.planned(story);
@@ -771,6 +836,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "patchFact", factId);
+    }
     if (mutationRequest !== undefined) {
       return await this.localStoryPayload(
         mutationRequest,
@@ -790,6 +858,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "deleteFact", factId);
+    }
     if (mutationRequest !== undefined) {
       return await this.localStoryPayload(
         mutationRequest,
@@ -810,6 +881,9 @@ export class StoryServiceLocal {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "reorderFact", factId);
+    }
     if (mutationRequest !== undefined) {
       return await this.localStoryPayload(
         mutationRequest,
@@ -821,6 +895,56 @@ export class StoryServiceLocal {
       id,
       (story) => reorderFact(story, factId, body)
     ));
+  }
+
+  /**
+   * Clear every Side Note for one story. Returns resource_busy while any
+   * provider request for the story is unresolved, so an in-flight answer
+   * cannot reappear after a successful clear.
+   */
+  async clearAside(
+    id: string,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(this.dependencies.stories, id, "clearAside");
+    }
+    if (!asideEntryPointsOpen(this.dependencies.stories.asideActivation)
+      && mutationRequest === undefined) {
+      throw new ServiceError(400, "Aside is not available in this release.", "aside_not_supported");
+    }
+    const clear = (story: Story, session?: StoryAggregateSession): void | typeof STORY_UNCHANGED => {
+      if (session !== undefined && session.snapshot.manifest.unresolvedProvider !== null) {
+        throw new ServiceError(
+          409,
+          "A model request for this story is still unresolved. Wait for it to finish before clearing Aside.",
+          "resource_busy"
+        );
+      }
+      if (story.asideDocumentId === null) {
+        // A repeated clear is already represented by the durable tombstone.
+        return STORY_UNCHANGED;
+      }
+      // A first clear must write the nullable V9 field. It fences an Aside
+      // answer admitted while the story still had no Aside state.
+      clearPendingAsideDocument(story);
+      story.asideDocumentId = null;
+    };
+    // Clear writes V9/V10 (null asideDocumentId) through the aggregate session.
+    // Mint a durable request when the transport did not supply one.
+    const request = mutationRequest === undefined
+      ? await mintStoryMutationRequest(
+          this.dependencies.stories,
+          id,
+          "clearAside"
+        )
+      : mutationRequest;
+    return await this.localStoryPayload(
+      request,
+      "clearAside",
+      (story, session) => clear(story, session)
+    );
   }
 
   private async localStoryPayload(

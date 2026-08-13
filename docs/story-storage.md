@@ -123,6 +123,11 @@ when you open it. A Generation Record never contains a credential, a custom
 header value, a base URL, or provider response text. See [Generation
 Record](model-providers.md#generation-record).
 
+A story can also hold one Aside document: the bounded, content-addressed
+list of Side Notes for that story. 1667 loads the Aside document only when
+you open Aside. Side Notes never enter Write prompts or story payloads. See
+[Technical terms](technical-terms.md).
+
 ## Project lock
 
 One writer can own a project. An advisory lock on `.1667/lock` enforces this
@@ -181,8 +186,9 @@ Use `--format` to write an Archive:
 
 A `.story` Archive contains the selected prose in order. It also contains the
 Facts, the Memory, and the Author's Note. It does not contain directions,
-unselected takes, summary parts, chapter boundaries, retry history, or
-Generation Records.
+unselected takes, summary parts, chapter boundaries, retry history,
+Generation Records, or Side Notes. When Side Notes exist, the fidelity
+report includes `Side Notes were not exported.`
 
 A `.scenario` Archive contains the selected prose in one prompt. It contains
 the same Facts, Memory, and Author's Note as a `.story` Archive. It does not

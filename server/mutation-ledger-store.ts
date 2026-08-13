@@ -1,6 +1,7 @@
 import type { Stats } from "node:fs";
-import { rm } from "node:fs/promises";
+import { rm, unlink } from "node:fs/promises";
 import path from "node:path";
+import { canonicalJson, decodeCanonicalUtf8, encodeUtf8Strict } from "./canonical-json.js";
 import {
   hashPreparedMutationRecord,
   hashStartedMutationRecord,
@@ -9,8 +10,15 @@ import {
 import {
   formatMigrationLedgerSegments,
   MUTATION_LEDGER_DIRECTORY,
+  storyLedgerToken,
   userMutationLedgerSegments
 } from "./mutation-ledger-paths.js";
+import {
+  requireMutationId,
+  requireHash256,
+  requireLogicalAggregateKey,
+  storyIdFromAggregateKey
+} from "./mutation-ledger-scalars.js";
 import type {
   AcknowledgedMutationRecord,
   CompletedMutationRecord,
@@ -26,7 +34,11 @@ import type {
 } from "./mutation-ledger-types.js";
 import { canonicalFormatMigrationReceiptRecord } from "./settings-format-migration-receipt.js";
 import {
+  publishPrivateFileNoReplace,
+  readOptionalPrivateFile,
   readOptionalPrivateFiles,
+  removePrivateFile,
+  type PrivateFilePolicy
 } from "./private-file-publication.js";
 import {
   LEDGER_RECORD_POLICY,
@@ -68,6 +80,19 @@ const EMPTY_STORY_RECEIPT: StoryMutationReceipt = Object.freeze({
   prepared: null,
   completed: null,
   acknowledged: null
+});
+
+interface ClearRecoveryCandidate {
+  readonly schema: 1;
+  readonly kind: "clear-recovery-candidate";
+  readonly aggregateKey: `story:${string}`;
+  readonly mutationId: MutationId;
+  readonly preparedRecordHash: Hash256;
+}
+
+const CLEAR_RECOVERY_CANDIDATE_POLICY: PrivateFilePolicy = Object.freeze({
+  label: "Aside Clear recovery candidate",
+  maxBytes: 1024
 });
 
 export interface FormatMigrationReceipt {
@@ -227,8 +252,9 @@ export class MutationLedgerStore {
 
   /**
    * Bounded recovery cleanup for an uncommitted prepared receipt. The exact
-   * single-record directory and caller-provided prepared hash are revalidated;
-   * terminal or additional evidence is never removed.
+   * prepared record and caller-provided hash are revalidated. A story receipt
+   * may retain its related started record; terminal or unrelated evidence is
+   * never removed.
    */
   async removeOrphanPreparedUserReceipt(
     aggregateKey: LogicalAggregateKey,
@@ -244,11 +270,21 @@ export class MutationLedgerStore {
       throw corruptReceipt(mutationId);
     }
     const entries = await boundedReceiptEntries(directory, mutationId);
-    if (entries.length !== 1 || entries[0] !== RECORD_FILES.prepared) {
+    const hasOnlyPrepared = entries.length === 1 && entries[0] === RECORD_FILES.prepared;
+    const hasPreparedAndStarted = aggregateKey.startsWith("story:")
+      && entries.length === 2
+      && entries.includes(RECORD_FILES.prepared)
+      && entries.includes(RECORD_FILES.started);
+    if (!hasOnlyPrepared && !hasPreparedAndStarted) {
       throw corruptReceipt(mutationId);
     }
     try {
       await inspectPrivateDirectory(directory);
+      if (hasPreparedAndStarted) {
+        await unlink(path.join(directory, RECORD_FILES.prepared));
+        await syncPrivateDirectory(directory);
+        return true;
+      }
       await rm(directory, { recursive: true, force: false, maxRetries: 0 });
       await syncPrivateDirectory(path.dirname(directory));
       return true;
@@ -289,9 +325,170 @@ export class MutationLedgerStore {
   }
 
   /**
-   * Explicit direct collector for one completed settings/user receipt. Callers
-   * must hold the aggregate scope; unseen or non-terminal evidence is retained.
+   * Recover the one indexed Clear candidate for this story. The caller holds
+   * the story lock and supplies every aggregate or staged pointer that can
+   * still own the candidate. No historical receipt directory is scanned.
    */
+  async recoverIndexedClearPreparedStoryReceipt(
+    aggregateKey: `story:${string}`,
+    referencedMutationIds: ReadonlySet<MutationId>,
+    stagedMutationId: MutationId | null = null,
+    currentMutationId: MutationId | null = null
+  ): Promise<MutationId | null> {
+    const candidate = await this.readClearRecoveryCandidate(aggregateKey);
+    if (candidate === null) return null;
+    const receipt = await this.loadStoryReceipt(aggregateKey, candidate.mutationId);
+    const hasReceiptEvidence = receipt.started !== null
+      || receipt.prepared !== null
+      || receipt.completed !== null
+      || receipt.acknowledged !== null;
+    const hasAggregateEvidence = referencedMutationIds.has(candidate.mutationId);
+    const hasStageEvidence = stagedMutationId === candidate.mutationId;
+    if (currentMutationId === candidate.mutationId
+      && !hasReceiptEvidence && !hasAggregateEvidence && !hasStageEvidence) {
+      // A process can die after the candidate index write and before the
+      // prepared receipt write. The exact retry owns no durable evidence;
+      // remove this unowned marker before the retry writes a new candidate.
+      await this.removeClearRecoveryCandidate(
+        aggregateKey,
+        candidate.mutationId,
+        candidate.preparedRecordHash
+      );
+      return null;
+    }
+    if (hasAggregateEvidence || hasStageEvidence) return null;
+    const prepared = receipt.prepared;
+    if (prepared === null) {
+      await this.removeClearRecoveryCandidate(
+        aggregateKey,
+        candidate.mutationId,
+        candidate.preparedRecordHash
+      );
+      return null;
+    }
+    if (receipt.completed !== null) {
+      if (receipt.started !== null || receipt.acknowledged !== null
+        || prepared.purpose !== "mutation"
+        || prepared.method !== "clearAside"
+        || prepared.aggregateKey !== aggregateKey
+        || prepared.key !== candidate.mutationId
+        || prepared.startedRecordHash !== null
+        || hashPreparedMutationRecord(prepared) !== candidate.preparedRecordHash
+        || receipt.completed.preparedRecordHash !== candidate.preparedRecordHash) {
+        throw corruptReceipt(candidate.mutationId);
+      }
+      await this.removeClearRecoveryCandidate(
+        aggregateKey,
+        candidate.mutationId,
+        candidate.preparedRecordHash
+      );
+      return null;
+    }
+    if (receipt.started !== null || receipt.completed !== null || receipt.acknowledged !== null
+      || prepared.purpose !== "mutation"
+      || prepared.method !== "clearAside"
+      || prepared.aggregateKey !== aggregateKey
+      || prepared.key !== candidate.mutationId
+      || prepared.startedRecordHash !== null
+      || hashPreparedMutationRecord(prepared) !== candidate.preparedRecordHash) {
+      throw corruptReceipt(candidate.mutationId);
+    }
+    if (currentMutationId === candidate.mutationId) {
+      // The exact retry removes its prepared-only orphan after this lookup.
+      // Keep the candidate after this path revalidates the receipt hash.
+      return null;
+    }
+    await this.removeOrphanPreparedUserReceipt(
+      aggregateKey,
+      candidate.mutationId,
+      candidate.preparedRecordHash
+    );
+    await this.removeClearRecoveryCandidate(
+      aggregateKey,
+      candidate.mutationId,
+      candidate.preparedRecordHash
+    );
+    return candidate.mutationId;
+  }
+
+  /** Durable index entry for the prepared-before-stage Clear window. */
+  async writeClearRecoveryCandidate(
+    aggregateKey: `story:${string}`,
+    mutationId: MutationId,
+    preparedRecordHash: Hash256
+  ): Promise<void> {
+    const candidate = this.clearRecoveryCandidate(
+      aggregateKey,
+      mutationId,
+      preparedRecordHash
+    );
+    const directory = this.clearRecoveryDirectory(aggregateKey);
+    const storyId = storyIdFromAggregateKey(aggregateKey);
+    if (storyId === null) throw corruptReceipt("clear-recovery");
+    await this.ensureLedgerDirectory(
+      ["stories", storyLedgerToken(storyId), "clear-recovery"],
+      "user"
+    );
+    const file = path.join(directory, "candidate.json");
+    const existing = await readOptionalPrivateFile(file, CLEAR_RECOVERY_CANDIDATE_POLICY);
+    if (existing !== null) {
+      const current = this.parseClearRecoveryCandidate(existing, aggregateKey);
+      if (current.mutationId === candidate.mutationId
+        && current.preparedRecordHash === candidate.preparedRecordHash) {
+        return;
+      }
+      throw corruptReceipt(current.mutationId);
+    }
+    await publishPrivateFileNoReplace(
+      file,
+      encodeUtf8Strict(canonicalJson(candidate), "Aside Clear recovery candidate"),
+      CLEAR_RECOVERY_CANDIDATE_POLICY
+    );
+  }
+
+  /** Remove an indexed candidate after its exact receipt is gone or terminal. */
+  async removeClearRecoveryCandidate(
+    aggregateKey: `story:${string}`,
+    mutationId: MutationId,
+    preparedRecordHash: Hash256
+  ): Promise<boolean> {
+    const candidate = await this.readClearRecoveryCandidate(aggregateKey);
+    if (candidate === null) return false;
+    if (candidate.mutationId !== mutationId
+      || candidate.preparedRecordHash !== preparedRecordHash) {
+      throw corruptReceipt(mutationId);
+    }
+    await removePrivateFile(
+      path.join(this.clearRecoveryDirectory(aggregateKey), "candidate.json"),
+      CLEAR_RECOVERY_CANDIDATE_POLICY
+    );
+    return true;
+  }
+
+  /** Remove a candidate only when it still belongs to this Clear.
+   *
+   * A receipt for an older Clear can be finalized after a later no-op Clear
+   * has installed the one per-story candidate. The later candidate is valid
+   * evidence and must remain available for its exact replay. */
+  async removeClearRecoveryCandidateIfMatches(
+    aggregateKey: `story:${string}`,
+    mutationId: MutationId,
+    preparedRecordHash: Hash256
+  ): Promise<boolean> {
+    const candidate = await this.readClearRecoveryCandidate(aggregateKey);
+    if (candidate === null) return false;
+    if (candidate.mutationId !== mutationId
+      || candidate.preparedRecordHash !== preparedRecordHash) {
+      return false;
+    }
+    return await this.removeClearRecoveryCandidate(
+      aggregateKey,
+      mutationId,
+      preparedRecordHash
+    );
+  }
+
+  /** Collect one expired completed settings/user receipt under the aggregate lock. */
   async collectTerminalUserReceipt(
     aggregateKey: LogicalAggregateKey,
     mutationId: MutationId,
@@ -467,6 +664,84 @@ export class MutationLedgerStore {
       throw corruptReceipt(expectedKey);
     }
     return Object.freeze({ prepared: parsedPrepared, completed: parsedCompleted });
+  }
+
+  private clearRecoveryDirectory(aggregateKey: `story:${string}`): string {
+    const storyId = storyIdFromAggregateKey(aggregateKey);
+    if (storyId === null) throw corruptReceipt("clear-recovery");
+    return path.join(this.root, "stories", storyLedgerToken(storyId), "clear-recovery");
+  }
+
+  private clearRecoveryCandidate(
+    aggregateKey: `story:${string}`,
+    mutationId: MutationId,
+    preparedRecordHash: Hash256
+  ): ClearRecoveryCandidate {
+    requireMutationId(mutationId);
+    requireHash256(preparedRecordHash, "preparedRecordHash");
+    return {
+      schema: 1,
+      kind: "clear-recovery-candidate",
+      aggregateKey,
+      mutationId,
+      preparedRecordHash
+    };
+  }
+
+  private async readClearRecoveryCandidate(
+    aggregateKey: `story:${string}`
+  ): Promise<ClearRecoveryCandidate | null> {
+    const directory = this.clearRecoveryDirectory(aggregateKey);
+    const bytes = await readOptionalPrivateFile(
+      path.join(directory, "candidate.json"),
+      CLEAR_RECOVERY_CANDIDATE_POLICY
+    );
+    if (bytes !== null) {
+      const entries = await boundedReceiptEntries(directory, "clear-recovery");
+      if (entries.length !== 1 || entries[0] !== "candidate.json") {
+        throw corruptReceipt("clear-recovery");
+      }
+    }
+    return bytes === null ? null : this.parseClearRecoveryCandidate(bytes, aggregateKey);
+  }
+
+  private parseClearRecoveryCandidate(
+    bytes: Uint8Array,
+    aggregateKey: `story:${string}`
+  ): ClearRecoveryCandidate {
+    try {
+      const text = decodeCanonicalUtf8(bytes, "Aside Clear recovery candidate");
+      const value: unknown = JSON.parse(text);
+      if (canonicalJson(value) !== text
+        || value === null
+        || typeof value !== "object"
+        || Array.isArray(value)) {
+        throw new Error("Aside Clear recovery candidate is not canonical JSON");
+      }
+      const root = value as Record<string, unknown>;
+      const keys = Object.keys(root).sort();
+      if (keys.length !== 5
+        || keys.join("\0") !== ["aggregateKey", "kind", "mutationId", "preparedRecordHash", "schema"].join("\0")
+        || root.schema !== 1
+        || root.kind !== "clear-recovery-candidate") {
+        throw new Error("Aside Clear recovery candidate shape is invalid");
+      }
+      const parsedAggregate = requireLogicalAggregateKey(root.aggregateKey);
+      const parsedMutationId = requireMutationId(root.mutationId);
+      const parsedHash = requireHash256(root.preparedRecordHash, "preparedRecordHash");
+      if (parsedAggregate !== aggregateKey || !parsedAggregate.startsWith("story:")) {
+        throw new Error("Aside Clear recovery candidate aggregate is invalid");
+      }
+      return {
+        schema: 1,
+        kind: "clear-recovery-candidate",
+        aggregateKey: parsedAggregate,
+        mutationId: parsedMutationId,
+        preparedRecordHash: parsedHash
+      };
+    } catch (error) {
+      throw corruptReceipt("clear-recovery", error);
+    }
   }
 
   private userDirectory(aggregateKey: LogicalAggregateKey, mutationId: MutationId): string {

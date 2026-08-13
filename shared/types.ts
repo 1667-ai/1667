@@ -316,6 +316,17 @@ export interface StoryPayload {
   chapterBreaks: ChapterBreak[];
   /** Successor-Q optimistic-concurrency token. Predecessor responses omit it. */
   aggregateVersion?: import("./story-aggregate-version.js").StoryAggregateVersion;
+  /**
+   * Presence only: this story has a non-null Aside document. Side Note text
+   * is never on the payload; load it through getAside.
+   */
+  hasAside?: true;
+}
+
+/** Markdown hand-off plus exact notices for content the export omits. */
+export interface StoryMarkdownExport {
+  readonly markdown: string;
+  readonly fidelity: readonly string[];
 }
 
 /** Runtime protocol-v3 boundary. Call once when an HTTP payload enters the
@@ -614,6 +625,12 @@ export interface Story {
   /** Estimated-token cap across every emitted Fact; absent means uncapped. */
   factsBudgetTokens?: number;
   chapterBreaks: ChapterBreak[];
+  /**
+   * Content-addressed Aside document id. Absent means this story has never
+   * written an Aside document. Null means the document was cleared. The
+   * Side Note text itself is never on this object; load it through getAside.
+   */
+  asideDocumentId?: string | null;
 }
 
 function assertAuthorsNote(value: unknown): void {

@@ -733,6 +733,8 @@ export async function dispatch(
         await inlineEditorAction(action, state, source, context);
       } else if (!copied && state.mode === "SETTINGS") {
         await handleOverlayAction(action, state, source, context);
+      } else if (!copied && state.mode === "ASIDE") {
+        await handleOverlayAction(action, state, source, context);
       }
     }
   }
@@ -757,9 +759,11 @@ export async function dispatch(
   // Native buffer offsets must not leak between the story, Direct, and the
   // full-screen editor when their rendered document changes.
   const previousTextSurface = previousMode === "COMPOSE"
-    || previousMode === "EDITOR";
+    || previousMode === "EDITOR"
+    || previousMode === "ASIDE";
   const currentTextSurface = state.mode === "COMPOSE"
-    || state.mode === "EDITOR";
+    || state.mode === "EDITOR"
+    || state.mode === "ASIDE";
   if (state.mode !== previousMode && (previousTextSurface || currentTextSurface)) {
     renderer?.clearSelection();
   }
@@ -791,6 +795,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     request: null,
     probs: null,
     record: null,
+    aside: null,
     toast: null,
     notices: createNoticeLog(),
     stream: renderMode && source.demo ? leafStreamView(source.payload) : null,

@@ -31,8 +31,8 @@ import {
   STORED_IMAGE_MEDIA_TYPES
 } from "../shared/image-attachment.js";
 import { HASH_PATTERN } from "../server/story-format-facts.js";
-import { STORY_SUCCESSOR_SCHEMA_VERSION } from "../server/story-format.js";
-import { STORY_SCHEMA_VERSION_V8 } from "../server/story-v6-codec.js";
+import { STORY_ASIDE_SCHEMA_VERSION, STORY_SUCCESSOR_SCHEMA_VERSION } from "../server/story-format.js";
+import { STORY_SCHEMA_VERSION_V8, STORY_SCHEMA_VERSION_V10 } from "../server/story-v6-codec.js";
 import { exactStringPatternSource } from "../server/story-wire-patterns.js";
 import {
   REVISION_ONE,
@@ -144,6 +144,7 @@ export function storyManifestSchema(): Schema {
     }),
     StrictV5Payload: strictContentSchema(5, "StoredNodeV5"),
     StrictV7Payload: strictContentSchema(STORY_SUCCESSOR_SCHEMA_VERSION, "StoredNodeV7"),
+    StrictV9Payload: asideContentSchema(STORY_ASIDE_SCHEMA_VERSION, "StoredNodeV7"),
     ProviderPointer: closed({ mutationId: ref("MutationId"), fingerprintHash: ref("Hash256") }),
     StartedUserTransactionPointer: closed({
       receiptKind: { const: "user" }, mutationId: ref("MutationId"), phase: { const: "started" }
@@ -166,19 +167,24 @@ export function storyManifestSchema(): Schema {
     LiveV6: liveV6Schema(6, "StrictV5Payload"),
     DeletedV6: deletedV6Schema(6),
     LiveV8: liveV6Schema(STORY_SCHEMA_VERSION_V8, "StrictV7Payload"),
-    DeletedV8: deletedV6Schema(STORY_SCHEMA_VERSION_V8)
+    DeletedV8: deletedV6Schema(STORY_SCHEMA_VERSION_V8),
+    LiveV10: liveV6Schema(STORY_SCHEMA_VERSION_V10, "StrictV9Payload"),
+    DeletedV10: deletedV6Schema(STORY_SCHEMA_VERSION_V10)
   };
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     $id: "https://1667.invalid/schema/story-manifest-p2.json",
-    title: "1667 strict V5, V6, V7, and V8 story manifests",
+    title: "1667 strict V5, V6, V7, V8, V9, and V10 story manifests",
     oneOf: [
       ref("StrictV5Payload"),
       ref("LiveV6"),
       ref("DeletedV6"),
       ref("StrictV7Payload"),
       ref("LiveV8"),
-      ref("DeletedV8")
+      ref("DeletedV8"),
+      ref("StrictV9Payload"),
+      ref("LiveV10"),
+      ref("DeletedV10")
     ],
     $defs: definitions
   };
@@ -289,6 +295,22 @@ function strictContentSchema(schemaVersion: number, nodeRef: string): Schema {
     "format", "schemaVersion", "id", "title", "createdAt", "updatedAt", "activeWordCount", "nodes",
     "facts", "activeRootId", "bookmarks", "recentNodeIds", "chapterBreaks"
   ]);
+}
+
+/** V9 content: every V7 field plus required nullable asideDocumentId. */
+function asideContentSchema(schemaVersion: number, nodeRef: string): Schema {
+  const base = strictContentSchema(schemaVersion, nodeRef) as Schema & {
+    properties: Record<string, Schema>;
+    required: string[];
+  };
+  return {
+    ...base,
+    properties: {
+      ...base.properties,
+      asideDocumentId: { oneOf: [{ type: "null" }, ref("Hash256")] }
+    },
+    required: [...base.required, "asideDocumentId"]
+  };
 }
 
 /** Shared by `LiveV6` and `LiveV8`: one envelope shape, two possible content

@@ -132,6 +132,7 @@ export function createHttpOperationRecord(
     abort: new AbortController(),
     state: "reserved",
     cancelRequested: false,
+    cancellationSource: null,
     failure: null,
     terminalAt: null,
     timer: null,

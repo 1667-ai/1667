@@ -52,6 +52,8 @@ interface MutationEntityNamespaces {
   rewriteNode: "rewrite" | "rewrite-take";
   commitPartialRewrite: "partial-rewrite-take";
   createSummaryTake: "summary-node" | "summary-cut";
+  askAside: never;
+  clearAside: never;
 }
 
 export type MutationEntityNamespace<M extends MutatingWorkerMethod> = MutationEntityNamespaces[M];

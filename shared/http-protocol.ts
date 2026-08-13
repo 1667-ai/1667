@@ -24,6 +24,7 @@ import {
 
 export const HTTP_CLIENT_PROTOCOL_HEADER = "x-1667-client-protocol";
 export const HTTP_SERVER_INSTANCE_HEADER = "x-1667-server-instance";
+export const HTTP_FIDELITY_HEADER = "x-1667-fidelity";
 
 export {
   HTTP_API_PROTOCOL_VERSION,

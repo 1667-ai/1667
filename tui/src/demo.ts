@@ -57,11 +57,18 @@ import {
 } from "./demo-chapters.js";
 import { buildDemoNodes, DEMO_CREATED_AT, DEMO_EDITED_AT, demoTags, demoFacts, makeDemoNode } from "./demo-fixture.js";
 import { createDemoTake } from "./demo-take.js";
+import {
+  appendSideNote,
+  ASIDE_EXPORT_OMISSION_NOTICE,
+  emptyAsideDocument,
+  type AsideDocument
+} from "../../shared/aside.js";
 
 export { DEMO_SUMMARY_TEXT } from "./demo-chapters.js";
 
 const CREATED = DEMO_CREATED_AT;
 const EDITED = DEMO_EDITED_AT;
+const DEMO_ASIDE_DOCUMENT_ID = "0".repeat(64);
 
 export const DEMO_CONTINUE_TEXT = " while the compass needle scratched one small circle in the wood.";
 export const DEMO_GENERATED_TEXT = " The lantern flame bent toward the compass, though no door had opened.";
@@ -120,6 +127,7 @@ export interface DemoController {
   restoreChapterBreak(breakId: string, removed: RemovedChapterBreak): StoryPayload;
   summarizeChapter(breakId: string): StoryPayload;
   editChapterSummary(summaryId: string, text: string): StoryPayload;
+  setAsidePresence(present: boolean): StoryPayload;
   exportMarkdown(): string;
   searchStories(request: SearchRequest): SearchResponse;
 }
@@ -452,6 +460,11 @@ export function createDemoController(dense = false): DemoController {
       editDemoChapterSummary(story, summaryId, text, EDITED);
       return payloadFrom(story);
     },
+    setAsidePresence(present) {
+      if (present) story.asideDocumentId = DEMO_ASIDE_DOCUMENT_ID;
+      else delete story.asideDocumentId;
+      return payloadFrom(story);
+    },
     exportMarkdown() { return `# ${story.title}\n\n${activePath(story).map((node) => node.text).join("\n\n")}`; },
     searchStories(request) {
       const query = request.query.trim();
@@ -566,7 +579,10 @@ function payloadFrom(story: Story): StoryPayload {
     tags: story.tags.map((tag) => ({ ...tag })),
     recentNodeIds: [...story.recentNodeIds],
     facts: story.facts.map((fact) => ({ ...fact })),
-    chapterBreaks: story.chapterBreaks.map((chapterBreak) => ({ ...chapterBreak }))
+    chapterBreaks: story.chapterBreaks.map((chapterBreak) => ({ ...chapterBreak })),
+    ...(story.asideDocumentId === undefined || story.asideDocumentId === null
+      ? {}
+      : { hasAside: true as const })
   };
 }
 
@@ -635,10 +651,15 @@ export const DEMO_SETTINGS_VIEW: SettingsView = {
 export function demoStoryApi(demo: DemoController): StoryApi {
   const unavailable = (feature: string) => { throw new Error(`${feature} is not available in the demo fixture`); };
   let settingsView = structuredClone(DEMO_SETTINGS_VIEW);
+  const asideDocuments = new Map<string, AsideDocument>();
+  const openStory = (id: string): StoryPayload => {
+    demo.openStory(id);
+    return demo.setAsidePresence(asideDocuments.has(id));
+  };
   return {
     listStories: async () => demo.listStories(),
     createStory: async () => demo.createStory(),
-    loadStory: async (id) => demo.openStory(id),
+    loadStory: async (id) => openStory(id),
     renameStory: async (_id, title) => demo.renameStory(title),
     setAuthorsNote: async (_storyId, authorsNote, depth) => demo.setAuthorsNote(authorsNote, depth),
     setAuthorBrief: async (_storyId, authorBrief) => demo.setAuthorBrief(authorBrief),
@@ -647,11 +668,39 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     setBannedStrings: async (_storyId, bannedStrings) => demo.setBannedStrings(bannedStrings),
     autonameStory: async () => demo.autonameStory(),
     acknowledgeUnknownOutcomes: async () => demo.autonameStory(),
-    deleteStory: async () => { demo.deleteStory(); return { ok: true }; },
+    deleteStory: async (id) => {
+      asideDocuments.delete(id);
+      demo.deleteStory();
+      return { ok: true };
+    },
     getTokenProbabilities: async () => unavailable("Token probabilities"),
     getGenerationRecords: async () => [],
     getGenerationRecord: async () => unavailable("Generation records"),
     getReasoning: async () => unavailable("A thought"),
+    getAside: async (storyId) => structuredClone(
+      asideDocuments.get(storyId) ?? emptyAsideDocument()
+    ),
+    askAside: async (storyId, question, onDelta, signal) => {
+      if (signal.aborted) return null;
+      const answer = `Demo Aside answer for: ${question}`;
+      onDelta(answer);
+      if (signal.aborted) return null;
+      const document = appendSideNote(
+        asideDocuments.get(storyId) ?? null,
+        question,
+        answer
+      );
+      asideDocuments.set(storyId, document);
+      return {
+        notes: structuredClone(document.notes),
+        payload: demo.setAsidePresence(true)
+      };
+    },
+    clearAside: async (id) => {
+      asideDocuments.delete(id);
+      demo.openStory(id);
+      return demo.setAsidePresence(false);
+    },
     stageStoryImage: async () => unavailable("Image staging"),
     releaseStoryImage: async () => unavailable("Image release"),
     switchLine: async (_storyId, nodeId, options = {}) => demo.switchTo(nodeId, options),
@@ -759,7 +808,10 @@ export function demoStoryApi(demo: DemoController): StoryApi {
       for (const fact of plan.facts) payload = demo.createFact(fact);
       return { payload, plan };
     },
-    exportMarkdown: async () => demo.exportMarkdown(),
+    exportMarkdown: async (id) => ({
+      markdown: demo.exportMarkdown(),
+      fidelity: asideDocuments.has(id) ? [ASIDE_EXPORT_OMISSION_NOTICE] : []
+    }),
     searchStories: async (search, signal) => {
       // The fixture answers instantly, so the only cancellation it can honour
       // is one that arrived before the call.

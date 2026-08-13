@@ -98,6 +98,7 @@ import {
   StoryServiceRuntime,
   type StoryServiceUndiagnosedOptions
 } from "./story-service-runtime.js";
+import { mintStoryMutationRequest } from "./story-mutation-request.js";
 
 export type { GenerationMutationHooks } from "./story-service-generation.js";
 export type { StoryServiceOptions } from "./story-service-runtime.js";
@@ -296,6 +297,25 @@ export class StoryService extends StoryServiceRuntime {
     return await this.stories.loadReasoning(id, nodeId);
   }
 
+  /** Complete bounded Aside document. Empty when none exists. */
+  async getAside(id: string): Promise<import("./aside-http.js").AsideDocumentView> {
+    return await this.storyGeneration.getAside(id);
+  }
+
+  async askAside(
+    id: string,
+    body: Record<string, unknown>,
+    onDelta: import("./generation-stream.js").DeltaConsumer,
+    signal: AbortSignal,
+    hooks: GenerationMutationHooks = {}
+  ): Promise<import("./aside-http.js").AsideDocumentView | null> {
+    return await this.storyGeneration.askAside(id, body, onDelta, signal, hooks);
+  }
+
+  async clearAside(id: string, mutationRequest?: unknown): Promise<StoryPayload> {
+    return await this.storyLocal.clearAside(id, mutationRequest);
+  }
+
   /** Stage one Source Image as a Draft Image: normalize it, store the
    *  result as a content-addressed Image Object, and publish a Draft Lease.
    *  Not a story mutation. The caller must already hold the process-wide
@@ -454,7 +474,17 @@ export class StoryService extends StoryServiceRuntime {
       if (mutationRequest !== undefined) {
         await this.storyMutations.runDelete(mutationRequest);
       } else {
-        await this.stories.withLock(id, () => this.stories.remove(id));
+        // Bare remove only serves legacy and V5 bundles. After askAside (or any
+        // other aggregate commit) the story is on a successor envelope, so the
+        // durable delete path must publish the tombstone.
+        const { aggregateVersion } = await this.stories.loadVersioned(id);
+        if (aggregateVersion === null || aggregateVersion.kind === "v5") {
+          await this.stories.withLock(id, () => this.stories.remove(id));
+        } else {
+          await this.storyMutations.runDelete(
+            await mintStoryMutationRequest(this.stories, id, "deleteStory")
+          );
+        }
       }
       return { ok: true };
     } finally {
@@ -476,9 +506,17 @@ export class StoryService extends StoryServiceRuntime {
    * chapters as `##` headings. It is a hand-off artifact — no anchors, no state,
    * and nothing here is ever read back.
    */
-  async exportStory(id: string): Promise<{ filename: string; markdown: string }> {
+  async exportStory(id: string): Promise<{
+    filename: string;
+    markdown: string;
+    /** Exact omission notices for content the export does not carry. */
+    fidelity: readonly string[];
+  }> {
     this.ensureOpen();
     const story = await this.stories.load(id);
+    const fidelity = story.asideDocumentId !== undefined && story.asideDocumentId !== null
+      ? ["Side Notes were not exported."] as const
+      : [];
     const comment = (value: string) => value
       .replace(/\r\n?|\n/g, " ")
       .replace(/--!?>/g, "→");
@@ -514,7 +552,8 @@ export class StoryService extends StoryServiceRuntime {
         ...(exactStoryTitle === null ? [] : [exactStoryTitle]),
         ...(header.length === 0 ? [] : [header.trimEnd()]),
         sections.join("\n\n")
-      ].join("\n\n") + "\n"
+      ].join("\n\n") + "\n",
+      fidelity
     };
   }
 

@@ -14,14 +14,17 @@ import { StoryFormatError, sha256, type ObjectHash } from "./story-format.js";
  * generation-records object is one Generation Record event (Generation
  * Records project); a reasoning object is one take's captured thought
  * (shared/reasoning.ts); an images object is one Normalized Image's raw
- * bytes (shared/image-attachment.ts), hashed and stored with no JSON codec. */
+ * bytes (shared/image-attachment.ts), hashed and stored with no JSON codec;
+ * an aside object is one story's bounded Side Note document
+ * (shared/aside.ts). */
 export type ObjectKind =
   | "chunks"
   | "revisions"
   | "probabilities"
   | "generation-records"
   | "reasoning"
-  | "images";
+  | "images"
+  | "aside";
 
 /** The on-disk extension for one object kind, kept as the single table every
  * writer and reader shares. `objectFilename` below, `objectPath`
@@ -36,7 +39,8 @@ export const OBJECT_EXTENSIONS: Record<ObjectKind, string> = {
   probabilities: ".json",
   "generation-records": ".json",
   reasoning: ".json",
-  images: ".bin"
+  images: ".bin",
+  aside: ".json"
 };
 
 export class SweepCancelled extends Error {}

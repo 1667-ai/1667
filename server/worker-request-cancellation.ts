@@ -23,6 +23,7 @@ export class WorkerRequestCancellation {
   private readonly controller = new AbortController();
   private deadlineFailure: ServiceError | null = null;
   private userCancellation: GenerationCancelledError | null = null;
+  private shutdownCancellationRequested = false;
 
   constructor(
     private readonly mutation: boolean,
@@ -34,10 +35,13 @@ export class WorkerRequestCancellation {
   }
 
   get userCancellationRequested(): boolean {
-    return this.userCancellation !== null && this.deadlineFailure === null;
+    return this.userCancellation !== null
+      && this.deadlineFailure === null
+      && !this.shutdownCancellationRequested;
   }
 
   cancel(reason: WorkerCancelReason): void {
+    if (reason === "shutdown") this.shutdownCancellationRequested = true;
     if (reason === "deadline" && this.deadlineFailure === null) {
       this.deadlineFailure = deadlineError(this.mutation);
     }
@@ -56,6 +60,7 @@ export class WorkerRequestCancellation {
   settledUserCancellation(error: unknown): boolean {
     const abort = classifyProviderAbort(this.controller.signal);
     return this.deadlineFailure === null
+      && !this.shutdownCancellationRequested
       && this.userCancellation !== null
       && abort.kind === "terminal"
       && abort.userInitiated
@@ -68,7 +73,21 @@ export class WorkerRequestCancellation {
 
   failure(error: unknown): WorkerCancellationFailure {
     const deadlineFailure = this.deadlineFailure;
-    if (deadlineFailure === null) return { error, deadline: false };
+    if (deadlineFailure === null) {
+      if (this.shutdownCancellationRequested && this.mutation) {
+        // AbortController keeps the first reason. A user Stop can therefore
+        // reach this method after shutdown with its terminal error, even
+        // though the worker must retain the mutation for reconciliation.
+        // Keep a recovery error for a different provider target intact: this
+        // request did not own that older provider effect.
+        if (error instanceof ProviderRecoveryRequiredError
+          && error.providerMutationId !== this.mutationId) {
+          return { error, deadline: false };
+        }
+        return { error: mutationInterruptedError(), deadline: false };
+      }
+      return { error, deadline: false };
+    }
     // A different target proves that the current request did not reach the
     // provider. Its older story fence must survive this request's deadline.
     if (error instanceof ProviderRecoveryRequiredError
