@@ -12,7 +12,6 @@ import type {
 } from "./prompt-cache-breakpoints.js";
 import type { PromptCacheWirePlan } from "./provider-cache-policy.js";
 import { ProviderError } from "./errors.js";
-import { llamaCppAssistantContinuationFields } from "./llama-cpp-template.js";
 import { applySamplingFields } from "./provider-sampling.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
 import { resolveTokenProbabilities } from "../shared/token-probability-capabilities.js";
@@ -78,25 +77,11 @@ export async function buildOpenAiChatRequestBody(
     stream: true,
     ...cacheFields
   };
-  if (usesLlamaCppAssistantContinuation(settings, loweredPrompt)) {
-    Object.assign(body, llamaCppAssistantContinuationFields(true));
-  }
   if (sendsTemperature(settings)) body.temperature = settings.temperature;
   await applySamplingFields(body, settings, "openai-chat-completions", request);
   applyTokenProbabilities(body, settings);
   applyGenerationEffort(body, settings, "openai");
   return body;
-}
-
-function usesLlamaCppAssistantContinuation(
-  settings: GenerationSettings,
-  prompt: PromptPlan
-): boolean {
-  const runtime = providerRuntimeFor(settings);
-  return runtime.protocol === "openai-chat-completions"
-    && runtime.preset === "llama-cpp"
-    && runtime.capabilities.assistantPrefill !== "unsupported"
-    && prompt.turns.at(-1)?.role === "assistant";
 }
 
 /** `logprobs` / `top_logprobs` only when the route documents them (issue #291

@@ -21,9 +21,6 @@ test("empty Continue ends on the unfinished assistant passage", () => {
 
   assert.equal(messages.at(-1)?.role, "assistant");
   assert.equal(messages.at(-1)?.content, "The latch was unlo");
-  // The stable story contract carries the exact continuation rule because
-  // nothing can follow the unfinished assistant passage without breaking the
-  // prefill. The transport contract then makes that rule effective server-side.
   assert.equal(messages.some((message) => /exact final character/.test(message.content)), true);
   assert.equal(messages.some((message) => message.role === "user" && /final character/i.test(message.content)), false);
 });
@@ -42,11 +39,7 @@ test("requested continuation remains a new user turn", () => {
     [part("Open the door.", "The latch clicked.")]
   ));
 
-  const last = messages.at(-1);
-  assert.equal(last?.role, "user");
-  // The operation contract now leads the same turn (issue #138 / PR #148),
-  // so the writer's instruction is this message's tail, not its whole content.
-  assert.equal(last?.content.endsWith("\n\nA stranger enters."), true);
+  assert.deepEqual(messages.at(-1), { role: "user", content: "A stranger enters." });
 });
 
 test("structural empty endpoints never become empty assistant messages", () => {
@@ -56,17 +49,13 @@ test("structural empty endpoints never become empty assistant messages", () => {
   const requested = continuationPlan("Write.", null, null, parts, "Go elsewhere.", false, true, "ct-empty", [], parts);
   const requestedMessages = rendered(requested);
   assert.equal(requestedMessages.some(({ role, content }) => role === "assistant" && content.trim().length === 0), false);
-  // The operation contract now leads the same turn (issue #138 / PR #148),
-  // so the writer's instruction is this message's tail, not its whole content.
-  assert.equal(requestedMessages.at(-1)?.role, "user");
-  assert.equal(requestedMessages.at(-1)?.content.endsWith("\n\nGo elsewhere."), true);
+  assert.deepEqual(requestedMessages.at(-1), { role: "user", content: "Go elsewhere." });
 
   const appended = continuationPlan("Write.", null, null, [empty], "Continue the story.", true, true, "ct-empty", [], [empty]);
   const appendedMessages = rendered(appended);
   assert.equal(appendedMessages.some(({ role }) => role === "assistant"), false);
-  assert.equal(appendedMessages.at(-1)?.role, "user");
-  assert.equal(appendedMessages.at(-1)?.content.endsWith("\n\nContinue the story."), true);
-  assert.equal(appendedMessages.some(({ content }) => /exact final character/.test(content)), true);
+  assert.deepEqual(appendedMessages.at(-1), { role: "user", content: "Continue the story." });
+  assert.equal(appendedMessages.some(({ content }) => /unfinished passage/.test(content)), false);
 });
 
 test("highlight regeneration bridges exact left and right character boundaries", () => {
