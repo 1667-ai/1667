@@ -11,7 +11,7 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
-    version: "0.9.4-rc.5",
+    version: "0.9.4",
     date: "2026-08-13",
     body: "- **Banned strings can be added when the raw token bias map is empty.** The\n  preview now treats an omitted empty map as an empty map. It continues to\n  refuse malformed maps."
   },

@@ -254,7 +254,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
 
-## 0.9.4-rc.5 - 2026-08-13
+## 0.9.4 - 2026-08-13
 
 - **Banned strings can be added when the raw token bias map is empty.** The
   preview now treats an omitted empty map as an empty map. It continues to
