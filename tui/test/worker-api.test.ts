@@ -962,6 +962,33 @@ describe("embedded backend worker", () => {
     }
   });
 
+  test("cancels a cold chapter version lookup before generation starts", async () => {
+    const worker = new FakeWorker(true);
+    const backend = await createWorkerStoryApi({ worker, readyTimeoutMs: 100 });
+    try {
+      const controller = new AbortController();
+      const pending = backend.api.summarizeChapter("story", "break", controller.signal);
+      const request = await waitForRequest(worker, "loadStory");
+      controller.abort();
+      worker.message({
+        type: "result",
+        id: request.id,
+        value: {
+          id: "story",
+          nodes: [],
+          path: [],
+          aggregateVersion: { kind: "v6", revision: "1" }
+        }
+      });
+      expect((await rejection(pending)).name).toBe("AbortError");
+      expect(worker.messages.some((message) =>
+        message.type === "request" && message.method === "summarizeChapter"
+      )).toBeFalse();
+    } finally {
+      await backend.dispose();
+    }
+  });
+
   test("gives provider checks their own deadline", async () => {
     const worker = new FakeWorker(true);
     const backend = await createWorkerStoryApi({

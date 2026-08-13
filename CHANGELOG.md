@@ -254,6 +254,37 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
 
+## 0.9.4-rc.4 - 2026-08-13
+
+- **`1667 upgrade --list` shows published launcher releases.** It writes one
+  version on each line, with the newest version first. Use `--json` to get a
+  `versions` array. 1667 checks platform support when `--version` selects a
+  release.
+
+- **An exact version can reuse the previous executable.** If
+  `.1667-previous` has the version that `--version` selects, 1667 verifies and
+  uses it. It does not download that version again. `--rollback` continues to
+  use the same file offline.
+
+- **The chapter title editor now has a movable caret.** The left and right
+  arrow keys move the caret. Insert, delete, and paste operations use the caret
+  position.
+
+- **The mouse now selects fields in the Fact editor.** A click selects the
+  Fact text field or choice field under the pointer. Use the left and right
+  arrow keys to change a selected choice. The mouse wheel scrolls a long Fact
+  body.
+
+- **Chapter summarization now identifies its work and its limits.** The
+  status line shows the chapter, the current stage, and that the model does not
+  report progress. Press `Esc` to stop the summary request.
+
+- **1667 prepares to save non-canon Side Notes with a story.** This release
+  contains the Aside implementation and keeps every entry point closed. It
+  cannot open `/aside` yet. This release reads and validates the successor
+  story document and refuses to change it. A later release can write that
+  document and open Aside without making this release damage the story.
+
 ## 0.9.4-rc.3 - 2026-08-13
 
 - **Continuation prompts now match version 0.8.0.** 1667 again sends the

@@ -50,10 +50,12 @@ export type {
   UpgradeApplyCommand,
   UpgradeCheckCommand,
   UpgradeCommand,
+  UpgradeListCommand,
   UpgradeRollbackCommand
 } from "./upgrade-command.js";
 
 export const UPGRADE_HELP = `Usage:
+  1667 upgrade --list [--json]
   1667 upgrade --check [--channel <stable|beta>] [--json]
   1667 upgrade [--version <semver>] [--channel <stable|beta>] [--json] [--force]
   1667 upgrade --rollback [--json] [--force]
@@ -63,6 +65,9 @@ It waives no checksum, attestation, or version check.
 
 --version selects one exact published release. It can downgrade 1667.
 ${DOWNGRADE_WARNING.trimEnd()}
+
+--list shows published launcher releases. Platform support is checked when
+--version selects a release.
 
 If you installed 1667 with npm, or you built it from source, update it the same
 way you installed it.
@@ -94,6 +99,7 @@ const INSTRUCTIONS_ORIGIN =
 export interface UpgradeCliDependencies {
   readonly observation?: UpgradeObservation;
   readonly registry?: UpgradeRegistry;
+  readonly versionRegistry?: Pick<NpmUpgradeRegistry, "availableVersions">;
   readonly authority?: InstallationAuthority;
   readonly fetcher?: RegistryFetch;
   readonly signal?: AbortSignal;
@@ -144,6 +150,34 @@ export async function executeUpgradeCli(
   if (parsed === null) {
     return { exitCode: 0, stdout: `${UPGRADE_HELP}\n`, stderr: "", envelope: null };
   }
+  if (parsed.command.kind === "list") {
+    try {
+      const versions = await (
+        dependencies.versionRegistry ?? new NpmUpgradeRegistry(dependencies.fetcher)
+      ).availableVersions(
+        dependencies.signal ?? new AbortController().signal
+      );
+      return {
+        exitCode: 0,
+        stdout: parsed.json
+          ? `${JSON.stringify({ versions })}\n`
+          : versions.length === 0 ? "" : `${versions.join("\n")}\n`,
+        stderr: "",
+        envelope: null
+      };
+    } catch (error) {
+      const failure = normalizeFailure(error);
+      return failedOutput(
+        failure,
+        parsed.json,
+        { currentVersion: AI_1667_PRODUCT_VERSION },
+        null,
+        authorityMethod(authority),
+        failure.code === "interrupted" ? 130 : 1
+      );
+    }
+  }
+  const registry = dependencies.registry ?? new NpmUpgradeRegistry(dependencies.fetcher);
   let observation: UpgradeObservation;
   try {
     observation = dependencies.observation ?? defaultObservation();
@@ -159,7 +193,6 @@ export async function executeUpgradeCli(
     );
   }
   const method = authorityMethod(authority);
-  const registry = dependencies.registry ?? new NpmUpgradeRegistry(dependencies.fetcher);
   const downgradeWarnings: string[] = [];
   const onDowngradeWarning = dependencies.onDowngradeWarning
     ?? ((warning: string) => downgradeWarnings.push(warning));
@@ -212,6 +245,8 @@ async function dispatchUpgradeCommand(
   onDowngradeWarning: (warning: string) => void
 ): Promise<UpgradeSuccessEnvelope> {
   switch (command.kind) {
+    case "list":
+      throw new UpgradeFailure("internal_error", "The release list was not handled.");
     case "rollback": {
       if (authority.kind === "powershell") {
         requireServableWindowsChannel(authority.channel);

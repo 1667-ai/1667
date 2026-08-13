@@ -11,6 +11,11 @@ export interface UpgradeCheckCommand {
   readonly channel: UpgradeChannel;
 }
 
+/** List published releases. Does not change the installation. */
+export interface UpgradeListCommand {
+  readonly kind: "list";
+}
+
 /** Apply or plan a channel head or one exact published version. */
 export interface UpgradeApplyCommand {
   readonly kind: "apply";
@@ -30,6 +35,7 @@ export interface UpgradeRollbackCommand {
  */
 export type UpgradeCommand =
   | UpgradeCheckCommand
+  | UpgradeListCommand
   | UpgradeApplyCommand
   | UpgradeRollbackCommand;
 
@@ -59,6 +65,8 @@ export function parseUpgradeArguments(
   let check = false;
   let checkSeen = false;
   let jsonSeen = false;
+  let list = false;
+  let listSeen = false;
   let rollback = false;
   let rollbackSeen = false;
   let version: string | null = null;
@@ -75,6 +83,10 @@ export function parseUpgradeArguments(
       if (checkSeen) throw invalidArguments("--check may be specified only once.");
       check = true;
       checkSeen = true;
+    } else if (argument === "--list") {
+      if (listSeen) throw invalidArguments("--list may be specified only once.");
+      list = true;
+      listSeen = true;
     } else if (argument === "--rollback") {
       if (rollbackSeen) throw invalidArguments("--rollback may be specified only once.");
       rollback = true;
@@ -106,13 +118,23 @@ export function parseUpgradeArguments(
   if (check && version !== null) {
     throw invalidArguments("--check and --version cannot be used together.");
   }
+  if (list && (check || rollback || version !== null || channelSeen)) {
+    throw invalidArguments("--list cannot be combined with --check, --rollback, --version, or --channel.");
+  }
   if (rollback && (check || version !== null || channelSeen)) {
     throw invalidArguments("--rollback cannot be combined with --check, --version, or --channel.");
   }
   // A read-only check writes nothing, so waiving a write refusal means nothing
   // there. Saying so beats accepting a flag that does nothing.
-  if (forceSeen && check) {
-    throw invalidArguments("--force cannot be used with --check, which changes no file.");
+  if (forceSeen && (check || list)) {
+    throw invalidArguments(`--force cannot be used with --${list ? "list" : "check"}, which changes no file.`);
+  }
+  if (list) {
+    return Object.freeze({
+      command: Object.freeze({ kind: "list" as const }),
+      json: jsonSeen,
+      force: false
+    });
   }
   if (rollback) {
     return Object.freeze({
@@ -144,6 +166,8 @@ export function upgradeCommandChannel(
     case "check":
     case "apply":
       return command.channel;
+    case "list":
+      return fallback;
     case "rollback":
       return fallback;
   }

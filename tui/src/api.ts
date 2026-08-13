@@ -262,7 +262,7 @@ export interface StoryApi {
   renameChapterBreak(storyId: string, breakId: string | null, title: string): Promise<StoryPayload>;
   removeChapterBreak(storyId: string, breakId: string): Promise<{ payload: StoryPayload; removed: RemovedChapterBreak }>;
   restoreChapterBreak(storyId: string, breakId: string, removed: RemovedChapterBreak): Promise<StoryPayload>;
-  summarizeChapter(storyId: string, breakId: string): Promise<StoryPayload>;
+  summarizeChapter(storyId: string, breakId: string, signal?: AbortSignal): Promise<StoryPayload>;
   editChapterSummary(storyId: string, summaryId: string, text: string, expected: string): Promise<StoryPayload>;
   getSettings(): Promise<SettingsView>;
   saveSettings(command: SaveSettingsCommand): Promise<SettingsMutationResult>;
@@ -588,14 +588,16 @@ export function createApi(
     method: string,
     path: string,
     body?: unknown,
-    timeoutMs = HTTP_REQUEST_TIMEOUT_MS
+    timeoutMs = HTTP_REQUEST_TIMEOUT_MS,
+    callerSignal?: AbortSignal
   ): Promise<StoryPayload> => versions.rememberPayload(await request(
     method,
     path,
     decodeStoryResponse,
     body,
     timeoutMs,
-    await expectedVersion(storyId)
+    await expectedVersion(storyId, callerSignal),
+    callerSignal
   ));
 
   const runAbsentImportMutation = async <T>(
@@ -1038,13 +1040,14 @@ export function createApi(
         `/api/stories/${storyId}/chapter-breaks/${breakId}/restore`,
         removed
       ),
-    summarizeChapter: (storyId, breakId) =>
+    summarizeChapter: (storyId, breakId, signal) =>
       runProviderMutation(storyId, () => mutateStoryPayload(
         storyId,
         "POST",
         `/api/stories/${storyId}/chapter-breaks/${breakId}/summarize`,
         {},
-        HTTP_GENERATION_REQUEST_TIMEOUT_MS
+        HTTP_GENERATION_REQUEST_TIMEOUT_MS,
+        signal
       )),
     editChapterSummary: async (storyId, summaryId, text, expected) =>
       mutateStoryPayload(

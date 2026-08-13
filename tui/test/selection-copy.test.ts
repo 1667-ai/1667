@@ -12,6 +12,7 @@ import {
   captureNativeSelection,
   copyActiveSelection,
   handleMainCopyShortcut,
+  isCopyShortcut,
   nativeSelectionMatches,
   syncMouseComposerSelection
 } from "../src/copy-actions.js";
@@ -31,6 +32,39 @@ import {
 } from "../src/fact-editor-policy.js";
 
 describe("active selection copy", () => {
+  test("Ctrl and Command copy own a selected chapter rename", async () => {
+    for (const modifier of ["ctrl", "super"] as const) {
+      const state = initialState(demoAppSource(), false);
+      const composer = createComposer("Chapter title");
+      composer.anchor = 0;
+      state.mode = "CHAPTERS";
+      state.chapters = {
+        cursor: 0,
+        rename: { breakId: null, composer },
+        deleteArmedId: null
+      };
+      let quit = false;
+      const copied: string[] = [];
+      const shortcut = { name: "c", ctrl: modifier === "ctrl", super: modifier === "super" } as never;
+
+      expect(isCopyShortcut(shortcut)).toBeTrue();
+      expect(handleMainCopyShortcut(
+        EMPTY_NATIVE_SELECTION,
+        state,
+        () => undefined,
+        () => { quit = true; },
+        undefined,
+        async (text) => {
+          copied.push(text);
+          return "command";
+        }
+      )).toBeTrue();
+      await Promise.resolve();
+      expect(copied).toEqual(["Chapter title"]);
+      expect(quit).toBeFalse();
+    }
+  });
+
   test("inline Settings owns empty Ctrl+C and copies its selected draft", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);

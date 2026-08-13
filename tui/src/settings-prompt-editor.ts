@@ -25,6 +25,7 @@ export function openSystemPromptEditor(state: RuntimeState): void {
   };
   state.editor = editor;
   state.editorScrollTop = 0;
+  state.editorScrollDetached = false;
   state.mode = "EDITOR";
 }
 

@@ -4,7 +4,7 @@ import {
   NPM_REGISTRY_ORIGIN as SHARED_NPM_REGISTRY_ORIGIN
 } from "../../shared/npm-tarball-url.js";
 import { distTagForChannel } from "../../shared/release-dist-tags.js";
-import { isSemVer, parseSemVer } from "../../shared/semver.js";
+import { compareSemVer, isSemVer, parseSemVer } from "../../shared/semver.js";
 import { parseJsonRejectingDuplicateKeys } from "../../shared/strict-json.js";
 import {
   PUBLISHED_PLATFORM_PACKAGES,
@@ -20,6 +20,7 @@ import {
 
 export const NPM_REGISTRY_ORIGIN = SHARED_NPM_REGISTRY_ORIGIN;
 export const NPM_METADATA_MAX_BYTES = SHARED_NPM_METADATA_MAX_BYTES;
+export const NPM_VERSION_INDEX_MAX_BYTES = 1024 * 1024;
 export const LAUNCHER_PACKAGE = RELEASE_LAUNCHER_PACKAGE;
 // The registry only answers for packages that were published, so a held
 // target's package is not something this client may look up or expect.
@@ -62,6 +63,16 @@ export class NpmUpgradeRegistry {
     private readonly fetcher: RegistryFetch = (input, init) => fetch(input, init),
     private readonly timeoutMs = 5_000
   ) {}
+
+  async availableVersions(signal: AbortSignal): Promise<readonly string[]> {
+    const body = await this.get(
+      `/${registryPathForPackage(LAUNCHER_PACKAGE)}`,
+      signal,
+      "application/vnd.npm.install-v1+json",
+      NPM_VERSION_INDEX_MAX_BYTES
+    );
+    return parseNpmAvailableVersions(body);
+  }
 
   async channelHead(channel: UpgradeChannel, signal: AbortSignal): Promise<string> {
     const body = await this.get(
@@ -114,7 +125,12 @@ export class NpmUpgradeRegistry {
     );
   }
 
-  private async get(path: string, signal: AbortSignal): Promise<Uint8Array> {
+  private async get(
+    path: string,
+    signal: AbortSignal,
+    accept = "application/json",
+    maxBytes = NPM_METADATA_MAX_BYTES
+  ): Promise<Uint8Array> {
     const timeout = new AbortController();
     const timer = setTimeout(
       () => timeout.abort(new DOMException("Registry request timed out", "TimeoutError")),
@@ -124,7 +140,9 @@ export class NpmUpgradeRegistry {
       return await this.getWithSignal(
         path,
         signal,
-        AbortSignal.any([signal, timeout.signal])
+        AbortSignal.any([signal, timeout.signal]),
+        accept,
+        maxBytes
       );
     } finally {
       clearTimeout(timer);
@@ -134,13 +152,15 @@ export class NpmUpgradeRegistry {
   private async getWithSignal(
     path: string,
     callerSignal: AbortSignal,
-    requestSignal: AbortSignal
+    requestSignal: AbortSignal,
+    accept: string,
+    maxBytes: number
   ): Promise<Uint8Array> {
     let response: Response;
     try {
       response = await this.fetcher(`${NPM_REGISTRY_ORIGIN}${path}`, {
         method: "GET",
-        headers: { accept: "application/json" },
+        headers: { accept },
         redirect: "error",
         signal: requestSignal
       });
@@ -161,12 +181,37 @@ export class NpmUpgradeRegistry {
       );
     }
     const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-    if (contentType !== "application/json") {
+    if (contentType !== "application/json" && contentType !== accept) {
       await cancelResponse(response);
       throw metadataFailure();
     }
-    return readBoundedBody(response, callerSignal);
+    return readBoundedBody(response, callerSignal, maxBytes);
   }
+}
+
+/** Published, non-deprecated launcher releases, newest first. */
+export function parseNpmAvailableVersions(
+  body: Uint8Array | string
+): readonly string[] {
+  const value = parseBoundedJson(body, NPM_VERSION_INDEX_MAX_BYTES);
+  if (!isRecord(value) || value.name !== LAUNCHER_PACKAGE || !isRecord(value.versions)) {
+    throw metadataFailure();
+  }
+  const entries = Object.entries(value.versions);
+  if (entries.length === 0 || entries.length > 1024) throw metadataFailure();
+  const versions: string[] = [];
+  for (const [key, metadata] of entries) {
+    if (!isSemVer(key) || !isRecord(metadata) || metadata.name !== LAUNCHER_PACKAGE
+      || metadata.version !== key) {
+      throw metadataFailure();
+    }
+    const deprecated = metadata.deprecated;
+    if (deprecated !== undefined && typeof deprecated !== "string") throw metadataFailure();
+    if ((deprecated === undefined || deprecated.length === 0)
+      && !Object.hasOwn(metadata, "revoked")) versions.push(key);
+  }
+  versions.sort((left, right) => compareSemVer(right, left));
+  return Object.freeze(versions);
 }
 
 export function parseNpmDistTags(
@@ -207,7 +252,8 @@ export function parseNpmExactVersionMetadata(
   if (name !== expected.name || version !== expected.version) {
     throw new UpgradeFailure("verification_failed", "Registry package identity did not match the target.");
   }
-  if (Object.hasOwn(value, "deprecated") || Object.hasOwn(value, "revoked")) {
+  const deprecated = value.deprecated;
+  if ((deprecated !== undefined && deprecated !== "") || Object.hasOwn(value, "revoked")) {
     throw new UpgradeFailure("unsupported_target", "The requested release is deprecated or revoked.");
   }
   if (!isRecord(value.dist)) throw metadataFailure();
@@ -348,9 +394,13 @@ function singleStringArrayEquals(value: unknown, expected: string): boolean {
   return Array.isArray(value) && value.length === 1 && value[0] === expected;
 }
 
-async function readBoundedBody(response: Response, callerSignal: AbortSignal): Promise<Uint8Array> {
+async function readBoundedBody(
+  response: Response,
+  callerSignal: AbortSignal,
+  maxBytes: number
+): Promise<Uint8Array> {
   const declared = response.headers.get("content-length");
-  if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > NPM_METADATA_MAX_BYTES)) {
+  if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > maxBytes)) {
     await cancelResponse(response);
     throw metadataFailure();
   }
@@ -363,7 +413,7 @@ async function readBoundedBody(response: Response, callerSignal: AbortSignal): P
       const next = await reader.read();
       if (next.done) break;
       length += next.value.byteLength;
-      if (length > NPM_METADATA_MAX_BYTES) throw metadataFailure();
+      if (length > maxBytes) throw metadataFailure();
       chunks.push(next.value);
     }
   } catch (error) {
@@ -389,9 +439,12 @@ async function cancelResponse(response: Response): Promise<void> {
   await response.body?.cancel().catch(() => undefined);
 }
 
-function parseBoundedJson(body: Uint8Array | string): unknown {
+function parseBoundedJson(
+  body: Uint8Array | string,
+  maxBytes = NPM_METADATA_MAX_BYTES
+): unknown {
   const bytes = typeof body === "string" ? new TextEncoder().encode(body) : body;
-  if (bytes.byteLength === 0 || bytes.byteLength > NPM_METADATA_MAX_BYTES) throw metadataFailure();
+  if (bytes.byteLength === 0 || bytes.byteLength > maxBytes) throw metadataFailure();
   let text: string;
   try {
     text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);

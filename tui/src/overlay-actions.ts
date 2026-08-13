@@ -673,7 +673,7 @@ function liveCommandMatches(
     state.demo,
     commandContext(state.payload, {
       connectionDown: state.connection.down,
-      requestActive: generationBusy(state) || state.summary !== null,
+      requestActive: generationBusy(state) || state.summary !== null || state.chapterSummary != null,
       canRewriteSelection: canRewriteSelection(selection?.spans ?? []),
       asideEntryPointsOpen: asideOpen
     })

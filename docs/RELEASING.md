@@ -551,6 +551,15 @@ release can be older than the active release. Before a downgrade, 1667 warns
 that the downgrade can make the Vault unreadable or damage Vault data. An exact
 version does not change the update channel in the Ownership Record.
 
+`1667 upgrade --list` reads the abbreviated npm package metadata. It lists all
+published launcher releases that are not deprecated. It writes one
+version on each line. `--json` writes one object with a `versions` array. The
+command checks platform support when `--version` selects a release.
+
+An exact version reuses `.1667-previous` when that executable has the selected
+version and the correct Artifact Target. Otherwise, it downloads the Platform
+Package.
+
 `1667 upgrade --rollback` works offline.
 
 Windows does not replace the running `1667.exe` file. On Windows, `1667 upgrade`

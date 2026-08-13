@@ -16,6 +16,7 @@ import { editorInsertionPolicy } from "./editor-text-insertion.js";
 import { factEditorChanged, factEditorSavePayload } from "./fact-editor-draft.js";
 import {
   factEditorBuffer,
+  factEditorComposerForSource,
   handleFactEditorVerticalMove,
   handleFactEditorCommand,
   handleFactEditorHistory
@@ -56,6 +57,17 @@ export async function inlineEditorAction(
   const host = state.mode === "EDITOR" ? state.editor : null;
   if (host === null) return;
   const editor = host;
+  const wheelScroll = resolved.action === "scroll-line-up"
+    || resolved.action === "scroll-line-down";
+  if (!wheelScroll) state.editorScrollDetached = false;
+
+  if (editor.kind === "fact" && resolved.composerSourceId !== undefined) {
+    const source = factEditorComposerForSource(editor, resolved.composerSourceId);
+    // Choice rows intentionally have no composer. They are still valid mouse
+    // targets because the source lookup sets their focus before this return.
+    if (source === null) return;
+    if (resolved.action === "compose") return;
+  }
 
   // Author's Note grammar owns the depth control, the same way the Fact
   // header owns its own commands below.
@@ -73,6 +85,18 @@ export async function inlineEditorAction(
     state.config.wordWrap === "on",
     () => Math.max(1, (context.renderer?.width ?? 80) - 4)
   );
+  // Wheel input uses the scroll-line vocabulary shared by document viewers.
+  // Keep it on the Fact body composer so the fixed header rows never receive
+  // focus while the existing composer viewport follows the caret.
+  if (editor.kind === "fact"
+    && wheelScroll) {
+    state.editorScrollTop = Math.max(
+      0,
+      state.editorScrollTop + (resolved.action === "scroll-line-up" ? -1 : 1)
+    );
+    state.editorScrollDetached = true;
+    return;
+  }
   if (editor.kind === "fact"
     && handleFactEditorVerticalMove(resolved, editor, motion)) {
     return;
@@ -104,6 +128,7 @@ function closeInlineEditor(
   state.textActions = null;
   state.editor = null;
   state.editorScrollTop = 0;
+  state.editorScrollDetached = false;
   if (editor.returnMode === "FACTS" && state.facts !== null) {
     state.mode = "FACTS";
   } else if (editor.returnMode === "SETTINGS"

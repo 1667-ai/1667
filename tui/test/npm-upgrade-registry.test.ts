@@ -3,8 +3,10 @@ import { releaseTargetForArtifact } from "../../shared/release-targets.js";
 import {
   LAUNCHER_PACKAGE,
   NPM_METADATA_MAX_BYTES,
+  NPM_VERSION_INDEX_MAX_BYTES,
   NpmUpgradeRegistry,
   PLATFORM_PACKAGES,
+  parseNpmAvailableVersions,
   parseNpmDistTags,
   parseNpmExactVersionMetadata
 } from "../src/npm-upgrade-registry.js";
@@ -23,6 +25,24 @@ function tarballUrl(packageName: string, version: string): string {
 }
 
 const TARBALL = tarballUrl(LAUNCHER_PACKAGE, "2.0.0");
+
+test("npm package metadata lists non-deprecated releases newest first", () => {
+  expect(parseNpmAvailableVersions(JSON.stringify({
+    name: LAUNCHER_PACKAGE,
+    versions: {
+      "1.0.0": { name: LAUNCHER_PACKAGE, version: "1.0.0" },
+      "1.1.0": { name: LAUNCHER_PACKAGE, version: "1.1.0", deprecated: "" },
+      "2.0.0-rc.1": { name: LAUNCHER_PACKAGE, version: "2.0.0-rc.1" },
+      "0.5.0": { name: LAUNCHER_PACKAGE, version: "0.5.0", revoked: true },
+      "0.0.0": { name: LAUNCHER_PACKAGE, version: "0.0.0", deprecated: "reserved" },
+      "2.0.0": { name: LAUNCHER_PACKAGE, version: "2.0.0" }
+    }
+  }))).toEqual(["2.0.0", "2.0.0-rc.1", "1.1.0", "1.0.0"]);
+  expect(() => parseNpmAvailableVersions(JSON.stringify({
+    name: LAUNCHER_PACKAGE,
+    versions: { "1.0.0": { name: "foreign", version: "1.0.0" } }
+  }))).toThrow();
+});
 
 test("npm dist tags select strict stable and beta channel heads", () => {
   const body = JSON.stringify({
@@ -142,6 +162,10 @@ test("exact npm metadata rejects deprecated targets and graph or identity drift"
     version: "2.0.0",
     launcherGraph: { requiredPlatformPackage: PLATFORM_PACKAGE }
   };
+  expect(parseNpmExactVersionMetadata(
+    JSON.stringify({ ...valid, deprecated: "" }),
+    expected
+  ).version).toBe("2.0.0");
   for (const value of [
     { ...valid, name: "other" },
     { ...valid, deprecated: "bad release" },
@@ -197,6 +221,38 @@ test("registry client fixes the canonical origin and bounds streamed responses",
     );
     expect((invalidError as UpgradeFailure).code).toBe("metadata_invalid");
   }
+});
+
+test("registry client requests the bounded abbreviated version index", async () => {
+  const calls: Array<{ input: string; accept: string | null }> = [];
+  const registry = new NpmUpgradeRegistry(async (input, init) => {
+    calls.push({
+      input,
+      accept: new Headers(init.headers).get("accept")
+    });
+    return new Response(JSON.stringify({
+      name: LAUNCHER_PACKAGE,
+      versions: {
+        "1.0.0": { name: LAUNCHER_PACKAGE, version: "1.0.0" },
+        "1.1.0-rc.1": { name: LAUNCHER_PACKAGE, version: "1.1.0-rc.1" }
+      }
+    }), { headers: { "content-type": "application/vnd.npm.install-v1+json" } });
+  });
+  expect(await registry.availableVersions(new AbortController().signal))
+    .toEqual(["1.1.0-rc.1", "1.0.0"]);
+  expect(calls).toEqual([{
+    input: "https://registry.npmjs.org/@1667-ai%2fcli",
+    accept: "application/vnd.npm.install-v1+json"
+  }]);
+
+  const oversized = new NpmUpgradeRegistry(async () => new Response(
+    new Uint8Array(NPM_VERSION_INDEX_MAX_BYTES + 1),
+    { headers: { "content-type": "application/vnd.npm.install-v1+json" } }
+  ));
+  const error = await rejection(
+    oversized.availableVersions(new AbortController().signal)
+  );
+  expect((error as UpgradeFailure).code).toBe("metadata_invalid");
 });
 
 test("registry client derives exact launcher and platform endpoints locally", async () => {

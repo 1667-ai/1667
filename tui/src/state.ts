@@ -194,7 +194,7 @@ export interface CommandsOverlayState {
 }
 export interface ChaptersOverlayState {
   cursor: number;
-  rename: { breakId: string | null; value: string } | null;
+  rename: { breakId: string | null; composer: ComposerState } | null;
   deleteArmedId: string | null;
 }
 export type SettingsRowId =
@@ -367,6 +367,15 @@ export interface SummaryOverlayState {
   end: number;
   totalParts: number;
   text: string;
+  controller: AbortController;
+}
+
+/** A chapter summary is a unary provider operation, so the provider cannot
+ *  report source-consumption progress. Keep the honest stage and chapter
+ *  identity visible while the action runtime owns the request. */
+export interface ChapterSummaryOverlayState {
+  chapterNumber: number;
+  stage: "writing" | "stopping";
   controller: AbortController;
 }
 
@@ -608,6 +617,7 @@ export interface OverlayState {
   chapters: ChaptersOverlayState | null;
   settings: SettingsOverlayState | null;
   summary: SummaryOverlayState | null;
+  chapterSummary: ChapterSummaryOverlayState | null;
   connection: ConnectionState;
 }
 
@@ -707,6 +717,8 @@ export interface StoryScreenState extends OverlayState {
   composerScrollTop: number;
   /** First logical row painted by the full-screen in-TUI editor. */
   editorScrollTop: number;
+  /** True while a Fact-body wheel gesture owns the viewport instead of the caret. */
+  editorScrollDetached: boolean;
   /** First row of the key reference shown, for terminals too short for it. */
   keysScrollTop: number;
   /** Last presented page-buffer cells that correspond to raw editor text. */

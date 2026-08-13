@@ -68,6 +68,8 @@ export interface ComposerLayoutOptions {
   footerNotice?: string | null;
   /** First logical row from the previous frame, retained until focus exits it. */
   scrollTop?: number | null;
+  /** Keep a wheel-owned viewport even when it does not contain the caret. */
+  followCursor?: boolean;
   focusDim?: boolean;
   narrow?: boolean;
   /** Enter commits a retake or a rewrite of an existing part, so the footer
@@ -143,7 +145,13 @@ export function renderComposerLayout(options: ComposerLayoutOptions): ComposerLa
       ? Math.max(1, terminalHeight - 2 - footer.length)
       : Math.max(1, Math.min(cap, terminalHeight - 3 - footer.length));
   const bodyRows = fullscreen ? bodyCapacity : Math.min(rowCount, bodyCapacity);
-  const scrollTop = retainedScrollTop(rowCount, bodyRows, cursorRow, options.scrollTop);
+  const scrollTop = retainedScrollTop(
+    rowCount,
+    bodyRows,
+    cursorRow,
+    options.scrollTop,
+    options.followCursor !== false
+  );
   const title = options.title ?? composerTitle(fullscreen, options.directingPart);
   const counter = !fullscreen && lineCount > 1 ? `${lineCount} / ${cap} lines` : "";
   const status = options.status ?? (counter.length > 0 ? { text: counter } : undefined);
@@ -442,15 +450,18 @@ function retainedScrollTop(
   lineCount: number,
   bodyRows: number,
   cursorLine: number,
-  previous: number | null | undefined
+  previous: number | null | undefined,
+  followCursor: boolean
 ): number {
   const maximum = Math.max(0, lineCount - bodyRows);
   const initial = previous !== null && previous !== undefined && Number.isFinite(previous)
     ? Math.floor(previous)
     : cursorLine - bodyRows + 1;
   let top = Math.max(0, Math.min(maximum, initial));
-  if (cursorLine < top) top = cursorLine;
-  else if (cursorLine >= top + bodyRows) top = cursorLine - bodyRows + 1;
+  if (followCursor) {
+    if (cursorLine < top) top = cursorLine;
+    else if (cursorLine >= top + bodyRows) top = cursorLine - bodyRows + 1;
+  }
   return Math.max(0, Math.min(maximum, top));
 }
 

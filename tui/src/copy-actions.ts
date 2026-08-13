@@ -19,6 +19,7 @@ import {
   factEditorSelectionMessage
 } from "./fact-editor-policy.js";
 import { settingsEditDisplayComposer } from "./settings-overlay-model.js";
+import { activeTextComposer } from "./text-actions.js";
 
 export interface SelectionCopyResult {
   text: string;
@@ -143,14 +144,15 @@ export function handleMainCopyShortcut(
 /** Composer surfaces consume Ctrl+C even without a selection. EDITOR handles
  * the chord in its reducer; this identifies ownership before input queues. */
 export function consumesEmptyCopyShortcut(
-  state: Pick<RuntimeState, "mode" | "settings" | "library">
+  state: Pick<RuntimeState, "mode" | "settings" | "library" | "chapters">
 ): boolean {
   return state.mode === "COMPOSE"
     || state.mode === "ASIDE"
     || state.mode === "EDITOR"
     || state.mode === "SETTINGS"
       && (state.settings?.edit != null || state.settings?.sampling?.edit != null)
-    || state.mode === "LIBRARY" && state.library?.prompt?.kind === "rename";
+    || state.mode === "LIBRARY" && state.library?.prompt?.kind === "rename"
+    || state.mode === "CHAPTERS" && state.chapters?.rename != null;
 }
 
 /** Convert OpenTUI's painted-cell range into the same raw document selection
@@ -272,23 +274,7 @@ function activeComposer(
   if (editor?.kind === "fact") {
     return factEditorComposerForSource(editor, sourceId);
   }
-  return editor !== null
-    ? sourceId === undefined ? editor.composer : null
-    : state.mode === "COMPOSE"
-      ? sourceId === undefined ? state.composer : null
-      : state.mode === "SETTINGS"
-        ? sourceId === undefined
-          ? state.settings?.sampling?.edit?.composer
-            ?? state.settings?.edit?.composer
-            ?? null
-          : null
-        : state.mode === "LIBRARY"
-          ? sourceId === undefined && state.library?.prompt?.kind === "rename"
-            ? state.library.prompt.composer
-            : null
-          : state.mode === "ASIDE"
-            ? sourceId === undefined ? state.aside?.composer ?? null : null
-          : null;
+  return sourceId === undefined ? activeTextComposer(state) : null;
 }
 
 /** Translate generic multi-buffer selection outcomes at the editor boundary. */

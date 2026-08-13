@@ -777,6 +777,7 @@ function renderInlineEditor(
         height,
         footerNotice,
         scrollTop: state.editorScrollTop,
+        followCursor: state.editorScrollDetached !== true,
         narrow: width < 100,
         softWrap: state.config.wordWrap === "on"
       })

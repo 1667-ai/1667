@@ -1022,7 +1022,7 @@ describe("backend recovery orchestration", () => {
     state.chapterDeleteArmedId = "chapter-break-1";
     state.chapters = {
       cursor: 1,
-      rename: { breakId: "chapter-break-1", value: "newer title" }, deleteArmedId: "chapter-break-1"
+      rename: { breakId: "chapter-break-1", composer: createComposer("newer title") }, deleteArmedId: "chapter-break-1"
     };
     state.facts = {
       cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: "fact-1"
@@ -1084,7 +1084,7 @@ describe("backend recovery orchestration", () => {
       nodeId: "p12-t4", name: "typed while loading", statusIndex: 2,
       choosingStatus: true, existing: false, returnMode: "NAV" as const
     };
-    const rename = { breakId: "chapter-break-1", value: "typed chapter title" };
+    const rename = { breakId: "chapter-break-1", composer: createComposer("typed chapter title") };
     state.undo = [{ kind: "create-break", breakId: "chapter-break-1" }];
     state.prune = prune;
     state.tag = tag;

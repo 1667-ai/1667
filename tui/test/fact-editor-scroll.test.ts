@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import type { MouseEvent } from "@opentui/core";
+import { dispatch, initialState } from "../src/app.js";
+import { demoAppSource } from "../src/demo.js";
+import { mouseToAction } from "../src/mouse-actions.js";
 import { openFactEditor } from "../src/editor-open.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { editorHarness } from "./editor-harness.js";
+import { createWrapCache } from "../src/wrap.js";
 
 const TERMINAL_WIDTH = 100;
 const BODY_LINES = 60;
@@ -44,5 +49,59 @@ describe("Fact editor scrolling", () => {
       expect(lines.some((line) => line.includes(`line ${BODY_LINES} of the long fact body`)))
         .toBeTrue();
     }
+  });
+
+  test("the mouse wheel scrolls the Fact body without moving header focus", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const fact = state.payload.facts[0]!;
+    const text = Array.from(
+      { length: BODY_LINES },
+      (_, index) => `line ${index + 1} of the long fact body`
+    ).join("\n");
+    openFactEditor(state, { ...fact, text });
+    const width = TERMINAL_WIDTH;
+    const height = 24;
+    const render = () => {
+      const frame = renderStoryScreen(state, { width, height });
+      Object.assign(state, frame.derived);
+      return frame;
+    };
+    const wheelUp = {
+      type: "scroll",
+      button: 0,
+      x: 40,
+      y: 12,
+      modifiers: { shift: false, alt: false, ctrl: false },
+      scroll: { direction: "up" }
+    } as unknown as MouseEvent;
+
+    const before = render();
+    const start = before.derived.editorScrollTop;
+    const cursor = state.editor?.composer.cursor;
+    const anchor = state.editor?.composer.anchor;
+    const action = mouseToAction(wheelUp, state);
+    expect(action).toEqual({ action: "scroll-line-up" });
+    for (let tick = 0; tick < 16; tick += 1) {
+      await dispatch(
+        action!,
+        state,
+        source,
+        createWrapCache(),
+        () => {},
+        async () => {},
+        () => {},
+        { width, height } as never
+      );
+    }
+    const after = render();
+
+    const editor = state.editor;
+    expect(editor?.kind).toBe("fact");
+    if (editor?.kind !== "fact") throw new Error("Fact editor closed during wheel scroll");
+    expect(editor.focus).toBe("body");
+    expect(editor.composer.cursor).toBe(cursor);
+    expect(editor.composer.anchor).toBe(anchor);
+    expect(after.derived.editorScrollTop).toBeLessThan(start);
   });
 });

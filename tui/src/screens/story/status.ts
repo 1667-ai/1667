@@ -4,6 +4,7 @@ import { tagGlyph, tagRole } from "../../tag-presentation.js";
 import { chapterForRow, rowPart, type StoryViewModel } from "../../model.js";
 import { pruneConfirmText } from "../../prune-model.js";
 import { samplingListPanelStatusLabel } from "../../sampling-panel-spec.js";
+import { isPlainNavigation } from "../../keys.js";
 import { contextSeverity, formatTokensScaled, formatTokensEstimate, requestWindow } from "../../rail.js";
 import type { NextRequestEstimate } from "../../request-projection.js";
 import type { StoryScreenState } from "../../state.js";
@@ -79,10 +80,21 @@ export function renderStatus(
   // Only work in flight earns a cell. The backend is local unless someone went
   // out of their way to point it elsewhere for debugging, so saying so on every
   // frame reports the default back to the writer and nothing more.
-  const backendStatus = state.backendTask === null
-    ? null
-    : `working · ${truncate(state.backendTask.label, narrow ? 18 : 28)}`;
-  let narrowRight = state.backendTask === null
+  const summaryStage = state.chapterSummary?.stage === "writing" ? "writing · model progress unavailable"
+    : state.chapterSummary?.stage === "stopping" ? "stopping · waiting for backend"
+    : null;
+  const summaryCancel = state.textActions === null
+    && (isPlainNavigation(state) || state.mode === "CHAPTERS")
+    ? " · esc cancels"
+    : "";
+  const backendStatus = state.chapterSummary != null
+    ? `working · Chapter ${state.chapterSummary.chapterNumber} summary · ${summaryStage}${summaryCancel}`
+    : state.backendTask === null
+      ? null
+      : `working · ${truncate(state.backendTask.label, narrow ? 18 : 28)}`;
+  let narrowRight = state.chapterSummary != null
+    ? `ch ${state.chapterSummary.chapterNumber} · ${summaryStage}${summaryCancel}`
+    : state.backendTask === null
     ? `${chapterPrefix}${requestMeter}${centered}`
     : `${backendStatus} · ${requestMeter}${centered}`;
   // On the canonical 80-column frame the complete request value outranks the
@@ -93,14 +105,19 @@ export function renderStatus(
     ? visibleWidth(plainLine(left))
     : minimumLeftWidth;
   if (priorityLeftWidth + visibleWidth(narrowRight) + 2 > width) {
-    narrowRight = state.backendTask === null
+    narrowRight = state.chapterSummary != null
+      ? `ch ${state.chapterSummary.chapterNumber} · ${state.chapterSummary.stage}${summaryCancel}`
+      : state.backendTask === null
       ? `${requestMeter}${centered}`
       : `working · ${requestMeter}${centered}`;
   }
   if (minimumLeftWidth + visibleWidth(narrowRight) + 2 > width && centered.length > 0) {
-    narrowRight = state.backendTask === null ? requestMeter : `working · ${requestMeter}`;
+    narrowRight = state.chapterSummary != null ? `working${summaryCancel}`
+      : state.backendTask === null ? requestMeter : `working · ${requestMeter}`;
   }
-  if (minimumLeftWidth + visibleWidth(narrowRight) + 2 > width) narrowRight = requestMeter;
+  if (minimumLeftWidth + visibleWidth(narrowRight) + 2 > width) {
+    narrowRight = state.chapterSummary != null ? summaryCancel.slice(3) || "working" : requestMeter;
+  }
   // Which build is running, in the corner where it stays out of the way. It is
   // reference rather than status, so it takes slack and nothing else: never a
   // cell from the story's title, line name, location, or word count. `?`
@@ -118,6 +135,10 @@ export function renderStatus(
     segment(`${centered}${buildTag ? ` · ${AI_1667_VERSION_TAG}` : ""} `, "chrome")
   ];
   const tagged = wideRight(true);
+  const compactSummaryRight: FrameLine = [segment(
+    ` ${narrowRight} `,
+    "chrome"
+  )];
   const right: FrameLine = narrow
     ? [segment(
       ` ${narrowRight} `,
@@ -126,7 +147,7 @@ export function renderStatus(
     )]
     : visibleWidth(plainLine(left)) + visibleWidth(plainLine(tagged)) <= width
       ? tagged
-      : wideRight(false);
+      : state.chapterSummary != null ? compactSummaryRight : wideRight(false);
   const rightWidth = visibleWidth(plainLine(right));
   if (rightWidth >= width) return fitLine(right, width);
   const leftWidth = width - rightWidth;
