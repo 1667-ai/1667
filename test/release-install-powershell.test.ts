@@ -453,7 +453,7 @@ async function accessRulesAreProtected(installRoot: string): Promise<boolean> {
     "-NoLogo",
     "-NoProfile",
     "-Command",
-    "(Get-Acl -LiteralPath $env:AI_1667_TEST_INSTALL_ROOT).AreAccessRulesProtected"
+    "[IO.Directory]::GetAccessControl($env:AI_1667_TEST_INSTALL_ROOT).AreAccessRulesProtected"
   ], {
     env: {
       ...process.env,
