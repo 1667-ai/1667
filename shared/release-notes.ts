@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.3-rc.1",
+    date: "2026-08-13",
+    body: "- **`1667 upgrade --version` can select an older release.** 1667 verifies the\n  exact published release before it replaces the current executable. Before it\n  downloads a downgrade, it warns that the downgrade can make the Vault\n  unreadable or damage Vault data. Back up the Vault before you continue. An\n  exact version does not change the saved update channel."
+  },
+  {
     version: "0.9.2",
     date: "2026-08-13",
     body: "- **Local model servers keep the story-writing instruction during a\n  continuation.** An assistant prefill has no final user message. This path\n  could omit the operation contract and make a long continuation lose focus.\n  1667 now keeps the mode-independent part of the contract in the stable\n  prompt prefix. The mode-dependent part stays in the final user message when\n  that message exists."
