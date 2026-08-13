@@ -40,7 +40,8 @@ import {
   operationSessionTerminal,
   operationSessionUnauthorized,
   type HttpOperationRecord,
-  type HttpOperationSessionRecord
+  type HttpOperationSessionRecord,
+  type HttpOperationCancellationSource
 } from "./http-operation-session-state.js";
 
 export type HttpOperationLifecycleAuthority =
@@ -71,6 +72,8 @@ export interface RunningHttpOperation {
   readonly signal: AbortSignal;
   readonly mutationId: string | null;
   readonly expectedAggregateVersion: StoryAggregateVersion | null;
+  /** True only while a user Stop remains the authoritative cancellation. */
+  readonly isUserCancellationAuthoritative: () => boolean;
   finish(outcome:
     | { readonly state: "completed" | "canceled" }
     | { readonly state: "failed"; readonly failure: FailureEnvelope }
@@ -278,7 +281,8 @@ export class HttpOperationSessionStore {
     operation.timer = setTimeout(() => {
       this.requestCancellation(
         operation,
-        new Error("HTTP operation deadline exceeded")
+        new Error("HTTP operation deadline exceeded"),
+        "deadline"
       );
     }, Math.max(0, operation.deadline - now));
     let finished = false;
@@ -287,6 +291,8 @@ export class HttpOperationSessionStore {
       signal: operation.abort.signal,
       mutationId: operation.mutationId,
       expectedAggregateVersion: operation.expectedAggregateVersion,
+      isUserCancellationAuthoritative: () =>
+        operation.cancellationSource === "user",
       finish: (outcome) => {
         if (finished) return;
         finished = true;
@@ -326,7 +332,8 @@ export class HttpOperationSessionStore {
         operation,
         operation.lifetime === "generation"
           ? new GenerationCancelledError()
-          : new Error("HTTP operation canceled")
+          : new Error("HTTP operation canceled"),
+        "user"
       );
     }
     return httpOperationStatusResponse(this.listenerInstanceId, operation);
@@ -361,7 +368,8 @@ export class HttpOperationSessionStore {
         } else {
           this.requestCancellation(
             operation,
-            new Error("HTTP operation session closed")
+            new Error("HTTP operation session closed"),
+            "session"
           );
         }
       }
@@ -528,10 +536,17 @@ export class HttpOperationSessionStore {
 
   private requestCancellation(
     operation: HttpOperationRecord,
-    reason: Error
+    reason: Error,
+    source: HttpOperationCancellationSource
   ): void {
     if (isTerminalHttpOperationState(operation.state)) return;
     operation.cancelRequested = true;
+    // AbortSignal.reason is immutable. Keep the mutable authority separately
+    // so a later deadline or session close can supersede an earlier Stop.
+    if (operation.cancellationSource === null
+      || (operation.cancellationSource === "user" && source !== "user")) {
+      operation.cancellationSource = source;
+    }
     operation.abort.abort(reason);
     if (operation.state !== "running" || operation.hardTimer !== null) return;
     operation.hardTimer = setTimeout(() => {

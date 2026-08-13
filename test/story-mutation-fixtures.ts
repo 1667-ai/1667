@@ -50,7 +50,7 @@ export function providerOperation<
     stories: ProviderStoryRuntime<Method>,
     providerStarted: () => Promise<void>
   ) => Promise<Value>,
-  replayValue: () => Value
+  replayValue: () => Value | PromiseLike<Value>
 ): ProviderStoryRun<Method, Value> {
   return {
     signal: new AbortController().signal,
@@ -82,9 +82,11 @@ export interface SetupOptions {
    *  is left at its default. `StoryMutationStore` no longer takes a copy of
    *  its own: it reads activation straight off the `StoryStore` it is given,
    *  so a custom `createStories` factory's own choice is always the one that
-   *  applies, and the two can never be set to disagree. Absent matches
-   *  production: the successor story write path stays off. */
+   *  applies, and the two can never be set to disagree. Absent resolves
+   *  through the release switch on `StoryStore` / `requirePresentStorySlot`. */
   readonly imageInputActivation?: boolean;
+  /** Same role as `imageInputActivation` for the Aside successor schema. */
+  readonly asideActivation?: boolean;
 }
 
 export async function setup(
@@ -99,7 +101,10 @@ export async function setup(
   const storiesDir = path.join(dataDir, "stories");
   const stories = createStories !== undefined
     ? createStories(storiesDir)
-    : new StoryStore(storiesDir, { imageInputActivation: options.imageInputActivation });
+    : new StoryStore(storiesDir, {
+      imageInputActivation: options.imageInputActivation,
+      asideActivation: options.asideActivation
+    });
   await stories.init();
   await stories.save(storyFixture());
   const manifestFile = path.join(storiesDir, STORY_ID, "manifest.json");

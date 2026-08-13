@@ -319,6 +319,41 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       await transport.call("getGenerationRecord", { storyId, nodeId, recordId }),
     getReasoning: async (storyId, nodeId) =>
       await transport.call("getReasoning", { storyId, nodeId }),
+    getAside: async (storyId) =>
+      await transport.call("getAside", { storyId }),
+    askAside: async (storyId, question, onDelta, signal) => {
+      return await runProviderMutation(storyId, async () => {
+        const result = await transport.call(
+          "askAside",
+          { storyId, question },
+          {
+            onDelta,
+            expectedAggregateVersion: await expectedVersion(storyId),
+            signal
+          }
+        );
+        if (result !== null) {
+          // askAside returns a document view rather than a StoryPayload, so
+          // load the new aggregate version before the next mutation. The
+          // terminal result is already committed. A transient refresh failure
+          // must not hide it and invite a duplicate question; forget the
+          // stale token so the next mutation loads it lazily.
+          let payload: StoryPayload | undefined;
+          try {
+            payload = rememberPayload(await transport.call("loadStory", { id: storyId }));
+          } catch {
+            versions.delete(storyId);
+          }
+          if (payload !== undefined) return { ...result, payload };
+        }
+        return result;
+      });
+    },
+    clearAside: async (storyId) => rememberPayload(await transport.call(
+      "clearAside",
+      { storyId },
+      { expectedAggregateVersion: await expectedVersion(storyId) }
+    )),
     stageStoryImage: async (storyId, mediaType, bytes) =>
       await transport.call("stageStoryImage", { storyId, mediaType, bytes }),
     releaseStoryImage: async (storyId, leaseId) => {

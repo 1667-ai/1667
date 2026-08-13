@@ -24,6 +24,7 @@ import {
   type PreparedUserMutationRecord,
   type ProviderMutationMethod
 } from "./mutation-ledger-types.js";
+import { hashPreparedMutationRecord } from "./mutation-ledger-codec.js";
 import {
   StoryProviderMutationStore
 } from "./story-provider-mutation.js";
@@ -39,6 +40,7 @@ import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import { ActiveProviderStarts } from "./story-provider-active-starts.js";
 import {
   commitManifestOnlyStoryTransaction,
+  commitNoopClearStoryTransaction,
   commitPreparedStoryTransaction,
   commitReceiptOnlyStoryTransaction,
   corruptStoryReceipt,
@@ -64,6 +66,10 @@ import {
   STORY_UNCHANGED,
   type StoryStore
 } from "./stories.js";
+import {
+  storyRecoveryAdmission,
+  type StoryRecoveryAdmission
+} from "./story-aside-recovery.js";
 
 export { InjectedStoryMutationCrash };
 export type {
@@ -81,10 +87,9 @@ const LOCAL_METHODS: ReadonlySet<string> = new Set(
 );
 
 /** The durability tier of one admitted local command. "manifest-only" holds
- * only for a marked request with no durable evidence for its mutation ID:
- * any evidence means an earlier full-tier execution exists — for example a
- * replay retained by a pre-tiering build — and those requests fail closed
- * into the full receipt/ledger semantics. */
+ * only for a marked, non-Clear request with no durable evidence for its
+ * mutation ID. A changing Clear uses the full receipt/ledger semantics so
+ * predecessor recovery can prove stage ownership. */
 type LocalDurabilityTier = "full" | "manifest-only";
 
 export interface StoryMutationCommit<Value = void> {
@@ -202,7 +207,7 @@ export class StoryMutationStore {
       await this.withRecoveredStorySession(
         request,
         method,
-        async (session, terminal, tier) => {
+        async (session, terminal, tier, recoveryAdmission) => {
           if (terminal !== null) {
             return {
               story: await session.loadLive(),
@@ -217,6 +222,30 @@ export class StoryMutationStore {
           try {
             const outcome = await mutate(story, session);
             if (outcome === STORY_UNCHANGED) {
+              if (method === "clearAside") {
+                // A null Aside slot has no aggregate replacement, but the
+                // request still needs durable terminal evidence. The bounded
+                // Clear candidate lets a later request clean every torn
+                // receipt without scanning retained mutation history.
+                const prepared = prepareReceiptOnlyStorySuccess(
+                  method,
+                  request,
+                  session,
+                  timestamp(this.now)
+                );
+                await commitNoopClearStoryTransaction(
+                  this.ledger,
+                  prepared,
+                  this.now,
+                  this.hooks
+                );
+                return {
+                  story,
+                  result: prepared.result,
+                  aggregateVersion: storyAggregateVersion(session.snapshot),
+                  value: replayValue()
+                };
+              }
               if (tier === "manifest-only") {
                 return {
                   story,
@@ -251,7 +280,15 @@ export class StoryMutationStore {
             // owns the concept (`StoryStore`'s own `imageInputActivation`
             // doc comment), so this is the same gate that decided whether
             // this session could reopen the story in the first place.
-            replacement = await session.prepareContent(story, { activation: this.stories.imageInputActivation });
+            replacement = await session.prepareContent(story, {
+              activation: this.stories.imageInputActivation,
+              // An inactive predecessor may re-encode V10 only for an exact
+              // durable retry admitted by storyRecoveryAdmission. This keeps
+              // the successor fence intact without reopening fresh writes.
+              asideActivation: recoveryAdmission.allowed
+                ? true
+                : this.stories.asideActivation
+            });
           } catch (error) {
             // A manifest-only mutation has no replay to keep deterministic,
             // so a domain rejection needs no receipt-only record either.
@@ -314,6 +351,11 @@ export class StoryMutationStore {
                 manifest,
                 timestamp(this.now)
               ),
+              // Clear recovery must retain the exact mutation identity before
+              // staging. A staged V10 null slot alone can belong to another
+              // provider/local mutation, so afterStage retries need a durable
+              // prepared record before they can reopen an inactive successor.
+              prepareBeforeStage: method === "clearAside",
               now: this.now,
               hooks: this.hooks
             });
@@ -333,10 +375,10 @@ export class StoryMutationStore {
    * durable evidence lookup, freshness, identity matching, prior-transaction
    * finalization, torn-stage recovery, and the version check with its
    * provider-fence predecessor. The durability tier is resolved here, from
-   * evidence rather than trust: the manifest-only marker applies only when
-   * this mutation ID has no durable evidence, so a replay of a full-tier
-   * execution — however it arrives — takes the full-tier semantics and its
-   * recovery, never the receipt-free path.
+   * evidence rather than trust: the manifest-only marker applies only to
+   * eligible non-Clear requests with no durable evidence, so a replay of a
+   * full-tier execution — however it arrives — takes the full-tier semantics
+   * and its recovery, never the receipt-free path.
    */
   private async withRecoveredStorySession<T>(
     request: MutationCoordinatorRequest<StoryMutationTarget>,
@@ -344,7 +386,8 @@ export class StoryMutationStore {
     work: (
       session: StoryAggregateSession,
       terminal: Extract<MutationResult, { kind: "story" }> | null,
-      tier: LocalDurabilityTier
+      tier: LocalDurabilityTier,
+      recoveryAdmission: StoryRecoveryAdmission
     ) => Promise<T>
   ): Promise<T> {
     const storyId = storyIdFromScope(request.scope);
@@ -360,16 +403,124 @@ export class StoryMutationStore {
       || receipt.acknowledged !== null) {
       throw corruptStoryReceipt(request.mutationId);
     }
-    const tier: LocalDurabilityTier =
-      request.durability === "manifest-only" && receipt.prepared === null
-        ? "manifest-only"
-        : "full";
-    return await this.stories.withAggregateSession(storyId, async (session) => {
-      await this.recovery.finalizeAggregateTransaction(
-        session,
-        request.mutationId
+    // Clear is represented by a durable ledger receipt even when an older
+    // worker sends the former manifest-only marker. Its stage must carry an
+    // exact mutation identity so predecessor recovery cannot infer ownership
+    // from a null Aside slot or a stale revision.
+    const tier: LocalDurabilityTier = method !== "clearAside"
+      && request.durability === "manifest-only"
+      && receipt.prepared === null
+      ? "manifest-only"
+      : "full";
+    const recoveryAdmission = storyRecoveryAdmission(
+      this.stories,
+      method,
+      request,
+      receipt
+    );
+    if (!recoveryAdmission.allowed && method === "clearAside") {
+      throw new ServiceError(
+        400,
+        "Aside is not available in this release.",
+        "aside_not_supported"
       );
-      const terminal = await this.recovery.recover(session, request, receipt);
+    }
+    return await this.stories.withAggregateSession(storyId, async (session) => {
+      let staged: StoryEnvelopeManifest | null = null;
+      if (method === "clearAside" || method === "deleteStory") {
+        // A process can die after Clear's prepared receipt is durable but
+        // before its replacement stage exists. With no stage pointer, a new
+        // mutation ID cannot use direct lookup to find that orphan. The ledger
+        // keeps one exact candidate per story, so this lookup stays bounded
+        // regardless of retained receipt history. Delete must perform the
+        // same reconciliation before it makes the story unreopenable.
+        staged = await session.readStagedManifest();
+        const referencedMutationIds = new Set<MutationId>();
+        const pointer = session.snapshot.manifest.lastTransaction;
+        if (pointer?.receiptKind === "user") {
+          referencedMutationIds.add(pointer.mutationId);
+        }
+        const stagedMutationId = staged?.lastTransaction?.receiptKind === "user"
+          ? staged.lastTransaction.mutationId
+          : null;
+        await this.ledger.recoverIndexedClearPreparedStoryReceipt(
+          request.scope,
+          referencedMutationIds,
+          stagedMutationId,
+          request.mutationId
+        );
+      }
+      const currentPointer = session.snapshot.manifest.lastTransaction;
+      let terminal: Extract<MutationResult, { kind: "story" }> | null = null;
+      const exactNoStageClearRetry = method === "clearAside"
+        && staged === null
+        && receipt.prepared?.purpose === "mutation"
+        && receipt.prepared.method === "clearAside"
+        && receipt.prepared.startedRecordHash === null
+        && receipt.started === null
+        && receipt.completed === null
+        && receipt.acknowledged === null
+        && !(currentPointer?.receiptKind === "user"
+          && currentPointer.mutationId === request.mutationId);
+      const preparedNoopClearRetry = exactNoStageClearRetry
+        && receipt.prepared !== null
+        && receipt.prepared.oldStateHash === receipt.prepared.newStateHash
+        && receipt.prepared.result.kind === "story";
+      if (preparedNoopClearRetry) {
+        // A prepared no-op has no replacement to discard. Its equal hashes
+        // prove that re-running the callback could only turn a later Side
+        // Note into a clear, so complete and replay the original result.
+        await this.recovery.finalizeAggregateTransaction(
+          session,
+          request.mutationId
+        );
+        terminal = await this.recovery.recoverPreparedNoopClear(
+          request,
+          receipt
+        );
+      } else if (exactNoStageClearRetry && receipt.prepared !== null) {
+        // The exact retry owns this prepared record, but no replacement exists
+        // for the generic recovery planner to validate. Remove the orphan and
+        // let the retry write the same immutable prepared identity again.
+        await this.ledger.removeOrphanPreparedUserReceipt(
+          request.scope,
+          request.mutationId,
+          hashPreparedMutationRecord(receipt.prepared)
+        );
+        await this.ledger.removeClearRecoveryCandidate(
+          request.scope,
+          request.mutationId,
+          hashPreparedMutationRecord(receipt.prepared)
+        );
+      }
+      // An exact prepared record is the owner proof for a staged replacement.
+      // Recover that request before finalizing an older aggregate pointer;
+      // otherwise finalization would treat the owned stage as a foreign
+      // replacement and reject it.
+      const recoverCurrentMutationFirst = recoveryAdmission.allowed
+        && receipt.prepared?.method === method;
+      if (exactNoStageClearRetry && !preparedNoopClearRetry) {
+        await this.recovery.finalizeAggregateTransaction(
+          session,
+          request.mutationId
+        );
+        terminal = null;
+      } else if (preparedNoopClearRetry) {
+        // The branch above already completed and returned the original
+        // no-op result. Do not apply the current version fence.
+      } else if (recoverCurrentMutationFirst) {
+        terminal = await this.recovery.recover(session, request, receipt);
+        await this.recovery.finalizeAggregateTransaction(
+          session,
+          request.mutationId
+        );
+      } else {
+        await this.recovery.finalizeAggregateTransaction(
+          session,
+          request.mutationId
+        );
+        terminal = await this.recovery.recover(session, request, receipt);
+      }
       if (terminal === null) {
         requireExpectedLocalStoryVersion(
           session.snapshot,
@@ -380,7 +531,9 @@ export class StoryMutationStore {
           )
         );
       }
-      return await work(session, terminal, tier);
+      return await work(session, terminal, tier, recoveryAdmission);
+    }, {
+      allowRecovery: recoveryAdmission.allowed
     });
   }
 

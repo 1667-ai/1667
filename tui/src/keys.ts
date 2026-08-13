@@ -34,6 +34,7 @@ import { resolveRequestViewerKey } from "./request-viewer-actions.js";
 import { resolveTokenProbabilitiesKey } from "./token-probabilities-actions.js";
 import { resolveGenerationRecordKey } from "./generation-record-actions.js";
 import { resolveLogKey } from "./notice-log.js";
+import { disarmAsideClear } from "./aside-surface.js";
 
 export type KeyAction =
   | "focus-next" | "focus-previous" | "take-next" | "take-previous" | "take-at"
@@ -68,7 +69,8 @@ export type KeyAction =
 
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
-  | "SEARCH" | "REQUEST" | "CARD" | "ARCHIVE" | "IMAGE" | "LOG" | "PROBS" | "RECORD";
+  | "SEARCH" | "REQUEST" | "CARD" | "ARCHIVE" | "IMAGE" | "LOG" | "PROBS" | "RECORD"
+  | "ASIDE";
 
 export interface ResolvedKey {
   action: KeyAction;
@@ -252,6 +254,7 @@ export function pasteInto(
     pendingGenerationDraft: PendingGenerationDraft | null;
     composerClaimEpoch: number;
     stream: RuntimeState["stream"];
+    aside?: { composer: ComposerState; confirmClear: boolean } | null;
   },
   raw: string
 ): boolean {
@@ -269,6 +272,11 @@ export function pasteInto(
       clean,
       "paste"
     );
+    return true;
+  }
+  if (state.mode === "ASIDE" && state.aside !== null && state.aside !== undefined) {
+    disarmAsideClear(state.aside);
+    insertComposerText(state.aside.composer, clean);
     return true;
   }
   if (state.mode === "COMPOSE") { insertComposerText(state.composer, clean); return true; }
@@ -415,7 +423,7 @@ export function overlayTextInputActive(state: OverlayTextInputState): boolean {
 export function textOwnsKeyboard(mode: AppMode, options: ResolveOptions = {}): boolean {
   // Search refines live, so its query field owns every plain letter. Its own
   // verbs are arrows and chords for exactly that reason.
-  return mode === "COMPOSE" || mode === "EDITOR" || mode === "SEARCH"
+  return mode === "COMPOSE" || mode === "EDITOR" || mode === "SEARCH" || mode === "ASIDE"
     || options.overlayTyping === true
     || mode === "COMMANDS" && options.commandsTags !== true
     || mode === "TAG" && options.tagChoosingStatus !== true
@@ -455,6 +463,21 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   if (mode === "PROBS") return resolveTokenProbabilitiesKey(key);
   if (mode === "RECORD") return resolveGenerationRecordKey(key);
   if (mode === "LOG") return resolveLogKey(key);
+  if (mode === "ASIDE") {
+    if (key.name === "escape") return { action: "cancel" };
+    if (key.name === "return" && key.shift) return { action: "newline" };
+    if (key.name === "return") return { action: "send" };
+    const name = key.name.toLowerCase();
+    if (name === "pageup") return { action: "scroll-up" };
+    if (name === "pagedown") return { action: "scroll-down" };
+    if ((name === "up" || name === "down")
+      && !key.ctrl && !key.meta && !key.option && !key.super) {
+      if (key.shift) return { action: name === "up" ? "scroll-line-up" : "scroll-line-down" };
+      return { action: name === "up" ? "cursor-up" : "cursor-down" };
+    }
+    if ((key.ctrl || key.super) && name === "v") return { action: "paste-clipboard" };
+    return textSurfaceKey(key) ?? textInput(key) ?? { action: "none" };
+  }
   const shiftedReference = resolveReferenceBinding("nav-shifted", key, mode, mapView);
   if (shiftedReference !== null) return { action: shiftedReference.action };
   // Capital letters are distinct terminal commands. Declared reference routes

@@ -47,6 +47,7 @@ import {
 } from "./story-format-nodes.js";
 import { assertStrictV5Manifest, MAX_STORY_MANIFEST_BYTES } from "./story-v5-strict.js";
 import { assertStrictV7Manifest } from "./story-v7-strict.js";
+import { assertStrictV9Manifest } from "./story-v9-strict.js";
 
 export { HASH_PATTERN, StoryFormatError, requireHash } from "./story-format-facts.js";
 export {
@@ -67,6 +68,10 @@ export const STORY_SCHEMA_VERSION = 5;
  * shape is frozen; only a document that declares this version may carry it,
  * and only inside the V8 envelope (`server/story-v6-codec.ts`). */
 export const STORY_SUCCESSOR_SCHEMA_VERSION = 7;
+/** The Aside content payload version. It adds one nullable
+ * `asideDocumentId` on top of the V7 shape (including optional image
+ * attachments). Written only inside the V10 envelope when Aside is active. */
+export const STORY_ASIDE_SCHEMA_VERSION = 9;
 export const REVISION_FORMAT = "1667-text-revision";
 export const STORYTAVERN_REVISION_FORMAT = "storytavern-text-revision";
 export const REVISION_SCHEMA_VERSION = 1;
@@ -253,6 +258,15 @@ export interface StoryManifestV7 extends Omit<StoryManifestV5, "schemaVersion"> 
   schemaVersion: typeof STORY_SUCCESSOR_SCHEMA_VERSION;
 }
 
+/** The Aside content payload: every V7 field, plus one nullable content-addressed
+ * Aside document id. Written only when Aside activation is on, and only inside
+ * the V10 envelope (`server/story-v6-codec.ts`). */
+export interface StoryManifestV9 extends Omit<StoryManifestV7, "schemaVersion"> {
+  schemaVersion: typeof STORY_ASIDE_SCHEMA_VERSION;
+  /** SHA-256 of the Aside document object, or null when the document is clear. */
+  asideDocumentId: ObjectHash | null;
+}
+
 export interface TextRevisionV1 {
   format: typeof REVISION_FORMAT | typeof STORYTAVERN_REVISION_FORMAT;
   schemaVersion: typeof REVISION_SCHEMA_VERSION;
@@ -391,18 +405,23 @@ export function serializeManifest(manifest: StoryManifestV5): string {
  *  that guards a revision snapshot's reuse (`server/story-snapshot.ts`).
  *  Every direct write to a story's manifest file goes through
  *  `serializeManifest` instead, which accepts only `StoryManifestV5`. */
-export function serializeManifestContent(manifest: StoryManifestV5 | StoryManifestV7): string {
+export function serializeManifestContent(
+  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9
+): string {
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 
 /** Narrow an encode result to the plain V5 manifest for a write path that
  *  has no way to carry successor content: there is no bare successor slot
  *  kind, by design. Throws instead of handing `serializeManifest` a
- *  `StoryManifestV7` value it cannot accept, so a write that should never
+ *  successor value it cannot accept, so a write that should never
  *  produce successor content fails loudly if it ever does, rather than
  *  corrupting the story it was trying to save. Mirrors `requireV6Manifest`
  *  (`server/story-v6-codec.ts`) one schema pair down. */
-export function requireV5Manifest(manifest: StoryManifestV5 | StoryManifestV7, context: string): StoryManifestV5 {
+export function requireV5Manifest(
+  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9,
+  context: string
+): StoryManifestV5 {
   if (manifest.schemaVersion !== STORY_SCHEMA_VERSION) {
     throw new StoryFormatError(`${context} must produce a V${STORY_SCHEMA_VERSION} story manifest`);
   }
@@ -427,6 +446,16 @@ export function parseManifestV7(raw: string, expectedId: string): StoryManifestV
   return parsed.manifest;
 }
 
+/** The Aside counterpart of `parseManifestV7`, for the write path that builds
+ * a V9 payload deliberately (`server/story-codec.ts`, Aside activation on). */
+export function parseManifestV9(raw: string, expectedId: string): StoryManifestV9 {
+  const parsed = parseManifestWithVersion(raw, expectedId);
+  if (parsed.manifest.schemaVersion !== STORY_ASIDE_SCHEMA_VERSION) {
+    throw new StoryFormatError(`Expected a V${STORY_ASIDE_SCHEMA_VERSION} story manifest for ${expectedId}`);
+  }
+  return parsed.manifest;
+}
+
 /** A discriminated union, not one loosely-typed pair of fields: tying
  * `manifest` to the exact `sourceSchemaVersion` that produced it is what lets
  * a caller that already checked `sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION`
@@ -439,6 +468,10 @@ export type ParsedManifestVersion =
   | {
       manifest: StoryManifestV7;
       sourceSchemaVersion: typeof STORY_SUCCESSOR_SCHEMA_VERSION;
+    }
+  | {
+      manifest: StoryManifestV9;
+      sourceSchemaVersion: typeof STORY_ASIDE_SCHEMA_VERSION;
     };
 
 /** Parse and normalize while retaining the on-disk version for migration-only
@@ -470,6 +503,7 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
       && value.schemaVersion !== 4
       && value.schemaVersion !== STORY_SCHEMA_VERSION
       && value.schemaVersion !== STORY_SUCCESSOR_SCHEMA_VERSION
+      && value.schemaVersion !== STORY_ASIDE_SCHEMA_VERSION
     )
   ) {
     throw new StoryFormatError(`Unsupported story format in ${expectedId}`);
@@ -480,12 +514,16 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
   if (value.schemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION) {
     assertStrictV7Manifest(value, expectedId, value.format);
   }
+  if (value.schemaVersion === STORY_ASIDE_SCHEMA_VERSION) {
+    assertStrictV9Manifest(value, expectedId, value.format);
+  }
   const id = stringField(value, "id");
   if (id !== expectedId) throw new StoryFormatError(`Story id mismatch: expected ${expectedId}, found ${id}`);
   const origin = optionalOrigin(value.origin);
   const sourceSchemaVersion = value.schemaVersion;
   const isCurrentOrSuccessor = sourceSchemaVersion === STORY_SCHEMA_VERSION
-    || sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION;
+    || sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION
+    || sourceSchemaVersion === STORY_ASIDE_SCHEMA_VERSION;
   const stored = sourceSchemaVersion === 2 || sourceSchemaVersion === 3
     ? convertV3ToV4(parseLegacyManifest(value))
     : parseV4Manifest(value);
@@ -538,10 +576,24 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
     ...(factsBudgetTokens === undefined ? {} : { factsBudgetTokens }),
     chapterBreaks
   };
-  // Built as two separate returns, not one shared object with a
+  // Built as separate returns, not one shared object with a
   // union-typed `manifest`, so each branch keeps `manifest` tied to the
   // exact `sourceSchemaVersion` that produced it. See the comment on
   // `ParsedManifestVersion`.
+  if (sourceSchemaVersion === STORY_ASIDE_SCHEMA_VERSION) {
+    const asideDocumentId = value.asideDocumentId === null
+      ? null
+      : requireHash(stringField(value, "asideDocumentId"), "asideDocumentId");
+    const parsed: StoryManifestV9 = {
+      ...common,
+      schemaVersion: STORY_ASIDE_SCHEMA_VERSION,
+      asideDocumentId
+    };
+    return {
+      manifest: origin === undefined ? parsed : { ...parsed, origin },
+      sourceSchemaVersion
+    };
+  }
   if (sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION) {
     const parsed: StoryManifestV7 = { ...common, schemaVersion: STORY_SUCCESSOR_SCHEMA_VERSION };
     return {

@@ -55,6 +55,8 @@ export const STORY_MUTATION_METHODS = [
   "rewriteNode",
   "commitPartialRewrite",
   "createSummaryTake",
+  "askAside",
+  "clearAside",
   "acknowledgeUnknownOutcomes"
 
 ] as const;
@@ -66,7 +68,8 @@ export const PROVIDER_MUTATION_METHODS = [
   "summarizeChapter",
   "continueStory",
   "rewriteNode",
-  "createSummaryTake"
+  "createSummaryTake",
+  "askAside"
 ] as const;
 export const ABSENT_STORY_MUTATION_METHODS = ["createStory", "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario"] as const;
 

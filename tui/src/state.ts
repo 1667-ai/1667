@@ -638,6 +638,8 @@ export interface StoryScreenState extends OverlayState {
   probs: TokenProbabilitiesViewerState | null;
   /** The read-only Generation Record Viewer, or null when it is closed. */
   record: GenerationRecordViewerState | null;
+  /** Full-screen Aside surface, or null when it is closed. */
+  aside: import("./aside-surface.js").AsideSurfaceState | null;
   toast: string | null;
   /** C-37: every notice the session has shown, so a capped channel never
    *  loses a message for good. `!` opens it. */
@@ -650,6 +652,8 @@ export interface StoryScreenState extends OverlayState {
         controller: AbortController;
         /** Latest Stop interaction that can focus the settled take. */
         stopInteractionVersion: number | null;
+        /** Interaction epoch captured when an Aside ask started. */
+        askInteractionVersion?: number;
       }
     | { kind: "summary"; controller: AbortController }
     /** `committed` becomes true once the API call has minted a durable take,

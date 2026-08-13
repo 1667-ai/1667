@@ -74,6 +74,31 @@ test("user cancellation stays distinct from a deadline", () => {
   );
 });
 
+test("shutdown supersedes a user provider unwind for mutation recovery", () => {
+  const mutationId = "m1.1767225600000.1123456789abcdef0123456789abcdef";
+  const cancellation = new WorkerRequestCancellation(true, mutationId);
+
+  cancellation.cancel("user");
+  cancellation.cancel("shutdown");
+
+  const failure = cancellation.failure(cancellation.signal.reason);
+  assert.ok(failure.error instanceof ServiceError);
+  assert.equal(failure.error.code, "mutation_outcome_unknown");
+  assert.equal(failure.deadline, false);
+});
+
+test("shutdown preserves a recovery error for a different provider target", () => {
+  const mutationId = "m1.1767225600000.1123456789abcdef0123456789abcdef";
+  const olderMutationId = "m1.1767225599999.2123456789abcdef0123456789abcdef";
+  const cancellation = new WorkerRequestCancellation(true, mutationId);
+  const recovery = new ProviderRecoveryRequiredError(olderMutationId);
+
+  cancellation.cancel("user");
+  cancellation.cancel("shutdown");
+
+  assert.equal(cancellation.failure(recovery).error, recovery);
+});
+
 test("a deadline stays authoritative after user cancellation", () => {
   const cancellation = new WorkerRequestCancellation(true);
 

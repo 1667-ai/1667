@@ -41,7 +41,7 @@ function assert(condition: boolean, message: string): asserts condition {
 
 // Run C surface: export, autoname, facts CRUD, summary take.
 const exported = await api.exportMarkdown(created.id);
-if (!exported.includes("#")) throw new Error("export returned no markdown");
+if (!exported.markdown.includes("#")) throw new Error("export returned no markdown");
 const named = await api.autonameStory(created.id);
 if (named.title.trim().length === 0) throw new Error("autoname produced an empty title");
 let withFact = await api.createFact(created.id, { tag: "Item", text: "Brass compass\nPoints at want." });
@@ -63,4 +63,4 @@ const summaryNode = summaryResult.nodeId;
 const adopted = await api.switchLine(created.id, summaryNode, { stopAtNode: true });
 const final = adopted;
 if (!final.path.some((node) => node.role === "summary")) throw new Error("summary node missing from line");
-process.stdout.write(`export ${exported.length} chars · autoname "${named.title}" · facts CRUD ok · summary ◈ ${summaryNode} (${summaryDeltas} deltas)\n`);
+process.stdout.write(`export ${exported.markdown.length} chars · autoname "${named.title}" · facts CRUD ok · summary ◈ ${summaryNode} (${summaryDeltas} deltas)\n`);

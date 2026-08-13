@@ -157,10 +157,14 @@ export class StoryReaper {
       { requirePrivate: true }
     );
     const parsed = parseStoryManifestBytes(bytes, storyId);
-    // Either envelope version reaps. A story the writer deleted after it
-    // reached version 8 is still a deleted aggregate, and refusing it here
-    // would strand its bundle on disk for good.
-    if (parsed.kind !== "v6-deleted" && parsed.kind !== "v8-deleted") {
+    // Any deleted envelope version reaps. A story the writer deleted after it
+    // reached version 8 or 10 is still a deleted aggregate, and refusing it
+    // here would strand its bundle on disk for good.
+    if (
+      parsed.kind !== "v6-deleted"
+      && parsed.kind !== "v8-deleted"
+      && parsed.kind !== "v10-deleted"
+    ) {
       throw new ServiceError(
         409,
         `Story ${storyId} is not a deleted aggregate.`,

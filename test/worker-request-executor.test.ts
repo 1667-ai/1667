@@ -155,6 +155,210 @@ test("a user cancellation during a credit-blocked success flush publishes its ta
   assert.deepEqual(terminals, [{ type: "complete", state: "canceled" }]);
 });
 
+test("a committed Aside result wins a user cancellation during success flush", async () => {
+  const posted: Array<{ text: string; sequence: number }> = [];
+  const terminals: Array<{ type: string; value: unknown; state: string }> = [];
+  const deltas = new WorkerDeltaBatcher(OPERATION_ID, (message) => {
+    posted.push({ text: message.text, sequence: message.sequence });
+  });
+  const fullBatch = "x".repeat(MAX_DELTA_BATCH_BYTES);
+  for (let index = 0; index < MAX_UNACKNOWLEDGED_DELTA_BATCHES; index += 1) {
+    await deltas.push(fullBatch);
+  }
+  const tail = "accepted Aside output before cancellation";
+  const parked = deltas.push(tail);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const committed = {
+    notes: [{ question: "Why?", answer: "Because." }]
+  };
+  const cancellation = new WorkerRequestCancellation(
+    true,
+    "00000000-0000-7000-8000-000000000001"
+  );
+  const responder = {
+    tracked: async () => assert.fail("A committed Aside result must not fail")
+  } as unknown as WorkerRequestFailureResponder;
+  const execution = executeWorkerRequest(
+    { runMutation: async () => committed } as unknown as StoryService,
+    { ...request(), method: "askAside" },
+    cancellation,
+    deltas,
+    responder,
+    (message, state) => terminals.push({
+      type: message.type,
+      value: message.value,
+      state
+    })
+  );
+
+  // The committed result has entered the credit-blocked success flush.
+  await new Promise((resolve) => setImmediate(resolve));
+  cancellation.cancel("user");
+  deltas.sealUnsent();
+  await execution;
+  await parked;
+
+  assert.equal(
+    posted.map((message) => message.text).join(""),
+    fullBatch.repeat(MAX_UNACKNOWLEDGED_DELTA_BATCHES) + tail
+  );
+  assert.deepEqual(terminals, [{
+    type: "complete",
+    value: committed,
+    state: "completed"
+  }]);
+});
+
+test("shutdown overrides an earlier user cancellation before a committed Aside settles", async () => {
+  const posted: string[] = [];
+  const terminals: Array<{ type: string; value: unknown; state: string }> = [];
+  const deltas = new WorkerDeltaBatcher(OPERATION_ID, (message) => {
+    posted.push(message.text);
+  });
+  const fullBatch = "x".repeat(MAX_DELTA_BATCH_BYTES);
+  for (let index = 0; index < MAX_UNACKNOWLEDGED_DELTA_BATCHES; index += 1) {
+    await deltas.push(fullBatch);
+  }
+  const parked = deltas.push("accepted Aside output before shutdown");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const committed = {
+    notes: [{ question: "Why?", answer: "Because." }]
+  };
+  const cancellation = new WorkerRequestCancellation(
+    true,
+    "00000000-0000-7000-8000-000000000001"
+  );
+  const responder = {
+    tracked: async () => assert.fail("Shutdown must not report a committed Aside as a failure")
+  } as unknown as WorkerRequestFailureResponder;
+  const execution = executeWorkerRequest(
+    { runMutation: async () => committed } as unknown as StoryService,
+    { ...request(), method: "askAside" },
+    cancellation,
+    deltas,
+    responder,
+    (message, state) => terminals.push({
+      type: message.type,
+      value: message.value,
+      state
+    })
+  );
+
+  // The committed result has entered the credit-blocked success flush.
+  await new Promise((resolve) => setImmediate(resolve));
+  cancellation.cancel("user");
+  cancellation.cancel("shutdown");
+  // Mirror worker shutdown: dispose the transport after cancellation.
+  deltas.dispose();
+  await execution;
+  await parked;
+
+  assert.equal(
+    posted.join(""),
+    fullBatch.repeat(MAX_UNACKNOWLEDGED_DELTA_BATCHES)
+  );
+  assert.deepEqual(terminals, [{
+    type: "complete",
+    value: null,
+    state: "canceled"
+  }]);
+});
+
+test("shutdown retains a mutation when the provider unwinds an earlier user Stop", async () => {
+  const failures: Array<{ error: unknown; outcome: string | undefined }> = [];
+  const responder = {
+    tracked: async (error: unknown, outcome: string | undefined) => {
+      failures.push({ error, outcome });
+    }
+  } as unknown as WorkerRequestFailureResponder;
+  const cancellation = new WorkerRequestCancellation(
+    true,
+    "00000000-0000-7000-8000-000000000001"
+  );
+  let started!: () => void;
+  const providerStarted = new Promise<void>((resolve) => { started = resolve; });
+  const execution = executeWorkerRequest(
+    { runMutation: async () => {
+      started();
+      await new Promise<void>((resolve) => {
+        cancellation.signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      // AbortController keeps the first reason, so this is the provider's
+      // immutable GenerationCancelledError after shutdown supersedes Stop.
+      throw cancellation.signal.reason;
+    } } as unknown as StoryService,
+    request(),
+    cancellation,
+    null,
+    responder,
+    () => assert.fail("An interrupted mutation must not publish success")
+  );
+
+  await providerStarted;
+  cancellation.cancel("user");
+  cancellation.cancel("shutdown");
+  await execution;
+
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0]!.outcome, "uncertain");
+  assert.equal((failures[0]!.error as ServiceError).code, "mutation_outcome_unknown");
+});
+
+test("a worker deadline still wins after a committed Aside result enters success flush", async () => {
+  const posted: string[] = [];
+  const terminals: Array<{ type: string; value: unknown }> = [];
+  const deltas = new WorkerDeltaBatcher(OPERATION_ID, (message) => {
+    posted.push(message.text);
+  });
+  const fullBatch = "x".repeat(MAX_DELTA_BATCH_BYTES);
+  for (let index = 0; index < MAX_UNACKNOWLEDGED_DELTA_BATCHES; index += 1) {
+    await deltas.push(fullBatch);
+  }
+  const tail = "accepted Aside output before deadline";
+  const parked = deltas.push(tail);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const committed = {
+    notes: [{ question: "Why?", answer: "Because." }]
+  };
+  const cancellation = new WorkerRequestCancellation(
+    true,
+    "00000000-0000-7000-8000-000000000001"
+  );
+  const failures: Array<{ error: unknown; outcome: string | undefined }> = [];
+  const responder = {
+    tracked: async (error: unknown, outcome: string | undefined) => {
+      failures.push({ error, outcome });
+    }
+  } as unknown as WorkerRequestFailureResponder;
+  const execution = executeWorkerRequest(
+    { runMutation: async () => committed } as unknown as StoryService,
+    { ...request(), method: "askAside" },
+    cancellation,
+    deltas,
+    responder,
+    (message) => terminals.push({ type: message.type, value: message.value })
+  );
+
+  // The committed result has entered the credit-blocked success flush.
+  await new Promise((resolve) => setImmediate(resolve));
+  cancellation.cancel("deadline");
+  deltas.sealUnsent();
+  await execution;
+  await parked;
+
+  assert.equal(
+    posted.join(""),
+    fullBatch.repeat(MAX_UNACKNOWLEDGED_DELTA_BATCHES) + tail
+  );
+  assert.deepEqual(terminals, []);
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0]!.outcome, "uncertain");
+  assert.equal((failures[0]!.error as ServiceError).code, "mutation_outcome_unknown");
+});
+
 test("a normal provider rejection flushes accepted stream text before its terminal", async () => {
   const posted: string[] = [];
   const deltas = new WorkerDeltaBatcher(OPERATION_ID, (message) => {

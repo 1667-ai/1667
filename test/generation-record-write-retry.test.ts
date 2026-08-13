@@ -105,7 +105,7 @@ test("a partial multi-record failure retries only the unwritten record, never th
   // Story graph verification must still see both hashes as live and readable.
   await objects.verifyGraph({
     revisions: manifest.nodes.map((stored) => stored.revisionId),
-    leaves: { probabilities: [], reasoning: [], images: [] },
+    leaves: { probabilities: [], reasoning: [], images: [], aside: [] },
     generationRecords: [firstHash, secondHash]
   });
 });

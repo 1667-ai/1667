@@ -99,9 +99,15 @@ export async function executeWorkerRequest(
         cancellation
       );
     }
+    // Ask commits its Side Note before it returns a non-null view. A late user
+    // cancellation can therefore race only terminal transport settlement;
+    // never turn that durable result into the null cancellation sentinel.
+    // Deadline and shutdown cancellation keep their existing authority.
+    const committedAside = message.method === "askAside" && value !== null;
     cancellation.throwIfDeadlineExpired();
     if (
       stream
+      && !(committedAside && cancellation.userCancellationRequested)
       && (cancellation.signal.aborted || value === null || value === false)
     ) {
       if (cancellation.signal.aborted) {
@@ -120,12 +126,34 @@ export async function executeWorkerRequest(
       return;
     }
     await deltas?.flush();
+    // A deadline may arrive while the accepted delta tail waits for credit.
+    // It remains authoritative even when Ask already has a committed view.
+    cancellation.throwIfDeadlineExpired();
+    if (committedAside && cancellation.userCancellationRequested) {
+      // The worker seals accepted deltas when it receives cancellation. Keep
+      // that tail before publishing the already-committed Aside result.
+      deltas?.sealUnsent();
+      await deltas?.publishSealed();
+    } else if (committedAside && cancellation.signal.aborted) {
+      // Shutdown cancellation still owns terminal settlement. A deadline
+      // would already have thrown above, so this branch is shutdown-only.
+      deltas?.dispose();
+      publishTerminal(
+        {
+          type: "complete",
+          id: message.id,
+          value: null
+        },
+        "canceled"
+      );
+      return;
+    }
     // A user cancellation can arrive while success settlement waits for
     // transport credit. The worker seals that accepted tail at receipt, so
     // settle it before the canceled terminal instead of publishing success.
     // Deadline handling stays below: its error terminal preserves recovery
     // semantics.
-    if (stream && cancellation.userCancellationRequested) {
+    if (stream && !committedAside && cancellation.userCancellationRequested) {
       deltas?.sealUnsent();
       await deltas?.publishSealed();
       deltas?.dispose();
@@ -369,7 +397,10 @@ async function invokeReadOnly(
       };
     }
     case "exportMarkdown":
-      return await service.exportMarkdown(requireString(input.id, "id"));
+      {
+        const exported = await service.exportStory(requireString(input.id, "id"));
+        return { markdown: exported.markdown, fidelity: exported.fidelity };
+      }
     case "getTokenProbabilities":
       return await service.getTokenProbabilities(
         requireString(input.storyId, "storyId"),
@@ -393,6 +424,8 @@ async function invokeReadOnly(
         requireString(input.storyId, "storyId"),
         requireString(input.nodeId, "nodeId")
       );
+    case "getAside":
+      return await service.getAside(requireString(input.storyId, "storyId"));
     case "getSettings": return await service.getSettings();
     case "checkModelServer":
       return await service.checkModelServer(

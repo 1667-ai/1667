@@ -7,6 +7,7 @@ import path from "node:path";
 import { activePath } from "../shared/story-tree.js";
 import type { Story } from "../shared/types.js";
 import { resolveImageInputActivation } from "../shared/image-input-release.js";
+import { resolveAsideActivation } from "../shared/aside-release.js";
 import { ServiceError } from "./errors.js";
 import {
   decodeStoryBundle,
@@ -44,9 +45,11 @@ import type { StoredStorySlot } from "./story-storage-reader.js";
 import {
   formatV6,
   formatV8,
+  formatV10,
   MAX_DELETED_STORY_MANIFEST_BYTES,
   parseStoryManifestBytes,
   STORY_SCHEMA_VERSION_V8,
+  STORY_SCHEMA_VERSION_V10,
   storySummaryV6FromContent
 } from "./story-v6-codec.js";
 import type {
@@ -74,9 +77,43 @@ export async function stagedStoryManifestExists(bundleDir: string): Promise<bool
   ) !== null;
 }
 
+/** Read the staged replacement that predecessor recovery may own. */
+export async function readStagedStoryManifest(
+  bundleDir: string,
+  storyId: string
+): Promise<StoryEnvelopeManifest | null> {
+  const bytes = await readOptionalPrivateFile(
+    path.join(bundleDir, NEXT_MANIFEST_FILE),
+    MANIFEST_POLICY
+  );
+  if (bytes === null) return null;
+  const parsed = parseStoryManifestBytes(bytes, storyId);
+  if (parsed.kind === "v5") {
+    throw new Error("Story manifest replacement cannot regress to V5");
+  }
+  if (parsed.manifest.kind === "deleted" && bytes.byteLength > MAX_DELETED_STORY_MANIFEST_BYTES) {
+    throw new Error("Deleted story manifest replacement exceeds its size bound");
+  }
+  return parsed.manifest;
+}
+
+export interface AggregateSessionOptions {
+  /** Reopen a successor aggregate only to finish an exact durable retry. */
+  readonly allowRecovery?: boolean;
+}
+
 type PresentStorySlot = Extract<
   StoredStorySlot,
-  { kind: "v5" | "v6-live" | "v6-deleted" | "v8-live" | "v8-deleted" }
+  {
+    kind:
+      | "v5"
+      | "v6-live"
+      | "v6-deleted"
+      | "v8-live"
+      | "v8-deleted"
+      | "v10-live"
+      | "v10-deleted";
+  }
 >;
 
 export interface PreparedStoryContent {
@@ -87,17 +124,12 @@ export interface PreparedStoryContent {
 
 export interface PrepareStoryContentOptions {
   /** Threaded straight through to `encodeStoryBundle` (server/story-codec.ts),
-   *  the one site that actually resolves it (`resolveImageInputActivation()`,
-   *  shared/image-input-release.ts) and decides whether this encode may
-   *  build the successor content payload. `prepareContent` below does not
-   *  resolve this itself; resolving it twice would leave two call sites both
-   *  claiming to be the deciding one. Absent resolves through the release
-   *  default, so production callers that never set this get it. Even when
-   *  this resolves true, the encode only actually uses the successor
-   *  payload if `story` carries an Image Attachment; a story with none
-   *  stays on the current schema, so turning activation on never rewrites
-   *  an unrelated story. */
+   *  the one site that actually resolves image activation
+   *  (`resolveImageInputActivation()`, shared/image-input-release.ts). */
   readonly activation?: boolean;
+  /** Threaded straight through to `encodeStoryBundle` for Aside activation
+   *  (`resolveAsideActivation()`, shared/aside-release.ts). */
+  readonly asideActivation?: boolean;
 }
 
 /** A generation record source-revision graph this session hash-verified,
@@ -261,7 +293,7 @@ export class StoryAggregateSession {
       objects,
       undefined,
       undefined,
-      { activation: options.activation }
+      { activation: options.activation, asideActivation: options.asideActivation }
     );
     await objects.flush();
     const nextLive = liveObjectIds(content);
@@ -299,24 +331,10 @@ export class StoryAggregateSession {
   }
 
   async readStagedManifest(): Promise<StoryEnvelopeManifest | null> {
-    const bytes = await readOptionalPrivateFile(
-      this.nextManifestPath(),
-      MANIFEST_POLICY
-    );
-    if (bytes === null) return null;
-    const parsed = parseStoryManifestBytes(bytes, this.storyId);
-    if (parsed.kind === "v5") {
-      throw new Error("Story manifest replacement cannot regress to V5");
-    }
     // `stageManifest` below picks the envelope version from the content the
     // transaction produced (`server/story-v6-reducer.ts`), so a staged V6 or
     // V8 `.next` file is equally a legitimate in-flight replacement here.
-    const manifest = parsed.manifest;
-    if (manifest.kind === "deleted"
-      && bytes.byteLength > MAX_DELETED_STORY_MANIFEST_BYTES) {
-      throw new Error("Deleted story manifest replacement exceeds its size bound");
-    }
-    return manifest;
+    return await readStagedStoryManifest(this.bundleDir, this.storyId);
   }
 
   async stageManifest(manifest: StoryEnvelopeManifest): Promise<void> {
@@ -415,7 +433,9 @@ export class StoryAggregateSession {
 export function requirePresentStorySlot(
   slot: StoredStorySlot,
   storyId: string,
-  activation?: boolean
+  activation?: boolean,
+  asideActivation?: boolean,
+  options: AggregateSessionOptions = {}
 ): asserts slot is PresentStorySlot {
   if ("mutationBlockedByResidue" in slot && slot.mutationBlockedByResidue === true) {
     throw new ServiceError(
@@ -437,13 +457,8 @@ export function requirePresentStorySlot(
   // The aggregate session exists to prepare and stage a mutation, so a
   // successor-schema manifest must refuse it here exactly as
   // `requireMutableStorySlot` refuses it for the older direct-write path
-  // (`server/story-storage-reader.ts`) does for every release, activated or
-  // not: that path has no ledger-backed recovery for successor content and
-  // must never open one. This gate is different: once this release resolves
-  // activation true, it is the release that writes V8 itself, so it must
-  // keep opening a session over the very story it just wrote. Only a build
-  // that resolves activation false, a predecessor, or a test proving the
-  // predecessor's refusal, still refuses every V8 mutation here.
+  // when activation is false. Once activation is true, this release wrote
+  // the successor itself and must keep opening sessions over it.
   if (
     !resolveImageInputActivation(activation)
     && (slot.kind === "v8-live" || slot.kind === "v8-deleted")
@@ -454,13 +469,23 @@ export function requirePresentStorySlot(
       "story_manifest_requires_successor"
     );
   }
+  if (
+    !resolveAsideActivation(asideActivation)
+    && (slot.kind === "v10-live" || slot.kind === "v10-deleted")
+    && !options.allowRecovery
+  ) {
+    throw new ServiceError(
+      409,
+      `Story ${storyId} uses a manifest that requires a successor release for mutation`,
+      "story_manifest_requires_successor"
+    );
+  }
 }
 
-/** `formatV6` and `formatV8` differ only in which schema literal they accept;
- *  this is the one place a staged or published manifest picks between them,
- *  by the schema version its own content already carries
- *  (`server/story-v6-reducer.ts` is the one place that decides that version). */
+/** Pick the envelope serializer by the schema version the content already
+ *  carries (`server/story-v6-reducer.ts` decides that version). */
 function formatManifestEnvelope(manifest: StoryEnvelopeManifest): string {
+  if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V10) return formatV10(manifest);
   return manifest.schemaVersion === STORY_SCHEMA_VERSION_V8 ? formatV8(manifest) : formatV6(manifest);
 }
 
@@ -470,7 +495,15 @@ function formatManifestEnvelope(manifest: StoryEnvelopeManifest): string {
 function persistedSlotFromManifest(
   manifest: StoryEnvelopeManifest,
   manifestBytes: Buffer
-): Extract<StoredStorySlot, { kind: "v6-live" | "v6-deleted" | "v8-live" | "v8-deleted" }> {
+): Extract<
+  StoredStorySlot,
+  { kind: "v6-live" | "v6-deleted" | "v8-live" | "v8-deleted" | "v10-live" | "v10-deleted" }
+> {
+  if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V10) {
+    return manifest.kind === "live"
+      ? { kind: "v10-live", manifest, manifestBytes }
+      : { kind: "v10-deleted", manifest, manifestBytes };
+  }
   if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V8) {
     return manifest.kind === "live"
       ? { kind: "v8-live", manifest, manifestBytes }

@@ -30,6 +30,7 @@ const CONTEXT_KEY_PATTERN = exactStringPattern("[a-z][a-z0-9-]{0,63}");
 
 type StoredResult =
   | { type: "story"; id: string }
+  | { type: "aside"; id: string }
   | { type: "chapter-break-created"; id: string; breakId: string }
   | {
       type: "chapter-break-removed";
@@ -85,8 +86,25 @@ export interface MutationReceipt {
 
 export function encodeMutationResult(
   value: unknown,
-  artifact: MutationReceipt["artifact"]
+  artifact: MutationReceipt["artifact"],
+  method?: WorkerMethod,
+  input?: unknown
 ): StoredResult {
+  if (method === "askAside") {
+    // Aside text is private object data. Persist only the story pointer; the
+    // resolver reads the current document at replay time, so a later clear or
+    // deletion cannot return the old answer from this receipt.
+    const storyId = askAsideStoryId(input);
+    if (storyId === null) {
+      throw new ServiceError(
+        500,
+        "Aside mutation receipt has no story target",
+        "internal"
+      );
+    }
+    if (value === null) return { type: "value", value: null };
+    return { type: "aside", id: storyId };
+  }
   if (isStoryPayload(value)) return { type: "story", id: value.id };
   if (isChapterBreakCreatedResult(value)) {
     return {
@@ -129,6 +147,12 @@ export function encodeMutationResult(
   return { type: "value", value };
 }
 
+function askAsideStoryId(input: unknown): string | null {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) return null;
+  const storyId = (input as { readonly storyId?: unknown }).storyId;
+  return typeof storyId === "string" && storyId.length > 0 ? storyId : null;
+}
+
 /** One canonical hash for an import-plan artifact value, shared by the
  * writer and the parser so a hand-edited receipt cannot smuggle a different
  * plan under a preserved fingerprint. */
@@ -169,9 +193,20 @@ export function parseMutationReceipt(
     )) {
     throw corruptMutationReceipt(mutationId);
   }
-  if (receipt.state === "completed"
-    && (!isStoredResult(receipt.result) || receipt.failure !== undefined)) {
-    throw corruptMutationReceipt(mutationId);
+  if (receipt.state === "completed") {
+    if (!isStoredResult(receipt.result) || receipt.failure !== undefined) {
+      throw corruptMutationReceipt(mutationId);
+    }
+    // An Aside terminal is either the story pointer or the null cancellation
+    // result. Reject older inline views and every unrelated stored shape so a
+    // hand-edited receipt cannot replay a result under the wrong method.
+    if (receipt.method === "askAside") {
+      const validAsideResult = receipt.result.type === "aside"
+        || (receipt.result.type === "value" && receipt.result.value === null);
+      if (!validAsideResult) throw corruptMutationReceipt(mutationId);
+    } else if (receipt.result.type === "aside") {
+      throw corruptMutationReceipt(mutationId);
+    }
   }
   const decodedFailure = receipt.state === "failed"
     ? decodeFailureEnvelope(receipt.failure)
@@ -317,6 +352,7 @@ function isStoredResult(value: unknown): value is StoredResult {
   if (value === null || typeof value !== "object") return false;
   const result = value as Record<string, unknown>;
   if (result.type === "story") return typeof result.id === "string";
+  if (result.type === "aside") return typeof result.id === "string";
   if (result.type === "chapter-break-created") {
     return typeof result.id === "string"
       && typeof result.breakId === "string";

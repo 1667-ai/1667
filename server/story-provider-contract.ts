@@ -31,15 +31,24 @@ export type ProviderStoryWork<
   context: ProviderStoryWorkContext<Method>
 ) => Promise<Value>;
 
+/** Reconstruct the value returned by a provider operation whose durable
+ * terminal result already exists. Replay runs after the aggregate session
+ * that recovered the result has closed, so it may perform its own reads. */
+export type ProviderStoryReplay<Value> = () => Value | PromiseLike<Value>;
+
 export type ProviderStoryRun<
   Method extends ProviderMutationMethod,
   Value
 > = {
   readonly signal: AbortSignal;
   readonly work: ProviderStoryWork<Method, Value>;
-  readonly replayValue: () => Value;
+  readonly replayValue: ProviderStoryReplay<Value>;
 };
 
 export type ProviderStoryAdmission<Value> =
-  | { kind: "replayed"; commit: ProviderStoryMutationCommit<Value> }
+  | {
+      kind: "replayed";
+      commit: Omit<ProviderStoryMutationCommit<Value>, "value">;
+      replayValue: ProviderStoryReplay<Value>;
+    }
   | { kind: "open"; story: Story; releaseSnapshot: () => void };

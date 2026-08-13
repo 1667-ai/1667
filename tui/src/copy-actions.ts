@@ -146,6 +146,7 @@ export function consumesEmptyCopyShortcut(
   state: Pick<RuntimeState, "mode" | "settings" | "library">
 ): boolean {
   return state.mode === "COMPOSE"
+    || state.mode === "ASIDE"
     || state.mode === "EDITOR"
     || state.mode === "SETTINGS"
       && (state.settings?.edit != null || state.settings?.sampling?.edit != null)
@@ -285,6 +286,8 @@ function activeComposer(
           ? sourceId === undefined && state.library?.prompt?.kind === "rename"
             ? state.library.prompt.composer
             : null
+          : state.mode === "ASIDE"
+            ? sourceId === undefined ? state.aside?.composer ?? null : null
           : null;
 }
 

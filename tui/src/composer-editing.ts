@@ -118,7 +118,7 @@ function cellCategory(text: string | null): "space" | "word" | "punctuation" {
   return /[\p{L}\p{N}_]/u.test(text) ? "word" : "punctuation";
 }
 
-export type ComposerEditKind = "move" | "delete";
+export type ComposerEditKind = "move" | "delete" | "insert";
 
 /**
  * Apply one editing action to a composer.

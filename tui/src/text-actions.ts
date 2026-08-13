@@ -26,11 +26,13 @@ export function availableTextActions(
   return overlay.copyOnly ? TEXT_ACTIONS.slice(0, 1) : TEXT_ACTIONS;
 }
 
-type TextOwnerState = Pick<RuntimeState, "mode" | "composer" | "editor" | "settings" | "library">;
+type TextOwnerState = Pick<RuntimeState, "mode" | "composer" | "editor" | "settings" | "library">
+  & { aside?: RuntimeState["aside"] };
 
 /** Find the composer-backed field that currently owns text input. */
 export function activeTextComposer(state: TextOwnerState): ComposerState | null {
   if (state.mode === "COMPOSE") return state.composer;
+  if (state.mode === "ASIDE") return state.aside?.composer ?? null;
   if (state.mode === "EDITOR" && state.editor !== null) {
     return state.editor.kind === "fact"
       ? factEditorActiveTextComposer(state.editor)

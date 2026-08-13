@@ -91,16 +91,20 @@ export async function runStoryExport(
     const batchNames = command.all ? createExportFileAllocator() : null;
     for (const story of selected) {
       if (command.format === "markdown") {
+        const exported = await backend.api.exportMarkdown(story.id);
         const file = await writeStoryExport({
           directory: project.root,
           title: story.title,
-          markdown: await backend.api.exportMarkdown(story.id),
+          markdown: exported.markdown,
           force: command.force,
           ...(batchNames === null ? {} : {
             collisionIndex: batchNames.allocate(story.title, ".md")
           })
         });
         output.write(`${file}\n`);
+        if (exported.fidelity.length > 0) {
+          errorOutput.write(`${file}: ${fidelityReport(exported.fidelity)}\n`);
+        }
         continue;
       }
       const archive = exportNovelAiArchive(

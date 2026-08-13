@@ -31,14 +31,30 @@ import type {
 import { requireFreshUnseenMutationId } from "./mutation-id-policy.js";
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import { storyProjection } from "./story-aggregate-state.js";
-import { hashStoryV6ManifestBytes, hashStoryV8ManifestBytes } from "./story-manifest-hash.js";
-import { formatV6, formatV8, STORY_SCHEMA_VERSION_V8 } from "./story-v6-codec.js";
+import {
+  hashStoryV6ManifestBytes,
+  hashStoryV8ManifestBytes,
+  hashStoryV10ManifestBytes
+} from "./story-manifest-hash.js";
+import { canonicalJson } from "./canonical-json.js";
+import {
+  formatV6,
+  formatV8,
+  formatV10,
+  STORY_SCHEMA_VERSION_V8,
+  STORY_SCHEMA_VERSION_V10
+} from "./story-v6-codec.js";
 import type { StoryEnvelopeManifest } from "./story-v6-types.js";
 import { StoryDurabilityError } from "./story-lifecycle.js";
 
 export type StoryMutationClock = () => Date;
 
 export interface StoryMutationHooks {
+  /** Test-only failure window after a prepared receipt is durable and before
+   * the replacement stage is attempted. A real process loss in this window
+   * leaves the receipt for exact recovery; a returned failure can prove that
+   * no stage materialized and clean it immediately. */
+  readonly afterPreparedBeforeStage?: () => void | Promise<void>;
   readonly afterStage?: () => void | Promise<void>;
   readonly afterPrepared?: () => void | Promise<void>;
   readonly afterPublish?: () => void | Promise<void>;
@@ -60,9 +76,24 @@ export interface PreparedStoryTransaction {
   readonly ledger: MutationLedgerStore;
   readonly manifest: StoryEnvelopeManifest;
   readonly prepared: PreparedRecord;
+  /** Persist identity before staging when recovery must distinguish an
+   * unowned replacement from this mutation's replacement. */
+  readonly prepareBeforeStage?: boolean;
   readonly now: StoryMutationClock;
   readonly hooks?: StoryMutationHooks;
   readonly afterPublish?: () => void | Promise<void>;
+}
+
+interface StoryRecoveryOptions {
+  /** Aggregate-pointer finalization must not treat a replacement staged for a
+   * different mutation as its own evidence. The active request recovers that
+   * stage in its normal direct-lookup pass. */
+  readonly ignoreForeignReplacement?: boolean;
+}
+
+interface DiscardedClearReceiptEvidence {
+  readonly mutationId: MutationId;
+  readonly preparedRecordHash: string;
 }
 
 /** Shared stage step for both durability tiers. An afterStage failure always
@@ -97,15 +128,40 @@ export async function commitPreparedStoryTransaction(
   transaction: PreparedStoryTransaction
 ): Promise<void> {
   const hooks = transaction.hooks ?? {};
-  await stageManifestForCommit(transaction.session, transaction.manifest, hooks);
-  try {
-    await transaction.ledger.writeStoryRecord(transaction.prepared);
-    await hooks.afterPrepared?.();
-  } catch (error) {
-    if (!(error instanceof InjectedStoryMutationCrash)) {
-      await transaction.session.discardStagedManifest().catch(() => undefined);
+  if (transaction.prepareBeforeStage === true) {
+    if (transaction.prepared.purpose === "mutation"
+      && transaction.prepared.method === "clearAside") {
+      // Publish the fixed per-story candidate before the receipt. A process
+      // loss between these writes leaves a harmless marker that recovery can
+      // remove; the reverse order could leave an undiscoverable receipt.
+      await transaction.ledger.writeClearRecoveryCandidate(
+        transaction.prepared.aggregateKey as `story:${string}`,
+        transaction.prepared.key,
+        hashPreparedMutationRecord(transaction.prepared)
+      );
     }
-    throw error;
+    await transaction.ledger.writeStoryRecord(transaction.prepared);
+    try {
+      await hooks.afterPreparedBeforeStage?.();
+      await stageManifestForCommit(transaction.session, transaction.manifest, hooks);
+      await hooks.afterPrepared?.();
+    } catch (error) {
+      if (!(error instanceof InjectedStoryMutationCrash)) {
+        await discardUnmaterializedPreparedRecord(transaction);
+      }
+      throw error;
+    }
+  } else {
+    await stageManifestForCommit(transaction.session, transaction.manifest, hooks);
+    try {
+      await transaction.ledger.writeStoryRecord(transaction.prepared);
+      await hooks.afterPrepared?.();
+    } catch (error) {
+      if (!(error instanceof InjectedStoryMutationCrash)) {
+        await transaction.session.discardStagedManifest().catch(() => undefined);
+      }
+      throw error;
+    }
   }
 
   let published = false;
@@ -120,6 +176,14 @@ export async function commitPreparedStoryTransaction(
       completedRecord(transaction.prepared, timestamp(transaction.now))
     );
     await hooks.afterCompleted?.();
+    if (transaction.prepared.purpose === "mutation"
+      && transaction.prepared.method === "clearAside") {
+      await transaction.ledger.removeClearRecoveryCandidate(
+        transaction.prepared.aggregateKey as `story:${string}`,
+        transaction.prepared.key,
+        hashPreparedMutationRecord(transaction.prepared)
+      );
+    }
   } catch (error) {
     if (error instanceof InjectedStoryMutationCrash
       || error instanceof StoryDurabilityError
@@ -129,6 +193,38 @@ export async function commitPreparedStoryTransaction(
     throw new StoryDurabilityError(
       `Story mutation ${transaction.prepared.key} committed but its terminal evidence is incomplete`,
       { cause: error }
+    );
+  }
+}
+
+/** Remove a prepared record only when this transaction has no materialized
+ * replacement. A final `.next` whose transaction pointer names this request
+ * remains recoverable and therefore retains the record; an unreadable stage
+ * also fails closed. Provider prepared records retain their started fence. */
+async function discardUnmaterializedPreparedRecord(
+  transaction: PreparedStoryTransaction
+): Promise<void> {
+  if (transaction.prepared.purpose !== "mutation"
+    || transaction.prepared.startedRecordHash !== null) {
+    return;
+  }
+  let staged: StoryEnvelopeManifest | null;
+  try {
+    staged = await transaction.session.readStagedManifest();
+  } catch {
+    return;
+  }
+  if (staged?.lastTransaction?.mutationId === transaction.prepared.key) return;
+  await transaction.ledger.removeOrphanPreparedUserReceipt(
+    transaction.prepared.aggregateKey,
+    transaction.prepared.key,
+    hashPreparedMutationRecord(transaction.prepared)
+  );
+  if (transaction.prepared.method === "clearAside") {
+    await transaction.ledger.removeClearRecoveryCandidate(
+      transaction.prepared.aggregateKey as `story:${string}`,
+      transaction.prepared.key,
+      hashPreparedMutationRecord(transaction.prepared)
     );
   }
 }
@@ -170,6 +266,59 @@ export async function commitReceiptOnlyStoryTransaction(
     }
     throw new StoryDurabilityError(
       `Story mutation ${prepared.key} has durable receipt authority but incomplete terminal evidence`,
+      { cause: error }
+    );
+  }
+}
+
+/** Receipt-only Clear commit for an already-empty Aside.
+ *
+ * The aggregate has no replacement to point at, but the request still needs a
+ * durable replay result. The bounded per-story candidate makes every crash
+ * window discoverable without scanning retained receipts. */
+export async function commitNoopClearStoryTransaction(
+  ledger: MutationLedgerStore,
+  prepared: PreparedUserMutationRecord & {
+    readonly result: Extract<MutationResult, { kind: "story" }>;
+  },
+  now: StoryMutationClock,
+  hooks: StoryMutationHooks = {}
+): Promise<void> {
+  const aggregateKey = prepared.aggregateKey;
+  if (aggregateKey === "settings") {
+    throw new Error("No-op Clear receipt must target a story aggregate");
+  }
+  const preparedRecordHash = hashPreparedMutationRecord(prepared);
+  await ledger.writeClearRecoveryCandidate(
+    aggregateKey,
+    prepared.key,
+    preparedRecordHash
+  );
+  let preparedWritten = false;
+  let completed = false;
+  try {
+    await ledger.writeStoryRecord(prepared);
+    preparedWritten = true;
+    await hooks.afterPrepared?.();
+    await ledger.writeStoryRecord(
+      completedRecord(prepared, timestamp(now))
+    );
+    completed = true;
+    await hooks.afterCompleted?.();
+    await ledger.removeClearRecoveryCandidate(
+      aggregateKey,
+      prepared.key,
+      preparedRecordHash
+    );
+  } catch (error) {
+    if (error instanceof InjectedStoryMutationCrash
+      || error instanceof StoryDurabilityError
+      || !preparedWritten
+      || !completed) {
+      throw error;
+    }
+    throw new StoryDurabilityError(
+      `Story mutation ${prepared.key} committed but its Clear recovery index is incomplete`,
       { cause: error }
     );
   }
@@ -235,14 +384,59 @@ export class StoryMutationRecovery {
     private readonly now: StoryMutationClock
   ) {}
 
+  /** Complete a prepared no-op Clear without re-running it.
+   *
+   * A no-op has no aggregate pointer. Its equal old/new hashes are the
+   * durable proof that the prepared request changed no story state. Complete
+   * that evidence even when the story now has a newer Side Note. */
+  async recoverPreparedNoopClear(
+    request: MutationCoordinatorRequest<StoryMutationTarget>,
+    receipt: StoryMutationReceipt
+  ): Promise<Extract<MutationResult, { kind: "story" }>> {
+    const prepared = receipt.prepared;
+    if (prepared === null
+      || receipt.started !== null
+      || receipt.completed !== null
+      || receipt.acknowledged !== null
+      || prepared.purpose !== "mutation"
+      || prepared.method !== "clearAside"
+      || prepared.aggregateKey !== request.scope
+      || prepared.key !== request.mutationId
+      || prepared.fingerprintHash !== request.fingerprint
+      || prepared.startedRecordHash !== null
+      || prepared.oldStateHash !== prepared.newStateHash
+      || prepared.result.kind !== "story") {
+      throw corruptStoryReceipt(request.mutationId);
+    }
+    const preparedRecordHash = hashPreparedMutationRecord(prepared);
+    await this.ledger.writeStoryRecord(
+      completedRecord(prepared, timestamp(this.now))
+    );
+    await this.ledger.removeClearRecoveryCandidate(
+      request.scope,
+      request.mutationId,
+      preparedRecordHash
+    );
+    return prepared.result;
+  }
+
   async recover(
     session: StoryAggregateSession,
     request: MutationCoordinatorRequest<StoryMutationTarget>,
     receipt: StoryMutationReceipt,
     originalProvider: ProviderRecoveryEvidence | null = null,
-    surfaceTerminal = true
+    surfaceTerminal = true,
+    options: StoryRecoveryOptions = {}
   ): Promise<Extract<MutationResult, { kind: "story" }> | null> {
     const staged = await session.readStagedManifest();
+    const stagedPointer = staged?.lastTransaction;
+    const replacement = options.ignoreForeignReplacement === true
+      && (stagedPointer === null
+        || stagedPointer === undefined
+        || stagedPointer.receiptKind !== "user"
+        || stagedPointer.mutationId !== request.mutationId)
+      ? null
+      : replacementEvidence(staged);
     const unresolvedProvider = await this.loadProviderEvidence(
       request.scope,
       session.snapshot.manifest.unresolvedProvider?.mutationId ?? null
@@ -260,18 +454,51 @@ export class StoryMutationRecovery {
         started: receipt.started,
         prepared: receipt.prepared,
         completed: receipt.completed,
-        replacement: replacementEvidence(staged)
+        replacement
       },
       unresolvedProvider,
       originalProvider,
       recoveredAt: timestamp(this.now)
     });
+    const discardedClear = plan.actions.some((action) => action.kind === "discard-replacement")
+      ? await this.discardedClearReceiptEvidence(
+        session,
+        request,
+        replacement === null ? null : staged
+      )
+      : null;
     await this.apply(session, request, plan.actions);
+    if (discardedClear !== null) {
+      // The planner owns the active request's receipt. A foreign staged Clear
+      // is not part of that request, so remove its hash-proved prepared
+      // record here after discarding the stage. Exact same-ID recovery may
+      // already have removed it; the direct cleanup is then a no-op.
+      await this.ledger.removeOrphanPreparedUserReceipt(
+        request.scope,
+        discardedClear.mutationId,
+        discardedClear.preparedRecordHash
+      );
+      await this.ledger.removeClearRecoveryCandidate(
+        request.scope,
+        discardedClear.mutationId,
+        discardedClear.preparedRecordHash
+      );
+    }
+
+    const completed = receipt.completed !== null
+      || plan.actions.some((action) => action.kind === "write-completed");
+    if (completed
+      && receipt.prepared?.purpose === "mutation"
+      && receipt.prepared.method === "clearAside") {
+      await this.ledger.removeClearRecoveryCandidateIfMatches(
+        request.scope,
+        request.mutationId,
+        hashPreparedMutationRecord(receipt.prepared)
+      );
+    }
 
     if (!surfaceTerminal) return null;
     if (receipt.prepared === null) return null;
-    const completed = receipt.completed !== null
-      || plan.actions.some((action) => action.kind === "write-completed");
     if (!completed) return null;
     if (receipt.prepared.result.kind === "error") {
       throw new DurableMutationResultError(
@@ -332,7 +559,8 @@ export class StoryMutationRecovery {
       },
       receipt,
       originalProvider,
-      false
+      false,
+      { ignoreForeignReplacement: true }
     );
   }
 
@@ -354,7 +582,18 @@ export class StoryMutationRecovery {
     request: MutationCoordinatorRequest<StoryMutationTarget>,
     actions: readonly MutationLedgerRecoveryAction[]
   ): Promise<void> {
-    for (const action of actions) {
+    // A terminal provider transaction can leave both its prepared record and
+    // its earlier started record when a crash lands after the prepared write.
+    // Remove the started record first; its ledger directory then satisfies the
+    // prepared-only removal precondition. Recovery action order is otherwise
+    // unchanged for publication and completion actions.
+    const ordered = [
+      ...actions.filter((action) => action.kind !== "discard-record"
+        || action.recordKind === "started"),
+      ...actions.filter((action) => action.kind === "discard-record"
+        && action.recordKind === "prepared")
+    ];
+    for (const action of ordered) {
       if (action.kind === "discard-replacement") {
         await session.discardStagedManifest();
       } else if (action.kind === "discard-record"
@@ -393,6 +632,48 @@ export class StoryMutationRecovery {
       }
     }
   }
+
+  /** Capture staged Clear ownership before recovery discards its receipt. */
+  private async discardedClearReceiptEvidence(
+    session: StoryAggregateSession,
+    request: MutationCoordinatorRequest<StoryMutationTarget>,
+    staged: StoryEnvelopeManifest | null
+  ): Promise<DiscardedClearReceiptEvidence | null> {
+    if (staged === null) return null;
+    const pointer = staged?.lastTransaction;
+    if (pointer === null || pointer === undefined
+      || pointer.phase !== "prepared") {
+      return null;
+    }
+    const receipt = await this.ledger.loadStoryReceipt(
+      request.scope,
+      pointer.mutationId
+    );
+    const prepared = receipt.prepared;
+    if (prepared === null
+      || receipt.started !== null
+      || receipt.completed !== null
+      || receipt.acknowledged !== null
+      || prepared.purpose !== "mutation"
+      || prepared.method !== "clearAside"
+      || prepared.key !== pointer.mutationId
+      || prepared.aggregateKey !== request.scope
+      || prepared.startedRecordHash !== null) {
+      return null;
+    }
+    const stagedHash = hashStoryManifest(staged);
+    if (prepared.oldStateHash !== session.snapshot.manifestHash
+      || staged.previousManifestHash !== session.snapshot.manifestHash
+      || prepared.newStateHash !== stagedHash
+      || prepared.result.kind !== "story"
+      || canonicalJson(prepared.result) !== canonicalJson(storyResult(staged))) {
+      return null;
+    }
+    return {
+      mutationId: pointer.mutationId,
+      preparedRecordHash: hashPreparedMutationRecord(prepared)
+    };
+  }
 }
 
 export function completedRecord(
@@ -421,6 +702,9 @@ export function storyResult(
 }
 
 export function hashStoryManifest(manifest: StoryEnvelopeManifest): string {
+  if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V10) {
+    return hashStoryV10ManifestBytes(Buffer.from(formatV10(manifest), "utf8"));
+  }
   return manifest.schemaVersion === STORY_SCHEMA_VERSION_V8
     ? hashStoryV8ManifestBytes(Buffer.from(formatV8(manifest), "utf8"))
     : hashStoryV6ManifestBytes(Buffer.from(formatV6(manifest), "utf8"));

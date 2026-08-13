@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { resolveAsideActivation } from "../shared/aside-release.js";
 import type { Story, StoryPayload } from "../shared/types.js";
 import {
   chapterBreakRemovalFingerprint,
@@ -16,6 +18,7 @@ import type {
   StoryMutationStore
 } from "./story-mutation-store.js";
 import { buildStoryPayload } from "./story-payload.js";
+import { mintActivatedStoryMutationRequest } from "./story-mutation-request.js";
 import {
   STORY_UNCHANGED,
   type StoryStore
@@ -45,6 +48,17 @@ export class StoryServiceChapters {
     mutationRequest?: unknown
   ): Promise<{ payload: StoryPayload; breakId: string }> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      if (resolveAsideActivation(this.dependencies.stories.asideActivation)) {
+        chapterBreakId ??= randomUUID();
+      }
+      mutationRequest = await mintActivatedStoryMutationRequest(
+        this.dependencies.stories,
+        id,
+        "createChapterBreak",
+        `${parentPartId}\0${chapterBreakId ?? ""}`
+      );
+    }
     if (mutationRequest !== undefined) {
       if (chapterBreakId === undefined) {
         throw new ServiceError(
@@ -91,6 +105,14 @@ export class StoryServiceChapters {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(
+        this.dependencies.stories,
+        id,
+        "renameChapterBreak",
+        breakId ?? "chapter-one"
+      );
+    }
     // A null break id names chapter one, which no break opens. That name is a
     // format-3 shape: a directory that never took the marker cannot hold one,
     // or an older executable would accept the directory and then refuse the
@@ -135,6 +157,18 @@ export class StoryServiceChapters {
     expectedRemoved?: RemovedChapterBreak
   ): Promise<{ payload: StoryPayload; removed: RemovedChapterBreak }> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      if (resolveAsideActivation(this.dependencies.stories.asideActivation)
+        && expectedRemoved === undefined) {
+        expectedRemoved = (await this.previewChapterBreakRemoval(id, breakId)).removed;
+      }
+      mutationRequest = await mintActivatedStoryMutationRequest(
+        this.dependencies.stories,
+        id,
+        "removeChapterBreak",
+        breakId
+      );
+    }
     let removed: RemovedChapterBreak | undefined;
     if (mutationRequest !== undefined) {
       if (expectedRemoved === undefined) {
@@ -187,6 +221,14 @@ export class StoryServiceChapters {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(
+        this.dependencies.stories,
+        id,
+        "restoreChapterBreak",
+        breakId
+      );
+    }
     const removed = parseRemovedChapterBreak(value);
     if (mutationRequest !== undefined) {
       return await this.localStoryPayload(

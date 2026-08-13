@@ -13,6 +13,7 @@ import type { ChatMessage } from "../../shared/prompt-plan.js";
 import { unusedTakePruneSelection } from "../../shared/story-tree.js";
 import { applyBasicSettingsDraft } from "../../shared/settings-basic-draft.js";
 import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
+import { ASIDE_ACTIVATED } from "../../shared/aside-release.js";
 import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 import { platformPerformanceBudget } from "../../test/performance-budget.js";
 import {
@@ -256,7 +257,36 @@ describe("embedded backend worker", () => {
 
       const named = await api.autonameStory(story.id);
       expect(named.title).toBe("The Quiet After Rain");
-      expect(await api.exportMarkdown(story.id)).toContain("# The Quiet After Rain");
+      expect((await api.exportMarkdown(story.id)).markdown)
+        .toContain("# The Quiet After Rain");
+      const asideDeltas: string[] = [];
+      if (ASIDE_ACTIVATED) {
+        const aside = await api.askAside(
+          story.id,
+          "Why did the door open?",
+          (delta) => asideDeltas.push(delta),
+          new AbortController().signal
+        );
+        expect(aside?.notes).toHaveLength(1);
+        expect(asideDeltas.join("").length).toBeGreaterThan(0);
+        expect((await api.exportMarkdown(story.id)).fidelity)
+          .toEqual(["Side Notes were not exported."]);
+      } else {
+        const unsupported = {
+          code: "aside_not_supported",
+          status: 400
+        } satisfies Partial<WorkerApiError>;
+        expect(await rejection(api.getAside(story.id))).toMatchObject(unsupported);
+        expect(await rejection(api.askAside(
+          story.id,
+          "Why did the door open?",
+          (delta) => asideDeltas.push(delta),
+          new AbortController().signal
+        ))).toMatchObject(unsupported);
+        expect(await rejection(api.clearAside(story.id))).toMatchObject(unsupported);
+        expect(asideDeltas).toEqual([]);
+        expect((await api.exportMarkdown(story.id)).fidelity).toEqual([]);
+      }
 
       const imported = await api.importSillyTavern([
         JSON.stringify({ character_name: "Mira", user_name: "You" }),
@@ -318,7 +348,7 @@ describe("embedded backend worker", () => {
         text: "x".repeat(120) + "\n\nCafe\u0301"
       });
       const losslessImport = await api.importMarkdown(
-        await api.exportMarkdown(losslessSource.id)
+        (await api.exportMarkdown(losslessSource.id)).markdown
       );
       expect(losslessImport.path.map((node) => node.text)).toEqual([
         "x".repeat(120),

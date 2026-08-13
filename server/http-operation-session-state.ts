@@ -30,6 +30,11 @@ export interface HttpOperationSessionRecord {
   closeWaiters: Array<() => void>;
 }
 
+export type HttpOperationCancellationSource =
+  | "user"
+  | "deadline"
+  | "session";
+
 export interface HttpOperationRecord {
   readonly sessionId: string;
   readonly sequence: bigint;
@@ -49,6 +54,7 @@ export interface HttpOperationRecord {
   readonly abort: AbortController;
   state: HttpOperationState;
   cancelRequested: boolean;
+  cancellationSource: HttpOperationCancellationSource | null;
   failure: FailureEnvelope | null;
   terminalAt: number | null;
   timer: ReturnType<typeof setTimeout> | null;

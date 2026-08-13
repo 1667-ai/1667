@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { GenerationStoppedError } from "./errors.js";
 import type {
+  AsideStoryEffect,
   ChapterSummaryEffect,
   ContinueStoryEffect,
   ProviderStoryEffect,
@@ -85,6 +86,10 @@ export function prepareProviderStoryEffect(
     }
     case "autoname":
       return { ...effect };
+    case "aside": {
+      const { cancelled: _cancelled, ...rest } = effect as AsideStoryEffect;
+      return rest;
+    }
     default: {
       const exhaustive: never = effect;
       return exhaustive;
@@ -100,6 +105,8 @@ function requireEffectActive(effect: ProviderStoryEffect): void {
       ? "Story rewriting was cancelled"
       : effect.kind === "summary-take"
         ? "The summary was cancelled before it could be saved."
-        : "Chapter summarization was cancelled";
+        : effect.kind === "aside"
+          ? "Aside was cancelled before it could be saved."
+          : "Chapter summarization was cancelled";
   throw new GenerationStoppedError(message);
 }

@@ -30,7 +30,8 @@ import type {
   StoryManifestV3,
   StoryManifestV4,
   StoryManifestV5,
-  StoryManifestV7
+  StoryManifestV7,
+  StoryManifestV9
 } from "./story-format.js";
 import { SYNTHETIC_EMPTY_REVISION_ID } from "./story-empty-revision.js";
 import { parseStoredChapterNode } from "./story-format-chapters.js";
@@ -223,7 +224,9 @@ export function parseV4Manifest(input: unknown): StoryManifestV4 {
  *  `liveObjectIds` below exists to remove. `manifestTokenProbabilityIds`
  *  stays exported — server/story-snapshot.ts wants it alone, since it builds
  *  its revision map a different way (per node, not from this list). */
-function manifestRevisionIds(manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7): ObjectHash[] {
+function manifestRevisionIds(
+  manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7 | StoryManifestV9
+): ObjectHash[] {
   return manifest.nodes.filter((node) => node.syntheticEmpty !== true).map((node) => node.revisionId)
     .concat(manifest.facts.map((fact) => fact.revisionId));
 }
@@ -233,7 +236,7 @@ function manifestRevisionIds(manifest: StoryManifestV4 | StoryManifestV5 | Story
  *  typically a small subset of `manifestRevisionIds`' length, not a parallel
  *  one-to-one list. */
 export function manifestTokenProbabilityIds(
-  manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7
+  manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7 | StoryManifestV9
 ): ObjectHash[] {
   const ids: ObjectHash[] = [];
   for (const node of manifest.nodes) {
@@ -244,7 +247,9 @@ export function manifestTokenProbabilityIds(
 
 /** Every take's stored Generation Record ids, oldest first per node. Most
  *  nodes have none — old, human, and imported takes never gain one. */
-export function manifestGenerationRecordIds(manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7): ObjectHash[] {
+export function manifestGenerationRecordIds(
+  manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7 | StoryManifestV9
+): ObjectHash[] {
   const ids: ObjectHash[] = [];
   for (const node of manifest.nodes) {
     if (node.generationRecordIds !== undefined) ids.push(...node.generationRecordIds);
@@ -254,7 +259,9 @@ export function manifestGenerationRecordIds(manifest: StoryManifestV4 | StoryMan
 
 /** Every take's stored reasoning id, mirroring `manifestTokenProbabilityIds`
  *  exactly — most nodes have none. */
-export function manifestReasoningIds(manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7): ObjectHash[] {
+export function manifestReasoningIds(
+  manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7 | StoryManifestV9
+): ObjectHash[] {
   const ids: ObjectHash[] = [];
   for (const node of manifest.nodes) {
     if (node.reasoningId !== undefined) ids.push(node.reasoningId);
@@ -269,7 +276,9 @@ export function manifestReasoningIds(manifest: StoryManifestV4 | StoryManifestV5
  *  only on the successor node shape (`server/story-v7-strict.ts`), so this
  *  returns an empty list for either, exactly like the other two collectors
  *  return nothing for a node with no stored id. */
-export function manifestImageIds(manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7): ObjectHash[] {
+export function manifestImageIds(
+  manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7 | StoryManifestV9
+): ObjectHash[] {
   const ids: ObjectHash[] = [];
   for (const node of manifest.nodes) {
     if (!("imageAttachments" in node) || node.imageAttachments === undefined) continue;
@@ -284,16 +293,29 @@ export function manifestImageIds(manifest: StoryManifestV4 | StoryManifestV5 | S
  *  `manifestRevisionIds`, `manifestTokenProbabilityIds`, and
  *  `manifestReasoningIds` together (issue #291 structural review, finding
  *  F1). */
-export function liveObjectIds(manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7): LiveStoryObjectIds {
+export function liveObjectIds(
+  manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7 | StoryManifestV9
+): LiveStoryObjectIds {
   return {
     revisions: manifestRevisionIds(manifest),
     leaves: {
       probabilities: manifestTokenProbabilityIds(manifest),
       reasoning: manifestReasoningIds(manifest),
-      images: manifestImageIds(manifest)
+      images: manifestImageIds(manifest),
+      aside: manifestAsideIds(manifest)
     },
     generationRecords: manifestGenerationRecordIds(manifest)
   };
+}
+
+/** The story-level Aside document id, when present and non-null. */
+export function manifestAsideIds(
+  manifest: StoryManifestV4 | StoryManifestV5 | StoryManifestV7 | StoryManifestV9
+): ObjectHash[] {
+  if (!("asideDocumentId" in manifest) || manifest.asideDocumentId === null || manifest.asideDocumentId === undefined) {
+    return [];
+  }
+  return [manifest.asideDocumentId];
 }
 
 function appendPartTakes(nodes: StoredNodeV1[], part: StoredPartV2, parentId: string | null): StoredNodeV1[] {

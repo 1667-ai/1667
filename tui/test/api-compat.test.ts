@@ -1400,7 +1400,15 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
     if (path === "/api/settings/count-tokens") {
       return Response.json({ kind: "estimate", reason: "no-source" });
     }
-    if (path.endsWith("/export")) return new Response("# Story\n");
+    if (path.endsWith("/export")) {
+      return new Response("# Story\n", {
+        headers: {
+          "x-1667-fidelity": encodeURIComponent(
+            JSON.stringify(["Side Notes were not exported."])
+          )
+        }
+      });
+    }
     if (path.endsWith("/generation-records")) return Response.json([]);
     if (path.includes("/generation-records/")) {
       return Response.json({
@@ -1443,7 +1451,10 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
   await api.probeContextWindow(DEMO_SETTINGS_VIEW.effective);
   await api.discoverModels(DEMO_SETTINGS_VIEW.effective);
   await api.countPromptTokens([{ role: "user", content: "Hi" }]);
-  await api.exportMarkdown("story");
+  expect(await api.exportMarkdown("story")).toEqual({
+    markdown: "# Story\n",
+    fidelity: ["Side Notes were not exported."]
+  });
   await api.getGenerationRecords("story", "node");
   await api.getGenerationRecord("story", "node", "a".repeat(64));
   await api.importSillyTavern("{}");

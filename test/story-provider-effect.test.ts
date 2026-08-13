@@ -14,6 +14,7 @@ import { prepareProviderStoryEffect } from "../server/story-provider-preparation
 import { createGenerationRecord, type GenerationRecord, type GenerationRecordKind } from "../shared/generation-record.js";
 import type { PromptOperation } from "../shared/prompt-plan.js";
 import { takePendingGenerationRecords } from "../server/story-node-generation-records.js";
+import { serializeAsideDocument } from "../shared/aside.js";
 
 const AT = "2026-07-25T12:00:00.000Z";
 const LATER = "2026-07-25T12:01:00.000Z";
@@ -124,9 +125,49 @@ test("provider effects are exhaustively operation-specific", () => {
       summary: "Summary.",
       model: "m",
       generationRecord: generationRecordFixture("chapter-summary", "summary")
+    },
+    aside: {
+      kind: "aside",
+      expectedAsideDocumentId: undefined,
+      document: { schemaVersion: 1, notes: [{ question: "Why?", answer: "Because." }] }
     }
   } satisfies Record<ProviderStoryEffect["kind"], ProviderStoryEffect>;
-  assert.equal(Object.keys(effects).length, 5);
+  assert.equal(Object.keys(effects).length, 6);
+});
+
+test("aside assigns its content id before serialization", async () => {
+  const current = story([node("root", null, "Opening.")]);
+  const document = {
+    schemaVersion: 1 as const,
+    notes: [{ question: "Why?", answer: "Because." }]
+  };
+
+  await applyProviderStoryEffect(
+    current,
+    { kind: "aside", expectedAsideDocumentId: undefined, document },
+    hydrate
+  );
+
+  assert.equal(current.asideDocumentId, sha256(serializeAsideDocument(document)));
+});
+
+test("aside rejects a stale answer without changing the current document", async () => {
+  const current = story([node("root", null, "Opening.")]);
+  current.asideDocumentId = "current-document";
+
+  await assert.rejects(
+    applyProviderStoryEffect(current, {
+      kind: "aside",
+      expectedAsideDocumentId: "older-document",
+      document: {
+        schemaVersion: 1,
+        notes: [{ question: "Stale?", answer: "Do not save." }]
+      }
+    }, hydrate),
+    (error: unknown) => error instanceof GenerationResultError
+      && error.code === "conflict"
+  );
+  assert.equal(current.asideDocumentId, "current-document");
 });
 
 test("provider effect preparation rejects an existing cancellation", () => {
@@ -152,6 +193,17 @@ test("provider effect preparation rejects an existing cancellation", () => {
     }),
     (error: unknown) => error instanceof GenerationResultError
       && /Story writing was cancelled/.test(error.message)
+  );
+
+  assert.throws(
+    () => prepareProviderStoryEffect({
+      kind: "aside",
+      expectedAsideDocumentId: undefined,
+      document: { schemaVersion: 1, notes: [] },
+      cancelled: cancelled.signal
+    }),
+    (error: unknown) => error instanceof GenerationResultError
+      && error.message === "Aside was cancelled before it could be saved."
   );
 });
 

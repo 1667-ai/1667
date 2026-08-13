@@ -991,6 +991,30 @@ const MUTATIONS: MutationRegistry = {
         }
       );
     }
+  }),
+  askAside: define<"askAside">({
+    parse: (value) => {
+      const input = requireRecord(value, "askAside input");
+      return {
+        storyId: requireString(input.storyId, "storyId"),
+        question: requireString(input.question, "question")
+      };
+    },
+    storyId: (input) => input.storyId,
+    execute: async (service, input, plan, context) =>
+      await service.askAside(
+        input.storyId,
+        { question: input.question },
+        context.onDelta,
+        context.signal,
+        generationHooks(plan, {}, context.storyMutationRequest)
+      )
+  }),
+  clearAside: define<"clearAside">({
+    parse: (value) => requiredStrings<"clearAside">(value, "clearAside", "storyId"),
+    storyId: (input) => input.storyId,
+    execute: async (service, input, _plan, context) =>
+      await service.clearAside(input.storyId, context.storyMutationRequest)
   })
 };
 
@@ -1046,7 +1070,7 @@ async function loadMutationPayload(service: StoryService, storyId: string) {
 }
 
 function generationHooks<M extends
-  "autonameStory" | "continueStory" | "rewriteNode" | "createSummaryTake" | "summarizeChapter">(
+  "autonameStory" | "continueStory" | "rewriteNode" | "createSummaryTake" | "summarizeChapter" | "askAside">(
   plan: MutationPlan<M>,
   options: Record<string, string> = {},
   mutationRequest?: unknown
@@ -1064,7 +1088,8 @@ type ProviderWorkerMethod =
   | "summarizeChapter"
   | "continueStory"
   | "rewriteNode"
-  | "createSummaryTake";
+  | "createSummaryTake"
+  | "askAside";
 
 function needsCompatibilityGenerationRecovery<M extends ProviderWorkerMethod>(
   plan: MutationPlan<M>,

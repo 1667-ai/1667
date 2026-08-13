@@ -30,6 +30,9 @@ import {
 } from "./composer-ownership.js";
 import { countWords } from "../../shared/story-text.js";
 import { draftImagesFor, removeDraftImageAt } from "./draft-image.js";
+import { parseAsideComposerInput } from "./aside-parse.js";
+import { openAside, sendAsideQuestion } from "./aside-actions.js";
+import { asideEntryPointsOpen } from "../../shared/aside-release.js";
 import { humanWordsOf } from "./rail.js";
 import {
   createStoryViewModel,
@@ -521,7 +524,8 @@ export async function composeAction(
   resolved: ResolvedKey,
   state: RuntimeState,
   source: AppSource,
-  context: ActionContext
+  context: ActionContext,
+  options: { asideEntryPointsOpen?: boolean } = {}
 ): Promise<void> {
   if (resolved.action === "cancel") {
     if (state.composer.fullscreen) state.composer.fullscreen = false;
@@ -599,6 +603,47 @@ export async function composeAction(
       return;
     }
     const instruction = state.composer.text;
+    // `/aside` and `/aside <question>` open Aside from the Direct composer.
+    // `//aside` stays normal Direct input (parseAsideComposerInput).
+    if (retakePrompt === null) {
+      const asideParse = parseAsideComposerInput(instruction);
+      if (asideParse.kind !== "none") {
+        if (!asideEntryPointsOpen(options.asideEntryPointsOpen)) {
+          state.toast = "Aside is not available in this release";
+          return;
+        }
+        // Keep the Direct draft until the load succeeds. A failed Aside read
+        // must leave the writer in COMPOSE with the exact text they entered.
+        try {
+          let opened = false;
+          const admitted = await context.backend.run(
+            asideParse.kind === "open" ? "opening Aside" : "asking Aside",
+            async (task) => {
+              opened = await openAside(state, source.api, {
+                pendingAsk: asideParse.kind === "open-and-ask" ? asideParse.question : null,
+                entryPointsOpen: options.asideEntryPointsOpen,
+                task
+              });
+              if (opened && asideParse.kind === "open-and-ask" && state.aside !== null) {
+                await sendAsideQuestion(state, source.api, asideParse.question, {
+                  task,
+                  repaint: context.repaint,
+                  cache: context.cache
+                });
+              }
+            }
+          );
+          if (admitted && opened && state.mode === "ASIDE" && state.aside !== null) {
+            setComposerText(state.composer, "");
+          }
+        } catch (error) {
+          state.mode = "COMPOSE";
+          setComposerText(state.composer, instruction);
+          state.toast = error instanceof Error ? error.message : String(error);
+        }
+        return;
+      }
+    }
     // A rewrite composer targets a live text range, not a node to retake or
     // continue: it must re-resolve that range against the current payload
     // (the story may have moved while it sat open) and calls a differently

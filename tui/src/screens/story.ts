@@ -45,6 +45,14 @@ import { renderRequestViewerScreen } from "./request-viewer.js";
 import { renderTokenProbabilitiesScreen } from "./token-probabilities.js";
 import { renderGenerationRecordViewerScreen } from "./generation-record-viewer.js";
 import { renderLogScreen } from "./log.js";
+import {
+  asideComposerRows,
+  asideFooterHint,
+  asideHeaderWindow,
+  asideHistoryWindow
+} from "../aside-actions.js";
+import type { AsideSurfaceState } from "../aside-surface.js";
+import { ASIDE_INPUT_PLACEHOLDER } from "../aside-surface.js";
 import { wrapFeedback } from "./feedback-wrap.js";
 import { renderPanels, renderTextActionsPanel } from "./panels.js";
 import { renderConnectionBanner } from "./connection-banner.js";
@@ -165,6 +173,9 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
     return renderTokenProbabilitiesScreen(
       state, state.probs, estimate, options.width, height, options.deadlines
     );
+  }
+  if (state.mode === "ASIDE" && state.aside !== null) {
+    return renderAsideScreen(state, state.aside, options.width, height, options.deadlines);
   }
   const editor = state.mode === "EDITOR" ? state.editor : null;
   if (editor !== null) {
@@ -901,4 +912,65 @@ function renderStoryStatus(
 
 function actionHint(text: string, action: KeyAction, role: DisplayRole = "chrome"): FrameSegment {
   return segment(text, role, { kind: "inline-action", action });
+}
+
+function renderAsideScreen(
+  state: StoryScreenState,
+  surface: AsideSurfaceState,
+  width: number,
+  height: number,
+  deadlines?: FrameDeadlineCollector
+): StoryScreenFrame {
+  const composerHeight = asideComposerRows(height);
+  const clearing = surface.busy && surface.inflightQuestion === null;
+  const composer = renderComposerLayout({
+    composer: surface.composer,
+    fullscreen: true,
+    terminalWidth: width,
+    terminalHeight: composerHeight + 1,
+    measure: width,
+    title: "aside · prompt",
+    caret: clearing ? "none" : surface.busy ? "streaming" : "focused",
+    footerNotice: surface.busy ? null : state.toast,
+    footerHints: asideFooterHint(surface),
+    placeholder: ASIDE_INPUT_PLACEHOLDER,
+    narrow: width < 100,
+    softWrap: true
+  });
+  const header = asideHeaderWindow(surface, width, height - composer.lines.length);
+  const historyRows = Math.max(0, height - header.length - composer.lines.length);
+  const lines: FrameLine[] = [
+    ...header.map((text) => [segment(text, "prose")]),
+    ...asideHistoryWindow(surface, width, historyRows)
+      .map((text) => [segment(text, "prose")]),
+    ...composer.lines
+  ];
+  const composerStart = header.length + historyRows;
+  while (lines.length < height) lines.push([]);
+  const visibleLines = lines.slice(0, height).map((line) => fitLine(line, width));
+  const hitRows: HitRows = Array.from({ length: height }, (_, row) => {
+    if (row < composerStart || row >= composerStart + composer.lines.length) return null;
+    return { target: composerHitTarget(visibleLines[row]), left: 0, right: width };
+  });
+  const renderedLines = state.connection.down
+    ? renderConnectionBanner(visibleLines, { ...state, hitRows }, width, deadlines)
+    : visibleLines;
+  return {
+    lines: renderedLines,
+    selectable: null,
+    derived: {
+      hitRows,
+      viewScroll: null,
+      viewScrollDelta: 0,
+      lastViewportStart: 0,
+      composerScrollTop: composer.scrollTop,
+      editorScrollTop: 0,
+      keysScrollTop: 0,
+      composerSelectionProjection: buildComposerSelectionProjection(renderedLines, width),
+      storySelectionProjection: null,
+      map: null,
+      request: null,
+      record: null
+    }
+  };
 }

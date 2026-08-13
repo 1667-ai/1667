@@ -189,7 +189,11 @@ export class StoryCatalog {
       if (manifestBytes > MAX_CATALOG_PAGE_MANIFEST_BYTES) {
         throw new Error("Catalog page exceeded its manifest byte budget");
       }
-      if (slot.kind === "v6-deleted" || slot.kind === "v8-deleted") {
+      if (
+        slot.kind === "v6-deleted"
+        || slot.kind === "v8-deleted"
+        || slot.kind === "v10-deleted"
+      ) {
         await this.reapDeleted?.(entry.storyId);
         continue;
       }
@@ -360,7 +364,8 @@ function parsePageInput(value: unknown): ListStoriesPageInput {
 function bytesRead(slot: StoredStorySlot): number {
   if (slot.kind === "legacy") return slot.raw.byteLength;
   if (slot.kind === "v5" || slot.kind === "v6-live" || slot.kind === "v6-deleted"
-    || slot.kind === "v8-live" || slot.kind === "v8-deleted") {
+    || slot.kind === "v8-live" || slot.kind === "v8-deleted"
+    || slot.kind === "v10-live" || slot.kind === "v10-deleted") {
     return slot.manifestBytes.byteLength;
   }
   return 0;
@@ -382,7 +387,7 @@ function summaryFromSlot(slot: StoredStorySlot): StorySummary | null {
   // one (see the matching comment on `aggregateVersionFromSlot` in
   // server/stories.ts). `storySummaryFromLiveEnvelope` already accepts
   // either envelope.
-  if (slot.kind === "v6-live" || slot.kind === "v8-live") {
+  if (slot.kind === "v6-live" || slot.kind === "v8-live" || slot.kind === "v10-live") {
     return {
       ...storySummaryFromLiveEnvelope(slot.manifest),
       aggregateVersion: {
