@@ -43,7 +43,7 @@ export interface UpgradeUpToDatePlan {
   readonly channel: UpgradeChannel;
 }
 
-/** Neutral plan: a newer channel head is available. Check has no metadata. */
+/** Neutral plan: a channel target is available. Check has no metadata. */
 export interface UpgradeCheckTargetPlan {
   readonly status: "target-available";
   readonly current: string;
@@ -53,7 +53,7 @@ export interface UpgradeCheckTargetPlan {
 }
 
 /**
- * Neutral plan: a newer channel head is available and platform metadata was
+ * Neutral plan: a requested target is available and platform metadata was
  * verified once. Apply reuses this metadata and does not fetch again.
  */
 export interface UpgradeApplyTargetPlan {
@@ -94,16 +94,9 @@ export async function planUpgrade(
   const version = command.kind === "apply" ? command.version : null;
   const latest = await registry.channelHead(command.channel, signal);
   if (signal.aborted) throw new UpgradeFailure("interrupted", "The update check was interrupted.");
-  if (version !== null && version !== latest) {
-    throw new UpgradeFailure(
-      "unsupported_target",
-      "The requested version is no longer the selected channel head."
-    );
-  }
-  if (!isSemVerUpgradeAvailable(latest, observation.currentVersion)) {
-    if (version !== null && latest !== observation.currentVersion) {
-      throw new UpgradeFailure("unsupported_target", "Downgrades are not supported.");
-    }
+  const target = version ?? latest;
+  if (target === observation.currentVersion
+    || (version === null && !isSemVerUpgradeAvailable(latest, observation.currentVersion))) {
     return upToDatePlan(observation.currentVersion, latest, command.channel);
   }
   if (command.kind === "check") {
@@ -120,8 +113,8 @@ export async function planUpgrade(
   let platformMetadata: NpmVersionMetadata;
   try {
     const [, platform] = await Promise.all([
-      registry.launcher(latest, observation.platformPackage, exactSignal),
-      registry.platform(observation.platformPackage, latest, exactSignal)
+      registry.launcher(target, observation.platformPackage, exactSignal),
+      registry.platform(observation.platformPackage, target, exactSignal)
     ]);
     platformMetadata = platform;
   } finally {
@@ -132,7 +125,7 @@ export async function planUpgrade(
     status: "target-available",
     current: observation.currentVersion,
     latest,
-    target: latest,
+    target,
     channel: command.channel,
     platformMetadata
   });
