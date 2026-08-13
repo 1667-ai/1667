@@ -46,6 +46,43 @@ jobs:
         working-directory: tui
         run: bun install --frozen-lockfile
 
+      - name: Resolve prompt compatibility base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PULL_REQUEST_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            base="${PULL_REQUEST_BASE}"
+          elif [[ "${EVENT_NAME}" == "push" && -n "${PUSH_BEFORE}" \
+            && "${PUSH_BEFORE}" != "0000000000000000000000000000000000000000" ]]; then
+            base="${PUSH_BEFORE}"
+            if [[ ! "${base}" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Push base is not a full lowercase commit SHA." >&2
+              exit 1
+            fi
+            if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+              git fetch --no-tags origin "${base}" || {
+                echo "Push base commit is unavailable from origin." >&2
+                exit 1
+              }
+              if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+                echo "Fetched push base is not a commit." >&2
+                exit 1
+              fi
+            fi
+          else
+            git fetch --no-tags origin "${DEFAULT_BRANCH}"
+            base="$(git merge-base HEAD "origin/${DEFAULT_BRANCH}")"
+          fi
+          test -n "${base}"
+          echo "PROMPT_COMPATIBILITY_BASE=${base}" >> "${GITHUB_ENV}"
+
+      - name: Check prompt compatibility evidence
+        run: npm run prompt:check -- --base "${PROMPT_COMPATIBILITY_BASE}"
+
       - name: Build runtime
         run: npm run build
 

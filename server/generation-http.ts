@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { renderPromptPlan } from "../shared/prompt-plan.js";
 import { resolveAuthorBrief } from "../shared/author-brief.js";
-import { resolveAuthorsNoteDepth, type AuthorsNotePlacement } from "../shared/authors-note.js";
 import { rewriteStreamDigest } from "../shared/rewrite-partial-contract.js";
 import {
   GenerationResultError,
@@ -42,7 +41,8 @@ import {
 } from "./provider-request-body.js";
 import { reasoningCapture, reasoningSafeToStore } from "./reasoning-capture.js";
 import { storySamplingBias } from "./sampling-phrase-bias.js";
-import { AnchoredOutputFilter, continuationPlan, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, supportsAssistantPrefill } from "./generation-prompts.js";
+import { AnchoredOutputFilter, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, supportsAssistantPrefill } from "./generation-prompts.js";
+import { assembleContinuation } from "./continuation-assembly.js";
 import { admitFactsIntoPrompt, assertImageContextAdmitted, type GenerationAdmissionRegistry } from "./generation-admission.js";
 import type { FactBudgetDrop } from "../shared/fact-budget.js";
 import type { SettingsStore } from "./settings.js";
@@ -314,10 +314,6 @@ export async function continueStory(
     nodes: story.nodes,
     instruction
   });
-  const authorsNote = story.authorsNote ?? null;
-  const authorsNotePlacement: AuthorsNotePlacement | null = authorsNote === null
-    ? null
-    : { text: authorsNote, depth: resolveAuthorsNoteDepth(story.authorsNoteDepth) };
   // One read, not two: `settings` and `imageInputCapability` both come out of
   // `settingsStore.loadGeneration`'s single snapshot
   // (`SettingsV2Store.loadRuntime`, server/settings-v2-store.ts). Reading
@@ -334,7 +330,6 @@ export async function continueStory(
   // change either way.
   const { settings, promptCache, imageInputCapability } = await settingsStore.loadGeneration("prose");
   if (signal.aborted) return null;
-  const authorBrief = resolveAuthorBrief(story.authorBrief, settings.systemPrompt);
   const model = settings.provider === "dry-run" ? "dry-run" : settings.model;
   // Record it now: a Stop that saves the partial must credit this model, even if
   // the user switches models while the stream is still running.
@@ -359,23 +354,19 @@ export async function continueStory(
   );
   // Compatible endpoints get SillyTavern-style assistant prefill. Providers that
   // reject prefill must first echo a short exact boundary which we strip below.
+  const continuationAssembly = assembleContinuation({
+    story,
+    settings,
+    contextParts,
+    instruction,
+    appendLast: appendTo !== null,
+    images: resolvedImages.attachments
+  });
   const { plan: continuation, admission } = admitFactsIntoPrompt(
     settings,
     budgetedFacts.kept,
-    authorsNote,
-    (factsMessage) => continuationPlan(
-      authorBrief,
-      factsMessage,
-      authorsNotePlacement,
-      contextParts,
-      instruction,
-      appendTo !== null,
-      supportsAssistantPrefill(settings),
-      null,
-      story.chapterBreaks,
-      story.nodes,
-      resolvedImages.attachments
-    ),
+    continuationAssembly.authorsNote,
+    continuationAssembly.plan,
     fixedImageTokens
   );
   assertImageContextAdmitted(continuation.prompt, imageCapability);
@@ -390,7 +381,7 @@ export async function continueStory(
     story: { title: story.title, nodes: story.nodes, chapterBreaks: story.chapterBreaks },
     contextPartIds: contextParts.map((part) => part.id),
     facts: admission.factsMessage,
-    authorsNote,
+    authorsNote: continuationAssembly.authorsNote,
     authorsNoteDepth: story.authorsNoteDepth ?? null,
     authorBrief: story.authorBrief ?? null,
     instruction,

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "runtime": {
+    "runtime": "llama.cpp",
+    "modelId": "gemma-4-31b",
+    "modelIdentity": "Gemma 4 31B",
+    "quantization": "Q4_K_M",
+    "chatTemplate": "gemma",
+    "minimumContextWindow": 32768
+  },
+  "profile": {
+    "temperature": 0.7,
+    "maxOutputTokens": 400,
+    "effort": "default",
+    "cachePolicy": "off",
+    "tokenProbabilities": null,
+    "sampling": {
+      "topP": 0.92,
+      "topK": 40,
+      "minP": 0.05,
+      "frequencyPenalty": null,
+      "presencePenalty": null,
+      "repeatPenalty": 1.08,
+      "seed": null,
+      "dryMultiplier": null,
+      "dryBase": null,
+      "dryRange": null,
+      "xtcThreshold": null,
+      "xtcProbability": null,
+      "dynatempRange": null,
+      "mirostat": null,
+      "mirostatTau": null,
+      "mirostatEta": null,
+      "stop": [],
+      "logitBias": {},
+      "bannedStrings": [],
+      "phraseBias": [],
+      "dryBreakers": []
+    }
+  }
+}
