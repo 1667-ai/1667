@@ -71,7 +71,20 @@ async function providerFetchInternal(
     throw new ProviderError("Provider URLs cannot contain credentials or fragments.");
   }
   if (url.protocol === "https:") {
-    return await fetch(new Request(url, { ...init, redirect: "manual" }));
+    const providerRequest = new Request(url, { ...init, redirect: "manual" });
+    try {
+      // Pass the source signal explicitly too. Request.signal is a dependent
+      // clone; Node can lose its abort propagation after GC-heavy work.
+      return await fetch(
+        providerRequest,
+        init.signal === null || init.signal === undefined
+          ? undefined
+          : { signal: init.signal }
+      );
+    } finally {
+      // Keep the Request follower reachable until fetch settles as well.
+      void providerRequest.signal.aborted;
+    }
   }
   const hostClass = url.protocol === "http:" ? classifyHttpHost(url.href) : "other";
   if (

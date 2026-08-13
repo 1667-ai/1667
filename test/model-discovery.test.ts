@@ -241,11 +241,12 @@ test("discovery bounds extracted models after filtering invalid catalog entries"
 
 test("discovery translates a body-phase total deadline", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
-        input.signal.addEventListener("abort", () => controller.error(input.signal.reason), {
+        signal?.addEventListener("abort", () => controller.error(signal.reason), {
           once: true
         });
       }

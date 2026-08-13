@@ -60,6 +60,25 @@ test("owned loopback HTTP permits an explicitly composed preset query", {
   });
 });
 
+test("owned loopback HTTP keeps source cancellation through response-body reads", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.write('{"data":');
+  });
+  const origin = await listen(t, server);
+  const controller = new AbortController();
+
+  const response = await providerFetch(`${origin}/v1/models`, {
+    signal: controller.signal
+  });
+  const body = response.text();
+  controller.abort(new Error("caller canceled the body read"));
+
+  await assert.rejects(body, /caller canceled the body read|aborted/i);
+});
+
 test("owned loopback HTTP closes a different-account socket before HTTP bytes", {
   skip: typeof process.getuid !== "function"
 }, async (t) => {
