@@ -11,7 +11,7 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
-    version: "0.9.3-rc.1",
+    version: "0.9.3",
     date: "2026-08-13",
     body: "- **`1667 upgrade --version` can select an older release.** 1667 verifies the\n  exact published release before it replaces the current executable. Before it\n  downloads a downgrade, it warns that the downgrade can make the Vault\n  unreadable or damage Vault data. Back up the Vault before you continue. An\n  exact version does not change the saved update channel."
   },
