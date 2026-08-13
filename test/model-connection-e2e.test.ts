@@ -1,13 +1,20 @@
 import assert from "node:assert/strict";
-import { createServer, type Server } from "node:http";
+import { createServer, type IncomingMessage, type Server } from "node:http";
 import test from "node:test";
 import { applyBasicSettingsDraft } from "../shared/settings-basic-draft.js";
+import {
+  continuationPlan,
+  supportsAssistantPrefill
+} from "../shared/continuation-plan.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
 import { discoverProviderModels } from "../server/model-discovery.js";
 import { ownedLoopbackHttpSupported } from "../server/provider-fetch.js";
+import { attachProviderRuntime } from "../server/provider-runtime.js";
 import { streamCompletion } from "../server/providers.js";
 import { SettingsStore } from "../server/settings.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
+import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
+import type { StoryNode } from "../shared/types.js";
 import {
   FIXED_TIME,
   MUTATION_A,
@@ -100,6 +107,97 @@ test("saved KoboldCpp localhost HTTP discovers, streams, and survives restart", 
   assert.equal(generations, 2);
 });
 
+test("llama.cpp Chat Completions continues the final assistant message on the wire", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const requests: Record<string, unknown>[] = [];
+  const server = createServer(async (request, response) => {
+    requests.push(JSON.parse(await requestText(request)) as Record<string, unknown>);
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.end([
+      'data: {"choices":[{"delta":{"content":" into the hall"},"finish_reason":null}]}',
+      "",
+      "data: [DONE]",
+      "",
+      ""
+    ].join("\n"));
+  });
+  const origin = await listen(server);
+  t.after(() => server.close());
+
+  const settings = attachProviderRuntime({
+    provider: "openai-compatible" as const,
+    baseUrl: `${origin}/v1`,
+    model: "gemma-31b",
+    apiKeyEnv: null,
+    temperature: 0.7,
+    maxTokens: 128,
+    systemPrompt: "Write coherent prose.",
+    contextWindow: 8_192
+  }, {
+    preset: "llama-cpp",
+    protocol: "openai-chat-completions",
+    auth: { type: "none" },
+    headers: [],
+    timeouts: {
+      responseHeaderMs: 5_000,
+      firstTokenMs: 5_000,
+      idleMs: 5_000,
+      totalMs: 20_000
+    },
+    allowInsecureHttp: true,
+    effort: "default",
+    tokenProbabilities: null,
+    sampling: EMPTY_SAMPLING_V2,
+    capabilities: {
+      temperature: "supported",
+      assistantPrefill: "unknown",
+      reasoningEffort: "unknown",
+      promptCaching: "unknown"
+    }
+  });
+  const parts: StoryNode[] = [{
+    id: "part-1",
+    parentId: null,
+    instruction: "The door opened.",
+    text: "Cold air spilled",
+    model: "gemma-31b",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    activeChildId: null
+  }];
+  const prompt = continuationPlan(
+    "Write coherent prose.",
+    "The lantern is blue.",
+    null,
+    parts,
+    "Continue the story.",
+    true,
+    supportsAssistantPrefill(settings),
+    "ct-gemma",
+    [],
+    parts
+  ).prompt;
+
+  assert.equal(
+    await collect(streamCompletion(settings, prompt, new AbortController().signal)),
+    " into the hall"
+  );
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]!.add_generation_prompt, false);
+  assert.equal(requests[0]!.continue_final_message, true);
+  assert.deepEqual(
+    (requests[0]!.messages as Array<{ role: string; content: string }>).at(-1),
+    { role: "assistant", content: "Cold air spilled" }
+  );
+  const messages = requests[0]!.messages as Array<{ role: string; content: string }>;
+  const facts = messages.find((message) => message.role === "system" && message.content.includes("lantern"));
+  assert.equal(facts?.content, "The lantern is blue.");
+  assert.equal(
+    messages.some((message) => /exact final character/.test(message.content)),
+    true
+  );
+});
+
 async function listen(server: Server): Promise<string> {
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -116,4 +214,12 @@ async function collect(stream: AsyncIterable<string>): Promise<string> {
   let result = "";
   for await (const chunk of stream) result += chunk;
   return result;
+}
+
+async function requestText(request: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }

@@ -440,9 +440,9 @@ describe("run C overlay frames", () => {
     const frame = await renderOnce(demoAppSource(), 150, 30);
     expect(frame).toContain("│");
     expect(frame).toContain("facts · 5 ───────────────────────");
-    expect(frame).toContain("next request  ~933 / 32.8k");
+    expect(frame).toContain("next request  ~1k / 32.8k");
     expect(frame).not.toContain("+≤");
-    expect(frame).toContain(`▮${"▮".repeat(19)}   31.8k free`);
+    expect(frame).toContain(`▮${"▮".repeat(19)}   31.7k free`);
     // A gauge is not a quota readout: no percentage anywhere on the rail.
     expect(/\d+%/.test(frame)).toBeFalse();
     expect(frame).not.toContain("1,667");
@@ -459,7 +459,7 @@ describe("run C overlay frames", () => {
       effectiveProse: source.settings
     };
     const frame = await renderOnce(source, 150, 30);
-    expect(frame).toContain("next request  ~933 tokens");
+    expect(frame).toContain("next request  ~1,025 tokens");
     expect(frame).not.toContain("+≤");
     expect(frame).toContain("set context window · settings (,)");
     expect(frame).not.toContain("free");
@@ -524,7 +524,7 @@ describe("run C overlay frames", () => {
     expect(frame).toContain("┏━ chapters · 3 on this storyline");
     expect(frame).toContain("72 ✓ summary");
     expect(frame).toContain("208 raw — no summary");
-    expect(frame).toContain("total 933 / 32.8k");
+    expect(frame).toContain("total 1k / 32.8k");
     expect(frame).toContain("s summarize · e rename · n break · d remove");
   });
 

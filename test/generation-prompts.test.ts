@@ -21,12 +21,10 @@ test("empty Continue ends on the unfinished assistant passage", () => {
 
   assert.equal(messages.at(-1)?.role, "assistant");
   assert.equal(messages.at(-1)?.content, "The latch was unlo");
-  // A prefilled continuation carries no operation-contract text at all
-  // (issue #138's `appendOperationContract`): nothing can follow the
-  // unfinished assistant passage without breaking the prefill, so the
-  // "continue from the exact boundary" instruction is not sent here — the
-  // prefill mechanism itself already enforces that.
-  assert.equal(messages.some((message) => /exact final character/.test(message.content)), false);
+  // The stable story contract carries the exact continuation rule because
+  // nothing can follow the unfinished assistant passage without breaking the
+  // prefill. The transport contract then makes that rule effective server-side.
+  assert.equal(messages.some((message) => /exact final character/.test(message.content)), true);
   assert.equal(messages.some((message) => message.role === "user" && /final character/i.test(message.content)), false);
 });
 
@@ -68,7 +66,7 @@ test("structural empty endpoints never become empty assistant messages", () => {
   assert.equal(appendedMessages.some(({ role }) => role === "assistant"), false);
   assert.equal(appendedMessages.at(-1)?.role, "user");
   assert.equal(appendedMessages.at(-1)?.content.endsWith("\n\nContinue the story."), true);
-  assert.equal(appendedMessages.some(({ content }) => /unfinished passage/.test(content)), false);
+  assert.equal(appendedMessages.some(({ content }) => /exact final character/.test(content)), true);
 });
 
 test("highlight regeneration bridges exact left and right character boundaries", () => {

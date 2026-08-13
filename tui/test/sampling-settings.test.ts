@@ -1254,7 +1254,7 @@ function selectedNestedHit(
 }
 
 /** Rows inside the panel frame only. Matching the whole frame also caught the
- *  status bar, whose "next ~933/32.8k" estimate contains the same digits as a
+ *  status bar, whose next-request estimate contains the same digits as a
  *  token ID, so an unrelated change to prompt size could fail this. */
 function renderedLogitRows(frame: string, tokens: readonly string[]): string[] {
   return frame.split("\n")

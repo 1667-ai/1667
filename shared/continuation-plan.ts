@@ -30,8 +30,10 @@ const CONTINUE_CONTRACT = [
  *  one — the assistant prefill. See issue #176. */
 const STORY_CONTRACT = [
   "You are writing prose for an ongoing story.",
-  "Return only story text: no preamble, summary, explanation, commentary, or headings.",
-  "Never restart, retell, or quote passages that are already written."
+  "Use the final message to choose the operation.",
+  "If the final message is an assistant message, it is an unfinished passage: continue directly from its exact final character, even when that character is in the middle of a word, and return only the new characters after that boundary.",
+  "If the final message is a user message, follow its direction and write the next passage.",
+  "In all cases, return only story text: no preamble, summary, explanation, commentary, headings, restart, retelling, or quotation of existing passages."
 ].join(" ");
 
 export type ContinuationPromptEntry =
@@ -226,12 +228,9 @@ export function continuationPlan(
     // A prefilled continuation ends with the story's own unfinished assistant
     // message, unchanged, so the provider can extend that exact token stream
     // — nothing can follow it without turning the completion into a fresh
-    // turn instead of a continuation. The contract text has nowhere left to
-    // go without either breaking that or reopening the same prefix
-    // instability this function exists to close, so it is not sent on this
-    // path. The instruction is not lost: the prefill mechanism itself
-    // already enforces exact, unprefaced continuation, which is what the
-    // contract text would otherwise have to say. See issue #138.
+    // turn instead of a continuation. The mode-dependent contract cannot go
+    // after it. The stable story contract already carries the exact boundary
+    // rule without changing the cacheable prefix. See issues #138 and #176.
     assertAuthorsNoteFollowedByUser(entries);
     return continuationResult(entries, contextPartIds, "", false);
   }
