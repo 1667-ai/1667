@@ -18,6 +18,9 @@ export {
 export interface SillyTavernImport {
   title: string;
   parts: ImportedPart[];
+  /** Group-chat assistant messages whose sender name was added to the prose
+   *  because the source message did not name its own speaker. */
+  addedGroupChatSpeakerPrefixes: number;
   /** Unanswered user turns at the end of the chat. Deliberately not imported:
    *  they carry no assistant-authored story text, and the source file still has
    *  them. The CLI reports the count; the UI treats the import as complete. */
@@ -32,9 +35,21 @@ export interface SillyTavernImport {
 /** The Fidelity Report for a SillyTavern import, in the same shape the
  *  NovelAI and Scenario importers already report. */
 export function sillyTavernFidelity(
-  imported: Pick<SillyTavernImport, "droppedTrailingUserMessages" | "omittedAlternateSwipes">
+  imported: Pick<
+    SillyTavernImport,
+    | "addedGroupChatSpeakerPrefixes"
+    | "droppedTrailingUserMessages"
+    | "omittedAlternateSwipes"
+  >
 ): string[] {
   const fidelity: string[] = [];
+  const addedGroupChatSpeakerPrefixes = imported.addedGroupChatSpeakerPrefixes;
+  if (addedGroupChatSpeakerPrefixes > 0) {
+    fidelity.push(
+      `${addedGroupChatSpeakerPrefixes} group-chat speaker `
+        + `${countNoun(addedGroupChatSpeakerPrefixes, "label")} added to prose`
+    );
+  }
   if (imported.omittedAlternateSwipes > 0) {
     fidelity.push(
       `${imported.omittedAlternateSwipes} unselected ${countNoun(imported.omittedAlternateSwipes, "swipe")} omitted`
@@ -68,6 +83,7 @@ const PLACEHOLDER_NAMES = new Set(["", "unused"]);
 interface RawMessage {
   mes: string;
   isUser: boolean;
+  isNarrator: boolean;
   name: string;
   sendDate: unknown;
   /** Every generated candidate for this message, `mes` among them — a
@@ -120,6 +136,7 @@ export function partsFromSillyTavernJsonl(jsonl: string): SillyTavernImport {
     raw.push({
       mes: message.mes,
       isUser: message.is_user === true,
+      isNarrator: isNarratorMessage(message.extra),
       name: typeof message.name === "string" ? message.name : "",
       sendDate: message.send_date,
       swipes: message.swipes,
@@ -130,42 +147,69 @@ export function partsFromSillyTavernJsonl(jsonl: string): SillyTavernImport {
 
   const userName = resolveName(hasMeta ? meta.user_name : undefined, raw, true);
   const characterName = resolveName(hasMeta ? meta.character_name : undefined, raw, false);
+  // A normal chat has one assistant speaker. Keep its text byte-identical.
+  // More than one real assistant name is the shape SillyTavern uses for a
+  // group chat, where `character_name` may be absent or a stale sentinel.
+  // Discarded macro-expanded blanks cannot turn a surviving one-speaker chat
+  // into a group and cause attribution labels to be added to its prose.
+  const isGroupChat = new Set(
+    raw
+      .filter((message) => !message.isUser && !message.isNarrator && expansionHasContent(
+        message.mes,
+        (kind) => kind.toLowerCase() === "user"
+          ? userName
+          : messageSpeakerName(message) || characterName
+      ))
+      .map(messageSpeakerName)
+      .filter((name) => name.length > 0)
+      .map(speakerIdentityKey)
+  ).size > 1;
 
   let remaining = MAX_TOTAL_CHARS;
-  const projectExpansion = (text: string): number => {
+  const macroName = (kind: string, message: RawMessage): string => {
+    if (kind.toLowerCase() === "user") return userName;
+    if (!isGroupChat || message.isUser || message.isNarrator) return characterName;
+    return messageSpeakerName(message) || characterName;
+  };
+  const projectExpansion = (text: string, message: RawMessage): number => {
     // Project the exact expanded size BEFORE substituting: a 200-char name times
     // 100k macros is a half-gigabyte string that would be allocated, then rejected.
     let projected = text.length;
     for (const match of text.matchAll(MACROS)) {
-      const name = match[1]!.toLowerCase() === "user" ? userName : characterName;
+      const name = macroName(match[1]!, message);
       projected += name.length - MACRO_LENGTH;
     }
-    return Math.max(text.length, projected);
+    return projected;
   };
-  const substitute = (text: string): string =>
-    text.replace(MACROS, (_match, kind: string) => (kind.toLowerCase() === "user" ? userName : characterName));
-  const expand = (text: string): string => {
-    remaining -= projectExpansion(text);
-    if (remaining < 0) throw new HttpError(400, "Chat expands to more text than can be imported");
-    return substitute(text);
-  };
-  // Unlike `expand`, an alternate swipe that does not fit is dropped, not fatal:
-  // it is optional retry history, and the chat it came from still has room for
-  // the active storyline. `null` restores the budget so a smaller later swipe
-  // can still claim it.
-  const tryExpand = (text: string, repeatedChars = 0): string | null => {
-    const projected = projectExpansion(text) + repeatedChars;
-    remaining -= projected;
-    if (remaining < 0) {
-      remaining += projected;
-      return null;
+  const substitute = (text: string, message: RawMessage): string =>
+    text.replace(MACROS, (_match, kind: string) => macroName(kind, message));
+  const expand = (
+    text: string,
+    message: RawMessage,
+    repeatedChars = 0,
+    omitOnOverflow = false
+  ): { text: string; addedSpeakerPrefix: boolean } | null => {
+    // A macro can turn nonblank source into blank prose. Detect that without
+    // allocating the expansion, and before enforcing a budget for text that
+    // will never be stored.
+    if (!expansionHasContent(text, (kind) => macroName(kind, message))) return null;
+    const projected = projectExpansion(text, message) + repeatedChars;
+    if (projected > remaining) {
+      if (omitOnOverflow) return null;
+      throw new HttpError(400, "Chat expands to more text than can be imported");
     }
-    const expanded = substitute(text);
-    if (expanded.trim().length === 0) {
-      remaining += projected;
-      return null;
+    const expanded = substitute(text, message);
+    // Decide attribution after macro substitution and blank rejection. This
+    // prevents label-only parts and avoids prefixing prose that {{char}}
+    // already expanded to identify.
+    const prefix = groupChatSpeakerPrefix(expanded, message, isGroupChat);
+    const charged = projected + prefix.length;
+    if (charged > remaining) {
+      if (omitOnOverflow) return null;
+      throw new HttpError(400, "Chat expands to more text than can be imported");
     }
-    return expanded;
+    remaining -= charged;
+    return { text: prefix + expanded, addedSpeakerPrefix: prefix.length > 0 };
   };
 
   // Two passes, deliberately: the whole active storyline claims its budget
@@ -174,28 +218,39 @@ export function partsFromSillyTavernJsonl(jsonl: string): SillyTavernImport {
   // active part is safely in does the second pass spend what is left on
   // alternates, which are optional and may be dropped for want of room.
   const parts: ImportedPart[] = [];
-  const pendingUser: string[] = [];
+  const pendingUser: RawMessage[] = [];
   const activeEntries: { parentIndex: number | null; instruction: string; message: RawMessage }[] = [];
+  let addedGroupChatSpeakerPrefixes = 0;
   // The active storyline's own chain, tracked explicitly: once a message's
   // alternate swipes are appended after its active take, the *previous array
   // element* is an alternate, not the take the next active part continues.
   let previousActiveIndex: number | null = null;
   for (const message of raw) {
-    const text = expand(message.mes);
+    if (message.isUser) {
+      if (expansionHasContent(message.mes, (kind) => macroName(kind, message))) {
+        pendingUser.push(message);
+      }
+      continue;
+    }
+    const instructionChars = pendingUser.reduce(
+      (total, pending) => total + projectExpansion(pending.mes, pending),
+      Math.max(0, pendingUser.length - 1) * 2
+    );
+    const expanded = expand(message.mes, message, instructionChars);
     // Expansion can empty a message: a greeting of just "{{user}}" with no
     // resolvable name becomes "". An empty part would later be sent to the
     // provider as empty assistant content, which providers reject.
-    if (text.trim().length === 0) continue;
-    if (message.isUser) {
-      pendingUser.push(text);
-      continue;
-    }
-    const separators = Math.max(0, pendingUser.length - 1) * 2;
-    remaining -= separators;
-    if (remaining < 0) throw new HttpError(400, "Chat expands to more text than can be imported");
-    const instruction = pendingUser.join("\n\n");
+    if (expanded === null) continue;
+    const text = expanded.text;
+    // Pending user turns cost nothing until an assistant part retains them as
+    // its instruction. The exact expansion plus separators was reserved by
+    // `expand` above, before any potentially amplified string was allocated.
+    const instruction = pendingUser
+      .map((pending) => substitute(pending.mes, pending))
+      .join("\n\n");
     const activeIndex = parts.length;
     parts.push({ instruction, text, createdAt: parseSendDate(message.sendDate), parentIndex: previousActiveIndex });
+    if (expanded.addedSpeakerPrefix) addedGroupChatSpeakerPrefixes += 1;
     pendingUser.length = 0;
     if (parts.length > MAX_PARTS) throw new HttpError(400, `Chat has more than ${MAX_PARTS} messages — too large to import`);
 
@@ -207,15 +262,18 @@ export function partsFromSillyTavernJsonl(jsonl: string): SillyTavernImport {
 
   let omittedAlternateSwipes = 0;
   for (const entry of activeEntries) {
-    omittedAlternateSwipes += addAlternateSwipes(parts, entry.parentIndex, entry.instruction, entry.message, {
-      tryExpand,
+    const alternates = addAlternateSwipes(parts, entry.parentIndex, entry.instruction, entry.message, {
+      tryExpand: (text, message, repeatedChars) => expand(text, message, repeatedChars, true),
       hasRoom: () => parts.length < MAX_PARTS
     });
+    omittedAlternateSwipes += alternates.omitted;
+    addedGroupChatSpeakerPrefixes += alternates.addedSpeakerPrefixes;
   }
 
   return {
     title: characterName.length > 0 ? `${characterName} (imported)` : "Imported chat",
     parts,
+    addedGroupChatSpeakerPrefixes,
     droppedTrailingUserMessages: pendingUser.length,
     omittedAlternateSwipes
   };
@@ -244,12 +302,22 @@ function addAlternateSwipes(
   parentIndex: number | null,
   instruction: string,
   message: RawMessage,
-  budget: { tryExpand: (text: string, repeatedChars?: number) => string | null; hasRoom: () => boolean }
-): number {
-  if (!Array.isArray(message.swipes) || message.swipes.length === 0) return 0;
+  budget: {
+    tryExpand: (
+      text: string,
+      message: RawMessage,
+      repeatedChars?: number
+    ) => { text: string; addedSpeakerPrefix: boolean } | null;
+    hasRoom: () => boolean;
+  }
+): { omitted: number; addedSpeakerPrefixes: number } {
+  if (!Array.isArray(message.swipes) || message.swipes.length === 0) {
+    return { omitted: 0, addedSpeakerPrefixes: 0 };
+  }
   const activeSwipeIndex = resolveActiveSwipeIndex(message.swipes, message.swipeId, message.mes);
   const swipeInfo = Array.isArray(message.swipeInfo) ? message.swipeInfo : [];
   let omitted = 0;
+  let addedSpeakerPrefixes = 0;
   for (let index = 0; index < message.swipes.length; index += 1) {
     if (index === activeSwipeIndex) continue;
     const rawText: unknown = message.swipes[index];
@@ -263,8 +331,8 @@ function addAlternateSwipes(
     }
     // Every alternate stores its own copy of the active take's instruction.
     // Charge that duplicate as well as the alternate prose.
-    const text = budget.tryExpand(rawText, instruction.length);
-    if (text === null) {
+    const expanded = budget.tryExpand(rawText, message, instruction.length);
+    if (expanded === null) {
       omitted += 1;
       continue;
     }
@@ -274,13 +342,14 @@ function addAlternateSwipes(
       : undefined;
     parts.push({
       instruction,
-      text,
+      text: expanded.text,
       createdAt: parseSendDate(sendDate),
       parentIndex,
       active: false
     });
+    if (expanded.addedSpeakerPrefix) addedSpeakerPrefixes += 1;
   }
-  return omitted;
+  return { omitted, addedSpeakerPrefixes };
 }
 
 /** Header names are unreliable — SillyTavern writes "unused" in some exports — so
@@ -290,9 +359,73 @@ function resolveName(headerValue: unknown, raw: readonly RawMessage[], wantUser:
   if (header.length > 0 && !PLACEHOLDER_NAMES.has(header.toLowerCase())) {
     return sliceWellFormedUtf16Prefix(header, MAX_NAME);
   }
-  const speaker = raw.find((message) => message.isUser === wantUser && message.name.trim().length > 0);
+  const speaker = raw.find((message) =>
+    message.isUser === wantUser
+    && (wantUser || !message.isNarrator)
+    && message.name.trim().length > 0
+  );
   const name = speaker?.name.trim() ?? "";
   return PLACEHOLDER_NAMES.has(name.toLowerCase()) ? "" : sliceWellFormedUtf16Prefix(name, MAX_NAME);
+}
+
+/** A group-chat message has no durable speaker field in the story model. Add
+ *  only a missing name; prose that already names its speaker remains intact. */
+function groupChatSpeakerPrefix(text: string, message: RawMessage, isGroupChat: boolean): string {
+  if (!isGroupChat || message.isUser || message.isNarrator) return "";
+  const name = messageSpeakerName(message);
+  if (name.length === 0 || containsSpeakerName(text, name)) return "";
+  return `${name}: `;
+}
+
+function containsSpeakerName(text: string, name: string): boolean {
+  const lowerText = speakerIdentityKey(text);
+  const lowerName = speakerIdentityKey(name);
+  // Alphabetic names need token boundaries: "Анна" inside "Жанна" and "Ann"
+  // inside "Planning" are not attribution. CJK scripts retain substring
+  // matching because their prose does not normally delimit names with spaces.
+  const usesCjkWordBoundaries = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u
+    .test(lowerName);
+  if (!usesCjkWordBoundaries && /[\p{L}\p{N}]/u.test(lowerName)) {
+    const escaped = lowerName.replace(/[\\^$.*+?()[\]{}|]/gu, "\\$&");
+    return new RegExp(
+      `(?:^|[^\\p{L}\\p{N}])${escaped}(?:$|[^\\p{L}\\p{N}])`,
+      "u"
+    ).test(lowerText);
+  }
+  return lowerText.includes(lowerName);
+}
+
+function messageSpeakerName(message: Pick<RawMessage, "name">): string {
+  const name = message.name.trim();
+  if (name.length === 0 || PLACEHOLDER_NAMES.has(name.toLowerCase())) return "";
+  return sliceWellFormedUtf16Prefix(name, MAX_NAME);
+}
+
+function speakerIdentityKey(name: string): string {
+  // Upper-then-lower performs the multi-code-point folds plain lowercasing
+  // misses (for example ß/SS and Greek final sigma), without locale-specific
+  // rules changing identity between hosts.
+  return name.normalize("NFC").toUpperCase().toLowerCase().normalize("NFC");
+}
+
+function isNarratorMessage(extra: unknown): boolean {
+  return extra !== null
+    && typeof extra === "object"
+    && !Array.isArray(extra)
+    && (extra as Record<string, unknown>).type === "narrator";
+}
+
+/** Whether macro substitution can produce retained prose, without allocating
+ *  the expanded string. Names are already trimmed at their resolution boundary. */
+function expansionHasContent(text: string, macroName: (kind: string) => string): boolean {
+  let cursor = 0;
+  for (const match of text.matchAll(MACROS)) {
+    const index = match.index;
+    if (text.slice(cursor, index).trim().length > 0) return true;
+    if (macroName(match[1]!).length > 0) return true;
+    cursor = index + match[0].length;
+  }
+  return text.slice(cursor).trim().length > 0;
 }
 
 /** Walk lines without materializing them: a 20MB body of tiny lines would

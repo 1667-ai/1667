@@ -101,6 +101,10 @@ A `.scenario` file carries a prompt in place of prose. The prompt becomes the
 first story parts. The Memory, the Author's Note, and the Lorebook import the
 same way.
 
+Import reads Scenario versions 0, 1, and 3. It reads NovelAI Lorebook
+versions 1, 3, 4, and 6. An unknown version is refused so that the import does
+not guess at a changed file shape.
+
 You can give more than one file. If the command cannot read one file, it
 continues with the other files. It prints each failure and exits with an error
 status.
@@ -122,6 +126,9 @@ world.lorebook: imported 12 facts into "Alderaan"
 
 The command reads a `.lorebook` file as JSON or inside a PNG. It reads the
 file content to find the format. It does not use the file name.
+
+The PNG reader accepts uncompressed `tEXt` metadata with the `naidata` key.
+If a PNG has no archive metadata, the import reports `no lorebook data in this PNG · export the lorebook again from NovelAI`. It does not inspect image pixels or another hidden encoding.
 
 The command palette command `import archive` does the same for the open story.
 It also reads `.story` and `.scenario` files.

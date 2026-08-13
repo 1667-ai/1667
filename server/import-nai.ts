@@ -26,7 +26,7 @@ import {
 } from "../shared/authors-note.js";
 import {
   factsFromLorebook,
-  SUPPORTED_LOREBOOK_VERSION
+  isSupportedNovelAiLorebookVersion
 } from "../shared/novelai-lorebook.js";
 import { factTextWithinLimit, truncateFactText } from "../shared/fact-limits.js";
 import {
@@ -157,7 +157,7 @@ export function extractFacts(
     // The prose is what the writer came for. A Lorebook the reader does not
     // know is worth a line in the report, not the loss of the manuscript, so
     // the embedded Lorebook degrades where a `.lorebook` file refuses.
-    if (lorebookRaw.lorebookVersion !== SUPPORTED_LOREBOOK_VERSION) {
+    if (!isSupportedNovelAiLorebookVersion(lorebookRaw.lorebookVersion)) {
       fidelity.push(
         `lorebook version ${String(lorebookRaw.lorebookVersion ?? "missing")} not read`
       );

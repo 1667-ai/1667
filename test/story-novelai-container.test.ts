@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { ServiceError } from "../server/errors.js";
 import { partsFromNovelAiScenario } from "../server/import-scenario.js";
+import { partsFromNovelAiStory } from "../server/import-nai.js";
 import { StoryService } from "../server/story-service.js";
 import { MAX_AUTHORS_NOTE_CHARS } from "../shared/authors-note.js";
 import { fidelityReport } from "../shared/fidelity.js";
@@ -14,6 +15,39 @@ import {
   novelAiScenario,
   novelAiStoryContainer
 } from "./novelai-container-fixture.js";
+import {
+  legacyNovelAiLorebook,
+  legacyNovelAiScenario
+} from "./novelai-legacy-fixture.js";
+
+test("Real-shaped NovelAI v0 and v1 Scenarios import prompt, context, and Lorebook", () => {
+  for (const version of [0, 1] as const) {
+    const result = partsFromNovelAiScenario(JSON.stringify(legacyNovelAiScenario(version)));
+    assert.equal(result.story.title, `Legacy Scenario v${version}`);
+    assert.deepEqual(result.story.parts.map(({ text }) => text), [
+      "Opening prompt.",
+      "Continuation prompt."
+    ]);
+    assert.equal(result.facts.length, 2);
+    assert.equal(result.facts[0]?.tag, "memory");
+    assert.equal(result.facts[1]?.tag, "Legacy Entry");
+    assert.equal(result.authorsNote, "Legacy author's note.");
+  }
+});
+
+test("Embedded NovelAI v1, v3, and v4 Lorebooks share the same compatibility reader", () => {
+  for (const version of [1, 3, 4] as const) {
+    const result = partsFromNovelAiStory(JSON.stringify({
+      storyContainerVersion: 1,
+      content: {
+        story: { fragments: [{ data: "Container prose." }] },
+        lorebook: legacyNovelAiLorebook(version)
+      }
+    }));
+    assert.equal(result.facts.length, 1, `v${version}`);
+    assert.equal(result.facts[0]?.tag, "Legacy Entry", `v${version}`);
+  }
+});
 
 test("A long Memory is cut on a paragraph boundary and reported", async (t) => {
   const service = await temporaryService(t);

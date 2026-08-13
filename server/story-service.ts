@@ -814,6 +814,7 @@ export class StoryService extends StoryServiceRuntime {
     mutationRequest?: unknown
   ): Promise<{
     payload: StoryPayload;
+    addedGroupChatSpeakerPrefixes: number;
     droppedTrailingUserMessages: number;
     omittedAlternateSwipes: number;
   }> {
@@ -827,6 +828,7 @@ export class StoryService extends StoryServiceRuntime {
         ids,
         mutationRequest
       ),
+      addedGroupChatSpeakerPrefixes: imported.addedGroupChatSpeakerPrefixes,
       droppedTrailingUserMessages: imported.droppedTrailingUserMessages,
       omittedAlternateSwipes: imported.omittedAlternateSwipes
     };

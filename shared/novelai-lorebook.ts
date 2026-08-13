@@ -9,10 +9,25 @@ import {
   type LorebookRead
 } from "./lorebook-entry.js";
 
+/** NovelAI versions whose serialized entry shape is known to this importer.
+ *
+ * Versions 1, 3, and 4 use the same core `entries[]` fields as v6. Keep the
+ * set explicit: accepting a future version would invent a compatibility
+ * promise without evidence from a real export.
+ */
+export const SUPPORTED_LOREBOOK_VERSIONS = [1, 3, 4, 6] as const;
+/** The current version written by the NovelAI exporter. */
 export const SUPPORTED_LOREBOOK_VERSION = 6;
 export const MAX_LOREBOOK_JSON_BYTES = 1_000_000;
 /** The value budget every NovelAI import path shares. */
 export const MAX_LOREBOOK_JSON_VALUES = 500_000;
+
+export function isSupportedNovelAiLorebookVersion(
+  value: unknown
+): value is (typeof SUPPORTED_LOREBOOK_VERSIONS)[number] {
+  return typeof value === "number"
+    && SUPPORTED_LOREBOOK_VERSIONS.some((version) => version === value);
+}
 
 /** Read a `.lorebook` file: JSON, or JSON inside a PNG text chunk. */
 export function parseLorebookArchive(bytes: Uint8Array): unknown {
@@ -58,7 +73,7 @@ export function entriesFromNovelAiLorebook(value: unknown): LorebookRead {
   if (!isRecord(value)) {
     throw new Error("Lorebook JSON must be an object.");
   }
-  if (value.lorebookVersion !== SUPPORTED_LOREBOOK_VERSION) {
+  if (!isSupportedNovelAiLorebookVersion(value.lorebookVersion)) {
     throw new Error(
       `unsupported lorebookVersion ${value.lorebookVersion ?? "missing"}`
         + " · expected a NovelAI lorebook or a SillyTavern World Info file"

@@ -293,13 +293,20 @@ A World Info Entry uses different names for the same values.
 | `comment` | Fact tag |
 | `key` | Fact keys |
 | `keysecondary` | Fact secondary keys |
-| `world_info_logic: 0` | AND secondary-key logic |
-| `world_info_logic: 2` | NOT secondary-key logic |
+| `selectiveLogic: 0` | AND secondary-key logic. Any secondary key can match. |
+| `selectiveLogic: 2` | NOT secondary-key logic. No secondary key can match. |
+| `selectiveLogic: 1` or `3` | Unsupported secondary-key logic. The secondary keys are omitted. |
+| `world_info_logic: 0` or `2` | Legacy secondary-key logic. Used only when `selectiveLogic` is absent. |
 | `scanDepth` from 1 to 20 | Fact scan depth |
+| `scanDepth: null` or an absent `scanDepth` | The default Fact scan depth |
 | `excludeRecursion: true` | Chain activation off |
 | `constant: true` | Always active |
 | Other `constant` values | Keyed activation |
 | `disable: true` | No Fact |
+
+Current World Info files use `selectiveLogic`. If both logic fields are
+present, 1667 uses `selectiveLogic` and reports the conflict. A malformed
+current value does not fall back to the legacy field.
 
 A Fact can use literal keys or restricted regex keys. 1667 imports valid regex
 keys. It also imports the supported secondary-key logic, scan depth, and chain
