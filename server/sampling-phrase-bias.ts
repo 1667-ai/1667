@@ -1235,7 +1235,8 @@ export function parseResolveSamplingBiasInput(value: unknown): ResolveSamplingBi
   }
   const record = value as Record<string, unknown>;
   return {
-    logitBias: parseLogitBiasField(record.logitBias),
+    // An older preview can omit its empty raw map. Keep malformed values strict.
+    logitBias: record.logitBias === undefined ? {} : parseLogitBiasField(record.logitBias),
     phraseBias: parsePhraseBiasField(record.phraseBias),
     bannedStrings: parseBannedStringsField(record.bannedStrings),
     ...(record.storyPhraseBias === undefined ? {} : { storyPhraseBias: parsePhraseBiasField(record.storyPhraseBias) }),

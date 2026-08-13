@@ -261,6 +261,12 @@ This file records notable changes to 1667. Product terms use the definitions in
   story. Side Notes never enter Write prompts or Markdown exports. Use
   `/clear` in Aside to remove all Side Notes from the story.
 
+## 0.9.4-rc.5 - 2026-08-13
+
+- **Banned strings can be added when the raw token bias map is empty.** The
+  preview now treats an omitted empty map as an empty map. It continues to
+  refuse malformed maps.
+
 ## 0.9.4-rc.4 - 2026-08-13
 
 - **`1667 upgrade --list` shows published launcher releases.** It writes one
