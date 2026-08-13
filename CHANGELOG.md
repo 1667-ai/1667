@@ -5,6 +5,10 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Continuation prompts now match version 0.8.0.** 1667 again sends the
+  operation-specific contract before the story. It no longer sends the generic
+  story contract or llama.cpp Chat Completions continuation fields.
+
 - **1667 no longer ends a generation while a model server is still
   processing the prompt.** Prefill is the model server's work before it
   sends the first output token. The server sends no stream output while it

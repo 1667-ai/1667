@@ -9,15 +9,11 @@ read_when:
 
 # Generation boundaries
 
-Empty Continue is not a new user turn. On a route with a known assistant
-prefill contract, the active passage remains the final assistant message so
-generation begins after its last character. The stable operation contract
-also gives the exact continuation rule. This rule helps a small model identify
-the active passage. The llama.cpp Chat Completions route also uses
-`add_generation_prompt: false` and `continue_final_message: true`. These fields
-keep the final assistant message open. A route declared without assistant
-prefill support receives a short exact left-boundary echo contract. 1667
-verifies and removes the echo before saving.
+Empty Continue is not a new user turn. On providers that support assistant
+prefill, the active passage remains the final assistant message so generation
+begins after its last character. Providers known to reject prefills receive a
+short exact left-boundary echo contract; 1667 verifies and removes the
+echo before saving.
 
 A highlighted rewrite is an infill operation with two constraints. The request
 prefills or echoes a short exact left anchor, then requires the model to reproduce
@@ -113,17 +109,6 @@ source blocks form a stable prefix. Request text, selections, boundary tags,
 and completion markers form the volatile suffix. The renderer rejects any
 stable block placed after volatility begins; provider adapters and the TUI
 context meter both consume the same model.
-
-A continuation sends the operation contract in two parts. The first part does
-not change with the operation. It stays in the stable prefix, ahead of the
-story parts. The second part changes with the operation. It rides as the first
-block of the final user turn, after all story parts.
-
-This division has two reasons. A stable prefix that does not change lets a
-local server keep its KV cache when the writer changes between a continuation
-of a passage and a new part. A contract in the stable prefix also reaches the
-assistant prefill, which has no final user turn. Do not move text that changes
-with the operation into the stable prefix. Do not remove the first part.
 
 Continuation admission is owned by `StoryService` and keyed by the exact
 `(storyId, genId)` tuple. A committed ID returns the stored story before

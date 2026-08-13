@@ -107,7 +107,7 @@ test("saved KoboldCpp localhost HTTP discovers, streams, and survives restart", 
   assert.equal(generations, 2);
 });
 
-test("llama.cpp Chat Completions continues the final assistant message on the wire", {
+test("llama.cpp Chat Completions sends the v0.8.0 continuation request", {
   skip: !ownedLoopbackHttpSupported()
 }, async (t) => {
   const requests: Record<string, unknown>[] = [];
@@ -183,18 +183,20 @@ test("llama.cpp Chat Completions continues the final assistant message on the wi
     " into the hall"
   );
   assert.equal(requests.length, 1);
-  assert.equal(requests[0]!.add_generation_prompt, false);
-  assert.equal(requests[0]!.continue_final_message, true);
+  assert.equal("add_generation_prompt" in requests[0]!, false);
+  assert.equal("continue_final_message" in requests[0]!, false);
   assert.deepEqual(
-    (requests[0]!.messages as Array<{ role: string; content: string }>).at(-1),
-    { role: "assistant", content: "Cold air spilled" }
-  );
-  const messages = requests[0]!.messages as Array<{ role: string; content: string }>;
-  const facts = messages.find((message) => message.role === "system" && message.content.includes("lantern"));
-  assert.equal(facts?.content, "The lantern is blue.");
-  assert.equal(
-    messages.some((message) => /exact final character/.test(message.content)),
-    true
+    requests[0]!.messages,
+    [
+      { role: "system", content: "Write coherent prose." },
+      { role: "system", content: "The lantern is blue." },
+      {
+        role: "system",
+        content: "Continuation mode: the final assistant message is an unfinished passage. Continue directly from its exact final character, even when that character is in the middle of a sentence or word. Return only the new characters after that boundary; do not repeat, restart, quote, or summarize existing text."
+      },
+      { role: "user", content: "The door opened." },
+      { role: "assistant", content: "Cold air spilled" }
+    ]
   );
 });
 

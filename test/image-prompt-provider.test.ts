@@ -291,8 +291,5 @@ test("a request that carries a new image forces a new-passage turn: no prefill, 
   assert.equal(plan.leftAnchor, "");
   const lastTurn = plan.prompt.turns.at(-1);
   assert.equal(lastTurn?.role, "user");
-  // The operation contract leads the turn (issue #138 / PR #148): it must
-  // stay stable-before-volatile, and the image and request blocks are both
-  // volatile.
-  assert.deepEqual(lastTurn?.blocks.map((block) => block.kind), ["operation-contract", "image", "request"]);
+  assert.deepEqual(lastTurn?.blocks.map((block) => block.kind), ["image", "request"]);
 });
