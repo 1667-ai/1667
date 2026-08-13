@@ -289,7 +289,10 @@ export function mouseToAction(
   if (event.modifiers.shift) return null;
   if (event.type === "scroll") {
     const down = event.scroll?.direction === "down";
-    if (state.mode === "REQUEST") return { action: down ? "scroll-line-down" : "scroll-line-up" };
+    if (state.mode === "REQUEST"
+      || state.mode === "ASIDE" && state.textActions === null) {
+      return { action: down ? "scroll-line-down" : "scroll-line-up" };
+    }
     // The Fact editor owns several header rows above a scrollable body. Wheel
     // input must move that body one visual row at a time; routing it through
     // the overlay's focus actions would move the header selection instead.

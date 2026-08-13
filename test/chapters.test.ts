@@ -215,7 +215,7 @@ test("renaming a chapter accepts the null break of chapter one and an empty name
 test("naming chapter one is refused where the directory never took the fence", async () => {
   const refusals: unknown[] = [];
   const chapters = new StoryServiceChapters({
-    stories: {} as never,
+    stories: { asideActivation: false } as never,
     storyMutations: {} as never,
     ensureOpen: () => undefined,
     // A legacy-preview directory keeps format 1 by design, so it is the one
@@ -231,7 +231,10 @@ test("naming chapter one is refused where the directory never took the fence", a
 
   // A break rename carries no new shape, so it is not fenced.
   const unfenced = new StoryServiceChapters({
-    stories: { mutate: async () => { throw new Error("reached the store"); } } as never,
+    stories: {
+      asideActivation: false,
+      mutate: async () => { throw new Error("reached the store"); }
+    } as never,
     storyMutations: {} as never,
     ensureOpen: () => undefined,
     dataFormat: () => 1

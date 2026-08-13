@@ -68,22 +68,26 @@ test("offline migration opens StoryTavern bundles and normalizes later writes", 
   const migratedManifest = JSON.parse(await readFile(
     path.join(destination, "stories", STORY_ID, "manifest.json"),
     "utf8"
-  )) as { format: string; schemaVersion: number; title: string; nodes: Array<{ revisionId: string }> };
+  )) as {
+    format: string;
+    schemaVersion: number;
+    content: { title: string; nodes: Array<{ revisionId: string }> };
+  };
   assert.equal(migratedManifest.format, STORY_FORMAT);
-  assert.equal(migratedManifest.schemaVersion, 5);
-  assert.equal(migratedManifest.title, "Migrated story");
+  assert.equal(migratedManifest.schemaVersion, 6);
+  assert.equal(migratedManifest.content.title, "Migrated story");
   const sourceDocument = JSON.parse(sourceManifest) as {
     format: string;
     nodes: Array<{ revisionId: string }>;
   };
   assert.equal(
-    migratedManifest.nodes[0]!.revisionId,
+    migratedManifest.content.nodes[0]!.revisionId,
     sourceDocument.nodes[0]!.revisionId
   );
 
   const retainedRevision = JSON.parse(await readFile(revisionPath(
     path.join(destination, "stories", STORY_ID),
-    migratedManifest.nodes[0]!.revisionId
+    migratedManifest.content.nodes[0]!.revisionId
   ), "utf8")) as { format: string };
   assert.equal(retainedRevision.format, STORYTAVERN_REVISION_FORMAT);
   assert.equal(sourceDocument.format, STORYTAVERN_STORY_FORMAT);
