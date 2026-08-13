@@ -5,12 +5,6 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
-- **`1667 upgrade --version` can select an older release.** 1667 verifies the
-  exact published release before it replaces the current executable. Before it
-  downloads a downgrade, it warns that the downgrade can make the Vault
-  unreadable or damage Vault data. Back up the Vault before you continue. An
-  exact version does not change the saved update channel.
-
 - **1667 no longer ends a generation while a model server is still
   processing the prompt.** Prefill is the model server's work before it
   sends the first output token. The server sends no stream output while it
@@ -259,6 +253,14 @@ This file records notable changes to 1667. Product terms use the definitions in
   palette opens a path prompt with `Tab` completion. The `1667 import-card`
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
+
+## 0.9.3-rc.1 - 2026-08-13
+
+- **`1667 upgrade --version` can select an older release.** 1667 verifies the
+  exact published release before it replaces the current executable. Before it
+  downloads a downgrade, it warns that the downgrade can make the Vault
+  unreadable or damage Vault data. Back up the Vault before you continue. An
+  exact version does not change the saved update channel.
 
 ## 0.9.2 - 2026-08-13
 
