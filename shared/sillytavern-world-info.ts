@@ -23,6 +23,7 @@ type WorldInfoLoss =
   | "chance"
   | "recursive"
   | "logic"
+  | "logicConflict"
   | "scanDepth"
   | "timed"
   | "matchRule"
@@ -47,6 +48,8 @@ const WORLD_INFO_LOSS_PHRASES: LossPhrases<WorldInfoLoss> = {
     `${count} ${countNoun(count, "entry", "entries")} will always fire; a fact has no probability`,
   recursive: (count) => `${count} recursion ${countNoun(count, "setting")} omitted`,
   logic: (count) => `${count} selective logic ${countNoun(count, "mode")} omitted`,
+  logicConflict: (count) =>
+    `${count} ${countNoun(count, "pair", "pairs")} of selective logic fields conflicted; current selectiveLogic was used`,
   scanDepth: (count) => `${count} invalid scan ${countNoun(count, "depth")} omitted`,
   timed: (count) =>
     `${count} ${countNoun(count, "entry", "entries")} lost a timed effect; a fact is judged on every request`,
@@ -208,10 +211,12 @@ function convertWorldInfoEntry(item: Record<string, unknown>): ConvertedEntry {
   if (hasMacro(rawContent) || sourceKeys.some(hasMacro)) losses.push("macro");
   const keys = sourceKeys;
   const selective = item.selective === true;
-  const logic = selective ? worldInfoLogic(item.world_info_logic) : "and";
-  if (selective && logic === null && item.world_info_logic !== undefined) losses.push("logic");
+  const logicResult = selective ? worldInfoLogic(item) : { mode: "and" as const, conflict: false };
+  const logic = logicResult.mode;
+  if (selective && logicResult.conflict) losses.push("logicConflict");
+  if (selective && logic === null) losses.push("logic");
   const scanDepth = worldInfoScanDepth(item.scanDepth);
-  if (scanDepth === null && item.scanDepth !== undefined) losses.push("scanDepth");
+  if (scanDepth === null) losses.push("scanDepth");
 
   return {
     entry: {
@@ -233,13 +238,31 @@ function convertWorldInfoEntry(item: Record<string, unknown>): ConvertedEntry {
   };
 }
 
-function worldInfoLogic(value: unknown): "and" | "not" | null {
-  if (value === undefined || value === 0) return "and";
+function worldInfoLogic(item: Record<string, unknown>): {
+  readonly mode: "and" | "not" | null;
+  readonly conflict: boolean;
+} {
+  const hasCurrent = item.selectiveLogic !== undefined;
+  const hasLegacy = item.world_info_logic !== undefined;
+  const current = hasCurrent ? worldInfoLogicValue(item.selectiveLogic) : null;
+  const legacy = hasLegacy ? worldInfoLogicValue(item.world_info_logic) : null;
+  return {
+    // `selectiveLogic` is the current field. Keep reading `world_info_logic`
+    // for older files, but never let it override a current value.
+    mode: hasCurrent ? current : hasLegacy ? legacy : "and",
+    conflict: hasCurrent && hasLegacy && !Object.is(item.selectiveLogic, item.world_info_logic)
+  };
+}
+
+function worldInfoLogicValue(value: unknown): "and" | "not" | null {
+  // SillyTavern: AND_ANY=0, NOT_ALL=1, NOT_ANY=2, AND_ALL=3. 1667 can
+  // represent only ANY-secondary-match and NO-secondary-match.
+  if (value === 0) return "and";
   if (value === 2) return "not";
   return null;
 }
 function worldInfoScanDepth(value: unknown): number | null {
-  if (value === undefined) return DEFAULT_FACT_SCAN_PARTS;
+  if (value === undefined || value === null) return DEFAULT_FACT_SCAN_PARTS;
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 20 ? value : null;
 }
 

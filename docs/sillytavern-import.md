@@ -85,7 +85,7 @@ The command reads these message fields:
 | `mes` | The message text |
 | `is_user` | The sender: the user, or the character |
 | `is_system` | If `true`, the command ignores the message |
-| `name` | The sender name |
+| `name` | The sender name. Group-chat names can be added to prose. |
 | `send_date` | The message time |
 | `swipes` | Every generated reply at this message, the open one among them |
 | `swipe_id` | Which `swipes` entry `mes` holds |
@@ -118,9 +118,21 @@ its full story line. The command drops the extra swipes and states the count
 in standard error.
 
 The command reads `user_name` and `character_name` from the metadata line. It
-changes `{{user}}` to the user name. It changes `{{char}}` to the character
-name. It changes all matches in one pass. It does not scan replacement text
-again.
+changes `{{user}}` to the user name. In a group, it changes `{{char}}` to that
+message's sender name; otherwise it uses the character name. It changes all
+matches in one pass. It does not scan replacement text again.
+
+## Group chat speakers
+
+When assistant messages have more than one real sender name, the command
+treats the file as a group chat. It keeps a sender name that the message text
+does not contain by adding `Name: ` before that text. The same rule applies to
+an unselected swipe. The fidelity report gives the number of names added.
+Name casing and canonically equivalent Unicode spelling do not create extra
+speakers. Blank messages and `/sys` narrator records do not count as speakers;
+narrator prose stays unchanged.
+
+A chat with one assistant sender keeps its message text unchanged.
 
 ## What becomes a story
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,10 @@ import { parseWorkerMutation } from "../server/worker-mutations.js";
 import type { StoryPayload } from "../shared/types.js";
 import { API_PROTOCOL_HEADERS, fetchWithApiProtocol } from "./http-test-client.js";
 import { makeSyntheticNovelAiV2Base64 } from "./novelai-fixture.js";
+import {
+  legacyNovelAiLorebook,
+  legacyNovelAiScenario
+} from "./novelai-legacy-fixture.js";
 import { testApp } from "./story-server-fixture.js";
 
 const execFileAsync = promisify(execFile);
@@ -217,6 +221,74 @@ test("1667 import routes a .story file to a project", async (t) => {
   assert.equal(loaded.path.reduce((sum, { text }) => sum + text.length, 0), 11_054);
   assert.ok(loaded.path.every(({ text }) => /^[x●é]+$/u.test(text)));
   await service.dispose();
+});
+
+test("1667 import routes a real-shaped legacy .scenario through the service", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "1667-tui-cli-nai-scenario-"));
+  t.after(async () => { await rm(root, { recursive: true, force: true }); });
+
+  const project = await initializeProject(root);
+  const scenarioFile = path.join(root, "legacy.scenario");
+  await writeFile(scenarioFile, JSON.stringify(legacyNovelAiScenario(0)), "utf8");
+
+  const bun = process.execPath.includes("bun") ? process.execPath : "bun";
+  const imported = await execFileAsync(
+    bun,
+    [path.resolve("tui/src/standalone.ts"), "import", "--data", project.root, scenarioFile],
+    { env: { ...process.env, AI_1667_STATE: path.join(root, "machine") } }
+  );
+  assert.match(imported.stdout, /imported "Legacy Scenario v0"/u);
+
+  const service = StoryService.withoutDiagnostics({ dataDir: project.directory });
+  await service.init();
+  const summary = (await service.listStories()).find(({ title }) => title === "Legacy Scenario v0");
+  assert.ok(summary);
+  const loaded = await service.loadStory(summary.id);
+  await service.dispose();
+  assert.deepEqual(loaded.path.map(({ text }) => text), [
+    "Opening prompt.",
+    "Continuation prompt."
+  ]);
+  assert.deepEqual(loaded.facts.map(({ tag, text }) => ({ tag, text })), [
+    { tag: "memory", text: "Persistent legacy memory." },
+    { tag: "Legacy Entry", text: "A legacy entry keeps its core prose." }
+  ]);
+});
+
+test("1667 import-lorebook routes a real-shaped legacy Lorebook through the service", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "1667-tui-cli-nai-lorebook-"));
+  t.after(async () => { await rm(root, { recursive: true, force: true }); });
+
+  const project = await initializeProject(root);
+  const service = StoryService.withoutDiagnostics({ dataDir: project.directory });
+  await service.init();
+  const story = await service.createStory("Legacy Lorebook target");
+  await service.dispose();
+
+  const lorebookFile = path.join(root, "legacy-v4.lorebook");
+  await writeFile(lorebookFile, JSON.stringify(legacyNovelAiLorebook(4)), "utf8");
+  const bun = process.execPath.includes("bun") ? process.execPath : "bun";
+  const imported = await execFileAsync(
+    bun,
+    [
+      path.resolve("tui/src/standalone.ts"),
+      "import-lorebook",
+      "--data", project.root,
+      "--story", story.id,
+      lorebookFile
+    ],
+    { env: { ...process.env, AI_1667_STATE: path.join(root, "machine") } }
+  );
+  assert.match(imported.stdout, /imported 1 fact into "Legacy Lorebook target"/u);
+  assert.match(imported.stderr, /1 entry read; 1 fact imported/u);
+
+  const verification = StoryService.withoutDiagnostics({ dataDir: project.directory });
+  await verification.init();
+  const payload = await verification.loadStory(story.id);
+  await verification.dispose();
+  assert.deepEqual(payload.facts.map(({ tag, text }) => ({ tag, text })), [
+    { tag: "Legacy Entry", text: "A legacy entry keeps its core prose." }
+  ]);
 });
 
 linuxTest("HTTP POST /api/import/novelai accepts a NovelAI container", async (t) => {

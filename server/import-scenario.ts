@@ -16,6 +16,11 @@ import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
 import { hasUnpairedSurrogate } from "../shared/unicode.js";
 import { countNoun } from "../shared/fidelity.js";
 
+/** Scenario versions observed in NovelAI exports whose prompt/context shape
+ * is still readable by this importer. Keep the set explicit so an unknown
+ * future version is not treated as compatible by accident. */
+export const SUPPORTED_NOVELAI_SCENARIO_VERSIONS = [0, 1, 3] as const;
+
 export function partsFromNovelAiScenario(jsonText: string): NovelAiContainerImport {
   if (Buffer.byteLength(jsonText) > MAX_IMPORT_BYTES) {
     throw new ServiceError(413, "Request body too large");
@@ -39,7 +44,7 @@ export function partsFromNovelAiScenario(jsonText: string): NovelAiContainerImpo
   if (!isRecord(rawJson)) {
     throw new ServiceError(400, "Malformed JSON structure");
   }
-  if (rawJson.scenarioVersion !== 3) {
+  if (!isSupportedScenarioVersion(rawJson.scenarioVersion)) {
     throw new ServiceError(400, "Unsupported scenarioVersion");
   }
 
@@ -71,6 +76,13 @@ export function partsFromNovelAiScenario(jsonText: string): NovelAiContainerImpo
     authorsNote,
     fidelity
   };
+}
+
+function isSupportedScenarioVersion(
+  value: unknown
+): value is (typeof SUPPORTED_NOVELAI_SCENARIO_VERSIONS)[number] {
+  return typeof value === "number"
+    && SUPPORTED_NOVELAI_SCENARIO_VERSIONS.some((version) => version === value);
 }
 
 export function partsFromProse(text: string): ImportedPart[] {

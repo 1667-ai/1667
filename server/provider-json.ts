@@ -84,6 +84,14 @@ async function requestProviderJson(
     Math.min(runtime.timeouts.responseHeaderMs, totalMs)
   );
   const totalTimer = setTimeout(() => totalDeadline.abort(), totalMs);
+  // Keep the composite alive across Request's cloned signal. Node's follower
+  // signal does not retain this source strongly; an inline AbortSignal.any()
+  // can be collected before either deadline fires after GC-heavy work.
+  const requestSignal = AbortSignal.any([
+    headerDeadline.signal,
+    totalDeadline.signal,
+    ...(options.signal === undefined ? [] : [options.signal])
+  ]);
   try {
     let response: Response;
     try {
@@ -94,16 +102,14 @@ async function requestProviderJson(
         method: requestInit.method,
         body: requestInit.body,
         headers,
-        signal: AbortSignal.any([
-          headerDeadline.signal,
-          totalDeadline.signal,
-          ...(options.signal === undefined ? [] : [options.signal])
-        ])
+        signal: requestSignal
       }, {
         allowInsecurePrivateHttp: runtime.allowInsecureHttp
       });
     } catch (error) {
-      if (headerDeadline.signal.aborted || totalDeadline.signal.aborted) {
+      // Reading the composite here also keeps it live while fetch is pending.
+      if (requestSignal.aborted
+        && (headerDeadline.signal.aborted || totalDeadline.signal.aborted)) {
         throw new ProviderError(`${operationLabel} exceeded its configured deadline.`);
       }
       throw new ProviderError(
@@ -139,6 +145,9 @@ async function requestProviderJson(
       return null;
     }
   } finally {
+    // Fetch resolves at response headers; retain the composite until the body
+    // is consumed so total deadlines and caller cancellation remain live.
+    void requestSignal.aborted;
     clearTimeout(headerTimer);
     clearTimeout(totalTimer);
   }
