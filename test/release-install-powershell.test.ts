@@ -77,6 +77,7 @@ test("PowerShell Installer handles install, repeat, and upgrade cases", async (t
   const fresh = await runInstaller(v1.url, installRoot);
   assert.match(fresh.stdout, /Installed 1667 1\.2\.3 \(stable\)/u);
   assert.equal(await installedVersion(installRoot), "1.2.3");
+  assert.equal(await accessRulesAreProtected(installRoot), false);
   const firstRecord = await ownershipRecord(installRoot);
   assert.equal(firstRecord.method, "powershell");
   assert.equal(firstRecord.artifactTarget, WINDOWS_TARGET);
@@ -445,6 +446,21 @@ async function installedVersion(installRoot: string): Promise<string> {
     "--json"
   ]);
   return (JSON.parse(stdout) as { productVersion: string }).productVersion;
+}
+
+async function accessRulesAreProtected(installRoot: string): Promise<boolean> {
+  const { stdout } = await execFileAsync("powershell.exe", [
+    "-NoLogo",
+    "-NoProfile",
+    "-Command",
+    "(Get-Acl -LiteralPath $env:AI_1667_TEST_INSTALL_ROOT).AreAccessRulesProtected"
+  ], {
+    env: {
+      ...process.env,
+      AI_1667_TEST_INSTALL_ROOT: installRoot
+    }
+  });
+  return stdout.trim().toLowerCase() === "true";
 }
 
 async function ownershipRecord(installRoot: string): Promise<Record<string, string>> {
