@@ -17,6 +17,11 @@ ASD-STE100 Simplified Technical English.
 Code, commands, file names, API names, and quoted interface text can keep their
 exact spelling.
 
+## Changelog credits
+
+Credit a contributor only when the contributor is not `@10fra`.
+Do not credit `@10fra` in `CHANGELOG.md`.
+
 ## Automated tests
 
 Write an end-to-end test or an integration test for new behavior. Write a unit

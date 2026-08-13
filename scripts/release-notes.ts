@@ -39,6 +39,9 @@ interface HeadingNote {
  * silently.
  */
 export function parseReleaseNotes(changelog: string): ParsedReleaseNote[] {
+  if (/@?10fra\b/iu.test(changelog)) {
+    throw new Error("CHANGELOG.md must not credit the repository owner 10fra");
+  }
   const lines = changelog.split("\n");
   const headingLines: number[] = [];
   for (let index = 0; index < lines.length; index += 1) {
