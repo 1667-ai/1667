@@ -1,5 +1,5 @@
 ---
-summary: The move from NovelAI to 1667, with the concept map, the import commands, the privacy model, and the open gaps
+summary: The move from NovelAI to 1667, with the concept map, import commands, privacy model, and model access limit
 read_when:
   - moving a story, a scenario, or a Lorebook from NovelAI
   - answering a question about NovelAI parity
@@ -11,16 +11,17 @@ read_when:
 This guide moves your NovelAI work into 1667. It maps each NovelAI concept to
 its 1667 equivalent. It shows the import commands and the
 [Fidelity Report](technical-terms.md). It states where your data lives. It also
-states what 1667 does not have yet.
+states the model access limit.
 
 ## The concept map
 
 | NovelAI | 1667 | What changes |
 | --- | --- | --- |
 | Memory | An `always` Fact | Import gives the Fact the `memory` tag |
-| Lorebook Entry | A `keyed` Fact | Entry keys become Fact keys |
+| Lorebook Entry | A Fact | Entry keys and activation become Fact settings |
 | Author's Note | Author's Note | The text imports; the position resets to the default depth |
 | Retry | Take | Each generation makes one take |
+| Sampler Preset | Generation Profile | Supported sampling values become Profile settings |
 | `.story` file | Story | One file becomes one story |
 | `.scenario` file | Story | The prompt becomes the first story parts |
 
@@ -34,6 +35,10 @@ Import turns each Lorebook Entry into one Fact through the
 keys become the Fact keys. An always-on entry arrives as an `always` Fact. A
 disabled entry does not import.
 
+A keyed Fact can use literal or restricted regex keys. It can also use
+secondary keys with AND or NOT logic. Scan depth and chain activation control
+how far 1667 searches for a match.
+
 The Author's Note keeps its name. 1667 sends it near the end of each
 continuation request and prompted retake request. Import reads the note text.
 It does not read the NovelAI placement. The imported note lands at the default
@@ -44,7 +49,9 @@ A NovelAI retry maps to a [take](technical-terms.md). A take is one
 alternative version of a story part. 1667 keeps each take, and the mass map
 shows all of them. Import reads the retry history from a `.story` file. Each
 retry becomes a take. The take you had open in NovelAI becomes the selected
-story line. Import does not read NovelAI's own generation settings. The
+story line.
+
+Import does not read NovelAI's own generation settings. The
 Fidelity Report states this omission.
 
 Import keeps a retry only when it is a plain new take. A plain new take is a
@@ -190,22 +197,16 @@ The way back stays open. `1667 export --format story`, `--format scenario`,
 and `--format lorebook` write NovelAI [Archives](technical-terms.md) from your
 stories.
 
-## What 1667 does not have yet
+## NovelAI model access
 
-1667 does not have each NovelAI feature:
+1667 cannot send requests to NovelAI's hosted models. NovelAI's terms do not
+give clear permission for a third-party client. The project closed this work as
+not planned. Refer to
+[issue 286](https://github.com/1667-ai/1667-archive2/issues/286).
 
-- 1667 has no NovelAI provider protocol, and none is planned. It cannot send
-  requests to the NovelAI models. Use an OpenAI-compatible host, Anthropic,
-  or a local server. Refer to
-  [issue 286](https://github.com/1667-ai/1667-archive2/issues/286).
-- A Fact key is literal text on one list. 1667 has no regex keys, no
-  secondary-key logic, and no recursion. Refer to
-  [issue 289](https://github.com/1667-ai/1667-archive2/issues/289).
-- 1667 has no text completion protocol. Refer to
-  [issue 293](https://github.com/1667-ai/1667-archive2/issues/293).
-
-The [1667-archive2 issue list](https://github.com/1667-ai/1667-archive2/issues)
-holds the roadmap for the open items.
+Use an OpenAI-compatible host, Anthropic, or a local model server. 1667 supports
+chat and text completion protocols. The file import and export features do not
+depend on NovelAI model access.
 
 ## Related documents
 
