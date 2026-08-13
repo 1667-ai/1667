@@ -6,6 +6,7 @@ import { demoAppSource } from "../src/demo.js";
 import { openFactEditor } from "../src/editor-action.js";
 import {
   FACT_ACTIVATION_COMPOSER_SOURCE,
+  FACT_BODY_COMPOSER_SOURCE,
   FACT_KEYS_COMPOSER_SOURCE,
   FACT_TAG_COMPOSER_SOURCE,
   setFactEditorFocus
@@ -1112,6 +1113,48 @@ describe("hit map clickable chrome", () => {
     );
     expect(state.mode).toBe("COMPOSE");
     expect(state.composer.text).toBe("draft stays ");
+  });
+
+  test("left-clicking Fact fields focuses text and choice sources", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    state.stream = null;
+    openFactEditor(state, null);
+
+    const sourceRow = (sourceId: string): number => {
+      render(state);
+      const row = state.hitRows.findIndex((hit) => hit?.target.kind === "composer"
+        && hit.target.composerSourceId === sourceId);
+      expect(row).toBeGreaterThan(-1);
+      return row;
+    };
+
+    let row = sourceRow(FACT_TAG_COMPOSER_SOURCE);
+    let action = mouseToAction(click(2, row), state);
+    expect(action).toEqual({ action: "compose", composerSourceId: FACT_TAG_COMPOSER_SOURCE });
+    await dispatch(action!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    expect(currentFactEditor(state).focus).toBe("tag");
+    await dispatch(
+      { action: "input", text: "weather" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}
+    );
+    expect(currentFactEditor(state).tag.text).toBe("weather");
+
+    row = sourceRow(FACT_BODY_COMPOSER_SOURCE);
+    action = mouseToAction(click(2, row), state);
+    expect(action).toEqual({ action: "compose", composerSourceId: FACT_BODY_COMPOSER_SOURCE });
+    await dispatch(action!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    expect(currentFactEditor(state).focus).toBe("body");
+    await dispatch(
+      { action: "input", text: "A rainy street." }, state, source, createWrapCache(), () => {}, async () => {}, () => {}
+    );
+    expect(currentFactEditor(state).composer.text).toBe("A rainy street.");
+
+    row = sourceRow(FACT_ACTIVATION_COMPOSER_SOURCE);
+    action = mouseToAction(click(2, row), state);
+    expect(action).toEqual({ action: "compose", composerSourceId: FACT_ACTIVATION_COMPOSER_SOURCE });
+    await dispatch(action!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    expect(currentFactEditor(state).focus).toBe("activation");
+    expect(currentFactEditor(state).activation).toBe("always");
   });
 
   test("every screen footer renders untruncated at wide and compact sizes", () => {

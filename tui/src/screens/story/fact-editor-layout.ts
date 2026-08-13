@@ -37,6 +37,7 @@ interface FactEditorLayoutOptions {
   scrollTop: number;
   narrow: boolean;
   softWrap: boolean;
+  followCursor: boolean;
 }
 
 /** Render the typed tag field as a sibling of the Fact body composer. */
@@ -60,6 +61,7 @@ export function renderFactEditorLayout(
     placeholder: editor.placeholder,
     footerNotice: options.footerNotice,
     scrollTop: options.scrollTop,
+    followCursor: options.followCursor,
     narrow: options.narrow,
     softWrap: options.softWrap,
     caret: editor.focus === "body" ? "focused" : "none",

@@ -45,10 +45,19 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
     }
     return summaries;
   };
-  const expectedVersion = async (storyId: string): Promise<StoryAggregateVersion> => {
+  const expectedVersion = async (
+    storyId: string,
+    signal?: AbortSignal
+  ): Promise<StoryAggregateVersion> => {
     const held = versions.get(storyId);
     if (held !== undefined) return held;
-    const loaded = rememberPayload(await transport.call("loadStory", { id: storyId }));
+    const payload = await transport.call(
+      "loadStory",
+      { id: storyId },
+      signal === undefined ? {} : { signal }
+    );
+    signal?.throwIfAborted();
+    const loaded = rememberPayload(payload);
     if (loaded.aggregateVersion === undefined) {
       throw new Error("This story was loaded without successor-Q version metadata.");
     }
@@ -366,15 +375,25 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         { expectedAggregateVersion: await expectedVersion(storyId) }
       )
     ),
-    summarizeChapter: async (storyId, breakId) => runProviderMutation(
+    summarizeChapter: async (storyId, breakId, signal) => runProviderMutation(
       storyId,
-      async () => rememberPayload(
-        await transport.call(
+      async () => {
+        const expectedAggregateVersion = await expectedVersion(storyId, signal);
+        signal?.throwIfAborted();
+        const payload = await transport.call(
           "summarizeChapter",
           { storyId, breakId },
-          { expectedAggregateVersion: await expectedVersion(storyId) }
-        )
-      )
+          {
+            expectedAggregateVersion,
+            ...(signal === undefined ? {} : { signal })
+          }
+        );
+        if (payload === null) {
+          signal?.throwIfAborted();
+          throw new Error("Chapter summary returned no story payload.");
+        }
+        return rememberPayload(payload);
+      }
     ),
     editChapterSummary: async (storyId, summaryId, text, expected) =>
       rememberPayload(await transport.call(

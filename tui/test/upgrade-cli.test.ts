@@ -49,6 +49,11 @@ test("upgrade argument parser preserves global version semantics and rejects amb
     json: false,
     force: false
   });
+  expect(parseUpgradeArguments(["--list", "--json"])).toEqual({
+    command: { kind: "list" },
+    json: true,
+    force: false
+  });
   expect(parseUpgradeArguments(["--rollback", "--json"])).toEqual({
     command: { kind: "rollback" },
     json: true,
@@ -60,6 +65,8 @@ test("upgrade argument parser preserves global version semantics and rejects amb
   expect(() => parseUpgradeArguments(["--json", "--json"])).toThrow();
   expect(() => parseUpgradeArguments(["--rollback", "--check"])).toThrow();
   expect(() => parseUpgradeArguments(["--rollback", "--channel", "beta"])).toThrow();
+  expect(() => parseUpgradeArguments(["--list", "--channel", "beta"])).toThrow();
+  expect(() => parseUpgradeArguments(["--list", "--version", "2.0.0"])).toThrow();
 });
 
 test("--force is an apply-time waiver and says so when it would do nothing", () => {
@@ -126,6 +133,36 @@ test("JSON success emits exactly one stable envelope and command stays null", as
     "error"
   ]);
   expect(JSON.parse(result.stdout).command).toBe(null);
+});
+
+test("--list shows every published release newest first", async () => {
+  const calls: string[] = [];
+  const versionRegistry = {
+    async availableVersions() {
+      calls.push("versions");
+      return ["2.0.0", "2.0.0-rc.1", "1.2.3"];
+    }
+  };
+  const human = await executeUpgradeCli(["--list"], { versionRegistry });
+  expect(human).toMatchObject({
+    exitCode: 0,
+    stdout: "2.0.0\n2.0.0-rc.1\n1.2.3\n",
+    stderr: "",
+    envelope: null
+  });
+  const json = await executeUpgradeCli(["--list", "--json"], { versionRegistry });
+  expect(JSON.parse(json.stdout)).toEqual({
+    versions: ["2.0.0", "2.0.0-rc.1", "1.2.3"]
+  });
+  expect(calls).toEqual(["versions", "versions"]);
+});
+
+test("--list prints no phantom row when no published release is available", async () => {
+  const versionRegistry = { async availableVersions() { return []; } };
+  const human = await executeUpgradeCli(["--list"], { versionRegistry });
+  expect(human).toMatchObject({ exitCode: 0, stdout: "", stderr: "", envelope: null });
+  const json = await executeUpgradeCli(["--list", "--json"], { versionRegistry });
+  expect(JSON.parse(json.stdout)).toEqual({ versions: [] });
 });
 
 test("JSON usage and operational failures retain the same envelope", async () => {

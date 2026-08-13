@@ -64,6 +64,10 @@ version can be older than the current version. Before a downgrade, 1667 warns
 that the downgrade can make the Vault unreadable or damage Vault data. Back up
 the Vault before you continue.
 
+Run `1667 upgrade --list` to show the published launcher releases. 1667 checks
+platform support when `--version` selects a release. An exact version reuses
+the previous executable when that executable has the selected version.
+
 Install with npm:
 
 ```sh

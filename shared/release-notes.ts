@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.4-rc.4",
+    date: "2026-08-13",
+    body: "- **`1667 upgrade --list` shows published launcher releases.** It writes one\n  version on each line, with the newest version first. Use `--json` to get a\n  `versions` array. 1667 checks platform support when `--version` selects a\n  release.\n\n- **An exact version can reuse the previous executable.** If\n  `.1667-previous` has the version that `--version` selects, 1667 verifies and\n  uses it. It does not download that version again. `--rollback` continues to\n  use the same file offline.\n\n- **The chapter title editor now has a movable caret.** The left and right\n  arrow keys move the caret. Insert, delete, and paste operations use the caret\n  position.\n\n- **The mouse now selects fields in the Fact editor.** A click selects the\n  Fact text field or choice field under the pointer. Use the left and right\n  arrow keys to change a selected choice. The mouse wheel scrolls a long Fact\n  body.\n\n- **Chapter summarization now identifies its work and its limits.** The\n  status line shows the chapter, the current stage, and that the model does not\n  report progress. Press `Esc` to stop the summary request.\n\n- **1667 prepares to save non-canon Side Notes with a story.** This release\n  contains the Aside implementation and keeps every entry point closed. It\n  cannot open `/aside` yet. This release reads and validates the successor\n  story document and refuses to change it. A later release can write that\n  document and open Aside without making this release damage the story."
+  },
+  {
     version: "0.9.4-rc.3",
     date: "2026-08-13",
     body: "- **Continuation prompts now match version 0.8.0.** 1667 again sends the\n  operation-specific contract before the story. It no longer sends the generic\n  story contract or llama.cpp Chat Completions continuation fields."

@@ -10,7 +10,7 @@ import type { SettingsView } from "../../shared/settings-v2-types.js";
 import type { StoryApi } from "./api.js";
 import type { RecoveryWarningFeed } from "./recovery-warning-feed.js";
 import type { ConnectionMonitor } from "./connection.js";
-import { directChapterRowAction } from "./chapter-actions.js";
+import { cancelChapterSummary, directChapterRowAction } from "./chapter-actions.js";
 import { saveConfig, type ThemeName, type UserConfig } from "./config.js";
 import { createInteractiveFrameRuntime } from "./interactive-frame-runtime.js";
 import type { TuiFrameProfileReport } from "./frame-profile.js";
@@ -26,6 +26,7 @@ import {
 import { captureMouseActionState } from "./mouse-actions.js";
 import { createInteractiveInputAdmission } from "./interactive-input-admission.js";
 import { createStoryViewModel, lastPartRowIndex, rowIndexForPathIndex } from "./model.js";
+import { chapterWord } from "./chapter-model.js";
 import { openingFocusIndex, readingPartIdFor, type ReadingPositions } from "./reading-position.js";
 import { bindLiveReadingPositionState } from "./reading-position-persist.js";
 import { handleOverlayAction } from "./overlay-actions.js";
@@ -330,7 +331,9 @@ export async function runInteractive(source: AppSource): Promise<void> {
     if (state.stream === null && state.abort === null) return quit();
     if (!state.quitArmed) {
       state.quitArmed = true;
-      state.toast = "streaming · press Ctrl+C again to discard and quit";
+      state.toast = state.chapterSummary !== null
+        ? "chapter summary running · press Ctrl+C again to stop and quit"
+        : "streaming · press Ctrl+C again to discard and quit";
       repaint();
       return;
     }
@@ -653,6 +656,13 @@ export async function dispatch(
   backend: ActionRunner = new ActionRuntime(state, repaint)
 ): Promise<void> {
   const previousMode = state.mode;
+  if (state.chapterSummary !== null && resolved.action === "cancel"
+    && state.textActions === null
+    && (isPlainNavigation(state) || state.mode === "CHAPTERS")) {
+    beginInteraction(state);
+    cancelChapterSummary(state, repaint);
+    return;
+  }
   beginInteraction(state);
   if (resolved.action !== "cut-selection") {
     const composer = activeTextComposer(state);
@@ -666,6 +676,11 @@ export async function dispatch(
   if (generationBusy(state) && state.actions === null && state.textActions === null
     && actionConflictsWithGeneration(resolved.action, state)) {
     state.toast = "stream running · esc stops it first";
+    return repaint();
+  }
+  if (state.chapterSummary !== null && state.actions === null && state.textActions === null
+    && actionConflictsWithGeneration(resolved.action, state)) {
+    state.toast = `Chapter ${chapterWord(state.chapterSummary.chapterNumber)} summary running · esc cancels`;
     return repaint();
   }
   const context: ActionContext = {
@@ -819,6 +834,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     lastViewportStart: 0,
     composerScrollTop: 0,
     editorScrollTop: 0,
+    editorScrollDetached: false,
     keysScrollTop: 0,
     composerSelectionProjection: null,
     storySelectionProjection: null,
@@ -833,6 +849,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     chapters: null,
     settings: null,
     summary: null,
+    chapterSummary: null,
     connection: source.connection?.state() ?? { down: false, attempt: 0, nextRetryAt: null, error: null },
     undo: [],
     history: [],

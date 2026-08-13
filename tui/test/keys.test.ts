@@ -516,6 +516,10 @@ describe("text surfaces and palette", () => {
     expect(resolveKey(key("d"), "CHAPTERS").action).toBe("delete-item");
     expect(resolveKey(key("n"), "CHAPTERS").action).toBe("new-item");
     expect(resolveKey(key("e"), "CHAPTERS", { overlayTyping: true })).toEqual({ action: "input", text: "e" });
+    expect(resolveKey(key("left", { ctrl: true }), "CHAPTERS", { overlayTyping: true }).action)
+      .toBe("cursor-word-left");
+    expect(resolveKey(key("v", { ctrl: true }), "CHAPTERS", { overlayTyping: true }).action)
+      .toBe("paste-clipboard");
   });
   test("overlay text prompts own letters that are otherwise hotkeys", () => {
     const typing = { overlayTyping: true };

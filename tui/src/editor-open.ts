@@ -168,6 +168,7 @@ function openInlineEditor(
   state.textActions = null;
   state.editor = { kind: "document", ...editor };
   state.editorScrollTop = 0;
+  state.editorScrollDetached = false;
   state.mode = "EDITOR";
 }
 
@@ -178,5 +179,6 @@ function openFactSession(
   state.textActions = null;
   state.editor = { kind: "fact", ...editor };
   state.editorScrollTop = 0;
+  state.editorScrollDetached = false;
   state.mode = "EDITOR";
 }

@@ -26,7 +26,7 @@ export function availableTextActions(
   return overlay.copyOnly ? TEXT_ACTIONS.slice(0, 1) : TEXT_ACTIONS;
 }
 
-type TextOwnerState = Pick<RuntimeState, "mode" | "composer" | "editor" | "settings" | "library">
+type TextOwnerState = Pick<RuntimeState, "mode" | "composer" | "editor" | "settings" | "library" | "chapters">
   & { aside?: RuntimeState["aside"] };
 
 /** Find the composer-backed field that currently owns text input. */
@@ -41,6 +41,7 @@ export function activeTextComposer(state: TextOwnerState): ComposerState | null 
   if (state.mode === "LIBRARY") {
     return state.library?.prompt?.kind === "rename" ? state.library.prompt.composer : null;
   }
+  if (state.mode === "CHAPTERS") return state.chapters?.rename?.composer ?? null;
   if (state.mode !== "SETTINGS" || state.settings === null) return null;
   const sampling = state.settings.sampling?.edit;
   if (sampling !== null && sampling !== undefined) return sampling.composer;

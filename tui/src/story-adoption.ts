@@ -339,6 +339,7 @@ function reconcileStoryBoundIntent(
       state.textActions = null;
       state.editor = null;
       state.editorScrollTop = 0;
+      state.editorScrollDetached = false;
       if (state.mode === "EDITOR") {
         state.mode = editor.returnMode === "FACTS" && state.facts !== null
           ? "FACTS"
@@ -399,11 +400,13 @@ export function adoptStoryState(state: RuntimeState, payload: StoryPayload, cach
   state.archive = null;
   state.settings = null;
   state.summary = null;
+  state.chapterSummary = null;
   if (changingStory) state.aside = null;
   state.hitRows = [];
   followStoryViewport(state);
   state.lastViewportStart = 0;
   state.composerScrollTop = 0;
   state.editorScrollTop = 0;
+  state.editorScrollDetached = false;
   state.quitArmed = false;
 }

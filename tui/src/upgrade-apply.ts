@@ -1,6 +1,9 @@
 import { existsSync } from "node:fs";
 import { compareSemVer } from "../../shared/semver.js";
-import { releaseTargetForPackage } from "../../shared/release-targets.js";
+import {
+  releaseTargetForPackage,
+  type BuiltArtifactTarget
+} from "../../shared/release-targets.js";
 import type { InstallationAuthority } from "./install-ownership.js";
 import {
   activateCandidate,
@@ -117,23 +120,33 @@ export async function applyUpgrade(
       if (compareSemVer(targetVersion, lockedVersion) < 0) {
         dependencies.onDowngradeWarning?.(DOWNGRADE_WARNING);
       }
-      await downloadPlatformPackage({
-        tarballUrl: meta.tarball,
-        packageName: dependencies.observation.platformPackage,
-        version: targetVersion,
-        integrity: meta.integrity,
-        destinationPath: paths.packageStaging,
-        signal: lockedSignal,
-        fetcher: dependencies.fetcher,
-        onProgress: dependencies.onDownloadProgress
-      });
-      await materializeCandidate({
-        packagePath: paths.packageStaging,
-        destinationPath: paths.candidate,
-        packageName: dependencies.observation.platformPackage,
-        version: targetVersion,
-        signal: lockedSignal
-      });
+      const reusedPrevious = command.version !== null
+        && await copyPreviousVersion(
+          paths.previous,
+          paths.candidate,
+          targetVersion,
+          authority.record.artifactTarget,
+          lockedSignal
+        );
+      if (!reusedPrevious) {
+        await downloadPlatformPackage({
+          tarballUrl: meta.tarball,
+          packageName: dependencies.observation.platformPackage,
+          version: targetVersion,
+          integrity: meta.integrity,
+          destinationPath: paths.packageStaging,
+          signal: lockedSignal,
+          fetcher: dependencies.fetcher,
+          onProgress: dependencies.onDownloadProgress
+        });
+        await materializeCandidate({
+          packagePath: paths.packageStaging,
+          destinationPath: paths.candidate,
+          packageName: dependencies.observation.platformPackage,
+          version: targetVersion,
+          signal: lockedSignal
+        });
+      }
       await activateCandidate({
         authority,
         paths,
@@ -154,6 +167,27 @@ export async function applyUpgrade(
     },
     dependencies.force === true
   );
+}
+
+/** Reuse the one verified executable retained for rollback. */
+async function copyPreviousVersion(
+  previousPath: string,
+  candidatePath: string,
+  version: string,
+  artifactTarget: BuiltArtifactTarget,
+  signal: AbortSignal
+): Promise<boolean> {
+  if (!existsSync(previousPath)) return false;
+  try {
+    removeQuietly(candidatePath);
+    await copyExclusive(previousPath, candidatePath, 0o755, signal);
+    await probeCandidateVersion(candidatePath, version, artifactTarget, signal);
+    return true;
+  } catch (error) {
+    removeQuietly(candidatePath);
+    if (signal.aborted) throwUpgradeProbeFailure(error, signal, "Previous executable version probe failed.");
+    return false;
+  }
 }
 
 export const DOWNGRADE_WARNING =

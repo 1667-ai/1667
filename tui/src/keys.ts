@@ -225,7 +225,7 @@ export function pasteInto(
     facts: { filtering: boolean; query: string; cursor: number } | null;
     commands: { view: string; query: string } | null;
     search: { query: string } | null;
-    chapters?: { rename: { value: string } | null } | null;
+    chapters?: { rename: { composer: ComposerState } | null } | null;
     settings: {
       edit: SettingsInlineEditState | null;
       sampling?: { edit: { composer: ComposerState } | null } | null;
@@ -335,7 +335,7 @@ export function pasteInto(
   }
   const chapterRename = state.mode === "CHAPTERS" ? state.chapters?.rename : null;
   if (chapterRename != null) {
-    chapterRename.value += line;
+    insertComposerText(chapterRename.composer, line);
     return true;
   }
   const settingsEdit = state.mode === "SETTINGS" ? state.settings?.edit : null;
@@ -616,10 +616,8 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "backspace") return { action: "backspace" };
     return textInput(key) ?? { action: "none" };
   }
-  // The LIBRARY rename field alone is composer-backed (its filter and its
-  // delete confirmation stay plain strings below). Resolved ahead of the
-  // blanket chord guard just below so cut/paste/select-all/word-motion
-  // chords reach it instead of being rejected as unknown chords.
+  // The two rename fields are composer-backed. Resolve them ahead of the
+  // blanket chord guard so their editing chords reach the composer.
   if (mode === "LIBRARY" && libraryRenaming) {
     if (key.name === "return") return { action: "open-selected" };
     // Up/down still move the row behind the prompt, exactly as they do
@@ -627,6 +625,11 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     // motion of its own to give them instead.
     if (key.name === "down") return { action: "focus-next" };
     if (key.name === "up") return { action: "focus-previous" };
+    if ((key.ctrl || key.super) && key.name.toLowerCase() === "v") return { action: "paste-clipboard" };
+    return composerBackedInput(key);
+  }
+  if (mode === "CHAPTERS" && overlayTyping) {
+    if (key.name === "return") return { action: "open-selected" };
     if ((key.ctrl || key.super) && key.name.toLowerCase() === "v") return { action: "paste-clipboard" };
     return composerBackedInput(key);
   }
@@ -680,11 +683,6 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     return { action: "none" };
   }
   if (mode === "CHAPTERS") {
-    if (overlayTyping) {
-      if (key.name === "return") return { action: "open-selected" };
-      if (key.name === "backspace") return { action: "backspace" };
-      return textInput(key) ?? { action: "none" };
-    }
     if (key.name === "down") return { action: "focus-next" };
     if (key.name === "up") return { action: "focus-previous" };
     if (key.name === "return") return { action: "open-selected" };

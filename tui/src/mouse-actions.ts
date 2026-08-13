@@ -193,7 +193,7 @@ export function captureMouseActionState(state: RuntimeState): MouseActionState {
     // The palette's rows depend on both, so identifying one means seeing what
     // the frame that drew it saw.
     connection: state.connection,
-    requestActive: generationBusy(state) || state.summary !== null,
+    requestActive: generationBusy(state) || state.summary !== null || state.chapterSummary != null,
     map: state.map === null ? null : {
       ...state.map,
       rowIds: [...state.map.rowIds],
@@ -219,7 +219,12 @@ export function captureMouseActionState(state: RuntimeState): MouseActionState {
     },
     facts: state.facts === null ? null : { ...state.facts },
     commands: state.commands === null ? null : { ...state.commands },
-    chapters: state.chapters === null ? null : { ...state.chapters },
+    chapters: state.chapters === null ? null : {
+      ...state.chapters,
+      rename: state.chapters.rename === null
+        ? null
+        : { ...state.chapters.rename, composer: { ...state.chapters.rename.composer } }
+    },
     settings: state.settings === null ? null : captureSettingsOverlay(state.settings),
     search: state.search === null ? null : { ...state.search },
     request: state.request === null ? null : { ...state.request }
@@ -285,6 +290,13 @@ export function mouseToAction(
   if (event.type === "scroll") {
     const down = event.scroll?.direction === "down";
     if (state.mode === "REQUEST") return { action: down ? "scroll-line-down" : "scroll-line-up" };
+    // The Fact editor owns several header rows above a scrollable body. Wheel
+    // input must move that body one visual row at a time; routing it through
+    // the overlay's focus actions would move the header selection instead.
+    if (state.mode === "EDITOR" && state.editor?.kind === "fact"
+      && state.textActions === null) {
+      return { action: down ? "scroll-line-down" : "scroll-line-up" };
+    }
     if (overlayOpen(state)) return { action: down ? "focus-next" : "focus-previous" };
     return { action: down ? "scroll-down" : "scroll-up" };
   }
@@ -352,7 +364,21 @@ export function mouseToAction(
   if (target.kind === "thought" && event.button === 0 && state.mode === "NAV") {
     return { action: "toggle-thought", index: target.index, rowId: target.rowId };
   }
-  if (target.kind === "composer" && event.button === 0) return { action: "compose" };
+  if (target.kind === "composer" && event.button === 0) {
+    // A Fact editor has one composer hit target per header/body field. Keep
+    // that source identity on the existing composer action so EDITOR can move
+    // focus to the field the writer clicked. Choice rows use the same focus
+    // action; their values still change only through the existing left/right
+    // keyboard controls.
+    if (state.mode === "EDITOR" && state.editor?.kind === "fact"
+      && target.composerSourceId !== undefined) {
+      return {
+        action: "compose",
+        composerSourceId: target.composerSourceId
+      };
+    }
+    return { action: "compose" };
+  }
   if (target.kind === "part") {
     // Carry the row identity its neighbours carry: an index alone cannot
     // survive a part landing or leaving above this one.

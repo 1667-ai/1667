@@ -1,5 +1,5 @@
 import { formatTokensEstimate } from "./rail.js";
-import { applyTextKey, type ResolvedKey } from "./keys.js";
+import { type ResolvedKey } from "./keys.js";
 import { chapterListModel, chapterWord } from "./chapter-model.js";
 import {
   chapterForRow,
@@ -19,8 +19,12 @@ import type { ActionContext, BackendActionContext } from "./action-context.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import { followStoryViewport } from "./viewport-intent.js";
+import { createComposer, insertComposerText } from "./composer-model.js";
+import { composerSurfaceAction } from "./composer-surface-action.js";
+import { SINGLE_LINE_COMPOSER_MOTION } from "./composer-motion.js";
+import type { ChapterSummaryOverlayState } from "./state.js";
 
-type ChapterActionContext = Pick<ActionContext, "backend" | "cache" | "renderer">;
+type ChapterActionContext = Pick<ActionContext, "backend" | "cache" | "renderer" | "repaint">;
 
 export function openChapters(state: RuntimeState, chapterNumber?: number): void {
   const view = createStoryViewModel(state.payload, state.stream);
@@ -52,21 +56,29 @@ export async function chaptersAction(
     return;
   }
   if (overlay.rename !== null) {
+    const rename = overlay.rename;
     if (resolved.action === "open-selected") {
-      const rename = overlay.rename;
-      const submittedTitle = rename.value.trim();
+      const submittedTitle = rename.composer.text.trim();
       await context.backend.run("renaming chapter", async (task) => {
         const payload = await source.api.renameChapterBreak(task.storyId, rename.breakId, submittedTitle);
         if (!task.storyCurrent()) return;
         adoptSameStoryPayload(state, payload, context.cache);
-        if (state.chapters === overlay && overlay.rename === rename && rename.value.trim() === submittedTitle) {
+        if (state.chapters === overlay && overlay.rename === rename && rename.composer.text.trim() === submittedTitle) {
           overlay.rename = null;
           state.toast = "chapter title saved";
         }
       });
     } else {
-      const value = applyTextKey(overlay.rename.value, resolved);
-      if (value !== null) overlay.rename.value = value;
+      if (resolved.action === "input") {
+        insertComposerText(overlay.rename.composer, resolved.text ?? "");
+      } else {
+        await composerSurfaceAction(resolved, state, overlay.rename.composer, {
+          isCurrent: () => state.chapters === overlay && overlay.rename?.composer === rename.composer,
+          pageRows: 1,
+          motion: SINGLE_LINE_COMPOSER_MOTION,
+          insert: (text) => text.replace(/\n+/g, " ")
+        });
+      }
     }
     return;
   }
@@ -227,13 +239,16 @@ function beginRename(state: RuntimeState, chapter: StoryChapter): void {
   // Chapter one has no opening break, so its current name comes from the
   // story rather than from a break. It is nameable all the same.
   if (breakId === null) {
-    state.chapters.rename = { breakId: null, value: state.payload.firstChapterTitle ?? "" };
+    state.chapters.rename = {
+      breakId: null,
+      composer: createComposer(state.payload.firstChapterTitle ?? "")
+    };
     state.chapters.deleteArmedId = null;
     return;
   }
   const chapterBreak = state.payload.chapterBreaks.find((candidate) => candidate.id === breakId);
   if (chapterBreak === undefined) return;
-  state.chapters.rename = { breakId, value: chapterBreak.title };
+  state.chapters.rename = { breakId, composer: createComposer(chapterBreak.title) };
   state.chapters.deleteArmedId = null;
 }
 
@@ -270,27 +285,100 @@ async function summarizeChapter(
   state: RuntimeState,
   source: AppSource,
   chapter: StoryChapter,
-  context: BackendActionContext
+  context: ChapterActionContext
 ): Promise<void> {
   const breakId = chapter.closedBy?.id;
   if (breakId === undefined) return void (state.toast = "current chapter stays raw until it ends");
   const refreshed = chapter.summary !== null;
+  const controller = new AbortController();
+  const progress: ChapterSummaryOverlayState = {
+    chapterNumber: chapter.number,
+    stage: "writing",
+    controller
+  };
   await context.backend.run("summarizing chapter", async (task) => {
-    const payload = await source.api.summarizeChapter(task.storyId, breakId);
-    if (!task.storyCurrent()) return;
-    adoptSameStoryPayload(state, payload, context.cache);
-    if (task.interactionCurrent()) {
-      const view = createStoryViewModel(payload);
-      const summaryIndex = view.rows.findIndex((row) => row.kind === "chapter-summary" && row.chapter.closedBy?.id === breakId);
-      if (summaryIndex >= 0) {
-        state.focusIndex = summaryIndex;
-        rememberFocus(state, source);
+    const active = { kind: "summary" as const, controller };
+    state.chapterSummary = progress;
+    state.abort = active;
+    context.repaint();
+    try {
+      const payload = await source.api.summarizeChapter(task.storyId, breakId, controller.signal);
+      if (!task.storyCurrent()) return;
+      adoptSameStoryPayload(state, payload, context.cache);
+      if (controller.signal.aborted) {
+        state.toast = chapterSummaryExists(payload, breakId)
+          ? `Chapter ${chapterWord(chapter.number)} summary completed before stop`
+          : `Chapter ${chapterWord(chapter.number)} summary stopped`;
+      } else if (task.interactionCurrent()) {
+        const view = createStoryViewModel(payload);
+        const summaryIndex = view.rows.findIndex((row) => row.kind === "chapter-summary" && row.chapter.closedBy?.id === breakId);
+        if (summaryIndex >= 0) {
+          state.focusIndex = summaryIndex;
+          rememberFocus(state, source);
+        }
       }
-      state.toast = refreshed
-        ? `Chapter ${chapterWord(chapter.number)} summary refreshed`
-        : `Chapter ${chapterWord(chapter.number)} summarized · ${formatTokensEstimate(chapter.rawTokens)} raw · prose untouched`;
+      if (!controller.signal.aborted) {
+        state.toast = refreshed
+          ? `Chapter ${chapterWord(chapter.number)} summary refreshed`
+          : `Chapter ${chapterWord(chapter.number)} summarized · ${formatTokensEstimate(chapter.rawTokens)} raw · prose untouched`;
+      }
+    } catch (error) {
+      if (controller.signal.aborted) {
+        await reloadChapterAfterStop(
+          state, source, task.storyId, breakId, chapter.number, refreshed,
+          task.storyCurrent, context.cache
+        );
+      } else if (task.storyCurrent()) {
+        state.toast = error instanceof Error ? error.message : String(error);
+      }
+    } finally {
+      if (state.abort === active) state.abort = null;
+      if (state.chapterSummary === progress) state.chapterSummary = null;
+      context.repaint();
     }
   });
+}
+
+function chapterSummaryExists(payload: RuntimeState["payload"], breakId: string): boolean {
+  return createStoryViewModel(payload).chapters.some(
+    (candidate) => candidate.closedBy?.id === breakId && candidate.summary !== null
+  );
+}
+
+async function reloadChapterAfterStop(
+  state: RuntimeState,
+  source: AppSource,
+  storyId: string,
+  breakId: string,
+  chapterNumber: number,
+  refreshed: boolean,
+  storyCurrent: () => boolean,
+  cache: ActionContext["cache"]
+): Promise<void> {
+  if (!storyCurrent()) return;
+  try {
+    const payload = await source.api.loadStory(storyId);
+    if (!storyCurrent()) return;
+    adoptSameStoryPayload(state, payload, cache);
+    const settled = !refreshed && chapterSummaryExists(payload, breakId)
+      ? "completed before stop"
+      : refreshed ? "stop settled · story reloaded" : "stopped";
+    state.toast = `Chapter ${chapterWord(chapterNumber)} summary ${settled}`;
+  } catch (error) {
+    if (storyCurrent()) state.toast = error instanceof Error ? error.message : String(error);
+  }
+}
+
+export function cancelChapterSummary(
+  state: RuntimeState,
+  repaint: (() => void) | undefined = undefined
+): void {
+  const progress = state.chapterSummary;
+  if (progress === null) return;
+  progress.stage = "stopping";
+  progress.controller.abort();
+  state.toast = `stopping Chapter ${chapterWord(progress.chapterNumber)} summary · waiting for backend`;
+  repaint?.();
 }
 
 function editSummary(

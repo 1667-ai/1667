@@ -654,7 +654,7 @@ describe("demo action runtime and input", () => {
     expect(state.toast).toBe("nothing to undo · u takes back an added or removed chapter break");
   });
 
-  test("a chapter rename records nothing to undo", async () => {
+test("a chapter rename records nothing to undo", async () => {
     // "chapter change" was too wide a word for what `u` holds: a rename and a
     // summary edit are chapter changes, and neither is undoable. Naming the
     // category rebuilt the ambiguity this key was narrowed to remove.
@@ -669,13 +669,200 @@ describe("demo action runtime and input", () => {
     // the rename itself would have added.
     const target = state.payload.chapterBreaks.find(({ id }) => id !== (created as { breakId: string }).breakId)!;
     state.mode = "CHAPTERS";
-    state.chapters = { cursor: 0, rename: { breakId: target.id, value: "Renamed" }, deleteArmedId: null };
+    state.chapters = {
+      cursor: 0,
+      rename: { breakId: target.id, composer: createComposer("Renamed") },
+      deleteArmedId: null
+    };
     await press("return");
 
     // The rename landed, and it left the stack exactly as it found it.
     expect((await source.api.loadStory(state.payload.id)).chapterBreaks
       .find((chapterBreak) => chapterBreak.id === target.id)?.title).toBe("Renamed");
     expect(state.undo).toEqual([created]);
+});
+
+  test("chapter rename moves a real caret before it inserts and deletes", async () => {
+    const { state, press } = harness();
+    await press("c");
+    await press("up");
+    await press("e");
+
+    const rename = state.chapters?.rename;
+    expect(rename).not.toBe(null);
+    const original = rename!.composer.text;
+    const cursorBefore = rename!.composer.cursor;
+    await press("left");
+    expect(rename!.composer.cursor).toBe(cursorBefore - 1);
+    await press("X");
+    expect(rename!.composer.text).toBe(
+      `${original.slice(0, cursorBefore - 1)}X${original.slice(cursorBefore - 1)}`
+    );
+    await press("backspace");
+    expect(rename!.composer.text).toBe(original);
+
+    const frame = renderStoryScreen(state, { width: 80, height: 30 });
+    expect(frame.lines.flat().some((part) =>
+      part.composerStart === rename!.composer.cursor
+        && part.background === "compose accent"
+    )).toBeTrue();
+  });
+
+  test("chapter summarization names its stage and cancels through the API signal", async () => {
+    const { source, state, press } = harness();
+    const entered = deferred<void>();
+    let signal: AbortSignal | undefined;
+    source.api.summarizeChapter = async (_storyId, _breakId, callerSignal) => {
+      signal = callerSignal;
+      await entered.promise;
+      return state.payload;
+    };
+
+    await press("c");
+    await press("up");
+    const pending = press("s");
+    await Promise.resolve();
+
+    expect(state.chapterSummary).toMatchObject({ chapterNumber: 2, stage: "writing" });
+    expect(signal?.aborted).toBeFalse();
+    state.chapters = null;
+    const frame = renderStoryScreen(state, { width: 120, height: 30 });
+    expect(frameText(frame.lines)).toContain("ch 2");
+    expect(frameText(frame.lines)).toContain("model progress unavailable");
+    expect(frameText(frame.lines)).toContain("esc cancels");
+
+    await press("escape", "\u001b");
+    expect(signal?.aborted).toBeTrue();
+    expect(state.chapterSummary?.stage).toBe("stopping");
+    entered.resolve();
+    await pending;
+
+    expect(state.chapterSummary).toBe(null);
+    expect(state.abort).toBe(null);
+    expect(state.toast).toBe("Chapter Two summary stopped");
+  });
+
+  test("navigation stays available and does not hide chapter summary completion", async () => {
+    const { source, state, press } = harness();
+    const entered = deferred<void>();
+    const release = deferred<void>();
+    const summarize = source.api.summarizeChapter;
+    source.api.summarizeChapter = async (...args) => {
+      entered.resolve();
+      await release.promise;
+      return await summarize(...args);
+    };
+
+    await press("c");
+    await press("up");
+    const pending = press("s");
+    await entered.promise;
+    const interactionVersion = state.interactionVersion;
+    const cursor = state.chapters!.cursor;
+
+    await press("down");
+    expect(state.interactionVersion).toBe(interactionVersion + 1);
+    expect(state.chapters!.cursor).not.toBe(cursor);
+
+    release.resolve();
+    await pending;
+    expect(state.toast).toContain("summarized");
+    expect(state.toast).not.toContain("esc cancels");
+  });
+
+  test("escape closes an action menu without cancelling a chapter summary", async () => {
+    const { source, state, press } = harness();
+    const entered = deferred<void>();
+    const release = deferred<void>();
+    let signal: AbortSignal | undefined;
+    source.api.summarizeChapter = async (_storyId, _breakId, callerSignal) => {
+      signal = callerSignal;
+      entered.resolve();
+      await release.promise;
+      return state.payload;
+    };
+
+    await press("c");
+    await press("up");
+    const pending = press("s");
+    await entered.promise;
+    state.mode = "NAV";
+    state.chapters = null;
+    await press("x");
+    expect(state.actions).not.toBe(null);
+    expect(frameText(renderStoryScreen(state, { width: 120, height: 30 }).lines))
+      .not.toContain("esc cancels");
+
+    await press("escape", "\u001b");
+    expect(state.actions).toBe(null);
+    expect(signal?.aborted).toBeFalse();
+    expect(frameText(renderStoryScreen(state, { width: 120, height: 30 }).lines))
+      .toContain("esc cancels");
+
+    release.resolve();
+    await pending;
+  });
+
+  test("escape closes a text menu without cancelling a chapter summary", async () => {
+    const { source, state, press } = harness();
+    const entered = deferred<void>();
+    const release = deferred<void>();
+    let signal: AbortSignal | undefined;
+    source.api.summarizeChapter = async (_storyId, _breakId, callerSignal) => {
+      signal = callerSignal;
+      entered.resolve();
+      await release.promise;
+      return state.payload;
+    };
+
+    await press("c");
+    await press("up");
+    const pending = press("s");
+    await entered.promise;
+    state.mode = "NAV";
+    state.chapters = null;
+    state.textActions = {
+      cursor: 0,
+      owner: null,
+      ownerSnapshot: null,
+      nativeSelection: undefined,
+      composerSelectionProjection: null,
+      copyOnly: true
+    };
+    expect(frameText(renderStoryScreen(state, { width: 120, height: 30 }).lines))
+      .not.toContain("esc cancels");
+
+    await press("escape", "\u001b");
+    expect(state.textActions).toBe(null);
+    expect(signal?.aborted).toBeFalse();
+    expect(frameText(renderStoryScreen(state, { width: 120, height: 30 }).lines))
+      .toContain("esc cancels");
+
+    release.resolve();
+    await pending;
+  });
+
+  test("a chapter summary that commits before cancellation wins is adopted", async () => {
+    const { source, state, press } = harness();
+    const entered = deferred<void>();
+    const release = deferred<void>();
+    const summarize = source.api.summarizeChapter;
+    source.api.summarizeChapter = async (...args) => {
+      entered.resolve();
+      await release.promise;
+      return await summarize(...args);
+    };
+
+    await press("c");
+    await press("up");
+    const pending = press("s");
+    await entered.promise;
+    await press("escape", "\u001b");
+    release.resolve();
+    await pending;
+
+    expect(createStoryViewModel(state.payload).chapters[1]?.summary).not.toBe(null);
+    expect(state.toast).toBe("Chapter Two summary completed before stop");
   });
 
   test("C creates a focused-part chapter break and u removes it", async () => {

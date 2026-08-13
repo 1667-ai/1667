@@ -235,6 +235,7 @@ function renderCommands(
     chapters: null,
     settings: null,
     summary: null,
+    chapterSummary: null,
     connection: { down: false, attempt: 0, nextRetryAt: null, error: null }
   };
   const request = {

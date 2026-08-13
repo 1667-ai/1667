@@ -67,6 +67,9 @@ export const CHAPTERS_FOOTER_ACTIONS = [
 export const RENAME_FOOTER_ACTIONS = [
   { token: "↵", action: "open-selected" }, { token: "esc", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
+const CHAPTER_SUMMARY_FOOTER_ACTIONS = [
+  { token: "esc cancels", action: "cancel" }
+] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 export const LIBRARY_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
   { token: "↵", action: "open-selected" }, { token: "n new", action: "new-item" },
@@ -123,7 +126,7 @@ export function renderPanels(
   const local: PanelRenderState = {
     ...state,
     hitRows,
-    requestActive: generationBusy(state) || state.summary !== null
+    requestActive: generationBusy(state) || state.summary !== null || state.chapterSummary != null
   };
   let composition: FrameComposition = { lines: base, selectable: null };
   if (state.archive !== null) {
@@ -248,13 +251,17 @@ function renderChapters(
   const content: FrameLine[] = [];
   const targets: Array<HitTarget | null> = [];
   if (overlay.rename !== null) {
-    content.push(promptLine("chapter title", overlay.rename.value, contentWidth));
+    content.push(renameLine("chapter title", overlay.rename.composer, contentWidth));
     targets.push(null);
   }
   // 13, not 11: the context status below costs two content rows. Under-reserving
   // overflows the panel, and placePanel clamps by dropping from the bottom —
   // which is exactly the status this panel moved inside to stop hiding.
-  const rowBudget = Math.max(1, height - 13 - (overlay.rename === null ? 0 : 1));
+  const rowBudget = Math.max(
+    1,
+    height - 13
+      - (overlay.rename === null ? 0 : 1)
+  );
   const window = chapterWindow(model.rows.length, overlay.cursor, rowBudget);
   const range = model.rows.length <= rowBudget ? "" : ` · ${window.start + 1}–${window.end}/${model.rows.length}`;
   content.push([
@@ -297,7 +304,9 @@ function renderChapters(
     raisedSegment(fix, "accent · deep")
   ]);
   targets.push(null, null);
-  const footer = overlay.rename !== null
+  const footer = state.chapterSummary != null
+    ? "esc cancels"
+    : overlay.rename !== null
     ? "↵ saves the title · esc keeps the old one"
     : overlay.deleteArmedId !== null
     ? "↵ jump · s sum · e rename · n break · d confirms · esc keeps"
@@ -308,7 +317,9 @@ function renderChapters(
     footer, width, height, 106, { rows: state.hitRows, targets,
       // Renaming accepts only save, cancel and text: advertising the other verbs
       // would register clicks its handler drops on the floor.
-      footerActions: overlay.rename === null ? CHAPTERS_FOOTER_ACTIONS : RENAME_FOOTER_ACTIONS });
+      footerActions: state.chapterSummary != null
+        ? CHAPTER_SUMMARY_FOOTER_ACTIONS
+        : overlay.rename === null ? CHAPTERS_FOOTER_ACTIONS : RENAME_FOOTER_ACTIONS });
 }
 
 function renderLibrary(
@@ -330,7 +341,7 @@ function renderLibrary(
   // filters and carry no count.
   const filterCount = `${rows.length} of ${overlay.stories.length}`;
   if (overlay.prompt?.kind === "rename") {
-    content.push(renameLine(overlay.prompt.composer, contentWidth));
+    content.push(renameLine("rename", overlay.prompt.composer, contentWidth));
   }
   else if (overlay.prompt !== null) {
     content.push(promptLine(
@@ -399,8 +410,8 @@ function libraryLine(
   ];
 }
 
-function renameLine(composer: ComposerState, width: number): FrameLine {
-  const prefix = truncate("  › rename: ", Math.max(0, width - 1));
+function renameLine(label: string, composer: ComposerState, width: number): FrameLine {
+  const prefix = truncate(`  › ${label}: `, Math.max(0, width - 1));
   const valueWidth = Math.max(1, width - visibleWidth(prefix));
   return [
     raisedSegment(prefix, "accent · deep"),

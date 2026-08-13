@@ -73,6 +73,81 @@ test("an exact older version warns before download and replaces the managed exec
   }
 });
 
+test("an exact version reuses the retained previous executable", async () => {
+  const root = managedScratchRoot("reuse-previous-");
+  try {
+    const installRoot = path.join(root, "bin");
+    mkdirSync(installRoot, { mode: 0o755 });
+    chmodSync(installRoot, 0o755);
+    const { authority, paths } = shellManagedAuthority(installRoot, "beta", NEXT);
+    writeManagedStub(paths.previous, OLDER);
+    const pkg = buildCanonicalPlatformPackage({
+      packageName: PACKAGE,
+      version: OLDER,
+      target: TARGET
+    });
+    let downloads = 0;
+    const result = await executeUpgradeCli(["--version", OLDER], {
+      authority,
+      observation: {
+        currentVersion: NEXT,
+        platformPackage: PACKAGE
+      },
+      registry: fakeManagedRegistry(NEXT, PACKAGE, pkg.integrity, pkg.tarballUrl),
+      fetcher: async () => {
+        downloads += 1;
+        throw new Error("the retained executable must avoid the package download");
+      }
+    });
+    expect(result.exitCode).toBe(0);
+    expect(downloads).toBe(0);
+    expect(readFileSync(paths.active, "utf8")).toContain(OLDER);
+    expect(readFileSync(paths.previous, "utf8")).toContain(NEXT);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an unusable retained previous executable falls back to download", async () => {
+  const root = managedScratchRoot("reuse-fallback-");
+  try {
+    const installRoot = path.join(root, "bin");
+    mkdirSync(installRoot, { mode: 0o755 });
+    chmodSync(installRoot, 0o755);
+    const { authority, paths } = shellManagedAuthority(installRoot, "beta", NEXT);
+    const linkedPrevious = path.join(root, "linked-previous");
+    const executed = path.join(root, "linked-previous-executed");
+    writeFileSync(
+      linkedPrevious,
+      `#!/bin/sh\nprintf touched > ${JSON.stringify(executed)}\nexit 1\n`,
+      { mode: 0o755 }
+    );
+    chmodSync(linkedPrevious, 0o755);
+    symlinkSync(linkedPrevious, paths.previous);
+    const pkg = buildCanonicalPlatformPackage({
+      packageName: PACKAGE,
+      version: OLDER,
+      target: TARGET
+    });
+    let downloads = 0;
+    const result = await executeUpgradeCli(["--version", OLDER], {
+      authority,
+      observation: { currentVersion: NEXT, platformPackage: PACKAGE },
+      registry: fakeManagedRegistry(NEXT, PACKAGE, pkg.integrity, pkg.tarballUrl),
+      fetcher: async () => {
+        downloads += 1;
+        return new Response(new Uint8Array(pkg.bytes), { status: 200 });
+      }
+    });
+    expect(result.exitCode).toBe(0);
+    expect(downloads).toBe(1);
+    expect(existsSync(executed)).toBeFalse();
+    expect(readFileSync(paths.active, "utf8")).toContain(OLDER);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("unqualified managed upgrade defaults to Ownership Record channel beta", async () => {
   const root = managedScratchRoot();
   try {
