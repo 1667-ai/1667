@@ -214,6 +214,19 @@ test("human plan output uses only locally derived fixed instructions", async () 
   }
 });
 
+test("manual exact downgrade warns about Vault damage and points at that release", async () => {
+  const result = await executeUpgradeCli(["--version", "1.0.0"], {
+    observation,
+    registry: fakeRegistry("2.0.0")
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toContain("make the Vault unreadable or damage Vault data");
+  expect(result.stderr).toContain("Back up the Vault before you continue.");
+  expect(result.stdout).toContain("1667 1.0.0 is available.");
+  expect(result.stdout).toContain("/@1667-ai/cli/v/1.0.0");
+  expect(result.stdout).not.toContain("available on stable");
+});
+
 test("human checks defer exact instructions until a fresh plan", async () => {
   const result = await executeUpgradeCli(["--check"], {
     observation,
@@ -299,6 +312,53 @@ test("PowerShell plans bind the command to the exact immutable stable Installer"
   expect(script).not.toContain("https://1667.ai/install.ps1");
 });
 
+test("an exact PowerShell downgrade keeps the selected channel", async () => {
+  const applied = await executeUpgradeCli(["--version", "1.0.0", "--json"], {
+    observation,
+    authority: powershellAuthority("beta"),
+    registry: fakeRegistry("2.0.0-beta.1")
+  });
+  expect(applied.exitCode).toBe(0);
+  expect(applied.stderr).toContain("make the Vault unreadable or damage Vault data");
+  const envelope = JSON.parse(applied.stdout);
+  expect(envelope).toMatchObject({
+    status: "manual",
+    current: "1.2.3",
+    latest: "2.0.0-beta.1",
+    target: "1.0.0",
+    channel: "beta",
+    method: "powershell"
+  });
+  const encoded = (envelope.command as string).split(" ").at(-1)!;
+  const script = Buffer.from(encoded, "base64").toString("utf16le");
+  expect(script).toContain(
+    "irm https://github.com/1667-ai/1667/releases/download/v1.0.0/install-beta.ps1"
+  );
+});
+
+test("an exact current PowerShell version does not install the channel head", async () => {
+  const applied = await executeUpgradeCli([
+    "--version",
+    observation.currentVersion,
+    "--channel",
+    "stable",
+    "--json"
+  ], {
+    observation,
+    authority: powershellAuthority("beta"),
+    registry: fakeRegistry("2.0.0")
+  });
+  expect(applied.exitCode).toBe(0);
+  expect(JSON.parse(applied.stdout)).toMatchObject({
+    status: "up-to-date",
+    current: observation.currentVersion,
+    target: null,
+    channel: "stable",
+    method: "powershell",
+    command: null
+  });
+});
+
 test("PowerShell reruns preserve custom roots and explicit channel switches", async () => {
   const encoded = windowsInstallCommand("C:\\Writer's $tools", "2.0.0")
     .split(" ").at(-1)!;
@@ -371,6 +431,8 @@ test("help is local and performs no registry I/O", async () => {
   const result = await executeUpgradeCli(["--help"], { observation, registry });
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain("--rollback");
+  expect(result.stdout).toContain("--version selects one exact published release");
+  expect(result.stdout).toContain("make the Vault unreadable or damage Vault data");
   // Help speaks to the person running the command. Internal names for the
   // install model do not tell them what to do. Assert the whole sentence: a
   // substring still passes if the guidance loses a case or is reversed.
