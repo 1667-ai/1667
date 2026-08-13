@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { compareSemVer } from "../../shared/semver.js";
 import { releaseTargetForPackage } from "../../shared/release-targets.js";
 import type { InstallationAuthority } from "./install-ownership.js";
 import {
@@ -44,6 +45,7 @@ export interface UpgradeApplyDependencies {
   readonly fetcher?: RegistryFetch;
   readonly signal?: AbortSignal;
   readonly onDownloadProgress?: PackageDownloadProgressHandler;
+  readonly onDowngradeWarning?: (warning: string) => void;
   /** `--force`: accept an Install Root another account can write. */
   readonly force?: boolean;
 }
@@ -112,6 +114,9 @@ export async function applyUpgrade(
       }
       const targetVersion = plan.target;
       const meta = plan.platformMetadata;
+      if (compareSemVer(targetVersion, lockedVersion) < 0) {
+        dependencies.onDowngradeWarning?.(DOWNGRADE_WARNING);
+      }
       await downloadPlatformPackage({
         tarballUrl: meta.tarball,
         packageName: dependencies.observation.platformPackage,
@@ -150,6 +155,10 @@ export async function applyUpgrade(
     dependencies.force === true
   );
 }
+
+export const DOWNGRADE_WARNING =
+  "Warning: A downgrade can make the Vault unreadable or damage Vault data. "
+  + "Back up the Vault before you continue.\n";
 
 export async function applyRollback(
   dependencies: {

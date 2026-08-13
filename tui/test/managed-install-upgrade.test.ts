@@ -22,6 +22,7 @@ import { createUpgradeProgressRenderer } from "../src/upgrade-progress.js";
 import {
   MANAGED_TEST_CURRENT as CURRENT,
   MANAGED_TEST_NEXT as NEXT,
+  MANAGED_TEST_OLDER as OLDER,
   MANAGED_TEST_PACKAGE as PACKAGE,
   MANAGED_TEST_TARGET as TARGET,
   buildCanonicalPlatformPackage,
@@ -31,6 +32,46 @@ import {
   shellManagedAuthority,
   writeManagedStub
 } from "./managed-package-fixture.js";
+
+test("an exact older version warns before download and replaces the managed executable", async () => {
+  const root = managedScratchRoot("downgrade-");
+  try {
+    const installRoot = path.join(root, "bin");
+    mkdirSync(installRoot, { mode: 0o755 });
+    chmodSync(installRoot, 0o755);
+    const { authority, paths } = shellManagedAuthority(installRoot, "beta", NEXT);
+    const pkg = buildCanonicalPlatformPackage({
+      packageName: PACKAGE,
+      version: OLDER,
+      target: TARGET
+    });
+    const events: string[] = [];
+    const result = await executeUpgradeCli(["--version", OLDER], {
+      authority,
+      observation: {
+        currentVersion: NEXT,
+        platformPackage: PACKAGE
+      },
+      registry: fakeManagedRegistry(NEXT, PACKAGE, pkg.integrity, pkg.tarballUrl),
+      fetcher: async () => {
+        events.push("download");
+        return new Response(new Uint8Array(pkg.bytes), { status: 200 });
+      },
+      onDowngradeWarning: (warning) => events.push(warning)
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(`Downgraded 1667 from ${NEXT} to ${OLDER}.`);
+    expect(events).toHaveLength(2);
+    expect(events[0]).toContain("make the Vault unreadable or damage Vault data");
+    expect(events[1]).toBe("download");
+    expect(readFileSync(paths.active, "utf8")).toContain(OLDER);
+    expect(readFileSync(paths.previous, "utf8")).toContain(NEXT);
+    const ownership = JSON.parse(readFileSync(paths.ownership, "utf8")) as { channel: string };
+    expect(ownership.channel).toBe("beta");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("unqualified managed upgrade defaults to Ownership Record channel beta", async () => {
   const root = managedScratchRoot();

@@ -52,18 +52,27 @@ test("apply plans always verify exact metadata when a target is available", asyn
   expect(registry.calls).toHaveLength(3);
 });
 
-test("explicit versions must equal the fresh channel head", async () => {
+test("explicit versions select an exact published release instead of the channel head", async () => {
   const registry = fakeRegistry("1.3.1");
-  const error = await rejection(planUpgrade(
+  const plan = await planUpgrade(
     applyCommand({ version: "1.3.0" }),
     observation,
     registry
-  ));
-  expect((error as UpgradeFailure).code).toBe("unsupported_target");
-  expect(registry.calls).toEqual(["tags:stable"]);
+  );
+  expect(plan).toMatchObject({
+    status: "target-available",
+    current: "1.2.3",
+    latest: "1.3.1",
+    target: "1.3.0"
+  });
+  expect(registry.calls).toEqual([
+    "tags:stable",
+    "launcher:1.3.0",
+    `platform:${observation.platformPackage}:1.3.0`
+  ]);
 });
 
-test("a newer local build is current unless an explicit downgrade was requested", async () => {
+test("a newer local build stays current without an exact version", async () => {
   const implicitRegistry = fakeRegistry("1.2.2");
   const implicit = await planUpgrade(applyCommand(), observation, implicitRegistry);
   expect(implicit).toMatchObject({
@@ -73,15 +82,28 @@ test("a newer local build is current unless an explicit downgrade was requested"
     target: null
   });
   expect(implicitRegistry.calls).toEqual(["tags:stable"]);
+});
 
-  const explicitRegistry = fakeRegistry("1.2.2");
-  const error = await rejection(planUpgrade(
-    applyCommand({ version: "1.2.2" }),
+test("an exact older version creates a verified downgrade plan", async () => {
+  const registry = fakeRegistry("1.3.0");
+  const plan = await planUpgrade(
+    applyCommand({ version: "1.1.0" }),
     observation,
-    explicitRegistry
-  ));
-  expect((error as UpgradeFailure).code).toBe("unsupported_target");
-  expect(explicitRegistry.calls).toEqual(["tags:stable"]);
+    registry
+  );
+  expect(plan).toMatchObject({
+    status: "target-available",
+    current: "1.2.3",
+    latest: "1.3.0",
+    target: "1.1.0"
+  });
+  if (plan.status !== "target-available") throw new Error("expected target");
+  expect(plan.platformMetadata.version).toBe("1.1.0");
+  expect(registry.calls).toEqual([
+    "tags:stable",
+    "launcher:1.1.0",
+    `platform:${observation.platformPackage}:1.1.0`
+  ]);
 });
 
 test("exact SemVer string equality is the only up-to-date identity", async () => {

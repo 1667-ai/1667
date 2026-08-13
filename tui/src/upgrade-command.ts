@@ -11,7 +11,7 @@ export interface UpgradeCheckCommand {
   readonly channel: UpgradeChannel;
 }
 
-/** Apply or plan an upgrade for a channel head or exact version. */
+/** Apply or plan a channel head or one exact published version. */
 export interface UpgradeApplyCommand {
   readonly kind: "apply";
   readonly channel: UpgradeChannel;

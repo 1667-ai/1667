@@ -1,4 +1,4 @@
-import { isSemVer } from "../../shared/semver.js";
+import { compareSemVer, isSemVer } from "../../shared/semver.js";
 import { AI_1667_PRODUCT_VERSION } from "../../shared/build-identity.js";
 import {
   heldTargetRefusal,
@@ -15,7 +15,11 @@ import {
   type PlatformPackage,
   type RegistryFetch
 } from "./npm-upgrade-registry.js";
-import { applyRollback, applyUpgrade } from "./upgrade-apply.js";
+import {
+  applyRollback,
+  applyUpgrade,
+  DOWNGRADE_WARNING
+} from "./upgrade-apply.js";
 import type { PackageDownloadProgressHandler } from "./upgrade-download.js";
 import { createUpgradeProgressRenderer } from "./upgrade-progress.js";
 import {
@@ -57,13 +61,17 @@ export const UPGRADE_HELP = `Usage:
 --force accepts an Install Root that another account on this machine can write.
 It waives no checksum, attestation, or version check.
 
+--version selects one exact published release. It can downgrade 1667.
+${DOWNGRADE_WARNING.trimEnd()}
+
 If you installed 1667 with npm, or you built it from source, update it the same
 way you installed it.
 On Windows, exit 1667 and run the PowerShell Installer again.`;
 
 export function windowsInstallCommand(
   installRoot: string,
-  targetVersion?: string
+  targetVersion?: string,
+  channel: UpgradeChannel = "stable"
 ): string {
   if (targetVersion !== undefined && !isSemVer(targetVersion)) {
     throw new TypeError("Windows Installer target version must be SemVer");
@@ -73,7 +81,7 @@ export function windowsInstallCommand(
     ? "https://1667.ai/install.ps1"
     : `https://github.com/1667-ai/1667/releases/download/v${
       encodeURIComponent(targetVersion)
-    }/install-stable.ps1`;
+    }/install-${channel}.ps1`;
   const script = `& ([scriptblock]::Create((irm ${installerUrl}))) `
     + "-InstallRoot '" + root + "'";
   return "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -EncodedCommand "
@@ -91,6 +99,7 @@ export interface UpgradeCliDependencies {
   readonly signal?: AbortSignal;
   readonly defaultChannel?: UpgradeChannel;
   readonly onDownloadProgress?: PackageDownloadProgressHandler;
+  readonly onDowngradeWarning?: (warning: string) => void;
 }
 
 export interface UpgradeCliOutput {
@@ -151,6 +160,9 @@ export async function executeUpgradeCli(
   }
   const method = authorityMethod(authority);
   const registry = dependencies.registry ?? new NpmUpgradeRegistry(dependencies.fetcher);
+  const downgradeWarnings: string[] = [];
+  const onDowngradeWarning = dependencies.onDowngradeWarning
+    ?? ((warning: string) => downgradeWarnings.push(warning));
   try {
     const envelope = await dispatchUpgradeCommand(
       parsed.command,
@@ -160,20 +172,21 @@ export async function executeUpgradeCli(
       registry,
       dependencies,
       parsed.force,
-      parsed.json ? undefined : dependencies.onDownloadProgress
+      parsed.json ? undefined : dependencies.onDownloadProgress,
+      onDowngradeWarning
     );
     return {
       exitCode: 0,
       stdout: parsed.json
         ? `${JSON.stringify(envelope)}\n`
         : renderUpgrade(envelope, parsed.command),
-      stderr: "",
+      stderr: downgradeWarnings.join(""),
       envelope
     };
   } catch (error) {
     const failure = normalizeFailure(error);
     const exitCode = failure.code === "interrupted" ? 130 : 1;
-    return failedOutput(
+    const output = failedOutput(
       failure,
       parsed.json,
       observation,
@@ -181,6 +194,9 @@ export async function executeUpgradeCli(
       method,
       exitCode
     );
+    return downgradeWarnings.length === 0
+      ? output
+      : { ...output, stderr: downgradeWarnings.join("") + output.stderr };
   }
 }
 
@@ -192,7 +208,8 @@ async function dispatchUpgradeCommand(
   registry: UpgradeRegistry,
   dependencies: UpgradeCliDependencies,
   force: boolean,
-  onDownloadProgress: PackageDownloadProgressHandler | undefined
+  onDownloadProgress: PackageDownloadProgressHandler | undefined,
+  onDowngradeWarning: (warning: string) => void
 ): Promise<UpgradeSuccessEnvelope> {
   switch (command.kind) {
     case "rollback": {
@@ -238,6 +255,7 @@ async function dispatchUpgradeCommand(
           fetcher: dependencies.fetcher,
           signal: dependencies.signal,
           onDownloadProgress,
+          onDowngradeWarning,
           force
         });
       }
@@ -248,13 +266,27 @@ async function dispatchUpgradeCommand(
         registry,
         dependencies.signal
       );
-      const channelSwitch = authority.kind === "powershell"
+      const channelSwitch = command.version === null
+        && authority.kind === "powershell"
         && command.channel !== authority.channel;
-      if (method === "powershell" && (plan.status !== "up-to-date" || channelSwitch)) {
+      warnIfDowngrade(plan, onDowngradeWarning);
+      if (method === "powershell"
+        && command.version === null
+        && (plan.status !== "up-to-date" || channelSwitch)) {
         requireServableWindowsChannel(plan.channel);
       }
       return publicEnvelopeFromPlan(plan, authority, channelSwitch);
     }
+  }
+}
+
+function warnIfDowngrade(
+  plan: UpgradeCorePlan,
+  onDowngradeWarning: (warning: string) => void
+): void {
+  if (plan.status === "target-available"
+    && compareSemVer(plan.target, plan.current) < 0) {
+    onDowngradeWarning(DOWNGRADE_WARNING);
   }
 }
 
@@ -268,7 +300,9 @@ export function publicEnvelopeFromPlan(
   forcePowerShellInstall = false
 ): UpgradeSuccessEnvelope {
   const method = authorityMethod(authority);
-  if (forcePowerShellInstall && authority.kind === "powershell") {
+  if (forcePowerShellInstall
+    && authority.kind === "powershell"
+    && plan.status === "up-to-date") {
     return upgradeEnvelope({
       status: "manual",
       current: plan.current,
@@ -276,7 +310,7 @@ export function publicEnvelopeFromPlan(
       target: plan.latest,
       channel: plan.channel,
       method: "powershell",
-      command: windowsInstallCommand(authority.installRoot, plan.latest)
+      command: windowsInstallCommand(authority.installRoot, plan.latest, plan.channel)
     });
   }
   if (plan.status === "up-to-date") {
@@ -306,7 +340,7 @@ export function publicEnvelopeFromPlan(
       target: plan.target,
       channel: plan.channel,
       method: "powershell",
-      command: windowsInstallCommand(authority.installRoot, plan.target)
+      command: windowsInstallCommand(authority.installRoot, plan.target, plan.channel)
     });
   }
   return upgradeEnvelope({
@@ -364,7 +398,10 @@ export async function runProcessUpgrade(
       registry: new NpmUpgradeRegistry(fetcher),
       fetcher,
       defaultChannel: loadConfig().updates.channel,
-      onDownloadProgress
+      onDownloadProgress,
+      onDowngradeWarning: (warning) => {
+        process.stderr.write(warning);
+      }
     });
     if (output.stdout.length > 0) process.stdout.write(output.stdout);
     if (output.stderr.length > 0) process.stderr.write(output.stderr);
@@ -390,12 +427,18 @@ function renderUpgrade(
       lines.push(
         command.kind === "rollback"
           ? `Rolled back 1667 from ${envelope.current} to ${envelope.target}.`
-          : `Upgraded 1667 from ${envelope.current} to ${envelope.target}.`
+          : compareSemVer(envelope.target, envelope.current) < 0
+            ? `Downgraded 1667 from ${envelope.current} to ${envelope.target}.`
+            : `Upgraded 1667 from ${envelope.current} to ${envelope.target}.`
       );
       break;
     case "available":
     case "manual":
-      lines.push(`1667 ${envelope.target} is available on ${envelope.channel}.`);
+      lines.push(
+        command.kind === "apply" && command.version !== null
+          ? `1667 ${envelope.target} is available.`
+          : `1667 ${envelope.target} is available on ${envelope.channel}.`
+      );
       break;
   }
   // A Managed Installation says nothing about itself: the update it can do is

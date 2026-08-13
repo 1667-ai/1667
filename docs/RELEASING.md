@@ -546,11 +546,16 @@ SHA-512 integrity value. It extracts the Candidate. It probes the build
 identity. It uses a recoverable transaction to replace the executable. The
 transaction stays in the Install Root.
 
+`1667 upgrade --version <version>` selects an exact published release. The
+release can be older than the active release. Before a downgrade, 1667 warns
+that the downgrade can make the Vault unreadable or damage Vault data. An exact
+version does not change the update channel in the Ownership Record.
+
 `1667 upgrade --rollback` works offline.
 
 Windows does not replace the running `1667.exe` file. On Windows, `1667 upgrade`
 verifies the available release and shows the applicable PowerShell Installer
-command. The command downloads `install-stable.ps1` from the exact, immutable
+command. The command downloads `install-<channel>.ps1` from the exact, immutable
 `v<version>` GitHub release that the plan selected; it does not re-resolve the
 moving homepage route. Exit 1667 before you run that command. Run the same
 command again for an upgrade. The PowerShell Installer keeps the Installation
