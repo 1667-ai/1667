@@ -71,6 +71,8 @@ export interface CommandPaletteContext {
    *  "some selection exists" (see `canRewriteSelection` in
    *  selection-projection.ts). */
   canRewriteSelection: boolean;
+  /** Test seam for release-gated commands. Production uses the build switch. */
+  asideEntryPointsOpen?: boolean;
 }
 
 const DEFAULT_CONTEXT: CommandPaletteContext = {
@@ -111,7 +113,7 @@ const COMMANDS: readonly PaletteCommand[] = [
     name: "aside",
     description: "discuss this story without changing it",
     blockedByLiveStream: true,
-    requires: () => asideEntryPointsOpen()
+    requires: (context) => asideEntryPointsOpen(context.asideEntryPointsOpen)
   },
 
   { id: "direct-take", section: "take", name: "direct take", description: "write the next take from an instruction", shortcut: "i", blockedByLiveStream: true },

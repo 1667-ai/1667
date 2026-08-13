@@ -184,7 +184,14 @@ describe("Aside TUI contract", () => {
   });
 
   test("Command Palette keeps Aside closed in the predecessor release", () => {
-    const model = commandPaletteModel("aside", false);
+    const model = commandPaletteModel("aside", false, {
+      connectionDown: false,
+      requestActive: false,
+      hasProse: true,
+      lineTagged: false,
+      canRewriteSelection: false,
+      asideEntryPointsOpen: false
+    });
     const match = model.selectable.find((entry) => entry.command.id === "aside");
     expect(match).toBe(undefined);
   });
