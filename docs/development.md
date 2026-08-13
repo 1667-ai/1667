@@ -4,6 +4,7 @@ read_when:
   - troubleshooting an internal error
   - running development or CI gates
   - changing repository structure or a stable name
+  - changing the Continue or Retake prompt plan
 ---
 
 # Development reference
@@ -91,6 +92,11 @@ See [the CI workflow](../.github/workflows/ci.yml).
 
 Set `AI_1667_TUI_PROFILE=1` to collect frame diagnostics. After terminal
 restoration, 1667 writes one JSON report to standard error.
+
+Before you change the Continue or Retake prompt plan, read the [Gemma prompt
+quality gate](prompt-quality-gate.md). The gate defines the frozen fixture, the
+paired v0.8.0 replay, the blind scoring record, and the committed evidence
+contract.
 
 ## Repository layout
 

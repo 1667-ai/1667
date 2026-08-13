@@ -73,8 +73,8 @@ the active story line, so this operation cannot reach it.
 
 ## Author's Note boundary
 
-The Author's Note is per-story steering for a continuation or a prompted
-retake. 1667 sends it again for each request.
+The Author's Note is per-story steering for a continuation or a Retake. 1667
+sends it again for each request.
 
 The Author's Note depth sets how many story parts from the end the note comes
 before. The default depth is 1: 1667 sends the note immediately before the
@@ -100,7 +100,7 @@ Author Brief applies otherwise. `shared/author-brief.ts` holds this lookup
 order. The server and the TUI request viewer both call it, so the request
 viewer shows the same brief that the server sends.
 
-The Author Brief applies to a continuation request, a prompted retake, a
+The Author Brief applies to a continuation request, a Retake, a
 highlighted rewrite, and an autoname request. A summary take does not use it.
 
 All generation operations first build the provider-neutral block model in
@@ -109,6 +109,19 @@ source blocks form a stable prefix. Request text, selections, boundary tags,
 and completion markers form the volatile suffix. The renderer rejects any
 stable block placed after volatility begins; provider adapters and the TUI
 context meter both consume the same model.
+
+The complete v0.8.0 continuation prompt is the compatibility baseline for
+local models. Keep this baseline for Continue and Retake until the [Gemma
+prompt quality gate](prompt-quality-gate.md) passes. A wire-shape test does
+not prove style continuity. The quality gate covers the prompt plan. It does
+not cover prompt-cache or request-adapter changes. The deterministic HTTP
+integration test in `test/model-connection-e2e.test.ts` protects the transport
+wire for those changes.
+
+Retake starts a new user turn. It does not use the assistant-prefill
+continuation path. A Retake style regression can therefore remain after a fix
+for a missing Continue contract. Issue [#176](https://github.com/1667-ai/1667/issues/176)
+records the separate Continue defect.
 
 Continuation admission is owned by `StoryService` and keyed by the exact
 `(storyId, genId)` tuple. A committed ID returns the stored story before
@@ -240,8 +253,8 @@ supports no sampling parameter at all. A dry-run request refuses when the
 profile or the story has phrase bias or banned strings set. A dry-run
 request with neither set still generates.
 
-Phrase bias and banned strings apply to a continuation request, a prompted
-retake, a highlighted rewrite, and an autoname request. A summary take does
+Phrase bias and banned strings apply to a continuation request, a Retake, a
+highlighted rewrite, and an autoname request. A summary take does
 not use them.
 
 ## Aside boundary

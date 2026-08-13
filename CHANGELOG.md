@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Prompt-plan changes now have a Gemma quality gate.** The gate compares the
+  v0.8.0 prompt with a candidate on one frozen story and one fixed profile. It
+  uses blind Retake and Continue scores. It requires no score regression for
+  any operation, seed, or rubric field. CI checks the committed evidence. It
+  does not run Gemma 4 31B.
+
 - **1667 no longer ends a generation while a model server is still
   processing the prompt.** Prefill is the model server's work before it
   sends the first output token. The server sends no stream output while it
