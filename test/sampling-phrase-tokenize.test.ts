@@ -87,6 +87,30 @@ test("resolveSamplingBias resolves real, encoding-specific token IDs for every s
   assert.equal(result.bannedStrings.length, 0);
 });
 
+test("resolveSamplingBias treats an omitted logitBias as empty when it checks a banned string", async (t) => {
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-banned-string-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const result = await service.resolveSamplingBias({
+    settings: OPENAI_PROBE_TARGET,
+    phraseBias: [],
+    bannedStrings: ["hello"]
+  });
+
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+  assert.deepEqual(result.logitBias, {
+    "24912": -100,
+    "40617": -100,
+    "13225": -100,
+    "32949": -100
+  });
+  assert.equal(result.bannedStrings[0]?.kind, "resolved");
+});
+
 // Issue #341: the editor's preview (this worker method) and the request
 // (server/provider-sampling.ts) must never disagree about a draft that
 // combines a story overlay with the profile — this proves the preview side
