@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Local model servers keep the story-writing instruction during a
+  continuation.** An assistant prefill has no final user message. This path
+  could omit the operation contract and make a long continuation lose focus.
+  1667 now keeps the mode-independent part of the contract in the stable
+  prompt prefix. The mode-dependent part stays in the final user message when
+  that message exists.
+
 - **1667 no longer ends a generation while a model server is still
   processing the prompt.** Prefill is the model server's work before it
   sends the first output token. The server sends no stream output while it

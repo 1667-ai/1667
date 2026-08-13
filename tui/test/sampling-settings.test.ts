@@ -1253,8 +1253,13 @@ function selectedNestedHit(
   return null;
 }
 
+/** Rows inside the panel frame only. Matching the whole frame also caught the
+ *  status bar, whose "next ~933/32.8k" estimate contains the same digits as a
+ *  token ID, so an unrelated change to prompt size could fail this. */
 function renderedLogitRows(frame: string, tokens: readonly string[]): string[] {
-  return frame.split("\n").filter((line) => tokens.some((token) => line.includes(token)));
+  return frame.split("\n")
+    .filter((line) => line.includes("┃"))
+    .filter((line) => tokens.some((token) => line.includes(token)));
 }
 
 // The bare `mirostat` row and the `mirostat tau` / `mirostat eta` rows all

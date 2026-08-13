@@ -82,6 +82,10 @@ test("continue renders the existing provider wire shape exactly", () => {
   assert.deepEqual(renderPromptPlan(prompt), [
     { role: "system", content: "Write vivid prose." },
     { role: "system", content: "CANONICAL FACTS" },
+    {
+      role: "system",
+      content: "You are writing prose for an ongoing story. Return only story text: no preamble, summary, explanation, commentary, or headings. Never restart, retell, or quote passages that are already written."
+    },
     { role: "user", content: "Open the door." },
     { role: "assistant", content: "The latch clicked." },
     {
@@ -187,32 +191,90 @@ test("the shared prefix survives an Author's Note too, at every part count", () 
   }
 });
 
-test("the operation contract appears exactly once, in both the new-part and the boundary-echo continuation, but not when a prefill continues the passage directly", () => {
+/**
+ * Issue #176: a continuation went out with no directive at all. PR #148 moved
+ * the operation contract into the final user turn, and the assistant-prefill
+ * path has no final user turn — it ends on the story's own unfinished
+ * assistant message — so that path silently shipped the Author Brief, the
+ * Facts, and nothing else. Every `openai-compatible` connection that is not
+ * OpenAI or Azure takes that path, which is every local server.
+ *
+ * The guard is stated over the whole mode matrix rather than the three shapes
+ * that happened to exist, because the regression was invisible exactly where
+ * no case had been written. A mode that carries no directive is the defect,
+ * whatever combination produced it.
+ */
+test("every continuation mode carries a directive, and the mode-dependent contract is sent wherever a turn can hold it", () => {
   const parts = [node("part-1", "Open the door.", "The latch clicked, then")];
-  const countContracts = (prompt: PromptPlan): number =>
+  const image = {
+    objectId: "obj-1",
+    mediaType: "image/png" as const,
+    width: 8,
+    height: 8,
+    byteLength: 64
+  };
+  const contracts = (prompt: PromptPlan): string[] =>
     prompt.turns.flatMap((turn) => turn.blocks)
-      .filter((block) => block.kind === "operation-contract").length;
+      .filter((block) => block.kind === "operation-contract")
+      .map((block) => ("text" in block ? block.text : ""));
 
-  const newPart = continuationPlan(
-    "Voice.", null, null, parts, "A stranger enters.", false, true, "ct-new", [], parts
-  );
-  const continueEcho = continuationPlan(
-    "Voice.", null, null, parts, "unused", true, false, "ct-echo", [], parts
-  );
-  const continuePrefill = continuationPlan(
-    "Voice.", null, null, parts, "unused", true, true, "ct-prefill", [], parts
+  for (const appendLast of [true, false]) {
+    for (const assistantPrefill of [true, false]) {
+      for (const withImage of [true, false]) {
+        for (const brief of ["Voice.", " "]) {
+          const label = `append=${appendLast} prefill=${assistantPrefill} image=${withImage} brief=${brief.trim().length > 0}`;
+          const plan = continuationPlan(
+            brief, null, null, parts, "A stranger enters.",
+            appendLast, assistantPrefill, "ct-matrix", [], parts,
+            withImage ? [image] : []
+          );
+          const found = contracts(plan.prompt);
+
+          // The invariant the regression broke: never zero.
+          assert.ok(found.length >= 1, `no operation contract at all: ${label}`);
+          assert.ok(
+            found.some((text) => text.startsWith("You are writing prose for an ongoing story.")),
+            `the mode-independent contract is missing: ${label}`
+          );
+
+          // A prefilled continuation of a real passage ends on the assistant
+          // message, so nothing can follow it: the mode-dependent half has
+          // nowhere to sit, and the prefill mechanism enforces what it says.
+          // An image forces a new-passage turn, which can carry it again.
+          const prefillContinuesPassage = appendLast && assistantPrefill && !withImage;
+          assert.equal(
+            found.length,
+            prefillContinuesPassage ? 1 : 2,
+            `unexpected contract count: ${label}`
+          );
+        }
+      }
+    }
+  }
+});
+
+/**
+ * The other half of #176: the prelude must not go back to carrying text that
+ * changes with the mode. That is what PR #148 removed, because a prelude that
+ * differs between continuing a passage and starting a new part invalidates a
+ * local server's KV cache on every switch — the whole point of issue #138.
+ * Restoring the directive is only correct while this stays true.
+ */
+test("the prompt prefix through the last story part is byte-identical across continuation modes", () => {
+  const parts = [node("part-1", "Open the door.", "The latch clicked, then")];
+  const prefixes = [true, false].flatMap((appendLast) =>
+    [true, false].map((assistantPrefill) => {
+      const rendered = renderPromptPlan(continuationPlan(
+        "Voice.", "CANONICAL FACTS", null, parts, "A stranger enters.",
+        appendLast, assistantPrefill, "ct-prefix", [], parts
+      ).prompt);
+      // Everything up to and including the story's last assistant message.
+      const lastPart = rendered.map((message) => message.role).lastIndexOf("assistant");
+      return JSON.stringify(rendered.slice(0, lastPart + 1));
+    })
   );
 
-  assert.equal(countContracts(newPart.prompt), 1);
-  assert.equal(countContracts(continueEcho.prompt), 1);
-  // A prefilled continuation ends on the story's own unfinished assistant
-  // message so a compatible provider can extend that exact token stream —
-  // nothing can follow it without breaking the prefill. The contract text
-  // has nowhere left to go without either breaking that or reopening the
-  // prefix instability this fix removes, so it is not sent on this path;
-  // the prefill mechanism itself already enforces exact, unprefaced
-  // continuation. See shared/continuation-plan.ts's `operationContractBlock`.
-  assert.equal(countContracts(continuePrefill.prompt), 0);
+  for (const prefix of prefixes) assert.equal(prefix, prefixes[0]);
 });
 
 /**
@@ -291,13 +353,13 @@ test("continuation inserts one late Author's Note before the final part at every
     const noteIndexes = withNote.entries
       .map((entry, index) => entry.category === "note" ? index : -1)
       .filter((index) => index >= 0);
-    // The prelude is two entries now (Author Brief, Facts) — the operation
-    // contract no longer rides ahead of the story as a prelude entry, and
-    // (PR #148) no longer rides as an entry of its own at all: it folds into
-    // whichever turn already carries the final instruction or boundary echo
+    // The prelude is three entries: Author Brief, Facts, and the
+    // mode-independent contract (issue #176). The mode-dependent half does
+    // not ride as an entry of its own (PR #148) — it folds into whichever
+    // turn already carries the final instruction or boundary echo
     // (`operationContractBlock`), so it never shifts the note's index,
     // including at zero parts.
-    assert.deepEqual(noteIndexes, [2 + Math.max(0, count - 1) * 2]);
+    assert.deepEqual(noteIndexes, [3 + Math.max(0, count - 1) * 2]);
     const noteIndex = noteIndexes[0]!;
     assert.equal(withNote.entries[noteIndex]!.turn.role, "system");
     assert.equal(withNote.entries[noteIndex + 1]!.turn.role, "user");
@@ -335,14 +397,14 @@ test("continuation places the Author's Note deeper by depth, and clamps past the
     node(`part-${index + 1}`, `Direction ${index + 1}.`, `Passage ${index + 1}.`)
   );
   // Depth counts story parts, not entries: each part is a user/assistant
-  // pair, so depth 2 lands the note before the 3rd part (index 2*2=4). The
-  // two-entry prelude (Author Brief, Facts) sets the base offset — the
-  // operation contract no longer occupies a third prelude slot ahead of it.
+  // pair, so depth 2 lands the note before the 3rd part. The three-entry
+  // prelude (Author Brief, Facts, mode-independent contract) sets the base
+  // offset; the mode-dependent half rides at the end and never shifts these.
   for (const [depth, expectedIndex, expectedEffectiveDepth] of [
-    [1, 8, 1],
-    [2, 6, 2],
-    [4, 2, 4],
-    [10, 2, 4] // past the available parts: clamps to the start, right after the prelude.
+    [1, 9, 1],
+    [2, 7, 2],
+    [4, 3, 4],
+    [10, 3, 4] // past the available parts: clamps to the start, right after the prelude.
   ] as const) {
     const plan = continuationPlan(
       "Voice.", "Facts.", { text: "Guide it.", depth }, parts, "Request.", false, true, "ct-depth", [], parts
@@ -398,7 +460,9 @@ test("stable rendered-prefix hashes are golden for every generation operation", 
   assert.deepEqual(Object.fromEntries(
     Object.entries(plans).map(([operation, prompt]) => [operation, prefixHash(prompt)])
   ), {
-    continue: "02ae792c942a28b0e8c802f604c14d465f26daecf1f1faecd3d06eb89577a80e",
+    // Changed by issue #176, which returned the mode-independent contract to
+    // the prelude. Only `continue` moves: no other operation shares it.
+    continue: "e10472c737b09dc191c1cbb0d6807812f6e65725543c7452702893bb34dfb369",
     rewrite: "915a92f74c89251f1a90cae595e7682f7f4287a1bc273ac9e2fc01099cbd4462",
     phrase: "928f1145fa90b9f398b67be8eb84164fdc17ce58b2e85704505f322ff8099752",
     title: "8ce79bf5ea50fb067d4a53a1f228b0df1b2a3c4ff6f4b698c781d00cbf3c8d72",
