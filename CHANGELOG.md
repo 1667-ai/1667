@@ -260,7 +260,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
 
-## 0.9.5-rc.2 - 2026-08-14
+## 0.9.5 - 2026-08-14
 
 - **Banned strings now save from Settings.** Adding a banned string no longer
   reports `logitBias must be an object`. Settings now copies each sampling

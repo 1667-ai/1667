@@ -11,7 +11,7 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
-    version: "0.9.5-rc.2",
+    version: "0.9.5",
     date: "2026-08-14",
     body: "- **Banned strings now save from Settings.** Adding a banned string no longer\n  reports `logitBias must be an object`. Settings now copies each sampling\n  value before it sends the settings document to the worker."
   },
