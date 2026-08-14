@@ -205,9 +205,12 @@ async function resolveNow(
   try {
     result = await source.api.resolveSamplingBias({
       settings,
-      logitBias: sampling.logitBias,
-      phraseBias: sampling.phraseBias,
-      bannedStrings: sampling.bannedStrings
+      // The settings-document probe already contains these values. Keep the
+      // preview fields as separate wire objects so the worker message does not
+      // carry repeated references to the same draft containers.
+      logitBias: { ...sampling.logitBias },
+      phraseBias: sampling.phraseBias.map((entry) => ({ ...entry })),
+      bannedStrings: [...sampling.bannedStrings]
     });
   } catch (error) {
     // Issue #282 review round 2, finding 5: the worker call throwing — the
