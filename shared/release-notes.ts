@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.5-rc.2",
+    date: "2026-08-14",
+    body: "- **Banned strings now save from Settings.** Adding a banned string no longer\n  reports `logitBias must be an object`. Settings now copies each sampling\n  value before it sends the settings document to the worker."
+  },
+  {
     version: "0.9.5-rc.1",
     date: "2026-08-13",
     body: "- **Aside adds non-canon Side Notes to a story.** Use `/aside` or the Command\n  Palette to discuss the open story. Each question and answer stays with that\n  story. Side Notes never enter Write prompts or Markdown exports. Use\n  `/clear` in Aside to remove all Side Notes from the story."
