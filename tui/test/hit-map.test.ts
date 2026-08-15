@@ -460,7 +460,7 @@ describe("hit map from rendered frames", () => {
   test("inline footer and focused-part controls dispatch their named actions", () => {
     const state = initialState(demoAppSource(), false);
     state.stream = null;
-    const frame = render(state);
+    const frame = render(state, 160);
     expect(clickText(frame, state, "r retake")).toEqual({ action: "regenerate" });
     expect(clickText(frame, state, "R reprompt")).toEqual({ action: "retake-with-prompt" });
     expect(clickText(frame, state, "w write")).toEqual({ action: "write" });
@@ -468,8 +468,8 @@ describe("hit map from rendered frames", () => {
     expect(clickText(frame, state, "↵ direct")).toEqual({ action: "compose" });
     expect(clickText(frame, state, "enter direct")).toEqual({ action: "compose" });
     expect(clickText(frame, state, "space continues")).toEqual({ action: "continue" });
-    expect(clickText(frame, state, "n new story")).toEqual({ action: "new-item" });
-    expect(clickText(frame, state, "G leaf")).toEqual({ action: "leaf" });
+    expect(clickText(frame, state, "a aside")).toEqual({ action: "open-aside" });
+    expect(clickText(frame, state, "n note")).toEqual({ action: "open-authors-note" });
     expect(clickText(frame, state, "? keys")).toEqual({ action: "open-keys" });
   });
 

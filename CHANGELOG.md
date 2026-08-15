@@ -260,6 +260,12 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
 
+## 0.9.6-rc.2 - 2026-08-15
+
+- **Aside and the Author's Note have new navigation keys.** Press `a` to open
+  Aside. Press `n` to edit the Author's Note. To create a story, press `o` to
+  open Library, and then press `n`.
+
 ## 0.9.6-rc.1 - 2026-08-15
 
 - **A Side Note can now add text to Direct or to the story.** In Aside, press

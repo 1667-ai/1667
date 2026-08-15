@@ -270,10 +270,10 @@ describe("inline editor", () => {
       .toBe("A tighter human summary.");
   });
 
-  test("a opens the Author's Note editor, saves, clears, and reports save errors", async () => {
+  test("n opens the Author's Note editor, saves, clears, and reports save errors", async () => {
     const { source, state, press } = editorHarness();
 
-    await press(key("a"));
+    await press(key("n"));
     expect(documentEditor(state).target.kind).toBe("authors-note");
     setComposerText(state.editor!.composer, "Sparse prose. Keep the lantern unanswered.");
     await press(key("s", { sequence: "\u0013", ctrl: true }));
@@ -282,7 +282,7 @@ describe("inline editor", () => {
     expect(state.payload.authorsNote).toBe("Sparse prose. Keep the lantern unanswered.");
     expect(state.toast).toBe("Author's Note saved");
 
-    await press(key("a"));
+    await press(key("n"));
     setComposerText(state.editor!.composer, " \n\t ");
     await press(key("s", { sequence: "\u0013", ctrl: true }));
     expect(state.mode).toBe("NAV");
@@ -290,7 +290,7 @@ describe("inline editor", () => {
     expect(state.toast).toBe("Author's Note cleared");
 
     source.api.setAuthorsNote = async () => { throw new Error("note endpoint unavailable"); };
-    await press(key("a"));
+    await press(key("n"));
     setComposerText(state.editor!.composer, "Keep this draft.");
     await press(key("s", { sequence: "\u0013", ctrl: true }));
     expect(state.mode).toBe("EDITOR");
@@ -301,7 +301,7 @@ describe("inline editor", () => {
   test("Author's Note depth steps with the alt-minus/equals chord, is bounded, and saves with the note", async () => {
     const { source, state, press } = editorHarness();
 
-    await press(key("a"));
+    await press(key("n"));
     const target = documentEditor(state).target as { kind: "authors-note"; depth: number };
     expect(target.depth).toBe(1);
 
@@ -338,7 +338,7 @@ describe("inline editor", () => {
   test("a recovered Author's Note depth requires confirmation before the draft overwrites it", async () => {
     const { source, state, press } = editorHarness();
     state.payload.authorsNote = "Keep the storm distant.";
-    await press(key("a"));
+    await press(key("n"));
     const target = documentEditor(state).target as {
       kind: "authors-note";
       depth: number;
@@ -370,13 +370,13 @@ describe("inline editor", () => {
 
   test("a depth change alone still saves, even when the note text is untouched", async () => {
     const { source, state, press } = editorHarness();
-    await press(key("a"));
+    await press(key("n"));
     setComposerText(state.editor!.composer, "Sparse prose.");
     await press(key("s", { sequence: "", ctrl: true }));
     expect(state.mode).toBe("NAV");
     expect(state.payload.authorsNoteDepth).toBe(undefined);
 
-    await press(key("a"));
+    await press(key("n"));
     expect(state.editor?.composer.text).toBe("Sparse prose.");
     await press(key("=", { meta: true }));
     let receivedDepth: number | undefined;
@@ -485,7 +485,7 @@ describe("inline editor", () => {
 
   test("Author's Note enforces the scalar limit on save and paints its status", async () => {
     const { source, state, cache, press } = editorHarness();
-    await press(key("a"));
+    await press(key("n"));
     setComposerText(state.editor!.composer, "x".repeat(1_200));
     const thresholdFrame = frameText(renderStoryScreen(state, {
       width: 120, height: 24, wrapCache: cache

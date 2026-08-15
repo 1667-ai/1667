@@ -111,8 +111,25 @@ describe("grouped command palette model", () => {
       .find(({ command }) => command.id === "authors-note")?.command;
     expect(note).toMatchObject({
       section: "story",
-      shortcut: "a",
+      shortcut: "n",
       mutating: true
+    });
+  });
+
+  test("Aside is a Story command with the NAV shortcut", () => {
+    const aside = commandMatches("aside", false, {
+      connectionDown: false,
+      requestActive: false,
+      hasProse: true,
+      lineTagged: false,
+      canRewriteSelection: false,
+      asideEntryPointsOpen: true
+    })
+      .find(({ command }) => command.id === "aside")?.command;
+    expect(aside).toMatchObject({
+      section: "story",
+      shortcut: "a",
+      blockedByLiveStream: true
     });
   });
 

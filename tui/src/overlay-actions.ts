@@ -119,6 +119,12 @@ export async function handleOverlayAction(
   context: OverlayActionContext
 ): Promise<boolean> {
   if (resolved.action === "retry") { await reconnect(state, source, context); return true; }
+  if (resolved.action === "open-aside") {
+    await openAside(state, source.api, {
+      entryPointsOpen: context.asideEntryPointsOpen
+    });
+    return true;
+  }
   if (resolved.action === "open-authors-note") {
     openAuthorsNoteEditor(state);
     return true;

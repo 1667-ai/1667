@@ -101,7 +101,8 @@ Git manages this installation.
 | Open the editor action menu | Right-click an editor |
 | Add a manual take | `w` |
 | Edit the selected story part | `e` |
-| Edit the Author's Note | `a` |
+| Open Aside | `a` |
+| Edit the Author's Note | `n` |
 | Generate a take with the same or a new prompt | `r` or `R` |
 | Copy the selected story part or story line | `y` or `Y` |
 | Undo an added or removed chapter break | `u` |

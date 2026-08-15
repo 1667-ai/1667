@@ -232,7 +232,7 @@ Copying and pasting a story line does not copy a Generation Record. See
 
 ## Author's Note
 
-Each story can hold one Author's Note. Press `a` to write it. 1667 sends the
+Each story can hold one Author's Note. Press `n` to write it. 1667 sends the
 Author's Note with each continuation request. 1667 puts it immediately before
 the last story part by default.
 
