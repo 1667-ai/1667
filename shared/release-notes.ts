@@ -11,7 +11,7 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
-    version: "0.9.6-rc.3",
+    version: "0.9.6",
     date: "2026-08-15",
     body: "- **The PowerShell Installer shows the command that starts 1667.** After the\n  installation, the Installer shows the exact executable path. This command\n  works when the Install Root is not in `PATH`."
   },
