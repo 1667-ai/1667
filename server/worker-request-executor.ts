@@ -236,7 +236,8 @@ async function executeMutation(
   message: WorkerRequest,
   onDelta: (text: string) => void,
   onReasoning: (delta: ReasoningStreamDelta) => void,
-  signal: AbortSignal
+  signal: AbortSignal,
+  canCommitStoppedAside?: () => boolean
 ): Promise<unknown> {
   const method = message.method;
   if (!isMutatingWorkerMethod(method)) {
@@ -298,6 +299,9 @@ async function executeMutation(
         onDelta,
         onReasoning,
         signal,
+        ...(canCommitStoppedAside === undefined
+          ? {}
+          : { canCommitStoppedAside }),
         ...(storyMutationRequest === undefined
           ? {}
           : { storyMutationRequest })
@@ -495,7 +499,14 @@ async function executeWorkerMutationWithRetry(
 ): Promise<unknown> {
   for (;;) {
     try {
-      return await executeMutation(service, message, onDelta, onReasoning, cancellation.signal);
+      return await executeMutation(
+        service,
+        message,
+        onDelta,
+        onReasoning,
+        cancellation.signal,
+        () => cancellation.userCancellationRequested
+      );
     } catch (error) {
       if (message.method !== "commitPartialRewrite"
         || !isRetryablePartialSettlementFailure(error)

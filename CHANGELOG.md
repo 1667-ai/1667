@@ -260,7 +260,11 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
 
-## 0.9.6 - 2026-08-15
+## 0.9.6-rc.4 - 2026-08-15
+
+- **Stopping an Aside answer keeps the text that arrived.** Press `Esc` after
+  answer text appears to save that text as a Side Note. If no answer text
+  appears, 1667 restores the question.
 
 - **The PowerShell Installer shows the command that starts 1667.** After the
   installation, the Installer shows the exact executable path. This command

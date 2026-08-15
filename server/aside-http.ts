@@ -28,6 +28,10 @@ import {
   GenerationResultError,
   ServiceError as HttpError
 } from "./errors.js";
+import {
+  classifyProviderAbort,
+  providerAbortForError
+} from "./provider-abort.js";
 import type { DeltaConsumer } from "./generation-stream.js";
 import type { GenerationStreamHooks } from "./generation-http.js";
 import { streamCompletion } from "./providers.js";
@@ -56,13 +60,16 @@ export function viewAsideDocument(document: AsideDocument | null): AsideDocument
 
 export interface AskAsideHooks extends GenerationStreamHooks {
   readonly entryPointsOpen?: boolean;
+  /** Mutable cancellation authority owned by the active transport operation. */
+  readonly canCommitStoppedAside?: () => boolean;
   /** Load the current Aside document for the admitted story snapshot. */
   readonly loadDocument: (story: Story) => Promise<AsideDocument | null>;
 }
 
 /**
  * Stream one Aside question. On success, commits one replacement Aside
- * document via the provider effect. On failure or stop, saves nothing.
+ * document via the provider effect. A user Stop after output commits the text
+ * that already streamed. Other cancellation sources and failures save nothing.
  *
  * Uses the `utility` Generation Profile (falls back to `default` when the
  * utility route is unset — `selectSettingsRoute`).
@@ -77,7 +84,12 @@ export async function askAside(
   signal: AbortSignal,
   hooks: AskAsideHooks
 ): Promise<AsideDocumentView | null> {
-  const { bindIntent, providerStarted = () => {}, loadDocument } = hooks;
+  const {
+    bindIntent,
+    canCommitStoppedAside,
+    providerStarted = () => {},
+    loadDocument
+  } = hooks;
   if (!asideEntryPointsOpen(hooks.entryPointsOpen)) {
     throw new HttpError(400, "Aside is not available in this release.", "aside_not_supported");
   }
@@ -185,10 +197,20 @@ export async function askAside(
       await onDelta(delta);
     }
   } catch (error) {
-    if (signal.aborted) return null;
-    throw error;
+    const abort = providerAbortForError(signal, error);
+    const userStopped = abort.kind === "terminal" && abort.userInitiated;
+    if (!signal.aborted) throw error;
+    if (!userStopped
+      || canCommitStoppedAside?.() !== true
+      || raw.trim().length === 0) return null;
   }
-  if (signal.aborted) return null;
+  if (signal.aborted) {
+    const abort = classifyProviderAbort(signal);
+    if (abort.kind !== "terminal"
+      || !abort.userInitiated
+      || canCommitStoppedAside?.() !== true
+      || raw.trim().length === 0) return null;
+  }
 
   const answer = raw.trim();
   if (answer.length === 0) {
@@ -209,7 +231,8 @@ export async function askAside(
     kind: "aside",
     expectedAsideDocumentId: story.asideDocumentId,
     document: nextDocument,
-    cancelled: signal
+    cancelled: signal,
+    canCommitStoppedAside
   });
   // The provider runtime has now prepared the durable effect. A Stop that
   // arrives after this point must not turn a committed answer into a null
