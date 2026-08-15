@@ -454,7 +454,9 @@ function Main {
     if ($null -ne $lock) { $lock.Dispose() }
   }
   Write-Output "Installed 1667 $ProductVersion ($InstallChannel) for $ArtifactTarget to $active"
-  Write-Output 'Open a new PowerShell window, then run: 1667'
+  Write-Output 'PowerShell treats 1667 as a number.'
+  Write-Output 'Open a new PowerShell window.'
+  Write-Output 'Then run: 1667.exe'
 }
 
 Main
