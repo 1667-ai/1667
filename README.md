@@ -143,6 +143,7 @@ request plan. It does not show the authentication header or its credential.
 - [Run 1667 from source](docs/run-from-source.md)
 - [Story storage](docs/story-storage.md)
 - [Facts, context, and model providers](docs/model-providers.md)
+- [Move from SillyTavern](docs/move-from-sillytavern.md)
 - [SillyTavern import](docs/sillytavern-import.md)
 - [Character card import](docs/character-card-import.md)
 - [Generation Profile transfer](docs/generation-profile-transfer.md)
