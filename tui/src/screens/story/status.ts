@@ -7,6 +7,14 @@ import { samplingListPanelStatusLabel } from "../../sampling-panel-spec.js";
 import { isPlainNavigation } from "../../keys.js";
 import { contextSeverity, formatTokensScaled, formatTokensEstimate, requestWindow } from "../../rail.js";
 import type { NextRequestEstimate } from "../../request-projection.js";
+import {
+  PLACEMENT_PLACING_STATUS,
+  PLACEMENT_STATUS_TEXT,
+  PLACEMENT_UNCERTAIN_STATUS,
+  placementInputLocked,
+  placementOutcomeUnknown,
+  placementStopLabel
+} from "../../aside-placement.js";
 import type { StoryScreenState } from "../../state.js";
 import {
   fitLine,
@@ -47,6 +55,25 @@ export function renderStatus(
   };
   if (state.prune !== null) {
     return renderPruneStatus(modeBlock, pruneConfirmText(state.prune), width);
+  }
+  if (state.mode === "PLACE" && state.placement !== null) {
+    if (placementInputLocked(state)) {
+      // In-flight place is normal work, not a destructive prune.
+      return renderPlacementStatus(modeBlock, PLACEMENT_PLACING_STATUS, width, "chrome");
+    }
+    if (placementOutcomeUnknown(state)) {
+      return renderPlacementStatus(
+        modeBlock,
+        PLACEMENT_UNCERTAIN_STATUS,
+        width,
+        "context warning"
+      );
+    }
+    const stop = state.placement.stops[state.placement.cursor];
+    const where = stop === undefined
+      ? PLACEMENT_STATUS_TEXT
+      : `${placementStopLabel(stop, state.placement.answer)} · ${PLACEMENT_STATUS_TEXT}`;
+    return renderPlacementStatus(modeBlock, where, width, "chrome");
   }
   const left: FrameLine = [modeBlock];
   left.push(segment(`  ${title} · `, "chrome"));
@@ -170,6 +197,35 @@ function renderPruneStatus(block: FrameSegment, text: string, width: number): Fr
     segment("  ", "danger text"),
     segment(truncate(body, bodyWidth), "danger text"),
     segment(suffix, "danger text")
+  ], width);
+}
+
+/**
+ * PLACE status: keep the assurance suffix when destination labels run long,
+ * and use normal chrome (not prune danger) unless the role is a warning.
+ */
+function renderPlacementStatus(
+  block: FrameSegment,
+  text: string,
+  width: number,
+  role: DisplayRole
+): FrameLine {
+  const suffix = ` · ${PLACEMENT_STATUS_TEXT}`;
+  const available = Math.max(0, width - visibleWidth(block.text) - 2);
+  if (visibleWidth(text) <= available || !text.endsWith(suffix)) {
+    return fitLine([block, segment(`  ${text}`, role)], width);
+  }
+  const body = text.slice(0, -suffix.length);
+  const bodyWidth = available - visibleWidth(suffix);
+  if (bodyWidth <= 0) {
+    // Prefer the required assurance over the destination label.
+    return fitLine([block, segment(`  ${PLACEMENT_STATUS_TEXT}`, role)], width);
+  }
+  return fitLine([
+    block,
+    segment("  ", role),
+    segment(truncate(body, bodyWidth), role),
+    segment(suffix, role)
   ], width);
 }
 

@@ -9,6 +9,22 @@ export interface AsideNoteView {
   readonly answer: string;
 }
 
+export type AsideFocus = "composer" | "notes";
+
+/** Use menu for one complete saved Side Note answer. */
+export interface AsideUseMenuState {
+  noteIndex: number;
+  /** Index into the stage's use-menu action list. */
+  cursor: number;
+  /**
+   * Fresh identity for this menu open. Hit reconciliation binds list/apply
+   * clicks to it so a queued click for note A cannot run after the writer
+   * opens note B. Survives repaint and Placement Esc restoration; changes on
+   * every openAsideUseMenu.
+   */
+  sessionId: string;
+}
+
 export interface AsideSurfaceState {
   readonly storyId: string;
   storyTitle: string;
@@ -24,13 +40,25 @@ export interface AsideSurfaceState {
   busy: boolean;
   /** Seed question from `/aside <question>` after the surface opens. */
   pendingAsk: string | null;
+  /** Keyboard focus: the Aside composer or the Side Note list. */
+  focus: AsideFocus;
+  /** Index of the focused complete Side Note when focus is notes. */
+  noteCursor: number;
+  /** Use menu for one complete saved answer, or null when closed. */
+  useMenu: AsideUseMenuState | null;
+  /**
+   * Story Part id focused when Aside opened. Placement starts here when the
+   * Part still exists. Anchors are not used in this stage.
+   */
+  openingPartId: string | null;
 }
 
 export function createAsideSurface(
   storyId: string,
   storyTitle: string,
   notes: readonly AsideNoteView[] = [],
-  pendingAsk: string | null = null
+  pendingAsk: string | null = null,
+  openingPartId: string | null = null
 ): AsideSurfaceState {
   return {
     storyId,
@@ -42,7 +70,11 @@ export function createAsideSurface(
     scrollTop: null,
     confirmClear: false,
     busy: false,
-    pendingAsk
+    pendingAsk,
+    focus: "composer",
+    noteCursor: Math.max(0, notes.length - 1),
+    useMenu: null,
+    openingPartId
   };
 }
 

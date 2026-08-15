@@ -81,6 +81,48 @@ test("shows a submitted Aside question before the first provider delta", () => {
   expect(text).not.toContain("(no Side Notes yet)");
 });
 
+test("streaming-to-saved Side Note keeps one left edge and wrap width", () => {
+  const source = demoAppSource();
+  const state = initialState(source, false);
+  state.mode = "ASIDE";
+  // Long enough to soft-wrap at 40 columns under a five-cell "  Q: "/"  A: " pad.
+  const question = "Why does the wrap edge stay fixed when the answer lands?";
+  const answer = "The answer keeps the same five-cell prefix so soft wraps do not jump when the stream becomes a saved Side Note.";
+  const surface = createAsideSurface(state.payload.id, state.payload.title);
+  state.aside = surface;
+  surface.busy = true;
+  surface.inflightQuestion = question;
+  surface.streamText = answer;
+  const width = 40;
+  const height = 24;
+  const streamingLines = renderStoryScreen(state, { width, height }).lines.map(plainLine);
+
+  surface.busy = false;
+  surface.inflightQuestion = null;
+  surface.streamText = "";
+  surface.notes = [{ question, answer }];
+  surface.noteCursor = 0;
+  surface.focus = "notes";
+  const savedLines = renderStoryScreen(state, { width, height }).lines.map(plainLine);
+
+  const contentLines = (lines: string[]) => lines.filter((line) =>
+    line.includes("Q:") || line.includes("A:") || /^\s+\S/.test(line)
+  );
+  const streamContent = contentLines(streamingLines);
+  const savedContent = contentLines(savedLines);
+  // Same soft-wrap geometry: each content row's text after the pad matches.
+  expect(streamContent.length).toBeGreaterThan(1);
+  expect(savedContent.length).toBe(streamContent.length);
+  for (let index = 0; index < streamContent.length; index += 1) {
+    const stream = streamContent[index]!;
+    const saved = savedContent[index]!;
+    // Focus marker may replace the first pad cell on the first saved row.
+    const streamBody = stream.replace(/^▸/, " ").trimEnd();
+    const savedBody = saved.replace(/^▸/, " ").trimEnd();
+    expect(savedBody).toBe(streamBody);
+  }
+});
+
 test("Aside arrow motion follows the painted fullscreen soft-wrap", async () => {
   const source = demoAppSource();
   const state = initialState(source, false);

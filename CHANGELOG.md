@@ -5,6 +5,14 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **A Side Note can now add text to Direct or to the story.** In Aside, press
+  `Tab` to focus the saved Side Notes. Press `Enter` to open the use menu.
+  **insert into compose** puts the complete answer at the Direct cursor and
+  keeps the existing draft. **insert into story…** opens Placement mode. Use
+  the Up Arrow and Down Arrow keys to select an existing Part for a new Take,
+  or select the final gap for a new Part. Press `Enter` to add the text. Press
+  `Esc` to return to Aside without a story change.
+
 - **Prompt-plan changes now have a Gemma quality gate.** The gate compares the
   v0.8.0 prompt with a candidate on one frozen story and one fixed profile. It
   uses blind Retake and Continue scores. It requires no score regression for

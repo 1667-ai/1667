@@ -252,6 +252,12 @@ async function deleteStory(
     await source.api.deleteStory(target.id);
     if (!task.owns()) return;
     forgetStoryReadingPosition(state, source, target.id);
+    // Successful delete proves the story is gone. Drop its Placement guard so
+    // adoptStoryState of a fallback story cannot leave it blocking survivors.
+    // Ordinary cross-story navigation still keeps the guard (no delete proof).
+    if (state.unresolvedPlacement?.storyId === target.id) {
+      state.unresolvedPlacement = null;
+    }
     let stories = await source.api.listStories();
     if (!task.owns()) return;
     if (deletedOpenStory && task.storyCurrent()) {

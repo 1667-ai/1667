@@ -12,13 +12,20 @@ import { ActionRuntime } from "../src/action-runtime.js";
 import { setComposerText } from "../src/composer-model.js";
 import { handleOverlayAction } from "../src/overlay-actions.js";
 import { openAside } from "../src/aside-actions.js";
+import { createStoryViewModel, rowIndexForNode, rowPart } from "../src/model.js";
 
-function context(state: ReturnType<typeof initialState>) {
+function context(
+  state: ReturnType<typeof initialState>,
+  width?: number,
+  height?: number
+) {
   return {
     backend: new ActionRuntime(state, () => undefined),
     cache: createWrapCache<ProseStyle>(),
     repaint: () => undefined,
-    renderer: null,
+    renderer: width === undefined || height === undefined
+      ? null
+      : { width, height } as never,
     applyTheme: () => undefined,
     previewTheme: () => undefined
   };
@@ -65,6 +72,34 @@ describe("Aside open ownership", () => {
 
     expect(await opening).toBeTrue();
     expect(state.aside?.storyTitle).toBe("Current title");
+  });
+
+  test("openingPartId is captured before a deferred getAside settles", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    expect(state.payload.path.length).toBeGreaterThan(1);
+    const openingPart = state.payload.path[0]!;
+    const otherPart = state.payload.path.at(-1)!;
+    state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), openingPart.id);
+
+    let resolveAside!: (document: { notes: readonly { question: string; answer: string }[] }) => void;
+    const pendingAside = new Promise<{ notes: readonly { question: string; answer: string }[] }>(
+      (resolve) => { resolveAside = resolve; }
+    );
+    const api: StoryApi = {
+      ...source.api,
+      getAside: async () => pendingAside
+    };
+    const opening = openAside(state, api, { entryPointsOpen: true });
+    await Promise.resolve();
+
+    // Writer moves focus while the Aside document is still loading.
+    state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), otherPart.id);
+    resolveAside({ notes: [] });
+
+    expect(await opening).toBeTrue();
+    expect(state.aside?.openingPartId).toBe(openingPart.id);
+    expect(state.aside?.openingPartId).not.toBe(otherPart.id);
   });
 
   test("discards an A response after recovery adopts B and keeps the Direct draft", async () => {
@@ -212,5 +247,84 @@ describe("Aside open ownership", () => {
     expect(state.payload.title).toBe("B story");
     expect(clearStoryIds).toEqual([storyAId]);
     clearContext.backend.dispose();
+  });
+
+  test("Placement initial Take follows chapter-summary via openAside", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const view = createStoryViewModel(state.payload);
+    const summaryIndex = view.rows.findIndex((row) => row.kind === "chapter-summary");
+    expect(summaryIndex).toBeGreaterThan(-1);
+    const summary = view.rows[summaryIndex]!;
+    expect(summary.kind).toBe("chapter-summary");
+    // Summary maps to the closed chapter's last Part (demo chapter 1 → p5).
+    const expectedPartId = summary.kind === "chapter-summary"
+      ? summary.chapter.parts.at(-1)!.id
+      : null;
+    expect(expectedPartId).toBe("p5");
+    expect(rowPart(view, summaryIndex)).toBeNull();
+    state.focusIndex = summaryIndex;
+
+    const api: StoryApi = {
+      ...source.api,
+      getAside: async () => ({
+        notes: [{ question: "from summary?", answer: "summary placement prose" }]
+      })
+    };
+    await openAside(state, api, { entryPointsOpen: true });
+    expect(state.aside?.openingPartId).toBe(expectedPartId);
+
+    const openContext = context(state, 80, 24);
+    await handleOverlayAction({ action: "cycle" }, state, source, openContext);
+    await handleOverlayAction({ action: "open-selected" }, state, source, openContext);
+    await handleOverlayAction({ action: "focus-next" }, state, source, openContext);
+    await handleOverlayAction({ action: "apply" }, state, source, openContext);
+
+    expect(state.mode).toBe("PLACE");
+    const stop = state.placement!.stops[state.placement!.cursor]!;
+    expect(stop.kind).toBe("take");
+    if (stop.kind === "take") expect(stop.partId).toBe(expectedPartId);
+    // Without the summary mapping, cursor would fall back to the active leaf.
+    const leafId = state.payload.path.at(-1)!.id;
+    expect(expectedPartId).not.toBe(leafId);
+  });
+
+  test("Placement initial Take follows chapter-divider via openAside", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const view = createStoryViewModel(state.payload);
+    const dividerIndex = view.rows.findIndex((row) => row.kind === "chapter-divider");
+    expect(dividerIndex).toBeGreaterThan(-1);
+    const divider = view.rows[dividerIndex]!;
+    expect(divider.kind).toBe("chapter-divider");
+    // Divider maps to the opening chapter's first Part (demo chapter 2 → p6).
+    const expectedPartId = divider.kind === "chapter-divider"
+      ? divider.openingChapter.parts[0]!.id
+      : null;
+    expect(expectedPartId).toBe("p6");
+    expect(rowPart(view, dividerIndex)).toBeNull();
+    state.focusIndex = dividerIndex;
+
+    const api: StoryApi = {
+      ...source.api,
+      getAside: async () => ({
+        notes: [{ question: "from divider?", answer: "divider placement prose" }]
+      })
+    };
+    await openAside(state, api, { entryPointsOpen: true });
+    expect(state.aside?.openingPartId).toBe(expectedPartId);
+
+    const openContext = context(state, 80, 24);
+    await handleOverlayAction({ action: "cycle" }, state, source, openContext);
+    await handleOverlayAction({ action: "open-selected" }, state, source, openContext);
+    await handleOverlayAction({ action: "focus-next" }, state, source, openContext);
+    await handleOverlayAction({ action: "apply" }, state, source, openContext);
+
+    expect(state.mode).toBe("PLACE");
+    const stop = state.placement!.stops[state.placement!.cursor]!;
+    expect(stop.kind).toBe("take");
+    if (stop.kind === "take") expect(stop.partId).toBe(expectedPartId);
+    const leafId = state.payload.path.at(-1)!.id;
+    expect(expectedPartId).not.toBe(leafId);
   });
 });

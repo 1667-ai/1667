@@ -52,15 +52,30 @@ export function exitForBackendRestart(
   }
 }
 
+/** Authoritative mutation settlement from the worker transport. */
+export type WorkerMutationOutcome = "terminal" | "uncertain";
+
 export class WorkerApiError extends ApiFailureError<CompatibleHttpFailureEnvelope> {
-  constructor(failure: CompatibleHttpFailureEnvelope) {
+  /**
+   * Transport-owned mutation settlement outcome when this error rejects a
+   * mutation call. Null for non-mutation failures and legacy/synthetic errors
+   * that never settled through the transport.
+   */
+  readonly mutationOutcome: WorkerMutationOutcome | null;
+
+  constructor(
+    failure: CompatibleHttpFailureEnvelope,
+    mutationOutcome: WorkerMutationOutcome | null = null
+  ) {
     super(failure);
     this.name = "WorkerApiError";
+    this.mutationOutcome = mutationOutcome;
   }
 }
 
 export function workerApiErrorFromFailure(
-  failure: FailureEnvelope
+  failure: FailureEnvelope,
+  mutationOutcome: WorkerMutationOutcome | null = null
 ): WorkerApiError {
-  return new WorkerApiError(failure);
+  return new WorkerApiError(failure, mutationOutcome);
 }

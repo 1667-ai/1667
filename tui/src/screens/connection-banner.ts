@@ -1,9 +1,17 @@
 import { retrySeconds } from "../connection.js";
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
 import { addHit } from "../hit.js";
-import { overlayTextInputActive, textOwnsKeyboard } from "../keys.js";
+import {
+  asideKeyboardLayer,
+  overlayTextInputActive,
+  textOwnsKeyboard
+} from "../keys.js";
 import type { OverlayState, StoryScreenState } from "../state.js";
 import { fitLine, visibleWidth, type FrameLine } from "./story/frame.js";
+
+type ConnectionBannerState = OverlayState
+  & Pick<StoryScreenState, "mode" | "tag">
+  & { now: number; aside?: StoryScreenState["aside"] };
 
 /** The banner's own sentence, without the countdown that changes every second.
  *  C-29 and C-37 have to say the same thing, so they read it from here — the
@@ -18,7 +26,7 @@ export function connectionNoticeText(
 
 export function renderConnectionBanner(
   base: FrameLine[],
-  state: OverlayState & Pick<StoryScreenState, "mode" | "tag"> & { now: number },
+  state: ConnectionBannerState,
   width: number,
   deadlines?: FrameDeadlineCollector
 ): FrameLine[] {
@@ -30,7 +38,10 @@ export function renderConnectionBanner(
   const ownsText = textOwnsKeyboard(state.mode, {
     overlayTyping: overlayTextInputActive(state),
     commandsTags: state.commands?.view === "tags",
-    tagChoosingStatus: state.tag?.choosingStatus ?? false
+    tagChoosingStatus: state.tag?.choosingStatus ?? false,
+    asideLayer: state.mode === "ASIDE"
+      ? asideKeyboardLayer(state.aside ?? null)
+      : undefined
   });
   const retry = ownsText ? "retry now" : "R retries now";
   const attempts = `(attempt ${state.connection.attempt}/5)`;
