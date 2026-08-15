@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.6-rc.2",
+    date: "2026-08-15",
+    body: "- **Aside and the Author's Note have new navigation keys.** Press `a` to open\n  Aside. Press `n` to edit the Author's Note. To create a story, press `o` to\n  open Library, and then press `n`."
+  },
+  {
     version: "0.9.6-rc.1",
     date: "2026-08-15",
     body: "- **A Side Note can now add text to Direct or to the story.** In Aside, press\n  `Tab` to focus the saved Side Notes. Press `Enter` to open the use menu.\n  **insert into compose** puts the complete answer at the Direct cursor and\n  keeps the existing draft. **insert into story…** opens Placement mode. Use\n  the Up Arrow and Down Arrow keys to select an existing Part for a new Take,\n  or select the final gap for a new Part. Press `Enter` to add the text. Press\n  `Esc` to return to Aside without a story change."

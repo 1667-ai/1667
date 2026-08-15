@@ -5,10 +5,6 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
-- **Aside and the Author's Note have new navigation keys.** Press `a` to open
-  Aside. Press `n` to edit the Author's Note. To create a story, press `o` to
-  open Library, and then press `n`.
-
 - **Prompt-plan changes now have a Gemma quality gate.** The gate compares the
   v0.8.0 prompt with a candidate on one frozen story and one fixed profile. It
   uses blind Retake and Continue scores. It requires no score regression for
@@ -263,6 +259,12 @@ This file records notable changes to 1667. Product terms use the definitions in
   palette opens a path prompt with `Tab` completion. The `1667 import-card`
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
+
+## 0.9.6-rc.2 - 2026-08-15
+
+- **Aside and the Author's Note have new navigation keys.** Press `a` to open
+  Aside. Press `n` to edit the Author's Note. To create a story, press `o` to
+  open Library, and then press `n`.
 
 ## 0.9.6-rc.1 - 2026-08-15
 
