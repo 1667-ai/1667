@@ -260,6 +260,12 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
 
+## 0.9.6-rc.3 - 2026-08-15
+
+- **The PowerShell Installer shows the command that starts 1667.** After the
+  installation, the Installer shows the exact executable path. This command
+  works when the Install Root is not in `PATH`.
+
 ## 0.9.6-rc.2 - 2026-08-15
 
 - **Aside and the Author's Note have new navigation keys.** Press `a` to open
