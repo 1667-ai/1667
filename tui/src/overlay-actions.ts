@@ -34,10 +34,26 @@ import {
   clearAsideSurface,
   closeAside,
   openAside,
+  revealAsideFocusedNote,
   scrollAside,
   sendAsideQuestion,
   stopAsideAsk
 } from "./aside-actions.js";
+import {
+  applyAsideUseMenu,
+  cycleAsideFocus,
+  focusAsideUseMenuIndex,
+  moveAsideNoteFocus,
+  moveAsideUseMenuCursor,
+  openAsideUseMenu,
+  closeAsideUseMenu
+} from "./aside-use.js";
+import {
+  cancelPlacement,
+  confirmPlacement,
+  movePlacementCursor,
+  placementInputLocked
+} from "./aside-placement.js";
 import { insertComposerText, setComposerText } from "./composer-model.js";
 import { composerMotion } from "./composer-motion.js";
 import { directComposerWrapWidth } from "./composer-geometry.js";
@@ -138,6 +154,10 @@ export async function handleOverlayAction(
   }
   if (state.mode === "ASIDE" && state.aside !== null) {
     await asideKeyAction(resolved, state, source, context);
+    return true;
+  }
+  if (state.mode === "PLACE" && state.placement !== null) {
+    await placementKeyAction(resolved, state, source, context);
     return true;
   }
   if (resolved.action === "open-log") {
@@ -704,6 +724,45 @@ async function reconnect(state: RuntimeState, source: AppSource, context: Overla
   });
 }
 
+function asideViewportBodyRows(
+  surface: NonNullable<RuntimeState["aside"]>,
+  context: OverlayActionContext
+): { width: number; bodyRows: number } {
+  const width = context.renderer?.width ?? 80;
+  const height = context.renderer?.height ?? 24;
+  const composerRows = asideComposerRows(height);
+  return {
+    width,
+    bodyRows: asideBodyHeight(surface, width, height, composerRows)
+  };
+}
+
+async function placementKeyAction(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  source: AppSource,
+  context: OverlayActionContext
+): Promise<void> {
+  if (state.placement === null) return;
+  // Lock only while this Placement owns createNode — not reconnect/recovery.
+  if (placementInputLocked(state)) return;
+  if (resolved.action === "cancel") {
+    cancelPlacement(state);
+    return;
+  }
+  if (resolved.action === "focus-next") {
+    movePlacementCursor(state, 1);
+    return;
+  }
+  if (resolved.action === "focus-previous") {
+    movePlacementCursor(state, -1);
+    return;
+  }
+  if (resolved.action === "apply" || resolved.action === "open-selected") {
+    await confirmPlacement(state, source, context);
+  }
+}
+
 async function asideKeyAction(
   resolved: ResolvedKey,
   state: RuntimeState,
@@ -713,6 +772,15 @@ async function asideKeyAction(
   const surface = state.aside;
   if (surface === null) return;
   if (resolved.action === "cancel") {
+    if (surface.useMenu !== null) {
+      closeAsideUseMenu(surface);
+      surface.focus = "notes";
+      return;
+    }
+    if (surface.focus === "notes") {
+      surface.focus = "composer";
+      return;
+    }
     if (surface.confirmClear) {
       surface.confirmClear = false;
       return;
@@ -729,6 +797,35 @@ async function asideKeyAction(
     closeAside(state);
     return;
   }
+  if (surface.useMenu !== null) {
+    if (resolved.action === "focus-next") {
+      moveAsideUseMenuCursor(surface, 1);
+      return;
+    }
+    if (resolved.action === "focus-previous") {
+      moveAsideUseMenuCursor(surface, -1);
+      return;
+    }
+    if (resolved.action === "focus-index") {
+      focusAsideUseMenuIndex(surface, resolved.index ?? surface.useMenu.cursor);
+      return;
+    }
+    if (resolved.action === "apply" || resolved.action === "open-selected") {
+      applyAsideUseMenu(state);
+      return;
+    }
+    // Use menu owns the surface: scrim/cancel stay authoritative; compose does
+    // not steal focus from under the modal.
+    return;
+  }
+
+  if (resolved.action === "cycle") {
+    if (cycleAsideFocus(surface) && surface.focus === "notes") {
+      const { width, bodyRows } = asideViewportBodyRows(surface, context);
+      revealAsideFocusedNote(surface, width, bodyRows);
+    }
+    return;
+  }
   if (resolved.action === "scroll-line-down" || resolved.action === "scroll-line-up"
     || resolved.action === "scroll-down" || resolved.action === "scroll-up") {
     const width = context.renderer?.width ?? 80;
@@ -739,6 +836,29 @@ async function asideKeyAction(
       ? resolved.action === "scroll-down" ? page : 1
       : resolved.action === "scroll-up" ? -page : -1;
     scrollAside(surface, delta, width, height, composerRows);
+    return;
+  }
+  if (surface.focus === "notes") {
+    // Left-click on the visible prompt claims composer focus so paste/text
+    // target it. Use menu already returned above.
+    if (resolved.action === "compose") {
+      surface.focus = "composer";
+      return;
+    }
+    if (resolved.action === "focus-next" || resolved.action === "focus-previous") {
+      moveAsideNoteFocus(surface, resolved.action === "focus-next" ? 1 : -1);
+      const { width, bodyRows } = asideViewportBodyRows(surface, context);
+      revealAsideFocusedNote(surface, width, bodyRows);
+      return;
+    }
+    if (resolved.action === "open-selected" || resolved.action === "apply") {
+      // Re-anchor under the current terminal size: a stale scrollTop from a
+      // prior width/header layout can hide noteCursor while Enter still uses it.
+      const { width, bodyRows } = asideViewportBodyRows(surface, context);
+      revealAsideFocusedNote(surface, width, bodyRows);
+      openAsideUseMenu(surface, surface.noteCursor);
+      return;
+    }
     return;
   }
   const width = context.renderer?.width ?? 80;

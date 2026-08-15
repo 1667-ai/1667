@@ -1,4 +1,6 @@
 import type { StoryPayload } from "../../shared/types.js";
+import { rebasePlacementStops } from "./aside-placement-model.js";
+import { trySettlePlacementFromPayload } from "./aside-placement-settle.js";
 import { createComposer } from "./composer-model.js";
 import { capturePendingDirectDraft } from "./composer-ownership.js";
 import {
@@ -11,7 +13,10 @@ import { boundedFactSelection, factRows } from "./facts-model.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import { createPrunePlan, createUnusedTakesPrunePlan } from "./prune-model.js";
 import { applyOpeningFocus } from "./reading-position.js";
-import { flushReadingPositionPersist } from "./reading-position-persist.js";
+import {
+  flushReadingPositionPersist,
+  rememberFocus
+} from "./reading-position-persist.js";
 import { abortPendingSearch, retireSearch } from "./search-request.js";
 import type { RuntimeState } from "./state.js";
 import { followStoryViewport } from "./viewport-intent.js";
@@ -69,11 +74,18 @@ export function adoptSameStoryPayload(
     : chapterRows[Math.max(0, Math.min(chapterRows.length - 1, chapters.cursor))] ?? null;
 
   reconcileWrapCache(cache, state.payload, payload);
-  if (state.aside?.storyId === payload.id) {
-    state.aside.storyTitle = payload.title;
+  // Active Aside, or the surface Placement retains while it owns the screen.
+  const retainedAside = state.aside?.storyId === payload.id
+    ? state.aside
+    : state.placement?.returnAside.storyId === payload.id
+      ? state.placement.returnAside
+      : null;
+  if (retainedAside !== null) {
+    retainedAside.storyTitle = payload.title;
   }
   state.payload = payload;
   const view = restoreStoryFocus(state, focus);
+  reconcilePlacementStops(state, view);
 
   if (facts !== null && state.facts === facts) {
     Object.assign(facts, boundedFactSelection(payload.facts, facts, facts.query));
@@ -131,6 +143,34 @@ export function reconcileStoryActions(
   if (rowIndexForNode(view, actions.partId) >= 0) return;
   state.actions = null;
   if (state.mode === "ACTIONS") state.mode = "NAV";
+}
+
+/** Rebase Placement destinations onto the newly adopted same-story payload.
+ * When the singular unresolved createNode guard matches an authoritative node,
+ * settle Placement (or a detached guard) instead of admitting a duplicate write. */
+function reconcilePlacementStops(
+  state: RuntimeState,
+  view: ReturnType<typeof createStoryViewModel>
+): void {
+  // Active Placement settlement moves focus onto the created Part. Persist
+  // that landing once here (adoption owns recovery settlement I/O; the pure
+  // settle helper does not). Detached guard settlement does not move focus.
+  const activePlacement = state.mode === "PLACE" && state.placement !== null;
+  if (trySettlePlacementFromPayload(state, state.payload)) {
+    if (activePlacement) rememberFocus(state, state);
+    return;
+  }
+  const placement = state.placement;
+  if (placement === null || state.mode !== "PLACE") return;
+  rebasePlacementStops(placement, state.payload);
+  const stop = placement.stops[placement.cursor];
+  if (stop === undefined) return;
+  const partId = stop.kind === "take" ? stop.partId : stop.leafId;
+  const index = rowIndexForNode(view, partId);
+  if (index >= 0) {
+    state.focusIndex = index;
+    followStoryViewport(state);
+  }
 }
 
 /** Keep story-bound navigation and inspection ids aligned with rendered nodes. */
@@ -401,6 +441,10 @@ export function adoptStoryState(state: RuntimeState, payload: StoryPayload, cach
   state.settings = null;
   state.summary = null;
   state.chapterSummary = null;
+  // Active Placement is UI-bound: drop it with the other interaction freezes.
+  // unresolvedPlacement is a singular story-bound mutation guard: navigation
+  // must not discard it. Settlement runs only when this payload is that story.
+  state.placement = null;
   if (changingStory) state.aside = null;
   state.hitRows = [];
   followStoryViewport(state);
@@ -409,4 +453,6 @@ export function adoptStoryState(state: RuntimeState, payload: StoryPayload, cach
   state.editorScrollTop = 0;
   state.editorScrollDetached = false;
   state.quitArmed = false;
+  // Returning to the guarded story with an authoritative payload may settle it.
+  trySettlePlacementFromPayload(state, payload);
 }

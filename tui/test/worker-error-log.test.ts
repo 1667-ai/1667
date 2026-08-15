@@ -285,7 +285,10 @@ test("uncertain terminal failures retain diagnostics without stopping the worker
   const pendingError = await rejection(pending);
   expect(pendingError instanceof WorkerApiError).toBeTrue();
   expect(pendingError).toMatchObject({
-    diagnosticRef: "err_deadbeefdeadbeefdeadbeef"
+    diagnosticRef: "err_deadbeefdeadbeefdeadbeef",
+    // Settlement exposes the transport-owned mutation outcome.
+    mutationOutcome: "uncertain",
+    code: "internal"
   });
   expect(worker.terminateCalls).toBe(0);
   expect(await Promise.race([
@@ -294,6 +297,36 @@ test("uncertain terminal failures retain diagnostics without stopping the worker
       setTimeout(() => resolve("running"), 10)
     )
   ])).toBe("running");
+  await backend.dispose();
+});
+
+test("terminal mutation settlement stamps WorkerApiError.mutationOutcome terminal", async () => {
+  const worker = new FakeWorker(true);
+  const backend = await createWorkerStoryApi({
+    worker,
+    readyTimeoutMs: 100
+  });
+  const pending = backend.api.createStory("terminal internal failure");
+  const request = await waitForRequest(worker, "createStory");
+  worker.message({
+    type: "error",
+    id: request.id,
+    failure: createFailureEnvelope({
+      code: "internal",
+      message: "Internal server error",
+      status: 500
+    }, "err_deadbeefdeadbeefdeadbeef"),
+    mutationOutcome: "terminal"
+  });
+
+  const pendingError = await rejection(pending);
+  expect(pendingError instanceof WorkerApiError).toBeTrue();
+  expect(pendingError).toMatchObject({
+    code: "internal",
+    mutationOutcome: "terminal",
+    diagnosticRef: "err_deadbeefdeadbeefdeadbeef"
+  });
+  expect(worker.terminateCalls).toBe(0);
   await backend.dispose();
 });
 

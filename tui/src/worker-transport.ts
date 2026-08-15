@@ -42,6 +42,10 @@ import { PendingRequestRegistry } from "./worker-pending.js";
 import { loadWorkerRecoveryOutbox, OutboxRecoveryCoordinator } from "./worker-recovery.js";
 import { preparePendingWorkerShutdown } from "./worker-shutdown.js";
 import {
+  ApiRecoveryRequiredError,
+  markExplicitMutationUnsent
+} from "./api-error.js";
+import {
   BackendRestartRequiredError,
   WorkerApiError,
   workerApiErrorFromFailure
@@ -217,26 +221,48 @@ export class WorkerTransport {
       expectedAggregateVersion?: StoryAggregateVersion;
     }
   ): Promise<WorkerOutput<M>> {
-    if (!this.lifecycle.acceptingRequests) return Promise.reject(new Error("Embedded backend is not running"));
-    if (isAborted(options.signal)) return Promise.resolve(null as WorkerOutput<M>);
     const mutating = isWorkerMutationMethod(method);
+    // Pre-post lifecycle exits: transport has not allocated a request id or
+    // posted yet. Mutations are explicit-unsent and remain non-ApiError
+    // connection failures; reads keep an ordinary Error.
+    if (!this.lifecycle.acceptingRequests) {
+      return Promise.reject(prePostLifecycleError(
+        mutating,
+        "Embedded backend is not running"
+      ));
+    }
+    if (isAborted(options.signal)) return Promise.resolve(null as WorkerOutput<M>);
+    // Pre-send recovery fence: no request id, mutation id, or post yet.
+    // Use ApiRecoveryRequiredError (not an uncertain mutation code) so callers
+    // can clear singular guards that never settled on the wire.
     if (mutating
       && this.recoveryCoordinator.warnings.length > 0
       && this.options.onRecoveryWarnings?.(
         this.recoveryCoordinator.warnings
       ) === true) {
-      throw workerApiErrorFromFailure(createFailureEnvelope({
-        code: "mutation_outcome_unknown",
-        message: "1667 is reloading saved state. Try again when the reload is complete.",
-        status: 409
-      }));
+      throw new ApiRecoveryRequiredError(
+        "1667 is reloading saved state. Try again when the reload is complete."
+      );
     }
     // Reads may proceed while startup recovery reconciles authoritative state,
     // but a new write must not overtake an older retained intent. In particular,
     // a delete racing replay could otherwise make deterministic absence look
     // like an unsent create and resurrect the deleted entity.
-    if (mutating && this.recoveryCoordinator.blocksMutations) await this.recoveryCoordinator.recovery;
-    if (!this.lifecycle.acceptingRequests) throw new Error("Embedded backend is not running");
+    if (mutating && this.recoveryCoordinator.blocksMutations) {
+      try {
+        await this.recoveryCoordinator.recovery;
+      } catch (error) {
+        // Backend already not accepting: this call never posted. Reclassify as
+        // explicit-unsent instead of propagating recovery's plain Error.
+        if (!this.lifecycle.acceptingRequests) {
+          throw prePostLifecycleError(true, "Embedded backend is not running");
+        }
+        throw error;
+      }
+    }
+    if (!this.lifecycle.acceptingRequests) {
+      throw prePostLifecycleError(mutating, "Embedded backend is not running");
+    }
     if (isAborted(options.signal)) return null as WorkerOutput<M>;
     try {
       validateWorkerRequestSize(method, input, WORKER_PROTOCOL_VERSION);
@@ -287,8 +313,13 @@ export class WorkerTransport {
           return null as WorkerOutput<M>;
         }
         if (!this.lifecycle.acceptingRequests) {
+          // Cancel first: cancellation failure keeps restart/uncertainty
+          // semantics and must not be reclassified as unsent.
           await intent?.cancel();
-          throw new Error("Embedded backend stopped before the mutation was sent");
+          throw prePostLifecycleError(
+            true,
+            "Embedded backend stopped before the mutation was sent"
+          );
         }
       }
       const stream = STREAM_METHODS.has(method);
@@ -682,3 +713,13 @@ function createDefaultWorker(): Worker {
   );
 }
 function isAborted(signal: AbortSignal | undefined): boolean { return signal?.aborted === true; }
+
+/**
+ * Pre-post lifecycle exit. Mutations: explicit-unsent + plain Error so the
+ * connection monitor goes down. Recovery-warning fences stay ApiError online.
+ * Reads: ordinary Error.
+ */
+function prePostLifecycleError(mutating: boolean, message: string): Error {
+  if (!mutating) return new Error(message);
+  return markExplicitMutationUnsent(new Error(message));
+}

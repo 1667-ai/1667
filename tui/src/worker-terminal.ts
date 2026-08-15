@@ -11,7 +11,8 @@ import {
 } from "../../server/mutation-outbox.js";
 import {
   WorkerApiError,
-  workerApiErrorFromFailure
+  workerApiErrorFromFailure,
+  type WorkerMutationOutcome
 } from "./worker-error.js";
 import type { SerializedWorkerOutbox } from "./worker-outbox.js";
 import type { PendingCall, PendingRequestRegistry } from "./worker-pending.js";
@@ -63,10 +64,17 @@ async function settleOwnedWorkerTerminal(
   pending.settling = true;
   pending.cleanup();
   deliverStreamTail(pending, message);
+  const mutationOwned = pending.mutationId !== undefined
+    || isServiceOwnedSettingsMutation(pending.method);
   const uncertainMutation = message.type === "error"
-    && (pending.mutationId !== undefined
-      || isServiceOwnedSettingsMutation(pending.method))
+    && mutationOwned
     && message.mutationOutcome !== "terminal";
+  // Authoritative settlement for mutation rejects only. Non-mutation errors
+  // leave mutationOutcome null so callers do not invent wire truth.
+  const mutationOutcome: WorkerMutationOutcome | null = message.type === "error"
+    && mutationOwned
+    ? uncertainMutation ? "uncertain" : "terminal"
+    : null;
   let replayResolution: RecoveryWarning<WorkerApiError>["resolution"] | null = null;
   let warningStoryId: string | null = null;
   let providerRecovery: ProviderRecoveryContext | undefined;
@@ -97,7 +105,7 @@ async function settleOwnedWorkerTerminal(
     && pending.mutationId !== undefined) {
     pendingRequests.discard(message.id);
     context.acknowledge();
-    const error = workerError(message);
+    const error = workerError(message, mutationOutcome);
     const replayRecord = recovery.recordFor(pending.mutationId);
     recovery.warn({
       mutationId: pending.mutationId,
@@ -120,7 +128,7 @@ async function settleOwnedWorkerTerminal(
     && pending.mutationId !== undefined) {
     pendingRequests.discard(message.id);
     context.acknowledge();
-    const error = workerError(message);
+    const error = workerError(message, mutationOutcome);
     recovery.warn({
       mutationId: pending.mutationId,
       method: pending.method,
@@ -137,14 +145,14 @@ async function settleOwnedWorkerTerminal(
   if (uncertainMutation && message.type === "error") {
     pendingRequests.discard(message.id);
     context.acknowledge();
-    pending.reject(workerError(message));
+    pending.reject(workerError(message, mutationOutcome));
     return;
   }
   if (!pendingRequests.isCurrent(pending)) return;
   pendingRequests.discard(message.id);
   context.acknowledge();
   if (message.type === "error") {
-    pending.reject(workerError(message));
+    pending.reject(workerError(message, mutationOutcome));
     return;
   }
   pending.resolve(message.value);
@@ -177,7 +185,8 @@ function deliverStreamTail(
 }
 
 function workerError(
-  message: Extract<WorkerToMainMessage, { type: "error" }>
+  message: Extract<WorkerToMainMessage, { type: "error" }>,
+  mutationOutcome: WorkerMutationOutcome | null
 ): WorkerApiError {
-  return workerApiErrorFromFailure(message.failure);
+  return workerApiErrorFromFailure(message.failure, mutationOutcome);
 }

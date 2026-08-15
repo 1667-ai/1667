@@ -328,6 +328,81 @@ describe("Aside TUI contract", () => {
       && part.composerStart === 5)).toBeTrue();
   });
 
+  test("notes focus withholds Aside composer ownership until a prompt click", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const surface = createAsideSurface(
+      state.payload.id,
+      state.payload.title,
+      [{ question: "Why?", answer: "Because." }]
+    );
+    surface.focus = "notes";
+    surface.noteCursor = 0;
+    state.aside = surface;
+    state.mode = "ASIDE";
+    const context = overlayContext(state, 80, 24);
+
+    // Before the prompt click, text ownership is null and right-click refuses.
+    expect(activeTextComposer(state)).toBeNull();
+    const notesFrame = renderStoryScreen(state, { width: 80, height: 24 });
+    state.hitRows = notesFrame.derived.hitRows;
+    let composerHit: { x: number; y: number } | null = null;
+    for (let y = 0; y < state.hitRows.length; y += 1) {
+      const row = state.hitRows[y];
+      if (row?.target.kind !== "composer") continue;
+      composerHit = { x: Math.min(40, Math.max(0, row.right - 1)), y };
+      break;
+    }
+    expect(composerHit).not.toBeNull();
+    const rightClick = mouseToAction({
+      type: "down",
+      button: 2,
+      x: composerHit!.x,
+      y: composerHit!.y,
+      modifiers: { shift: false, alt: false, ctrl: false }
+    }, state);
+    expect(rightClick).toBeNull();
+    openTextActions(state);
+    expect(state.textActions).toBeNull();
+
+    // Left-click on the visible prompt claims composer focus.
+    const compose = mouseToAction({
+      type: "down",
+      button: 0,
+      x: composerHit!.x,
+      y: composerHit!.y,
+      modifiers: { shift: false, alt: false, ctrl: false }
+    }, state);
+    expect(compose).toEqual({ action: "compose" });
+    await handleOverlayAction(compose!, state, source, context);
+    expect(surface.focus).toBe("composer");
+    expect(activeTextComposer(state)).toBe(surface.composer);
+
+    // Subsequent text and paste target the Aside composer.
+    await handleOverlayAction({ action: "input", text: "typed " }, state, source, context);
+    expect(surface.composer.text).toBe("typed ");
+    expect(pasteInto(state, "paste")).toBeTrue();
+    expect(surface.composer.text).toBe("typed paste");
+
+    // Esc/Tab ladder still moves notes → composer → leave.
+    await handleOverlayAction({ action: "cycle" }, state, source, context);
+    expect(surface.focus).toBe("notes");
+    expect(activeTextComposer(state)).toBeNull();
+    await handleOverlayAction({ action: "cancel" }, state, source, context);
+    expect(surface.focus).toBe("composer");
+    expect(activeTextComposer(state)).toBe(surface.composer);
+
+    // Use menu owns the surface: compose click does not steal focus.
+    await handleOverlayAction({ action: "cycle" }, state, source, context);
+    await handleOverlayAction({ action: "open-selected" }, state, source, context);
+    expect(surface.useMenu).not.toBeNull();
+    expect(activeTextComposer(state)).toBeNull();
+    await handleOverlayAction({ action: "compose" }, state, source, context);
+    expect(surface.useMenu).not.toBeNull();
+    expect(surface.focus).toBe("notes");
+    expect(activeTextComposer(state)).toBeNull();
+  });
+
   test("failed ask restores the question; successful ask appends a Side Note", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);

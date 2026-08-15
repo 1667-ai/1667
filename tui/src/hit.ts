@@ -27,7 +27,12 @@ export type HitTarget =
   | { kind: "settings-row"; row: SettingsRowId; profilePurpose?: SettingsRoutePurpose }
   | { kind: "action"; action: KeyAction; index?: number }
   /** Row control whose non-left clicks deliberately fall through to its row. */
-  | { kind: "inline-action"; action: KeyAction }
+  | {
+      kind: "inline-action";
+      action: KeyAction;
+      /** Stable identity for a painted control (for example Placement stop). */
+      rowId?: string;
+    }
   /** A rendered part prompt; left-click toggles its inline expansion. */
   | { kind: "prompt"; index: number; rowId: string }
   /** A part's thought waymark or unfolded block; left-click toggles its fold

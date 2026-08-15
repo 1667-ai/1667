@@ -260,6 +260,16 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
 
+## 0.9.6-rc.1 - 2026-08-15
+
+- **A Side Note can now add text to Direct or to the story.** In Aside, press
+  `Tab` to focus the saved Side Notes. Press `Enter` to open the use menu.
+  **insert into compose** puts the complete answer at the Direct cursor and
+  keeps the existing draft. **insert into story…** opens Placement mode. Use
+  the Up Arrow and Down Arrow keys to select an existing Part for a new Take,
+  or select the final gap for a new Part. Press `Enter` to add the text. Press
+  `Esc` to return to Aside without a story change.
+
 ## 0.9.5 - 2026-08-14
 
 - **Banned strings now save from Settings.** Adding a banned string no longer

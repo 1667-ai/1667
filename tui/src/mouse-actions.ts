@@ -21,6 +21,7 @@ export type MouseActionState = Pick<RuntimeState,
   | "actions" | "textActions" | "library" | "facts" | "commands" | "chapters" | "settings"
   | "search"
   | "request"
+  | "aside"
 > & {
   /** Derived exactly as the panel renderer derives it, since the palette's
    *  rows — and therefore their indexes — depend on it. Optional so live
@@ -227,7 +228,11 @@ export function captureMouseActionState(state: RuntimeState): MouseActionState {
     },
     settings: state.settings === null ? null : captureSettingsOverlay(state.settings),
     search: state.search === null ? null : { ...state.search },
-    request: state.request === null ? null : { ...state.request }
+    request: state.request === null ? null : { ...state.request },
+    aside: state.aside === null ? null : {
+      ...state.aside,
+      useMenu: state.aside.useMenu === null ? null : { ...state.aside.useMenu }
+    }
   };
 }
 
@@ -290,7 +295,8 @@ export function mouseToAction(
   if (event.type === "scroll") {
     const down = event.scroll?.direction === "down";
     if (state.mode === "REQUEST"
-      || state.mode === "ASIDE" && state.textActions === null) {
+      || state.mode === "ASIDE" && state.textActions === null
+        && (state.aside?.useMenu === null || state.aside?.useMenu === undefined)) {
       return { action: down ? "scroll-line-down" : "scroll-line-up" };
     }
     // The Fact editor owns several header rows above a scrollable body. Wheel
@@ -357,6 +363,20 @@ export function mouseToAction(
     if (state.mode === "NAV" || state.mode === "COMPOSE" && target.action === "open-request") {
       return { action: target.action };
     }
+    // Placement keyline: apply and destination focus only (cancel already above).
+    // Apply carries the painted stop identity so reconciliation can drop a
+    // stale click after a queued Up/Down moved the destination.
+    if (state.mode === "PLACE"
+      && (target.action === "apply"
+        || target.action === "focus-next"
+        || target.action === "focus-previous")) {
+      return {
+        action: target.action,
+        ...(target.action === "apply" && target.rowId !== undefined
+          ? { rowId: target.rowId }
+          : {})
+      };
+    }
   }
   if (target.kind === "fact" && event.button === 0 && state.mode === "NAV") {
     return { action: "open-facts", index: target.index };
@@ -419,6 +439,10 @@ function listCursor(state: MouseActionState): number | null {
   if (state.chapters !== null) return state.chapters.cursor;
   if (state.settings !== null) return state.settings.cursor;
   if (state.search !== null) return state.search.cursor;
+  if (state.mode === "ASIDE" && state.aside?.useMenu !== null
+    && state.aside?.useMenu !== undefined) {
+    return state.aside.useMenu.cursor;
+  }
   // The map has no cursor index of its own; read it off the rendered rows
   // so the click and the frame always agree.
   if (state.mode === "MAP" && state.map !== null) {

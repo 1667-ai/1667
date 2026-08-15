@@ -16,6 +16,7 @@ import { createInteractiveFrameRuntime } from "./interactive-frame-runtime.js";
 import type { TuiFrameProfileReport } from "./frame-profile.js";
 import {
   actionConflictsWithGeneration,
+  asideKeyboardLayer,
   isPlainNavigation,
   overlayTextInputActive,
   pasteInto,
@@ -633,6 +634,9 @@ export async function handleKey(
     commandsTags: state.commands?.view === "tags",
     settingsPicker: state.settings?.modelPicker != null,
     textActionsOpen: state.textActions !== null,
+    asideLayer: state.mode === "ASIDE"
+      ? asideKeyboardLayer(state.aside)
+      : undefined,
     factEditor: state.editor?.kind === "fact",
     authorsNoteEditor: state.editor?.kind === "document" && state.editor.target.kind === "authors-note",
     mapView: state.map?.view
@@ -811,6 +815,8 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     probs: null,
     record: null,
     aside: null,
+    placement: null,
+    unresolvedPlacement: null,
     toast: null,
     notices: createNoticeLog(),
     stream: renderMode && source.demo ? leafStreamView(source.payload) : null,

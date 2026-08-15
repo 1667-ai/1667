@@ -14,13 +14,20 @@ interface SettingsViewSource {
 }
 
 /** Publish a catalog refresh to the cache and whichever Library surface is
- * live now, preserving its selected story rather than its numeric row. */
+ * live now, preserving its selected story rather than its numeric row.
+ * An authoritative catalog that omits the singular Placement guard's story
+ * proves that story is gone: clear the guard. Single-story payloads and plain
+ * navigation do not pass through this boundary. */
 export function publishStories(
   state: RuntimeState,
   source: StoryCatalogSource,
   stories: StorySummary[]
 ): void {
   source.stories = stories;
+  const guard = state.unresolvedPlacement;
+  if (guard !== null && !stories.some(({ id }) => id === guard.storyId)) {
+    state.unresolvedPlacement = null;
+  }
   const overlay = state.library;
   if (overlay === null) return;
   const query = overlay.query;
