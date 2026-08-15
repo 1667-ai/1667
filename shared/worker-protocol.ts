@@ -313,7 +313,7 @@ export interface WorkerMethodContract {
     input: { storyId: string };
     output: { notes: readonly { question: string; answer: string }[] };
   };
-  /** Stream one Aside question. Null means cancelled before save. */
+  /** Stream one Aside question. Null means no answer text was saved. */
   askAside: {
     input: { storyId: string; question: string };
     output: { notes: readonly { question: string; answer: string }[] } | null;

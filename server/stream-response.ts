@@ -21,7 +21,11 @@ export async function streamResponse<T>(
     /** Reasoning ("thinking") text, kept apart from `onDelta`'s story prose:
      *  it reaches the client only through its own `"reasoning"` SSE frame,
      *  never through a `"delta"` frame. */
-    onReasoning: (delta: ReasoningStreamDelta) => Promise<void>
+    onReasoning: (delta: ReasoningStreamDelta) => Promise<void>,
+    /** True while the request transport can still authorize a stopped
+     * provider result. A disconnect changes this value even when another
+     * signal source aborted first. */
+    transportConnected: () => boolean
   ) => Promise<T | null>,
   done: (value: T) => Record<string, unknown>,
   operationSignal?: AbortSignal,
@@ -84,7 +88,8 @@ export async function streamResponse<T>(
       (delta) => {
         reasoningTokenCount = delta.tokenCount;
         return reasoningDeltas.push(delta.text);
-      }
+      },
+      () => !abort.signal.aborted
     );
     // A pending batch must reach the client before "done" or "error" — never
     // delayed behind it, and never reordered around it — so every exit path

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Story, StoryNode } from "../shared/types.js";
-import { GenerationResultError } from "../server/errors.js";
+import {
+  GenerationCancelledError,
+  GenerationResultError
+} from "../server/errors.js";
 import { sha256 } from "../server/story-format.js";
 import { storyAutonameId } from "../server/story-metadata.js";
 import { nodeRewriteId, setNodeRewriteId } from "../server/story-node-text.js";
@@ -201,6 +204,46 @@ test("provider effect preparation rejects an existing cancellation", () => {
       expectedAsideDocumentId: undefined,
       document: { schemaVersion: 1, notes: [] },
       cancelled: cancelled.signal
+    }),
+    (error: unknown) => error instanceof GenerationResultError
+      && error.message === "Aside was cancelled before it could be saved."
+  );
+});
+
+test("provider effect preparation keeps Aside output after a user Stop", () => {
+  const cancelled = new AbortController();
+  cancelled.abort(new GenerationCancelledError());
+  let userStopIsAuthoritative = true;
+
+  const prepared = prepareProviderStoryEffect({
+    kind: "aside",
+    expectedAsideDocumentId: undefined,
+    document: {
+      schemaVersion: 1,
+      notes: [{ question: "Why?", answer: "Partial answer." }]
+    },
+    cancelled: cancelled.signal,
+    canCommitStoppedAside: () => userStopIsAuthoritative
+  });
+
+  assert.deepEqual(prepared.document.notes, [{
+    question: "Why?",
+    answer: "Partial answer."
+  }]);
+  assert.equal("cancelled" in prepared, false);
+  assert.equal("canCommitStoppedAside" in prepared, false);
+
+  userStopIsAuthoritative = false;
+  assert.throws(
+    () => prepareProviderStoryEffect({
+      kind: "aside",
+      expectedAsideDocumentId: undefined,
+      document: {
+        schemaVersion: 1,
+        notes: [{ question: "Why?", answer: "Must not save." }]
+      },
+      cancelled: cancelled.signal,
+      canCommitStoppedAside: () => userStopIsAuthoritative
     }),
     (error: unknown) => error instanceof GenerationResultError
       && error.message === "Aside was cancelled before it could be saved."

@@ -40,6 +40,8 @@ import {
  *  identity), which no lower layer ever reads. */
 export interface GenerationMutationHooks extends GenerationStreamHooks {
   mutationRequest?: unknown;
+  /** Mutable authority for an Aside answer stopped by the user. */
+  canCommitStoppedAside?: () => boolean;
 }
 
 export interface StoryServiceGenerationDependencies {

@@ -646,8 +646,8 @@ export const DEMO_SETTINGS_VIEW: SettingsView = {
 };
 
 /** The demo fixture behind the same StoryApi the live server speaks — the app
- *  never branches on which backend it has. Streaming methods honor abort with
- *  the server's invariant: an aborted stream never commits. */
+ *  never branches on which backend it has. Aside keeps answer text that
+ *  streamed before a user Stop. Other aborted streams do not commit. */
 export function demoStoryApi(demo: DemoController): StoryApi {
   const unavailable = (feature: string) => { throw new Error(`${feature} is not available in the demo fixture`); };
   let settingsView = structuredClone(DEMO_SETTINGS_VIEW);
@@ -684,7 +684,6 @@ export function demoStoryApi(demo: DemoController): StoryApi {
       if (signal.aborted) return null;
       const answer = `Demo Aside answer for: ${question}`;
       onDelta(answer);
-      if (signal.aborted) return null;
       const document = appendSideNote(
         asideDocuments.get(storyId) ?? null,
         question,

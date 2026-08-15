@@ -122,6 +122,8 @@ export function mutationPreflightPlan<M extends MutatingWorkerMethod>(
 export interface MutationHandlerContext {
   readonly onDelta: (text: string) => void | Promise<void>;
   readonly signal: AbortSignal;
+  /** Mutable authority for an Aside answer stopped by the user. */
+  readonly canCommitStoppedAside?: () => boolean;
   /** Parsed again by the canonical coordinator at the service boundary. */
   readonly storyMutationRequest?: unknown;
   /** Reasoning ("thinking") text, kept apart from `onDelta`'s story prose.

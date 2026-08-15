@@ -791,7 +791,8 @@ async function asideKeyAction(
       surface.confirmClear = false;
       return;
     }
-    // Esc while answering stops the request and restores the question.
+    // Esc stops the request. It keeps received answer text as a Side Note, or
+    // restores the question if no answer text arrived.
     // Esc when idle returns to Write.
     if (surface.busy) {
       // Clear has no abort path. Its missing in-flight question is the

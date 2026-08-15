@@ -238,7 +238,8 @@ async function handleApi(
     input: unknown,
     onDelta?: (text: string) => void | Promise<void>,
     signal = operation.signal,
-    onReasoning?: (delta: ReasoningStreamDelta) => void | Promise<void>
+    onReasoning?: (delta: ReasoningStreamDelta) => void | Promise<void>,
+    canCommitStoppedAside?: () => boolean
   ) => {
     if (operation.mutationId === null) {
       throw new ServiceError(
@@ -261,7 +262,8 @@ async function handleApi(
       ticket,
       operation.expectedAggregateVersion,
       onDelta,
-      onReasoning
+      onReasoning,
+      canCommitStoppedAside
     );
   };
   if (head === "settings" && id === undefined) {
@@ -698,10 +700,18 @@ async function handleApi(
   if (head === "stories" && id !== undefined && sub === "aside" && subId === "ask" && method === "POST") {
     const body = await jsonBody();
     return await streamResponse(request, response,
-      (onDelta, signal) => mutate("askAside", {
-        storyId: id,
-        question: requireString(body.question, "question")
-      }, onDelta, signal),
+      (onDelta, signal, _onReasoning, transportConnected) => mutate(
+        "askAside",
+        {
+          storyId: id,
+          question: requireString(body.question, "question")
+        },
+        onDelta,
+        signal,
+        undefined,
+        () => operation.isUserCancellationAuthoritative()
+          && transportConnected()
+      ),
       (result) => ({ type: "done", aside: result }),
       operation.signal,
       context.errorReporter,

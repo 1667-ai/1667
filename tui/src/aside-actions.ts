@@ -465,6 +465,9 @@ export async function sendAsideQuestion(
     } catch {
       // A committed Side Note must not be hidden by a failed refresh.
     }
+    if (controller.signal.aborted) {
+      state.toast = "Aside stopped · answer kept";
+    }
   } catch (error) {
     if (!current()) return;
     const restore = mayRestore();
@@ -481,8 +484,8 @@ export async function sendAsideQuestion(
 }
 
 /**
- * Stop an in-flight Aside answer. The ask path restores the question when the
- * abort settles. Stays on the Aside surface.
+ * Stop an in-flight Aside answer. Keep received answer text as a Side Note.
+ * If no answer text arrived, restore the question. Stay on the Aside surface.
  */
 export function stopAsideAsk(state: RuntimeState): boolean {
   const surface = state.aside;
