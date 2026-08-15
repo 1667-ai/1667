@@ -59,7 +59,7 @@ export type KeyAction =
   | "open-library" | "open-facts" | "open-commands" | "open-settings"
   | "open-selected" | "new-item" | "duplicate-item" | "rename-item" | "delete-item"
   | "move-item-up" | "move-item-down"
-  | "open-authors-note" | "note-depth-decrease" | "note-depth-increase"
+  | "open-aside" | "open-authors-note" | "note-depth-decrease" | "note-depth-increase"
   | "filter" | "cycle" | "check" | "detect-context" | "discard-pending" | "retry" | "continue"
   | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index"
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
@@ -132,7 +132,7 @@ export const MUTATING_ACTIONS: ReadonlySet<KeyAction> = new Set([
   "prune", "apply", "delete-tag", "edit", "write", "regenerate", "tag",
   "new-item", "duplicate-item", "rename-item", "delete-item", "discard-pending",
   "move-item-up", "move-item-down",
-  "create-chapter", "summarize-chapter", "open-authors-note", "save-edit", "save-edit-inplace"
+  "create-chapter", "summarize-chapter", "open-aside", "open-authors-note", "save-edit", "save-edit-inplace"
 ]);
 
 /** Global-scope editor saves update local application state, not the story. */

@@ -5,6 +5,10 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Aside and the Author's Note have new navigation keys.** Press `a` to open
+  Aside. Press `n` to edit the Author's Note. To create a story, press `o` to
+  open Library, and then press `n`.
+
 - **Prompt-plan changes now have a Gemma quality gate.** The gate compares the
   v0.8.0 prompt with a candidate on one frozen story and one fixed profile. It
   uses blind Retake and Continue scores. It requires no score regression for

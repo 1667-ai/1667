@@ -701,9 +701,10 @@ function navHintItems(state: StoryScreenState, view: StoryViewModel): HintItem[]
     return withThoughtHint([
       hintItem([actionHint(`space continues ¶ ${focused.number}`, "continue")]),
       hintItem([actionHint("enter direct", "compose")]),
-      hintItem([actionHint("G leaf", "leaf")], 1),
-      hintItem([actionHint("n new story", "new-item")], 3),
-      hintItem([actionHint("? keys", "open-keys")], 2)
+      hintItem([actionHint("G leaf", "leaf")], 4),
+      hintItem([actionHint("a aside", "open-aside")], 2),
+      hintItem([actionHint("n note", "open-authors-note")], 3),
+      hintItem([actionHint("? keys", "open-keys")], 1)
     ]);
   }
   const leafBreak = focused !== null && focused.pathIndex === state.payload.path.length - 1
@@ -715,7 +716,8 @@ function navHintItems(state: StoryScreenState, view: StoryViewModel): HintItem[]
       hintItem([segment(`next part opens chapter ${chapterWord(focused.chapterNumber + 1).toLowerCase()}`, "chrome")], 3),
       hintItem([actionHint("space continues", "continue")]),
       hintItem([actionHint("c chapters", "open-chapters")], 1),
-      hintItem([actionHint("n new story", "new-item")], 2)
+      hintItem([actionHint("a aside", "open-aside")], 2),
+      hintItem([actionHint("n note", "open-authors-note")], 4)
     ]);
   }
   // No `←→ flips takes` here: the focused part's own `‹ take j/m ›` carries
@@ -723,8 +725,9 @@ function navHintItems(state: StoryScreenState, view: StoryViewModel): HintItem[]
   return withThoughtHint([
     hintItem([actionHint("space continues", "continue")]),
     hintItem([actionHint("enter directs", "compose")]),
-    hintItem([actionHint("n new story", "new-item")], 2),
-    hintItem([actionHint("m map", "open-map")], 3),
+    hintItem([actionHint("a aside", "open-aside")], 2),
+    hintItem([actionHint("n note", "open-authors-note")], 3),
+    hintItem([actionHint("m map", "open-map")], 4),
     hintItem([actionHint("? keys", "open-keys")], 1)
   ]);
 }
