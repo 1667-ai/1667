@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import {
   AUTH_HELP,
   DECRYPT_HELP,
@@ -139,25 +140,20 @@ test("1667 <command> --help prints that command's page instead of refusing the f
   expect(output).not.toContain("unknown import option");
 });
 
-test("CLI errors cannot write terminal control characters", async () => {
-  const { runCli } = await import("../src/main.js");
-  const originalWrite = process.stderr.write.bind(process.stderr);
-  const originalExitCode = process.exitCode;
-  const captured: string[] = [];
-  process.stderr.write = ((chunk: string) => {
-    captured.push(String(chunk));
-    return true;
-  }) as typeof process.stderr.write;
-  try {
-    await runCli(["--unknown\u001b[31m"]);
-  } finally {
-    process.stderr.write = originalWrite;
-    process.exitCode = originalExitCode;
-  }
+test("CLI errors cannot write terminal control characters", () => {
+  const moduleUrl = new URL("../src/main.ts", import.meta.url).href;
+  const child = spawnSync(process.execPath, [
+    "--eval",
+    `import { runCli } from ${JSON.stringify(moduleUrl)};`
+      + "await runCli(['--unknown\\u001b[31m']);"
+  ], {
+    encoding: "utf8",
+    timeout: 2_000
+  });
 
-  const output = captured.join("");
-  expect(output).toContain("unknown option: --unknown▪[31m");
-  expect(output).not.toContain("\u001b");
+  expect(child.status).toBe(2);
+  expect(child.stderr).toContain("unknown option: --unknown▪[31m");
+  expect(child.stderr).not.toContain("\u001b");
 });
 
 test("the import-lorebook page names every format the command reads", () => {
