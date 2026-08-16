@@ -260,7 +260,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
 
-## 0.9.7-rc.1 - 2026-08-16
+## 0.9.7 - 2026-08-16
 
 - **Internal errors now include useful diagnostic text.** 1667 shows the
   error name, the error message, and a short cause chain. It keeps the
