@@ -57,7 +57,10 @@ linuxTest("listener closes and removes authority when its service factory fails"
       }
     }),
     (error: unknown) => {
-      assert.equal(toPublicServiceError(error).message, "Internal server error");
+      assert.equal(
+        toPublicServiceError(error).message,
+        "Error: service factory failed"
+      );
       reference = internalErrorReference(error);
       assert.match(reference ?? "", /^err_[0-9a-f]{24}$/);
       return true;
@@ -106,7 +109,10 @@ linuxTest("listener binds factory service data before auth publication", async (
         })
     }),
     (error: unknown) => {
-      assert.equal(toPublicServiceError(error).message, "Internal server error");
+      assert.equal(
+        toPublicServiceError(error).message,
+        "Error: HTTP service data directory does not match its selected project"
+      );
       reference = internalErrorReference(error);
       assert.match(reference ?? "", /^err_[0-9a-f]{24}$/);
       return true;
@@ -339,7 +345,7 @@ linuxTest("listener exposes selected storage shape failures only during startup"
   assert.equal(await readFile(internalErrorLogPath(stateRoot), "utf8"), "");
 });
 
-linuxTest("listener keeps unexpected machine-tier failures private", async (t) => {
+linuxTest("listener keeps unexpected machine-tier failures actionable", async (t) => {
   const parent = await privateTemporaryDirectory(
     t,
     "1667-http-state-resolution-"
@@ -355,10 +361,9 @@ linuxTest("listener keeps unexpected machine-tier failures private", async (t) =
     await assert.rejects(
       startHttpListener(),
       (error: unknown) => {
-        assert.equal(
-          toPublicServiceError(error).message,
-          "Internal server error"
-        );
+        const message = toPublicServiceError(error).message;
+        assert.match(message, /^Error: /);
+        assert.ok(message.includes(blockingFile));
         assert.equal(internalErrorReference(error), null);
         return true;
       }
@@ -404,7 +409,13 @@ linuxTest("listener preserves startup and cleanup failures together", async (t) 
       })
     }),
     (error: unknown) => {
-      assert.equal(toPublicServiceError(error).message, "Internal server error");
+      const message = toPublicServiceError(error).message;
+      assert.match(
+        message,
+        /^AggregateError: 1667 HTTP listener startup and cleanup both failed/
+      );
+      assert.match(message, /service initialization failed/);
+      assert.match(message, /service disposal failed/);
       reference = internalErrorReference(error);
       assert.match(reference ?? "", /^err_[0-9a-f]{24}$/);
       return true;
@@ -483,7 +494,7 @@ linuxTest("listener bounds a stalled diagnostic flush during shutdown", async (t
 
   assert.ok(performance.now() - startedAt < 1_000);
   assert.equal(internalErrorReference(failure), null);
-  assert.equal(toPublicServiceError(failure).message, "Internal server error");
+  assert.equal(toPublicServiceError(failure).message, "Error: shutdown failed");
 });
 
 linuxTest("request drain owns diagnostic reporting and the error response", async (t) => {

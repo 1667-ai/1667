@@ -362,8 +362,7 @@ test("HTTP streams persist private failures and return their reference", async (
 
   const reference = /err_[0-9a-f]{24}/.exec(response.output)?.[0];
   assert.ok(reference);
-  assert.match(response.output, /Internal server error/);
-  assert.doesNotMatch(response.output, /private streaming detail/);
+  assert.match(response.output, /Error: private streaming detail/);
   const stored = await readFile(internalErrorLogPath(machineDir), "utf8");
   assert.match(stored, new RegExp(reference));
   assert.match(stored, /private streaming detail/);

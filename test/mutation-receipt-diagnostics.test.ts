@@ -47,7 +47,7 @@ class MutationReceiptStore extends ProductionMutationReceiptStore {
   }
 }
 
-test("private terminal failures persist diagnostics before receipt references", async (t) => {
+test("internal terminal failures persist diagnostics before receipt references", async (t) => {
   const rootDir = await realpath(
     await mkdtemp(path.join(tmpdir(), "1667-mutation-private-failure-"))
   );
@@ -84,14 +84,14 @@ test("private terminal failures persist diagnostics before receipt references", 
     path.join(dir, `${mutationId}.json`),
     "utf8"
   );
-  assert.doesNotMatch(receiptText, /private mutation detail/);
+  assert.match(receiptText, /private mutation detail/);
   const receipt = JSON.parse(receiptText) as {
     failure: Record<string, unknown>;
   };
   assert.deepEqual(receipt.failure, {
     kind: "diagnostic",
     code: "internal",
-    message: "Internal server error",
+    message: "Error: private mutation detail",
     status: 500,
     diagnosticRef: reference
   });

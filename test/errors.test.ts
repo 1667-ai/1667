@@ -10,6 +10,7 @@ import {
 } from "../shared/failure-envelope.js";
 import { createDiagnosticReference } from "../server/diagnostic-reference.js";
 import {
+  DiagnosticServiceError,
   GenerationResultError,
   ProviderError,
   PublicRuntimeError,
@@ -28,6 +29,7 @@ import {
   restoreStoredServiceFailure,
   toPublicServiceError
 } from "../server/service-error-policy.js";
+import { hasUnpairedSurrogate } from "../shared/unicode.js";
 
 test("public errors normalize provider status identically for every transport", () => {
   assert.deepEqual(toPublicServiceError(new ProviderError("Unauthorized upstream", 401)), {
@@ -37,24 +39,24 @@ test("public errors normalize provider status identically for every transport", 
     code: "conflict", message: "Changed", status: 409
   });
   assert.deepEqual(toPublicServiceError(new Error("secret")), {
-    code: "internal", message: "Internal server error", status: 500
+    code: "internal", message: "Error: secret", status: 500
   });
   assert.deepEqual(
     classifyServiceError(new ServiceError(500, "private", "internal")),
     {
       publicError: {
-        code: "internal", message: "Internal server error", status: 500
+        code: "internal", message: "ServiceError: private", status: 500
       },
-      exposure: "private"
+      diagnostic: "required"
     }
   );
   assert.deepEqual(
     classifyServiceError(new ServiceError(500, "/private/data/path")),
     {
       publicError: {
-        code: "internal", message: "Internal server error", status: 500
+        code: "internal", message: "ServiceError: /private/data/path", status: 500
       },
-      exposure: "private"
+      diagnostic: "required"
     }
   );
   assert.deepEqual(
@@ -63,7 +65,7 @@ test("public errors normalize provider status identically for every transport", 
       publicError: {
         code: "startup_failure", message: "safe startup detail", status: 500
       },
-      exposure: "public"
+      diagnostic: "none"
     }
   );
   assert.equal(
@@ -76,14 +78,118 @@ test("public errors normalize provider status identically for every transport", 
   );
 });
 
-test("private stored failures publish only persisted diagnostic references", () => {
+test("internal errors expose a bounded cause chain without provider bodies", () => {
+  const responseSecret = "provider-response-secret";
+  const provider = new ProviderError(
+    `Provider response contained ${responseSecret}`,
+    502,
+    responseSecret
+  );
+  const root = new Error("local operation failed", { cause: provider });
+
+  const publicError = toPublicServiceError(root);
+
+  assert.equal(publicError.code, "internal");
+  assert.match(
+    publicError.message,
+    /Error: local operation failed; caused by ProviderError: Provider request failed with HTTP status 502/
+  );
+  assert.doesNotMatch(publicError.message, new RegExp(responseSecret));
+  assert.doesNotMatch(publicError.message, /\bat\s+\S+/);
+  assert.ok(publicError.message.length <= 1_024);
+});
+
+test("diagnostic service errors keep their diagnostic cause out of messages", () => {
+  const secret = "credential=private-provider-key";
+  const error = new DiagnosticServiceError(
+    500,
+    "The operation failed",
+    "internal",
+    new Error(secret)
+  );
+
+  assert.deepEqual(classifyServiceError(error), {
+    publicError: {
+      code: "internal",
+      message: "The operation failed",
+      status: 500
+    },
+    diagnostic: "required"
+  });
+  assert.deepEqual(prepareServiceFailure(error).failure, {
+    kind: "plain",
+    code: "internal",
+    message: "The operation failed",
+    status: 500
+  });
+  assert.doesNotMatch(toPublicServiceError(error).message, new RegExp(secret));
+});
+
+test("aggregate errors expose each useful failure without serializer details", () => {
+  const first = new Error("startup failed");
+  const aggregate = new AggregateError(
+    [first, new Error("cleanup failed")],
+    "startup and cleanup failed",
+    { cause: first }
+  );
+
+  const message = toPublicServiceError(aggregate).message;
+
+  assert.match(message, /AggregateError: startup and cleanup failed/);
+  assert.match(message, /Error: startup failed/);
+  assert.match(message, /Error: cleanup failed/);
+  assert.doesNotMatch(message, /CircularErrorReference|already serialized/);
+});
+
+test("public diagnostics reserve traversal capacity for the primary cause", () => {
+  const noisyBranches = Array.from({ length: 8 }, (_, index) =>
+    new Error(`branch ${index}`, {
+      cause: new Error(`branch ${index} cause`, {
+        cause: new Error(`branch ${index} tail`)
+      })
+    }));
+  const aggregate = new AggregateError(noisyBranches, "many failures", {
+    cause: new Error("primary cause")
+  });
+
+  const message = toPublicServiceError(aggregate).message;
+
+  assert.match(message, /caused by Error: primary cause/);
+  assert.doesNotMatch(message, /caused by TruncatedErrorGraph/);
+});
+
+test("an error named CircularErrorReference remains visible", () => {
+  const named = new Error("real failure");
+  named.name = "CircularErrorReference";
+
+  const message = toPublicServiceError(new AggregateError([
+    named,
+    new Error("later failure")
+  ], "aggregate failed", { cause: named })).message;
+
+  assert.match(message, /CircularErrorReference: real failure/);
+  assert.match(message, /Error: later failure/);
+  assert.doesNotMatch(message, /already serialized/);
+});
+
+test("internal error truncation preserves complete Unicode scalars", () => {
+  const message = toPublicServiceError(
+    new Error(`${"x".repeat(1_015)}😀tail`)
+  ).message;
+
+  assert.equal(hasUnpairedSurrogate(message), false);
+  assert.ok(message.endsWith("…"));
+  assert.doesNotMatch(message, /�/u);
+});
+
+test("internal stored failures publish only persisted diagnostic references", () => {
   const root = new Error("private receipt detail");
   const pending = prepareServiceFailure(root);
 
   assert.deepEqual(pending.failure, {
     kind: "plain",
     code: "internal",
-    message: "Internal server error",
+    message: "Error: private receipt detail",
     status: 500
   });
   const pendingError = errorFromFailureIncident(pending);
@@ -123,7 +229,7 @@ test("private stored failures publish only persisted diagnostic references", () 
   );
   assert.equal(
     (restored as Error).message,
-    "Internal server error"
+    "Error: private receipt detail"
   );
 });
 
@@ -226,7 +332,7 @@ test("failure envelopes normalize invalid HTTP statuses to an internal 500", () 
   }
 });
 
-test("failure envelopes make internal privacy and codes type invariants", () => {
+test("failure envelopes preserve bounded internal diagnostics", () => {
   assert.deepEqual(createFailureEnvelope({
     code: "internal",
     message: "Private path: /srv/1667/settings.json",
@@ -234,7 +340,7 @@ test("failure envelopes make internal privacy and codes type invariants", () => 
   }), {
     kind: "plain",
     code: "internal",
-    message: "Internal server error",
+    message: "Private path: /srv/1667/settings.json",
     status: 500
   });
   assert.deepEqual(decodeFailureEnvelope({
@@ -245,7 +351,7 @@ test("failure envelopes make internal privacy and codes type invariants", () => 
   }), {
     kind: "plain",
     code: "internal",
-    message: "Internal server error",
+    message: "Private tagged path: /srv/1667/settings.json",
     status: 500
   });
   assert.deepEqual(decodeFailureEnvelope({
@@ -323,7 +429,7 @@ test("failure decoder rejects malformed discriminated envelopes", () => {
   }), {
     kind: "plain",
     code: "internal",
-    message: "Internal server error",
+    message: "Private legacy path: /srv/1667/settings.json",
     status: 500
   });
 });

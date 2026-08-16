@@ -406,9 +406,8 @@ test("llama.cpp save-time validation rejects a phrase the live server cannot res
       // The save path must throw a ServiceError, not a bare
       // SettingsFormatError: the worker/HTTP transport's error
       // classification (server/service-error-policy.ts) only recognizes
-      // ServiceError and a short allow-list of other known types, and
-      // reports anything else as a generic "Internal server error" —
-      // which would have silently swallowed this exact validation message.
+      // ServiceError and a short allow-list of other known types. Anything
+      // else becomes an internal 500 and loses the validation semantics.
       assert.ok(error instanceof ServiceError, "expected a ServiceError, not a raw SettingsFormatError");
       assert.equal(error.status, 400);
       return true;

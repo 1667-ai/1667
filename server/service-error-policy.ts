@@ -13,6 +13,7 @@ import {
   ServiceError,
   type ServiceErrorCode
 } from "./errors.js";
+import { formatInternalErrorMessage } from "./internal-error-format.js";
 import {
   durableFailureIncident,
   errorFromFailureIncident,
@@ -33,20 +34,14 @@ export interface PublicServiceError {
 
 export interface ServiceErrorClassification {
   readonly publicError: PublicServiceError;
-  readonly exposure: "public" | "private";
+  readonly diagnostic: "none" | "required";
 }
 
 export type StoredServiceError = FailureEnvelope;
 
-type PrivateDiagnosticSelection =
+type DiagnosticSelection =
   | { readonly kind: "none" }
   | { readonly kind: "present"; readonly error: unknown };
-
-const INTERNAL_PUBLIC_ERROR: PublicServiceError = Object.freeze({
-  code: "internal",
-  message: "Internal server error",
-  status: 500
-});
 
 /** One transport-independent exposure policy for HTTP, SSE, and workers. */
 export function classifyServiceError(
@@ -60,7 +55,7 @@ export function classifyServiceError(
         status: error.failure.status ?? 500,
         ...timeoutField(error.failure.timeout)
       },
-      exposure: "public"
+      diagnostic: "none"
     };
   }
   if (error instanceof PublicRuntimeError) {
@@ -70,13 +65,10 @@ export function classifyServiceError(
         message: error.message,
         status: 500
       },
-      exposure: "public"
+      diagnostic: "none"
     };
   }
-  if (error instanceof ServiceError) {
-    if (error.code === "internal") {
-      return { publicError: INTERNAL_PUBLIC_ERROR, exposure: "private" };
-    }
+  if (error instanceof DiagnosticServiceError) {
     return {
       publicError: {
         code: error.code,
@@ -84,7 +76,18 @@ export function classifyServiceError(
         status: error.status,
         ...timeoutField(error.timeout)
       },
-      exposure: "public"
+      diagnostic: "required"
+    };
+  }
+  if (error instanceof ServiceError && error.code !== "internal") {
+    return {
+      publicError: {
+        code: error.code,
+        message: error.message,
+        status: error.status,
+        ...timeoutField(error.timeout)
+      },
+      diagnostic: "none"
     };
   }
   if (error instanceof ProviderError) {
@@ -95,10 +98,17 @@ export function classifyServiceError(
         status: 502,
         ...timeoutField(error.timeout)
       },
-      exposure: "public"
+      diagnostic: "none"
     };
   }
-  return { publicError: INTERNAL_PUBLIC_ERROR, exposure: "private" };
+  return {
+    publicError: {
+      code: "internal",
+      message: formatInternalErrorMessage(error),
+      status: 500
+    },
+    diagnostic: "required"
+  };
 }
 
 function timeoutField(
@@ -117,7 +127,7 @@ export function prepareServiceFailure(
   if (isReportedServiceError(error)) return error.incident;
   const classified = classifyServiceError(error);
   const failure = createFailureEnvelope(classified.publicError);
-  const selected = privateDiagnosticSelection(error, classified);
+  const selected = diagnosticSelection(error, classified);
   if (selected.kind === "none") {
     return publicFailureIncident(failure, error);
   }
@@ -126,10 +136,10 @@ export function prepareServiceFailure(
     : unreportedFailureIncident(failure, error, selected.error);
 }
 
-function privateDiagnosticSelection(
+function diagnosticSelection(
   error: unknown,
   classified = classifyServiceError(error)
-): PrivateDiagnosticSelection {
+): DiagnosticSelection {
   if (error instanceof DiagnosticServiceError) {
     return { kind: "present", error: error.diagnosticCause };
   }
@@ -137,7 +147,7 @@ function privateDiagnosticSelection(
     && error.hasDiagnosticCause) {
     return { kind: "present", error: error.diagnosticCause };
   }
-  return classified.exposure === "private"
+  return classified.diagnostic === "required"
     ? { kind: "present", error }
     : { kind: "none" };
 }
@@ -158,9 +168,9 @@ export function restoreStoredServiceFailure(
     : error;
 }
 
-/** Once a failure envelope is durable, a missing reference is final. Public
- * domain errors keep their original subtype; only unreported private errors
- * need restored provenance to prevent a later transport from inventing one. */
+/** Once a failure envelope is durable, a missing reference is final. Domain
+ * errors keep their original subtype. Unreported diagnostic errors need
+ * restored provenance to prevent a later transport from inventing one. */
 export function finalizeDurableServiceFailure(
   incident: ServiceFailureIncident
 ): unknown {
