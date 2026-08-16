@@ -11,7 +11,7 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
-    version: "0.9.7-rc.1",
+    version: "0.9.7",
     date: "2026-08-16",
     body: "- **Internal errors now include useful diagnostic text.** 1667 shows the\n  error name, the error message, and a short cause chain. It keeps the\n  `err_…` reference as a link to the detailed local log. The visible message\n  does not include a stack or a provider response body."
   },
