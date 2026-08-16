@@ -5,11 +5,6 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
-- **Internal errors now include useful diagnostic text.** 1667 shows the
-  error name, the error message, and a short cause chain. It keeps the
-  `err_…` reference as a link to the detailed local log. The visible message
-  does not include a stack or a provider response body.
-
 - **Prompt-plan changes now have a Gemma quality gate.** The gate compares the
   v0.8.0 prompt with a candidate on one frozen story and one fixed profile. It
   uses blind Retake and Continue scores. It requires no score regression for
@@ -264,6 +259,13 @@ This file records notable changes to 1667. Product terms use the definitions in
   palette opens a path prompt with `Tab` completion. The `1667 import-card`
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
+
+## 0.9.7-rc.1 - 2026-08-16
+
+- **Internal errors now include useful diagnostic text.** 1667 shows the
+  error name, the error message, and a short cause chain. It keeps the
+  `err_…` reference as a link to the detailed local log. The visible message
+  does not include a stack or a provider response body.
 
 ## 0.9.6 - 2026-08-16
 
