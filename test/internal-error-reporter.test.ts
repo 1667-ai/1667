@@ -286,7 +286,7 @@ test("print mode survives an unavailable persistent log", async (t) => {
     failure: {
       kind: "plain",
       code: "internal",
-      message: "Internal server error",
+      message: "ServiceError: diagnostic after open failure",
       status: 500
     }
   });
@@ -320,7 +320,7 @@ test("an unavailable persistent log is visible without exposing details", async 
     failure: {
       kind: "plain",
       code: "internal",
-      message: "Internal server error",
+      message: "Error: private runtime detail",
       status: 500
     }
   });

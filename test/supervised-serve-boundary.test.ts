@@ -267,7 +267,7 @@ test("machine-tier startup preserves only actionable state-root failures", () =>
     toPublicServiceError(
       diagnosticMachineTierFailure(new Error("private resolution detail"))
     ).message,
-    "Internal server error"
+    "Error: private resolution detail"
   );
 });
 
@@ -284,7 +284,7 @@ test("local startup storage exposure is shared across transports", () => {
     toPublicServiceError(
       localStartupFailure(new Error("private runtime storage detail"))
     ).message,
-    "Internal server error"
+    "Error: private runtime storage detail"
   );
 });
 

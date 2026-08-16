@@ -474,7 +474,7 @@ export class WorkerTransport {
     if (message.type === "protocolError") {
       const failure = workerApiErrorFromFailure(message.failure);
       if (this.lifecycle.hasReachedReady) {
-        this.failForRestart(failure.message, failure);
+        this.failForRestart(failure.failure.message, failure);
         return;
       }
       return this.fail(failure, false);

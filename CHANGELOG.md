@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Internal errors now include useful diagnostic text.** 1667 shows the
+  error name, the error message, and a short cause chain. It keeps the
+  `err_…` reference as a link to the detailed local log. The visible message
+  does not include a stack or a provider response body.
+
 - **Prompt-plan changes now have a Gemma quality gate.** The gate compares the
   v0.8.0 prompt with a candidate on one frozen story and one fixed profile. It
   uses blind Retake and Continue scores. It requires no score regression for

@@ -139,6 +139,27 @@ test("1667 <command> --help prints that command's page instead of refusing the f
   expect(output).not.toContain("unknown import option");
 });
 
+test("CLI errors cannot write terminal control characters", async () => {
+  const { runCli } = await import("../src/main.js");
+  const originalWrite = process.stderr.write.bind(process.stderr);
+  const originalExitCode = process.exitCode;
+  const captured: string[] = [];
+  process.stderr.write = ((chunk: string) => {
+    captured.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    await runCli(["--unknown\u001b[31m"]);
+  } finally {
+    process.stderr.write = originalWrite;
+    process.exitCode = originalExitCode;
+  }
+
+  const output = captured.join("");
+  expect(output).toContain("unknown option: --unknown▪[31m");
+  expect(output).not.toContain("\u001b");
+});
+
 test("the import-lorebook page names every format the command reads", () => {
   // A command that grows a format and not its page is the failure this split
   // was made to fix.
