@@ -11,6 +11,7 @@ import { providerRuntimeFor } from "./provider-runtime.js";
 import { effectiveGenerationSettings } from "./settings-v2-conversion.js";
 import { classifyHttpHost, SettingsFormatError } from "./settings-v2-scalars.js";
 import { selectSettingsRoute } from "../shared/settings-route.js";
+import { continuationPromptLayoutForOptimization } from "../shared/continuation-prompt-optimization.js";
 import { settingsStateRelation } from "./settings-state-validation.js";
 import {
   corruptSettingsStateReceipt,
@@ -45,6 +46,9 @@ export function settingsViewFromState(
     // describe the same route, not whichever document a mid-activation
     // window happens to be showing the editor.
     effectiveProseReasoning: selectSettingsRoute(active, "prose").profile.reasoning ?? "marker",
+    effectiveProseContinuationPromptLayout: continuationPromptLayoutForOptimization(
+      selectSettingsRoute(active, "prose").profile.continuationPromptOptimization
+    ),
     lastActivationOutcome: state.lastActivationOutcome
   };
 }

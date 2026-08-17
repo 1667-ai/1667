@@ -8,7 +8,8 @@ import { streamHasSubstantiveText } from "./stream-text.js";
 type RequestContextState = Pick<
   StoryScreenState,
   "payload" | "stream" | "focusIndex" | "mode" | "composer" | "retakePrompt"
-  | "systemPrompt" | "assistantPrefill" | "request" | "contextWindow" | "maxTokens" | "model"
+  | "systemPrompt" | "assistantPrefill" | "continuationPromptLayout" | "request"
+  | "contextWindow" | "maxTokens" | "model"
 >;
 
 /** The generation seam and prompt settings used by every next-request meter.
@@ -36,6 +37,7 @@ export function nextRequestContext(
     systemPrompt: state.systemPrompt,
     instruction: composeRequest && !rewriteComposer ? state.composer.text : "",
     assistantPrefill: state.assistantPrefill,
+    continuationPromptLayout: state.continuationPromptLayout,
     contextWindow: state.contextWindow,
     maxTokens: state.maxTokens,
     remoteModelId: state.model,
@@ -86,6 +88,7 @@ export interface PromptProjectionIdentity {
   readonly systemPrompt: string;
   readonly instruction: string;
   readonly assistantPrefill: boolean;
+  readonly continuationPromptLayout: import("../../shared/continuation-prompt-optimization.js").ContinuationPromptLayout;
   readonly operation: string;
   readonly targetId: string | null;
 }
@@ -101,6 +104,7 @@ export function promptProjectionIdentity(
     systemPrompt: context.systemPrompt,
     instruction: context.instruction,
     assistantPrefill: context.assistantPrefill,
+    continuationPromptLayout: context.continuationPromptLayout ?? "compatibility",
     operation: context.operation,
     targetId: context.targetId
   };
@@ -116,6 +120,7 @@ export function sameProjectionIdentity(
     && left.systemPrompt === right.systemPrompt
     && left.instruction === right.instruction
     && left.assistantPrefill === right.assistantPrefill
+    && left.continuationPromptLayout === right.continuationPromptLayout
     && left.operation === right.operation
     && left.targetId === right.targetId;
 }

@@ -1,13 +1,24 @@
 import {
   EMPTY_SAMPLING_V2,
   SAMPLING_KNOB_V2_VALUES,
-  type GenerationEffortV2,
   type GenerationProfileV2,
-  type PromptCachePolicyV2,
   type SamplingKnobV2,
   type SamplingSettingsV2,
   type SettingsDocumentV2
 } from "./settings-v2-types.js";
+import {
+  applyContinuationPromptOptimizationTransfer,
+} from "./continuation-prompt-optimization-profile-transfer.js";
+import type {
+  FittedProfileTransfer,
+  ProfileTransferCandidate,
+  ProfileTransferFitOptions
+} from "./generation-profile-transfer-types.js";
+export type {
+  FittedProfileTransfer,
+  ProfileTransferCandidate,
+  ProfileTransferFitOptions
+} from "./generation-profile-transfer-types.js";
 import { resolveSettingsProfile, type SelectedSettingsRouteV2 } from "./settings-route.js";
 import {
   clampMaxOutputTokensToModel,
@@ -42,36 +53,6 @@ import {
   resolveTokenProbabilities,
   tokenProbabilityUnavailableReasonCompact
 } from "./token-probability-capabilities.js";
-
-/** A protocol-neutral set of generation behavior that can move between routes. */
-export interface ProfileTransferCandidate {
-  readonly name: string;
-  readonly temperature?: number | null;
-  readonly maxOutputTokens?: number;
-  readonly effort?: GenerationEffortV2;
-  readonly cachePolicy?: PromptCachePolicyV2;
-  /** Alternative tokens per generated token; null means off. */
-  readonly tokenProbabilities?: number | null;
-  readonly sampling?: Partial<SamplingSettingsV2>;
-  /** Active source parameters that had no transferable candidate value. */
-  readonly omittedCount?: number;
-  readonly fidelity?: readonly string[];
-}
-
-export interface FittedProfileTransfer {
-  readonly document: SettingsDocumentV2;
-  readonly profileId: string;
-  readonly importedCount: number;
-  readonly candidateCount: number;
-  readonly fidelity: readonly string[];
-}
-
-/** Optional model metadata supplied by an import path that owns it. */
-export interface ProfileTransferFitOptions {
-  readonly modelMetadata?: ModelScalarMetadataSourcesV2;
-  /** A canonical resolution of the offered text-bias settings, when the caller owns it. */
-  readonly samplingBiasResolution?: SamplingBiasResolutionResult;
-}
 
 /** Apply a candidate to an already-created profile. The route owns capability filtering. */
 export function fitProfileToRoute(
@@ -115,11 +96,13 @@ export function fitProfileToRoute(
   const tokenProbabilityResolution = resolveTokenProbabilities(samplingContextForRoute(route));
   const importsTokenProbabilities = candidate.tokenProbabilities !== undefined
     && (candidate.tokenProbabilities === null || tokenProbabilityResolution.kind === "available");
+  const importsContinuationPromptOptimization = candidate.continuationPromptOptimization !== undefined;
   if (candidate.temperature !== undefined) countCandidate();
   if (candidate.maxOutputTokens !== undefined) countCandidate();
   if (candidate.effort !== undefined) countCandidate();
   if (candidate.cachePolicy !== undefined) countCandidate();
   if (candidate.tokenProbabilities !== undefined) countCandidate();
+  if (candidate.continuationPromptOptimization !== undefined) countCandidate();
   if (candidate.temperature !== undefined && !importsTemperature) {
     fidelity.push("temperature not imported; model does not support temperature");
   }
@@ -141,13 +124,18 @@ export function fitProfileToRoute(
     fidelity.push(`token probabilities not imported; ${tokenProbabilityUnavailableReasonCompact(tokenProbabilityResolution.reason)}`);
   }
   importedCount += Number(importsTemperature) + Number(importsMaxOutputTokens)
-    + Number(importsEffort) + Number(importsCachePolicy) + Number(importsTokenProbabilities);
+    + Number(importsEffort) + Number(importsCachePolicy) + Number(importsTokenProbabilities)
+    + Number(importsContinuationPromptOptimization);
   const clearsTokenProbabilities = candidate.tokenProbabilities === null
     || (candidate.tokenProbabilities !== undefined && !importsTokenProbabilities);
   const profileWithTokenProbabilities = clearsTokenProbabilities
     ? withoutTokenProbabilities(profile)
     : profile;
-  const { sampling: _sourceSampling, ...nextProfile } = profileWithTokenProbabilities;
+  const profileWithContinuationPromptOptimization = applyContinuationPromptOptimizationTransfer(
+    profileWithTokenProbabilities,
+    candidate.continuationPromptOptimization
+  );
+  const { sampling: _sourceSampling, ...nextProfile } = profileWithContinuationPromptOptimization;
   const documentWithProfile = {
     ...document,
     profiles: {
@@ -167,7 +155,7 @@ export function fitProfileToRoute(
           && candidate.tokenProbabilities !== null
           && importsTokenProbabilities
           ? { tokenProbabilities: candidate.tokenProbabilities }
-          : {})
+          : {}),
       }
     }
   };

@@ -29,28 +29,23 @@ import {
   GEMMA_REPLAY_HARNESS,
   GEMMA_REPLAY_OPERATIONS,
   GEMMA_REPLAY_SCHEMA_VERSION,
+  parseCandidateOptimization,
+  type GemmaCandidateOptimization,
   type GemmaReplayArm
 } from "./contract.js";
 import {
   baselineContinuationPlan,
-  baselinePlanFingerprint,
-  requestShape,
-  V08_BASELINE_PLAN_FINGERPRINT
+  requestShape
 } from "./baseline.js";
 import { replaySettings, type ReplayProfile } from "./profile.js";
 import type { GemmaRuntimeRecord } from "./runtime.js";
 import { writePrivateJson } from "./private-json-file.js";
 import { assertApprovedReplay } from "./approved-replay.js";
-import {
-  frozenV08SourceFingerprint,
-  protectedEvaluationInputFingerprint,
-  protectedPromptSourceFingerprint
-} from "./source-fingerprint.js";
 
 export interface ReplayRequestMetadata {
   readonly url: string;
   readonly protocol: "openai-chat-completions";
-  readonly preset: "llama-cpp";
+  readonly preset: "koboldcpp";
   readonly model: string;
   readonly temperature: number | null;
   readonly maxTokens: number;
@@ -82,11 +77,10 @@ export interface ReplayResult {
   readonly schemaVersion: 1;
   readonly harness: typeof GEMMA_REPLAY_HARNESS;
   readonly fixture: typeof GEMMA_REPLAY_FIXTURE;
-  readonly baselineSourceFingerprint: string;
+  readonly optimization: GemmaCandidateOptimization;
+  /** Operator attestation. KoboldCpp does not provide a server-side lease. */
+  readonly operatorAcknowledgedExclusiveServer: true;
   readonly baselineRequestFingerprint: string;
-  readonly candidateSourceFingerprint: string;
-  /** Evaluation fixture and approved protocol identity. */
-  readonly evaluationInputFingerprint: string;
   readonly candidateRequestFingerprint: string;
   readonly runtime: GemmaRuntimeRecord;
   readonly profile: ReplayProfileRecord;
@@ -111,15 +105,16 @@ export interface ReplayOptions {
   readonly model?: string;
   readonly runtime: GemmaRuntimeRecord;
   readonly profile: ReplayProfile;
-  readonly repositoryRoot?: string;
+  /** Exactly one named candidate. The baseline is always frozen v0.8.0. */
+  readonly optimization: GemmaCandidateOptimization;
+  /** Required CLI/operator attestation that no other client uses the server. */
+  readonly operatorAcknowledgedExclusiveServer: true;
 }
-
-/** Compute the protected current prompt-source identity used by evidence. */
-export { protectedPromptSourceFingerprint } from "./source-fingerprint.js";
 
 export interface ReplayRequestPair {
   readonly operation: GemmaOperationFixture;
   readonly seed: (typeof GEMMA_REPLAY_SEEDS)[number];
+  readonly baselineSettings: ReturnType<typeof replaySettings>;
   readonly settings: ReturnType<typeof replaySettings>;
   readonly baseline: { readonly prompt: PromptPlan; readonly body: Record<string, unknown> };
   readonly candidate: { readonly prompt: PromptPlan; readonly body: Record<string, unknown> };
@@ -130,12 +125,15 @@ export interface ReplayRequestPair {
 export async function buildReplayRequestPairs(
   endpointBaseUrl: string,
   runtime: GemmaRuntimeRecord,
-  profile: ReplayProfile
+  profile: ReplayProfile,
+  optimization: GemmaCandidateOptimization
 ): Promise<readonly ReplayRequestPair[]> {
+  parseCandidateOptimization(optimization, "Gemma replay optimization");
   const pairs: ReplayRequestPair[] = [];
   for (const operation of GEMMA_OPERATION_FIXTURES) {
     for (const seed of GEMMA_REPLAY_SEEDS) {
-      const settings = replaySettings(endpointBaseUrl, runtime.configuration, profile, seed);
+      const baselineSettings = replaySettings(endpointBaseUrl, runtime.configuration, profile, seed);
+      const settings = replaySettings(endpointBaseUrl, runtime.configuration, profile, seed, optimization);
       const baselinePrompt = baselineContinuationPlan(operation, GEMMA_AUTHOR_BRIEF, GEMMA_FACTS_BLOCK);
       const candidatePrompt = assembleContinuation({
         story: {
@@ -154,7 +152,7 @@ export async function buildReplayRequestPairs(
       assertGemmaFixtureContextSize(baselinePrompt);
       assertGemmaFixtureContextSize(candidatePrompt);
       const baselineBody = await buildOpenAiChatRequestBody(
-        settings,
+        baselineSettings,
         baselinePrompt,
         { kind: "omit", reason: "policy-off" }
       );
@@ -168,6 +166,7 @@ export async function buildReplayRequestPairs(
       pairs.push({
         operation,
         seed,
+        baselineSettings,
         settings,
         baseline: { prompt: baselinePrompt, body: baselineBody },
         candidate: { prompt: candidatePrompt, body: candidateBody }
@@ -178,7 +177,12 @@ export async function buildReplayRequestPairs(
 }
 
 export async function runReplay(options: ReplayOptions): Promise<ReplayResult> {
-  frozenBaselineFingerprint();
+  const optimization = parseCandidateOptimization(options.optimization, "Gemma replay optimization");
+  if (options.operatorAcknowledgedExclusiveServer !== true) {
+    throw new Error(
+      "Gemma replay requires --exclusive-server: stop every other KoboldCpp client and acknowledge the operator-only replay condition."
+    );
+  }
   assertApprovedReplay(options.runtime, options.profile);
   if (options.model !== undefined && options.model !== options.runtime.configuration.model.id) {
     throw new Error("Gemma replay --model must match the checked runtime configuration model.id");
@@ -186,24 +190,26 @@ export async function runReplay(options: ReplayOptions): Promise<ReplayResult> {
   if (options.profile.cachePolicy !== "off") {
     throw new Error("Gemma replay requires Profile Export generation.cachePolicy to be off");
   }
-  const requestPairs = await buildReplayRequestPairs(options.endpointBaseUrl, options.runtime, options.profile);
+  const requestPairs = await buildReplayRequestPairs(
+    options.endpointBaseUrl,
+    options.runtime,
+    options.profile,
+    optimization
+  );
   const samples: ReplaySample[] = [];
   for (const pair of requestPairs) samples.push(await runPair(pair));
   const profile = options.profile;
-  const candidateSourceFingerprint = protectedPromptSourceFingerprint(options.repositoryRoot);
-  const evaluationInputFingerprint = protectedEvaluationInputFingerprint(options.repositoryRoot);
   return {
     schemaVersion: GEMMA_REPLAY_SCHEMA_VERSION,
     harness: GEMMA_REPLAY_HARNESS,
     fixture: GEMMA_REPLAY_FIXTURE,
-    baselineSourceFingerprint: frozenV08SourceFingerprint(options.repositoryRoot),
+    optimization,
+    operatorAcknowledgedExclusiveServer: true,
     baselineRequestFingerprint: aggregateRequestFingerprint(samples.map((sample) => ({
       operation: sample.operation,
       seed: sample.seed,
       requestFingerprint: sample.baseline.request.bodyFingerprint
     }))),
-    candidateSourceFingerprint,
-    evaluationInputFingerprint,
     candidateRequestFingerprint: aggregateRequestFingerprint(samples.map((sample) => ({
       operation: sample.operation,
       seed: sample.seed,
@@ -219,6 +225,7 @@ export async function runReplay(options: ReplayOptions): Promise<ReplayResult> {
       cachePolicy: profile.cachePolicy,
       tokenProbabilities: profile.tokenProbabilities,
       sampling: { ...profile.sampling },
+      timeouts: { ...profile.timeouts },
       logitBiasState: profile.logitBiasState
     },
     endpoint: {
@@ -237,13 +244,16 @@ export async function writeReplay(pathname: string, result: ReplayResult): Promi
   await writePrivateJson(pathname, result);
 }
 
-async function runPair(pair: ReplayRequestPair): Promise<ReplaySample> {
-  const { operation, seed, settings, baseline, candidate } = pair;
+async function runPair(
+  pair: ReplayRequestPair
+): Promise<ReplaySample> {
+  const { operation, seed, baselineSettings, settings, baseline, candidate } = pair;
   const dispatchOrder = armOrder(operation.operation, seed);
   const outputs = {} as Record<GemmaReplayArm, string>;
   for (const arm of dispatchOrder) {
     const body = arm === "baseline" ? baseline.body : candidate.body;
-    outputs[arm] = await streamOutput(settings, body);
+    const armSettings = arm === "baseline" ? baselineSettings : settings;
+    outputs[arm] = await streamOutput(armSettings, body);
   }
   const pairId = `${operation.operation}-${seed}`;
   return {
@@ -252,7 +262,7 @@ async function runPair(pair: ReplayRequestPair): Promise<ReplaySample> {
     operation: operation.operation,
     seed,
     dispatchOrder,
-    baseline: replayOutput(outputs.baseline, settings, baseline.prompt, baseline.body),
+    baseline: replayOutput(outputs.baseline, baselineSettings, baseline.prompt, baseline.body),
     candidate: replayOutput(outputs.candidate, settings, candidate.prompt, candidate.body)
   };
 }
@@ -327,7 +337,7 @@ function requestMetadata(
   return {
     url: providerUrl(settings, "/chat/completions"),
     protocol: "openai-chat-completions",
-    preset: "llama-cpp",
+    preset: "koboldcpp",
     model: settings.model,
     temperature: settings.temperature,
     maxTokens: settings.maxTokens,
@@ -343,14 +353,6 @@ function requestMetadata(
 /** Fingerprint the exact request body that is sent for one replay arm. */
 export function replayRequestBodyFingerprint(body: Record<string, unknown>): string {
   return `sha256:${sha256(canonicalJson(body))}`;
-}
-
-function frozenBaselineFingerprint(): string {
-  const computed = baselinePlanFingerprint();
-  if (V08_BASELINE_PLAN_FINGERPRINT !== computed) {
-    throw new Error("The committed v0.8.0 baseline plan fingerprint does not match baseline.ts");
-  }
-  return computed;
 }
 
 function sha256(value: string): string {

@@ -3,20 +3,17 @@ import { canonicalJson } from "../../server/canonical-json.js";
 import {
   aggregateRequestFingerprint,
   armOrder,
+  parseCandidateOptimization,
   GEMMA_REPLAY_ARMS,
   GEMMA_REPLAY_FIXTURE,
   GEMMA_REPLAY_HARNESS,
   GEMMA_REPLAY_OPERATIONS,
   GEMMA_REPLAY_SCHEMA_VERSION,
   GEMMA_REPLAY_SEEDS,
+  GEMMA_V08_BASELINE_REQUEST_FINGERPRINT,
   type GemmaReplayArm,
   type GemmaReplayOperation
 } from "./contract.js";
-import {
-  frozenV08SourceFingerprint,
-  protectedEvaluationInputFingerprint,
-  protectedPromptSourceFingerprint
-} from "./source-fingerprint.js";
 import { parseGemmaRuntimeConfiguration, type GemmaRuntimeRecord } from "./runtime.js";
 import { validateReplayProfileBoundary } from "./profile.js";
 import { assertApprovedReplay } from "./approved-replay.js";
@@ -32,16 +29,15 @@ import type {
 } from "./runner.js";
 
 /** Parse a raw replay before a blind pack or score can use it. */
-export function parseReplayResult(value: unknown, repositoryRoot = process.cwd()): ReplayResult {
+export function parseReplayResult(value: unknown): ReplayResult {
   const replay = record(value, "replay");
   requireKeys(replay, [
     "schemaVersion",
     "harness",
     "fixture",
-    "baselineSourceFingerprint",
+    "optimization",
+    "operatorAcknowledgedExclusiveServer",
     "baselineRequestFingerprint",
-    "candidateSourceFingerprint",
-    "evaluationInputFingerprint",
     "candidateRequestFingerprint",
     "runtime",
     "profile",
@@ -53,20 +49,17 @@ export function parseReplayResult(value: unknown, repositoryRoot = process.cwd()
   exact(replay.schemaVersion, GEMMA_REPLAY_SCHEMA_VERSION, "replay.schemaVersion");
   exact(replay.harness, GEMMA_REPLAY_HARNESS, "replay.harness");
   exact(replay.fixture, GEMMA_REPLAY_FIXTURE, "replay.fixture");
-  const baselineSourceFingerprint = fingerprint(replay.baselineSourceFingerprint, "replay.baselineSourceFingerprint");
-  const candidateSourceFingerprint = fingerprint(replay.candidateSourceFingerprint, "replay.candidateSourceFingerprint");
-  const evaluationInputFingerprint = fingerprint(replay.evaluationInputFingerprint, "replay.evaluationInputFingerprint");
+  const optimization = parseCandidateOptimization(replay.optimization, "replay.optimization");
+  exact(
+    replay.operatorAcknowledgedExclusiveServer,
+    true,
+    "replay.operatorAcknowledgedExclusiveServer"
+  );
   const baselineRequestFingerprint = fingerprint(replay.baselineRequestFingerprint, "replay.baselineRequestFingerprint");
   const candidateRequestFingerprint = fingerprint(replay.candidateRequestFingerprint, "replay.candidateRequestFingerprint");
   const runtime = parseRuntime(replay.runtime);
-  if (baselineSourceFingerprint !== frozenV08SourceFingerprint(repositoryRoot)) {
-    throw new Error("replay baseline source fingerprint does not match v0.8.0");
-  }
-  if (candidateSourceFingerprint !== protectedPromptSourceFingerprint(repositoryRoot)) {
-    throw new Error("replay candidate source fingerprint does not match the current checkout");
-  }
-  if (evaluationInputFingerprint !== protectedEvaluationInputFingerprint(repositoryRoot)) {
-    throw new Error("replay evaluation input fingerprint does not match the current checkout");
+  if (baselineRequestFingerprint !== GEMMA_V08_BASELINE_REQUEST_FINGERPRINT) {
+    throw new Error("replay baseline request fingerprint does not match v0.8.0");
   }
   const profile = parseProfile(replay.profile, runtime);
   assertApprovedReplay(runtime, profile);
@@ -90,21 +83,21 @@ export function parseReplayResult(value: unknown, repositoryRoot = process.cwd()
     seed: sample.seed,
     requestFingerprint: sample.baseline.request.bodyFingerprint
   })));
-  const candidateAggregate = aggregateRequestFingerprint(samples.map((sample) => ({
+  if (baselineAggregate !== baselineRequestFingerprint) throw new Error("replay baseline request fingerprint is invalid");
+  if (aggregateRequestFingerprint(samples.map((sample) => ({
     operation: sample.operation,
     seed: sample.seed,
     requestFingerprint: sample.candidate.request.bodyFingerprint
-  })));
-  if (baselineAggregate !== baselineRequestFingerprint) throw new Error("replay baseline request fingerprint is invalid");
-  if (candidateAggregate !== candidateRequestFingerprint) throw new Error("replay candidate request fingerprint is invalid");
+  }))) !== candidateRequestFingerprint) {
+    throw new Error("replay candidate request fingerprint is invalid");
+  }
   return {
     schemaVersion: 1,
     harness: GEMMA_REPLAY_HARNESS,
     fixture: GEMMA_REPLAY_FIXTURE,
-    baselineSourceFingerprint,
+    optimization,
+    operatorAcknowledgedExclusiveServer: true,
     baselineRequestFingerprint,
-    candidateSourceFingerprint,
-    evaluationInputFingerprint,
     candidateRequestFingerprint,
     runtime,
     profile,
@@ -117,7 +110,7 @@ export function parseReplayResult(value: unknown, repositoryRoot = process.cwd()
 
 function parseProfile(value: unknown, runtime: GemmaRuntimeRecord): ReplayProfileRecord {
   const profile = record(value, "replay.profile");
-  requireKeys(profile, ["name", "sourceFingerprint", "temperature", "maxOutputTokens", "effort", "cachePolicy", "tokenProbabilities", "sampling", "logitBiasState"], "replay.profile");
+  requireKeys(profile, ["name", "sourceFingerprint", "temperature", "maxOutputTokens", "effort", "cachePolicy", "tokenProbabilities", "sampling", "timeouts", "logitBiasState"], "replay.profile");
   if (typeof profile.name !== "string" || profile.name.length === 0) throw new Error("replay.profile.name is invalid");
   const sourceFingerprint = fingerprint(profile.sourceFingerprint, "replay.profile.sourceFingerprint");
   if (typeof profile.temperature !== "number" || !Number.isFinite(profile.temperature)) throw new Error("replay.profile.temperature is invalid");
@@ -145,6 +138,7 @@ function parseProfile(value: unknown, runtime: GemmaRuntimeRecord): ReplayProfil
     cachePolicy: "off",
     tokenProbabilities: profile.tokenProbabilities,
     sampling,
+    timeouts: profile.timeouts as import("../../shared/settings-v2-types.js").ConnectionTimeoutsV2,
     logitBiasState: profile.logitBiasState
   };
   return validateReplayProfileBoundary(parsed, runtime);
@@ -234,7 +228,7 @@ function parseRequest(value: unknown, label: string, endpoint: ReplayEndpoint, s
   const requestUrl = normalizedUrl(request.url, `${label}.url`);
   if (requestUrl !== endpoint.requestUrl) throw new Error(`${label}.url does not match replay.endpoint.requestUrl`);
   exact(request.protocol, "openai-chat-completions", `${label}.protocol`);
-  exact(request.preset, "llama-cpp", `${label}.preset`);
+  exact(request.preset, "koboldcpp", `${label}.preset`);
   exact(request.model, endpoint.model, `${label}.model`);
   if (request.temperature !== null && typeof request.temperature !== "number") throw new Error(`${label}.temperature is invalid`);
   if (typeof request.maxTokens !== "number" || !Number.isSafeInteger(request.maxTokens)) throw new Error(`${label}.maxTokens is invalid`);
@@ -258,7 +252,7 @@ function parseRequest(value: unknown, label: string, endpoint: ReplayEndpoint, s
   return {
     url: requestUrl,
     protocol: "openai-chat-completions",
-    preset: "llama-cpp",
+    preset: "koboldcpp",
     model: request.model as string,
     temperature: request.temperature as number | null,
     maxTokens: request.maxTokens as number,
@@ -272,7 +266,7 @@ function parseRequest(value: unknown, label: string, endpoint: ReplayEndpoint, s
 }
 
 /** Verify the pair used one generation configuration. Prompt messages are the
- * one intentional difference. llama.cpp's cache flag is also common to both
+ * one intentional difference. KoboldCpp's cache flag is also common to both
  * arms, but it is checked separately so a future arm comparison cannot hide
  * an accidental cache re-enable. */
 function verifyPairSettings(
@@ -297,7 +291,7 @@ function generationSettings(body: Record<string, unknown>): Record<string, unkno
   return settings;
 }
 
-/** Lower the route-neutral profile fields to the exact llama.cpp Chat
+/** Lower the route-neutral profile fields to the exact KoboldCpp Chat
  * Completions fields used by `buildOpenAiChatRequestBody`. This is deliberately
  * strict: a profile feature that needs server-side tokenization cannot be
  * verified from compact replay metadata and is refused at profile import. */
@@ -320,7 +314,7 @@ function expectedGenerationSettings(
     ["repeatPenalty", "repeat_penalty"], ["dryMultiplier", "dry_multiplier"],
     ["dryBase", "dry_base"], ["dryRange", "dry_penalty_last_n"],
     ["xtcThreshold", "xtc_threshold"], ["xtcProbability", "xtc_probability"],
-    ["dynatempRange", "dynatemp_range"], ["mirostat", "mirostat"],
+    ["dynatempRange", "dynatemp_range"], ["mirostat", "mirostat_mode"],
     ["mirostatTau", "mirostat_tau"], ["mirostatEta", "mirostat_eta"],
     ["dryBreakers", "dry_sequence_breakers"], ["stop", "stop"], ["logitBias", "logit_bias"]
   ];

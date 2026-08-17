@@ -1,26 +1,27 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import {
-  PROMPT_COMPATIBILITY_MANIFEST,
-  protectedSourceFingerprint
+  PROMPT_COMPATIBILITY_MANIFEST
 } from "../scripts/check-prompt-compatibility.js";
-import { protectedEvaluationInputFingerprint } from "../evals/gemma-prompt-quality/source-fingerprint.js";
 import {
   aggregateRequestFingerprint,
   armOrder,
   evaluationFingerprint,
   GEMMA_EXPECTED_BLIND_SAMPLE_COUNT,
   GEMMA_EXPECTED_CASE_COUNT,
+  GEMMA_CANDIDATE_OPTIMIZATION,
   GEMMA_REPLAY_FIXTURE,
   GEMMA_REPLAY_HARNESS,
   GEMMA_REPLAY_OPERATIONS,
   GEMMA_REPLAY_SEEDS,
   GEMMA_RUBRIC_KEYS,
+  GEMMA_SCORING_PROTOCOL_FINGERPRINT,
+  GEMMA_V08_BASELINE_REQUEST_FINGERPRINT,
   GEMMA_V08_REQUEST_SHAPE,
   regressionsFor,
   scoreDelta,
@@ -38,13 +39,21 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const CHECKER = path.join(ROOT, "scripts", "check-prompt-compatibility.ts");
 const RUNTIME = parseGemmaRuntimeConfiguration({
   schemaVersion: 1,
-  runtime: "llama.cpp",
+  runtime: "koboldcpp",
   model: {
-    id: "gemma-4-31b",
-    identity: "Gemma 4 31B",
-    artifact: { fileName: "gemma-4-31b-Q4_K_M.gguf", sha256: `sha256:${"a".repeat(64)}`, quantization: "Q4_K_M" }
+    id: "koboldcpp/gemma-4-31B-it-uncensored-heretic-Q8_0",
+    identity: "Gemma 4 31B test runtime",
+    artifact: {
+      fileName: "gemma-4-31B-it-uncensored-heretic-Q8_0.gguf",
+      sha256: `sha256:${"a".repeat(64)}`,
+      quantization: "Q8_0"
+    }
   },
-  llamaCpp: { build: "b1234", chatTemplate: "gemma", contextWindow: 32768 }
+  koboldCpp: {
+    version: "1.117.1",
+    chatTemplateSha256: "sha256:0a52be69cda5ab8aeb627d6ff51a7b34c7d06afabb6b0f00cf8ee63df16a6315",
+    contextWindow: 32768
+  }
 });
 const PROFILE = parseReplayProfileManifest({
   schemaVersion: 1,
@@ -52,6 +61,7 @@ const PROFILE = parseReplayProfileManifest({
   profile: {
     name: "Gemma compatibility test",
     generation: { temperature: 0.7, maxOutputTokens: 400, effort: "default", cachePolicy: "off", tokenProbabilities: null },
+    timeouts: { responseHeaderMs: 600_000, firstTokenMs: 120_000, idleMs: 120_000, totalMs: 1_800_000 },
     sampling: { ...EMPTY_SAMPLING_V2, topP: 0.92, topK: 40, minP: 0.05, repeatPenalty: 1.08 }
   }
 }, RUNTIME);
@@ -81,33 +91,15 @@ export function runChecker(repository: string): { readonly code: number; readonl
   }
 }
 
-export function createRepository(seedEvaluationSources = true): string {
+export function createRepository(): string {
   const repository = mkdtempSync(path.join(tmpdir(), "1667-prompt-compatibility-"));
   const git = (...args: string[]) => execFileSync("git", args, { cwd: repository, encoding: "utf8" });
   git("init", "--quiet", "--initial-branch=main");
   git("config", "user.name", "A Writer");
   git("config", "user.email", "writer@example.com");
-  for (const source of PROMPT_COMPATIBILITY_MANIFEST.protectedSources) {
-    const target = path.join(repository, source);
-    mkdirSync(path.dirname(target), { recursive: true });
-    writeFileSync(target, execFileSync("git", ["-C", ROOT, "show", `v0.8.0:${source}`]));
-  }
-  for (const source of PROMPT_COMPATIBILITY_MANIFEST.currentProductionSources) {
-    const target = path.join(repository, source);
-    mkdirSync(path.dirname(target), { recursive: true });
-    writeFileSync(target, readFileSync(path.join(ROOT, source)));
-  }
-  if (seedEvaluationSources) {
-    for (const source of PROMPT_COMPATIBILITY_MANIFEST.protectedEvaluationSources) {
-      const target = path.join(repository, source);
-      mkdirSync(path.dirname(target), { recursive: true });
-      writeFileSync(target, readFileSync(path.join(ROOT, source)));
-    }
-  }
   writeFileSync(path.join(repository, "other.ts"), "export const unchanged = true;\n");
   git("add", "-A");
-  git("commit", "--quiet", "-m", "chore: seed v0.8.0 prompt sources");
-  git("tag", "v0.8.0");
+  git("commit", "--quiet", "-m", "chore: seed prompt gate repository");
   return repository;
 }
 
@@ -116,12 +108,17 @@ export function commit(repository: string, message: string): void {
   execFileSync("git", ["commit", "--quiet", "-m", message], { cwd: repository });
 }
 
-export async function evidence(repository: string): Promise<RecordedEvidence> {
+export async function evidence(_repository?: string): Promise<RecordedEvidence> {
   const scores: GemmaScoreVector = {
     boundaryContinuity: 3, styleVoiceCadenceContinuity: 3, povTenseConsistency: 3,
     factContextRetention: 3, genericSceneResetAvoidance: 3
   };
-  const requests = await buildReplayRequestPairs("http://127.0.0.1:8080/v1", RUNTIME, PROFILE);
+  const requests = await buildReplayRequestPairs(
+    "http://127.0.0.1:8080/v1",
+    RUNTIME,
+    PROFILE,
+    GEMMA_CANDIDATE_OPTIMIZATION
+  );
   const cases: GemmaEvidenceCase[] = requests.map((request, index) => ({
     id: `${request.operation.operation}-${request.seed}` as GemmaReplayCaseId,
     operation: request.operation.operation,
@@ -132,6 +129,7 @@ export async function evidence(repository: string): Promise<RecordedEvidence> {
     delta: zeroScores(), regressions: []
   }));
   const core = {
+    optimization: GEMMA_CANDIDATE_OPTIMIZATION,
     cases, caseCount: GEMMA_EXPECTED_CASE_COUNT, sampleCount: GEMMA_EXPECTED_BLIND_SAMPLE_COUNT,
     seeds: [...GEMMA_REPLAY_SEEDS], operations: [...GEMMA_REPLAY_OPERATIONS], rubric: [...GEMMA_RUBRIC_KEYS],
     regressions: [], passed: true
@@ -144,20 +142,25 @@ export async function evidence(repository: string): Promise<RecordedEvidence> {
     profile: {
       name: PROFILE.name, sourceFingerprint: PROFILE.sourceFingerprint, temperature: PROFILE.temperature,
       maxOutputTokens: PROFILE.maxOutputTokens, effort: PROFILE.effort, cachePolicy: "off",
-      tokenProbabilities: PROFILE.tokenProbabilities, sampling: PROFILE.sampling, logitBiasState: PROFILE.logitBiasState
+      tokenProbabilities: PROFILE.tokenProbabilities, sampling: PROFILE.sampling, timeouts: PROFILE.timeouts,
+      logitBiasState: PROFILE.logitBiasState
     },
     baseline: {
-      version: "v0.8.0", sourceFingerprint: PROMPT_COMPATIBILITY_MANIFEST.baselineSourceFingerprint,
-      requestFingerprint: requestFingerprint("baseline"), expectedRequestShape: GEMMA_V08_REQUEST_SHAPE
+      version: "v0.8.0", requestFingerprint: requestFingerprint("baseline"), expectedRequestShape: GEMMA_V08_REQUEST_SHAPE
     },
     candidate: {
-      sourceFingerprint: protectedSourceFingerprint(repository),
-      evaluationInputFingerprint: protectedEvaluationInputFingerprint(repository),
+      optimization: GEMMA_CANDIDATE_OPTIMIZATION,
+      operatorAcknowledgedExclusiveServer: true,
       requestFingerprint: requestFingerprint("candidate")
     },
     evaluation: {
       harness: GEMMA_REPLAY_HARNESS, fixture: GEMMA_REPLAY_FIXTURE, ...core,
-      blindScoring: { complete: true, shuffleSeed: 1667, scoredSamples: GEMMA_EXPECTED_BLIND_SAMPLE_COUNT },
+      blindScoring: {
+        complete: true,
+        shuffleSeed: 1667,
+        scoredSamples: GEMMA_EXPECTED_BLIND_SAMPLE_COUNT,
+        protocolFingerprint: GEMMA_SCORING_PROTOCOL_FINGERPRINT
+      },
       resultFingerprint: evaluationFingerprint(core)
     }
   };
@@ -171,6 +174,7 @@ export function recomputeEvaluation(recorded: RecordedEvidence): void {
   }));
   const regressions = cases.flatMap((entry) => entry.regressions.map((rubric) => `${entry.id}:${rubric}`));
   const core: GemmaEvaluationCore = {
+    optimization: recorded.evaluation.optimization,
     cases, caseCount: GEMMA_EXPECTED_CASE_COUNT, sampleCount: GEMMA_EXPECTED_BLIND_SAMPLE_COUNT,
     seeds: [...GEMMA_REPLAY_SEEDS], operations: [...GEMMA_REPLAY_OPERATIONS], rubric: [...GEMMA_RUBRIC_KEYS],
     regressions, passed: regressions.length === 0

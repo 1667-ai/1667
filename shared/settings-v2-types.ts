@@ -1,4 +1,9 @@
+import type {
+  ContinuationPromptOptimizationV2
+} from "./continuation-prompt-optimization.js";
 import type { GenerationSettings } from "./types.js";
+
+export type { SettingsView } from "./settings-v2-view.js";
 
 export const SETTINGS_PROTOCOL_V2_VALUES = [
   "dry-run",
@@ -275,6 +280,9 @@ export interface GenerationProfileV2 {
    *  action for a field whose default is off rather than on. Only literal
    *  `true` is ever persisted. */
   readonly discardReasoning?: true;
+  /** Experimental continuation prompt layout. Absent keeps the v0.8.0
+   *  compatibility layout. Only the named opt-in is persisted. */
+  readonly continuationPromptOptimization?: ContinuationPromptOptimizationV2;
 }
 
 export interface SettingsRoutingV2 {
@@ -436,41 +444,6 @@ export type SettingsStateV3 = SettingsStateEnvelope<3, SettingsDocumentV3>;
 
 export const SETTINGS_ROUTE_PURPOSE_VALUES = ["default", "prose", "utility"] as const;
 export type SettingsRoutePurpose = (typeof SETTINGS_ROUTE_PURPOSE_VALUES)[number];
-
-export type SettingsView =
-  | {
-      readonly dataFormat: 1;
-      readonly editable: false;
-      readonly stateGeneration: null;
-      readonly activeRevision: null;
-      readonly pendingRevision: null;
-      readonly document: null;
-      readonly effective: GenerationSettings;
-      /** The active continuation route. Format 1 falls back to `effective`. */
-      readonly effectiveProse: GenerationSettings;
-      /** The active prose route's `GenerationProfileV2.reasoning`, resolved
-       *  the same safe way as `effectiveProse` itself — never the editable
-       *  `document`, which can show a pending activation candidate while
-       *  `effectiveProse` still names the settings actually in force. Absent
-       *  means `"marker"`, the same default an absent profile field resolves
-       *  to everywhere else. Format 1 has no profile to read one from. */
-      readonly effectiveProseReasoning?: ReasoningDisplayV2;
-      readonly lastActivationOutcome: null;
-    }
-  | {
-      readonly dataFormat: 2;
-      readonly editable: true;
-      readonly stateGeneration: number;
-      readonly activeRevision: number;
-      readonly pendingRevision: number | null;
-      readonly document: SettingsDocumentV2;
-      readonly effective: GenerationSettings;
-      /** The active continuation route, never a pending document projection. */
-      readonly effectiveProse: GenerationSettings;
-      /** See the format-1 variant's own doc — same field, same resolution. */
-      readonly effectiveProseReasoning?: ReasoningDisplayV2;
-      readonly lastActivationOutcome: SettingsActivationOutcomeV2 | null;
-    };
 
 export interface SaveSettingsCommand {
   readonly transportOperationId: string;

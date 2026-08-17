@@ -1,0 +1,561 @@
+{
+  "schemaVersion": 1,
+  "runtime": {
+    "configuration": {
+      "schemaVersion": 1,
+      "runtime": "koboldcpp",
+      "model": {
+        "id": "koboldcpp/gemma-4-31B-it-uncensored-heretic-Q8_0",
+        "identity": "Gemma 4 31B IT Uncensored Heretic",
+        "artifact": {
+          "fileName": "gemma-4-31B-it-uncensored-heretic-Q8_0.gguf",
+          "sha256": "sha256:fc1096ef2a43023469beecaa5a7fa3ba804d3f1684ade80f8f083e7e27a1028e",
+          "quantization": "Q8_0"
+        }
+      },
+      "koboldCpp": {
+        "version": "1.117.1",
+        "chatTemplateSha256": "sha256:0a52be69cda5ab8aeb627d6ff51a7b34c7d06afabb6b0f00cf8ee63df16a6315",
+        "contextWindow": 32768
+      }
+    },
+    "fingerprint": "sha256:ee63211be331d3dcc834902729e411fd76b61726ed444c0261e4f53932360c71"
+  },
+  "profile": {
+    "name": "Gemma replay profile",
+    "sourceFingerprint": "sha256:1bef33b3e5e1b40c85f1819e5ef6c8978471c4bb7020d6cfa8e363f1d198e33b",
+    "temperature": 0.7,
+    "maxOutputTokens": 400,
+    "effort": "default",
+    "cachePolicy": "off",
+    "tokenProbabilities": null,
+    "sampling": {
+      "topP": 0.92,
+      "topK": 40,
+      "minP": 0.05,
+      "frequencyPenalty": null,
+      "presencePenalty": null,
+      "repeatPenalty": 1.08,
+      "seed": null,
+      "dryMultiplier": null,
+      "dryBase": null,
+      "dryRange": null,
+      "xtcThreshold": null,
+      "xtcProbability": null,
+      "dynatempRange": null,
+      "mirostat": null,
+      "mirostatTau": null,
+      "mirostatEta": null,
+      "stop": [],
+      "logitBias": {},
+      "bannedStrings": [],
+      "phraseBias": [],
+      "dryBreakers": []
+    },
+    "timeouts": {
+      "responseHeaderMs": 600000,
+      "firstTokenMs": 120000,
+      "idleMs": 120000,
+      "totalMs": 1800000
+    },
+    "logitBiasState": "empty"
+  },
+  "baseline": {
+    "version": "v0.8.0",
+    "requestFingerprint": "sha256:f500d27f5ec0079bc3bc0452f850c029250c05b40790b12f58c05354d243f4cf",
+    "expectedRequestShape": {
+      "promptLayout": "author-brief, facts, mode-contract, user-assistant-story-pairs, final-operation-turn",
+      "requestProtocol": "openai-chat-completions",
+      "requestPath": "/v1/chat/completions",
+      "operations": {
+        "retake": {
+          "finalRole": "user",
+          "appendAssistantPrefill": false
+        },
+        "continue": {
+          "finalRole": "assistant",
+          "appendAssistantPrefill": true
+        }
+      },
+      "requestFields": [
+        "model",
+        "messages",
+        "max_tokens",
+        "stream",
+        "temperature",
+        "sampling"
+      ]
+    }
+  },
+  "candidate": {
+    "optimization": "late-cache-stable",
+    "operatorAcknowledgedExclusiveServer": true,
+    "requestFingerprint": "sha256:d7cd68b10e377909beecbc33a2bf23b3fb6c38a184acd0307212ccce617a1808"
+  },
+  "evaluation": {
+    "harness": "gemma-prompt-quality-v1",
+    "fixture": "gemma-long-story-v1",
+    "optimization": "late-cache-stable",
+    "cases": [
+      {
+        "id": "retake-101",
+        "operation": "retake",
+        "seed": 101,
+        "dispatchOrder": [
+          "candidate",
+          "baseline"
+        ],
+        "baseline": {
+          "blindId": "blind-07",
+          "outputFingerprint": "sha256:7be9d659848b05c284cef4e60e05948a1d8e4abda5ecd92ddd43c7b61fece059",
+          "requestFingerprint": "sha256:a5f268790d830e41242bab87a29d130237c9aac97d44eda839be81c82c70df09",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 2,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Follows the mark from the established ferry house, but treats the key's ownership and future bell timing more certainly than the context supports."
+        },
+        "candidate": {
+          "blindId": "blind-01",
+          "outputFingerprint": "sha256:1ecea87047c27e8d6510d5d56268a09b30abb3c9f3bcf77d4a24c0cb5788a667",
+          "requestFingerprint": "sha256:b6036ef51bd8711bda6113f2257c6f31f1a67edf721c0cf9346c3e115a23e31f",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Follows the ferry-house seam and advances the eastern-mark choice; voice fits but uses noticeable stock and over-figurative phrasing."
+        },
+        "delta": {
+          "boundaryContinuity": 0,
+          "styleVoiceCadenceContinuity": 0,
+          "povTenseConsistency": 0,
+          "factContextRetention": 1,
+          "genericSceneResetAvoidance": 0
+        },
+        "regressions": []
+      },
+      {
+        "id": "retake-202",
+        "operation": "retake",
+        "seed": 202,
+        "dispatchOrder": [
+          "baseline",
+          "candidate"
+        ],
+        "baseline": {
+          "blindId": "blind-13",
+          "outputFingerprint": "sha256:3c05b870b9aa88e810d07a567c384fda7bbf39b03e7c5ab889ab270106329c55",
+          "requestFingerprint": "sha256:3e2db8510f84f24aa22092365155a4aff2cadb800ad2f911cdbc7d30ed2c6330",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Moves naturally from the tide-book mark into the eastern flats and retains the established Ivo, Jun, and tower stakes; prose is purple in places."
+        },
+        "candidate": {
+          "blindId": "blind-03",
+          "outputFingerprint": "sha256:99ba59a5c01ee32ce38e621af2894545d5496a68161e39b0ed358fe11ac68560",
+          "requestFingerprint": "sha256:77a2521df36ff68f42fb66f4e1fc79599684e904770f496cff5208529b344d64",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Continues from the ferry house into the marked channel with the established key, compass, Ivo, and Jun context; prose is somewhat purple."
+        },
+        "delta": {
+          "boundaryContinuity": 0,
+          "styleVoiceCadenceContinuity": 0,
+          "povTenseConsistency": 0,
+          "factContextRetention": 0,
+          "genericSceneResetAvoidance": 0
+        },
+        "regressions": []
+      },
+      {
+        "id": "retake-303",
+        "operation": "retake",
+        "seed": 303,
+        "dispatchOrder": [
+          "candidate",
+          "baseline"
+        ],
+        "baseline": {
+          "blindId": "blind-04",
+          "outputFingerprint": "sha256:f748c5e3a8f6949caa435eb9e5fe49773ba591a78c2697cdd2cd21bda462df86",
+          "requestFingerprint": "sha256:154c7a81ea27eab5bbb1912d15db7a05152c9816d9fd2fb5805744fce786cca5",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Maintains the dawn ferry-house setting and follows Mara toward the mark; tactile voice continues with some familiar dramatic phrasing."
+        },
+        "candidate": {
+          "blindId": "blind-19",
+          "outputFingerprint": "sha256:c7487ac4fa643ab247571cfc39a408d2147388dc8c341c21658e7523cb35105c",
+          "requestFingerprint": "sha256:ddc381dffc16653bb771f4af65d5d5420754ae6bda09ebcbb4ba43618af87341",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Advances directly from the tide-book mark within the ferry house and preserves Jun, the key, compass, and red-door context; prose is somewhat conventional."
+        },
+        "delta": {
+          "boundaryContinuity": 0,
+          "styleVoiceCadenceContinuity": 0,
+          "povTenseConsistency": 0,
+          "factContextRetention": 0,
+          "genericSceneResetAvoidance": 0
+        },
+        "regressions": []
+      },
+      {
+        "id": "retake-404",
+        "operation": "retake",
+        "seed": 404,
+        "dispatchOrder": [
+          "baseline",
+          "candidate"
+        ],
+        "baseline": {
+          "blindId": "blind-15",
+          "outputFingerprint": "sha256:ae6fa8ce1e0b6c86e06372a06d81ae1ee8f433e44681634b187a898a1dabdf8c",
+          "requestFingerprint": "sha256:efc4ac50660e7ca28c74f2d52fc9f12f3097a16dc39bbc9730eb11a92a119fd9",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Continues the ferry-house decision and carries the tide, compass, key, and Ivo context forward; cadence is coherent but somewhat conventional."
+        },
+        "candidate": {
+          "blindId": "blind-20",
+          "outputFingerprint": "sha256:1b7d2b7d50dec9c093712f8707f4329a25b54ad1288317e217991a81059e059c",
+          "requestFingerprint": "sha256:a7e0bc9d36da0a496a10a8d05aa4710caebfdc804b9881bb463956028323a7c5",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Follows the complete ferry-house seam into the eastern channel while retaining the rope injury, key, compass, Jun, and tower context; voice is usable with stock phrasing."
+        },
+        "delta": {
+          "boundaryContinuity": 0,
+          "styleVoiceCadenceContinuity": 0,
+          "povTenseConsistency": 0,
+          "factContextRetention": 0,
+          "genericSceneResetAvoidance": 0
+        },
+        "regressions": []
+      },
+      {
+        "id": "retake-505",
+        "operation": "retake",
+        "seed": 505,
+        "dispatchOrder": [
+          "candidate",
+          "baseline"
+        ],
+        "baseline": {
+          "blindId": "blind-16",
+          "outputFingerprint": "sha256:37612afb268242d4d2ab2828fccb5202b4524fb7f4d56b2237a428759696b7d5",
+          "requestFingerprint": "sha256:cf10178321cb3243cf12885c7924a88761bdc40411cc6bc5d3887b87c1adec8c",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Keeps the established ferry-house dawn and the choice to follow the key east; continuity is solid despite several familiar metaphors."
+        },
+        "candidate": {
+          "blindId": "blind-08",
+          "outputFingerprint": "sha256:71f06c98722179450f798d03aff963872f7dd29e22a193318ed446dbb4a0c985",
+          "requestFingerprint": "sha256:41e72572074950d92bdbdbd3bdd7e50b4d27145878fcb87d6cdfd6383f847d0d",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Keeps the dawn setting, Jun's exhaustion, and the eastern decision continuous; voice and cadence fit but include stock metaphors."
+        },
+        "delta": {
+          "boundaryContinuity": 0,
+          "styleVoiceCadenceContinuity": 0,
+          "povTenseConsistency": 0,
+          "factContextRetention": 0,
+          "genericSceneResetAvoidance": 0
+        },
+        "regressions": []
+      },
+      {
+        "id": "continue-101",
+        "operation": "continue",
+        "seed": 101,
+        "dispatchOrder": [
+          "baseline",
+          "candidate"
+        ],
+        "baseline": {
+          "blindId": "blind-14",
+          "outputFingerprint": "sha256:fba12e3a96eefc978f0402eb1d282816ec3733fd4b2527b648744f44e90352d5",
+          "requestFingerprint": "sha256:d6181ca0bbc703628b398800316c39a43dfc01bb96ff93fd4e93e835465854b9",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 2,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Joins the unfinished bell-side passage and sustains the red-door threat, but says the tower gave Ivo back despite his remaining beyond its collapse."
+        },
+        "candidate": {
+          "blindId": "blind-06",
+          "outputFingerprint": "sha256:08378d88a71be723a55a9ee4c84329f4a0bc41bf6fcabc41c29d95f4f72a2c4d",
+          "requestFingerprint": "sha256:dbd7ff7136043d6dfff3c7e43996030d0f649266f37231349a0b23dce13cb0fb",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Continues the unfinished bell-side seam and keeps Jun, the key, compass, and shifting channel in view; imagery is noticeably formulaic."
+        },
+        "delta": {
+          "boundaryContinuity": 0,
+          "styleVoiceCadenceContinuity": 0,
+          "povTenseConsistency": 0,
+          "factContextRetention": 1,
+          "genericSceneResetAvoidance": 0
+        },
+        "regressions": []
+      },
+      {
+        "id": "continue-202",
+        "operation": "continue",
+        "seed": 202,
+        "dispatchOrder": [
+          "candidate",
+          "baseline"
+        ],
+        "baseline": {
+          "blindId": "blind-10",
+          "outputFingerprint": "sha256:b5c45914ad049dac53b174e707a510e84366372be71c7a395779d05137972f51",
+          "requestFingerprint": "sha256:ea5ee66c1c0b0b76a807be9b65a8905d5cd014e1c985499012e19ec6bbd3b5d4",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Joins the exact unfinished phrase, keeps the red cloth and tide mark relevant, and moves Mara east; cadence remains somewhat stock."
+        },
+        "candidate": {
+          "blindId": "blind-05",
+          "outputFingerprint": "sha256:86fc14b3e54771e0848113b8e49a538711a213d3864343f87c5b4689500711d3",
+          "requestFingerprint": "sha256:3386340858b5e5a1cfd36fc09720c1650875296a375676c15043da7eb34ef4c4",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Joins directly at the required word and preserves the marsh, bell, key, and stake; the close voice is weakened by repeated stock imagery."
+        },
+        "delta": {
+          "boundaryContinuity": 0,
+          "styleVoiceCadenceContinuity": 0,
+          "povTenseConsistency": 0,
+          "factContextRetention": 0,
+          "genericSceneResetAvoidance": 0
+        },
+        "regressions": []
+      },
+      {
+        "id": "continue-303",
+        "operation": "continue",
+        "seed": 303,
+        "dispatchOrder": [
+          "baseline",
+          "candidate"
+        ],
+        "baseline": {
+          "blindId": "blind-17",
+          "outputFingerprint": "sha256:9379de98359ad575fac04f4a340980cfb21aab17156cb30e7c05b405ac7f6f66",
+          "requestFingerprint": "sha256:68dd0585cd0ec3ebd93f77ca4bc33d36b62af054e062bdc994795512451b1859",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Completes the required seam and uses the established bell, Ivo, Jun, and red-door details; voice continues but is heavily figurative."
+        },
+        "candidate": {
+          "blindId": "blind-09",
+          "outputFingerprint": "sha256:8e4618c44e94fbf55d3d71b1e035461a3387182781db323952127903e577f59a",
+          "requestFingerprint": "sha256:a6d06c511746724cca77d0ac2538ed5d8694167672fa42a0bb34fe405364399a",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Completes the unfinished seam and develops the marked path without losing the established rescue and Ivo context; prose is over-figurative."
+        },
+        "delta": {
+          "boundaryContinuity": 0,
+          "styleVoiceCadenceContinuity": 0,
+          "povTenseConsistency": 0,
+          "factContextRetention": 0,
+          "genericSceneResetAvoidance": 0
+        },
+        "regressions": []
+      },
+      {
+        "id": "continue-404",
+        "operation": "continue",
+        "seed": 404,
+        "dispatchOrder": [
+          "candidate",
+          "baseline"
+        ],
+        "baseline": {
+          "blindId": "blind-11",
+          "outputFingerprint": "sha256:a665d5b40002631b5cfff7445c39e3329f587eb0f722a569561b9e7baa5fd3b9",
+          "requestFingerprint": "sha256:19bfff4c1eaa8a0917cbf5357a5c7573fea93c81e12d806e640fefb7c708db6c",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Continues at the stake with Jun, the second-bell danger, and the eastern channel intact; atmosphere fits but leans on familiar imagery."
+        },
+        "candidate": {
+          "blindId": "blind-12",
+          "outputFingerprint": "sha256:49020fa31b62df12703634bfb45c13b2fa1cd670d570da8d6b10a261f58b5b19",
+          "requestFingerprint": "sha256:900044db296ff949609c7d1a47008f7bcfbbb59272165719012d98381a963451",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Direct continuation preserves Jun, the ferry house, the key, and the changing marsh; the restrained register is present with some stock turns."
+        },
+        "delta": {
+          "boundaryContinuity": 0,
+          "styleVoiceCadenceContinuity": 0,
+          "povTenseConsistency": 0,
+          "factContextRetention": 0,
+          "genericSceneResetAvoidance": 0
+        },
+        "regressions": []
+      },
+      {
+        "id": "continue-505",
+        "operation": "continue",
+        "seed": 505,
+        "dispatchOrder": [
+          "baseline",
+          "candidate"
+        ],
+        "baseline": {
+          "blindId": "blind-02",
+          "outputFingerprint": "sha256:bcd00d5f4d409025e0e56c2462a858c4372c523bb9ba74d71ca4b8fb8f5b949b",
+          "requestFingerprint": "sha256:53ca72b268eb44874c9fb3deb497df2da92b993ffe7725a2e0b1e5da02461b54",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Completes the unfinished seam cleanly and keeps the threat in the marsh and ledger context; cadence is atmospheric but stock."
+        },
+        "candidate": {
+          "blindId": "blind-18",
+          "outputFingerprint": "sha256:26301e51e404a7c9a6aa01381bc272ee583a49661a29f21ef2e97af09a0de460",
+          "requestFingerprint": "sha256:587e2a37a38b69149c3552b810c7bfd4f591afa7199440f5eca8994c05a9de06",
+          "scores": {
+            "boundaryContinuity": 3,
+            "styleVoiceCadenceContinuity": 2,
+            "povTenseConsistency": 3,
+            "factContextRetention": 3,
+            "genericSceneResetAvoidance": 3
+          },
+          "notes": "Completes the seam with a coherent marsh threat and keeps Jun, the key, ledger, and red scarf relevant; imagery is stock but usable."
+        },
+        "delta": {
+          "boundaryContinuity": 0,
+          "styleVoiceCadenceContinuity": 0,
+          "povTenseConsistency": 0,
+          "factContextRetention": 0,
+          "genericSceneResetAvoidance": 0
+        },
+        "regressions": []
+      }
+    ],
+    "caseCount": 10,
+    "sampleCount": 20,
+    "seeds": [
+      101,
+      202,
+      303,
+      404,
+      505
+    ],
+    "operations": [
+      "retake",
+      "continue"
+    ],
+    "rubric": [
+      "boundaryContinuity",
+      "styleVoiceCadenceContinuity",
+      "povTenseConsistency",
+      "factContextRetention",
+      "genericSceneResetAvoidance"
+    ],
+    "regressions": [],
+    "passed": true,
+    "blindScoring": {
+      "complete": true,
+      "shuffleSeed": 2734157286,
+      "scoredSamples": 20,
+      "protocolFingerprint": "sha256:4a434fee670dee6a17705db6dc27a7c02c93ac0d41d2d5d29c40173336e0c626"
+    },
+    "resultFingerprint": "sha256:cf2bec4e8d5400796d2e1c1babaa6e3151f1b1da06e7f41ae900acce31683c40"
+  }
+}
