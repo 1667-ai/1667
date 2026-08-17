@@ -143,6 +143,36 @@ describe("the settings form follows C-03 and C-08", () => {
     expect(row()).toBe(clean);
   });
 
+  test("an exact-fit form stays still when status adds a position line", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    await selectRow(press, state, "reasoning");
+    const row = () => screen(state, 120, 43).split("\n")
+      .findIndex((line) => line.includes("reasoning"));
+    expect(screen(state, 120, 43)).not.toContain("more settings");
+    const clean = row();
+    state.settings!.draft = {
+      ...state.settings!.draft,
+      generation: {
+        ...state.settings!.draft.generation,
+        systemPrompt: `${state.settings!.draft.generation.systemPrompt} x`
+      }
+    };
+
+    expect(screen(state, 120, 43)).toContain("more settings");
+    expect(row()).toBe(clean);
+  });
+
+  test("image input names a protocol limitation", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    await selectRow(press, state, "image-input");
+
+    const rendered = screen(state, 80, 24);
+    expect(rendered).toContain("The selected protocol cannot send image");
+    expect(rendered).toContain("· attachments.");
+  });
+
   test("a settable number wears a chip, a positional track and a default tick", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);

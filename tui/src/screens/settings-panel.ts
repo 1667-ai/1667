@@ -101,7 +101,7 @@ export function renderSettingsPanel(
         1,
         contentCapacity - fixedRows - positionRows - (picker === null ? 0 : 1)
       );
-      const stableCapacity = formCapacity + status.bottom.length;
+      const stableCapacity = formCapacity + status.bottom.length + positionRows;
       const window = panelRowWindow(
         painted.map(() => 1),
         cursorOffset,

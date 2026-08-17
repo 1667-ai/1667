@@ -45,6 +45,6 @@ export function imageInputRowHint(state: ImageInputRowState): string {
     remoteModelId: state.route.model.remoteId
   });
   if (resolution.support === "supported") return "This model accepts image attachments.";
-  if (resolution.reason === "protocol-unsupported") return "This provider does not accept image attachments.";
+  if (resolution.reason === "protocol-unsupported") return "The selected protocol cannot send image attachments.";
   return "Image support is unknown for this model.";
 }
