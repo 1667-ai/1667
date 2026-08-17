@@ -324,7 +324,7 @@ key for this request only. Save the settings to store the key.
 
 A **Generation Profile** is one set of model behavior settings. It contains a
 model, a temperature, a maximum output, a reasoning effort, a cache policy,
-and an alternative count.
+an alternative count, and an optional continuation prompt layout.
 
 Select the **profile** row to see a Generation Profile. Use `Left Arrow` or
 `Right Arrow` to select a different Generation Profile. Press `n` to create a
@@ -348,6 +348,13 @@ meter uses the active prose route.
 Select the **cache** row to set the cache policy. Use `Left Arrow` or
 `Right Arrow` to select `off`, `auto`, or `long`. Settings shows an unavailable
 message when the selected model cannot use the cache policy.
+
+Select the experimental **prompt layout** row to control the continuation
+prompt optimization. The default value is `off`. This value keeps the v0.8.0
+compatibility prompt. Select `on` to use the `late-cache-stable` layout for
+Continue and Retake. This layout moves the operation-specific contract after
+the story history. It can change the writing style. The setting belongs to the
+selected Generation Profile.
 
 Select the **alt count** row to set the token probability count. Use
 `Left Arrow` or `Right Arrow` to select `off` or a number from 1 to 20. The

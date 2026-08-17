@@ -3,8 +3,7 @@ import { fileURLToPath } from "node:url";
 import type { AuthorsNotePlacement } from "../../shared/authors-note.js";
 import type { PromptPlan } from "../../shared/prompt-plan.js";
 import type { ChapterBreak, StoryNode } from "../../shared/types.js";
-import { GEMMA_REPLAY_SEEDS } from "./contract.js";
-import type { GemmaReplayOperation } from "./contract.js";
+import { GEMMA_REPLAY_SEEDS, type GemmaReplayOperation } from "./contract.js";
 
 /** The sample seeds are part of the replay contract. Do not add a seed here
  * without also updating the scorer and the compatibility gate. */

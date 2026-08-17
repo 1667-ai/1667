@@ -12,28 +12,38 @@ import {
 } from "../evals/gemma-prompt-quality/fixture.js";
 import {
   parseReplayProfileManifest,
-  replayProfileFromEvidence
+  replayProfileFromEvidence,
+  replaySettings
 } from "../evals/gemma-prompt-quality/profile.js";
 import { parseGemmaRuntimeConfiguration } from "../evals/gemma-prompt-quality/runtime.js";
 import { buildReplayRequestPairs } from "../evals/gemma-prompt-quality/runner.js";
+import { GEMMA_CANDIDATE_OPTIMIZATION } from "../evals/gemma-prompt-quality/contract.js";
 import { assembleContinuation } from "../server/continuation-assembly.js";
+import { providerRuntimeFor } from "../server/provider-runtime.js";
+import { defaultConnectionTimeouts } from "../shared/settings-provider-defaults.js";
 import { isGemmaReplayCliEntry } from "../evals/gemma-prompt-quality/cli.js";
 import { assertApprovedReplay, parseApprovedReplay } from "../evals/gemma-prompt-quality/approved-replay.js";
 
 const runtime = parseGemmaRuntimeConfiguration({
   schemaVersion: 1,
-  runtime: "llama.cpp",
+  runtime: "koboldcpp",
   model: {
-    id: "gemma-4-31b",
-    identity: "Gemma 4 31B",
+    id: "koboldcpp/gemma-4-31B-it-uncensored-heretic-Q8_0",
+    identity: "Gemma 4 31B test runtime",
     artifact: {
-      fileName: "gemma-4-31b-Q4_K_M.gguf",
+      fileName: "gemma-4-31B-it-uncensored-heretic-Q8_0.gguf",
       sha256: `sha256:${"a".repeat(64)}`,
-      quantization: "Q4_K_M"
+      quantization: "Q8_0"
     }
   },
-  llamaCpp: { build: "b1234", chatTemplate: "gemma", contextWindow: 32768 }
+  koboldCpp: {
+    version: "1.117.1",
+    chatTemplateSha256: "sha256:0a52be69cda5ab8aeb627d6ff51a7b34c7d06afabb6b0f00cf8ee63df16a6315",
+    contextWindow: 32768
+  }
 });
+
+const PREFILL_CONTINUITY_GUARD = "Preserve the established point of view and tense.";
 
 function manifest(logitBias: Record<string, number> = {}) {
   return {
@@ -70,7 +80,8 @@ function manifest(logitBias: Record<string, number> = {}) {
         bannedStrings: [],
         phraseBias: [],
         dryBreakers: []
-      }
+      },
+      timeouts: { responseHeaderMs: 600_000, firstTokenMs: 120_000, idleMs: 120_000, totalMs: 1_800_000 }
     }
   };
 }
@@ -106,8 +117,8 @@ test("Gemma replay manifest preserves raw bias and binds it to the checked artif
     () => parseReplayProfileManifest(manifest({ "123": 101 }), runtime), /123 must be an integer in -100\.\.100/);
   assert.throws(
     () => parseReplayProfileManifest(manifest(Object.fromEntries(
-      Array.from({ length: 201 }, (_, index) => [String(index), 0])
-    )), runtime), /exceeds the 200-entry limit/);
+      Array.from({ length: 17 }, (_, index) => [String(index), 0])
+    )), runtime), /exceeds the KoboldCpp 16-entry limit/);
 });
 
 test("Gemma replay manifest requires exact generation fields and rebuilds evidence profiles", () => {
@@ -137,6 +148,7 @@ test("Gemma replay manifest requires exact generation fields and rebuilds eviden
     cachePolicy: "off",
     tokenProbabilities: profile.tokenProbabilities,
     sampling: profile.sampling,
+    timeouts: profile.timeouts,
     logitBiasState: profile.logitBiasState
   }, runtime);
   assert.equal(rebuilt.sourceFingerprint, profile.sourceFingerprint);
@@ -144,7 +156,12 @@ test("Gemma replay manifest requires exact generation fields and rebuilds eviden
 
 test("Gemma replay requests exercise Author's Note and chapter-summary context", async () => {
   const profile = parseReplayProfileManifest(manifest(), runtime);
-  const pairs = await buildReplayRequestPairs("http://127.0.0.1:8080/v1", runtime, profile);
+  const pairs = await buildReplayRequestPairs(
+    "http://127.0.0.1:8080/v1",
+    runtime,
+    profile,
+    GEMMA_CANDIDATE_OPTIMIZATION
+  );
   assert.equal(pairs.length, 10);
   for (const pair of pairs) {
     assert.doesNotThrow(() => assertGemmaFixtureContextSize(pair.baseline.prompt));
@@ -169,6 +186,16 @@ test("Gemma replay requests exercise Author's Note and chapter-summary context",
     const candidate = JSON.stringify(renderPromptPlan(pair.candidate.prompt));
     assert.match(candidate, /Keep the bell's sound physical/);
     assert.match(candidate, /Inherited continuity summary of/);
+    if (pair.operation.operation === "retake") {
+      assert.match(candidate, /Write the next passage of the story in response to the final user direction\./);
+      assert.match(candidate, /Return only story prose: no summary, explanation, or commentary\./);
+      assert.doesNotMatch(candidate, /Continuation mode: the final assistant message is an unfinished passage\./);
+      assert.doesNotMatch(candidate, /Preserve the established point of view and tense\./);
+    } else {
+      assert.match(candidate, new RegExp(PREFILL_CONTINUITY_GUARD));
+      assert.doesNotMatch(candidate, /Write the next passage of the story in response to the final user direction\./);
+      assert.doesNotMatch(candidate, /Continuation mode: the final assistant message is an unfinished passage\./);
+    }
     const baseline = JSON.stringify(renderPromptPlan(baselineContinuationPlan(
       pair.operation,
       GEMMA_AUTHOR_BRIEF,
@@ -176,18 +203,39 @@ test("Gemma replay requests exercise Author's Note and chapter-summary context",
     )));
     assert.match(baseline, /Keep the bell's sound physical/);
     assert.match(baseline, /Inherited continuity summary of/);
-    assert.deepEqual(
-      baselineContinuationPlan(pair.operation, GEMMA_AUTHOR_BRIEF, GEMMA_FACTS_BLOCK).turns.map((turn) => ({
-        role: turn.role,
-        kinds: turn.blocks.map((block) => block.kind)
-      })),
-      pair.candidate.prompt.turns.map((turn) => ({
-        role: turn.role,
-        kinds: turn.blocks.map((block) => block.kind)
-      }))
+    assert.notDeepEqual(
+      renderPromptPlan(baselineContinuationPlan(
+        pair.operation,
+        GEMMA_AUTHOR_BRIEF,
+        GEMMA_FACTS_BLOCK
+      )),
+      renderPromptPlan(pair.candidate.prompt)
     );
   }
   assert.equal(GEMMA_OPERATION_FIXTURES.length, 2);
+});
+
+test("Gemma replay resolves both layouts through the production settings runtime", () => {
+  const profile = parseReplayProfileManifest(manifest(), runtime);
+  const baseline = replaySettings("http://127.0.0.1:8080/v1", runtime.configuration, profile, 101);
+  const candidate = replaySettings(
+    "http://127.0.0.1:8080/v1",
+    runtime.configuration,
+    profile,
+    101,
+    GEMMA_CANDIDATE_OPTIMIZATION
+  );
+  assert.equal(providerRuntimeFor(baseline).continuationPromptLayout, "compatibility");
+  assert.equal(providerRuntimeFor(candidate).continuationPromptLayout, "late-cache-stable");
+  assert.equal(providerRuntimeFor(candidate).sampling.seed, 101);
+});
+
+test("Gemma replay uses its bound header deadline without changing product defaults", () => {
+  const profile = parseReplayProfileManifest(manifest(), runtime);
+  const settings = replaySettings("http://127.0.0.1:8080/v1", runtime.configuration, profile, 101);
+  assert.deepEqual(providerRuntimeFor(settings).timeouts, profile.timeouts);
+  assert.equal(providerRuntimeFor(settings).timeouts.responseHeaderMs, 600_000);
+  assert.equal(defaultConnectionTimeouts("openai-compatible").responseHeaderMs, 120_000);
 });
 
 test("Gemma fixture rejects a shortened rendered context", () => {
@@ -216,7 +264,7 @@ test("approved Gemma replay protocol rejects changed or incomplete fields", () =
   assert.throws(() => parseApprovedReplay({ schemaVersion: 1 }), /unsupported, missing, or changed/);
   assert.throws(() => parseApprovedReplay({
     schemaVersion: 1,
-    runtime: { runtime: "llama.cpp", modelId: "gemma-4-31b" },
+    runtime: { runtime: "koboldcpp", modelId: "koboldcpp/gemma-4-31B-it-uncensored-heretic-Q8_0" },
     profile: {}
   }), /unsupported, missing, or changed/);
 });
@@ -236,8 +284,15 @@ test("approved Gemma replay protocol rejects changed profiles and runtimes", () 
     () => assertApprovedReplay(runtime, { ...profile, sampling: { ...profile.sampling, topK: 41 } }),
     /profile does not match approved replay protocol/
   );
+  assert.throws(
+    () => assertApprovedReplay(runtime, {
+      ...profile,
+      timeouts: { ...profile.timeouts, responseHeaderMs: 120_000 }
+    }),
+    /profile does not match approved replay protocol/
+  );
   for (const changedRuntime of [
-    runtimeConfiguration({ chatTemplate: "chatml" }),
+    runtimeConfiguration({ chatTemplateSha256: `sha256:${"b".repeat(64)}` }),
     runtimeConfiguration({ contextWindow: 32767 }),
     runtimeConfiguration({ quantization: "Q5_K_M" })
   ]) {
@@ -260,25 +315,25 @@ function approvedManifest() {
 }
 
 function runtimeConfiguration(changes: {
-  readonly chatTemplate?: string;
+  readonly chatTemplateSha256?: string;
   readonly contextWindow?: number;
   readonly quantization?: string;
 }) {
   return parseGemmaRuntimeConfiguration({
     schemaVersion: 1,
-    runtime: "llama.cpp",
+    runtime: "koboldcpp",
     model: {
-      id: "gemma-4-31b",
-      identity: "Gemma 4 31B",
+      id: "koboldcpp/gemma-4-31B-it-uncensored-heretic-Q8_0",
+      identity: "Gemma 4 31B test runtime",
       artifact: {
-        fileName: "gemma-4-31b-Q4_K_M.gguf",
+        fileName: "gemma-4-31B-it-uncensored-heretic-Q8_0.gguf",
         sha256: `sha256:${"a".repeat(64)}`,
-        quantization: changes.quantization ?? "Q4_K_M"
+        quantization: changes.quantization ?? "Q8_0"
       }
     },
-    llamaCpp: {
-      build: "b1234",
-      chatTemplate: changes.chatTemplate ?? "gemma",
+    koboldCpp: {
+      version: "1.117.1",
+      chatTemplateSha256: changes.chatTemplateSha256 ?? "sha256:0a52be69cda5ab8aeb627d6ff51a7b34c7d06afabb6b0f00cf8ee63df16a6315",
       contextWindow: changes.contextWindow ?? 32768
     }
   });

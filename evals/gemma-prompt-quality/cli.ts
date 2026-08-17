@@ -15,11 +15,13 @@ import { readGemmaRuntimeConfiguration } from "./runtime.js";
 import { runReplay, writeReplay, type ReplayResult } from "./runner.js";
 import { parseGemmaCompatibilityEvidence } from "./evidence-schema.js";
 import { parseReplayResult } from "./replay-schema.js";
+import { parseCandidateOptimization } from "./contract.js";
 
 /**
  * Replay commands:
  *
- *   replay --endpoint URL --runtime-config RUNTIME.json --profile PROFILE.json --output replay.json
+ *   replay --endpoint URL --runtime-config RUNTIME.json --profile PROFILE.json
+ *     --optimization late-cache-stable --exclusive-server --output replay.json
  *   blind --replay replay.json --output blind.json --mapping mapping.json
  *   score --replay replay.json --blind blind.json --mapping mapping.json
  *     --scores scores.json --output evidence.json
@@ -35,10 +37,23 @@ async function main(): Promise<void> {
     const model = optional(args, "--model");
     const runtimePath = required(args, "--runtime-config");
     const profilePath = required(args, "--profile");
+    const optimization = parseCandidateOptimization(required(args, "--optimization"), "--optimization");
+    if (!flag(args, "--exclusive-server")) {
+      throw new Error(
+        "--exclusive-server is required: stop every other KoboldCpp client before the replay"
+      );
+    }
     const outputPath = required(args, "--output");
     const runtime = await readGemmaRuntimeConfiguration(runtimePath);
     const profile = await readReplayProfileManifest(profilePath, runtime);
-    await writeReplay(outputPath, await runReplay({ endpointBaseUrl: endpoint, model, runtime, profile }));
+    await writeReplay(outputPath, await runReplay({
+      endpointBaseUrl: endpoint,
+      model,
+      runtime,
+      profile,
+      optimization,
+      operatorAcknowledgedExclusiveServer: true
+    }));
     return;
   }
   if (command === "blind") {
@@ -94,6 +109,16 @@ function optional(args: readonly string[], name: string): string | undefined {
   const value = args[index + 1];
   if (value === undefined || value.startsWith("--")) throw new Error(`${name} must have a value`);
   return value;
+}
+
+function flag(args: readonly string[], name: string): boolean {
+  const index = args.indexOf(name);
+  if (index < 0) return false;
+  const next = args[index + 1];
+  if (next !== undefined && !next.startsWith("--")) {
+    throw new Error(`${name} does not accept a value`);
+  }
+  return true;
 }
 
 export function isGemmaReplayCliEntry(pathname: string | undefined): boolean {

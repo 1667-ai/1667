@@ -19,7 +19,7 @@ read_when:
 
 ## Incident record
 
-The incident concerns a long story on Gemma 4 31B through llama.cpp Chat
+The incident concerns a long story on Gemma 4 31B through KoboldCpp Chat
 Completions. The report records identical LLM settings, including temperature
 and sampler settings.
 
@@ -65,6 +65,10 @@ Keep the v0.8.0 prompt shape until a replacement passes the Gemma replay gate.
 Do not use cache reuse as evidence that a model will keep the established
 style.
 
+The default continuation prompt layout is the compatibility baseline. A
+Generation Profile can enable one approved experimental layout. A missing
+setting is off. The current candidate is `late-cache-stable`.
+
 The baseline keeps these properties:
 
 - The operation contract is present on every continuation path.
@@ -88,14 +92,16 @@ Follow the [replay instructions](../evals/gemma-prompt-quality/README.md).
 Use the fixed seeds `101`, `202`, `303`, `404`, and `505`. Use the `Retake`
 and `Continue` operations from the fixture.
 
-The replay sends the frozen v0.8.0 prompt plan and the candidate prompt plan to
-the same llama.cpp endpoint and profile. Both prompt plans use the current Chat
-Completions adapter. Run each Retake and Continue seed with both prompt plans.
-The complete run produces 20 outputs.
+The replay sends the frozen v0.8.0 prompt plan and one named candidate prompt
+plan to the same KoboldCpp endpoint and profile. Both prompt plans use the
+current Chat Completions adapter. Run each Retake and Continue seed with both
+prompt plans. The complete run produces 20 outputs. Use
+`--optimization late-cache-stable` to select the current candidate. Do not put
+two prompt optimizations in one replay.
 
 Keep these inputs identical between the two requests:
 
-- llama.cpp build and server configuration
+- KoboldCpp server version and configuration
 - Gemma model and quantization
 - chat template
 - context window
@@ -104,10 +110,21 @@ Keep these inputs identical between the two requests:
 - story fixture and request text
 - random seed
 
+The replay profile fixes its transport limits. The header deadline is ten
+minutes. This limit applies only to the replay. It does not change product
+connection defaults. This time gives KoboldCpp time to evaluate a cold,
+cache-disabled long prompt before it starts the response stream.
+
+Stop all other KoboldCpp clients before you run the replay. Pass
+`--exclusive-server` to record this operator attestation. The runner sends the
+20 requests in sequence after this attestation. The attestation is a manual
+trust boundary. It is not a server lease. CI cannot prove that the operator
+used an exclusive server.
+
 Change only the prompt plan under review. Record the exact configuration with
 the outputs. Do not change the model or sampler to improve a candidate result.
 
-Create a blind pack with a cryptographic random mapping. Keep the mapping
+Create a blind pack with a private random mapping seed. Keep the mapping
 file local. Give the scorer only the blind pack. The pack must omit the
 shuffle seed, operation label, sample seed, output fingerprint, pair ID, and
 arm label. Each sample can include an opaque reference ID. The opaque ID lets
@@ -115,7 +132,7 @@ the scorer select the correct context without revealing the operation.
 
 Use the mapping file with the replay and blind pack when you create evidence.
 The score command must verify both file identities before it restores pairs.
-You can publish the mapping data after scoring.
+Keep the mapping data private after scoring.
 
 Score each output from 0 through 3 with this rubric. Use these field names in
 the evidence file:
@@ -128,12 +145,13 @@ the evidence file:
 | `factContextRetention` | Does the output use the known facts, setting, and recent events? |
 | `genericSceneResetAvoidance` | Does the output avoid a generic opening that resets the scene? |
 
-Use the same score scale for every output. Record the scores and a short note
-for each sample. Do not change the rubric after you see the version labels.
+Use the [score anchors](../evals/gemma-prompt-quality/README.md#blind-score)
+for every output. Record the scores and a short note for each sample. Do not
+change the rubric after you see the version labels.
 
 Keep raw requests, raw outputs, and the randomized blind pack local. Do not
-commit them. Commit only fingerprints, scores, notes, and the aggregate result
-in `evals/gemma-prompt-quality/evidence.json`. Do not claim a prompt change
+commit them. Commit only the compact evidence in
+`evals/gemma-prompt-quality/evidence.json`. Do not claim a prompt change
 passed when the evidence contains only rendered prompt snapshots or unit-test
 output.
 
@@ -142,36 +160,32 @@ seed. A candidate must not score lower than its baseline for any rubric field.
 Any lower score is a regression. The gate fails when any operation, seed, or
 rubric field has a regression.
 
-The approved replay protocol fixes the llama.cpp route, Gemma 4 31B identity,
-Q4_K_M quantization, chat template, context minimum, output limit, and sampler
-values. The protocol does not fix an artifact SHA-256 value or llama.cpp build
-value. Record these values in each real replay.
+The approved replay protocol fixes the KoboldCpp route, the exact model ID,
+Q8_0 quantization, the chat template hash, context minimum, output limit, and
+sampler values. The protocol does not fix the server version or artifact
+SHA-256 value. Record these values in each real replay.
 
 Each baseline rubric score must be 2 or more. This rule prevents a zero-score
 tie from passing the gate.
 
-The repository has no initial live evidence. Its protected prompt sources
-equal the frozen v0.8.0 baseline. The first protected prompt or fixture change
-must add real replay evidence.
+The repository includes approved evidence for the `late-cache-stable`
+candidate. A change to a replay request requires new replay evidence. A
+scorer-only change requires a new blind review and new evidence. It does not
+require a new model replay.
 
-The evidence binds the runtime configuration and the complete replay profile
-to the result. CI rebuilds the deterministic baseline and candidate requests
-from these values. CI recomputes both aggregate request fingerprints.
+The evidence binds the runtime configuration, the complete replay profile, and
+the named optimization to the result. CI rebuilds the deterministic baseline
+and candidate requests from these values. CI recomputes both aggregate request
+fingerprints.
 
-The evidence also records a fingerprint of the fixture and approved replay
-protocol. CI checks this fingerprint against the evaluated checkout. Generate
-new evidence when either input changes.
+The evidence parser and scoring contract check the exact v0.8.0 baseline
+request fingerprint, the current candidate request fingerprint, the runtime
+and profile bindings, the named optimization, the blind sample count, the
+score protocol fingerprint, the score fields, and the zero-regression result.
+The human scorer is a trust boundary. CI cannot check whether a reviewer
+judged an output correctly.
 
-The gate also fingerprints the current continuation assembly. This source is
-not in the v0.8.0 tag. Its first addition does not require evidence. A later
-change requires a new replay.
-
-The evidence contract in `evals/gemma-prompt-quality/contract.ts` checks the
-v0.8.0 baseline fingerprint, the candidate fingerprint, the runtime and
-profile bindings, the blind sample count, the score fields, and the
-zero-regression result. CI cannot check whether a reviewer judged an output
-correctly. Human scores and notes remain the reviewer trust boundary.
-
-Normal CI checks the committed evidence format and the deterministic prompt
-tests. Normal CI does not start llama.cpp or run Gemma 4 31B. A release owner
-must complete and review the replay before the prompt-plan change ships.
+Normal CI parses the compact evidence and rebuilds the deterministic request
+bodies. Normal CI does not start KoboldCpp or run Gemma 4 31B. CI does not
+prove replay provenance. A release owner must complete and review the replay
+before the prompt-plan change ships.

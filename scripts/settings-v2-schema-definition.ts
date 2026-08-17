@@ -35,6 +35,7 @@ import {
   SAMPLING_SCALAR_KNOB_V2_VALUES,
   type SamplingScalarKnobV2
 } from "../shared/settings-v2-types.js";
+import { CONTINUATION_PROMPT_OPTIMIZATION_V2_VALUES } from "../shared/continuation-prompt-optimization.js";
 import {
   SAMPLING_BANNED_STRINGS_POLICY,
   SAMPLING_DRY_BREAKERS_POLICY,
@@ -159,7 +160,8 @@ export function settingsV2Schema(): Schema {
       sampling: ref("Sampling"),
       tokenProbabilities: ref("TokenProbabilitiesCount"),
       reasoning: { enum: REASONING_DISPLAY_V2_VALUES },
-      discardReasoning: { const: true }
+      discardReasoning: { const: true },
+      continuationPromptOptimization: { enum: CONTINUATION_PROMPT_OPTIMIZATION_V2_VALUES }
     }, ["name", "modelId", "temperature", "maxOutputTokens", "effort", "cachePolicy"]),
     PhraseBiasEntry: closed({
       phrase: boundedString(SAMPLING_PHRASE_BIAS_POLICY.maxPhraseScalars, 1),

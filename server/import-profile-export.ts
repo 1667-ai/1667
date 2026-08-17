@@ -2,6 +2,10 @@ import { canonicalJson } from "./canonical-json.js";
 import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
 import type { ProfileTransferCandidate } from "../shared/generation-profile-transfer.js";
 import {
+  CONTINUATION_PROMPT_OPTIMIZATION_V2_VALUES,
+  type ContinuationPromptOptimizationV2
+} from "../shared/continuation-prompt-optimization.js";
+import {
   GENERATION_EFFORT_V2_VALUES,
   PROMPT_CACHE_POLICY_V2_VALUES,
   SAMPLING_KNOB_V2_VALUES,
@@ -41,9 +45,10 @@ export function exportGenerationProfile(document: SettingsDocumentV2, profileId:
       .filter((knob) => samplingKnobValueIsSet(profile.sampling!, knob))
       .map((knob) => [knob, profile.sampling![knob]])
   );
+  const exportVersion = profile.continuationPromptOptimization === undefined ? 1 : 2;
   return {
     extension: ".profile.json",
-    text: `${canonicalJson({ profileExportVersion: 1, name: profile.name, generation: { temperature: profile.temperature, maxOutputTokens: profile.maxOutputTokens, effort: profile.effort, cachePolicy: profile.cachePolicy, ...(profile.tokenProbabilities === undefined ? {} : { tokenProbabilities: profile.tokenProbabilities }) }, sampling })}\n`,
+    text: `${canonicalJson({ profileExportVersion: exportVersion, name: profile.name, generation: { temperature: profile.temperature, maxOutputTokens: profile.maxOutputTokens, effort: profile.effort, cachePolicy: profile.cachePolicy, ...(profile.tokenProbabilities === undefined ? {} : { tokenProbabilities: profile.tokenProbabilities }), ...(profile.continuationPromptOptimization === undefined ? {} : { continuationPromptOptimization: profile.continuationPromptOptimization }) }, sampling })}\n`,
     fidelity: [
       "connection, credentials, and headers omitted; the file carries generation behavior only",
       ...(hasRawLogitBias ? ["raw logit bias omitted; token IDs require source tokenizer identity"] : [])
@@ -58,13 +63,23 @@ export function importProfileExport(text: string): ProfileTransferCandidate {
 
 /** Validate the data-bearing fields before a Profile Export can enter settings. */
 export function importProfileExportRecord(raw: Record<string, unknown>): ProfileTransferCandidate {
-  if (raw.profileExportVersion !== 1) throw new Error("file is not a NovelAI Sampler Preset or supported Profile Export");
+  if (raw.profileExportVersion !== 1 && raw.profileExportVersion !== 2) throw new Error("file is not a NovelAI Sampler Preset or supported Profile Export");
   rejectUnknownFields(raw, ["profileExportVersion", "name", "route", "generation", "sampling"], "Profile Export");
   const generation = record(raw.generation);
   const sampling = raw.sampling === undefined ? {} : record(raw.sampling);
   if (typeof raw.name !== "string") throw new Error("Profile Export name must be a string");
   if (hasUnpairedSurrogate(raw.name)) throw new Error("Profile Export name has an unpaired Unicode surrogate");
-  rejectUnknownFields(generation, ["temperature", "maxOutputTokens", "effort", "cachePolicy", "tokenProbabilities"], "Profile Export generation");
+  const hasContinuationPromptOptimization = Object.hasOwn(generation, "continuationPromptOptimization");
+  const generationFields = ["temperature", "maxOutputTokens", "effort", "cachePolicy", "tokenProbabilities"];
+  if (raw.profileExportVersion === 2) {
+    // Version 2 is reserved for the one experimental field. This keeps a
+    // closed version-1 reader safe and makes the version signal meaningful.
+    if (!hasContinuationPromptOptimization) {
+      throw new Error("Profile Export version 2 must set continuationPromptOptimization");
+    }
+    generationFields.push("continuationPromptOptimization");
+  }
+  rejectUnknownFields(generation, generationFields, "Profile Export generation");
   validateLegacyRoute(raw.route);
   const effort = generation.effort;
   const cachePolicy = generation.cachePolicy;
@@ -91,6 +106,9 @@ export function importProfileExportRecord(raw: Record<string, unknown>): Profile
       "Profile Export generation.tokenProbabilities",
       MAX_ALTERNATIVE_TOKENS
     );
+  const continuationPromptOptimization = hasContinuationPromptOptimization
+    ? parseContinuationPromptOptimization(generation.continuationPromptOptimization)
+    : undefined;
   const parsedSampling = parseSampling(sampling);
   return {
     name: raw.name,
@@ -99,10 +117,19 @@ export function importProfileExportRecord(raw: Record<string, unknown>): Profile
     ...(effort === undefined ? {} : { effort }),
     ...(cachePolicy === undefined ? {} : { cachePolicy }),
     tokenProbabilities,
+    ...(continuationPromptOptimization === undefined ? {} : { continuationPromptOptimization }),
     sampling: parsedSampling.sampling,
     ...(parsedSampling.omittedCount === 0 ? {} : { omittedCount: parsedSampling.omittedCount }),
     ...(parsedSampling.fidelity.length === 0 ? {} : { fidelity: parsedSampling.fidelity })
   };
+}
+
+function parseContinuationPromptOptimization(value: unknown): ContinuationPromptOptimizationV2 {
+  if (typeof value !== "string"
+    || !CONTINUATION_PROMPT_OPTIMIZATION_V2_VALUES.includes(value as ContinuationPromptOptimizationV2)) {
+    throw new Error("Profile Export has an invalid continuation prompt optimization");
+  }
+  return value as ContinuationPromptOptimizationV2;
 }
 
 function parseSampling(raw: Record<string, unknown>): {

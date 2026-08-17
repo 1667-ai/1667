@@ -27,6 +27,12 @@ export contains generation behavior and sampling settings. It does not contain
 a connection, a model identifier, credentials, headers, private endpoint data,
 or timeouts.
 
+A Profile Export also contains an enabled experimental continuation prompt
+layout. An export that contains this setting uses Profile Export version 2.
+An export with the default layout uses Profile Export version 1. Importing an
+enabled layout preserves the setting. A version 2 export must contain the
+enabled layout.
+
 1667 imports temperature, maximum output, top P, top K, min P, frequency
 penalty, presence penalty, and Mirostat. 1667 imports Mirostat as version 2
 because NovelAI does not store a version. The Fidelity Report states this

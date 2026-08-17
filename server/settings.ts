@@ -142,6 +142,7 @@ export class SettingsStore {
       effective,
       effectiveProse: effective,
       effectiveProseReasoning: "marker",
+      effectiveProseContinuationPromptLayout: "compatibility",
       lastActivationOutcome: null
     };
   }

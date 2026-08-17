@@ -30,9 +30,11 @@ import { reusableStoredRevisionId } from "./story-node-text.js";
  * richer plan still carries each part's category, node id, and its exact
  * position relative to the Author's Note, which is what the Generation
  * Record Viewer needs to show the same ordered, categorized pipeline the
- * Next Request preview does. Every non-part entry becomes its own text
- * entry, in order; every run of context parts becomes one `source` entry
- * whose `parts` array preserves per-part identity (node id, category, and
+ * Next Request preview does. Every non-part text block becomes its own entry,
+ * in order. A late-layout final user turn carries the operation contract and
+ * the request or boundary as separate blocks; retaining both is necessary for
+ * the record to describe the provider input. Every run of context parts
+ * becomes one `source` entry whose `parts` array preserves per-part identity (node id, category, and
  * the part's own short instruction, kept inline since it is not
  * content-addressed the way the part's prose is) without inlining the
  * prose itself — that is the one potentially unbounded input a request
@@ -66,7 +68,11 @@ export function continuationRecordEntries(
     const planEntry = entries[index]!;
     if (planEntry.partId === undefined) {
       flushRun();
-      built.push(textEntry(planEntry.turn.role, firstTextBlock(planEntry.turn)));
+      const textBlocks = planEntry.turn.blocks.filter(isTextBlock);
+      if (textBlocks.length === 0) {
+        throw new Error("Prompt turn has no text block to cite in a Generation Record");
+      }
+      for (const block of textBlocks) built.push(textEntry(planEntry.turn.role, block));
       continue;
     }
     // Every context part is a user instruction turn immediately followed by

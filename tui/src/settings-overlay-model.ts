@@ -34,14 +34,11 @@ import {
   settingsModelChoices,
   settingsModelSelectionTargetIdentity
 } from "./settings-model-discovery.js";
-import { isSettingsScalarRow } from "./settings-scalar.js";
 import {
   applyConnectionTimeoutEdit,
-  CONNECTION_TIMEOUT_ROWS,
   connectionTimeoutEditValue,
   isConnectionTimeoutRow
 } from "./settings-connection-timeouts.js";
-import { modelPickerRequired } from "./settings-model-picker.js";
 import {
   parseSettings,
   settingsTextDraftForDocument,
@@ -68,50 +65,30 @@ import {
   settingsDraftChanged,
   settingsFieldKey
 } from "./settings-overlay-reconciliation.js";
+import {
+  boundedSettingsCursor,
+  SETTINGS_ROW_IDS,
+  settingsRowCycles,
+  settingsRowHasArrows,
+  settingsRowIndex
+} from "./settings-row-navigation.js";
 export {
-  promptCacheRowValue,
-  settingsModelDisplayText,
+  settingsModelDisplayText
+} from "./settings-profile-controls.js";
+export {
   settingsRows,
   SETTINGS_SECTIONS,
   type SettingsRowPresentation,
   type SettingsSectionId
-} from "./settings-profile-controls.js";
-
-export const SETTINGS_ROW_IDS = [
-  "theme",
-  "compose-focus",
-  "word-wrap",
-  "provider",
-  "text-prompt-format",
-  "split-think-tags",
-  "base-url",
-  "allow-insecure-http",
-  "api-key",
-  ...CONNECTION_TIMEOUT_ROWS,
-  "profile",
-  "model",
-  "image-input",
-  "temperature",
-  "max-tokens",
-  "sampling",
-  "context-window",
-  "effort",
-  "cache-policy",
-  "token-probabilities",
-  "reasoning",
-  "keep-thoughts",
-  "default-route",
-  "prose-route",
-  "utility-route",
-  "system-prompt"
-] as const satisfies readonly SettingsRowId[];
-
-/** Where a row sits in the cursor's list, or -1 for one the surface no longer
- *  shows. `apiKeyEnv` is still a setting a config may carry; it stopped being
- *  a row, so a semantic shortcut naming it simply leaves the cursor alone. */
-export function settingsRowIndex(row: SettingsRowId): number {
-  return (SETTINGS_ROW_IDS as readonly SettingsRowId[]).indexOf(row);
-}
+} from "./settings-row-presentations.js";
+export { promptCacheRowValue } from "./settings-profile-controls.js";
+export {
+  boundedSettingsCursor,
+  SETTINGS_ROW_IDS,
+  settingsRowCycles,
+  settingsRowHasArrows,
+  settingsRowIndex
+} from "./settings-row-navigation.js";
 
 /** Rows that live in the user config rather than a server-backed settings
  *  revision. One list backs every "is this row local?" test in the overlay,
@@ -385,51 +362,6 @@ export function settingsActivationFailureText(
     case "readiness_failed":
       return "rolled back after an interruption";
   }
-}
-
-export function boundedSettingsCursor(value: number): number {
-  return Math.max(0, Math.min(SETTINGS_ROW_IDS.length - 1, value));
-}
-
-/** Rows whose value is a closed choice: `←→` cycles them in place and their
- * value's brackets are click targets. Everything else is free text the row
- * editor owns. One spelling of the set, read by the panel and the key handler.
- * Deliberately not the inverse of `settingsRowUsesServer`: provider cycles and
- * is server-backed, while theme and compose focus cycle and are local. */
-export function settingsRowCycles(row: SettingsRowId): boolean {
-  return row === "theme"
-    || row === "compose-focus"
-    || row === "word-wrap"
-    || row === "provider"
-    || row === "text-prompt-format"
-    || row === "split-think-tags"
-    || row === "allow-insecure-http"
-    || row === "profile"
-    || row === "effort"
-    || row === "cache-policy"
-    || row === "token-probabilities"
-    || row === "reasoning"
-    || row === "keep-thoughts"
-    || row === "default-route"
-    || row === "prose-route"
-    || row === "utility-route";
-}
-
-/** Rows `←→` acts on: a cycler steps through its options, a C-08 scalar steps
- *  through its range. Both wear brackets or chevrons, which is what the arrows
- *  are anchored to. */
-export function settingsRowHasArrows(
-  overlay: SettingsOverlayState,
-  row: SettingsRowId
-): boolean {
-  return row === "text-prompt-format" || row === "split-think-tags"
-    ? overlay.draft.generation.provider === "text-completion"
-    : settingsRowCycles(row)
-    || isSettingsScalarRow(row)
-    || isConnectionTimeoutRow(row)
-    // A cycler stops at eight; past that the option column owns the choice.
-    || row === "model" && settingsModelChoices(overlay).length > 0
-      && !modelPickerRequired(overlay);
 }
 
 /** Local-only rows live in the user config; every other row edits a

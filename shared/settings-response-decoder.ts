@@ -9,6 +9,7 @@ import {
   type SettingsMutationResult,
   type SettingsView
 } from "./settings-v2-types.js";
+import { CONTINUATION_PROMPT_LAYOUTS } from "./continuation-prompt-optimization.js";
 import type { GenerationSettings, Provider } from "./types.js";
 
 export type SettingsDocumentResponseDecoder = (value: unknown) => SettingsDocumentV2;
@@ -40,11 +41,21 @@ export function decodeSettingsViewResponse(
   const response = closedRecord(value, "settings view", [
     "dataFormat", "editable", "stateGeneration", "activeRevision",
     "pendingRevision", "document", "effective", "effectiveProse", "lastActivationOutcome"
-  ], ["effectiveProseReasoning"]);
+  ], ["effectiveProseReasoning", "effectiveProseContinuationPromptLayout"]);
   const effective = decodeGenerationSettingsResponse(response.effective);
   const effectiveProse = decodeGenerationSettingsResponse(response.effectiveProse);
   const effectiveProseReasoning = Object.hasOwn(response, "effectiveProseReasoning")
     ? reasoningDisplayValue(response.effectiveProseReasoning, "settings view.effectiveProseReasoning")
+    : undefined;
+  const effectiveProseContinuationPromptLayout = Object.hasOwn(
+    response,
+    "effectiveProseContinuationPromptLayout"
+  )
+    ? oneOf(
+      response.effectiveProseContinuationPromptLayout,
+      CONTINUATION_PROMPT_LAYOUTS,
+      "settings view.effectiveProseContinuationPromptLayout"
+    )
     : undefined;
   if (response.dataFormat === 1) {
     if (response.editable !== false || response.stateGeneration !== null
@@ -62,6 +73,7 @@ export function decodeSettingsViewResponse(
       effective,
       effectiveProse,
       effectiveProseReasoning,
+      effectiveProseContinuationPromptLayout,
       lastActivationOutcome: null
     };
   }
@@ -79,6 +91,7 @@ export function decodeSettingsViewResponse(
     effective,
     effectiveProse,
     effectiveProseReasoning,
+    effectiveProseContinuationPromptLayout,
     lastActivationOutcome: response.lastActivationOutcome === null
       ? null
       : decodeActivationOutcome(response.lastActivationOutcome)
@@ -185,9 +198,10 @@ export function decodeModelDiscoveryResult(value: unknown): ModelDiscoveryResult
  *  check either way — unlike `fields`, which must all be present. Mirrors
  *  `closedShape`/`closedRecord` (server/story-wire-validation.ts), the
  *  server-side validator's own required/optional split for exactly this
- *  reason: an additive field (`effectiveProseReasoning`) must stay decodable
- *  whether or not a given response — or a test fixture built from an older
- *  literal — happens to carry it. */
+ *  reason: additive fields (`effectiveProseReasoning` and
+ *  `effectiveProseContinuationPromptLayout`) must stay decodable whether or
+ *  not a given response — or a test fixture built from an older literal —
+ *  happens to carry them. */
 function closedRecord(
   value: unknown,
   label: string,

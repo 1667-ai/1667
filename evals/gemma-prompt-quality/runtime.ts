@@ -6,19 +6,22 @@ import { parseJsonRejectingDuplicateKeys } from "../../server/strict-json.js";
 /** Immutable local runtime identity for one Gemma replay. */
 export interface GemmaRuntimeConfiguration {
   readonly schemaVersion: 1;
-  readonly runtime: "llama.cpp";
+  readonly runtime: "koboldcpp";
   readonly model: {
-    readonly id: "gemma-4-31b";
-    readonly identity: "Gemma 4 31B";
+    readonly id: "koboldcpp/gemma-4-31B-it-uncensored-heretic-Q8_0";
+    /** A local display name. The approved protocol binds `id`, not this name. */
+    readonly identity: string;
     readonly artifact: {
       readonly fileName: string;
       readonly sha256: string;
       readonly quantization: string;
     };
   };
-  readonly llamaCpp: {
-    readonly build: string;
-    readonly chatTemplate: string;
+  readonly koboldCpp: {
+    /** Record the server version observed for this replay. */
+    readonly version: string;
+    /** SHA-256 of the exact `/props` chat_template value. */
+    readonly chatTemplateSha256: string;
     readonly contextWindow: number;
   };
 }
@@ -38,35 +41,35 @@ export async function readGemmaRuntimeConfiguration(pathname: string): Promise<G
 
 export function parseGemmaRuntimeConfiguration(value: unknown): GemmaRuntimeRecord {
   const root = record(value, "Gemma runtime configuration");
-  keys(root, ["schemaVersion", "runtime", "model", "llamaCpp"], "Gemma runtime configuration");
+  keys(root, ["schemaVersion", "runtime", "model", "koboldCpp"], "Gemma runtime configuration");
   exact(root.schemaVersion, 1, "Gemma runtime configuration.schemaVersion");
-  exact(root.runtime, "llama.cpp", "Gemma runtime configuration.runtime");
+  exact(root.runtime, "koboldcpp", "Gemma runtime configuration.runtime");
   const model = record(root.model, "Gemma runtime configuration.model");
   keys(model, ["id", "identity", "artifact"], "Gemma runtime configuration.model");
-  exact(model.id, "gemma-4-31b", "Gemma runtime configuration.model.id");
-  exact(model.identity, "Gemma 4 31B", "Gemma runtime configuration.model.identity");
+  exact(model.id, "koboldcpp/gemma-4-31B-it-uncensored-heretic-Q8_0", "Gemma runtime configuration.model.id");
+  const identity = safeText(model.identity, "Gemma runtime configuration.model.identity");
   const artifact = record(model.artifact, "Gemma runtime configuration.model.artifact");
   keys(artifact, ["fileName", "sha256", "quantization"], "Gemma runtime configuration.model.artifact");
   const fileName = safeText(artifact.fileName, "Gemma runtime configuration.model.artifact.fileName");
   const artifactSha256 = fingerprint(artifact.sha256, "Gemma runtime configuration.model.artifact.sha256");
   const quantization = safeText(artifact.quantization, "Gemma runtime configuration.model.artifact.quantization");
-  const llamaCpp = record(root.llamaCpp, "Gemma runtime configuration.llamaCpp");
-  keys(llamaCpp, ["build", "chatTemplate", "contextWindow"], "Gemma runtime configuration.llamaCpp");
-  const build = safeText(llamaCpp.build, "Gemma runtime configuration.llamaCpp.build");
-  const chatTemplate = safeText(llamaCpp.chatTemplate, "Gemma runtime configuration.llamaCpp.chatTemplate");
-  const contextWindow = llamaCpp.contextWindow;
+  const koboldCpp = record(root.koboldCpp, "Gemma runtime configuration.koboldCpp");
+  keys(koboldCpp, ["version", "chatTemplateSha256", "contextWindow"], "Gemma runtime configuration.koboldCpp");
+  const version = safeText(koboldCpp.version, "Gemma runtime configuration.koboldCpp.version");
+  const chatTemplateSha256 = fingerprint(koboldCpp.chatTemplateSha256, "Gemma runtime configuration.koboldCpp.chatTemplateSha256");
+  const contextWindow = koboldCpp.contextWindow;
   if (typeof contextWindow !== "number" || !Number.isSafeInteger(contextWindow) || contextWindow < 1) {
-    throw new Error("Gemma runtime configuration.llamaCpp.contextWindow must be a positive integer");
+    throw new Error("Gemma runtime configuration.koboldCpp.contextWindow must be a positive integer");
   }
   const configuration: GemmaRuntimeConfiguration = {
     schemaVersion: 1,
-    runtime: "llama.cpp",
+    runtime: "koboldcpp",
     model: {
-      id: "gemma-4-31b",
-      identity: "Gemma 4 31B",
+      id: "koboldcpp/gemma-4-31B-it-uncensored-heretic-Q8_0",
+      identity,
       artifact: { fileName, sha256: artifactSha256, quantization }
     },
-    llamaCpp: { build, chatTemplate, contextWindow }
+    koboldCpp: { version, chatTemplateSha256, contextWindow }
   };
   return {
     configuration,

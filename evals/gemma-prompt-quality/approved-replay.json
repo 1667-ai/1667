@@ -1,11 +1,10 @@
 {
   "schemaVersion": 1,
   "runtime": {
-    "runtime": "llama.cpp",
-    "modelId": "gemma-4-31b",
-    "modelIdentity": "Gemma 4 31B",
-    "quantization": "Q4_K_M",
-    "chatTemplate": "gemma",
+    "runtime": "koboldcpp",
+    "modelId": "koboldcpp/gemma-4-31B-it-uncensored-heretic-Q8_0",
+    "quantization": "Q8_0",
+    "chatTemplateSha256": "sha256:0a52be69cda5ab8aeb627d6ff51a7b34c7d06afabb6b0f00cf8ee63df16a6315",
     "minimumContextWindow": 32768
   },
   "profile": {
@@ -14,6 +13,12 @@
     "effort": "default",
     "cachePolicy": "off",
     "tokenProbabilities": null,
+    "timeouts": {
+      "responseHeaderMs": 600000,
+      "firstTokenMs": 120000,
+      "idleMs": 120000,
+      "totalMs": 1800000
+    },
     "sampling": {
       "topP": 0.92,
       "topK": 40,

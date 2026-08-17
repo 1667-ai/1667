@@ -7,12 +7,14 @@ import {
   GEMMA_REPLAY_HARNESS,
   GEMMA_REPLAY_OPERATIONS,
   GEMMA_REPLAY_SEEDS,
-  GEMMA_RUBRIC_KEYS,
   GEMMA_V08_REQUEST_SHAPE,
+  GEMMA_RUBRIC_KEYS,
+  GEMMA_SCORING_PROTOCOL_FINGERPRINT,
   evaluationFingerprint,
   regressionsFor,
   scoreDelta,
   type GemmaCompatibilityEvidence,
+  type GemmaEvaluationCore,
   type GemmaEvidenceCase,
   type GemmaRubricKey,
   type GemmaScoreVector,
@@ -122,7 +124,8 @@ export function scoreReplay(
       regressions
     } satisfies EvaluationCase;
   });
-  const evaluationCore: import("./contract.js").GemmaEvaluationCore = {
+  const evaluationCore: GemmaEvaluationCore = {
+    optimization: result.optimization,
     cases,
     caseCount: GEMMA_EXPECTED_CASE_COUNT,
     sampleCount: GEMMA_EXPECTED_BLIND_SAMPLE_COUNT,
@@ -141,13 +144,12 @@ export function scoreReplay(
     },
     baseline: {
       version: "v0.8.0",
-      sourceFingerprint: result.baselineSourceFingerprint,
       requestFingerprint: result.baselineRequestFingerprint,
       expectedRequestShape: GEMMA_V08_REQUEST_SHAPE
     },
     candidate: {
-      sourceFingerprint: result.candidateSourceFingerprint,
-      evaluationInputFingerprint: result.evaluationInputFingerprint,
+      optimization: result.optimization,
+      operatorAcknowledgedExclusiveServer: result.operatorAcknowledgedExclusiveServer,
       requestFingerprint: result.candidateRequestFingerprint
     },
     evaluation: {
@@ -157,7 +159,8 @@ export function scoreReplay(
       blindScoring: {
         complete: true,
         shuffleSeed: mapping.shuffleSeed,
-        scoredSamples: GEMMA_EXPECTED_BLIND_SAMPLE_COUNT
+        scoredSamples: GEMMA_EXPECTED_BLIND_SAMPLE_COUNT,
+        protocolFingerprint: GEMMA_SCORING_PROTOCOL_FINGERPRINT
       },
       resultFingerprint: evaluationFingerprint(evaluationCore)
     }

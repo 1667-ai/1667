@@ -136,6 +136,60 @@ test("Profile Export transfers token probabilities and clears an omitted count",
   assert.equal(cleared.document.profiles.default?.tokenProbabilities, undefined);
 });
 
+test("Profile Export versions the continuation prompt optimization and round trips it", () => {
+  const source = {
+    ...openAiDocument(),
+    profiles: {
+      default: {
+        ...openAiDocument().profiles.default!,
+        continuationPromptOptimization: "late-cache-stable" as const
+      }
+    }
+  };
+  const exported = exportGenerationProfile(source, "default");
+  const payload = JSON.parse(exported.text) as {
+    profileExportVersion: number;
+    generation: { continuationPromptOptimization?: string };
+  };
+  assert.equal(payload.profileExportVersion, 2);
+  assert.equal(payload.generation.continuationPromptOptimization, "late-cache-stable");
+  const candidate = importProfileExport(exported.text);
+  assert.equal(candidate.continuationPromptOptimization, "late-cache-stable");
+  const fitted = fitProfileToRoute(openAiDocument(), "default", candidate);
+  assert.equal(
+    fitted.document.profiles.default?.continuationPromptOptimization,
+    "late-cache-stable"
+  );
+
+  const oldExport = exportGenerationProfile(openAiDocument(), "default");
+  assert.equal(JSON.parse(oldExport.text).profileExportVersion, 1);
+  assert.doesNotMatch(oldExport.text, /continuationPromptOptimization/u);
+  assert.throws(
+    () => importProfileExport(JSON.stringify({
+      profileExportVersion: 1,
+      name: "unsafe v1",
+      generation: { continuationPromptOptimization: "late-cache-stable" }
+    })),
+    /Profile Export generation has an unsupported field/u
+  );
+  assert.throws(
+    () => importProfileExport(JSON.stringify({
+      profileExportVersion: 2,
+      name: "incomplete v2",
+      generation: {}
+    })),
+    /Profile Export version 2 must set continuationPromptOptimization/u
+  );
+  assert.throws(
+    () => importProfileExport(JSON.stringify({
+      profileExportVersion: 2,
+      name: "off v2",
+      generation: { continuationPromptOptimization: null }
+    })),
+    /invalid continuation prompt optimization/u
+  );
+});
+
 
 test("Profile Export preserves dormant Mirostat tuning", () => {
   const source = fitProfileToRoute(openAiDocument(), "default", {
