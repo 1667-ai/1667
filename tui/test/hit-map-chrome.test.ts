@@ -897,8 +897,9 @@ describe("hit map clickable chrome", () => {
         state.settings!.cursor = SETTINGS_ROW_IDS.indexOf("context-window");
       } },
       { name: "editing", setup: (state: State) => {
-        state.settings!.cursor = 3;
+        state.settings!.cursor = SETTINGS_ROW_IDS.indexOf("base-url");
         beginSettingsRowEdit(state.settings!, state.config);
+        if (state.settings!.edit === null) throw new Error("settings edit did not open");
       } },
       { name: "pending", setup: (state: State) => {
         const view = state.settings!.view;
