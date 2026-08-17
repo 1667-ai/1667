@@ -142,6 +142,7 @@ request plan. It does not show the authentication header or its credential.
 ## Documentation
 
 - [Run 1667 from source](docs/run-from-source.md)
+- [Write without a model](docs/write-without-a-model.md)
 - [Story storage](docs/story-storage.md)
 - [Facts, context, and model providers](docs/model-providers.md)
 - [SillyTavern import](docs/sillytavern-import.md)
