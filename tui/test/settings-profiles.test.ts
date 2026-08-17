@@ -463,7 +463,7 @@ describe("Generation Profile settings", () => {
     if (!view.editable) throw new Error("editable settings view missing");
     state.settings!.view = { ...view, pendingRevision: 2 };
     const pendingPrimary = frameText(renderStoryScreen(state, {
-      width: 80,
+      width: 64,
       height: 24,
       wrapCache: cache
     }).lines);
