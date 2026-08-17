@@ -2,7 +2,6 @@ import type { GenerationProfileV2 } from "../../shared/settings-v2-types.js";
 import { MAX_ALTERNATIVE_TOKENS } from "../../shared/token-probabilities.js";
 import {
   resolveTokenProbabilities,
-  tokenProbabilityUnavailableReasonCompact,
   type TokenProbabilityResolution
 } from "../../shared/token-probability-capabilities.js";
 import { samplingContextForOverlayOrNull } from "./sampling-model.js";
@@ -58,9 +57,16 @@ export function tokenProbabilitiesRowValue(state: TokenProbabilitiesRowState): s
 
 export function tokenProbabilitiesRowHint(state: TokenProbabilitiesRowState): string {
   if (state.resolution === null) return "";
-  return state.resolution.kind === "unavailable"
-    ? tokenProbabilityUnavailableReasonCompact(state.resolution.reason)
-    : "alternatives kept as token probabilities";
+  if (state.resolution.kind === "available") {
+    return "Shows other tokens the model considered while writing.";
+  }
+  if (state.resolution.reason === "legacy-v1") return "Legacy settings are read-only.";
+  if (state.resolution.reason === "preset-unknown") {
+    return "Alternative token data might not be available from this provider.";
+  }
+  return state.resolution.reason === "model-refused"
+    ? "This model does not offer alternative token data."
+    : "This provider does not offer alternative token data.";
 }
 
 /** C-09 cycler: `off` writes a profile with the key dropped, and every other

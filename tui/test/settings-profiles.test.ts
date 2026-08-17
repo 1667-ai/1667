@@ -301,7 +301,7 @@ describe("Generation Profile settings", () => {
     expect(frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines))
       .toContain("‹ high ›");
     expect(frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines))
-      .toContain("not on this model");
+      .toContain("This model does not support reasoning effort.");
     await press(key("left"));
     expect(state.settings?.draft.document?.profiles.default?.effort).toBe("default");
 
@@ -393,12 +393,91 @@ describe("Generation Profile settings", () => {
     await selectRow(press, state, "token-probabilities");
     const frame = frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines);
     expect(frame).toContain("‹ — ›");
-    expect(frame).toContain("support unknown");
+    expect(frame).toContain("· Alternative token data might not be available from");
+    expect(frame).toContain("· this provider.");
 
     // Cycling an unavailable row is a no-op: it never writes a count the
     // request was never going to carry.
     await press(key("right"));
     expect(state.settings?.draft.document?.profiles.default?.tokenProbabilities).toBe(undefined);
+  });
+
+  test("prompt cache explains provider-managed retention in Settings", async () => {
+    const { source, state, cache, press } = settingsHarness();
+    installNetworkSettings(source);
+    await openSettings(press);
+    const document = state.settings?.draft.document;
+    if (document === null || document === undefined) throw new Error("editable document missing");
+    const profileId = state.settings!.draft.selectedProfileId!;
+    const modelId = document.profiles[profileId]!.modelId;
+    await selectRow(press, state, "cache-policy");
+    const offFrame = frameText(renderStoryScreen(state, {
+      width: 120,
+      height: 36,
+      wrapCache: cache
+    }).lines);
+    expect(offFrame).toContain("Prompt caching is off for this profile.");
+
+    const connectionId = document.models[modelId]!.connectionId;
+    state.settings!.draft = settingsTextDraftForDocument({
+      ...document,
+      connections: {
+        ...document.connections,
+        [connectionId]: {
+          ...document.connections[connectionId]!,
+          baseUrl: "https://models.example.com/v1"
+        }
+      }
+    }, profileId);
+    const compatibleFrame = frameText(renderStoryScreen(state, {
+      width: 120,
+      height: 36,
+      wrapCache: cache
+    }).lines);
+    expect(compatibleFrame).toContain("The provider might manage prompt caching.");
+
+    state.settings!.draft = settingsTextDraftForDocument({
+      ...document,
+      profiles: {
+        ...document.profiles,
+        [profileId]: { ...document.profiles[profileId]!, cachePolicy: "auto" }
+      },
+      models: {
+        ...document.models,
+        [modelId]: { ...document.models[modelId]!, remoteId: "gpt-4o" }
+      }
+    }, profileId);
+
+    const frame = frameText(renderStoryScreen(state, { width: 120, height: 36, wrapCache: cache }).lines);
+    expect(frame).toContain("The provider decides how long");
+    expect(frame).toContain("· to keep it.");
+    expect(frame).not.toContain("for provider");
+
+    const dirtyPrimary = frameText(renderStoryScreen(state, {
+      width: 64,
+      height: 24,
+      wrapCache: cache
+    }).lines);
+    expect(dirtyPrimary).toContain("extra cost.");
+    const view = state.settings!.view;
+    if (!view.editable) throw new Error("editable settings view missing");
+    state.settings!.view = { ...view, pendingRevision: 2 };
+    const pendingPrimary = frameText(renderStoryScreen(state, {
+      width: 64,
+      height: 24,
+      wrapCache: cache
+    }).lines);
+    expect(pendingPrimary).toContain("extra cost.");
+
+    const shortFrame = frameText(renderStoryScreen(state, {
+      width: 40,
+      height: 14,
+      wrapCache: cache
+    }).lines);
+    expect(shortFrame).toContain("▸ prompt cache");
+    expect(shortFrame).toContain("Lets th");
+    expect(shortFrame.split("\n").some((line) => line.includes("·") && line.includes("…")))
+      .toBeTrue();
   });
 
   test("reasoning is disabled only where the model reports it returns none", async () => {
@@ -409,7 +488,7 @@ describe("Generation Profile settings", () => {
     await selectRow(press, state, "reasoning");
     const frame = frameText(renderStoryScreen(state, { width: 120, height: 24, wrapCache: cache }).lines);
     expect(frame).toContain("‹ — ›");
-    expect(frame).toContain("gpt-5.6 @ openai returns none");
+    expect(frame).toContain("This route does not expose model reasoning.");
 
     // Cycling a disabled row only ever snaps to its one available choice,
     // `off` — the same "resets to the sole available choice" behavior the

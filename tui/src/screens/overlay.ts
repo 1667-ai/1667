@@ -32,6 +32,8 @@ export interface PanelHits {
   /** Footer keys that run on click. Structurally requires hits, which is why
    *  it lives here rather than as its own parameter. */
   footerActions?: ReadonlyArray<{ token: string; action: KeyAction }>;
+  /** Keep the panel top stable while its content grows or shrinks. */
+  anchorTop?: boolean;
 }
 
 /** The panel geometry every overlay is measured against. Exported because
@@ -166,7 +168,10 @@ export function placePanel(
   const panelWidth = horizontal.panelWidth;
   const { left, right } = horizontal;
   const geometry = panelGeometry(height, content.length);
-  const top = Math.max(1, Math.floor((height - 1 - geometry.height) / 2));
+  const centeredTop = Math.max(1, Math.floor((height - 1 - geometry.height) / 2));
+  const top = hits?.anchorTop === true
+    ? Math.min(centeredTop, Math.max(1, Math.floor((PANEL_SCREEN_MARGIN_ROWS - 1) / 2)))
+    : centeredTop;
   const panel: FrameLine[] = [];
   // The trailing space is the gap between the title and the rule that runs to
   // the corner; `titleWidth` reserves it.

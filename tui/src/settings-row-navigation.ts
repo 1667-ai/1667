@@ -15,6 +15,7 @@ export const SETTINGS_ROW_IDS = [
   "theme",
   "compose-focus",
   "word-wrap",
+  "system-prompt",
   "provider",
   "text-prompt-format",
   "split-think-tags",
@@ -37,8 +38,7 @@ export const SETTINGS_ROW_IDS = [
   "keep-thoughts",
   "default-route",
   "prose-route",
-  "utility-route",
-  "system-prompt"
+  "utility-route"
 ] as const satisfies readonly SettingsRowId[];
 
 /** Where a row sits in the cursor's list, or -1 for one the surface no longer

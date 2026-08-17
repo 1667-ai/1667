@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Settings shows important controls and help sooner.** The system prompt is
+  now near the top of the panel. The panel uses its bottom space to show how
+  many settings are above or below the visible list. Select a setting to read
+  its complete description. Long descriptions wrap instead of ending at the
+  panel edge. The descriptions now explain the effect of each setting.
+
 - **The cache-stable continuation prompt is now an optional experiment.** The
   **prompt layout** row in a Generation Profile is off by default. The off
   value keeps the v0.8.0 Continue and Retake prompt. The on value moves the

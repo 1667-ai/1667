@@ -61,19 +61,19 @@ import {
  * the rule is the section heading, and clicking it jumps there. */
 export const SETTINGS_SECTIONS = [
   { id: "app", label: "app" },
+  { id: "prompt", label: "prompt" },
   { id: "connection", label: "connection" },
   { id: "model", label: "model" },
   { id: "generation", label: "generation" },
   { id: "story", label: "story" },
-  { id: "routing", label: "routing" },
-  { id: "prompt", label: "prompt" }
+  { id: "routing", label: "routing" }
 ] as const;
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]["id"];
 
-/** C-07's field row: label, value, and a hint that truncates rather than
- * wrapping. Detail used to be glued onto the value string, so a narrow panel
- * clipped the value and the detail together. */
+/** C-07's field row: label, value, and a hint. An unselected hint truncates.
+ * The selected hint wraps below the field. Detail used to be glued onto the
+ * value string, so a narrow panel clipped the value and the detail together. */
 export interface SettingsRowPresentation {
   readonly id: SettingsRowId;
   readonly section: SettingsSectionId;
@@ -115,24 +115,29 @@ export function settingsRows(
       id: "theme", section: "app", label: "theme",
       value: `‹ ${config.theme} ›`,
       dots: positionDots(THEME_NAMES, config.theme),
-      hint: "the whole palette, remapped"
+      hint: "Changes colors throughout the app."
     },
     {
-      id: "compose-focus", section: "app", label: "focus",
+      id: "compose-focus", section: "app", label: "focus mode",
       value: `[ ${config.composeFocus} ]`,
-      hint: "dim the page while you type"
+      hint: "Dims the story while you write in the compose box."
     },
     {
       id: "word-wrap", section: "app", label: "word wrap",
       value: `[ ${config.wordWrap} ]`,
-      hint: "break editor lines at words, not at the edge"
+      hint: "Keeps whole words together when editor lines wrap."
+    },
+    {
+      id: "system-prompt", section: "prompt", label: "system",
+      value: settings.systemPrompt.replace(/\s+/g, " "),
+      hint: "Default Author Brief for prose and story names; a story brief overrides it."
     },
     {
       id: "provider", section: "connection", label: "provider",
       value: `‹ ${providerChoice.label} ›`,
       dots: providerPositionDots(settings, selectedPreset),
-      hint: insecureNeeded ? "" : "who answers a request",
-      ...(insecureNeeded ? { invalid: "plain HTTP needs insecure HTTP on" } : {})
+      hint: insecureNeeded ? "" : "Selects the service that runs the model.",
+      ...(insecureNeeded ? { invalid: "Turn on plain HTTP to use this address." } : {})
     },
     {
       id: "text-prompt-format", section: "connection", label: "prompt format",
@@ -143,8 +148,8 @@ export function settingsRows(
         ? positionDots(textPromptFormatChoices(overlay), textPromptFormat(overlay))
         : "",
       hint: settings.provider === "text-completion"
-        ? "raw text or a minimal instruct wrapper"
-        : "text completions only"
+        ? "Sets how prompts are formatted for text-completion models."
+        : "Available with text-completion providers."
     },
     {
       id: "split-think-tags", section: "connection", label: "split thoughts",
@@ -152,28 +157,28 @@ export function settingsRows(
         ? `[ ${splitThinkTags(overlay) ? "on" : "off"} ]`
         : "—",
       hint: settings.provider === "text-completion"
-        ? "keep a <think> block as the take's thought"
-        : "text completions only"
+        ? "Keeps <think> text separate from story prose."
+        : "Available with text-completion providers."
     },
     {
       id: "base-url", section: "connection", label: "base URL",
       value: settings.baseUrl || "—",
-      hint: "the endpoint requests go to",
+      hint: "The address used to reach the model service.",
       action: { label: "check connection", key: "check" }
     },
     {
-      id: "allow-insecure-http", section: "connection", label: "insecure",
+      id: "allow-insecure-http", section: "connection", label: "plain HTTP",
       value: `[ ${settings.allowInsecureHttp === true ? "on" : "off"} ]`,
-      hint: "plain HTTP to a machine you own"
+      hint: "Allows plain HTTP for a model service you control."
     },
     // One way to supply a key. C-14 prefers the env-var form, but offering
     // both put two rows in front of every writer with no answer on screen to
     // "which one do I fill in". An `apiKeyEnv` already in a config still
     // resolves at request time; it simply has no row of its own.
     {
-      id: "api-key", section: "connection", label: "stored key",
+      id: "api-key", section: "connection", label: "API key",
       value: storedApiKeyPresentation(overlay),
-      hint: "kept on this machine, never in a story"
+      hint: "Saved on this device; never stored with a story."
     },
     ...connectionTimeoutRows(overlay),
     {
@@ -188,18 +193,18 @@ export function settingsRows(
       hint: modelRowHint(overlay)
     },
     {
-      id: "image-input", section: "model", label: "images",
+      id: "image-input", section: "model", label: "image input",
       value: imageInputRowValue(imageInputRowState(overlay)),
       hint: imageInputRowHint(imageInputRowState(overlay))
     },
-    scalarRow("temperature", "temperature", overlay, "how far it strays"),
-    scalarRow("max-tokens", "max tokens", overlay, "longest reply"),
+    scalarRow("temperature", "temperature", overlay, "Higher values make the writing less predictable."),
+    scalarRow("max-tokens", "max tokens", overlay, "Limits the length of each response."),
     {
       id: "sampling", section: "generation", label: "sampling",
       value: samplingRowValue(overlay),
-      hint: "↵ opens the sampling panel"
+      hint: "Adjusts word choice, repetition, and token selection."
     },
-    scalarRow("context-window", "context", overlay, "what the meter sizes"),
+    scalarRow("context-window", "context size", overlay, "Sets how much story context the model can read."),
     {
       id: "effort", section: "generation", label: "effort",
       value: effortRowValue(overlay),
@@ -207,10 +212,10 @@ export function settingsRows(
       hint: effortRowHint(overlay)
     },
     {
-      id: "cache-policy", section: "generation", label: "cache",
+      id: "cache-policy", section: "generation", label: "prompt cache",
       value: `‹ ${cache.policy} ›`,
       dots: positionDots(PROMPT_CACHE_POLICY_V2_VALUES, overlay.draft.cachePolicy),
-      hint: cache.kind === "available" ? cache.detail : `unavailable · ${cache.reason}`
+      hint: cache.kind === "available" ? cache.description : cache.reason
     },
     {
       id: "continuation-prompt", section: "generation", label: "prompt layout",
@@ -218,33 +223,24 @@ export function settingsRows(
       hint: continuationPromptRowHint(overlay)
     },
     {
-      id: "token-probabilities", section: "generation", label: "alt count",
+      id: "token-probabilities", section: "generation", label: "alternatives",
       value: tokenProbabilitiesRowValue(tokenProbabilities),
       hint: tokenProbabilitiesRowHint(tokenProbabilities)
     },
     {
-      id: "reasoning", section: "story", label: "Reasoning",
+      id: "reasoning", section: "story", label: "reasoning",
       value: reasoningRowValue(reasoning),
       dots: positionDots(reasoningRowChoices(overlay), reasoning.display),
       hint: reasoningRowHint(reasoning)
     },
     {
-      // "Keep thought", not "Keep thoughts": the 12-column label budget
-      // (settings-form.ts LABEL_WIDTH) truncates the plural to "Keep
-      // though…", so the singular is what actually paints without an
-      // ellipsis eating the word.
-      id: "keep-thoughts", section: "story", label: "Keep thought",
+      id: "keep-thoughts", section: "story", label: "save thoughts",
       value: `[ ${keepThoughts(overlay) ? "on" : "off"} ]`,
-      hint: "saved with the take · ! reads them later"
+      hint: "Saves model reasoning with each take."
     },
     routeRow("default-route", "default", overlay, "default"),
     routeRow("prose-route", "prose", overlay, "prose"),
-    routeRow("utility-route", "utility", overlay, "utility"),
-    {
-      id: "system-prompt", section: "prompt", label: "system",
-      value: settings.systemPrompt.replace(/\s+/g, " "),
-      hint: "↵ opens it in the editor"
-    }
+    routeRow("utility-route", "utility", overlay, "utility")
   ];
 }
 
@@ -279,8 +275,10 @@ function routeRow(
     label,
     value: routeRowValue(overlay, purpose),
     hint: purpose === "default"
-      ? "used when no route claims the request"
-      : `profile for ${purpose} requests`
+      ? "Used when a task does not have its own profile."
+      : purpose === "prose"
+        ? "Used to write and rewrite story prose."
+        : "Used for summaries and other support tasks."
   };
 }
 

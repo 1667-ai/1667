@@ -350,10 +350,11 @@ describe("run C overlay frames", () => {
     const clean = await renderOnce(demoAppSource(), 120, 36, ",");
     expect(clean).not.toContain("revision");
 
-    // Down past theme, focus, and word wrap, which are local rows: only the
-    // server-backed provider below them can dirty the draft.
+    // Down past the three local rows and the system prompt. Only the provider
+    // below them can cycle and dirty the draft with Right.
     const dirty = await renderWithKeys(demoAppSource(), 120, 36, [
       key(","),
+      key("down"),
       key("down"),
       key("down"),
       key("down"),
@@ -363,20 +364,14 @@ describe("run C overlay frames", () => {
     expect(dirty).not.toContain("revision");
   });
 
-  test("a pending restart moves no settings row", async () => {
-    // The panel is centred on its content, so a taller status variant lifts the
-    // panel and takes every field with it. The old mid-panel position hid this
-    // for the fields below it — the extra line pushed them back down by the row
-    // the lift took away — and moved the pinned rows above it instead.
+  test("a pending restart does not move settings rows", async () => {
+    // Settings stays anchored while the status uses only its actual rows.
+    // This keeps the fields still without restoring blank bottom padding.
     const rowsFor = async (pendingRevision: number | null): Promise<Record<string, number>> => {
       const source = demoAppSource();
       const view = { ...source.settingsView, pendingRevision, activeRevision: 3 };
       source.settingsView = view as typeof source.settingsView;
       source.api.getSettings = async () => view as typeof source.settingsView;
-      // Height 48, not 44: the connection section now carries the four
-      // connection-timeout rows (headers, first token, idle, total) above
-      // the Story section's Reasoning and Keep thoughts rows, so the panel
-      // needs four more rows to reach the System row without scrolling.
       const lines = (await renderOnce(source, 120, 48, ",")).split("\n");
       const rowOf = (text: string): number => lines.findIndex((line) => line.includes(text));
       return { theme: rowOf("theme"), provider: rowOf("provider"), prompt: rowOf("system ") };

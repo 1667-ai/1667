@@ -96,8 +96,8 @@ export function continuationPromptRowValue(overlay: SettingsOverlayState): strin
 
 export function continuationPromptRowHint(overlay: SettingsOverlayState): string {
   return continuationPromptOptimization(overlay) === null
-    ? "experimental · v0.8 prompt by default"
-    : "experimental · late cache-stable prompt";
+    ? "Uses the established Continue and Retake layout; the alternative is experimental."
+    : "The experimental layout moves task instructions after story context to improve prompt caching.";
 }
 
 /** Toggle the one persisted experiment. Off removes the optional key. */
@@ -346,11 +346,13 @@ export function effortRowValue(overlay: SettingsOverlayState): string {
 export function effortRowHint(overlay: SettingsOverlayState): string {
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
-  if (document === null || profileId === null) return "how hard it thinks first";
+  if (document === null || profileId === null) {
+    return "Sets how much reasoning the model does before writing.";
+  }
   const effort = document.profiles[profileId]?.effort ?? "default";
   return generationEffortChoices(document, profileId).includes(effort)
-    ? "how hard it thinks first"
-    : "not on this model";
+    ? "Sets how much reasoning the model does before writing."
+    : "This model does not support reasoning effort.";
 }
 
 export function effortPositionDots(overlay: SettingsOverlayState): string {
@@ -382,10 +384,10 @@ export function profilePositionDots(overlay: SettingsOverlayState): string {
 export function profileRowHint(overlay: SettingsOverlayState): string {
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
-  if (document === null || profileId === null) return "legacy settings are read-only";
+  if (document === null || profileId === null) return "Legacy settings are read-only.";
   return profileRouteState(document, profileId) === "unrouted"
-    ? "no route sends requests here"
-    : "n new · ⇧n duplicate · i import · d delete";
+    ? "No requests currently use this profile."
+    : "Groups a model with its generation settings.";
 }
 
 /** The chosen model's own identifier, kept out of the chip so the chip holds
@@ -393,14 +395,14 @@ export function profileRowHint(overlay: SettingsOverlayState): string {
 export function modelRowHint(overlay: SettingsOverlayState): string {
   const model = overlay.draft.generation.model;
   const choices = settingsModelChoices(overlay);
-  if (choices.length === 0) return "↵ types a model identifier";
+  if (choices.length === 0) return "Enter the model name used by this profile.";
   const selected = choices.find((choice) => choice.remoteId === model);
   if (selected === undefined) {
     // The hint carries the identifier the chip had to truncate. A discovered
     // model adds its position in the list; one the provider never listed has
     // no position, and the absence is what says so.
     return model.length === 0
-      ? "↵ types a model identifier"
+      ? "Enter the model name used by this profile."
       : settingsModelDisplayText(model);
   }
   const count = `${choices.indexOf(selected) + 1} of ${choices.length}`;
