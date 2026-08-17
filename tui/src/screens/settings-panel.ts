@@ -46,6 +46,9 @@ const SETTINGS_PANEL_WIDTH = 96;
 const RESULT_ROW_CAP = 3;
 /** `!` is a page key, so the route out of Settings names both presses. */
 const RESULT_OVERFLOW = "esc then ! for all of it";
+/** Status and normal wrapped help can replace these tail rows without moving
+ * the selected field. They hold settings when unused; no blank space is drawn. */
+const SETTINGS_TAIL_RESERVE = 5;
 
 type SettingsPanelState = Pick<OverlayState, "settings" | "config"> & {
   hitRows: HitRows;
@@ -98,39 +101,37 @@ export function renderSettingsPanel(
         1,
         contentCapacity - fixedRows - positionRows - (picker === null ? 0 : 1)
       );
+      const stableCapacity = formCapacity + status.bottom.length;
       const window = panelRowWindow(
         painted.map(() => 1),
         cursorOffset,
-        formCapacity
+        stableCapacity
       );
       // The filter row holds the live query and the count; it is chrome above
       // the column, not the first option, so it never scrolls away.
       const filter: SettingsFormRow[] = picker === null
         ? []
         : [{ line: picker.filter, target: null, overrides: [] }];
-      // A field's note line is part of the field. Extend the window over the
-      // rows that belong to the cursor so a refusal reason cannot fall off it.
-      let start = window.start;
-      let end = window.end;
-      let noteContinues = false;
+      // Keep a small tail after the cursor. A status replaces these fields
+      // instead of moving the selected field or drawing blank reserve rows.
+      const tailReserve = picker === null
+        ? Math.min(SETTINGS_TAIL_RESERVE, painted.length - cursorOffset - 1)
+        : 0;
+      const start = Math.max(
+        0,
+        window.start,
+        cursorOffset - formCapacity + 1,
+        Math.min(cursorOffset, cursorOffset + tailReserve - stableCapacity + 1)
+      );
+      const end = Math.min(painted.length, start + formCapacity);
       const cursorRow = boundedSettingsCursor(overlay.cursor);
       const belongsToCursor = (row: SettingsFormRow | undefined): boolean => {
         const target = row?.target;
         return target !== undefined && target !== null
           && target.kind === "list" && target.index === cursorRow;
       };
-      while (picker === null && end < painted.length && belongsToCursor(painted[end])) {
-        if (end - start >= formCapacity) {
-          if (start < cursorOffset) start += 1;
-          else {
-            noteContinues = true;
-            break;
-          }
-        }
-        end += 1;
-      }
       const visible = painted.slice(start, end);
-      if (noteContinues && visible.length > 0) {
+      if (picker === null && belongsToCursor(painted[end]) && visible.length > 0) {
         visible[visible.length - 1] = withContinuation(visible.at(-1)!);
       }
       return [...filter, ...visible];

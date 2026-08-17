@@ -117,6 +117,28 @@ describe("the settings form follows C-03 and C-08", () => {
     expect(screen(state, 40, 14)).toMatch(/↑ \d+ · ↓ \d+/);
   });
 
+  test("save status replaces tail rows without moving the selected setting", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    await selectRow(press, state, "temperature");
+    const row = () => screen(state, 80, 24).split("\n")
+      .findIndex((line) => line.includes("temperature"));
+    const clean = row();
+
+    await press(key("right"));
+    const dirty = row();
+    const view = state.settings!.view;
+    if (!view.editable) throw new Error("editable settings view missing");
+    state.settings!.view = {
+      ...view,
+      pendingRevision: 2
+    };
+
+    expect(clean).toBeGreaterThan(-1);
+    expect(dirty).toBe(clean);
+    expect(row()).toBe(clean);
+  });
+
   test("a settable number wears a chip, a positional track and a default tick", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
