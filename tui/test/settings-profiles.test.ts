@@ -453,13 +453,29 @@ describe("Generation Profile settings", () => {
     expect(frame).toContain("· to keep it.");
     expect(frame).not.toContain("for provider");
 
+    const dirtyPrimary = frameText(renderStoryScreen(state, {
+      width: 64,
+      height: 24,
+      wrapCache: cache
+    }).lines);
+    expect(dirtyPrimary).toContain("extra cost.");
+    const view = state.settings!.view;
+    if (!view.editable) throw new Error("editable settings view missing");
+    state.settings!.view = { ...view, pendingRevision: 2 };
+    const pendingPrimary = frameText(renderStoryScreen(state, {
+      width: 80,
+      height: 24,
+      wrapCache: cache
+    }).lines);
+    expect(pendingPrimary).toContain("extra cost.");
+
     const shortFrame = frameText(renderStoryScreen(state, {
       width: 40,
       height: 14,
       wrapCache: cache
     }).lines);
     expect(shortFrame).toContain("▸ prompt cache");
-    expect(shortFrame).toContain("Lets the");
+    expect(shortFrame).toContain("Lets th");
     expect(shortFrame.split("\n").some((line) => line.includes("·") && line.includes("…")))
       .toBeTrue();
   });

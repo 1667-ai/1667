@@ -46,9 +46,9 @@ const SETTINGS_PANEL_WIDTH = 96;
 const RESULT_ROW_CAP = 3;
 /** `!` is a page key, so the route out of Settings names both presses. */
 const RESULT_OVERFLOW = "esc then ! for all of it";
-/** Status and normal wrapped help can replace these tail rows without moving
- * the selected field. They hold settings when unused; no blank space is drawn. */
-const SETTINGS_TAIL_RESERVE = 5;
+/** Three status rows and four normal help rows can replace these tail rows
+ * without moving the selected field. Unused rows hold settings, not blanks. */
+const SETTINGS_TAIL_RESERVE = 7;
 
 type SettingsPanelState = Pick<OverlayState, "settings" | "config"> & {
   hitRows: HitRows;
