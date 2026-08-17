@@ -142,7 +142,7 @@ export function settingsRows(
     {
       id: "system-prompt", section: "prompt", label: "system",
       value: settings.systemPrompt.replace(/\s+/g, " "),
-      hint: "Guides the voice, style, and behavior of every response."
+      hint: "Default Author Brief for prose and story names; a story brief overrides it."
     },
     {
       id: "provider", section: "connection", label: "provider",

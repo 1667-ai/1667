@@ -71,6 +71,10 @@ describe("the settings form follows C-03 and C-08", () => {
         "Higher values make"
       ][index]!)))));
     expect(columns.size).toBe(1);
+
+    await selectRow(press, state, "system-prompt");
+    expect(screen(state)).toContain("Default Author Brief for prose and story names;");
+    expect(screen(state)).toContain("a story brief overrides it.");
   });
 
   test("the selected description wraps without losing text", async () => {

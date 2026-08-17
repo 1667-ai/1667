@@ -488,7 +488,7 @@ describe("Generation Profile settings", () => {
     await selectRow(press, state, "reasoning");
     const frame = frameText(renderStoryScreen(state, { width: 120, height: 24, wrapCache: cache }).lines);
     expect(frame).toContain("‹ — ›");
-    expect(frame).toContain("This model does not provide reasoning.");
+    expect(frame).toContain("This route does not expose model reasoning.");
 
     // Cycling a disabled row only ever snaps to its one available choice,
     // `off` — the same "resets to the sole available choice" behavior the

@@ -52,7 +52,7 @@ export function reasoningRowHint(state: ReasoningRowState): string {
   if (state.route === null) return "Controls whether model reasoning is hidden, marked, or shown.";
   const availability = reasoningDisplayAvailabilityForRoute(state.route, state.display);
   return availability.kind === "unavailable"
-    ? "This model does not provide reasoning."
+    ? "This route does not expose model reasoning."
     : "Controls whether model reasoning is hidden, marked, or shown.";
 }
 
