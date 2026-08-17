@@ -7,6 +7,7 @@ import {
   readOptionalPrivateFile,
   removePrivateFile
 } from "./private-file-publication.js";
+import { withReservedPathOwnership } from "./reserved-path-owner.js";
 import { MAX_SETTINGS_STATE_BYTES } from "./settings-v2-scalars.js";
 import { syncDirectory } from "./story-lifecycle.js";
 
@@ -39,9 +40,11 @@ export async function readOptionalMutableSettingsAuthority(
   maxBytes: number
 ): Promise<Buffer | null> {
   try {
-    await inspectPrivateDirectory(path.dirname(file), SETTINGS_FILE_LABEL);
-    return await readBoundedMutableAuthorityFile(file, maxBytes, {
-      requirePrivate: true
+    return await withReservedPathOwnership(file, async () => {
+      await inspectPrivateDirectory(path.dirname(file), SETTINGS_FILE_LABEL);
+      return await readBoundedMutableAuthorityFile(file, maxBytes, {
+        requirePrivate: true
+      });
     });
   } catch (error) {
     if (isErrorCode(error, "ENOENT")) return null;
@@ -66,8 +69,10 @@ export async function publishSettingsFile(
   finalFile: string,
   options: SettingsPublicationOptions = {}
 ): Promise<void> {
-  await renameSettingsFile(nextFile, finalFile, options);
-  await syncDirectory(path.dirname(finalFile));
+  await withReservedPathOwnership(finalFile, async () => {
+    await renameSettingsFile(nextFile, finalFile, options);
+    await syncDirectory(path.dirname(finalFile));
+  });
 }
 
 async function renameSettingsFile(

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { link, open, unlink, type FileHandle } from "node:fs/promises";
+import { link, open, readFile, unlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { DataDirectoryLock } from "../server/data-directory-lock.js";
@@ -21,7 +21,7 @@ import {
   writingDocument
 } from "./settings-store-fixtures.js";
 
-test("current settings read remains valid across atomic replacement", {
+test("current settings read and publication are serialized in one process", {
   timeout: 5_000
 }, async (t) => {
   const dataDir = await initializedFormat2Directory(
@@ -40,35 +40,35 @@ test("current settings read remains valid across atomic replacement", {
 
   const reading = readSettingsState(dataDir);
   await pause.entered;
-  let contentionResolve!: () => void;
-  let publishResolve!: () => void;
-  const contention = new Promise<void>((resolve) => {
-    contentionResolve = resolve;
-  });
-  const publishReleased = new Promise<void>((resolve) => {
-    publishResolve = resolve;
-  });
-  const publishing = publishStagedSettingsState(dataDir, {
-    waitForWindowsContention: async () => {
-      contentionResolve();
-      await publishReleased;
-    }
+  let publishingSettled = false;
+  const publishing = publishStagedSettingsState(dataDir).then(() => {
+    publishingSettled = true;
   });
   try {
-    // The replacement must land before the paused read resumes, or the
-    // assertion below proves nothing. Windows cannot complete the rename while
-    // the read handle is open, so it waits for the contention retry instead.
-    if (process.platform === "win32") {
-      await Promise.race([contention, publishing]);
-    } else {
-      await publishing;
-    }
+    // The read owns the current pathname while its handle is open. The
+    // publication must queue behind it in this process, so the replacement
+    // cannot change the user-visible authority while the read is paused.
+    // A real read yields through the filesystem after publication starts and
+    // gives the writer a meaningful chance to settle if it is not gated.
+    const authorityWhilePaused = await readFile(
+      path.join(dataDir, SETTINGS_STATE_V2_FILE),
+      "utf8"
+    );
+    assert.equal(
+      publishingSettled,
+      false,
+      "publication remains pending while the active settings read is paused"
+    );
+    assert.equal(
+      authorityWhilePaused,
+      INITIAL_SETTINGS_STATE_V2_TEXT,
+      "the authority pathname still exposes the old state while the read is active"
+    );
   } finally {
     pause.release();
   }
 
   assert.deepEqual(await reading, INITIAL_SETTINGS_STATE_V2);
-  publishResolve();
   await publishing;
   assert.deepEqual(await readSettingsState(dataDir), replacement);
 });
