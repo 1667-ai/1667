@@ -12,6 +12,7 @@ interface WorkerUserCancellationOptions {
   worker: WorkerLike;
   outbox: SerializedWorkerOutbox;
   graceMs: number;
+  persistenceTimeoutMs: number;
   fail(message: string, cause?: unknown): void;
 }
 
@@ -38,9 +39,9 @@ export function cancelPendingWorkerRequest(
   const persistenceTimer = setTimeout(() => {
     if (!options.pendingRequests.isCurrent(pending)) return;
     options.fail(
-      `Embedded backend ${pending.method} cancellation was not durably recorded within ${options.graceMs} ms`
+      `Embedded backend ${pending.method} cancellation was not durably recorded within ${options.persistenceTimeoutMs} ms`
     );
-  }, options.graceMs);
+  }, options.persistenceTimeoutMs);
   void options.outbox.runIndependent(() => store.cancel(mutationId)).then(
     () => {
       clearTimeout(persistenceTimer);

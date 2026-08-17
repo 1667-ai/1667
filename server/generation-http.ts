@@ -404,10 +404,10 @@ export async function continueStory(
   // failing the generation; token probabilities are a diagnostic.
   const tokenProbabilities: TokenProbabilityCollector = { record: null };
   const generationRecordCollector: GenerationRecordCollector = { effective: null };
-  // Read only on a genuine stop (the `raw === null` branch below), to hand a
-  // later, separate stop-save commit a truthful digest of what this attempt
-  // actually sent the client — never trusted from that later request's own
-  // body. Otherwise discarded along with the completed `raw` text.
+  // Read only on a genuine stop or clean timeout, to hand a later, separate
+  // save a truthful digest of what this attempt actually sent the client —
+  // never trusted from that later request's own body. Otherwise discarded
+  // along with the completed `raw` text.
   const partialOutput: PartialOutputCollector = { text: "" };
   const reasoning = reasoningCapture(settings, onReasoning);
   // Filled by whichever stream actually ran, with the exact credentials it
@@ -415,6 +415,33 @@ export async function continueStory(
   // alongside the committed prose so a thought split across the reasoning
   // and prose channels can be caught jointly (`reasoningSafeToStore`).
   const providerSecrets: ProviderSecretsCollector = { secrets: [] };
+  const rememberStoppedGenerationHandoff = () => {
+    if (partialOutput.text.trim().length === 0) return;
+    const reasoningSafeWithRawProse = reasoningSafeToStore(
+      reasoning.collector.record,
+      partialOutput.text,
+      providerSecrets.secrets
+    );
+    const handoff = captureGenerationRecordHandoff({
+      provider: settings.provider,
+      model,
+      operation: continuation.prompt.operation,
+      appendSegmentStart,
+      collector: generationRecordCollector,
+      story,
+      entries: continuationRecordSourceEntries,
+      emittedText: partialOutput.text,
+      // A chapter break can change an append into a trimmed new take before
+      // the client saves it. Check both possible saved forms now, while the
+      // provider credentials are still available.
+      reasoning: reasoningSafeToStore(
+        reasoningSafeWithRawProse,
+        partialOutput.text.trim(),
+        providerSecrets.secrets
+      )
+    });
+    if (handoff !== null) generationAdmission.rememberGenerationRecordHandoff(id, genId, handoff);
+  };
   // Load Image Object bytes only now: every local admission check above
   // already passed, and each one gets verified against its own recorded
   // metadata before it can reach a provider (image-input rollout plan).
@@ -460,10 +487,14 @@ export async function continueStory(
     // required echo is a timeout masking an echo rejection. The rejection
     // is the truth: rethrow it without the clean-timeout stamp, so a caller
     // that preserves streamed prose on timeouts keeps none of this output.
-    if (timeoutProvenanceOf(error) !== null
-      && continuationOutput?.prefixRejected === true) {
+    const timeout = timeoutProvenanceOf(error);
+    if (timeout !== null && continuationOutput?.prefixRejected === true) {
       throw rejectedContinuationEcho();
     }
+    // The TUI offers clean-timeout prose through the same later createNode
+    // save as a user Stop. Preserve its server-owned metadata before the
+    // timeout leaves this request.
+    if (timeout !== null) rememberStoppedGenerationHandoff();
     throw error;
   }
   if (raw === null) {
@@ -476,17 +507,7 @@ export async function continueStory(
     // attach a truthful Generation Record instead of none at all — but only
     // when the provider layer captured something, which happens only once a
     // byte actually streamed (never for a stop before the first one).
-    const handoff = captureGenerationRecordHandoff({
-      provider: settings.provider,
-      model,
-      operation: continuation.prompt.operation,
-      appendSegmentStart,
-      collector: generationRecordCollector,
-      story,
-      entries: continuationRecordSourceEntries,
-      emittedText: partialOutput.text
-    });
-    if (handoff !== null) generationAdmission.rememberGenerationRecordHandoff(id, genId, handoff);
+    rememberStoppedGenerationHandoff();
     return null;
   }
   if (continuation.requiresEcho && continuationOutput?.matchedPrefix !== true) {

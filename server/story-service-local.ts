@@ -5,7 +5,11 @@ import { ServiceError } from "./errors.js";
 import { currentModel } from "./generation-http.js";
 import { DEFAULT_INSTRUCTION } from "./generation-prompts.js";
 import type { GenerationAdmissionRegistry } from "./generation-admission.js";
-import { generationRecordForHandoff, type GenerationRecordHandoff } from "./generation-record-handoff.js";
+import {
+  generationRecordForHandoff,
+  reasoningForHandoff,
+  type GenerationRecordHandoff
+} from "./generation-record-handoff.js";
 import { commitNode } from "./node-commit.js";
 import {
   parseCommitPartialRewrite,
@@ -341,6 +345,7 @@ export class StoryServiceLocal {
             // request saw, so the record's kind and range always follow this
             // commit's own decision.
             const generationRecord = generationRecordForHandoff(handoff, appendTo, text, new Date().toISOString());
+            const reasoning = reasoningForHandoff(handoff, appendTo, text);
             const commit = commitTake(story, {
               parentId: appendCrossesBreak
                 ? requestedAppendTo
@@ -354,6 +359,7 @@ export class StoryServiceLocal {
               model,
               genId,
               generationRecord,
+              reasoning,
               ...(nodeId === undefined ? {} : { nodeId })
             });
             return commit.duplicate ? STORY_UNCHANGED : undefined;

@@ -81,7 +81,12 @@ export const WORKER_STARTUP_LIVENESS_TIMEOUT_MS = 10_000;
 export const WORKER_STARTUP_TIMEOUT_MS = 60_000;
 export const WORKER_TERMINATION_CONFIRM_MS = 2_000;
 export const WORKER_SHUTDOWN_GRACE_MS = 5_000;
-export const WORKER_CANCEL_GRACE_MS = 2_000;
+/** Bound local durable work that must finish before cancellation delivery. */
+export const WORKER_CANCEL_PERSISTENCE_TIMEOUT_MS = 2_000;
+/** Stop hides the stream immediately. Give the provider, retained stream
+ *  tail, and durable terminal settlement time to unwind before the main
+ *  process treats the worker as unsafe. */
+export const WORKER_CANCEL_GRACE_MS = 10_000;
 export const WORKER_OPERATION_CAPACITY = 1_024;
 export const WORKER_TERMINAL_RETENTION_MS = 5 * 60_000;
 export const WORKER_MAX_OPERATION_SEQUENCE = (1n << 64n) - 1n;

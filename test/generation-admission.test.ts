@@ -166,7 +166,8 @@ function fakeHandoff(model: string): GenerationRecordHandoff {
     effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
     entries: { ok: true, entries: [] },
     emittedRawDigest: sha256(""),
-    emittedTrimmedDigest: sha256("")
+    emittedTrimmedDigest: sha256(""),
+    reasoning: null
   };
 }
 
