@@ -402,6 +402,33 @@ describe("Generation Profile settings", () => {
     expect(state.settings?.draft.document?.profiles.default?.tokenProbabilities).toBe(undefined);
   });
 
+  test("prompt cache explains provider-managed retention in Settings", async () => {
+    const { source, state, cache, press } = settingsHarness();
+    installNetworkSettings(source);
+    await openSettings(press);
+    const document = state.settings?.draft.document;
+    if (document === null || document === undefined) throw new Error("editable document missing");
+    const profileId = state.settings!.draft.selectedProfileId!;
+    const modelId = document.profiles[profileId]!.modelId;
+    state.settings!.draft = settingsTextDraftForDocument({
+      ...document,
+      profiles: {
+        ...document.profiles,
+        [profileId]: { ...document.profiles[profileId]!, cachePolicy: "auto" }
+      },
+      models: {
+        ...document.models,
+        [modelId]: { ...document.models[modelId]!, remoteId: "gpt-4o" }
+      }
+    }, profileId);
+
+    await selectRow(press, state, "cache-policy");
+    const frame = frameText(renderStoryScreen(state, { width: 120, height: 36, wrapCache: cache }).lines);
+    expect(frame).toContain("The provider decides how long");
+    expect(frame).toContain("· to keep it.");
+    expect(frame).not.toContain("for provider");
+  });
+
   test("reasoning is disabled only where the model reports it returns none", async () => {
     const { source, state, cache, press } = settingsHarness();
     installNetworkSettings(source);

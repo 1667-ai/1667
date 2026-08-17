@@ -130,9 +130,13 @@ function cacheDescription(
     ? `for up to ${ttl.slice(1)}`
     : ttl.startsWith("≥")
       ? `for at least ${ttl.slice(1)}`
-      : `for ${ttl}`;
+      : ttl === "provider"
+        ? null
+        : `for ${ttl}`;
   const cost = writeMultiplier === 1
     ? "Caching new prompt text has no extra cost."
     : `Caching new prompt text costs ${writeMultiplier}× the normal input price.`;
-  return `${reuse} ${duration}. ${cost}`;
+  return duration === null
+    ? `${reuse}. The provider decides how long to keep it. ${cost}`
+    : `${reuse} ${duration}. ${cost}`;
 }

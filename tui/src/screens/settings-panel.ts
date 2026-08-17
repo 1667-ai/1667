@@ -84,7 +84,7 @@ export function renderSettingsPanel(
     && painted.length > Math.max(1, contentCapacity - fixedRows)
     ? 1
     : 0;
-  const shown = contentCapacity < fixedRows + 1
+  const shown = contentCapacity < fixedRows + positionRows + 1
     ? []
     : (() => {
       const window = panelRowWindow(

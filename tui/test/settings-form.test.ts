@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderStoryScreen } from "../src/screens/story.js";
+import { settingsFormRows } from "../src/screens/settings-form.js";
 import { frameText, visibleWidth } from "../src/screens/story/frame.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import {
@@ -80,6 +81,26 @@ describe("the settings form follows C-03 and C-08", () => {
 
     expect(rendered).toContain("· Dims the story while you write in");
     expect(rendered).toContain("· the compose box.");
+  });
+
+  test("the selected description stays visible at the minimum terminal width", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    await selectRow(press, state, "compose-focus");
+    const overlay = state.settings!;
+    const rendered = frameText(settingsFormRows({
+      rows: settingsRows(overlay, state.config),
+      cursor: overlay.cursor,
+      edit: overlay.edit,
+      contentWidth: 12,
+      terminalWidth: 20,
+      hasArrows: () => false,
+      actionReport: null
+    }).map((row) => row.line));
+
+    for (const word of ["Dims", "story", "while", "write", "compose", "box."]) {
+      expect(rendered).toContain(word);
+    }
   });
 
   test("the position line reports settings above and below the visible list", async () => {

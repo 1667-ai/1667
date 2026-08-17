@@ -153,8 +153,14 @@ function noteLines(
   note: { text: string; role: DisplayRole },
   options: SettingsFormOptions
 ): SettingsFormRow[] {
-  const inset = LEAD_WIDTH + LABEL_WIDTH;
-  const measure = Math.max(8, options.contentWidth - inset - 2);
+  const valueInset = LEAD_WIDTH + responsiveLabelWidth(options.contentWidth);
+  // Keep an eight-cell sentence on a supported narrow terminal. The note
+  // moves left of the value column only when that is necessary to stay visible.
+  const inset = Math.min(
+    valueInset,
+    Math.max(0, options.contentWidth - HINT_MIN_WIDTH - 2)
+  );
+  const measure = Math.max(1, options.contentWidth - inset - 2);
   return wrapText(note.text, [], measure).map((line): SettingsFormRow => ({
     line: [
       raisedSegment(" ".repeat(inset), "chrome"),
@@ -190,7 +196,7 @@ function fieldRow(
   const edit = selected && options.edit?.kind === "inline" ? options.edit : null;
   const bodyWidth = Math.max(1, options.contentWidth);
   const lead = selected ? "▸ " : "  ";
-  const labelWidth = Math.min(LABEL_WIDTH, Math.max(4, bodyWidth - 8));
+  const labelWidth = responsiveLabelWidth(bodyWidth);
   const valueLeft = LEAD_WIDTH + labelWidth;
   const line: FrameLine = [
     raisedSegment(lead, selected ? "focus / accent" : "chrome"),
@@ -279,6 +285,10 @@ function fieldRow(
     target: { kind: "list", index },
     overrides: options.hasArrows(row) ? arrowRegions(drawn, valueLeft, index) : []
   };
+}
+
+function responsiveLabelWidth(contentWidth: number): number {
+  return Math.min(LABEL_WIDTH, Math.max(4, Math.max(1, contentWidth) - 8));
 }
 
 function trackSegments(
