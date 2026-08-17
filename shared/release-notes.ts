@@ -11,7 +11,7 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
-    version: "0.9.8-rc.1",
+    version: "0.9.8",
     date: "2026-08-17",
     body: "- **Settings shows important controls and help sooner.** The system prompt is\n  now near the top of the panel. The panel uses its bottom space to show how\n  many settings are above or below the visible list. Select a setting to read\n  its complete description. Long descriptions wrap instead of ending at the\n  panel edge. The descriptions now explain the effect of each setting.\n\n- **The cache-stable continuation prompt is now an optional experiment.** The\n  **prompt layout** row in a Generation Profile is off by default. The off\n  value keeps the v0.8.0 Continue and Retake prompt. The on value moves the\n  operation-specific contract after the story history. Profile Export files\n  preserve the enabled value."
   },
