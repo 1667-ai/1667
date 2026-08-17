@@ -713,7 +713,10 @@ describe("hit map clickable chrome", () => {
     const isArrow = (region: { target: HitTarget }, index: number) =>
       region.target.kind === "action" && region.target.index === index
       && (region.target.action === "take-previous" || region.target.action === "take-next");
-    for (const index of [0, 3]) {
+    for (const index of [
+      SETTINGS_ROW_IDS.indexOf("theme"),
+      SETTINGS_ROW_IDS.indexOf("provider")
+    ]) {
       const selectorRow = state.hitRows.findIndex((row) =>
         row?.overrides?.some((region) => isArrow(region, index)) === true);
       const arrows = state.hitRows[selectorRow]!.overrides!.filter((region) =>

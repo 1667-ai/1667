@@ -45,27 +45,52 @@ describe("the settings form follows C-03 and C-08", () => {
     const rendered = screen(state);
 
     expect(rendered).toContain("── app ");
+    expect(rendered).toContain("── prompt ");
     expect(rendered).toContain("── connection ");
     expect(rendered).toContain("── generation ");
+    expect(rendered.indexOf("── prompt ")).toBeLessThan(rendered.indexOf("── connection "));
+    expect(rendered).toContain("system");
+    expect(rendered).toMatch(/↓ \d+ more settings/);
     // The rule is the section heading. It used to be printed twice — once in a
     // jump rail and again beside it — which is what made the panel read as
     // chaos, together with hints that started in a different column per row.
     expect(rendered).not.toContain("│");
     const hints = [
-      "the whole palette, remapped",
-      "dim the page while you type",
-      "who answers a request",
-      "how far it strays"
+      "Dims the story",
+      "Keeps whole words",
+      "Selects the service",
+      "Higher values make"
     ].map((hint) => rendered.split("\n").find((line) => line.includes(hint))!);
     expect(hints.every((line) => line !== undefined)).toBeTrue();
     const columns = new Set(hints.map((line, index) =>
       visibleWidth(line.slice(0, line.indexOf([
-        "the whole palette, remapped",
-        "dim the page while you type",
-        "who answers a request",
-        "how far it strays"
+        "Dims the story",
+        "Keeps whole words",
+        "Selects the service",
+        "Higher values make"
       ][index]!)))));
     expect(columns.size).toBe(1);
+  });
+
+  test("the selected description wraps without losing text", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    await selectRow(press, state, "compose-focus");
+    const rendered = screen(state, 64, 24);
+
+    expect(rendered).toContain("· Dims the story while you write in");
+    expect(rendered).toContain("· the compose box.");
+  });
+
+  test("the position line reports settings above and below the visible list", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    expect(/↓ \d+ more settings/.test(screen(state, 80, 24))).toBeTrue();
+
+    await selectRow(press, state, "utility-route");
+    const rendered = screen(state, 80, 24);
+    expect(/↑ \d+ earlier settings/.test(rendered)).toBeTrue();
+    expect(/↓ \d+ more settings/.test(rendered)).toBeFalse();
   });
 
   test("a settable number wears a chip, a positional track and a default tick", async () => {
@@ -142,11 +167,11 @@ describe("the settings form follows C-03 and C-08", () => {
 
     // Two rows for one job — an env var and a stored key — left every writer
     // guessing which one to fill in.
-    expect(rendered).toContain("stored key");
+    expect(rendered).toContain("API key");
     expect(rendered).not.toContain("key env");
     // The keys live in the machine-tier state root, whose path is a platform
     // detail; what matters is that they never travel with a story.
-    expect(rendered).toContain("kept on this machine");
+    expect(rendered).toContain("Saved on this device");
     expect(rendered).not.toContain(".config/1667");
   });
 

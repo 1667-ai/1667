@@ -74,15 +74,16 @@ export function renderSettingsPanel(
     hasArrows: (row) => settingsRowHasArrows(overlay, row.id),
     actionReport: inPlaceActionReport(overlay)
   });
-  // The bottom strip keeps its padded height whatever it says, so a pending
-  // restart cannot lift the panel and move every field with it. The sectioned
-  // form always fills the panel, so trading the strip for one more field row
-  // would make that lift happen on exactly the frame the notice appears.
-  //
   // Complete notices outrank fields: a selected row can scroll away for a
   // moment, but an error must not lose its final wrapped rows. On a panel too
   // short for both, the fields yield entirely — no error reads as no problem.
   const fixedRows = status.top.length + status.bottom.length + resultLines.length;
+  // One line in the existing bottom area tells the writer when the form
+  // continues off-screen. If the full form fits, fields use that line too.
+  const positionRows = picker === null
+    && painted.length > Math.max(1, contentCapacity - fixedRows)
+    ? 1
+    : 0;
   const shown = contentCapacity < fixedRows + 1
     ? []
     : (() => {
@@ -94,7 +95,10 @@ export function renderSettingsPanel(
             overlay.modelPicker!.cursor,
             modelPickerRows(overlay, overlay.modelPicker!.query).length + 1
           ),
-        Math.max(1, contentCapacity - fixedRows - (picker === null ? 0 : 1))
+        Math.max(
+          1,
+          contentCapacity - fixedRows - positionRows - (picker === null ? 0 : 1)
+        )
       );
       // The filter row holds the live query and the count; it is chrome above
       // the column, not the first option, so it never scrolls away.
@@ -117,7 +121,12 @@ export function renderSettingsPanel(
   const leading = shown.length === 0
     ? shortPanelNotices([resultLines, status.top, status.bottom], contentCapacity)
     : status.top;
-  const trailing = shown.length === 0 ? [] : [...status.bottom, ...resultLines];
+  const position = shown.length === 0 || picker !== null
+    ? []
+    : settingsPositionLines(shown, rows.length);
+  const trailing = shown.length === 0
+    ? []
+    : [...position, ...status.bottom, ...resultLines];
   const content: FrameLine[] = [
     ...leading,
     ...shown.map((row) => row.line),
@@ -159,6 +168,27 @@ function paintedRowOffset(painted: readonly SettingsFormRow[], index: number): n
   const at = painted.findIndex((row) =>
     row.target?.kind === "list" && row.target.index === index);
   return at < 0 ? 0 : at;
+}
+
+/** Use the panel's bottom area to state how much of the Settings list is off
+ * screen. Counts are logical settings, not section rules or wrapped notes. */
+function settingsPositionLines(
+  shown: readonly SettingsFormRow[],
+  total: number
+): FrameLine[] {
+  const visible = shown.flatMap((row) => {
+    const target = row.target;
+    return target?.kind === "list" && target.index !== undefined ? [target.index] : [];
+  });
+  if (visible.length === 0) return [];
+  const above = visible[0]!;
+  const below = Math.max(0, total - visible.at(-1)! - 1);
+  if (above === 0 && below === 0) return [];
+  const parts = [
+    ...(above > 0 ? [`↑ ${above} earlier setting${above === 1 ? "" : "s"}`] : []),
+    ...(below > 0 ? [`↓ ${below} more setting${below === 1 ? "" : "s"}`] : [])
+  ];
+  return [[raisedSegment(`  ${parts.join(" · ")}`, "chrome")]];
 }
 
 
@@ -322,20 +352,7 @@ function settingsStatusLines(
   };
 }
 
-/** The tallest `bottom` variant: a separating blank, then the pending pair. */
-const BOTTOM_STATUS_ROWS = 3;
-
-/** Pads a bottom notice to a constant height, anchored to the footer.
- *
- * `placePanel` centres the panel on its content, so a variant one line taller
- * moves the panel top up and drags every field and hit target with it. Before
- * this notice moved below the fields, the extra pending line pushed them back
- * down by the same row and hid the effect; below the fields nothing cancels it.
- * Reserving the tallest variant's height keeps the whole panel still, which is
- * what the position was chosen for.
- */
+/** A status uses only the rows it needs. The form takes the remaining space. */
 function bottomStatus(lines: FrameLine[]): FrameLine[] {
-  const padding = Array.from({ length: BOTTOM_STATUS_ROWS - lines.length }, (): FrameLine => []);
-  return [...padding, ...lines];
+  return lines.length === 0 ? [] : [[], ...lines];
 }
-

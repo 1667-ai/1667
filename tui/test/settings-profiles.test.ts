@@ -301,7 +301,7 @@ describe("Generation Profile settings", () => {
     expect(frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines))
       .toContain("‹ high ›");
     expect(frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines))
-      .toContain("not on this model");
+      .toContain("This model does not support reasoning effort.");
     await press(key("left"));
     expect(state.settings?.draft.document?.profiles.default?.effort).toBe("default");
 
@@ -393,7 +393,8 @@ describe("Generation Profile settings", () => {
     await selectRow(press, state, "token-probabilities");
     const frame = frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines);
     expect(frame).toContain("‹ — ›");
-    expect(frame).toContain("support unknown");
+    expect(frame).toContain("· Alternative token data might not be available from");
+    expect(frame).toContain("· this provider.");
 
     // Cycling an unavailable row is a no-op: it never writes a count the
     // request was never going to carry.
@@ -409,7 +410,7 @@ describe("Generation Profile settings", () => {
     await selectRow(press, state, "reasoning");
     const frame = frameText(renderStoryScreen(state, { width: 120, height: 24, wrapCache: cache }).lines);
     expect(frame).toContain("‹ — ›");
-    expect(frame).toContain("gpt-5.6 @ openai returns none");
+    expect(frame).toContain("This model does not provide reasoning.");
 
     // Cycling a disabled row only ever snaps to its one available choice,
     // `off` — the same "resets to the sole available choice" behavior the

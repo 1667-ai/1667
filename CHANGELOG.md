@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Settings shows important controls and help sooner.** The system prompt is
+  now near the top of the panel. The panel uses its bottom space to show how
+  many settings are above or below the visible list. Select a setting to read
+  its complete description. Long descriptions wrap instead of ending at the
+  panel edge. The descriptions now explain the effect of each setting.
+
 - **Prompt-plan changes now have a Gemma quality gate.** The gate compares the
   v0.8.0 prompt with a candidate on one frozen story and one fixed profile. It
   uses blind Retake and Continue scores. It requires no score regression for

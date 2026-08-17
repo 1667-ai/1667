@@ -97,7 +97,7 @@ const CONNECTION_TIMEOUT_ROW_SPECS: Record<ConnectionTimeoutRow, ConnectionTimeo
     acceptedMax: MAX_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     acceptedMin: MIN_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     step: 5,
-    hint: "wait for response headers to start arriving"
+    hint: "Stops if the model service does not begin responding."
   },
   "timeout-idle": {
     field: "idleMs",
@@ -109,7 +109,7 @@ const CONNECTION_TIMEOUT_ROW_SPECS: Record<ConnectionTimeoutRow, ConnectionTimeo
     acceptedMax: MAX_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     acceptedMin: MIN_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     step: 5,
-    hint: "wait between stream events once output has started"
+    hint: "Stops if a response pauses for this long."
   },
   "timeout-total": {
     field: "totalMs",
@@ -124,7 +124,7 @@ const CONNECTION_TIMEOUT_ROW_SPECS: Record<ConnectionTimeoutRow, ConnectionTimeo
     acceptedMax: MAX_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     acceptedMin: MIN_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     step: 30,
-    hint: "wall-clock limit for the whole generation"
+    hint: "Stops a generation after this total time."
   }
 };
 
