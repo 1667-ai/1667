@@ -264,7 +264,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
 
-## 0.9.9-rc.1 - 2026-08-17
+## 0.9.9 - 2026-08-17
 
 - **Stopped takes keep their thought and finish cleanly.** If **Keep thought**
   is on, a take saved after Stop or a clean timeout keeps the thought that was
