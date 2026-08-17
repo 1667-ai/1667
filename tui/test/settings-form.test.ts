@@ -112,6 +112,9 @@ describe("the settings form follows C-03 and C-08", () => {
     const rendered = screen(state, 80, 24);
     expect(/↑ \d+ earlier settings/.test(rendered)).toBeTrue();
     expect(/↓ \d+ more settings/.test(rendered)).toBeFalse();
+
+    await selectRow(press, state, "temperature");
+    expect(screen(state, 40, 14)).toMatch(/↑ \d+ · ↓ \d+/);
   });
 
   test("a settable number wears a chip, a positional track and a default tick", async () => {

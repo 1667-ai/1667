@@ -73,20 +73,25 @@ export function promptCacheSummaryParts(
     };
   }
   if (context.policy === "off") {
-    const providerManaged = context.adapter === "openai-official"
+    const explicitOff = resolution.kind === "available"
+      && resolution.capability.kind === "openai-explicit";
+    const providerManaged = resolution.kind === "available"
+      && resolution.capability.kind === "openai-automatic";
+    const providerMayManage = context.adapter === "openai-official"
       || context.adapter === "compatible";
     return {
       kind: "available",
       policy: "off",
-      detail: resolution.kind === "available"
-        && resolution.capability.kind === "openai-explicit"
+      detail: explicitOff
         ? "no breakpoints · TTL none · no writes"
-        : providerManaged
+        : providerMayManage
           ? "no opt-in · TTL provider-managed"
           : "no controls · TTL none",
-      description: providerManaged
-        ? "The provider manages prompt caching."
-        : "Prompt caching is off for this profile."
+      description: explicitOff || !providerMayManage
+        ? "Prompt caching is off for this profile."
+        : providerManaged
+          ? "The provider manages prompt caching."
+          : "The provider might manage prompt caching."
     };
   }
   if (resolution.kind !== "available") {

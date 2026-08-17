@@ -410,6 +410,32 @@ describe("Generation Profile settings", () => {
     if (document === null || document === undefined) throw new Error("editable document missing");
     const profileId = state.settings!.draft.selectedProfileId!;
     const modelId = document.profiles[profileId]!.modelId;
+    await selectRow(press, state, "cache-policy");
+    const offFrame = frameText(renderStoryScreen(state, {
+      width: 120,
+      height: 36,
+      wrapCache: cache
+    }).lines);
+    expect(offFrame).toContain("Prompt caching is off for this profile.");
+
+    const connectionId = document.models[modelId]!.connectionId;
+    state.settings!.draft = settingsTextDraftForDocument({
+      ...document,
+      connections: {
+        ...document.connections,
+        [connectionId]: {
+          ...document.connections[connectionId]!,
+          baseUrl: "https://models.example.com/v1"
+        }
+      }
+    }, profileId);
+    const compatibleFrame = frameText(renderStoryScreen(state, {
+      width: 120,
+      height: 36,
+      wrapCache: cache
+    }).lines);
+    expect(compatibleFrame).toContain("The provider might manage prompt caching.");
+
     state.settings!.draft = settingsTextDraftForDocument({
       ...document,
       profiles: {
@@ -422,7 +448,6 @@ describe("Generation Profile settings", () => {
       }
     }, profileId);
 
-    await selectRow(press, state, "cache-policy");
     const frame = frameText(renderStoryScreen(state, { width: 120, height: 36, wrapCache: cache }).lines);
     expect(frame).toContain("The provider decides how long");
     expect(frame).toContain("· to keep it.");

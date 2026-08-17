@@ -140,7 +140,7 @@ export function renderSettingsPanel(
     : status.top;
   const position = shown.length === 0 || picker !== null
     ? []
-    : settingsPositionLines(shown, rows.length);
+    : settingsPositionLines(shown, rows.length, horizontal.contentWidth);
   const trailing = shown.length === 0
     ? []
     : [...position, ...status.bottom, ...resultLines];
@@ -204,7 +204,8 @@ function paintedRowOffset(painted: readonly SettingsFormRow[], index: number): n
  * screen. Counts are logical settings, not section rules or wrapped notes. */
 function settingsPositionLines(
   shown: readonly SettingsFormRow[],
-  total: number
+  total: number,
+  contentWidth: number
 ): FrameLine[] {
   const visible = shown.flatMap((row) => {
     const target = row.target;
@@ -218,7 +219,14 @@ function settingsPositionLines(
     ...(above > 0 ? [`↑ ${above} earlier setting${above === 1 ? "" : "s"}`] : []),
     ...(below > 0 ? [`↓ ${below} more setting${below === 1 ? "" : "s"}`] : [])
   ];
-  return [[raisedSegment(`  ${parts.join(" · ")}`, "chrome")]];
+  const verbose = parts.join(" · ");
+  const compact = [
+    ...(above > 0 ? [`↑ ${above}`] : []),
+    ...(below > 0 ? [`↓ ${below}`] : [])
+  ].join(" · ");
+  const text = visibleWidth(`  ${verbose}`) <= contentWidth ? verbose : compact;
+  const inset = visibleWidth(`  ${text}`) <= contentWidth ? "  " : "";
+  return [[raisedSegment(`${inset}${text}`, "chrome")]];
 }
 
 
