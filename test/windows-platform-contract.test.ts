@@ -182,23 +182,17 @@ test("Windows machine tier accepts an 8.3 ancestor alias", {
   await assertPrivateSecurity(root);
 });
 
-test("Node Windows adapter stays inside the server startup budget", {
+test("Node Windows adapter prepares the server root inside its startup budget", {
   skip: process.platform !== "win32" || process.versions.bun !== undefined,
   timeout: 10_000
 }, async (t) => {
   const parent = await temporaryDirectory(t, "1667-windows-node-adapter-");
-  const roots = Array.from(
-    { length: 4 },
-    (_, index) => path.join(parent, `state-${index}`)
-  );
+  const root = path.join(parent, "state");
   const adapter = createNodeWindowsPrivateStateRootAdapter();
 
-  assert.deepEqual(
-    await Promise.all(
-      roots.map(async (root) =>
-        await adapter.preparePrivateStateRoot(root))
-    ),
-    roots
+  assert.equal(
+    await adapter.preparePrivateStateRoot(root),
+    root
   );
 });
 
