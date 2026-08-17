@@ -43,35 +43,46 @@ export async function waitForTestServer(
     readonly exitCode: number | null;
     readonly signalCode: NodeJS.Signals | null;
   },
-  origin: string,
   output: () => string
-): Promise<void> {
+): Promise<string> {
   const deadline = Date.now() + SERVER_START_BUDGET_MS;
+  let resolvedOrigin: string | null = null;
   while (Date.now() < deadline) {
     if (server.exitCode !== null || server.signalCode !== null) {
       throw new Error(`server exited: ${output()}`);
     }
-    try {
-      const { record } = await readHttpAuthRecord(origin);
-      const response = await fetch(`${origin}/api/health`, {
-        headers: {
-          [HTTP_AUTHORIZATION_HEADER]:
-            bearerAuthorization(record.capabilities.story),
-          [HTTP_CLIENT_PROTOCOL_HEADER]:
-            String(HTTP_API_PROTOCOL_VERSION),
-          [HTTP_SERVER_INSTANCE_HEADER]: record.instanceId
+    resolvedOrigin ??= announcedTestServerOrigin(output());
+    if (resolvedOrigin !== null) {
+      try {
+        const { record } = await readHttpAuthRecord(resolvedOrigin);
+        const response = await fetch(`${resolvedOrigin}/api/health`, {
+          headers: {
+            [HTTP_AUTHORIZATION_HEADER]:
+              bearerAuthorization(record.capabilities.story),
+            [HTTP_CLIENT_PROTOCOL_HEADER]:
+              String(HTTP_API_PROTOCOL_VERSION),
+            [HTTP_SERVER_INSTANCE_HEADER]: record.instanceId
+          }
+        });
+        if (response.ok) {
+          await rememberServerInstance(await response.json(), resolvedOrigin);
+          return resolvedOrigin;
         }
-      });
-      if (response.ok) {
-        await rememberServerInstance(await response.json(), origin);
-        return;
-      }
-    } catch { /* startup */ }
+      } catch { /* startup */ }
+    }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(
     `server did not start within ${SERVER_START_BUDGET_MS / 1_000} seconds: ${output()}`
   );
+}
+
+/** Read the origin from the server's post-bind readiness announcement. */
+export function announcedTestServerOrigin(output: string): string | null {
+  const match = /(?:^|\r?\n)1667 listening on (http:\/\/127\.0\.0\.1:(\d+))(?: \(data: |\r?\n)/.exec(output);
+  if (match === null) return null;
+  const port = Number(match[2]);
+  return port > 0 && port <= 65_535 ? match[1]! : null;
 }
 
 export async function stopTestServerProcess(

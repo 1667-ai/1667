@@ -480,11 +480,10 @@ describe("embedded backend worker", () => {
     await chmod(outboxDir, 0o500);
     let backend: Awaited<ReturnType<typeof createWorkerStoryApi>> | null = null;
     try {
-      // Real worker startup on macos-15-intel can exceed 1s under runner
-      // contention; match the sibling real-worker recovery budget.
+      // Keep the absolute startup budget bounded, but use the default 10s
+      // liveness budget for real-worker startup under runner contention.
       backend = await createWorkerStoryApi({
         dataDir,
-        readyTimeoutMs: 1_000,
         startupTimeoutMs: 5_000
       });
       const error = await Promise.race([
@@ -549,11 +548,11 @@ describe("embedded backend worker", () => {
       expectedAggregateVersion
     );
 
-    // Real worker startup competes with the full test pool; fake-worker tests
-    // below retain the tight 100 ms liveness deadline.
+    // Real worker startup competes with the full test pool; use the default
+    // 10s liveness budget. Fake-worker tests below retain the tight 100 ms
+    // liveness deadline.
     const backend = await createWorkerStoryApi({
       dataDir,
-      readyTimeoutMs: 1_000,
       startupTimeoutMs: 5_000
     });
     try {
@@ -590,9 +589,11 @@ describe("embedded backend worker", () => {
       const replay = requests()[0]!;
       worker.message({ type: "result", id: replay.id, value: { id: "retained", nodes: [], path: [] } });
       await backend.recovery;
-      for (let attempt = 0; attempt < 20 && requests().length < 2; attempt += 1) {
+      const requestDeadline = Date.now() + platformPerformanceBudget(5_000);
+      while (requests().length < 2 && Date.now() < requestDeadline) {
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
+      if (requests().length < 2) throw new Error("Timed out waiting for live mutation request");
       expect(requests()).toHaveLength(2);
 
       const live = requests()[1]!;

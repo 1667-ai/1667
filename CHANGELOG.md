@@ -5,6 +5,10 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Settings reads remain available during activation.** 1667 now serializes a
+  settings read and a settings authority replacement in one process. A read no
+  longer fails while activation replaces the settings authority.
+
 - **Prompt-plan changes now have a Gemma quality gate.** The gate compares the
   v0.8.0 prompt with a candidate on one frozen story and one fixed profile. It
   uses blind Retake and Continue scores. It requires no score regression for
