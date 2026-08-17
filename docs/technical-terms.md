@@ -90,6 +90,7 @@ read_when:
 | provider | A local or hosted service that supplies a language model |
 | Text Completions | The provider protocol that sends one text prompt and receives one text continuation |
 | prompt format | The rule that converts a provider-neutral request into one text prompt |
+| continuation prompt layout | The rule that places continuation instructions around story history |
 | machine tier | Private 1667 data for one machine |
 | project tier | Story data and settings in a `.1667/` directory |
 | working tier | User files in a project root |

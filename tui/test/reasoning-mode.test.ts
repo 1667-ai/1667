@@ -55,4 +55,34 @@ describe("reasoning mode reaches the story screen", () => {
     publishSettingsView(state, source, { ...view, effectiveProseReasoning: "off" });
     expect(state.reasoning).toBe("off");
   });
+
+  test("uses the server-resolved active prompt layout, not the pending document", () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const view = source.settingsView;
+    if (!view.editable) throw new Error("editable settings missing");
+    const pendingDocument = {
+      ...view.document,
+      profiles: {
+        ...view.document.profiles,
+        default: {
+          ...view.document.profiles.default!,
+          continuationPromptOptimization: "late-cache-stable" as const
+        }
+      }
+    };
+    publishSettingsView(state, source, {
+      ...view,
+      document: pendingDocument,
+      effectiveProseContinuationPromptLayout: "compatibility"
+    });
+    expect(state.continuationPromptLayout).toBe("compatibility");
+
+    publishSettingsView(state, source, {
+      ...view,
+      document: pendingDocument,
+      effectiveProseContinuationPromptLayout: "late-cache-stable"
+    });
+    expect(state.continuationPromptLayout).toBe("late-cache-stable");
+  });
 });

@@ -2,6 +2,7 @@ import { resolveAuthorBrief } from "../shared/author-brief.js";
 import { resolveAuthorsNoteDepth, type AuthorsNotePlacement } from "../shared/authors-note.js";
 import type { StoryImageAttachment } from "../shared/image-attachment.js";
 import type { ChapterBreak, GenerationSettings, StoryNode } from "../shared/types.js";
+import { providerRuntimeFor } from "./provider-runtime.js";
 import { continuationPlan, supportsAssistantPrefill, type ContinuationPlan } from "./generation-prompts.js";
 
 export interface ContinuationAssemblyStory {
@@ -33,6 +34,7 @@ export function assembleContinuation(input: ContinuationAssemblyInput): Continua
     ? null
     : { text: authorsNote, depth: resolveAuthorsNoteDepth(input.story.authorsNoteDepth) };
   const authorBrief = resolveAuthorBrief(input.story.authorBrief, input.settings.systemPrompt);
+  const layout = providerRuntimeFor(input.settings).continuationPromptLayout ?? "compatibility";
   return {
     authorsNote,
     plan: (facts) => continuationPlan(
@@ -46,7 +48,8 @@ export function assembleContinuation(input: ContinuationAssemblyInput): Continua
       null,
       input.story.chapterBreaks as readonly ChapterBreak[],
       input.story.nodes,
-      input.images
+      input.images,
+      layout
     )
   };
 }

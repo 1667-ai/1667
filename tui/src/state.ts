@@ -220,6 +220,7 @@ export type SettingsRowId =
   | "context-window"
   | "effort"
   | "cache-policy"
+  | "continuation-prompt"
   | "token-probabilities"
   | "reasoning"
   | "keep-thoughts"
@@ -692,6 +693,8 @@ export interface StoryScreenState extends OverlayState {
   systemPrompt: string;
   /** Whether the configured provider accepts an assistant continuation prefill. */
   assistantPrefill: boolean;
+  /** Active prose route's continuation prompt layout. */
+  continuationPromptLayout: import("../../shared/continuation-prompt-optimization.js").ContinuationPromptLayout;
   map: MapState | null;
   /** The full-bleed search navigator, or null when it is closed. */
   search: SearchState | null;

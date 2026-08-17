@@ -266,7 +266,7 @@ test("mid-activation states keep the old document effective until the commit edg
 });
 
 test("a pending prose route cannot replace the active prose projection", () => {
-  const active = proseRouteDocument("active-prose-model", 16_384, 768);
+  const active = proseRouteDocument("active-prose-model", 16_384, 768, "late-cache-stable");
   const candidateBase = proseRouteDocument("candidate-prose-model", 1_024, 512);
   const defaultProfile = candidateBase.profiles[candidateBase.routing.default]!;
   const defaultModel = candidateBase.models[defaultProfile.modelId]!;
@@ -295,6 +295,12 @@ test("a pending prose route cannot replace the active prose projection", () => {
   assert.equal(view.effectiveProse.model, "active-prose-model");
   assert.equal(view.effectiveProse.contextWindow, 16_384);
   assert.equal(view.effectiveProse.maxTokens, 768);
+  assert.equal(view.effectiveProseContinuationPromptLayout, "late-cache-stable");
+  assert.equal(
+    view.document.profiles[view.document.routing.prose!]?.continuationPromptOptimization,
+    undefined,
+    "the pending document must not replace the active prompt layout"
+  );
 });
 
 test("generation snapshots stay coherent while an activation replaces a stored credential", async (t) => {
@@ -890,7 +896,8 @@ function twoConnectionDocument(defaultEnv: string, proseEnv: string): SettingsDo
 function proseRouteDocument(
   remoteId: string,
   contextWindow: number,
-  maxOutputTokens: number
+  maxOutputTokens: number,
+  continuationPromptOptimization?: "late-cache-stable"
 ): SettingsDocumentV2 {
   const base = INITIAL_SETTINGS_DOCUMENT_V2;
   const defaultProfile = base.profiles[base.routing.default]!;
@@ -912,7 +919,10 @@ function proseRouteDocument(
         ...defaultProfile,
         name: "Prose",
         modelId: "prose:model",
-        maxOutputTokens
+        maxOutputTokens,
+        ...(continuationPromptOptimization === undefined
+          ? {}
+          : { continuationPromptOptimization })
       }
     },
     routing: { ...base.routing, prose: "prose" }

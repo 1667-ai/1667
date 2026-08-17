@@ -10,6 +10,7 @@ import test from "node:test";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import {
   createBlindPackArtifacts,
+  parseBlindMapping,
   writeBlindMapping,
   writeBlindPack,
   type BlindMapping,
@@ -19,23 +20,45 @@ import { parseGemmaCompatibilityEvidence } from "../evals/gemma-prompt-quality/e
 import { parseReplayProfileManifest } from "../evals/gemma-prompt-quality/profile.js";
 import { parseGemmaRuntimeConfiguration } from "../evals/gemma-prompt-quality/runtime.js";
 import { runReplay, writeReplay } from "../evals/gemma-prompt-quality/runner.js";
+import { GEMMA_CANDIDATE_OPTIMIZATION } from "../evals/gemma-prompt-quality/contract.js";
 
 const execFileAsync = promisify(execFile);
 const REPO_ROOT = resolve(process.cwd());
 const CLI = resolve(REPO_ROOT, "evals/gemma-prompt-quality/cli.ts");
 const TEST_RUNTIME = parseGemmaRuntimeConfiguration({
   schemaVersion: 1,
-  runtime: "llama.cpp",
+  runtime: "koboldcpp",
   model: {
-    id: "gemma-4-31b",
-    identity: "Gemma 4 31B",
+    id: "koboldcpp/gemma-4-31B-it-uncensored-heretic-Q8_0",
+    identity: "Gemma 4 31B test runtime",
     artifact: {
-      fileName: "gemma-4-31b-Q4_K_M.gguf",
+      fileName: "gemma-4-31B-it-uncensored-heretic-Q8_0.gguf",
       sha256: `sha256:${"a".repeat(64)}`,
-      quantization: "Q4_K_M"
+      quantization: "Q8_0"
     }
   },
-  llamaCpp: { build: "b1234", chatTemplate: "gemma", contextWindow: 32768 }
+  koboldCpp: {
+    version: "1.117.1",
+    chatTemplateSha256: "sha256:0a52be69cda5ab8aeb627d6ff51a7b34c7d06afabb6b0f00cf8ee63df16a6315",
+    contextWindow: 32768
+  }
+});
+
+test("Gemma replay CLI requires the operator server attestation", async () => {
+  await assert.rejects(
+    runCli(
+      "replay",
+      "--endpoint", "http://127.0.0.1:5001/v1",
+      "--runtime-config", "/missing/runtime.json",
+      "--profile", "/missing/profile.json",
+      "--optimization", GEMMA_CANDIDATE_OPTIMIZATION,
+      "--output", "/tmp/missing-replay.json"
+    ),
+    (error: unknown) => error instanceof Error
+      && "stderr" in error
+      && typeof error.stderr === "string"
+      && error.stderr.includes("--exclusive-server is required")
+  );
 });
 
 test("Gemma blind CLI keeps the mapping private and binds it before scoring", async (t) => {
@@ -59,9 +82,11 @@ test("Gemma blind CLI keeps the mapping private and binds it before scoring", as
 
   const replay = await runReplay({
     endpointBaseUrl: `${origin}/v1`,
-    model: "gemma-4-31b",
+    model: "koboldcpp/gemma-4-31B-it-uncensored-heretic-Q8_0",
     runtime: TEST_RUNTIME,
-    profile: testProfile()
+    profile: testProfile(),
+    optimization: GEMMA_CANDIDATE_OPTIMIZATION,
+    operatorAcknowledgedExclusiveServer: true
   });
   const replayPath = resolve(directory, "replay.json");
   const blindPath = resolve(directory, "blind.json");
@@ -95,9 +120,14 @@ test("Gemma blind CLI keeps the mapping private and binds it before scoring", as
   assert.doesNotMatch(blindJson, /"(?:shuffleSeed|operation|seed|outputFingerprint|pairId|arm|baseline|candidate)"\s*:/u);
   const mappingText = await readFile(mappingPath, "utf8");
   const mapping = JSON.parse(mappingText) as BlindMapping;
-  assert.equal(typeof mapping.mappingSecret, "string");
+  assert.equal(Number.isSafeInteger(mapping.shuffleSeed), true);
   assert.equal(typeof mapping.packFingerprint, "string");
   assert.equal(typeof mapping.replayFingerprint, "string");
+  assert.equal(mapping.optimization, GEMMA_CANDIDATE_OPTIMIZATION);
+  assert.throws(
+    () => parseBlindMapping({ ...mapping, optimization: "off" }),
+    /blind mapping optimization must be exactly late-cache-stable/
+  );
   const referenceBindings = mapping.referenceBindings;
   assert.equal(referenceBindings.length, 2);
   assert.deepEqual(new Set(referenceBindings.map((binding) => binding.referenceId)), new Set(referenceIds));
@@ -230,7 +260,8 @@ function testProfile() {
         topK: 40,
         minP: 0.05,
         repeatPenalty: 1.08
-      }
+      },
+      timeouts: { responseHeaderMs: 600_000, firstTokenMs: 120_000, idleMs: 120_000, totalMs: 1_800_000 }
     }
   }, TEST_RUNTIME);
 }

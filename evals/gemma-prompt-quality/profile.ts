@@ -3,9 +3,19 @@ import { readFile } from "node:fs/promises";
 import { canonicalJson } from "../../server/canonical-json.js";
 import { importProfileExport } from "../../server/import-profile-export.js";
 import { parseJsonRejectingDuplicateKeys } from "../../server/strict-json.js";
-import { attachProviderRuntime, type ProviderRuntime } from "../../server/provider-runtime.js";
-import { defaultConnectionTimeouts } from "../../shared/settings-provider-defaults.js";
-import { EMPTY_SAMPLING_V2, type GenerationEffortV2, type SamplingSettingsV2 } from "../../shared/settings-v2-types.js";
+import { effectiveGenerationRuntime } from "../../server/settings-v2-conversion.js";
+import {
+  defaultModelCapabilities
+} from "../../shared/settings-provider-defaults.js";
+import type { ContinuationPromptOptimizationV2 } from "../../shared/continuation-prompt-optimization.js";
+import {
+  EMPTY_SAMPLING_V2,
+  type ConnectionTimeoutsV2,
+  type GenerationEffortV2,
+  type ModelCapabilitiesV2,
+  type SamplingSettingsV2,
+  type SettingsDocumentV2
+} from "../../shared/settings-v2-types.js";
 import {
   rawLogitBiasLimit,
   validateSamplingLogitBias
@@ -23,6 +33,8 @@ export interface ReplayProfile {
   readonly cachePolicy: string;
   readonly tokenProbabilities: number | null;
   readonly sampling: SamplingSettingsV2;
+  /** Replay transport limits. These do not change product connection defaults. */
+  readonly timeouts: ConnectionTimeoutsV2;
   /** The complete manifest explicitly records the raw token-bias map. */
   readonly logitBiasState: "empty" | "present";
 }
@@ -37,6 +49,7 @@ export interface ReplayProfileBoundary {
   readonly cachePolicy: "off";
   readonly tokenProbabilities: number | null;
   readonly sampling: Record<string, unknown>;
+  readonly timeouts: ConnectionTimeoutsV2;
   readonly logitBiasState: "empty" | "present";
 }
 
@@ -55,6 +68,7 @@ export interface ReplayProfileManifest {
       readonly tokenProbabilities: number | null;
     };
     readonly sampling: Record<string, unknown>;
+    readonly timeouts: ConnectionTimeoutsV2;
   };
 }
 
@@ -85,7 +99,7 @@ export function parseReplayProfileManifest(
     throw new Error("Gemma replay profile manifest runtimeArtifactSha256 does not match the checked runtime artifact");
   }
   const profile = requireRecord(manifest.profile, "Gemma replay profile manifest.profile");
-  requireKeys(profile, ["name", "generation", "sampling"], "Gemma replay profile manifest.profile");
+  requireKeys(profile, ["name", "generation", "sampling", "timeouts"], "Gemma replay profile manifest.profile");
   const generation = requireRecord(profile.generation, "Gemma replay profile manifest.profile.generation");
   requireKeys(
     generation,
@@ -99,8 +113,9 @@ export function parseReplayProfileManifest(
   requireKeys(sampling, Object.keys(EMPTY_SAMPLING_V2), "Gemma replay profile manifest.profile.sampling");
   const { logitBias: rawLogitBias, ...transferableSampling } = sampling;
   const logitBias = validateReplayLogitBias(rawLogitBias);
-  if (rawLogitBiasLimit(logitBias, "llama-cpp").exceeds) {
-    throw new Error("Gemma replay profile manifest.profile.sampling.logitBias exceeds the llama.cpp 200-entry limit");
+  const timeouts = parseReplayTimeouts(profile.timeouts, "Gemma replay profile manifest.profile.timeouts");
+  if (rawLogitBiasLimit(logitBias, "koboldcpp").exceeds) {
+    throw new Error("Gemma replay profile manifest.profile.sampling.logitBias exceeds the KoboldCpp 16-entry limit");
   }
   const parsed = importProfileExport(JSON.stringify({
     profileExportVersion: 1,
@@ -110,7 +125,8 @@ export function parseReplayProfileManifest(
   }));
   return profileFromCandidate({
     ...parsed,
-    sampling: { ...(parsed.sampling ?? {}), logitBias }
+    sampling: { ...(parsed.sampling ?? {}), logitBias },
+    timeouts
   }, canonicalManifestText(manifest));
 }
 
@@ -140,7 +156,8 @@ export function validateReplayProfileBoundary(
         cachePolicy: evidence.cachePolicy,
         tokenProbabilities: evidence.tokenProbabilities
       },
-      sampling: { ...evidence.sampling }
+      sampling: { ...evidence.sampling },
+      timeouts: evidence.timeouts
     }
   }, runtime);
   if (profile.sourceFingerprint !== evidence.sourceFingerprint) {
@@ -188,6 +205,7 @@ function profileFromCandidate(
     cachePolicy: candidate.cachePolicy ?? "off",
     tokenProbabilities: candidate.tokenProbabilities ?? null,
     sampling,
+    timeouts: candidate.timeouts,
     logitBiasState: preservedLogitBias ? "present" : "empty"
   };
 }
@@ -199,41 +217,77 @@ export function replaySettings(
   endpointBaseUrl: string,
   runtimeConfiguration: GemmaRuntimeConfiguration,
   profile: ReplayProfile,
-  seed: number
+  seed: number,
+  optimization?: ContinuationPromptOptimizationV2
 ): GenerationSettings {
   const apiKeyEnv = process.env.GEMMA_API_KEY === undefined ? null : "GEMMA_API_KEY";
-  const sampling = { ...profile.sampling, seed };
-  const settings: GenerationSettings = {
-    provider: "openai-compatible",
-    baseUrl: endpointBaseUrl,
-    model: runtimeConfiguration.model.id,
-    apiKeyEnv,
-    allowInsecureHttp: endpointBaseUrl.startsWith("http://"),
+  const document = replaySettingsDocument(
+    endpointBaseUrl,
+    runtimeConfiguration,
+    profile,
+    seed,
+    optimization,
+    apiKeyEnv
+  );
+  return effectiveGenerationRuntime(document).settings;
+}
+
+function replaySettingsDocument(
+  endpointBaseUrl: string,
+  runtimeConfiguration: GemmaRuntimeConfiguration,
+  profile: ReplayProfile,
+  seed: number,
+  optimization: ContinuationPromptOptimizationV2 | undefined,
+  apiKeyEnv: string | null
+): SettingsDocumentV2 {
+  const connectionId = "gemma-replay-connection";
+  const modelId = "gemma-replay-model";
+  const profileId = "gemma-replay-profile";
+  const capabilities: ModelCapabilitiesV2 = {
+    ...defaultModelCapabilities("openai-compatible"),
+    assistantPrefill: "supported"
+  };
+  const generationProfile = {
+    name: profile.name,
+    modelId,
     temperature: profile.temperature,
-    maxTokens: profile.maxOutputTokens,
-    systemPrompt: "",
-    contextWindow: runtimeConfiguration.llamaCpp.contextWindow
-  };
-  const runtime: ProviderRuntime = {
-    preset: "llama-cpp",
-    protocol: "openai-chat-completions",
-    auth: apiKeyEnv === null
-      ? { type: "none" }
-      : { type: "bearer-env", env: apiKeyEnv },
-    headers: [],
-    timeouts: replayTimeouts(),
-    allowInsecureHttp: settings.allowInsecureHttp === true,
+    maxOutputTokens: profile.maxOutputTokens,
     effort: profile.effort,
-    tokenProbabilities: profile.tokenProbabilities,
-    capabilities: {
-      temperature: "supported",
-      assistantPrefill: "supported",
-      reasoningEffort: "unknown",
-      promptCaching: "unknown"
-    },
-    sampling
+    cachePolicy: "off" as const,
+    sampling: { ...profile.sampling, seed },
+    ...(profile.tokenProbabilities === null ? {} : { tokenProbabilities: profile.tokenProbabilities }),
+    ...(optimization === undefined ? {} : { continuationPromptOptimization: optimization })
   };
-  return attachProviderRuntime(settings, runtime);
+  return {
+    schemaVersion: 2,
+    connections: {
+      [connectionId]: {
+        name: "Gemma replay endpoint",
+        preset: "koboldcpp",
+        protocol: "openai-chat-completions",
+        baseUrl: endpointBaseUrl,
+        auth: apiKeyEnv === null
+          ? { type: "none" }
+          : { type: "bearer-env", env: apiKeyEnv },
+        headers: [],
+        timeouts: profile.timeouts,
+        ...(endpointBaseUrl.startsWith("http://") ? { allowInsecureHttp: true as const } : {})
+      }
+    },
+    models: {
+      [modelId]: {
+        connectionId,
+        remoteId: runtimeConfiguration.model.id,
+        name: runtimeConfiguration.model.identity,
+        discovered: { contextWindow: runtimeConfiguration.koboldCpp.contextWindow },
+        overrides: {},
+        capabilities
+      }
+    },
+    profiles: { [profileId]: generationProfile },
+    routing: { default: profileId },
+    writing: { defaultAuthorBrief: "" }
+  };
 }
 
 export type ProfileExportCandidate = {
@@ -244,21 +298,29 @@ export type ProfileExportCandidate = {
   readonly cachePolicy?: string;
   readonly tokenProbabilities?: number | null;
   readonly sampling?: Partial<SamplingSettingsV2>;
+  readonly timeouts: ConnectionTimeoutsV2;
   readonly omittedCount?: number;
   readonly fidelity?: readonly string[];
 };
 
-function replayTimeouts() {
-  const configured = Number(process.env.GEMMA_TOTAL_TIMEOUT_MS ?? "");
-  const totalMs = Number.isSafeInteger(configured) && configured >= 1_000
-    ? configured
-    : defaultConnectionTimeouts("openai-compatible").totalMs;
-  return {
-    responseHeaderMs: Math.min(totalMs, 120_000),
-    firstTokenMs: totalMs,
-    idleMs: totalMs,
-    totalMs
-  };
+function parseReplayTimeouts(value: unknown, label: string): ConnectionTimeoutsV2 {
+  const timeouts = requireRecord(value, label);
+  requireKeys(timeouts, ["responseHeaderMs", "firstTokenMs", "idleMs", "totalMs"], label);
+  const responseHeaderMs = timeoutMs(timeouts.responseHeaderMs, `${label}.responseHeaderMs`);
+  const firstTokenMs = timeoutMs(timeouts.firstTokenMs, `${label}.firstTokenMs`);
+  const idleMs = timeoutMs(timeouts.idleMs, `${label}.idleMs`);
+  const totalMs = timeoutMs(timeouts.totalMs, `${label}.totalMs`);
+  if (responseHeaderMs > totalMs || firstTokenMs > totalMs || idleMs > totalMs) {
+    throw new Error(`${label} cannot exceed totalMs`);
+  }
+  return { responseHeaderMs, firstTokenMs, idleMs, totalMs };
+}
+
+function timeoutMs(value: unknown, label: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 1_000) {
+    throw new Error(`${label} must be a safe integer of at least 1000`);
+  }
+  return value as number;
 }
 
 function sha256(value: string): string {

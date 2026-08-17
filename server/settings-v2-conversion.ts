@@ -135,7 +135,8 @@ export function effectiveGenerationRuntime(
     profile.sampling ?? EMPTY_SAMPLING_V2,
     profile.tokenProbabilities ?? null,
     profile.reasoning ?? "marker",
-    profile.discardReasoning !== true
+    profile.discardReasoning !== true,
+    profile.continuationPromptOptimization
   );
   const settings = attachProviderRuntime({
       provider,

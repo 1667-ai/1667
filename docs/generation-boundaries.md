@@ -118,6 +118,14 @@ not cover prompt-cache or request-adapter changes. The deterministic HTTP
 integration test in `test/model-connection-e2e.test.ts` protects the transport
 wire for those changes.
 
+The experimental `late-cache-stable` continuation prompt layout is optional.
+The setting is off when the Generation Profile omits it. The compatibility
+layout keeps the operation contract before the story history. The
+`late-cache-stable` layout puts the operation-specific contract in the final
+user turn. An assistant-prefill Continue sends no operation contract. It adds
+a point of view and tense guard to the final user turn. The server and the TUI
+request viewer resolve the layout from the active prose route.
+
 Retake starts a new user turn. It does not use the assistant-prefill
 continuation path. A Retake style regression can therefore remain after a fix
 for a missing Continue contract. Issue [#176](https://github.com/1667-ai/1667/issues/176)

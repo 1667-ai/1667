@@ -17,7 +17,7 @@ import {
   type SettingsScalar
 } from "./settings-scalar.js";
 import type { SettingsOverlayState, SettingsRowId } from "./state.js";
-import type { SettingsRowPresentation } from "./settings-profile-controls.js";
+import type { SettingsRowPresentation } from "./settings-row-presentations.js";
 
 /** The four `ConnectionTimeoutsV2` fields (issue #127), editable with the
  *  same C-08 chip/track/typed-edit widget as temperature, max tokens and

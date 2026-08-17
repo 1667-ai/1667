@@ -10,6 +10,7 @@ import {
 } from "./settings-overlay-model.js";
 import {
   cycleCachePolicyControl,
+  cycleContinuationPromptControl,
   cycleEffortControl,
   cycleKeepThoughtsControl,
   cycleProfileControl,
@@ -103,6 +104,9 @@ export async function cycleSettingsRow(
     } else if (row === "cache-policy") {
       const policy = cycleCachePolicyControl(overlay, step);
       if (policy !== null) state.toast = `cache · ${policy} · s saves settings`;
+    } else if (row === "continuation-prompt") {
+      const value = cycleContinuationPromptControl(overlay, step);
+      if (value !== null) state.toast = `experimental prompt · ${value} · s saves settings`;
     } else if (row === "token-probabilities") {
       const value = cycleTokenProbabilitiesControl(overlay, step);
       if (value !== null) state.toast = `alt count · ${value} · s saves settings`;

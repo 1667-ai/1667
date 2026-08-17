@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **The cache-stable continuation prompt is now an optional experiment.** The
+  **prompt layout** row in a Generation Profile is off by default. The off
+  value keeps the v0.8.0 Continue and Retake prompt. The on value moves the
+  operation-specific contract after the story history. Profile Export files
+  preserve the enabled value.
+
 - **Prompt-plan changes now have a Gemma quality gate.** The gate compares the
   v0.8.0 prompt with a candidate on one frozen story and one fixed profile. It
   uses blind Retake and Continue scores. It requires no score regression for

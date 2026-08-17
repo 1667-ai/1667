@@ -10,6 +10,11 @@ import type {
   SettingsProtocolV2,
   SettingsPresetV2
 } from "../shared/settings-v2-types.js";
+import {
+  continuationPromptLayoutForOptimization,
+  type ContinuationPromptLayout,
+  type ContinuationPromptOptimizationV2
+} from "../shared/continuation-prompt-optimization.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { defaultConnectionTimeouts } from "../shared/settings-provider-defaults.js";
@@ -59,6 +64,10 @@ export interface ProviderRuntime {
    *  resolves an absent profile field to `true` — reasoning is kept —
    *  rather than leaving this field itself absent. */
   readonly keepReasoning?: boolean;
+  /** Resolved continuation prompt layout. Legacy settings and omitted test
+   *  attachments use the v0.8.0 compatibility layout. Real settings runtimes
+   *  always set this value. */
+  readonly continuationPromptLayout?: ContinuationPromptLayout;
   readonly capabilities: ModelCapabilitiesV2;
   readonly sampling: SamplingSettingsV2;
 }
@@ -111,7 +120,8 @@ export function providerRuntimeFromV2(
   sampling: SamplingSettingsV2 = EMPTY_SAMPLING_V2,
   tokenProbabilities: number | null = null,
   reasoning: ReasoningDisplayV2 = "marker",
-  keepReasoning = true
+  keepReasoning = true,
+  continuationPromptOptimization?: ContinuationPromptOptimizationV2
 ): ProviderRuntime {
   const runtime: ProviderRuntime = {
     preset: connection.preset,
@@ -126,6 +136,7 @@ export function providerRuntimeFromV2(
     tokenProbabilities,
     reasoning,
     keepReasoning,
+    continuationPromptLayout: continuationPromptLayoutForOptimization(continuationPromptOptimization),
     capabilities,
     sampling
   };
@@ -506,6 +517,7 @@ function legacyProviderRuntime(settings: GenerationSettings): ProviderRuntime {
     tokenProbabilities: null,
     reasoning: "marker",
     keepReasoning: true,
+    continuationPromptLayout: "compatibility",
     sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature: "unknown",
