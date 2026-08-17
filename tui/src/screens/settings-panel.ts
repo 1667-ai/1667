@@ -32,6 +32,7 @@ import {
 } from "../settings-model-picker.js";
 import { wrapFeedback } from "./feedback-wrap.js";
 import {
+  truncate,
   visibleWidth,
   type FrameComposition,
   type FrameLine
@@ -87,18 +88,20 @@ export function renderSettingsPanel(
   const shown = contentCapacity < fixedRows + positionRows + 1
     ? []
     : (() => {
+      const cursorOffset = picker === null
+        ? paintedRowOffset(painted, boundedSettingsCursor(overlay.cursor))
+        : boundedModelPickerCursor(
+          overlay.modelPicker!.cursor,
+          modelPickerRows(overlay, overlay.modelPicker!.query).length + 1
+        );
+      const formCapacity = Math.max(
+        1,
+        contentCapacity - fixedRows - positionRows - (picker === null ? 0 : 1)
+      );
       const window = panelRowWindow(
         painted.map(() => 1),
-        picker === null
-          ? paintedRowOffset(painted, boundedSettingsCursor(overlay.cursor))
-          : boundedModelPickerCursor(
-            overlay.modelPicker!.cursor,
-            modelPickerRows(overlay, overlay.modelPicker!.query).length + 1
-          ),
-        Math.max(
-          1,
-          contentCapacity - fixedRows - positionRows - (picker === null ? 0 : 1)
-        )
+        cursorOffset,
+        formCapacity
       );
       // The filter row holds the live query and the count; it is chrome above
       // the column, not the first option, so it never scrolls away.
@@ -107,16 +110,30 @@ export function renderSettingsPanel(
         : [{ line: picker.filter, target: null, overrides: [] }];
       // A field's note line is part of the field. Extend the window over the
       // rows that belong to the cursor so a refusal reason cannot fall off it.
+      let start = window.start;
       let end = window.end;
+      let noteContinues = false;
       const cursorRow = boundedSettingsCursor(overlay.cursor);
       const belongsToCursor = (row: SettingsFormRow | undefined): boolean => {
         const target = row?.target;
         return target !== undefined && target !== null
           && target.kind === "list" && target.index === cursorRow;
       };
-      while (end < painted.length && belongsToCursor(painted[end])) end += 1;
-      const start = Math.max(0, window.start + (end - window.end));
-      return [...filter, ...painted.slice(start, end)];
+      while (picker === null && end < painted.length && belongsToCursor(painted[end])) {
+        if (end - start >= formCapacity) {
+          if (start < cursorOffset) start += 1;
+          else {
+            noteContinues = true;
+            break;
+          }
+        }
+        end += 1;
+      }
+      const visible = painted.slice(start, end);
+      if (noteContinues && visible.length > 0) {
+        visible[visible.length - 1] = withContinuation(visible.at(-1)!);
+      }
+      return [...filter, ...visible];
     })();
   const leading = shown.length === 0
     ? shortPanelNotices([resultLines, status.top, status.bottom], contentCapacity)
@@ -157,9 +174,22 @@ export function renderSettingsPanel(
       rows: state.hitRows,
       targets,
       overrides,
-      footerActions: footer.actions
+      footerActions: footer.actions,
+      anchorTop: true
     }
   );
+}
+
+/** Mark a selected description that has more physical lines than the panel. */
+function withContinuation(row: SettingsFormRow): SettingsFormRow {
+  const line = [...row.line];
+  const final = line.at(-1);
+  if (final === undefined) return row;
+  line[line.length - 1] = {
+    ...final,
+    text: truncate(`${final.text} …`, visibleWidth(final.text))
+  };
+  return { ...row, line };
 }
 
 /** Where a settings row landed among the painted rows. The form already knows

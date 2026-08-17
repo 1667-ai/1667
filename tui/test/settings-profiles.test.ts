@@ -427,6 +427,16 @@ describe("Generation Profile settings", () => {
     expect(frame).toContain("The provider decides how long");
     expect(frame).toContain("· to keep it.");
     expect(frame).not.toContain("for provider");
+
+    const shortFrame = frameText(renderStoryScreen(state, {
+      width: 40,
+      height: 14,
+      wrapCache: cache
+    }).lines);
+    expect(shortFrame).toContain("▸ prompt cache");
+    expect(shortFrame).toContain("Lets the");
+    expect(shortFrame.split("\n").some((line) => line.includes("·") && line.includes("…")))
+      .toBeTrue();
   });
 
   test("reasoning is disabled only where the model reports it returns none", async () => {

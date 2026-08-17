@@ -364,15 +364,15 @@ describe("run C overlay frames", () => {
     expect(dirty).not.toContain("revision");
   });
 
-  test("a pending restart takes tail space before it moves settings rows", async () => {
-    // At the normal viewport height, the form fills the panel. A pending
-    // status replaces tail fields instead of lifting the fields at the top.
+  test("a pending restart does not move settings rows", async () => {
+    // Settings stays anchored while the status uses only its actual rows.
+    // This keeps the fields still without restoring blank bottom padding.
     const rowsFor = async (pendingRevision: number | null): Promise<Record<string, number>> => {
       const source = demoAppSource();
       const view = { ...source.settingsView, pendingRevision, activeRevision: 3 };
       source.settingsView = view as typeof source.settingsView;
       source.api.getSettings = async () => view as typeof source.settingsView;
-      const lines = (await renderOnce(source, 120, 36, ",")).split("\n");
+      const lines = (await renderOnce(source, 120, 48, ",")).split("\n");
       const rowOf = (text: string): number => lines.findIndex((line) => line.includes(text));
       return { theme: rowOf("theme"), provider: rowOf("provider"), prompt: rowOf("system ") };
     };
