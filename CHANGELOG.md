@@ -260,7 +260,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
 
-## 0.9.8-rc.1 - 2026-08-17
+## 0.9.8 - 2026-08-17
 
 - **Settings shows important controls and help sooner.** The system prompt is
   now near the top of the panel. The panel uses its bottom space to show how
