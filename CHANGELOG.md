@@ -264,6 +264,14 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
 
+## 0.9.9-rc.1 - 2026-08-17
+
+- **Stopped takes keep their thought and finish cleanly.** If **Keep thought**
+  is on, a take saved after Stop or a clean timeout keeps the thought that was
+  visible during streaming. 1667 also gives an embedded model server more time
+  to close after Stop. This prevents a restart-required error during normal
+  cleanup.
+
 ## 0.9.8 - 2026-08-17
 
 - **Settings shows important controls and help sooner.** The system prompt is
