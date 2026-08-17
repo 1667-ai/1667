@@ -3,7 +3,11 @@ import { ServiceError } from "./errors.js";
 import { currentModel } from "./generation-http.js";
 import type { GenerationAdmissionRegistry } from "./generation-admission.js";
 import { DEFAULT_INSTRUCTION } from "./generation-prompts.js";
-import { generationRecordForHandoff, type GenerationRecordHandoff } from "./generation-record-handoff.js";
+import {
+  generationRecordForHandoff,
+  reasoningForHandoff,
+  type GenerationRecordHandoff
+} from "./generation-record-handoff.js";
 import type { SettingsStore } from "./settings.js";
 import { commitTake, createEditedTake } from "./story-nodes.js";
 import type { StoryStore } from "./stories.js";
@@ -69,6 +73,7 @@ export async function commitNode(
       // above returns before this runs), or a genId this process never saw
       // stream anything.
       const generationRecord = generationRecordForHandoff(handoff, appendTo, text, new Date().toISOString());
+      const reasoning = reasoningForHandoff(handoff, appendTo, text);
       const { duplicate } = commitTake(story, {
         parentId: appendCrossesBreak ? requestedAppendTo : appendTo === null ? parentId : null,
         appendTo,
@@ -78,6 +83,7 @@ export async function commitNode(
         model,
         genId,
         generationRecord,
+        reasoning,
         ...(mutationNodeId === undefined ? {} : { nodeId: mutationNodeId })
       });
       if (!duplicate) await stories.save(story);

@@ -6,6 +6,7 @@ import {
   type GenerationRecordPromptEntry
 } from "../shared/generation-record.js";
 import type { PromptOperation } from "../shared/prompt-plan.js";
+import type { CapturedReasoning } from "../shared/reasoning.js";
 import type { Provider, Story } from "../shared/types.js";
 import type { GenerationRecordCollector } from "./generation-record-capture.js";
 import { finalizeGenerationRecord, unsupportedGenerationRecord } from "./generation-record-finalize.js";
@@ -58,6 +59,9 @@ export interface GenerationRecordHandoff {
    *  does in `generation-http.ts`). */
   readonly emittedRawDigest: string;
   readonly emittedTrimmedDigest: string;
+  /** The credential-safe thought captured before the stream stopped. The
+   *  later save attaches it only when its prose matches these digests. */
+  readonly reasoning: CapturedReasoning | null;
 }
 
 /** Every text-revision id a handoff's captured entries reference — what
@@ -96,6 +100,9 @@ export function captureGenerationRecordHandoff(input: {
    *  text the client's stream actually received. Hashed below, never
    *  retained. */
   readonly emittedText: string;
+  /** Already checked against the raw and trimmed emitted prose for provider
+   *  credentials. */
+  readonly reasoning: CapturedReasoning | null;
 }): GenerationRecordHandoff | null {
   const effective = input.collector.effective;
   if (effective === null) return null;
@@ -119,8 +126,18 @@ export function captureGenerationRecordHandoff(input: {
     effective,
     entries,
     emittedRawDigest: sha256(input.emittedText),
-    emittedTrimmedDigest: sha256(input.emittedText.trim())
+    emittedTrimmedDigest: sha256(input.emittedText.trim()),
+    reasoning: input.reasoning
   };
+}
+
+function handoffMatchesCommittedText(
+  handoff: GenerationRecordHandoff,
+  appendTo: string | null,
+  committedText: string
+): boolean {
+  const expectedDigest = appendTo === null ? handoff.emittedTrimmedDigest : handoff.emittedRawDigest;
+  return sha256(committedText) === expectedDigest;
 }
 
 /**
@@ -165,8 +182,7 @@ export function finalizeHandoffGenerationRecord(
       new Error("This append's affected range was not captured before the generation stopped.")
     );
   }
-  const expectedDigest = input.appendTo === null ? handoff.emittedTrimmedDigest : handoff.emittedRawDigest;
-  if (sha256(input.committedText) !== expectedDigest) {
+  if (!handoffMatchesCommittedText(handoff, input.appendTo, input.committedText)) {
     return unsupportedGenerationRecord(
       common,
       new Error("The saved text does not match what this generation actually streamed.")
@@ -189,6 +205,19 @@ export function finalizeHandoffGenerationRecord(
   // collector it reads has none — never returns null here.
   if (record === null) throw new Error("Unreachable: a Generation Record handoff always carries effective parameters");
   return record;
+}
+
+/** Returns a stopped generation's thought only for the prose that the same
+ *  generation streamed. */
+export function reasoningForHandoff(
+  handoff: GenerationRecordHandoff | undefined,
+  appendTo: string | null,
+  committedText: string
+): CapturedReasoning | undefined {
+  if (handoff === undefined || handoff.reasoning === null) return undefined;
+  return handoffMatchesCommittedText(handoff, appendTo, committedText)
+    ? handoff.reasoning
+    : undefined;
 }
 
 /** The stop-save Generation Record builder both commit paths need

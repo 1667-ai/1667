@@ -536,9 +536,11 @@ indent keep the thought apart from the prose. Press `T` again to fold the
 thought. The `T` key does nothing on a story part that has no thought.
 
 The **Keep thought** row controls storage. Keep thought is on by default.
-1667 then saves each thought with its take. The thought stays after you
-close the story. Set Keep thought to off to save no thought. 1667 then
-shows each thought while the model writes it, but keeps none of it.
+1667 then saves each thought with its take. This also applies when you stop
+after the model sends prose or when a clean timeout saves that prose. The
+thought stays after you close the story. Set Keep thought to off to save no
+thought. 1667 then shows each thought while the model writes it, but keeps
+none of it.
 
 Some routes cannot return reasoning text. A text completion route is one,
 because that protocol has no field for it. The Reasoning row then shows

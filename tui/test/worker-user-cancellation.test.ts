@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   sameWorkerOperationId,
+  WORKER_CANCEL_PERSISTENCE_TIMEOUT_MS,
   type MainToWorkerMessage,
   type WorkerOperationId
 } from "../../shared/worker-protocol.js";
@@ -57,6 +58,80 @@ test("caller cancellation hard-fences a mutation that never reaches terminal sta
   expect(worker.terminateCalls).toBe(1);
   await expectRestartRequiredDisposal(transport);
 });
+
+test("the default cancellation grace lets a slow generation unwind past two seconds", async () => {
+  const worker = new FakeWorker(true);
+  const outbox = new RecordingCancellationOutbox();
+  const transport = new WorkerTransport({
+    worker,
+    readyTimeoutMs: 100
+  }, outbox);
+  await transport.start();
+  const cancel = new AbortController();
+  const outcome = transport.call(
+    "continueStory",
+    {
+      storyId: "story",
+      instruction: "Continue.",
+      genId: "slow-stop",
+      target: {}
+    },
+    { signal: cancel.signal }
+  ).then(
+    (value) => ({ value }),
+    (error: unknown) => ({ error })
+  );
+  const request = await waitForRequest(worker, "continueStory");
+
+  cancel.abort();
+  await outbox.cancelled;
+  await waitForControlMessage(worker, "cancel", request.id);
+  await new Promise((resolve) => setTimeout(resolve, 2_250));
+
+  expect(worker.terminateCalls).toBe(0);
+  worker.message({
+    type: "complete",
+    id: request.id,
+    value: null
+  });
+  expect(await outcome).toEqual({ value: null });
+  await transport.dispose();
+}, 10_000);
+
+test("the default durable-cancellation fence stays at two seconds", async () => {
+  const worker = new FakeWorker(true);
+  const outbox = new HangingCancellationOutbox();
+  const transport = new WorkerTransport({
+    worker,
+    readyTimeoutMs: 100
+  }, outbox);
+  await transport.start();
+  const cancel = new AbortController();
+  const mutationError = rejection(transport.call(
+    "continueStory",
+    {
+      storyId: "story",
+      instruction: "Continue.",
+      genId: "stalled-stop",
+      target: {}
+    },
+    { signal: cancel.signal }
+  ));
+  await waitForRequest(worker, "continueStory");
+
+  cancel.abort();
+  await outbox.cancelStarted;
+  const failure = await transport.failure;
+
+  expect(failure.message).toContain(
+    `cancellation was not durably recorded within ${WORKER_CANCEL_PERSISTENCE_TIMEOUT_MS} ms`
+  );
+  expect(worker.messages.some((message) => message.type === "cancel")).toBeFalse();
+  expect(worker.terminateCalls).toBe(1);
+  outbox.finishCancel();
+  expect(await mutationError).toBe(failure);
+  await expectRestartRequiredDisposal(transport);
+}, 10_000);
 
 test("stalled durable cancellation hard-fences disposal", async () => {
   const worker = new FakeWorker();

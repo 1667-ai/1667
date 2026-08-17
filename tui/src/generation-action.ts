@@ -267,10 +267,10 @@ export async function generate(
           appendStreamText(stream, tail);
           if (state.stream === stream) repaint();
         },
-        // Same ownership guard as onDelta, on the reasoning channel. Reasoning
-        // is never persisted in this pass — it only ever lives on the live
-        // stream view — so it appends and repaints exactly like prose, without
-        // any of prose's commit bookkeeping.
+        // Same ownership guard as onDelta, on the reasoning channel. Durable
+        // storage stays server-owned; this callback only updates the live
+        // stream view. It appends and repaints like prose without taking part
+        // in prose commit bookkeeping.
         onReasoning: (delta) => {
           if (!owns()
             || !storyCurrent()

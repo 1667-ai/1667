@@ -153,7 +153,11 @@ manual renames beat autoname, rewrites and summaries revalidate their source,
 continuations preserve a line moved by the writer, and a Stop save wins by
 generation ID. Stop closes the provider record. If model text arrived before
 Stop, the TUI waits for terminal settlement. It then saves that text with the
-same generation ID.
+same generation ID. If Keep thought is on, it also saves the thought that the
+model sent before Stop. A clean timeout uses the same save behavior.
+Stop hides the stream immediately. The main process gives local durable
+cancellation work 2 seconds to finish. It then gives the embedded backend 10
+seconds to close the provider stream and publish its terminal state.
 After the Stop aborts the request signal, the worker transport sends no more
 live text to the caller. The transport collects the text that arrives after
 the abort. The transport delivers the collected text one time, at terminal

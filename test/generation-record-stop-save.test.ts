@@ -78,6 +78,13 @@ test("a stopped new-take continuation's later save attaches a truthful continue 
   const node = saved.nodes.find((candidate) => candidate.genId === "gen-stop-new-take");
   if (node === undefined) throw new Error("stop-save did not commit a take");
   assert.equal(node.generationRecordIds?.length, 1);
+  assert.equal(node.reasoning, true);
+
+  const reasoning = await stories.loadReasoning(story.id, node.id);
+  assert.equal(reasoning.text, "(dry-run) weighing two openings before picking one.");
+
+  const reloaded = await stories.load(story.id);
+  assert.equal(reloaded.nodes.find((candidate) => candidate.id === node.id)?.reasoning, true);
 
   const record = await stories.loadGenerationRecord(story.id, node.id, node.generationRecordIds![0]!);
   assert.equal(record.kind, "continue");
@@ -137,6 +144,10 @@ test("a stopped append's later save attaches a record with the correct affected 
   if (node === undefined) throw new Error("stop-save append did not commit");
   assert.equal(node.text, rootText + partial);
   assert.equal(node.generationRecordIds?.length, 1);
+  assert.equal(node.reasoning, true);
+
+  const reasoning = await stories.loadReasoning(story.id, rootId);
+  assert.equal(reasoning.text, "(dry-run) weighing two openings before picking one.");
 
   const record = await stories.loadGenerationRecord(story.id, rootId, node.generationRecordIds![0]!);
   assert.equal(record.kind, "append");
@@ -227,6 +238,11 @@ test("a stopped new-take continuation's later save is rejected when the saved te
   const node = saved.nodes.find((candidate) => candidate.genId === "gen-stop-forged");
   if (node === undefined) throw new Error("stop-save did not commit a take");
   assert.equal(node.generationRecordIds?.length, 1);
+  assert.equal(node.reasoning, undefined);
+  await assert.rejects(
+    () => stories.loadReasoning(story.id, node.id),
+    /has no stored thought/
+  );
 
   const record = await stories.loadGenerationRecord(story.id, node.id, node.generationRecordIds![0]!);
   assert.equal(record.kind, "unsupported");
@@ -286,6 +302,11 @@ test("a stopped append's later save is rejected when the saved text is not what 
   if (node === undefined) throw new Error("stop-save append did not commit");
   assert.equal(node.text, `${rootText}${partial} plus forged extra words`);
   assert.equal(node.generationRecordIds?.length, 1);
+  assert.equal(node.reasoning, undefined);
+  await assert.rejects(
+    () => stories.loadReasoning(story.id, node.id),
+    /has no stored thought/
+  );
 
   const record = await stories.loadGenerationRecord(story.id, rootId, node.generationRecordIds![0]!);
   assert.equal(record.kind, "unsupported");
