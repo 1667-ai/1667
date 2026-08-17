@@ -40,6 +40,7 @@ import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.
 import {
   createCompatibleHttpFailureEnvelope
 } from "../../shared/failure-envelope.js";
+import { terminalLineText } from "../../shared/terminal-text.js";
 import { resolveMachineTierRoot } from "../../server/machine-tier.js";
 import { resolvePlatformDataDirectory } from "../../server/platform-data-directory.js";
 import { adoptDataDirectory } from "../../server/project-adoption.js";
@@ -614,12 +615,15 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     await main(argv);
   } catch (error) {
     if (error instanceof UsageError) {
-      process.stderr.write(`1667: ${error.message}\nTry '1667 --help'.\n`);
+      process.stderr.write(
+        `1667: ${terminalLineText(error.message)}\nTry '1667 --help'.\n`
+      );
       process.exitCode = 2;
       return;
     }
     if (error instanceof BackendRestartRequiredError) exitForBackendRestart(error);
-    process.stderr.write(`1667: ${error instanceof Error ? error.message : String(error)}\n`);
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`1667: ${terminalLineText(message)}\n`);
     process.exitCode = 1;
   }
 }

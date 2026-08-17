@@ -5,7 +5,13 @@ import type {
 } from "../../shared/worker-protocol.js";
 import type { StoryAggregateVersion } from "../../shared/story-aggregate-version.js";
 import type { ProviderRecoveryContext } from "../../shared/provider-recovery.js";
-import { textHash, type StoryApi, type StreamCallbacks, type SummaryStreamCallbacks } from "./api.js";
+import {
+  textHash,
+  type StoryApi,
+  type StreamCallbacks,
+  type SummaryStreamCallbacks
+} from "./api.js";
+import { explicitMutationUnsentFromCause } from "./api-error.js";
 import type { StoryPayload, StorySummary } from "../../shared/types.js";
 import { normalizeMarkdownDefaultTitle } from "../../shared/import-markdown-wire.js";
 
@@ -220,11 +226,27 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         { expectedAggregateVersion: await expectedVersion(storyId) }
       )
     ),
-    createNode: async (storyId, body) => rememberPayload(await transport.call(
-      "createNode",
-      { storyId, body },
-      { expectedAggregateVersion: await expectedVersion(storyId) }
-    )),
+    // createNode only: cold-cache version preflight is adapter-owned and runs
+    // before any createNode worker post or mutation id. Failures here are
+    // definitely unsent. Do not widen this to other mutations; post-send
+    // WorkerApiError with null outcome stays conservatively uncertain.
+    createNode: async (storyId, body) => {
+      let expectedAggregateVersion: StoryAggregateVersion;
+      try {
+        expectedAggregateVersion = await expectedVersion(storyId);
+      } catch (error) {
+        throw explicitMutationUnsentFromCause(
+          error,
+          "createNode was not sent",
+          "createNode was not sent; story version preflight failed."
+        );
+      }
+      return rememberPayload(await transport.call(
+        "createNode",
+        { storyId, body },
+        { expectedAggregateVersion }
+      ));
+    },
     editNode: async (storyId, node, patch) => rememberPayload(await transport.call(
       "editNode",
       {

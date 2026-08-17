@@ -1,4 +1,5 @@
 import type { DiagnosticReference } from "../shared/diagnostic-reference.js";
+import { sliceWellFormedUtf16Prefix } from "../shared/unicode.js";
 import { ProviderError } from "./errors.js";
 
 const MAX_DIAGNOSTIC_TEXT = 16_384;
@@ -6,11 +7,32 @@ const MAX_CONTEXT_TEXT = 4_096;
 const MAX_CAUSE_DEPTH = 4;
 const MAX_AGGREGATE_ERRORS = 8;
 const MAX_ERROR_GRAPH_NODES = 32;
+const MAX_PUBLIC_DIAGNOSTIC_TEXT = 1_024;
+const MAX_PUBLIC_CAUSE_DEPTH = 3;
+const MAX_PUBLIC_AGGREGATE_ERRORS = 3;
+const MAX_PUBLIC_ERROR_GRAPH_NODES = 16;
 
 export interface InternalErrorContext {
   readonly service: string;
   readonly operation?: string;
   readonly workerOperationId?: string;
+}
+
+/** Return a short, single-line diagnostic for the local process boundary.
+ * The private serializer remains the source of truth for safe error access
+ * and provider redaction. Stacks and provider bodies never enter this text. */
+export function formatInternalErrorMessage(error: unknown): string {
+  const diagnostic = diagnosticError(error, PUBLIC_DIAGNOSTIC_POLICY);
+  const message = formatPublicDiagnostic(diagnostic ?? {
+    name: "Error",
+    message: "<unavailable>"
+  });
+  return message.length <= MAX_PUBLIC_DIAGNOSTIC_TEXT
+    ? message
+    : `${sliceWellFormedUtf16Prefix(
+        message,
+        MAX_PUBLIC_DIAGNOSTIC_TEXT - 1
+      ).trimEnd()}…`;
 }
 
 /** Pure, bounded diagnostic serialization. Provider response-bearing errors
@@ -140,56 +162,147 @@ interface ErrorTraversal {
   remaining: number;
 }
 
+interface DiagnosticTraversalPolicy {
+  readonly causeFirst: boolean;
+  readonly includeStack: boolean;
+  readonly maxAggregateErrors: number;
+  readonly maxDepth: number;
+  readonly maxNodes: number;
+  readonly omitRepeatedReferences: boolean;
+}
+
+const PRIVATE_DIAGNOSTIC_POLICY: DiagnosticTraversalPolicy = Object.freeze({
+  causeFirst: false,
+  includeStack: true,
+  maxAggregateErrors: MAX_AGGREGATE_ERRORS,
+  maxDepth: MAX_CAUSE_DEPTH,
+  maxNodes: MAX_ERROR_GRAPH_NODES,
+  omitRepeatedReferences: false
+});
+
+const PUBLIC_DIAGNOSTIC_POLICY: DiagnosticTraversalPolicy = Object.freeze({
+  causeFirst: true,
+  includeStack: false,
+  maxAggregateErrors: MAX_PUBLIC_AGGREGATE_ERRORS,
+  maxDepth: MAX_PUBLIC_CAUSE_DEPTH,
+  maxNodes: MAX_PUBLIC_ERROR_GRAPH_NODES,
+  omitRepeatedReferences: true
+});
+
+interface DiagnosticNode {
+  readonly name: string;
+  readonly message: string;
+  readonly stack?: string;
+  readonly status?: number;
+  readonly errors?: readonly DiagnosticNode[];
+  readonly cause?: DiagnosticNode;
+}
+
 function diagnosticError(
   error: unknown,
+  policy: DiagnosticTraversalPolicy = PRIVATE_DIAGNOSTIC_POLICY,
   depth = 0,
   traversal: ErrorTraversal = {
     seen: new Set<object>(),
-    remaining: MAX_ERROR_GRAPH_NODES
+    remaining: policy.maxNodes
   }
-): Record<string, unknown> {
+): DiagnosticNode | null {
   if (traversal.remaining <= 0) {
     return {
       name: "TruncatedErrorGraph",
       message: "Error graph limit reached"
     };
   }
-  traversal.remaining -= 1;
   if (safeInstanceOfProviderError(error)) {
+    traversal.remaining -= 1;
     return redactedProviderError(error);
   }
   if (!safeInstanceOfError(error)) {
+    traversal.remaining -= 1;
     return { name: typeof error, message: bounded(safeString(error)) };
   }
   if (traversal.seen.has(error)) {
-    return {
-      name: "CircularErrorReference",
-      message: "Error already serialized"
-    };
+    return policy.omitRepeatedReferences
+      ? null
+      : {
+          name: "CircularErrorReference",
+          message: "Error already serialized"
+        };
   }
+  traversal.remaining -= 1;
   traversal.seen.add(error);
   const name = readErrorProperty(error, "name");
   const message = readErrorProperty(error, "message");
-  const stack = readErrorProperty(error, "stack");
+  const stack = policy.includeStack
+    ? readErrorProperty(error, "stack")
+    : undefined;
   const cause = readErrorProperty(error, "cause");
   const aggregateErrors = readAggregateErrors(error);
+  let serializedCause: DiagnosticNode | null = null;
+  const serializedErrors: DiagnosticNode[] = [];
+  const serializeCause = (): void => {
+    if (cause !== undefined && depth < policy.maxDepth) {
+      serializedCause = diagnosticError(cause, policy, depth + 1, traversal);
+    }
+  };
+  const serializeErrors = (): void => {
+    if (aggregateErrors === null || depth >= policy.maxDepth) return;
+    for (const entry of aggregateErrors) {
+      const serialized = diagnosticError(
+        entry,
+        policy,
+        depth + 1,
+        traversal
+      );
+      if (serialized !== null) serializedErrors.push(serialized);
+      if (serializedErrors.length >= policy.maxAggregateErrors) break;
+    }
+  };
+  if (policy.causeFirst) {
+    serializeCause();
+    serializeErrors();
+  } else {
+    serializeErrors();
+    serializeCause();
+  }
   return {
     name: bounded(safeString(name ?? "Error")),
     message: bounded(safeString(message ?? "<unavailable>")),
     ...(stack === undefined ? {} : { stack: bounded(safeString(stack)) }),
-    ...(aggregateErrors === null || depth >= MAX_CAUSE_DEPTH
-      ? {}
-      : {
-          errors: aggregateErrors.map((entry) =>
-            diagnosticError(entry, depth + 1, traversal))
-        }),
-    ...(cause === undefined || depth >= MAX_CAUSE_DEPTH
-      ? {}
-      : { cause: diagnosticError(cause, depth + 1, traversal) })
+    ...(serializedCause === null ? {} : { cause: serializedCause }),
+    ...(serializedErrors.length === 0 ? {} : { errors: serializedErrors })
   };
 }
 
-function redactedProviderError(error: ProviderError): Record<string, unknown> {
+function formatPublicDiagnostic(
+  diagnostic: DiagnosticNode,
+  depth = 0
+): string {
+  const name = compactPublicText(diagnostic.name, "Error");
+  const message = compactPublicText(diagnostic.message, "<unavailable>");
+  let result = `${name}: ${message}`;
+  if (depth >= MAX_PUBLIC_CAUSE_DEPTH) return result;
+
+  const cause = diagnostic.cause;
+  if (cause !== undefined) {
+    result += `; caused by ${formatPublicDiagnostic(cause, depth + 1)}`;
+  }
+  if (diagnostic.errors !== undefined) {
+    const summaries = diagnostic.errors
+      .map((entry) => formatPublicDiagnostic(entry, depth + 1));
+    if (summaries.length > 0) {
+      result += `; also ${summaries.join("; ")}`;
+    }
+  }
+  return result;
+}
+
+function compactPublicText(value: unknown, fallback: string): string {
+  const text = safeString(value).replace(/\s+/gu, " ").trim();
+  return text.length === 0 ? fallback : text;
+}
+
+function redactedProviderError(error: ProviderError): DiagnosticNode {
   const status = readProviderStatus(error);
   return {
     name: "ProviderError",

@@ -1007,7 +1007,12 @@ const MUTATIONS: MutationRegistry = {
         { question: input.question },
         context.onDelta,
         context.signal,
-        generationHooks(plan, {}, context.storyMutationRequest)
+        generationHooks(
+          plan,
+          {},
+          context.storyMutationRequest,
+          context.canCommitStoppedAside
+        )
       )
   }),
   clearAside: define<"clearAside">({
@@ -1073,12 +1078,14 @@ function generationHooks<M extends
   "autonameStory" | "continueStory" | "rewriteNode" | "createSummaryTake" | "summarizeChapter" | "askAside">(
   plan: MutationPlan<M>,
   options: Record<string, string> = {},
-  mutationRequest?: unknown
+  mutationRequest?: unknown,
+  canCommitStoppedAside?: () => boolean
 ) {
   return {
     providerStarted: () => plan.providerStarted(),
     bindIntent: plan.bindGenerationIntent,
     ...(mutationRequest === undefined ? {} : { mutationRequest }),
+    ...(canCommitStoppedAside === undefined ? {} : { canCommitStoppedAside }),
     ...options
   };
 }

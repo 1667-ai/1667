@@ -21,6 +21,11 @@ import {
   type MouseGesture
 } from "./mouse-actions.js";
 import type { RuntimeState } from "./state.js";
+import {
+  ASIDE_USE_ACTIONS,
+  asideUseActionIndexFromRowId,
+  asideUseRowId
+} from "./aside-use.js";
 import { availableTextActions } from "./text-actions.js";
 
 export interface PresentedInteraction {
@@ -131,6 +136,15 @@ function rebaseByStableIdentity(
     return index < 0 ? null : { ...action, index };
   }
   if (action.action === "focus-index" && action.rowId !== undefined && state.mode !== "REQUEST") {
+    if (state.mode === "ASIDE" && state.aside?.useMenu !== null
+      && state.aside?.useMenu !== undefined) {
+      // Session-bound row id: same action on a later menu open does not match.
+      const index = asideUseActionIndexFromRowId(
+        action.rowId,
+        state.aside.useMenu.sessionId
+      );
+      return index < 0 ? null : { ...action, index };
+    }
     const index = createStoryViewModel(state.payload, state.stream).rows
       .findIndex((row) => row.id === action.rowId);
     return index < 0 ? null : { ...action, index };
@@ -231,6 +245,13 @@ function mapRowId(state: MouseActionState, index: number | undefined): string | 
 function listRowIdentity(state: MouseActionState, index: number | undefined): string | null {
   if (index === undefined) return null;
   if (state.textActions !== null) return availableTextActions(state.textActions)[index]?.id ?? null;
+  if (state.mode === "ASIDE" && state.aside?.useMenu !== null
+    && state.aside?.useMenu !== undefined) {
+    const entry = ASIDE_USE_ACTIONS[index];
+    return entry === undefined
+      ? null
+      : asideUseRowId(state.aside.useMenu.sessionId, entry.id);
+  }
   if (state.request !== null) return requestRowIdentity(state, index);
   if (state.mode === "MAP" && state.map !== null) return mapRowId(state, index);
   if (state.search !== null) {
@@ -305,13 +326,22 @@ const NO_SELECTION = "none";
 function selectableRowsOpen(state: MouseActionState): boolean {
   return state.map !== null || state.actions !== null || state.textActions !== null || state.library !== null
     || state.facts !== null || state.commands !== null || state.chapters !== null
-    || state.settings !== null || state.search !== null || state.request !== null;
+    || state.settings !== null || state.search !== null || state.request !== null
+    || state.mode === "ASIDE" && state.aside?.useMenu !== null
+      && state.aside?.useMenu !== undefined;
 }
 
 function selectedListIdentity(state: MouseActionState): string | null {
   if (state.textActions !== null) {
     const entry = availableTextActions(state.textActions)[state.textActions.cursor];
     return entry === undefined ? null : `text-actions:${entry.id}`;
+  }
+  if (state.mode === "ASIDE" && state.aside?.useMenu !== null
+    && state.aside?.useMenu !== undefined) {
+    const entry = ASIDE_USE_ACTIONS[state.aside.useMenu.cursor];
+    return entry === undefined
+      ? null
+      : asideUseRowId(state.aside.useMenu.sessionId, entry.id);
   }
   if (state.request !== null) return requestRowIdentity(state, state.request.cursor);
   if (state.search !== null) {

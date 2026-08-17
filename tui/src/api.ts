@@ -109,7 +109,8 @@ import {
   ApiError,
   ApiHttpError,
   ApiRecoveryRequiredError,
-  apiHttpErrorFromPayload
+  apiHttpErrorFromPayload,
+  explicitMutationUnsentFromCause
 } from "./api-error.js";
 import { HttpApiConnection } from "./http-api-connection.js";
 import { importMethods } from "./api-import-methods.js";
@@ -126,7 +127,10 @@ export {
   ApiError,
   ApiHttpError,
   ApiRecoveryRequiredError,
-  apiErrorCode
+  apiErrorCode,
+  explicitMutationUnsentFromCause,
+  isExplicitMutationUnsent,
+  markExplicitMutationUnsent
 } from "./api-error.js";
 
 const HTTP_REQUEST_TIMEOUT_MS = 15_000;
@@ -915,12 +919,30 @@ export function createApi(
       `/api/stories/${storyId}/switch`,
       { nodeId, ...options } satisfies SwitchRequest
     ),
-    createNode: (storyId, body) => mutateStoryPayload(
-      storyId,
-      "POST",
-      `/api/stories/${storyId}/nodes`,
-      body
-    ),
+    // createNode only: version preflight is adapter-owned and runs before any
+    // node mutation is reserved or sent. Failures here are definitely unsent
+    // (Placement may already hold a singular guard). Other mutations keep the
+    // shared mutateStoryPayload path unchanged.
+    createNode: async (storyId, body) => {
+      let expectedAggregateVersion: StoryAggregateVersion;
+      try {
+        expectedAggregateVersion = await expectedVersion(storyId);
+      } catch (error) {
+        throw explicitMutationUnsentFromCause(
+          error,
+          "createNode was not sent",
+          "createNode was not sent; story version preflight failed."
+        );
+      }
+      return versions.rememberPayload(await request(
+        "POST",
+        `/api/stories/${storyId}/nodes`,
+        decodeStoryResponse,
+        body,
+        HTTP_REQUEST_TIMEOUT_MS,
+        expectedAggregateVersion
+      ));
+    },
     editNode: async (storyId, node, patch) => mutateStoryPayload(
       storyId,
       "PATCH",

@@ -32,7 +32,15 @@ type TextOwnerState = Pick<RuntimeState, "mode" | "composer" | "editor" | "setti
 /** Find the composer-backed field that currently owns text input. */
 export function activeTextComposer(state: TextOwnerState): ComposerState | null {
   if (state.mode === "COMPOSE") return state.composer;
-  if (state.mode === "ASIDE") return state.aside?.composer ?? null;
+  if (state.mode === "ASIDE") {
+    const surface = state.aside;
+    // Aside composer owns text only while focus is composer and no use menu
+    // owns the surface. Notes focus and the use-menu modal both refuse it.
+    if (surface == null || surface.useMenu !== null || surface.focus !== "composer") {
+      return null;
+    }
+    return surface.composer;
+  }
   if (state.mode === "EDITOR" && state.editor !== null) {
     return state.editor.kind === "fact"
       ? factEditorActiveTextComposer(state.editor)

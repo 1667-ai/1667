@@ -133,8 +133,7 @@ const SECTIONS: readonly KeysModalSection[] = [
       entry("past prompts, in direct", [
         binding("composeHistoryPrevious"),
         binding("composeHistoryNext")
-      ]),
-      entry("start a new story", [binding("navNewStory")])
+      ])
     ]
   },
   {
@@ -164,6 +163,7 @@ const SECTIONS: readonly KeysModalSection[] = [
     entries: [
       entry("map of the whole story", [binding("navOpenMap")]),
       entry("facts kept for context", [binding("navOpenFacts")]),
+      entry("aside", [binding("navAside")]),
       entry("switch story · library", [binding("navOpenLibrary")]),
       entry("command palette", [
         binding("navOpenCommandsColon"),

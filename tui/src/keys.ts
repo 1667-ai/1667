@@ -34,7 +34,7 @@ import { resolveRequestViewerKey } from "./request-viewer-actions.js";
 import { resolveTokenProbabilitiesKey } from "./token-probabilities-actions.js";
 import { resolveGenerationRecordKey } from "./generation-record-actions.js";
 import { resolveLogKey } from "./notice-log.js";
-import { disarmAsideClear } from "./aside-surface.js";
+import { disarmAsideClear, type AsideSurfaceState } from "./aside-surface.js";
 
 export type KeyAction =
   | "focus-next" | "focus-previous" | "take-next" | "take-previous" | "take-at"
@@ -59,7 +59,7 @@ export type KeyAction =
   | "open-library" | "open-facts" | "open-commands" | "open-settings"
   | "open-selected" | "new-item" | "duplicate-item" | "rename-item" | "delete-item"
   | "move-item-up" | "move-item-down"
-  | "open-authors-note" | "note-depth-decrease" | "note-depth-increase"
+  | "open-aside" | "open-authors-note" | "note-depth-decrease" | "note-depth-increase"
   | "filter" | "cycle" | "check" | "detect-context" | "discard-pending" | "retry" | "continue"
   | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index"
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
@@ -70,7 +70,7 @@ export type KeyAction =
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
   | "SEARCH" | "REQUEST" | "CARD" | "ARCHIVE" | "IMAGE" | "LOG" | "PROBS" | "RECORD"
-  | "ASIDE";
+  | "ASIDE" | "PLACE";
 
 export interface ResolvedKey {
   action: KeyAction;
@@ -132,7 +132,7 @@ export const MUTATING_ACTIONS: ReadonlySet<KeyAction> = new Set([
   "prune", "apply", "delete-tag", "edit", "write", "regenerate", "tag",
   "new-item", "duplicate-item", "rename-item", "delete-item", "discard-pending",
   "move-item-up", "move-item-down",
-  "create-chapter", "summarize-chapter", "open-authors-note", "save-edit", "save-edit-inplace"
+  "create-chapter", "summarize-chapter", "open-aside", "open-authors-note", "save-edit", "save-edit-inplace"
 ]);
 
 /** Global-scope editor saves update local application state, not the story. */
@@ -254,7 +254,7 @@ export function pasteInto(
     pendingGenerationDraft: PendingGenerationDraft | null;
     composerClaimEpoch: number;
     stream: RuntimeState["stream"];
-    aside?: { composer: ComposerState; confirmClear: boolean } | null;
+    aside?: Pick<AsideSurfaceState, "composer" | "confirmClear" | "focus" | "useMenu"> | null;
   },
   raw: string
 ): boolean {
@@ -275,6 +275,7 @@ export function pasteInto(
     return true;
   }
   if (state.mode === "ASIDE" && state.aside !== null && state.aside !== undefined) {
+    if (asideKeyboardLayer(state.aside) !== "composer") return false;
     disarmAsideClear(state.aside);
     insertComposerText(state.aside.composer, clean);
     return true;
@@ -394,8 +395,16 @@ export interface ResolveOptions {
   authorsNoteEditor?: boolean;
   /** The editor context menu owns all keys until it closes. */
   textActionsOpen?: boolean;
+  /**
+   * Aside keyboard layer. One explicit state so composer, notes, and use-menu
+   * cannot combine incorrectly.
+   */
+  asideLayer?: AsideKeyboardLayer;
   mapView?: MapView;
 }
+
+/** Mutually exclusive Aside keyboard ownership while mode is ASIDE. */
+export type AsideKeyboardLayer = "composer" | "notes" | "use-menu";
 
 type OverlayTextInputState = Pick<
   RuntimeState,
@@ -423,11 +432,24 @@ export function overlayTextInputActive(state: OverlayTextInputState): boolean {
 export function textOwnsKeyboard(mode: AppMode, options: ResolveOptions = {}): boolean {
   // Search refines live, so its query field owns every plain letter. Its own
   // verbs are arrows and chords for exactly that reason.
-  return mode === "COMPOSE" || mode === "EDITOR" || mode === "SEARCH" || mode === "ASIDE"
+  // Aside owns text only on the composer layer.
+  const asideOwnsText = mode === "ASIDE"
+    && (options.asideLayer === undefined || options.asideLayer === "composer");
+  return mode === "COMPOSE" || mode === "EDITOR" || mode === "SEARCH" || asideOwnsText
     || options.overlayTyping === true
     || mode === "COMMANDS" && options.commandsTags !== true
     || mode === "TAG" && options.tagChoosingStatus !== true
     || mode === "CARD" || mode === "ARCHIVE" || mode === "IMAGE";
+}
+
+/** Derive the exclusive Aside keyboard layer from surface state. */
+export function asideKeyboardLayer(
+  surface: Pick<AsideSurfaceState, "focus" | "useMenu"> | null | undefined
+): AsideKeyboardLayer {
+  if (surface === null || surface === undefined) return "composer";
+  if (surface.useMenu !== null) return "use-menu";
+  if (surface.focus === "notes") return "notes";
+  return "composer";
 }
 
 export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions = {}): ResolvedKey {
@@ -436,6 +458,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     factEditor = false, authorsNoteEditor = false, settingsPicker = false,
     settingsProfileTransfer = null,
     textActionsOpen = false,
+    asideLayer = "composer",
     libraryRenaming = false,
     mapView = "path" } = options;
   const globalReference = resolveReferenceBinding("global", key, mode, mapView);
@@ -449,12 +472,25 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     return { action: "none" };
   }
   const ownsText = textOwnsKeyboard(mode, {
-    overlayTyping, commandsTags, tagChoosingStatus
+    overlayTyping, commandsTags, tagChoosingStatus, asideLayer
   });
   // The banner's capital-R shortcut is page/list chrome, never a text-field
   // override. Writers must still be able to type R while working offline.
+  // Resolved before modal list filters so use-menu and PLACE still retry offline.
   if (!key.ctrl && !key.meta && connectionDown && !ownsText && shiftedLetter(key, "r")) {
     return { action: "retry" };
+  }
+  if (mode === "ASIDE" && asideLayer === "use-menu") {
+    if (key.name === "down") return { action: "focus-next" };
+    if (key.name === "up") return { action: "focus-previous" };
+    if (key.name === "return") return { action: "apply" };
+    return { action: "none" };
+  }
+  if (mode === "PLACE") {
+    if (key.name === "down") return { action: "focus-next" };
+    if (key.name === "up") return { action: "focus-previous" };
+    if (key.name === "return") return { action: "apply" };
+    return { action: "none" };
   }
   if (confirmingPrune) {
     return { action: key.name === "d" && !key.ctrl && !key.meta && !key.shift ? "prune" : "none" };
@@ -465,14 +501,26 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   if (mode === "LOG") return resolveLogKey(key);
   if (mode === "ASIDE") {
     if (key.name === "escape") return { action: "cancel" };
-    if (key.name === "return" && key.shift) return { action: "newline" };
-    if (key.name === "return") return { action: "send" };
     const name = key.name.toLowerCase();
+    if (name === "tab") return { action: "cycle" };
     if (name === "pageup") return { action: "scroll-up" };
     if (name === "pagedown") return { action: "scroll-down" };
     if ((name === "up" || name === "down")
+      && !key.ctrl && !key.meta && !key.option && !key.super
+      && key.shift) {
+      return { action: name === "up" ? "scroll-line-up" : "scroll-line-down" };
+    }
+    if (asideLayer === "notes") {
+      if (name === "up") return { action: "focus-previous" };
+      if (name === "down") return { action: "focus-next" };
+      if (key.name === "return") return { action: "open-selected" };
+      if ((key.ctrl || key.super) && name === "v") return { action: "none" };
+      return { action: "none" };
+    }
+    if (key.name === "return" && key.shift) return { action: "newline" };
+    if (key.name === "return") return { action: "send" };
+    if ((name === "up" || name === "down")
       && !key.ctrl && !key.meta && !key.option && !key.super) {
-      if (key.shift) return { action: name === "up" ? "scroll-line-up" : "scroll-line-down" };
       return { action: name === "up" ? "cursor-up" : "cursor-down" };
     }
     if ((key.ctrl || key.super) && name === "v") return { action: "paste-clipboard" };

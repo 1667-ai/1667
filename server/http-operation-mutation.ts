@@ -28,7 +28,8 @@ export async function runHttpOperationMutation<
   transportOperationId: string,
   expectedAggregateVersion: StoryAggregateVersion,
   onDelta: (text: string) => void | Promise<void> = () => {},
-  onReasoning: (delta: ReasoningStreamDelta) => void | Promise<void> = () => {}
+  onReasoning: (delta: ReasoningStreamDelta) => void | Promise<void> = () => {},
+  canCommitStoppedAside?: () => boolean
 ): Promise<WorkerOutput<M>> {
   const protocolVersion = await acceptedHttpMutationProtocolVersion(
     service,
@@ -71,6 +72,9 @@ export async function runHttpOperationMutation<
         onDelta,
         onReasoning,
         signal,
+        ...(canCommitStoppedAside === undefined
+          ? {}
+          : { canCommitStoppedAside }),
         storyMutationRequest
       });
     },

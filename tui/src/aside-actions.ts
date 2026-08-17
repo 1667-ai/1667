@@ -13,14 +13,26 @@ import {
   createAsideSurface,
   type AsideSurfaceState
 } from "./aside-surface.js";
+import { noteCursorAfterHistoryScroll } from "./aside-note-scroll.js";
 import type { RuntimeState } from "./state.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
+import { createStoryViewModel } from "./model.js";
+import { persistablePartId } from "./reading-position.js";
 import { truncate } from "./screens/story/frame.js";
 import { wrapText, type ProseStyle, type WrapCache } from "./wrap.js";
 
 export interface AsideHistoryLayout {
   header: string[];
   body: string[];
+  /** First body row for each saved Side Note. */
+  noteStarts: readonly number[];
+  /** Exclusive end of each note's content rows (separator blank excluded). */
+  noteContentEnds: readonly number[];
+  /**
+   * Note index owning each body row. Null for separator blanks, empty-state
+   * rows, and inflight stream rows (not saved notes).
+   */
+  rowNoteIndex: readonly (number | null)[];
 }
 
 type AsideWrapCache = WrapCache<ProseStyle>;
@@ -64,6 +76,21 @@ function asideHeaderLines(surface: AsideSurfaceState, width: number): string[] {
   ];
 }
 
+function clampAsideNoteCursor(surface: AsideSurfaceState): void {
+  if (surface.notes.length === 0) {
+    surface.noteCursor = 0;
+    if (surface.focus === "notes") surface.focus = "composer";
+    surface.useMenu = null;
+    return;
+  }
+  surface.noteCursor = Math.max(0, Math.min(surface.notes.length - 1, surface.noteCursor));
+  if (surface.useMenu !== null
+    && (surface.useMenu.noteIndex < 0
+      || surface.useMenu.noteIndex >= surface.notes.length)) {
+    surface.useMenu = null;
+  }
+}
+
 function clippedTitleRows(titleRows: string[], width: number, limit: number): string[] {
   if (limit <= 0) return [];
   const visible = titleRows.slice(0, limit);
@@ -102,33 +129,105 @@ export function asideHeaderWindow(
 export function asideHistoryLayout(surface: AsideSurfaceState, cols: number): AsideHistoryLayout {
   const width = dimension(cols, 80);
   const body: string[] = [];
+  const noteStarts: number[] = [];
+  const noteContentEnds: number[] = [];
+  const rowNoteIndex: (number | null)[] = [];
   if (surface.notes.length === 0
     && surface.streamText.length === 0
     && surface.inflightQuestion === null) {
     body.push("(no Side Notes yet)");
+    rowNoteIndex.push(null);
   }
-  for (const note of surface.notes) {
-    body.push(...wrappedRows(note.question, width, "Q: "));
+  // Focus-neutral prefixes: wrap never depends on which note is selected.
+  // The visible window decorates the first on-screen row of the focused note.
+  const questionPrefix = "  Q: ";
+  const answerPrefix = "  A: ";
+  for (let index = 0; index < surface.notes.length; index += 1) {
+    const note = surface.notes[index]!;
+    noteStarts.push(body.length);
+    const questionRows = wrappedRows(note.question, width, questionPrefix);
+    body.push(...questionRows);
+    for (let row = 0; row < questionRows.length; row += 1) rowNoteIndex.push(index);
     for (const paragraph of note.answer.split("\n")) {
-      body.push(...wrappedRows(paragraph, width, "A: "));
+      const answerRows = wrappedRows(paragraph, width, answerPrefix);
+      body.push(...answerRows);
+      for (let row = 0; row < answerRows.length; row += 1) rowNoteIndex.push(index);
     }
+    noteContentEnds.push(body.length);
+    // Separator blank is not note content for visibility / focus.
     body.push("");
+    rowNoteIndex.push(null);
   }
   if (surface.inflightQuestion !== null || surface.streamText.length > 0) {
-    body.push(...wrappedRows(surface.inflightQuestion ?? "", width, "Q: "));
-    body.push(...wrappedRows(surface.streamText, width, "A: "));
+    // Same five-cell prefixes as saved notes so stream → save does not rewrap.
+    const inflightQ = wrappedRows(surface.inflightQuestion ?? "", width, questionPrefix);
+    const inflightA = wrappedRows(surface.streamText, width, answerPrefix);
+    body.push(...inflightQ, ...inflightA);
+    for (let row = 0; row < inflightQ.length + inflightA.length; row += 1) {
+      rowNoteIndex.push(null);
+    }
   }
   return {
     header: asideHeaderLines(surface, width),
-    body
+    body,
+    noteStarts,
+    noteContentEnds,
+    rowNoteIndex
   };
+}
+
+/**
+ * Keep the focused Side Note inside the history viewport. Call after note
+ * focus moves. Null scrollTop still means follow the newest rows when the
+ * focused note already sits in the trailing window.
+ */
+export function revealAsideFocusedNote(
+  surface: AsideSurfaceState,
+  cols: number,
+  bodyRows: number
+): void {
+  revealAsideFocusedNoteWithLayout(
+    surface,
+    asideHistoryLayout(surface, cols),
+    bodyRows
+  );
+}
+
+/** Same as {@link revealAsideFocusedNote} using a layout already computed. */
+function revealAsideFocusedNoteWithLayout(
+  surface: AsideSurfaceState,
+  layout: AsideHistoryLayout,
+  bodyRows: number
+): void {
+  if (surface.focus !== "notes" || surface.notes.length === 0) return;
+  const height = Math.max(0, Math.floor(bodyRows));
+  if (height === 0) return;
+  const noteStart = layout.noteStarts[surface.noteCursor];
+  if (noteStart === undefined) return;
+  const max = Math.max(0, layout.body.length - height);
+  const current = surface.scrollTop === null
+    ? max
+    : Math.max(0, Math.min(max, surface.scrollTop));
+  let next = current;
+  if (noteStart < current) next = noteStart;
+  else if (noteStart >= current + height) next = noteStart - height + 1;
+  next = Math.max(0, Math.min(max, next));
+  surface.scrollTop = next === max ? null : next;
 }
 
 export function asideFooterHint(surface: AsideSurfaceState): string {
   if (surface.confirmClear) return "Clear all Side Notes? Enter confirms · Esc cancels";
   if (surface.busy && surface.inflightQuestion === null) return "Clearing…";
   if (surface.busy) return "Esc stop · PageUp/PageDown scroll · Shift+Up/Down line scroll";
-  return "Esc write · /clear clear · Enter send · Shift+Enter newline · PageUp/PageDown scroll · Shift+Up/Down line scroll";
+  if (surface.useMenu !== null) {
+    return "↑↓ · Enter · Esc notes";
+  }
+  if (surface.focus === "notes") {
+    return "Esc ask · Enter use · ↑↓ notes · Tab ask · PageUp/PageDown scroll";
+  }
+  // Keep both escape and Clear visible before optional navigation hints.
+  const notesHint = surface.notes.length > 0 ? " · Tab notes" : "";
+  return `Esc write · /clear clear · Enter ask · Shift+Enter newline${notesHint} · PageUp/PageDown scroll`;
 }
 
 function asideFooterRows(surface: AsideSurfaceState, cols: number): string[] {
@@ -162,10 +261,29 @@ export function asideHistoryWindow(
     ? max
     : Math.max(0, Math.min(max, surface.scrollTop));
   const visibleBody = layout.body.slice(start, start + height);
+  // First visible owned content row gets ▸ — labelled Q/A or a wrap continuation.
+  if (surface.focus === "notes" && surface.notes.length > 0) {
+    const focused = surface.noteCursor;
+    for (let offset = 0; offset < visibleBody.length; offset += 1) {
+      if (layout.rowNoteIndex[start + offset] === focused) {
+        visibleBody[offset] = decorateFocusedHistoryRow(visibleBody[offset]!);
+        break;
+      }
+    }
+  }
   return [
     ...visibleBody,
     ...Array.from({ length: Math.max(0, height - visibleBody.length) }, () => "")
   ];
+}
+
+/**
+ * Swap one pad space for ▸ without reflowing wrap. Labelled rows keep Q:/A:;
+ * wrap continuations keep the remaining indent (prefix-width spaces).
+ */
+function decorateFocusedHistoryRow(line: string): string {
+  if (line.startsWith(" ")) return `▸${line.slice(1)}`;
+  return line;
 }
 
 export function asideBodyHeight(
@@ -182,16 +300,6 @@ export function asideBodyHeight(
   return Math.max(1, height - headerHeight - footerHeight);
 }
 
-function asideMaxScroll(
-  surface: AsideSurfaceState,
-  cols: number,
-  rows: number,
-  composerRows?: number
-): number {
-  const layout = asideHistoryLayout(surface, cols);
-  return Math.max(0, layout.body.length - asideBodyHeight(surface, cols, rows, composerRows));
-}
-
 /** Move the history viewport. Null scrollTop means follow the newest rows. */
 export function scrollAside(
   surface: AsideSurfaceState,
@@ -200,10 +308,33 @@ export function scrollAside(
   rows: number,
   composerRows?: number
 ): void {
-  const max = asideMaxScroll(surface, cols, rows, composerRows);
+  // One layout + bodyRows for this action: max scroll, cursor follow, reveal.
+  const layout = asideHistoryLayout(surface, cols);
+  const bodyRows = asideBodyHeight(surface, cols, rows, composerRows);
+  const max = Math.max(0, layout.body.length - bodyRows);
   const current = surface.scrollTop ?? max;
   const next = Math.max(0, Math.min(max, current + delta));
   surface.scrollTop = next === max ? null : next;
+  // Notes focus: keep the selected Side Note visible, or move selection to a
+  // note that is in the new viewport for this scroll direction.
+  if (surface.focus === "notes" && surface.notes.length > 0 && delta !== 0) {
+    const nextCursor = noteCursorAfterHistoryScroll(
+      surface.notes.length,
+      layout.noteStarts,
+      layout.noteContentEnds,
+      layout.body.length,
+      surface.scrollTop,
+      bodyRows,
+      surface.noteCursor,
+      delta
+    );
+    if (nextCursor !== surface.noteCursor) {
+      surface.noteCursor = nextCursor;
+      // Focus-neutral wrap; reveal keeps a ▸ marker in view when selection
+      // moved to a note that intersects the viewport only in lower answer rows.
+      revealAsideFocusedNoteWithLayout(surface, layout, bodyRows);
+    }
+  }
 }
 export async function openAside(
   state: RuntimeState,
@@ -220,6 +351,12 @@ export async function openAside(
   }
   const requestedStoryId = state.payload.id;
   const requestedInteractionVersion = state.interactionVersion;
+  // Capture before the load await so a focus change while getAside is pending
+  // cannot move Placement's initial stop off the Part the writer invoked on.
+  // Summary/divider NAV rows have no rowPart; persistablePartId maps them to a
+  // chapter Part so Placement still opens on the visible chapter position.
+  const view = createStoryViewModel(state.payload, state.stream);
+  const openingPartId = persistablePartId(view, state.focusIndex, state.payload);
   const current = () => state.payload.id === requestedStoryId
     && state.interactionVersion === requestedInteractionVersion
     && (options.task?.owns() ?? true)
@@ -231,7 +368,8 @@ export async function openAside(
     requestedStoryId,
     state.payload.title,
     document.notes,
-    options.pendingAsk ?? null
+    options.pendingAsk ?? null,
+    openingPartId
   );
   state.mode = "ASIDE";
   state.commands = null;
@@ -312,6 +450,8 @@ export async function sendAsideQuestion(
       question: note.question,
       answer: note.answer
     }));
+    surface.noteCursor = Math.max(0, surface.notes.length - 1);
+    clampAsideNoteCursor(surface);
     surface.streamText = "";
     surface.inflightQuestion = null;
     surface.scrollTop = null;
@@ -324,6 +464,9 @@ export async function sendAsideQuestion(
       if (current()) adoptAsidePayload(state, payload, options.cache);
     } catch {
       // A committed Side Note must not be hidden by a failed refresh.
+    }
+    if (controller.signal.aborted) {
+      state.toast = "Aside stopped · answer kept";
     }
   } catch (error) {
     if (!current()) return;
@@ -341,8 +484,8 @@ export async function sendAsideQuestion(
 }
 
 /**
- * Stop an in-flight Aside answer. The ask path restores the question when the
- * abort settles. Stays on the Aside surface.
+ * Stop an in-flight Aside answer. Keep received answer text as a Side Note.
+ * If no answer text arrived, restore the question. Stay on the Aside surface.
  */
 export function stopAsideAsk(state: RuntimeState): boolean {
   const surface = state.aside;
@@ -403,6 +546,7 @@ export async function clearAsideSurface(
     } else {
       surface.notes = [];
     }
+    clampAsideNoteCursor(surface);
     surface.scrollTop = null;
     surface.confirmClear = false;
     surface.busy = false;

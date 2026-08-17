@@ -651,6 +651,14 @@ export interface StoryScreenState extends OverlayState {
   record: GenerationRecordViewerState | null;
   /** Full-screen Aside surface, or null when it is closed. */
   aside: import("./aside-surface.js").AsideSurfaceState | null;
+  /** Placement mode for inserting a Side Note into the story line. */
+  placement: import("./aside-placement.js").PlacementState | null;
+  /**
+   * Story-bound unresolved Placement createNode after an uncertain outcome.
+   * Survives Esc back to Aside until recovery settles it or a definite failure
+   * proves the write did not commit.
+   */
+  unresolvedPlacement: import("./aside-placement-model.js").UnresolvedPlacementSubmission | null;
   toast: string | null;
   /** C-37: every notice the session has shown, so a capped channel never
    *  loses a message for good. `!` opens it. */

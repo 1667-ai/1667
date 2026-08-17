@@ -152,6 +152,17 @@ export interface AsideStoryEffect {
   readonly expectedAsideDocumentId: Story["asideDocumentId"];
   readonly document: AsideDocument;
   readonly cancelled?: AbortSignal;
+  /** True only while user Stop remains the authoritative cancellation source. */
+  readonly canCommitStoppedAside?: () => boolean;
+}
+
+/** A user Stop can save the Side Note text that already streamed. Other
+ * cancellation sources keep authority and must prevent the commit. */
+export function asideCanCommitStoppedAnswer(
+  effect: Pick<AsideStoryEffect, "cancelled" | "canCommitStoppedAside">
+): boolean {
+  return effect.cancelled?.aborted === true
+    && effect.canCommitStoppedAside?.() === true;
 }
 
 export type ProviderStoryEffect =
@@ -235,7 +246,8 @@ function applyAside(
   story: Story,
   effect: AsideStoryEffect
 ): AppliedProviderStoryEffect<Story> {
-  if (effect.cancelled?.aborted === true) {
+  if (effect.cancelled?.aborted === true
+    && !asideCanCommitStoppedAnswer(effect)) {
     throw new GenerationStoppedError("Aside was cancelled before it could be saved.");
   }
   if (story.asideDocumentId !== effect.expectedAsideDocumentId) {

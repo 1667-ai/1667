@@ -76,6 +76,10 @@ test("PowerShell Installer handles install, repeat, and upgrade cases", async (t
 
   const fresh = await runInstaller(v1.url, installRoot);
   assert.match(fresh.stdout, /Installed 1667 1\.2\.3 \(stable\)/u);
+  assert.match(
+    fresh.stdout,
+    /PowerShell treats 1667 as a number\.\r?\nOpen a new PowerShell window\.\r?\nThen run: 1667\.exe/u
+  );
   assert.equal(await installedVersion(installRoot), "1.2.3");
   assert.equal(await accessRulesAreProtected(installRoot), false);
   const firstRecord = await ownershipRecord(installRoot);

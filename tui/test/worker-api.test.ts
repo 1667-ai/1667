@@ -27,6 +27,12 @@ import {
   type MainToWorkerMessage,
   type WorkerToMainMessage
 } from "../../shared/worker-protocol.js";
+import {
+  ApiError,
+  ApiRecoveryRequiredError,
+  isExplicitMutationUnsent
+} from "../src/api-error.js";
+import { isDefinitePlacementFailure } from "../src/aside-placement.js";
 import { textHash, type StoryApi } from "../src/api.js";
 import {
   BackendRestartRequiredError,
@@ -1126,6 +1132,7 @@ describe("embedded backend worker", () => {
     const worker = new FakeWorker(true);
     const outbox = new DeferredEnqueueOutbox();
     const backend = await createWorkerStoryApi({ worker, outbox, readyTimeoutMs: 100 });
+    const requestsBefore = worker.messages.filter(({ type }) => type === "request").length;
     const mutation = backend.api.createStory("drain before unlock");
     await outbox.started;
     let disposed = false;
@@ -1134,9 +1141,87 @@ describe("embedded backend worker", () => {
     await Promise.resolve();
     expect(disposed).toBeFalse();
     outbox.finishEnqueue();
-    expect((await rejection(mutation)).message).toContain("stopped before the mutation was sent");
+    const error = await rejection(mutation);
+    // Durable intent cancelled successfully: pre-post exit is explicit-unsent
+    // and a connection-class failure (not ApiError / not online).
+    expect(isExplicitMutationUnsent(error)).toBeTrue();
+    expect(error instanceof ApiError).toBeFalse();
+    expect(isDefinitePlacementFailure(error)).toBeTrue();
+    expect(error.message).toContain("stopped before the mutation was sent");
+    expect(worker.messages.filter(({ type }) => type === "request"))
+      .toHaveLength(requestsBefore);
     await disposal;
     expect(outbox.cancellations).toBe(1);
+  });
+
+  test("mutation after dispose is explicit-unsent; read stays ordinary Error", async () => {
+    const worker = new FakeWorker(true);
+    const backend = await createWorkerStoryApi({ worker, readyTimeoutMs: 100 });
+    await backend.dispose();
+    const requestsBefore = worker.messages.filter(({ type }) => type === "request").length;
+
+    const mutError = await rejection(backend.api.createStory("after stop"));
+    expect(isExplicitMutationUnsent(mutError)).toBeTrue();
+    expect(mutError instanceof ApiError).toBeFalse();
+    expect(isDefinitePlacementFailure(mutError)).toBeTrue();
+    expect(mutError.message).toContain("not running");
+    expect(worker.messages.filter(({ type }) => type === "request"))
+      .toHaveLength(requestsBefore);
+
+    const readError = await rejection(backend.api.listStories());
+    expect(isExplicitMutationUnsent(readError)).toBeFalse();
+    expect(readError instanceof ApiError).toBeFalse();
+    expect(readError instanceof Error).toBeTrue();
+    expect(readError.message).toContain("not running");
+    expect(worker.messages.filter(({ type }) => type === "request"))
+      .toHaveLength(requestsBefore);
+  });
+
+  test("mutation parked behind startup recovery is explicit-unsent when backend stops", async () => {
+    const dataDir = await mkdtemp(path.join(
+      tmpdir(),
+      "1667-worker-recovery-prepost-"
+    ));
+    const outbox = new MutationOutbox(path.join(dataDir, "mutation-outbox"));
+    await outbox.init();
+    await outbox.enqueue(
+      `m1-${Date.now().toString(36)}-${"c".padStart(32, "0")}`,
+      "createStory",
+      { title: "retained for recovery" }
+    );
+    const worker = new FakeWorker(true);
+    const backend = await createWorkerStoryApi({
+      worker,
+      outbox,
+      readyTimeoutMs: 100
+    });
+    try {
+      const recoveryRequest = await waitForRequest(worker, "createStory");
+      const requestsBefore = worker.messages.filter(({ type }) => type === "request").length;
+      const parked = backend.api.createStory("queued behind recovery");
+      // Yield so beginCall parks on recovery before dispose flips accepting.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Dispose stops accepting; recovery's in-flight replay is rejected. The
+      // parked call never posts. Graceful FakeWorker stop can complete dispose.
+      const disposal = backend.dispose();
+      const mutError = await rejection(parked);
+      expect(isExplicitMutationUnsent(mutError)).toBeTrue();
+      expect(mutError instanceof ApiError).toBeFalse();
+      expect(isDefinitePlacementFailure(mutError)).toBeTrue();
+      expect(mutError.message).toContain("not running");
+      // Only the recovery replay was posted; the parked create never was.
+      expect(worker.messages.filter(
+        (message) => message.type === "request" && message.method === "createStory"
+      )).toHaveLength(1);
+      expect(worker.messages.filter(({ type }) => type === "request"))
+        .toHaveLength(requestsBefore);
+      expect(recoveryRequest.method).toBe("createStory");
+      await disposal;
+    } finally {
+      await rm(dataDir, { recursive: true, force: true });
+    }
   });
 
   test("pre-delivery cancellation failure owns concurrent disposal", async () => {
@@ -1207,9 +1292,16 @@ describe("embedded backend worker", () => {
       const requestsBeforeBlockedRetry = worker.messages.filter(
         ({ type }) => type === "request"
       ).length;
-      expect((await rejection(
+      const blocked = await rejection(
         backend.api.createStory("blocked during reload")
-      )).message).toBe(
+      );
+      // Recovery-warning fence: application ApiError stays online; unsent to
+      // Placement via ApiError definite path (not a connection failure).
+      expect(blocked instanceof ApiRecoveryRequiredError).toBeTrue();
+      expect(blocked instanceof ApiError).toBeTrue();
+      expect(blocked instanceof WorkerApiError).toBeFalse();
+      expect(isDefinitePlacementFailure(blocked)).toBeTrue();
+      expect(blocked.message).toBe(
         "1667 is reloading saved state. Try again when the reload is complete."
       );
       expect(worker.messages.filter(

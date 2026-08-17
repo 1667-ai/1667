@@ -105,11 +105,9 @@ export async function assertSavedSamplingBiasResolves(
       // plain SettingsFormatError, the same as every other save-time
       // validation failure in server/settings-v2-store.ts — wrap it the
       // same way (server/settings-v2-mutation.ts, invalidSettingsMutation)
-      // so it reaches the writer as its own 400 message instead of falling
-      // through to a generic "Internal server error" at the transport's
-      // classifyServiceError boundary (server/service-error-policy.ts),
-      // which only recognizes ServiceError and a short allow-list of
-      // other known types.
+      // so it reaches the writer as a 400 validation error instead of an
+      // internal 500 at the classifyServiceError boundary
+      // (server/service-error-policy.ts).
       throw invalidSettingsMutation(error);
     }
   }

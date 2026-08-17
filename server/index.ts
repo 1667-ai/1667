@@ -6,6 +6,7 @@ import {
   internalErrorReference,
   toPublicServiceError
 } from "./service-error-policy.js";
+import { terminalLineText } from "../shared/terminal-text.js";
 
 try {
   const dataDir = resolveDataDirectory();
@@ -44,7 +45,7 @@ try {
   const message = toPublicServiceError(error).message;
   const reference = internalErrorReference(error);
   process.stderr.write(
-    `1667: ${message}${reference === null ? "" : ` (${reference})`}\n`
+    `1667: ${terminalLineText(message)}${reference === null ? "" : ` (${reference})`}\n`
   );
   process.exitCode = 1;
 }

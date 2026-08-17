@@ -23,6 +23,7 @@ import { WorkerRequestCancellation } from "../server/worker-request-cancellation
 import type { WorkerRequestFailureResponder } from "../server/worker-request-failure-responder.js";
 import { validateWorkerRequestSize } from "../server/worker-request-size.js";
 import { streamResponse } from "../server/stream-response.js";
+import { prepareProviderStoryEffect } from "../server/story-provider-preparation.js";
 import {
   FINGERPRINT,
   MUTATION_ID,
@@ -107,6 +108,49 @@ test("HTTP Aside keeps pre-commit cancellation null", async () => {
   await running;
 
   assert.doesNotMatch(response.output, /"type":"done"/u);
+  assert.equal(response.ends, 1);
+});
+
+test("HTTP disconnect revokes an earlier user Stop before Aside preparation", async () => {
+  const request = Readable.from([]) as unknown as IncomingMessage;
+  const response = new FakeResponse();
+  const operation = new AbortController();
+  let started!: () => void;
+  const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const running = streamResponse(
+    request,
+    response as unknown as ServerResponse,
+    async (_onDelta, signal, _onReasoning, transportConnected) => {
+      started();
+      await gate;
+      assert.throws(
+        () => prepareProviderStoryEffect({
+          kind: "aside",
+          expectedAsideDocumentId: undefined,
+          document: {
+            schemaVersion: 1,
+            notes: [{ question: "Why?", answer: "Partial answer." }]
+          },
+          cancelled: signal,
+          canCommitStoppedAside: () => transportConnected()
+        }),
+        /Aside was cancelled before it could be saved/u
+      );
+      return null;
+    },
+    () => ({ type: "done" }),
+    operation.signal
+  );
+
+  await startedPromise;
+  operation.abort(new GenerationCancelledError());
+  response.closed = true;
+  response.emit("close");
+  release();
+  await running;
+
   assert.equal(response.ends, 1);
 });
 

@@ -405,7 +405,9 @@ linuxTest("listener tears down even when removing its auth record fails", async 
 
   let reference: string | null = null;
   await assert.rejects(listener.close(), (error: unknown) => {
-    assert.equal(toPublicServiceError(error).message, "Internal server error");
+    const message = toPublicServiceError(error).message;
+    assert.match(message, /^(SyntaxError|StrictJsonError): /);
+    assert.match(message, /JSON|property name|object key/i);
     reference = internalErrorReference(error);
     assert.match(reference ?? "", /^err_[0-9a-f]{24}$/);
     return true;

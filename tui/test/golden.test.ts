@@ -12,7 +12,7 @@ describe("deterministic demo frames", () => {
         shortSource.payload.id,
         "Keep the prose spare."
       );
-      const shortFrame = await renderOnce(shortSource, width, 24, "\u001ba");
+      const shortFrame = await renderOnce(shortSource, width, 24, "\u001bn");
       expect(shortFrame.startsWith("┏━ author's note ")).toBeTrue();
       expect(shortFrame).toContain("Keep the prose spare.");
       expect(shortFrame).not.toContain("tokens — long");
@@ -23,7 +23,7 @@ describe("deterministic demo frames", () => {
         warningSource.payload.id,
         "x".repeat(1_204)
       );
-      const warningFrame = await renderOnce(warningSource, width, 24, "\u001ba");
+      const warningFrame = await renderOnce(warningSource, width, 24, "\u001bn");
       expect(warningFrame.startsWith("┏━ author's note ")).toBeTrue();
       expect(warningFrame).toContain("· 301 tokens — a long note crowds the prose it steers");
       expect(warningFrame.split("\n").every((line) => line.length <= width)).toBeTrue();
@@ -53,7 +53,7 @@ describe("deterministic demo frames", () => {
     expect(frame).toContain("── ¶ 12 · ‹ take 3/5 ›");
     expect(frame).toContain("── ¶ 13 ·");
     expect(frame).toContain("writing · esc stops");
-    expect(frame).toContain("space continues · enter directs · n new story · m map");
+    expect(frame).toContain("space continues · enter directs · a aside · n note · m map");
     expect(frame).toContain("NAV   the lantern keeper · ⚑ canon-storm · ¶ 12/13 · 3/5");
     expect(frame).not.toContain("307 words");
   });

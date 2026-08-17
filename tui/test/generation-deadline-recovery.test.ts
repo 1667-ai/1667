@@ -9,6 +9,7 @@ import { normalizeUserConfig } from "../src/config.js";
 import { DEMO_SETTINGS_VIEW } from "../src/demo.js";
 import { generate } from "../src/generation-action.js";
 import { RecoveryWarningFeed } from "../src/recovery-warning-feed.js";
+import { ApiRecoveryRequiredError } from "../src/api-error.js";
 import { createWorkerStoryApi, WorkerApiError } from "../src/worker-api.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { initialState } from "../src/app.js";
@@ -96,9 +97,12 @@ describe("deadline recovery through the real worker transport", () => {
         text: arrivedText,
         genId
       }));
-      expect(blocked instanceof WorkerApiError).toBeTrue();
-      expect((blocked as unknown as WorkerApiError).status).toBe(409);
-      expect(blocked.message).toContain("reloading saved state");
+      // Pre-send recovery fence: no request was posted; not an uncertain code.
+      expect(blocked instanceof ApiRecoveryRequiredError).toBeTrue();
+      expect(blocked instanceof WorkerApiError).toBeFalse();
+      expect(blocked.message).toBe(
+        "1667 is reloading saved state. Try again when the reload is complete."
+      );
 
       // A recovery listener standing in for recovery-orchestration.ts's
       // refreshAfterRecovery: it must not resolve (adopt the warning) until

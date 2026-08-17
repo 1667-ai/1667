@@ -494,11 +494,12 @@ describe("text surfaces and palette", () => {
     expect(resolveKey(key("d"), "TAG", { tagChoosingStatus: true }).action).toBe("delete-tag");
   });
 
-  test("NAV Enter directs, Space continues, and n starts a new story", () => {
+  test("NAV Enter directs, Space continues, a opens Aside, and n opens the Author's Note", () => {
     expect(resolveKey(key("return"), "NAV").action).toBe("compose");
     expect(resolveKey(key("i"), "NAV").action).toBe("compose");
     expect(resolveKey(key("space", { sequence: " " }), "NAV").action).toBe("continue");
-    expect(resolveKey(key("n"), "NAV").action).toBe("new-item");
+    expect(resolveKey(key("a"), "NAV").action).toBe("open-aside");
+    expect(resolveKey(key("n"), "NAV").action).toBe("open-authors-note");
     expect(resolveKey(key("m"), "NAV").action).toBe("open-map");
     expect(resolveKey(key("t"), "NAV").action).toBe("tag");
     expect(resolveKey(key("b"), "NAV").action).toBe("none");

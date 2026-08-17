@@ -266,6 +266,45 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names.
 
+## 0.9.7 - 2026-08-16
+
+- **Internal errors now include useful diagnostic text.** 1667 shows the
+  error name, the error message, and a short cause chain. It keeps the
+  `err_…` reference as a link to the detailed local log. The visible message
+  does not include a stack or a provider response body.
+
+## 0.9.6 - 2026-08-16
+
+- **Stopping an Aside answer keeps the text that arrived.** Press `Esc` after
+  answer text appears to save that text as a Side Note. If no answer text
+  appears, 1667 restores the question.
+
+- **The PowerShell Installer shows the command that starts 1667.** After the
+  installation, the Installer shows the exact executable path. This command
+  works when the Install Root is not in `PATH`.
+
+## 0.9.6-rc.2 - 2026-08-15
+
+- **Aside and the Author's Note have new navigation keys.** Press `a` to open
+  Aside. Press `n` to edit the Author's Note. To create a story, press `o` to
+  open Library, and then press `n`.
+
+## 0.9.6-rc.1 - 2026-08-15
+
+- **A Side Note can now add text to Direct or to the story.** In Aside, press
+  `Tab` to focus the saved Side Notes. Press `Enter` to open the use menu.
+  **insert into compose** puts the complete answer at the Direct cursor and
+  keeps the existing draft. **insert into story…** opens Placement mode. Use
+  the Up Arrow and Down Arrow keys to select an existing Part for a new Take,
+  or select the final gap for a new Part. Press `Enter` to add the text. Press
+  `Esc` to return to Aside without a story change.
+
+## 0.9.5 - 2026-08-14
+
+- **Banned strings now save from Settings.** Adding a banned string no longer
+  reports `logitBias must be an object`. Settings now copies each sampling
+  value before it sends the settings document to the worker.
+
 ## 0.9.5-rc.1 - 2026-08-13
 
 - **Aside adds non-canon Side Notes to a story.** Use `/aside` or the Command

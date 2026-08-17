@@ -5,7 +5,7 @@ import {
 } from "../server/diagnostic-machine-tier.js";
 import { PublicRuntimeError } from "../server/errors.js";
 
-test("machine-tier failures stay private before reporter startup", async () => {
+test("machine-tier failures stay actionable before reporter startup", async () => {
   let printed = "";
   const root = new Error("private machine-tier resolution failure");
 
@@ -28,7 +28,10 @@ test("machine-tier failures stay private before reporter startup", async () => {
     ),
     (error: unknown) => {
       assert.ok(error instanceof PublicRuntimeError);
-      assert.equal(error.message, "Internal server error");
+      assert.equal(
+        error.message,
+        "Error: private machine-tier resolution failure"
+      );
       assert.equal(error.cause, root);
       return true;
     }
@@ -61,7 +64,10 @@ test("--print-logs covers machine-tier failures before reporter startup", async 
     ),
     (error: unknown) => {
       assert.ok(error instanceof PublicRuntimeError);
-      assert.equal(error.message, "Internal server error");
+      assert.equal(
+        error.message,
+        "Error: private machine-tier resolution failure"
+      );
       assert.equal(error.cause, root);
       return true;
     }

@@ -8,6 +8,7 @@ import type {
   RewriteNodeEffect,
   SummaryTakeEffect
 } from "./story-provider-effect.js";
+import { asideCanCommitStoppedAnswer } from "./story-provider-effect.js";
 
 export type PreparedProviderStoryEffect<
   Effect extends ProviderStoryEffect = ProviderStoryEffect
@@ -28,7 +29,9 @@ export type PreparedProviderStoryEffect<
         }
       : Effect extends RewriteNodeEffect
         ? Omit<Effect, "cancelled" | "takeId"> & { readonly takeId: string }
-        : Omit<Effect, "cancelled">;
+        : Effect extends AsideStoryEffect
+          ? Omit<Effect, "cancelled" | "canCommitStoppedAside">
+          : Omit<Effect, "cancelled">;
 
 /** Freeze all IDs, timestamps, and cancellation checks before an effect can
  * cross the provider/terminal phase boundary. The returned effect is safe to
@@ -87,7 +90,11 @@ export function prepareProviderStoryEffect(
     case "autoname":
       return { ...effect };
     case "aside": {
-      const { cancelled: _cancelled, ...rest } = effect as AsideStoryEffect;
+      const {
+        cancelled: _cancelled,
+        canCommitStoppedAside: _canCommitStoppedAside,
+        ...rest
+      } = effect as AsideStoryEffect;
       return rest;
     }
     default: {
@@ -99,6 +106,7 @@ export function prepareProviderStoryEffect(
 
 function requireEffectActive(effect: ProviderStoryEffect): void {
   if (!("cancelled" in effect) || effect.cancelled?.aborted !== true) return;
+  if (effect.kind === "aside" && asideCanCommitStoppedAnswer(effect)) return;
   const message = effect.kind === "continue"
     ? "Story writing was cancelled"
     : effect.kind === "rewrite"

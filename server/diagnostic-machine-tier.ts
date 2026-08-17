@@ -1,4 +1,7 @@
-import type { InternalErrorContext } from "./internal-error-format.js";
+import {
+  formatInternalErrorMessage,
+  type InternalErrorContext
+} from "./internal-error-format.js";
 import { printInternalError } from "./internal-error-log.js";
 import { resolveMachineTierRoot } from "./machine-tier.js";
 import { PublicRuntimeError } from "./errors.js";
@@ -10,8 +13,7 @@ interface DiagnosticMachineTierOptions {
   readonly stderr?: Pick<NodeJS.WriteStream, "write">;
 }
 
-/** Resolve diagnostic storage before its reporter exists. Unexpected details
- * cross this pre-reporter boundary only when explicitly requested. */
+/** Resolve diagnostic storage before its reporter exists. */
 export async function resolveDiagnosticMachineTier(
   configured: string | undefined,
   context: InternalErrorContext,
@@ -38,7 +40,7 @@ export function diagnosticMachineTierFailure(
   return new PublicRuntimeError(
     error instanceof PlatformStateRootError
       ? error.message
-      : "Internal server error",
+      : formatInternalErrorMessage(error),
     { cause: error }
   );
 }

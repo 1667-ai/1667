@@ -1,3 +1,5 @@
+import { terminalLineText } from "../../shared/terminal-text.js";
+
 export {};
 
 const argv = process.argv.slice(2);
@@ -52,6 +54,7 @@ function sendPrivateFatal(error: unknown): void {
 
 function boundedMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
-  return message.replace(/\s+/gu, " ").trim().slice(0, 1_000)
+  return terminalLineText(message.replace(/\s+/gu, " ").trim())
+    .slice(0, 1_000)
     || "unknown startup failure";
 }

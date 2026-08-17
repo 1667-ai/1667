@@ -35,7 +35,12 @@ export function rememberFocus(state: RuntimeState, source: FocusSource): void {
     state.focusIndex,
     state.stream
   );
-  if (next === state.readingPositions) return;
+  if (next === state.readingPositions) {
+    // Adoption may have already persisted via rememberFocus(state, state).
+    // Still sync a lagging AppSource map onto the current positions.
+    source.readingPositions = next;
+    return;
+  }
   state.readingPositions = next;
   source.readingPositions = next;
   const partId = next[state.payload.id];

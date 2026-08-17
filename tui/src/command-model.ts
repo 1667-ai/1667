@@ -102,7 +102,7 @@ const COMMANDS: readonly PaletteCommand[] = [
   { id: "autoname", section: "story", name: "autoname story", description: "ask the model for a story title", mutating: true },
   { id: "import-archive", section: "story", name: "import archive", description: "read a NovelAI lorebook, scenario, or story file", mutating: true },
   { id: "import-card", section: "story", name: "import character card", description: "add a card's fields as Facts", mutating: true },
-  { id: "authors-note", section: "story", name: "author's note", description: "steer the next passage with style, tone, or current truth", shortcut: "a", mutating: true },
+  { id: "authors-note", section: "story", name: "author's note", description: "steer the next passage with style, tone, or current truth", shortcut: "n", mutating: true },
   { id: "author-brief", section: "story", name: "author brief", description: "override the machine-wide author brief for this story", mutating: true },
   { id: "facts-budget", section: "story", name: "facts budget", description: "cap the combined estimated tokens every Fact spends in a request", mutating: true },
   { id: "phrase-bias", section: "story", name: "phrase bias", description: "bias phrases for this story only, adding to the profile's own", mutating: true },
@@ -112,6 +112,7 @@ const COMMANDS: readonly PaletteCommand[] = [
     section: "story",
     name: "aside",
     description: "discuss this story without changing it",
+    shortcut: "a",
     blockedByLiveStream: true,
     requires: (context) => asideEntryPointsOpen(context.asideEntryPointsOpen)
   },

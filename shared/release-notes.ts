@@ -11,6 +11,31 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.7",
+    date: "2026-08-16",
+    body: "- **Internal errors now include useful diagnostic text.** 1667 shows the\n  error name, the error message, and a short cause chain. It keeps the\n  `err_…` reference as a link to the detailed local log. The visible message\n  does not include a stack or a provider response body."
+  },
+  {
+    version: "0.9.6",
+    date: "2026-08-16",
+    body: "- **Stopping an Aside answer keeps the text that arrived.** Press `Esc` after\n  answer text appears to save that text as a Side Note. If no answer text\n  appears, 1667 restores the question.\n\n- **The PowerShell Installer shows the command that starts 1667.** After the\n  installation, the Installer shows the exact executable path. This command\n  works when the Install Root is not in `PATH`."
+  },
+  {
+    version: "0.9.6-rc.2",
+    date: "2026-08-15",
+    body: "- **Aside and the Author's Note have new navigation keys.** Press `a` to open\n  Aside. Press `n` to edit the Author's Note. To create a story, press `o` to\n  open Library, and then press `n`."
+  },
+  {
+    version: "0.9.6-rc.1",
+    date: "2026-08-15",
+    body: "- **A Side Note can now add text to Direct or to the story.** In Aside, press\n  `Tab` to focus the saved Side Notes. Press `Enter` to open the use menu.\n  **insert into compose** puts the complete answer at the Direct cursor and\n  keeps the existing draft. **insert into story…** opens Placement mode. Use\n  the Up Arrow and Down Arrow keys to select an existing Part for a new Take,\n  or select the final gap for a new Part. Press `Enter` to add the text. Press\n  `Esc` to return to Aside without a story change."
+  },
+  {
+    version: "0.9.5",
+    date: "2026-08-14",
+    body: "- **Banned strings now save from Settings.** Adding a banned string no longer\n  reports `logitBias must be an object`. Settings now copies each sampling\n  value before it sends the settings document to the worker."
+  },
+  {
     version: "0.9.5-rc.1",
     date: "2026-08-13",
     body: "- **Aside adds non-canon Side Notes to a story.** Use `/aside` or the Command\n  Palette to discuss the open story. Each question and answer stays with that\n  story. Side Notes never enter Write prompts or Markdown exports. Use\n  `/clear` in Aside to remove all Side Notes from the story."

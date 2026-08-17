@@ -196,7 +196,7 @@ export function createFailureEnvelope(
     && message !== null
     && isFailureStatus(failure.status);
   const code: FailureCode = validFailure ? failure.code : "internal";
-  const publicMessage = validFailure && code !== "internal"
+  const publicMessage = validFailure
     ? message
     : "Internal server error";
   const status = validFailure ? failure.status : 500;
@@ -267,9 +267,7 @@ export function isFailureEnvelope(value: unknown): value is FailureEnvelope {
   if (!isFailureCode(failure.code)
     || !validFailureString(failure.message, MAX_FAILURE_MESSAGE_LENGTH)
     || !isFailureStatus(failure.status)
-    || ("timeout" in failure && !isTimeoutProvenance(failure.timeout))
-    || (failure.code === "internal"
-      && failure.message !== "Internal server error")) {
+    || ("timeout" in failure && !isTimeoutProvenance(failure.timeout))) {
     return false;
   }
   if (failure.kind === "plain") {
@@ -453,9 +451,6 @@ export function createCompatibleHttpFailureEnvelope(
     : "invalid_response";
   const message = boundedFailureMessage(failure.message)
     ?? "Internal server error";
-  const publicMessage = code === "internal"
-    ? "Internal server error"
-    : message;
   const status = isFailureStatus(failure.status)
     ? failure.status
     : 500;
@@ -466,7 +461,7 @@ export function createCompatibleHttpFailureEnvelope(
     ? {
         kind: "diagnostic",
         code,
-        message: publicMessage,
+        message,
         status,
         ...timeout,
         diagnosticRef
@@ -474,7 +469,7 @@ export function createCompatibleHttpFailureEnvelope(
     : {
         kind: "plain",
         code,
-        message: publicMessage,
+        message,
         status,
         ...timeout
       });

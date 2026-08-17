@@ -113,6 +113,7 @@ read_when:
 | Aside | The full-screen mode where the writer discusses the story without changing it |
 | Side Note | One saved question-and-answer pair from Aside |
 | Aside document | The one bounded, content-addressed document that holds every Side Note for one story |
+| Placement mode | The mode where the writer selects a story position for Side Note text |
 
 Add a term to this table before you use it in another document.
 

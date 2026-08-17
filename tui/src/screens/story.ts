@@ -45,17 +45,10 @@ import { renderRequestViewerScreen } from "./request-viewer.js";
 import { renderTokenProbabilitiesScreen } from "./token-probabilities.js";
 import { renderGenerationRecordViewerScreen } from "./generation-record-viewer.js";
 import { renderLogScreen } from "./log.js";
-import {
-  asideComposerRows,
-  asideFooterHint,
-  asideHeaderWindow,
-  asideHistoryWindow
-} from "../aside-actions.js";
-import type { AsideSurfaceState } from "../aside-surface.js";
-import { ASIDE_INPUT_PLACEHOLDER } from "../aside-surface.js";
 import { wrapFeedback } from "./feedback-wrap.js";
 import { renderPanels, renderTextActionsPanel } from "./panels.js";
 import { renderConnectionBanner } from "./connection-banner.js";
+import { renderAsideScreen } from "./story/aside-screen.js";
 import {
   fitLine,
   hintItem,
@@ -87,6 +80,17 @@ import { storyProseMeasure, STORY_GUTTER } from "../composer-geometry.js";
 import type { ComposerStatus as ComposerChromeStatus } from "./story/composer-chrome.js";
 import { renderStatus as renderCanonicalStatus } from "./story/status.js";
 import { viewportLines, type ViewportBlock } from "./story/viewport.js";
+import {
+  PLACEMENT_PLACING_KEYLINE,
+  placementInputLocked,
+  placementOutcomeUnknown
+} from "../aside-placement.js";
+import {
+  placementEnterPlaceRowId,
+  placementFocusBlockId,
+  placementLeafGapBlock,
+  placementMarkerAfterRow
+} from "./story/placement-marker.js";
 import {
   buildComposerSelectionProjection,
   buildStorySelectionProjection,
@@ -228,7 +232,17 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
       height: layout.height + 1,
       render: () => [...layout.render(), []]
     });
+    const placementMarker = placementMarkerAfterRow(
+      state.placement,
+      row,
+      view,
+      measure
+    );
+    if (placementMarker !== null) blocks.push(placementMarker);
   }
+  // After chapter summary/divider rows that follow the active leaf.
+  const leafGapMarker = placementLeafGapBlock(state.placement, view, measure);
+  if (leafGapMarker !== null) blocks.push(leafGapMarker);
 
   const composer = renderPageComposer(state, view, width, measure, narrow, height);
   const composerLines = composer.lines;
@@ -237,7 +251,16 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   // Generation moves focus to its target when the stream opens. Later user
   // navigation owns the same semantic focus, so rendering needs no second
   // auto-follow flag that can drift from the reducer state.
-  const focusId = options.viewportAnchorId ?? rows[state.focusIndex]?.id ?? rows[0]?.id ?? null;
+  // Placement keeps the selected destination marker in view by focusing its
+  // synthetic block id rather than only the related Part.
+  const placementFocus = state.mode === "PLACE" && state.placement !== null
+    ? placementFocusBlockId(state.placement)
+    : null;
+  const focusId = options.viewportAnchorId
+    ?? placementFocus
+    ?? rows[state.focusIndex]?.id
+    ?? rows[0]?.id
+    ?? null;
   const focusAtStarterIntro = options.viewportAnchorId === undefined
     && state.focusIndex === 0
     && rowPart(view, state.focusIndex)?.node.text.startsWith(`${STARTER_LOGO_TEXT}\n\n`) === true;
@@ -612,6 +635,27 @@ function navHint(
       ...suffix
     ];
   }
+  if (state.mode === "PLACE" && state.placement !== null) {
+    // Esc/arrows/Enter are ignored only while this Placement owns createNode.
+    if (placementInputLocked(state)) {
+      return fitLine([segment(` ${PLACEMENT_PLACING_KEYLINE}`, "chrome")], budget);
+    }
+    // Uncertain outcome: no Enter place until recovery settles the first node.
+    if (placementOutcomeUnknown(state)) {
+      return joinHints([
+        hintItem([actionHint("Up/Down where", "focus-next")]),
+        hintItem([actionHint("Esc back to Aside", "cancel")], 1)
+      ], budget);
+    }
+    // Stamp Enter place with session + stop so a queued Up/Down or a later
+    // Placement open at the same stop cannot createNode against the wrong work.
+    const placeStopId = placementEnterPlaceRowId(state.placement) ?? undefined;
+    return joinHints([
+      hintItem([actionHint("Up/Down where", "focus-next")]),
+      hintItem([actionHint("Enter place", "apply", "chrome", placeStopId)]),
+      hintItem([actionHint("Esc back to Aside", "cancel")], 1)
+    ], budget);
+  }
   return joinHints(navHintItems(state, view), budget);
 }
 
@@ -657,9 +701,10 @@ function navHintItems(state: StoryScreenState, view: StoryViewModel): HintItem[]
     return withThoughtHint([
       hintItem([actionHint(`space continues ¶ ${focused.number}`, "continue")]),
       hintItem([actionHint("enter direct", "compose")]),
-      hintItem([actionHint("G leaf", "leaf")], 1),
-      hintItem([actionHint("n new story", "new-item")], 3),
-      hintItem([actionHint("? keys", "open-keys")], 2)
+      hintItem([actionHint("G leaf", "leaf")], 4),
+      hintItem([actionHint("a aside", "open-aside")], 2),
+      hintItem([actionHint("n note", "open-authors-note")], 3),
+      hintItem([actionHint("? keys", "open-keys")], 1)
     ]);
   }
   const leafBreak = focused !== null && focused.pathIndex === state.payload.path.length - 1
@@ -671,7 +716,8 @@ function navHintItems(state: StoryScreenState, view: StoryViewModel): HintItem[]
       hintItem([segment(`next part opens chapter ${chapterWord(focused.chapterNumber + 1).toLowerCase()}`, "chrome")], 3),
       hintItem([actionHint("space continues", "continue")]),
       hintItem([actionHint("c chapters", "open-chapters")], 1),
-      hintItem([actionHint("n new story", "new-item")], 2)
+      hintItem([actionHint("a aside", "open-aside")], 2),
+      hintItem([actionHint("n note", "open-authors-note")], 4)
     ]);
   }
   // No `←→ flips takes` here: the focused part's own `‹ take j/m ›` carries
@@ -679,8 +725,9 @@ function navHintItems(state: StoryScreenState, view: StoryViewModel): HintItem[]
   return withThoughtHint([
     hintItem([actionHint("space continues", "continue")]),
     hintItem([actionHint("enter directs", "compose")]),
-    hintItem([actionHint("n new story", "new-item")], 2),
-    hintItem([actionHint("m map", "open-map")], 3),
+    hintItem([actionHint("a aside", "open-aside")], 2),
+    hintItem([actionHint("n note", "open-authors-note")], 3),
+    hintItem([actionHint("m map", "open-map")], 4),
     hintItem([actionHint("? keys", "open-keys")], 1)
   ]);
 }
@@ -911,67 +958,15 @@ function renderStoryStatus(
   return [{ ...modeBlock, text: modeBlock.text.replace("COMPOSE", label) }, ...rest];
 }
 
-function actionHint(text: string, action: KeyAction, role: DisplayRole = "chrome"): FrameSegment {
-  return segment(text, role, { kind: "inline-action", action });
-}
-
-function renderAsideScreen(
-  state: StoryScreenState,
-  surface: AsideSurfaceState,
-  width: number,
-  height: number,
-  deadlines?: FrameDeadlineCollector
-): StoryScreenFrame {
-  const composerHeight = asideComposerRows(height);
-  const clearing = surface.busy && surface.inflightQuestion === null;
-  const composer = renderComposerLayout({
-    composer: surface.composer,
-    fullscreen: true,
-    terminalWidth: width,
-    terminalHeight: composerHeight + 1,
-    measure: width,
-    title: "aside · prompt",
-    caret: clearing ? "none" : surface.busy ? "streaming" : "focused",
-    footerNotice: surface.busy ? null : state.toast,
-    footerHints: asideFooterHint(surface),
-    placeholder: ASIDE_INPUT_PLACEHOLDER,
-    narrow: width < 100,
-    softWrap: true
+function actionHint(
+  text: string,
+  action: KeyAction,
+  role: DisplayRole = "chrome",
+  rowId?: string
+): FrameSegment {
+  return segment(text, role, {
+    kind: "inline-action",
+    action,
+    ...(rowId === undefined ? {} : { rowId })
   });
-  const header = asideHeaderWindow(surface, width, height - composer.lines.length);
-  const historyRows = Math.max(0, height - header.length - composer.lines.length);
-  const lines: FrameLine[] = [
-    ...header.map((text) => [segment(text, "prose")]),
-    ...asideHistoryWindow(surface, width, historyRows)
-      .map((text) => [segment(text, "prose")]),
-    ...composer.lines
-  ];
-  const composerStart = header.length + historyRows;
-  while (lines.length < height) lines.push([]);
-  const visibleLines = lines.slice(0, height).map((line) => fitLine(line, width));
-  const hitRows: HitRows = Array.from({ length: height }, (_, row) => {
-    if (row < composerStart || row >= composerStart + composer.lines.length) return null;
-    return { target: composerHitTarget(visibleLines[row]), left: 0, right: width };
-  });
-  const renderedLines = state.connection.down
-    ? renderConnectionBanner(visibleLines, { ...state, hitRows }, width, deadlines)
-    : visibleLines;
-  return {
-    lines: renderedLines,
-    selectable: null,
-    derived: {
-      hitRows,
-      viewScroll: null,
-      viewScrollDelta: 0,
-      lastViewportStart: 0,
-      composerScrollTop: composer.scrollTop,
-      editorScrollTop: 0,
-      keysScrollTop: 0,
-      composerSelectionProjection: buildComposerSelectionProjection(renderedLines, width),
-      storySelectionProjection: null,
-      map: null,
-      request: null,
-      record: null
-    }
-  };
 }

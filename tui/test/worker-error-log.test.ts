@@ -45,6 +45,10 @@ test("embedded internal errors carry the reference written to the private log", 
     const ref = /err_[0-9a-f]{24}/.exec((error as Error).message)?.[0];
     expect(ref).toBeDefined();
     expect((error as WorkerApiError).diagnosticRef).toBe(ref);
+    expect((error as Error).message).toContain(
+      "StoryFormatError: settings state is not valid strict JSON"
+    );
+    expect((error as Error).message).not.toContain("Internal server error");
     expect((error as Error).message).not.toContain(machineDir);
     const entries = (await readFile(internalErrorLogPath(machineDir), "utf8"))
       .trim()
@@ -108,6 +112,7 @@ test("unexpected worker exits log content-free host and stream progress", async 
     worker.crash("injected worker runtime crash");
     const failure = await backend.failure;
     expect(failure instanceof BackendRestartRequiredError).toBeTrue();
+    expect(failure.message).toContain("injected worker runtime crash");
     expect((failure as BackendRestartRequiredError).diagnosticRef)
       .toMatch(/^err_[0-9a-f]{24}$/);
     expect(await generationFailure).toBe(failure);
@@ -216,6 +221,29 @@ test("worker diagnostics validate the dedicated reference field, not message tex
   })).toBeFalse();
 });
 
+test("restart failures keep the diagnostic reference out of their detail", async () => {
+  const worker = new FakeWorker(true);
+  const backend = await createWorkerStoryApi({ worker, readyTimeoutMs: 100 });
+  const diagnosticRef = "err_deadbeefdeadbeefdeadbeef";
+
+  worker.message({
+    type: "protocolError",
+    failure: createFailureEnvelope({
+      code: "internal",
+      message: "Error: injected backend failure",
+      status: 500
+    }, diagnosticRef)
+  });
+
+  const failure = await backend.failure;
+  expect(failure).toMatchObject({
+    message: "backend_restart_required: Error: injected backend failure",
+    diagnosticRef
+  });
+  expect(failure.message.match(new RegExp(diagnosticRef, "g"))).toBe(null);
+  await backend.dispose().catch(() => undefined);
+});
+
 test("archived diagnostics remain warnings without worker replay", async () => {
   const dataDir = await temporaryDirectory("1667-worker-archived-warning-");
   const outbox = new MutationOutbox(path.join(dataDir, "mutation-outbox"));
@@ -285,7 +313,10 @@ test("uncertain terminal failures retain diagnostics without stopping the worker
   const pendingError = await rejection(pending);
   expect(pendingError instanceof WorkerApiError).toBeTrue();
   expect(pendingError).toMatchObject({
-    diagnosticRef: "err_deadbeefdeadbeefdeadbeef"
+    diagnosticRef: "err_deadbeefdeadbeefdeadbeef",
+    // Settlement exposes the transport-owned mutation outcome.
+    mutationOutcome: "uncertain",
+    code: "internal"
   });
   expect(worker.terminateCalls).toBe(0);
   expect(await Promise.race([
@@ -294,6 +325,36 @@ test("uncertain terminal failures retain diagnostics without stopping the worker
       setTimeout(() => resolve("running"), 10)
     )
   ])).toBe("running");
+  await backend.dispose();
+});
+
+test("terminal mutation settlement stamps WorkerApiError.mutationOutcome terminal", async () => {
+  const worker = new FakeWorker(true);
+  const backend = await createWorkerStoryApi({
+    worker,
+    readyTimeoutMs: 100
+  });
+  const pending = backend.api.createStory("terminal internal failure");
+  const request = await waitForRequest(worker, "createStory");
+  worker.message({
+    type: "error",
+    id: request.id,
+    failure: createFailureEnvelope({
+      code: "internal",
+      message: "Internal server error",
+      status: 500
+    }, "err_deadbeefdeadbeefdeadbeef"),
+    mutationOutcome: "terminal"
+  });
+
+  const pendingError = await rejection(pending);
+  expect(pendingError instanceof WorkerApiError).toBeTrue();
+  expect(pendingError).toMatchObject({
+    code: "internal",
+    mutationOutcome: "terminal",
+    diagnosticRef: "err_deadbeefdeadbeefdeadbeef"
+  });
+  expect(worker.terminateCalls).toBe(0);
   await backend.dispose();
 });
 

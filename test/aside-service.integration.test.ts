@@ -12,8 +12,12 @@ import {
 } from "../shared/aside.js";
 import { hasUnpairedSurrogate } from "../shared/unicode.js";
 import { isSealed } from "../shared/vault-cipher.js";
-import { ServiceError } from "../server/errors.js";
+import {
+  GenerationCancelledError,
+  ServiceError
+} from "../server/errors.js";
 import { StoryService } from "../server/story-service.js";
+import { WorkerRequestCancellation } from "../server/worker-request-cancellation.js";
 import {
   STORY_REAP_RETENTION_MS,
   StoryReaper
@@ -284,7 +288,7 @@ test("dry-run Aside keeps a scalar-safe question prefix at an emoji boundary", a
   assert.match(answer, /😀/u, "the complete boundary scalar stays in the dry-run answer");
 });
 
-test("started Aside stop and stream failure save no partial Side Note", async (t) => {
+test("started Aside stop saves streamed text; stream failure saves nothing", async (t) => {
   const { service } = await openService(t);
   const created = await service.createStory("Aside cancellation");
   await service.createNode(created.id, {
@@ -294,19 +298,38 @@ test("started Aside stop and stream failure save no partial Side Note", async (t
   });
 
   const stopped = new AbortController();
-  let stoppedDeltas = 0;
+  let stoppedText = "";
   const stoppedResult = await service.askAside(
     created.id,
     { question: "Stop after output." },
     async (delta) => {
-      stoppedDeltas += delta.length;
-      stopped.abort();
+      stoppedText += delta;
+      stopped.abort(new GenerationCancelledError());
     },
-    stopped.signal
+    stopped.signal,
+    { canCommitStoppedAside: () => true }
   );
-  assert.equal(stoppedResult, null);
-  assert.ok(stoppedDeltas > 0, "the provider must have streamed before Stop");
-  assert.equal((await service.getAside(created.id)).notes.length, 0);
+  assert.ok(stoppedResult !== null, "Stop after output must save a Side Note");
+  assert.ok(stoppedText.length > 0, "the provider must have streamed before Stop");
+  assert.equal(stoppedResult.notes[0]!.answer, stoppedText.trim());
+  assert.deepEqual(await service.getAside(created.id), stoppedResult);
+
+  const superseded = new WorkerRequestCancellation(
+    true,
+    "00000000-0000-7000-8000-000000000001"
+  );
+  const supersededResult = await service.askAside(
+    created.id,
+    { question: "Do not save after shutdown supersedes Stop." },
+    async () => {
+      superseded.cancel("user");
+      superseded.cancel("shutdown");
+    },
+    superseded.signal,
+    { canCommitStoppedAside: () => superseded.userCancellationRequested }
+  );
+  assert.equal(supersededResult, null);
+  assert.equal((await service.getAside(created.id)).notes.length, 1);
 
   let failedDeltas = 0;
   await assert.rejects(
@@ -322,7 +345,7 @@ test("started Aside stop and stream failure save no partial Side Note", async (t
     /consumer failed after Aside output/u
   );
   assert.ok(failedDeltas > 0, "the provider must have streamed before failure");
-  assert.equal((await service.getAside(created.id)).notes.length, 0);
+  assert.equal((await service.getAside(created.id)).notes.length, 1);
 });
 
 test("export omits Side Notes with the exact notice; payload has presence only", async (t) => {
