@@ -173,6 +173,19 @@ describe("the settings form follows C-03 and C-08", () => {
     expect(rendered).toContain("· attachments.");
   });
 
+  test("the final setting keeps its description beside pending status", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    await selectRow(press, state, "utility-route");
+    const view = state.settings!.view;
+    if (!view.editable) throw new Error("editable settings view missing");
+    state.settings!.view = { ...view, pendingRevision: 2 };
+
+    for (const width of [64, 80]) {
+      expect(screen(state, width, 24)).toContain("support tasks.");
+    }
+  });
+
   test("a settable number wears a chip, a positional track and a default tick", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);

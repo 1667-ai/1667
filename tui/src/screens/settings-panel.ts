@@ -117,21 +117,26 @@ export function renderSettingsPanel(
       const tailReserve = picker === null
         ? Math.min(SETTINGS_TAIL_RESERVE, painted.length - cursorOffset - 1)
         : 0;
-      const start = Math.max(
-        0,
-        window.start,
-        cursorOffset - formCapacity + 1,
-        Math.min(cursorOffset, cursorOffset + tailReserve - stableCapacity + 1)
-      );
-      const end = Math.min(painted.length, start + formCapacity);
       const cursorRow = boundedSettingsCursor(overlay.cursor);
       const belongsToCursor = (row: SettingsFormRow | undefined): boolean => {
         const target = row?.target;
         return target !== undefined && target !== null
           && target.kind === "list" && target.index === cursorRow;
       };
+      let selectedEnd = cursorOffset + 1;
+      while (picker === null && belongsToCursor(painted[selectedEnd])) selectedEnd += 1;
+      let start = Math.max(
+        0,
+        window.start,
+        cursorOffset - formCapacity + 1,
+        Math.min(cursorOffset, cursorOffset + tailReserve - stableCapacity + 1)
+      );
+      // Selected help outranks preceding fields. On a panel too short for the
+      // complete note, the field remains first and the final visible line says ….
+      start = Math.min(cursorOffset, Math.max(start, selectedEnd - formCapacity));
+      const end = Math.min(painted.length, start + formCapacity);
       const visible = painted.slice(start, end);
-      if (picker === null && belongsToCursor(painted[end]) && visible.length > 0) {
+      if (picker === null && end < selectedEnd && visible.length > 0) {
         visible[visible.length - 1] = withContinuation(visible.at(-1)!);
       }
       return [...filter, ...visible];
