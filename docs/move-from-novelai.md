@@ -201,8 +201,7 @@ stories.
 
 1667 cannot send requests to NovelAI's hosted models. NovelAI's terms do not
 give clear permission for a third-party client. The project closed this work as
-not planned. Refer to
-[issue 286](https://github.com/1667-ai/1667-archive2/issues/286).
+not planned and does not intend to reopen it.
 
 Use an OpenAI-compatible host, Anthropic, or a local model server. 1667 supports
 chat and text completion protocols. The file import and export features do not
