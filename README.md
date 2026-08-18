@@ -146,6 +146,7 @@ request plan. It does not show the authentication header or its credential.
 - [Facts, context, and model providers](docs/model-providers.md)
 - [SillyTavern import](docs/sillytavern-import.md)
 - [Character card import](docs/character-card-import.md)
+- [Move from NovelAI](docs/move-from-novelai.md)
 - [Generation Profile transfer](docs/generation-profile-transfer.md)
 - [Platforms and standalone builds](docs/platforms-and-builds.md)
 - [Development reference](docs/development.md)
