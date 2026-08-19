@@ -13,7 +13,7 @@ export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
     version: "0.9.10-rc.1",
     date: "2026-08-19",
-    body: "- **ChatGPT and Claude subscriptions can connect directly.** Run\n  `1667 auth login openai-codex` to connect a ChatGPT plan. Run\n  `1667 auth login anthropic` to connect a Claude plan. Settings can use both\n  connections. 1667 keeps the subscription credentials on this machine."
+    body: "- **ChatGPT and Claude subscriptions can connect directly.** Run\n  `1667 auth login chatgpt` to connect a ChatGPT plan. Run\n  `1667 auth login claude` to connect a Claude plan. Settings can use both\n  connections. 1667 keeps the subscription credentials on this machine."
   },
   {
     version: "0.9.9",

@@ -13,8 +13,8 @@ This file records notable changes to 1667. Product terms use the definitions in
 ## 0.9.10-rc.1 - 2026-08-19
 
 - **ChatGPT and Claude subscriptions can connect directly.** Run
-  `1667 auth login openai-codex` to connect a ChatGPT plan. Run
-  `1667 auth login anthropic` to connect a Claude plan. Settings can use both
+  `1667 auth login chatgpt` to connect a ChatGPT plan. Run
+  `1667 auth login claude` to connect a Claude plan. Settings can use both
   connections. 1667 keeps the subscription credentials on this machine.
 
 ## 0.9.9 - 2026-08-17
