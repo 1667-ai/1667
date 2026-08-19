@@ -244,6 +244,8 @@ test("managed recovery consumes canonical TUI transactions for both phases", asy
     await writeFile(path.join(prefix, INSTALL_PREVIOUS_FILE + ".next"), previousBytes, {
       mode: 0o755
     });
+    const probeOutput = path.join(prefix, ".1667-probe-output");
+    await writeFile(probeOutput, "stale probe output\n", { mode: 0o600 });
     const txn = managedTxn({
       id,
       root: prefix,
@@ -269,12 +271,14 @@ test("managed recovery consumes canonical TUI transactions for both phases", asy
     assert.deepEqual(await readFile(path.join(prefix, "1667")), activeBytes);
     assert.deepEqual(await readFile(path.join(prefix, INSTALL_PREVIOUS_FILE)), previousBytes);
     await assert.rejects(readFile(path.join(prefix, INSTALL_PREVIOUS_FILE + ".next")));
+    await assert.rejects(readFile(probeOutput));
     await assert.rejects(readFile(txnPath));
     const ownership = parseInstallOwnershipRecordText(
       await readFile(path.join(prefix, INSTALL_OWNERSHIP_FILE), "utf8")
     );
     assert.equal(ownership.installationId, id);
     assert.equal(ownership.channel, item.expectedChannel);
+    await execFileAsync("sh", [item.script, "--prefix", prefix], { cwd: root });
   }
 });
 
@@ -323,6 +327,48 @@ test("managed recovery refuses Shell Installer-only staging", async (t) => {
   );
   assert.equal(await readFile(txnPath, "utf8"), txn);
   assert.equal(await readFile(path.join(extractStage, "partial"), "utf8"), "preserve\n");
+});
+
+test("managed recovery preserves probe output when ownership identity mismatches", async (t) => {
+  const target = hostShellInstallerTarget();
+  if (target === null) {
+    t.skip("Host cannot run the POSIX Shell Installer");
+    return;
+  }
+  const root = await createScratch("install-recovery-managed-id-mismatch-");
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { scriptPath } = await writeScript(root);
+  const prefix = path.join(root, "prefix");
+  await mkdir(prefix, { mode: 0o755 });
+  await chmod(prefix, 0o755);
+  const txnId = "0123456789abcdef0123456789abcdef";
+  const ownershipId = "fedcba9876543210fedcba9876543210";
+  const activeBytes: Buffer = Buffer.from(releaseStub(INSTALL_VERSION, target));
+  const previousNextBytes: Buffer = Buffer.from(releaseStub(INSTALL_PRE_VERSION, target));
+  const ownership = compactOwnership({ id: ownershipId, root: prefix, target });
+  const txn = managedTxn({ id: txnId, root: prefix, target });
+  const txnPath = path.join(prefix, INSTALL_TRANSACTION_FILE);
+  const probeOutput = path.join(prefix, ".1667-probe-output");
+  await writeFile(path.join(prefix, "1667"), activeBytes, { mode: 0o755 });
+  await writeFile(path.join(prefix, INSTALL_OWNERSHIP_FILE), ownership, { mode: 0o600 });
+  await writeFile(path.join(prefix, INSTALL_PREVIOUS_FILE + ".next"), previousNextBytes, {
+    mode: 0o755
+  });
+  await writeFile(probeOutput, "preserve mismatched identity\n", { mode: 0o600 });
+  await writeFile(txnPath, txn, { mode: 0o600 });
+
+  await assert.rejects(
+    execFileAsync("sh", [scriptPath, "--prefix", prefix], { cwd: root }),
+    /installation id does not match/i
+  );
+  assert.deepEqual(await readFile(path.join(prefix, "1667")), activeBytes);
+  assert.equal(await readFile(path.join(prefix, INSTALL_OWNERSHIP_FILE), "utf8"), ownership);
+  assert.deepEqual(
+    await readFile(path.join(prefix, INSTALL_PREVIOUS_FILE + ".next")),
+    previousNextBytes
+  );
+  assert.equal(await readFile(probeOutput, "utf8"), "preserve mismatched identity\n");
+  assert.equal(await readFile(txnPath, "utf8"), txn);
 });
 
 test("Shell Installer refuses a dangling transaction record", async (t) => {

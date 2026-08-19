@@ -295,7 +295,6 @@ recover_install() {
     # Managed Transaction Records do not own Shell Installer-only staging.
     # Refuse it before recovery grants cleanup authority.
     refuse_prior_managed_path "\$root/\$EXTRACT_STAGE" "extract staging"
-    refuse_prior_managed_path "\$root/\$PROBE_OUTPUT_FILE" "probe output"
     refuse_prior_managed_path "\$root/\$archive" "Release Archive staging"
     recover_managed_install "\$root" "\$executable" "\$target" "\$txn"
     return 0
@@ -310,7 +309,8 @@ recover_install() {
   CLEANUP_OWNS_STAGING=1
   case "\$phase" in
     downloading|extracted)
-      rm -f "\$root/\$CANDIDATE_FILE" "\$root/\$PREVIOUS_NEXT_FILE" "\$root/\$archive" 9>&-
+      rm -f "\$root/\$CANDIDATE_FILE" "\$root/\$PREVIOUS_NEXT_FILE" \
+        "\$root/\$PROBE_OUTPUT_FILE" "\$root/\$archive" 9>&-
       remove_extract_stage "\$root"
       clear_txn "\$root"
       RECOVER_STATUS=reset

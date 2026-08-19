@@ -122,7 +122,6 @@ test("generated installer durably fsyncs ownership before clearing the transacti
   assert.ok(managedRecoveryCall > managedRecoveryDispatch, "managed recovery call is present");
   for (const path of [
     'refuse_prior_managed_path "$root/$EXTRACT_STAGE" "extract staging"',
-    'refuse_prior_managed_path "$root/$PROBE_OUTPUT_FILE" "probe output"',
     'refuse_prior_managed_path "$root/$archive" "Release Archive staging"'
   ]) {
     const guard = body.indexOf(path, managedRecoveryDispatch);
@@ -600,6 +599,8 @@ test("recovery removes exact extract staging and keeps unrelated paths", async (
   const stage = path.join(prefix, ".1667-extract");
   await mkdir(stage, { mode: 0o700 });
   await writeFile(path.join(stage, "partial-member"), "interrupted-extract\n");
+  const probeOutput = path.join(prefix, ".1667-probe-output");
+  await writeFile(probeOutput, "interrupted-probe\n", { mode: 0o600 });
   const unrelated = path.join(prefix, "unrelated-keep.txt");
   const unrelatedBytes = Buffer.from("must-survive-recovery\n");
   await writeFile(unrelated, unrelatedBytes);
@@ -624,6 +625,7 @@ test("recovery removes exact extract staging and keeps unrelated paths", async (
   await execFileAsync("sh", [scriptPath, "--prefix", prefix], { cwd: root });
 
   await assert.rejects(access(stage));
+  await assert.rejects(access(probeOutput));
   assert.equal(await readFile(unrelated).then((b) => b.equals(unrelatedBytes)), true);
   assert.equal(await readFile(path.join(lookalike, "keep"), "utf8"), "keep\n");
   // Fresh install completed after recovery reset.

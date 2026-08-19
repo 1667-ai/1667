@@ -358,6 +358,10 @@ recover_managed_install() {
   target=\$3
   validate_managed_ownership "\$root" "\$executable" "\$target"
   [ "\$OWNERSHIP_ID" = "\$MANAGED_INSTALLATION_ID" ] || die "Managed transaction installation id does not match Ownership Record"
+  if [ -e "\$root/\$PROBE_OUTPUT_FILE" ] || [ -L "\$root/\$PROBE_OUTPUT_FILE" ]; then
+    validate_managed_file_safety "\$root/\$PROBE_OUTPUT_FILE" "probe output"
+    rm -f "\$root/\$PROBE_OUTPUT_FILE" 9>&-
+  fi
   CLEANUP_OWNS_STAGING=1
   case "\$MANAGED_PHASE" in
     candidate-ready)
