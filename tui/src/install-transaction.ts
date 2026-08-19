@@ -36,6 +36,7 @@ import type { ManagedInstallPaths } from "./install-layout.js";
 import { assertSafeInstallRoot, assertSafeOwnedPath } from "./install-path-safety.js";
 import {
   parseInstallTransactionFileRecord,
+  serializeInstallTransactionRecord,
   type InstallTransactionRecord
 } from "./install-transaction-record.js";
 import {
@@ -89,7 +90,7 @@ export function writeTransactionRecord(
   removeQuietly(temporary);
   writeExclusiveFile({
     path: temporary,
-    data: `${JSON.stringify(record)}\n`,
+    data: serializeInstallTransactionRecord(record),
     mode: 0o600,
     finalPath: paths.transaction
   });

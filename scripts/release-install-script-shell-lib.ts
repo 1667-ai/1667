@@ -269,17 +269,28 @@ recover_install() {
   archive=\$5
   RECOVER_STATUS=
   txn="\$root/\$TXN_FILE"
+  if [ -L "\$txn" ]; then
+    die "Install transaction must not be a symbolic link"
+  fi
   if [ ! -e "\$txn" ]; then
     # No Transaction Record: do not delete reserved staging. Ownership is unproven.
     RECOVER_STATUS=none
     return 0
   fi
-  if [ -L "\$txn" ]; then
-    die "Install transaction must not be a symbolic link"
-  fi
   if [ ! -f "\$txn" ]; then
     die "Install transaction must be a regular file"
   fi
+  txn_size=\$(exec 9>&-; wc -c < "\$txn" | tr -d ' ')
+  [ -n "\$txn_size" ] && [ "\$txn_size" -le "\$MAX_TRANSACTION_BYTES" ] \
+    || die "Install Transaction Record is too large"
+  txn_text=\$(exec 9>&-; cat "\$txn") || die "Could not read Install Transaction Record"
+  txn_kind=\$(json_string_field "\$txn_text" kind)
+  if [ "\$txn_kind" = managed ]; then
+    validate_managed_txn "\$txn" "\$target" "\$root"
+    recover_managed_install "\$root" "\$executable" "\$target" "\$txn"
+    return 0
+  fi
+  [ "\$txn_kind" = shell-installer ] || die "Install transaction is not a canonical phase record"
   # validate_txn subshell inherits FD 9; close it so a hung validator cannot pin.
   phase=\$(
     exec 9>&-
@@ -289,7 +300,7 @@ recover_install() {
   CLEANUP_OWNS_STAGING=1
   case "\$phase" in
     downloading|extracted)
-      rm -f "\$root/\$CANDIDATE_FILE" "\$root/\$archive"
+      rm -f "\$root/\$CANDIDATE_FILE" "\$root/\$PREVIOUS_NEXT_FILE" "\$root/\$archive"
       remove_extract_stage "\$root"
       clear_txn "\$root"
       RECOVER_STATUS=reset
@@ -325,11 +336,18 @@ recover_install() {
       fi
       probe_candidate "\$executable" "\$target"
       fsync_path "\$executable"
-      installation_id=\$(
-        exec 9>&-
-        random_hex_32
-      )
-      write_ownership "\$root" "\$installation_id" "\$executable" "\$target"
+      ownership="\$root/\$OWNERSHIP_FILE"
+      if [ -e "\$ownership" ] || [ -L "\$ownership" ]; then
+        validate_managed_ownership "\$root" "\$executable" "\$target"
+        [ "\$OWNERSHIP_CHANNEL" = "\$INSTALL_CHANNEL" ] || die "Ownership Record channel does not match the Install Transaction Record"
+        fsync_path "\$ownership"
+      else
+        installation_id=\$(
+          exec 9>&-
+          random_hex_32
+        )
+        write_ownership "\$root" "\$installation_id" "\$executable" "\$target"
+      fi
       rm -f "\$root/\$CANDIDATE_FILE"
       remove_extract_stage "\$root"
       clear_txn "\$root"
@@ -438,13 +456,14 @@ canonical_ownership_bytes() {
   exe=\$2
   target=\$3
   root=\$4
+  channel=\$5
   cat <<EOF
 {
   "schemaVersion": 1,
   "product": "1667",
   "installationId": "\$id",
   "method": "shell",
-  "channel": "\$INSTALL_CHANNEL",
+  "channel": "\$channel",
   "installRoot": "\$root",
   "executable": "\$exe",
   "artifactTarget": "\$target"
@@ -457,6 +476,7 @@ write_ownership() {
   id=\$2
   exe=\$3
   target=\$4
+  channel=\${5:-\$INSTALL_CHANNEL}
   dest="\$root/\$OWNERSHIP_FILE"
   # Refuse a pre-existing destination that is not a regular non-symlink file
   # (directory, device, or symlink) before any atomic replacement.
@@ -474,7 +494,7 @@ write_ownership() {
   if ! (
     exec 9>&-
     set -C
-    canonical_ownership_bytes "\$id" "\$exe" "\$target" "\$root" > "\$tmp"
+    canonical_ownership_bytes "\$id" "\$exe" "\$target" "\$root" "\$channel" > "\$tmp"
   ); then
     die "Could not create an Ownership Record"
   fi
@@ -482,7 +502,7 @@ write_ownership() {
   if ! (
     exec 9>&-
     set -C
-    canonical_ownership_bytes "\$id" "\$exe" "\$target" "\$root" > "\$verify"
+    canonical_ownership_bytes "\$id" "\$exe" "\$target" "\$root" "\$channel" > "\$verify"
   ); then
     rm -f "\$tmp"
     die "Could not create an Ownership Record verification copy"

@@ -16,6 +16,7 @@ json_string_field() {
 # - Child and watchdog are terminated and reaped on timeout and by stop_probe.
 PROBE_PID=
 PROBE_WATCHDOG_PID=
+MANAGED_PROBE_VERSION=
 
 run_bounded_probe() {
   candidate=\$1
@@ -148,5 +149,38 @@ probe_candidate_soft() {
   [ "\$art" = "\$target" ] || return 1
   [ "\$kind" = "release" ] || return 1
   return 0
+}
+
+# Probe an existing managed active executable. Unlike the release candidate
+# probe, this accepts any release version so an older installer can bootstrap
+# across a changed package/NOTICE file. The caller invokes this directly so
+# signal traps can see PROBE_PID; the version is returned in MANAGED_PROBE_VERSION.
+probe_managed_active() {
+  candidate=\$1
+  target=\$2
+  out="\${candidate%/*}/\$PROBE_OUTPUT_FILE"
+  if ! run_bounded_probe "\$candidate" "\$out"; then
+    rm -f "\$out"
+    die "Managed active executable version probe failed"
+  fi
+  if ! out_text=\$(
+    exec 9>&-
+    cat "\$out"
+  ); then
+    rm -f "\$out"
+    die "Managed active executable version probe failed"
+  fi
+  rm -f "\$out"
+  product=\$(exec 9>&-; json_string_field "\$out_text" product)
+  version=\$(exec 9>&-; json_string_field "\$out_text" productVersion)
+  art=\$(exec 9>&-; json_string_field "\$out_text" artifactTarget)
+  kind=\$(exec 9>&-; json_string_field "\$out_text" buildKind)
+  [ "\$product" = "1667" ] || die "Managed active executable is not 1667"
+  [ "\$art" = "\$target" ] || die "Managed active executable target did not match this host"
+  [ "\$kind" = "release" ] || die "Managed active executable is not a release build"
+  version_length=\$(printf '%s' "\$version" | wc -c | tr -d ' ')
+  [ -n "\$version" ] && [ "\$version_length" -le 128 ] || die "Managed active executable version is invalid"
+  semver_valid "\$version" || die "Managed active executable version is invalid"
+  MANAGED_PROBE_VERSION=\$version
 }
 `;

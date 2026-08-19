@@ -71,13 +71,18 @@ test("generated installer durably fsyncs ownership before clearing the transacti
     'fsync_path "$prefix/$CANDIDATE_FILE"',
     probeAt
   );
+  const freshInstallAt = body.indexOf(
+    '  else\n    write_txn "$prefix" "candidate-ready"',
+    probeAt
+  );
+  assert.ok(freshInstallAt > probeAt, "fresh install branch remains present");
   const candidateReadyAt = body.indexOf(
     'write_txn "$prefix" "candidate-ready"',
-    probeAt
+    freshInstallAt
   );
   const renameActiveAt = body.indexOf(
     'mv "$prefix/$CANDIDATE_FILE" "$executable"',
-    probeAt
+    freshInstallAt
   );
   const fsyncActiveAt = body.indexOf('fsync_path "$executable"', renameActiveAt);
   assert.ok(fsyncCandidateAt > probeAt, "install path fsyncs the candidate after probe");
@@ -107,6 +112,12 @@ test("generated installer durably fsyncs ownership before clearing the transacti
   assert.ok(recoverFsync > recoverSoft, "recovery fsyncs active after probe");
   assert.ok(recoverOwnership > recoverFsync, "recovery writes ownership after fsync_path active");
   assert.ok(recoverClear > recoverOwnership, "recovery clears txn after ownership");
+  const activatedRecovery = body.indexOf('    activated)');
+  const activatedOwnershipFsync = body.indexOf('fsync_path "$ownership"', activatedRecovery);
+  const activatedClear = body.indexOf('clear_txn "$root"', activatedRecovery);
+  assert.ok(activatedRecovery >= 0, "activated recovery branch is present");
+  assert.ok(activatedOwnershipFsync > activatedRecovery, "activated recovery fsyncs existing ownership");
+  assert.ok(activatedClear > activatedOwnershipFsync, "activated recovery clears txn after ownership fsync");
   // Durability failure is never ignored (sync child also closes lock FD 9).
   assert.doesNotMatch(body, /sync \|\| true/);
   assert.match(body, /sync 9>&- \|\| die/);

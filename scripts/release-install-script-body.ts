@@ -1,6 +1,7 @@
 /**
  * POSIX Shell Installer body. Generated release assets embed pinned version,
- * channel, archive names, and digests. Fresh install only.
+ * channel, archive names, and digests. It also bootstraps valid managed Unix
+ * installs across release metadata changes.
  */
 import {
   INSTALL_CANDIDATE_FILE,
@@ -28,6 +29,7 @@ import {
   type ShellInstallerExtractLayout
 } from "./release-install-script-extract-lib.js";
 import { SHELL_INSTALLER_LOCK } from "./release-install-script-lock-lib.js";
+import { SHELL_INSTALLER_MANAGED } from "./release-install-script-managed-lib.js";
 import { SHELL_INSTALLER_PROBE } from "./release-install-script-probe-lib.js";
 import { SHELL_INSTALLER_HELPERS } from "./release-install-script-shell-lib.js";
 
@@ -64,6 +66,8 @@ MAX_TAR_BYTES=${SHELL_MAX_TAR_BYTES}
 MAX_EXECUTABLE_BYTES=${SHELL_MAX_EXECUTABLE_BYTES}
 # Cumulative bytes in all regular-file members.
 MAX_FILE_BYTES=${SHELL_MAX_FILE_BYTES}
+# Maximum bytes in a canonical Transaction Record before parsing.
+MAX_TRANSACTION_BYTES=16384
 # Portable curl deadlines: connect bound, then overall transfer bound.
 DOWNLOAD_CONNECT_TIMEOUT_SEC=${SHELL_DOWNLOAD_CONNECT_TIMEOUT_SEC}
 DOWNLOAD_MAX_TIME_SEC=${SHELL_DOWNLOAD_MAX_TIME_SEC}
@@ -84,12 +88,13 @@ PROBE_OUTPUT_FILE='.1667-probe-output'
 # 1 only after this process proves ownership of reserved staging (canonical
 # Transaction Record, or a verified clean fresh root that starts this install).
 CLEANUP_OWNS_STAGING=0
+MANAGED_FORCE=0
 
 main() {
   prefix=
   prefix_set=0
   dry_run=0
-  # --force waives the Install Root permission refusals only. It never waives a
+  # --force waives path ownership and other-writer refusals. It never waives a
   # checksum, an attestation, a release identity, or the version probe: those
   # decide whether the bytes are the release, which no local layout can answer.
   force=0
@@ -123,6 +128,7 @@ main() {
         ;;
     esac
   done
+  MANAGED_FORCE=\$force
 
   target=\$(detect_target) || exit 1
   case "\$target" in
@@ -187,23 +193,66 @@ ${input.digestLines}
     return 0
   fi
 
+  managed_install=0
+  active_version=
   if [ -e "\$executable" ] || [ -L "\$executable" ]; then
-    die "Refusing to replace an existing 1667 at \$executable. Run '1667 upgrade' instead."
+    if [ -L "\$executable" ] || [ ! -f "\$executable" ]; then
+      die "Refusing to replace an unmanaged 1667 at \$executable"
+    fi
+    validate_managed_ownership "\$prefix" "\$executable" "\$target"
+    managed_install=1
+    # A valid Ownership Record proves this root is a managed installation. The
+    # package staging file is the only residue that an older failed updater can
+    # leave without a Transaction Record; remove that exact file under the lock.
+    refuse_prior_managed_path "\$prefix/\$PREVIOUS_NEXT_FILE" "staged previous executable"
+    refuse_prior_managed_path "\$prefix/\$CANDIDATE_FILE" "candidate executable"
+    refuse_prior_managed_path "\$prefix/\$EXTRACT_STAGE" "extract staging"
+    refuse_prior_managed_path "\$prefix/\$PROBE_OUTPUT_FILE" "probe output"
+    refuse_prior_managed_path "\$prefix/\$archive" "Release Archive staging"
+    if [ -e "\$prefix/\$PREVIOUS_FILE" ] || [ -L "\$prefix/\$PREVIOUS_FILE" ]; then
+      validate_managed_file_safety "\$prefix/\$PREVIOUS_FILE" "rollback executable"
+    fi
+    CLEANUP_OWNS_STAGING=1
+    rm -f "\$prefix/\$PACKAGE_STAGING_FILE"
+    probe_managed_owned "\$executable" "managed active executable" "\$target"
+    active_version=\$MANAGED_PROBE_VERSION
+  else
+    # Fail closed on prior managed or reserved staging paths. Do not delete them.
+    # The persistent Install Root lock file is allowed to remain.
+    refuse_prior_managed_path "\$prefix/\$OWNERSHIP_FILE" "Ownership Record"
+    refuse_prior_managed_path "\$prefix/\$PREVIOUS_FILE" "previous executable"
+    refuse_prior_managed_path "\$prefix/\$PREVIOUS_NEXT_FILE" "staged previous executable"
+    refuse_prior_managed_path "\$prefix/\$CANDIDATE_FILE" "candidate executable"
+    refuse_prior_managed_path "\$prefix/\$EXTRACT_STAGE" "extract staging"
+    refuse_prior_managed_path "\$prefix/\$PROBE_OUTPUT_FILE" "probe output"
+    refuse_prior_managed_path "\$prefix/\$PACKAGE_STAGING_FILE" "package staging"
+    refuse_prior_managed_path "\$prefix/\$archive" "Release Archive staging"
+    # Clean root proven; this install now owns reserved staging for EXIT cleanup.
+    CLEANUP_OWNS_STAGING=1
   fi
 
-  # Fail closed on prior managed or reserved staging paths. Do not delete them.
-  # The persistent Install Root lock file is allowed to remain.
-  refuse_prior_managed_path "\$prefix/\$OWNERSHIP_FILE" "Ownership Record"
-  refuse_prior_managed_path "\$prefix/\$PREVIOUS_FILE" "previous executable"
-  refuse_prior_managed_path "\$prefix/\$PREVIOUS_NEXT_FILE" "staged previous executable"
-  refuse_prior_managed_path "\$prefix/\$CANDIDATE_FILE" "candidate executable"
-  refuse_prior_managed_path "\$prefix/\$EXTRACT_STAGE" "extract staging"
-  refuse_prior_managed_path "\$prefix/\$PROBE_OUTPUT_FILE" "probe output"
-  refuse_prior_managed_path "\$prefix/\$PACKAGE_STAGING_FILE" "package staging"
-  refuse_prior_managed_path "\$prefix/\$archive" "Release Archive staging"
+  if [ "\$managed_install" -eq 1 ]; then
+    semver_order=\$(semver_compare "\$active_version" "\$PRODUCT_VERSION")
+    if [ "\$semver_order" -gt 0 ]; then
+      die "Installer will not downgrade 1667 from \$active_version to \$PRODUCT_VERSION. For an intentional downgrade, run '1667 upgrade --version \$PRODUCT_VERSION'."
+    fi
+  fi
 
-  # Clean root proven; this install now owns reserved staging for EXIT cleanup.
-  CLEANUP_OWNS_STAGING=1
+  # A same-version bootstrap is a no-op for executable bytes. It still records
+  # the channel selected by this Installer and retains any rollback executable.
+  if [ "\$managed_install" -eq 1 ] && [ "\$active_version" = "\$PRODUCT_VERSION" ]; then
+    write_ownership "\$prefix" "\$OWNERSHIP_ID" "\$executable" "\$target" "\$INSTALL_CHANNEL"
+    trap - EXIT INT TERM
+    release_lock "\$prefix"
+    (
+      exec 9>&-
+      trap '' PIPE
+      printf '1667 %s (%s) is already installed at %s\\n' \
+        "\$PRODUCT_VERSION" "\$INSTALL_CHANNEL" "\$executable"
+    ) || :
+    return 0
+  fi
+
   url="\$ASSET_BASE/\$archive"
   write_txn "\$prefix" "downloading" "\$target" "\$digest"
   archive_path="\$prefix/\$archive"
@@ -221,18 +270,44 @@ ${input.digestLines}
   # Candidate bytes must be durable before candidate-ready is published.
   # Power loss after a durable txn must not leave a missing or corrupt candidate.
   fsync_path "\$prefix/\$CANDIDATE_FILE"
-  write_txn "\$prefix" "candidate-ready" "\$target" "\$digest"
-  mv "\$prefix/\$CANDIDATE_FILE" "\$executable"
-  chmod 0755 "\$executable"
-  fsync_path "\$executable"
-  # Close the gap: durable activated mark before ownership write.
-  write_txn "\$prefix" "activated" "\$target" "\$digest"
-  # random_hex_32 subshell inherits FD 9; close it so a hung id helper cannot pin.
-  installation_id=\$(
-    exec 9>&-
-    random_hex_32
-  )
-  write_ownership "\$prefix" "\$installation_id" "\$executable" "\$target"
+  if [ "\$managed_install" -eq 1 ]; then
+    # Stage the old active before publishing the managed transaction. The old
+    # active remains in place until the candidate rename commits.
+    if [ -e "\$prefix/\$PREVIOUS_FILE" ] || [ -L "\$prefix/\$PREVIOUS_FILE" ]; then
+      validate_managed_file_safety "\$prefix/\$PREVIOUS_FILE" "rollback executable"
+    fi
+    rm -f "\$prefix/\$PREVIOUS_NEXT_FILE"
+    cp "\$executable" "\$prefix/\$PREVIOUS_NEXT_FILE" || die "Could not stage the previous executable"
+    chmod 0755 "\$prefix/\$PREVIOUS_NEXT_FILE"
+    if [ -L "\$prefix/\$PREVIOUS_NEXT_FILE" ] || [ ! -f "\$prefix/\$PREVIOUS_NEXT_FILE" ]; then
+      die "Staged previous executable is invalid"
+    fi
+    fsync_path "\$prefix/\$PREVIOUS_NEXT_FILE"
+    write_managed_txn "\$prefix" "candidate-ready" "upgrade" "\$INSTALL_CHANNEL" true \
+      "\$active_version" "\$PRODUCT_VERSION" "\$OWNERSHIP_ID" "\$target"
+    mv "\$prefix/\$CANDIDATE_FILE" "\$executable"
+    chmod 0755 "\$executable"
+    fsync_path "\$executable"
+    write_managed_txn "\$prefix" "ownership-pending" "upgrade" "\$INSTALL_CHANNEL" true \
+      "\$active_version" "\$PRODUCT_VERSION" "\$OWNERSHIP_ID" "\$target"
+    mv "\$prefix/\$PREVIOUS_NEXT_FILE" "\$prefix/\$PREVIOUS_FILE"
+    fsync_path "\$prefix/\$PREVIOUS_FILE"
+    fsync_dir "\$prefix"
+    write_ownership "\$prefix" "\$OWNERSHIP_ID" "\$executable" "\$target" "\$INSTALL_CHANNEL"
+  else
+    write_txn "\$prefix" "candidate-ready" "\$target" "\$digest"
+    mv "\$prefix/\$CANDIDATE_FILE" "\$executable"
+    chmod 0755 "\$executable"
+    fsync_path "\$executable"
+    # Close the gap: durable activated mark before ownership write.
+    write_txn "\$prefix" "activated" "\$target" "\$digest"
+    # random_hex_32 subshell inherits FD 9; close it so a hung id helper cannot pin.
+    installation_id=\$(
+      exec 9>&-
+      random_hex_32
+    )
+    write_ownership "\$prefix" "\$installation_id" "\$executable" "\$target"
+  fi
   # Ownership is already fsynced inside write_ownership; clear txn only after that.
   clear_txn "\$prefix"
   trap - EXIT INT TERM
@@ -257,8 +332,9 @@ ${input.digestLines}
 usage() {
   printf 'Usage: install-%s.sh [--prefix /absolute/path] [--dry-run] [--force]\\n' "\$INSTALL_CHANNEL"
   printf 'Installs 1667 %s from the pinned GitHub release archive.\\n' "\$PRODUCT_VERSION"
-  printf 'This installer is for a fresh Install Root only. Use 1667 upgrade later.\\n'
-  printf -- '--force installs into an Install Root that another account can write.\\n'
+  printf 'Use this installer for a fresh Install Root or a valid Shell Managed Installation.\\n'
+  printf 'Use 1667 upgrade for later updates when the installed executable runs.\\n'
+  printf -- '--force accepts path ownership and write-permission risks.\\n'
   printf 'It waives no checksum, attestation, or version check.\\n'
 }
 
@@ -367,6 +443,7 @@ refuse_prior_managed_path() {
 ${SHELL_INSTALLER_DURABLE}
 ${SHELL_INSTALLER_LOCK}
 ${SHELL_INSTALLER_HELPERS}
+${SHELL_INSTALLER_MANAGED}
 ${extract}
 ${SHELL_INSTALLER_PROBE}
 main "\$@"
