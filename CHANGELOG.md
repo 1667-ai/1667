@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.9.10-rc.3 - 2026-08-19
+
+- **This beta has no additional product changes.** It contains the same
+  behavior as 0.9.10-rc.2.
+
 ## 0.9.10-rc.2 - 2026-08-19
 
 - **A slow generation Stop keeps 1667 open.** If the embedded backend needs
