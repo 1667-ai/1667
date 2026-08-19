@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.10-rc.1",
+    date: "2026-08-19",
+    body: "- **ChatGPT and Claude subscriptions can connect directly.** Run\n  `1667 auth login openai-codex` to connect a ChatGPT plan. Run\n  `1667 auth login anthropic` to connect a Claude plan. Settings can use both\n  connections. 1667 keeps the subscription credentials on this machine."
+  },
+  {
     version: "0.9.9",
     date: "2026-08-17",
     body: "- **Stopped takes keep their thought and finish cleanly.** If **Keep thought**\n  is on, a take saved after Stop or a clean timeout keeps the thought that was\n  visible during streaming. 1667 also gives an embedded model server more time\n  to close after Stop. This prevents a restart-required error during normal\n  cleanup."
