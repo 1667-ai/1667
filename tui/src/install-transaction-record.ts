@@ -58,7 +58,7 @@ export type InstallTransactionFileRecord =
 export function serializeInstallTransactionRecord(
   record: InstallTransactionRecord
 ): string {
-  return `${JSON.stringify({
+  const ordered: InstallTransactionRecord = {
     kind: record.kind,
     schemaVersion: record.schemaVersion,
     operation: record.operation,
@@ -71,7 +71,8 @@ export function serializeInstallTransactionRecord(
     executable: record.executable,
     artifactTarget: record.artifactTarget,
     phase: record.phase
-  })}\n`;
+  };
+  return JSON.stringify(ordered) + "\n";
 }
 
 const SHELL_TXN_KEYS = new Set([

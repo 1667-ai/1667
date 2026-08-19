@@ -354,6 +354,40 @@ test("Shell Installer rejects invalid SemVer active and transaction identities",
     /Managed transaction versions are invalid/i
   );
   assert.equal(server.hits(), 0);
+
+  const modePrefix = path.join(scratch, "invalid-transaction-mode");
+  await mkdir(modePrefix, { mode: 0o755 });
+  await chmod(modePrefix, 0o755);
+  const modeId = "0123456789abcdef0123456789abcdef";
+  const modeTxn = managedTxn({
+    phase: "candidate-ready",
+    id: modeId,
+    root: modePrefix,
+    target,
+    activeVersion: INSTALL_PRE_VERSION,
+    candidateVersion: INSTALL_VERSION
+  });
+  await writeFile(path.join(modePrefix, "1667"), releaseStub(INSTALL_PRE_VERSION, target), {
+    mode: 0o755
+  });
+  await writeFile(path.join(modePrefix, INSTALL_OWNERSHIP_FILE), prettyOwnership({
+    id: modeId,
+    channel: "stable",
+    root: modePrefix,
+    target
+  }), { mode: 0o600 });
+  const modeTxnPath = path.join(modePrefix, INSTALL_TRANSACTION_FILE);
+  await writeFile(modeTxnPath, modeTxn, { mode: 0o640 });
+  await assert.rejects(
+    execFileAsync("sh", [scriptPath, "--prefix", modePrefix], { cwd: scratch }),
+    /Install Transaction Record must have mode 600/i
+  );
+  await assert.rejects(
+    execFileAsync("sh", [scriptPath, "--prefix", modePrefix, "--force"], { cwd: scratch }),
+    /Install Transaction Record must have mode 600/i
+  );
+  assert.equal(await readFile(modeTxnPath, "utf8"), modeTxn);
+  assert.equal(server.hits(), 0);
 });
 
 test("Shell Installer resets an interrupted managed candidate before bootstrapping", async (t) => {

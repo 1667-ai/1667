@@ -95,6 +95,20 @@ test("generated installer durably fsyncs ownership before clearing the transacti
     body,
     /group_other_members "\$gid" "\$\(exec 9>&-; id -un\)"/
   );
+  assert.match(
+    body,
+    /txn_kind=\$\(exec 9>&-;\s*json_string_field "\$txn_text" kind\)/
+  );
+  const ownershipRenderer = body.indexOf("canonical_ownership_bytes()");
+  assert.ok(ownershipRenderer >= 0, "historical Ownership Record renderer is present");
+  assert.ok(
+    body.indexOf("cat 9>&- <<EOF", ownershipRenderer) > ownershipRenderer,
+    "historical Ownership Record renderer closes the lock fd"
+  );
+  assert.match(
+    body,
+    /recover_install\(\) \{[\s\S]*?validate_managed_file_safety "\$txn" "Install Transaction Record"[\s\S]*?txn_mode=\$\(exec 9>&-; file_mode "\$txn"\)[\s\S]*?\[ "\$txn_mode" = 600 \]/
+  );
   const managedBootstrapStart = body.indexOf(
     '    validate_managed_ownership "$prefix" "$executable" "$target"'
   );
@@ -336,7 +350,11 @@ test(
       digest: hostDigest,
       root: installRoot
     });
-    await writeFile(path.join(prefix, ".1667-install-txn.json"), mutate(good, installRoot));
+    await writeFile(
+      path.join(prefix, ".1667-install-txn.json"),
+      mutate(good, installRoot),
+      { mode: 0o600 }
+    );
     await assert.rejects(
       execFileAsync("sh", [scriptPath, "--prefix", prefix], { cwd: root }),
       /canonical phase record/i
@@ -482,7 +500,8 @@ test(
         target: hostTarget,
         digest: liveDigest,
         root: installRoot
-      })
+      }),
+      { mode: 0o600 }
     );
     // Recovery resets then installs; after reset the pinned archive is gone and
     // the unrelated archive must still match its original bytes.
@@ -579,7 +598,8 @@ test("recovery removes exact extract staging and keeps unrelated paths", async (
       target: hostTarget,
       digest: liveDigest,
       root: installRoot
-    })
+    }),
+    { mode: 0o600 }
   );
 
   await execFileAsync("sh", [scriptPath, "--prefix", prefix], { cwd: root });

@@ -280,11 +280,14 @@ recover_install() {
   if [ ! -f "\$txn" ]; then
     die "Install transaction must be a regular file"
   fi
+  validate_managed_file_safety "\$txn" "Install Transaction Record"
+  txn_mode=\$(exec 9>&-; file_mode "\$txn") || die "Could not inspect Install Transaction Record permissions"
+  [ "\$txn_mode" = 600 ] || die "Install Transaction Record must have mode 600"
   txn_size=\$(exec 9>&-; wc -c < "\$txn" | tr -d ' ')
   [ -n "\$txn_size" ] && [ "\$txn_size" -le "\$MAX_TRANSACTION_BYTES" ] \
     || die "Install Transaction Record is too large"
   txn_text=\$(exec 9>&-; cat "\$txn") || die "Could not read Install Transaction Record"
-  txn_kind=\$(json_string_field "\$txn_text" kind)
+  txn_kind=\$(exec 9>&-; json_string_field "\$txn_text" kind)
   if [ "\$txn_kind" = managed ]; then
     validate_managed_txn "\$txn" "\$target" "\$root"
     recover_managed_install "\$root" "\$executable" "\$target" "\$txn"
@@ -457,7 +460,7 @@ canonical_ownership_bytes() {
   target=\$3
   root=\$4
   channel=\$5
-  cat <<EOF
+  cat 9>&- <<EOF
 {
   "schemaVersion": 1,
   "product": "1667",

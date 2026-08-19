@@ -92,7 +92,7 @@ exec sleep 3600
     digest: hostDigest,
     root: installRoot
   });
-  await writeFile(path.join(prefix, INSTALL_TRANSACTION_FILE), txnBytes);
+  await writeFile(path.join(prefix, INSTALL_TRANSACTION_FILE), txnBytes, { mode: 0o600 });
 
   const child = spawn("sh", [scriptPath, "--prefix", prefix], {
     cwd: root,
