@@ -348,7 +348,6 @@ finish_managed_recovery() {
   fi
   write_ownership "\$root" "\$MANAGED_INSTALLATION_ID" "\$executable" "\$target" "\$recovery_channel"
   rm -f "\$root/\$CANDIDATE_FILE" "\$root/\$PACKAGE_STAGING_FILE" 9>&-
-  remove_extract_stage "\$root"
   clear_txn "\$root"
   RECOVER_STATUS=managed-completed
 }
@@ -367,7 +366,6 @@ recover_managed_install() {
         active_version=\$MANAGED_PROBE_VERSION
         if [ "\$active_version" = "\$MANAGED_ACTIVE_VERSION" ]; then
           rm -f "\$root/\$CANDIDATE_FILE" "\$root/\$PREVIOUS_NEXT_FILE" "\$root/\$PACKAGE_STAGING_FILE" 9>&-
-          remove_extract_stage "\$root"
           clear_txn "\$root"
           RECOVER_STATUS=managed-reset
           return 0

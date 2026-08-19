@@ -292,6 +292,11 @@ recover_install() {
   txn_kind=\$(exec 9>&-; json_string_field "\$txn_text" kind)
   if [ "\$txn_kind" = managed ]; then
     validate_managed_txn "\$txn" "\$target" "\$root"
+    # Managed Transaction Records do not own Shell Installer-only staging.
+    # Refuse it before recovery grants cleanup authority.
+    refuse_prior_managed_path "\$root/\$EXTRACT_STAGE" "extract staging"
+    refuse_prior_managed_path "\$root/\$PROBE_OUTPUT_FILE" "probe output"
+    refuse_prior_managed_path "\$root/\$archive" "Release Archive staging"
     recover_managed_install "\$root" "\$executable" "\$target" "\$txn"
     return 0
   fi

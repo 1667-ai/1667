@@ -278,6 +278,53 @@ test("managed recovery consumes canonical TUI transactions for both phases", asy
   }
 });
 
+test("managed recovery refuses Shell Installer-only staging", async (t) => {
+  const target = hostShellInstallerTarget();
+  if (target === null) {
+    t.skip("Host cannot run the POSIX Shell Installer");
+    return;
+  }
+  const root = await createScratch("install-recovery-managed-shell-stage-");
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { scriptPath } = await writeScript(root);
+  const prefix = path.join(root, "prefix");
+  await mkdir(prefix, { mode: 0o755 });
+  await chmod(prefix, 0o755);
+  const id = "0123456789abcdef0123456789abcdef";
+  const activeBytes: Buffer = Buffer.from(releaseStub(INSTALL_VERSION, target));
+  const previousNextBytes: Buffer = Buffer.from(releaseStub(INSTALL_PRE_VERSION, target));
+  const ownership = compactOwnership({ id, root: prefix, target });
+  const txn = managedTxn({
+    id,
+    root: prefix,
+    target,
+    phase: "candidate-ready"
+  });
+  const txnPath = path.join(prefix, INSTALL_TRANSACTION_FILE);
+  const extractStage = path.join(prefix, ".1667-extract");
+  await writeFile(path.join(prefix, "1667"), activeBytes, { mode: 0o755 });
+  await writeFile(path.join(prefix, INSTALL_OWNERSHIP_FILE), ownership, { mode: 0o600 });
+  await writeFile(path.join(prefix, INSTALL_PREVIOUS_FILE + ".next"), previousNextBytes, {
+    mode: 0o755
+  });
+  await mkdir(extractStage, { mode: 0o700 });
+  await writeFile(path.join(extractStage, "partial"), "preserve\n", { mode: 0o600 });
+  await writeFile(txnPath, txn, { mode: 0o600 });
+
+  await assert.rejects(
+    execFileAsync("sh", [scriptPath, "--prefix", prefix], { cwd: root }),
+    /extract staging/i
+  );
+  assert.deepEqual(await readFile(path.join(prefix, "1667")), activeBytes);
+  assert.equal(await readFile(path.join(prefix, INSTALL_OWNERSHIP_FILE), "utf8"), ownership);
+  assert.deepEqual(
+    await readFile(path.join(prefix, INSTALL_PREVIOUS_FILE + ".next")),
+    previousNextBytes
+  );
+  assert.equal(await readFile(txnPath, "utf8"), txn);
+  assert.equal(await readFile(path.join(extractStage, "partial"), "utf8"), "preserve\n");
+});
+
 test("Shell Installer refuses a dangling transaction record", async (t) => {
   const target = hostShellInstallerTarget();
   if (target === null) {

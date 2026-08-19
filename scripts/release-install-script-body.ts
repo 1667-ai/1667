@@ -209,11 +209,25 @@ ${input.digestLines}
     fi
     validate_managed_ownership "\$prefix" "\$executable" "\$target"
     managed_install=1
-    # A valid Ownership Record proves this root is a managed installation. The
-    # package staging file is the only residue that an older failed updater can
-    # leave without a Transaction Record; remove that exact file under the lock.
-    refuse_prior_managed_path "\$prefix/\$PREVIOUS_NEXT_FILE" "staged previous executable"
-    refuse_prior_managed_path "\$prefix/\$CANDIDATE_FILE" "candidate executable"
+    # A valid Ownership Record proves this root is a managed installation. With
+    # no Transaction Record, remove only the exact residue paths shared with
+    # managed recovery. Validate each path before granting removal authority.
+    if [ "\$RECOVER_STATUS" = none ]; then
+      managed_residue=
+      for managed_residue in \
+        "\$prefix/\$CANDIDATE_FILE" \
+        "\$prefix/\$PACKAGE_STAGING_FILE" \
+        "\$prefix/\$PREVIOUS_NEXT_FILE"; do
+        if [ -e "\$managed_residue" ] || [ -L "\$managed_residue" ]; then
+          validate_managed_file_safety "\$managed_residue" "managed staging"
+          rm -f "\$managed_residue" 9>&-
+        fi
+      done
+    else
+      refuse_prior_managed_path "\$prefix/\$PREVIOUS_NEXT_FILE" "staged previous executable"
+      refuse_prior_managed_path "\$prefix/\$CANDIDATE_FILE" "candidate executable"
+      rm -f "\$prefix/\$PACKAGE_STAGING_FILE" 9>&-
+    fi
     refuse_prior_managed_path "\$prefix/\$EXTRACT_STAGE" "extract staging"
     refuse_prior_managed_path "\$prefix/\$PROBE_OUTPUT_FILE" "probe output"
     refuse_prior_managed_path "\$prefix/\$archive" "Release Archive staging"
@@ -221,7 +235,6 @@ ${input.digestLines}
       validate_managed_file_safety "\$prefix/\$PREVIOUS_FILE" "rollback executable"
     fi
     CLEANUP_OWNS_STAGING=1
-    rm -f "\$prefix/\$PACKAGE_STAGING_FILE" 9>&-
     probe_managed_owned "\$executable" "managed active executable" "\$target"
     active_version=\$MANAGED_PROBE_VERSION
   else

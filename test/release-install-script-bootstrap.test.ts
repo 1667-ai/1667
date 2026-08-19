@@ -7,7 +7,13 @@ import test from "node:test";
 import { releaseArchiveFileName } from "../scripts/release-archive.js";
 import { renderInstallScriptsForVersion } from "../scripts/release-install-script.js";
 import { INSTALL_OWNERSHIP_FILE, parseInstallOwnershipRecordText } from "../shared/install-ownership-record.js";
-import { INSTALL_PREVIOUS_FILE, INSTALL_TRANSACTION_FILE } from "../shared/install-layout.js";
+import {
+  INSTALL_CANDIDATE_FILE,
+  INSTALL_PACKAGE_STAGING_FILE,
+  INSTALL_PREVIOUS_FILE,
+  INSTALL_PREVIOUS_NEXT_FILE,
+  INSTALL_TRANSACTION_FILE
+} from "../shared/install-layout.js";
 import type { BuiltArtifactTarget } from "../shared/release-targets.js";
 import { serializeInstallTransactionRecord } from "../tui/src/install-transaction-record.js";
 import {
@@ -200,6 +206,13 @@ test("Shell Installer same-version bootstrap preserves rollback bytes and identi
   const previousBytes = Buffer.from("existing rollback bytes\n");
   await writeFile(path.join(prefix, "1667"), releaseStub(INSTALL_VERSION, target), { mode: 0o755 });
   await writeFile(path.join(prefix, INSTALL_PREVIOUS_FILE), previousBytes, { mode: 0o755 });
+  await writeFile(path.join(prefix, INSTALL_CANDIDATE_FILE), "stale candidate\n", { mode: 0o755 });
+  await writeFile(path.join(prefix, INSTALL_PACKAGE_STAGING_FILE), "stale package\n", { mode: 0o600 });
+  await writeFile(
+    path.join(prefix, INSTALL_PREVIOUS_NEXT_FILE),
+    "stale previous staging\n",
+    { mode: 0o755 }
+  );
   await writeFile(
     path.join(prefix, INSTALL_OWNERSHIP_FILE),
     prettyOwnership({ id, channel: "stable", root: prefix, target }),
@@ -207,6 +220,9 @@ test("Shell Installer same-version bootstrap preserves rollback bytes and identi
   );
   await execFileAsync("sh", [scriptPath, "--prefix", prefix], { cwd: scratch });
   assert.deepEqual(await readFile(path.join(prefix, INSTALL_PREVIOUS_FILE)), previousBytes);
+  await assert.rejects(readFile(path.join(prefix, INSTALL_CANDIDATE_FILE)));
+  await assert.rejects(readFile(path.join(prefix, INSTALL_PACKAGE_STAGING_FILE)));
+  await assert.rejects(readFile(path.join(prefix, INSTALL_PREVIOUS_NEXT_FILE)));
   const ownership = parseInstallOwnershipRecordText(
     await readFile(path.join(prefix, INSTALL_OWNERSHIP_FILE), "utf8")
   );

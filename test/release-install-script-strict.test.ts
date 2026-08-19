@@ -113,6 +113,21 @@ test("generated installer durably fsyncs ownership before clearing the transacti
     body,
     /case "\$RECOVER_STATUS" in[\s\S]*?completed\)[\s\S]*?none\|reset\|managed-reset\|managed-completed\)[\s\S]*?\*\)[\s\S]*?Unsupported recovery status/
   );
+  const managedRecoveryDispatch = body.indexOf('if [ "$txn_kind" = managed ]; then');
+  const managedRecoveryCall = body.indexOf(
+    'recover_managed_install "$root" "$executable" "$target" "$txn"',
+    managedRecoveryDispatch
+  );
+  assert.ok(managedRecoveryDispatch >= 0, "managed recovery dispatch is present");
+  assert.ok(managedRecoveryCall > managedRecoveryDispatch, "managed recovery call is present");
+  for (const path of [
+    'refuse_prior_managed_path "$root/$EXTRACT_STAGE" "extract staging"',
+    'refuse_prior_managed_path "$root/$PROBE_OUTPUT_FILE" "probe output"',
+    'refuse_prior_managed_path "$root/$archive" "Release Archive staging"'
+  ]) {
+    const guard = body.indexOf(path, managedRecoveryDispatch);
+    assert.ok(guard > managedRecoveryDispatch && guard < managedRecoveryCall, path + " is guarded");
+  }
   const managedBootstrapStart = body.indexOf(
     '    validate_managed_ownership "$prefix" "$executable" "$target"'
   );
