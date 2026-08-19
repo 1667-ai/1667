@@ -27,6 +27,8 @@ export type SettingsView =
       readonly effective: GenerationSettings;
       /** Read-only machine-tier status for Settings presentation. */
       readonly subscriptionAuth?: SubscriptionAuthState;
+      /** Server-certified pristine state for subscription auto-selection. */
+      readonly subscriptionAutoSelectEligible?: boolean;
       /** The active continuation route. Format 1 falls back to `effective`. */
       readonly effectiveProse: GenerationSettings;
       /** The active prose route's `GenerationProfileV2.reasoning`, resolved
@@ -50,6 +52,8 @@ export type SettingsView =
       readonly effective: GenerationSettings;
       /** Read-only machine-tier status for Settings presentation. */
       readonly subscriptionAuth?: SubscriptionAuthState;
+      /** Server-certified pristine state for subscription auto-selection. */
+      readonly subscriptionAutoSelectEligible?: boolean;
       /** The active continuation route, never a pending document projection. */
       readonly effectiveProse: GenerationSettings;
       /** See the format-1 variant's own doc — same field, same resolution. */

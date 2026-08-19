@@ -18,6 +18,7 @@ import {
   writeProviderSecret
 } from "../server/provider-secret-store.js";
 import { SettingsV2Store } from "../server/settings-v2-store.js";
+import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import { convertGenerationSettingsV1 } from "../server/settings-v2-conversion.js";
 import { parseSettingsDocumentV2 } from "../server/settings-v2-codec.js";
 import type { GenerationSettings } from "../shared/types.js";
@@ -368,6 +369,14 @@ test("settings view exposes subscription sign-in state", async (t) => {
     chatgpt: "signed-in",
     claude: "signed-out"
   });
+  assert.equal(view.subscriptionAutoSelectEligible, true);
+
+  const changed = parseSettingsDocumentV2({
+    ...INITIAL_SETTINGS_DOCUMENT_V2,
+    writing: { defaultAuthorBrief: "A saved settings document." }
+  });
+  await store.save(saveCommand(MUTATION_A, 1, changed));
+  assert.equal((await store.loadView()).subscriptionAutoSelectEligible, false);
 });
 
 test("settings pruning keeps machine-owned subscription credentials", async (t) => {

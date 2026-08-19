@@ -90,6 +90,7 @@ import {
 } from "./settings-state-slot.js";
 import { requireFreshUnseenMutationId } from "./mutation-id-policy.js";
 import { parseSettingsDocumentV2 } from "./settings-v2-codec.js";
+import { INITIAL_SETTINGS_STATE_V2_HASH } from "./settings-v2-initial-vectors.js";
 import { storedCredentialSecretId } from "../shared/settings-stored-credential.js";
 import { assertSavedSamplingBiasResolves } from "./settings-v2-save-bias-check.js";
 import {
@@ -115,6 +116,14 @@ export { SAMPLING_BIAS_SAVE_PROBE_DEADLINE_MS } from "./settings-v2-save-bias-ch
  * targeted supersession deletion in the shared machine tier. */
 const MINTED_SECRET_ID_PATTERN =
   /\.k[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** Only this release's exact initial state may authorize the client-side
+ * subscription draft default. A successor-owned slot must never be inferred
+ * from its downgraded schema-2 view. */
+function subscriptionAutoSelectEligible(slot: SettingsStateSlot): boolean {
+  return slot.kind === "v2"
+    && hashSettingsStateV2(slot.state) === INITIAL_SETTINGS_STATE_V2_HASH;
+}
 
 export interface SettingsV2StoreOptions {
   readonly coordinator?: MutationCoordinator;
@@ -190,9 +199,11 @@ export class SettingsV2Store {
   }
 
   async loadView(): Promise<SettingsView> {
-    const view = settingsViewFromState(await readSettingsState(this.dataDir));
+    const slot = await readSettingsStateSlot(this.dataDir);
+    const view = settingsViewFromState(settingsStateSlotReadOnlyView(slot));
     return {
       ...view,
+      subscriptionAutoSelectEligible: subscriptionAutoSelectEligible(slot),
       subscriptionAuth: await readSubscriptionAuthState(this.subscription.credentials)
     };
   }

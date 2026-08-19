@@ -48,7 +48,6 @@ import {
   settingsTextDraftWithTextPreset
 } from "./settings-text.js";
 import { settingsPlanRowDisabled } from "./settings-subscription.js";
-import { autoSelectSettingsSubscriptionPlan } from "./settings-subscription-default.js";
 import { renameSettingsProfile } from "./settings-profile-draft.js";
 import { settingsModelDisplayText } from "./settings-profile-controls.js";
 import type {
@@ -111,7 +110,6 @@ export {
   settingsDraftChanged,
   settleSettingsOverlaySave
 } from "./settings-overlay-reconciliation.js";
-export { autoSelectSettingsSubscriptionPlan } from "./settings-subscription-default.js";
 
 type SettingsInlineRow = Exclude<SettingsRowId, "system-prompt" | "sampling">;
 
@@ -146,7 +144,6 @@ export function initialSettingsOverlay(
     deleteArmedProfileId: null,
     modelPicker: null
   };
-  autoSelectSettingsSubscriptionPlan(overlay);
   return overlay;
 }
 

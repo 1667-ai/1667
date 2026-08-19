@@ -22,7 +22,8 @@ import {
 function initialSettingsView(
   subscriptionAuth: SubscriptionAuthState,
   activeRevision = 1,
-  document: SettingsDocumentV2 = INITIAL_SETTINGS_DOCUMENT_V2
+  document: SettingsDocumentV2 = INITIAL_SETTINGS_DOCUMENT_V2,
+  subscriptionAutoSelectEligible = true
 ): Extract<SettingsView, { dataFormat: 2 }> {
   const effective = basicSettingsFromDocument(document);
   return {
@@ -35,6 +36,7 @@ function initialSettingsView(
     effective,
     effectiveProse: effective,
     subscriptionAuth,
+    subscriptionAutoSelectEligible,
     lastActivationOutcome: null
   };
 }
@@ -85,10 +87,34 @@ test("both or neither signed-in plans leave the default provider untouched", asy
   }
 });
 
+test("cached signed-in auth does not create a draft before fresh settings arrive", async () => {
+  const { source, state, press } = harness();
+  source.settingsView = initialSettingsView({
+    chatgpt: "signed-in",
+    claude: "signed-out"
+  });
+  const fresh = initialSettingsView({
+    chatgpt: "signed-out",
+    claude: "signed-out"
+  });
+  source.api.getSettings = async () => fresh;
+
+  await openSettings(press);
+
+  expect(settingsSubscriptionPreset(state.settings!)).toBe(null);
+  expect(settingsProviderChoice(state.settings!.draft.generation).id).toBe("dry-run");
+  expect(settingsDraftChanged(state.settings!)).toBeFalse();
+});
+
 test("a pending activation keeps the pristine provider untouched", async () => {
   const { source, state, press } = harness();
   source.settingsView = {
-    ...initialSettingsView({ chatgpt: "signed-in", claude: "signed-out" }),
+    ...initialSettingsView(
+      { chatgpt: "signed-in", claude: "signed-out" },
+      1,
+      INITIAL_SETTINGS_DOCUMENT_V2,
+      false
+    ),
     pendingRevision: 2
   };
   source.api.getSettings = async () => source.settingsView;
@@ -138,7 +164,8 @@ test("a saved provider, API key, or local route is never replaced", async () => 
     source.settingsView = initialSettingsView(
       { chatgpt: "signed-in", claude: "signed-out" },
       2,
-      fixture.document
+      fixture.document,
+      false
     );
     source.api.getSettings = async () => source.settingsView;
 

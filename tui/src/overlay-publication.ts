@@ -4,10 +4,8 @@ import { libraryRows } from "./library-model.js";
 import type { RuntimeState } from "./state.js";
 import { applyGenerationSettings } from "./runtime-settings.js";
 import { activeSettingsEdit } from "./settings-edit-state.js";
-import {
-  autoSelectSettingsSubscriptionPlan,
-  reconcileSettingsOverlay
-} from "./settings-overlay-model.js";
+import { reconcileSettingsOverlay } from "./settings-overlay-model.js";
+import { autoSelectSettingsSubscriptionPlan } from "./settings-subscription-default.js";
 
 interface StoryCatalogSource { stories: StorySummary[] }
 interface SettingsViewSource {

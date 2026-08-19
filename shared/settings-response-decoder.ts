@@ -54,7 +54,7 @@ export function decodeSettingsViewResponse(
     "pendingRevision", "document", "effective", "effectiveProse", "lastActivationOutcome"
   ], [
     "effectiveProseReasoning", "effectiveProseContinuationPromptLayout",
-    "subscriptionAuth"
+    "subscriptionAuth", "subscriptionAutoSelectEligible"
   ]);
   const effective = decodeGenerationSettingsResponse(response.effective);
   const effectiveProse = decodeGenerationSettingsResponse(response.effectiveProse);
@@ -74,6 +74,15 @@ export function decodeSettingsViewResponse(
   const subscriptionAuth = Object.hasOwn(response, "subscriptionAuth")
     ? decodeSubscriptionAuth(response.subscriptionAuth)
     : undefined;
+  const subscriptionAutoSelectEligible = Object.hasOwn(
+    response,
+    "subscriptionAutoSelectEligible"
+  )
+    ? booleanValue(
+      response.subscriptionAutoSelectEligible,
+      "settings view.subscriptionAutoSelectEligible"
+    )
+    : undefined;
   if (response.dataFormat === 1) {
     if (response.editable !== false || response.stateGeneration !== null
       || response.activeRevision !== null || response.pendingRevision !== null
@@ -92,6 +101,9 @@ export function decodeSettingsViewResponse(
       effectiveProseReasoning,
       effectiveProseContinuationPromptLayout,
       ...(subscriptionAuth === undefined ? {} : { subscriptionAuth }),
+      ...(subscriptionAutoSelectEligible === undefined
+        ? {}
+        : { subscriptionAutoSelectEligible }),
       lastActivationOutcome: null
     };
   }
@@ -111,6 +123,9 @@ export function decodeSettingsViewResponse(
     effectiveProseReasoning,
     effectiveProseContinuationPromptLayout,
     ...(subscriptionAuth === undefined ? {} : { subscriptionAuth }),
+    ...(subscriptionAutoSelectEligible === undefined
+      ? {}
+      : { subscriptionAutoSelectEligible }),
     lastActivationOutcome: response.lastActivationOutcome === null
       ? null
       : decodeActivationOutcome(response.lastActivationOutcome)
@@ -127,6 +142,11 @@ function decodeSubscriptionAuth(value: unknown): SubscriptionAuthState {
 
 function subscriptionAuthStatus(value: unknown, label: string): SubscriptionAuthStatus {
   return oneOf(value, ["signed-in", "signed-out"] as const, label);
+}
+
+function booleanValue(value: unknown, label: string): boolean {
+  if (typeof value !== "boolean") invalid(label);
+  return value;
 }
 
 function reasoningDisplayValue(value: unknown, label: string): ReasoningDisplayV2 {

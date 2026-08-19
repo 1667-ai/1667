@@ -1,5 +1,3 @@
-import { hashSettingsDocumentV2 } from "../../server/settings-v2-codec.js";
-import { INITIAL_SETTINGS_DOCUMENT_V2_HASH } from "../../server/settings-v2-initial-vectors.js";
 import { replaceSettingsProviderDraft } from "./settings-draft-transition.js";
 import { settingsDraftChanged } from "./settings-overlay-reconciliation.js";
 import {
@@ -18,16 +16,7 @@ export function autoSelectSettingsSubscriptionPlan(
 ): boolean {
   if (!overlay.view.editable || settingsDraftChanged(overlay)) return false;
   const preset = settingsSubscriptionAutoPreset(overlay.view);
-  if (
-    preset === null
-    || overlay.view.activeRevision !== 1
-    || overlay.view.pendingRevision !== null
-  ) return false;
-  const document = overlay.draft.document;
-  if (
-    document === null
-    || hashSettingsDocumentV2(document) !== INITIAL_SETTINGS_DOCUMENT_V2_HASH
-  ) return false;
+  if (preset === null || overlay.view.subscriptionAutoSelectEligible !== true) return false;
   const choice = SETTINGS_PROVIDER_CHOICES.find((candidate) => candidate.id === preset);
   if (choice === undefined) return false;
   const generation = {
