@@ -356,6 +356,20 @@ test("subscription reserved secret IDs cannot become normal provider auth", () =
   }));
 });
 
+test("settings view exposes subscription sign-in state", async (t) => {
+  const dataDir = await initializedFormat2Directory(t, "1667-settings-subscription-auth-state-");
+  const credentials = createSubscriptionCredentialStore(dataDir);
+  await credentials.modify("openai-codex", async () => oauth(ACCESS));
+  const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
+  await store.init();
+
+  const view = await store.loadView();
+  assert.deepEqual(view.subscriptionAuth, {
+    chatgpt: "signed-in",
+    claude: "signed-out"
+  });
+});
+
 test("settings pruning keeps machine-owned subscription credentials", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-subscription-prune-");
   const credentials = createSubscriptionCredentialStore(dataDir);

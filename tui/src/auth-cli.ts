@@ -16,6 +16,7 @@ import {
   resolveMachineTierRoot,
   resolveMachineTierRootPath
 } from "../../server/machine-tier.js";
+import { isUsableOAuthCredential } from "../../server/subscription-runtime.js";
 import { terminalLineText } from "../../shared/terminal-text.js";
 import { promptVaultPassword } from "./project-prompt.js";
 
@@ -401,17 +402,6 @@ function isTerminalPromptCancellation(error: unknown): boolean {
   return error.message === "Vault Password prompt cancelled"
     || error.message === "Vault Password prompt input ended"
     || error.message === "Vault Password prompt input closed";
-}
-
-function isUsableOAuthCredential(
-  credential: Credential | undefined
-): credential is Extract<Credential, { type: "oauth" }> {
-  return credential?.type === "oauth"
-    && typeof credential.access === "string"
-    && credential.access.length > 0
-    && typeof credential.refresh === "string"
-    && credential.refresh.length > 0
-    && Number.isFinite(credential.expires);
 }
 
 function notifyTerminalAuth(output: AuthCliOutput, event: AuthEvent): void {

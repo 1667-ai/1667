@@ -1,7 +1,8 @@
-import type { CredentialStore, Models } from "@earendil-works/pi-ai";
+import type { Credential, CredentialStore, Models } from "@earendil-works/pi-ai";
 import type {
   SettingsDocumentV2,
-  SettingsStateV2
+  SettingsStateV2,
+  SubscriptionAuthState
 } from "../shared/settings-v2-types.js";
 import {
   SUBSCRIPTION_SECRET_IDS,
@@ -13,6 +14,45 @@ import { createSubscriptionModels } from "./subscription-models.js";
 export interface SubscriptionRuntimeDependencies {
   readonly credentials: CredentialStore;
   readonly models: Models;
+}
+
+/** Read the safe sign-in state used by Settings and auth status surfaces. */
+export async function readSubscriptionAuthState(
+  credentials: Pick<CredentialStore, "read">
+): Promise<SubscriptionAuthState> {
+  const [chatgpt, claude] = await Promise.all([
+    readSubscriptionCredentialStatus(credentials, "openai-codex"),
+    readSubscriptionCredentialStatus(credentials, "anthropic")
+  ]);
+  return { chatgpt, claude };
+}
+
+/** A credential is signed in when its local OAuth envelope has usable fields.
+ * Expiry does not make it signed out: Pi can refresh it on next use. */
+export function isUsableOAuthCredential(
+  credential: Credential | undefined
+): credential is Extract<Credential, { type: "oauth" }> {
+  return credential?.type === "oauth"
+    && typeof credential.access === "string"
+    && credential.access.length > 0
+    && typeof credential.refresh === "string"
+    && credential.refresh.length > 0
+    && Number.isFinite(credential.expires);
+}
+
+async function readSubscriptionCredentialStatus(
+  credentials: Pick<CredentialStore, "read">,
+  providerId: "openai-codex" | "anthropic"
+): Promise<"signed-in" | "signed-out"> {
+  try {
+    return isUsableOAuthCredential(await credentials.read(providerId))
+      ? "signed-in"
+      : "signed-out";
+  } catch {
+    // Settings must stay usable when one machine-tier envelope is corrupt or
+    // unavailable. A status is positive only when it can be proved.
+    return "signed-out";
+  }
 }
 
 /** Create one shared subscription runtime for a machine-tier secret store. */

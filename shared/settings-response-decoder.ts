@@ -9,6 +9,8 @@ import {
   type SettingsDocumentV2,
   type SettingsMutationResult,
   type SettingsView,
+  type SubscriptionAuthState,
+  type SubscriptionAuthStatus,
   type SubscriptionProtocolV2
 } from "./settings-v2-types.js";
 import { CONTINUATION_PROMPT_LAYOUTS } from "./continuation-prompt-optimization.js";
@@ -50,7 +52,10 @@ export function decodeSettingsViewResponse(
   const response = closedRecord(value, "settings view", [
     "dataFormat", "editable", "stateGeneration", "activeRevision",
     "pendingRevision", "document", "effective", "effectiveProse", "lastActivationOutcome"
-  ], ["effectiveProseReasoning", "effectiveProseContinuationPromptLayout"]);
+  ], [
+    "effectiveProseReasoning", "effectiveProseContinuationPromptLayout",
+    "subscriptionAuth"
+  ]);
   const effective = decodeGenerationSettingsResponse(response.effective);
   const effectiveProse = decodeGenerationSettingsResponse(response.effectiveProse);
   const effectiveProseReasoning = Object.hasOwn(response, "effectiveProseReasoning")
@@ -65,6 +70,9 @@ export function decodeSettingsViewResponse(
       CONTINUATION_PROMPT_LAYOUTS,
       "settings view.effectiveProseContinuationPromptLayout"
     )
+    : undefined;
+  const subscriptionAuth = Object.hasOwn(response, "subscriptionAuth")
+    ? decodeSubscriptionAuth(response.subscriptionAuth)
     : undefined;
   if (response.dataFormat === 1) {
     if (response.editable !== false || response.stateGeneration !== null
@@ -83,6 +91,7 @@ export function decodeSettingsViewResponse(
       effectiveProse,
       effectiveProseReasoning,
       effectiveProseContinuationPromptLayout,
+      ...(subscriptionAuth === undefined ? {} : { subscriptionAuth }),
       lastActivationOutcome: null
     };
   }
@@ -101,10 +110,23 @@ export function decodeSettingsViewResponse(
     effectiveProse,
     effectiveProseReasoning,
     effectiveProseContinuationPromptLayout,
+    ...(subscriptionAuth === undefined ? {} : { subscriptionAuth }),
     lastActivationOutcome: response.lastActivationOutcome === null
       ? null
       : decodeActivationOutcome(response.lastActivationOutcome)
   };
+}
+
+function decodeSubscriptionAuth(value: unknown): SubscriptionAuthState {
+  const auth = closedRecord(value, "settings subscription auth", ["chatgpt", "claude"]);
+  return {
+    chatgpt: subscriptionAuthStatus(auth.chatgpt, "settings subscription auth.chatgpt"),
+    claude: subscriptionAuthStatus(auth.claude, "settings subscription auth.claude")
+  };
+}
+
+function subscriptionAuthStatus(value: unknown, label: string): SubscriptionAuthStatus {
+  return oneOf(value, ["signed-in", "signed-out"] as const, label);
 }
 
 function reasoningDisplayValue(value: unknown, label: string): ReasoningDisplayV2 {

@@ -94,6 +94,7 @@ import { storedCredentialSecretId } from "../shared/settings-stored-credential.j
 import { assertSavedSamplingBiasResolves } from "./settings-v2-save-bias-check.js";
 import {
   createSubscriptionRuntime,
+  readSubscriptionAuthState,
   providerSecretIdsToKeep,
   storedSecretIdsInDocument,
   storedSecretIdsInState,
@@ -189,7 +190,11 @@ export class SettingsV2Store {
   }
 
   async loadView(): Promise<SettingsView> {
-    return settingsViewFromState(await readSettingsState(this.dataDir));
+    const view = settingsViewFromState(await readSettingsState(this.dataDir));
+    return {
+      ...view,
+      subscriptionAuth: await readSubscriptionAuthState(this.subscription.credentials)
+    };
   }
 
   /** The route's runtime settings AND its stored image-input override,

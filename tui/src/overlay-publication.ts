@@ -4,7 +4,10 @@ import { libraryRows } from "./library-model.js";
 import type { RuntimeState } from "./state.js";
 import { applyGenerationSettings } from "./runtime-settings.js";
 import { activeSettingsEdit } from "./settings-edit-state.js";
-import { reconcileSettingsOverlay } from "./settings-overlay-model.js";
+import {
+  autoSelectSettingsSubscriptionPlan,
+  reconcileSettingsOverlay
+} from "./settings-overlay-model.js";
 
 interface StoryCatalogSource { stories: StorySummary[] }
 interface SettingsViewSource {
@@ -63,6 +66,7 @@ export function publishSettingsView(
       activeSettingsEdit(state, overlay)
     );
     overlay.view = view;
+    autoSelectSettingsSubscriptionPlan(overlay);
     overlay.result = null;
     if (message !== null) state.toast = message;
   }
