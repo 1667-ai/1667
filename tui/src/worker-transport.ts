@@ -522,7 +522,11 @@ export class WorkerTransport {
       return;
     }
     if (message.type === "operation") {
-      if (pending === undefined || pending.settling || message.state === "running") return;
+      if (pending === undefined || pending.settling) return;
+      if (message.state === "running") {
+        if (pending.cancelled) pending.cancellationStatusPending = false;
+        return;
+      }
       if (message.state === "unknown") {
         if (isWorkerMutationMethod(pending.method)) {
           await settleWorkerTerminal({
