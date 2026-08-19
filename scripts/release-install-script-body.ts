@@ -181,17 +181,25 @@ ${input.digestLines}
   # Run recovery in this shell so PROBE_PID is visible to INT/TERM traps.
   RECOVER_STATUS=
   recover_install "\$prefix" "\$executable" "\$target" "\$digest" "\$archive" || exit 1
-  if [ "\$RECOVER_STATUS" = completed ]; then
-    trap - EXIT INT TERM
-    release_lock "\$prefix"
-    (
-      exec 9>&-
-      trap '' PIPE
-      printf 'Recovered 1667 %s (%s) for %s at %s\\n' \\
-        "\$PRODUCT_VERSION" "\$INSTALL_CHANNEL" "\$target" "\$executable"
-    ) || :
-    return 0
-  fi
+  case "\$RECOVER_STATUS" in
+    completed)
+      trap - EXIT INT TERM
+      release_lock "\$prefix"
+      (
+        exec 9>&-
+        trap '' PIPE
+        printf 'Recovered 1667 %s (%s) for %s at %s\\n' \\
+          "\$PRODUCT_VERSION" "\$INSTALL_CHANNEL" "\$target" "\$executable"
+      ) || :
+      return 0
+      ;;
+    none|reset|managed-reset|managed-completed)
+      # These statuses intentionally continue into the normal bootstrap path.
+      ;;
+    *)
+      die "Unsupported recovery status: \$RECOVER_STATUS"
+      ;;
+  esac
 
   managed_install=0
   active_version=

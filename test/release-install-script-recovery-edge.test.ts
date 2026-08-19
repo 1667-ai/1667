@@ -63,24 +63,32 @@ function managedTxn(input: {
   readonly id: string;
   readonly root: string;
   readonly target: BuiltArtifactTarget;
+  readonly phase?: "candidate-ready" | "ownership-pending";
+  readonly channel?: "stable" | "beta";
+  readonly updateChannel?: boolean;
+  readonly activeVersion?: string;
+  readonly candidateVersion?: string;
 }): string {
   return serializeInstallTransactionRecord({
     kind: "managed",
     schemaVersion: 1,
     operation: "upgrade",
-    channel: "beta",
-    updateChannel: true,
-    activeVersion: INSTALL_PRE_VERSION,
-    candidateVersion: INSTALL_VERSION,
+    channel: input.channel ?? "beta",
+    updateChannel: input.updateChannel ?? true,
+    activeVersion: input.activeVersion ?? INSTALL_PRE_VERSION,
+    candidateVersion: input.candidateVersion ?? INSTALL_VERSION,
     installationId: input.id,
     installRoot: input.root,
     executable: input.root + "/1667",
     artifactTarget: input.target,
-    phase: "ownership-pending"
+    phase: input.phase ?? "ownership-pending"
   });
 }
 
-async function writeScript(root: string): Promise<{
+async function writeScript(
+  root: string,
+  channel: "stable" | "beta" = "beta"
+): Promise<{
   readonly scriptPath: string;
   readonly digest: string;
 }> {
@@ -91,14 +99,31 @@ async function writeScript(root: string): Promise<{
   const archive = releaseArchiveFileName(INSTALL_VERSION, target);
   const digest = digests[archive];
   if (digest === undefined) throw new Error("host archive digest missing");
-  const scriptPath = path.join(root, "install-beta.sh");
+  const scriptPath = path.join(root, "install-" + channel + ".sh");
   await writeFile(scriptPath, renderInstallScriptsForVersion({
     version: INSTALL_VERSION,
     repository: INSTALL_REPO,
     digests,
     assetBaseUrl: "http://127.0.0.1:1"
-  })["install-beta.sh"]!, { mode: 0o755 });
+  })["install-" + channel + ".sh"]!, { mode: 0o755 });
   return { scriptPath, digest };
+}
+
+function recoveryHarness(scriptBody: string): string {
+  const marker = "\nmain \"\$@\"\n";
+  if (!scriptBody.endsWith(marker)) throw new Error("generated Shell Installer main marker missing");
+  return scriptBody.slice(0, -marker.length)
+    + "\nprefix=\"\$1\"\n"
+    + "target=\"\$2\"\n"
+    + "digest=\"\$3\"\n"
+    + "archive=\"\$4\"\n"
+    + "executable=\"\$prefix/\$ACTIVE_FILE\"\n"
+    + "CLEANUP_OWNS_STAGING=0\n"
+    + "MANAGED_FORCE=0\n"
+    + "acquire_lock \"\$prefix\"\n"
+    + "recover_install \"\$prefix\" \"\$executable\" \"\$target\" \"\$digest\" \"\$archive\"\n"
+    + "printf '%s\\n' \"\$RECOVER_STATUS\"\n"
+    + "release_lock \"\$prefix\"\n";
 }
 
 test("activated recovery preserves valid ownership and rejects malformed ownership", async (t) => {
@@ -168,6 +193,88 @@ test("activated recovery preserves valid ownership and rejects malformed ownersh
       const ownershipStat = await lstat(path.join(prefix, INSTALL_OWNERSHIP_FILE));
       assert.equal(ownershipStat.isSymbolicLink(), item.record === "dangling");
     }
+  }
+});
+
+test("managed recovery consumes canonical TUI transactions for both phases", async (t) => {
+  const target = hostShellInstallerTarget();
+  if (target === null) {
+    t.skip("Host cannot run the POSIX Shell Installer");
+    return;
+  }
+  const root = await createScratch("install-recovery-managed-");
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const beta = await writeScript(root, "beta");
+  const stable = await writeScript(root, "stable");
+  const cases = [
+    {
+      label: "candidate-ready",
+      phase: "candidate-ready" as const,
+      script: stable.scriptPath,
+      transactionChannel: "beta" as const,
+      updateChannel: false,
+      expectedChannel: "stable" as const
+    },
+    {
+      label: "ownership-pending",
+      phase: "ownership-pending" as const,
+      script: beta.scriptPath,
+      transactionChannel: "beta" as const,
+      updateChannel: true,
+      expectedChannel: "beta" as const
+    }
+  ] as const;
+
+  for (const [index, item] of cases.entries()) {
+    const prefix = path.join(root, item.label);
+    await mkdir(prefix, { mode: 0o755 });
+    await chmod(prefix, 0o755);
+    const id = (index === 0
+      ? "0123456789abcdef0123456789abcdef"
+      : "fedcba9876543210fedcba9876543210");
+    const activeBytes: Buffer = Buffer.from(releaseStub(INSTALL_VERSION, target));
+    const previousBytes: Buffer = Buffer.from(releaseStub(INSTALL_PRE_VERSION, target));
+    await writeFile(path.join(prefix, "1667"), activeBytes, { mode: 0o755 });
+    await writeFile(path.join(prefix, INSTALL_OWNERSHIP_FILE), compactOwnership({
+      id,
+      channel: "stable",
+      root: prefix,
+      target
+    }), { mode: 0o600 });
+    await writeFile(path.join(prefix, INSTALL_PREVIOUS_FILE + ".next"), previousBytes, {
+      mode: 0o755
+    });
+    const txn = managedTxn({
+      id,
+      root: prefix,
+      target,
+      phase: item.phase,
+      channel: item.transactionChannel,
+      updateChannel: item.updateChannel
+    });
+    const txnPath = path.join(prefix, INSTALL_TRANSACTION_FILE);
+    await writeFile(txnPath, txn, { mode: 0o600 });
+
+    const harnessPath = path.join(root, item.label + "-harness.sh");
+    const scriptBody = await readFile(item.script, "utf8");
+    await writeFile(harnessPath, recoveryHarness(scriptBody), { mode: 0o755 });
+    const archive = releaseArchiveFileName(INSTALL_VERSION, target);
+    const digest = item.script === beta.scriptPath ? beta.digest : stable.digest;
+    const result = await execFileAsync(
+      "sh",
+      [harnessPath, prefix, target, digest, archive],
+      { cwd: root }
+    );
+    assert.match(result.stdout, /managed-completed/);
+    assert.deepEqual(await readFile(path.join(prefix, "1667")), activeBytes);
+    assert.deepEqual(await readFile(path.join(prefix, INSTALL_PREVIOUS_FILE)), previousBytes);
+    await assert.rejects(readFile(path.join(prefix, INSTALL_PREVIOUS_FILE + ".next")));
+    await assert.rejects(readFile(txnPath));
+    const ownership = parseInstallOwnershipRecordText(
+      await readFile(path.join(prefix, INSTALL_OWNERSHIP_FILE), "utf8")
+    );
+    assert.equal(ownership.installationId, id);
+    assert.equal(ownership.channel, item.expectedChannel);
   }
 });
 

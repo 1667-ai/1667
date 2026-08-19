@@ -109,6 +109,10 @@ test("generated installer durably fsyncs ownership before clearing the transacti
     body,
     /recover_install\(\) \{[\s\S]*?validate_managed_file_safety "\$txn" "Install Transaction Record"[\s\S]*?txn_mode=\$\(exec 9>&-; file_mode "\$txn"\)[\s\S]*?\[ "\$txn_mode" = 600 \]/
   );
+  assert.match(
+    body,
+    /case "\$RECOVER_STATUS" in[\s\S]*?completed\)[\s\S]*?none\|reset\|managed-reset\|managed-completed\)[\s\S]*?\*\)[\s\S]*?Unsupported recovery status/
+  );
   const managedBootstrapStart = body.indexOf(
     '    validate_managed_ownership "$prefix" "$executable" "$target"'
   );

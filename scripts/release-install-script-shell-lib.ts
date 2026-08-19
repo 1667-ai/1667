@@ -259,7 +259,9 @@ remove_extract_stage() {
 }
 
 # Recovery runs in the lock-owning shell so PROBE_PID stays visible to traps.
-# Sets RECOVER_STATUS (none|reset|completed). Do not wrap in command substitution.
+# Sets RECOVER_STATUS (none|reset|completed|managed-reset|managed-completed).
+# The caller must handle every value explicitly. Do not wrap in command
+# substitution: recovery runs in the lock-owning shell so probe traps work.
 recover_install() {
   root=\$1
   executable=\$2
@@ -303,7 +305,7 @@ recover_install() {
   CLEANUP_OWNS_STAGING=1
   case "\$phase" in
     downloading|extracted)
-      rm -f "\$root/\$CANDIDATE_FILE" "\$root/\$PREVIOUS_NEXT_FILE" "\$root/\$archive"
+      rm -f "\$root/\$CANDIDATE_FILE" "\$root/\$PREVIOUS_NEXT_FILE" "\$root/\$archive" 9>&-
       remove_extract_stage "\$root"
       clear_txn "\$root"
       RECOVER_STATUS=reset
