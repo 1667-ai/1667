@@ -34,7 +34,7 @@ const FILE_BACKED_TEST_TIMEOUT_MS =
   + FILE_BACKED_CONTROL_WAIT_MS
   + platformPerformanceBudget(2_000);
 
-test("caller cancellation hard-fences a mutation that never reaches terminal state", async () => {
+test("caller cancellation hard-fences a mutation when status stops responding", async () => {
   const worker = new FakeWorker();
   const outbox = new RecordingCancellationOutbox();
   const transport = await startTransport(worker, outbox, 20);
@@ -51,12 +51,59 @@ test("caller cancellation hard-fences a mutation that never reaches terminal sta
   expect(await waitForControlMessage(worker, "cancel", request.id)).toMatchObject({
     reason: "user"
   });
+  await waitForControlMessage(worker, "status", request.id);
   expect(await mutationError).toMatchObject({ code: "backend_restart_required" });
   expect((await transport.failure).message).toContain(
-    "cancellation did not reach terminal state"
+    "stopped responding after cancellation"
   );
   expect(worker.terminateCalls).toBe(1);
   await expectRestartRequiredDisposal(transport);
+});
+
+test("a responsive canceled generation stays online past cancellation grace", async () => {
+  const worker = new FakeWorker(true);
+  const outbox = new RecordingCancellationOutbox();
+  const cancelGraceMs = 20;
+  const transport = await startTransport(worker, outbox, cancelGraceMs);
+  const cancel = new AbortController();
+  const outcome = transport.call(
+    "continueStory",
+    {
+      storyId: "story",
+      instruction: "Try again quickly.",
+      genId: "responsive-stop",
+      target: {}
+    },
+    { signal: cancel.signal }
+  );
+  const request = await waitForRequest(worker, "continueStory");
+
+  cancel.abort();
+  await outbox.cancelled;
+  await waitForControlMessage(worker, "cancel", request.id);
+  await waitForControlMessageCount(worker, "status", request.id, 1);
+  worker.message({
+    type: "operation",
+    id: request.id,
+    state: "running",
+    terminal: false
+  });
+  await waitForControlMessageCount(worker, "status", request.id, 2);
+  worker.message({
+    type: "operation",
+    id: request.id,
+    state: "running",
+    terminal: false
+  });
+
+  let failed = false;
+  void transport.failure.then(() => { failed = true; });
+  expect(failed).toBeFalse();
+  expect(worker.terminateCalls).toBe(0);
+
+  worker.message({ type: "complete", id: request.id, value: null });
+  expect(await outcome).toBe(null);
+  await transport.dispose();
 });
 
 test("the default cancellation grace lets a slow generation unwind past two seconds", async () => {
@@ -602,7 +649,7 @@ class UserCancelThrowingWorker extends FakeWorker {
 
 function hasControlMessage(
   worker: FakeWorker,
-  type: "cancel" | "terminalAck",
+  type: "cancel" | "status" | "terminalAck",
   id: WorkerOperationId
 ): boolean {
   return worker.messages.some((message) =>
@@ -612,7 +659,7 @@ function hasControlMessage(
 
 async function waitForControlMessage(
   worker: FakeWorker,
-  type: "cancel" | "terminalAck",
+  type: "cancel" | "status" | "terminalAck",
   id: WorkerOperationId,
   timeoutMs = platformPerformanceBudget(500)
 ): Promise<MainToWorkerMessage> {
@@ -625,6 +672,24 @@ async function waitForControlMessage(
     await new Promise((resolve) => setTimeout(resolve, 1));
   } while (performance.now() < deadline);
   throw new Error(`${type} control message was not sent`);
+}
+
+async function waitForControlMessageCount(
+  worker: FakeWorker,
+  type: "cancel" | "status" | "terminalAck",
+  id: WorkerOperationId,
+  count: number,
+  timeoutMs = platformPerformanceBudget(500)
+): Promise<void> {
+  const deadline = performance.now() + timeoutMs;
+  do {
+    const matches = worker.messages.filter((candidate) =>
+      candidate.type === type && sameWorkerOperationId(candidate.id, id)
+    );
+    if (matches.length >= count) return;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  } while (performance.now() < deadline);
+  throw new Error(`${type} control message count did not reach ${count}`);
 }
 
 async function rejection(promise: Promise<unknown>): Promise<Error & Record<string, unknown>> {

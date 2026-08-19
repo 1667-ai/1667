@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **A slow generation Stop keeps 1667 open.** If the embedded backend needs
+  more than 10 seconds to stop a generation, 1667 now checks the operation
+  status. It keeps the application open while the backend answers. It still
+  requires a restart if the backend stops answering.
+
 ## 0.9.10-rc.1 - 2026-08-19
 
 - **ChatGPT and Claude subscriptions can connect directly.** Run
