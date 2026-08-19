@@ -191,6 +191,42 @@ test("a delayed settings refresh cannot select below an open model picker", asyn
   expect(settingsProviderChoice(state.settings!.draft.generation).id).toBe("dry-run");
 });
 
+test("a delayed settings refresh cannot select below nested Settings surfaces", async () => {
+  for (const surface of ["sampling", "profile-transfer"] as const) {
+    const { source, state, press } = harness();
+    source.settingsView = initialSettingsView({
+      chatgpt: "signed-out",
+      claude: "signed-out"
+    });
+    const entered = deferred<void>();
+    const gate = deferred<SettingsView>();
+    source.api.getSettings = async () => {
+      entered.resolve();
+      return gate.promise;
+    };
+
+    const opening = openSettings(press);
+    await entered.promise;
+    await selectRow(press, state, surface === "sampling" ? "sampling" : "profile");
+    await press(key(surface === "sampling" ? "return" : "i"));
+    const before = surface === "sampling"
+      ? state.settings!.sampling
+      : state.settings!.profileTransfer;
+    expect(before).not.toBe(null);
+
+    gate.resolve(initialSettingsView({
+      chatgpt: "signed-in",
+      claude: "signed-out"
+    }));
+    await opening;
+
+    expect(surface === "sampling"
+      ? state.settings!.sampling
+      : state.settings!.profileTransfer).toEqual(before);
+    expect(settingsProviderChoice(state.settings!.draft.generation).id).toBe("dry-run");
+  }
+});
+
 test("a pending activation keeps the pristine provider untouched", async () => {
   const { source, state, press } = harness();
   source.settingsView = {

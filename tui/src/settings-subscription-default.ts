@@ -18,6 +18,8 @@ export function autoSelectSettingsSubscriptionPlan(
 ): boolean {
   if (activeEdit !== null
     || overlay.modelPicker !== null
+    || overlay.sampling !== null
+    || overlay.profileTransfer !== null
     || !overlay.view.editable
     || settingsDraftChanged(overlay)) return false;
   const preset = settingsSubscriptionAutoPreset(overlay.view);
