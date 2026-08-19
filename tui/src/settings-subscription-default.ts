@@ -9,6 +9,10 @@ import {
 import type { ActiveSettingsEdit } from "./settings-edit-state.js";
 import type { SettingsOverlayState } from "./state.js";
 import { settingsProviderChoice } from "./settings-provider-choices.js";
+import {
+  restoreSettingsCursor,
+  settingsCursorRowIdentity
+} from "./settings-row-navigation.js";
 
 /** Apply one signed-in plan only to the untouched built-in draft.
  * The selected plan remains a draft until the writer saves Settings. */
@@ -24,6 +28,7 @@ export function autoSelectSettingsSubscriptionPlan(
     || settingsDraftChanged(overlay)) return false;
   const preset = settingsSubscriptionAutoPreset(overlay.view);
   if (preset === null || overlay.view.subscriptionAutoSelectEligible !== true) return false;
+  const cursorRow = settingsCursorRowIdentity(overlay);
   const choice = settingsProviderChoice(overlay.draft.generation, preset);
   const generation = {
     ...overlay.draft.generation,
@@ -34,5 +39,6 @@ export function autoSelectSettingsSubscriptionPlan(
     overlay,
     settingsTextDraftWithSubscriptionPlan(overlay.draft, preset, generation)
   );
+  restoreSettingsCursor(overlay, cursorRow);
   return true;
 }

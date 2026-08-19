@@ -18,6 +18,7 @@ import {
 import { settingsDraftChanged } from "../src/settings-overlay-reconciliation.js";
 import { settingsRows } from "../src/settings-overlay-model.js";
 import { settingsProviderChoice } from "../src/settings-provider-choices.js";
+import { settingsCursorRowIdentity } from "../src/settings-row-navigation.js";
 import { settingsSubscriptionPreset } from "../src/settings-subscription.js";
 import {
   deferred,
@@ -140,6 +141,32 @@ test("a delayed settings refresh cannot select below an active inline edit", asy
 
   expect(settingsSubscriptionPreset(state.settings!)).toBe(null);
   expect(state.settings!.edit?.composer.text).toBe("typed-before-refresh");
+});
+
+test("a delayed settings refresh keeps the selected row after auto-selection", async () => {
+  const { source, state, press } = harness();
+  source.settingsView = initialSettingsView({
+    chatgpt: "signed-out",
+    claude: "signed-out"
+  });
+  const entered = deferred<void>();
+  const gate = deferred<SettingsView>();
+  source.api.getSettings = async () => {
+    entered.resolve();
+    return gate.promise;
+  };
+
+  const opening = openSettings(press);
+  await entered.promise;
+  await selectRow(press, state, "model");
+  expect(settingsCursorRowIdentity(state.settings!)).toBe("model");
+  gate.resolve(initialSettingsView({
+    chatgpt: "signed-in",
+    claude: "signed-out"
+  }));
+  await opening;
+
+  expect(settingsCursorRowIdentity(state.settings!)).toBe("model");
 });
 
 test("a delayed settings refresh cannot select below an open model picker", async () => {
