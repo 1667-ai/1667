@@ -5,12 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.9.10-rc.2 - 2026-08-19
+
 - **A slow generation Stop keeps 1667 open.** If the embedded backend needs
   more than 10 seconds to stop a generation, 1667 now checks the operation
   status. It keeps the application open while the backend answers. It still
   requires a restart if the backend stops answering.
-
-## 0.9.10-rc.2 - 2026-08-19
 
 - **Fresh Settings can select a signed-in subscription plan.** When exactly
   one plan is signed in, Settings selects that plan as an unsaved draft. Both
@@ -20,7 +20,7 @@ This file records notable changes to 1667. Product terms use the definitions in
 - **Managed upgrades accept updated legal notices.** An installed version no
   longer compares a new package's `LICENSE` and `NOTICE` files with its own old
   copies. The release process still requires the reviewed files. The updater
-   still checks the package contents, metadata, integrity, and source identity.
+  still checks the package contents, metadata, integrity, and source identity.
 
 ## 0.9.10-rc.1 - 2026-08-19
 
