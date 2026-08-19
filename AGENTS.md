@@ -22,6 +22,11 @@ exact spelling.
 Credit a contributor only when the contributor is not `@10fra`.
 Do not credit `@10fra` in `CHANGELOG.md`.
 
+## Issue closure
+
+Do not close an issue until its change is available in a stable release.
+Keep issues open when you merge implementation work or publish a prerelease.
+
 ## Automated tests
 
 Write an end-to-end test or an integration test for new behavior. Write a unit
