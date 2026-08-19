@@ -201,7 +201,7 @@ write_txn() {
   target=\$3
   digest=\$4
   tmp="\$root/.1667-install-txn.\$\$.tmp"
-  rm -f "\$tmp"
+  rm -f "\$tmp" 9>&-
   umask 077
   # Noclobber writer is a parenthesized subshell that inherits FD 9; close it.
   if ! (
@@ -211,7 +211,7 @@ write_txn() {
   ); then
     die "Could not create a Transaction Record"
   fi
-  mv "\$tmp" "\$root/\$TXN_FILE"
+  mv "\$tmp" "\$root/\$TXN_FILE" 9>&-
   fsync_path "\$root/\$TXN_FILE"
 }
 
@@ -227,16 +227,16 @@ validate_txn() {
   tmp="\$file.validate.\$\$"
   for phase in downloading extracted candidate-ready activated; do
     if ! canonical_txn_bytes "\$phase" "\$expected_target" "\$expected_digest" "\$root" > "\$tmp"; then
-      rm -f "\$tmp"
+      rm -f "\$tmp" 9>&-
       die "Could not build a comparison Transaction Record"
     fi
-    if cmp -s "\$file" "\$tmp"; then
-      rm -f "\$tmp"
+    if cmp -s "\$file" "\$tmp" 9>&-; then
+      rm -f "\$tmp" 9>&-
       printf '%s\\n' "\$phase"
       return 0
     fi
   done
-  rm -f "\$tmp"
+  rm -f "\$tmp" 9>&-
   die "Install transaction is not a canonical phase record"
 }
 
@@ -326,7 +326,7 @@ recover_install() {
             random_hex_32
           )
           write_ownership "\$root" "\$installation_id" "\$executable" "\$target"
-          rm -f "\$root/\$CANDIDATE_FILE"
+          rm -f "\$root/\$CANDIDATE_FILE" 9>&-
           remove_extract_stage "\$root"
           clear_txn "\$root"
           RECOVER_STATUS=completed
@@ -334,7 +334,7 @@ recover_install() {
         fi
         die "Install left an active executable that does not match the pinned release"
       fi
-      rm -f "\$root/\$CANDIDATE_FILE"
+      rm -f "\$root/\$CANDIDATE_FILE" 9>&-
       remove_extract_stage "\$root"
       clear_txn "\$root"
       RECOVER_STATUS=reset
@@ -358,7 +358,7 @@ recover_install() {
         )
         write_ownership "\$root" "\$installation_id" "\$executable" "\$target"
       fi
-      rm -f "\$root/\$CANDIDATE_FILE"
+      rm -f "\$root/\$CANDIDATE_FILE" 9>&-
       remove_extract_stage "\$root"
       clear_txn "\$root"
       RECOVER_STATUS=completed
@@ -412,7 +412,7 @@ download_archive() {
   set -e
   DOWNLOAD_PID=
   if [ "\$status" -ne 0 ]; then
-    rm -f "\$out"
+    rm -f "\$out" 9>&-
     die "Download failed"
   fi
   # size= subshell inherits FD 9; close it so a hung wc cannot pin the lock.
@@ -421,7 +421,7 @@ download_archive() {
     wc -c < "\$out" | tr -d ' '
   )
   if [ "\$size" -le 0 ] || [ "\$size" -gt "\$MAX_ARCHIVE_BYTES" ]; then
-    rm -f "\$out"
+    rm -f "\$out" 9>&-
     die "Release Archive size is outside the bound"
   fi
 }

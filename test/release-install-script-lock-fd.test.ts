@@ -229,6 +229,107 @@ test("extracted recovery cleanup cannot retain the Install Root lock", async (t)
   await lock.release();
 });
 
+test("version-changing managed bootstrap does not leak the Install Root lock to archive cleanup", async (t) => {
+  const target = hostShellInstallerTarget();
+  if (target === null) {
+    t.skip("Host cannot run the POSIX Shell Installer");
+    return;
+  }
+  const parent = path.join(homedir(), ".cache", "1667-tests");
+  await mkdir(parent, { recursive: true, mode: 0o755 });
+  await chmod(parent, 0o755);
+  const root = await mkdtemp(path.join(parent, "install-lock-managed-bootstrap-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const prefix = path.join(root, "prefix");
+  const tools = path.join(root, "tools");
+  const rmPidPath = path.join(root, "rm.pid");
+  await mkdir(prefix, { mode: 0o755 });
+  await chmod(prefix, 0o755);
+  await mkdir(tools, { mode: 0o755 });
+  const archiveName = releaseArchiveFileName(INSTALL_VERSION, target);
+  const escapedRmPidPath = rmPidPath.replace(/'/g, "'\\''");
+  const stalledRm = "#!/bin/sh\n"
+    + "for arg do\n"
+    + "  case \"$arg\" in\n"
+    + "    */" + archiveName + ")\n"
+    + "      printf '%s\\n' \"$$\" > '" + escapedRmPidPath + "'\n"
+    + "      trap '' TERM INT\n"
+    + "      exec sleep 3600\n"
+    + "      ;;\n"
+    + "  esac\n"
+    + "done\n"
+    + "exec /bin/rm \"$@\"\n";
+  await writeFile(path.join(tools, "rm"), stalledRm, { mode: 0o755 });
+
+  const executable = path.join(prefix, "1667");
+  const ownership = serializeInstallOwnershipRecord(createInstallOwnershipRecord({
+    installationId: "0123456789abcdef0123456789abcdef",
+    channel: "beta",
+    installRoot: prefix,
+    executable,
+    artifactTarget: target
+  }));
+  await writeFile(executable, releaseStub("1.2.2", target), { mode: 0o755 });
+  await writeFile(path.join(prefix, INSTALL_OWNERSHIP_FILE), ownership, { mode: 0o600 });
+
+  const archiveDir = path.join(root, "archives");
+  const digests = await writePublishedArchives(archiveDir, INSTALL_VERSION);
+  const scriptPath = path.join(root, "install-beta.sh");
+  await writeFile(scriptPath, renderInstallScriptsForVersion({
+    version: INSTALL_VERSION,
+    repository: INSTALL_REPO,
+    digests,
+    assetBaseUrl: "http://127.0.0.1:1"
+  })["install-beta.sh"]!, { mode: 0o755 });
+
+  const child = spawn("sh", [scriptPath, "--prefix", prefix], {
+    cwd: root,
+    env: {
+      ...process.env,
+      PATH: tools + path.delimiter + (process.env["PATH"] ?? "/usr/bin:/bin")
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  child.stdout?.resume();
+  child.stderr?.resume();
+  let childExited = false;
+  const exitPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+    (resolve) => child.on("exit", (code, signal) => {
+      childExited = true;
+      resolve({ code, signal });
+    })
+  );
+  let rmPid: number | undefined;
+  t.after(() => {
+    if (rmPid !== undefined && processAlive(rmPid)) {
+      try {
+        process.kill(rmPid, "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
+    if (!childExited && child.pid !== undefined) {
+      try {
+        process.kill(child.pid, "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
+  });
+
+  rmPid = await waitForPid(rmPidPath);
+  assert.equal(processAlive(rmPid), true, "archive cleanup helper must be stalled");
+  assert.ok(child.pid !== undefined, "installer parent pid missing");
+  process.kill(child.pid, "SIGKILL");
+  const exit = await exitPromise;
+  assert.equal(exit.signal, "SIGKILL");
+  assert.equal(processAlive(rmPid), true, "stalled helper must survive parent death");
+
+  const lock = await acquireInstallationLock(prefix);
+  await lock.release();
+});
+
 async function waitForPid(filePath: string, timeoutMs = 5_000): Promise<number> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

@@ -278,7 +278,7 @@ ${input.digestLines}
   url="\$ASSET_BASE/\$archive"
   write_txn "\$prefix" "downloading" "\$target" "\$digest"
   archive_path="\$prefix/\$archive"
-  rm -f "\$archive_path"
+  rm -f "\$archive_path" 9>&-
   say "Downloading 1667 \$PRODUCT_VERSION for \$target"
   download_archive "\$url" "\$archive_path"
   say "Checking the download"
@@ -286,7 +286,7 @@ ${input.digestLines}
   write_txn "\$prefix" "extracted" "\$target" "\$digest"
   say "Unpacking"
   extract_candidate "\$prefix" "\$archive_path" "\$archive"
-  rm -f "\$archive_path"
+  rm -f "\$archive_path" 9>&-
   say "Starting 1667 once to confirm it runs"
   probe_candidate "\$prefix/\$CANDIDATE_FILE" "\$target"
   # Candidate bytes must be durable before candidate-ready is published.
@@ -318,8 +318,8 @@ ${input.digestLines}
     write_ownership "\$prefix" "\$OWNERSHIP_ID" "\$executable" "\$target" "\$INSTALL_CHANNEL"
   else
     write_txn "\$prefix" "candidate-ready" "\$target" "\$digest"
-    mv "\$prefix/\$CANDIDATE_FILE" "\$executable"
-    chmod 0755 "\$executable"
+    mv "\$prefix/\$CANDIDATE_FILE" "\$executable" 9>&-
+    chmod 0755 "\$executable" 9>&-
     fsync_path "\$executable"
     # Close the gap: durable activated mark before ownership write.
     write_txn "\$prefix" "activated" "\$target" "\$digest"
@@ -369,7 +369,7 @@ cleanup_install() {
     # Remove staging while this process still holds the lock, then release.
     # Releasing first lets a successor publish staging that this cleanup would delete.
     rm -f "\$root/\$CANDIDATE_FILE" "\$root/\$PROBE_OUTPUT_FILE" \
-      "\$root/\$archive" "\$root/\$PACKAGE_STAGING_FILE" 2>/dev/null || true
+      "\$root/\$archive" "\$root/\$PACKAGE_STAGING_FILE" 9>&- 2>/dev/null || true
     remove_extract_stage "\$root"
   fi
   release_lock "\$root"
@@ -398,7 +398,7 @@ stop_probe() {
   fi
   if [ -n "\${PROBE_PID:-}" ]; then
     kill "\$PROBE_PID" 2>/dev/null || true
-    sleep 1
+    sleep 1 9>&-
     kill -9 "\$PROBE_PID" 2>/dev/null || true
     set +e
     wait "\$PROBE_PID" 2>/dev/null

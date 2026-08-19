@@ -44,7 +44,7 @@ test("generated installer durably fsyncs ownership before clearing the transacti
   assert.match(body, /fsync_dir\(\)/);
   assert.match(body, /clear_txn\(\)/);
   // write_txn and write_ownership publish then fsync the file and parent dir.
-  assert.match(body, /mv "\$tmp" "\$root\/\$TXN_FILE"\s*\n\s*fsync_path "\$root\/\$TXN_FILE"/);
+  assert.match(body, /mv "\$tmp" "\$root\/\$TXN_FILE" 9>&-\s*\n\s*fsync_path "\$root\/\$TXN_FILE"/);
   assert.match(
     body,
     /mv "\$tmp" "\$dest" 9>&-\s*\n\s*chmod 0600 "\$dest" 9>&-\s*\n\s*# Ownership must be durable[\s\S]*?fsync_path "\$dest"/
@@ -201,7 +201,7 @@ test("generated installer durably fsyncs ownership before clearing the transacti
     "active executable is fsynced after activation rename"
   );
   // Active executable is fsynced after activation rename.
-  assert.match(body, /chmod 0755 "\$executable"\s*\n\s*fsync_path "\$executable"/);
+  assert.match(body, /chmod 0755 "\$executable" 9>&-\s*\n\s*fsync_path "\$executable"/);
   // Recovery candidate-ready: fsync active before ownership publish and txn clear.
   const recoverSoft = body.indexOf("probe_candidate_soft");
   assert.ok(recoverSoft >= 0, "recovery probes the active executable");

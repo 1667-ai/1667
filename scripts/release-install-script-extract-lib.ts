@@ -81,7 +81,7 @@ decompress_archive_bounded() {
   max_blocks=\$((MAX_TAR_BYTES / 512))
   # Private status file next to the private tar (same extract stage).
   gzip_status_path="\${tar_path}.gzip-status"
-  rm -f "\$tar_path" "\$gzip_status_path"
+  rm -f "\$tar_path" "\$gzip_status_path" 9>&-
   # Capture gzip exit in the status file (POSIX sh has no pipefail). dd
   # iflag=fullblock makes count mean complete 512-byte blocks on GNU dd and
   # macOS BSD dd. Close FD 9 in the subshell and on gzip.
@@ -111,7 +111,7 @@ decompress_archive_bounded() {
       cat "\$gzip_status_path"
     fi
   )
-  rm -f "\$gzip_status_path"
+  rm -f "\$gzip_status_path" 9>&-
   # At or below the bound require gzip status 0 so a bad CRC cannot pass.
   if [ -z "\$gzip_status" ] || [ "\$gzip_status" -ne 0 ]; then
     die "Archive decompression failed"
@@ -210,7 +210,7 @@ validate_ustar_physical() {
   fi
   hdr="\$stage/.ustar-hdr"
   zero="\$stage/.ustar-zero"
-  rm -f "\$hdr" "\$zero"
+  rm -f "\$hdr" "\$zero" 9>&-
   (
     exec 9>&-
     dd if=/dev/zero of="\$zero" bs=512 count=1 2>/dev/null
@@ -317,7 +317,7 @@ ${memberAssignLines}
   if [ -z "\$exesize" ] || [ "\$seen" -ne "\$expected_mask" ]; then
     die "Archive layout is not the exact pinned Release Archive layout"
   fi
-  rm -f "\$hdr" "\$zero"
+  rm -f "\$hdr" "\$zero" 9>&-
 }
 
 # Extract only the pinned 1667 executable into private reserved staging.
@@ -333,7 +333,7 @@ extract_candidate() {
   # One exact reserved staging path, protected by the Install Root lock.
   stage="\$root/\$EXTRACT_STAGE"
   remove_extract_stage "\$root"
-  mkdir -m 0700 "\$stage"
+  mkdir -m 0700 "\$stage" 9>&-
   tar_path="\$stage/archive.tar"
   decompress_archive_bounded "\$archive_path" "\$tar_path"
   validate_ustar_physical "\$tar_path" "\$stem" "\$stage"
@@ -354,10 +354,10 @@ extract_candidate() {
   if [ "\$size" -le 0 ] || [ "\$size" -gt "\$MAX_EXECUTABLE_BYTES" ]; then
     die "Release executable size is outside the bound"
   fi
-  rm -f "\$root/\$CANDIDATE_FILE"
-  mv "\$candidate" "\$root/\$CANDIDATE_FILE"
+  rm -f "\$root/\$CANDIDATE_FILE" 9>&-
+  mv "\$candidate" "\$root/\$CANDIDATE_FILE" 9>&-
   # Installer-chosen mode; do not preserve archive modes.
-  chmod 0755 "\$root/\$CANDIDATE_FILE"
+  chmod 0755 "\$root/\$CANDIDATE_FILE" 9>&-
   remove_extract_stage "\$root"
 }
 
