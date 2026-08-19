@@ -5,16 +5,28 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.9.10-rc.2 - 2026-08-19
+
 - **A slow generation Stop keeps 1667 open.** If the embedded backend needs
   more than 10 seconds to stop a generation, 1667 now checks the operation
   status. It keeps the application open while the backend answers. It still
   requires a restart if the backend stops answering.
 
+- **Fresh Settings can select a signed-in subscription plan.** When exactly
+  one plan is signed in, Settings selects that plan as an unsaved draft. Both
+  or neither signed-in plan keeps the current choice. Settings does not replace
+  a choice that the user saved.
+
+- **Managed upgrades accept updated legal notices.** An installed version no
+  longer compares a new package's `LICENSE` and `NOTICE` files with its own old
+  copies. The release process still requires the reviewed files. The updater
+  still checks the package contents, metadata, integrity, and source identity.
+
 ## 0.9.10-rc.1 - 2026-08-19
 
 - **ChatGPT and Claude subscriptions can connect directly.** Run
-  `1667 auth login openai-codex` to connect a ChatGPT plan. Run
-  `1667 auth login anthropic` to connect a Claude plan. Settings can use both
+  `1667 auth login chatgpt` to connect a ChatGPT plan. Run
+  `1667 auth login claude` to connect a Claude plan. Settings can use both
   connections. 1667 keeps the subscription credentials on this machine.
 
 ## 0.9.9 - 2026-08-17

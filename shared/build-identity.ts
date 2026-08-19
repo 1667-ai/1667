@@ -65,10 +65,12 @@ export const AI_1667_PRODUCT = "1667" as const;
  * export result. A v20 client against a v21 server would not know the new
  * response and failure shapes. v22 carries the server-resolved active prose
  * continuation layout in the Settings view. A v21 client would reject that
- * additive closed-record field. */
-export const HTTP_API_PROTOCOL_VERSION = 22;
-export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 22;
-export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 22;
+ * additive closed-record field. v23 carries machine-tier subscription sign-in
+ * state in the Settings view. A v22 client would reject that additive field
+ * before it can use the rest of Settings. */
+export const HTTP_API_PROTOCOL_VERSION = 23;
+export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 23;
+export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 23;
 
 export type ArtifactTarget = "source" | BuiltArtifactTarget;
 

@@ -5,6 +5,7 @@ import type { RuntimeState } from "./state.js";
 import { applyGenerationSettings } from "./runtime-settings.js";
 import { activeSettingsEdit } from "./settings-edit-state.js";
 import { reconcileSettingsOverlay } from "./settings-overlay-model.js";
+import { autoSelectSettingsSubscriptionPlan } from "./settings-subscription-default.js";
 
 interface StoryCatalogSource { stories: StorySummary[] }
 interface SettingsViewSource {
@@ -57,12 +58,14 @@ export function publishSettingsView(
   applyGenerationSettings(state, source, view);
   const overlay = state.settings;
   if (overlay !== null) {
+    const edit = activeSettingsEdit(state, overlay);
     const message = reconcileSettingsOverlay(
       overlay,
       view,
-      activeSettingsEdit(state, overlay)
+      edit
     );
     overlay.view = view;
+    autoSelectSettingsSubscriptionPlan(overlay, edit);
     overlay.result = null;
     if (message !== null) state.toast = message;
   }

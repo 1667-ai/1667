@@ -114,7 +114,7 @@ export function settingsRows(
   const subscriptionPreset = settingsSubscriptionPreset(overlay);
   const subscriptionHint = subscriptionPreset === null
     ? null
-    : settingsSubscriptionLoginHint(subscriptionPreset);
+    : settingsSubscriptionLoginHint(subscriptionPreset, overlay.view.subscriptionAuth);
   const insecureNeeded = providerChoice.plaintextDefaultRequiresOwnedLoopback === true
     && !localProviderPresetsSupported()
     && isPlainHttp(settings.baseUrl)

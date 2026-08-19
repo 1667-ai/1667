@@ -11,9 +11,14 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.10-rc.2",
+    date: "2026-08-19",
+    body: "- **A slow generation Stop keeps 1667 open.** If the embedded backend needs\n  more than 10 seconds to stop a generation, 1667 now checks the operation\n  status. It keeps the application open while the backend answers. It still\n  requires a restart if the backend stops answering.\n\n- **Fresh Settings can select a signed-in subscription plan.** When exactly\n  one plan is signed in, Settings selects that plan as an unsaved draft. Both\n  or neither signed-in plan keeps the current choice. Settings does not replace\n  a choice that the user saved.\n\n- **Managed upgrades accept updated legal notices.** An installed version no\n  longer compares a new package's `LICENSE` and `NOTICE` files with its own old\n  copies. The release process still requires the reviewed files. The updater\n  still checks the package contents, metadata, integrity, and source identity."
+  },
+  {
     version: "0.9.10-rc.1",
     date: "2026-08-19",
-    body: "- **ChatGPT and Claude subscriptions can connect directly.** Run\n  `1667 auth login openai-codex` to connect a ChatGPT plan. Run\n  `1667 auth login anthropic` to connect a Claude plan. Settings can use both\n  connections. 1667 keeps the subscription credentials on this machine."
+    body: "- **ChatGPT and Claude subscriptions can connect directly.** Run\n  `1667 auth login chatgpt` to connect a ChatGPT plan. Run\n  `1667 auth login claude` to connect a Claude plan. Settings can use both\n  connections. 1667 keeps the subscription credentials on this machine."
   },
   {
     version: "0.9.9",

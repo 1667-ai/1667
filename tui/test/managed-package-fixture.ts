@@ -90,6 +90,7 @@ export function buildCanonicalPlatformPackage(input: {
   readonly target: BuiltArtifactTarget;
   readonly omit?: string;
   readonly badMode?: string;
+  readonly noticeBody?: Buffer | string;
   readonly buildManifestBody?: string;
   readonly sourceCommit?: string;
   readonly buildTimestamp?: string;
@@ -107,13 +108,14 @@ export function buildCanonicalPlatformPackage(input: {
     throw new Error("fixture package name does not match target");
   }
   const license = readFileSync(path.join(repoRoot, "LICENSE"));
-  const notice = readFileSync(path.join(repoRoot, "NOTICE"));
+  const notice = input.noticeBody ?? readFileSync(path.join(repoRoot, "NOTICE"));
   if (createHash("sha256").update(license).digest("hex")
     !== RELEASE_LICENSE_FILE_DIGESTS.LICENSE.sha256) {
     throw new Error("fixture LICENSE digest drifted from the release pin");
   }
-  if (createHash("sha256").update(notice).digest("hex")
-    !== RELEASE_LICENSE_FILE_DIGESTS.NOTICE.sha256) {
+  if (input.noticeBody === undefined
+    && createHash("sha256").update(notice).digest("hex")
+      !== RELEASE_LICENSE_FILE_DIGESTS.NOTICE.sha256) {
     throw new Error("fixture NOTICE digest drifted from the release pin");
   }
   const packageBuildManifest = input.buildManifestBody ?? JSON.stringify(

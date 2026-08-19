@@ -3,7 +3,11 @@ import type {
 } from "./continuation-prompt-optimization.js";
 import type { GenerationSettings } from "./types.js";
 
-export type { SettingsView } from "./settings-v2-view.js";
+export type {
+  SettingsView,
+  SubscriptionAuthState,
+  SubscriptionAuthStatus
+} from "./settings-v2-view.js";
 
 export const SETTINGS_PROTOCOL_V2_VALUES = [
   "dry-run",

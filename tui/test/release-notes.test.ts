@@ -42,4 +42,12 @@ describe("release notes codegen", () => {
       expect(changelog).toContain(`## ${note.version} - ${note.date}`);
     }
   });
+
+  test("the subscription release note uses the public sign-in commands", () => {
+    const note = RELEASE_NOTES.find((candidate) => candidate.version === "0.9.10-rc.1");
+    expect(note?.body).toContain("1667 auth login chatgpt");
+    expect(note?.body).toContain("1667 auth login claude");
+    expect(note?.body).not.toContain("1667 auth login openai-codex");
+    expect(note?.body).not.toContain("1667 auth login anthropic");
+  });
 });

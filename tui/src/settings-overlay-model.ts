@@ -119,7 +119,7 @@ export function initialSettingsOverlay(
   selectedProfileId?: string
 ): SettingsOverlayState {
   const draft = settingsTextDraftForView(view, selectedProfileId);
-  return {
+  const overlay: SettingsOverlayState = {
     view,
     base: draft,
     draft,
@@ -144,6 +144,7 @@ export function initialSettingsOverlay(
     deleteArmedProfileId: null,
     modelPicker: null
   };
+  return overlay;
 }
 
 export function settingsRowEditValue(

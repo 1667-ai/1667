@@ -12,7 +12,10 @@ import {
   discoverSettingsModels,
   publishCurrentSettingsModelDiscovery
 } from "../src/settings-model-discovery.js";
-import { detectSettingsContext } from "../src/settings-context-detection.js";
+import {
+  checkSettings,
+  detectSettingsContext
+} from "../src/settings-context-detection.js";
 import {
   initialSettingsOverlay,
   settingsRows,
@@ -385,6 +388,10 @@ describe("the settings row model stays one list", () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
     const overlay = state.settings!;
+    overlay.view = {
+      ...overlay.view,
+      subscriptionAuth: { chatgpt: "signed-out", claude: "signed-out" }
+    };
     overlay.draft = settingsTextDraftWithSubscriptionPlan(
       overlay.draft,
       "chatgpt-plan",
@@ -406,7 +413,7 @@ describe("the settings row model stays one list", () => {
     expect(rows.find((row) => row.id === "provider")?.value)
       .toContain("ChatGPT plan");
     expect(rows.find((row) => row.id === "provider")?.hint)
-      .toBe("Sign in with 1667 auth login chatgpt. ChatGPT output length is best effort.");
+      .toBe("In a terminal, run 1667 auth login chatgpt to sign in. ChatGPT output length is best effort.");
     expect(rows.find((row) => row.id === "text-prompt-format")?.disabled).toBe(true);
     expect(rows.find((row) => row.id === "text-prompt-format")?.hint)
       .toBe("Available with text-completion providers.");
@@ -431,10 +438,40 @@ describe("the settings row model stays one list", () => {
     });
   });
 
+  test("Claude plan help names its terminal sign-in command", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    const overlay = state.settings!;
+    overlay.view = {
+      ...overlay.view,
+      subscriptionAuth: { chatgpt: "signed-out", claude: "signed-out" }
+    };
+    const draft = settingsTextDraftWithSubscriptionPlan(
+      overlay.draft,
+      "claude-plan",
+      {
+        ...overlay.draft.generation,
+        provider: "anthropic",
+        baseUrl: "",
+        model: "claude-sonnet-4-6",
+        apiKeyEnv: null,
+        contextWindow: 1_000_000
+      }
+    );
+    const rows = settingsRows({ ...overlay, draft }, state.config);
+
+    expect(rows.find((row) => row.id === "provider")?.hint)
+      .toBe("In a terminal, run 1667 auth login claude to sign in. Claude plan support is experimental.");
+  });
+
   test("subscription plans skip legacy discovery and context probes", async () => {
     const { source, state, backend, press } = settingsHarness();
     await openSettings(press);
     const overlay = state.settings!;
+    overlay.view = {
+      ...overlay.view,
+      subscriptionAuth: { chatgpt: "signed-in", claude: "signed-out" }
+    };
     overlay.draft = settingsTextDraftWithSubscriptionPlan(
       overlay.draft,
       "chatgpt-plan",
@@ -474,7 +511,12 @@ describe("the settings row model stays one list", () => {
 
     expect(discoveryCalls).toBe(0);
     expect(probeCalls).toBe(0);
-    expect(overlay.result?.message).toContain("Enter context size manually");
+    expect(overlay.result?.message).toContain("ChatGPT plan is signed in.");
+    expect(overlay.result?.message).not.toContain("auth login");
+
+    await checkSettings(state, source, context, overlay);
+    expect(overlay.result?.message).toContain("ChatGPT plan is signed in.");
+    expect(overlay.result?.message).not.toContain("auth login");
   });
 
   test("subscription plans hide probe keys and ignore direct probe shortcuts", async () => {

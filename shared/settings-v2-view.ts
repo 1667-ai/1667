@@ -6,6 +6,14 @@ import type {
   SettingsDocumentV2
 } from "./settings-v2-types.js";
 
+export type SubscriptionAuthStatus = "signed-in" | "signed-out";
+
+/** Machine-tier sign-in state used by Settings presentation. */
+export interface SubscriptionAuthState {
+  readonly chatgpt: SubscriptionAuthStatus;
+  readonly claude: SubscriptionAuthStatus;
+}
+
 /** The settings data that a client can read. The continuation layout is an
  * active-route value, never a pending document projection. */
 export type SettingsView =
@@ -17,6 +25,10 @@ export type SettingsView =
       readonly pendingRevision: null;
       readonly document: null;
       readonly effective: GenerationSettings;
+      /** Read-only machine-tier status for Settings presentation. */
+      readonly subscriptionAuth?: SubscriptionAuthState;
+      /** Server-certified pristine state for subscription auto-selection. */
+      readonly subscriptionAutoSelectEligible?: boolean;
       /** The active continuation route. Format 1 falls back to `effective`. */
       readonly effectiveProse: GenerationSettings;
       /** The active prose route's `GenerationProfileV2.reasoning`, resolved
@@ -38,6 +50,10 @@ export type SettingsView =
       readonly pendingRevision: number | null;
       readonly document: SettingsDocumentV2;
       readonly effective: GenerationSettings;
+      /** Read-only machine-tier status for Settings presentation. */
+      readonly subscriptionAuth?: SubscriptionAuthState;
+      /** Server-certified pristine state for subscription auto-selection. */
+      readonly subscriptionAutoSelectEligible?: boolean;
       /** The active continuation route, never a pending document projection. */
       readonly effectiveProse: GenerationSettings;
       /** See the format-1 variant's own doc — same field, same resolution. */

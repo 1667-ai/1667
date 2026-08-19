@@ -164,6 +164,11 @@ test("a schema-3 settings state opens and every setting reads correctly", async 
 
   const view = await store.loadView();
   assert.equal(view.editable, true);
+  assert.equal(
+    view.subscriptionAutoSelectEligible,
+    false,
+    "a successor-owned state cannot authorize the subscription draft default"
+  );
   assert.equal(view.document?.schemaVersion, 2, "the store presents a schema-2 read-only view");
   const capabilities = view.document?.models["builtin:dry-run"]?.capabilities;
   assert.equal(capabilities?.temperature, "supported");

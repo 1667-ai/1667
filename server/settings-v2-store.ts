@@ -99,6 +99,7 @@ import {
   storedSecretIdsInState,
   type SubscriptionRuntimeDependencies
 } from "./subscription-runtime.js";
+import { readSettingsView } from "./settings-v2-view-read.js";
 
 type Clock = () => Date;
 export type SettingsActivationMode = "activation-capable" | "recover-only";
@@ -188,8 +189,8 @@ export class SettingsV2Store {
     settingsViewFromState(state);
   }
 
-  async loadView(): Promise<SettingsView> {
-    return settingsViewFromState(await readSettingsState(this.dataDir));
+  loadView(): Promise<SettingsView> {
+    return readSettingsView(this.dataDir, this.subscription.credentials);
   }
 
   /** The route's runtime settings AND its stored image-input override,
