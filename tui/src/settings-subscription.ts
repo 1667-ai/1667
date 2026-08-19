@@ -1,6 +1,9 @@
 import { isSubscriptionPresetV2 } from "../../shared/settings-v2-types.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
-import type { SettingsView } from "../../shared/settings-v2-types.js";
+import type {
+  SettingsView,
+  SubscriptionAuthState
+} from "../../shared/settings-v2-types.js";
 import type { SettingsOverlayState, SettingsRowId } from "./state.js";
 
 export type SettingsSubscriptionPreset = "chatgpt-plan" | "claude-plan";
@@ -62,8 +65,17 @@ export function settingsPlanRowDisabled(
 }
 
 export function settingsSubscriptionLoginHint(
-  preset: SettingsSubscriptionPreset
+  preset: SettingsSubscriptionPreset,
+  subscriptionAuth?: SubscriptionAuthState
 ): string {
+  const signedIn = preset === "chatgpt-plan"
+    ? subscriptionAuth?.chatgpt === "signed-in"
+    : subscriptionAuth?.claude === "signed-in";
+  if (signedIn) {
+    return preset === "chatgpt-plan"
+      ? "ChatGPT plan is signed in. ChatGPT output length is best effort."
+      : "Claude plan is signed in. Claude plan support is experimental.";
+  }
   return preset === "chatgpt-plan"
     ? "In a terminal, run 1667 auth login chatgpt to sign in. ChatGPT output length is best effort."
     : "In a terminal, run 1667 auth login claude to sign in. Claude plan support is experimental.";

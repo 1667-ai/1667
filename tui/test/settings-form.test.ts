@@ -12,7 +12,10 @@ import {
   discoverSettingsModels,
   publishCurrentSettingsModelDiscovery
 } from "../src/settings-model-discovery.js";
-import { detectSettingsContext } from "../src/settings-context-detection.js";
+import {
+  checkSettings,
+  detectSettingsContext
+} from "../src/settings-context-detection.js";
 import {
   initialSettingsOverlay,
   settingsRows,
@@ -385,6 +388,10 @@ describe("the settings row model stays one list", () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
     const overlay = state.settings!;
+    overlay.view = {
+      ...overlay.view,
+      subscriptionAuth: { chatgpt: "signed-out", claude: "signed-out" }
+    };
     overlay.draft = settingsTextDraftWithSubscriptionPlan(
       overlay.draft,
       "chatgpt-plan",
@@ -435,6 +442,10 @@ describe("the settings row model stays one list", () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
     const overlay = state.settings!;
+    overlay.view = {
+      ...overlay.view,
+      subscriptionAuth: { chatgpt: "signed-out", claude: "signed-out" }
+    };
     const draft = settingsTextDraftWithSubscriptionPlan(
       overlay.draft,
       "claude-plan",
@@ -457,6 +468,10 @@ describe("the settings row model stays one list", () => {
     const { source, state, backend, press } = settingsHarness();
     await openSettings(press);
     const overlay = state.settings!;
+    overlay.view = {
+      ...overlay.view,
+      subscriptionAuth: { chatgpt: "signed-in", claude: "signed-out" }
+    };
     overlay.draft = settingsTextDraftWithSubscriptionPlan(
       overlay.draft,
       "chatgpt-plan",
@@ -496,7 +511,12 @@ describe("the settings row model stays one list", () => {
 
     expect(discoveryCalls).toBe(0);
     expect(probeCalls).toBe(0);
-    expect(overlay.result?.message).toContain("Enter context size manually");
+    expect(overlay.result?.message).toContain("ChatGPT plan is signed in.");
+    expect(overlay.result?.message).not.toContain("auth login");
+
+    await checkSettings(state, source, context, overlay);
+    expect(overlay.result?.message).toContain("ChatGPT plan is signed in.");
+    expect(overlay.result?.message).not.toContain("auth login");
   });
 
   test("subscription plans hide probe keys and ignore direct probe shortcuts", async () => {

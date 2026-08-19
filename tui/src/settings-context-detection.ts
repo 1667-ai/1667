@@ -28,7 +28,10 @@ export async function detectSettingsContext(
   if (subscriptionPreset !== null) {
     overlay.result = {
       state: "warning",
-      message: `${settingsSubscriptionLoginHint(subscriptionPreset)} Enter context size manually.`
+      message: `${settingsSubscriptionLoginHint(
+        subscriptionPreset,
+        overlay.view.subscriptionAuth
+      )} Enter context size manually.`
     };
     overlay.resultRow = "context-window";
     context.repaint();
@@ -117,7 +120,10 @@ export async function checkSettings(
   if (subscriptionPreset !== null) {
     overlay.result = {
       state: "warning",
-      message: `${settingsSubscriptionLoginHint(subscriptionPreset)} Connection check is unavailable here.`
+      message: `${settingsSubscriptionLoginHint(
+        subscriptionPreset,
+        overlay.view.subscriptionAuth
+      )} Connection check is unavailable here.`
     };
     overlay.resultRow = "base-url";
     context.repaint();

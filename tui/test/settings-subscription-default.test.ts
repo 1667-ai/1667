@@ -11,6 +11,7 @@ import type {
 } from "../../shared/settings-v2-types.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
 import { settingsDraftChanged } from "../src/settings-overlay-reconciliation.js";
+import { settingsRows } from "../src/settings-overlay-model.js";
 import { settingsProviderChoice } from "../src/settings-provider-choices.js";
 import { settingsSubscriptionPreset } from "../src/settings-subscription.js";
 import {
@@ -59,6 +60,11 @@ test("one signed-in plan becomes an unsaved provider draft", async () => {
     expect(settingsDraftChanged(state.settings!)).toBeTrue();
     expect(source.settingsView.effective.provider).toBe("dry-run");
     expect(source.settingsView.effective.apiKeyEnv).toBe(null);
+    const providerHint = settingsRows(state.settings!, state.config)
+      .find((row) => row.id === "provider")?.hint;
+    expect(providerHint).toBe(fixture.provider === "chatgpt-plan"
+      ? "ChatGPT plan is signed in. ChatGPT output length is best effort."
+      : "Claude plan is signed in. Claude plan support is experimental.");
   }
 });
 
