@@ -614,11 +614,12 @@ test("SSE diagnostics redact complete credentials before truncation", async (t) 
 
 test("a stalled provider stream survives its first-token floor and fails at the total deadline", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
-        input.signal.addEventListener("abort", () => controller.error(input.signal.reason), {
+        signal?.addEventListener("abort", () => controller.error(signal.reason), {
           once: true
         });
       }
@@ -706,14 +707,15 @@ test("configured response-header deadline keeps typed timeout provenance", async
 
 test("a stream that sends headers and then stays silent survives past the first-token floor to the total deadline", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     // Headers arrive immediately; the body then never sends anything — a
     // server that flushed headers before hanging mid-prefill, the case
     // provider-sse.ts's first-token phase now has to tolerate.
     return new Response(new ReadableStream({
       start(controller) {
-        input.signal.addEventListener("abort", () => controller.error(input.signal.reason), {
+        signal?.addEventListener("abort", () => controller.error(signal.reason), {
           once: true
         });
       }
@@ -807,12 +809,13 @@ test("caller cancellation is preserved while reading an error body", async (t) =
   const originalFetch = globalThis.fetch;
   let responseStarted!: () => void;
   const started = new Promise<void>((resolve) => { responseStarted = resolve; });
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
-        input.signal.addEventListener("abort", () => {
-          controller.error(input.signal.reason);
+        signal?.addEventListener("abort", () => {
+          controller.error(signal.reason);
         }, { once: true });
         responseStarted();
       }
@@ -830,15 +833,16 @@ test("caller cancellation is preserved while reading an error body", async (t) =
 
 test("caller cancellation stops before draining buffered provider events", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => new Response(new ReadableStream({
+  globalThis.fetch = (async (input, init) => new Response(new ReadableStream({
     start(stream) {
       stream.enqueue(new TextEncoder().encode([
         openAiDelta("first"),
         openAiDelta(" second")
       ].join("")));
       assert.ok(input instanceof Request);
-      input.signal.addEventListener("abort", () => {
-        stream.error(input.signal.reason);
+      const signal = init?.signal ?? input.signal;
+      signal?.addEventListener("abort", () => {
+        stream.error(signal.reason);
       }, { once: true });
     }
   }), {
@@ -859,15 +863,16 @@ test("credentialed cancellation flushes the safe redaction tail", async (t) => {
   process.env.AI_1667_TEST_CANCEL_SECRET = secret;
   t.after(() => { delete process.env.AI_1667_TEST_CANCEL_SECRET; });
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode(
           openAiDelta("abcdefghijklmnopqrstuvwxyz")
         ));
-        input.signal.addEventListener("abort", () => {
-          controller.error(input.signal.reason);
+        signal?.addEventListener("abort", () => {
+          controller.error(signal.reason);
         }, { once: true });
       }
     }), { headers: { "content-type": "text/event-stream" } });
@@ -1026,11 +1031,12 @@ test("OpenAI parameter retries share one total deadline", async (t) => {
 
 test("non-success stream body deadlines preserve the known provider status", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
-        input.signal.addEventListener("abort", () => controller.error(input.signal.reason), {
+        signal?.addEventListener("abort", () => controller.error(signal.reason), {
           once: true
         });
       }
@@ -1062,14 +1068,15 @@ test("non-success stream body deadlines preserve the known provider status", asy
 
 test("usage-only SSE events do not satisfy first activity, so a stall still runs to the total deadline", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode(
           'data: {"usage":{"prompt_tokens":12},"choices":[]}\n\n'
         ));
-        input.signal.addEventListener("abort", () => controller.error(input.signal.reason), {
+        signal?.addEventListener("abort", () => controller.error(signal.reason), {
           once: true
         });
       }
@@ -1104,8 +1111,9 @@ test("usage-only SSE events do not satisfy first activity, so a stall still runs
 
 test("OpenAI-compatible reasoning activity prevents a first-activity timeout without entering story prose", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode(
@@ -1117,9 +1125,9 @@ test("OpenAI-compatible reasoning activity prevents a first-activity timeout wit
           ));
           controller.close();
         }, 30);
-        input.signal.addEventListener("abort", () => {
+        signal?.addEventListener("abort", () => {
           clearTimeout(timer);
-          controller.error(input.signal.reason);
+          controller.error(signal.reason);
         }, { once: true });
       }
     }), { headers: { "content-type": "text/event-stream" } });
@@ -1145,8 +1153,9 @@ test("OpenAI-compatible reasoning activity prevents a first-activity timeout wit
 
 test("Anthropic thinking activity prevents a first-activity timeout without entering story prose", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode(
@@ -1161,9 +1170,9 @@ test("Anthropic thinking activity prevents a first-activity timeout without ente
           ].join("\n\n")));
           controller.close();
         }, 30);
-        input.signal.addEventListener("abort", () => {
+        signal?.addEventListener("abort", () => {
           clearTimeout(timer);
-          controller.error(input.signal.reason);
+          controller.error(signal.reason);
         }, { once: true });
       }
     }), { headers: { "content-type": "text/event-stream" } });
@@ -1309,14 +1318,15 @@ test("streamCompletion without onReasoning drops reasoning deltas silently", asy
 
 test("configured idle deadline aborts after the first stream event", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode(
           'data: {"choices":[{"delta":{"content":"first"}}]}\n\n'
         ));
-        input.signal.addEventListener("abort", () => controller.error(input.signal.reason), {
+        signal?.addEventListener("abort", () => controller.error(signal.reason), {
           once: true
         });
       }
