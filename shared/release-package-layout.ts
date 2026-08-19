@@ -16,8 +16,8 @@ export const RELEASE_LICENSE_FILE_DIGESTS = Object.freeze({
     bytes: 11327
   }),
   NOTICE: Object.freeze({
-    sha256: "ef2779740dd724bc6b83cf89485ac684c4e7fe6622752ffd0b65933fef68b6bd",
-    bytes: 82
+    sha256: "6f6dd5020bb5bee2e1bbb5b2c6051deb9b369f66818736409b3740fdec52213c",
+    bytes: 1352
   })
 });
 

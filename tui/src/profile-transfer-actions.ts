@@ -7,6 +7,10 @@ import { recordNotice } from "./notice-log.js";
 import { applyProfileTransfer } from "./profile-transfer-apply.js";
 import { cloneSettingsProfileDraft } from "./settings-draft-transition.js";
 import { settingsTextDraftForDocument } from "./settings-text.js";
+import {
+  restoreSettingsCursor,
+  settingsCursorRowIdentity
+} from "./settings-row-navigation.js";
 import { readFromClipboard } from "./clipboard.js";
 import { pasteInto, type ResolvedKey } from "./keys.js";
 import type {
@@ -156,6 +160,7 @@ function applyCandidate(
 ): void {
   const document = overlay.draft.document!;
   const sourceId = overlay.draft.selectedProfileId!;
+  const cursorRow = settingsCursorRowIdentity(overlay);
   const fitted = applyProfileTransfer(document, sourceId, candidate);
   if ("error" in fitted) { prompt.error = fitted.error; return; }
   cloneSettingsProfileDraft(
@@ -170,6 +175,7 @@ function applyCandidate(
   overlay.result = null;
   if (overlay.conflict !== null) overlay.conflict.armed = false;
   overlay.profileTransfer = null;
+  restoreSettingsCursor(overlay, cursorRow);
   const importedName = fitted.document.profiles[fitted.profileId]!.name;
   const headline = `imported "${importedName}" · ${fitted.importedCount} of ${fitted.candidateCount} parameters · s saves settings`;
   state.toast = headline;

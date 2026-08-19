@@ -18,7 +18,7 @@ Commands:
   import-lorebook  Add Facts from a NovelAI lorebook to a story that exists
   profile          Import or export a Generation Profile
   serve            Run the HTTP server
-  auth             Show an access record
+  auth             Manage subscription sign-in and access records
   upgrade          Update this program
 Options:
   --story <id>       Open this story instead of the most recently updated
@@ -206,13 +206,29 @@ Options:
   --data <path>             Open this project root instead of discovering one
   --global                  Open the machine-wide project instead of a folder`;
 
-export const AUTH_HELP = `1667 auth — show an access record
+export const AUTH_HELP = `1667 auth — manage subscription sign-in
 
-Usage: 1667 auth show --scope <story|admin> (--url <base-url> | --auth-file <path>)
+Usage: 1667 auth login chatgpt
+       1667 auth login claude
+       1667 auth status
+       1667 auth logout chatgpt
+       1667 auth logout claude
+       1667 auth show --scope <story|admin> (--url <base-url> | --auth-file <path>)
 
-Prints the access record a client needs to reach a running 1667 HTTP server.
-The story scope reads and writes stories. The admin scope also controls the
-server.
+The login commands use a subscription plan. They are experimental community
+integrations. The provider receives story text and generated text. The flow
+can stop when the provider changes its private contract. Use an API key
+connection when you need the developer API instead.
+
+Status reads local credential metadata. It does not refresh a credential or
+contact a provider. A stale OAuth credential with a refresh credential shows
+\`signed in (refreshes on next use)\`.
+Logout removes the selected local credential. It does not promise remote token
+revocation.
+
+The show command prints the access record a client needs to reach a running
+1667 HTTP server. The story scope reads and writes stories. The admin scope
+also controls the server.
 
 Give exactly one of --url and --auth-file. The command refuses to print a
 capability to output that is not a terminal.

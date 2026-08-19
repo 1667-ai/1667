@@ -157,7 +157,9 @@ const PRESET_LABEL: Readonly<Record<SettingsPresetV2, string>> = {
   ollama: "Ollama",
   "llama-cpp": "llama.cpp",
   koboldcpp: "KoboldCpp",
-  custom: "custom"
+  custom: "custom",
+  "chatgpt-plan": "ChatGPT plan",
+  "claude-plan": "Claude plan"
 };
 
 const SUPPORTED_PRESET_LABELS: readonly string[] =

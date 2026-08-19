@@ -44,8 +44,10 @@ import {
   settingsTextDraftForDocument,
   settingsTextDraftForView,
   settingsTextDraftWithGeneration,
+  settingsTextDraftWithSubscriptionPlan,
   settingsTextDraftWithTextPreset
 } from "./settings-text.js";
+import { settingsPlanRowDisabled } from "./settings-subscription.js";
 import { renameSettingsProfile } from "./settings-profile-draft.js";
 import { settingsModelDisplayText } from "./settings-profile-controls.js";
 import type {
@@ -70,7 +72,10 @@ import {
   SETTINGS_ROW_IDS,
   settingsRowCycles,
   settingsRowHasArrows,
-  settingsRowIndex
+  settingsRowIndex,
+  settingsRowIds,
+  settingsCursorRowIdentity,
+  restoreSettingsCursor
 } from "./settings-row-navigation.js";
 export {
   settingsModelDisplayText
@@ -87,7 +92,10 @@ export {
   SETTINGS_ROW_IDS,
   settingsRowCycles,
   settingsRowHasArrows,
-  settingsRowIndex
+  settingsRowIndex,
+  settingsRowIds,
+  settingsCursorRowIdentity,
+  restoreSettingsCursor
 } from "./settings-row-navigation.js";
 
 /** Rows that live in the user config rather than a server-backed settings
@@ -164,8 +172,9 @@ export function beginSettingsRowEdit(
   overlay: SettingsOverlayState,
   config: UserConfig
 ): void {
-  const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+  const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
   if (row === "system-prompt" || row === "sampling") return;
+  if (settingsPlanRowDisabled(overlay, row)) return;
   if (settingsRowUsesServer(row)) overlay.result = null;
   const initial = settingsRowEditValue(overlay, config, row);
   const composer = createComposer(initial);
@@ -202,8 +211,9 @@ export function beginSettingsPasteEdit(
   config: UserConfig
 ): boolean {
   if (overlay.edit !== null) return true;
-  const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+  const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
   if (row === "system-prompt" || row === "sampling") return false;
+  if (settingsPlanRowDisabled(overlay, row)) return false;
   // Closed choices cycle in place; paste must not open their row editor.
   if (settingsRowCycles(row)) return false;
   if (settingsRowUsesServer(row) && !overlay.view.editable) {
@@ -223,6 +233,10 @@ export function applySettingsRowEdit(
   const edit = overlay.edit;
   if (edit?.kind !== "inline") {
     return { kind: "error", message: "no settings row is being edited" };
+  }
+  if (settingsPlanRowDisabled(overlay, edit.row)) {
+    overlay.edit = null;
+    return { kind: "error", message: "subscription plan controls are fixed" };
   }
   const rawValue = edit.composer.text;
   const value = rawValue.trim();
@@ -374,21 +388,30 @@ export function cycleSettingsProvider(
   overlay: SettingsOverlayState,
   step: -1 | 1
 ): SettingsProviderChoice {
+  const cursorRow = settingsCursorRowIdentity(overlay);
   const choice = nextSettingsProviderChoice(
     overlay.draft.generation,
     step,
     selectedConnectionPreset(overlay)
   );
   const preserveStoredApiKey = hasStoredApiKey(overlay);
-  replaceSettingsProviderDraft(
-    overlay,
-    settingsTextDraftWithGeneration(overlay.draft, {
-      ...overlay.draft.generation,
-      provider: choice.provider,
-      ...choice.defaults,
-      ...(preserveStoredApiKey ? { apiKeyEnv: null } : {})
-    })
-  );
+  const generation = {
+    ...overlay.draft.generation,
+    provider: choice.provider,
+    ...choice.defaults,
+    ...(preserveStoredApiKey ? { apiKeyEnv: null } : {})
+  };
+  if (choice.id === "chatgpt-plan" || choice.id === "claude-plan") {
+    replaceSettingsProviderDraft(
+      overlay,
+      settingsTextDraftWithSubscriptionPlan(overlay.draft, choice.id, generation)
+    );
+  } else {
+    replaceSettingsProviderDraft(
+      overlay,
+      settingsTextDraftWithGeneration(overlay.draft, generation)
+    );
+  }
   const textPreset = textPresetForChoice(choice);
   if (textPreset !== null) {
     replaceSettingsDraft(
@@ -398,6 +421,7 @@ export function cycleSettingsProvider(
   }
   rekeyPendingStoredSecret(overlay);
   discardUnreferencedConnectionSecretWrites(overlay);
+  restoreSettingsCursor(overlay, cursorRow);
   overlay.result = null;
   if (!settingsDraftChanged(overlay)) overlay.conflict = null;
   else disarmSettingsConflict(overlay);

@@ -30,6 +30,10 @@ import {
   settingsAutomaticModelSelectionForProfile
 } from "./settings-draft-transition.js";
 import { settingsModelTargetFingerprint } from "./settings-provider-probe.js";
+import {
+  restoreSettingsCursor,
+  settingsCursorRowIdentity
+} from "./settings-row-navigation.js";
 
 type EditableSettingsFieldRow =
   | "provider"
@@ -81,10 +85,12 @@ export function reconcileSettingsOverlay(
   view: SettingsView,
   edit: ActiveSettingsEdit | null
 ): string | null {
+  const cursorRow = settingsCursorRowIdentity(overlay);
   const nextBase = settingsTextDraftForView(view, overlay.draft.selectedProfileId);
   const baseChanged = !sameSettingsDraft(overlay.base, nextBase);
   if (!baseChanged) {
     overlay.base = nextBase;
+    restoreSettingsCursor(overlay, cursorRow);
     return null;
   }
   const samplingWasOpen = overlay.sampling !== null;
@@ -126,6 +132,8 @@ export function reconcileSettingsOverlay(
   if (samplingWasOpen && (draftWasClean || converged) && editWasClean) {
     overlay.sampling = null;
   }
+
+  restoreSettingsCursor(overlay, cursorRow);
 
   if (converged) {
     if (editAffectsServer && !editWasClean) edit.setInitialText(edit.composer.text);

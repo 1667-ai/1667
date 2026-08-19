@@ -259,6 +259,8 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
   const document = platformSbom(set, "linux-x64").document;
   assert.deepEqual(packageNames(document), [
     "1667",
+    "@anthropic-ai/sdk",
+    "@earendil-works/pi-ai",
     "@opentui/core",
     "@opentui/core-linux-x64",
     "@opentui/core-linux-x64-musl",
@@ -266,6 +268,7 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
     "bun",
     "fs-ext-extra-prebuilt",
     "msgpackr",
+    "partial-json",
     "tiktoken",
     "web-tree-sitter"
   ]);
@@ -281,6 +284,15 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
   assert.equal(runtime.licenseDeclared, "MIT");
 
   const expected = new Map([
+    ["@anthropic-ai/sdk", ["0.91.1", "MIT",
+      "2c09aeefad6d48df6beba8b1be6722b30523fd90bed50e2201fa5e7537d254b7"
+      + "acc11c276379f635be93b24f9c2cf3f6f1a2ce3d678c808b93b8270c0ba5bf8b"]],
+    ["@earendil-works/pi-ai", ["0.84.2", "MIT",
+      "e8ccecad8218355944ed27e96cbdb261bebb428e7ca7fed0fb1586d5166fa17d"
+      + "4ff346910874a8776ff5dda169c64a30d653ced8b121ddce3de49d06c26ca38a"]],
+    ["partial-json", ["0.1.7", "MIT",
+      "363bffe7d8476a891bfe14548dc7b71ddbf5db077ad0cb4cf59e4e9669fe9de8"
+      + "5ed100c0b11b516c93ef27467dd53bac1744ae65122f9ccf92e25e8420ff2578"]],
     ["tiktoken", ["1.0.22", "MIT",
       "3cabf2d6b545d5189b7c5dc99570523f426b730daeab7c977607045ed293627d"
       + "d027f7014411c39eb2798c7932f8c10d67a0c83f0354196a64571fbb8e80a934"]],
@@ -688,7 +700,7 @@ test("an inventory the repository's lockfiles do not support is refused", () => 
       { npmLockfile: { packages: {} }, bunLockfile: sources.bunLockfile },
       "linux-x64"
     ),
-    /has no node_modules\/@silvia-odwyer\/photon-node entry/u
+    /has no node_modules\/@anthropic-ai\/sdk entry/u
   );
 });
 

@@ -134,6 +134,16 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
   const unresolvedConstructorModel = withDefaultModelId("constructor", INITIAL_SETTINGS_DOCUMENT_V2);
   const unresolvedToStringModel = withDefaultModelId("toString", INITIAL_SETTINGS_DOCUMENT_V2);
   const networkConnection = convertedOpenAi.connections["migrated:connection"]!;
+  const chatgptPlan = subscriptionPlanDocument(
+    convertedOpenAi,
+    "chatgpt-plan",
+    "openai-codex-responses"
+  );
+  const claudePlan = subscriptionPlanDocument(
+    convertedAnthropic,
+    "claude-plan",
+    "anthropic-subscription-messages"
+  );
   const storedBearer = {
     ...convertedOpenAi,
     connections: {
@@ -206,6 +216,8 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     valid("document-with-reasoning", "document", reasoningOpenAi),
     valid("converted-anthropic", "document", convertedAnthropic),
     valid("converted-loopback", "document", convertedLocal),
+    valid("converted-chatgpt-plan", "document", chatgptPlan),
+    valid("converted-claude-plan", "document", claudePlan),
     valid("stored-bearer", "document", storedBearer),
     valid("stored-header", "document", storedHeader),
     valid("staged", "state", staged),
@@ -233,6 +245,36 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
       surprise: true
     }, false),
     invalid("document-newer-reserved-protocol", "document", newerProtocol, false),
+    invalid("document-chatgpt-plan-with-url", "document", {
+      ...chatgptPlan,
+      connections: {
+        ...chatgptPlan.connections,
+        "migrated:connection": {
+          ...chatgptPlan.connections["migrated:connection"]!,
+          baseUrl: "https://example.com"
+        }
+      }
+    }, false),
+    invalid("document-chatgpt-plan-with-claude-protocol", "document", {
+      ...chatgptPlan,
+      connections: {
+        ...chatgptPlan.connections,
+        "migrated:connection": {
+          ...chatgptPlan.connections["migrated:connection"]!,
+          protocol: "anthropic-subscription-messages"
+        }
+      }
+    }, false),
+    invalid("document-claude-plan-with-header", "document", {
+      ...claudePlan,
+      connections: {
+        ...claudePlan.connections,
+        "migrated:connection": {
+          ...claudePlan.connections["migrated:connection"]!,
+          headers: [{ name: "x-test", value: "bad" }]
+        }
+      }
+    }, false),
     invalid("document-unresolved-default-route", "document", badRoute, true),
     invalid("document-unresolved-constructor-model", "document", unresolvedConstructorModel, true),
     invalid("document-unresolved-to-string-model", "document", unresolvedToStringModel, true),
@@ -343,6 +385,29 @@ function openAiSettings(): GenerationSettings {
     maxTokens: 2_048,
     systemPrompt: "Continue in the established voice.",
     contextWindow: 32_768
+  };
+}
+
+function subscriptionPlanDocument(
+  document: SettingsDocumentV2,
+  preset: "chatgpt-plan" | "claude-plan",
+  protocol: "openai-codex-responses" | "anthropic-subscription-messages"
+): SettingsDocumentV2 {
+  const connection = document.connections["migrated:connection"]!;
+  return {
+    ...document,
+    connections: {
+      ...document.connections,
+      "migrated:connection": {
+        ...connection,
+        name: preset === "chatgpt-plan" ? "ChatGPT plan" : "Claude plan",
+        preset,
+        protocol,
+        baseUrl: null,
+        auth: { type: "none" },
+        headers: []
+      }
+    }
   };
 }
 

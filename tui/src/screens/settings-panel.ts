@@ -4,8 +4,7 @@ import {
   settingsActivationFailureText,
   settingsDraftChanged,
   settingsRowHasArrows,
-  settingsRows,
-  SETTINGS_ROW_IDS
+  settingsRows
 } from "../settings-overlay-model.js";
 import type { OverlayState, SettingsRowId } from "../state.js";
 import {
@@ -71,7 +70,7 @@ export function renderSettingsPanel(
     : modelPickerColumn(overlay, overlay.modelPicker, horizontal.contentWidth);
   const painted = picker?.choices ?? settingsFormRows({
     rows,
-    cursor: boundedSettingsCursor(overlay.cursor),
+    cursor: boundedSettingsCursor(overlay.cursor, overlay),
     edit: overlay.edit,
     contentWidth: horizontal.contentWidth,
     terminalWidth: width,
@@ -92,7 +91,7 @@ export function renderSettingsPanel(
     ? []
     : (() => {
       const cursorOffset = picker === null
-        ? paintedRowOffset(painted, boundedSettingsCursor(overlay.cursor))
+        ? paintedRowOffset(painted, boundedSettingsCursor(overlay.cursor, overlay))
         : boundedModelPickerCursor(
           overlay.modelPicker!.cursor,
           modelPickerRows(overlay, overlay.modelPicker!.query).length + 1
@@ -117,7 +116,7 @@ export function renderSettingsPanel(
       const tailReserve = picker === null
         ? Math.min(SETTINGS_TAIL_RESERVE, painted.length - cursorOffset - 1)
         : 0;
-      const cursorRow = boundedSettingsCursor(overlay.cursor);
+      const cursorRow = boundedSettingsCursor(overlay.cursor, overlay);
       const belongsToCursor = (row: SettingsFormRow | undefined): boolean => {
         const target = row?.target;
         return target !== undefined && target !== null

@@ -6,6 +6,7 @@ import type {
   SettingsPresetV2,
   SettingsRoutePurpose
 } from "../shared/settings-v2-types.js";
+import { isSubscriptionProtocolV2 } from "../shared/settings-v2-types.js";
 import {
   clampMaxOutputTokensToModel,
   resolveModelScalar,
@@ -38,6 +39,7 @@ import {
   providerRuntimeFromV2,
   type ProviderRuntime
 } from "./provider-runtime.js";
+import type { SubscriptionRuntimeDependencies } from "./subscription-runtime.js";
 
 export interface EffectiveMetadataV2 extends ModelScalarMetadataSourcesV2 {}
 
@@ -50,6 +52,8 @@ export interface EffectiveGenerationRuntime {
 export interface EffectiveGenerationRuntimeOptions {
   /** Provider checks and discovery do not require a generation-ready model ID. */
   readonly allowBlankModel?: boolean;
+  /** Runtime-only subscription seams. They never enter the settings document. */
+  readonly subscription?: SubscriptionRuntimeDependencies;
 }
 
 export function convertGenerationSettingsV1(value: GenerationSettings): SettingsDocumentV2 {
@@ -130,19 +134,25 @@ export function effectiveGenerationRuntime(
     connection,
     profile.effort,
     model.capabilities,
-    environment,
-    storedSecrets,
-    profile.sampling ?? EMPTY_SAMPLING_V2,
-    profile.tokenProbabilities ?? null,
-    profile.reasoning ?? "marker",
-    profile.discardReasoning !== true,
-    profile.continuationPromptOptimization
+    {
+      environment,
+      storedSecrets,
+      sampling: profile.sampling ?? EMPTY_SAMPLING_V2,
+      tokenProbabilities: profile.tokenProbabilities ?? null,
+      reasoning: profile.reasoning ?? "marker",
+      keepReasoning: profile.discardReasoning !== true,
+      continuationPromptOptimization: profile.continuationPromptOptimization,
+      subscription: options.subscription
+    }
   );
   const settings = attachProviderRuntime({
       provider,
       baseUrl: connection.baseUrl ?? "",
       model: remoteId,
       apiKeyEnv: effectiveApiKeyEnv(connection),
+      ...(isSubscriptionProtocolV2(connection.protocol)
+        ? { protocol: connection.protocol }
+        : {}),
       temperature: profile.temperature,
       maxTokens: clampMaxOutputTokensToModel(profile.maxOutputTokens, model, metadata),
       systemPrompt: document.writing.defaultAuthorBrief,
@@ -238,12 +248,18 @@ function connectionFromGenerationSettings(settings: GenerationSettings): ModelCo
 }
 
 export function providerForProtocol(protocol: ModelConnectionV2["protocol"]): Provider {
+  if (isSubscriptionProtocolV2(protocol)) {
+    return protocol === "openai-codex-responses"
+      ? "openai-compatible"
+      : "anthropic";
+  }
   switch (protocol) {
     case "dry-run": return "dry-run";
     case "openai-chat-completions": return "openai-compatible";
     case "text-completions": return "text-completion";
     case "anthropic-messages": return "anthropic";
   }
+  throw new SettingsFormatError("Unsupported settings protocol");
 }
 
 function effectiveRemoteId(
@@ -286,4 +302,5 @@ function connectionName(preset: SettingsPresetV2): string {
     case "koboldcpp": return "KoboldCpp";
     case "custom": return "Custom";
   }
+  throw new SettingsFormatError("Unsupported settings preset");
 }

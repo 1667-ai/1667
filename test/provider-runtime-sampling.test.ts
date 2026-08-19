@@ -19,7 +19,7 @@ const CAPABILITIES: ModelCapabilitiesV2 = {
   promptCaching: "unknown"
 };
 
-test("v2 runtime keeps legacy credential positions before explicit sampling", () => {
+test("v2 runtime accepts named credentials and sampling options", () => {
   const connection: ModelConnectionV2 = {
     name: "Compatibility fixture",
     preset: "custom",
@@ -49,9 +49,11 @@ test("v2 runtime keeps legacy credential positions before explicit sampling", ()
     connection,
     "default",
     CAPABILITIES,
-    { AI_1667_COMPAT_HEADER: "environment-secret" },
-    new Map([["compat-secret", "stored-secret"]]),
-    sampling
+    {
+      environment: { AI_1667_COMPAT_HEADER: "environment-secret" },
+      storedSecrets: new Map([["compat-secret", "stored-secret"]]),
+      sampling
+    }
   );
 
   assert.deepEqual(runtime.sampling, sampling);

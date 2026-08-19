@@ -1,4 +1,5 @@
 import { assertStoryAggregateVersion } from "./story-aggregate-version.js";
+import type { SubscriptionProtocolV2 } from "./settings-v2-types.js";
 import { isValidAuthorsNoteDepth, MAX_AUTHORS_NOTE_CHARS, MAX_AUTHORS_NOTE_DEPTH } from "./authors-note.js";
 import { MAX_AUTHOR_BRIEF_CHARS } from "./author-brief.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "./unicode.js";
@@ -850,6 +851,8 @@ export interface GenerationSettings {
   baseUrl: string;
   model: string;
   apiKeyEnv: string | null;
+  /** Present only on serialized settings for the fixed subscription routes. */
+  protocol?: SubscriptionProtocolV2;
   /** Absence means false. Persisted only by the format-2 basic editor. */
   allowInsecureHttp?: boolean;
   temperature: number | null;

@@ -95,18 +95,35 @@ export function settingsV2Schema(): Schema {
       idleMs: ref("Timeout"),
       totalMs: ref("Timeout")
     }),
-    Connection: closed({
-      name: boundedString(MAX_SETTINGS_NAME_SCALARS, 1),
-      preset: { enum: SETTINGS_PRESET_V2_VALUES },
-      protocol: { enum: SETTINGS_PROTOCOL_V2_VALUES },
-      baseUrl: { oneOf: [{ type: "null" }, boundedString(MAX_SETTINGS_URL_SCALARS, 1)] },
-      auth: ref("Auth"),
-      headers: { type: "array", maxItems: MAX_SETTINGS_HEADERS, items: ref("Header") },
-      timeouts: ref("Timeouts"),
-      textPromptFormat: { enum: TEXT_PROMPT_FORMAT_V2_VALUES },
-      allowInsecureHttp: { const: true },
-      splitThinkTags: { const: true }
-    }, ["name", "preset", "protocol", "baseUrl", "auth", "headers", "timeouts"]),
+    Connection: {
+      oneOf: [
+        closed({
+          name: boundedString(MAX_SETTINGS_NAME_SCALARS, 1),
+          preset: { enum: SETTINGS_PRESET_V2_VALUES.filter(
+            (preset) => preset !== "chatgpt-plan" && preset !== "claude-plan"
+          ) },
+          protocol: { enum: SETTINGS_PROTOCOL_V2_VALUES.filter(
+            (protocol) => protocol !== "openai-codex-responses"
+              && protocol !== "anthropic-subscription-messages"
+          ) },
+          baseUrl: { oneOf: [{ type: "null" }, boundedString(MAX_SETTINGS_URL_SCALARS, 1)] },
+          auth: ref("Auth"),
+          headers: { type: "array", maxItems: MAX_SETTINGS_HEADERS, items: ref("Header") },
+          timeouts: ref("Timeouts"),
+          textPromptFormat: { enum: TEXT_PROMPT_FORMAT_V2_VALUES },
+          allowInsecureHttp: { const: true },
+          splitThinkTags: { const: true }
+        }, ["name", "preset", "protocol", "baseUrl", "auth", "headers", "timeouts"]),
+        subscriptionConnection(
+          "chatgpt-plan",
+          "openai-codex-responses"
+        ),
+        subscriptionConnection(
+          "claude-plan",
+          "anthropic-subscription-messages"
+        )
+      ]
+    },
     ScalarMetadata: closed({
       contextWindow: ref("TokenCount"),
       maxOutputTokens: ref("TokenCount")
@@ -326,6 +343,21 @@ function closed(
   required: readonly string[] = Object.keys(properties)
 ): Schema {
   return { type: "object", additionalProperties: false, properties, required };
+}
+
+function subscriptionConnection(
+  preset: "chatgpt-plan" | "claude-plan",
+  protocol: "openai-codex-responses" | "anthropic-subscription-messages"
+): Schema {
+  return closed({
+    name: boundedString(MAX_SETTINGS_NAME_SCALARS, 1),
+    preset: { const: preset },
+    protocol: { const: protocol },
+    baseUrl: { type: "null" },
+    auth: ref("AuthNone"),
+    headers: { const: [] },
+    timeouts: ref("Timeouts")
+  });
 }
 
 function settingsMap(valueRef: string): Schema {

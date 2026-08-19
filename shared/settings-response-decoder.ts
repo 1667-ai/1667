@@ -1,13 +1,15 @@
 import {
   REASONING_DISPLAY_V2_VALUES,
   SETTINGS_ACTIVATION_ERROR_CODE_V2_VALUES,
+  SETTINGS_SUBSCRIPTION_PROTOCOL_V2_VALUES,
   type ModelDiscoveryResultV2,
   type ModelDiscoverySourceV2,
   type ReasoningDisplayV2,
   type SettingsActivationOutcomeV2,
   type SettingsDocumentV2,
   type SettingsMutationResult,
-  type SettingsView
+  type SettingsView,
+  type SubscriptionProtocolV2
 } from "./settings-v2-types.js";
 import { CONTINUATION_PROMPT_LAYOUTS } from "./continuation-prompt-optimization.js";
 import type { GenerationSettings, Provider } from "./types.js";
@@ -18,12 +20,14 @@ export function decodeGenerationSettingsResponse(value: unknown): GenerationSett
   const settings = closedRecord(value, "generation settings", [
     "provider", "baseUrl", "model", "apiKeyEnv", "temperature",
     "maxTokens", "systemPrompt", "contextWindow"
-  ]);
+  ], ["protocol"]);
+  const protocol = optionalSubscriptionProtocol(settings.protocol);
   return {
     provider: providerValue(settings.provider, "generation settings.provider"),
     baseUrl: stringValue(settings.baseUrl, "generation settings.baseUrl"),
     model: stringValue(settings.model, "generation settings.model"),
     apiKeyEnv: nullableString(settings.apiKeyEnv, "generation settings.apiKeyEnv"),
+    ...(protocol === undefined ? {} : { protocol }),
     temperature: nullableFiniteNumber(settings.temperature, "generation settings.temperature"),
     maxTokens: positiveSafeInteger(settings.maxTokens, "generation settings.maxTokens"),
     systemPrompt: stringValue(settings.systemPrompt, "generation settings.systemPrompt"),
@@ -32,6 +36,11 @@ export function decodeGenerationSettingsResponse(value: unknown): GenerationSett
       "generation settings.contextWindow"
     )
   };
+}
+
+function optionalSubscriptionProtocol(value: unknown): SubscriptionProtocolV2 | undefined {
+  if (value === undefined) return undefined;
+  return oneOf(value, SETTINGS_SUBSCRIPTION_PROTOCOL_V2_VALUES, "generation settings.protocol");
 }
 
 export function decodeSettingsViewResponse(

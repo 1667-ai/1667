@@ -11,7 +11,10 @@ import {
   type ModelScalarMetadataV2,
   type SettingsDocumentV2,
   type SettingsPresetV2,
-  type SettingsProtocolV2
+  type SettingsProtocolV2,
+  isSubscriptionProtocolV2,
+  isSubscriptionPresetV2,
+  subscriptionPresetForProtocolV2
 } from "../shared/settings-v2-types.js";
 import { boundedArray, closedRecord, closedShape, literal } from "./story-wire-validation.js";
 import { parseProfiles } from "./settings-v2-profile-validation.js";
@@ -137,9 +140,30 @@ export function parseConnections(
     const allowInsecureHttp = connection.allowInsecureHttp === undefined
       ? undefined
       : literal(connection.allowInsecureHttp, true, `connection ${id}.allowInsecureHttp`);
+    if (
+      isSubscriptionPresetV2(preset)
+      && (!isSubscriptionProtocolV2(protocol)
+        || subscriptionPresetForProtocolV2(protocol) !== preset)
+    ) {
+      throw new SettingsFormatError(
+        `connection ${id} subscription preset requires its matching subscription protocol`
+      );
+    }
     const baseUrl = protocol === "dry-run"
       ? parseDryRunConnection(id, preset, connection.baseUrl, auth, headers, allowInsecureHttp)
-      : parseNetworkConnection(id, preset, protocol, connection.baseUrl, auth, headers, allowInsecureHttp);
+      : isSubscriptionProtocolV2(protocol)
+        ? parseSubscriptionConnection(
+            id,
+            preset,
+            protocol,
+            connection.baseUrl,
+            auth,
+            headers,
+            allowInsecureHttp,
+            textPromptFormat,
+            splitThinkTags
+          )
+        : parseNetworkConnection(id, preset, protocol, connection.baseUrl, auth, headers, allowInsecureHttp);
     if (protocol !== "text-completions" && textPromptFormat !== undefined) {
       throw new SettingsFormatError(
         `connection ${id}.textPromptFormat requires text-completions`
@@ -240,6 +264,34 @@ function parseNetworkConnection(
   throw new SettingsFormatError(
     `connection ${id} plain HTTP requires loopback or allowInsecureHttp on a LAN host`
   );
+}
+
+function parseSubscriptionConnection(
+  id: string,
+  preset: SettingsPresetV2,
+  protocol: Extract<SettingsProtocolV2, "openai-codex-responses" | "anthropic-subscription-messages">,
+  baseUrl: unknown,
+  auth: CredentialReferenceV2,
+  headers: readonly unknown[],
+  allowInsecureHttp: true | undefined,
+  textPromptFormat: unknown,
+  splitThinkTags: true | undefined
+): null {
+  const expectedPreset = subscriptionPresetForProtocolV2(protocol);
+  if (
+    preset !== expectedPreset
+    || baseUrl !== null
+    || auth.type !== "none"
+    || headers.length !== 0
+    || allowInsecureHttp !== undefined
+    || textPromptFormat !== undefined
+    || splitThinkTags !== undefined
+  ) {
+    throw new SettingsFormatError(
+      `connection ${id} subscription protocol requires the ${expectedPreset} preset, null URL, no authentication, no headers, and no HTTP or text options`
+    );
+  }
+  return null;
 }
 
 function parseAuth(

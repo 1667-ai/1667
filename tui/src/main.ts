@@ -35,6 +35,7 @@ import { runLorebookImport } from "./lorebook-import-cli.js";
 import { runProfileCommand } from "./profile-cli.js";
 import { runHttpCommand } from "./http-commands.js";
 import { runVaultDecrypt, runVaultEncrypt } from "./vault-cli.js";
+import { runAuthCommand } from "./auth-cli.js";
 
 import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.js";
 import {
@@ -93,6 +94,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     }
   }
   if (await runHttpCommand(argv)) return;
+  if (argv[0] === "auth") {
+    await runAuthCommand(argv.slice(1));
+    return;
+  }
   if (argv[0] === "upgrade") {
     await runProcessUpgrade(argv.slice(1));
     return;

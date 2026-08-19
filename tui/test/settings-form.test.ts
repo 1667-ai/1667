@@ -8,12 +8,20 @@ import {
   DEFAULT_PROFILE_TEMPERATURE
 } from "../../shared/settings-v2-types.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2_TEXT } from "../../server/settings-v2-initial-vectors.js";
-import { publishCurrentSettingsModelDiscovery } from "../src/settings-model-discovery.js";
+import {
+  discoverSettingsModels,
+  publishCurrentSettingsModelDiscovery
+} from "../src/settings-model-discovery.js";
+import { detectSettingsContext } from "../src/settings-context-detection.js";
 import {
   initialSettingsOverlay,
   settingsRows,
   SETTINGS_ROW_IDS
 } from "../src/settings-overlay-model.js";
+import { settingsRowIds } from "../src/settings-row-navigation.js";
+import { SETTINGS_PROVIDER_CHOICES } from "../src/settings-provider-choices.js";
+import { settingsTextDraftWithSubscriptionPlan } from "../src/settings-text.js";
+import { settingsFooterVariants } from "../src/screens/settings-panel-footers.js";
 import {
   key,
   openSettings,
@@ -371,6 +379,140 @@ describe("the settings row model stays one list", () => {
     // every key in the panel.
     expect(settingsRows(overlay, state.config).map((row) => row.id))
       .toEqual([...SETTINGS_ROW_IDS]);
+  });
+
+  test("subscription plans hide network controls and keep manual model entry", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    const overlay = state.settings!;
+    overlay.draft = settingsTextDraftWithSubscriptionPlan(
+      overlay.draft,
+      "chatgpt-plan",
+      {
+        ...overlay.draft.generation,
+        provider: "openai-compatible",
+        baseUrl: "",
+        model: "gpt-5.4",
+        apiKeyEnv: null,
+        contextWindow: 272_000
+      }
+    );
+    overlay.base = overlay.draft;
+
+    const rows = settingsRows(overlay, state.config);
+    expect(rows.map((row) => row.id)).not.toContain("base-url");
+    expect(rows.map((row) => row.id)).not.toContain("allow-insecure-http");
+    expect(rows.map((row) => row.id)).not.toContain("api-key");
+    expect(rows.find((row) => row.id === "provider")?.value)
+      .toContain("ChatGPT plan");
+    expect(rows.find((row) => row.id === "provider")?.hint)
+      .toBe("Sign in with 1667 auth login chatgpt. ChatGPT output length is best effort.");
+    expect(rows.find((row) => row.id === "text-prompt-format")?.disabled).toBe(true);
+    expect(rows.find((row) => row.id === "text-prompt-format")?.hint)
+      .toBe("Available with text-completion providers.");
+    expect(rows.find((row) => row.id === "split-think-tags")?.disabled).toBe(true);
+    expect(rows.find((row) => row.id === "split-think-tags")?.hint)
+      .toBe("Available with text-completion providers.");
+    expect(rows.map((row) => row.id)).toEqual(settingsRowIds(overlay));
+    expect(settingsRowIds(overlay)).not.toContain("base-url");
+    expect(settingsRowIds(overlay)).toContain("model");
+    expect(overlay.draft.generation.model).toBe("gpt-5.4");
+
+    const claude = SETTINGS_PROVIDER_CHOICES.find((choice) => choice.id === "claude-plan");
+    expect(claude).toMatchObject({
+      label: "Claude plan",
+      provider: "anthropic",
+      defaults: {
+        baseUrl: "",
+        model: "claude-sonnet-4-6",
+        apiKeyEnv: null,
+        contextWindow: 1_000_000
+      }
+    });
+  });
+
+  test("subscription plans skip legacy discovery and context probes", async () => {
+    const { source, state, backend, press } = settingsHarness();
+    await openSettings(press);
+    const overlay = state.settings!;
+    overlay.draft = settingsTextDraftWithSubscriptionPlan(
+      overlay.draft,
+      "chatgpt-plan",
+      {
+        ...overlay.draft.generation,
+        provider: "openai-compatible",
+        baseUrl: "",
+        model: "gpt-5.4",
+        apiKeyEnv: null,
+        contextWindow: 272_000
+      }
+    );
+    overlay.base = overlay.draft;
+    let discoveryCalls = 0;
+    let probeCalls = 0;
+    const discoverModels = source.api.discoverModels;
+    const probeContextWindow = source.api.probeContextWindow;
+    source.api.discoverModels = async (...args) => {
+      discoveryCalls += 1;
+      return discoverModels(...args);
+    };
+    source.api.probeContextWindow = async (...args) => {
+      probeCalls += 1;
+      return probeContextWindow(...args);
+    };
+    const context = {
+      backend,
+      repaint: () => undefined,
+      cache: createWrapCache<ProseStyle>(),
+      renderer: null,
+      applyTheme: () => undefined,
+      previewTheme: () => undefined
+    };
+
+    await discoverSettingsModels(state, source, context, overlay);
+    await detectSettingsContext(state, source, context, overlay);
+
+    expect(discoveryCalls).toBe(0);
+    expect(probeCalls).toBe(0);
+    expect(overlay.result?.message).toContain("Enter context size manually");
+  });
+
+  test("subscription plans hide probe keys and ignore direct probe shortcuts", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    const overlay = state.settings!;
+    overlay.draft = settingsTextDraftWithSubscriptionPlan(
+      overlay.draft,
+      "chatgpt-plan",
+      {
+        ...overlay.draft.generation,
+        provider: "openai-compatible",
+        baseUrl: "",
+        model: "gpt-5.4",
+        apiKeyEnv: null,
+        contextWindow: 272_000
+      }
+    );
+    overlay.base = overlay.draft;
+
+    for (const row of ["provider", "context-window"] as const) {
+      await selectRow(press, state, row);
+      const footers = settingsFooterVariants(overlay, false);
+      expect(footers.flatMap((footer) => footer.actions).map((entry) => entry.action))
+        .not.toContain("check");
+      expect(footers.flatMap((footer) => footer.actions).map((entry) => entry.action))
+        .not.toContain("detect-context");
+      expect(/(?:c check|p detect| · [cp] · | [cp] esc$)/u.test(
+        footers.map((footer) => footer.text).join("\n")
+      )).toBe(false);
+    }
+
+    overlay.result = null;
+    overlay.deleteArmedProfileId = overlay.draft.selectedProfileId;
+    await press(key("c"));
+    expect(overlay.deleteArmedProfileId).toBe(null);
+    await press(key("p"));
+    expect(overlay.result).toBe(null);
   });
 
   test("tab runs only the action the focused row declares", async () => {

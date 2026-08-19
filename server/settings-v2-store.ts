@@ -92,6 +92,13 @@ import { requireFreshUnseenMutationId } from "./mutation-id-policy.js";
 import { parseSettingsDocumentV2 } from "./settings-v2-codec.js";
 import { storedCredentialSecretId } from "../shared/settings-stored-credential.js";
 import { assertSavedSamplingBiasResolves } from "./settings-v2-save-bias-check.js";
+import {
+  createSubscriptionRuntime,
+  providerSecretIdsToKeep,
+  storedSecretIdsInDocument,
+  storedSecretIdsInState,
+  type SubscriptionRuntimeDependencies
+} from "./subscription-runtime.js";
 
 type Clock = () => Date;
 export type SettingsActivationMode = "activation-capable" | "recover-only";
@@ -132,12 +139,14 @@ export class SettingsV2Store {
   private readonly activationMode: SettingsActivationMode;
   private readonly secretsDir: string;
   private readonly prunesSecrets: boolean;
+  private readonly subscription: SubscriptionRuntimeDependencies;
 
   constructor(
     private readonly dataDir: string,
     options: SettingsV2StoreOptions = {}
   ) {
     this.secretsDir = options.secretsDir ?? dataDir;
+    this.subscription = createSubscriptionRuntime(this.secretsDir);
     // A shared machine tier holds every project's keys, and this store only
     // knows the IDs one project references. Pruning against that view would
     // delete another project's credentials, so garbage collection is confined
@@ -173,7 +182,7 @@ export class SettingsV2Store {
     await this.deleteSupersededSecrets([preActivation], state);
     if (this.prunesSecrets) {
       await removeProviderSecretsScratch(this.secretsDir);
-      await pruneProviderSecrets(this.secretsDir, storedSecretIdsInState(state));
+      await pruneProviderSecrets(this.secretsDir, providerSecretIdsToKeep(state));
     }
     assertRuntimeDocumentSupported(activeSettingsDocument(state));
     settingsViewFromState(state);
@@ -211,7 +220,7 @@ export class SettingsV2Store {
       purpose,
       {},
       this.environment,
-      {},
+      { subscription: this.subscription },
       storedSecrets
     );
     assertRuntimeGenerationSettingsSupported(runtime.settings);
@@ -296,8 +305,11 @@ export class SettingsV2Store {
           connection,
           "default",
           model?.capabilities ?? defaultModelCapabilities(provider),
-          this.environment,
-          storedSecrets
+          {
+            environment: this.environment,
+            storedSecrets,
+            subscription: this.subscription
+          }
         )
       };
       (exactModel === undefined ? fallback : exact).push(match);
@@ -352,7 +364,10 @@ export class SettingsV2Store {
       purpose,
       {},
       this.environment,
-      { allowBlankModel: true },
+      {
+        allowBlankModel: true,
+        subscription: this.subscription
+      },
       resolvedSecrets
     );
     assertRuntimeGenerationSettingsSupported(runtime.settings);
@@ -654,7 +669,7 @@ export class SettingsV2Store {
 
   private async pruneUnreferencedSecrets(state: SettingsStateV2): Promise<void> {
     if (!this.prunesSecrets) return;
-    await pruneProviderSecrets(this.secretsDir, storedSecretIdsInState(state));
+    await pruneProviderSecrets(this.secretsDir, providerSecretIdsToKeep(state));
   }
 
   /** Final is always authoritative. A valid reserved `.next` is either an
@@ -809,7 +824,7 @@ export class SettingsV2Store {
           purpose,
           {},
           this.environment,
-          {},
+          { subscription: this.subscription },
           storedSecrets
         ).settings;
         if (providerRequestTransportAvailable(effective)) probeTargets.push(effective);
@@ -890,25 +905,6 @@ function responseActivationOutcome(
 ): SettingsActivationOutcomeV2 | null {
   const outcome = state.lastActivationOutcome;
   return outcome !== null && outcome.transactionId === mutationId ? outcome : null;
-}
-
-function storedSecretIdsInDocument(document: SettingsDocumentV2): Set<string> {
-  const ids = new Set<string>();
-  for (const connection of Object.values(document.connections)) {
-    if (
-      connection.auth.type === "bearer-stored"
-      || connection.auth.type === "header-stored"
-    ) ids.add(connection.auth.secretId);
-  }
-  return ids;
-}
-
-function storedSecretIdsInState(state: SettingsStateV2): Set<string> {
-  const ids = new Set<string>();
-  for (const document of Object.values(state.documents)) {
-    for (const secretId of storedSecretIdsInDocument(document)) ids.add(secretId);
-  }
-  return ids;
 }
 
 /** A stored secret ID binds one credential target to one value. While the

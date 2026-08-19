@@ -89,6 +89,8 @@ const PROTOCOL_WIRE: Readonly<{
   "openai-chat-completions": Readonly<Record<SamplingKnobV2, string>>;
   "text-completions": Readonly<Record<SamplingKnobV2, string>>;
   "anthropic-messages": Partial<Record<SamplingKnobV2, string>>;
+  "openai-codex-responses": Partial<Record<SamplingKnobV2, string>>;
+  "anthropic-subscription-messages": Partial<Record<SamplingKnobV2, string>>;
 }> = {
   "dry-run": {},
   "openai-chat-completions": {
@@ -141,7 +143,9 @@ const PROTOCOL_WIRE: Readonly<{
     topP: "top_p",
     topK: "top_k",
     stop: "stop_sequences"
-  }
+  },
+  "openai-codex-responses": {},
+  "anthropic-subscription-messages": {}
 };
 
 // The knobs llama.cpp and KoboldCpp document beyond the OpenAI chat-completions

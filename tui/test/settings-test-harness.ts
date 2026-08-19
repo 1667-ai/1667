@@ -115,7 +115,7 @@ export async function selectRow(
   state: ReturnType<typeof settingsHarness>["state"],
   row: SettingsRowId
 ): Promise<void> {
-  const target = settingsRowIndex(row);
+  const target = settingsRowIndex(row, state.settings!);
   if (target < 0) throw new Error(`settings has no row for ${row}`);
   while (state.settings!.cursor < target) await press(key("down"));
   while (state.settings!.cursor > target) await press(key("up"));

@@ -10,6 +10,8 @@ import type {
   SettingsProtocolV2,
   SettingsPresetV2
 } from "../shared/settings-v2-types.js";
+import type { SubscriptionProtocolV2 } from "../shared/settings-v2-types.js";
+import type { SubscriptionRuntimeDependencies } from "./subscription-runtime.js";
 import {
   continuationPromptLayoutForOptimization,
   type ContinuationPromptLayout,
@@ -37,7 +39,7 @@ const PROVIDER_SECRET_REDACTORS = new WeakMap<
 export interface ProviderRuntime {
   readonly preset: SettingsPresetV2;
   /** Absent only on legacy test/runtime attachments. */
-  readonly protocol?: SettingsProtocolV2;
+  readonly protocol?: SettingsProtocolV2 | SubscriptionProtocolV2;
   /** Text routes use raw prompts when this value is absent. */
   readonly textPromptFormat?: "raw" | "server-template" | "chatml";
   /** From `ModelConnectionV2.splitThinkTags`. A text route otherwise passes
@@ -70,6 +72,8 @@ export interface ProviderRuntime {
   readonly continuationPromptLayout?: ContinuationPromptLayout;
   readonly capabilities: ModelCapabilitiesV2;
   readonly sampling: SamplingSettingsV2;
+  /** Present only for the fixed subscription protocols. */
+  readonly subscription?: SubscriptionRuntimeDependencies;
 }
 
 type RuntimeSettings = GenerationSettings & {
@@ -79,6 +83,18 @@ type RuntimeSettings = GenerationSettings & {
 export interface ResolvedProviderHeaders {
   readonly headers: Record<string, string>;
   readonly secrets: readonly string[];
+}
+
+/** Runtime-only inputs resolved alongside one v2 provider connection. */
+export interface ProviderRuntimeOptions {
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly storedSecrets?: ReadonlyMap<string, string>;
+  readonly sampling?: SamplingSettingsV2;
+  readonly tokenProbabilities?: number | null;
+  readonly reasoning?: ReasoningDisplayV2;
+  readonly keepReasoning?: boolean;
+  readonly continuationPromptOptimization?: ContinuationPromptOptimizationV2;
+  readonly subscription?: SubscriptionRuntimeDependencies;
 }
 
 /** Attach server-only runtime policy without changing the frozen JSON settings
@@ -115,13 +131,7 @@ export function providerRuntimeFromV2(
   connection: ModelConnectionV2,
   effort: GenerationEffortV2,
   capabilities: ModelCapabilitiesV2,
-  environment?: NodeJS.ProcessEnv,
-  storedSecrets?: ReadonlyMap<string, string>,
-  sampling: SamplingSettingsV2 = EMPTY_SAMPLING_V2,
-  tokenProbabilities: number | null = null,
-  reasoning: ReasoningDisplayV2 = "marker",
-  keepReasoning = true,
-  continuationPromptOptimization?: ContinuationPromptOptimizationV2
+  options: ProviderRuntimeOptions = {}
 ): ProviderRuntime {
   const runtime: ProviderRuntime = {
     preset: connection.preset,
@@ -133,25 +143,26 @@ export function providerRuntimeFromV2(
     timeouts: connection.timeouts,
     allowInsecureHttp: connection.allowInsecureHttp === true,
     effort,
-    tokenProbabilities,
-    reasoning,
-    keepReasoning,
-    continuationPromptLayout: continuationPromptLayoutForOptimization(continuationPromptOptimization),
+    tokenProbabilities: options.tokenProbabilities ?? null,
+    reasoning: options.reasoning ?? "marker",
+    keepReasoning: options.keepReasoning ?? true,
+    continuationPromptLayout: continuationPromptLayoutForOptimization(options.continuationPromptOptimization),
     capabilities,
-    sampling
+    sampling: options.sampling ?? EMPTY_SAMPLING_V2,
+    ...(options.subscription === undefined ? {} : { subscription: options.subscription })
   };
-  if (environment !== undefined || storedSecrets !== undefined) {
+  if (options.environment !== undefined || options.storedSecrets !== undefined) {
     const slots = new Map<string, string>();
     for (const reference of credentialReferences(connection)) {
       if (reference.kind === "env") {
-        if (environment !== undefined) {
-          const value = environmentCredential(environment, reference.name);
+        if (options.environment !== undefined) {
+          const value = environmentCredential(options.environment, reference.name);
           if (value !== undefined) {
             slots.set(environmentSlotKey(reference.name), value);
           }
         }
       } else {
-        const stored = storedSecrets?.get(reference.secretId);
+        const stored = options.storedSecrets?.get(reference.secretId);
         if (stored !== undefined) {
           slots.set(storedSlotKey(reference.secretId), stored);
         }

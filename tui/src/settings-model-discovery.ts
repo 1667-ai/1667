@@ -20,6 +20,7 @@ import {
   settingsProviderProbeTarget
 } from "./settings-provider-probe.js";
 import type { RuntimeState, SettingsOverlayState } from "./state.js";
+import { settingsSubscriptionPreset } from "./settings-subscription.js";
 
 const synchronizedOverlays = new WeakMap<RuntimeState, SettingsOverlayState>();
 
@@ -116,6 +117,10 @@ export async function discoverSettingsModels(
   overlay: SettingsOverlayState
 ): Promise<void> {
   clearStaleAutomaticModel(overlay);
+  if (settingsSubscriptionPreset(overlay) !== null) {
+    clearSettingsModelDiscovery(overlay);
+    return;
+  }
   const settings = overlay.view.editable
     ? overlay.draft.generation
     : overlay.view.effective;

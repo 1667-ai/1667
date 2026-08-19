@@ -7,6 +7,10 @@ import {
 } from "./settings-model-discovery.js";
 import { modelPickerRequired } from "./settings-model-picker.js";
 import { isSettingsScalarRow } from "./settings-scalar.js";
+import {
+  settingsPlanRowDisabled,
+  settingsSubscriptionRowVisible
+} from "./settings-subscription.js";
 import type { SettingsOverlayState, SettingsRowId } from "./state.js";
 
 /** The form's keyboard order. The prompt-layout experiment stays beside the
@@ -41,15 +45,56 @@ export const SETTINGS_ROW_IDS = [
   "utility-route"
 ] as const satisfies readonly SettingsRowId[];
 
+/** URL, plain-HTTP, and API-key controls do not apply to fixed subscription
+ * connections. The provider row remains in the list so the writer can leave
+ * the plan preset without a hidden cursor jump. */
+export function settingsRowIds(
+  overlay: SettingsOverlayState
+): readonly SettingsRowId[] {
+  return SETTINGS_ROW_IDS.filter((row) => settingsSubscriptionRowVisible(overlay, row));
+}
+
+/** Name the selected row before a profile or provider change can reshape the
+ * list. The clamp also makes stale captured cursors harmless. */
+export function settingsCursorRowIdentity(
+  overlay: SettingsOverlayState
+): SettingsRowId | null {
+  const rows = settingsRowIds(overlay);
+  const cursor = boundedSettingsCursor(overlay.cursor, overlay);
+  return rows[cursor] ?? null;
+}
+
+/** Restore a cursor by row identity after the visible list changes. A removed
+ * row falls back to the clamped old position. */
+export function restoreSettingsCursor(
+  overlay: SettingsOverlayState,
+  row: SettingsRowId | null
+): void {
+  const rows = settingsRowIds(overlay);
+  const preserved = row === null ? -1 : rows.indexOf(row);
+  overlay.cursor = preserved >= 0
+    ? preserved
+    : boundedSettingsCursor(overlay.cursor, overlay);
+}
+
 /** Where a row sits in the cursor's list, or -1 for one the surface no longer
  * shows. `apiKeyEnv` is still a setting a config may carry; it stopped being
  * a row, so a semantic shortcut naming it simply leaves the cursor alone. */
-export function settingsRowIndex(row: SettingsRowId): number {
-  return (SETTINGS_ROW_IDS as readonly SettingsRowId[]).indexOf(row);
+export function settingsRowIndex(
+  row: SettingsRowId,
+  overlay?: SettingsOverlayState
+): number {
+  return (overlay === undefined ? SETTINGS_ROW_IDS : settingsRowIds(overlay)).indexOf(row);
 }
 
-export function boundedSettingsCursor(value: number): number {
-  return Math.max(0, Math.min(SETTINGS_ROW_IDS.length - 1, value));
+export function boundedSettingsCursor(
+  value: number,
+  overlay?: SettingsOverlayState
+): number {
+  return Math.max(
+    0,
+    Math.min((overlay === undefined ? SETTINGS_ROW_IDS : settingsRowIds(overlay)).length - 1, value)
+  );
 }
 
 /** Rows whose value is a closed choice: `←→` cycles them in place and their
@@ -84,6 +129,7 @@ export function settingsRowHasArrows(
   overlay: SettingsOverlayState,
   row: SettingsRowId
 ): boolean {
+  if (settingsPlanRowDisabled(overlay, row)) return false;
   return row === "text-prompt-format" || row === "split-think-tags"
     ? overlay.draft.generation.provider === "text-completion"
     : settingsRowCycles(row)
