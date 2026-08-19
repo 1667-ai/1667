@@ -88,6 +88,12 @@ PROBE_OUTPUT_FILE='.1667-probe-output'
 # 1 only after this process proves ownership of reserved staging (canonical
 # Transaction Record, or a verified clean fresh root that starts this install).
 CLEANUP_OWNS_STAGING=0
+# 1 only while this process owns a pre-activation Shell Installer Transaction
+# Record it wrote into a Managed Installation. The in-binary updater accepts a
+# Shell Installer record only in the 'activated' phase, so an interrupted
+# managed bootstrap must not leave one behind. A managed Transaction Record is
+# never cleared here: recovery needs it to finish or abort a half-applied swap.
+CLEANUP_CLEAR_TXN=0
 MANAGED_FORCE=0
 
 main() {
@@ -172,6 +178,7 @@ ${input.digestLines}
   # CLEANUP_OWNS_STAGING stays 0 until recovery validates a txn or the fresh path
   # verifies a clean root and begins this install.
   CLEANUP_OWNS_STAGING=0
+  CLEANUP_CLEAR_TXN=0
   acquire_lock "\$prefix"
   # EXIT cleans once. INT/TERM clear traps, clean once, then exit 128+signal.
   trap 'cleanup_install "\$prefix" "\$archive"' EXIT
@@ -276,6 +283,12 @@ ${input.digestLines}
   fi
 
   url="\$ASSET_BASE/\$archive"
+  # A managed bootstrap writes these pre-activation records into a root that
+  # already holds a valid Ownership Record and a working active executable.
+  # Own them so an interrupted bootstrap cannot strand '1667 upgrade'.
+  if [ "\$managed_install" -eq 1 ]; then
+    CLEANUP_CLEAR_TXN=1
+  fi
   write_txn "\$prefix" "downloading" "\$target" "\$digest"
   archive_path="\$prefix/\$archive"
   rm -f "\$archive_path" 9>&-
@@ -305,6 +318,9 @@ ${input.digestLines}
       die "Staged previous executable is invalid"
     fi
     fsync_path "\$prefix/\$PREVIOUS_NEXT_FILE"
+    # The managed record replaces the pre-activation record from here on, and
+    # recovery needs it to survive an interrupted swap.
+    CLEANUP_CLEAR_TXN=0
     write_managed_txn "\$prefix" "candidate-ready" "upgrade" "\$INSTALL_CHANNEL" true \
       "\$active_version" "\$PRODUCT_VERSION" "\$OWNERSHIP_ID" "\$target"
     mv "\$prefix/\$CANDIDATE_FILE" "\$executable" 9>&-
@@ -371,6 +387,12 @@ cleanup_install() {
     rm -f "\$root/\$CANDIDATE_FILE" "\$root/\$PROBE_OUTPUT_FILE" \
       "\$root/\$archive" "\$root/\$PACKAGE_STAGING_FILE" 9>&- 2>/dev/null || true
     remove_extract_stage "\$root"
+  fi
+  # Drop a pre-activation Shell Installer record this process wrote into a
+  # Managed Installation. Do it under the lock, before the lock is released.
+  if [ "\${CLEANUP_CLEAR_TXN:-0}" -eq 1 ]; then
+    clear_txn "\$root"
+    CLEANUP_CLEAR_TXN=0
   fi
   release_lock "\$root"
 }

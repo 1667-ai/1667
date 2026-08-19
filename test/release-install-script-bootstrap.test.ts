@@ -577,3 +577,45 @@ test("Shell Installer refuses unmanaged and non-canonical managed state", async 
   assert.deepEqual(await readFile(path.join(oversizedPrefix, INSTALL_TRANSACTION_FILE)), oversizedTxn);
   assert.equal(server.hits(), 0);
 });
+
+// An interrupted managed bootstrap must not strand the in-binary updater. The
+// pre-activation records the Installer writes are Shell Installer records, and
+// `1667 upgrade` accepts a Shell Installer record only in the `activated`
+// phase. An already installed 1667 carries its own copy of that rule, so the
+// Installer, not the updater, has to clear the record it wrote.
+test("Shell Installer clears its pre-activation record when a managed bootstrap fails", async (t) => {
+  const target = hostShellInstallerTarget();
+  if (target === null) {
+    t.skip("Host cannot run the POSIX Shell Installer");
+    return;
+  }
+  const scratch = await createScratch("bootstrap-fail-txn-");
+  t.after(() => rm(scratch, { recursive: true, force: true }));
+  const archiveDir = path.join(scratch, "archives");
+  await mkdir(archiveDir, { recursive: true });
+  // The server serves an empty directory, so every Release Archive request is
+  // a 404 and the download fails after the Transaction Record is on disk.
+  const serveDir = path.join(scratch, "empty");
+  await mkdir(serveDir, { recursive: true });
+  const server = await serveArchives(serveDir);
+  t.after(server.close);
+  const scriptPath = await writeScript(scratch, archiveDir, server.base);
+  const prefix = path.join(scratch, "prefix");
+  await mkdir(prefix, { mode: 0o755 });
+  await chmod(prefix, 0o755);
+  const id = "0123456789abcdef0123456789abcdef";
+  const oldBytes = Buffer.from(releaseStub(INSTALL_PRE_VERSION, target));
+  await writeFile(path.join(prefix, "1667"), oldBytes, { mode: 0o755 });
+  const ownership = prettyOwnership({ id, channel: "stable", root: prefix, target });
+  await writeFile(path.join(prefix, INSTALL_OWNERSHIP_FILE), ownership, { mode: 0o600 });
+
+  await assert.rejects(execFileAsync("sh", [scriptPath, "--prefix", prefix], { cwd: scratch }));
+
+  // No Transaction Record survives, so `1667 upgrade` still sees a clean root.
+  await assert.rejects(readFile(path.join(prefix, INSTALL_TRANSACTION_FILE)));
+  // The Managed Installation is untouched and still usable.
+  assert.deepEqual(await readFile(path.join(prefix, "1667")), oldBytes);
+  assert.equal(await readFile(path.join(prefix, INSTALL_OWNERSHIP_FILE), "utf8"), ownership);
+  await assert.rejects(readFile(path.join(prefix, INSTALL_CANDIDATE_FILE)));
+  await assert.rejects(readFile(path.join(prefix, INSTALL_PREVIOUS_NEXT_FILE)));
+});
