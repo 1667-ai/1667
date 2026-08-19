@@ -217,7 +217,8 @@ ${input.digestLines}
       for managed_residue in \
         "\$prefix/\$CANDIDATE_FILE" \
         "\$prefix/\$PACKAGE_STAGING_FILE" \
-        "\$prefix/\$PREVIOUS_NEXT_FILE"; do
+        "\$prefix/\$PREVIOUS_NEXT_FILE" \
+        "\$prefix/\$PROBE_OUTPUT_FILE"; do
         if [ -e "\$managed_residue" ] || [ -L "\$managed_residue" ]; then
           validate_managed_file_safety "\$managed_residue" "managed staging"
           rm -f "\$managed_residue" 9>&-
@@ -226,10 +227,10 @@ ${input.digestLines}
     else
       refuse_prior_managed_path "\$prefix/\$PREVIOUS_NEXT_FILE" "staged previous executable"
       refuse_prior_managed_path "\$prefix/\$CANDIDATE_FILE" "candidate executable"
+      refuse_prior_managed_path "\$prefix/\$PROBE_OUTPUT_FILE" "probe output"
       rm -f "\$prefix/\$PACKAGE_STAGING_FILE" 9>&-
     fi
     refuse_prior_managed_path "\$prefix/\$EXTRACT_STAGE" "extract staging"
-    refuse_prior_managed_path "\$prefix/\$PROBE_OUTPUT_FILE" "probe output"
     refuse_prior_managed_path "\$prefix/\$archive" "Release Archive staging"
     if [ -e "\$prefix/\$PREVIOUS_FILE" ] || [ -L "\$prefix/\$PREVIOUS_FILE" ]; then
       validate_managed_file_safety "\$prefix/\$PREVIOUS_FILE" "rollback executable"

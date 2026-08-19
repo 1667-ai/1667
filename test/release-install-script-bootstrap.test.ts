@@ -213,6 +213,7 @@ test("Shell Installer same-version bootstrap preserves rollback bytes and identi
     "stale previous staging\n",
     { mode: 0o755 }
   );
+  await writeFile(path.join(prefix, ".1667-probe-output"), "stale probe output\n", { mode: 0o600 });
   await writeFile(
     path.join(prefix, INSTALL_OWNERSHIP_FILE),
     prettyOwnership({ id, channel: "stable", root: prefix, target }),
@@ -223,6 +224,9 @@ test("Shell Installer same-version bootstrap preserves rollback bytes and identi
   await assert.rejects(readFile(path.join(prefix, INSTALL_CANDIDATE_FILE)));
   await assert.rejects(readFile(path.join(prefix, INSTALL_PACKAGE_STAGING_FILE)));
   await assert.rejects(readFile(path.join(prefix, INSTALL_PREVIOUS_NEXT_FILE)));
+  await assert.rejects(readFile(path.join(prefix, ".1667-probe-output")));
+  await execFileAsync("sh", [scriptPath, "--prefix", prefix], { cwd: scratch });
+  assert.deepEqual(await readFile(path.join(prefix, INSTALL_PREVIOUS_FILE)), previousBytes);
   const ownership = parseInstallOwnershipRecordText(
     await readFile(path.join(prefix, INSTALL_OWNERSHIP_FILE), "utf8")
   );
