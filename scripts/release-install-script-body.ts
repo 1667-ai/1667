@@ -318,11 +318,14 @@ ${input.digestLines}
       die "Staged previous executable is invalid"
     fi
     fsync_path "\$prefix/\$PREVIOUS_NEXT_FILE"
-    # The managed record replaces the pre-activation record from here on, and
-    # recovery needs it to survive an interrupted swap.
-    CLEANUP_CLEAR_TXN=0
     write_managed_txn "\$prefix" "candidate-ready" "upgrade" "\$INSTALL_CHANNEL" true \
       "\$active_version" "\$PRODUCT_VERSION" "\$OWNERSHIP_ID" "\$target"
+    # Release the pre-activation claim only after the managed record is on
+    # disk. write_managed_txn can die before it publishes, and the stale
+    # pre-activation record must still be cleared in that case. A die after it
+    # publishes leaves the claim set, which is safe: the candidate has not
+    # replaced the active executable yet, so clearing is self-healing.
+    CLEANUP_CLEAR_TXN=0
     mv "\$prefix/\$CANDIDATE_FILE" "\$executable" 9>&-
     chmod 0755 "\$executable" 9>&-
     fsync_path "\$executable"
@@ -373,6 +376,8 @@ usage() {
   printf 'Use this installer for a fresh Install Root or a valid Shell Managed Installation.\\n'
   printf 'Use 1667 upgrade for later updates when the installed executable runs.\\n'
   printf -- '--force accepts path ownership and write-permission risks.\\n'
+  printf -- 'This Installer runs the 1667 in the Install Root to read its version.\\n'
+  printf -- '--force also accepts that executable when it fails the safety checks.\\n'
   printf 'It waives no checksum, attestation, or version check.\\n'
 }
 

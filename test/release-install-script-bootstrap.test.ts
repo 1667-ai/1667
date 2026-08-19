@@ -398,6 +398,9 @@ test("Shell Installer rejects invalid SemVer active and transaction identities",
   }), { mode: 0o600 });
   const modeTxnPath = path.join(modePrefix, INSTALL_TRANSACTION_FILE);
   await writeFile(modeTxnPath, modeTxn, { mode: 0o640 });
+  // open(2) masks the requested mode with the ambient umask. Set it explicitly
+  // so the mode gate under test does not invert under a umask of 07x.
+  await chmod(modeTxnPath, 0o640);
   await assert.rejects(
     execFileAsync("sh", [scriptPath, "--prefix", modePrefix], { cwd: scratch }),
     /Install Transaction Record must have mode 600/i
