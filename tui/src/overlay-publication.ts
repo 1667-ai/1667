@@ -58,13 +58,14 @@ export function publishSettingsView(
   applyGenerationSettings(state, source, view);
   const overlay = state.settings;
   if (overlay !== null) {
+    const edit = activeSettingsEdit(state, overlay);
     const message = reconcileSettingsOverlay(
       overlay,
       view,
-      activeSettingsEdit(state, overlay)
+      edit
     );
     overlay.view = view;
-    autoSelectSettingsSubscriptionPlan(overlay);
+    autoSelectSettingsSubscriptionPlan(overlay, edit);
     overlay.result = null;
     if (message !== null) state.toast = message;
   }

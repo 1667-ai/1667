@@ -10,12 +10,16 @@ import type {
   SubscriptionAuthState
 } from "../../shared/settings-v2-types.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
+import { setComposerText } from "../src/composer-model.js";
 import { settingsDraftChanged } from "../src/settings-overlay-reconciliation.js";
 import { settingsRows } from "../src/settings-overlay-model.js";
 import { settingsProviderChoice } from "../src/settings-provider-choices.js";
 import { settingsSubscriptionPreset } from "../src/settings-subscription.js";
 import {
+  deferred,
+  key,
   openSettings,
+  selectRow,
   settingsHarness as harness
 } from "./settings-test-harness.js";
 
@@ -104,6 +108,34 @@ test("cached signed-in auth does not create a draft before fresh settings arrive
   expect(settingsSubscriptionPreset(state.settings!)).toBe(null);
   expect(settingsProviderChoice(state.settings!.draft.generation).id).toBe("dry-run");
   expect(settingsDraftChanged(state.settings!)).toBeFalse();
+});
+
+test("a delayed settings refresh cannot select below an active inline edit", async () => {
+  const { source, state, press } = harness();
+  source.settingsView = initialSettingsView({
+    chatgpt: "signed-out",
+    claude: "signed-out"
+  });
+  const entered = deferred<void>();
+  const gate = deferred<SettingsView>();
+  source.api.getSettings = async () => {
+    entered.resolve();
+    return gate.promise;
+  };
+
+  const opening = openSettings(press);
+  await entered.promise;
+  await selectRow(press, state, "model");
+  await press(key("return"));
+  setComposerText(state.settings!.edit!.composer, "typed-before-refresh");
+  gate.resolve(initialSettingsView({
+    chatgpt: "signed-in",
+    claude: "signed-out"
+  }));
+  await opening;
+
+  expect(settingsSubscriptionPreset(state.settings!)).toBe(null);
+  expect(state.settings!.edit?.composer.text).toBe("typed-before-refresh");
 });
 
 test("a pending activation keeps the pristine provider untouched", async () => {
