@@ -45,6 +45,11 @@ export const PROVIDER_SECRETS_FILE = "secrets.json";
 export const PROVIDER_SECRETS_NEXT_FILE = "secrets.json.next";
 /** Serializes read-modify-write publication of the machine-wide secrets file. */
 export const PROVIDER_SECRETS_LOCK_FILE = "secrets.lock";
+/** Serializes one subscription credential while its OAuth callback awaits. */
+export const SUBSCRIPTION_SECRET_LOCK_FILES = Object.freeze([
+  "subscription-openai-codex.lock",
+  "subscription-anthropic.lock"
+] as const);
 export const DATA_DIRECTORY_OWNER_MARKER_NEXT_SCRATCH =
   privatePublicationScratchPath(DATA_DIRECTORY_OWNER_MARKER_NEXT);
 export const SETTINGS_STATE_V2_NEXT_SCRATCH =
@@ -87,7 +92,8 @@ export const PROVIDER_SECRET_VALUE_ENTRY_NAMES = Object.freeze([
  */
 export const PROVIDER_SECRET_ENTRY_NAMES = Object.freeze([
   ...PROVIDER_SECRET_VALUE_ENTRY_NAMES,
-  PROVIDER_SECRETS_LOCK_FILE
+  PROVIDER_SECRETS_LOCK_FILE,
+  ...SUBSCRIPTION_SECRET_LOCK_FILES
 ] as const);
 
 export const HTTP_DATA_DIRECTORY_CLAIM_KEY_ENTRY_NAMES = Object.freeze([

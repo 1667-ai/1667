@@ -246,7 +246,8 @@ function fieldRow(
     row.scalar === undefined ? VALUE_WIDTH : SCALAR_CHIP_WIDTH,
     control
   );
-  const valueRole: DisplayRole = invalid ? "danger text"
+  const valueRole: DisplayRole = row.disabled ? "dimmed page"
+    : invalid ? "danger text"
     : selected ? "focus / accent" : "prose";
   const drawn = truncate(row.value, chipWidth);
   line.push(raisedSegment(padTo(drawn, chipWidth), valueRole));
@@ -283,7 +284,9 @@ function fieldRow(
   return {
     line,
     target: { kind: "list", index },
-    overrides: options.hasArrows(row) ? arrowRegions(drawn, valueLeft, index) : []
+    overrides: row.disabled || !options.hasArrows(row)
+      ? []
+      : arrowRegions(drawn, valueLeft, index)
   };
 }
 

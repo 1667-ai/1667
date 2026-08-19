@@ -2,6 +2,10 @@ import {
   releaseTargetForArtifact,
   type BuiltArtifactTarget
 } from "../shared/release-targets.js";
+import {
+  PI_AI_BUNDLED_PACKAGE_NAMES,
+  PI_AI_TREE_SHAKEN_PACKAGE_NAMES
+} from "./release-sbom-pi-ai.js";
 
 /** The name and version of a component listed in the same inventory. */
 export interface ReleaseComponentRef {
@@ -63,11 +67,17 @@ export const RELEASE_BUN_RUNTIME: ReleaseRuntimeComponent = Object.freeze({
 
 /** Root-lockfile packages whose code the bundler pulls into the executable. */
 const NPM_BUNDLED_PACKAGES = Object.freeze([
+  ...PI_AI_BUNDLED_PACKAGE_NAMES,
   "@silvia-odwyer/photon-node",
   "fs-ext-extra-prebuilt",
   "msgpackr",
   "tiktoken"
 ] as const);
+
+const NPM_BUNDLED_REQUIRED_BY: Readonly<Record<string, string>> = Object.freeze({
+  "@anthropic-ai/sdk": "@earendil-works/pi-ai",
+  "partial-json": "@earendil-works/pi-ai"
+});
 
 export interface ExcludedReleasePackage {
   readonly name: string;
@@ -89,6 +99,11 @@ export interface ExcludedReleasePackage {
  * fail the build by name.
  */
 export const RELEASE_SBOM_EXCLUDED_PACKAGES: readonly ExcludedReleasePackage[] = Object.freeze([
+  ...PI_AI_TREE_SHAKEN_PACKAGE_NAMES.map((name) => Object.freeze({
+    name,
+    reason: "Installed for Pi providers that 1667 does not import. The pinned "
+      + "Bun metafile contains no module from this package."
+  })),
   Object.freeze({
     name: "koffi",
     reason: "Source-only Node HTTP mode uses this FFI package on Linux. The "
@@ -288,7 +303,11 @@ export function releaseBundledComponents(
     ...TUI_NATIVE_PACKAGES[descriptor.artifactTarget]
   ];
   const resolved = [
-    ...NPM_BUNDLED_PACKAGES.map((name) => npmLockComponent(sources.npmLockfile, name)),
+    ...NPM_BUNDLED_PACKAGES.map((name) => npmLockComponent(
+      sources.npmLockfile,
+      name,
+      NPM_BUNDLED_REQUIRED_BY[name] ?? null
+    )),
     ...pinned.map((entry) => resolvedTuiComponent(entry, lockfile))
   ];
   resolved.sort((left, right) => compareStrings(left.name, right.name));
@@ -379,7 +398,11 @@ function nativePackage(name: string, integrity: string): PinnedTuiPackage {
   });
 }
 
-function npmLockComponent(lockfile: unknown, name: string): UnresolvedComponent {
+function npmLockComponent(
+  lockfile: unknown,
+  name: string,
+  requiredByName: string | null
+): UnresolvedComponent {
   const entry = npmLockEntry(lockfile, `node_modules/${name}`);
   if (entry.dev === true || entry.optional === true) {
     throw new Error(`${name} is not an installed runtime dependency`);
@@ -397,7 +420,7 @@ function npmLockComponent(lockfile: unknown, name: string): UnresolvedComponent 
     sha512: integrityToHex(lockString(entry.integrity, `${name} integrity`), name),
     downloadLocation: expected,
     purl: npmPurl(name, version),
-    requiredByName: null
+    requiredByName
   });
 }
 

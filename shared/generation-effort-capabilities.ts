@@ -28,6 +28,7 @@ export function generationEffortChoicesForTarget(
 ): readonly GenerationEffortV2[] {
   if (target.reasoningEffort !== "supported") return DEFAULT_EFFORT;
   return target.protocol === "anthropic-messages"
+    || target.protocol === "anthropic-subscription-messages"
     ? ANTHROPIC_EFFORTS
     : GENERATION_EFFORT_V2_VALUES;
 }

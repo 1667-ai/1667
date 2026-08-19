@@ -9,9 +9,18 @@ export const SETTINGS_PROTOCOL_V2_VALUES = [
   "dry-run",
   "openai-chat-completions",
   "text-completions",
-  "anthropic-messages"
+  "anthropic-messages",
+  "openai-codex-responses",
+  "anthropic-subscription-messages"
 ] as const;
 export type SettingsProtocolV2 = (typeof SETTINGS_PROTOCOL_V2_VALUES)[number];
+
+/** Protocols owned by the fixed subscription connections. */
+export const SETTINGS_SUBSCRIPTION_PROTOCOL_V2_VALUES = [
+  "openai-codex-responses",
+  "anthropic-subscription-messages"
+] as const;
+export type SubscriptionProtocolV2 = (typeof SETTINGS_SUBSCRIPTION_PROTOCOL_V2_VALUES)[number];
 
 export const TEXT_PROMPT_FORMAT_V2_VALUES = [
   "raw",
@@ -29,9 +38,45 @@ export const SETTINGS_PRESET_V2_VALUES = [
   "ollama",
   "llama-cpp",
   "koboldcpp",
-  "custom"
+  "custom",
+  "chatgpt-plan",
+  "claude-plan"
 ] as const;
 export type SettingsPresetV2 = (typeof SETTINGS_PRESET_V2_VALUES)[number];
+
+/** Presets owned by the fixed subscription connections. */
+export const SETTINGS_SUBSCRIPTION_PRESET_V2_VALUES = [
+  "chatgpt-plan",
+  "claude-plan"
+] as const;
+export type SubscriptionPresetV2 = (typeof SETTINGS_SUBSCRIPTION_PRESET_V2_VALUES)[number];
+
+export function isSubscriptionProtocolV2(
+  value: SettingsProtocolV2
+): value is SubscriptionProtocolV2 {
+  return value === "openai-codex-responses"
+    || value === "anthropic-subscription-messages";
+}
+
+export function isSubscriptionPresetV2(
+  value: SettingsPresetV2
+): value is SubscriptionPresetV2 {
+  return value === "chatgpt-plan" || value === "claude-plan";
+}
+
+export function subscriptionPresetForProtocolV2(
+  protocol: SubscriptionProtocolV2
+): SubscriptionPresetV2 {
+  return protocol === "openai-codex-responses" ? "chatgpt-plan" : "claude-plan";
+}
+
+export function subscriptionProtocolForPresetV2(
+  preset: SubscriptionPresetV2
+): SubscriptionProtocolV2 {
+  return preset === "chatgpt-plan"
+    ? "openai-codex-responses"
+    : "anthropic-subscription-messages";
+}
 
 export type CredentialReferenceV2 =
   | { readonly type: "none" }

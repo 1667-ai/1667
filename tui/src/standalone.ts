@@ -1,6 +1,10 @@
 import { terminalLineText } from "../../shared/terminal-text.js";
+import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 
 export {};
+
+// Bun standalone builds must register Pi's statically embedded OAuth flows.
+registerBunOAuthFlows();
 
 const argv = process.argv.slice(2);
 if (argv[0] === "--supervised-serve-child") {

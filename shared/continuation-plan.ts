@@ -3,6 +3,7 @@ import { normalizeAuthorsNote, type AuthorsNotePlacement } from "./authors-note.
 import type { PromptBlock, PromptPlan, PromptTurn } from "./prompt-plan.js";
 import type { ContinuationPromptLayout } from "./continuation-prompt-optimization.js";
 import { isOfficialAnthropicBaseUrl } from "./settings-provider-defaults.js";
+import { isSubscriptionProtocolV2, type SettingsProtocolV2 } from "./settings-v2-types.js";
 import type { StoryImageAttachment } from "./image-attachment.js";
 import type { ChapterBreak, GenerationSettings, StoryNode } from "./types.js";
 
@@ -299,14 +300,18 @@ function continuationResult(
 /** OpenAI documents assistant entries as previous messages, not response prefills;
  * Claude 4.6+ rejects prefills. Those APIs use the exact-boundary echo fallback. */
 export function supportsAssistantPrefill(settings: GenerationSettings): boolean {
+  if (settings.protocol !== undefined) return false;
   const runtime = (
     settings as GenerationSettings & {
       [key: symbol]: {
-        protocol?: "dry-run" | "openai-chat-completions" | "text-completions" | "anthropic-messages";
+        protocol?: SettingsProtocolV2;
         capabilities?: { assistantPrefill?: "supported" | "unsupported" | "unknown" };
       } | undefined;
     }
   )[Symbol.for("1667.provider-runtime")];
+  if (runtime?.protocol !== undefined && isSubscriptionProtocolV2(runtime.protocol)) {
+    return false;
+  }
   if (runtime?.protocol === "text-completions" || settings.provider === "text-completion") {
     return true;
   }

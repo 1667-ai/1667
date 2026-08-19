@@ -58,12 +58,14 @@ import {
   disarmSettingsConflict,
   initialSettingsOverlay,
   sameSettingsDraft,
-  SETTINGS_ROW_IDS,
   settingsActivationFailureText,
   settingsDraftChanged,
   settingsRowHasArrows,
   settingsRowCycles,
   settingsRowIndex,
+  settingsRowIds,
+  restoreSettingsCursor,
+  settingsCursorRowIdentity,
   settingsRows,
   settingsRowUsesServer,
   settleSettingsOverlaySave
@@ -91,6 +93,7 @@ import {
   applySettingsTheme,
   cycleSettingsRow
 } from "./settings-selector-actions.js";
+import { settingsSubscriptionPreset } from "./settings-subscription.js";
 
 import type {
   RuntimeState,
@@ -116,7 +119,7 @@ export async function openSettingsOverlay(
   );
   const overlay = state.settings;
   if (row !== undefined) {
-    const at = settingsRowIndex(row);
+    const at = settingsRowIndex(row, overlay);
     if (at >= 0) overlay.cursor = at;
   }
   state.mode = "SETTINGS";
@@ -152,6 +155,10 @@ export async function settingsOverlayAction(
     && resolved.action !== "cancel") {
     overlay.deleteArmedProfileId = null;
   }
+  if (settingsSubscriptionPreset(overlay) !== null
+    && (resolved.action === "check" || resolved.action === "detect-context")) {
+    return true;
+  }
   if (overlay.sampling !== null) {
     await samplingOverlayAction(resolved, state, source, context);
     return true;
@@ -161,7 +168,7 @@ export async function settingsOverlayAction(
     return true;
   }
   if (resolved.action === "import-profile") {
-    const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+    const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
     if (row === "profile" && overlay.view.editable && overlay.draft.document !== null) {
       openProfileTransfer(overlay);
     }
@@ -186,7 +193,7 @@ export async function settingsOverlayAction(
     // filling a row editor hidden behind it.
     await pasteIntoModelPicker(state, overlay);
   } else if (resolved.action === "paste-clipboard") {
-    const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+    const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
     const target = openSettingsPasteTarget(state);
     if (target === "editor") {
       const editor = state.editor;
@@ -207,20 +214,20 @@ export async function settingsOverlayAction(
   } else if (overlay.edit !== null) {
     await settingsInlineEditAction(resolved, state, source, context, overlay);
   } else if (resolved.action === "focus-next") {
-    overlay.cursor = boundedSettingsCursor(overlay.cursor + 1);
+    overlay.cursor = boundedSettingsCursor(overlay.cursor + 1, overlay);
   } else if (resolved.action === "focus-previous") {
-    overlay.cursor = boundedSettingsCursor(overlay.cursor - 1);
+    overlay.cursor = boundedSettingsCursor(overlay.cursor - 1, overlay);
   } else if (resolved.action === "focus-index") {
-    overlay.cursor = boundedSettingsCursor(resolved.index ?? overlay.cursor);
+    overlay.cursor = boundedSettingsCursor(resolved.index ?? overlay.cursor, overlay);
   } else if (resolved.action === "edit"
-    && SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)] === "profile") {
+    && settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)] === "profile") {
     if (!overlay.view.editable) {
       state.toast = "legacy settings are read-only";
     } else {
       beginSettingsRowEdit(overlay, state.config);
     }
   } else if (resolved.action === "open-selected" || resolved.action === "edit") {
-    const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+    const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
     if (settingsRowUsesServer(row) && !overlay.view.editable) {
       state.toast = "legacy settings are read-only";
     } else if (row === "model") {
@@ -250,7 +257,7 @@ export async function settingsOverlayAction(
     // C-18: `tab` runs whatever this row declares, and nothing where a row
     // declares none.
     const action = settingsRows(overlay, state.config)[
-      boundedSettingsCursor(overlay.cursor)
+      boundedSettingsCursor(overlay.cursor, overlay)
     ]?.action;
     if (action !== undefined) {
       await settingsOverlayAction({ action: action.key }, state, source, context);
@@ -262,10 +269,10 @@ export async function settingsOverlayAction(
     manageSettingsProfile(resolved.action, state, overlay);
   } else if (resolved.action === "take-next" || resolved.action === "take-previous") {
     if (resolved.index !== undefined) {
-      overlay.cursor = boundedSettingsCursor(resolved.index);
+      overlay.cursor = boundedSettingsCursor(resolved.index, overlay);
     }
     const step = resolved.action === "take-next" ? 1 : -1;
-    const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+    const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
     if (settingsRowHasArrows(overlay, row)) {
       await cycleSettingsRow(
         row, step, state, source, context, overlay, resolved.magnitude ?? "step"
@@ -286,7 +293,7 @@ function manageSettingsProfile(
   state: RuntimeState,
   overlay: SettingsOverlayState
 ): void {
-  const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+  const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
   if (row !== "profile") return;
   if (!overlay.view.editable || overlay.draft.document === null || overlay.draft.selectedProfileId === null) {
     state.toast = "legacy settings are read-only";
@@ -294,6 +301,7 @@ function manageSettingsProfile(
   }
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
+  const cursorRow = settingsCursorRowIdentity(overlay);
   if (action === "new-item" || action === "duplicate-item") {
     const created = action === "new-item"
       ? createSettingsProfile(document, profileId)
@@ -313,6 +321,7 @@ function manageSettingsProfile(
     overlay.deleteArmedProfileId = null;
     overlay.result = null;
     overlay.conflict = overlay.conflict === null ? null : { ...overlay.conflict, armed: false };
+    restoreSettingsCursor(overlay, cursorRow);
     state.toast = `${action === "new-item" ? "profile created" : "profile duplicated"} · s saves settings`;
     return;
   }
@@ -342,6 +351,7 @@ function manageSettingsProfile(
   overlay.deleteArmedProfileId = null;
   overlay.result = null;
   overlay.conflict = overlay.conflict === null ? null : { ...overlay.conflict, armed: false };
+  restoreSettingsCursor(overlay, cursorRow);
   state.toast = "profile deleted · routes repaired · s saves settings";
 }
 

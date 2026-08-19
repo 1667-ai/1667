@@ -52,7 +52,9 @@ export const GENERATION_RECORD_WIRE_PROTOCOLS = [
   "dry-run",
   "openai-chat-completions",
   "text-completions",
-  "anthropic-messages"
+  "anthropic-messages",
+  "openai-codex-responses",
+  "anthropic-subscription-messages"
 ] as const;
 export type GenerationRecordWireProtocol = (typeof GENERATION_RECORD_WIRE_PROTOCOLS)[number];
 

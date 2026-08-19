@@ -19,17 +19,27 @@ import {
   basicSettingsPresetAfterIdentityChange,
   basicSettingsPresetFor,
   basicSettingsForDisplay,
-  basicSettingsFromDocument
+  basicSettingsFromDocument,
+  subscriptionConnectionName
 } from "../../shared/settings-basic-draft.js";
+import {
+  defaultConnectionTimeouts,
+  defaultModelCapabilities
+} from "../../shared/settings-provider-defaults.js";
+import {
+  subscriptionProtocolForPresetV2
+} from "../../shared/settings-v2-types.js";
 import {
   applyPromptCachePolicy,
   promptCacheContextForProfile
 } from "../../shared/prompt-cache-capabilities.js";
 import {
+  isolateSettingsProfileConnection,
   isolateSettingsProfileModel,
   prepareSettingsProfileGenerationEdit,
   selectedSettingsProfileId
 } from "./settings-profile-draft.js";
+import { fitProfileToRoute } from "../../shared/generation-profile-transfer.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import { storedCredentialSecretId } from "../../shared/settings-stored-credential.js";
 import {
@@ -133,6 +143,109 @@ export function settingsTextDraftWithGeneration(
       apiKeyEnv: generation.apiKeyEnv
     }
   };
+}
+
+/** Select one of the fixed subscription routes. The form keeps the legacy
+ * GenerationSettings projection for shared controls, while this helper writes
+ * the protocol-owned connection shape that the settings validator requires. */
+export function settingsTextDraftWithSubscriptionPlan(
+  draft: SettingsTextDraft,
+  preset: "chatgpt-plan" | "claude-plan",
+  generation: GenerationSettings
+): SettingsTextDraft {
+  const document = draft.document;
+  const profileId = draft.selectedProfileId;
+  if (document === null || profileId === null) return { ...draft, generation };
+  const isolatedDocument = isolateSettingsProfileConnection(
+    prepareSettingsProfileGenerationEdit(
+      document,
+      profileId,
+      draft.generation,
+      generation
+    ),
+    profileId
+  );
+  const route = resolveSettingsProfile(isolatedDocument, profileId);
+  const protocol = subscriptionProtocolForPresetV2(preset);
+  const modelId = generation.model.trim();
+  const {
+    allowInsecureHttp: _allowInsecureHttp,
+    textPromptFormat: _textPromptFormat,
+    splitThinkTags: _splitThinkTags,
+    ...portableConnection
+  } = route.connection;
+  const connection: ModelConnectionV2 = {
+    ...portableConnection,
+    name: subscriptionConnectionName(preset),
+    preset,
+    protocol,
+    baseUrl: null,
+    auth: { type: "none" },
+    headers: [],
+    timeouts: route.connection.protocol === protocol
+      ? route.connection.timeouts
+      : defaultConnectionTimeouts(generation.provider)
+  };
+  const model = {
+    ...route.model,
+    remoteId: modelId,
+    name: modelId,
+    discovered: {},
+    overrides: generation.contextWindow === null
+      ? {}
+      : { contextWindow: generation.contextWindow },
+    capabilities: {
+      ...defaultModelCapabilities(generation.provider),
+      reasoningEffort: "supported" as const
+    }
+  };
+  const {
+    sampling: _sourceSampling,
+    tokenProbabilities: _sourceTokenProbabilities,
+    ...profileWithoutTransferFields
+  } = route.profile;
+  const planProfile: typeof route.profile = {
+    ...profileWithoutTransferFields,
+    effort: "default",
+    cachePolicy: "off",
+    temperature: generation.temperature,
+    maxOutputTokens: generation.maxTokens
+  };
+  const planDocument = {
+    ...isolatedDocument,
+    connections: {
+      ...isolatedDocument.connections,
+      [route.model.connectionId]: connection
+    },
+    models: {
+      ...isolatedDocument.models,
+      [route.profile.modelId]: model
+    },
+    profiles: {
+      ...isolatedDocument.profiles,
+      [profileId]: planProfile
+    },
+    writing: { defaultAuthorBrief: generation.systemPrompt }
+  };
+  // Re-fit every transferable profile value against the subscription route.
+  // The baseline above leaves unsupported effort, cache, token-probability,
+  // and sampling values out; the fitter restores only values the new route
+  // can use. Temperature and output length stay owned by this draft.
+  const fitted = fitProfileToRoute(planDocument, profileId, {
+    name: route.profile.name,
+    temperature: planProfile.temperature,
+    maxOutputTokens: planProfile.maxOutputTokens,
+    effort: route.profile.effort,
+    cachePolicy: route.profile.cachePolicy,
+    sampling: route.profile.sampling,
+    ...(route.profile.tokenProbabilities === undefined
+      ? {}
+      : { tokenProbabilities: route.profile.tokenProbabilities }),
+    ...(route.profile.continuationPromptOptimization === undefined
+      ? {}
+      : { continuationPromptOptimization: route.profile.continuationPromptOptimization })
+  });
+  return settingsTextDraftForDocument(fitted.document, profileId);
 }
 
 export function settingsTextDraftWithCachePolicy(

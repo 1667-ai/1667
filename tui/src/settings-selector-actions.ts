@@ -5,6 +5,8 @@ import { cycleAllowInsecureHttp } from "./settings-allow-insecure.js";
 import {
   cycleSettingsModel,
   cycleSettingsProvider,
+  restoreSettingsCursor,
+  settingsCursorRowIdentity,
   settingsModelDisplayText,
   settingsRowUsesServer
 } from "./settings-overlay-model.js";
@@ -96,7 +98,9 @@ export async function cycleSettingsRow(
           `model · ${settingsModelDisplayText(model)} · s saves settings`;
       }
     } else if (row === "profile") {
+      const cursorRow = settingsCursorRowIdentity(overlay);
       const profile = cycleProfileControl(overlay, step);
+      restoreSettingsCursor(overlay, cursorRow);
       if (profile !== null) state.toast = `profile · ${profile}`;
     } else if (row === "effort") {
       const effort = cycleEffortControl(overlay, step);

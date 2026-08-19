@@ -15,6 +15,7 @@ export interface PrivateFileLockOptions {
   readonly fileName: string;
   readonly directoryLabel: string;
   readonly timeoutMs: number;
+  readonly signal?: AbortSignal;
   readonly contentionMessage: (lockPath: string) => string;
 }
 
@@ -47,6 +48,9 @@ async function acquirePrivateFileLock(
 ): Promise<OsFileLock> {
   const deadline = Date.now() + options.timeoutMs;
   for (let delayMs = 5; ; delayMs = Math.min(delayMs * 2, 80)) {
+    if (options.signal?.aborted) {
+      throw options.signal.reason ?? new Error("Private file lock acquisition was cancelled");
+    }
     try {
       return await lockFile(fileDescriptor, lockPath);
     } catch (error) {
@@ -55,8 +59,29 @@ async function acquirePrivateFileLock(
         throw new Error(options.contentionMessage(lockPath), { cause: error });
       }
     }
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    await waitForRetry(delayMs, options.signal);
   }
+}
+
+async function waitForRetry(delayMs: number, signal: AbortSignal | undefined): Promise<void> {
+  if (signal === undefined) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    return;
+  }
+  if (signal.aborted) throw signal.reason ?? new Error("Private file lock acquisition was cancelled");
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason ?? new Error("Private file lock acquisition was cancelled"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
 }
 
 function privateLockOpenFlags(): number | string {

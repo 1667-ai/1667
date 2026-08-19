@@ -2,9 +2,10 @@ import type { KeyAction } from "../keys.js";
 import {
   boundedSettingsCursor,
   settingsRowHasArrows,
-  SETTINGS_ROW_IDS
+  settingsRowIds
 } from "../settings-overlay-model.js";
 import { isSettingsScalarRow } from "../settings-scalar.js";
+import { settingsSubscriptionPreset } from "../settings-subscription.js";
 import type { SettingsOverlayState } from "../state.js";
 import { visibleWidth } from "./story/frame.js";
 
@@ -25,6 +26,25 @@ export function fittingFooter(
 ): SettingsFooter {
   return variants.find((variant) => visibleWidth(variant.text) <= availableWidth)
     ?? variants.at(-1)!;
+}
+
+function withoutPlanProbes(
+  variants: ReadonlyArray<SettingsFooter>
+): ReadonlyArray<SettingsFooter> {
+  return variants.map((variant) => {
+    const probes = variant.actions.filter((entry) =>
+      entry.action === "check" || entry.action === "detect-context"
+    );
+    const text = probes.reduce((current, entry) => current
+      .replace(` · ${entry.token} · `, " · ")
+      .replace(` ${entry.token} `, " "), variant.text);
+    return {
+      text,
+      actions: variant.actions.filter((entry) =>
+        entry.action !== "check" && entry.action !== "detect-context"
+      )
+    };
+  });
 }
 
 export const SETTINGS_FOOTER_ACTIONS = [
@@ -450,16 +470,20 @@ export function settingsFooterVariants(
 ): ReadonlyArray<SettingsFooter> {
   if (pickerOpen) return SETTINGS_PICKER_FOOTERS;
   if (overlay.edit !== null) return SETTINGS_EDIT_FOOTERS;
-  const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+  const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
   const pending = overlay.view.editable && overlay.view.pendingRevision !== null;
+  let variants: ReadonlyArray<SettingsFooter>;
   if (row === "profile") {
     return pending ? SETTINGS_PENDING_PROFILE_FOOTERS : SETTINGS_PROFILE_FOOTERS;
   }
-  if (pending) return SETTINGS_PENDING_FOOTERS;
+  if (pending) variants = SETTINGS_PENDING_FOOTERS;
   // The context window is a scalar that can also be probed, so it keeps its
   // own keyline rather than the plain scalar one.
-  if (row === "context-window") return SETTINGS_CONTEXT_FOOTERS;
-  if (isSettingsScalarRow(row)) return SETTINGS_SCALAR_FOOTERS;
-  if (!settingsRowHasArrows(overlay, row)) return SETTINGS_TEXT_FOOTERS;
-  return row === "model" ? SETTINGS_MODEL_FOOTERS : SETTINGS_CHOICE_FOOTERS;
+  else if (row === "context-window") variants = SETTINGS_CONTEXT_FOOTERS;
+  else if (isSettingsScalarRow(row)) variants = SETTINGS_SCALAR_FOOTERS;
+  else if (!settingsRowHasArrows(overlay, row)) variants = SETTINGS_TEXT_FOOTERS;
+  else variants = row === "model" ? SETTINGS_MODEL_FOOTERS : SETTINGS_CHOICE_FOOTERS;
+  return settingsSubscriptionPreset(overlay) === null
+    ? variants
+    : withoutPlanProbes(variants);
 }

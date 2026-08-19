@@ -288,11 +288,12 @@ test("model server check keeps a stalled response body as a timeout error", asyn
   const originalFetch = globalThis.fetch;
   const keepEventLoopAlive = setTimeout(() => {}, 1_000);
   t.after(() => clearTimeout(keepEventLoopAlive));
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
-        input.signal.addEventListener("abort", () => controller.error(input.signal.reason), { once: true });
+        signal?.addEventListener("abort", () => controller.error(signal.reason), { once: true });
       }
     }), { headers: { "content-type": "application/json" } });
   }) as typeof fetch;
@@ -307,15 +308,16 @@ test("model server check keeps a stalled response body as a timeout error", asyn
 test("model server check clears its header deadline before reading the body", async (t) => {
   const originalFetch = globalThis.fetch;
   let bodyTimer: ReturnType<typeof setTimeout> | null = null;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
         bodyTimer = setTimeout(() => {
           controller.enqueue(new TextEncoder().encode('{"data":[{"id":"test-model"}]}'));
           controller.close();
         }, 50);
-        input.signal.addEventListener("abort", () => controller.error(input.signal.reason), {
+        signal?.addEventListener("abort", () => controller.error(signal.reason), {
           once: true
         });
       }

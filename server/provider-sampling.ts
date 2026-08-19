@@ -21,7 +21,8 @@ import {
   type SamplingKnobV2,
   type SamplingScalarKnobV2,
   type SamplingSettingsV2,
-  type SettingsPresetV2
+  type SettingsPresetV2,
+  type SettingsProtocolV2
 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { ProviderError } from "./errors.js";
@@ -215,7 +216,7 @@ function resolveLogitBiasFamilyKnob(
  * can actually report. */
 export function requireLogitBiasFamilyAvailable(
   settings: GenerationSettings,
-  protocol: "openai-chat-completions" | "text-completions" | "anthropic-messages" | "dry-run",
+  protocol: SettingsProtocolV2,
   storySampling?: StorySamplingBias
 ): void {
   const runtime = providerRuntimeFor(settings);

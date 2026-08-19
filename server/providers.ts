@@ -60,6 +60,7 @@ import {
   OPENAI_CHAT_EFFECTIVE_FIELDS,
   type GenerationRecordCollector
 } from "./generation-record-capture.js";
+import { streamSubscription } from "./subscription-adapter.js";
 export { ProviderError } from "./errors.js";
 export type { ChatMessage, PromptPlan } from "../shared/prompt-plan.js";
 export { forgetRefusedTokenProbabilities } from "./token-probability-capture.js";
@@ -143,6 +144,10 @@ export function streamCompletion(
   signal: AbortSignal,
   options: StreamCompletionOptions = {}
 ): AsyncGenerator<string> {
+  const protocol = providerRuntimeFor(settings).protocol as string | undefined;
+  if (protocol === "openai-codex-responses" || protocol === "anthropic-subscription-messages") {
+    return streamSubscription(settings, prompt, signal, options);
+  }
   switch (settings.provider) {
     case "dry-run":
       return streamDryRun(settings, prompt, signal, options);

@@ -13,7 +13,10 @@ import { createStoryViewModel, rowPart } from "./model.js";
 import {
   samplingSelectedRowIdentity
 } from "./sampling-model.js";
-import { SETTINGS_ROW_IDS } from "./settings-overlay-model.js";
+import {
+  settingsCursorRowIdentity,
+  settingsRowIds
+} from "./settings-overlay-model.js";
 import {
   mouseToAction,
   overlayOpen,
@@ -287,7 +290,7 @@ function listRowIdentity(state: MouseActionState, index: number | undefined): st
     const chapter = createStoryViewModel(state.payload).chapters[index];
     return chapter === undefined ? null : `chapter:${chapter.openingBreakId ?? "first"}`;
   }
-  if (state.settings !== null) return SETTINGS_ROW_IDS[index] ?? null;
+  if (state.settings !== null) return settingsRowIds(state.settings)[index] ?? null;
   return null;
 }
 
@@ -390,8 +393,8 @@ function selectedListIdentity(state: MouseActionState): string | null {
   if (state.settings !== null) {
     const sampling = samplingSelectedRowIdentity(state.settings);
     if (sampling !== null) return sampling;
-    const row = SETTINGS_ROW_IDS[state.settings.cursor];
-    return row === undefined ? null : `settings:${row}`;
+    const row = settingsCursorRowIdentity(state.settings);
+    return row === null ? null : `settings:${row}`;
   }
   return null;
 }

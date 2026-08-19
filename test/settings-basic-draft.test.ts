@@ -350,6 +350,65 @@ test("model identity changes reset owned metadata and use Anthropic capabilities
   });
 });
 
+test("subscription model edits preserve supported reasoning effort", () => {
+  for (const plan of [
+    {
+      preset: "chatgpt-plan" as const,
+      protocol: "openai-codex-responses" as const,
+      model: "gpt-5.4"
+    },
+    {
+      preset: "claude-plan" as const,
+      protocol: "anthropic-subscription-messages" as const,
+      model: "claude-sonnet-4-6"
+    }
+  ]) {
+    const subscription = validateSettingsDocumentV2({
+      ...DOCUMENT,
+      connections: {
+        ...DOCUMENT.connections,
+        active: {
+          ...DOCUMENT.connections.active!,
+          name: plan.preset === "chatgpt-plan" ? "ChatGPT plan" : "Claude plan",
+          preset: plan.preset,
+          protocol: plan.protocol,
+          baseUrl: null,
+          auth: { type: "none" },
+          headers: []
+        }
+      },
+      models: {
+        ...DOCUMENT.models,
+        active: {
+          ...DOCUMENT.models.active!,
+          remoteId: plan.model,
+          name: plan.model,
+          capabilities: {
+            ...DOCUMENT.models.active!.capabilities,
+            reasoningEffort: "supported"
+          }
+        }
+      },
+      profiles: {
+        ...DOCUMENT.profiles,
+        default: {
+          ...DOCUMENT.profiles.default!,
+          effort: "low"
+        }
+      }
+    });
+    const edited = applyBasicSettingsDraft(subscription, {
+      ...basicSettingsFromDocument(subscription),
+      model: `${plan.model}-edited`
+    });
+    const route = selectSettingsRoute(edited);
+
+    assert.equal(route.model.capabilities.reasoningEffort, "supported");
+    assert.equal(route.profile.effort, "low");
+    assert.doesNotThrow(() => validateSettingsDocumentV2(edited));
+  }
+});
+
 test("schema 3's model-identity-change reset: dry-run stays unsupported, every other provider becomes unknown", () => {
   // Site 1: shared/settings-basic-draft.ts replaces the whole capability
   // record on a model-identity change; defaultModelCapabilitiesForModelChangeV3
@@ -464,8 +523,10 @@ function resolvedStoredHeaders(
         connection,
         "default",
         model.capabilities,
-        {},
-        new Map([[auth.secretId, secret]])
+        {
+          environment: {},
+          storedSecrets: new Map([[auth.secretId, secret]])
+        }
       ),
       true
     ),

@@ -3,6 +3,7 @@ import type {
   ModelDiscoveryResultV2,
   ModelDiscoverySourceV2
 } from "../shared/settings-v2-types.js";
+import { isSubscriptionProtocolV2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
 import { ProviderError } from "./errors.js";
@@ -25,6 +26,9 @@ export async function discoverProviderModels(
     return { observedAt: now().toISOString(), models: [] };
   }
   const runtime = providerRuntimeFor(settings);
+  if (runtime.protocol !== undefined && isSubscriptionProtocolV2(runtime.protocol)) {
+    return { observedAt: now().toISOString(), models: [] };
+  }
   const root = providerRoot(settings);
   const timeoutMs = Math.min(runtime.timeouts.totalMs, 30_000);
   const result = settings.provider === "anthropic"

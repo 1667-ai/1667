@@ -10,6 +10,10 @@ import { settingsProviderProbeTarget } from "./settings-provider-probe.js";
 import { sameConnectionSecrets } from "./settings-secret-sidecar.js";
 import { activeSettingsEdit } from "./settings-edit-state.js";
 import { replaceSettingsDraft } from "./settings-draft-transition.js";
+import {
+  settingsSubscriptionLoginHint,
+  settingsSubscriptionPreset
+} from "./settings-subscription.js";
 import type { RuntimeState, SettingsOverlayState } from "./state.js";
 
 /** Probe the selected draft without letting a late response overwrite newer
@@ -20,6 +24,16 @@ export async function detectSettingsContext(
   context: ActionContext,
   overlay: SettingsOverlayState
 ): Promise<void> {
+  const subscriptionPreset = settingsSubscriptionPreset(overlay);
+  if (subscriptionPreset !== null) {
+    overlay.result = {
+      state: "warning",
+      message: `${settingsSubscriptionLoginHint(subscriptionPreset)} Enter context size manually.`
+    };
+    overlay.resultRow = "context-window";
+    context.repaint();
+    return;
+  }
   await context.backend.run("detecting context window", async (task) => {
     if (state.settings !== overlay) return;
     overlay.probing = true;
@@ -99,6 +113,16 @@ export async function checkSettings(
   context: ActionContext,
   overlay: SettingsOverlayState
 ): Promise<void> {
+  const subscriptionPreset = settingsSubscriptionPreset(overlay);
+  if (subscriptionPreset !== null) {
+    overlay.result = {
+      state: "warning",
+      message: `${settingsSubscriptionLoginHint(subscriptionPreset)} Connection check is unavailable here.`
+    };
+    overlay.resultRow = "base-url";
+    context.repaint();
+    return;
+  }
   await context.backend.run("checking model server", async (task) => {
     if (state.settings !== overlay) return;
     overlay.checking = true;

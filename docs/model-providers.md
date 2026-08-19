@@ -280,6 +280,8 @@ values.
 - OpenAI Chat Completions
 - Text Completions
 - Anthropic Messages
+- `openai-codex-responses` for a ChatGPT plan
+- `anthropic-subscription-messages` for a Claude plan
 
 Settings contains these provider choices:
 
@@ -293,6 +295,8 @@ Settings contains these provider choices:
 - llama.cpp text
 - KoboldCpp
 - KoboldCpp text
+- ChatGPT plan
+- Claude plan
 
 Use **OpenAI** for the official OpenAI endpoint. Use **OpenAI-compatible** for
 OpenRouter and other compatible chat endpoints. Use **OpenAI-compatible text**
@@ -319,6 +323,44 @@ Settings reads the list again after you change the provider or the base URL.
 Settings selects the model when the list contains one model and the model row
 is blank. An unsaved stored API key can read the model list. Settings uses the
 key for this request only. Save the settings to store the key.
+
+### ChatGPT and Claude plan connections
+
+The **ChatGPT plan** choice uses the fixed
+`openai-codex-responses` protocol. The **Claude plan** choice uses
+the fixed `anthropic-subscription-messages` protocol.
+
+A plan connection has no base URL, API key, plain-HTTP option, or custom
+header. Settings hides these controls. Do not enter a custom endpoint for a
+plan connection.
+
+Run `1667 auth login chatgpt` to sign in to ChatGPT. Run
+`1667 auth login claude` to sign in to Claude. The command asks for consent
+before sign-in. Run `1667 auth status` to read local sign-in metadata. Status
+does not refresh a credential or contact a provider. A stale stored OAuth
+credential shows `signed in (refreshes on next use)`. Run
+`1667 auth logout chatgpt` or `1667 auth logout claude` to remove one local
+credential.
+
+1667 stores the OAuth access and refresh credentials in the private machine
+tier. The project settings document stores no OAuth credential. Pi can use a
+refresh credential to obtain a new access credential during a provider
+operation. A refresh failure does not change the settings document.
+
+These plan connections are an experimental community integration. The
+provider can change or stop the sign-in flow. The provider applies its own
+subscription limits, terms, and data controls. A provider change can also
+change model behavior, output limits, request cost, and privacy controls.
+
+ChatGPT output length is best effort. The provider can stop before the
+configured maximum or apply its own limit. Claude plan support is experimental.
+
+1667 does not run model discovery for a plan connection. Enter the model ID
+manually in the **model** row. The plan choices use `gpt-5.4` and
+`claude-sonnet-4-6` as current defaults; the provider catalog remains the
+authority. If plan sign-in is unavailable, use an API-key connection. Use
+**OpenAI** or **OpenAI-compatible** with an OpenAI key for ChatGPT-compatible
+work. Use **Anthropic** with an Anthropic API key for Claude-compatible work.
 
 ## Use Generation Profiles and Generation Routes
 

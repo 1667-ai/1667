@@ -1,4 +1,5 @@
 import type { GenerationSettings, ModelServerCheckResult } from "../shared/types.js";
+import { isSubscriptionProtocolV2 } from "../shared/settings-v2-types.js";
 import { providerFetch } from "./provider-fetch.js";
 import { MAX_PROVIDER_CATALOG_BYTES } from "./provider-json.js";
 import { providerUrl } from "./providers.js";
@@ -27,6 +28,9 @@ export async function checkModelServer(
 ): Promise<ModelServerCheckResult> {
   options.signal?.throwIfAborted();
   const runtime = providerRuntimeFor(settings);
+  if (runtime.protocol !== undefined && isSubscriptionProtocolV2(runtime.protocol)) {
+    return { state: "ready", message: "Subscription provider uses the fixed Pi transport." };
+  }
   const headerTimeoutMs = timeoutMs
     ?? Math.min(runtime.timeouts.responseHeaderMs, MAX_MODEL_SERVER_CHECK_MS);
   const totalTimeoutMs = timeoutMs

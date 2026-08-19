@@ -1,5 +1,6 @@
 import {
   SETTINGS_ROUTE_PURPOSE_VALUES,
+  isSubscriptionProtocolV2,
   type SettingsDocumentV2,
   type SettingsStateV2,
   type SettingsView
@@ -114,6 +115,8 @@ export const PLAINTEXT_PROVIDER_HTTPS_REMEDIATION =
 export function providerRequestTransportAvailable(
   effective: GenerationSettings
 ): boolean {
+  const protocol = providerRuntimeFor(effective).protocol;
+  if (protocol !== undefined && isSubscriptionProtocolV2(protocol)) return true;
   if (effective.provider === "dry-run") return true;
   const url = new URL(effective.baseUrl);
   const runtime = providerRuntimeFor(effective);
@@ -148,6 +151,8 @@ export function assertRuntimeGenerationSettingsSupported(
 export async function defaultCandidateValidator(
   settings: GenerationSettings
 ): Promise<boolean> {
+  const protocol = providerRuntimeFor(settings).protocol;
+  if (protocol !== undefined && isSubscriptionProtocolV2(protocol)) return true;
   return (await checkModelServer(
     settings,
     undefined,

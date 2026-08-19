@@ -2,7 +2,7 @@ import { createComposer } from "./composer-model.js";
 import {
   beginSettingsPasteEdit,
   boundedSettingsCursor,
-  SETTINGS_ROW_IDS
+  settingsRowIds
 } from "./settings-overlay-model.js";
 import type { InlineEditorSession, RuntimeState } from "./state.js";
 
@@ -39,7 +39,7 @@ export function openSettingsPasteTarget(
   if (overlay.sampling !== null) {
     return overlay.sampling.edit === null ? null : "inline";
   }
-  const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+  const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
   if (row === "system-prompt") {
     if (!overlay.view.editable) return null;
     openSystemPromptEditor(state);

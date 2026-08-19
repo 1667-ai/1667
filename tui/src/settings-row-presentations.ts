@@ -17,6 +17,12 @@ import {
   localProviderPresetsSupported,
   settingsProviderChoice
 } from "./settings-provider-choices.js";
+import {
+  settingsPlanRowDisabled,
+  settingsSubscriptionLoginHint,
+  settingsSubscriptionPreset,
+  settingsSubscriptionRowVisible
+} from "./settings-subscription.js";
 import { promptCacheSummaryParts } from "./settings-cache-summary.js";
 import { samplingRowValue } from "./sampling-model.js";
 import {
@@ -86,6 +92,8 @@ export interface SettingsRowPresentation {
   readonly dots?: string;
   /** Present on a C-08 scalar; the panel paints its track. */
   readonly scalar?: SettingsScalar;
+  /** The value is fixed by the selected subscription connection. */
+  readonly disabled?: true;
   /** C-18 secondary action in the value column, reached with `tab`. */
   readonly action?: { readonly label: string; readonly key: KeyAction };
 }
@@ -103,6 +111,10 @@ export function settingsRows(
     ? undefined
     : resolveSettingsProfile(document, profileId).connection.preset;
   const providerChoice = settingsProviderChoice(settings, selectedPreset);
+  const subscriptionPreset = settingsSubscriptionPreset(overlay);
+  const subscriptionHint = subscriptionPreset === null
+    ? null
+    : settingsSubscriptionLoginHint(subscriptionPreset);
   const insecureNeeded = providerChoice.plaintextDefaultRequiresOwnedLoopback === true
     && !localProviderPresetsSupported()
     && isPlainHttp(settings.baseUrl)
@@ -110,7 +122,7 @@ export function settingsRows(
   const cache = promptCacheSummaryParts(overlay.view, overlay.draft);
   const tokenProbabilities = tokenProbabilitiesRowState(overlay);
   const reasoning = reasoningRowState(overlay);
-  return [
+  const rows: SettingsRowPresentation[] = [
     {
       id: "theme", section: "app", label: "theme",
       value: `‹ ${config.theme} ›`,
@@ -136,7 +148,9 @@ export function settingsRows(
       id: "provider", section: "connection", label: "provider",
       value: `‹ ${providerChoice.label} ›`,
       dots: providerPositionDots(settings, selectedPreset),
-      hint: insecureNeeded ? "" : "Selects the service that runs the model.",
+      hint: insecureNeeded
+        ? ""
+        : subscriptionHint ?? "Selects the service that runs the model.",
       ...(insecureNeeded ? { invalid: "Turn on plain HTTP to use this address." } : {})
     },
     {
@@ -149,7 +163,10 @@ export function settingsRows(
         : "",
       hint: settings.provider === "text-completion"
         ? "Sets how prompts are formatted for text-completion models."
-        : "Available with text-completion providers."
+        : "Available with text-completion providers.",
+      ...(settingsPlanRowDisabled(overlay, "text-prompt-format")
+        ? { disabled: true as const }
+        : {})
     },
     {
       id: "split-think-tags", section: "connection", label: "split thoughts",
@@ -158,18 +175,28 @@ export function settingsRows(
         : "—",
       hint: settings.provider === "text-completion"
         ? "Keeps <think> text separate from story prose."
-        : "Available with text-completion providers."
+        : "Available with text-completion providers.",
+      ...(settingsPlanRowDisabled(overlay, "split-think-tags")
+        ? { disabled: true as const }
+        : {})
     },
     {
       id: "base-url", section: "connection", label: "base URL",
-      value: settings.baseUrl || "—",
-      hint: "The address used to reach the model service.",
-      action: { label: "check connection", key: "check" }
+      value: subscriptionPreset === null ? settings.baseUrl || "—" : "—",
+      hint: subscriptionHint ?? "The address used to reach the model service.",
+      ...(subscriptionPreset === null
+        ? { action: { label: "check connection", key: "check" as const } }
+        : { disabled: true as const })
     },
     {
       id: "allow-insecure-http", section: "connection", label: "plain HTTP",
-      value: `[ ${settings.allowInsecureHttp === true ? "on" : "off"} ]`,
-      hint: "Allows plain HTTP for a model service you control."
+      value: subscriptionPreset === null
+        ? `[ ${settings.allowInsecureHttp === true ? "on" : "off"} ]`
+        : "—",
+      hint: subscriptionHint ?? "Allows plain HTTP for a model service you control.",
+      ...(settingsPlanRowDisabled(overlay, "allow-insecure-http")
+        ? { disabled: true as const }
+        : {})
     },
     // One way to supply a key. C-14 prefers the env-var form, but offering
     // both put two rows in front of every writer with no answer on screen to
@@ -177,8 +204,11 @@ export function settingsRows(
     // resolves at request time; it simply has no row of its own.
     {
       id: "api-key", section: "connection", label: "API key",
-      value: storedApiKeyPresentation(overlay),
-      hint: "Saved on this device; never stored with a story."
+      value: subscriptionPreset === null ? storedApiKeyPresentation(overlay) : "—",
+      hint: subscriptionHint ?? "Saved on this device; never stored with a story.",
+      ...(settingsPlanRowDisabled(overlay, "api-key")
+        ? { disabled: true as const }
+        : {})
     },
     ...connectionTimeoutRows(overlay),
     {
@@ -242,6 +272,7 @@ export function settingsRows(
     routeRow("prose-route", "prose", overlay, "prose"),
     routeRow("utility-route", "utility", overlay, "utility")
   ];
+  return rows.filter((row) => settingsSubscriptionRowVisible(overlay, row.id));
 }
 
 function scalarRow(
