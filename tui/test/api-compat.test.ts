@@ -1518,6 +1518,22 @@ test("HTTP StoryApi rejects DNS loopback before compatibility fetch", async () =
   expect(calls).toEqual([]);
 });
 
+test("HTTP StoryApi rejects a protocol-22 server before Settings decodes subscription auth", async () => {
+  const calls: string[] = [];
+  globalThis.fetch = (async (input) => {
+    calls.push(String(input));
+    return Response.json(metadata(undefined, {
+      apiProtocolVersion: 22,
+      minClientProtocolVersion: 22,
+      maxClientProtocolVersion: 22
+    }));
+  }) as typeof fetch;
+
+  const failure = await rejection(createApi("http://127.0.0.1:7373").listStories());
+  expect((failure as Error).message).toContain("Incompatible");
+  expect(calls).toEqual(["http://127.0.0.1:7373/api/health"]);
+});
+
 test("HTTP StoryApi rejects an older compatibility range and malformed metadata", async () => {
   for (const response of [
     metadata(undefined, {
