@@ -10,6 +10,18 @@ This file records notable changes to 1667. Product terms use the definitions in
   status. It keeps the application open while the backend answers. It still
   requires a restart if the backend stops answering.
 
+## 0.9.10-rc.2 - 2026-08-19
+
+- **Fresh Settings can select a signed-in subscription plan.** When exactly
+  one plan is signed in, Settings selects that plan as an unsaved draft. Both
+  or neither signed-in plan keeps the current choice. Settings does not replace
+  a choice that the user saved.
+
+- **Managed upgrades accept updated legal notices.** An installed version no
+  longer compares a new package's `LICENSE` and `NOTICE` files with its own old
+  copies. The release process still requires the reviewed files. The updater
+   still checks the package contents, metadata, integrity, and source identity.
+
 ## 0.9.10-rc.1 - 2026-08-19
 
 - **ChatGPT and Claude subscriptions can connect directly.** Run
