@@ -47,8 +47,78 @@ test("generated installer durably fsyncs ownership before clearing the transacti
   assert.match(body, /mv "\$tmp" "\$root\/\$TXN_FILE"\s*\n\s*fsync_path "\$root\/\$TXN_FILE"/);
   assert.match(
     body,
-    /mv "\$tmp" "\$dest"\s*\n\s*chmod 0600 "\$dest"\s*\n\s*# Ownership must be durable[\s\S]*?fsync_path "\$dest"/
+    /mv "\$tmp" "\$dest" 9>&-\s*\n\s*chmod 0600 "\$dest" 9>&-\s*\n\s*# Ownership must be durable[\s\S]*?fsync_path "\$dest"/
   );
+  const managedTxnWriter = body.indexOf("write_managed_txn()");
+  const managedTxnTempFsync = body.indexOf('fsync_path "$tmp"', managedTxnWriter);
+  const managedTxnMove = body.indexOf(
+    'mv "$tmp" "$root/$TXN_FILE" 9>&-',
+    managedTxnWriter
+  );
+  const managedTxnPublishedFsync = body.indexOf(
+    'fsync_path "$root/$TXN_FILE"',
+    managedTxnMove
+  );
+  const managedTxnParentFsync = body.indexOf('fsync_dir "$root"', managedTxnPublishedFsync);
+  assert.ok(managedTxnWriter >= 0, "managed transaction writer is present");
+  assert.ok(managedTxnTempFsync > managedTxnWriter, "managed txn temp is fsynced before publish");
+  assert.ok(managedTxnMove > managedTxnTempFsync, "managed txn moves only after temp fsync");
+  assert.ok(
+    managedTxnPublishedFsync > managedTxnMove,
+    "published managed txn is fsynced after move"
+  );
+  assert.ok(
+    managedTxnParentFsync > managedTxnPublishedFsync,
+    "managed txn parent directory is fsynced after publish"
+  );
+  const ownershipWriter = body.indexOf("write_ownership()");
+  const ownershipTempFsync = body.indexOf('fsync_path "$tmp"', ownershipWriter);
+  const ownershipMove = body.indexOf('mv "$tmp" "$dest" 9>&-', ownershipWriter);
+  const ownershipPublishedFsync = body.indexOf('fsync_path "$dest"', ownershipMove);
+  const ownershipParentFsync = body.indexOf('fsync_dir "$root"', ownershipPublishedFsync);
+  assert.ok(ownershipWriter >= 0, "ownership writer is present");
+  assert.ok(ownershipTempFsync > ownershipWriter, "ownership temp is fsynced before publish");
+  assert.ok(ownershipMove > ownershipTempFsync, "ownership moves only after temp fsync");
+  assert.ok(
+    ownershipPublishedFsync > ownershipMove,
+    "published ownership is fsynced after move"
+  );
+  assert.ok(
+    ownershipParentFsync > ownershipPublishedFsync,
+    "ownership parent directory is fsynced after publish"
+  );
+  assert.match(
+    body,
+    /semver_order=\$\(exec 9>&-;\s*semver_compare "\$active_version" "\$PRODUCT_VERSION"\)/
+  );
+  assert.match(
+    body,
+    /group_other_members "\$gid" "\$\(exec 9>&-; id -un\)"/
+  );
+  const managedBootstrapStart = body.indexOf(
+    '    validate_managed_ownership "$prefix" "$executable" "$target"'
+  );
+  const freshMutationStart = body.indexOf(
+    '  else\n    write_txn "$prefix" "candidate-ready"',
+    managedBootstrapStart
+  );
+  assert.ok(managedBootstrapStart >= 0, "managed bootstrap branch is present");
+  assert.ok(freshMutationStart > managedBootstrapStart, "fresh branch follows managed branch");
+  const managedBootstrap = body.slice(managedBootstrapStart, freshMutationStart);
+  for (const command of [
+    'rm -f "$prefix/$PACKAGE_STAGING_FILE" 9>&-',
+    'rm -f "$prefix/$PREVIOUS_NEXT_FILE" 9>&-',
+    'cp "$executable" "$prefix/$PREVIOUS_NEXT_FILE" 9>&-',
+    'chmod 0755 "$prefix/$PREVIOUS_NEXT_FILE" 9>&-',
+    'mv "$prefix/$CANDIDATE_FILE" "$executable" 9>&-',
+    'chmod 0755 "$executable" 9>&-',
+    'mv "$prefix/$PREVIOUS_NEXT_FILE" "$prefix/$PREVIOUS_FILE" 9>&-'
+  ]) {
+    assert.ok(
+      managedBootstrap.includes(command),
+      "managed path closes FD 9 for " + command
+    );
+  }
   // Pre-existing non-regular Ownership Record destination is refused.
   assert.match(body, /Ownership Record path is not a regular file/);
   assert.match(body, /Ownership Record must not be a symbolic link/);
@@ -63,7 +133,7 @@ test("generated installer durably fsyncs ownership before clearing the transacti
   assert.ok(ownershipCall >= 0, "install path writes ownership");
   assert.ok(clearTxnCall > ownershipCall, "clear_txn runs after write_ownership");
   // clear_txn removes the txn then fsyncs the Install Root so the unlink is durable.
-  assert.match(body, /rm -f "\$root\/\$TXN_FILE"\s*\n\s*fsync_dir "\$root"/);
+  assert.match(body, /rm -f "\$root\/\$TXN_FILE" 9>&-\s*\n\s*fsync_dir "\$root"/);
   // Candidate file is fsynced before candidate-ready is published (not after).
   const probeAt = body.indexOf('probe_candidate "$prefix/$CANDIDATE_FILE" "$target"');
   assert.ok(probeAt >= 0, "install path probes the candidate");

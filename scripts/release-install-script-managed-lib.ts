@@ -26,20 +26,20 @@ validate_managed_file_safety() {
     die "\$label must be a regular non-symbolic-link file"
   fi
   forced=\${MANAGED_FORCE:-0}
-  owner=\$(owner_uid "\$file") || die "Could not inspect \$label ownership"
-  me=\$(id -u)
+  owner=\$(exec 9>&-; owner_uid "\$file") || die "Could not inspect \$label ownership"
+  me=\$(exec 9>&-; id -u)
   if [ "\$owner" != "\$me" ]; then
-    refuse_root "\$forced" "\$label belongs to user \$owner, and you are \$(id -un). 1667 replaces files there during an upgrade, which it cannot do as another user."
+    refuse_root "\$forced" "\$label belongs to user \$owner, and you are \$(exec 9>&-; id -un). 1667 replaces files there during an upgrade, which it cannot do as another user."
     if [ "\$forced" -eq 1 ]; then return 0; fi
   fi
-  mode=\$(file_mode "\$file") || die "Could not inspect \$label permissions"
-  if [ \$(( \$(printf '%d' "0\$mode") & 2 )) -ne 0 ]; then
+  mode=\$(exec 9>&-; file_mode "\$file") || die "Could not inspect \$label permissions"
+  if [ \$(( \$(exec 9>&-; printf '%d' "0\$mode") & 2 )) -ne 0 ]; then
     refuse_root "\$forced" "\$label is writable by every account on this machine (mode \$mode). Any of them could replace what 1667 installs there."
     if [ "\$forced" -eq 1 ]; then return 0; fi
   fi
-  if [ \$(( \$(printf '%d' "0\$mode") & 16 )) -ne 0 ]; then
-    gid=\$(file_gid "\$file") || die "Could not inspect \$label group"
-    if group_other_members "\$gid" "\$(id -un)"; then
+  if [ \$(( \$(exec 9>&-; printf '%d' "0\$mode") & 16 )) -ne 0 ]; then
+    gid=\$(exec 9>&-; file_gid "\$file") || die "Could not inspect \$label group"
+    if group_other_members "\$gid" "\$(exec 9>&-; id -un)"; then
       if [ -n "\$GROUP_OTHERS" ]; then
         refuse_root "\$forced" "\$label is writable by group \${GROUP_NAME:-\$gid} (mode \$mode), which also holds \$GROUP_OTHERS."
         if [ "\$forced" -eq 1 ]; then return 0; fi
@@ -191,34 +191,34 @@ validate_managed_ownership() {
     die "Refusing to replace an existing 1667: Ownership Record is missing (unmanaged installation)"
   fi
   validate_managed_file_safety "\$file" "Ownership Record"
-  mode=\$(file_mode "\$file") || return 1
+  mode=\$(exec 9>&-; file_mode "\$file") || return 1
   [ "\$mode" = 600 ] || die "Ownership Record must have mode 600"
   size=\$(exec 9>&-; wc -c < "\$file" | tr -d ' ')
   [ -n "\$size" ] && [ "\$size" -le 16384 ] || die "Ownership Record is too large"
   text=\$(exec 9>&-; cat "\$file") || die "Could not read Ownership Record"
-  id=\$(managed_json_string_field "\$text" installationId)
-  method=\$(managed_json_string_field "\$text" method)
-  channel=\$(managed_json_string_field "\$text" channel)
-  id_length=\$(printf '%s' "\$id" | wc -c | tr -d ' ')
+  id=\$(exec 9>&-; managed_json_string_field "\$text" installationId)
+  method=\$(exec 9>&-; managed_json_string_field "\$text" method)
+  channel=\$(exec 9>&-; managed_json_string_field "\$text" channel)
+  id_length=\$(exec 9>&-; printf '%s' "\$id" | wc -c | tr -d ' ')
   [ "\$id_length" -eq 32 ] || die "Ownership Record installation id is invalid"
   case "\$id" in *[!0-9a-f]*) die "Ownership Record installation id is invalid" ;; esac
   case "\$channel" in stable|beta) ;; *) die "Ownership Record channel is invalid" ;; esac
   [ "\$method" = shell ] || die "Ownership Record method is invalid"
   expected="\$root/.1667-ownership-validate.\$\$"
-  rm -f "\$expected"
-  if canonical_ownership_bytes "\$id" "\$executable" "\$target" "\$root" "\$channel" > "\$expected" && cmp -s "\$file" "\$expected"; then
-    rm -f "\$expected"
+  rm -f "\$expected" 9>&-
+  if canonical_ownership_bytes "\$id" "\$executable" "\$target" "\$root" "\$channel" > "\$expected" && cmp -s "\$file" "\$expected" 9>&-; then
+    rm -f "\$expected" 9>&-
     OWNERSHIP_ID=\$id
     OWNERSHIP_CHANNEL=\$channel
     return 0
   fi
-  if canonical_ownership_compact_bytes "\$id" "\$executable" "\$target" "\$root" "\$channel" > "\$expected" && cmp -s "\$file" "\$expected"; then
-    rm -f "\$expected"
+  if canonical_ownership_compact_bytes "\$id" "\$executable" "\$target" "\$root" "\$channel" > "\$expected" && cmp -s "\$file" "\$expected" 9>&-; then
+    rm -f "\$expected" 9>&-
     OWNERSHIP_ID=\$id
     OWNERSHIP_CHANNEL=\$channel
     return 0
   fi
-  rm -f "\$expected"
+  rm -f "\$expected" 9>&-
   die "Ownership Record is not a canonical managed record"
 }
 
@@ -256,7 +256,7 @@ write_managed_txn() {
   installation_id=\$8
   target=\$9
   tmp="\$root/.1667-managed-txn.\$\$.tmp"
-  rm -f "\$tmp"
+  rm -f "\$tmp" 9>&-
   umask 077
   if ! (
     exec 9>&-
@@ -267,8 +267,10 @@ write_managed_txn() {
   ); then
     die "Could not create a managed Transaction Record"
   fi
-  mv "\$tmp" "\$root/\$TXN_FILE"
+  fsync_path "\$tmp"
+  mv "\$tmp" "\$root/\$TXN_FILE" 9>&-
   fsync_path "\$root/\$TXN_FILE"
+  fsync_dir "\$root"
 }
 
 validate_managed_txn() {
@@ -276,14 +278,14 @@ validate_managed_txn() {
   target=\$2
   root=\$3
   text=\$(exec 9>&-; cat "\$file") || die "Could not read managed Transaction Record"
-  kind=\$(managed_json_string_field "\$text" kind)
-  phase=\$(managed_json_string_field "\$text" phase)
-  operation=\$(managed_json_string_field "\$text" operation)
-  channel=\$(managed_json_string_field "\$text" channel)
-  update_channel=\$(json_bool_field "\$text" updateChannel)
-  active_version=\$(managed_json_string_field "\$text" activeVersion)
-  candidate_version=\$(managed_json_string_field "\$text" candidateVersion)
-  installation_id=\$(managed_json_string_field "\$text" installationId)
+  kind=\$(exec 9>&-; managed_json_string_field "\$text" kind)
+  phase=\$(exec 9>&-; managed_json_string_field "\$text" phase)
+  operation=\$(exec 9>&-; managed_json_string_field "\$text" operation)
+  channel=\$(exec 9>&-; managed_json_string_field "\$text" channel)
+  update_channel=\$(exec 9>&-; json_bool_field "\$text" updateChannel)
+  active_version=\$(exec 9>&-; managed_json_string_field "\$text" activeVersion)
+  candidate_version=\$(exec 9>&-; managed_json_string_field "\$text" candidateVersion)
+  installation_id=\$(exec 9>&-; managed_json_string_field "\$text" installationId)
   [ "\$kind" = managed ] || die "Install transaction kind is unsupported"
   case "\$phase" in candidate-ready|ownership-pending) ;; *) die "Managed transaction phase is invalid" ;; esac
   case "\$operation" in upgrade|rollback) ;; *) die "Managed transaction operation is invalid" ;; esac
@@ -292,13 +294,13 @@ validate_managed_txn() {
   if ! semver_valid "\$active_version" || ! semver_valid "\$candidate_version"; then
     die "Managed transaction versions are invalid"
   fi
-  id_length=\$(printf '%s' "\$installation_id" | wc -c | tr -d ' ')
+  id_length=\$(exec 9>&-; printf '%s' "\$installation_id" | wc -c | tr -d ' ')
   [ "\$id_length" -eq 32 ] || die "Managed transaction installation id is invalid"
   case "\$installation_id" in *[!0-9a-f]*) die "Managed transaction installation id is invalid" ;; esac
   expected="\$file.validate.\$\$"
-  rm -f "\$expected"
-  if canonical_managed_txn_bytes "\$phase" "\$operation" "\$channel" "\$update_channel" "\$active_version" "\$candidate_version" "\$installation_id" "\$root" "\$target" > "\$expected" && cmp -s "\$file" "\$expected"; then
-    rm -f "\$expected"
+  rm -f "\$expected" 9>&-
+  if canonical_managed_txn_bytes "\$phase" "\$operation" "\$channel" "\$update_channel" "\$active_version" "\$candidate_version" "\$installation_id" "\$root" "\$target" > "\$expected" && cmp -s "\$file" "\$expected" 9>&-; then
+    rm -f "\$expected" 9>&-
     MANAGED_PHASE=\$phase
     MANAGED_OPERATION=\$operation
     MANAGED_CHANNEL=\$channel
@@ -308,7 +310,7 @@ validate_managed_txn() {
     MANAGED_INSTALLATION_ID=\$installation_id
     return 0
   fi
-  rm -f "\$expected"
+  rm -f "\$expected" 9>&-
   die "Install transaction is not a canonical managed record"
 }
 
@@ -326,7 +328,7 @@ finish_managed_recovery() {
     if [ -e "\$root/\$PREVIOUS_FILE" ] || [ -L "\$root/\$PREVIOUS_FILE" ]; then
       validate_managed_file_safety "\$root/\$PREVIOUS_FILE" "rollback executable"
     fi
-    mv "\$root/\$PREVIOUS_NEXT_FILE" "\$root/\$PREVIOUS_FILE"
+    mv "\$root/\$PREVIOUS_NEXT_FILE" "\$root/\$PREVIOUS_FILE" 9>&-
     fsync_path "\$root/\$PREVIOUS_FILE"
     fsync_dir "\$root"
   elif [ -e "\$root/\$PREVIOUS_FILE" ]; then
@@ -345,7 +347,7 @@ finish_managed_recovery() {
     recovery_channel=\$OWNERSHIP_CHANNEL
   fi
   write_ownership "\$root" "\$MANAGED_INSTALLATION_ID" "\$executable" "\$target" "\$recovery_channel"
-  rm -f "\$root/\$CANDIDATE_FILE" "\$root/\$PACKAGE_STAGING_FILE"
+  rm -f "\$root/\$CANDIDATE_FILE" "\$root/\$PACKAGE_STAGING_FILE" 9>&-
   remove_extract_stage "\$root"
   clear_txn "\$root"
   RECOVER_STATUS=managed-completed
@@ -364,8 +366,7 @@ recover_managed_install() {
         probe_managed_owned "\$executable" "managed active executable" "\$target"
         active_version=\$MANAGED_PROBE_VERSION
         if [ "\$active_version" = "\$MANAGED_ACTIVE_VERSION" ]; then
-          rm -f "\$root/\$CANDIDATE_FILE" "\$root/\$PREVIOUS_NEXT_FILE" \
-            "\$root/\$PACKAGE_STAGING_FILE"
+          rm -f "\$root/\$CANDIDATE_FILE" "\$root/\$PREVIOUS_NEXT_FILE" "\$root/\$PACKAGE_STAGING_FILE" 9>&-
           remove_extract_stage "\$root"
           clear_txn "\$root"
           RECOVER_STATUS=managed-reset

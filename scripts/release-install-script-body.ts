@@ -213,7 +213,7 @@ ${input.digestLines}
       validate_managed_file_safety "\$prefix/\$PREVIOUS_FILE" "rollback executable"
     fi
     CLEANUP_OWNS_STAGING=1
-    rm -f "\$prefix/\$PACKAGE_STAGING_FILE"
+    rm -f "\$prefix/\$PACKAGE_STAGING_FILE" 9>&-
     probe_managed_owned "\$executable" "managed active executable" "\$target"
     active_version=\$MANAGED_PROBE_VERSION
   else
@@ -232,7 +232,7 @@ ${input.digestLines}
   fi
 
   if [ "\$managed_install" -eq 1 ]; then
-    semver_order=\$(semver_compare "\$active_version" "\$PRODUCT_VERSION")
+    semver_order=\$(exec 9>&-; semver_compare "\$active_version" "\$PRODUCT_VERSION")
     if [ "\$semver_order" -gt 0 ]; then
       die "Installer will not downgrade 1667 from \$active_version to \$PRODUCT_VERSION. For an intentional downgrade, run '1667 upgrade --version \$PRODUCT_VERSION'."
     fi
@@ -276,21 +276,21 @@ ${input.digestLines}
     if [ -e "\$prefix/\$PREVIOUS_FILE" ] || [ -L "\$prefix/\$PREVIOUS_FILE" ]; then
       validate_managed_file_safety "\$prefix/\$PREVIOUS_FILE" "rollback executable"
     fi
-    rm -f "\$prefix/\$PREVIOUS_NEXT_FILE"
-    cp "\$executable" "\$prefix/\$PREVIOUS_NEXT_FILE" || die "Could not stage the previous executable"
-    chmod 0755 "\$prefix/\$PREVIOUS_NEXT_FILE"
+    rm -f "\$prefix/\$PREVIOUS_NEXT_FILE" 9>&-
+    cp "\$executable" "\$prefix/\$PREVIOUS_NEXT_FILE" 9>&- || die "Could not stage the previous executable"
+    chmod 0755 "\$prefix/\$PREVIOUS_NEXT_FILE" 9>&-
     if [ -L "\$prefix/\$PREVIOUS_NEXT_FILE" ] || [ ! -f "\$prefix/\$PREVIOUS_NEXT_FILE" ]; then
       die "Staged previous executable is invalid"
     fi
     fsync_path "\$prefix/\$PREVIOUS_NEXT_FILE"
     write_managed_txn "\$prefix" "candidate-ready" "upgrade" "\$INSTALL_CHANNEL" true \
       "\$active_version" "\$PRODUCT_VERSION" "\$OWNERSHIP_ID" "\$target"
-    mv "\$prefix/\$CANDIDATE_FILE" "\$executable"
-    chmod 0755 "\$executable"
+    mv "\$prefix/\$CANDIDATE_FILE" "\$executable" 9>&-
+    chmod 0755 "\$executable" 9>&-
     fsync_path "\$executable"
     write_managed_txn "\$prefix" "ownership-pending" "upgrade" "\$INSTALL_CHANNEL" true \
       "\$active_version" "\$PRODUCT_VERSION" "\$OWNERSHIP_ID" "\$target"
-    mv "\$prefix/\$PREVIOUS_NEXT_FILE" "\$prefix/\$PREVIOUS_FILE"
+    mv "\$prefix/\$PREVIOUS_NEXT_FILE" "\$prefix/\$PREVIOUS_FILE" 9>&-
     fsync_path "\$prefix/\$PREVIOUS_FILE"
     fsync_dir "\$prefix"
     write_ownership "\$prefix" "\$OWNERSHIP_ID" "\$executable" "\$target" "\$INSTALL_CHANNEL"

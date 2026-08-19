@@ -67,22 +67,22 @@ group_other_members() {
   if [ -x /usr/bin/getent ] || [ -x /bin/getent ]; then
     getent_bin=/usr/bin/getent
     [ -x "\$getent_bin" ] || getent_bin=/bin/getent
-    line=\$("\$getent_bin" group "\$gid" 2>/dev/null) || return 1
+    line=\$(exec 9>&-; "\$getent_bin" group "\$gid" 2>/dev/null) || return 1
     [ -n "\$line" ] || return 1
     GROUP_NAME=\${line%%:*}
     members=\${line##*:}
   elif [ -x /usr/bin/dscl ]; then
-    GROUP_NAME=\$(/usr/bin/dscl . -search /Groups PrimaryGroupID "\$gid" 2>/dev/null \\
+    GROUP_NAME=\$(exec 9>&-; /usr/bin/dscl . -search /Groups PrimaryGroupID "\$gid" 2>/dev/null \\
       | awk 'NR==1{print \$1}') || return 1
     [ -n "\$GROUP_NAME" ] || return 1
     # A group with nobody in it has no GroupMembership key, and dscl exits
     # nonzero. That is an empty membership, not a failed lookup.
-    members=\$(/usr/bin/dscl . -read "/Groups/\$GROUP_NAME" GroupMembership 2>/dev/null \\
+    members=\$(exec 9>&-; /usr/bin/dscl . -read "/Groups/\$GROUP_NAME" GroupMembership 2>/dev/null \\
       | sed -n 's/^GroupMembership: //p') || members=
   else
     return 1
   fi
-  GROUP_OTHERS=\$(printf '%s' "\$members" | tr ', ' '\\n\\n' \\
+  GROUP_OTHERS=\$(exec 9>&-; printf '%s' "\$members" | tr ', ' '\\n\\n' \\
     | grep -v -e '^\$' -e "^root\\\$" -e "^\$me\\\$" | tr '\\n' ' ' || true)
   GROUP_OTHERS=\${GROUP_OTHERS% }
   return 0
@@ -246,15 +246,15 @@ remove_extract_stage() {
   root=\$1
   stage="\$root/\$EXTRACT_STAGE"
   if [ -L "\$stage" ]; then
-    rm -f "\$stage"
+    rm -f "\$stage" 9>&-
     return 0
   fi
   if [ -d "\$stage" ]; then
-    rm -rf "\$stage"
+    rm -rf "\$stage" 9>&-
     return 0
   fi
   if [ -e "\$stage" ]; then
-    rm -f "\$stage"
+    rm -f "\$stage" 9>&-
   fi
 }
 
@@ -488,7 +488,7 @@ write_ownership() {
   fi
   tmp="\$root/.1667-install.\$\$.tmp"
   verify="\$root/.1667-install.\$\$.verify"
-  rm -f "\$tmp" "\$verify"
+  rm -f "\$tmp" "\$verify" 9>&-
   umask 077
   # Noclobber writers inherit FD 9; close it in each parenthesized subshell.
   if ! (
@@ -498,34 +498,36 @@ write_ownership() {
   ); then
     die "Could not create an Ownership Record"
   fi
+  fsync_path "\$tmp"
   # Keep expected bytes for post-replace verification (mv consumes \$tmp).
   if ! (
     exec 9>&-
     set -C
     canonical_ownership_bytes "\$id" "\$exe" "\$target" "\$root" "\$channel" > "\$verify"
   ); then
-    rm -f "\$tmp"
+    rm -f "\$tmp" 9>&-
     die "Could not create an Ownership Record verification copy"
   fi
-  mv "\$tmp" "\$dest"
-  chmod 0600 "\$dest"
+  mv "\$tmp" "\$dest" 9>&-
+  chmod 0600 "\$dest" 9>&-
   # Ownership must be durable before any later Transaction Record removal.
   fsync_path "\$dest"
+  fsync_dir "\$root"
   # Verify final path type and exact bytes after atomic replacement.
   if [ -L "\$dest" ] || [ ! -f "\$dest" ]; then
-    rm -f "\$verify"
+    rm -f "\$verify" 9>&-
     die "Ownership Record path is not a regular file after write"
   fi
-  if ! cmp -s "\$dest" "\$verify"; then
-    rm -f "\$verify"
+  if ! cmp -s "\$dest" "\$verify" 9>&-; then
+    rm -f "\$verify" 9>&-
     die "Ownership Record verification failed after write"
   fi
-  rm -f "\$verify"
+  rm -f "\$verify" 9>&-
 }
 
 clear_txn() {
   root=\$1
-  rm -f "\$root/\$TXN_FILE"
+  rm -f "\$root/\$TXN_FILE" 9>&-
   fsync_dir "\$root"
 }
 
