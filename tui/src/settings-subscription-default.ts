@@ -16,7 +16,10 @@ export function autoSelectSettingsSubscriptionPlan(
   overlay: SettingsOverlayState,
   activeEdit: ActiveSettingsEdit | null
 ): boolean {
-  if (activeEdit !== null || !overlay.view.editable || settingsDraftChanged(overlay)) return false;
+  if (activeEdit !== null
+    || overlay.modelPicker !== null
+    || !overlay.view.editable
+    || settingsDraftChanged(overlay)) return false;
   const preset = settingsSubscriptionAutoPreset(overlay.view);
   if (preset === null || overlay.view.subscriptionAutoSelectEligible !== true) return false;
   const choice = settingsProviderChoice(overlay.draft.generation, preset);

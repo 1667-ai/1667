@@ -11,6 +11,10 @@ import type {
 } from "../../shared/settings-v2-types.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
 import { setComposerText } from "../src/composer-model.js";
+import {
+  publishCurrentSettingsModelDiscovery,
+  settingsModelSelectionTargetIdentity
+} from "../src/settings-model-discovery.js";
 import { settingsDraftChanged } from "../src/settings-overlay-reconciliation.js";
 import { settingsRows } from "../src/settings-overlay-model.js";
 import { settingsProviderChoice } from "../src/settings-provider-choices.js";
@@ -136,6 +140,55 @@ test("a delayed settings refresh cannot select below an active inline edit", asy
 
   expect(settingsSubscriptionPreset(state.settings!)).toBe(null);
   expect(state.settings!.edit?.composer.text).toBe("typed-before-refresh");
+});
+
+test("a delayed settings refresh cannot select below an open model picker", async () => {
+  const { source, state, press } = harness();
+  source.settingsView = initialSettingsView({
+    chatgpt: "signed-out",
+    claude: "signed-out"
+  });
+  const entered = deferred<void>();
+  const gate = deferred<SettingsView>();
+  const models = Array.from({ length: 9 }, (_, index) => ({
+    remoteId: `model-${String(index + 1).padStart(2, "0")}`,
+    name: `Model ${String(index + 1).padStart(2, "0")}`,
+    contextWindow: 32_768,
+    maxOutputTokens: null,
+    source: "openai-models" as const
+  }));
+  source.api.getSettings = async () => {
+    entered.resolve();
+    return gate.promise;
+  };
+
+  const opening = openSettings(press);
+  await entered.promise;
+  const overlay = state.settings!;
+  publishCurrentSettingsModelDiscovery(overlay, {
+    observedAt: "2026-01-01T00:00:00.000Z",
+    models
+  });
+  overlay.modelDiscoveryTargetIdentity = JSON.stringify([
+    overlay.view.stateGeneration,
+    JSON.stringify([
+      overlay.draft.selectedProfileId,
+      settingsModelSelectionTargetIdentity(overlay)
+    ])
+  ]);
+  await selectRow(press, state, "model");
+  await press(key("return"));
+  expect(state.settings!.modelPicker).not.toBe(null);
+  const picker = state.settings!.modelPicker;
+
+  gate.resolve(initialSettingsView({
+    chatgpt: "signed-in",
+    claude: "signed-out"
+  }));
+  await opening;
+
+  expect(state.settings!.modelPicker).toEqual(picker);
+  expect(settingsProviderChoice(state.settings!.draft.generation).id).toBe("dry-run");
 });
 
 test("a pending activation keeps the pristine provider untouched", async () => {
