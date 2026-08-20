@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.9.10 - 2026-08-20
+
+- **This release has no additional product changes.** It contains the same
+  behavior as 0.9.10-rc.7.
+
 ## 0.9.10-rc.7 - 2026-08-20
 
 - **This beta has no additional product changes.** It contains the same
