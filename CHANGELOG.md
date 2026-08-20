@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.9.10-rc.4 - 2026-08-20
+
+- **The Shell Installer can update a Managed Installation.** Run the Installer
+  again to recover when an old 1667 version refuses a package with updated
+  legal notices. The Installer keeps the Installation ID and the previous
+  executable. It refuses an unmanaged executable and an automatic downgrade.
+
 ## 0.9.10-rc.3 - 2026-08-19
 
 - **This beta has no additional product changes.** It contains the same
