@@ -4,6 +4,7 @@ import { publishCurrentSettingsModelDiscovery } from "../src/settings-model-disc
 import {
   deferred,
   draftRow,
+  generationFromProbeTarget,
   key,
   openSettings,
   selectRow,
@@ -389,4 +390,74 @@ test("closing the overlay abandons a deferred probe", async () => {
 
   expect(state.settings).toBeNull();
   expect(probeCalls).toBe(0);
+});
+
+// Regression test for the second drain point: publishModelDiscovery
+// (settings-model-discovery.ts) can auto-select the sole catalog entry from
+// inside runModelDiscoveryRequest, well after the settings dispatch seam
+// (settings-overlay-actions.ts) has already returned — a landing the
+// dispatch seam's own drain can never see. OpenAI-compatible catalogs
+// frequently report contextWindow: null for that entry, so this landing
+// still has to arm a probe. The auto-select guard only fires when the model
+// field is empty or an automatic selection is already on file, so this test
+// clears the model first (leaving it "" against an identity whose cached
+// catalog is empty, which rules out the synchronous
+// applyCachedSettingsModelChoice path exercised elsewhere in this file),
+// then changes base-url to move the discovery identity — the new identity's
+// catalog response is what lands asynchronously and auto-selects.
+test("an async auto-selected model with no known context window still starts a background probe", async () => {
+  const { source, state, backend, press } = settingsHarness();
+  configureNetworkSource(source);
+  source.api.discoverModels = async (target) => {
+    const baseUrl = generationFromProbeTarget(target).baseUrl;
+    if (baseUrl === "https://relay.example.test/v1") {
+      return {
+        observedAt: "2026-01-01T00:00:00.000Z",
+        models: [{
+          remoteId: "relay-model",
+          name: "relay-model",
+          contextWindow: null,
+          maxOutputTokens: null,
+          source: "openai-models"
+        }]
+      };
+    }
+    return { observedAt: "2026-01-01T00:00:00.000Z", models: [] };
+  };
+  let probeCalls = 0;
+  const entered = deferred<void>();
+  const gate = deferred<{ contextWindow: number | null }>();
+  source.api.probeContextWindow = async () => {
+    probeCalls += 1;
+    entered.resolve();
+    return gate.promise;
+  };
+  await openSettings(press);
+
+  // The identity in force at open reports no models, so clearing the model
+  // field cannot synchronously auto-fill it — the model stays "" going into
+  // the base-url edit below.
+  await draftRow(press, state, "model", "");
+  expect(state.settings?.draft.generation.model).toBe("");
+
+  // Moving the discovery identity retires the empty catalog and requests
+  // the new one; that response lands only after this awaited
+  // source.api.discoverModels call returns inside runModelDiscoveryRequest —
+  // the asynchronous landing under test, not the synchronous cached-choice
+  // path exercised elsewhere in this file. The probe gate holds the
+  // background lane open so entry into it can be observed deterministically
+  // regardless of how the dispatch chain's own awaits interleave with it.
+  await draftRow(press, state, "base-url", "https://relay.example.test/v1");
+  await entered.promise;
+
+  expect(probeCalls).toBe(1);
+  expect(state.settings?.draft.generation.model).toBe("relay-model");
+  expect(state.settings?.probing).toBeTrue();
+
+  gate.resolve({ contextWindow: 32_768 });
+  await settleBackend(backend);
+
+  expect(probeCalls).toBe(1);
+  expect(state.settings?.draft.generation.contextWindow).toBe(32_768);
+  expect(state.settings?.probing).toBeFalse();
 });
