@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { ActionRuntime } from "../src/action-runtime.js";
 import { handleKey, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
@@ -25,8 +24,7 @@ function context(state: ReturnType<typeof initialState>) {
     renderer: null,
     applyTheme: () => undefined,
     previewTheme: () => undefined,
-    asideEntryPointsOpen: true,
-    updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
+    asideEntryPointsOpen: true
   };
 }
 
@@ -99,8 +97,7 @@ test("a opens Aside from story navigation", async () => {
     createWrapCache<ProseStyle>(),
     () => undefined,
     async () => undefined,
-    () => undefined,
-    { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+    () => undefined
   );
 
   expect(requestedStoryId).toBe(source.payload.id);

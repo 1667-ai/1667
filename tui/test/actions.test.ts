@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { dispatch, handleKey, initialState, type AppSource } from "../src/app.js";
 import { setComposerText } from "../src/composer-model.js";
 import { createDemoController, demoAppSource } from "../src/demo.js";
@@ -23,12 +22,10 @@ function harness() {
   const source: AppSource = demoAppSource();
   const state = initialState(source, false);
   const press = (name: string, sequence = name) => handleKey(
-    key(name, sequence), state, source, createWrapCache(), () => {}, async () => {}, () => {},
-    { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+    key(name, sequence), state, source, createWrapCache(), () => {}, async () => {}, () => {}
   );
   const pressKey = (event: KeyEvent) => handleKey(
-    event, state, source, createWrapCache(), () => {}, async () => {}, () => {},
-    { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+    event, state, source, createWrapCache(), () => {}, async () => {}, () => {}
   );
   return { source, state, press, pressKey };
 }
@@ -191,8 +188,7 @@ describe("demo action pipeline", () => {
 
     await dispatch(
       { action: "open-selected" }, state, source, createWrapCache(),
-      () => undefined, async () => undefined, () => undefined,
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      () => undefined, async () => undefined, () => undefined
     );
     expect(state.map?.openedColdFolds.has("p5-alt")).toBeTrue();
   });
@@ -480,10 +476,7 @@ describe("demo action pipeline", () => {
       query: "",
       prompt: { kind: "delete", value: state.payload.title, targetId: open }
     };
-    await handleKey(
-      key("return", "\r"), state, source, createWrapCache(), () => {}, async () => {}, () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
-    );
+    await handleKey(key("return", "\r"), state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(created).toBeTrue();
     expect(state.payload.id).toBe("fresh-story");
     expect(state.mode).toBe("COMPOSE");
@@ -515,10 +508,7 @@ describe("demo action pipeline", () => {
     state.library = { stories: source.stories, cursor: 0, query: "", prompt: null };
     let repaints = 0;
 
-    await handleKey(
-      key("n"), state, source, createWrapCache(), () => { repaints += 1; }, async () => {}, () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
-    );
+    await handleKey(key("n"), state, source, createWrapCache(), () => { repaints += 1; }, async () => {}, () => {});
 
     expect(state.payload.id).toBe(fresh.id);
     expect(state.mode).toBe("COMPOSE");

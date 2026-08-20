@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import type { StoryPayload } from "../../shared/types.js";
 import type { StoryApi } from "../src/api.js";
 import { initialState } from "../src/app.js";
@@ -28,8 +27,7 @@ function context(
       ? null
       : { width, height } as never,
     applyTheme: () => undefined,
-    previewTheme: () => undefined,
-    updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
+    previewTheme: () => undefined
   };
 }
 

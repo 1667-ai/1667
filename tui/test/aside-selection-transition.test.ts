@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { TextRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { dispatch, initialState } from "../src/app.js";
 import { createAsideSurface } from "../src/aside-surface.js";
 import { demoAppSource } from "../src/demo.js";
@@ -34,8 +33,7 @@ test("leaving ASIDE clears the native selection from the replaced Aside surface"
 
   await dispatch(
     { action: "cancel" }, state, source, wrapCache,
-    () => undefined, async () => undefined, () => undefined,
-    { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE, renderer: setup.renderer }
+    () => undefined, async () => undefined, () => undefined, setup.renderer
   );
 
   expect(state.mode).toBe("NAV");

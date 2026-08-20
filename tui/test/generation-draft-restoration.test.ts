@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { ActionRuntime, beginInteraction } from "../src/action-runtime.js";
 import { initialState } from "../src/app.js";
 import { createComposer, setComposerText } from "../src/composer-model.js";
@@ -41,8 +40,7 @@ function context(state: RuntimeState) {
     renderer: null,
     applyTheme: () => undefined,
     previewTheme: () => undefined,
-    backend: new ActionRuntime(state, () => undefined),
-    updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
+    backend: new ActionRuntime(state, () => undefined)
   };
 }
 

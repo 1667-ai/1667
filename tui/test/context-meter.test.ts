@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { AI_1667_VERSION_TAG } from "../../shared/build-identity.js";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { dispatch, initialState } from "../src/app.js";
 import { createDemoController, demoAppSource } from "../src/demo.js";
 import {
@@ -1171,8 +1170,7 @@ describe("honest next-request context meter", () => {
 
     await dispatch(
       { action: "toggle-context-meter" }, state, source, createWrapCache(),
-      () => undefined, async () => undefined, () => undefined,
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      () => undefined, async () => undefined, () => undefined
     );
     expect(state.contextMeterExpanded).toBeTrue();
   });

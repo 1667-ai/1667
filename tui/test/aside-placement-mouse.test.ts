@@ -3,7 +3,6 @@
  * frame reconciliation.
  */
 import { describe, expect, test } from "bun:test";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { createAsideSurface } from "../src/aside-surface.js";
 import { FROM_ASIDE_INSTRUCTION } from "../src/aside-placement.js";
 import { openAsideUseMenu } from "../src/aside-use.js";
@@ -36,8 +35,7 @@ function overlayContext(
     repaint: () => undefined,
     renderer: { width, height } as never,
     applyTheme: () => undefined,
-    previewTheme: () => undefined,
-    updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
+    previewTheme: () => undefined
   };
 }
 

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { dispatch, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { createInteractiveInputAdmission } from "../src/interactive-input-admission.js";
@@ -64,8 +63,7 @@ function createFactsAdmission(options: {
         onAction?.(reconciled.action);
         return dispatch(
           reconciled, state, source, wrapCache,
-          () => undefined, async () => undefined, () => undefined,
-          { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+          () => undefined, async () => undefined, () => undefined
         );
       }
     });
@@ -175,8 +173,7 @@ describe("Fact double-click through interactive input admission", () => {
       expect(state.facts!.cursor).toBe(1);
       await dispatch(
         { action: "edit" }, state, source, wrapCache,
-        () => undefined, async () => undefined, () => undefined,
-        { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+        () => undefined, async () => undefined, () => undefined
       );
     });
     expect(order).toEqual([]);

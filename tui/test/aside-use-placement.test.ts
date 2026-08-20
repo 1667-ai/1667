@@ -2,7 +2,6 @@
  * Stage 1/2 Side Note focus, use menu, and Placement behavior.
  */
 import { describe, expect, test } from "bun:test";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import type { KeyEvent } from "@opentui/core";
 import { createAsideSurface } from "../src/aside-surface.js";
 import {
@@ -56,8 +55,7 @@ function overlayContext(
       ? null
       : { width, height } as never,
     applyTheme: () => undefined,
-    previewTheme: () => undefined,
-    updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
+    previewTheme: () => undefined
   };
 }
 

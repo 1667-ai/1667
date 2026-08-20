@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import type { KeyEvent } from "@opentui/core";
 import { dispatch, initialState } from "../src/app.js";
 import { createComposer, setComposerText } from "../src/composer-model.js";
@@ -201,7 +200,7 @@ describe("hit map clickable chrome", () => {
       expect(hitAt(state.hitRows, x, 0)).toEqual({ kind: "map-view", view });
       const resolved = mouseToAction(click(x, 0), state);
       expect(resolved).toEqual({ action: "set-map-view", view });
-      await dispatch(resolved!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+      await dispatch(resolved!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
       expect(state.map?.view).toBe(view);
     }
 
@@ -211,7 +210,7 @@ describe("hit map clickable chrome", () => {
     frame = render(state);
     const branches = clickText(frame, state, "a branches");
     expect(branches).toEqual({ action: "toggle-path-takes" });
-    await dispatch(branches!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+    await dispatch(branches!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(state.map?.pathShowAllTakes).toBeFalse();
 
     state.map!.view = "tree";
@@ -221,7 +220,7 @@ describe("hit map clickable chrome", () => {
     expect(clickText(frame, state, "sketches")).toEqual({ action: "toggle-sketches" });
     const reveal = clickText(frame, state, "a sketches");
     expect(reveal).toEqual({ action: "toggle-sketches" });
-    await dispatch(reveal!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+    await dispatch(reveal!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(state.map?.showSketches).toBeTrue();
   });
 
@@ -241,7 +240,7 @@ describe("hit map clickable chrome", () => {
     expect(hitAt(state.hitRows, chips[0]!.right, rowIndex)).toEqual({ kind: "panel" });
     state.facts!.cursor = 2;
     const resolved = mouseToAction(click(chips[3]!.left, rowIndex), state)!;
-    await dispatch(resolved, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+    await dispatch(resolved, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(state.facts).toMatchObject({ chip: 3, cursor: 0 });
   });
 
@@ -312,7 +311,7 @@ describe("hit map clickable chrome", () => {
       const state = initialState(source, false);
       state.stream = null;
       await dispatch(resolveKey(key(entry === "i" ? "i" : "R"), "NAV"), state, source,
-        createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+        createWrapCache(), () => {}, async () => {}, () => {});
       const frame = render(state, 120, 30);
       expect(plainLine(frame.find((line) => plainLine(line).includes(send))!)).not.toContain("…");
       expect(clickText(frame, state, send)).toEqual({ action: "send" });
@@ -337,7 +336,7 @@ describe("hit map clickable chrome", () => {
     openActions(state, index, node.text.slice(start, end), [span]);
     state.actions!.cursor = currentPartActions(state).findIndex(({ id }) => id === "rewrite-selection");
     await dispatch(resolveKey(key("return"), "ACTIONS"), state, source,
-      createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+      createWrapCache(), () => {}, async () => {}, () => {});
 
     expect(state.mode).toBe("COMPOSE");
     expect(state.retakePrompt?.intent.kind).toBe("rewrite");
@@ -359,7 +358,7 @@ describe("hit map clickable chrome", () => {
     const state = initialState(source, false);
     state.stream = null;
     await dispatch(resolveKey(key("i"), "NAV"), state, source,
-      createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+      createWrapCache(), () => {}, async () => {}, () => {});
     state.composer.fullscreen = true;
     const frame = render(state, 120, 30);
     expect(clickText(frame, state, "enter send")).toEqual({ action: "send" });
@@ -408,7 +407,7 @@ describe("hit map clickable chrome", () => {
     const frame = render(state, 150, 30);
     const resolved = clickText(frame, state, "facts · 5");
     expect(resolved).toEqual({ action: "open-facts" });
-    await dispatch(resolved!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+    await dispatch(resolved!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(state.mode).toBe("FACTS");
   });
 
@@ -658,13 +657,13 @@ describe("hit map clickable chrome", () => {
     const resolved = mouseToAction(click(span.left, rowIndex), state)!;
     expect(resolved).toMatchObject({ action: "apply", take: 1 });
     // First click only moves the cursor — same two steps as a row click.
-    await dispatch(resolved, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+    await dispatch(resolved, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(state.mode).toBe("MAP");
     expect(state.map?.pathCursorId).toBe("p12-t1");
     expect(state.payload.path[11]?.id).toBe("p12");
     // The second click on the same take reroutes through the existing path.
     render(state);
-    await dispatch(resolved, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+    await dispatch(resolved, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(state.mode).toBe("NAV");
     expect(state.payload.path[11]?.id).toBe("p12-t1");
   });
@@ -688,15 +687,15 @@ describe("hit map clickable chrome", () => {
     const tagged = takeSpans.find((span) =>
       span.target.kind === "take" && span.target.take === 2)!;
     const clicked = mouseToAction(click(tagged.left, rowIndex), state)!;
-    await dispatch(clicked, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+    await dispatch(clicked, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(state.map?.pathCursorId).toBe("p8-alt-3");
 
     state.map!.pathCursorId = "p8";
-    await dispatch({ action: "take-next" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+    await dispatch({ action: "take-next" }, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(state.map?.pathCursorId).toBe("p8-alt-3");
     state.map!.pathCursorId = "p8";
     state.map!.pathShowAllTakes = true;
-    await dispatch({ action: "take-next" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+    await dispatch({ action: "take-next" }, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(state.map?.pathCursorId).toBe("p8-alt-1");
   });
 
@@ -789,7 +788,7 @@ describe("hit map clickable chrome", () => {
     expect([...line][arrows[1]!.left]).toBe("›");
 
     const clicked = mouseToAction(click(arrows[1]!.left, selectorRow), state)!;
-    await dispatch(clicked, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+    await dispatch(clicked, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(state.settings?.draft.generation.model).toBe("novelist-b");
   });
 
@@ -868,8 +867,7 @@ describe("hit map clickable chrome", () => {
       createWrapCache(),
       () => undefined,
       async () => undefined,
-      () => undefined,
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      () => undefined
     );
     expect(state.mode).toBe("SETTINGS");
     // "context-window" is one of simple mode's rows too, so the overlay opens
@@ -967,7 +965,7 @@ describe("hit map clickable chrome", () => {
       const action = mouseToAction(click(2, composerRow, 2), state);
       expect(action).toEqual({ action: "open-text-actions" });
       await dispatch(
-        action!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+        action!, state, source, createWrapCache(), () => {}, async () => {}, () => {}
       );
       expect(state.mode).toBe("COMPOSE");
       expect(state.textActions).not.toBe(null);
@@ -975,7 +973,7 @@ describe("hit map clickable chrome", () => {
         render(state, width, 24);
       }
       await dispatch(
-        { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+        { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}
       );
       expect(state.textActions).toBe(null);
     }
@@ -1008,11 +1006,11 @@ describe("hit map clickable chrome", () => {
     const editorAction = mouseToAction(click(2, editorRow, 2), state);
     expect(editorAction).toEqual({ action: "open-text-actions" });
     await dispatch(
-      editorAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      editorAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}
     );
     expect(render(state).some((line) => plainLine(line).includes("edit actions"))).toBeTrue();
     await dispatch(
-      { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}
     );
 
     openFactEditor(state, null);
@@ -1028,11 +1026,11 @@ describe("hit map clickable chrome", () => {
       composerEditable: true
     });
     await dispatch(
-      emptyTagAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      emptyTagAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}
     );
     expect(state.textActions?.owner === currentFactEditor(state).tag).toBeTrue();
     await dispatch(
-      { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}
     );
     setComposerText(currentFactEditor(state).tag, "weather");
     render(state);
@@ -1046,13 +1044,13 @@ describe("hit map clickable chrome", () => {
       composerEditable: true
     });
     await dispatch(
-      tagAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      tagAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}
     );
     const factEditor = currentFactEditor(state);
     expect(factEditor.focus).toBe("tag");
     expect(state.textActions?.owner === factEditor.tag).toBeTrue();
     await dispatch(
-      { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}
     );
     render(state);
     const keysRow = state.hitRows.findIndex((row) => row?.target.kind === "composer"
@@ -1065,11 +1063,11 @@ describe("hit map clickable chrome", () => {
       composerEditable: true
     });
     await dispatch(
-      keysAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      keysAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}
     );
     expect(currentFactEditor(state).focus).toBe("keys");
     await dispatch(
-      { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}
     );
     render(state);
     const activationRow = state.hitRows.findIndex((row) => row?.target.kind === "composer"
@@ -1082,7 +1080,7 @@ describe("hit map clickable chrome", () => {
       composerEditable: false
     });
     await dispatch(
-      activationAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      activationAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}
     );
     expect(state.textActions).toBe(null);
     setFactEditorFocus(currentFactEditor(state), "activation");
@@ -1108,11 +1106,11 @@ describe("hit map clickable chrome", () => {
     const settingsAction = mouseToAction(click(settingsHit.left + 2, settingsRow, 2), state);
     expect(settingsAction).toEqual({ action: "open-text-actions" });
     await dispatch(
-      settingsAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      settingsAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}
     );
     expect(render(state).some((line) => plainLine(line).includes("edit actions"))).toBeTrue();
     await dispatch(
-      { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}
     );
 
     state.settings = null;
@@ -1124,8 +1122,7 @@ describe("hit map clickable chrome", () => {
       createWrapCache(),
       () => {},
       async () => {},
-      () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      () => {}
     );
     expect(state.mode).toBe("COMPOSE");
     expect(state.composer.text).toBe("draft stays ");
@@ -1148,27 +1145,27 @@ describe("hit map clickable chrome", () => {
     let row = sourceRow(FACT_TAG_COMPOSER_SOURCE);
     let action = mouseToAction(click(2, row), state);
     expect(action).toEqual({ action: "compose", composerSourceId: FACT_TAG_COMPOSER_SOURCE });
-    await dispatch(action!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+    await dispatch(action!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(currentFactEditor(state).focus).toBe("tag");
     await dispatch(
-      { action: "input", text: "weather" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      { action: "input", text: "weather" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}
     );
     expect(currentFactEditor(state).tag.text).toBe("weather");
 
     row = sourceRow(FACT_BODY_COMPOSER_SOURCE);
     action = mouseToAction(click(2, row), state);
     expect(action).toEqual({ action: "compose", composerSourceId: FACT_BODY_COMPOSER_SOURCE });
-    await dispatch(action!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+    await dispatch(action!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(currentFactEditor(state).focus).toBe("body");
     await dispatch(
-      { action: "input", text: "A rainy street." }, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      { action: "input", text: "A rainy street." }, state, source, createWrapCache(), () => {}, async () => {}, () => {}
     );
     expect(currentFactEditor(state).composer.text).toBe("A rainy street.");
 
     row = sourceRow(FACT_ACTIVATION_COMPOSER_SOURCE);
     action = mouseToAction(click(2, row), state);
     expect(action).toEqual({ action: "compose", composerSourceId: FACT_ACTIVATION_COMPOSER_SOURCE });
-    await dispatch(action!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+    await dispatch(action!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(currentFactEditor(state).focus).toBe("activation");
     expect(currentFactEditor(state).activation).toBe("always");
   });

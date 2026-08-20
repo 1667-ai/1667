@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { createAsideSurface } from "../src/aside-surface.js";
 import { demoAppSource } from "../src/demo.js";
 import { ActionRuntime, beginInteraction, withActionAdmission } from "../src/action-runtime.js";
@@ -61,13 +60,10 @@ describe("Aside presented input", () => {
         () => { repaint(); admit(); },
         () => { admit(); return Promise.resolve(); },
         () => undefined,
-        {
-          updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
-          renderer: null,
-          applyTheme: () => undefined,
-          previewTheme: () => undefined,
-          backend: withActionAdmission(backend, admit)
-        }
+        null,
+        () => undefined,
+        () => undefined,
+        withActionAdmission(backend, admit)
       ), (work) => backend.observe(work)));
     };
 
@@ -130,13 +126,10 @@ describe("Aside presented input", () => {
         admit,
         () => { admit(); return Promise.resolve(); },
         () => undefined,
-        {
-          updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
-          renderer: null,
-          applyTheme: () => undefined,
-          previewTheme: () => undefined,
-          backend: withActionAdmission(backend, admit)
-        }
+        null,
+        () => undefined,
+        () => undefined,
+        withActionAdmission(backend, admit)
       ), (work) => backend.observe(work)));
     };
 
@@ -194,13 +187,10 @@ describe("Aside presented input", () => {
         admit,
         () => { admit(); return Promise.resolve(); },
         () => undefined,
-        {
-          updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
-          renderer: null,
-          applyTheme: () => undefined,
-          previewTheme: () => undefined,
-          backend: withActionAdmission(backend, admit)
-        }
+        null,
+        () => undefined,
+        () => undefined,
+        withActionAdmission(backend, admit)
       ), (work) => backend.observe(work)));
     };
     const enqueuePaste = (text: string) => {
@@ -257,13 +247,10 @@ describe("Aside presented input", () => {
         admit,
         () => { admit(); return Promise.resolve(); },
         () => undefined,
-        {
-          updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
-          renderer: null,
-          applyTheme: () => undefined,
-          previewTheme: () => undefined,
-          backend: withActionAdmission(backend, admit)
-        }
+        null,
+        () => undefined,
+        () => undefined,
+        withActionAdmission(backend, admit)
       ), (work) => backend.observe(work));
     };
 
@@ -309,13 +296,10 @@ describe("Aside presented input", () => {
         admit,
         () => { admit(); return Promise.resolve(); },
         () => undefined,
-        {
-          updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
-          renderer: null,
-          applyTheme: () => undefined,
-          previewTheme: () => undefined,
-          backend: withActionAdmission(backend, admit)
-        }
+        null,
+        () => undefined,
+        () => undefined,
+        withActionAdmission(backend, admit)
       ), (work) => backend.observe(work));
     };
 
@@ -369,13 +353,10 @@ describe("Aside presented input", () => {
         admit,
         () => { admit(); return Promise.resolve(); },
         () => undefined,
-        {
-          updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
-          renderer: null,
-          applyTheme: () => undefined,
-          previewTheme: () => undefined,
-          backend: withActionAdmission(backend, admit)
-        }
+        null,
+        () => undefined,
+        () => undefined,
+        withActionAdmission(backend, admit)
       ), (work) => backend.observe(work)));
     };
 

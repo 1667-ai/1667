@@ -3,7 +3,6 @@
  * use-menu identity through Placement Esc.
  */
 import { describe, expect, test } from "bun:test";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { createAsideSurface } from "../src/aside-surface.js";
 import {
   FROM_ASIDE_INSTRUCTION,
@@ -38,8 +37,7 @@ function overlayContext(
       ? null
       : { width, height } as never,
     applyTheme: () => undefined,
-    previewTheme: () => undefined,
-    updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
+    previewTheme: () => undefined
   };
 }
 

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import {
   applyBasicSettingsDraft,
   basicSettingsFromDocument
@@ -454,13 +453,10 @@ test("the context menu copies a display-only Fact choice", async () => {
     () => undefined,
     async () => undefined,
     () => undefined,
-    {
-      updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
-      renderer: null,
-      applyTheme: () => undefined,
-      previewTheme: () => undefined,
-      backend
-    }
+    null,
+    () => undefined,
+    () => undefined,
+    backend
   );
   expect(state.textActions?.cursor).toBe(0);
   expect(state.textActions?.copyOnly).toBeTrue();
@@ -502,13 +498,10 @@ test("a Fact context menu keeps the clicked field over an old field selection", 
     () => undefined,
     async () => undefined,
     () => undefined,
-    {
-      updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
-      renderer: null,
-      applyTheme: () => undefined,
-      previewTheme: () => undefined,
-      backend
-    }
+    null,
+    () => undefined,
+    () => undefined,
+    backend
   );
   expect(state.textActions?.owner === editor.composer).toBeTrue();
   clipboardReader = async () => " pasted";
@@ -551,13 +544,10 @@ test("a mixed Fact selection does not open an editor menu", async () => {
     () => undefined,
     async () => undefined,
     () => undefined,
-    {
-      updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
-      renderer: null,
-      applyTheme: () => undefined,
-      previewTheme: () => undefined,
-      backend
-    }
+    null,
+    () => undefined,
+    () => undefined,
+    backend
   );
 
   expect(state.textActions).toBe(null);

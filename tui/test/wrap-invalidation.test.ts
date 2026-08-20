@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import type { StoryNode, StoryPayload } from "../../shared/types.js";
 import { ActionRuntime } from "../src/action-runtime.js";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import type { ActionContext } from "../src/action-context.js";
 import { textHash } from "../src/api.js";
 import { handleKey, initialState, type AppSource } from "../src/app.js";
@@ -45,8 +44,7 @@ function harness() {
   };
   const press = (name: string, sequence = name) => handleKey(
     { name, sequence, shift: false, ctrl: false, meta: false } as KeyEvent,
-    state, source, cache, () => undefined, async () => undefined, () => undefined,
-    { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+    state, source, cache, () => undefined, async () => undefined, () => undefined
   );
   return { source, state, cache, context, wrapFrame, press };
 }

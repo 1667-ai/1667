@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import type { StoryPayload } from "../../shared/types.js";
 import { ActionRuntime } from "../src/action-runtime.js";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { handleKey, initialState, type AppSource } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { requestGenerationStop } from "../src/generation-action.js";
@@ -39,13 +38,7 @@ function harness(
   const backend = new ActionRuntime(state, repaint);
   const press = (event: KeyEvent) => handleKey(event, state, source, cache, repaint,
     async () => requestGenerationStop(state, repaint), () => undefined,
-    {
-      updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
-      renderer: null,
-      applyTheme: () => undefined,
-      previewTheme: () => undefined,
-      backend
-    });
+    null, () => undefined, () => undefined, backend);
   return { state, cache, backend, repaint, press };
 }
 

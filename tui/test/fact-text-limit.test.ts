@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { ActionRuntime } from "../src/action-runtime.js";
 import { handleKey, initialState } from "../src/app.js";
 import { setComposerText } from "../src/composer-model.js";
@@ -100,14 +99,8 @@ describe("Fact text limit — a lost async error is recoverable (item 4: the not
     const dispatchKey = (event: Parameters<typeof handleKey>[0]) => {
       const work = handleKey(
         event, state, source, cache, repaint,
-        async () => undefined, () => undefined,
-        {
-          updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
-          renderer: null,
-          applyTheme: () => undefined,
-          previewTheme: () => undefined,
-          backend
-        }
+        async () => undefined, () => undefined, null,
+        () => undefined, () => undefined, backend
       );
       // The real dispatcher hands the whole key's promise to
       // `backend.observe()` (see presented-input-queue.ts

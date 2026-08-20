@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { applyBasicSettingsDraft } from "../../shared/settings-basic-draft.js";
 import type { StoryPayload, StorySummary } from "../../shared/types.js";
 import { ActionRuntime } from "../src/action-runtime.js";
@@ -45,13 +44,10 @@ function harness(source: AppSource = demoAppSource(), onRepaint: (state: ReturnT
     repaint,
     async () => requestGenerationStop(state, repaint),
     () => { quitRequests += 1; },
-    {
-      updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
-      renderer: null,
-      applyTheme: () => undefined,
-      previewTheme: () => undefined,
-      backend
-    }
+    null,
+    () => undefined,
+    () => undefined,
+    backend
   );
   return { state, cache, backend, repaint, press, quitRequests: () => quitRequests };
 }

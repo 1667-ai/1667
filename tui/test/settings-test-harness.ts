@@ -12,6 +12,10 @@ import type { UserConfig } from "../src/config.js";
 import { demoAppSource } from "../src/demo.js";
 import { settingsRowIndex } from "../src/settings-overlay-model.js";
 import type { RuntimeState, SettingsRowId } from "../src/state.js";
+import {
+  createUpdateCheckSession,
+  type ConfiguredUpdateStarter
+} from "../src/update-runtime.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 
 export function key(
@@ -57,7 +61,7 @@ export function generationFromProbeTarget(target: ProviderProbeTarget) {
 export function settingsHarness(
   requestQuit: () => void = () => undefined,
   configOverrides: Partial<UserConfig> = {},
-  restartUpdateCheck: () => void = () => undefined
+  startUpdateCheck: ConfiguredUpdateStarter = () => () => undefined
 ) {
   const source = demoAppSource();
   const state = initialState(source, false);
@@ -70,7 +74,11 @@ export function settingsHarness(
   // repainted at a specific point in an async flow, not only that it was
   // eventually repainted at all (issue #282 review round 3, finding 5).
   let repaintCount = 0;
-  const repaint = () => { repaintCount += 1; };
+  const updateChecks = createUpdateCheckSession(startUpdateCheck, () => undefined);
+  const repaint = () => {
+    updateChecks.synchronize(source.config);
+    repaintCount += 1;
+  };
   const backend = new ActionRuntime(state, repaint);
   const press = (event: KeyEvent) => handleKey(
     event,
@@ -80,16 +88,13 @@ export function settingsHarness(
     repaint,
     async () => undefined,
     requestQuit,
-    {
-      updateChecks: { restartUpdateCheck },
-      renderer: null,
-      applyTheme: (theme) => {
-        state.config = { ...state.config, theme };
-        source.config = state.config;
-      },
-      previewTheme: () => undefined,
-      backend
-    }
+    null,
+    (theme) => {
+      state.config = { ...state.config, theme };
+      source.config = state.config;
+    },
+    () => undefined,
+    backend
   );
   return { source, state, cache, backend, press, repaints: () => repaintCount };
 }

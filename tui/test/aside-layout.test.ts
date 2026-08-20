@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { initialState } from "../src/app.js";
 import { createAsideSurface } from "../src/aside-surface.js";
 import { demoAppSource } from "../src/demo.js";
@@ -17,8 +16,7 @@ function overlayContext(state: ReturnType<typeof initialState>, width: number, h
     repaint: () => undefined,
     renderer: { width, height } as never,
     applyTheme: () => undefined,
-    previewTheme: () => undefined,
-    updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
+    previewTheme: () => undefined
   };
 }
 

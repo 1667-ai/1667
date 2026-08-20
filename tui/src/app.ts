@@ -8,11 +8,6 @@ import { createTestRenderer } from "@opentui/core/testing";
 import type { GenerationSettings, StoryPayload, StorySummary } from "../../shared/types.js";
 import type { SettingsView } from "../../shared/settings-v2-types.js";
 import type { StoryApi } from "./api.js";
-import {
-  INERT_UPDATE_CHECK_LIFECYCLE,
-  type ActionDispatchServices,
-  type OverlayActionContext,
-} from "./action-context.js";
 import type { RecoveryWarningFeed } from "./recovery-warning-feed.js";
 import type { ConnectionMonitor } from "./connection.js";
 import { cancelChapterSummary, directChapterRowAction } from "./chapter-actions.js";
@@ -42,6 +37,11 @@ import {
   promotePendingUpdateNotice,
   publishBackgroundUpdateNotice
 } from "./background-update-notice.js";
+import {
+  createUpdateCheckSession,
+  type ConfiguredUpdateStarter,
+  type UpdateCheckSession
+} from "./update-runtime.js";
 import { openSettingsPasteTarget } from "./editor-open.js";
 import { createPalette } from "./palette.js";
 import {
@@ -66,7 +66,8 @@ import { deriveContinuationRuntime, generationRouteKey } from "./runtime-setting
 import {
   ActionRuntime,
   beginInteraction,
-  withActionAdmission
+  withActionAdmission,
+  type ActionRunner
 } from "./action-runtime.js";
 import { startRecoveryOrchestration } from "./recovery-orchestration.js";
 import { inlineEditorAction } from "./editor-action.js";
@@ -119,10 +120,7 @@ export interface AppSource {
   connection: ConnectionMonitor | null;
   backendRecovery?: RecoveryWarningFeed;
   backendFailure?: Promise<Error>;
-  startUpdateCheck?: (
-    config: UserConfig,
-    onNotice: (message: string) => void
-  ) => () => void;
+  startUpdateCheck?: ConfiguredUpdateStarter;
   config: UserConfig;
   /** Local changing store: last focused part per story. Not settings. */
   readingPositions: ReadingPositions;
@@ -165,13 +163,7 @@ export async function renderOnce(source: AppSource, width: number, height: numbe
       await cancelRenderStream();
     }
     const pending = handleKey(keyFromCharacter(character), state, source, cache, () => undefined,
-      cancelRenderStream, () => undefined, {
-        updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
-        renderer: null,
-        applyTheme: applyThemeInFrame,
-        previewTheme: () => undefined,
-        backend
-      });
+      cancelRenderStream, () => undefined, null, applyThemeInFrame, () => undefined, backend);
     // Summary streaming is the one render-once fixture intentionally captured
     // mid-task. Interactive callers already observe the dispatcher Promise.
     if (state.abort?.kind === "summary") backend.observe(pending);
@@ -242,7 +234,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
   let profileReport: TuiFrameProfileReport | null = null;
   let backendFailure: Error | null = null;
   let stopRecoveryOrchestration: (() => void) | null = null;
-  let stopUpdateCheck: (() => void) | null = null;
+  let updateCheckSession: UpdateCheckSession | null = null;
   let tokenCountLane: PromptTokenCountLane | null = null;
   let resolveExit!: () => void;
   const exit = new Promise<void>((resolve) => { resolveExit = resolve; });
@@ -292,6 +284,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
     profile: profileEnabled
   });
   const repaint = () => {
+    updateCheckSession?.synchronize(source.config);
     promotePendingUpdateNotice(state);
     // A backend task can raise a notice long after the key that started it, so
     // the log is filled here as well as at the end of `dispatch`.
@@ -306,12 +299,10 @@ export async function runInteractive(source: AppSource): Promise<void> {
     if (exited) return;
     publishBackgroundUpdateNotice(state, message, repaint);
   };
-  const restartUpdateCheck = (config: UserConfig = source.config) => {
-    stopUpdateCheck?.();
-    stopUpdateCheck = exited
-      ? null
-      : source.startUpdateCheck?.(config, publishUpdateNotice) ?? null;
-  };
+  updateCheckSession = createUpdateCheckSession(
+    source.startUpdateCheck,
+    publishUpdateNotice
+  );
   const backend = new ActionRuntime(state, repaint);
   tokenCountLane = startPromptTokenCountLane({ state, api: source.api, repaint });
   const captureProfile = () => {
@@ -329,7 +320,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
     if (state.search !== null) abortPendingSearch(state.search);
     frames.dispose();
     stopRecoveryOrchestration?.();
-    stopUpdateCheck?.();
+    updateCheckSession?.dispose();
     tokenCountLane?.dispose();
     backend.dispose();
     source.connection?.dispose();
@@ -483,13 +474,10 @@ export async function runInteractive(source: AppSource): Promise<void> {
         () => { repaint(); admit(); },
         () => { admit(); return cancelStream(); },
         requestQuit,
-        {
-          updateChecks: { restartUpdateCheck },
-          renderer,
-          applyTheme,
-          previewTheme,
-          backend: withActionAdmission(backend, admit)
-        }
+        renderer,
+        applyTheme,
+        previewTheme,
+        withActionAdmission(backend, admit)
       ), (work) => backend.observe(work));
     }, () => {
       retirePresentedSelection(renderer, queuedSelection);
@@ -547,7 +535,10 @@ export async function runInteractive(source: AppSource): Promise<void> {
             repaint,
             cancelStream,
             requestQuit,
-            { updateChecks: { restartUpdateCheck }, renderer, applyTheme, previewTheme, backend }
+            renderer,
+            applyTheme,
+            previewTheme,
+            backend
           );
         }
       } else if (pasteInto(state, text)) {
@@ -596,13 +587,10 @@ export async function runInteractive(source: AppSource): Promise<void> {
           () => { repaint(); admit(); },
           () => { admit(); return cancelStream(); },
           requestQuit,
-          {
-            updateChecks: { restartUpdateCheck },
-            renderer,
-            applyTheme,
-            previewTheme,
-            backend: withActionAdmission(backend, admit)
-          }
+          renderer,
+          applyTheme,
+          previewTheme,
+          withActionAdmission(backend, admit)
         ), (work) => backend.observe(work));
       }
     });
@@ -618,7 +606,6 @@ export async function runInteractive(source: AppSource): Promise<void> {
   // One-shot requestRender frames while idle; renderables may request a live
   // loop explicitly when they own native animation.
   renderer.auto();
-  restartUpdateCheck(source.config);
 
   if (source.demo) {
     state.focusIndex = lastPartRowIndex(createStoryViewModel(state.payload));
@@ -640,7 +627,10 @@ export async function handleKey(
   repaint: () => void,
   cancelStream: () => Promise<void>,
   requestQuit: () => void,
-  services: ActionDispatchServices
+  renderer: ActionContext["renderer"] = null,
+  applyTheme: ActionContext["applyTheme"] = () => undefined,
+  previewTheme: ActionContext["previewTheme"] = () => undefined,
+  backend: ActionRunner = new ActionRuntime(state, repaint)
 ): Promise<void> {
   if (isCopyShortcut(key)
     && state.mode !== "EDITOR"
@@ -670,16 +660,8 @@ export async function handleKey(
     authorsNoteEditor: state.editor?.kind === "document" && state.editor.target.kind === "authors-note",
     mapView: state.map?.view
   });
-  return await dispatch(
-    resolved,
-    state,
-    source,
-    wrapCache,
-    repaint,
-    cancelStream,
-    requestQuit,
-    services
-  );
+  return await dispatch(resolved, state, source, wrapCache, repaint, cancelStream, requestQuit,
+    renderer, applyTheme, previewTheme, backend);
 }
 
 /** Everything after key resolution — shared by the keyboard and the mouse. */
@@ -691,12 +673,11 @@ export async function dispatch(
   repaint: () => void,
   cancelStream: () => Promise<void>,
   requestQuit: () => void,
-  services: ActionDispatchServices
+  renderer: ActionContext["renderer"] = null,
+  applyTheme: ActionContext["applyTheme"] = () => undefined,
+  previewTheme: ActionContext["previewTheme"] = () => undefined,
+  backend: ActionRunner = new ActionRuntime(state, repaint)
 ): Promise<void> {
-  const renderer = services.renderer ?? null;
-  const applyTheme = services.applyTheme ?? (() => undefined);
-  const previewTheme = services.previewTheme ?? (() => undefined);
-  const backend = services.backend ?? new ActionRuntime(state, repaint);
   const previousMode = state.mode;
   if (state.chapterSummary !== null && resolved.action === "cancel"
     && state.textActions === null
@@ -728,15 +709,11 @@ export async function dispatch(
   const context: ActionContext = {
     cache: wrapCache, repaint, backend, renderer, applyTheme, previewTheme
   };
-  const overlayContext: OverlayActionContext = {
-    ...context,
-    updateChecks: services.updateChecks
-  };
   // Recovery belongs to the connection banner, above transient part menus
   // and confirmations. Those surfaces stay open while retry runs; otherwise
   // their reducers would swallow the banner's advertised keyboard/click action.
   if (resolved.action === "retry") {
-    await handleOverlayAction(resolved, state, source, overlayContext);
+    await handleOverlayAction(resolved, state, source, context);
   }
   else if (resolved.action === "open-text-actions") {
     if (resolved.nativeSelection === undefined && resolved.composerEditable === false) return;
@@ -795,15 +772,15 @@ export async function dispatch(
       } else if (!copied && state.mode === "EDITOR") {
         await inlineEditorAction(action, state, source, context);
       } else if (!copied && state.mode === "SETTINGS") {
-        await handleOverlayAction(action, state, source, overlayContext);
+        await handleOverlayAction(action, state, source, context);
       } else if (!copied && state.mode === "ASIDE") {
-        await handleOverlayAction(action, state, source, overlayContext);
+        await handleOverlayAction(action, state, source, context);
       }
     }
   }
   else if (state.prune !== null) await pruneAction(resolved, state, source, context);
   else if (state.actions !== null) await actionsMenuAction(resolved, state, source, context);
-  else if (await handleOverlayAction(resolved, state, source, overlayContext)) { /* handled */ }
+  else if (await handleOverlayAction(resolved, state, source, context)) { /* handled */ }
   else if (resolved.action === "toggle-context-meter" && (state.mode === "NAV" || state.mode === "COMPOSE")) {
     state.contextMeterExpanded = !state.contextMeterExpanded;
   }

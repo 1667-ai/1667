@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../../shared/generation-record.js";
 import { handleKey, initialState } from "../src/app.js";
 import { ActionRuntime } from "../src/action-runtime.js";
@@ -45,10 +44,7 @@ function harness() {
   const state = initialState(source, false);
   const cache = createWrapCache<ProseStyle>();
   const press = (name: string, shift = false) =>
-    handleKey(
-      key(name, shift), state, source, cache, () => {}, async () => {}, () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
-    );
+    handleKey(key(name, shift), state, source, cache, () => {}, async () => {}, () => {});
   return { source, state, cache, press };
 }
 
@@ -65,13 +61,7 @@ function persistentBackendHarness() {
   const press = (name: string, shift = false) =>
     handleKey(
       key(name, shift), state, source, cache, () => {}, async () => {}, () => {},
-      {
-        updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
-        renderer: null,
-        applyTheme: () => undefined,
-        previewTheme: () => undefined,
-        backend
-      }
+      null, () => undefined, () => undefined, backend
     );
   return { source, state, cache, backend, press };
 }

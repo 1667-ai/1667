@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { handleKey, initialState, type AppSource } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { moveComposerTo, createComposer } from "../src/composer-model.js";
@@ -35,8 +34,7 @@ function harness() {
   const source: AppSource = demoAppSource();
   const state = initialState(source, false);
   const press = (name: string, sequence = name) => handleKey(
-    key(name, sequence), state, source, createWrapCache(), () => {}, async () => {}, () => {},
-    { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+    key(name, sequence), state, source, createWrapCache(), () => {}, async () => {}, () => {}
   );
   return { source, state, press };
 }
@@ -74,13 +72,7 @@ describe("demo action runtime and input", () => {
     const runtime = new ActionRuntime(state, repaint);
     const pending = handleKey(
       key("return", "\r"), state, source, createWrapCache(), repaint,
-      async () => {}, () => {}, {
-        updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
-        renderer: null,
-        applyTheme: () => {},
-        previewTheme: () => {},
-        backend: runtime
-      }
+      async () => {}, () => {}, null, () => {}, () => {}, runtime
     );
 
     await Promise.resolve();
@@ -207,10 +199,7 @@ describe("demo action runtime and input", () => {
   test("shifted arrows scroll one line while ctrl+d/u jump a screenful", async () => {
     const { state } = harness();
     const source: AppSource = demoAppSource();
-    const send = (event: KeyEvent) => handleKey(
-      event, state, source, createWrapCache(), () => {}, async () => {}, () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
-    );
+    const send = (event: KeyEvent) => handleKey(event, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     const modified = (name: string, modifier: "shift" | "ctrl"): KeyEvent =>
       ({ name, sequence: "", shift: modifier === "shift", ctrl: modifier === "ctrl", meta: false }) as KeyEvent;
     state.mode = "NAV";

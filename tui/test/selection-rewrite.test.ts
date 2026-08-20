@@ -2,11 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import { ActionRuntime, beginInteraction } from "../src/action-runtime.js";
 import { handleKey, initialState, type AppSource } from "../src/app.js";
-import {
-  INERT_UPDATE_CHECK_LIFECYCLE,
-  type ActionContext,
-  type OverlayActionContext
-} from "../src/action-context.js";
+import type { ActionContext } from "../src/action-context.js";
 import { setComposerText } from "../src/composer-model.js";
 import { DEMO_REWRITE_TEXT, demoAppSource } from "../src/demo.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
@@ -35,8 +31,7 @@ function harness() {
   const source: AppSource = demoAppSource();
   const state = initialState(source, false);
   const press = (name: string, sequence = name) => handleKey(
-    key(name, sequence), state, source, createWrapCache(), () => {}, async () => {}, () => {},
-    { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+    key(name, sequence), state, source, createWrapCache(), () => {}, async () => {}, () => {}
   );
   return { source, state, press };
 }
@@ -60,15 +55,14 @@ function rewriteFixture(state: ReturnType<typeof harness>["state"]) {
   return { node, needle, start, end, span };
 }
 
-function directContext(state: ReturnType<typeof harness>["state"]): OverlayActionContext {
+function directContext(state: ReturnType<typeof harness>["state"]): ActionContext {
   return {
     cache: createWrapCache(),
     repaint: () => undefined,
     backend: new ActionRuntime(state, () => undefined),
     renderer: null,
     applyTheme: () => undefined,
-    previewTheme: () => undefined,
-    updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
+    previewTheme: () => undefined
   };
 }
 
@@ -224,10 +218,7 @@ describe("selection rewrite", () => {
     // ⌃s, not plain enter — the composer's second fixed key (the same key a
     // manual edit uses to fork a take, docs/generation-boundaries.md),
     // resolved the same way a real keypress would (keys.ts).
-    await handleKey(
-      ctrlKey("s"), state, source, createWrapCache(), () => {}, async () => {}, () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
-    );
+    await handleKey(ctrlKey("s"), state, source, createWrapCache(), () => {}, async () => {}, () => {});
     await settleStream(state);
 
     expect(capturedDestination).toBe("take");
@@ -269,10 +260,7 @@ describe("selection rewrite", () => {
     let called = false;
     source.api.rewriteNode = async () => { called = true; return null; };
 
-    await handleKey(
-      ctrlKey("s"), state, source, createWrapCache(), () => {}, async () => {}, () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
-    );
+    await handleKey(ctrlKey("s"), state, source, createWrapCache(), () => {}, async () => {}, () => {});
 
     expect(called).toBeFalse();
     expect(state.mode).toBe("COMPOSE");

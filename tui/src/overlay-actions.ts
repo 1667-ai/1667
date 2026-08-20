@@ -99,9 +99,9 @@ import {
   openGenerationRecordViewer
 } from "./generation-record-actions.js";
 import type { FactsOverlayState, RuntimeState } from "./state.js";
-import type { OverlayActionContext } from "./action-context.js";
+import type { ActionContext } from "./action-context.js";
 
-export type { OverlayActionContext } from "./action-context.js";
+export type OverlayActionContext = ActionContext;
 
 /** A rewrite composer's request has no honest projection yet — see the
  *  comment on `nextRequestContext` (request-context.ts) — so both entry

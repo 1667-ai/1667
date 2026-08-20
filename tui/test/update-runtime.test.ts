@@ -5,7 +5,8 @@ import {
 } from "../../shared/release-targets.js";
 import { normalizeUserConfig } from "../src/config.js";
 import {
-  createBackgroundUpdateStarter
+  createBackgroundUpdateStarter,
+  createUpdateCheckSession
 } from "../src/update-runtime.js";
 import {
   managedInstallationChannel,
@@ -76,6 +77,41 @@ describe("default background update runtime", () => {
       PUBLISHED_HOST.arch
     );
     expect(typeof starter).toBe("function");
+  });
+
+  test("a session follows preference changes and contains launcher failures", () => {
+    const starts: string[] = [];
+    let stops = 0;
+    const session = createUpdateCheckSession((config) => {
+      starts.push(config.updates.mode);
+      if (config.updates.mode === "off") throw new Error("offline fixture");
+      return () => {
+        stops += 1;
+        throw new Error("stop fixture");
+      };
+    }, () => undefined);
+    const notify = normalizeUserConfig(null);
+
+    session.synchronize(notify);
+    session.synchronize({ ...notify, theme: "parchment" });
+    expect(starts).toEqual(["notify"]);
+
+    let threw = false;
+    try {
+      session.synchronize({
+        ...notify,
+        updates: { ...notify.updates, mode: "off" }
+      });
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(false);
+    expect(starts).toEqual(["notify", "off"]);
+    expect(stops).toBe(1);
+
+    session.dispose();
+    session.synchronize(notify);
+    expect(starts).toEqual(["notify", "off"]);
   });
 
   // Asking only about the host would cover one target. Assert every canonical

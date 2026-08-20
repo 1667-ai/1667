@@ -31,6 +31,75 @@ export type BackgroundUpdateStarter = (
   onNotice: (message: string) => void
 ) => () => void;
 
+export type ConfiguredUpdateStarter = (
+  config: UserConfig,
+  onNotice: (message: string) => void
+) => () => void;
+
+export interface UpdateCheckSession {
+  synchronize(config: UserConfig): void;
+  dispose(): void;
+}
+
+/** Keep one background checker aligned with the current local preference. */
+export function createUpdateCheckSession(
+  start: ConfiguredUpdateStarter | undefined,
+  onNotice: (message: string) => void
+): UpdateCheckSession {
+  let active: UpdatePreferencesIdentity | null = null;
+  let stop: (() => void) | null = null;
+  let disposed = false;
+  return {
+    synchronize(config) {
+      const next = updatePreferencesIdentity(config);
+      if (sameUpdatePreferences(active, next)) return;
+      active = next;
+      stopUpdateCheck(stop);
+      stop = null;
+      if (disposed || start === undefined) return;
+      try {
+        stop = start(config, onNotice);
+      } catch {
+        // Update checking is advisory. Startup failures must stay silent.
+      }
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      stopUpdateCheck(stop);
+      stop = null;
+    }
+  };
+}
+
+interface UpdatePreferencesIdentity {
+  mode: UserConfig["updates"]["mode"];
+  channel: UserConfig["updates"]["channel"];
+  skippedVersion: string | null;
+}
+
+function updatePreferencesIdentity(config: UserConfig): UpdatePreferencesIdentity {
+  return { ...config.updates };
+}
+
+function sameUpdatePreferences(
+  left: UpdatePreferencesIdentity | null,
+  right: UpdatePreferencesIdentity
+): boolean {
+  return left !== null
+    && left.mode === right.mode
+    && left.channel === right.channel
+    && left.skippedVersion === right.skippedVersion;
+}
+
+function stopUpdateCheck(stop: (() => void) | null): void {
+  try {
+    stop?.();
+  } catch {
+    // Shutdown is also advisory. A broken stop hook must not close the app.
+  }
+}
+
 /**
  * The runtime is a parameter for the same reason it is one in
  * `currentPlatformPackage`: whether a starter exists follows the target's

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import type { KeyEvent } from "@opentui/core";
 import { handleKey, initialState, renderOnce } from "../src/app.js";
 import { createDemoController, demoAppSource, demoStoryApi, DEMO_SETTINGS_DOCUMENT } from "../src/demo.js";
@@ -29,10 +28,7 @@ async function renderWithKeys(
     state.abort = null;
   };
   for (const event of keys) {
-    await handleKey(
-      event, state, source, cache, () => {}, cancelStream, () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
-    );
+    await handleKey(event, state, source, cache, () => {}, cancelStream, () => {});
   }
   return frameText(renderStoryScreen(state, { width, height, wrapCache: cache }).lines);
 }
@@ -764,7 +760,7 @@ describe("token probability viewer", () => {
     // Focus the crafted leaf directly — it is the only part on this line.
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), leaf.id);
     await handleKey({ name: "l", sequence: "l", shift: false, ctrl: false, meta: false } as KeyEvent,
-      state, source, cache, () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+      state, source, cache, () => {}, async () => {}, () => {});
     const frame = frameText(renderStoryScreen(state, { width: 120, height: 36, wrapCache: cache }).lines);
     expect(frame).toContain("token probabilities");
     expect(frame).toContain("logprobs · top 16");
@@ -794,7 +790,7 @@ describe("token probability viewer", () => {
       const cache = createWrapCache<ProseStyle>();
       state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), leaf.id);
       await handleKey({ name: "l", sequence: "l", shift: false, ctrl: false, meta: false } as KeyEvent,
-        state, source, cache, () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
+        state, source, cache, () => {}, async () => {}, () => {});
       const frame = frameText(renderStoryScreen(state, { width, height: 36, wrapCache: cache }).lines);
       expect(frame.includes("▮")).toBe(expectBar);
       // Whatever the bar's width, the header and the sampled row's own
@@ -814,7 +810,7 @@ describe("token probability viewer", () => {
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), leaf.id);
     const press = (name: string) => handleKey(
       { name, sequence: name, shift: false, ctrl: false, meta: false } as KeyEvent,
-      state, source, cache, () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      state, source, cache, () => {}, async () => {}, () => {}
     );
     await press("l");
     expect(state.probs?.tokenIndex).toBe(0);

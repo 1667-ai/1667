@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { handleKey, initialState, type AppSource } from "../src/app.js";
 import { createComposer } from "../src/composer-model.js";
 import { demoAppSource } from "../src/demo.js";
@@ -39,8 +38,7 @@ function harness() {
     createWrapCache(),
     () => {},
     async () => {},
-    () => {},
-    { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+    () => {}
   );
   const press = (name: string, sequence = name) => pressKey(key(name, sequence));
   return { source, state, press, pressKey };

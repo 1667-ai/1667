@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { dispatch, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { renderStoryScreen } from "../src/screens/story.js";
@@ -84,11 +83,7 @@ describe("sticky prompt", () => {
 
   test("it is absent while p has prompts hidden", async () => {
     const { source, state } = makeFixture("make his money feel wrong");
-    await dispatch(
-      { action: "toggle-instructions" }, state, source, createWrapCache(),
-      () => {}, async () => {}, () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
-    );
+    await dispatch({ action: "toggle-instructions" }, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(state.showInstructions).toBeFalse();
 
     const frame = renderStoryScreen(state, { width: 120, height: 10, wrapCache: createWrapCache() });

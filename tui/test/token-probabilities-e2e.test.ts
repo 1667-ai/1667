@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { KeyEvent } from "@opentui/core";
 import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { handleKey, initialState } from "../src/app.js";
 import type { AppSource } from "../src/app.js";
 import { normalizeUserConfig } from "../src/config.js";
@@ -119,10 +118,7 @@ describe("token probability viewer: end-to-end dry-run generation", () => {
     const state = initialState(source, false);
     state.focusIndex = rowIndexForNode(createStoryViewModel(payload), leaf.id);
     const cache = createWrapCache<ProseStyle>();
-    await handleKey(
-      key("l"), state, source, cache, () => {}, async () => {}, () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
-    );
+    await handleKey(key("l"), state, source, cache, () => {}, async () => {}, () => {});
 
     expect(state.mode).toBe("PROBS");
     expect(state.probs?.loading).toBe(false);
@@ -141,10 +137,7 @@ describe("token probability viewer: end-to-end dry-run generation", () => {
     expect(frame).toContain("←→");
     expect(frame).toContain("⇥");
 
-    await handleKey(
-      key("escape"), state, source, cache, () => {}, async () => {}, () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
-    );
+    await handleKey(key("escape"), state, source, cache, () => {}, async () => {}, () => {});
     expect(state.mode).toBe("NAV");
     expect(state.probs).toBe(null);
   }, 30_000);
@@ -173,10 +166,7 @@ describe("token probability viewer: end-to-end dry-run generation", () => {
     const state = initialState(source, false);
     state.focusIndex = rowIndexForNode(createStoryViewModel(payload), leaf.id);
     const cache = createWrapCache<ProseStyle>();
-    await handleKey(
-      key("l"), state, source, cache, () => {}, async () => {}, () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
-    );
+    await handleKey(key("l"), state, source, cache, () => {}, async () => {}, () => {});
 
     expect(state.mode).toBe("PROBS");
     expect(state.probs?.record).toBe(null);

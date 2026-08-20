@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import { ActionRuntime, withActionAdmission } from "../src/action-runtime.js";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { handleKey, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import {
@@ -113,13 +112,10 @@ describe("presented input queue", () => {
         () => { repaint(); admit(); },
         () => { admit(); return Promise.resolve(); },
         () => { quitRequests += 1; },
-        {
-          updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
-          renderer: null,
-          applyTheme: () => undefined,
-          previewTheme: () => undefined,
-          backend: withActionAdmission(backend, admit)
-        }
+        null,
+        () => undefined,
+        () => undefined,
+        withActionAdmission(backend, admit)
       ), (work) => backend.observe(work)));
     };
 

@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createReasoningRecord } from "../../shared/reasoning.js";
 import type { OrdinaryNodeStub, StoryNode, StoryPayload } from "../../shared/types.js";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { dispatch, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { mouseToAction } from "../src/mouse-actions.js";
@@ -134,8 +133,7 @@ describe("thought waymark", () => {
     noThought.state.focusIndex = 0;
     await dispatch(
       { action: "toggle-thought" }, noThought.state, noThought.source,
-      cache, () => {}, async () => {}, () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      cache, () => {}, async () => {}, () => {}
     );
     expect(noThought.state.toast).toBe("no thought on this take");
     expect(noThought.state.expandedThoughtIds.size).toBe(0);
@@ -150,8 +148,7 @@ describe("thought waymark", () => {
     });
     await dispatch(
       { action: "toggle-thought" }, off.state, off.source,
-      cache, () => {}, async () => {}, () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      cache, () => {}, async () => {}, () => {}
     );
     expect(off.state.toast).toBe("thoughts are off · settings turns them on");
     expect(off.state.expandedThoughtIds.size).toBe(0);
@@ -166,11 +163,7 @@ describe("thought waymark", () => {
       record: createReasoningRecord({ text: "Three ways down: rope, stair, jump.", tokenCount: 1_400 })
     });
 
-    await dispatch(
-      { action: "toggle-thought" }, state, source, cache,
-      () => {}, async () => {}, () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
-    );
+    await dispatch({ action: "toggle-thought" }, state, source, cache, () => {}, async () => {}, () => {});
     expect(state.expandedThoughtIds.has("p3")).toBeTrue();
 
     const unfolded = frame(state);
@@ -180,11 +173,7 @@ describe("thought waymark", () => {
     expect(unfolded).toContain("Three ways down: rope, stair, jump.");
     expect(unfolded).not.toContain("thought · T shows");
 
-    await dispatch(
-      { action: "toggle-thought" }, state, source, cache,
-      () => {}, async () => {}, () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
-    );
+    await dispatch({ action: "toggle-thought" }, state, source, cache, () => {}, async () => {}, () => {});
     expect(state.expandedThoughtIds.has("p3")).toBeFalse();
     const folded = frame(state);
     expect(folded).toContain("thought · T shows");
@@ -208,11 +197,7 @@ describe("thought waymark", () => {
     const resolved = mouseToAction(click(thoughtHit!.hit.left, thoughtHit!.y), state);
     expect(resolved).toEqual({ action: "toggle-thought", index: 2, rowId: "p3" });
 
-    await dispatch(
-      resolved!, state, source, createWrapCache(),
-      () => {}, async () => {}, () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
-    );
+    await dispatch(resolved!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(state.expandedThoughtIds.has("p3")).toBeTrue();
     expect(frame(state)).toContain("Three ways down: rope, stair, jump.");
   });

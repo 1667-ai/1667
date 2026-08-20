@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { handleKey } from "../src/app.js";
 import { createComposer, setComposerText } from "../src/composer-model.js";
 import { parsePartFile, serializePart } from "../src/editor.js";
@@ -228,14 +227,14 @@ describe("inline editor", () => {
     let clears = 0;
     await handleKey(
       key("e"), state, source, cache, () => undefined, async () => undefined, () => undefined,
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE, renderer: { clearSelection: () => { clears += 1; } } as never }
+      { clearSelection: () => { clears += 1; } } as never
     );
 
     expect(state.mode).toBe("EDITOR");
     expect(clears).toBe(1);
     await handleKey(
       key("escape"), state, source, cache, () => undefined, async () => undefined, () => undefined,
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE, renderer: { clearSelection: () => { clears += 1; } } as never }
+      { clearSelection: () => { clears += 1; } } as never
     );
     expect(state.mode).toBe("NAV");
     expect(clears).toBe(2);

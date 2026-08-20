@@ -3,7 +3,6 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import type { KeyEvent } from "@opentui/core";
-import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { handleKey, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { recordSessionNotices } from "../src/notice-log.js";
@@ -356,10 +355,7 @@ async function pressSequence(
 ): Promise<void> {
   const cache = createWrapCache<ProseStyle>();
   for (const event of events) {
-    await handleKey(
-      event, state, source, cache, () => {}, async () => {}, () => {},
-      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
-    );
+    await handleKey(event, state, source, cache, () => {}, async () => {}, () => {});
   }
 }
 
