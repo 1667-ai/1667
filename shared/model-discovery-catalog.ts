@@ -3,12 +3,13 @@ import type {
   ModelDiscoverySourceV2
 } from "./settings-v2-types.js";
 import {
+  MAX_DISCOVERED_MODELS,
   MAX_SETTINGS_REMOTE_ID_SCALARS,
   MAX_SETTINGS_TOKEN_COUNT
 } from "./settings-scalar-policy.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "./unicode.js";
 
-export const MAX_DISCOVERED_MODELS = 256;
+export { MAX_DISCOVERED_MODELS };
 
 export interface ModelDiscoveryCandidate {
   readonly remoteId: unknown;

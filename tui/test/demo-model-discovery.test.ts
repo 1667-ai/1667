@@ -70,8 +70,8 @@ test("demo discovery resolves one non-default route for provider and source", as
 
 test("demo discovery keeps plan protocols on direct probe targets", async () => {
   const subscriptionCatalogs: DemoSubscriptionCatalogs = {
-    chatgpt: [catalogModel("gpt-fixture")],
-    claude: [catalogModel("claude-fixture")]
+    "openai-codex-responses": [catalogModel("gpt-fixture")],
+    "anthropic-subscription-messages": [catalogModel("claude-fixture")]
   };
   const cases = [
     {

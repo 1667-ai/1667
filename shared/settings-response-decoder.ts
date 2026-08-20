@@ -14,6 +14,7 @@ import {
   type SubscriptionProtocolV2
 } from "./settings-v2-types.js";
 import { CONTINUATION_PROMPT_LAYOUTS } from "./continuation-prompt-optimization.js";
+import { MAX_DISCOVERED_MODELS } from "./settings-scalar-policy.js";
 import type { GenerationSettings, Provider } from "./types.js";
 
 export type SettingsDocumentResponseDecoder = (value: unknown) => SettingsDocumentV2;
@@ -216,7 +217,7 @@ export function decodeModelDiscoveryResult(value: unknown): ModelDiscoveryResult
   const response = closedRecord(value, "model discovery result", ["observedAt", "models"]);
   const observedAt = stringValue(response.observedAt, "model discovery result.observedAt");
   if (!isCanonicalDate(observedAt) || !Array.isArray(response.models)
-    || response.models.length > 256) {
+    || response.models.length > MAX_DISCOVERED_MODELS) {
     invalid("model discovery result");
   }
   return {

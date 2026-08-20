@@ -14,6 +14,7 @@ import {
   type SubscriptionRuntimeDependencies
 } from "../server/subscription-runtime.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
+import { MAX_DISCOVERED_MODELS } from "../shared/settings-scalar-policy.js";
 
 const PLAN_FIXTURES = [
   {
@@ -52,7 +53,7 @@ test("subscription probes use bundled catalogs without an HTTP URL", async (t) =
       discovery.models.map((model) => model.remoteId),
       subscription.models
         .getModels(subscriptionProviderForProtocol(fixture.protocol))
-        .slice(0, 256)
+        .slice(0, MAX_DISCOVERED_MODELS)
         .map((model) => model.id)
     );
     assert.ok(discovery.models.some((model) => model.remoteId === fixture.model));
@@ -69,7 +70,7 @@ test("subscription catalogs use the durable discovery sanitizer", async () => {
       contextWindow: 1,
       maxTokens: 1
     },
-    ...Array.from({ length: 256 }, (_, index) => ({
+    ...Array.from({ length: MAX_DISCOVERED_MODELS }, (_, index) => ({
       id: `valid-${index}`,
       name: index === 0 ? "e\u0301" : `Valid ${index}`,
       contextWindow: index === 0 ? 0 : 32_768,
@@ -85,7 +86,7 @@ test("subscription catalogs use the durable discovery sanitizer", async () => {
     subscriptionProbeSettings(PLAN_FIXTURES[0], subscription)
   );
 
-  assert.equal(discovery.models.length, 256);
+  assert.equal(discovery.models.length, MAX_DISCOVERED_MODELS);
   assert.deepEqual(discovery.models[0], {
     remoteId: "valid-0",
     name: "valid-0",
@@ -93,7 +94,10 @@ test("subscription catalogs use the durable discovery sanitizer", async () => {
     maxOutputTokens: null,
     source: "pi-catalog"
   });
-  assert.equal(discovery.models.at(-1)?.remoteId, "valid-255");
+  assert.equal(
+    discovery.models.at(-1)?.remoteId,
+    `valid-${MAX_DISCOVERED_MODELS - 1}`
+  );
 });
 
 function subscriptionProbeSettings(

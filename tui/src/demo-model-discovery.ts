@@ -10,18 +10,18 @@ import {
   type DiscoveredModelV2,
   type ModelDiscoveryResultV2,
   type ModelDiscoverySourceV2,
-  type ProviderProbeTarget
+  type ProviderProbeTarget,
+  type SubscriptionProtocolV2
 } from "../../shared/settings-v2-types.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
 
-export interface DemoSubscriptionCatalogs {
-  readonly chatgpt: readonly BundledCatalogModel[];
-  readonly claude: readonly BundledCatalogModel[];
-}
+export type DemoSubscriptionCatalogs = Readonly<
+  Record<SubscriptionProtocolV2, readonly BundledCatalogModel[]>
+>;
 
 const SUBSCRIPTION_CATALOGS: DemoSubscriptionCatalogs = {
-  chatgpt: Object.values(PI_OPENAI_CODEX_MODELS),
-  claude: Object.values(PI_ANTHROPIC_MODELS)
+  "openai-codex-responses": Object.values(PI_OPENAI_CODEX_MODELS),
+  "anthropic-subscription-messages": Object.values(PI_ANTHROPIC_MODELS)
 };
 
 const OPENAI_MODELS = [
@@ -72,9 +72,7 @@ export function discoverDemoModels(
   if (protocol !== null && isSubscriptionProtocolV2(protocol)) {
     return {
       observedAt: "2026-01-01T00:00:00.000Z",
-      models: discoverBundledModels(protocol === "openai-codex-responses"
-        ? subscriptionCatalogs.chatgpt
-        : subscriptionCatalogs.claude)
+      models: discoverBundledModels(subscriptionCatalogs[protocol])
     };
   }
   const anthropic = settings.provider === "anthropic";
