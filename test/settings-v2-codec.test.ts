@@ -25,10 +25,9 @@ import {
 import {
   applyEffectiveGenerationSettings,
   convertGenerationSettingsV1,
-  effectiveGenerationRuntime,
+  effectiveStandardGenerationRuntime,
   effectiveGenerationView
 } from "../server/settings-v2-conversion.js";
-import { createSubscriptionRuntime } from "../server/subscription-runtime.js";
 import {
   INITIAL_SETTINGS_DOCUMENT_V2,
   INITIAL_SETTINGS_DOCUMENT_V2_HASH,
@@ -84,7 +83,6 @@ const schemaText = readFileSync(path.join(ROOT, "schema", "settings-v2.schema.js
 const corpusText = readFileSync(path.join(ROOT, "schema", "settings-v2.corpus.json"), "utf8");
 const vectorsText = readFileSync(path.join(ROOT, "schema", "settings-v2.hash-vectors.json"), "utf8");
 const corpus = JSON.parse(corpusText) as { schemaVersion: number; cases: CorpusCase[] };
-const SUBSCRIPTION_RUNTIME = createSubscriptionRuntime(process.cwd());
 
 test("settings schema, corpus, and hash vectors are canonical and identity-pinned", () => {
   const schema = JSON.parse(schemaText) as Record<string, unknown>;
@@ -177,13 +175,10 @@ test("sampling parses as a closed optional profile object and projects to runtim
     }
   });
   assert.deepEqual(document.profiles.default?.sampling, sampling);
-  assert.deepEqual(effectiveGenerationRuntime(
-    document,
-    "default",
-    {},
-    undefined,
-    { subscription: SUBSCRIPTION_RUNTIME }
-  ).providerRuntime.sampling, sampling);
+  assert.deepEqual(
+    effectiveStandardGenerationRuntime(document).providerRuntime.sampling,
+    sampling
+  );
   assert.deepEqual(
     parseSettingsDocumentV2Text(formatSettingsDocumentV2(document)),
     document
@@ -403,13 +398,7 @@ test("reasoning and discardReasoning parse as closed optional profile fields and
   assert.equal(document.profiles.default?.reasoning, "open");
   assert.equal(document.profiles.default?.discardReasoning, true);
   assert.deepEqual(parseSettingsDocumentV2Text(formatSettingsDocumentV2(document)), document);
-  const runtime = effectiveGenerationRuntime(
-    document,
-    "default",
-    {},
-    undefined,
-    { subscription: SUBSCRIPTION_RUNTIME }
-  ).providerRuntime;
+  const runtime = effectiveStandardGenerationRuntime(document).providerRuntime;
   assert.equal(runtime.reasoning, "open");
   assert.equal(runtime.keepReasoning, false);
 });
@@ -424,13 +413,7 @@ test("reasoning and discardReasoning stay absent through a document round trip w
   assert.equal(Object.hasOwn(document.profiles.default!, "discardReasoning"), false);
   assert.equal(formatSettingsDocumentV2(document), INITIAL_SETTINGS_DOCUMENT_V2_TEXT);
   assert.equal(hashSettingsDocumentV2(document), INITIAL_SETTINGS_DOCUMENT_V2_HASH);
-  const runtime = effectiveGenerationRuntime(
-    document,
-    "default",
-    {},
-    undefined,
-    { subscription: SUBSCRIPTION_RUNTIME }
-  ).providerRuntime;
+  const runtime = effectiveStandardGenerationRuntime(document).providerRuntime;
   assert.equal(runtime.reasoning, "marker");
   assert.equal(runtime.keepReasoning, true);
 });
@@ -911,13 +894,10 @@ test("Anthropic runtime lowering preserves exact authentication references", () 
     });
     const effective = effectiveGenerationView(document);
     assert.equal(effective.apiKeyEnv, "ANTHROPIC_API_KEY");
-    assert.deepEqual(effectiveGenerationRuntime(
-      document,
-      "default",
-      {},
-      undefined,
-      { subscription: SUBSCRIPTION_RUNTIME }
-    ).providerRuntime.auth, auth);
+    assert.deepEqual(
+      effectiveStandardGenerationRuntime(document).providerRuntime.auth,
+      auth
+    );
   }
   for (const auth of [
     { type: "bearer-stored" as const, secretId: "migrated:connection" },
@@ -940,13 +920,10 @@ test("Anthropic runtime lowering preserves exact authentication references", () 
     );
     const effective = effectiveGenerationView(document);
     assert.equal(effective.apiKeyEnv, null);
-    assert.deepEqual(effectiveGenerationRuntime(
-      document,
-      "default",
-      {},
-      undefined,
-      { subscription: SUBSCRIPTION_RUNTIME }
-    ).providerRuntime.auth, auth);
+    assert.deepEqual(
+      effectiveStandardGenerationRuntime(document).providerRuntime.auth,
+      auth
+    );
   }
   const customHeaderDocument = parseSettingsDocumentV2({
     ...base,
@@ -964,12 +941,8 @@ test("Anthropic runtime lowering preserves exact authentication references", () 
   });
   const effective = effectiveGenerationView(customHeaderDocument);
   assert.equal(effective.apiKeyEnv, null);
-  assert.deepEqual(effectiveGenerationRuntime(
-    customHeaderDocument,
-    "default",
-    {},
-    undefined,
-    { subscription: SUBSCRIPTION_RUNTIME }
+  assert.deepEqual(effectiveStandardGenerationRuntime(
+    customHeaderDocument
   ).providerRuntime.headers, [{
     name: "x-api-key",
     value: { type: "env", env: "ANTHROPIC_API_KEY" }

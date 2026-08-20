@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  effectiveGenerationRuntime,
+  createEffectiveGenerationRuntimeProjector,
   convertGenerationSettingsV1,
   providerForProtocol
 } from "../server/settings-v2-conversion.js";
@@ -18,6 +18,7 @@ import type {
 
 test("subscription presets keep their fixed connection shape and runtime route", () => {
   const subscription = createSubscriptionRuntime(process.cwd());
+  const runtimeProjector = createEffectiveGenerationRuntimeProjector(subscription);
   const base = convertGenerationSettingsV1({
     provider: "openai-compatible",
     baseUrl: "https://api.openai.com/v1",
@@ -40,13 +41,7 @@ test("subscription presets keep their fixed connection shape and runtime route",
     assert.deepEqual(connection.auth, { type: "none" });
     assert.deepEqual(connection.headers, []);
     assert.equal(providerForProtocol(connection.protocol), provider);
-    const runtime = effectiveGenerationRuntime(
-      document,
-      "default",
-      {},
-      undefined,
-      { subscription }
-    );
+    const runtime = runtimeProjector.project(document);
     assert.equal(runtime.settings.provider, provider);
     assert.equal(runtime.settings.baseUrl, "");
     assert.equal(runtime.settings.apiKeyEnv, null);

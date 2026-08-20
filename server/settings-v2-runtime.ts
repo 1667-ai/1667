@@ -10,13 +10,12 @@ import { checkModelServer } from "./server-check.js";
 import { ownedLoopbackHttpSupported } from "./provider-fetch.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
 import {
-  effectiveGenerationRuntime,
-  effectiveGenerationView
+  effectiveGenerationView,
+  type EffectiveGenerationRuntimeProjector
 } from "./settings-v2-conversion.js";
 import { classifyHttpHost, SettingsFormatError } from "./settings-v2-scalars.js";
 import { selectSettingsRoute } from "../shared/settings-route.js";
 import { continuationPromptLayoutForOptimization } from "../shared/continuation-prompt-optimization.js";
-import type { SubscriptionRuntimeDependencies } from "./subscription-runtime.js";
 import { settingsStateRelation } from "./settings-state-validation.js";
 import {
   corruptSettingsStateReceipt,
@@ -103,11 +102,11 @@ export function credentialReferencesResolve(
 
 export function assertRuntimeDocumentSupported(
   document: SettingsDocumentV2,
-  subscription: SubscriptionRuntimeDependencies
+  runtimeProjector: EffectiveGenerationRuntimeProjector
 ): void {
   try {
     for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {
-      effectiveGenerationRuntime(document, purpose, {}, undefined, { subscription });
+      runtimeProjector.project(document, purpose);
     }
   } catch (error) {
     throw invalidSettingsMutation(error);

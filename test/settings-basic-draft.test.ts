@@ -11,10 +11,10 @@ import { imageInputForModelChangeV3 } from "../tui/src/settings-text.js";
 import { applySamplingSettings } from "../shared/sampling-capabilities.js";
 import {
   attachProviderRuntime,
+  isStandardModelConnectionV2,
   providerRuntimeFromV2,
   resolveProviderHeaders
 } from "../server/provider-runtime.js";
-import { createSubscriptionRuntime } from "../server/subscription-runtime.js";
 import {
   EMPTY_SAMPLING_V2,
   type SamplingSettingsV2,
@@ -23,8 +23,6 @@ import {
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import { validateSettingsDocumentV2 } from "../server/settings-v2-validation.js";
 import { selectSettingsRoute } from "../shared/settings-route.js";
-
-const SUBSCRIPTION_RUNTIME = createSubscriptionRuntime(process.cwd());
 
 test("discovery metadata stays separate from manual context overrides", () => {
   const selected = applyBasicSettingsDraft(DOCUMENT, {
@@ -519,6 +517,9 @@ function resolvedStoredHeaders(
   if (auth.type !== "bearer-stored" && auth.type !== "header-stored") {
     throw new Error("test document must use stored auth");
   }
+  if (!isStandardModelConnectionV2(connection)) {
+    throw new Error("test document must use a standard provider");
+  }
   return resolveProviderHeaders(
     attachProviderRuntime(
       basicSettingsFromDocument(document),
@@ -528,8 +529,7 @@ function resolvedStoredHeaders(
         model.capabilities,
         {
           environment: {},
-          storedSecrets: new Map([[auth.secretId, secret]]),
-          subscription: SUBSCRIPTION_RUNTIME
+          storedSecrets: new Map([[auth.secretId, secret]])
         }
       ),
       true

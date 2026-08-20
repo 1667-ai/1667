@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseSettingsDocumentV2 } from "../../server/settings-v2-codec.js";
-import { effectiveGenerationRuntime } from "../../server/settings-v2-conversion.js";
-import { createSubscriptionRuntime } from "../../server/subscription-runtime.js";
+import { effectiveStandardGenerationRuntime } from "../../server/settings-v2-conversion.js";
 import {
   applyBasicSettingsDraft,
   basicSettingsFromDocument
@@ -41,8 +40,6 @@ import {
   selectRow,
   settingsHarness as harness
 } from "./settings-test-harness.js";
-
-const SUBSCRIPTION_RUNTIME = createSubscriptionRuntime(process.cwd());
 
 describe("inline settings menu", () => {
   test("up/down selects every row; Enter edits text and advances closed choices", async () => {
@@ -797,15 +794,12 @@ describe("inline settings menu", () => {
       source.api.probeContextWindow = async (target) => {
         probes += 1;
         if (!("kind" in target)) throw new Error("expected a settings document");
-        const runtime = effectiveGenerationRuntime(
+        const runtime = effectiveStandardGenerationRuntime(
           parseSettingsDocumentV2(target.document),
           target.purpose,
           {},
           {},
-          {
-            allowBlankModel: true,
-            subscription: SUBSCRIPTION_RUNTIME
-          }
+          { allowBlankModel: true }
         );
         expect(runtime.settings.model).toBe("");
         expect(runtime.providerRuntime.preset).toBe(expected.id);

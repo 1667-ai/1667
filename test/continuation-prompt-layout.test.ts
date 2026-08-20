@@ -3,8 +3,7 @@ import test from "node:test";
 import { assembleContinuation } from "../server/continuation-assembly.js";
 import { continuationRecordEntries } from "../server/generation-record-prompt.js";
 import { buildOpenAiChatRequestBody } from "../server/provider-request-body.js";
-import { effectiveGenerationRuntime } from "../server/settings-v2-conversion.js";
-import { createSubscriptionRuntime } from "../server/subscription-runtime.js";
+import { effectiveStandardGenerationRuntime } from "../server/settings-v2-conversion.js";
 import {
   INITIAL_SETTINGS_DOCUMENT_V2,
   INITIAL_SETTINGS_DOCUMENT_V2_TEXT
@@ -35,19 +34,12 @@ const APPEND_CONTRACT = [
   "Return only the new characters after that boundary; do not repeat, restart, quote, or summarize existing text."
 ].join(" ");
 const PREFILL_CONTINUITY_GUARD = "Preserve the established point of view and tense.";
-const SUBSCRIPTION_RUNTIME = createSubscriptionRuntime(process.cwd());
 
 function generationRuntime(
   document: SettingsDocumentV2,
   purpose: "default" | "prose" = "default"
 ) {
-  return effectiveGenerationRuntime(
-    document,
-    purpose,
-    {},
-    undefined,
-    { subscription: SUBSCRIPTION_RUNTIME }
-  );
+  return effectiveStandardGenerationRuntime(document, purpose);
 }
 
 test("compatibility is the default continuation prompt layout", () => {

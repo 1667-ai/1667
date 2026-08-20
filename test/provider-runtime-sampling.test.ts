@@ -3,13 +3,12 @@ import test from "node:test";
 import {
   attachProviderRuntime,
   providerRuntimeFromV2,
-  resolveProviderHeaders
+  resolveProviderHeaders,
+  type StandardModelConnectionV2
 } from "../server/provider-runtime.js";
-import { createSubscriptionRuntime } from "../server/subscription-runtime.js";
 import {
   EMPTY_SAMPLING_V2,
-  type ModelCapabilitiesV2,
-  type ModelConnectionV2
+  type ModelCapabilitiesV2
 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 
@@ -20,10 +19,8 @@ const CAPABILITIES: ModelCapabilitiesV2 = {
   promptCaching: "unknown"
 };
 
-const SUBSCRIPTION_RUNTIME = createSubscriptionRuntime(process.cwd());
-
 test("v2 runtime accepts named credentials and sampling options", () => {
-  const connection: ModelConnectionV2 = {
+  const connection: StandardModelConnectionV2 = {
     name: "Compatibility fixture",
     preset: "custom",
     protocol: "openai-chat-completions",
@@ -55,8 +52,7 @@ test("v2 runtime accepts named credentials and sampling options", () => {
     {
       environment: { AI_1667_COMPAT_HEADER: "environment-secret" },
       storedSecrets: new Map([["compat-secret", "stored-secret"]]),
-      sampling,
-      subscription: SUBSCRIPTION_RUNTIME
+      sampling
     }
   );
 

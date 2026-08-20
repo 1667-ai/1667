@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import test from "node:test";
-import { effectiveGenerationRuntime } from "../server/settings-v2-conversion.js";
-import { createSubscriptionRuntime } from "../server/subscription-runtime.js";
+import { effectiveStandardGenerationRuntime } from "../server/settings-v2-conversion.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import {
   streamCompletion,
@@ -54,8 +53,6 @@ const PROMPT: PromptPlan = {
     }
   ]
 };
-
-const SUBSCRIPTION_RUNTIME = createSubscriptionRuntime(process.cwd());
 
 test("OpenAI-compatible text completions stream ChatML without changing the final boundary", async (t) => {
   const requests: ProviderRequest[] = [];
@@ -381,13 +378,7 @@ function textDocument(
 }
 
 function runtimeSettings(document: SettingsDocumentV2) {
-  return effectiveGenerationRuntime(
-    document,
-    "default",
-    {},
-    undefined,
-    { subscription: SUBSCRIPTION_RUNTIME }
-  ).settings;
+  return effectiveStandardGenerationRuntime(document).settings;
 }
 
 interface ProviderRequest {

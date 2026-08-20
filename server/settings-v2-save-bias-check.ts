@@ -5,11 +5,10 @@ import {
 import { selectSettingsRoute } from "../shared/settings-route.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { ProviderError } from "./errors.js";
-import { effectiveGenerationRuntime } from "./settings-v2-conversion.js";
+import type { EffectiveGenerationRuntimeProjector } from "./settings-v2-conversion.js";
 import { invalidSettingsMutation } from "./settings-v2-mutation.js";
 import { resolveSamplingBiasForSettings } from "./sampling-phrase-bias.js";
 import { validateSamplingRoute } from "./settings-v2-sampling-validation.js";
-import type { SubscriptionRuntimeDependencies } from "./subscription-runtime.js";
 
 /** How long the whole live-tokenize-probe bias-resolution phase of a save
  * gets, across every routed profile combined (see
@@ -62,7 +61,7 @@ export const SAMPLING_BIAS_SAVE_PROBE_DEADLINE_MS = 5_000;
 export async function assertSavedSamplingBiasResolves(
   document: SettingsDocumentV2,
   environment: NodeJS.ProcessEnv,
-  subscription: SubscriptionRuntimeDependencies,
+  runtimeProjector: EffectiveGenerationRuntimeProjector,
   signal?: AbortSignal
 ): Promise<void> {
   const deadline = AbortSignal.timeout(SAMPLING_BIAS_SAVE_PROBE_DEADLINE_MS);
@@ -74,12 +73,12 @@ export async function assertSavedSamplingBiasResolves(
     resolvedProfileIds.add(route.profileId);
     let settings: GenerationSettings;
     try {
-      settings = effectiveGenerationRuntime(
+      settings = runtimeProjector.project(
         document,
         purpose,
         {},
         environment,
-        { subscription }
+        {}
       ).settings;
     } catch {
       continue;

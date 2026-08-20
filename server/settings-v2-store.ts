@@ -26,9 +26,10 @@ import {
   hashSettingsStateV2
 } from "./settings-v2-codec.js";
 import {
-  effectiveGenerationRuntime,
+  createEffectiveGenerationRuntimeProjector,
   effectiveApiKeyEnv,
-  providerForProtocol
+  providerForProtocol,
+  type EffectiveGenerationRuntimeProjector
 } from "./settings-v2-conversion.js";
 import { providerRuntimeFromV2 } from "./provider-runtime.js";
 import { defaultModelCapabilities } from "../shared/settings-provider-defaults.js";
@@ -141,6 +142,7 @@ export class SettingsV2Store {
   private readonly secretsDir: string;
   private readonly prunesSecrets: boolean;
   private readonly subscription: SubscriptionRuntimeDependencies;
+  private readonly runtimeProjector: EffectiveGenerationRuntimeProjector;
 
   constructor(
     private readonly dataDir: string,
@@ -148,6 +150,7 @@ export class SettingsV2Store {
   ) {
     this.secretsDir = options.secretsDir ?? dataDir;
     this.subscription = createSubscriptionRuntime(this.secretsDir);
+    this.runtimeProjector = createEffectiveGenerationRuntimeProjector(this.subscription);
     // A shared machine tier holds every project's keys, and this store only
     // knows the IDs one project references. Pruning against that view would
     // delete another project's credentials, so garbage collection is confined
@@ -170,7 +173,7 @@ export class SettingsV2Store {
     // activate, or prune. Opening proves the state parses and its active
     // document supports a route, exactly like the writable path below.
     if (slot.kind === "v3") {
-      assertRuntimeDocumentSupported(activeSettingsDocument(slot.readOnlyView), this.subscription);
+      assertRuntimeDocumentSupported(activeSettingsDocument(slot.readOnlyView), this.runtimeProjector);
       settingsViewFromState(slot.readOnlyView);
       return;
     }
@@ -185,7 +188,7 @@ export class SettingsV2Store {
       await removeProviderSecretsScratch(this.secretsDir);
       await pruneProviderSecrets(this.secretsDir, providerSecretIdsToKeep(state));
     }
-    assertRuntimeDocumentSupported(activeSettingsDocument(state), this.subscription);
+    assertRuntimeDocumentSupported(activeSettingsDocument(state), this.runtimeProjector);
     settingsViewFromState(state);
   }
 
@@ -216,16 +219,16 @@ export class SettingsV2Store {
   async loadRuntime(purpose: SettingsRoutePurpose = "default") {
     const { slot, state, storedSecrets } = await this.readRuntimeSnapshot();
     const document = activeSettingsDocument(state);
-    const runtime = effectiveGenerationRuntime(
+    const runtime = this.runtimeProjector.project(
       document,
       purpose,
       {},
       this.environment,
-      { subscription: this.subscription },
+      {},
       storedSecrets
     );
     assertRuntimeGenerationSettingsSupported(runtime.settings);
-    // Same `document` object `effectiveGenerationRuntime` just resolved a
+    // Same `document` object the runtime projector just resolved a
     // route from, above — a second call to the same pure route-selection
     // function, not a second read. `selectSettingsRoute` is deterministic
     // given a document and a purpose, so this always names the same model
@@ -360,14 +363,13 @@ export class SettingsV2Store {
         );
       }
     }
-    const runtime = effectiveGenerationRuntime(
+    const runtime = this.runtimeProjector.project(
       document,
       purpose,
       {},
       this.environment,
       {
-        allowBlankModel: true,
-        subscription: this.subscription
+        allowBlankModel: true
       },
       resolvedSecrets
     );
@@ -488,11 +490,11 @@ export class SettingsV2Store {
     }
 
     if (operation.method === "saveSettings") {
-      assertRuntimeDocumentSupported(operation.document, this.subscription);
+      assertRuntimeDocumentSupported(operation.document, this.runtimeProjector);
       await assertSavedSamplingBiasResolves(
         operation.document,
         this.environment,
-        this.subscription,
+        this.runtimeProjector,
         signal
       );
     }
@@ -818,19 +820,19 @@ export class SettingsV2Store {
     }
     let candidateReady = false;
     try {
-      assertRuntimeDocumentSupported(candidate, this.subscription);
+      assertRuntimeDocumentSupported(candidate, this.runtimeProjector);
       const validatedConnections = new Set<string>();
       const probeTargets: GenerationSettings[] = [];
       for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {
         const route = selectSettingsRoute(candidate, purpose);
         if (validatedConnections.has(route.model.connectionId)) continue;
         validatedConnections.add(route.model.connectionId);
-        const effective = effectiveGenerationRuntime(
+        const effective = this.runtimeProjector.project(
           candidate,
           purpose,
           {},
           this.environment,
-          { subscription: this.subscription },
+          {},
           storedSecrets
         ).settings;
         if (providerRequestTransportAvailable(effective)) probeTargets.push(effective);

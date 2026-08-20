@@ -3,8 +3,7 @@ import { readFile } from "node:fs/promises";
 import { canonicalJson } from "../../server/canonical-json.js";
 import { importProfileExport } from "../../server/import-profile-export.js";
 import { parseJsonRejectingDuplicateKeys } from "../../server/strict-json.js";
-import { effectiveGenerationRuntime } from "../../server/settings-v2-conversion.js";
-import { createSubscriptionRuntime } from "../../server/subscription-runtime.js";
+import { effectiveStandardGenerationRuntime } from "../../server/settings-v2-conversion.js";
 import {
   defaultModelCapabilities
 } from "../../shared/settings-provider-defaults.js";
@@ -39,8 +38,6 @@ export interface ReplayProfile {
   /** The complete manifest explicitly records the raw token-bias map. */
   readonly logitBiasState: "empty" | "present";
 }
-
-const SUBSCRIPTION_RUNTIME = createSubscriptionRuntime(process.cwd());
 
 /** Shape shared by replay and evidence artifacts before canonical projection. */
 export interface ReplayProfileBoundary {
@@ -232,13 +229,7 @@ export function replaySettings(
     optimization,
     apiKeyEnv
   );
-  return effectiveGenerationRuntime(
-    document,
-    "default",
-    {},
-    undefined,
-    { subscription: SUBSCRIPTION_RUNTIME }
-  ).settings;
+  return effectiveStandardGenerationRuntime(document).settings;
 }
 
 function replaySettingsDocument(

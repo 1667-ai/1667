@@ -120,6 +120,18 @@ export type SubscriptionModelConnectionV2 = Omit<ModelConnectionV2, "protocol"> 
   readonly protocol: SubscriptionProtocolV2;
 };
 
+export function isSubscriptionModelConnectionV2(
+  connection: ModelConnectionV2
+): connection is SubscriptionModelConnectionV2 {
+  return isSubscriptionProtocolV2(connection.protocol);
+}
+
+export function isStandardModelConnectionV2(
+  connection: ModelConnectionV2
+): connection is StandardModelConnectionV2 {
+  return !isSubscriptionProtocolV2(connection.protocol);
+}
+
 /** Attach server-only runtime policy without changing the frozen JSON settings
  * contract. Enumerable symbols survive the small `{ ...settings }` budget
  * overrides used by generation, while JSON and Object.keys ignore them. */
