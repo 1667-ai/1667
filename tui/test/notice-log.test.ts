@@ -80,6 +80,28 @@ describe("C-37 · the session log", () => {
     expect(state.pendingUpdateNotice).toBeNull();
   });
 
+  test("an update result waits until the active screen can show a toast", () => {
+    const { state } = harness();
+    state.mode = "REQUEST";
+    state.request = { cursor: 0, scrollTop: 0, returnMode: "NAV" };
+
+    publishBackgroundUpdateNotice(
+      state,
+      "1667 1.0.0 available",
+      () => undefined
+    );
+
+    expect(state.toast).toBeNull();
+    expect(state.pendingUpdateNotice).toBe("1667 1.0.0 available");
+
+    state.mode = "NAV";
+    state.request = null;
+    promotePendingUpdateNotice(state);
+
+    expect(state.toast).toBe("1667 1.0.0 available");
+    expect(state.pendingUpdateNotice).toBeNull();
+  });
+
   test("! opens a surface holding what the app said", async () => {
     const { state, press } = harness();
     await press(RAIL);
