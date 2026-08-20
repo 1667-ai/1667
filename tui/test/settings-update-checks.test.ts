@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { UNAVAILABLE_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { settingsRows } from "../src/settings-overlay-model.js";
 import { settingsRowIds } from "../src/settings-row-navigation.js";
 import { applyUpdateChecksToggle } from "../src/settings-selector-actions.js";
@@ -61,5 +62,22 @@ describe("Settings update checks", () => {
     expect(state.toast).toBe(
       "update checks · off for this session · config not saved"
     );
+  });
+
+  test("missing live wiring fails before config changes or persists", () => {
+    const { source, state } = harness();
+    let saves = 0;
+
+    expect(() => applyUpdateChecksToggle(
+      state,
+      source,
+      UNAVAILABLE_UPDATE_CHECK_LIFECYCLE,
+      "off",
+      () => { saves += 1; return true; }
+    )).toThrow("update-check lifecycle is not configured");
+
+    expect(state.config.updates.mode).toBe("notify");
+    expect(source.config.updates.mode).toBe("notify");
+    expect(saves).toBe(0);
   });
 });

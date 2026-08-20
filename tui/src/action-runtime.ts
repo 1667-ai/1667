@@ -26,8 +26,6 @@ export interface ActionRunner {
   run(label: string, work: ActionWork, options?: ActionRunOptions): Promise<boolean>;
   whenIdle(): Promise<boolean>;
   observe(work: Promise<unknown>): void;
-  /** Rebuild the notify-only update lane after its local preference changes. */
-  restartUpdateCheck(): void;
   /** Run `work` once the exclusive slot is free, instead of failing against
    * it. This waits for the slot; it does not claim one. Whether the slot
    * stays free while `work` runs is `work`'s own choice: the context probe
@@ -106,16 +104,8 @@ export class ActionRuntime implements ActionRunner {
 
   constructor(
     private readonly state: RuntimeState,
-    private readonly repaint: () => void,
-    private readonly restartUpdateCheckEffect: (() => void) | null = null
+    private readonly repaint: () => void
   ) {}
-
-  restartUpdateCheck(): void {
-    if (this.restartUpdateCheckEffect === null) {
-      throw new Error("update-check lifecycle is not configured");
-    }
-    this.restartUpdateCheckEffect();
-  }
 
   async run(label: string, work: ActionWork, options: ActionRunOptions = {}): Promise<boolean> {
     if (this.disposed) return false;
@@ -309,7 +299,6 @@ export function withActionAdmission(
     },
     whenIdle: () => backend.whenIdle(),
     observe: (work) => backend.observe(work),
-    restartUpdateCheck: () => backend.restartUpdateCheck(),
     runWhenIdle: (key, work, stillWanted, debounceMs) =>
       backend.runWhenIdle(key, work, stillWanted, debounceMs)
   };

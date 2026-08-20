@@ -8,6 +8,12 @@ import { createTestRenderer } from "@opentui/core/testing";
 import type { GenerationSettings, StoryPayload, StorySummary } from "../../shared/types.js";
 import type { SettingsView } from "../../shared/settings-v2-types.js";
 import type { StoryApi } from "./api.js";
+import {
+  INERT_UPDATE_CHECK_LIFECYCLE,
+  type SettingsActionContext,
+  type UpdateCheckLifecycle,
+  UNAVAILABLE_UPDATE_CHECK_LIFECYCLE
+} from "./action-context.js";
 import type { RecoveryWarningFeed } from "./recovery-warning-feed.js";
 import type { ConnectionMonitor } from "./connection.js";
 import { cancelChapterSummary, directChapterRowAction } from "./chapter-actions.js";
@@ -31,6 +37,8 @@ import { chapterWord } from "./chapter-model.js";
 import { openingFocusIndex, readingPartIdFor, type ReadingPositions } from "./reading-position.js";
 import { bindLiveReadingPositionState } from "./reading-position-persist.js";
 import { handleOverlayAction } from "./overlay-actions.js";
+import { settingsOverlayAction } from "./settings-overlay-actions.js";
+import { synchronizeSettingsModelDiscovery } from "./settings-model-discovery.js";
 import { createNoticeLog, recordSessionNotices } from "./notice-log.js";
 import { announceRelease } from "./release-announcement.js";
 import {
@@ -143,7 +151,7 @@ export async function renderOnce(source: AppSource, width: number, height: numbe
   const setup = await createTestRenderer({ width, height, backgroundColor: palette.color("background") });
   const state = initialState(source, true);
   const cache = createWrapCache<ProseStyle>();
-  const backend = new ActionRuntime(state, () => undefined, () => undefined);
+  const backend = new ActionRuntime(state, () => undefined);
   const cancelRenderStream = async () => {
     state.stream = null;
     state.abort = null;
@@ -161,7 +169,8 @@ export async function renderOnce(source: AppSource, width: number, height: numbe
       await cancelRenderStream();
     }
     const pending = handleKey(keyFromCharacter(character), state, source, cache, () => undefined,
-      cancelRenderStream, () => undefined, null, applyThemeInFrame, () => undefined, backend);
+      cancelRenderStream, () => undefined, null, applyThemeInFrame, () => undefined, backend,
+      INERT_UPDATE_CHECK_LIFECYCLE);
     // Summary streaming is the one render-once fixture intentionally captured
     // mid-task. Interactive callers already observe the dispatcher Promise.
     if (state.abort?.kind === "summary") backend.observe(pending);
@@ -296,13 +305,13 @@ export async function runInteractive(source: AppSource): Promise<void> {
     if (exited) return;
     publishBackgroundUpdateNotice(state, message, repaint);
   };
-  const restartUpdateCheck = () => {
+  const restartUpdateCheck = (config: UserConfig = source.config) => {
     stopUpdateCheck?.();
     stopUpdateCheck = exited
       ? null
-      : source.startUpdateCheck?.(source.config, publishUpdateNotice) ?? null;
+      : source.startUpdateCheck?.(config, publishUpdateNotice) ?? null;
   };
-  const backend = new ActionRuntime(state, repaint, restartUpdateCheck);
+  const backend = new ActionRuntime(state, repaint);
   tokenCountLane = startPromptTokenCountLane({ state, api: source.api, repaint });
   const captureProfile = () => {
     if (!profileEnabled || profileReport !== null) return;
@@ -476,7 +485,8 @@ export async function runInteractive(source: AppSource): Promise<void> {
         renderer,
         applyTheme,
         previewTheme,
-        withActionAdmission(backend, admit)
+        withActionAdmission(backend, admit),
+        { restartUpdateCheck }
       ), (work) => backend.observe(work));
     }, () => {
       retirePresentedSelection(renderer, queuedSelection);
@@ -537,7 +547,8 @@ export async function runInteractive(source: AppSource): Promise<void> {
             renderer,
             applyTheme,
             previewTheme,
-            backend
+            backend,
+            { restartUpdateCheck }
           );
         }
       } else if (pasteInto(state, text)) {
@@ -589,7 +600,8 @@ export async function runInteractive(source: AppSource): Promise<void> {
           renderer,
           applyTheme,
           previewTheme,
-          withActionAdmission(backend, admit)
+          withActionAdmission(backend, admit),
+          { restartUpdateCheck }
         ), (work) => backend.observe(work));
       }
     });
@@ -605,7 +617,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
   // One-shot requestRender frames while idle; renderables may request a live
   // loop explicitly when they own native animation.
   renderer.auto();
-  restartUpdateCheck();
+  restartUpdateCheck(source.config);
 
   if (source.demo) {
     state.focusIndex = lastPartRowIndex(createStoryViewModel(state.payload));
@@ -630,7 +642,8 @@ export async function handleKey(
   renderer: ActionContext["renderer"] = null,
   applyTheme: ActionContext["applyTheme"] = () => undefined,
   previewTheme: ActionContext["previewTheme"] = () => undefined,
-  backend: ActionRunner = new ActionRuntime(state, repaint)
+  backend: ActionRunner = new ActionRuntime(state, repaint),
+  updateChecks: UpdateCheckLifecycle = UNAVAILABLE_UPDATE_CHECK_LIFECYCLE
 ): Promise<void> {
   if (isCopyShortcut(key)
     && state.mode !== "EDITOR"
@@ -661,7 +674,7 @@ export async function handleKey(
     mapView: state.map?.view
   });
   return await dispatch(resolved, state, source, wrapCache, repaint, cancelStream, requestQuit,
-    renderer, applyTheme, previewTheme, backend);
+    renderer, applyTheme, previewTheme, backend, updateChecks);
 }
 
 /** Everything after key resolution — shared by the keyboard and the mouse. */
@@ -676,7 +689,8 @@ export async function dispatch(
   renderer: ActionContext["renderer"] = null,
   applyTheme: ActionContext["applyTheme"] = () => undefined,
   previewTheme: ActionContext["previewTheme"] = () => undefined,
-  backend: ActionRunner = new ActionRuntime(state, repaint)
+  backend: ActionRunner = new ActionRuntime(state, repaint),
+  updateChecks: UpdateCheckLifecycle = UNAVAILABLE_UPDATE_CHECK_LIFECYCLE
 ): Promise<void> {
   const previousMode = state.mode;
   if (state.chapterSummary !== null && resolved.action === "cancel"
@@ -708,6 +722,10 @@ export async function dispatch(
   }
   const context: ActionContext = {
     cache: wrapCache, repaint, backend, renderer, applyTheme, previewTheme
+  };
+  const settingsContext: SettingsActionContext = {
+    ...context,
+    restartUpdateCheck: updateChecks.restartUpdateCheck
   };
   // Recovery belongs to the connection banner, above transient part menus
   // and confirmations. Those surfaces stay open while retry runs; otherwise
@@ -770,7 +788,8 @@ export async function dispatch(
       } else if (!copied && state.mode === "EDITOR") {
         await inlineEditorAction(action, state, source, context);
       } else if (!copied && state.mode === "SETTINGS") {
-        await handleOverlayAction(action, state, source, context);
+        await settingsOverlayAction(action, state, source, settingsContext);
+        await synchronizeSettingsModelDiscovery(state, source, context);
       } else if (!copied && state.mode === "ASIDE") {
         await handleOverlayAction(action, state, source, context);
       }
@@ -778,6 +797,10 @@ export async function dispatch(
   }
   else if (state.prune !== null) await pruneAction(resolved, state, source, context);
   else if (state.actions !== null) await actionsMenuAction(resolved, state, source, context);
+  else if (state.mode === "SETTINGS" && state.settings !== null) {
+    await settingsOverlayAction(resolved, state, source, settingsContext);
+    await synchronizeSettingsModelDiscovery(state, source, context);
+  }
   else if (await handleOverlayAction(resolved, state, source, context)) { /* handled */ }
   else if (resolved.action === "toggle-context-meter" && (state.mode === "NAV" || state.mode === "COMPOSE")) {
     state.contextMeterExpanded = !state.contextMeterExpanded;

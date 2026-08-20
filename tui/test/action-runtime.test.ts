@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   ActionRuntime,
   beginInteraction,
-  withActionAdmission,
   type ActionTask
 } from "../src/action-runtime.js";
 import { demoAppSource } from "../src/demo.js";
@@ -98,23 +97,5 @@ describe("backend action ownership", () => {
     let admitted = false;
     expect(await runtime.run("next mutation", async () => { admitted = true; })).toBeTrue();
     expect(admitted).toBeTrue();
-  });
-
-  test("the update lifecycle is explicit and survives admission wrapping", () => {
-    const state = initialState(demoAppSource(), false);
-    let restarts = 0;
-    const runtime = new ActionRuntime(
-      state,
-      () => undefined,
-      () => { restarts += 1; }
-    );
-
-    withActionAdmission(runtime, () => undefined).restartUpdateCheck();
-    expect(restarts).toBe(1);
-
-    const unconfigured = new ActionRuntime(state, () => undefined);
-    expect(() => unconfigured.restartUpdateCheck()).toThrow(
-      "update-check lifecycle is not configured"
-    );
   });
 });

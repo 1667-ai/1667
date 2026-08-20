@@ -71,10 +71,7 @@ import { archiveImportAction, openArchiveImport } from "./archive-import-actions
 import { imageAttachAction, openImageAttach } from "./image-attach-actions.js";
 import { publishStories } from "./overlay-publication.js";
 import { retryBackendState } from "./recovery-orchestration.js";
-import {
-  openSettingsOverlay,
-  settingsOverlayAction
-} from "./settings-overlay-actions.js";
+import { openSettingsOverlay } from "./settings-overlay-actions.js";
 import { synchronizeSettingsModelDiscovery } from "./settings-model-discovery.js";
 import { panelContentRows } from "./screens/overlay.js";
 import { logBodyHeight, maxNoticeScrollOffset } from "./screens/log.js";
@@ -239,16 +236,6 @@ export async function handleOverlayAction(
   if (state.mode === "CARD" && state.card !== null) return await cardImportAction(resolved, state, source, context);
   if (state.mode === "ARCHIVE" && state.archive !== null) return await archiveImportAction(resolved, state, source, context);
   if (state.mode === "IMAGE" && state.image != null) return await imageAttachAction(resolved, state, source, context);
-  if (state.mode === "SETTINGS" && state.settings !== null) {
-    const handled = await settingsOverlayAction(
-      resolved,
-      state,
-      source,
-      context
-    );
-    await synchronizeSettingsModelDiscovery(state, source, context);
-    return handled;
-  }
   if (state.mode === "CHAPTERS" && state.chapters !== null) {
     await chaptersAction(resolved, state, source, context);
     return true;

@@ -99,7 +99,8 @@ export async function composerChangedThroughSurface(
     backend: new ActionRuntime(state, () => undefined),
     renderer: null,
     applyTheme: () => undefined,
-    previewTheme: () => undefined
+    previewTheme: () => undefined,
+    restartUpdateCheck: () => undefined
   };
 
   if (surface === "COMPOSE") {
