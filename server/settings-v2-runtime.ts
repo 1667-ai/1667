@@ -9,7 +9,10 @@ import type { GenerationSettings } from "../shared/types.js";
 import { checkModelServer } from "./server-check.js";
 import { ownedLoopbackHttpSupported } from "./provider-fetch.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
-import { effectiveGenerationSettings } from "./settings-v2-conversion.js";
+import {
+  effectiveGenerationRuntime,
+  effectiveGenerationSettings
+} from "./settings-v2-conversion.js";
 import { classifyHttpHost, SettingsFormatError } from "./settings-v2-scalars.js";
 import { selectSettingsRoute } from "../shared/settings-route.js";
 import { continuationPromptLayoutForOptimization } from "../shared/continuation-prompt-optimization.js";
@@ -21,8 +24,7 @@ import {
 } from "./settings-v2-mutation.js";
 
 export function settingsViewFromState(
-  state: SettingsStateV2,
-  subscription?: SubscriptionRuntimeDependencies
+  state: SettingsStateV2
 ): Extract<SettingsView, { dataFormat: 2 }> {
   // A committed activation is past its point of no return: the candidate is
   // the document generation already uses, so the view reports it as plainly
@@ -35,7 +37,6 @@ export function settingsViewFromState(
     ? activeSettingsDocument(state)
     : pendingSettingsDocument(state);
   const active = activeSettingsDocument(state);
-  const runtimeOptions = subscription === undefined ? {} : { subscription };
   return {
     dataFormat: 2,
     editable: true,
@@ -43,8 +44,8 @@ export function settingsViewFromState(
     activeRevision: effectiveActiveSettingsRevision(state),
     pendingRevision,
     document: shown,
-    effective: effectiveGenerationSettings(active, "default", {}, runtimeOptions),
-    effectiveProse: effectiveGenerationSettings(active, "prose", {}, runtimeOptions),
+    effective: effectiveGenerationSettings(active),
+    effectiveProse: effectiveGenerationSettings(active, "prose"),
     // Read from `active`, never `shown`: `effectiveProse` above already
     // resolves against the active (never pending) document, and this must
     // describe the same route, not whichever document a mid-activation
@@ -102,12 +103,11 @@ export function credentialReferencesResolve(
 
 export function assertRuntimeDocumentSupported(
   document: SettingsDocumentV2,
-  subscription?: SubscriptionRuntimeDependencies
+  subscription: SubscriptionRuntimeDependencies
 ): void {
   try {
-    const runtimeOptions = subscription === undefined ? {} : { subscription };
     for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {
-      effectiveGenerationSettings(document, purpose, {}, runtimeOptions);
+      effectiveGenerationRuntime(document, purpose, {}, undefined, { subscription });
     }
   } catch (error) {
     throw invalidSettingsMutation(error);

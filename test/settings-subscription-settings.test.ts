@@ -56,7 +56,7 @@ test("subscription presets keep their fixed connection shape and runtime route",
       JSON.parse(JSON.stringify(settingsViewFromState({
         ...INITIAL_SETTINGS_STATE_V2,
         documents: { "1": document }
-      }, subscription))),
+      }))),
       parseSettingsDocumentV2
     );
     assert.equal(decoded.effectiveProse.protocol, protocol);

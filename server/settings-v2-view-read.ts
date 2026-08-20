@@ -1,3 +1,4 @@
+import type { CredentialStore } from "@earendil-works/pi-ai";
 import type { SettingsView } from "../shared/settings-v2-types.js";
 import { hashSettingsStateV2 } from "./settings-v2-codec.js";
 import { INITIAL_SETTINGS_STATE_V2_HASH } from "./settings-v2-initial-vectors.js";
@@ -6,26 +7,20 @@ import {
   settingsStateSlotReadOnlyView,
   type SettingsStateSlot
 } from "./settings-state-slot.js";
-import {
-  readSubscriptionAuthState,
-  type SubscriptionRuntimeDependencies
-} from "./subscription-runtime.js";
+import { readSubscriptionAuthState } from "./subscription-runtime.js";
 import { settingsViewFromState } from "./settings-v2-runtime.js";
 
 /** Read the settings view and its machine-tier subscription presentation. */
 export async function readSettingsView(
   dataDir: string,
-  subscription: SubscriptionRuntimeDependencies
+  credentials: Pick<CredentialStore, "read">
 ): Promise<SettingsView> {
   const slot = await readSettingsStateSlot(dataDir);
-  const view = settingsViewFromState(
-    settingsStateSlotReadOnlyView(slot),
-    subscription
-  );
+  const view = settingsViewFromState(settingsStateSlotReadOnlyView(slot));
   return {
     ...view,
     subscriptionAutoSelectEligible: exactInitialStateOwnedByThisRelease(slot),
-    subscriptionAuth: await readSubscriptionAuthState(subscription.credentials)
+    subscriptionAuth: await readSubscriptionAuthState(credentials)
   };
 }
 

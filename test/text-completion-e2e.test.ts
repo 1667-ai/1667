@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import test from "node:test";
-import { effectiveGenerationSettings } from "../server/settings-v2-conversion.js";
+import { effectiveGenerationRuntime } from "../server/settings-v2-conversion.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import {
   streamCompletion,
@@ -70,9 +70,9 @@ test("OpenAI-compatible text completions stream ChatML without changing the fina
     ].join("\n"));
   });
   const origin = await listen(t, server);
-  const settings = effectiveGenerationSettings(
+  const settings = effectiveGenerationRuntime(
     textDocument(origin, "custom", "chatml")
-  );
+  ).settings;
   const outcome: StreamOutcome = {
     finishReason: null,
     providerTerminal: false
@@ -118,9 +118,9 @@ test("llama.cpp text completions derive the prompt from the server template", as
     ].join("\n"));
   });
   const origin = await listen(t, server);
-  const settings = effectiveGenerationSettings(
+  const settings = effectiveGenerationRuntime(
     textDocument(origin, "llama-cpp", "server-template")
-  );
+  ).settings;
   const outcome: StreamOutcome = {
     finishReason: null,
     providerTerminal: false
@@ -173,7 +173,7 @@ test("KoboldCpp text completions use its native stream and sampler names", async
       stop: ["END"]
     }
   );
-  const settings = effectiveGenerationSettings(document);
+  const settings = effectiveGenerationRuntime(document).settings;
   const outcome: StreamOutcome = {
     finishReason: null,
     providerTerminal: false
@@ -231,9 +231,9 @@ test("KoboldCpp text rejects a provider error after partial output", async (t) =
     ].join("\n"));
   });
   const origin = await listen(t, server);
-  const settings = effectiveGenerationSettings(
+  const settings = effectiveGenerationRuntime(
     textDocument(origin, "koboldcpp", "raw")
-  );
+  ).settings;
   const received: string[] = [];
 
   await assert.rejects(async () => {
@@ -263,9 +263,9 @@ test("a short delta the redactor still holds when the stream fails still hands o
       ""
     ].join("\n"), { headers: { "content-type": "text/event-stream" } })) as typeof fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
-  const settings = effectiveGenerationSettings(
+  const settings = effectiveGenerationRuntime(
     textDocument("https://models.example", "koboldcpp", "raw", secretEnv)
-  );
+  ).settings;
   const collector: GenerationRecordCollector = { effective: null };
   const received: string[] = [];
 
@@ -299,9 +299,9 @@ test("OpenAI-compatible text rejects content filtering after partial output", as
     ].join("\n"));
   });
   const origin = await listen(t, server);
-  const settings = effectiveGenerationSettings(
+  const settings = effectiveGenerationRuntime(
     textDocument(origin, "custom", "raw")
-  );
+  ).settings;
   const received: string[] = [];
 
   await assert.rejects(async () => {
@@ -328,9 +328,9 @@ test("OpenAI-compatible text rejects DONE without a successful finish reason", a
     ].join("\n"));
   });
   const origin = await listen(t, server);
-  const settings = effectiveGenerationSettings(
+  const settings = effectiveGenerationRuntime(
     textDocument(origin, "custom", "raw")
-  );
+  ).settings;
   const received: string[] = [];
 
   await assert.rejects(async () => {

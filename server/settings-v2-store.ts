@@ -171,7 +171,7 @@ export class SettingsV2Store {
     // document supports a route, exactly like the writable path below.
     if (slot.kind === "v3") {
       assertRuntimeDocumentSupported(activeSettingsDocument(slot.readOnlyView), this.subscription);
-      settingsViewFromState(slot.readOnlyView, this.subscription);
+      settingsViewFromState(slot.readOnlyView);
       return;
     }
     // Every authority that reaches here is schema 2: the branch above
@@ -186,11 +186,11 @@ export class SettingsV2Store {
       await pruneProviderSecrets(this.secretsDir, providerSecretIdsToKeep(state));
     }
     assertRuntimeDocumentSupported(activeSettingsDocument(state), this.subscription);
-    settingsViewFromState(state, this.subscription);
+    settingsViewFromState(state);
   }
 
   loadView(): Promise<SettingsView> {
-    return readSettingsView(this.dataDir, this.subscription);
+    return readSettingsView(this.dataDir, this.subscription.credentials);
   }
 
   /** The route's runtime settings AND its stored image-input override,

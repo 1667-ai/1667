@@ -90,21 +90,13 @@ export function convertGenerationSettingsV1(value: GenerationSettings): Settings
   });
 }
 
-/** Project the selected v2 route into the unchanged provider runtime contract.
- * Unsupported v2-only semantics fail explicitly rather than being dropped. */
+/** Project one route into the serializable Generation Settings view. */
 export function effectiveGenerationSettings(
   value: SettingsDocumentV2,
   purpose: SettingsRoutePurpose = "default",
-  metadata: EffectiveMetadataV2 = {},
-  options: EffectiveGenerationRuntimeOptions = {}
+  metadata: EffectiveMetadataV2 = {}
 ): GenerationSettings {
-  return effectiveGenerationRuntime(
-    value,
-    purpose,
-    metadata,
-    undefined,
-    options
-  ).settings;
+  return projectEffectiveGeneration(value, purpose, metadata).settings;
 }
 
 /** Project settings and cache policy from one parsed route snapshot. Callers
@@ -118,6 +110,41 @@ export function effectiveGenerationRuntime(
   options: EffectiveGenerationRuntimeOptions = {},
   storedSecrets?: ReadonlyMap<string, string>
 ): EffectiveGenerationRuntime {
+  const projection = projectEffectiveGeneration(
+    value,
+    purpose,
+    metadata,
+    options.allowBlankModel === true
+  );
+  const { profile, model, connection } = projection.route;
+  const providerRuntime = providerRuntimeFromV2(
+    connection,
+    profile.effort,
+    model.capabilities,
+    {
+      environment,
+      storedSecrets,
+      sampling: profile.sampling ?? EMPTY_SAMPLING_V2,
+      tokenProbabilities: profile.tokenProbabilities ?? null,
+      reasoning: profile.reasoning ?? "marker",
+      keepReasoning: profile.discardReasoning !== true,
+      continuationPromptOptimization: profile.continuationPromptOptimization,
+      subscription: options.subscription
+    }
+  );
+  return {
+    promptCache: projection.promptCache,
+    providerRuntime,
+    settings: attachProviderRuntime(projection.settings, providerRuntime)
+  };
+}
+
+function projectEffectiveGeneration(
+  value: SettingsDocumentV2,
+  purpose: SettingsRoutePurpose,
+  metadata: EffectiveMetadataV2,
+  allowBlankModel = false
+) {
   const document = parseSettingsDocumentV2(value);
   const route = selectSettingsRoute(document, purpose);
   const { profile, model, connection } = route;
@@ -134,40 +161,25 @@ export function effectiveGenerationRuntime(
   const remoteId = effectiveRemoteId(
     provider,
     model.remoteId,
-    options.allowBlankModel === true
+    allowBlankModel
   );
   const contextWindow = resolveModelScalar(model, metadata, "contextWindow");
-  const providerRuntime = providerRuntimeFromV2(
-    connection,
-    profile.effort,
-    model.capabilities,
-    {
-      environment,
-      storedSecrets,
-      sampling: profile.sampling ?? EMPTY_SAMPLING_V2,
-      tokenProbabilities: profile.tokenProbabilities ?? null,
-      reasoning: profile.reasoning ?? "marker",
-      keepReasoning: profile.discardReasoning !== true,
-      continuationPromptOptimization: profile.continuationPromptOptimization,
-      subscription: options.subscription
-    }
-  );
-  const settings = attachProviderRuntime({
-      provider,
-      baseUrl: connection.baseUrl ?? "",
-      model: remoteId,
-      apiKeyEnv: effectiveApiKeyEnv(connection),
-      ...(isSubscriptionProtocolV2(connection.protocol)
-        ? { protocol: connection.protocol }
-        : {}),
-      temperature: profile.temperature,
-      maxTokens: clampMaxOutputTokensToModel(profile.maxOutputTokens, model, metadata),
-      systemPrompt: document.writing.defaultAuthorBrief,
-      contextWindow: contextWindow ?? null
-    }, providerRuntime);
+  const settings: GenerationSettings = {
+    provider,
+    baseUrl: connection.baseUrl ?? "",
+    model: remoteId,
+    apiKeyEnv: effectiveApiKeyEnv(connection),
+    ...(isSubscriptionProtocolV2(connection.protocol)
+      ? { protocol: connection.protocol }
+      : {}),
+    temperature: profile.temperature,
+    maxTokens: clampMaxOutputTokensToModel(profile.maxOutputTokens, model, metadata),
+    systemPrompt: document.writing.defaultAuthorBrief,
+    contextWindow: contextWindow ?? null
+  };
   return {
+    route,
     promptCache,
-    providerRuntime,
     settings
   };
 }
