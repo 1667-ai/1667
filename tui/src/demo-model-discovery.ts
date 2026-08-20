@@ -1,5 +1,10 @@
-import type { Models } from "@earendil-works/pi-ai";
+import { ANTHROPIC_MODELS as PI_ANTHROPIC_MODELS } from "@earendil-works/pi-ai/providers/anthropic.models";
+import { OPENAI_CODEX_MODELS as PI_OPENAI_CODEX_MODELS } from "@earendil-works/pi-ai/providers/openai-codex.models";
 import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
+import {
+  discoverBundledModels,
+  type BundledCatalogModel
+} from "../../shared/model-discovery-catalog.js";
 import {
   isSubscriptionProtocolV2,
   type DiscoveredModelV2,
@@ -8,10 +13,16 @@ import {
   type ProviderProbeTarget
 } from "../../shared/settings-v2-types.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
-import { discoverSubscriptionCatalog } from "../../server/model-discovery.js";
-import { createSubscriptionCatalog } from "../../server/subscription-models.js";
 
-const SUBSCRIPTION_MODELS = createSubscriptionCatalog();
+export interface DemoSubscriptionCatalogs {
+  readonly chatgpt: readonly BundledCatalogModel[];
+  readonly claude: readonly BundledCatalogModel[];
+}
+
+const SUBSCRIPTION_CATALOGS: DemoSubscriptionCatalogs = {
+  chatgpt: Object.values(PI_OPENAI_CODEX_MODELS),
+  claude: Object.values(PI_ANTHROPIC_MODELS)
+};
 
 const OPENAI_MODELS = [
   {
@@ -46,19 +57,24 @@ const ANTHROPIC_MODELS = [
 /** Return API fixtures or the bundled plan catalog for the demo API. */
 export function discoverDemoModels(
   target: ProviderProbeTarget,
-  subscriptionModels: Pick<Models, "getModels"> = SUBSCRIPTION_MODELS
+  subscriptionCatalogs: DemoSubscriptionCatalogs = SUBSCRIPTION_CATALOGS
 ): ModelDiscoveryResultV2 {
-  const route = "kind" in target
-    ? selectSettingsRoute(target.document, target.purpose)
-    : null;
-  const settings = route === null
-    ? target
-    : basicSettingsFromDocument(target.document, route.profileId);
-  const protocol = route?.connection.protocol ?? settings.protocol ?? null;
+  let settings;
+  let protocol;
+  if ("kind" in target) {
+    const route = selectSettingsRoute(target.document, target.purpose);
+    settings = basicSettingsFromDocument(target.document, route.profileId);
+    protocol = route.connection.protocol;
+  } else {
+    settings = target;
+    protocol = target.protocol ?? null;
+  }
   if (protocol !== null && isSubscriptionProtocolV2(protocol)) {
     return {
       observedAt: "2026-01-01T00:00:00.000Z",
-      models: discoverSubscriptionCatalog(subscriptionModels, protocol)
+      models: discoverBundledModels(protocol === "openai-codex-responses"
+        ? subscriptionCatalogs.chatgpt
+        : subscriptionCatalogs.claude)
     };
   }
   const anthropic = settings.provider === "anthropic";
