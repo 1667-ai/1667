@@ -37,6 +37,7 @@ export function convertSettingsDocumentV2ToV3(document: SettingsDocumentV2): Set
     models,
     profiles: document.profiles,
     routing: document.routing,
-    writing: document.writing
+    writing: document.writing,
+    ...(document.settingsViewMode === undefined ? {} : { settingsViewMode: document.settingsViewMode })
   });
 }

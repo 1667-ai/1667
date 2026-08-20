@@ -31,6 +31,7 @@ import {
   SETTINGS_ACTIVATION_STATE_V2_VALUES,
   SETTINGS_PRESET_V2_VALUES,
   SETTINGS_PROTOCOL_V2_VALUES,
+  SETTINGS_VIEW_MODE_V2_VALUES,
   TEXT_PROMPT_FORMAT_V2_VALUES,
   SAMPLING_SCALAR_KNOB_V2_VALUES,
   type SamplingScalarKnobV2
@@ -243,16 +244,18 @@ export function settingsV2Schema(): Schema {
       models: ref("Models"),
       profiles: ref("Profiles"),
       routing: ref("Routing"),
-      writing: ref("Writing")
-    }),
+      writing: ref("Writing"),
+      settingsViewMode: { enum: SETTINGS_VIEW_MODE_V2_VALUES }
+    }, ["schemaVersion", "connections", "models", "profiles", "routing", "writing"]),
     DocumentV3: closed({
       schemaVersion: { const: 3 },
       connections: ref("Connections"),
       models: ref("ModelsV3"),
       profiles: ref("Profiles"),
       routing: ref("Routing"),
-      writing: ref("Writing")
-    }),
+      writing: ref("Writing"),
+      settingsViewMode: { enum: SETTINGS_VIEW_MODE_V2_VALUES }
+    }, ["schemaVersion", "connections", "models", "profiles", "routing", "writing"]),
     UserTransactionPointer: closed({
       receiptKind: { const: "user" },
       mutationId: ref("MutationId"),

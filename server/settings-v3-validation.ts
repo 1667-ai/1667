@@ -1,5 +1,6 @@
 import {
   FEATURE_SUPPORT_V2_VALUES,
+  SETTINGS_VIEW_MODE_V2_VALUES,
   type ModelCapabilitiesV3,
   type ModelDefinitionV3,
   type SettingsDocumentV3
@@ -35,7 +36,10 @@ export type { SettingsValidationOptions };
  * models and capabilities, where `imageInput` is required. This release
  * reads and validates schema 3; nothing here writes one. */
 
-const DOCUMENT = closedShape(["schemaVersion", "connections", "models", "profiles", "routing", "writing"]);
+const DOCUMENT = closedShape(
+  ["schemaVersion", "connections", "models", "profiles", "routing", "writing"],
+  ["settingsViewMode"]
+);
 const MODEL = closedShape(["connectionId", "remoteId", "name", "discovered", "overrides", "capabilities"]);
 const CAPABILITIES = closedShape(
   ["temperature", "assistantPrefill", "reasoningEffort", "promptCaching", "imageInput"],
@@ -67,13 +71,17 @@ export function validateSettingsDocumentV3(
       `settings document exceeds the ${MAX_SETTINGS_CREDENTIAL_NAMES}-credential-name limit`
     );
   }
+  const settingsViewMode = root.settingsViewMode === undefined
+    ? undefined
+    : oneOf(root.settingsViewMode, SETTINGS_VIEW_MODE_V2_VALUES, "settings document.settingsViewMode");
   return {
     schemaVersion: 3,
     connections,
     models,
     profiles,
     routing,
-    writing: { defaultAuthorBrief }
+    writing: { defaultAuthorBrief },
+    ...(settingsViewMode === undefined ? {} : { settingsViewMode })
   };
 }
 
