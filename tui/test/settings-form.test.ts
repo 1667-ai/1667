@@ -512,7 +512,10 @@ describe("the settings row model stays one list", () => {
 
     expect(discoveryCalls).toBe(1);
     expect(settingsModelChoices(overlay).map((model) => model.remoteId))
-      .toEqual(["gpt-5.4", "gpt-5-mini"]);
+      .toContain("gpt-5.4");
+    expect(settingsModelChoices(overlay).every((model) =>
+      model.remoteId.startsWith("gpt-") && model.source === "pi-catalog"
+    )).toBeTrue();
     expect(probeCalls).toBe(0);
     expect(overlay.result?.message).toContain("ChatGPT plan is signed in.");
     expect(overlay.result?.message).not.toContain("auth login");
@@ -551,9 +554,10 @@ describe("the settings row model stays one list", () => {
     await discoverSettingsModels(state, source, context, overlay);
 
     expect(settingsModelChoices(overlay).map((model) => model.remoteId))
-      .toEqual(["claude-sonnet-4-6", "claude-haiku-4-5"]);
-    expect(settingsModelChoices(overlay).every((model) => model.source === "pi-catalog"))
-      .toBeTrue();
+      .toContain("claude-sonnet-4-6");
+    expect(settingsModelChoices(overlay).every((model) =>
+      model.remoteId.startsWith("claude-") && model.source === "pi-catalog"
+    )).toBeTrue();
   });
 
   test("subscription plans hide probe keys and ignore direct probe shortcuts", async () => {

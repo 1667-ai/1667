@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
+import type { Api, Model, Models } from "@earendil-works/pi-ai";
 import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
 import { demoAppSource, DEMO_SETTINGS_DOCUMENT } from "../src/demo.js";
+import { discoverDemoModels } from "../src/demo-model-discovery.js";
 
 test("demo discovery resolves one non-default route for provider and source", async () => {
   const document: SettingsDocumentV2 = {
@@ -59,27 +61,32 @@ test("demo discovery resolves one non-default route for provider and source", as
   });
 
   expect(discovery.models.map((model) => model.remoteId))
-    .toEqual(["claude-sonnet-4-6", "claude-haiku-4-5"]);
+    .toContain("claude-sonnet-4-6");
   expect(discovery.models.every((model) => model.source === "pi-catalog"))
     .toBeTrue();
 });
 
 test("demo discovery keeps plan protocols on direct probe targets", async () => {
+  const subscriptionModels: Pick<Models, "getModels"> = {
+    getModels: (provider) => provider === "openai-codex"
+      ? [piModel("openai-codex", "gpt-fixture")]
+      : [piModel("anthropic", "claude-fixture")]
+  };
   const cases = [
     {
       provider: "openai-compatible" as const,
       protocol: "openai-codex-responses" as const,
-      expectedModels: ["gpt-5.4", "gpt-5-mini"]
+      expectedModels: ["gpt-fixture"]
     },
     {
       provider: "anthropic" as const,
       protocol: "anthropic-subscription-messages" as const,
-      expectedModels: ["claude-sonnet-4-6", "claude-haiku-4-5"]
+      expectedModels: ["claude-fixture"]
     }
   ];
 
   for (const fixture of cases) {
-    const discovery = await demoAppSource().api.discoverModels({
+    const discovery = discoverDemoModels({
       provider: fixture.provider,
       protocol: fixture.protocol,
       baseUrl: "",
@@ -89,7 +96,7 @@ test("demo discovery keeps plan protocols on direct probe targets", async () => 
       maxTokens: 2_048,
       systemPrompt: "Write plain prose.",
       contextWindow: null
-    });
+    }, subscriptionModels);
 
     expect(discovery.models.map((model) => model.remoteId))
       .toEqual(fixture.expectedModels);
@@ -97,3 +104,18 @@ test("demo discovery keeps plan protocols on direct probe targets", async () => 
       .toBeTrue();
   }
 });
+
+function piModel(provider: string, id: string): Model<Api> {
+  return {
+    id,
+    name: id,
+    api: provider === "anthropic" ? "anthropic-messages" : "openai-codex-responses",
+    provider,
+    baseUrl: "https://unused.invalid",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 32_768,
+    maxTokens: 4_096
+  };
+}

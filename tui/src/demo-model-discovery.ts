@@ -1,3 +1,4 @@
+import type { Models } from "@earendil-works/pi-ai";
 import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
 import {
   isSubscriptionProtocolV2,
@@ -7,6 +8,10 @@ import {
   type ProviderProbeTarget
 } from "../../shared/settings-v2-types.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
+import { discoverSubscriptionCatalog } from "../../server/model-discovery.js";
+import { createSubscriptionCatalog } from "../../server/subscription-models.js";
+
+const SUBSCRIPTION_MODELS = createSubscriptionCatalog();
 
 const OPENAI_MODELS = [
   {
@@ -38,9 +43,10 @@ const ANTHROPIC_MODELS = [
   }
 ] satisfies readonly Omit<DiscoveredModelV2, "source">[];
 
-/** Return deterministic provider-specific model fixtures for the demo API. */
+/** Return API fixtures or the bundled plan catalog for the demo API. */
 export function discoverDemoModels(
-  target: ProviderProbeTarget
+  target: ProviderProbeTarget,
+  subscriptionModels: Pick<Models, "getModels"> = SUBSCRIPTION_MODELS
 ): ModelDiscoveryResultV2 {
   const route = "kind" in target
     ? selectSettingsRoute(target.document, target.purpose)
@@ -49,13 +55,16 @@ export function discoverDemoModels(
     ? target
     : basicSettingsFromDocument(target.document, route.profileId);
   const protocol = route?.connection.protocol ?? settings.protocol ?? null;
-  const subscription = protocol !== null && isSubscriptionProtocolV2(protocol);
+  if (protocol !== null && isSubscriptionProtocolV2(protocol)) {
+    return {
+      observedAt: "2026-01-01T00:00:00.000Z",
+      models: discoverSubscriptionCatalog(subscriptionModels, protocol)
+    };
+  }
   const anthropic = settings.provider === "anthropic";
-  const source: ModelDiscoverySourceV2 = subscription
-    ? "pi-catalog"
-    : anthropic
-      ? "anthropic-models"
-      : "openai-models";
+  const source: ModelDiscoverySourceV2 = anthropic
+    ? "anthropic-models"
+    : "openai-models";
   const catalog = anthropic ? ANTHROPIC_MODELS : OPENAI_MODELS;
   return {
     observedAt: "2026-01-01T00:00:00.000Z",

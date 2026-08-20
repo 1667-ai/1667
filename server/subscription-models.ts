@@ -22,3 +22,13 @@ export function createSubscriptionModels(
   models.setProvider(anthropicProvider());
   return models;
 }
+
+/** Build the same fixed coordinator for catalog-only demo reads. */
+export function createSubscriptionCatalog(): Models {
+  return createSubscriptionModels({
+    read: async () => undefined,
+    list: async () => [],
+    modify: async (_providerId, update) => await update(undefined),
+    delete: async () => {}
+  });
+}

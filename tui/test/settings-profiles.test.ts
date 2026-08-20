@@ -319,7 +319,7 @@ describe("Generation Profile settings", () => {
         await press(key("right"));
       }
       expect(overlay.draft.document!.profiles[profileId]!.effort).toBe("low");
-      await draftRow(press, state, "model", `${plan.model}-edited`);
+      await editSubscriptionModel(press, state, `${plan.model}-edited`);
 
       const route = resolveSettingsProfile(overlay.draft.document!, profileId);
       expect(route.model.capabilities.reasoningEffort).toBe("supported");
@@ -986,3 +986,23 @@ describe("Generation Profile settings", () => {
   });
 
 });
+
+async function editSubscriptionModel(
+  press: ReturnType<typeof settingsHarness>["press"],
+  state: ReturnType<typeof settingsHarness>["state"],
+  value: string
+): Promise<void> {
+  await selectRow(press, state, "model");
+  await press(key("return"));
+  const overlay = state.settings!;
+  if (overlay.modelPicker !== null) {
+    for (const character of value) {
+      await press(key(character, { sequence: character }));
+    }
+    await press(key("return"));
+    return;
+  }
+  if (overlay.edit?.kind !== "inline") throw new Error("model row did not open");
+  setComposerText(overlay.edit.composer, value);
+  await press(key("return"));
+}
