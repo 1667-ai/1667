@@ -79,6 +79,49 @@ test("one signed-in plan becomes an unsaved provider draft", async () => {
   }
 });
 
+// Regression test for the settings-view-mode dual-write: toggling `m` used
+// to patch `overlay.draft.document` too, which `settingsDraftChanged`
+// (a `JSON.stringify` comparison) reads as a real edit. A later refresh —
+// signing into a plan is exactly that, a fresh `SettingsView` arriving
+// after the overlay is already open — then saw `settingsDraftChanged(overlay)`
+// true and `autoSelectSettingsSubscriptionPlan` refused to apply, so signing
+// in silently stopped auto-selecting the plan. `m` now only ever changes
+// `overlay.viewMode`, a config-backed session preference, never the draft.
+test("toggling the view mode does not dirty the draft or block a later plan auto-select", async () => {
+  const { source, state, press } = harness(undefined, { settingsViewMode: "simple" });
+  source.settingsView = initialSettingsView({
+    chatgpt: "signed-out",
+    claude: "signed-out"
+  });
+  const entered = deferred<void>();
+  const gate = deferred<SettingsView>();
+  source.api.getSettings = async () => {
+    entered.resolve();
+    return gate.promise;
+  };
+
+  const opening = openSettings(press);
+  await entered.promise;
+  expect(state.settings!.viewMode).toBe("simple");
+  await press(key("m"));
+  expect(state.settings!.viewMode).toBe("advanced");
+  expect(settingsDraftChanged(state.settings!)).toBeFalse();
+
+  // The still-pending initial fetch resolves as a signed-in plan would look
+  // to a background refresh landing after the overlay opened.
+  gate.resolve(initialSettingsView({
+    chatgpt: "signed-in",
+    claude: "signed-out"
+  }));
+  await opening;
+
+  expect(settingsSubscriptionPreset(state.settings!)).toBe("chatgpt-plan");
+  expect(settingsDraftChanged(state.settings!)).toBeTrue();
+  const providerHint = settingsRows(state.settings!, state.config)
+    .find((row) => row.id === "provider")?.hint;
+  expect(providerHint).toBe("ChatGPT plan is signed in. ChatGPT output length is best effort.");
+});
+
 test("both or neither signed-in plans leave the default provider untouched", async () => {
   for (const auth of [
     { chatgpt: "signed-in", claude: "signed-in" },

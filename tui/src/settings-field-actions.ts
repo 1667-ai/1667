@@ -96,6 +96,9 @@ export function settingsModelPickerAction(
     contextWindow: chosen?.contextWindow ?? null
   }, undefined, chosen === undefined ? { kind: "typed" } : { kind: "manual" });
   state.toast = `model · ${model} · s saves settings`;
+  // The auto-detect probe fires from settingsOverlayAction's one seam for
+  // every path that can change the model, this one included — not from
+  // here.
 }
 
 export async function settingsInlineEditAction(
@@ -147,6 +150,9 @@ export async function settingsInlineEditAction(
     if (settingsDraftChanged(overlay)) {
       state.toast = "draft updated · s saves settings";
     }
+    // The auto-detect probe fires from settingsOverlayAction's one seam for
+    // every path that can change the model, this one included — not from
+    // here.
     return;
   }
   if (resolved.action === "input") {

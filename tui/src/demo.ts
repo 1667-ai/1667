@@ -883,6 +883,7 @@ export function demoAppSource(dense = false): AppSource {
     // that path sends its keys and captures the frame at once, so a scan that
     // had not started yet would be captured for ever as `searching…`.
     searchDebounceMs: 0,
+    contextProbeDebounceMs: 0,
     config: normalizeUserConfig({ updates: { mode: "notify" } }),
     readingPositions: {}
   };

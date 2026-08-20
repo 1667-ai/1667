@@ -11,6 +11,7 @@ import {
   settingsPlanRowDisabled,
   settingsSubscriptionRowVisible
 } from "./settings-subscription.js";
+import { settingsSimpleModeRowVisible } from "./settings-view-mode.js";
 import type { SettingsOverlayState, SettingsRowId } from "./state.js";
 
 /** The form's keyboard order. The prompt-layout experiment stays beside the
@@ -47,11 +48,17 @@ export const SETTINGS_ROW_IDS = [
 
 /** URL, plain-HTTP, and API-key controls do not apply to fixed subscription
  * connections. The provider row remains in the list so the writer can leave
- * the plan preset without a hidden cursor jump. */
+ * the plan preset without a hidden cursor jump. `simple` mode narrows the
+ * subscription-filtered list further, so a fixed subscription connection
+ * stays hidden in both modes instead of the two visibility rules drifting
+ * apart. */
 export function settingsRowIds(
   overlay: SettingsOverlayState
 ): readonly SettingsRowId[] {
-  return SETTINGS_ROW_IDS.filter((row) => settingsSubscriptionRowVisible(overlay, row));
+  const visible = SETTINGS_ROW_IDS.filter((row) => settingsSubscriptionRowVisible(overlay, row));
+  return overlay.viewMode === "advanced"
+    ? visible
+    : visible.filter(settingsSimpleModeRowVisible);
 }
 
 /** Name the selected row before a profile or provider change can reshape the
@@ -82,19 +89,16 @@ export function restoreSettingsCursor(
  * a row, so a semantic shortcut naming it simply leaves the cursor alone. */
 export function settingsRowIndex(
   row: SettingsRowId,
-  overlay?: SettingsOverlayState
+  overlay: SettingsOverlayState
 ): number {
-  return (overlay === undefined ? SETTINGS_ROW_IDS : settingsRowIds(overlay)).indexOf(row);
+  return settingsRowIds(overlay).indexOf(row);
 }
 
 export function boundedSettingsCursor(
   value: number,
-  overlay?: SettingsOverlayState
+  overlay: SettingsOverlayState
 ): number {
-  return Math.max(
-    0,
-    Math.min((overlay === undefined ? SETTINGS_ROW_IDS : settingsRowIds(overlay)).length - 1, value)
-  );
+  return Math.max(0, Math.min(settingsRowIds(overlay).length - 1, value));
 }
 
 /** Rows whose value is a closed choice: `←→` cycles them in place and their

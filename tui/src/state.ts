@@ -13,7 +13,7 @@ import type { ConnectionState } from "./connection.js";
 import type { FilePathPrompt } from "./path-completion.js";
 import type { NoticeLog } from "./notice-log.js";
 import type { HitRows } from "./hit.js";
-import type { UserConfig } from "./config.js";
+import type { SettingsViewMode, UserConfig } from "./config.js";
 import type { ReadingPositions } from "./reading-position.js";
 import type { AppMode, ResolvedKey } from "./keys.js";
 import type { UndoEntry } from "./model.js";
@@ -321,6 +321,13 @@ export interface SettingsOverlayState {
   /** Write-only key material; never projected into GenerationSettings/document. */
   connectionSecrets: Record<string, string | null>;
   cursor: number;
+  /** Which rows the field list shows. Session state, seeded at open time
+   *  from `UserConfig.settingsViewMode`; the `m` action flips it for the
+   *  rest of the session and persists the choice back to the config
+   *  (settings-view-mode.ts), the same local-preference path compose focus
+   *  and word wrap use. Independent of the settings draft: which rows show
+   *  is a view concern, not something the save pipeline round-trips. */
+  viewMode: SettingsViewMode;
   /** Settings-menu row editor. Full-screen prompts use `RuntimeState.editor`. */
   edit: SettingsInlineEditState | null;
   /** Nested three-layer sampling editor. */
@@ -331,6 +338,14 @@ export interface SettingsOverlayState {
   saveIntent?: SettingsOverlaySaveIntent;
   checking: boolean;
   probing: boolean;
+  /** Armed by a draft transition that just landed a model with no known
+   *  context window (settings-model-selection.ts's `applySettingsModelChoice`,
+   *  settings-overlay-model.ts's `cycleSettingsProvider`), drained by
+   *  `detectSettingsContextForModelChange` (settings-context-detection.ts)
+   *  wherever a model choice can land — the settings dispatch seam and
+   *  discovery's own auto-select alike — so an automatic probe fires
+   *  exactly once per model change regardless of which path landed it. */
+  contextProbeArmed: boolean;
   discoveringModels: boolean;
   modelDiscovery: ModelDiscoveryResultV2 | null;
   modelDiscoveryIdentity: string | null;

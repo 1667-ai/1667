@@ -29,6 +29,10 @@ function harness(
   onRepaint: (state: ReturnType<typeof initialState>) => void = () => undefined
 ) {
   const state = initialState(source, false);
+  // These fixtures predate the simple/advanced split and expect every row
+  // reachable (SETTINGS_ROW_IDS indexes the full, advanced row list).
+  state.config = { ...state.config, settingsViewMode: "advanced" };
+  source.config = state.config;
   const cache = createWrapCache<ProseStyle>();
   const repaint = () => onRepaint(state);
   const backend = new ActionRuntime(state, repaint);

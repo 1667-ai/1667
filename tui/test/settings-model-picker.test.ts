@@ -38,7 +38,7 @@ describe("Settings model picker", () => {
   });
 
   test("reads provider models, cycles them, and accepts a custom name", async () => {
-    const { source, state, cache, press } = settingsHarness();
+    const { source, state, cache, press, backend } = settingsHarness();
     if (!source.settingsView.editable) throw new Error("demo settings must be editable");
     const document = applyBasicSettingsDraft(source.settingsView.document, {
       ...source.settings,
@@ -125,9 +125,13 @@ describe("Settings model picker", () => {
     expect(state.settings?.edit?.row).toBe("model");
     setComposerText(state.settings!.edit!.composer, "private-preview-model");
     await press(key("return"));
+    // The commit clears the stale value synchronously, then a background
+    // probe (unmocked here, so it uses the demo's default reading) lands
+    // automatically.
+    await backend.whenIdle();
     expect(state.settings?.draft.generation).toMatchObject({
       model: "private-preview-model",
-      contextWindow: null
+      contextWindow: 32_768
     });
     rendered = frameText(renderStoryScreen(
       state,

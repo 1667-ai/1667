@@ -7,6 +7,7 @@ import type {
 import type { GenerationSettings } from "../../shared/types.js";
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
+import { detectSettingsContextForModelChange } from "./settings-context-detection.js";
 import {
   settingsAutomaticModelSelection,
   settingsContextWindowIsManual,
@@ -23,6 +24,14 @@ import type { RuntimeState, SettingsOverlayState } from "./state.js";
 import { settingsSubscriptionPreset } from "./settings-subscription.js";
 
 const synchronizedOverlays = new WeakMap<RuntimeState, SettingsOverlayState>();
+
+/** The lane key `context.backend.runWhenIdle` (action-runtime.ts) collapses
+ *  stalled model-discovery retries onto. Only one settings overlay is ever
+ *  synchronized at a time (`synchronizedOverlays` above) and `ownsCurrentRequest`
+ *  already gates every attempt against the live overlay, so a fixed key is
+ *  correct: a newer identity change should replace a still-waiting retry for
+ *  an older one outright, not queue a second attempt behind it. */
+const MODEL_DISCOVERY_RETRY_LANE = "settings-model-discovery-retry";
 
 export function settingsModelDiscoveryIdentity(
   settings: GenerationSettings
@@ -148,13 +157,17 @@ export async function discoverSettingsModels(
     request
   );
   if (!admitted && ownsCurrentRequest(state, overlay, request)) {
-    context.backend.observe(retryModelDiscoveryWhenIdle(
-      state,
-      source,
-      context,
-      overlay,
-      request
-    ));
+    // The runtime was busy for the eager attempt above. `runWhenIdle` waits
+    // for the slot and re-checks busy and disposal on every wake, so this
+    // only has to hand it the same request and the same ownership predicate
+    // `discoverSettingsModels` already used to decide the eager attempt was
+    // still wanted. It re-checks the slot before each attempt rather than
+    // after one, so the request must reach `run` without awaiting first.
+    context.backend.runWhenIdle(
+      MODEL_DISCOVERY_RETRY_LANE,
+      () => runModelDiscoveryRequest(state, source, context, overlay, request).then(() => undefined),
+      () => ownsCurrentRequest(state, overlay, request)
+    );
   }
 }
 
@@ -197,6 +210,14 @@ async function runModelDiscoveryRequest(
         };
         overlay.resultRow = "model";
       }
+      // publishModelDiscovery can auto-select the sole catalog entry or a
+      // remembered automatic choice (applySettingsModelChoice, via
+      // publishModelDiscovery -> applySettingsModelChoice) with no known
+      // context window — a landing this async response delivers well after
+      // any synchronous dispatch has returned, so settings-overlay-
+      // actions.ts's drain point never sees it. Drain here too: same flag,
+      // same no-op when nothing armed it.
+      detectSettingsContextForModelChange(state, source, context, overlay);
     } catch (error) {
       if (!task.owns() || !ownsCurrentRequest(state, overlay, request)) return;
       overlay.result = {
@@ -212,27 +233,6 @@ async function runModelDiscoveryRequest(
       }
     }
   }, { reportBusy: false });
-}
-
-async function retryModelDiscoveryWhenIdle(
-  state: RuntimeState,
-  source: Pick<AppSource, "api">,
-  context: Pick<ActionContext, "backend" | "repaint">,
-  overlay: SettingsOverlayState,
-  request: ModelDiscoveryRequest
-): Promise<void> {
-  while (ownsCurrentRequest(state, overlay, request)) {
-    if (!await context.backend.whenIdle()) return;
-    if (!ownsCurrentRequest(state, overlay, request)) return;
-    const admitted = await runModelDiscoveryRequest(
-      state,
-      source,
-      context,
-      overlay,
-      request
-    );
-    if (admitted) return;
-  }
 }
 
 function canDiscoverModels(

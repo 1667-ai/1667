@@ -272,6 +272,17 @@ fewer operations: only continuation and prompted retake requests.
 1667 does not save an Author Brief that has more than 65,536 Unicode scalar
 values.
 
+## Settings views
+
+Settings has two views: **Simple view** and **Advanced view**. Simple view
+is the default. Simple view shows the system prompt row, the provider row,
+the model row, the context size row, the base URL row, and the API key row.
+Advanced view shows every row. Every row this document names that is not in
+that list appears only in Advanced view.
+
+Press `,` to open Settings. Press `m` to switch between Simple view and
+Advanced view. 1667 remembers your choice for your next session.
+
 ## Provider support
 
 1667 supports these provider protocols:
@@ -305,6 +316,9 @@ for an endpoint that implements `POST /v1/completions`.
 Use **llama.cpp text** for the native `POST /completion` endpoint. Use
 **KoboldCpp text** for the native `POST /api/extra/generate/stream` endpoint.
 All release targets show the local provider choices.
+
+The **prompt format** row appears only in Advanced view. See
+[Settings views](#settings-views).
 
 The **prompt format** row applies only to Text Completions. The `raw` prompt
 format is the default. It joins message content with one blank line. The
@@ -365,6 +379,9 @@ work. Use **Anthropic** with an Anthropic API key for Claude-compatible work.
 
 ## Use Generation Profiles and Generation Routes
 
+The rows in this section appear only in Advanced view. See
+[Settings views](#settings-views).
+
 A **Generation Profile** is one set of model behavior settings. It contains a
 model, a temperature, a maximum output, a reasoning effort, a cache policy,
 an alternative count, and an optional continuation prompt layout.
@@ -406,10 +423,11 @@ renders an unavailable row as `‹ — ›` with a short reason.
 
 ## Sampling settings
 
-Sampling is an Advanced Settings group. The group starts collapsed.
+The sampling row appears only in Advanced view. See
+[Settings views](#settings-views).
 
-Press `,` to open Settings. Select `sampling`. Press `Enter` to open the
-sampling panel.
+Press `,` to open Settings. Press `m` if the sampling row is not visible.
+Select `sampling`. Press `Enter` to open the sampling panel.
 
 The sampling panel holds these parameters:
 
@@ -565,6 +583,9 @@ provider reports no count, 1667 counts the pieces of the thought that it
 receives, which gives an approximate number. Press `Esc` to stop the
 generation.
 
+The **Reasoning** row, the **Keep thought** row, and the **max tokens** row
+appear only in Advanced view. See [Settings views](#settings-views).
+
 The **Reasoning** row in Settings selects how 1667 shows a thought:
 
 | Reasoning mode | What 1667 shows |
@@ -611,6 +632,9 @@ for **idle**. It uses 30 minutes for **total**. The document also holds a
 **first token** value, which 1667 keeps but does not read.
 
 ### Change a deadline in Settings
+
+The **headers**, **idle**, and **total** rows appear only in Advanced view.
+See [Settings views](#settings-views).
 
 The Settings panel shows three of the deadlines in the **connection**
 section: **headers**, **idle**, and **total**. Select a deadline row. Press
@@ -661,6 +685,9 @@ sends response headers goes undetected until the **total** deadline passes.
 
 Plain HTTP provider endpoints cannot use credentials. On Linux, a loopback
 endpoint also needs proof that the current user owns the exact socket.
+
+The **insecure HTTP (LAN)** row appears only in Advanced view. See
+[Settings views](#settings-views).
 
 A provider connection can permit plain HTTP on a private network. Set
 **insecure HTTP (LAN)** to `on` for that connection. 1667 resolves the host

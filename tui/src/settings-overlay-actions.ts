@@ -34,7 +34,8 @@ import { inlineEditorAction } from "./editor-action.js";
 import { publishSettingsView } from "./overlay-publication.js";
 import {
   checkSettings,
-  detectSettingsContext
+  detectSettingsContext,
+  detectSettingsContextForModelChange
 } from "./settings-context-detection.js";
 import {
   settingsModelDiscoveryIdentity
@@ -94,6 +95,7 @@ import {
   cycleSettingsRow
 } from "./settings-selector-actions.js";
 import { settingsSubscriptionPreset } from "./settings-subscription.js";
+import { toggleSettingsViewMode } from "./settings-view-mode.js";
 
 import type {
   RuntimeState,
@@ -284,7 +286,20 @@ export async function settingsOverlayAction(
     await checkSettings(state, source, context, overlay);
   } else if (resolved.action === "detect-context") {
     await detectSettingsContext(state, source, context, overlay);
+  } else if (resolved.action === "toggle-view-mode") {
+    const cursorRow = settingsCursorRowIdentity(overlay);
+    const next = toggleSettingsViewMode(state, source, overlay);
+    restoreSettingsCursor(overlay, cursorRow);
+    state.toast = `${next} view`;
   }
+  // Drains overlay.contextProbeArmed (settings-context-detection.ts):
+  // every draft transition that can land the model on an unknown context
+  // window arms it, so this one drain point after the dispatch covers
+  // typing an identifier, picking one from C-15's column, cycling the
+  // model row with ←→, the single-choice cache auto-fill, and cycling
+  // provider — every path above that can change the model, without this
+  // seam having to know which branch ran. A no-op when nothing armed it.
+  detectSettingsContextForModelChange(state, source, context, overlay);
   return true;
 }
 

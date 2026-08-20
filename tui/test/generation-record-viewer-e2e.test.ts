@@ -91,7 +91,8 @@ function appSource(
       composeMaxHeight: null,
       quota: { date: "", words: 0 },
       updates: { mode: "notify", channel: "stable", skippedVersion: null },
-      lastRunVersion: null
+      lastRunVersion: null,
+      settingsViewMode: "simple"
     },
     readingPositions: {}
   };
