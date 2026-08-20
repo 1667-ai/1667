@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.10-rc.7",
+    date: "2026-08-20",
+    body: "- **This beta has no additional product changes.** It contains the same\n  behavior as 0.9.10-rc.6."
+  },
+  {
     version: "0.9.10-rc.6",
     date: "2026-08-20",
     body: "- **1667 now reports available releases by default.** You can turn update\n  checks off in Settings. The check stays silent when the network is not\n  available. Existing config files use the new default. A Managed Installation\n  notice shows the checked version and channel in the upgrade command. Other\n  notices show only the new version.\n\n- **Managed installations at 0.9.9 can upgrade to this release.** The npm\n  packages keep the notice that 0.9.9 accepts. Each SPDX SBOM contains the\n  current notice. Future notice changes do not break this upgrade path.\n\n- **Subscription plans use one model picker action.** Press Enter to open the\n  model picker for a ChatGPT Plan or a Claude Plan. Left Arrow and Right Arrow\n  do not change these models.\n\n- **The Settings mode action shows its destination.** The action says\n  `m advanced` in simple mode. It says `m simple` in advanced mode."
