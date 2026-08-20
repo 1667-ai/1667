@@ -522,6 +522,40 @@ describe("the settings row model stays one list", () => {
     expect(overlay.result?.message).not.toContain("auth login");
   });
 
+  test("Claude plan discovery shows only Claude demo models", async () => {
+    const { source, state, backend, press } = settingsHarness();
+    await openSettings(press);
+    const overlay = state.settings!;
+    overlay.draft = settingsTextDraftWithSubscriptionPlan(
+      overlay.draft,
+      "claude-plan",
+      {
+        ...overlay.draft.generation,
+        provider: "anthropic",
+        baseUrl: "",
+        model: "claude-sonnet-4-6",
+        apiKeyEnv: null,
+        contextWindow: 1_000_000
+      }
+    );
+    overlay.base = overlay.draft;
+    const context = {
+      backend,
+      repaint: () => undefined,
+      cache: createWrapCache<ProseStyle>(),
+      renderer: null,
+      applyTheme: () => undefined,
+      previewTheme: () => undefined
+    };
+
+    await discoverSettingsModels(state, source, context, overlay);
+
+    expect(settingsModelChoices(overlay).map((model) => model.remoteId))
+      .toEqual(["claude-sonnet-4-6", "claude-haiku-4-5"]);
+    expect(settingsModelChoices(overlay).every((model) => model.source === "pi-catalog"))
+      .toBeTrue();
+  });
+
   test("subscription plans hide probe keys and ignore direct probe shortcuts", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);

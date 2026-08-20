@@ -45,6 +45,7 @@ import type { RemovedChapterBreak, StoryApi } from "./api.js";
 import type { AppSource } from "./app.js";
 import { normalizeUserConfig } from "./config.js";
 import { demoResolveSamplingBias } from "./demo-token-ids.js";
+import { discoverDemoModels } from "./demo-model-discovery.js";
 import { streamFake } from "./fake-stream.js";
 import {
   createDemoChapterBreak,
@@ -776,25 +777,8 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     resolveSamplingBias: async (request) => demoResolveSamplingBias(request),
     // The demo has no provider behind it, so there is never a tokenize source.
     countPromptTokens: async () => ({ kind: "estimate", reason: "no-source" }),
-    discoverModels: async (): Promise<ModelDiscoveryResultV2> => ({
-      observedAt: "2026-01-01T00:00:00.000Z",
-      models: [
-        {
-          remoteId: "gpt-5.4",
-          name: "GPT-5.4",
-          contextWindow: 1_000_000,
-          maxOutputTokens: 128_000,
-          source: "openai-models"
-        },
-        {
-          remoteId: "gpt-5-mini",
-          name: "GPT-5 mini",
-          contextWindow: 400_000,
-          maxOutputTokens: 128_000,
-          source: "openai-models"
-        }
-      ]
-    }),
+    discoverModels: async (target): Promise<ModelDiscoveryResultV2> =>
+      discoverDemoModels(target),
     importSillyTavern: async () => unavailable("SillyTavern import"),
     importMarkdown: async () => unavailable("Markdown import"),
     importNovelAI: async () => unavailable("NovelAI import"),
