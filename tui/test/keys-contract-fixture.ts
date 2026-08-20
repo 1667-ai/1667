@@ -1,6 +1,5 @@
 import type { KeyEvent } from "@opentui/core";
 import { ActionRuntime } from "../src/action-runtime.js";
-import { INERT_ACTION_LIFECYCLE } from "../src/action-context.js";
 import { initialState } from "../src/app.js";
 import {
   createComposer,
@@ -139,13 +138,7 @@ export async function composerChangedThroughSurface(
       composer,
       initial: composer.text
     };
-    await settingsOverlayAction(
-      resolved,
-      state,
-      source,
-      context,
-      INERT_ACTION_LIFECYCLE
-    );
+    await settingsOverlayAction(resolved, state, source, context);
   }
 
   return composerSnapshot(composer) !== before;

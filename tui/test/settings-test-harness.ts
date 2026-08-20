@@ -71,7 +71,7 @@ export function settingsHarness(
   // eventually repainted at all (issue #282 review round 3, finding 5).
   let repaintCount = 0;
   const repaint = () => { repaintCount += 1; };
-  const backend = new ActionRuntime(state, repaint);
+  const backend = new ActionRuntime(state, repaint, restartUpdateCheck);
   const press = (event: KeyEvent) => handleKey(
     event,
     state,
@@ -86,8 +86,7 @@ export function settingsHarness(
       source.config = state.config;
     },
     () => undefined,
-    backend,
-    { restartUpdateCheck }
+    backend
   );
   return { source, state, cache, backend, press, repaints: () => repaintCount };
 }

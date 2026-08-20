@@ -8,10 +8,6 @@ import { createTestRenderer } from "@opentui/core/testing";
 import type { GenerationSettings, StoryPayload, StorySummary } from "../../shared/types.js";
 import type { SettingsView } from "../../shared/settings-v2-types.js";
 import type { StoryApi } from "./api.js";
-import {
-  INERT_ACTION_LIFECYCLE,
-  type ActionLifecycle
-} from "./action-context.js";
 import type { RecoveryWarningFeed } from "./recovery-warning-feed.js";
 import type { ConnectionMonitor } from "./connection.js";
 import { cancelChapterSummary, directChapterRowAction } from "./chapter-actions.js";
@@ -147,7 +143,7 @@ export async function renderOnce(source: AppSource, width: number, height: numbe
   const setup = await createTestRenderer({ width, height, backgroundColor: palette.color("background") });
   const state = initialState(source, true);
   const cache = createWrapCache<ProseStyle>();
-  const backend = new ActionRuntime(state, () => undefined);
+  const backend = new ActionRuntime(state, () => undefined, () => undefined);
   const cancelRenderStream = async () => {
     state.stream = null;
     state.abort = null;
@@ -306,7 +302,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
       ? null
       : source.startUpdateCheck?.(source.config, publishUpdateNotice) ?? null;
   };
-  const backend = new ActionRuntime(state, repaint);
+  const backend = new ActionRuntime(state, repaint, restartUpdateCheck);
   tokenCountLane = startPromptTokenCountLane({ state, api: source.api, repaint });
   const captureProfile = () => {
     if (!profileEnabled || profileReport !== null) return;
@@ -480,8 +476,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
         renderer,
         applyTheme,
         previewTheme,
-        withActionAdmission(backend, admit),
-        { restartUpdateCheck }
+        withActionAdmission(backend, admit)
       ), (work) => backend.observe(work));
     }, () => {
       retirePresentedSelection(renderer, queuedSelection);
@@ -542,8 +537,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
             renderer,
             applyTheme,
             previewTheme,
-            backend,
-            { restartUpdateCheck }
+            backend
           );
         }
       } else if (pasteInto(state, text)) {
@@ -595,8 +589,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
           renderer,
           applyTheme,
           previewTheme,
-          withActionAdmission(backend, admit),
-          { restartUpdateCheck }
+          withActionAdmission(backend, admit)
         ), (work) => backend.observe(work));
       }
     });
@@ -637,8 +630,7 @@ export async function handleKey(
   renderer: ActionContext["renderer"] = null,
   applyTheme: ActionContext["applyTheme"] = () => undefined,
   previewTheme: ActionContext["previewTheme"] = () => undefined,
-  backend: ActionRunner = new ActionRuntime(state, repaint),
-  lifecycle: ActionLifecycle = INERT_ACTION_LIFECYCLE
+  backend: ActionRunner = new ActionRuntime(state, repaint)
 ): Promise<void> {
   if (isCopyShortcut(key)
     && state.mode !== "EDITOR"
@@ -669,7 +661,7 @@ export async function handleKey(
     mapView: state.map?.view
   });
   return await dispatch(resolved, state, source, wrapCache, repaint, cancelStream, requestQuit,
-    renderer, applyTheme, previewTheme, backend, lifecycle);
+    renderer, applyTheme, previewTheme, backend);
 }
 
 /** Everything after key resolution — shared by the keyboard and the mouse. */
@@ -684,8 +676,7 @@ export async function dispatch(
   renderer: ActionContext["renderer"] = null,
   applyTheme: ActionContext["applyTheme"] = () => undefined,
   previewTheme: ActionContext["previewTheme"] = () => undefined,
-  backend: ActionRunner = new ActionRuntime(state, repaint),
-  lifecycle: ActionLifecycle = INERT_ACTION_LIFECYCLE
+  backend: ActionRunner = new ActionRuntime(state, repaint)
 ): Promise<void> {
   const previousMode = state.mode;
   if (state.chapterSummary !== null && resolved.action === "cancel"
@@ -721,9 +712,7 @@ export async function dispatch(
   // Recovery belongs to the connection banner, above transient part menus
   // and confirmations. Those surfaces stay open while retry runs; otherwise
   // their reducers would swallow the banner's advertised keyboard/click action.
-  if (resolved.action === "retry") {
-    await handleOverlayAction(resolved, state, source, context, lifecycle);
-  }
+  if (resolved.action === "retry") await handleOverlayAction(resolved, state, source, context);
   else if (resolved.action === "open-text-actions") {
     if (resolved.nativeSelection === undefined && resolved.composerEditable === false) return;
     let sync: ReturnType<typeof syncMouseComposerSelection> = "none";
@@ -781,15 +770,15 @@ export async function dispatch(
       } else if (!copied && state.mode === "EDITOR") {
         await inlineEditorAction(action, state, source, context);
       } else if (!copied && state.mode === "SETTINGS") {
-        await handleOverlayAction(action, state, source, context, lifecycle);
+        await handleOverlayAction(action, state, source, context);
       } else if (!copied && state.mode === "ASIDE") {
-        await handleOverlayAction(action, state, source, context, lifecycle);
+        await handleOverlayAction(action, state, source, context);
       }
     }
   }
   else if (state.prune !== null) await pruneAction(resolved, state, source, context);
   else if (state.actions !== null) await actionsMenuAction(resolved, state, source, context);
-  else if (await handleOverlayAction(resolved, state, source, context, lifecycle)) { /* handled */ }
+  else if (await handleOverlayAction(resolved, state, source, context)) { /* handled */ }
   else if (resolved.action === "toggle-context-meter" && (state.mode === "NAV" || state.mode === "COMPOSE")) {
     state.contextMeterExpanded = !state.contextMeterExpanded;
   }

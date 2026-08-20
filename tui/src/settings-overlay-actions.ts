@@ -102,7 +102,7 @@ import type {
   SettingsOverlayState,
   SettingsRowId
 } from "./state.js";
-import type { ActionContext, ActionLifecycle } from "./action-context.js";
+import type { ActionContext } from "./action-context.js";
 
 export async function openSettingsOverlay(
   state: RuntimeState,
@@ -140,8 +140,7 @@ export async function settingsOverlayAction(
   resolved: ResolvedKey,
   state: RuntimeState,
   source: AppSource,
-  context: ActionContext,
-  lifecycle: ActionLifecycle
+  context: ActionContext
 ): Promise<boolean> {
   const overlay = state.settings!;
   // C-18: an action's in-place report keeps reporting "until the next
@@ -239,7 +238,7 @@ export async function settingsOverlayAction(
       if (modelPickerRequired(overlay)) overlay.modelPicker = { query: "", cursor: 0 };
       else beginSettingsRowEdit(overlay, state.config);
     } else if (settingsRowCycles(row)) {
-      await cycleSettingsRow(row, 1, state, source, context, lifecycle, overlay);
+      await cycleSettingsRow(row, 1, state, source, context, overlay);
     } else if (row === "system-prompt") {
       openSystemPromptEditor(state);
     } else if (row === "sampling") {
@@ -263,7 +262,7 @@ export async function settingsOverlayAction(
       boundedSettingsCursor(overlay.cursor, overlay)
     ]?.action;
     if (action !== undefined) {
-      await settingsOverlayAction({ action: action.key }, state, source, context, lifecycle);
+      await settingsOverlayAction({ action: action.key }, state, source, context);
     }
   } else if (resolved.action === "save-edit") {
     await saveSettingsDraft(state, source, context, overlay);
@@ -278,7 +277,7 @@ export async function settingsOverlayAction(
     const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
     if (settingsRowHasArrows(overlay, row)) {
       await cycleSettingsRow(
-        row, step, state, source, context, lifecycle, overlay, resolved.magnitude ?? "step"
+        row, step, state, source, context, overlay, resolved.magnitude ?? "step"
       );
     }
   } else if (resolved.action === "discard-pending") {
