@@ -300,7 +300,8 @@ function nullablePositiveSafeInteger(value: unknown, label: string): number | nu
 
 function discoverySource(value: unknown, label: string): ModelDiscoverySourceV2 {
   if (value !== "anthropic-models" && value !== "openai-models"
-    && value !== "lm-studio-models" && value !== "ollama-tags") invalid(label);
+    && value !== "lm-studio-models" && value !== "ollama-tags"
+    && value !== "pi-catalog") invalid(label);
   return value;
 }
 

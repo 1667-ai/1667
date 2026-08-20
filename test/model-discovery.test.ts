@@ -469,9 +469,15 @@ test("model discovery wire decoder is closed and bounded", () => {
       name: "Fixture",
       contextWindow: 8_192,
       maxOutputTokens: null,
-      source: "openai-models"
+      source: "pi-catalog"
     }]
-  }).models[0]?.remoteId, "fixture");
+  }).models[0], {
+    remoteId: "fixture",
+    name: "Fixture",
+    contextWindow: 8_192,
+    maxOutputTokens: null,
+    source: "pi-catalog"
+  });
   assert.throws(
     () => decodeModelDiscoveryResult({
       observedAt: "not-a-date",

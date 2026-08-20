@@ -10,7 +10,8 @@ import {
 import { INITIAL_SETTINGS_DOCUMENT_V2_TEXT } from "../../server/settings-v2-initial-vectors.js";
 import {
   discoverSettingsModels,
-  publishCurrentSettingsModelDiscovery
+  publishCurrentSettingsModelDiscovery,
+  settingsModelChoices
 } from "../src/settings-model-discovery.js";
 import {
   checkSettings,
@@ -464,7 +465,7 @@ describe("the settings row model stays one list", () => {
       .toBe("In a terminal, run 1667 auth login claude to sign in. Claude plan support is experimental.");
   });
 
-  test("subscription plans skip legacy discovery and context probes", async () => {
+  test("subscription plans load catalogs and skip context probes", async () => {
     const { source, state, backend, press } = settingsHarness();
     await openSettings(press);
     const overlay = state.settings!;
@@ -509,7 +510,9 @@ describe("the settings row model stays one list", () => {
     await discoverSettingsModels(state, source, context, overlay);
     await detectSettingsContext(state, source, context, overlay);
 
-    expect(discoveryCalls).toBe(0);
+    expect(discoveryCalls).toBe(1);
+    expect(settingsModelChoices(overlay).map((model) => model.remoteId))
+      .toEqual(["gpt-5.4", "gpt-5-mini"]);
     expect(probeCalls).toBe(0);
     expect(overlay.result?.message).toContain("ChatGPT plan is signed in.");
     expect(overlay.result?.message).not.toContain("auth login");

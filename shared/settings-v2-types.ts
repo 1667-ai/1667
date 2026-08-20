@@ -370,7 +370,8 @@ export type ModelDiscoverySourceV2 =
   | "anthropic-models"
   | "openai-models"
   | "lm-studio-models"
-  | "ollama-tags";
+  | "ollama-tags"
+  | "pi-catalog";
 
 export interface DiscoveredModelV2 {
   readonly remoteId: string;

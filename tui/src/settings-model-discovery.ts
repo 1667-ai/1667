@@ -117,16 +117,12 @@ export async function discoverSettingsModels(
   overlay: SettingsOverlayState
 ): Promise<void> {
   clearStaleAutomaticModel(overlay);
-  if (settingsSubscriptionPreset(overlay) !== null) {
-    clearSettingsModelDiscovery(overlay);
-    return;
-  }
   const settings = overlay.view.editable
     ? overlay.draft.generation
     : overlay.view.effective;
   const identity = settingsModelDiscoveryIdentity(settings);
   clearSettingsModelDiscovery(overlay);
-  if (!canDiscoverModels(settings)) return;
+  if (!canDiscoverModels(settings, settingsSubscriptionPreset(overlay))) return;
   const controller = new AbortController();
   overlay.modelDiscoveryAbortController = controller;
   const request: ModelDiscoveryRequest = {
@@ -239,7 +235,11 @@ async function retryModelDiscoveryWhenIdle(
   }
 }
 
-function canDiscoverModels(settings: GenerationSettings): boolean {
+function canDiscoverModels(
+  settings: GenerationSettings,
+  subscriptionPreset: ReturnType<typeof settingsSubscriptionPreset>
+): boolean {
+  if (subscriptionPreset !== null) return true;
   if (settings.provider === "dry-run") return false;
   try {
     const protocol = new URL(settings.baseUrl).protocol;
