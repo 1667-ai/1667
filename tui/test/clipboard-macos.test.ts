@@ -3,6 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import { budgetTimeout } from "../../test/performance-budget.js";
 import { MAX_SOURCE_IMAGE_BYTES } from "../../shared/image-attachment.js";
 import { runClipboardHelperProcess, type ClipboardCommandRunner } from "../src/clipboard-command-runner.js";
 import {
@@ -115,6 +116,41 @@ describe("macOS clipboard image read, through the injectable seam", () => {
   });
 });
 
+/**
+ * The real helper's healthy wall cost, rounded up. `budgetTimeout` takes this
+ * as setup work that no budget measures, because this file has no budget for
+ * the helper: it checks the helper's reply, not its speed.
+ */
+const REAL_HELPER_WALL_MS = 1_000;
+
+/**
+ * The deadline for one real helper run. This is a hang guard, not a
+ * performance budget. Nothing in this file measures how fast the helper runs.
+ *
+ * The Windows helper carried the same flat 5-second deadline, and a hosted
+ * runner crossed it at random (issue #267). This test has not failed that
+ * way, because `osascript` starts faster than `powershell.exe`, which also
+ * compiles C# through `Add-Type` on every run. The cause is not specific to
+ * Windows though. A hosted runner shares its cores with other jobs, so a flat
+ * wall-clock deadline measures the runner and not the product, which is the
+ * failure `test/performance-budget.ts` describes at its top. The Intel macOS
+ * runner is the slowest target this project builds for, and it takes the
+ * largest slack from that same table.
+ *
+ * `tui/src/clipboard-macos.ts` keeps its own, much smaller deadline for the
+ * same helper. That deadline is a product decision: a paste holds the TUI
+ * input queue until the helper answers. This deadline only stops a wedged
+ * test.
+ */
+const REAL_HELPER_DEADLINE_MS = budgetTimeout([], REAL_HELPER_WALL_MS);
+
+/**
+ * The per-test timeout for the real helper test. This stays above the helper
+ * deadline, so a wedged helper fails on the assertions below instead of on an
+ * opaque test timeout.
+ */
+const REAL_HELPER_TEST_TIMEOUT_MS = REAL_HELPER_DEADLINE_MS * 2;
+
 describe("macOS clipboard image read, on a real machine", () => {
   test.skipIf(process.platform !== "darwin")(
     "returns no image when the clipboard holds no image, proven through the real helper",
@@ -133,11 +169,12 @@ describe("macOS clipboard image read, on a real machine", () => {
       const path = join(tmpdir(), `1667-clipboard-test-${randomBytes(16).toString("hex")}.tmp`);
       const { error, stdout } = await runClipboardHelperProcess(
         macosClipboardImageHelperCommand(path),
-        { timeoutMs: 5_000, killSignal: "SIGKILL", maxBuffer: 4_096 }
+        { timeoutMs: REAL_HELPER_DEADLINE_MS, killSignal: "SIGKILL", maxBuffer: 4_096 }
       );
       expect(error).toBeNull();
       expect(stdout.trim()).toBe("none");
-    }
+    },
+    REAL_HELPER_TEST_TIMEOUT_MS
   );
 
   test.skipIf(process.platform !== "darwin")(
