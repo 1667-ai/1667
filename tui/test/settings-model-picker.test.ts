@@ -30,6 +30,7 @@ describe("Settings model picker", () => {
     configureNetworkSource(source);
 
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "base-url", "not-a-url");
     const first = settingsModelSelectionTargetIdentity(state.settings!);
     await draftRow(press, state, "base-url", "still-not-a-url");
@@ -38,7 +39,7 @@ describe("Settings model picker", () => {
   });
 
   test("reads provider models, cycles them, and accepts a custom name", async () => {
-    const { source, state, cache, press } = settingsHarness();
+    const { source, state, cache, press, backend } = settingsHarness();
     if (!source.settingsView.editable) throw new Error("demo settings must be editable");
     const document = applyBasicSettingsDraft(source.settingsView.document, {
       ...source.settings,
@@ -96,6 +97,7 @@ describe("Settings model picker", () => {
     };
 
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
 
     expect(discoveryTargets).toEqual(["https://api.openai.com/v1"]);
     expect(state.settings?.draft.cachePolicy).toBe("off");
@@ -125,9 +127,13 @@ describe("Settings model picker", () => {
     expect(state.settings?.edit?.row).toBe("model");
     setComposerText(state.settings!.edit!.composer, "private-preview-model");
     await press(key("return"));
+    // The commit clears the stale value synchronously, then a background
+    // probe (unmocked here, so it uses the demo's default reading) lands
+    // automatically.
+    await backend.whenIdle();
     expect(state.settings?.draft.generation).toMatchObject({
       model: "private-preview-model",
-      contextWindow: null
+      contextWindow: 32_768
     });
     rendered = frameText(renderStoryScreen(
       state,
@@ -194,6 +200,7 @@ describe("Settings model picker", () => {
     };
 
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "model", "");
     expect(state.settings?.draft.generation.model).toBe("novelist-a");
     await draftRow(
@@ -218,6 +225,7 @@ describe("Settings model picker", () => {
     };
 
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "model", "");
     await draftRow(press, state, "base-url", "https://alpha.example.test/v1");
     await backend.whenIdle();
@@ -284,6 +292,7 @@ describe("Settings model picker", () => {
     source.api.discoverModels = async () => discovery("loaded-local-model");
 
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
 
     expect(state.settings?.modelDiscovery?.models[0]?.remoteId)
       .toBe("loaded-local-model");
@@ -324,6 +333,7 @@ describe("Settings model picker", () => {
     };
 
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "model", "");
     await draftRow(press, state, "context-window", "12345");
     expect(state.settings?.draft.generation.contextWindow).toBe(12_345);
@@ -448,6 +458,7 @@ describe("Settings model picker", () => {
     source.api.discoverModels = async () => discovery("novelist-a");
 
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "model");
     await press(key("right"));
 
@@ -462,6 +473,7 @@ describe("Settings model picker", () => {
     configureNetworkSource(source);
     source.api.discoverModels = async () => discovery("novelist-a");
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     const discoveryResult = state.settings?.modelDiscovery;
 
     await draftRow(press, state, "api-key", "");

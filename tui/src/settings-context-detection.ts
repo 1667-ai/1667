@@ -9,7 +9,10 @@ import { settingsTextDraftWithDetectedContext } from "./settings-text.js";
 import { settingsProviderProbeTarget } from "./settings-provider-probe.js";
 import { sameConnectionSecrets } from "./settings-secret-sidecar.js";
 import { activeSettingsEdit } from "./settings-edit-state.js";
-import { replaceSettingsDraft } from "./settings-draft-transition.js";
+import {
+  replaceSettingsDraft,
+  settingsContextWindowIsManual
+} from "./settings-draft-transition.js";
 import {
   settingsSubscriptionLoginHint,
   settingsSubscriptionPreset
@@ -108,6 +111,37 @@ export async function detectSettingsContext(
       }
     }
   });
+}
+
+/** Run after a model identity change commits, so the writer never has to
+ *  press `p` themselves for the common case. A discovered model already
+ *  carries its context window onto the draft the moment it is chosen
+ *  (applySettingsModelChoice's `contextWindow` default in
+ *  settings-model-selection.ts), so this only ever probes a genuinely
+ *  unknown model — and it reuses `detectSettingsContext` verbatim, so the
+ *  fixed-subscription warning and the late-response guard both apply exactly
+ *  as they do for the manual `p` action. */
+export async function detectSettingsContextForModelChange(
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext,
+  overlay: SettingsOverlayState
+): Promise<void> {
+  if (state.settings !== overlay || !overlay.view.editable || overlay.draft.document === null) {
+    return;
+  }
+  if (overlay.draft.generation.model.trim().length === 0) return;
+  if (overlay.draft.generation.contextWindow !== null) return;
+  if (settingsContextWindowIsManual(overlay)) return;
+  try {
+    await detectSettingsContext(state, source, context, overlay);
+  } catch {
+    // Best effort: a model can commit while the rest of the draft is still
+    // incomplete (for example plain HTTP on a LAN host before the insecure
+    // opt-in is set), and building a probe target for that draft throws. The
+    // writer can still press `p` once the draft is complete; an automatic
+    // trigger must never crash the row commit that started it.
+  }
 }
 
 export async function checkSettings(

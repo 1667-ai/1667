@@ -45,6 +45,9 @@ describe("inline settings menu", () => {
   test("up/down selects every row; Enter edits text and advances closed choices", async () => {
     const { state, press } = harness();
     await openSettings(press);
+    // This walk covers every row in SETTINGS_ROW_IDS, which only advanced
+    // mode shows.
+    state.settings!.viewMode = "advanced";
 
     for (const [index, row] of SETTINGS_ROW_IDS.entries()) {
       expect(state.settings?.cursor).toBe(index);
@@ -89,6 +92,7 @@ describe("inline settings menu", () => {
   test("typing replaces the selected inline value and Escape cancels only the row", async () => {
     const { state, press } = harness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "model");
     await press(key("return"));
 
@@ -105,6 +109,7 @@ describe("inline settings menu", () => {
   test("Shift+Arrow selects text inside an inline row", async () => {
     const { state, press } = harness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "model");
     await press(key("return"));
     setComposerText(state.settings!.edit!.composer, "draft-model");
@@ -141,6 +146,7 @@ describe("inline settings menu", () => {
     };
     source.api.getSettings = async () => current;
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
 
     await selectRow(press, state, "provider");
     await press(key("right"));
@@ -164,6 +170,7 @@ describe("inline settings menu", () => {
   test("committing an unchanged settings row is silent", async () => {
     const { state, press } = harness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "model");
     await press(key("return"));
     setComposerText(
@@ -181,6 +188,8 @@ describe("inline settings menu", () => {
   test("theme is a scoped selector and compose focus cycles as a closed choice", async () => {
     const { source, state, press } = harness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
+    await selectRow(press, state, "theme");
 
     await press(key("right"));
     await press(key("right"));
@@ -203,6 +212,7 @@ describe("inline settings menu", () => {
   test("Enter on compose-focus toggles without opening a text field", async () => {
     const { state, press } = harness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "compose-focus");
     expect(state.config.composeFocus).toBe("off");
 
@@ -219,6 +229,7 @@ describe("inline settings menu", () => {
   test("paste refuses every closed choice and still opens text rows", async () => {
     const { state, press } = harness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
 
     for (const row of SETTINGS_ROW_IDS) {
       if (!settingsRowCycles(row)) continue;
@@ -254,6 +265,8 @@ describe("inline settings menu", () => {
     source.settingsView = legacy;
     source.api.getSettings = async () => legacy;
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
+    await selectRow(press, state, "theme");
 
     await press(key("right"));
     await press(key("right"));
@@ -268,6 +281,7 @@ describe("inline settings menu", () => {
   test("provider is a closed selector with an OpenAI preset", async () => {
     const { source, state, press } = harness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
 
     await selectRow(press, state, "provider");
     await press(key("return"));
@@ -290,6 +304,7 @@ describe("inline settings menu", () => {
   test("text providers expose raw, ChatML, and llama.cpp server prompt formats", async () => {
     const { state, press } = harness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "provider");
     for (let attempts = 0;
       settingsProviderChoice(state.settings!.draft.generation).id !== "text-completion"
@@ -348,6 +363,7 @@ describe("inline settings menu", () => {
   test("the split-thoughts row turns a text connection's think split on and off", async () => {
     const { state, press } = harness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "provider");
     for (let attempts = 0;
       settingsProviderChoice(state.settings!.draft.generation).id !== "text-completion"
@@ -423,6 +439,7 @@ describe("inline settings menu", () => {
 
     const { state, cache, press } = harness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "provider");
 
     await press(key("right"));
@@ -469,6 +486,7 @@ describe("inline settings menu", () => {
   test("paste opens the selected text row and replaces its seed inline", async () => {
     const { state, press } = harness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "base-url");
 
     expect(state.settings?.edit).toBe(null);
@@ -506,6 +524,7 @@ describe("inline settings menu", () => {
     };
     source.api.getSettings = async () => current;
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "provider");
     await press(key("right"));
     await draftRow(press, state, "base-url", "https://api.openai.com/v1");
@@ -623,6 +642,7 @@ describe("inline settings menu", () => {
     source.api.getSettings = async () => savedView;
 
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "provider");
     for (let attempts = 0;
       state.settings?.draft.generation.provider !== "anthropic" && attempts < 8;
@@ -647,6 +667,7 @@ describe("inline settings menu", () => {
   test("LAN HTTP selector toggles and round-trips through the basic draft", async () => {
     const { source, state, press } = harness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "provider");
     await press(key("right"));
     await press(key("right"));
@@ -671,6 +692,7 @@ describe("inline settings menu", () => {
   test("the selected row and inline field render inside Settings", async () => {
     const { state, cache, press } = harness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "provider");
     let rendered = frameText(renderStoryScreen(
       state,
@@ -678,7 +700,9 @@ describe("inline settings menu", () => {
     ).lines);
     expect(rendered).toContain("▸ provider");
     expect(rendered).toContain("‹ dry-run ›");
-    expect(rendered).toContain("↑↓ move · ←→ choose · ↵ next · s save");
+    // The widest keyline no longer fits 80 columns once it also carries the
+    // view-mode toggle, so this width now renders the medium tier.
+    expect(rendered).toContain("↑↓ · ←→ choose · ↵ next · s · c · esc");
 
     await selectRow(press, state, "model");
     await press(key("return"));
@@ -698,6 +722,7 @@ describe("inline settings menu", () => {
       return { state: "ready", message: "draft ready" };
     };
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "model", "draft-model");
     await press(key("c"));
 
@@ -719,6 +744,7 @@ describe("inline settings menu", () => {
       return { state: "ready", message: "LAN draft ready" };
     };
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "provider");
     await press(key("right"));
     await press(key("right"));
@@ -740,7 +766,7 @@ describe("inline settings menu", () => {
   });
 
   test("p detects the context window from the unsaved provider draft", async () => {
-    const { source, state, cache, press } = harness();
+    const { source, state, cache, press, backend } = harness();
     let probedModel: string | null = null;
     const probes: ProviderProbeTarget[] = [];
     source.api.probeContextWindow = async (settings) => {
@@ -749,6 +775,7 @@ describe("inline settings menu", () => {
       return { contextWindow: 65_536 };
     };
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "model", "draft-model");
     await selectRow(press, state, "context-window");
 
@@ -773,7 +800,11 @@ describe("inline settings menu", () => {
     ).lines);
     expect(rendered).toContain("context window · 65,536 tokens · s saves");
     await draftRow(press, state, "model", "another-model");
-    expect(state.settings?.draft.generation.contextWindow).toBe(null);
+    // The commit clears the stale value synchronously; the model change
+    // then probes again in the background and lands the same mocked reading.
+    await backend.whenIdle();
+    expect(probedModel).toBe("another-model");
+    expect(state.settings?.draft.generation.contextWindow).toBe(65_536);
   });
 
   test("p probes blank-model KoboldCpp and llama.cpp drafts at the real boundary", async () => {
@@ -806,6 +837,7 @@ describe("inline settings menu", () => {
         return { contextWindow: expected.contextWindow };
       };
       await openSettings(press);
+      state.settings!.viewMode = "advanced";
       state.settings!.draft = {
         ...state.settings!.draft,
         generation: {
@@ -830,6 +862,7 @@ describe("inline settings menu", () => {
     const { source, state, press } = harness();
     source.api.probeContextWindow = async () => ({ contextWindow: null });
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     state.settings!.draft = {
       ...state.settings!.draft,
       generation: {
@@ -849,7 +882,7 @@ describe("inline settings menu", () => {
   });
 
   test("a late context probe cannot overwrite a newer inline draft", async () => {
-    const { source, state, press } = harness();
+    const { source, state, press, backend } = harness();
     const entered = deferred<void>();
     const gate = deferred<{ contextWindow: number | null }>();
     source.api.probeContextWindow = async () => {
@@ -857,14 +890,19 @@ describe("inline settings menu", () => {
       return gate.promise;
     };
     await openSettings(press);
-    await draftRow(press, state, "model", "model-a");
-    await draftRow(press, state, "context-window", "8192");
+    state.settings!.viewMode = "advanced";
 
-    const probing = press(key("p"));
+    // Committing model-a already starts a probe automatically — no manual
+    // `p` needed. Committing model-b while it is still in flight (a second
+    // automatic probe finds the first one busy and steps aside) exercises
+    // the same late-response guard `p` used to.
+    await draftRow(press, state, "model", "model-a");
     await entered.promise;
+    expect(state.settings?.probing).toBeTrue();
+
     await draftRow(press, state, "model", "model-b");
     gate.resolve({ contextWindow: 32_768 });
-    await probing;
+    await backend.whenIdle();
 
     expect(state.settings?.draft.generation.model).toBe("model-b");
     expect(state.settings?.draft.generation.contextWindow).toBe(null);
@@ -881,6 +919,7 @@ describe("inline settings menu", () => {
       return gate.promise;
     };
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "model", "model-a");
 
     const checking = press(key("c"));
@@ -903,6 +942,7 @@ describe("inline settings menu", () => {
       return gate.promise;
     };
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "model", "model-a");
 
     const checking = press(key("c"));
@@ -949,6 +989,7 @@ describe("inline settings menu", () => {
     source.api.getSettings = async () => source.settingsView;
 
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "provider");
     await press(key("right"));
     await draftRow(press, state, "base-url", "https://api.openai.com/v1");
@@ -1001,6 +1042,7 @@ describe("inline settings menu", () => {
     source.api.getSettings = async () => source.settingsView;
 
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "provider");
     await press(key("right"));
     await draftRow(press, state, "base-url", "https://api.openai.com/v1");

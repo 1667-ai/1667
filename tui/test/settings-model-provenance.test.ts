@@ -44,6 +44,7 @@ test("deleted profile model provenance does not reach a reused profile ID", asyn
   };
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "model", "");
   await draftRow(press, state, "base-url", "https://alpha.example.test/v1");
   await backend.whenIdle();
@@ -83,6 +84,7 @@ test(`${cloneKey} profile clone keeps model and context ownership`, async () => 
   };
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "model", "");
   await draftRow(press, state, "base-url", "https://alpha.example.test/v1");
   await draftRow(press, state, "context-window", "12345");
@@ -105,6 +107,7 @@ test("blank context sentinel accepts cached model metadata", async () => {
   installContextDiscovery(source);
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "context-window", "12345");
   await draftRow(press, state, "context-window", "");
   await draftRow(press, state, "model", "");
@@ -118,6 +121,7 @@ test("context stepper auto sentinel accepts cached model metadata", async () => 
   installContextDiscovery(source);
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "context-window", "1");
   await selectRow(press, state, "context-window");
   await press(key("left"));
@@ -161,6 +165,7 @@ test("equal discovered context remains a manual limit", async () => {
   };
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "model", "");
   await draftRow(press, state, "context-window", "65536");
   await press(key("s"));
@@ -175,6 +180,7 @@ test("equal discovered context remains a manual limit", async () => {
     .toBe(65_536);
   await press(key("escape"));
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "api-key", "first-secret");
 
   expect(state.settings?.draft.generation.contextWindow).toBe(65_536);
@@ -186,6 +192,7 @@ test("a target change preserves a manual context from an automatic model", async
   installHostModelDiscovery(source);
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "model", "");
   await draftRow(press, state, "base-url", "https://alpha.example.test/v1");
   await draftRow(press, state, "context-window", "12345");
@@ -217,6 +224,7 @@ test("a target change replaces context metadata from an automatic model", async 
   };
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "model", "");
   expect(state.settings?.draft.generation.contextWindow).toBe(65_536);
   await draftRow(press, state, "base-url", "https://beta.example.test/v1");
@@ -236,6 +244,7 @@ test("saved automatic model becomes an explicit model", async () => {
   installSettingsSave(source);
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "model", "");
   await draftRow(press, state, "base-url", "https://alpha.example.test/v1");
   await press(key("s"));
@@ -281,9 +290,15 @@ test("save acknowledges an automatic model that equals the saved value", async (
     saves += 1;
     throw new Error("an equal draft must not reach the server");
   };
+  // The sole discovered choice auto-fills with no known context window,
+  // which now also fires a background probe. Report nothing found so this
+  // draft stays equal to the saved value, as the test's premise requires.
+  source.api.probeContextWindow = async () => ({ contextWindow: null });
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "model", "");
+  await backend.whenIdle();
   await selectRow(press, state, "profile");
   await press(key("right"));
   await press(key("s"));
@@ -314,6 +329,7 @@ test("an unrelated authoritative refresh preserves automatic ownership", async (
   };
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "model", "");
   const current = source.settingsView;
   if (!current.editable) throw new Error("demo settings must be editable");
@@ -341,6 +357,7 @@ test("an authoritative model change drops old manual context ownership", async (
   installSettingsSave(source);
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "context-window", "12345");
   await press(key("s"));
   const current = source.settingsView;
@@ -383,6 +400,7 @@ test("save acknowledges an automatic model while a newer row edit remains", asyn
   const { saveEntered, saveGate } = installSettingsSave(source, true);
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "model", "");
   await draftRow(press, state, "base-url", "https://alpha.example.test/v1");
   const saving = press(key("s"));
@@ -407,6 +425,7 @@ test("save acknowledges an automatic model after a concurrent profile switch", a
   const { saveEntered, saveGate } = installSettingsSave(source, true);
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "model", "");
   await draftRow(press, state, "base-url", "https://alpha.example.test/v1");
   await selectRow(press, state, "profile");
@@ -451,6 +470,7 @@ test("save preserves automatic ownership when its target changes in flight", asy
   const { saveEntered, saveGate } = installSettingsSave(source, true);
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "model", "");
   await draftRow(press, state, "base-url", "https://alpha.example.test/v1");
   const saving = press(key("s"));
@@ -485,6 +505,7 @@ test("a failed target refresh clears the previous automatic model", async () => 
   };
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "model", "");
   await draftRow(press, state, "base-url", "https://alpha.example.test/v1");
   await backend.whenIdle();
