@@ -24,8 +24,8 @@ export interface BackgroundUpdateCheckDependencies {
   readonly readCache: () => Promise<UpdateCacheEntry | null>;
   readonly writeCache: (entry: UpdateCacheEntry) => Promise<unknown>;
   readonly onNotice: (message: string) => void;
-  /** True only when the caller has proven install authority. */
-  readonly managedInstall?: true;
+  /** Set only when the caller has proven install authority. */
+  readonly upgradeCommandForVersion?: (version: string) => string;
   readonly onDebug?: (message: string) => void;
   readonly now?: () => number;
   readonly random?: () => number;
@@ -109,28 +109,26 @@ export function startBackgroundUpdateCheck(
 export function updateNotice(
   latest: string,
   observation: UpgradeObservation,
-  upgradeChannel?: UpdatePreferences["channel"]
+  upgradeCommand?: string
 ): string | null {
   if (!isSemVerUpgradeAvailable(latest, observation.currentVersion)) return null;
-  return upgradeChannel === undefined
+  return upgradeCommand === undefined
     ? `1667 ${latest} available`
-    : `1667 ${latest} available · run 1667 upgrade --version ${latest} --channel ${upgradeChannel}`;
+    : `1667 ${latest} available · run ${upgradeCommand}`;
 }
 
 function publishNotice(
   latest: string,
   dependencies: Pick<
     BackgroundUpdateCheckDependencies,
-    "preferences" | "observation" | "onNotice" | "managedInstall"
+    "preferences" | "observation" | "onNotice" | "upgradeCommandForVersion"
   >
 ): void {
   if (dependencies.preferences.skippedVersion === latest) return;
   const message = updateNotice(
     latest,
     dependencies.observation,
-    dependencies.managedInstall === true
-      ? dependencies.preferences.channel
-      : undefined
+    dependencies.upgradeCommandForVersion?.(latest)
   );
   if (message !== null) dependencies.onNotice(message);
 }

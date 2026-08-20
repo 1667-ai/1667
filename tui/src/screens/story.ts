@@ -49,6 +49,7 @@ import { wrapFeedback } from "./feedback-wrap.js";
 import { renderPanels, renderTextActionsPanel } from "./panels.js";
 import { renderConnectionBanner } from "./connection-banner.js";
 import { renderAsideScreen } from "./story/aside-screen.js";
+import { resolveStoryScreenRoute } from "./story-route.js";
 import {
   fitLine,
   hintItem,
@@ -151,49 +152,47 @@ function effectivePromptTokenCount(
 
 export function renderStoryScreen(state: StoryScreenState, options: StoryScreenOptions): StoryScreenFrame {
   const { height } = options;
-  if (state.mode === "LOG") return renderLog(state, options.width, height, options.deadlines);
-  if (state.search !== null && state.mode === "SEARCH") {
-    return renderSearch(state, state.search, options.width, height, options.deadlines);
+  const route = resolveStoryScreenRoute(state);
+  if (route.kind === "log") return renderLog(state, options.width, height, options.deadlines);
+  if (route.kind === "search") {
+    return renderSearch(state, route.search, options.width, height, options.deadlines);
   }
-  if (state.map !== null && (state.mode === "MAP"
-    || state.mode === "TAG" && state.tag?.returnMode === "MAP")) {
-    return renderMap(state, state.map, options.width, height, options.deadlines);
+  if (route.kind === "map") {
+    return renderMap(state, route.map, options.width, height, options.deadlines);
   }
-  if (state.mode === "RECORD" && state.record !== null) {
-    return renderGenerationRecordViewerScreen(state, state.record, options.width, height, options.deadlines);
+  if (route.kind === "record") {
+    return renderGenerationRecordViewerScreen(state, route.record, options.width, height, options.deadlines);
   }
-  const fullscreen = state.mode === "COMPOSE" && state.composer.fullscreen;
   const view = createStoryViewModel(state.payload, state.stream);
   const projectedRequest = projectNextRequest(state, view);
   const estimate = nextRequestEstimate(projectedRequest.payload, projectedRequest.context);
   const promptTokenCount = effectivePromptTokenCount(state, projectedRequest);
-  if (state.mode === "REQUEST" && state.request !== null) {
+  if (route.kind === "request") {
     return renderRequestViewerScreen(
-      state, state.request, projectedRequest.context,
+      state, route.request, projectedRequest.context,
       estimate, options.width, height, options.deadlines, promptTokenCount
     );
   }
-  if (state.mode === "PROBS" && state.probs !== null) {
+  if (route.kind === "probs") {
     return renderTokenProbabilitiesScreen(
-      state, state.probs, estimate, options.width, height, options.deadlines
+      state, route.probs, estimate, options.width, height, options.deadlines
     );
   }
-  if (state.mode === "ASIDE" && state.aside !== null) {
-    return renderAsideScreen(state, state.aside, options.width, height, options.deadlines);
+  if (route.kind === "aside") {
+    return renderAsideScreen(state, route.aside, options.width, height, options.deadlines);
   }
-  const editor = state.mode === "EDITOR" ? state.editor : null;
-  if (editor !== null) {
+  if (route.kind === "editor") {
     return renderInlineEditor(
       state,
       view,
-      editor,
+      route.editor,
       options.width,
       height,
       estimate,
       options.deadlines
     );
   }
-  if (fullscreen) {
+  if (route.kind === "fullscreen-composer") {
     return renderFullscreenComposer(state, view, options.width, height, estimate, options.deadlines);
   }
   const frameLayout = options.layout ?? deriveStoryFrameLayout(options.width, state.config);

@@ -143,7 +143,7 @@ export async function settingsInlineEditAction(
       return;
     }
     if (applied.kind === "local") {
-      applySettingsLocalToggle(state, source, context, applied.row, applied.value);
+      applySettingsLocalToggle(state, source, applied.row, applied.value);
       return;
     }
     disarmSettingsConflict(overlay);

@@ -254,7 +254,11 @@ describe("background update checking", () => {
   });
 
   test("binds a proven upgrade command to the checked version and channel", () => {
-    expect(updateNotice("0.2.0-beta.1", observation, "beta")).toBe(
+    expect(updateNotice(
+      "0.2.0-beta.1",
+      observation,
+      "1667 upgrade --version 0.2.0-beta.1 --channel beta"
+    )).toBe(
       "1667 0.2.0-beta.1 available · run 1667 upgrade --version 0.2.0-beta.1 --channel beta"
     );
     expect(updateNotice("0.2.0", observation)).toBe("1667 0.2.0 available");

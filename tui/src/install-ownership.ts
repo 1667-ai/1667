@@ -40,6 +40,15 @@ export type InstallationAuthority =
       readonly executable: string;
     };
 
+/** Return the channel of an installation that 1667 owns. */
+export function managedInstallationChannel(
+  authority: InstallationAuthority
+): InstallChannel | undefined {
+  if (authority.kind === "shell") return authority.record.channel;
+  if (authority.kind === "powershell") return authority.channel;
+  return undefined;
+}
+
 /**
  * Reads authority only from the Ownership Record next to the invoked executable.
  * Missing or invalid records grant no replacement authority.

@@ -9,9 +9,10 @@ import {
 } from "../../shared/release-targets.js";
 import type { UserConfig } from "./config.js";
 import {
+  managedInstallationChannel,
   resolveInstallationAuthority,
-  type InstallationAuthority
 } from "./install-ownership.js";
+import { formatUpgradeApplyCommand } from "./upgrade-command.js";
 import {
   startBackgroundUpdateCheck
 } from "./background-update-check.js";
@@ -29,16 +30,6 @@ import { resolveUpdatePreferences } from "./update-preferences.js";
 export type BackgroundUpdateStarter = (
   onNotice: (message: string) => void
 ) => () => void;
-
-/** Return the authoritative channel for an install that 1667 can upgrade.
- * Manual, npm, source, and copied installations stay version-only. */
-export function managedUpgradeChannel(
-  authority: InstallationAuthority
-): UserConfig["updates"]["channel"] | undefined {
-  if (authority.kind === "shell") return authority.record.channel;
-  if (authority.kind === "powershell") return authority.channel;
-  return undefined;
-}
 
 /**
  * The runtime is a parameter for the same reason it is one in
@@ -64,7 +55,7 @@ export function createBackgroundUpdateStarter(
   // a safe informational command and never installs a Candidate.
   let managedChannel: UserConfig["updates"]["channel"] | undefined;
   try {
-    managedChannel = managedUpgradeChannel(resolveInstallationAuthority());
+    managedChannel = managedInstallationChannel(resolveInstallationAuthority());
   } catch {
     // Authority is advisory for this notify-only path. If it cannot be read,
     // keep the configured channel and omit a possibly unsafe command.
@@ -97,7 +88,16 @@ export function createBackgroundUpdateStarter(
     readCache: async () => await readPersistedUpdateCache(cacheKey),
     writeCache: async (entry) => await writePersistedUpdateCache(entry),
     onNotice,
-    ...(managedChannel === undefined ? {} : { managedInstall: true as const }),
+    ...(managedChannel === undefined
+      ? {}
+      : {
+          upgradeCommandForVersion: (version: string) =>
+            formatUpgradeApplyCommand({
+              kind: "apply",
+              channel: managedChannel,
+              version
+            })
+        }),
     ...(environment.AI_1667_DEBUG_UPDATES === "1"
       ? { onDebug: (message: string) => process.stderr.write(`1667: ${message}\n`) }
       : {})

@@ -33,7 +33,7 @@ import {
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { settingsRowIds } from "../src/settings-row-navigation.js";
-import { applySettingsLocalToggle } from "../src/settings-selector-actions.js";
+import { applyUpdateChecksToggle } from "../src/settings-selector-actions.js";
 import {
   deferred,
   draftRow,
@@ -257,11 +257,10 @@ describe("inline settings menu", () => {
     const { source, state } = harness();
     state.demo = false;
 
-    applySettingsLocalToggle(
+    applyUpdateChecksToggle(
       state,
       source,
       { restartUpdateCheck: () => { restarts += 1; } },
-      "update-checks",
       "off",
       () => false
     );

@@ -69,7 +69,6 @@ export async function cycleSettingsRow(
       applySettingsLocalToggle(
         state,
         source,
-        context,
         "compose-focus",
         state.config.composeFocus === "on" ? "off" : "on"
       );
@@ -77,16 +76,14 @@ export async function cycleSettingsRow(
       applySettingsLocalToggle(
         state,
         source,
-        context,
         "word-wrap",
         state.config.wordWrap === "on" ? "off" : "on"
       );
     } else if (row === "update-checks") {
-      applySettingsLocalToggle(
+      applyUpdateChecksToggle(
         state,
         source,
         context,
-        "update-checks",
         state.config.updates.mode === "notify" ? "off" : "on"
       );
     } else if (row === "provider") {
@@ -164,28 +161,39 @@ export function applySettingsTheme(
 export function applySettingsLocalToggle(
   state: RuntimeState,
   source: AppSource,
-  context: Pick<ActionContext, "restartUpdateCheck">,
-  row: "compose-focus" | "word-wrap" | "update-checks",
-  value: "on" | "off",
-  persist: (config: UserConfig) => boolean = saveConfig
+  row: "compose-focus" | "word-wrap",
+  value: "on" | "off"
 ): void {
   state.config = row === "compose-focus"
     ? { ...state.config, composeFocus: value }
-    : row === "word-wrap"
-      ? { ...state.config, wordWrap: value }
-      : {
-          ...state.config,
-          updates: { ...state.config.updates, mode: value === "on" ? "notify" : "off" }
-        };
+    : { ...state.config, wordWrap: value };
   source.config = state.config;
-  const saved = state.demo || persist(state.config);
-  if (row === "update-checks") context.restartUpdateCheck?.();
+  if (!state.demo) saveConfig(state.config);
   const label = row === "compose-focus"
     ? "compose focus"
-    : row === "word-wrap"
-      ? "word wrap"
-      : "update checks";
-  state.toast = row === "update-checks" && !saved
-    ? `${label} · ${value} for this session · config not saved`
-    : `${label} · ${value}`;
+    : "word wrap";
+  state.toast = `${label} · ${value}`;
+}
+
+/** Persist and immediately apply the update-check preference. */
+export function applyUpdateChecksToggle(
+  state: RuntimeState,
+  source: AppSource,
+  context: Pick<ActionContext, "restartUpdateCheck">,
+  value: "on" | "off",
+  persist: (config: UserConfig) => boolean = saveConfig
+): void {
+  state.config = {
+    ...state.config,
+    updates: {
+      ...state.config.updates,
+      mode: value === "on" ? "notify" : "off"
+    }
+  };
+  source.config = state.config;
+  const saved = state.demo || persist(state.config);
+  context.restartUpdateCheck?.();
+  state.toast = saved
+    ? `update checks · ${value}`
+    : `update checks · ${value} for this session · config not saved`;
 }
