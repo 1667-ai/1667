@@ -461,3 +461,33 @@ test("an async auto-selected model with no known context window still starts a b
   expect(state.settings?.draft.generation.contextWindow).toBe(32_768);
   expect(state.settings?.probing).toBeFalse();
 });
+
+// A superseded probe still owns the spinner it started. If only the current
+// request could clear `overlay.probing`, a replacement that never runs (the
+// writer typed the size while the first probe was in flight, so the lane's
+// `stillWanted` is false) would leave Settings marked as probing forever and
+// suppress its result display from then on.
+test("a superseded probe still clears the probing state", async () => {
+  const { source, state, backend, press } = settingsHarness();
+  configureNetworkSource(source);
+  const entered = deferred<void>();
+  const gate = deferred<{ contextWindow: number | null }>();
+  source.api.probeContextWindow = async () => {
+    entered.resolve();
+    return gate.promise;
+  };
+  await openSettings(press);
+
+  const committing = draftRow(press, state, "model", "gpt-5.9");
+  await entered.promise;
+  expect(state.settings?.probing).toBeTrue();
+
+  // The writer answers the question themselves while the probe is in flight.
+  await draftRow(press, state, "context-window", "12345");
+  gate.resolve({ contextWindow: 65_536 });
+  await committing;
+  await settleBackend(backend);
+
+  expect(state.settings?.probing).toBeFalse();
+  expect(state.settings?.draft.generation.contextWindow).toBe(12_345);
+});

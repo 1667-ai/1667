@@ -26,10 +26,18 @@ export interface ActionRunner {
   run(label: string, work: ActionWork, options?: ActionRunOptions): Promise<boolean>;
   whenIdle(): Promise<boolean>;
   observe(work: Promise<unknown>): void;
-  /** Run `work` once the exclusive slot is free, without ever claiming it —
-   * a caller here has explicitly opted out of foreground priority, so an
-   * explicit action (`run`) always outranks it and can never be rejected
-   * as busy on its account. `key` names a lane: a second request for the
+  /** Run `work` once the exclusive slot is free, instead of failing against
+   * it. This waits for the slot; it does not claim one. Whether the slot
+   * stays free while `work` runs is `work`'s own choice: the context probe
+   * (settings-context-detection.ts) never claims it, so a writer action
+   * always outranks that probe, while the discovery and record-detail
+   * retries call `run` inside their `work` and do claim it, exactly as they
+   * did before they moved here. Read the caller to know which.
+   *
+   * A `work` that awaits anything before it calls `run` can still be
+   * refused the slot, and this driver does not retry a refused attempt —
+   * it re-checks the slot before each attempt, not after. No current caller
+   * awaits before calling `run`. `key` names a lane: a second request for the
    * same key replaces whatever that lane is currently doing (waiting, or
    * already running `work`) instead of starting a second concurrent
    * attempt — the lane always ends up serving the most recent request, at
@@ -191,6 +199,10 @@ export class ActionRuntime implements ActionRunner {
     this.whenIdleLanes.set(key, lane);
     const driver = this.driveWhenIdleLane(key, lane, debounceMs);
     this.background.add(driver);
+    // `stillWanted` and `repaint` run outside the driver's inner try, so a
+    // throw there would surface as an unhandled rejection. Route it through
+    // the same swallow-and-toast every other background caller gets.
+    this.observe(driver);
     void driver.finally(() => this.background.delete(driver));
   }
 

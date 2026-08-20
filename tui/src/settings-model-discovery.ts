@@ -157,11 +157,12 @@ export async function discoverSettingsModels(
     request
   );
   if (!admitted && ownsCurrentRequest(state, overlay, request)) {
-    // The runtime was busy for the eager attempt above. `runWhenIdle`
-    // handles the wait-then-retry loop itself — including re-checking
-    // busy/disposal on every wake — so this only has to hand it the same
-    // request and the same ownership predicate `discoverSettingsModels`
-    // already used to decide the eager attempt was still wanted.
+    // The runtime was busy for the eager attempt above. `runWhenIdle` waits
+    // for the slot and re-checks busy and disposal on every wake, so this
+    // only has to hand it the same request and the same ownership predicate
+    // `discoverSettingsModels` already used to decide the eager attempt was
+    // still wanted. It re-checks the slot before each attempt rather than
+    // after one, so the request must reach `run` without awaiting first.
     context.backend.runWhenIdle(
       MODEL_DISCOVERY_RETRY_LANE,
       () => runModelDiscoveryRequest(state, source, context, overlay, request).then(() => undefined),

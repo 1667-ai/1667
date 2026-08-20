@@ -22,7 +22,7 @@ import type { RuntimeState, SettingsOverlayState } from "./state.js";
  * these, not the full `AppSource`/`ActionContext` the manual `p` action's
  * caller passes (a wider object satisfies a narrower parameter type, so
  * that caller is unaffected). */
-type ProbeSource = Pick<AppSource, "api">;
+type ProbeSource = Pick<AppSource, "api" | "contextProbeDebounceMs">;
 type ProbeContext = Pick<ActionContext, "backend" | "repaint">;
 
 /** The probe engine: build the target, call the API, and apply the result
@@ -121,8 +121,17 @@ async function runContextProbe(
       overlay.resultRow = "context-window";
     }
   } finally {
-    if (isCurrent() && state.settings === overlay) {
+    // Clear progress and repaint whenever this overlay still owns the
+    // spinner, even if a newer request superseded this one: `isCurrent()`
+    // alone would leave `probing` set forever when the replacement never
+    // runs (the writer typed the size while this was in flight, so
+    // `stillWanted` is false), and Settings would suppress its result
+    // display from then on. The repaint is this path's own job — the
+    // automatic trigger never claims the exclusive slot, so nothing
+    // repaints for it the way `ActionRuntime.run` does for the manual one.
+    if (state.settings === overlay && overlay.probing) {
       overlay.probing = false;
+      context.repaint();
     }
   }
 }
@@ -168,6 +177,13 @@ export async function detectSettingsContext(
  * whatever it is currently doing rather than piling another attempt on
  * top of it. */
 const AUTOMATIC_PROBE_LANE = "settings-context-probe";
+
+/** How long a model change waits before its automatic probe fires, so a
+ *  burst of edits collapses into one provider request instead of one per
+ *  edit. Mirrors `SEARCH_DEBOUNCE_MS` (search-request.ts), which coalesces
+ *  typing the same way. A source that answers from memory overrides it with
+ *  0 so tests do not wait on a timer. */
+export const CONTEXT_PROBE_DEBOUNCE_MS = 150;
 
 /** The preconditions that decide whether the overlay's current model
  * identity still needs a context-window probe at all: the overlay is still
@@ -226,7 +242,8 @@ export function detectSettingsContextForModelChange(
   context.backend.runWhenIdle(
     AUTOMATIC_PROBE_LANE,
     (isCurrent) => runContextProbe(state, source, context, overlay, isCurrent),
-    () => settingsModelChangeNeedsProbe(state, overlay)
+    () => settingsModelChangeNeedsProbe(state, overlay),
+    source.contextProbeDebounceMs ?? CONTEXT_PROBE_DEBOUNCE_MS
   );
 }
 
