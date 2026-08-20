@@ -25,7 +25,8 @@ import {
   createReleaseLauncherManifest,
   createReleasePlatformManifest,
   RELEASE_LICENSE_FILES,
-  RELEASE_LICENSE_FILE_DIGESTS
+  RELEASE_LICENSE_FILE_DIGESTS,
+  RELEASE_PACKAGE_NOTICE
 } from "./release-package-manifests.js";
 import {
   type ReleasePackageTemplate
@@ -39,6 +40,7 @@ const MAX_EXECUTABLE_BYTES = 256 * 1024 * 1024;
 const MAX_LAUNCHER_BYTES = 128 * 1024;
 
 export type ReleaseContentArtifact = "launcher" | BuiltArtifactTarget;
+export type ReleaseContentDistribution = "npm-package" | "release-archive";
 
 export type ReleaseContentSource =
   | { readonly kind: "executable" }
@@ -48,6 +50,7 @@ export type ReleaseContentSource =
       readonly sha256: string;
       readonly bytes: number;
     }
+  | { readonly kind: "package-notice" }
   | { readonly kind: "build-manifest" }
   | { readonly kind: "sbom" };
 
@@ -76,6 +79,8 @@ export interface StagedReleaseContent {
 }
 
 export interface StageReleaseContentOptions {
+  /** Selects the canonical NOTICE policy for this distribution. */
+  readonly distribution: ReleaseContentDistribution;
   readonly template: ReleasePackageTemplate;
   readonly sbom: ReleaseSbom;
   /** Validated entries that the materializer must write without reconstruction. */
@@ -109,7 +114,8 @@ export function releaseContentFileSet(
     manifest.files,
     executable,
     descriptor?.platform ?? null,
-    executablePath
+    executablePath,
+    "release-archive"
   );
 }
 
@@ -127,7 +133,8 @@ export function releasePackageContentFileSet(
     template.packageManifest.files,
     executable,
     descriptor?.platform ?? null,
-    layout?.executablePath ?? path.posix.basename(executable)
+    layout?.executablePath ?? path.posix.basename(executable),
+    "npm-package"
   );
 }
 
@@ -147,7 +154,7 @@ export function stageReleaseContent(
     throw new Error(`Release SBOM does not match ${packageName}`);
   }
   const entries = options.entries;
-  assertEntriesMatchTemplate(entries, template, options.layout);
+  assertEntriesMatchTemplate(entries, template, options.layout, options.distribution);
   const finalDirectory = freshOutputPath(options.directory);
   const directory = temporarySiblingDirectory(finalDirectory);
   try {
@@ -164,6 +171,8 @@ export function stageReleaseContent(
         copyFileSync(executable, destination);
       } else if (entry.source.kind === "repository-file") {
         writeFileSync(destination, reviewedRepositoryFile(entry.source));
+      } else if (entry.source.kind === "package-notice") {
+        writeFileSync(destination, RELEASE_PACKAGE_NOTICE, "utf8");
       } else if (entry.source.kind === "build-manifest") {
         writeFileSync(destination, `${canonicalJson(template.buildManifest)}\n`, "utf8");
       } else {
@@ -200,7 +209,8 @@ function contentEntry(
   name: string,
   executable: string,
   platform: CanonicalReleaseTarget["platform"] | null,
-  executablePath: string
+  executablePath: string,
+  distribution: ReleaseContentDistribution
 ): ReleaseContentEntry {
   if (name === executable) {
     return Object.freeze({
@@ -211,6 +221,13 @@ function contentEntry(
   }
   for (const licenceFile of RELEASE_LICENSE_FILES) {
     if (name !== licenceFile) continue;
+    if (name === "NOTICE" && distribution === "npm-package") {
+      return Object.freeze({
+        path: licenceFile,
+        mode: 0o644,
+        source: Object.freeze({ kind: "package-notice" as const })
+      });
+    }
     const pinned = RELEASE_LICENSE_FILE_DIGESTS[licenceFile];
     return Object.freeze({
       path: licenceFile,
@@ -244,19 +261,27 @@ function contentFileSet(
   files: readonly string[],
   executable: string,
   platform: CanonicalReleaseTarget["platform"] | null,
-  executablePath: string
+  executablePath: string,
+  distribution: ReleaseContentDistribution
 ): readonly ReleaseContentEntry[] {
   return Object.freeze(files.map((name) => {
-    return contentEntry(name, executable, platform, executablePath);
+    return contentEntry(name, executable, platform, executablePath, distribution);
   }));
 }
 
 function assertEntriesMatchTemplate(
   entries: readonly ReleaseContentEntry[],
   template: ReleasePackageTemplate,
-  layout: ReleaseContentLayout | undefined
+  layout: ReleaseContentLayout | undefined,
+  distribution: ReleaseContentDistribution
 ): void {
-  const expected = releasePackageContentFileSet(template, layout);
+  const expected = distribution === "npm-package"
+    ? releasePackageContentFileSet(template, layout)
+    : releaseContentFileSet(
+        template.buildManifest.artifactTarget,
+        template.packageManifest.version,
+        layout
+      );
   if (canonicalJson(entries) !== canonicalJson(expected)) {
     throw new Error(`Release contents do not match ${template.packageManifest.name}`);
   }

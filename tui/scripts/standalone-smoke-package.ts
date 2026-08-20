@@ -37,7 +37,7 @@ import {
   createReleaseLauncherManifest,
   createReleasePlatformManifest,
   releasePackageJson,
-  RELEASE_LICENSE_FILES
+  RELEASE_PACKAGE_NOTICE
 } from "../../scripts/release-package-manifests.js";
 import {
   createReleasePackageBuildManifest
@@ -92,6 +92,7 @@ export async function smokeWindowsNpmPackage(
     WINDOWS_TARGET.artifactTarget,
     identity.productVersion
   );
+  const noticeText = await readFile(path.join(repositoryRoot, "NOTICE"), "utf8");
   await Promise.all([
     mkdir(path.dirname(launcher), { recursive: true }),
     mkdir(path.dirname(stagedExecutable), { recursive: true })
@@ -113,7 +114,7 @@ export async function smokeWindowsNpmPackage(
     ),
     writeJson(
       path.join(launcherRoot, "sbom.spdx.json"),
-      smokeSbom(identity, launcherManifest.name)
+      smokeSbom(identity, launcherManifest.name, noticeText)
     ),
     writeJson(
       path.join(platformRoot, "package.json"),
@@ -129,18 +130,12 @@ export async function smokeWindowsNpmPackage(
     ),
     writeJson(
       path.join(platformRoot, "sbom.spdx.json"),
-      smokeSbom(identity, platformManifest.name)
+      smokeSbom(identity, platformManifest.name, noticeText)
     ),
-    ...RELEASE_LICENSE_FILES.flatMap((name) => [
-      copyFile(
-        path.join(repositoryRoot, name),
-        path.join(launcherRoot, name)
-      ),
-      copyFile(
-        path.join(repositoryRoot, name),
-        path.join(platformRoot, name)
-      )
-    ])
+    copyFile(path.join(repositoryRoot, "LICENSE"), path.join(launcherRoot, "LICENSE")),
+    copyFile(path.join(repositoryRoot, "LICENSE"), path.join(platformRoot, "LICENSE")),
+    writeFile(path.join(launcherRoot, "NOTICE"), RELEASE_PACKAGE_NOTICE, "utf8"),
+    writeFile(path.join(platformRoot, "NOTICE"), RELEASE_PACKAGE_NOTICE, "utf8")
   ]);
 
   const packRoot = path.join(directory, "npm-pack");
@@ -342,6 +337,7 @@ async function packAndValidate(
     && launcher?.mode === 0o644) {
     validateReleaseTarballInspection({
       packageJsonSha256: parsed.inspection.packageJsonSha256,
+      noticeAttribution: parsed.inspection.noticeAttribution,
       entries: parsed.inspection.entries.map((entry) =>
         entry === launcher ? { ...entry, mode: 0o755 } : entry)
     }, manifest);
@@ -418,8 +414,10 @@ async function runNpm(
 
 function smokeSbom(
   identity: BuildIdentity,
-  packageName: string
+  packageName: string,
+  noticeText: string
 ): Record<string, unknown> {
+  const productId = "SPDXRef-Package-1667";
   return {
     spdxVersion: "SPDX-2.3",
     dataLicense: "CC0-1.0",
@@ -429,7 +427,13 @@ function smokeSbom(
     creationInfo: {
       created: identity.buildTimestamp,
       creators: ["Tool: 1667 standalone package smoke"]
-    }
+    },
+    documentDescribes: [productId],
+    packages: [{
+      SPDXID: productId,
+      name: "1667",
+      attributionTexts: [noticeText]
+    }]
   };
 }
 

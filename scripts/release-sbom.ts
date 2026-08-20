@@ -77,18 +77,39 @@ export function createReleaseSboms(
   const launcher = formatSbom(
     RELEASE_LAUNCHER_PACKAGE,
     "launcher",
-    launcherSbomDocument(source),
+    assertNoticeAttribution(
+      launcherSbomDocument(source),
+      source.noticeText,
+      RELEASE_LAUNCHER_PACKAGE
+    ),
     validate
   );
   const platforms = BUILT_ARTIFACT_TARGETS.map((target) => {
     return formatSbom(
       releaseTargetForArtifact(target).packageName,
       target,
-      platformSbomDocument(source, target, releaseBundledComponents(sources, target)),
+      assertNoticeAttribution(
+        platformSbomDocument(source, target, releaseBundledComponents(sources, target)),
+        source.noticeText,
+        releaseTargetForArtifact(target).packageName
+      ),
       validate
     );
   });
   return Object.freeze({ launcher, platforms: Object.freeze(platforms) });
+}
+
+function assertNoticeAttribution(
+  document: SpdxDocument,
+  noticeText: string,
+  packageName: string
+): SpdxDocument {
+  const product = document.packages.find((entry) => entry.name === "1667");
+  if (product?.attributionTexts?.length !== 1
+    || product.attributionTexts[0] !== noticeText) {
+    throw new Error(`Release SBOM for ${packageName} has incomplete NOTICE attribution`);
+  }
+  return document;
 }
 
 export function releaseSbomForPackage(set: ReleaseSbomSet, packageName: string): ReleaseSbom {
@@ -167,7 +188,7 @@ function isMainModule(): boolean {
   }
 }
 
-// The three source facts become only the four fields an SBOM uses.
+// The release facts and current NOTICE become the fields an SBOM uses.
 const USAGE = "usage: release-sbom.ts <version> <commit> <timestamp> <package-name>";
 
 if (isMainModule()) {

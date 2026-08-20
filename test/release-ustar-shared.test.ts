@@ -17,10 +17,12 @@ import {
 } from "../scripts/release-package-policy.js";
 import {
   createReleasePlatformManifest,
-  releasePackageJson
+  releasePackageJson,
+  RELEASE_PACKAGE_NOTICE
 } from "../scripts/release-package-manifests.js";
 import { readReleaseTarball } from "../scripts/release-tar-reader.js";
 import { extractPlatformPackageExecutable } from "../shared/release-tar-extract.js";
+import { RELEASE_SBOM_FIXTURE } from "./release-sbom-fixture.js";
 import { ustarArchive } from "./ustar-fixture.js";
 
 const REPOSITORY_ROOT = path.resolve(
@@ -28,7 +30,7 @@ const REPOSITORY_ROOT = path.resolve(
   ".."
 );
 const LICENSE = await readFile(path.join(REPOSITORY_ROOT, "LICENSE"));
-const NOTICE = await readFile(path.join(REPOSITORY_ROOT, "NOTICE"));
+const NOTICE = Buffer.from(RELEASE_PACKAGE_NOTICE, "utf8");
 
 const PLATFORM_MANIFEST = releasePackageJson(
   createReleasePlatformManifest("linux-x64", "3.0.0")
@@ -63,7 +65,7 @@ function platformFixture(executableMode: number): Buffer {
       name: "package/sbom.spdx.json",
       type: "0",
       mode: 0o644,
-      body: Buffer.from('{"spdxVersion":"SPDX-2.3"}')
+      body: RELEASE_SBOM_FIXTURE
     },
     { name: "package/LICENSE", type: "0", mode: 0o644, body: LICENSE },
     { name: "package/NOTICE", type: "0", mode: 0o644, body: NOTICE }

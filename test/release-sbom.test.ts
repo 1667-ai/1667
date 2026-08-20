@@ -15,12 +15,13 @@ import {
 } from "../shared/release-targets.js";
 import {
   createReleaseLauncherManifest,
-  RELEASE_LICENSE_FILE_DIGESTS
+  RELEASE_PACKAGE_LICENSE_FILE_DIGESTS
 } from "../scripts/release-package-manifests.js";
 import {
   MAX_RELEASE_SBOM_BYTES,
   validateReleaseTarballInspection
 } from "../scripts/release-package-policy.js";
+import { RELEASE_NOTICE_ATTRIBUTION } from "./release-sbom-fixture.js";
 import {
   RELEASE_BUN_RUNTIME,
   RELEASE_SBOM_EXCLUDED_PACKAGES,
@@ -60,7 +61,8 @@ const source = createReleaseSbomSource({
   productVersion: "3.0.0",
   sourceCommit: SOURCE_COMMIT,
   tagName: "v3.0.0",
-  buildTimestamp: BUILD_TIMESTAMP
+  buildTimestamp: BUILD_TIMESTAMP,
+  noticeText: readFileSync(path.join(REPOSITORY_ROOT, "NOTICE"), "utf8")
 });
 
 /** The real repository lockfiles: the only two dependency sources involved. */
@@ -322,6 +324,22 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
   }
 });
 
+test("each product SBOM carries the current notice attribution", () => {
+  const set = createReleaseSboms(source, repositorySources());
+  const notice = readFileSync(path.join(REPOSITORY_ROOT, "NOTICE"), "utf8");
+  for (const sbom of [set.launcher, ...set.platforms]) {
+    const product = packageNamed(sbom.document, "1667");
+    assert.deepEqual(product.attributionTexts, [notice]);
+    const parsed = parseJsonRejectingDuplicateKeys(sbom.text) as {
+      packages: { name: string; attributionTexts?: string[] }[];
+    };
+    assert.deepEqual(
+      parsed.packages.find((entry) => entry.name === "1667")?.attributionTexts,
+      [notice]
+    );
+  }
+});
+
 test("every component carries a canonical package URL", () => {
   const set = createReleaseSboms(source, repositorySources());
   const platform = platformSbom(set, "linux-x64").document;
@@ -503,6 +521,7 @@ function launcherInspectionWithSbomBytes(bytes: number): ReturnType<
   };
   return validateReleaseTarballInspection({
     packageJsonSha256: digest("package.json"),
+    noticeAttribution: RELEASE_NOTICE_ATTRIBUTION,
     entries: [
       { path: "package", type: "directory", mode: 0o755, size: 0, sha256: null },
       { path: "package/bin", type: "directory", mode: 0o755, size: 0, sha256: null },
@@ -538,15 +557,15 @@ function launcherInspectionWithSbomBytes(bytes: number): ReturnType<
         path: "package/LICENSE",
         type: "file",
         mode: 0o644,
-        size: RELEASE_LICENSE_FILE_DIGESTS.LICENSE.bytes,
-        sha256: RELEASE_LICENSE_FILE_DIGESTS.LICENSE.sha256
+        size: RELEASE_PACKAGE_LICENSE_FILE_DIGESTS.LICENSE.bytes,
+        sha256: RELEASE_PACKAGE_LICENSE_FILE_DIGESTS.LICENSE.sha256
       },
       {
         path: "package/NOTICE",
         type: "file",
         mode: 0o644,
-        size: RELEASE_LICENSE_FILE_DIGESTS.NOTICE.bytes,
-        sha256: RELEASE_LICENSE_FILE_DIGESTS.NOTICE.sha256
+        size: RELEASE_PACKAGE_LICENSE_FILE_DIGESTS.NOTICE.bytes,
+        sha256: RELEASE_PACKAGE_LICENSE_FILE_DIGESTS.NOTICE.sha256
       }
     ]
   }, createReleaseLauncherManifest("3.0.0"));

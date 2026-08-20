@@ -25,8 +25,8 @@ const RELEASE_ARTIFACT_INPUTS: unique symbol = Symbol("release-artifact-inputs")
  * released, the commit it is built from, and the single timestamp the run
  * stamps on every artifact.
  *
- * Three strings, and deliberately nothing larger. A collector validates these
- * facts before a producer uses them.
+ * The release identity uses three strings. The collector also snapshots the
+ * repository NOTICE for the release SBOM before a producer uses the source.
  */
 export interface ReleaseSourceFacts {
   readonly version: string;
@@ -43,6 +43,7 @@ export interface ReleaseArtifactInputs {
 export interface CollectedReleaseSource {
   readonly [RELEASE_ARTIFACT_INPUTS]: true;
   readonly facts: Readonly<ReleaseSourceFacts>;
+  readonly noticeText: string;
 }
 
 /** Collects source facts against the package versions in one repository. */
@@ -52,7 +53,10 @@ export function collectReleaseSourceFromRepository(
 ): CollectedReleaseSource {
   const root = boundedRepositoryRoot(repositoryRoot);
   const snapshot = validateReleaseSource(facts, repositoryPackageVersions(root));
-  const collected = { facts: snapshot } as CollectedReleaseSource;
+  const collected = {
+    facts: snapshot,
+    noticeText: readNoticeFile(root)
+  } as CollectedReleaseSource;
   Object.defineProperty(collected, RELEASE_ARTIFACT_INPUTS, { value: true });
   return Object.freeze(collected);
 }
@@ -72,7 +76,7 @@ export function releaseArtifactInputs(
       sourceCommit: facts.sourceCommit,
       buildTimestamp: facts.buildTimestamp
     }),
-    sbomSource: sbomSourceFromFacts(facts)
+    sbomSource: sbomSourceFromFacts(facts, source.noticeText)
   });
 }
 
@@ -107,17 +111,20 @@ export function collectRepositoryReleaseSource(
 export function collectRepositoryReleaseSbomSource(
   facts: ReleaseSourceFacts
 ): ReleaseSbomSource {
+  const root = currentRepositoryRoot();
   return sbomSourceFromFacts(
-    validateReleaseSource(facts, repositoryPackageVersions(currentRepositoryRoot()))
+    validateReleaseSource(facts, repositoryPackageVersions(root)),
+    readNoticeFile(root)
   );
 }
 
-function sbomSourceFromFacts(facts: ReleaseSourceFacts): ReleaseSbomSource {
+function sbomSourceFromFacts(facts: ReleaseSourceFacts, noticeText: string): ReleaseSbomSource {
   return createReleaseSbomSource({
     productVersion: facts.version,
     sourceCommit: facts.sourceCommit,
     buildTimestamp: facts.buildTimestamp,
-    tagName: `v${facts.version}`
+    tagName: `v${facts.version}`,
+    noticeText
   });
 }
 
@@ -175,4 +182,17 @@ function boundedRepositoryRoot(value: string): string {
     throw new Error("Release repository root must be a real directory");
   }
   return realpathSync(resolved);
+}
+
+function readNoticeFile(root: string): string {
+  const file = path.join(root, "NOTICE");
+  const stat = lstatSync(file);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > 1024 * 1024) {
+    throw new Error("Release repository NOTICE must be a bounded regular file");
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(realpathSync(file)));
+  } catch (error) {
+    throw new Error("Release repository NOTICE is not UTF-8", { cause: error });
+  }
 }

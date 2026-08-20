@@ -331,7 +331,11 @@ test("managed extraction accepts a future NOTICE but keeps archive safety policy
           packageName: PACKAGE,
           version: NEXT,
           target: TARGET,
-          noticeBody: futureNotice
+          noticeBody: futureNotice,
+          sbomBody: JSON.stringify({
+            spdxVersion: "SPDX-2.3",
+            packages: [{ name: "1667", attributionTexts: [futureNotice] }]
+          })
         }),
         accepted: true
       },

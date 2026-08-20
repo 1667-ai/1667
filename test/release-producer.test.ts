@@ -53,6 +53,7 @@ import {
   releaseArtifactInputs,
   type CollectedReleaseSource
 } from "../scripts/release-source-facts.js";
+import { RELEASE_PACKAGE_NOTICE } from "../scripts/release-package-manifests.js";
 import {
   assertMissing,
   tarModificationTimes
@@ -142,6 +143,18 @@ async function runUnsignedReleaseHandoff(
   );
   assert.ok(first.every((entry) => entry.published));
   await assertNormalizedMtimes(first);
+  const currentNotice = await readFile(path.join(REPOSITORY_ROOT, "NOTICE"), "utf8");
+  for (const staged of first) {
+    assert.equal(
+      await readFile(path.join(staged.directory, "NOTICE"), "utf8"),
+      RELEASE_PACKAGE_NOTICE
+    );
+    const sbom = JSON.parse(
+      await readFile(path.join(staged.directory, "sbom.spdx.json"), "utf8")
+    ) as { packages: { name: string; attributionTexts?: string[] }[] };
+    const product = sbom.packages.find((entry) => entry.name === "1667");
+    assert.deepEqual(product?.attributionTexts, [currentNotice]);
+  }
 
   const firstPacked = await packReleasePackages({
     packages: first,
@@ -545,6 +558,10 @@ async function collectUnsignedReleaseEvidence(root: string, version: string) {
     writeFile(
       path.join(repository, "tui", "package.json"),
       JSON.stringify(tuiManifest)
+    ),
+    writeFile(
+      path.join(repository, "NOTICE"),
+      await readFile(path.join(REPOSITORY_ROOT, "NOTICE"))
     )
   ]);
   const environment: NodeJS.ProcessEnv = {
