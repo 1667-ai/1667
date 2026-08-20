@@ -3,6 +3,7 @@
  * retry ownership, and leaf-gap markers around chapter chrome.
  */
 import { describe, expect, test } from "bun:test";
+import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import type { KeyEvent } from "@opentui/core";
 import { createAsideSurface } from "../src/aside-surface.js";
 import {
@@ -53,7 +54,8 @@ function overlayContext(
     repaint: () => undefined,
     renderer: { width, height } as never,
     applyTheme: () => undefined,
-    previewTheme: () => undefined
+    previewTheme: () => undefined,
+    updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
   };
 }
 

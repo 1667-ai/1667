@@ -80,14 +80,16 @@ export function settingsHarness(
     repaint,
     async () => undefined,
     requestQuit,
-    null,
-    (theme) => {
-      state.config = { ...state.config, theme };
-      source.config = state.config;
-    },
-    () => undefined,
-    backend,
-    { restartUpdateCheck }
+    {
+      updateChecks: { restartUpdateCheck },
+      renderer: null,
+      applyTheme: (theme) => {
+        state.config = { ...state.config, theme };
+        source.config = state.config;
+      },
+      previewTheme: () => undefined,
+      backend
+    }
   );
   return { source, state, cache, backend, press, repaints: () => repaintCount };
 }

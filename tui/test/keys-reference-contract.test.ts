@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
+import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { ActionRuntime } from "../src/action-runtime.js";
 import { initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
@@ -101,7 +102,8 @@ describe("keys reference contract", () => {
         repaint: () => undefined,
         renderer: { height: 10 } as never,
         applyTheme: () => undefined,
-        previewTheme: () => undefined
+        previewTheme: () => undefined,
+        updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
       })).toBeTrue();
     };
     state.mode = "KEYS";

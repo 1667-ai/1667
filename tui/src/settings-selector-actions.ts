@@ -1,4 +1,4 @@
-import type { ActionContext, SettingsActionContext } from "./action-context.js";
+import type { ActionContext, OverlayActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
 import {
   saveConfig,
@@ -45,7 +45,7 @@ export async function cycleSettingsRow(
   step: -1 | 1,
   state: RuntimeState,
   source: AppSource,
-  context: SettingsActionContext,
+  context: OverlayActionContext,
   overlay: SettingsOverlayState,
   magnitude: ScalarMagnitude = "step"
 ): Promise<void> {
@@ -179,7 +179,7 @@ export function applySettingsLocalToggle(
 export function applyUpdateChecksToggle(
   state: RuntimeState,
   source: AppSource,
-  context: Pick<SettingsActionContext, "restartUpdateCheck">,
+  context: Pick<OverlayActionContext, "updateChecks">,
   value: "on" | "off",
   persist: (config: UserConfig) => boolean = saveConfig
 ): void {
@@ -190,7 +190,7 @@ export function applyUpdateChecksToggle(
       mode: value === "on" ? "notify" : "off"
     }
   };
-  context.restartUpdateCheck(nextConfig);
+  context.updateChecks.restartUpdateCheck(nextConfig);
   state.config = nextConfig;
   source.config = nextConfig;
   const saved = state.demo || persist(nextConfig);

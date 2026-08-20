@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import type { KeyEvent, MouseEvent } from "@opentui/core";
 import {
   createAsideSurface,
@@ -60,7 +61,8 @@ function overlayContext(
       ? null
       : { width, height } as never,
     applyTheme: () => undefined,
-    previewTheme: () => undefined
+    previewTheme: () => undefined,
+    updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
   };
 }
 

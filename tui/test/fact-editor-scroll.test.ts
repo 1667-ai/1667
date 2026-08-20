@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { MouseEvent } from "@opentui/core";
+import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { dispatch, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { mouseToAction } from "../src/mouse-actions.js";
@@ -91,7 +92,7 @@ describe("Fact editor scrolling", () => {
         () => {},
         async () => {},
         () => {},
-        { width, height } as never
+        { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE, renderer: { width, height } as never }
       );
     }
     const after = render();

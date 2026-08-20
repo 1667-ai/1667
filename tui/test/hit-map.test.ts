@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import type { KeyEvent } from "@opentui/core";
 import { dispatch, initialState } from "../src/app.js";
 import { commandContext, commandMatches } from "../src/command-model.js";
@@ -180,7 +181,7 @@ describe("hit map from rendered frames", () => {
     expect(clickText(frame, state, "switch story")).toEqual({ action: "open-selected" });
     const exportClick = clickText(frame, state, "export markdown");
     expect(exportClick).toEqual({ action: "focus-index", index: exportCursor });
-    await dispatch(exportClick!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    await dispatch(exportClick!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
     expect(state.commands?.selectedId).toBe("export");
   });
 
@@ -212,12 +213,12 @@ describe("hit map from rendered frames", () => {
     const exportCursor = ready.findIndex(({ command }) => command.id === "export");
     const exportClick = clickText(frame, state, "export markdown");
     expect(exportClick).toEqual({ action: "focus-index", index: exportCursor });
-    await dispatch(exportClick!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    await dispatch(exportClick!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
     expect(state.commands?.selectedId).toBe("export");
 
     await dispatch(
       { action: "focus-previous" }, state, source, createWrapCache(),
-      () => {}, async () => {}, () => {}
+      () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
     );
     expect(state.commands?.selectedId).toBe("tag-line");
   });
@@ -258,7 +259,7 @@ describe("hit map from rendered frames", () => {
       rowId: target.id
     });
 
-    await dispatch(expand!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    await dispatch(expand!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
     const expanded = render(state, 80, 24);
     expect(expanded.map(plainLine).join("\n")).toContain("final prompt token.");
     expect(state.expandedPromptIds).toContain(target.id);
@@ -271,7 +272,7 @@ describe("hit map from rendered frames", () => {
     } as never, state)).toBe(null);
 
     const collapse = mouseToAction(click(expandedHits[0]!.hit.left + 2, expandedHits[0]!.y), state);
-    await dispatch(collapse!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    await dispatch(collapse!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
     expect(state.expandedPromptIds).not.toContain(target.id);
   });
 
@@ -314,7 +315,7 @@ describe("hit map from rendered frames", () => {
       .toEqual({ kind: "list", index: 1, selected: false });
     const focus = mouseToAction(click(sourceRow!.hit.left, sourceRow!.row), state);
     expect(focus).toEqual({ action: "focus-index", index: 1 });
-    await dispatch(focus!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    await dispatch(focus!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
     expect(state.settings.profileTransfer?.phase).toBe("source");
     expect(state.settings.profileTransfer?.cursor).toBe(1);
 
@@ -363,7 +364,7 @@ describe("hit map from rendered frames", () => {
     const retry = clickText(frame, state, "R retries now");
     expect(retry).toEqual({ action: "retry" });
 
-    await dispatch(retry!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    await dispatch(retry!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
 
     expect(retries).toBe(1);
     expect(state.actions).toBe(menu);
@@ -633,7 +634,7 @@ describe("hit map from rendered frames", () => {
     const resolved = mouseToAction(click(located!.hit.left + 1, located!.y), state);
     expect(resolved).toEqual({ action: "open-facts", index: 1 });
     expect(mouseToAction(click(located!.hit.left + 1, located!.y, 2), state)).toBe(null);
-    await dispatch(resolved!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    await dispatch(resolved!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
     expect(state.mode).toBe("FACTS");
     expect(state.facts?.cursor).toBe(1);
   });
@@ -641,7 +642,7 @@ describe("hit map from rendered frames", () => {
   test("keyboard facts open selects the first Fact without an editor", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
-    await dispatch({ action: "open-facts" }, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    await dispatch({ action: "open-facts" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
     expect(state.mode).toBe("FACTS");
     expect(state.facts?.cursor).toBe(0);
   });
@@ -683,7 +684,7 @@ describe("hit map from rendered frames", () => {
       index: 0,
       rowId: source.payload.facts[0]!.id
     });
-    await dispatch(edit!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    await dispatch(edit!, state, source, createWrapCache(), () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE });
 
     expect(state.mode).toBe("EDITOR");
     expect(state.editor?.kind).toBe("fact");
@@ -732,7 +733,7 @@ describe("hit map from rendered frames", () => {
 
     await dispatch(
       { action: "input", text: "match" }, state, source, createWrapCache(),
-      () => {}, async () => {}, () => {}
+      () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
     );
     expect(state.facts.cursor).toBe(1);
     let frame = render(state, 80, 24);
@@ -740,7 +741,7 @@ describe("hit map from rendered frames", () => {
 
     await dispatch(
       { action: "focus-previous" }, state, source, createWrapCache(),
-      () => {}, async () => {}, () => {}
+      () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
     );
     frame = render(state, 80, 24);
     expect(state.facts.cursor).toBe(0);
@@ -748,11 +749,11 @@ describe("hit map from rendered frames", () => {
 
     await dispatch(
       { action: "input", text: "zzzz" }, state, source, createWrapCache(),
-      () => {}, async () => {}, () => {}
+      () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
     );
     await dispatch(
       { action: "focus-next" }, state, source, createWrapCache(),
-      () => {}, async () => {}, () => {}
+      () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
     );
     expect(state.facts.cursor).toBe(0);
   });
@@ -779,14 +780,14 @@ describe("hit map from rendered frames", () => {
     };
     await dispatch(
       { action: "edit" }, state, source, createWrapCache(),
-      () => {}, async () => {}, () => {}
+      () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
     );
     if (state.editor?.kind !== "fact") throw new Error("Fact editor did not open");
     setComposerText(state.editor.tag, "");
     setComposerText(state.editor.composer, "new prose\n");
     await dispatch(
       { action: "save-edit" }, state, source, createWrapCache(),
-      () => {}, async () => {}, () => {}
+      () => {}, async () => {}, () => {}, { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
     );
 
     expect(state.facts).toMatchObject({ chip: 1, cursor: 1 });

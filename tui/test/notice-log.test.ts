@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CliRenderer, KeyEvent } from "@opentui/core";
 import { ActionRuntime } from "../src/action-runtime.js";
+import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import {
   handleKey,
   initialState
@@ -32,7 +33,13 @@ function harness(rendererSize: { width: number; height: number } | null = null) 
   const renderer = rendererSize === null ? null : rendererSize as unknown as CliRenderer;
   const press = (event: KeyEvent) => handleKey(
     event, state, source, cache, () => undefined, async () => undefined,
-    () => undefined, renderer, () => undefined, () => undefined, backend
+    () => undefined, {
+      updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
+      renderer,
+      applyTheme: () => undefined,
+      previewTheme: () => undefined,
+      backend
+    }
   );
   return { source, state, cache, press };
 }

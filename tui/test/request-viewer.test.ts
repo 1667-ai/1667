@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent, MouseEvent } from "@opentui/core";
+import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { dispatch, handleKey, initialState } from "../src/app.js";
 import { setComposerText } from "../src/composer-model.js";
 import { commandPaletteModel } from "../src/command-model.js";
@@ -33,7 +34,8 @@ function harness() {
   const state = initialState(source, false);
   const pressRequest = () => handleKey(
     ctrlR, state, source, createWrapCache(), () => undefined,
-    async () => undefined, () => undefined
+    async () => undefined, () => undefined,
+    { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
   );
   return { source, state, pressRequest };
 }
@@ -465,7 +467,8 @@ describe("next request viewer", () => {
     };
     await dispatch(
       { action: "open-selected" }, state, source, createWrapCache(),
-      () => undefined, async () => undefined, () => undefined
+      () => undefined, async () => undefined, () => undefined,
+      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
     );
     expect(state).toMatchObject({ mode: "REQUEST", request: { returnMode: "NAV" } });
 
@@ -496,7 +499,8 @@ describe("next request viewer", () => {
       const retakeOwner = state.retakePrompt;
       const run = (action: Parameters<typeof dispatch>[0]) => dispatch(
         action, state, source, createWrapCache(),
-        () => undefined, async () => undefined, () => undefined
+        () => undefined, async () => undefined, () => undefined,
+        { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
       );
 
       await run({ action: "open-commands" });

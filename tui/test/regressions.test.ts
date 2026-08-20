@@ -8,6 +8,7 @@ import { InternalErrorReporter } from "../../server/internal-error-reporter.js";
 import { PublicRuntimeError } from "../../server/errors.js";
 import { errorFromFailureIncident } from "../../server/reported-service-error.js";
 import { createDemoController, demoAppSource } from "../src/demo.js";
+import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { STARTER_OPENING_STORY_ID } from "../../shared/starter-vault.js";
 import { handleKey, initialState } from "../src/app.js";
 import { createComposer } from "../src/composer-model.js";
@@ -101,7 +102,8 @@ describe("review regressions", () => {
       createWrapCache(),
       () => {},
       async () => {},
-      () => {}
+      () => {},
+      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
     );
     const frame = renderStoryScreen(state, { width: 80, height: 24 }).lines;
     const rendered = frame.map(plainLine).join("\n");
@@ -266,7 +268,8 @@ describe("review regressions", () => {
 
     await handleKey(
       key("right", "\u001b[C"), state, demoAppSource(), createWrapCache(),
-      () => {}, async () => {}, () => {}
+      () => {}, async () => {}, () => {},
+      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
     );
     expect(state.tag?.statusIndex).toBe(1);
     for (const [width, height] of [[80, 24], [120, 36]] as const) {
@@ -388,7 +391,8 @@ describe("review regressions", () => {
       createWrapCache(),
       () => {},
       async () => {},
-      () => {}
+      () => {},
+      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
     );
 
     const frame = renderStoryScreen(state, { width: 80, height: 24 });

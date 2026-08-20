@@ -4,6 +4,7 @@ import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 import type { StoryPayload, StorySummary } from "../../shared/types.js";
 import { ActionRuntime, beginInteraction } from "../src/action-runtime.js";
 import { ApiHttpError } from "../src/api.js";
+import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { initialState } from "../src/app.js";
 import { createComposer } from "../src/composer-model.js";
 import {
@@ -60,7 +61,8 @@ describe("backend recovery orchestration", () => {
       repaint: () => undefined,
       renderer: null,
       applyTheme: () => undefined,
-      previewTheme: () => undefined
+      previewTheme: () => undefined,
+      updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
     });
 
     expect(retries).toBe(1);
@@ -95,7 +97,8 @@ describe("backend recovery orchestration", () => {
       repaint: () => undefined,
       renderer: null,
       applyTheme: () => undefined,
-      previewTheme: () => undefined
+      previewTheme: () => undefined,
+      updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
     });
 
     expect(state.payload).toBe(recoveredPayload);
@@ -142,7 +145,8 @@ describe("backend recovery orchestration", () => {
       repaint,
       renderer: null,
       applyTheme: () => undefined,
-      previewTheme: () => undefined
+      previewTheme: () => undefined,
+      updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
     };
 
     backend.observe(handleOverlayAction({ action: "retry" }, state, source, context));
@@ -190,7 +194,8 @@ describe("backend recovery orchestration", () => {
       repaint: () => undefined,
       renderer: null,
       applyTheme: () => undefined,
-      previewTheme: () => undefined
+      previewTheme: () => undefined,
+      updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
     });
     await new Promise((resolve) => setTimeout(resolve, 150));
 
@@ -273,7 +278,8 @@ describe("backend recovery orchestration", () => {
       repaint: () => undefined,
       renderer: null,
       applyTheme: () => undefined,
-      previewTheme: () => undefined
+      previewTheme: () => undefined,
+      updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
     });
 
     await staleEntered.promise;

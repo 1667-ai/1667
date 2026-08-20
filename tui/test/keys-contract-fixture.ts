@@ -1,4 +1,5 @@
 import type { KeyEvent } from "@opentui/core";
+import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { ActionRuntime } from "../src/action-runtime.js";
 import { initialState } from "../src/app.js";
 import {
@@ -100,7 +101,7 @@ export async function composerChangedThroughSurface(
     renderer: null,
     applyTheme: () => undefined,
     previewTheme: () => undefined,
-    restartUpdateCheck: () => undefined
+    updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
   };
 
   if (surface === "COMPOSE") {

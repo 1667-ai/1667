@@ -102,7 +102,7 @@ import type {
   SettingsOverlayState,
   SettingsRowId
 } from "./state.js";
-import type { ActionContext, SettingsActionContext } from "./action-context.js";
+import type { ActionContext, OverlayActionContext } from "./action-context.js";
 
 export async function openSettingsOverlay(
   state: RuntimeState,
@@ -140,7 +140,7 @@ export async function settingsOverlayAction(
   resolved: ResolvedKey,
   state: RuntimeState,
   source: AppSource,
-  context: SettingsActionContext
+  context: OverlayActionContext
 ): Promise<boolean> {
   const overlay = state.settings!;
   // C-18: an action's in-place report keeps reporting "until the next

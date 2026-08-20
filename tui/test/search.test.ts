@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import { ActionRuntime } from "../src/action-runtime.js";
+import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { handleKey, initialState, type AppSource } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { renderStoryScreen } from "../src/screens/story.js";
@@ -22,7 +23,13 @@ function setupSearchHarness() {
   const press = async (name: string, sequence = name, ctrl = false) => {
     const pending = handleKey(
       key(name, sequence, ctrl), state, source, cache,
-      () => {}, async () => {}, () => {}, null, () => {}, () => {}, backend
+      () => {}, async () => {}, () => {}, {
+        updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
+        renderer: null,
+        applyTheme: () => undefined,
+        previewTheme: () => undefined,
+        backend
+      }
     );
     await backend.observe(pending);
     while (state.backendTask !== null) {
@@ -467,7 +474,13 @@ describe("global search screen and model", () => {
     const press = async (name: string, sequence = name, ctrl = false) => {
       const pending = handleKey(
         key(name, sequence, ctrl), state, source, cache,
-        () => {}, async () => {}, () => {}, null, () => {}, () => {}, backend
+        () => {}, async () => {}, () => {}, {
+          updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
+          renderer: null,
+          applyTheme: () => undefined,
+          previewTheme: () => undefined,
+          backend
+        }
       );
       await backend.observe(pending);
       while (state.backendTask !== null) {

@@ -2,6 +2,7 @@
  * Aside use-menu mouse hits and presented-frame reconciliation.
  */
 import { describe, expect, test } from "bun:test";
+import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { createAsideSurface } from "../src/aside-surface.js";
 import { demoAppSource } from "../src/demo.js";
 import { initialState } from "../src/app.js";
@@ -32,7 +33,8 @@ function overlayContext(
       ? null
       : { width, height } as never,
     applyTheme: () => undefined,
-    previewTheme: () => undefined
+    previewTheme: () => undefined,
+    updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
   };
 }
 

@@ -1,4 +1,5 @@
 import type { KeyEvent } from "@opentui/core";
+import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { handleKey, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
@@ -28,13 +29,16 @@ export function editorHarness(rendererWidth?: number) {
     () => undefined,
     async () => undefined,
     () => undefined,
-    rendererWidth === undefined
-      ? null
-      : {
-          width: rendererWidth,
-          height: 24,
-          clearSelection: () => undefined
-        } as never
+    {
+      updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
+      renderer: rendererWidth === undefined
+        ? null
+        : {
+            width: rendererWidth,
+            height: 24,
+            clearSelection: () => undefined
+          } as never
+    }
   );
   return { source, state, cache, press };
 }

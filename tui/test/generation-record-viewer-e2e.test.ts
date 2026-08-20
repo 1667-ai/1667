@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { KeyEvent } from "@opentui/core";
+import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { MAX_GENERATION_RECORD_TEXT_CHARS, type ResolvedGenerationRecord } from "../../shared/generation-record.js";
 import { textHash } from "../src/api.js";
 import { handleKey, initialState } from "../src/app.js";
@@ -150,7 +151,10 @@ describe("generation record viewer: end-to-end dry-run generation", () => {
     const payloadBefore = state.payload;
     const cache = createWrapCache<ProseStyle>();
 
-    await handleKey(key("h"), state, source, cache, () => {}, async () => {}, () => {});
+    await handleKey(
+      key("h"), state, source, cache, () => {}, async () => {}, () => {},
+      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+    );
 
     expect(state.mode).toBe("RECORD");
     expect(state.record).not.toBe(null);
@@ -171,7 +175,10 @@ describe("generation record viewer: end-to-end dry-run generation", () => {
     expect(frame).toContain("append");
     expect(frame).toContain("dry-run");
 
-    await handleKey(key("escape"), state, source, cache, () => {}, async () => {}, () => {});
+    await handleKey(
+      key("escape"), state, source, cache, () => {}, async () => {}, () => {},
+      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+    );
     expect(state.mode).toBe("NAV");
     expect(state.record).toBe(null);
     expect(state.focusIndex).toBe(focusBefore);
@@ -201,7 +208,10 @@ describe("generation record viewer: end-to-end dry-run generation", () => {
     state.focusIndex = rowIndexForNode(createStoryViewModel(source.payload), leafId);
     const cache = createWrapCache<ProseStyle>();
     const press = (name: string, shift = false) =>
-      handleKey(key(name, shift), state, source, cache, () => {}, async () => {}, () => {});
+      handleKey(
+        key(name, shift), state, source, cache, () => {}, async () => {}, () => {},
+        { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      );
 
     await press("h");
     expect(state.record?.eventIndex).toBe(1);
@@ -259,7 +269,10 @@ describe("generation record viewer: end-to-end dry-run generation", () => {
     const state = initialState(source, false);
     const cache = createWrapCache<ProseStyle>();
     const press = (name: string, shift = false) =>
-      handleKey(key(name, shift), state, source, cache, () => {}, async () => {}, () => {});
+      handleKey(
+        key(name, shift), state, source, cache, () => {}, async () => {}, () => {},
+        { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      );
 
     await press("m");
     expect(state.mode).toBe("MAP");
@@ -306,7 +319,10 @@ describe("generation record viewer: end-to-end dry-run generation", () => {
     state.focusIndex = rowIndexForNode(createStoryViewModel(source.payload), leafId);
     const cache = createWrapCache<ProseStyle>();
 
-    await handleKey(key("h"), state, source, cache, () => {}, async () => {}, () => {});
+    await handleKey(
+      key("h"), state, source, cache, () => {}, async () => {}, () => {},
+      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+    );
     expect(resolvedDetail(state.record)?.kind).toBe("unsupported");
     expect(resolvedDetail(state.record)?.prompt.entries).toEqual([]);
 
@@ -347,7 +363,10 @@ describe("generation record viewer: end-to-end dry-run generation", () => {
     state.focusIndex = rowIndexForNode(createStoryViewModel(source.payload), generatedId);
     const cache = createWrapCache<ProseStyle>();
 
-    await handleKey(key("h"), state, source, cache, () => {}, async () => {}, () => {});
+    await handleKey(
+      key("h"), state, source, cache, () => {}, async () => {}, () => {},
+      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+    );
     const detail = resolvedDetail(state.record);
     expect(detail).not.toBe(null);
     const entries = detail!.prompt.entries;
@@ -409,7 +428,10 @@ describe("generation record viewer: end-to-end dry-run generation", () => {
     api.getTokenProbabilities = async (...args) => { tokenProbabilityCalls += 1; return await getTokenProbabilities(...args); };
 
     const press = (name: string, shift = false) =>
-      handleKey(key(name, shift), state, source, cache, () => {}, async () => {}, () => {});
+      handleKey(
+        key(name, shift), state, source, cache, () => {}, async () => {}, () => {},
+        { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+      );
     await press("h");
     await press("down");
     await press("up");
@@ -435,7 +457,10 @@ describe("generation record viewer: end-to-end dry-run generation", () => {
     const state = initialState(source, false);
     state.focusIndex = rowIndexForNode(createStoryViewModel(source.payload), leafId);
     const cache = createWrapCache<ProseStyle>();
-    await handleKey(key("h"), state, source, cache, () => {}, async () => {}, () => {});
+    await handleKey(
+      key("h"), state, source, cache, () => {}, async () => {}, () => {},
+      { updateChecks: INERT_UPDATE_CHECK_LIFECYCLE }
+    );
     expect(resolvedDetail(state.record)).not.toBe(null);
 
     for (const width of [80, 120]) {

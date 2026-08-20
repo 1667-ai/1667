@@ -10,9 +10,8 @@ import type { SettingsView } from "../../shared/settings-v2-types.js";
 import type { StoryApi } from "./api.js";
 import {
   INERT_UPDATE_CHECK_LIFECYCLE,
-  type SettingsActionContext,
-  type UpdateCheckLifecycle,
-  UNAVAILABLE_UPDATE_CHECK_LIFECYCLE
+  type ActionDispatchServices,
+  type OverlayActionContext,
 } from "./action-context.js";
 import type { RecoveryWarningFeed } from "./recovery-warning-feed.js";
 import type { ConnectionMonitor } from "./connection.js";
@@ -37,8 +36,6 @@ import { chapterWord } from "./chapter-model.js";
 import { openingFocusIndex, readingPartIdFor, type ReadingPositions } from "./reading-position.js";
 import { bindLiveReadingPositionState } from "./reading-position-persist.js";
 import { handleOverlayAction } from "./overlay-actions.js";
-import { settingsOverlayAction } from "./settings-overlay-actions.js";
-import { synchronizeSettingsModelDiscovery } from "./settings-model-discovery.js";
 import { createNoticeLog, recordSessionNotices } from "./notice-log.js";
 import { announceRelease } from "./release-announcement.js";
 import {
@@ -69,8 +66,7 @@ import { deriveContinuationRuntime, generationRouteKey } from "./runtime-setting
 import {
   ActionRuntime,
   beginInteraction,
-  withActionAdmission,
-  type ActionRunner
+  withActionAdmission
 } from "./action-runtime.js";
 import { startRecoveryOrchestration } from "./recovery-orchestration.js";
 import { inlineEditorAction } from "./editor-action.js";
@@ -169,8 +165,13 @@ export async function renderOnce(source: AppSource, width: number, height: numbe
       await cancelRenderStream();
     }
     const pending = handleKey(keyFromCharacter(character), state, source, cache, () => undefined,
-      cancelRenderStream, () => undefined, null, applyThemeInFrame, () => undefined, backend,
-      INERT_UPDATE_CHECK_LIFECYCLE);
+      cancelRenderStream, () => undefined, {
+        updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
+        renderer: null,
+        applyTheme: applyThemeInFrame,
+        previewTheme: () => undefined,
+        backend
+      });
     // Summary streaming is the one render-once fixture intentionally captured
     // mid-task. Interactive callers already observe the dispatcher Promise.
     if (state.abort?.kind === "summary") backend.observe(pending);
@@ -482,11 +483,13 @@ export async function runInteractive(source: AppSource): Promise<void> {
         () => { repaint(); admit(); },
         () => { admit(); return cancelStream(); },
         requestQuit,
-        renderer,
-        applyTheme,
-        previewTheme,
-        withActionAdmission(backend, admit),
-        { restartUpdateCheck }
+        {
+          updateChecks: { restartUpdateCheck },
+          renderer,
+          applyTheme,
+          previewTheme,
+          backend: withActionAdmission(backend, admit)
+        }
       ), (work) => backend.observe(work));
     }, () => {
       retirePresentedSelection(renderer, queuedSelection);
@@ -544,11 +547,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
             repaint,
             cancelStream,
             requestQuit,
-            renderer,
-            applyTheme,
-            previewTheme,
-            backend,
-            { restartUpdateCheck }
+            { updateChecks: { restartUpdateCheck }, renderer, applyTheme, previewTheme, backend }
           );
         }
       } else if (pasteInto(state, text)) {
@@ -597,11 +596,13 @@ export async function runInteractive(source: AppSource): Promise<void> {
           () => { repaint(); admit(); },
           () => { admit(); return cancelStream(); },
           requestQuit,
-          renderer,
-          applyTheme,
-          previewTheme,
-          withActionAdmission(backend, admit),
-          { restartUpdateCheck }
+          {
+            updateChecks: { restartUpdateCheck },
+            renderer,
+            applyTheme,
+            previewTheme,
+            backend: withActionAdmission(backend, admit)
+          }
         ), (work) => backend.observe(work));
       }
     });
@@ -639,11 +640,7 @@ export async function handleKey(
   repaint: () => void,
   cancelStream: () => Promise<void>,
   requestQuit: () => void,
-  renderer: ActionContext["renderer"] = null,
-  applyTheme: ActionContext["applyTheme"] = () => undefined,
-  previewTheme: ActionContext["previewTheme"] = () => undefined,
-  backend: ActionRunner = new ActionRuntime(state, repaint),
-  updateChecks: UpdateCheckLifecycle = UNAVAILABLE_UPDATE_CHECK_LIFECYCLE
+  services: ActionDispatchServices
 ): Promise<void> {
   if (isCopyShortcut(key)
     && state.mode !== "EDITOR"
@@ -673,8 +670,16 @@ export async function handleKey(
     authorsNoteEditor: state.editor?.kind === "document" && state.editor.target.kind === "authors-note",
     mapView: state.map?.view
   });
-  return await dispatch(resolved, state, source, wrapCache, repaint, cancelStream, requestQuit,
-    renderer, applyTheme, previewTheme, backend, updateChecks);
+  return await dispatch(
+    resolved,
+    state,
+    source,
+    wrapCache,
+    repaint,
+    cancelStream,
+    requestQuit,
+    services
+  );
 }
 
 /** Everything after key resolution — shared by the keyboard and the mouse. */
@@ -686,12 +691,12 @@ export async function dispatch(
   repaint: () => void,
   cancelStream: () => Promise<void>,
   requestQuit: () => void,
-  renderer: ActionContext["renderer"] = null,
-  applyTheme: ActionContext["applyTheme"] = () => undefined,
-  previewTheme: ActionContext["previewTheme"] = () => undefined,
-  backend: ActionRunner = new ActionRuntime(state, repaint),
-  updateChecks: UpdateCheckLifecycle = UNAVAILABLE_UPDATE_CHECK_LIFECYCLE
+  services: ActionDispatchServices
 ): Promise<void> {
+  const renderer = services.renderer ?? null;
+  const applyTheme = services.applyTheme ?? (() => undefined);
+  const previewTheme = services.previewTheme ?? (() => undefined);
+  const backend = services.backend ?? new ActionRuntime(state, repaint);
   const previousMode = state.mode;
   if (state.chapterSummary !== null && resolved.action === "cancel"
     && state.textActions === null
@@ -723,14 +728,16 @@ export async function dispatch(
   const context: ActionContext = {
     cache: wrapCache, repaint, backend, renderer, applyTheme, previewTheme
   };
-  const settingsContext: SettingsActionContext = {
+  const overlayContext: OverlayActionContext = {
     ...context,
-    restartUpdateCheck: updateChecks.restartUpdateCheck
+    updateChecks: services.updateChecks
   };
   // Recovery belongs to the connection banner, above transient part menus
   // and confirmations. Those surfaces stay open while retry runs; otherwise
   // their reducers would swallow the banner's advertised keyboard/click action.
-  if (resolved.action === "retry") await handleOverlayAction(resolved, state, source, context);
+  if (resolved.action === "retry") {
+    await handleOverlayAction(resolved, state, source, overlayContext);
+  }
   else if (resolved.action === "open-text-actions") {
     if (resolved.nativeSelection === undefined && resolved.composerEditable === false) return;
     let sync: ReturnType<typeof syncMouseComposerSelection> = "none";
@@ -788,20 +795,15 @@ export async function dispatch(
       } else if (!copied && state.mode === "EDITOR") {
         await inlineEditorAction(action, state, source, context);
       } else if (!copied && state.mode === "SETTINGS") {
-        await settingsOverlayAction(action, state, source, settingsContext);
-        await synchronizeSettingsModelDiscovery(state, source, context);
+        await handleOverlayAction(action, state, source, overlayContext);
       } else if (!copied && state.mode === "ASIDE") {
-        await handleOverlayAction(action, state, source, context);
+        await handleOverlayAction(action, state, source, overlayContext);
       }
     }
   }
   else if (state.prune !== null) await pruneAction(resolved, state, source, context);
   else if (state.actions !== null) await actionsMenuAction(resolved, state, source, context);
-  else if (state.mode === "SETTINGS" && state.settings !== null) {
-    await settingsOverlayAction(resolved, state, source, settingsContext);
-    await synchronizeSettingsModelDiscovery(state, source, context);
-  }
-  else if (await handleOverlayAction(resolved, state, source, context)) { /* handled */ }
+  else if (await handleOverlayAction(resolved, state, source, overlayContext)) { /* handled */ }
   else if (resolved.action === "toggle-context-meter" && (state.mode === "NAV" || state.mode === "COMPOSE")) {
     state.contextMeterExpanded = !state.contextMeterExpanded;
   }

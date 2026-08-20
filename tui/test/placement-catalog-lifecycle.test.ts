@@ -5,6 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import type { StorySummary } from "../../shared/types.js";
 import { ActionRuntime } from "../src/action-runtime.js";
+import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { initialState } from "../src/app.js";
 import { createAsideSurface } from "../src/aside-surface.js";
 import {
@@ -34,7 +35,8 @@ function overlayContext(
     repaint: () => undefined,
     renderer: { width, height } as never,
     applyTheme: () => undefined,
-    previewTheme: () => undefined
+    previewTheme: () => undefined,
+    updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
   };
 }
 
@@ -106,7 +108,8 @@ describe("Placement guard catalog lifecycle", () => {
       repaint: () => undefined,
       renderer: null,
       applyTheme: () => undefined,
-      previewTheme: () => undefined
+      previewTheme: () => undefined,
+      updateChecks: INERT_UPDATE_CHECK_LIFECYCLE
     });
     await backend.whenIdle();
 

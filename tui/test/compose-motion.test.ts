@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
+import { INERT_UPDATE_CHECK_LIFECYCLE } from "../src/action-context.js";
 import { ActionRuntime } from "../src/action-runtime.js";
 import { handleKey, initialState } from "../src/app.js";
 import {
@@ -36,10 +37,13 @@ function harness() {
     () => undefined,
     async () => undefined,
     () => undefined,
-    null,
-    () => undefined,
-    () => undefined,
-    backend
+    {
+      updateChecks: INERT_UPDATE_CHECK_LIFECYCLE,
+      renderer: null,
+      applyTheme: () => undefined,
+      previewTheme: () => undefined,
+      backend
+    }
   );
   state.mode = "COMPOSE";
   return { state, press };

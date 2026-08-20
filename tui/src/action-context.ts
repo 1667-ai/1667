@@ -20,18 +20,22 @@ export interface UpdateCheckLifecycle {
   readonly restartUpdateCheck: (config: UserConfig) => void;
 }
 
-export type SettingsActionContext = ActionContext & UpdateCheckLifecycle;
+/** Optional UI services plus the required local lifecycle for one dispatch. */
+export interface ActionDispatchServices {
+  readonly updateChecks: UpdateCheckLifecycle;
+  readonly renderer?: ActionContext["renderer"];
+  readonly applyTheme?: ActionContext["applyTheme"];
+  readonly previewTheme?: ActionContext["previewTheme"];
+  readonly backend?: ActionRunner;
+}
+
+export type OverlayActionContext = ActionContext & {
+  readonly updateChecks: UpdateCheckLifecycle;
+};
 
 /** Explicit inert capability for render-only and unrelated test actions. */
 export const INERT_UPDATE_CHECK_LIFECYCLE: UpdateCheckLifecycle = Object.freeze({
   restartUpdateCheck: () => undefined
-});
-
-/** Missing wiring fails before Settings changes the current configuration. */
-export const UNAVAILABLE_UPDATE_CHECK_LIFECYCLE: UpdateCheckLifecycle = Object.freeze({
-  restartUpdateCheck: () => {
-    throw new Error("update-check lifecycle is not configured");
-  }
 });
 
 export type BackendActionContext = Pick<ActionContext, "backend" | "cache">;
