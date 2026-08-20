@@ -1,5 +1,3 @@
-import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import type {
   DiscoveredModelV2,
   ModelDiscoveryResultV2,
@@ -11,8 +9,13 @@ import type { GenerationSettings } from "../shared/types.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
 import { ProviderError } from "./errors.js";
 import { getProviderJson } from "./provider-json.js";
-import { providerRuntimeFor } from "./provider-runtime.js";
+import {
+  providerRuntimeFor,
+  subscriptionRuntimeFor,
+  type ProviderRuntime
+} from "./provider-runtime.js";
 import { providerRoot, providerUrl } from "./providers.js";
+import { subscriptionProviderForProtocol } from "./subscription-protocol.js";
 import {
   MAX_SETTINGS_REMOTE_ID_SCALARS,
   MAX_SETTINGS_TOKEN_COUNT
@@ -32,7 +35,7 @@ export async function discoverProviderModels(
   if (runtime.protocol !== undefined && isSubscriptionProtocolV2(runtime.protocol)) {
     return {
       observedAt: now().toISOString(),
-      models: subscriptionCatalog(runtime.protocol)
+      models: subscriptionCatalog(runtime, runtime.protocol)
     };
   }
   const root = providerRoot(settings);
@@ -65,12 +68,11 @@ export async function discoverProviderModels(
 }
 
 function subscriptionCatalog(
+  runtime: ProviderRuntime,
   protocol: SubscriptionProtocolV2
 ): readonly DiscoveredModelV2[] {
-  const provider = protocol === "openai-codex-responses"
-    ? openaiCodexProvider()
-    : anthropicProvider();
-  return provider.getModels()
+  const providerId = subscriptionProviderForProtocol(protocol);
+  return subscriptionRuntimeFor(runtime).models.getModels(providerId)
     .slice(0, MAX_DISCOVERED_MODELS)
     .map((model) => ({
       remoteId: model.id,

@@ -25,7 +25,8 @@ import { ProviderError } from "./errors.js";
 import {
   createProviderStreamRedactor,
   providerRuntimeFor,
-  redactProviderSecrets
+  redactProviderSecrets,
+  subscriptionRuntimeFor
 } from "./provider-runtime.js";
 import { requireLogitBiasFamilyAvailable } from "./provider-sampling.js";
 import { createReasoningRelay } from "./provider-reasoning-relay.js";
@@ -36,7 +37,6 @@ import {
 import {
   subscriptionProviderForProtocol
 } from "./subscription-protocol.js";
-import type { SubscriptionRuntimeDependencies } from "./subscription-runtime.js";
 import type {
   GenerationRecordCollector
 } from "./generation-record-capture.js";
@@ -82,7 +82,7 @@ export async function* streamSubscription(
     throw new ProviderError("Subscription protocol is not supported.");
   }
   requireLogitBiasFamilyAvailable(settings, protocol, options.storySampling);
-  const dependencies = subscriptionDependencies(runtime);
+  const dependencies = subscriptionRuntimeFor(runtime);
   const providerId = subscriptionProviderForProtocol(protocol);
   const modelValue = dependencies.models.getModel(providerId, settings.model);
   if (modelValue === undefined) {
@@ -319,17 +319,8 @@ export async function* streamSubscription(
   }
 }
 
-function subscriptionDependencies(
-  runtime: ReturnType<typeof providerRuntimeFor>
-): SubscriptionRuntimeDependencies {
-  if (runtime.subscription === undefined) {
-    throw new ProviderError("Subscription credential storage is unavailable.");
-  }
-  return runtime.subscription;
-}
-
 async function resolveSubscriptionAuth(
-  dependencies: SubscriptionRuntimeDependencies,
+  dependencies: ReturnType<typeof subscriptionRuntimeFor>,
   model: Model<Api>,
   providerId: "openai-codex" | "anthropic",
   signal: AbortSignal

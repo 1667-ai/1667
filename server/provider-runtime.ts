@@ -123,6 +123,15 @@ export function providerRuntimeFor(settings: GenerationSettings): ProviderRuntim
   return (settings as RuntimeSettings)[PROVIDER_RUNTIME] ?? legacyProviderRuntime(settings);
 }
 
+export function subscriptionRuntimeFor(
+  runtime: ProviderRuntime
+): SubscriptionRuntimeDependencies {
+  if (runtime.subscription === undefined) {
+    throw new ProviderError("Subscription credential storage is unavailable.");
+  }
+  return runtime.subscription;
+}
+
 export function hasProviderRuntime(settings: GenerationSettings): boolean {
   return (settings as RuntimeSettings)[PROVIDER_RUNTIME] !== undefined;
 }
