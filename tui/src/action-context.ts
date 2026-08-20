@@ -17,4 +17,13 @@ export interface ActionContext {
   asideEntryPointsOpen?: boolean;
 }
 
+/** Runtime services that user-action dispatch does not own. */
+export interface ActionLifecycle {
+  readonly restartUpdateCheck: () => void;
+}
+
+export const INERT_ACTION_LIFECYCLE: ActionLifecycle = Object.freeze({
+  restartUpdateCheck: () => undefined
+});
+
 export type BackendActionContext = Pick<ActionContext, "backend" | "cache">;

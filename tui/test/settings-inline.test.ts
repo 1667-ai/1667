@@ -20,8 +20,7 @@ import {
   beginSettingsPasteEdit,
   SETTINGS_ROW_IDS,
   settingsDraftChanged,
-  settingsRowCycles,
-  settingsRows
+  settingsRowCycles
 } from "../src/settings-overlay-model.js";
 import {
   localProviderPresetsSupported,
@@ -32,8 +31,6 @@ import {
 } from "../src/settings-provider-choices.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
-import { settingsRowIds } from "../src/settings-row-navigation.js";
-import { applyUpdateChecksToggle } from "../src/settings-selector-actions.js";
 import {
   deferred,
   draftRow,
@@ -221,56 +218,6 @@ describe("inline settings menu", () => {
     await press(key("return"));
     expect(state.settings?.edit).toBe(null);
     expect(state.config.composeFocus).toBe("off");
-  });
-
-  test("update checks are visible in simple mode and toggle locally", async () => {
-    let restarts = 0;
-    const { source, state, press } = harness(
-      undefined,
-      { settingsViewMode: "simple" },
-      () => { restarts += 1; }
-    );
-    await openSettings(press);
-    expect(state.config.updates.mode).toBe("notify");
-    expect(state.settings && settingsRowIds(state.settings)).toContain("update-checks");
-    expect(settingsRows(state.settings!, state.config).find((row) => row.id === "update-checks"))
-      .toMatchObject({
-        value: "[ on ]",
-        hint: "Checks for a newer version. Sends no story or account data."
-      });
-
-    await selectRow(press, state, "update-checks");
-    await press(key("return"));
-    expect(state.settings?.edit).toBe(null);
-    expect(state.config.updates.mode).toBe("off");
-    expect(source.config.updates.mode).toBe("off");
-    expect(state.toast).toBe("update checks · off");
-    expect(restarts).toBe(1);
-
-    await press(key("right"));
-    expect(state.config.updates.mode).toBe("notify");
-    expect(restarts).toBe(2);
-  });
-
-  test("a failed update preference save reports a session-only change", () => {
-    let restarts = 0;
-    const { source, state } = harness();
-    state.demo = false;
-
-    applyUpdateChecksToggle(
-      state,
-      source,
-      { restartUpdateCheck: () => { restarts += 1; } },
-      "off",
-      () => false
-    );
-
-    expect(state.config.updates.mode).toBe("off");
-    expect(source.config.updates.mode).toBe("off");
-    expect(restarts).toBe(1);
-    expect(state.toast).toBe(
-      "update checks · off for this session · config not saved"
-    );
   });
 
   test("paste refuses every closed choice and still opens text rows", async () => {

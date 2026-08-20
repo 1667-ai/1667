@@ -87,7 +87,7 @@ export function settingsHarness(
     },
     () => undefined,
     backend,
-    restartUpdateCheck
+    { restartUpdateCheck }
   );
   return { source, state, cache, backend, press, repaints: () => repaintCount };
 }

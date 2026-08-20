@@ -8,6 +8,10 @@ import { createTestRenderer } from "@opentui/core/testing";
 import type { GenerationSettings, StoryPayload, StorySummary } from "../../shared/types.js";
 import type { SettingsView } from "../../shared/settings-v2-types.js";
 import type { StoryApi } from "./api.js";
+import {
+  INERT_ACTION_LIFECYCLE,
+  type ActionLifecycle
+} from "./action-context.js";
 import type { RecoveryWarningFeed } from "./recovery-warning-feed.js";
 import type { ConnectionMonitor } from "./connection.js";
 import { cancelChapterSummary, directChapterRowAction } from "./chapter-actions.js";
@@ -477,7 +481,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
         applyTheme,
         previewTheme,
         withActionAdmission(backend, admit),
-        restartUpdateCheck
+        { restartUpdateCheck }
       ), (work) => backend.observe(work));
     }, () => {
       retirePresentedSelection(renderer, queuedSelection);
@@ -539,7 +543,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
             applyTheme,
             previewTheme,
             backend,
-            restartUpdateCheck
+            { restartUpdateCheck }
           );
         }
       } else if (pasteInto(state, text)) {
@@ -592,7 +596,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
           applyTheme,
           previewTheme,
           withActionAdmission(backend, admit),
-          restartUpdateCheck
+          { restartUpdateCheck }
         ), (work) => backend.observe(work));
       }
     });
@@ -634,7 +638,7 @@ export async function handleKey(
   applyTheme: ActionContext["applyTheme"] = () => undefined,
   previewTheme: ActionContext["previewTheme"] = () => undefined,
   backend: ActionRunner = new ActionRuntime(state, repaint),
-  restartUpdateCheck: NonNullable<ActionContext["restartUpdateCheck"]> = () => undefined
+  lifecycle: ActionLifecycle = INERT_ACTION_LIFECYCLE
 ): Promise<void> {
   if (isCopyShortcut(key)
     && state.mode !== "EDITOR"
@@ -665,7 +669,7 @@ export async function handleKey(
     mapView: state.map?.view
   });
   return await dispatch(resolved, state, source, wrapCache, repaint, cancelStream, requestQuit,
-    renderer, applyTheme, previewTheme, backend, restartUpdateCheck);
+    renderer, applyTheme, previewTheme, backend, lifecycle);
 }
 
 /** Everything after key resolution — shared by the keyboard and the mouse. */
@@ -681,7 +685,7 @@ export async function dispatch(
   applyTheme: ActionContext["applyTheme"] = () => undefined,
   previewTheme: ActionContext["previewTheme"] = () => undefined,
   backend: ActionRunner = new ActionRuntime(state, repaint),
-  restartUpdateCheck: NonNullable<ActionContext["restartUpdateCheck"]> = () => undefined
+  lifecycle: ActionLifecycle = INERT_ACTION_LIFECYCLE
 ): Promise<void> {
   const previousMode = state.mode;
   if (state.chapterSummary !== null && resolved.action === "cancel"
@@ -713,7 +717,7 @@ export async function dispatch(
   }
   const context: ActionContext = {
     cache: wrapCache, repaint, backend, renderer, applyTheme, previewTheme,
-    restartUpdateCheck
+    restartUpdateCheck: lifecycle.restartUpdateCheck
   };
   // Recovery belongs to the connection banner, above transient part menus
   // and confirmations. Those surfaces stay open while retry runs; otherwise
