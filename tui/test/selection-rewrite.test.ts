@@ -12,6 +12,7 @@ import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { storyPartWrapPlan } from "../src/screens/story/wrap-plan.js";
 import type { StorySelectionSpan } from "../src/selection-projection.js";
+import { streamPresentedReasoningText, streamPresentedText } from "../src/stream-text.js";
 import { composeAction, currentPartActions, navAction, openActions, runPartAction } from "../src/story-actions.js";
 import { deriveStoryFrameLayout } from "../src/story-frame-layout.js";
 import { storyFrameWrapPlans } from "../src/story-wrap-build.js";
@@ -378,16 +379,17 @@ describe("selection rewrite", () => {
     const settledParts = createStoryViewModel(state.payload).parts;
     expect(streamingParts).toHaveLength(settledParts.length);
     const projected = streamingParts.find((part) => part.id === "p12")!.node.text;
+    const presentedReplacement = "a shard of brass ligh";
     const tailLength = node.text.length - end;
     expect(projected.slice(0, start)).toBe(node.text.slice(0, start));
     expect(projected.slice(projected.length - tailLength)).toBe(node.text.slice(end));
-    expect(projected).toContain("a shard of brass light");
+    expect(projected).toContain(presentedReplacement);
     expect(projected).not.toContain(needle);
 
     const frame = frameText(renderStoryScreen(
       state, { width: 120, height: 40, wrapCache: createWrapCache() }
     ).lines);
-    expect(frame).toContain("a shard of brass light");
+    expect(frame).toContain(presentedReplacement);
     // Words on either side of the splice, still part of the same paragraph.
     expect(frame).toContain("stairs");
     expect(frame).toContain("needle");
@@ -423,7 +425,7 @@ describe("selection rewrite", () => {
 
     const streamed = createStoryViewModel(state.payload, state.stream).parts
       .find((part) => part.id === "p12")!;
-    const replacedEnd = start + replacement.length;
+    const replacedEnd = start + replacement.length - 1;
     expect(streamed.humanSpans.length).toBeGreaterThan(0);
     for (const range of streamed.humanSpans) {
       expect(range.start).toBeGreaterThan(-1);
@@ -482,7 +484,7 @@ describe("selection rewrite", () => {
 
     const streamed = createStoryViewModel(state.payload, state.stream).parts
       .find((part) => part.id === "p12")!;
-    const replacedEnd = start + replacement.length;
+    const replacedEnd = start + replacement.length - 1;
     // The freshly-spliced replacement becomes its own rewritten span, and
     // the earlier one survives, shifted by the same splice arithmetic
     // `rewrittenSpansAfterReplacement` (shared/human-edit.ts) gives every
@@ -743,6 +745,208 @@ describe("selection rewrite", () => {
     expect(state.toast).toBe("rewrite stopped · nothing saved");
     expect(state.stream).toBe(null);
     expect(state.abort).toBe(null);
+  });
+
+  test("escape freezes queued prose and reasoning while the partial save is gated", async () => {
+    const { state, source } = harness();
+    const index = focusNode(state, "p12");
+    const { node, start, end, span } = rewriteFixture(state);
+    const generationEntered = deferred();
+    const generationGate = deferred();
+    const saveEntered = deferred();
+    const saveGate = deferred();
+    const prose = "queued rewrite prose ".repeat(12).trimEnd();
+    const reasoning = "queued rewrite reasoning ".repeat(12).trimEnd();
+    source.api.rewriteNode = async (
+      _storyId,
+      _nodeId,
+      _body,
+      onDelta,
+      _signal,
+      _onCommitted,
+      callbacks
+    ) => {
+      onDelta(prose);
+      callbacks?.onReasoning?.({ text: reasoning, tokenCount: 12 });
+      generationEntered.resolve();
+      await generationGate.promise;
+      return null;
+    };
+    source.api.commitPartialRewrite = async () => {
+      saveEntered.resolve();
+      await saveGate.promise;
+      return null;
+    };
+
+    const context = directContext(state);
+    openActions(state, index, node.text.slice(start, end), [span]);
+    await runPartAction("rewrite-selection", state, source, context);
+    const pending = composeAction({ action: "send" }, state, source, context);
+    await generationEntered.promise;
+
+    const proseBeforeStop = state.stream?.presentation?.presentedText;
+    const reasoningBeforeStop = state.stream?.reasoning?.presentation?.presentedText;
+    expect(state.stream?.presentation?.pendingLength ?? 0).toBeGreaterThan(0);
+    expect(state.stream?.reasoning?.presentation?.pendingLength ?? 0).toBeGreaterThan(0);
+
+    requestRewriteStop(state, () => undefined);
+    generationGate.resolve();
+    await saveEntered.promise;
+
+    // The partial save owns the task, but neither visible channel may drain
+    // after Escape. Wait beyond one presentation interval to catch a timer
+    // that the stop path failed to suspend.
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(state.stream?.presentation?.presentedText).toBe(proseBeforeStop);
+    expect(state.stream?.reasoning?.presentation?.presentedText).toBe(reasoningBeforeStop);
+
+    saveGate.resolve();
+    await pending;
+  });
+
+  test("a stopped rewrite keeps a detached terminal tail and shows it after partial commit", async () => {
+    const { state, source } = harness();
+    const index = focusNode(state, "p12");
+    const { node, start, end, span } = rewriteFixture(state);
+    const generationEntered = deferred();
+    const generationGate = deferred();
+    const lateProse = "terminal prose after Stop";
+    const lateReasoning = "terminal reasoning after Stop";
+    const replacement = `${node.text.slice(0, start)}${lateProse}${node.text.slice(end)}`;
+    const repaints: Array<{ prose: string; reasoning: string }> = [];
+    source.api.rewriteNode = async (
+      _storyId,
+      _nodeId,
+      _body,
+      _onDelta,
+      _signal,
+      _onCommitted,
+      callbacks
+    ) => {
+      generationEntered.resolve();
+      await generationGate.promise;
+      callbacks?.onStopped?.(lateProse);
+      callbacks?.onReasoningStopped?.(lateReasoning);
+      return null;
+    };
+    source.api.commitPartialRewrite = async () => ({
+      payload: {
+        ...state.payload,
+        path: state.payload.path.map((candidate) => candidate.id === node.id
+          ? { ...candidate, text: replacement }
+          : candidate)
+      },
+      nodeId: node.id
+    });
+    const context = {
+      ...directContext(state),
+      repaint: () => {
+        if (state.stream !== null) {
+          repaints.push({
+            prose: streamPresentedText(state.stream),
+            reasoning: streamPresentedReasoningText(state.stream)
+          });
+        }
+      }
+    } satisfies ActionContext;
+
+    openActions(state, index, node.text.slice(start, end), [span]);
+    await runPartAction("rewrite-selection", state, source, context);
+    const pending = composeAction({ action: "send" }, state, source, context);
+    await generationEntered.promise;
+
+    requestRewriteStop(state, () => undefined);
+    expect(state.stream).toBe(null);
+    generationGate.resolve();
+    await pending;
+
+    expect(state.payload.path.find((candidate) => candidate.id === node.id)?.text).toBe(replacement);
+    expect(repaints.some(({ prose, reasoning }) => prose === lateProse && reasoning === lateReasoning)).toBeTrue();
+  });
+
+  test("a successful partial rewrite drains a large queued tail before adoption", async () => {
+    const { state, source } = harness();
+    const index = focusNode(state, "p12");
+    const { node, start, end, span } = rewriteFixture(state);
+    const generationEntered = deferred();
+    const generationGate = deferred();
+    const replacementText = "queued rewrite text ".repeat(500).trimEnd();
+    const replacement = `${node.text.slice(0, start)}${replacementText}${node.text.slice(end)}`;
+    const visibleLengths: number[] = [];
+    source.api.rewriteNode = async (_storyId, _nodeId, _body, onDelta) => {
+      onDelta(replacementText);
+      generationEntered.resolve();
+      await generationGate.promise;
+      return null;
+    };
+    source.api.commitPartialRewrite = async () => ({
+      payload: {
+        ...state.payload,
+        path: state.payload.path.map((candidate) => candidate.id === node.id
+          ? { ...candidate, text: replacement }
+          : candidate)
+      },
+      nodeId: node.id
+    });
+    const context = {
+      ...directContext(state),
+      repaint: () => {
+        if (state.stream?.presentation !== undefined) {
+          visibleLengths.push(state.stream.presentation.presentedText.length);
+        }
+      }
+    } satisfies ActionContext;
+
+    openActions(state, index, node.text.slice(start, end), [span]);
+    await runPartAction("rewrite-selection", state, source, context);
+    const pending = composeAction({ action: "send" }, state, source, context);
+    await generationEntered.promise;
+    requestRewriteStop(state, () => undefined);
+    generationGate.resolve();
+    await pending;
+
+    expect(state.payload.path.find((candidate) => candidate.id === node.id)?.text).toBe(replacement);
+    expect(visibleLengths.length).toBeGreaterThan(1);
+    for (let index = 1; index < visibleLengths.length; index += 1) {
+      expect(visibleLengths[index]! - visibleLengths[index - 1]! <= 256).toBeTrue();
+    }
+  });
+
+  test("a disposed rewrite owner cannot adopt after presentation catch-up", async () => {
+    const { state, source } = harness();
+    const index = focusNode(state, "p12");
+    const { node, span } = rewriteFixture(state);
+    const generationEntered = deferred();
+    const generationGate = deferred();
+    const commitEntered = deferred();
+    source.api.rewriteNode = async (_storyId, _nodeId, _body, onDelta) => {
+      onDelta("large rewrite batch ".repeat(100));
+      generationEntered.resolve();
+      await generationGate.promise;
+      return null;
+    };
+    source.api.commitPartialRewrite = async () => {
+      commitEntered.resolve();
+      return {
+        payload: { ...source.payload, title: "stale rewrite payload" },
+        nodeId: node.id
+      };
+    };
+    const runtime = new ActionRuntime(state, () => undefined);
+    const context = { ...directContext(state), backend: runtime };
+
+    openActions(state, index, node.text.slice(span.start, span.end), [span]);
+    await runPartAction("rewrite-selection", state, source, context);
+    const pending = composeAction({ action: "send" }, state, source, context);
+    await generationEntered.promise;
+    requestRewriteStop(state, () => undefined);
+    generationGate.resolve();
+    await commitEntered.promise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    runtime.dispose();
+    await pending;
+
+    expect(state.payload.title).not.toBe("stale rewrite payload");
   });
 
   test("a thrown rewrite request restores the typed instruction", async () => {

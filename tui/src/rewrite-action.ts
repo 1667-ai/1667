@@ -11,7 +11,18 @@ import type { PendingGenerationDraft, PromptIntent, RetakePromptSession, Runtime
 import type { ActionContext } from "./action-context.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
-import { appendStreamReasoning, appendStreamText, emptyStreamText, streamHasSubstantiveText } from "./stream-text.js";
+import {
+  attachReasoningPresentation,
+  attachStreamPresentation,
+  appendStreamReasoning,
+  appendStreamText,
+  drainStreamPresentation,
+  disposeStreamPresentation,
+  emptyStreamText,
+  resumeStreamPresentation,
+  suspendStreamPresentation,
+  streamHasSubstantiveText
+} from "./stream-text.js";
 import { canRewriteSelection, type StorySelectionSpan } from "./selection-projection.js";
 
 export interface RewriteTarget extends TextRange {
@@ -170,7 +181,12 @@ async function runSelectionRewrite(
   // reference (rather than re-reading state.abort each time) so the
   // finally block's identity check and requestRewriteStop's `committed`
   // read always agree on exactly which claim they mean.
-  const active = { kind: "rewrite" as const, controller, committed: false };
+  const active = {
+    kind: "rewrite" as const,
+    controller,
+    committed: false,
+    explicitStop: false
+  };
   state.abort = active;
   const stream: StreamView = {
     targetId: node.id,
@@ -182,6 +198,9 @@ async function runSelectionRewrite(
     composerClaimEpoch: state.composerClaimEpoch,
     ...emptyStreamText()
   };
+  attachStreamPresentation(stream, () => {
+    if (state.stream === stream && state.payload.id === task.storyId) context.repaint();
+  });
   state.stream = stream;
   context.repaint();
 
@@ -206,9 +225,8 @@ async function runSelectionRewrite(
       },
       (delta) => {
         streamedText += delta;
-        if (!task.owns() || !task.storyCurrent() || state.stream !== stream) return;
+        if (!task.owns() || !task.storyCurrent()) return;
         appendStreamText(stream, delta);
-        context.repaint();
       },
       controller.signal,
       // Fires inside the adapter, before its own confirming refresh — the
@@ -218,20 +236,31 @@ async function runSelectionRewrite(
       // between a durable take and this task ever learning about it.
       () => { active.committed = true; },
       {
-        onStopped: (tail) => { streamedText += tail; },
+        onStopped: (tail) => {
+          streamedText += tail;
+          if (!task.owns() || !task.storyCurrent()) return;
+          appendStreamText(stream, tail);
+        },
         // Same ownership guard as onDelta, on the reasoning channel. Reasoning
         // is not part of the rewrite's committed replacement text — it never
         // touches `streamedText` — it only ever lives on the live stream view.
         onReasoning: (delta) => {
-          if (!task.owns() || !task.storyCurrent() || state.stream !== stream) return;
+          if (!task.owns() || !task.storyCurrent()) return;
+          const presentation = attachReasoningPresentation(stream, () => {
+            if (state.stream === stream && state.payload.id === task.storyId) context.repaint();
+          });
+          if (active.explicitStop) presentation.suspend();
           appendStreamReasoning(stream, delta.text, delta.tokenCount);
-          context.repaint();
+          if (delta.text.length === 0) context.repaint();
         },
         // Same withheld-tail contract as onStopped, on the reasoning channel.
         onReasoningStopped: (tail) => {
-          if (!task.owns() || !task.storyCurrent() || state.stream !== stream) return;
+          if (!task.owns() || !task.storyCurrent()) return;
+          const presentation = attachReasoningPresentation(stream, () => {
+            if (state.stream === stream && state.payload.id === task.storyId) context.repaint();
+          });
+          if (active.explicitStop) presentation.suspend();
           appendStreamReasoning(stream, tail, stream.reasoning?.tokenCount ?? 0);
-          context.repaint();
         }
       }
     );
@@ -240,6 +269,7 @@ async function runSelectionRewrite(
         state,
         source,
         task,
+        stream,
         node.id,
         streamedText,
         attemptId,
@@ -266,8 +296,11 @@ async function runSelectionRewrite(
     active.committed = true;
     if (!task.storyCurrent()) return;
 
+    await drainStreamPresentation(stream);
+    if (!task.storyCurrent()) return;
     const payload = await source.api.loadStory(task.storyId);
     if (!task.storyCurrent()) return;
+    if (state.stream === stream) state.stream = null;
     adoptSameStoryPayload(state, payload, context.cache);
     const landed = new Map(state.freshLandedAt);
     landed.set(takeId, Date.now());
@@ -287,6 +320,7 @@ async function runSelectionRewrite(
         state,
         source,
         task,
+        stream,
         node.id,
         streamedText,
         attemptId,
@@ -311,6 +345,7 @@ async function runSelectionRewrite(
           state,
           source,
           task,
+          stream,
           node.id,
           streamedText,
           attemptId,
@@ -326,6 +361,7 @@ async function runSelectionRewrite(
   } finally {
     if (state.abort === active) state.abort = null;
     if (state.stream === stream) state.stream = null;
+    disposeStreamPresentation(stream);
     context.repaint();
   }
 }
@@ -352,6 +388,12 @@ async function runSelectionRewrite(
 export function requestRewriteStop(state: RuntimeState, repaint: () => void): void {
   const active = state.abort;
   if (active?.kind !== "rewrite") return;
+  const stream = state.stream;
+  // Stop is an explicit user action. Freeze both visible channels before the
+  // abort or partial-save path starts. Authoritative text still accepts
+  // terminal tails, but the live view must not advance after Stop.
+  active.explicitStop = true;
+  if (stream !== null) suspendStreamPresentation(stream);
   if (active.committed) {
     state.toast = REWRITE_ALREADY_SAVED_TOAST;
     repaint();
@@ -360,7 +402,6 @@ export function requestRewriteStop(state: RuntimeState, repaint: () => void): vo
   // Substantive streamed prose is worth landing (issue #339): keep the
   // stream visible and the draft unrestored, and let the settle after
   // terminal settlement decide between "text kept" and full restoration.
-  const stream = state.stream;
   if (stream !== null && stream.rewrite !== undefined && streamHasSubstantiveText(stream)) {
     active.controller.abort();
     state.toast = REWRITE_STOPPING_PARTIAL_TOAST;
@@ -386,6 +427,7 @@ async function settleStoppedRewrite(
   state: RuntimeState,
   source: AppSource,
   task: ActionTask,
+  stream: StreamView,
   nodeId: string,
   streamedText: string,
   attemptId: string,
@@ -423,6 +465,20 @@ async function settleStoppedRewrite(
   }
   if (!task.storyCurrent()) return;
   if (committed !== null) {
+    // The committed rewrite replaces the live stream. Drain its visible
+    // prefix first so the durable payload does not cause a final jump. An
+    // explicit Stop suspended this work while the save was gated; resume
+    // only after the save succeeds, so the Stop freeze still covers abort,
+    // save, and the first settlement attempt.
+    if (state.stream !== null && state.stream !== stream) return;
+    // Stop detaches the stream immediately. Reattach only after the partial
+    // save succeeds, then drain through the normal presentation lifecycle so
+    // the committed payload cannot jump past queued prose or reasoning.
+    state.stream = stream;
+    resumeStreamPresentation(stream);
+    await drainStreamPresentation(stream);
+    if (!task.storyCurrent()) return;
+    if (state.stream === stream) state.stream = null;
     adoptSameStoryPayload(state, committed.payload, cache);
     const landed = new Map(state.freshLandedAt);
     landed.set(committed.nodeId, Date.now());

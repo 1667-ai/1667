@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { continuationStats, createStoryIndex } from "../../shared/story-model.js";
+import { countWords } from "../../shared/story-text.js";
 import type { StoryNode, StoryPayload } from "../../shared/types.js";
 import { initialState } from "../src/app.js";
 import { createDemoController, demoAppSource } from "../src/demo.js";
@@ -10,6 +11,7 @@ import { frameText, plainLine } from "../src/screens/story/frame.js";
 import type { RuntimeState, StreamView } from "../src/state.js";
 import { projectStreamedPayload } from "../src/stream-projection.js";
 import { appendStreamReasoning, appendStreamText, emptyStreamText } from "../src/stream-text.js";
+import { createTextPresentation } from "../src/text-presentation.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 
 const STARTED_AT = "2026-07-22T00:00:00.000Z";
@@ -196,6 +198,104 @@ describe("streaming repaint", () => {
           .toEqual(continuationStats(cold, node.id, coldIndex));
       }
     }
+  });
+
+  test("paced rewrite word totals match the visible spliced text", () => {
+    const payload = createDemoController().payload();
+    const target = payload.path.at(-1)!;
+    const presentation = createTextPresentation();
+    const stream: StreamView = {
+      targetId: target.id,
+      parentId: target.parentId,
+      append: false,
+      rewrite: { start: 7, end: 29 },
+      startedAt: STARTED_AT,
+      instruction: "replace the passage",
+      ...emptyStreamText(),
+      presentation
+    };
+    appendStreamText(stream, "joined replacement words ".repeat(20));
+
+    for (;;) {
+      const projected = projectStreamedPayload(payload, stream);
+      const node = projected.path.find((candidate) => candidate.id === target.id)!;
+      const stub = projected.nodes.find((candidate) => candidate.id === target.id)!;
+      expect(stub.words).toBe(countWords(node.text));
+      const cold = projectStreamedPayload(structuredClone(payload), stream);
+      const coldNode = cold.path.find((candidate) => candidate.id === target.id)!;
+      const coldStub = cold.nodes.find((candidate) => candidate.id === target.id)!;
+      expect(coldStub.words).toBe(countWords(coldNode.text));
+      if (stream.presentation?.pendingLength === 0) break;
+      if (stream.presentation?.advance() !== true) break;
+    }
+    stream.presentation?.dispose();
+  });
+
+  test("paced append word totals survive a cold payload cache miss", () => {
+    const payload = createDemoController().payload();
+    const target = payload.path.at(-1)!;
+    target.text = `${target.text.trimEnd()}joined`;
+    const stream = appendStream(target);
+    stream.presentation = createTextPresentation();
+    appendStreamText(stream, " continuation words after the seam");
+
+    const cold = projectStreamedPayload(structuredClone(payload), stream);
+    const node = cold.path.find((candidate) => candidate.id === target.id)!;
+    const stub = cold.nodes.find((candidate) => candidate.id === target.id)!;
+
+    expect(stub.words).toBe(countWords(node.text));
+    stream.presentation.dispose();
+  });
+
+  test("paced take word totals retain a cold trailing separator", () => {
+    const payload = createDemoController().payload();
+    const parent = payload.path.at(-1)!;
+    const presentation = createTextPresentation();
+    const stream: StreamView = {
+      targetId: "streamed-take",
+      parentId: parent.id,
+      append: false,
+      startedAt: STARTED_AT,
+      instruction: "continue",
+      ...emptyStreamText(),
+      presentation
+    };
+    appendStreamText(stream, "one ");
+    const coldPayload = structuredClone(payload);
+    projectStreamedPayload(coldPayload, stream);
+
+    appendStreamText(stream, "two");
+    presentation.advance();
+    const projected = projectStreamedPayload(coldPayload, stream);
+    const node = projected.path.find((candidate) => candidate.id === stream.targetId)!;
+    const stub = projected.nodes.find((candidate) => candidate.id === stream.targetId)!;
+
+    expect(stub.words).toBe(2);
+    expect(stub.words).toBe(countWords(node.text));
+    presentation.dispose();
+  });
+
+  test("an incomplete streamed preview clears settled map text", () => {
+    const payload = createDemoController().payload();
+    const target = payload.path.at(-1)!;
+    target.text = `${" ".repeat(600)}old`;
+    const stub = payload.nodes.find((candidate) => candidate.id === target.id)!;
+    stub.preview = "old";
+    const stream: StreamView = {
+      targetId: target.id,
+      parentId: target.parentId,
+      append: false,
+      rewrite: { start: 600, end: 603 },
+      startedAt: STARTED_AT,
+      instruction: "replace",
+      ...emptyStreamText()
+    };
+    appendStreamText(stream, "new");
+
+    const projected = projectStreamedPayload(payload, stream);
+    const projectedStub = projected.nodes.find((candidate) => candidate.id === target.id)!;
+
+    expect(projectedStub.preview).toBe("");
   });
 
   test("adopting a payload mid-stream keeps frames equal to a cold projection", () => {

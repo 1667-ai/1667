@@ -3,6 +3,7 @@
  */
 import type { ComposerState } from "./composer-model.js";
 import { createComposer } from "./composer-model.js";
+import type { TextPresentation } from "./text-presentation.js";
 
 export interface AsideNoteView {
   readonly question: string;
@@ -32,6 +33,10 @@ export interface AsideSurfaceState {
   composer: ComposerState;
   /** Text streaming from the current ask, if any. */
   streamText: string;
+  /** Visible prefix controller; `streamText` remains authoritative. */
+  presentation?: TextPresentation;
+  /** Stop hides the live answer before the backend confirms its result. */
+  streamHidden?: boolean;
   /** Question currently being answered; returned to the input on failure. */
   inflightQuestion: string | null;
   /** First wrapped history row; null follows the newest content. */
