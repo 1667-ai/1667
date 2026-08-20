@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { canonicalJson } from "../../server/canonical-json.js";
 import { importProfileExport } from "../../server/import-profile-export.js";
 import { parseJsonRejectingDuplicateKeys } from "../../server/strict-json.js";
-import { effectiveGenerationRuntime } from "../../server/settings-v2-conversion.js";
+import { effectiveStandardGenerationRuntime } from "../../server/settings-runtime-resolver.js";
 import {
   defaultModelCapabilities
 } from "../../shared/settings-provider-defaults.js";
@@ -229,7 +229,7 @@ export function replaySettings(
     optimization,
     apiKeyEnv
   );
-  return effectiveGenerationRuntime(document).settings;
+  return effectiveStandardGenerationRuntime(document).settings;
 }
 
 function replaySettingsDocument(

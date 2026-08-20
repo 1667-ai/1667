@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseSettingsDocumentV2 } from "../../server/settings-v2-codec.js";
-import { effectiveGenerationRuntime } from "../../server/settings-v2-conversion.js";
+import { effectiveStandardGenerationRuntime } from "../../server/settings-runtime-resolver.js";
 import {
   applyBasicSettingsDraft,
   basicSettingsFromDocument
@@ -794,7 +794,7 @@ describe("inline settings menu", () => {
       source.api.probeContextWindow = async (target) => {
         probes += 1;
         if (!("kind" in target)) throw new Error("expected a settings document");
-        const runtime = effectiveGenerationRuntime(
+        const runtime = effectiveStandardGenerationRuntime(
           parseSettingsDocumentV2(target.document),
           target.purpose,
           {},

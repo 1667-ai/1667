@@ -26,11 +26,14 @@ import {
   hashSettingsStateV2
 } from "./settings-v2-codec.js";
 import {
-  effectiveGenerationRuntime,
   effectiveApiKeyEnv,
   providerForProtocol
 } from "./settings-v2-conversion.js";
-import { providerRuntimeFromV2 } from "./provider-runtime.js";
+import {
+  createSettingsRuntimeResolver,
+  type SettingsRuntimeResolver
+} from "./settings-runtime-resolver.js";
+import type { ProviderRuntime } from "./provider-runtime.js";
 import { defaultModelCapabilities } from "../shared/settings-provider-defaults.js";
 import {
   isExactSettingsActivationSuccessor,
@@ -96,8 +99,7 @@ import {
   createSubscriptionRuntime,
   providerSecretIdsToKeep,
   storedSecretIdsInDocument,
-  storedSecretIdsInState,
-  type SubscriptionRuntimeDependencies
+  storedSecretIdsInState
 } from "./subscription-runtime.js";
 import { readSettingsView } from "./settings-v2-view-read.js";
 
@@ -140,14 +142,18 @@ export class SettingsV2Store {
   private readonly activationMode: SettingsActivationMode;
   private readonly secretsDir: string;
   private readonly prunesSecrets: boolean;
-  private readonly subscription: SubscriptionRuntimeDependencies;
+  private readonly runtimeResolver: SettingsRuntimeResolver;
 
   constructor(
     private readonly dataDir: string,
     options: SettingsV2StoreOptions = {}
   ) {
     this.secretsDir = options.secretsDir ?? dataDir;
-    this.subscription = createSubscriptionRuntime(this.secretsDir);
+    this.environment = { ...(options.environment ?? process.env) };
+    this.runtimeResolver = createSettingsRuntimeResolver({
+      environment: this.environment,
+      subscription: createSubscriptionRuntime(this.secretsDir)
+    });
     // A shared machine tier holds every project's keys, and this store only
     // knows the IDs one project references. Pruning against that view would
     // delete another project's credentials, so garbage collection is confined
@@ -155,7 +161,6 @@ export class SettingsV2Store {
     this.prunesSecrets = this.secretsDir === dataDir;
     this.coordinator = options.coordinator ?? createMutationCoordinator();
     this.ledger = options.ledger ?? new MutationLedgerStore(dataDir);
-    this.environment = { ...(options.environment ?? process.env) };
     this.now = options.now ?? (() => new Date());
     this.validateCandidate = options.validateCandidate ?? defaultCandidateValidator;
     this.activationMode = options.activationMode ?? "activation-capable";
@@ -170,7 +175,7 @@ export class SettingsV2Store {
     // activate, or prune. Opening proves the state parses and its active
     // document supports a route, exactly like the writable path below.
     if (slot.kind === "v3") {
-      assertRuntimeDocumentSupported(activeSettingsDocument(slot.readOnlyView));
+      assertRuntimeDocumentSupported(activeSettingsDocument(slot.readOnlyView), this.runtimeResolver);
       settingsViewFromState(slot.readOnlyView);
       return;
     }
@@ -185,12 +190,12 @@ export class SettingsV2Store {
       await removeProviderSecretsScratch(this.secretsDir);
       await pruneProviderSecrets(this.secretsDir, providerSecretIdsToKeep(state));
     }
-    assertRuntimeDocumentSupported(activeSettingsDocument(state));
+    assertRuntimeDocumentSupported(activeSettingsDocument(state), this.runtimeResolver);
     settingsViewFromState(state);
   }
 
   loadView(): Promise<SettingsView> {
-    return readSettingsView(this.dataDir, this.subscription.credentials);
+    return readSettingsView(this.dataDir, this.runtimeResolver.credentials);
   }
 
   /** The route's runtime settings AND its stored image-input override,
@@ -216,16 +221,9 @@ export class SettingsV2Store {
   async loadRuntime(purpose: SettingsRoutePurpose = "default") {
     const { slot, state, storedSecrets } = await this.readRuntimeSnapshot();
     const document = activeSettingsDocument(state);
-    const runtime = effectiveGenerationRuntime(
-      document,
-      purpose,
-      {},
-      this.environment,
-      { subscription: this.subscription },
-      storedSecrets
-    );
+    const runtime = this.runtimeResolver.resolve({ document, purpose, storedSecrets });
     assertRuntimeGenerationSettingsSupported(runtime.settings);
-    // Same `document` object `effectiveGenerationRuntime` just resolved a
+    // Same `document` object the runtime resolver just resolved a
     // route from, above — a second call to the same pure route-selection
     // function, not a second read. `selectSettingsRoute` is deterministic
     // given a document and a purpose, so this always names the same model
@@ -277,13 +275,13 @@ export class SettingsV2Store {
     settings: GenerationSettings
   ): Promise<readonly {
     readonly connectionId: string;
-    readonly providerRuntime: ReturnType<typeof providerRuntimeFromV2>;
+    readonly providerRuntime: ProviderRuntime;
   }[]> {
     const { state, storedSecrets } = await this.readRuntimeSnapshot();
     const document = activeSettingsDocument(state);
     const exact: Array<{
       readonly connectionId: string;
-      readonly providerRuntime: ReturnType<typeof providerRuntimeFromV2>;
+      readonly providerRuntime: ProviderRuntime;
     }> = [];
     const fallback: typeof exact = [];
     for (const [connectionId, connection] of Object.entries(document.connections)) {
@@ -302,16 +300,12 @@ export class SettingsV2Store {
       const model = exactModel ?? models[0];
       const match = {
         connectionId,
-        providerRuntime: providerRuntimeFromV2(
+        providerRuntime: this.runtimeResolver.resolveConnection({
           connection,
-          "default",
-          model?.capabilities ?? defaultModelCapabilities(provider),
-          {
-            environment: this.environment,
-            storedSecrets,
-            subscription: this.subscription
-          }
-        )
+          effort: "default",
+          capabilities: model?.capabilities ?? defaultModelCapabilities(provider),
+          storedSecrets
+        })
       };
       (exactModel === undefined ? fallback : exact).push(match);
     }
@@ -360,17 +354,12 @@ export class SettingsV2Store {
         );
       }
     }
-    const runtime = effectiveGenerationRuntime(
+    const runtime = this.runtimeResolver.resolve({
       document,
       purpose,
-      {},
-      this.environment,
-      {
-        allowBlankModel: true,
-        subscription: this.subscription
-      },
-      resolvedSecrets
-    );
+      allowBlankModel: true,
+      storedSecrets: resolvedSecrets
+    });
     assertRuntimeGenerationSettingsSupported(runtime.settings);
     return runtime.settings;
   }
@@ -488,8 +477,12 @@ export class SettingsV2Store {
     }
 
     if (operation.method === "saveSettings") {
-      assertRuntimeDocumentSupported(operation.document);
-      await assertSavedSamplingBiasResolves(operation.document, this.environment, signal);
+      assertRuntimeDocumentSupported(operation.document, this.runtimeResolver);
+      await assertSavedSamplingBiasResolves(
+        operation.document,
+        this.runtimeResolver,
+        signal
+      );
     }
     if (current.stateGeneration !== request.expectedAggregateVersion.stateGeneration) {
       throw new ServiceError(
@@ -813,21 +806,18 @@ export class SettingsV2Store {
     }
     let candidateReady = false;
     try {
-      assertRuntimeDocumentSupported(candidate);
+      assertRuntimeDocumentSupported(candidate, this.runtimeResolver);
       const validatedConnections = new Set<string>();
       const probeTargets: GenerationSettings[] = [];
       for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {
         const route = selectSettingsRoute(candidate, purpose);
         if (validatedConnections.has(route.model.connectionId)) continue;
         validatedConnections.add(route.model.connectionId);
-        const effective = effectiveGenerationRuntime(
-          candidate,
+        const effective = this.runtimeResolver.resolve({
+          document: candidate,
           purpose,
-          {},
-          this.environment,
-          { subscription: this.subscription },
           storedSecrets
-        ).settings;
+        }).settings;
         if (providerRequestTransportAvailable(effective)) probeTargets.push(effective);
       }
       // Distinct connections validate concurrently, so the whole attempt is

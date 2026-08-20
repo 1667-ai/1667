@@ -1,21 +1,59 @@
 import type {
-  DiscoveredModelV2,
   ModelDiscoveryResultV2,
   ModelDiscoverySourceV2
 } from "../shared/settings-v2-types.js";
-import { isSubscriptionProtocolV2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
-import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
+import {
+  MAX_DISCOVERED_MODELS,
+  discoverBundledModels,
+  sanitizeDiscoveredModels,
+  type ModelDiscoveryCandidate
+} from "../shared/model-discovery-catalog.js";
 import { ProviderError } from "./errors.js";
 import { getProviderJson } from "./provider-json.js";
-import { providerRuntimeFor } from "./provider-runtime.js";
-import { providerRoot, providerUrl } from "./providers.js";
 import {
-  MAX_SETTINGS_REMOTE_ID_SCALARS,
-  MAX_SETTINGS_TOKEN_COUNT
-} from "./settings-v2-scalars.js";
+  isSubscriptionProviderRuntime,
+  providerRuntimeFor,
+  type SubscriptionProviderRuntime
+} from "./provider-runtime.js";
+import { providerRoot, providerUrl } from "./providers.js";
+import { subscriptionProviderForProtocol } from "./subscription-protocol.js";
 
-const MAX_DISCOVERED_MODELS = 256;
+type NetworkDiscoverySourceV2 = Exclude<ModelDiscoverySourceV2, "pi-catalog">;
+
+interface NetworkCatalogAdapter {
+  readonly entries: (data: unknown) => readonly unknown[] | null;
+  readonly candidate: (entry: unknown) => ModelDiscoveryCandidate | null;
+}
+
+const NETWORK_CATALOG_ADAPTERS = {
+  "anthropic-models": {
+    entries: dataEntries,
+    candidate: (entry) => objectCandidate(entry, {
+      id: "id",
+      name: "display_name",
+      contextWindow: "max_input_tokens",
+      maxOutputTokens: "max_tokens"
+    })
+  },
+  "openai-models": {
+    entries: dataEntries,
+    candidate: openAiCandidate
+  },
+  "lm-studio-models": {
+    entries: dataEntries,
+    candidate: (entry) => objectCandidate(entry, {
+      id: "id",
+      name: "name",
+      contextWindow: "loaded_context_length",
+      maxOutputTokens: "max_output_tokens"
+    })
+  },
+  "ollama-tags": {
+    entries: modelEntries,
+    candidate: ollamaCandidate
+  }
+} satisfies Record<NetworkDiscoverySourceV2, NetworkCatalogAdapter>;
 
 export async function discoverProviderModels(
   settings: GenerationSettings,
@@ -26,8 +64,11 @@ export async function discoverProviderModels(
     return { observedAt: now().toISOString(), models: [] };
   }
   const runtime = providerRuntimeFor(settings);
-  if (runtime.protocol !== undefined && isSubscriptionProtocolV2(runtime.protocol)) {
-    return { observedAt: now().toISOString(), models: [] };
+  if (isSubscriptionProviderRuntime(runtime)) {
+    return {
+      observedAt: now().toISOString(),
+      models: subscriptionCatalog(runtime)
+    };
   }
   const root = providerRoot(settings);
   const timeoutMs = Math.min(runtime.timeouts.totalMs, 30_000);
@@ -58,6 +99,13 @@ export async function discoverProviderModels(
   };
 }
 
+function subscriptionCatalog(
+  runtime: SubscriptionProviderRuntime
+): ModelDiscoveryResultV2["models"] {
+  const providerId = subscriptionProviderForProtocol(runtime.protocol);
+  return discoverBundledModels(runtime.subscription.models.getModels(providerId));
+}
+
 function anthropicDiscoveryUrl(settings: GenerationSettings): string {
   const url = providerUrl(settings, "/v1/models");
   return new URL(settings.baseUrl).protocol === "https:"
@@ -68,90 +116,75 @@ function anthropicDiscoveryUrl(settings: GenerationSettings): string {
 async function discover(
   settings: GenerationSettings,
   url: string,
-  source: ModelDiscoverySourceV2,
+  source: NetworkDiscoverySourceV2,
   headers: Readonly<Record<string, string>>,
   timeoutMs: number,
   signal?: AbortSignal
-): Promise<readonly DiscoveredModelV2[]> {
+): Promise<ModelDiscoveryResultV2["models"]> {
   const data = await getProviderJson(settings, url, headers, {
     signal,
     timeoutMs
   });
-  const entries = source === "ollama-tags"
-    ? isObject(data) && Array.isArray(data.models) ? data.models : null
-    : isObject(data) && Array.isArray(data.data) ? data.data : null;
+  const adapter = NETWORK_CATALOG_ADAPTERS[source];
+  const entries = adapter.entries(data);
   if (entries === null) {
     throw new ProviderError(`Model discovery returned an invalid ${source} catalog.`);
   }
-  const result: DiscoveredModelV2[] = [];
-  const seen = new Set<string>();
-  for (const entry of entries) {
-    if (!isObject(entry)) continue;
-    const remoteId = modelId(entry, source);
-    if (remoteId === null || seen.has(remoteId)) continue;
-    seen.add(remoteId);
-    result.push({
-      remoteId,
-      name: modelName(entry, remoteId),
-      contextWindow: source === "anthropic-models"
-        ? modelScalar(entry, "max_input_tokens")
-        : source === "lm-studio-models"
-          ? modelScalar(entry, "loaded_context_length")
-          : modelScalar(entry, "loaded_context_length")
-            ?? modelScalar(entry, "context_length")
-            ?? modelScalar(entry, "max_context_length"),
-      maxOutputTokens: source === "anthropic-models"
-        ? modelScalar(entry, "max_tokens")
-        : modelScalar(entry, "max_output_tokens"),
-      source
-    });
-    if (result.length === MAX_DISCOVERED_MODELS) break;
+  return sanitizeDiscoveredModels(entries, source, adapter.candidate);
+}
+
+function dataEntries(data: unknown): readonly unknown[] | null {
+  return isObject(data) && Array.isArray(data.data) ? data.data : null;
+}
+
+function modelEntries(data: unknown): readonly unknown[] | null {
+  return isObject(data) && Array.isArray(data.models) ? data.models : null;
+}
+
+function objectCandidate(
+  entry: unknown,
+  keys: {
+    readonly id: string;
+    readonly name: string;
+    readonly contextWindow: string;
+    readonly maxOutputTokens: string;
   }
-  return result;
+): ModelDiscoveryCandidate | null {
+  if (!isObject(entry)) return null;
+  return {
+    remoteId: entry[keys.id],
+    name: typeof entry[keys.name] === "string" ? entry[keys.name] : entry.name,
+    contextWindow: [entry[keys.contextWindow]],
+    maxOutputTokens: [entry[keys.maxOutputTokens]]
+  };
 }
 
-function modelId(
-  entry: Record<string, unknown>,
-  source: ModelDiscoverySourceV2
-): string | null {
-  const value = source === "ollama-tags"
-    ? typeof entry.model === "string" ? entry.model : entry.name
-    : entry.id;
-  if (
-    typeof value !== "string"
-    || value.length === 0
-    || value.trim() !== value
-    || hasUnpairedSurrogate(value)
-    || value.normalize("NFC") !== value
-  ) return null;
-  return unicodeScalarLength(value, MAX_SETTINGS_REMOTE_ID_SCALARS)
-    <= MAX_SETTINGS_REMOTE_ID_SCALARS
-    ? value
-    : null;
+function openAiCandidate(entry: unknown): ModelDiscoveryCandidate | null {
+  if (!isObject(entry)) return null;
+  return {
+    remoteId: entry.id,
+    name: typeof entry.display_name === "string" ? entry.display_name : entry.name,
+    contextWindow: [
+      entry.loaded_context_length,
+      entry.context_length,
+      entry.max_context_length
+    ],
+    maxOutputTokens: [entry.max_output_tokens]
+  };
 }
 
-function modelName(entry: Record<string, unknown>, fallback: string): string {
-  const value = typeof entry.display_name === "string"
-    ? entry.display_name
-    : typeof entry.name === "string"
-      ? entry.name
-      : fallback;
-  const safe = value.trim().length === 0
-    || hasUnpairedSurrogate(value)
-    || value.normalize("NFC") !== value
-    ? fallback
-    : value;
-  return Array.from(safe).slice(0, 256).join("");
-}
-
-function modelScalar(entry: Record<string, unknown>, key: string): number | null {
-  const value = entry[key];
-  return typeof value === "number"
-    && Number.isSafeInteger(value)
-    && value > 0
-    && value <= MAX_SETTINGS_TOKEN_COUNT
-    ? value
-    : null;
+function ollamaCandidate(entry: unknown): ModelDiscoveryCandidate | null {
+  if (!isObject(entry)) return null;
+  return {
+    remoteId: typeof entry.model === "string" ? entry.model : entry.name,
+    name: typeof entry.display_name === "string" ? entry.display_name : entry.name,
+    contextWindow: [
+      entry.loaded_context_length,
+      entry.context_length,
+      entry.max_context_length
+    ],
+    maxOutputTokens: [entry.max_output_tokens]
+  };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

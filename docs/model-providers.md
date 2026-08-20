@@ -355,10 +355,11 @@ change model behavior, output limits, request cost, and privacy controls.
 ChatGPT output length is best effort. The provider can stop before the
 configured maximum or apply its own limit. Claude plan support is experimental.
 
-1667 does not run model discovery for a plan connection. Enter the model ID
-manually in the **model** row. The plan choices use `gpt-5.4` and
-`claude-sonnet-4-6` as current defaults; the provider catalog remains the
-authority. If plan sign-in is unavailable, use an API-key connection. Use
+1667 reads each plan model list from the bundled Pi catalog. Select a model in
+the **model** row, or enter a model ID manually. Catalog updates arrive with Pi
+dependency updates. The plan choices use `gpt-5.4` and `claude-sonnet-4-6` as
+current defaults. The provider catalog remains the authority. If plan sign-in
+is unavailable, use an API-key connection. Use
 **OpenAI** or **OpenAI-compatible** with an OpenAI key for ChatGPT-compatible
 work. Use **Anthropic** with an Anthropic API key for Claude-compatible work.
 

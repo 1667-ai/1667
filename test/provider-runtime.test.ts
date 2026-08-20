@@ -8,7 +8,8 @@ import {
   redactProviderBody,
   redactProviderSecrets,
   resolveProviderHeaders,
-  type ProviderRuntime
+  type ProviderRuntime,
+  type StandardProviderRuntime
 } from "../server/provider-runtime.js";
 import {
   BoundedProviderSseParser,
@@ -1775,7 +1776,7 @@ test("complete SSE frames may share a transport chunk larger than the partial-fr
 });
 
 function attached(
-  overrides: Partial<ProviderRuntime> = {},
+  overrides: Partial<StandardProviderRuntime> = {},
   settingsOverrides: Partial<GenerationSettings> = {}
 ): GenerationSettings {
   return attachProviderRuntime({ ...baseSettings(), ...settingsOverrides }, {

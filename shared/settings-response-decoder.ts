@@ -1,9 +1,9 @@
 import {
+  MODEL_DISCOVERY_SOURCE_V2_VALUES,
   REASONING_DISPLAY_V2_VALUES,
   SETTINGS_ACTIVATION_ERROR_CODE_V2_VALUES,
   SETTINGS_SUBSCRIPTION_PROTOCOL_V2_VALUES,
   type ModelDiscoveryResultV2,
-  type ModelDiscoverySourceV2,
   type ReasoningDisplayV2,
   type SettingsActivationOutcomeV2,
   type SettingsDocumentV2,
@@ -14,6 +14,7 @@ import {
   type SubscriptionProtocolV2
 } from "./settings-v2-types.js";
 import { CONTINUATION_PROMPT_LAYOUTS } from "./continuation-prompt-optimization.js";
+import { MAX_DISCOVERED_MODELS } from "./settings-scalar-policy.js";
 import type { GenerationSettings, Provider } from "./types.js";
 
 export type SettingsDocumentResponseDecoder = (value: unknown) => SettingsDocumentV2;
@@ -216,7 +217,7 @@ export function decodeModelDiscoveryResult(value: unknown): ModelDiscoveryResult
   const response = closedRecord(value, "model discovery result", ["observedAt", "models"]);
   const observedAt = stringValue(response.observedAt, "model discovery result.observedAt");
   if (!isCanonicalDate(observedAt) || !Array.isArray(response.models)
-    || response.models.length > 256) {
+    || response.models.length > MAX_DISCOVERED_MODELS) {
     invalid("model discovery result");
   }
   return {
@@ -236,8 +237,9 @@ export function decodeModelDiscoveryResult(value: unknown): ModelDiscoveryResult
           model.maxOutputTokens,
           `model discovery result.models[${index}].maxOutputTokens`
         ),
-        source: discoverySource(
+        source: oneOf(
           model.source,
+          MODEL_DISCOVERY_SOURCE_V2_VALUES,
           `model discovery result.models[${index}].source`
         )
       };
@@ -296,12 +298,6 @@ function positiveSafeInteger(value: unknown, label: string): number {
 
 function nullablePositiveSafeInteger(value: unknown, label: string): number | null {
   return value === null ? null : positiveSafeInteger(value, label);
-}
-
-function discoverySource(value: unknown, label: string): ModelDiscoverySourceV2 {
-  if (value !== "anthropic-models" && value !== "openai-models"
-    && value !== "lm-studio-models" && value !== "ollama-tags") invalid(label);
-  return value;
 }
 
 function oneOf<const T extends readonly string[]>(

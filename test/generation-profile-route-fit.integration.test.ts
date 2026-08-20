@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { effectiveGenerationSettings } from "../server/settings-v2-conversion.js";
+import { effectiveGenerationView } from "../server/settings-v2-conversion.js";
 import { exportGenerationProfile, importProfileExport } from "../server/import-profile-export.js";
 import { validateSamplingRoute } from "../server/settings-v2-sampling-validation.js";
 import {
@@ -92,7 +92,7 @@ test("Profile transfer rejects Anthropic effort off through the exact route", ()
     reason: "Anthropic does not support generation effort set to off"
   });
   assert.throws(
-    () => effectiveGenerationSettings({
+    () => effectiveGenerationView({
       ...anthropic,
       profiles: {
         ...anthropic.profiles,
@@ -148,7 +148,7 @@ test("Profile transfer omits Mirostat when the selected route cannot use it", ()
       fitted.document.models[profile.modelId]!,
       fitted.document.connections[fitted.document.models[profile.modelId]!.connectionId]!
     );
-    assert.doesNotThrow(() => effectiveGenerationSettings(fitted.document));
+    assert.doesNotThrow(() => effectiveGenerationView(fitted.document));
   }
 });
 
@@ -175,7 +175,7 @@ test("Profile transfer caps maximum output with the runtime model limit policy",
   };
   const overrideFit = fitProfileToRoute(override, "default", candidate);
   assert.equal(overrideFit.document.profiles.default?.maxOutputTokens, 512);
-  assert.equal(effectiveGenerationSettings(overrideFit.document).maxTokens, 512);
+  assert.equal(effectiveGenerationView(overrideFit.document).maxTokens, 512);
   assert.deepEqual(overrideFit.fidelity, ["maximum output clamped to 512"]);
 
   const discovered = {
@@ -189,7 +189,7 @@ test("Profile transfer caps maximum output with the runtime model limit policy",
   };
   const discoveredFit = fitProfileToRoute(discovered, "default", candidate);
   assert.equal(discoveredFit.document.profiles.default?.maxOutputTokens, 1_024);
-  assert.equal(effectiveGenerationSettings(discoveredFit.document).maxTokens, 1_024);
+  assert.equal(effectiveGenerationView(discoveredFit.document).maxTokens, 1_024);
   assert.deepEqual(discoveredFit.fidelity, ["maximum output clamped to 1024"]);
 
   const unknown = {
@@ -203,7 +203,7 @@ test("Profile transfer caps maximum output with the runtime model limit policy",
   };
   const unknownFit = fitProfileToRoute(unknown, "default", candidate);
   assert.equal(unknownFit.document.profiles.default?.maxOutputTokens, 2_048);
-  assert.equal(effectiveGenerationSettings(unknownFit.document).maxTokens, 2_048);
+  assert.equal(effectiveGenerationView(unknownFit.document).maxTokens, 2_048);
   assert.deepEqual(unknownFit.fidelity, []);
 
   const runtimeMetadata = { runtime: { maxOutputTokens: 640 }, builtin: { maxOutputTokens: 320 } };
@@ -211,7 +211,7 @@ test("Profile transfer caps maximum output with the runtime model limit policy",
     modelMetadata: runtimeMetadata
   });
   assert.equal(runtimeFit.document.profiles.default?.maxOutputTokens, 640);
-  assert.equal(effectiveGenerationSettings(runtimeFit.document, "default", runtimeMetadata).maxTokens, 640);
+  assert.equal(effectiveGenerationView(runtimeFit.document, "default", runtimeMetadata).maxTokens, 640);
   assert.deepEqual(runtimeFit.fidelity, ["maximum output clamped to 640"]);
 
   const builtinMetadata = { builtin: { maxOutputTokens: 320 } };
@@ -219,7 +219,6 @@ test("Profile transfer caps maximum output with the runtime model limit policy",
     modelMetadata: builtinMetadata
   });
   assert.equal(builtinFit.document.profiles.default?.maxOutputTokens, 320);
-  assert.equal(effectiveGenerationSettings(builtinFit.document, "default", builtinMetadata).maxTokens, 320);
+  assert.equal(effectiveGenerationView(builtinFit.document, "default", builtinMetadata).maxTokens, 320);
   assert.deepEqual(builtinFit.fidelity, ["maximum output clamped to 320"]);
 });
-

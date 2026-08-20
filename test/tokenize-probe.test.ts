@@ -10,6 +10,7 @@ import {
   EMPTY_SAMPLING_V2,
   type SettingsPresetV2,
   type SettingsProtocolV2,
+  type SubscriptionProtocolV2,
   type TextPromptFormatV2
 } from "../shared/settings-v2-types.js";
 import { MAX_COUNTED_PROMPT_CHARS } from "../shared/tokenize-source.js";
@@ -507,7 +508,7 @@ function settings(options: {
   readonly baseUrl?: string;
   readonly model?: string;
   readonly timeouts?: ProviderRuntime["timeouts"];
-  readonly protocol?: SettingsProtocolV2;
+  readonly protocol?: Exclude<SettingsProtocolV2, SubscriptionProtocolV2>;
   readonly textPromptFormat?: TextPromptFormatV2;
 }): GenerationSettings {
   const value: GenerationSettings = {

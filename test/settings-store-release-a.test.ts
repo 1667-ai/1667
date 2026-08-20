@@ -8,7 +8,7 @@ import {
 import { SettingsStore } from "../server/settings.js";
 import {
   convertGenerationSettingsV1,
-  effectiveGenerationSettings
+  effectiveGenerationView
 } from "../server/settings-v2-conversion.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import { readSettingsState } from "../server/settings-state-file.js";
@@ -418,7 +418,7 @@ test("migrated plaintext presets use owned loopback only on supported targets", 
     });
     await first.init(2);
     const migrated = convertGenerationSettingsV1({
-      ...effectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2),
+      ...effectiveGenerationView(INITIAL_SETTINGS_DOCUMENT_V2),
       provider: "openai-compatible",
       baseUrl,
       model: `${preset}-model`

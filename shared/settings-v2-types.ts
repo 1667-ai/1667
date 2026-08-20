@@ -366,11 +366,14 @@ export interface SettingsDocumentV3 {
   };
 }
 
-export type ModelDiscoverySourceV2 =
-  | "anthropic-models"
-  | "openai-models"
-  | "lm-studio-models"
-  | "ollama-tags";
+export const MODEL_DISCOVERY_SOURCE_V2_VALUES = [
+  "anthropic-models",
+  "openai-models",
+  "lm-studio-models",
+  "ollama-tags",
+  "pi-catalog"
+] as const;
+export type ModelDiscoverySourceV2 = (typeof MODEL_DISCOVERY_SOURCE_V2_VALUES)[number];
 
 export interface DiscoveredModelV2 {
   readonly remoteId: string;

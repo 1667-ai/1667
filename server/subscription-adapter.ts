@@ -10,8 +10,6 @@ import type {
   Models
 } from "@earendil-works/pi-ai";
 import { hasApi } from "@earendil-works/pi-ai";
-import type { SettingsProtocolV2 } from "../shared/settings-v2-types.js";
-import { isSubscriptionProtocolV2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 import type { StorySamplingBias } from "./sampling-phrase-bias.js";
 import {
@@ -24,8 +22,10 @@ import { lowerPromptForProvider } from "./provider-request-body.js";
 import { ProviderError } from "./errors.js";
 import {
   createProviderStreamRedactor,
+  isSubscriptionProviderRuntime,
   providerRuntimeFor,
-  redactProviderSecrets
+  redactProviderSecrets,
+  type SubscriptionProviderRuntime
 } from "./provider-runtime.js";
 import { requireLogitBiasFamilyAvailable } from "./provider-sampling.js";
 import { createReasoningRelay } from "./provider-reasoning-relay.js";
@@ -36,7 +36,6 @@ import {
 import {
   subscriptionProviderForProtocol
 } from "./subscription-protocol.js";
-import type { SubscriptionRuntimeDependencies } from "./subscription-runtime.js";
 import type {
   GenerationRecordCollector
 } from "./generation-record-capture.js";
@@ -77,12 +76,12 @@ export async function* streamSubscription(
   options: SubscriptionStreamOptions
 ): AsyncGenerator<string> {
   const runtime = providerRuntimeFor(settings);
-  const protocol = runtime.protocol as SettingsProtocolV2 | undefined;
-  if (protocol === undefined || !isSubscriptionProtocolV2(protocol)) {
+  if (!isSubscriptionProviderRuntime(runtime)) {
     throw new ProviderError("Subscription protocol is not supported.");
   }
+  const protocol = runtime.protocol;
   requireLogitBiasFamilyAvailable(settings, protocol, options.storySampling);
-  const dependencies = subscriptionDependencies(runtime);
+  const dependencies = runtime.subscription;
   const providerId = subscriptionProviderForProtocol(protocol);
   const modelValue = dependencies.models.getModel(providerId, settings.model);
   if (modelValue === undefined) {
@@ -319,17 +318,8 @@ export async function* streamSubscription(
   }
 }
 
-function subscriptionDependencies(
-  runtime: ReturnType<typeof providerRuntimeFor>
-): SubscriptionRuntimeDependencies {
-  if (runtime.subscription === undefined) {
-    throw new ProviderError("Subscription credential storage is unavailable.");
-  }
-  return runtime.subscription;
-}
-
 async function resolveSubscriptionAuth(
-  dependencies: SubscriptionRuntimeDependencies,
+  dependencies: SubscriptionProviderRuntime["subscription"],
   model: Model<Api>,
   providerId: "openai-codex" | "anthropic",
   signal: AbortSignal

@@ -3,12 +3,12 @@ import test from "node:test";
 import {
   attachProviderRuntime,
   providerRuntimeFromV2,
-  resolveProviderHeaders
+  resolveProviderHeaders,
+  type StandardModelConnectionV2
 } from "../server/provider-runtime.js";
 import {
   EMPTY_SAMPLING_V2,
-  type ModelCapabilitiesV2,
-  type ModelConnectionV2
+  type ModelCapabilitiesV2
 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 
@@ -20,7 +20,7 @@ const CAPABILITIES: ModelCapabilitiesV2 = {
 };
 
 test("v2 runtime accepts named credentials and sampling options", () => {
-  const connection: ModelConnectionV2 = {
+  const connection: StandardModelConnectionV2 = {
     name: "Compatibility fixture",
     preset: "custom",
     protocol: "openai-chat-completions",

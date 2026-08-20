@@ -11,6 +11,7 @@ import { imageInputForModelChangeV3 } from "../tui/src/settings-text.js";
 import { applySamplingSettings } from "../shared/sampling-capabilities.js";
 import {
   attachProviderRuntime,
+  isStandardModelConnectionV2,
   providerRuntimeFromV2,
   resolveProviderHeaders
 } from "../server/provider-runtime.js";
@@ -515,6 +516,9 @@ function resolvedStoredHeaders(
   const auth = connection.auth;
   if (auth.type !== "bearer-stored" && auth.type !== "header-stored") {
     throw new Error("test document must use stored auth");
+  }
+  if (!isStandardModelConnectionV2(connection)) {
+    throw new Error("test document must use a standard provider");
   }
   return resolveProviderHeaders(
     attachProviderRuntime(

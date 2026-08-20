@@ -9,7 +9,8 @@ import type { GenerationSettings } from "../shared/types.js";
 import { checkModelServer } from "./server-check.js";
 import { ownedLoopbackHttpSupported } from "./provider-fetch.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
-import { effectiveGenerationSettings } from "./settings-v2-conversion.js";
+import { effectiveGenerationView } from "./settings-v2-conversion.js";
+import type { SettingsRuntimeResolver } from "./settings-runtime-resolver.js";
 import { classifyHttpHost, SettingsFormatError } from "./settings-v2-scalars.js";
 import { selectSettingsRoute } from "../shared/settings-route.js";
 import { continuationPromptLayoutForOptimization } from "../shared/continuation-prompt-optimization.js";
@@ -40,8 +41,8 @@ export function settingsViewFromState(
     activeRevision: effectiveActiveSettingsRevision(state),
     pendingRevision,
     document: shown,
-    effective: effectiveGenerationSettings(active),
-    effectiveProse: effectiveGenerationSettings(active, "prose"),
+    effective: effectiveGenerationView(active),
+    effectiveProse: effectiveGenerationView(active, "prose"),
     // Read from `active`, never `shown`: `effectiveProse` above already
     // resolves against the active (never pending) document, and this must
     // describe the same route, not whichever document a mid-activation
@@ -97,10 +98,13 @@ export function credentialReferencesResolve(
   return true;
 }
 
-export function assertRuntimeDocumentSupported(document: SettingsDocumentV2): void {
+export function assertRuntimeDocumentSupported(
+  document: SettingsDocumentV2,
+  runtimeResolver: SettingsRuntimeResolver
+): void {
   try {
     for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {
-      effectiveGenerationSettings(document, purpose);
+      runtimeResolver.resolve({ document, purpose });
     }
   } catch (error) {
     throw invalidSettingsMutation(error);

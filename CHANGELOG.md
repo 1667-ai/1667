@@ -5,6 +5,9 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **ChatGPT and Claude plans show their bundled model catalogs.** Select a
+  model in Settings, or enter a model ID manually.
+
 ## 0.9.10-rc.4 - 2026-08-20
 
 - **The Shell Installer can update a Managed Installation.** Run the Installer

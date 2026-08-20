@@ -12,7 +12,6 @@ import {
   resolveModelScalar,
   type ModelScalarMetadataSourcesV2
 } from "../shared/model-scalar-resolution.js";
-import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import {
   defaultConnectionTimeouts,
   defaultModelCapabilities,
@@ -34,27 +33,8 @@ import {
   MAX_SETTINGS_NAME_SCALARS,
   SettingsFormatError
 } from "./settings-v2-scalars.js";
-import {
-  attachProviderRuntime,
-  providerRuntimeFromV2,
-  type ProviderRuntime
-} from "./provider-runtime.js";
-import type { SubscriptionRuntimeDependencies } from "./subscription-runtime.js";
 
 export interface EffectiveMetadataV2 extends ModelScalarMetadataSourcesV2 {}
-
-export interface EffectiveGenerationRuntime {
-  readonly settings: GenerationSettings;
-  readonly promptCache: PromptCacheContext;
-  readonly providerRuntime: ProviderRuntime;
-}
-
-export interface EffectiveGenerationRuntimeOptions {
-  /** Provider checks and discovery do not require a generation-ready model ID. */
-  readonly allowBlankModel?: boolean;
-  /** Runtime-only subscription seams. They never enter the settings document. */
-  readonly subscription?: SubscriptionRuntimeDependencies;
-}
 
 export function convertGenerationSettingsV1(value: GenerationSettings): SettingsDocumentV2 {
   const settings = parseGenerationSettingsV1(value);
@@ -90,27 +70,21 @@ export function convertGenerationSettingsV1(value: GenerationSettings): Settings
   });
 }
 
-/** Project the selected v2 route into the unchanged provider runtime contract.
- * Unsupported v2-only semantics fail explicitly rather than being dropped. */
-export function effectiveGenerationSettings(
+/** Project one route into the serializable Generation Settings view. */
+export function effectiveGenerationView(
   value: SettingsDocumentV2,
   purpose: SettingsRoutePurpose = "default",
   metadata: EffectiveMetadataV2 = {}
 ): GenerationSettings {
-  return effectiveGenerationRuntime(value, purpose, metadata).settings;
+  return projectEffectiveGeneration(value, purpose, metadata).settings;
 }
 
-/** Project settings and cache policy from one parsed route snapshot. Callers
- * must not combine independent reads: a settings activation between them could
- * otherwise pair one provider target with another target's cache contract. */
-export function effectiveGenerationRuntime(
+export function projectEffectiveGeneration(
   value: SettingsDocumentV2,
-  purpose: SettingsRoutePurpose = "default",
-  metadata: EffectiveMetadataV2 = {},
-  environment?: NodeJS.ProcessEnv,
-  options: EffectiveGenerationRuntimeOptions = {},
-  storedSecrets?: ReadonlyMap<string, string>
-): EffectiveGenerationRuntime {
+  purpose: SettingsRoutePurpose,
+  metadata: EffectiveMetadataV2,
+  allowBlankModel = false
+) {
   const document = parseSettingsDocumentV2(value);
   const route = selectSettingsRoute(document, purpose);
   const { profile, model, connection } = route;
@@ -127,40 +101,25 @@ export function effectiveGenerationRuntime(
   const remoteId = effectiveRemoteId(
     provider,
     model.remoteId,
-    options.allowBlankModel === true
+    allowBlankModel
   );
   const contextWindow = resolveModelScalar(model, metadata, "contextWindow");
-  const providerRuntime = providerRuntimeFromV2(
-    connection,
-    profile.effort,
-    model.capabilities,
-    {
-      environment,
-      storedSecrets,
-      sampling: profile.sampling ?? EMPTY_SAMPLING_V2,
-      tokenProbabilities: profile.tokenProbabilities ?? null,
-      reasoning: profile.reasoning ?? "marker",
-      keepReasoning: profile.discardReasoning !== true,
-      continuationPromptOptimization: profile.continuationPromptOptimization,
-      subscription: options.subscription
-    }
-  );
-  const settings = attachProviderRuntime({
-      provider,
-      baseUrl: connection.baseUrl ?? "",
-      model: remoteId,
-      apiKeyEnv: effectiveApiKeyEnv(connection),
-      ...(isSubscriptionProtocolV2(connection.protocol)
-        ? { protocol: connection.protocol }
-        : {}),
-      temperature: profile.temperature,
-      maxTokens: clampMaxOutputTokensToModel(profile.maxOutputTokens, model, metadata),
-      systemPrompt: document.writing.defaultAuthorBrief,
-      contextWindow: contextWindow ?? null
-    }, providerRuntime);
+  const settings: GenerationSettings = {
+    provider,
+    baseUrl: connection.baseUrl ?? "",
+    model: remoteId,
+    apiKeyEnv: effectiveApiKeyEnv(connection),
+    ...(isSubscriptionProtocolV2(connection.protocol)
+      ? { protocol: connection.protocol }
+      : {}),
+    temperature: profile.temperature,
+    maxTokens: clampMaxOutputTokensToModel(profile.maxOutputTokens, model, metadata),
+    systemPrompt: document.writing.defaultAuthorBrief,
+    contextWindow: contextWindow ?? null
+  };
   return {
+    route,
     promptCache,
-    providerRuntime,
     settings
   };
 }

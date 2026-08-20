@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  effectiveGenerationRuntime,
   convertGenerationSettingsV1,
   providerForProtocol
 } from "../server/settings-v2-conversion.js";
+import { createSettingsRuntimeResolver } from "../server/settings-runtime-resolver.js";
 import { parseSettingsDocumentV2 } from "../server/settings-v2-codec.js";
 import { settingsViewFromState } from "../server/settings-v2-runtime.js";
+import { createSubscriptionRuntime } from "../server/subscription-runtime.js";
 import { supportsAssistantPrefill } from "../shared/continuation-plan.js";
 import { decodeSettingsViewResponse } from "../shared/settings-response-decoder.js";
 import { INITIAL_SETTINGS_STATE_V2 } from "../server/settings-v2-default.js";
@@ -16,6 +17,11 @@ import type {
 } from "../shared/settings-v2-types.js";
 
 test("subscription presets keep their fixed connection shape and runtime route", () => {
+  const subscription = createSubscriptionRuntime(process.cwd());
+  const runtimeResolver = createSettingsRuntimeResolver({
+    environment: process.env,
+    subscription
+  });
   const base = convertGenerationSettingsV1({
     provider: "openai-compatible",
     baseUrl: "https://api.openai.com/v1",
@@ -38,7 +44,7 @@ test("subscription presets keep their fixed connection shape and runtime route",
     assert.deepEqual(connection.auth, { type: "none" });
     assert.deepEqual(connection.headers, []);
     assert.equal(providerForProtocol(connection.protocol), provider);
-    const runtime = effectiveGenerationRuntime(document);
+    const runtime = runtimeResolver.resolve({ document });
     assert.equal(runtime.settings.provider, provider);
     assert.equal(runtime.settings.baseUrl, "");
     assert.equal(runtime.settings.apiKeyEnv, null);

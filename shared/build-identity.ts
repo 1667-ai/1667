@@ -67,10 +67,13 @@ export const AI_1667_PRODUCT = "1667" as const;
  * continuation layout in the Settings view. A v21 client would reject that
  * additive closed-record field. v23 carries machine-tier subscription sign-in
  * state in the Settings view. A v22 client would reject that additive field
- * before it can use the rest of Settings. */
-export const HTTP_API_PROTOCOL_VERSION = 23;
-export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 23;
-export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 23;
+ * before it can use the rest of Settings. v24 adds `pi-catalog` to the closed
+ * model-discovery source enum. A v23 client would reject a subscription model
+ * list from a v24 server. A v24 client would accept a v23 response but receive
+ * the old empty subscription catalog. */
+export const HTTP_API_PROTOCOL_VERSION = 24;
+export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 24;
+export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 24;
 
 export type ArtifactTarget = "source" | BuiltArtifactTarget;
 

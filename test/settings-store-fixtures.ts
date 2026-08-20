@@ -15,7 +15,7 @@ import type {
 import { hashSettingsStateV2 } from "../server/settings-v2-codec.js";
 import {
   applyEffectiveGenerationSettings,
-  effectiveGenerationSettings
+  effectiveGenerationView
 } from "../server/settings-v2-conversion.js";
 import {
   INITIAL_SETTINGS_DOCUMENT_V2,
@@ -56,7 +56,7 @@ export function writingDocument(brief: string): SettingsDocumentV2 {
 
 export function credentialedDocument(environmentName: string): SettingsDocumentV2 {
   return applyEffectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2, {
-    ...effectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2),
+    ...effectiveGenerationView(INITIAL_SETTINGS_DOCUMENT_V2),
     provider: "openai-compatible",
     baseUrl: "https://api.openai.com/v1",
     model: "test-model",

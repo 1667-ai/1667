@@ -7,7 +7,7 @@ import { SETTINGS_STATE_V2_NEXT_FILE } from "../server/data-directory-layout.js"
 import { readProviderSecrets } from "../server/provider-secret-store.js";
 import { resolveProviderHeaders } from "../server/provider-runtime.js";
 import { SettingsStore } from "../server/settings.js";
-import { effectiveGenerationSettings } from "../server/settings-v2-conversion.js";
+import { effectiveGenerationView } from "../server/settings-v2-conversion.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import { reduceSettingsStateV2 } from "../server/settings-v2-reducer.js";
 import {
@@ -244,7 +244,7 @@ test("mid-activation states keep the old document effective until the commit edg
 
   for (const state of [staged, validating, prepared, promoted]) {
     assert.equal(
-      effectiveGenerationSettings(activeSettingsDocument(state)).provider,
+      effectiveGenerationView(activeSettingsDocument(state)).provider,
       "dry-run",
       "a reversible activation state never exposes the candidate to readers"
     );
@@ -256,7 +256,7 @@ test("mid-activation states keep the old document effective until the commit edg
   // Commit is the durable point of no return: recovery only completes it, so
   // the candidate reads as plainly active — never as its own pending revision.
   assert.equal(
-    effectiveGenerationSettings(activeSettingsDocument(committed)).provider,
+    effectiveGenerationView(activeSettingsDocument(committed)).provider,
     "openai-compatible"
   );
   const committedView = settingsViewFromState(committed);

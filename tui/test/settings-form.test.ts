@@ -10,7 +10,8 @@ import {
 import { INITIAL_SETTINGS_DOCUMENT_V2_TEXT } from "../../server/settings-v2-initial-vectors.js";
 import {
   discoverSettingsModels,
-  publishCurrentSettingsModelDiscovery
+  publishCurrentSettingsModelDiscovery,
+  settingsModelChoices
 } from "../src/settings-model-discovery.js";
 import {
   checkSettings,
@@ -464,7 +465,7 @@ describe("the settings row model stays one list", () => {
       .toBe("In a terminal, run 1667 auth login claude to sign in. Claude plan support is experimental.");
   });
 
-  test("subscription plans skip legacy discovery and context probes", async () => {
+  test("subscription plans load catalogs and skip context probes", async () => {
     const { source, state, backend, press } = settingsHarness();
     await openSettings(press);
     const overlay = state.settings!;
@@ -509,7 +510,12 @@ describe("the settings row model stays one list", () => {
     await discoverSettingsModels(state, source, context, overlay);
     await detectSettingsContext(state, source, context, overlay);
 
-    expect(discoveryCalls).toBe(0);
+    expect(discoveryCalls).toBe(1);
+    expect(settingsModelChoices(overlay).map((model) => model.remoteId))
+      .toContain("gpt-5.4");
+    expect(settingsModelChoices(overlay).every((model) =>
+      model.remoteId.startsWith("gpt-") && model.source === "pi-catalog"
+    )).toBeTrue();
     expect(probeCalls).toBe(0);
     expect(overlay.result?.message).toContain("ChatGPT plan is signed in.");
     expect(overlay.result?.message).not.toContain("auth login");
@@ -517,6 +523,41 @@ describe("the settings row model stays one list", () => {
     await checkSettings(state, source, context, overlay);
     expect(overlay.result?.message).toContain("ChatGPT plan is signed in.");
     expect(overlay.result?.message).not.toContain("auth login");
+  });
+
+  test("Claude plan discovery shows only Claude demo models", async () => {
+    const { source, state, backend, press } = settingsHarness();
+    await openSettings(press);
+    const overlay = state.settings!;
+    overlay.draft = settingsTextDraftWithSubscriptionPlan(
+      overlay.draft,
+      "claude-plan",
+      {
+        ...overlay.draft.generation,
+        provider: "anthropic",
+        baseUrl: "",
+        model: "claude-sonnet-4-6",
+        apiKeyEnv: null,
+        contextWindow: 1_000_000
+      }
+    );
+    overlay.base = overlay.draft;
+    const context = {
+      backend,
+      repaint: () => undefined,
+      cache: createWrapCache<ProseStyle>(),
+      renderer: null,
+      applyTheme: () => undefined,
+      previewTheme: () => undefined
+    };
+
+    await discoverSettingsModels(state, source, context, overlay);
+
+    expect(settingsModelChoices(overlay).map((model) => model.remoteId))
+      .toContain("claude-sonnet-4-6");
+    expect(settingsModelChoices(overlay).every((model) =>
+      model.remoteId.startsWith("claude-") && model.source === "pi-catalog"
+    )).toBeTrue();
   });
 
   test("subscription plans hide probe keys and ignore direct probe shortcuts", async () => {
