@@ -1,0 +1,65 @@
+import { expect, test } from "bun:test";
+import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
+import { demoAppSource, DEMO_SETTINGS_DOCUMENT } from "../src/demo.js";
+
+test("demo discovery resolves one non-default route for provider and source", async () => {
+  const document: SettingsDocumentV2 = {
+    ...DEMO_SETTINGS_DOCUMENT,
+    connections: {
+      ...DEMO_SETTINGS_DOCUMENT.connections,
+      claude: {
+        name: "Claude plan",
+        preset: "claude-plan",
+        protocol: "anthropic-subscription-messages",
+        baseUrl: null,
+        auth: { type: "none" },
+        headers: [],
+        timeouts: {
+          responseHeaderMs: 120_000,
+          firstTokenMs: 120_000,
+          idleMs: 120_000,
+          totalMs: 1_800_000
+        }
+      }
+    },
+    models: {
+      ...DEMO_SETTINGS_DOCUMENT.models,
+      claude: {
+        connectionId: "claude",
+        remoteId: "claude-sonnet-4-6",
+        name: "Claude Sonnet 4.6",
+        discovered: { contextWindow: 1_000_000 },
+        overrides: {},
+        capabilities: {
+          temperature: "supported",
+          assistantPrefill: "unknown",
+          reasoningEffort: "unknown",
+          promptCaching: "unknown"
+        }
+      }
+    },
+    profiles: {
+      ...DEMO_SETTINGS_DOCUMENT.profiles,
+      utility: {
+        name: "Utility",
+        modelId: "claude",
+        temperature: 0.7,
+        maxOutputTokens: 2_048,
+        effort: "default",
+        cachePolicy: "off"
+      }
+    },
+    routing: { ...DEMO_SETTINGS_DOCUMENT.routing, utility: "utility" }
+  };
+
+  const discovery = await demoAppSource().api.discoverModels({
+    kind: "settings-document",
+    document,
+    purpose: "utility"
+  });
+
+  expect(discovery.models.map((model) => model.remoteId))
+    .toEqual(["claude-sonnet-4-6", "claude-haiku-4-5"]);
+  expect(discovery.models.every((model) => model.source === "pi-catalog"))
+    .toBeTrue();
+});

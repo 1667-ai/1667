@@ -42,12 +42,13 @@ const ANTHROPIC_MODELS = [
 export function discoverDemoModels(
   target: ProviderProbeTarget
 ): ModelDiscoveryResultV2 {
-  const settings = "kind" in target
-    ? basicSettingsFromDocument(target.document)
-    : target;
-  const protocol = "kind" in target
-    ? selectSettingsRoute(target.document, target.purpose).connection.protocol
+  const route = "kind" in target
+    ? selectSettingsRoute(target.document, target.purpose)
     : null;
+  const settings = route === null
+    ? target
+    : basicSettingsFromDocument(target.document, route.profileId);
+  const protocol = route?.connection.protocol ?? null;
   const subscription = protocol !== null && isSubscriptionProtocolV2(protocol);
   const anthropic = settings.provider === "anthropic";
   const source: ModelDiscoverySourceV2 = subscription
