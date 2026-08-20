@@ -34,7 +34,30 @@ repository contains the terminal user interface (TUI) and its backend runtime.
 - Use the embedded backend worker without a network port.
 - Seal project files at rest with a Vault Password.
 - Stop a generation and save model text that already arrived.
+- Use a ChatGPT Plus or Pro plan, or a Claude Pro or Max plan, without an API key.
 - Connect to OpenAI-compatible endpoints or Anthropic Messages endpoints.
+
+## Subscription plans
+
+1667 can use a ChatGPT Plus or Pro plan, or a Claude Pro or Max plan. These
+connections do not need a separate API key.
+
+Sign in to ChatGPT:
+
+```sh
+1667 auth login chatgpt
+```
+
+Sign in to Claude:
+
+```sh
+1667 auth login claude
+```
+
+Then select **ChatGPT plan** or **Claude plan** in Settings.
+
+These plan connections are experimental community integrations. The provider
+applies its subscription limits, terms, and data controls.
 
 ## Install
 
