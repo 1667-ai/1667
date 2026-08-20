@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.10-rc.5",
+    date: "2026-08-20",
+    body: "- **Settings opens in a simple view.** The simple view shows the system\n  prompt, the provider, the model, and the context size. It also shows the\n  base URL and the API key when the provider needs them. Press `m` for the\n  advanced view, which shows every row. 1667 keeps your choice.\n\n- **A model change finds the context size.** When you select a model, 1667\n  asks the provider for the context size and sets it. A size that you type\n  stays. 1667 shows a message on the context size row when the request\n  fails.\n\n- **ChatGPT and Claude plans show their bundled model catalogs.** Select a\n  model in Settings, or enter a model ID manually."
+  },
+  {
     version: "0.9.10-rc.4",
     date: "2026-08-20",
     body: "- **The Shell Installer can update a Managed Installation.** Run the Installer\n  again to recover when an old 1667 version refuses a package with updated\n  legal notices. The Installer keeps the Installation ID and the previous\n  executable. It refuses an unmanaged executable and an automatic downgrade."
