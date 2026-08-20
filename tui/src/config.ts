@@ -50,6 +50,8 @@ export interface UpdatePreferences {
 export type SettingsViewMode = "simple" | "advanced";
 
 export interface UserConfig {
+  /** Version of the persisted user-config document. */
+  schemaVersion: 1;
   theme: ThemeName;
   factsRail: "auto" | "off";
   composeFocus: "on" | "off";
@@ -70,13 +72,14 @@ export interface UserConfig {
 }
 
 const DEFAULTS: UserConfig = {
+  schemaVersion: 1,
   theme: "lantern",
   factsRail: "auto",
   composeFocus: "off",
   wordWrap: "on",
   composeMaxHeight: null,
   quota: { date: "", words: 0 },
-  updates: { mode: "off", channel: "stable", skippedVersion: null },
+  updates: { mode: "notify", channel: "stable", skippedVersion: null },
   lastRunVersion: null,
   settingsViewMode: "simple"
 };
@@ -126,6 +129,7 @@ export function normalizeUserConfig(value: unknown): UserConfig {
     && typeof rawQuota.words === "number"
     && Number.isFinite(rawQuota.words);
   return {
+    schemaVersion: 1,
     theme: THEME_NAMES.includes(theme as ThemeName) ? theme as ThemeName : DEFAULTS.theme,
     factsRail: factsRail === "off" ? "off" : "auto",
     composeFocus: normalizedComposeFocus(composeFocus),
@@ -136,7 +140,12 @@ export function normalizeUserConfig(value: unknown): UserConfig {
       ? { date: rawQuota.date as string, words: rawQuota.words as number }
       : { ...DEFAULTS.quota },
     updates: {
-      mode: rawUpdates.mode === "notify" ? "notify" : "off",
+      // The old schema persisted "off" as its default. It cannot distinguish
+      // that value from an opt-out, so migrate it to the new default. Schema 1
+      // marks choices made after the Settings control became available.
+      mode: raw.schemaVersion === 1 && rawUpdates.mode === "off"
+        ? "off"
+        : "notify",
       channel: rawUpdates.channel === "beta" ? "beta" : "stable",
       skippedVersion: isSemVer(rawUpdates.skippedVersion)
         ? rawUpdates.skippedVersion

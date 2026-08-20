@@ -1,6 +1,11 @@
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
-import { saveConfig, THEME_NAMES, type ThemeName } from "./config.js";
+import {
+  saveConfig,
+  THEME_NAMES,
+  type ThemeName,
+  type UserConfig
+} from "./config.js";
 import { cycleAllowInsecureHttp } from "./settings-allow-insecure.js";
 import {
   cycleSettingsModel,
@@ -74,6 +79,12 @@ export async function cycleSettingsRow(
         "word-wrap",
         state.config.wordWrap === "on" ? "off" : "on"
       );
+    } else if (row === "update-checks") {
+      applyUpdateChecksToggle(
+        state,
+        source,
+        state.config.updates.mode === "notify" ? "off" : "on"
+      );
     } else if (row === "provider") {
       const choice = cycleSettingsProvider(overlay, step);
       state.toast = `provider · ${choice.label} · s saves settings`;
@@ -144,9 +155,8 @@ export function applySettingsTheme(
   state.toast = `theme · ${theme}`;
 }
 
-/** Compose focus and word wrap are both a plain on/off toggle stored on the
- *  user config, saved and toasted the same way — the only difference is which
- *  field and which label. One function for both instead of two clones. */
+/** Local on/off rows are stored in the user config and save through the same
+ *  path. */
 export function applySettingsLocalToggle(
   state: RuntimeState,
   source: AppSource,
@@ -158,6 +168,30 @@ export function applySettingsLocalToggle(
     : { ...state.config, wordWrap: value };
   source.config = state.config;
   if (!state.demo) saveConfig(state.config);
-  const label = row === "compose-focus" ? "compose focus" : "word wrap";
+  const label = row === "compose-focus"
+    ? "compose focus"
+    : "word wrap";
   state.toast = `${label} · ${value}`;
+}
+
+/** Persist and immediately apply the update-check preference. */
+export function applyUpdateChecksToggle(
+  state: RuntimeState,
+  source: AppSource,
+  value: "on" | "off",
+  persist: (config: UserConfig) => boolean = saveConfig
+): void {
+  const nextConfig: UserConfig = {
+    ...state.config,
+    updates: {
+      ...state.config.updates,
+      mode: value === "on" ? "notify" : "off"
+    }
+  };
+  state.config = nextConfig;
+  source.config = nextConfig;
+  const saved = state.demo || persist(nextConfig);
+  state.toast = saved
+    ? `update checks · ${value}`
+    : `update checks · ${value} for this session · config not saved`;
 }

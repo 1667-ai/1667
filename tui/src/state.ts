@@ -201,6 +201,7 @@ export type SettingsRowId =
   | "theme"
   | "compose-focus"
   | "word-wrap"
+  | "update-checks"
   | "provider"
   | "text-prompt-format"
   | "split-think-tags"
@@ -829,6 +830,8 @@ export interface RuntimeState extends StoryScreenState {
   /** Unsent live-slot draft retained while submitted history is visible. */
   historyDraft: string | null;
   pendingGenerationDraft: PendingGenerationDraft | null;
+  /** A release notice already in the log and waiting for the toast line. */
+  pendingUpdateNotice: string | null;
   /** Monotonic fence for explicit Direct/retake editor claims. */
   composerClaimEpoch: number;
   quitArmed: boolean;

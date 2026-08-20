@@ -240,12 +240,7 @@ export async function handleOverlayAction(
   if (state.mode === "ARCHIVE" && state.archive !== null) return await archiveImportAction(resolved, state, source, context);
   if (state.mode === "IMAGE" && state.image != null) return await imageAttachAction(resolved, state, source, context);
   if (state.mode === "SETTINGS" && state.settings !== null) {
-    const handled = await settingsOverlayAction(
-      resolved,
-      state,
-      source,
-      context
-    );
+    const handled = await settingsOverlayAction(resolved, state, source, context);
     await synchronizeSettingsModelDiscovery(state, source, context);
     return handled;
   }

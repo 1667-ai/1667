@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { ActionRuntime, beginInteraction, type ActionTask } from "../src/action-runtime.js";
+import {
+  ActionRuntime,
+  beginInteraction,
+  type ActionTask
+} from "../src/action-runtime.js";
 import { demoAppSource } from "../src/demo.js";
 import { initialState } from "../src/app.js";
 

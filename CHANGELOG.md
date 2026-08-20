@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **1667 now reports available releases by default.** You can turn update
+  checks off in Settings. The check stays silent when the network is not
+  available. Existing config files use the new default. A Managed Installation
+  notice shows the checked version and channel in the upgrade command. Other
+  notices show only the new version.
+
 ## 0.9.10-rc.5 - 2026-08-20
 
 - **Settings opens in a simple view.** The simple view shows the system

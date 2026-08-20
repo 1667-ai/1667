@@ -542,13 +542,22 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
     );
     configureReadingPositionStore(storeFile);
     const readingPositions = loadReadingPositions({ file: storeFile });
-    const startUpdateCheck = createBackgroundUpdateStarter(config);
+    const startUpdateCheck: NonNullable<AppSource["startUpdateCheck"]> = (
+      currentConfig,
+      onNotice
+    ) => {
+      try {
+        return createBackgroundUpdateStarter(currentConfig)?.(onNotice) ?? (() => undefined);
+      } catch {
+        return () => undefined;
+      }
+    };
     const source = { payload, api, demo: false,
       stories, settingsView, settings: settingsView.effective,
       storyFolder, exportDirectory, connection,
       ...(worker === null ? {} : { backendFailure: worker.failure }),
       backendRecovery,
-      ...(startUpdateCheck === null ? {} : { startUpdateCheck }),
+      startUpdateCheck,
       config,
       readingPositions };
     return {

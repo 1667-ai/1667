@@ -41,6 +41,17 @@ export type UpgradeCommand =
 
 export type UpgradePlanCommand = UpgradeCheckCommand | UpgradeApplyCommand;
 
+/** Format one typed apply command for a terminal. */
+export function formatUpgradeApplyCommand(command: UpgradeApplyCommand): string {
+  if (command.version !== null && !isSemVer(command.version)) {
+    throw new TypeError("Upgrade command version must be SemVer");
+  }
+  const version = command.version === null
+    ? ""
+    : ` --version ${command.version}`;
+  return `1667 upgrade${version} --channel ${command.channel}`;
+}
+
 /** Parser result. JSON format is orthogonal to the command. */
 export interface ParsedUpgradeArguments {
   readonly command: UpgradeCommand;
