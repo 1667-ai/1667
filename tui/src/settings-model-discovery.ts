@@ -25,6 +25,14 @@ import { settingsSubscriptionPreset } from "./settings-subscription.js";
 
 const synchronizedOverlays = new WeakMap<RuntimeState, SettingsOverlayState>();
 
+/** The lane key `context.backend.runWhenIdle` (action-runtime.ts) collapses
+ *  stalled model-discovery retries onto. Only one settings overlay is ever
+ *  synchronized at a time (`synchronizedOverlays` above) and `ownsCurrentRequest`
+ *  already gates every attempt against the live overlay, so a fixed key is
+ *  correct: a newer identity change should replace a still-waiting retry for
+ *  an older one outright, not queue a second attempt behind it. */
+const MODEL_DISCOVERY_RETRY_LANE = "settings-model-discovery-retry";
+
 export function settingsModelDiscoveryIdentity(
   settings: GenerationSettings
 ): string {
@@ -149,13 +157,16 @@ export async function discoverSettingsModels(
     request
   );
   if (!admitted && ownsCurrentRequest(state, overlay, request)) {
-    context.backend.observe(retryModelDiscoveryWhenIdle(
-      state,
-      source,
-      context,
-      overlay,
-      request
-    ));
+    // The runtime was busy for the eager attempt above. `runWhenIdle`
+    // handles the wait-then-retry loop itself — including re-checking
+    // busy/disposal on every wake — so this only has to hand it the same
+    // request and the same ownership predicate `discoverSettingsModels`
+    // already used to decide the eager attempt was still wanted.
+    context.backend.runWhenIdle(
+      MODEL_DISCOVERY_RETRY_LANE,
+      () => runModelDiscoveryRequest(state, source, context, overlay, request).then(() => undefined),
+      () => ownsCurrentRequest(state, overlay, request)
+    );
   }
 }
 
@@ -221,27 +232,6 @@ async function runModelDiscoveryRequest(
       }
     }
   }, { reportBusy: false });
-}
-
-async function retryModelDiscoveryWhenIdle(
-  state: RuntimeState,
-  source: Pick<AppSource, "api">,
-  context: Pick<ActionContext, "backend" | "repaint">,
-  overlay: SettingsOverlayState,
-  request: ModelDiscoveryRequest
-): Promise<void> {
-  while (ownsCurrentRequest(state, overlay, request)) {
-    if (!await context.backend.whenIdle()) return;
-    if (!ownsCurrentRequest(state, overlay, request)) return;
-    const admitted = await runModelDiscoveryRequest(
-      state,
-      source,
-      context,
-      overlay,
-      request
-    );
-    if (admitted) return;
-  }
 }
 
 function canDiscoverModels(
