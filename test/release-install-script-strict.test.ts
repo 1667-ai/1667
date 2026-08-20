@@ -44,11 +44,113 @@ test("generated installer durably fsyncs ownership before clearing the transacti
   assert.match(body, /fsync_dir\(\)/);
   assert.match(body, /clear_txn\(\)/);
   // write_txn and write_ownership publish then fsync the file and parent dir.
-  assert.match(body, /mv "\$tmp" "\$root\/\$TXN_FILE"\s*\n\s*fsync_path "\$root\/\$TXN_FILE"/);
+  assert.match(body, /mv "\$tmp" "\$root\/\$TXN_FILE" 9>&-\s*\n\s*fsync_path "\$root\/\$TXN_FILE"/);
   assert.match(
     body,
-    /mv "\$tmp" "\$dest"\s*\n\s*chmod 0600 "\$dest"\s*\n\s*# Ownership must be durable[\s\S]*?fsync_path "\$dest"/
+    /mv "\$tmp" "\$dest" 9>&-\s*\n\s*chmod 0600 "\$dest" 9>&-\s*\n\s*# Ownership must be durable[\s\S]*?fsync_path "\$dest"/
   );
+  const managedTxnWriter = body.indexOf("write_managed_txn()");
+  const managedTxnTempFsync = body.indexOf('fsync_path "$tmp"', managedTxnWriter);
+  const managedTxnMove = body.indexOf(
+    'mv "$tmp" "$root/$TXN_FILE" 9>&-',
+    managedTxnWriter
+  );
+  const managedTxnPublishedFsync = body.indexOf(
+    'fsync_path "$root/$TXN_FILE"',
+    managedTxnMove
+  );
+  const managedTxnParentFsync = body.indexOf('fsync_dir "$root"', managedTxnPublishedFsync);
+  assert.ok(managedTxnWriter >= 0, "managed transaction writer is present");
+  assert.ok(managedTxnTempFsync > managedTxnWriter, "managed txn temp is fsynced before publish");
+  assert.ok(managedTxnMove > managedTxnTempFsync, "managed txn moves only after temp fsync");
+  assert.ok(
+    managedTxnPublishedFsync > managedTxnMove,
+    "published managed txn is fsynced after move"
+  );
+  assert.ok(
+    managedTxnParentFsync > managedTxnPublishedFsync,
+    "managed txn parent directory is fsynced after publish"
+  );
+  const ownershipWriter = body.indexOf("write_ownership()");
+  const ownershipTempFsync = body.indexOf('fsync_path "$tmp"', ownershipWriter);
+  const ownershipMove = body.indexOf('mv "$tmp" "$dest" 9>&-', ownershipWriter);
+  const ownershipPublishedFsync = body.indexOf('fsync_path "$dest"', ownershipMove);
+  const ownershipParentFsync = body.indexOf('fsync_dir "$root"', ownershipPublishedFsync);
+  assert.ok(ownershipWriter >= 0, "ownership writer is present");
+  assert.ok(ownershipTempFsync > ownershipWriter, "ownership temp is fsynced before publish");
+  assert.ok(ownershipMove > ownershipTempFsync, "ownership moves only after temp fsync");
+  assert.ok(
+    ownershipPublishedFsync > ownershipMove,
+    "published ownership is fsynced after move"
+  );
+  assert.ok(
+    ownershipParentFsync > ownershipPublishedFsync,
+    "ownership parent directory is fsynced after publish"
+  );
+  assert.match(
+    body,
+    /semver_order=\$\(exec 9>&-;\s*semver_compare "\$active_version" "\$PRODUCT_VERSION"\)/
+  );
+  assert.match(
+    body,
+    /group_other_members "\$gid" "\$\(exec 9>&-; id -un\)"/
+  );
+  assert.match(
+    body,
+    /txn_kind=\$\(exec 9>&-;\s*json_string_field "\$txn_text" kind\)/
+  );
+  const ownershipRenderer = body.indexOf("canonical_ownership_bytes()");
+  assert.ok(ownershipRenderer >= 0, "historical Ownership Record renderer is present");
+  assert.ok(
+    body.indexOf("cat 9>&- <<EOF", ownershipRenderer) > ownershipRenderer,
+    "historical Ownership Record renderer closes the lock fd"
+  );
+  assert.match(
+    body,
+    /recover_install\(\) \{[\s\S]*?validate_managed_file_safety "\$txn" "Install Transaction Record"[\s\S]*?txn_mode=\$\(exec 9>&-; file_mode "\$txn"\)[\s\S]*?\[ "\$txn_mode" = 600 \]/
+  );
+  assert.match(
+    body,
+    /case "\$RECOVER_STATUS" in[\s\S]*?completed\)[\s\S]*?none\|reset\|managed-reset\|managed-completed\)[\s\S]*?\*\)[\s\S]*?Unsupported recovery status/
+  );
+  const managedRecoveryDispatch = body.indexOf('if [ "$txn_kind" = managed ]; then');
+  const managedRecoveryCall = body.indexOf(
+    'recover_managed_install "$root" "$executable" "$target" "$txn"',
+    managedRecoveryDispatch
+  );
+  assert.ok(managedRecoveryDispatch >= 0, "managed recovery dispatch is present");
+  assert.ok(managedRecoveryCall > managedRecoveryDispatch, "managed recovery call is present");
+  for (const path of [
+    'refuse_prior_managed_path "$root/$EXTRACT_STAGE" "extract staging"',
+    'refuse_prior_managed_path "$root/$archive" "Release Archive staging"'
+  ]) {
+    const guard = body.indexOf(path, managedRecoveryDispatch);
+    assert.ok(guard > managedRecoveryDispatch && guard < managedRecoveryCall, path + " is guarded");
+  }
+  const managedBootstrapStart = body.indexOf(
+    '    validate_managed_ownership "$prefix" "$executable" "$target"'
+  );
+  const freshMutationStart = body.indexOf(
+    '  else\n    write_txn "$prefix" "candidate-ready"',
+    managedBootstrapStart
+  );
+  assert.ok(managedBootstrapStart >= 0, "managed bootstrap branch is present");
+  assert.ok(freshMutationStart > managedBootstrapStart, "fresh branch follows managed branch");
+  const managedBootstrap = body.slice(managedBootstrapStart, freshMutationStart);
+  for (const command of [
+    'rm -f "$prefix/$PACKAGE_STAGING_FILE" 9>&-',
+    'rm -f "$prefix/$PREVIOUS_NEXT_FILE" 9>&-',
+    'cp "$executable" "$prefix/$PREVIOUS_NEXT_FILE" 9>&-',
+    'chmod 0755 "$prefix/$PREVIOUS_NEXT_FILE" 9>&-',
+    'mv "$prefix/$CANDIDATE_FILE" "$executable" 9>&-',
+    'chmod 0755 "$executable" 9>&-',
+    'mv "$prefix/$PREVIOUS_NEXT_FILE" "$prefix/$PREVIOUS_FILE" 9>&-'
+  ]) {
+    assert.ok(
+      managedBootstrap.includes(command),
+      "managed path closes FD 9 for " + command
+    );
+  }
   // Pre-existing non-regular Ownership Record destination is refused.
   assert.match(body, /Ownership Record path is not a regular file/);
   assert.match(body, /Ownership Record must not be a symbolic link/);
@@ -63,7 +165,7 @@ test("generated installer durably fsyncs ownership before clearing the transacti
   assert.ok(ownershipCall >= 0, "install path writes ownership");
   assert.ok(clearTxnCall > ownershipCall, "clear_txn runs after write_ownership");
   // clear_txn removes the txn then fsyncs the Install Root so the unlink is durable.
-  assert.match(body, /rm -f "\$root\/\$TXN_FILE"\s*\n\s*fsync_dir "\$root"/);
+  assert.match(body, /rm -f "\$root\/\$TXN_FILE" 9>&-\s*\n\s*fsync_dir "\$root"/);
   // Candidate file is fsynced before candidate-ready is published (not after).
   const probeAt = body.indexOf('probe_candidate "$prefix/$CANDIDATE_FILE" "$target"');
   assert.ok(probeAt >= 0, "install path probes the candidate");
@@ -71,13 +173,18 @@ test("generated installer durably fsyncs ownership before clearing the transacti
     'fsync_path "$prefix/$CANDIDATE_FILE"',
     probeAt
   );
+  const freshInstallAt = body.indexOf(
+    '  else\n    write_txn "$prefix" "candidate-ready"',
+    probeAt
+  );
+  assert.ok(freshInstallAt > probeAt, "fresh install branch remains present");
   const candidateReadyAt = body.indexOf(
     'write_txn "$prefix" "candidate-ready"',
-    probeAt
+    freshInstallAt
   );
   const renameActiveAt = body.indexOf(
     'mv "$prefix/$CANDIDATE_FILE" "$executable"',
-    probeAt
+    freshInstallAt
   );
   const fsyncActiveAt = body.indexOf('fsync_path "$executable"', renameActiveAt);
   assert.ok(fsyncCandidateAt > probeAt, "install path fsyncs the candidate after probe");
@@ -94,7 +201,7 @@ test("generated installer durably fsyncs ownership before clearing the transacti
     "active executable is fsynced after activation rename"
   );
   // Active executable is fsynced after activation rename.
-  assert.match(body, /chmod 0755 "\$executable"\s*\n\s*fsync_path "\$executable"/);
+  assert.match(body, /chmod 0755 "\$executable" 9>&-\s*\n\s*fsync_path "\$executable"/);
   // Recovery candidate-ready: fsync active before ownership publish and txn clear.
   const recoverSoft = body.indexOf("probe_candidate_soft");
   assert.ok(recoverSoft >= 0, "recovery probes the active executable");
@@ -107,6 +214,12 @@ test("generated installer durably fsyncs ownership before clearing the transacti
   assert.ok(recoverFsync > recoverSoft, "recovery fsyncs active after probe");
   assert.ok(recoverOwnership > recoverFsync, "recovery writes ownership after fsync_path active");
   assert.ok(recoverClear > recoverOwnership, "recovery clears txn after ownership");
+  const activatedRecovery = body.indexOf('    activated)');
+  const activatedOwnershipFsync = body.indexOf('fsync_path "$ownership"', activatedRecovery);
+  const activatedClear = body.indexOf('clear_txn "$root"', activatedRecovery);
+  assert.ok(activatedRecovery >= 0, "activated recovery branch is present");
+  assert.ok(activatedOwnershipFsync > activatedRecovery, "activated recovery fsyncs existing ownership");
+  assert.ok(activatedClear > activatedOwnershipFsync, "activated recovery clears txn after ownership fsync");
   // Durability failure is never ignored (sync child also closes lock FD 9).
   assert.doesNotMatch(body, /sync \|\| true/);
   assert.match(body, /sync 9>&- \|\| die/);
@@ -255,7 +368,11 @@ test(
       digest: hostDigest,
       root: installRoot
     });
-    await writeFile(path.join(prefix, ".1667-install-txn.json"), mutate(good, installRoot));
+    await writeFile(
+      path.join(prefix, ".1667-install-txn.json"),
+      mutate(good, installRoot),
+      { mode: 0o600 }
+    );
     await assert.rejects(
       execFileAsync("sh", [scriptPath, "--prefix", prefix], { cwd: root }),
       /canonical phase record/i
@@ -401,7 +518,8 @@ test(
         target: hostTarget,
         digest: liveDigest,
         root: installRoot
-      })
+      }),
+      { mode: 0o600 }
     );
     // Recovery resets then installs; after reset the pinned archive is gone and
     // the unrelated archive must still match its original bytes.
@@ -481,6 +599,8 @@ test("recovery removes exact extract staging and keeps unrelated paths", async (
   const stage = path.join(prefix, ".1667-extract");
   await mkdir(stage, { mode: 0o700 });
   await writeFile(path.join(stage, "partial-member"), "interrupted-extract\n");
+  const probeOutput = path.join(prefix, ".1667-probe-output");
+  await writeFile(probeOutput, "interrupted-probe\n", { mode: 0o600 });
   const unrelated = path.join(prefix, "unrelated-keep.txt");
   const unrelatedBytes = Buffer.from("must-survive-recovery\n");
   await writeFile(unrelated, unrelatedBytes);
@@ -498,12 +618,14 @@ test("recovery removes exact extract staging and keeps unrelated paths", async (
       target: hostTarget,
       digest: liveDigest,
       root: installRoot
-    })
+    }),
+    { mode: 0o600 }
   );
 
   await execFileAsync("sh", [scriptPath, "--prefix", prefix], { cwd: root });
 
   await assert.rejects(access(stage));
+  await assert.rejects(access(probeOutput));
   assert.equal(await readFile(unrelated).then((b) => b.equals(unrelatedBytes)), true);
   assert.equal(await readFile(path.join(lookalike, "keep"), "utf8"), "keep\n");
   // Fresh install completed after recovery reset.

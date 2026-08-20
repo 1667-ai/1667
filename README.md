@@ -59,6 +59,11 @@ created. The command shows download progress in a terminal. On Windows, exit
 1667 and run the PowerShell Installer again. The Installer shows download
 progress. `1667 upgrade` shows the required command.
 
+Run the Shell Installer again to update a valid Shell Managed Installation. It
+preserves the `installationId`, keeps the previous executable for rollback,
+and sets the selected Installer channel. It refuses an unmanaged executable or
+invalid installation state.
+
 `1667 upgrade --version <version>` selects an exact published release. The
 version can be older than the current version. Before a downgrade, 1667 warns
 that the downgrade can make the Vault unreadable or damage Vault data. Back up

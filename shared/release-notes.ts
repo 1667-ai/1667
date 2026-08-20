@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.10-rc.4",
+    date: "2026-08-20",
+    body: "- **The Shell Installer can update a Managed Installation.** Run the Installer\n  again to recover when an old 1667 version refuses a package with updated\n  legal notices. The Installer keeps the Installation ID and the previous\n  executable. It refuses an unmanaged executable and an automatic downgrade."
+  },
+  {
     version: "0.9.10-rc.3",
     date: "2026-08-19",
     body: "- **This beta has no additional product changes.** It contains the same\n  behavior as 0.9.10-rc.2."

@@ -1,6 +1,7 @@
 /**
  * POSIX Shell Installer body. Generated release assets embed pinned version,
- * channel, archive names, and digests. Fresh install only.
+ * channel, archive names, and digests. It also bootstraps valid managed Unix
+ * installs across release metadata changes.
  */
 import {
   INSTALL_CANDIDATE_FILE,
@@ -28,6 +29,7 @@ import {
   type ShellInstallerExtractLayout
 } from "./release-install-script-extract-lib.js";
 import { SHELL_INSTALLER_LOCK } from "./release-install-script-lock-lib.js";
+import { SHELL_INSTALLER_MANAGED } from "./release-install-script-managed-lib.js";
 import { SHELL_INSTALLER_PROBE } from "./release-install-script-probe-lib.js";
 import { SHELL_INSTALLER_HELPERS } from "./release-install-script-shell-lib.js";
 
@@ -64,6 +66,8 @@ MAX_TAR_BYTES=${SHELL_MAX_TAR_BYTES}
 MAX_EXECUTABLE_BYTES=${SHELL_MAX_EXECUTABLE_BYTES}
 # Cumulative bytes in all regular-file members.
 MAX_FILE_BYTES=${SHELL_MAX_FILE_BYTES}
+# Maximum bytes in a canonical Transaction Record before parsing.
+MAX_TRANSACTION_BYTES=16384
 # Portable curl deadlines: connect bound, then overall transfer bound.
 DOWNLOAD_CONNECT_TIMEOUT_SEC=${SHELL_DOWNLOAD_CONNECT_TIMEOUT_SEC}
 DOWNLOAD_MAX_TIME_SEC=${SHELL_DOWNLOAD_MAX_TIME_SEC}
@@ -84,12 +88,19 @@ PROBE_OUTPUT_FILE='.1667-probe-output'
 # 1 only after this process proves ownership of reserved staging (canonical
 # Transaction Record, or a verified clean fresh root that starts this install).
 CLEANUP_OWNS_STAGING=0
+# 1 only while this process owns a pre-activation Shell Installer Transaction
+# Record it wrote into a Managed Installation. The in-binary updater accepts a
+# Shell Installer record only in the 'activated' phase, so an interrupted
+# managed bootstrap must not leave one behind. A managed Transaction Record is
+# never cleared here: recovery needs it to finish or abort a half-applied swap.
+CLEANUP_CLEAR_TXN=0
+MANAGED_FORCE=0
 
 main() {
   prefix=
   prefix_set=0
   dry_run=0
-  # --force waives the Install Root permission refusals only. It never waives a
+  # --force waives path ownership and other-writer refusals. It never waives a
   # checksum, an attestation, a release identity, or the version probe: those
   # decide whether the bytes are the release, which no local layout can answer.
   force=0
@@ -123,6 +134,7 @@ main() {
         ;;
     esac
   done
+  MANAGED_FORCE=\$force
 
   target=\$(detect_target) || exit 1
   case "\$target" in
@@ -166,6 +178,7 @@ ${input.digestLines}
   # CLEANUP_OWNS_STAGING stays 0 until recovery validates a txn or the fresh path
   # verifies a clean root and begins this install.
   CLEANUP_OWNS_STAGING=0
+  CLEANUP_CLEAR_TXN=0
   acquire_lock "\$prefix"
   # EXIT cleans once. INT/TERM clear traps, clean once, then exit 128+signal.
   trap 'cleanup_install "\$prefix" "\$archive"' EXIT
@@ -175,39 +188,110 @@ ${input.digestLines}
   # Run recovery in this shell so PROBE_PID is visible to INT/TERM traps.
   RECOVER_STATUS=
   recover_install "\$prefix" "\$executable" "\$target" "\$digest" "\$archive" || exit 1
-  if [ "\$RECOVER_STATUS" = completed ]; then
+  case "\$RECOVER_STATUS" in
+    completed)
+      trap - EXIT INT TERM
+      release_lock "\$prefix"
+      (
+        exec 9>&-
+        trap '' PIPE
+        printf 'Recovered 1667 %s (%s) for %s at %s\\n' \\
+          "\$PRODUCT_VERSION" "\$INSTALL_CHANNEL" "\$target" "\$executable"
+      ) || :
+      return 0
+      ;;
+    none|reset|managed-reset|managed-completed)
+      # These statuses intentionally continue into the normal bootstrap path.
+      ;;
+    *)
+      die "Unsupported recovery status: \$RECOVER_STATUS"
+      ;;
+  esac
+
+  managed_install=0
+  active_version=
+  if [ -e "\$executable" ] || [ -L "\$executable" ]; then
+    if [ -L "\$executable" ] || [ ! -f "\$executable" ]; then
+      die "Refusing to replace an unmanaged 1667 at \$executable"
+    fi
+    validate_managed_ownership "\$prefix" "\$executable" "\$target"
+    managed_install=1
+    # A valid Ownership Record proves this root is a managed installation. With
+    # no Transaction Record, remove only the exact residue paths shared with
+    # managed recovery. Validate each path before granting removal authority.
+    if [ "\$RECOVER_STATUS" = none ]; then
+      managed_residue=
+      for managed_residue in \
+        "\$prefix/\$CANDIDATE_FILE" \
+        "\$prefix/\$PACKAGE_STAGING_FILE" \
+        "\$prefix/\$PREVIOUS_NEXT_FILE" \
+        "\$prefix/\$PROBE_OUTPUT_FILE"; do
+        if [ -e "\$managed_residue" ] || [ -L "\$managed_residue" ]; then
+          validate_managed_file_safety "\$managed_residue" "managed staging"
+          rm -f "\$managed_residue" 9>&-
+        fi
+      done
+    else
+      refuse_prior_managed_path "\$prefix/\$PREVIOUS_NEXT_FILE" "staged previous executable"
+      refuse_prior_managed_path "\$prefix/\$CANDIDATE_FILE" "candidate executable"
+      refuse_prior_managed_path "\$prefix/\$PROBE_OUTPUT_FILE" "probe output"
+      rm -f "\$prefix/\$PACKAGE_STAGING_FILE" 9>&-
+    fi
+    refuse_prior_managed_path "\$prefix/\$EXTRACT_STAGE" "extract staging"
+    refuse_prior_managed_path "\$prefix/\$archive" "Release Archive staging"
+    if [ -e "\$prefix/\$PREVIOUS_FILE" ] || [ -L "\$prefix/\$PREVIOUS_FILE" ]; then
+      validate_managed_file_safety "\$prefix/\$PREVIOUS_FILE" "rollback executable"
+    fi
+    CLEANUP_OWNS_STAGING=1
+    probe_managed_owned "\$executable" "managed active executable" "\$target"
+    active_version=\$MANAGED_PROBE_VERSION
+  else
+    # Fail closed on prior managed or reserved staging paths. Do not delete them.
+    # The persistent Install Root lock file is allowed to remain.
+    refuse_prior_managed_path "\$prefix/\$OWNERSHIP_FILE" "Ownership Record"
+    refuse_prior_managed_path "\$prefix/\$PREVIOUS_FILE" "previous executable"
+    refuse_prior_managed_path "\$prefix/\$PREVIOUS_NEXT_FILE" "staged previous executable"
+    refuse_prior_managed_path "\$prefix/\$CANDIDATE_FILE" "candidate executable"
+    refuse_prior_managed_path "\$prefix/\$EXTRACT_STAGE" "extract staging"
+    refuse_prior_managed_path "\$prefix/\$PROBE_OUTPUT_FILE" "probe output"
+    refuse_prior_managed_path "\$prefix/\$PACKAGE_STAGING_FILE" "package staging"
+    refuse_prior_managed_path "\$prefix/\$archive" "Release Archive staging"
+    # Clean root proven; this install now owns reserved staging for EXIT cleanup.
+    CLEANUP_OWNS_STAGING=1
+  fi
+
+  if [ "\$managed_install" -eq 1 ]; then
+    semver_order=\$(exec 9>&-; semver_compare "\$active_version" "\$PRODUCT_VERSION")
+    if [ "\$semver_order" -gt 0 ]; then
+      die "Installer will not downgrade 1667 from \$active_version to \$PRODUCT_VERSION. For an intentional downgrade, run '1667 upgrade --version \$PRODUCT_VERSION'."
+    fi
+  fi
+
+  # A same-version bootstrap is a no-op for executable bytes. It still records
+  # the channel selected by this Installer and retains any rollback executable.
+  if [ "\$managed_install" -eq 1 ] && [ "\$active_version" = "\$PRODUCT_VERSION" ]; then
+    write_ownership "\$prefix" "\$OWNERSHIP_ID" "\$executable" "\$target" "\$INSTALL_CHANNEL"
     trap - EXIT INT TERM
     release_lock "\$prefix"
     (
       exec 9>&-
       trap '' PIPE
-      printf 'Recovered 1667 %s (%s) for %s at %s\\n' \\
-        "\$PRODUCT_VERSION" "\$INSTALL_CHANNEL" "\$target" "\$executable"
+      printf '1667 %s (%s) is already installed at %s\\n' \
+        "\$PRODUCT_VERSION" "\$INSTALL_CHANNEL" "\$executable"
     ) || :
     return 0
   fi
 
-  if [ -e "\$executable" ] || [ -L "\$executable" ]; then
-    die "Refusing to replace an existing 1667 at \$executable. Run '1667 upgrade' instead."
-  fi
-
-  # Fail closed on prior managed or reserved staging paths. Do not delete them.
-  # The persistent Install Root lock file is allowed to remain.
-  refuse_prior_managed_path "\$prefix/\$OWNERSHIP_FILE" "Ownership Record"
-  refuse_prior_managed_path "\$prefix/\$PREVIOUS_FILE" "previous executable"
-  refuse_prior_managed_path "\$prefix/\$PREVIOUS_NEXT_FILE" "staged previous executable"
-  refuse_prior_managed_path "\$prefix/\$CANDIDATE_FILE" "candidate executable"
-  refuse_prior_managed_path "\$prefix/\$EXTRACT_STAGE" "extract staging"
-  refuse_prior_managed_path "\$prefix/\$PROBE_OUTPUT_FILE" "probe output"
-  refuse_prior_managed_path "\$prefix/\$PACKAGE_STAGING_FILE" "package staging"
-  refuse_prior_managed_path "\$prefix/\$archive" "Release Archive staging"
-
-  # Clean root proven; this install now owns reserved staging for EXIT cleanup.
-  CLEANUP_OWNS_STAGING=1
   url="\$ASSET_BASE/\$archive"
+  # A managed bootstrap writes these pre-activation records into a root that
+  # already holds a valid Ownership Record and a working active executable.
+  # Own them so an interrupted bootstrap cannot strand '1667 upgrade'.
+  if [ "\$managed_install" -eq 1 ]; then
+    CLEANUP_CLEAR_TXN=1
+  fi
   write_txn "\$prefix" "downloading" "\$target" "\$digest"
   archive_path="\$prefix/\$archive"
-  rm -f "\$archive_path"
+  rm -f "\$archive_path" 9>&-
   say "Downloading 1667 \$PRODUCT_VERSION for \$target"
   download_archive "\$url" "\$archive_path"
   say "Checking the download"
@@ -215,24 +299,56 @@ ${input.digestLines}
   write_txn "\$prefix" "extracted" "\$target" "\$digest"
   say "Unpacking"
   extract_candidate "\$prefix" "\$archive_path" "\$archive"
-  rm -f "\$archive_path"
+  rm -f "\$archive_path" 9>&-
   say "Starting 1667 once to confirm it runs"
   probe_candidate "\$prefix/\$CANDIDATE_FILE" "\$target"
   # Candidate bytes must be durable before candidate-ready is published.
   # Power loss after a durable txn must not leave a missing or corrupt candidate.
   fsync_path "\$prefix/\$CANDIDATE_FILE"
-  write_txn "\$prefix" "candidate-ready" "\$target" "\$digest"
-  mv "\$prefix/\$CANDIDATE_FILE" "\$executable"
-  chmod 0755 "\$executable"
-  fsync_path "\$executable"
-  # Close the gap: durable activated mark before ownership write.
-  write_txn "\$prefix" "activated" "\$target" "\$digest"
-  # random_hex_32 subshell inherits FD 9; close it so a hung id helper cannot pin.
-  installation_id=\$(
-    exec 9>&-
-    random_hex_32
-  )
-  write_ownership "\$prefix" "\$installation_id" "\$executable" "\$target"
+  if [ "\$managed_install" -eq 1 ]; then
+    # Stage the old active before publishing the managed transaction. The old
+    # active remains in place until the candidate rename commits.
+    if [ -e "\$prefix/\$PREVIOUS_FILE" ] || [ -L "\$prefix/\$PREVIOUS_FILE" ]; then
+      validate_managed_file_safety "\$prefix/\$PREVIOUS_FILE" "rollback executable"
+    fi
+    rm -f "\$prefix/\$PREVIOUS_NEXT_FILE" 9>&-
+    cp "\$executable" "\$prefix/\$PREVIOUS_NEXT_FILE" 9>&- || die "Could not stage the previous executable"
+    chmod 0755 "\$prefix/\$PREVIOUS_NEXT_FILE" 9>&-
+    if [ -L "\$prefix/\$PREVIOUS_NEXT_FILE" ] || [ ! -f "\$prefix/\$PREVIOUS_NEXT_FILE" ]; then
+      die "Staged previous executable is invalid"
+    fi
+    fsync_path "\$prefix/\$PREVIOUS_NEXT_FILE"
+    write_managed_txn "\$prefix" "candidate-ready" "upgrade" "\$INSTALL_CHANNEL" true \
+      "\$active_version" "\$PRODUCT_VERSION" "\$OWNERSHIP_ID" "\$target"
+    # Release the pre-activation claim only after the managed record is on
+    # disk. write_managed_txn can die before it publishes, and the stale
+    # pre-activation record must still be cleared in that case. A die after it
+    # publishes leaves the claim set, which is safe: the candidate has not
+    # replaced the active executable yet, so clearing is self-healing.
+    CLEANUP_CLEAR_TXN=0
+    mv "\$prefix/\$CANDIDATE_FILE" "\$executable" 9>&-
+    chmod 0755 "\$executable" 9>&-
+    fsync_path "\$executable"
+    write_managed_txn "\$prefix" "ownership-pending" "upgrade" "\$INSTALL_CHANNEL" true \
+      "\$active_version" "\$PRODUCT_VERSION" "\$OWNERSHIP_ID" "\$target"
+    mv "\$prefix/\$PREVIOUS_NEXT_FILE" "\$prefix/\$PREVIOUS_FILE" 9>&-
+    fsync_path "\$prefix/\$PREVIOUS_FILE"
+    fsync_dir "\$prefix"
+    write_ownership "\$prefix" "\$OWNERSHIP_ID" "\$executable" "\$target" "\$INSTALL_CHANNEL"
+  else
+    write_txn "\$prefix" "candidate-ready" "\$target" "\$digest"
+    mv "\$prefix/\$CANDIDATE_FILE" "\$executable" 9>&-
+    chmod 0755 "\$executable" 9>&-
+    fsync_path "\$executable"
+    # Close the gap: durable activated mark before ownership write.
+    write_txn "\$prefix" "activated" "\$target" "\$digest"
+    # random_hex_32 subshell inherits FD 9; close it so a hung id helper cannot pin.
+    installation_id=\$(
+      exec 9>&-
+      random_hex_32
+    )
+    write_ownership "\$prefix" "\$installation_id" "\$executable" "\$target"
+  fi
   # Ownership is already fsynced inside write_ownership; clear txn only after that.
   clear_txn "\$prefix"
   trap - EXIT INT TERM
@@ -257,8 +373,11 @@ ${input.digestLines}
 usage() {
   printf 'Usage: install-%s.sh [--prefix /absolute/path] [--dry-run] [--force]\\n' "\$INSTALL_CHANNEL"
   printf 'Installs 1667 %s from the pinned GitHub release archive.\\n' "\$PRODUCT_VERSION"
-  printf 'This installer is for a fresh Install Root only. Use 1667 upgrade later.\\n'
-  printf -- '--force installs into an Install Root that another account can write.\\n'
+  printf 'Use this installer for a fresh Install Root or a valid Shell Managed Installation.\\n'
+  printf 'Use 1667 upgrade for later updates when the installed executable runs.\\n'
+  printf -- '--force accepts path ownership and write-permission risks.\\n'
+  printf -- 'This Installer runs the 1667 in the Install Root to read its version.\\n'
+  printf -- '--force also accepts that executable when it fails the safety checks.\\n'
   printf 'It waives no checksum, attestation, or version check.\\n'
 }
 
@@ -271,8 +390,14 @@ cleanup_install() {
     # Remove staging while this process still holds the lock, then release.
     # Releasing first lets a successor publish staging that this cleanup would delete.
     rm -f "\$root/\$CANDIDATE_FILE" "\$root/\$PROBE_OUTPUT_FILE" \
-      "\$root/\$archive" "\$root/\$PACKAGE_STAGING_FILE" 2>/dev/null || true
+      "\$root/\$archive" "\$root/\$PACKAGE_STAGING_FILE" 9>&- 2>/dev/null || true
     remove_extract_stage "\$root"
+  fi
+  # Drop a pre-activation Shell Installer record this process wrote into a
+  # Managed Installation. Do it under the lock, before the lock is released.
+  if [ "\${CLEANUP_CLEAR_TXN:-0}" -eq 1 ]; then
+    clear_txn "\$root"
+    CLEANUP_CLEAR_TXN=0
   fi
   release_lock "\$root"
 }
@@ -300,7 +425,7 @@ stop_probe() {
   fi
   if [ -n "\${PROBE_PID:-}" ]; then
     kill "\$PROBE_PID" 2>/dev/null || true
-    sleep 1
+    sleep 1 9>&-
     kill -9 "\$PROBE_PID" 2>/dev/null || true
     set +e
     wait "\$PROBE_PID" 2>/dev/null
@@ -367,6 +492,7 @@ refuse_prior_managed_path() {
 ${SHELL_INSTALLER_DURABLE}
 ${SHELL_INSTALLER_LOCK}
 ${SHELL_INSTALLER_HELPERS}
+${SHELL_INSTALLER_MANAGED}
 ${extract}
 ${SHELL_INSTALLER_PROBE}
 main "\$@"

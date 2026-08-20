@@ -592,7 +592,8 @@ test("Shell Installer installs, probes identity, refuses existing binaries, reco
       target: hostTarget,
       digest: hostDigest,
       root: recoverRoot
-    })
+    }),
+    { mode: 0o600 }
   );
   await execFileAsync("sh", [recoverScriptPath, "--prefix", recoverPrefix], { cwd: root });
   const recovered = parseInstallOwnershipRecordText(
@@ -620,7 +621,8 @@ test("Shell Installer installs, probes identity, refuses existing binaries, reco
       target: hostTarget,
       digest: hostDigest,
       root: readyRoot
-    })
+    }),
+    { mode: 0o600 }
   );
   await execFileAsync("sh", [recoverScriptPath, "--prefix", readyPrefix], { cwd: root });
   parseInstallOwnershipRecordText(
@@ -641,7 +643,8 @@ test("Shell Installer installs, probes identity, refuses existing binaries, reco
       target: hostTarget,
       digest: hostDigest,
       root: badTxnRoot
-    })
+    }),
+    { mode: 0o600 }
   );
   await assert.rejects(
     execFileAsync("sh", [recoverScriptPath, "--prefix", badTxnPrefix], { cwd: root }),
