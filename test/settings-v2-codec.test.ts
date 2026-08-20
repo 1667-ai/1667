@@ -25,9 +25,9 @@ import {
 import {
   applyEffectiveGenerationSettings,
   convertGenerationSettingsV1,
-  effectiveStandardGenerationRuntime,
   effectiveGenerationView
 } from "../server/settings-v2-conversion.js";
+import { effectiveStandardGenerationRuntime } from "../server/settings-runtime-resolver.js";
 import {
   INITIAL_SETTINGS_DOCUMENT_V2,
   INITIAL_SETTINGS_DOCUMENT_V2_HASH,

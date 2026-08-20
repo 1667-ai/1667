@@ -3,7 +3,7 @@ import test from "node:test";
 import { assembleContinuation } from "../server/continuation-assembly.js";
 import { continuationRecordEntries } from "../server/generation-record-prompt.js";
 import { buildOpenAiChatRequestBody } from "../server/provider-request-body.js";
-import { effectiveStandardGenerationRuntime } from "../server/settings-v2-conversion.js";
+import { effectiveStandardGenerationRuntime } from "../server/settings-runtime-resolver.js";
 import {
   INITIAL_SETTINGS_DOCUMENT_V2,
   INITIAL_SETTINGS_DOCUMENT_V2_TEXT

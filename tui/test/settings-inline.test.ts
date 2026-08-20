@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseSettingsDocumentV2 } from "../../server/settings-v2-codec.js";
-import { effectiveStandardGenerationRuntime } from "../../server/settings-v2-conversion.js";
+import { effectiveStandardGenerationRuntime } from "../../server/settings-runtime-resolver.js";
 import {
   applyBasicSettingsDraft,
   basicSettingsFromDocument

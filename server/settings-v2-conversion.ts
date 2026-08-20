@@ -12,7 +12,6 @@ import {
   resolveModelScalar,
   type ModelScalarMetadataSourcesV2
 } from "../shared/model-scalar-resolution.js";
-import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import {
   defaultConnectionTimeouts,
   defaultModelCapabilities,
@@ -34,39 +33,8 @@ import {
   MAX_SETTINGS_NAME_SCALARS,
   SettingsFormatError
 } from "./settings-v2-scalars.js";
-import {
-  attachProviderRuntime,
-  isStandardModelConnectionV2,
-  isSubscriptionModelConnectionV2,
-  providerRuntimeFromV2,
-  type ProviderRuntime
-} from "./provider-runtime.js";
-import type { SubscriptionRuntimeDependencies } from "./subscription-runtime.js";
 
 export interface EffectiveMetadataV2 extends ModelScalarMetadataSourcesV2 {}
-
-export interface EffectiveGenerationRuntime {
-  readonly settings: GenerationSettings;
-  readonly promptCache: PromptCacheContext;
-  readonly providerRuntime: ProviderRuntime;
-}
-
-export interface EffectiveGenerationRuntimeOptions {
-  /** Provider checks and discovery do not require a generation-ready model ID. */
-  readonly allowBlankModel?: boolean;
-}
-
-/** Subscription-aware runtime projection owned by one storage composition root. */
-export interface EffectiveGenerationRuntimeProjector {
-  project(
-    value: SettingsDocumentV2,
-    purpose?: SettingsRoutePurpose,
-    metadata?: EffectiveMetadataV2,
-    environment?: NodeJS.ProcessEnv,
-    options?: EffectiveGenerationRuntimeOptions,
-    storedSecrets?: ReadonlyMap<string, string>
-  ): EffectiveGenerationRuntime;
-}
 
 export function convertGenerationSettingsV1(value: GenerationSettings): SettingsDocumentV2 {
   const settings = parseGenerationSettingsV1(value);
@@ -111,108 +79,7 @@ export function effectiveGenerationView(
   return projectEffectiveGeneration(value, purpose, metadata).settings;
 }
 
-/** Create one projector that owns the machine-tier subscription services. */
-export function createEffectiveGenerationRuntimeProjector(
-  subscription: SubscriptionRuntimeDependencies
-): EffectiveGenerationRuntimeProjector {
-  return {
-    project: (
-      value,
-      purpose = "default",
-      metadata = {},
-      environment,
-      options = {},
-      storedSecrets
-    ) => materializeEffectiveGenerationRuntime(
-      value,
-      purpose,
-      metadata,
-      environment,
-      options,
-      storedSecrets,
-      subscription
-    )
-  };
-}
-
-/** Project one standard provider route without subscription infrastructure. */
-export function effectiveStandardGenerationRuntime(
-  value: SettingsDocumentV2,
-  purpose: SettingsRoutePurpose = "default",
-  metadata: EffectiveMetadataV2 = {},
-  environment?: NodeJS.ProcessEnv,
-  options: EffectiveGenerationRuntimeOptions = {},
-  storedSecrets?: ReadonlyMap<string, string>
-): EffectiveGenerationRuntime {
-  return materializeEffectiveGenerationRuntime(
-    value,
-    purpose,
-    metadata,
-    environment,
-    options,
-    storedSecrets
-  );
-}
-
-/** Project settings and cache policy from one parsed route snapshot. Callers
- * must not combine independent reads: a settings activation between them could
- * otherwise pair one provider target with another target's cache contract. */
-function materializeEffectiveGenerationRuntime(
-  value: SettingsDocumentV2,
-  purpose: SettingsRoutePurpose,
-  metadata: EffectiveMetadataV2,
-  environment: NodeJS.ProcessEnv | undefined,
-  options: EffectiveGenerationRuntimeOptions,
-  storedSecrets: ReadonlyMap<string, string> | undefined,
-  subscription?: SubscriptionRuntimeDependencies
-): EffectiveGenerationRuntime {
-  const projection = projectEffectiveGeneration(
-    value,
-    purpose,
-    metadata,
-    options.allowBlankModel === true
-  );
-  const { profile, model, connection } = projection.route;
-  const runtimeOptions = {
-    environment,
-    storedSecrets,
-    sampling: profile.sampling ?? EMPTY_SAMPLING_V2,
-    tokenProbabilities: profile.tokenProbabilities ?? null,
-    reasoning: profile.reasoning ?? "marker",
-    keepReasoning: profile.discardReasoning !== true,
-    continuationPromptOptimization: profile.continuationPromptOptimization
-  };
-  let providerRuntime: ProviderRuntime;
-  if (isSubscriptionModelConnectionV2(connection)) {
-    if (subscription === undefined) {
-      throw new SettingsFormatError(
-        "A subscription route requires a subscription-aware runtime projector."
-      );
-    }
-    providerRuntime = providerRuntimeFromV2(
-      connection,
-      profile.effort,
-      model.capabilities,
-      { ...runtimeOptions, subscription }
-    );
-  } else if (isStandardModelConnectionV2(connection)) {
-    providerRuntime = providerRuntimeFromV2(
-      connection,
-      profile.effort,
-      model.capabilities,
-      runtimeOptions
-    );
-  } else {
-    throw new SettingsFormatError("The selected provider protocol is unavailable.");
-  }
-  return {
-    promptCache: projection.promptCache,
-    providerRuntime,
-    settings: attachProviderRuntime(projection.settings, providerRuntime)
-  };
-}
-
-function projectEffectiveGeneration(
+export function projectEffectiveGeneration(
   value: SettingsDocumentV2,
   purpose: SettingsRoutePurpose,
   metadata: EffectiveMetadataV2,

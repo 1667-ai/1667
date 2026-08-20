@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import test from "node:test";
-import { effectiveStandardGenerationRuntime } from "../server/settings-v2-conversion.js";
+import { effectiveStandardGenerationRuntime } from "../server/settings-runtime-resolver.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import {
   streamCompletion,

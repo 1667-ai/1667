@@ -9,10 +9,8 @@ import type { GenerationSettings } from "../shared/types.js";
 import { checkModelServer } from "./server-check.js";
 import { ownedLoopbackHttpSupported } from "./provider-fetch.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
-import {
-  effectiveGenerationView,
-  type EffectiveGenerationRuntimeProjector
-} from "./settings-v2-conversion.js";
+import { effectiveGenerationView } from "./settings-v2-conversion.js";
+import type { SettingsRuntimeResolver } from "./settings-runtime-resolver.js";
 import { classifyHttpHost, SettingsFormatError } from "./settings-v2-scalars.js";
 import { selectSettingsRoute } from "../shared/settings-route.js";
 import { continuationPromptLayoutForOptimization } from "../shared/continuation-prompt-optimization.js";
@@ -102,11 +100,11 @@ export function credentialReferencesResolve(
 
 export function assertRuntimeDocumentSupported(
   document: SettingsDocumentV2,
-  runtimeProjector: EffectiveGenerationRuntimeProjector
+  runtimeResolver: SettingsRuntimeResolver
 ): void {
   try {
     for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {
-      runtimeProjector.project(document, purpose);
+      runtimeResolver.resolve({ document, purpose });
     }
   } catch (error) {
     throw invalidSettingsMutation(error);
