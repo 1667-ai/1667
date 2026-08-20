@@ -1,6 +1,11 @@
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
-import { saveConfig, THEME_NAMES, type ThemeName } from "./config.js";
+import {
+  saveConfig,
+  THEME_NAMES,
+  type ThemeName,
+  type UserConfig
+} from "./config.js";
 import { cycleAllowInsecureHttp } from "./settings-allow-insecure.js";
 import {
   cycleSettingsModel,
@@ -161,7 +166,8 @@ export function applySettingsLocalToggle(
   source: AppSource,
   context: Pick<ActionContext, "restartUpdateCheck">,
   row: "compose-focus" | "word-wrap" | "update-checks",
-  value: "on" | "off"
+  value: "on" | "off",
+  persist: (config: UserConfig) => boolean = saveConfig
 ): void {
   state.config = row === "compose-focus"
     ? { ...state.config, composeFocus: value }
@@ -172,12 +178,14 @@ export function applySettingsLocalToggle(
           updates: { ...state.config.updates, mode: value === "on" ? "notify" : "off" }
         };
   source.config = state.config;
-  if (!state.demo) saveConfig(state.config);
+  const saved = state.demo || persist(state.config);
   if (row === "update-checks") context.restartUpdateCheck?.();
   const label = row === "compose-focus"
     ? "compose focus"
     : row === "word-wrap"
       ? "word wrap"
       : "update checks";
-  state.toast = `${label} · ${value}`;
+  state.toast = row === "update-checks" && !saved
+    ? `${label} · ${value} for this session · config not saved`
+    : `${label} · ${value}`;
 }

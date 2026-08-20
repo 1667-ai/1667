@@ -33,6 +33,7 @@ import {
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { settingsRowIds } from "../src/settings-row-navigation.js";
+import { applySettingsLocalToggle } from "../src/settings-selector-actions.js";
 import {
   deferred,
   draftRow,
@@ -249,6 +250,28 @@ describe("inline settings menu", () => {
     await press(key("right"));
     expect(state.config.updates.mode).toBe("notify");
     expect(restarts).toBe(2);
+  });
+
+  test("a failed update preference save reports a session-only change", () => {
+    let restarts = 0;
+    const { source, state } = harness();
+    state.demo = false;
+
+    applySettingsLocalToggle(
+      state,
+      source,
+      { restartUpdateCheck: () => { restarts += 1; } },
+      "update-checks",
+      "off",
+      () => false
+    );
+
+    expect(state.config.updates.mode).toBe("off");
+    expect(source.config.updates.mode).toBe("off");
+    expect(restarts).toBe(1);
+    expect(state.toast).toBe(
+      "update checks · off for this session · config not saved"
+    );
   });
 
   test("paste refuses every closed choice and still opens text rows", async () => {
