@@ -288,9 +288,8 @@ export async function runInteractive(source: AppSource): Promise<void> {
     tokenCountLane?.notify();
   };
   const publishUpdateNotice = (message: string) => {
-    if (exited || state.toast !== null) return;
-    state.toast = message;
-    repaint();
+    if (exited) return;
+    publishBackgroundUpdateNotice(state, message, repaint);
   };
   const restartUpdateCheck = () => {
     stopUpdateCheck?.();
@@ -616,6 +615,19 @@ export async function runInteractive(source: AppSource): Promise<void> {
     process.stderr.write(`1667-tui-profile ${JSON.stringify(profileReport)}\n`);
   }
   if (backendFailure !== null) throw backendFailure;
+}
+
+/** Preserve the active toast in the session log before the one-shot update
+ *  result replaces it. The release notice must not disappear just because a
+ *  Settings or startup toast is still visible. */
+export function publishBackgroundUpdateNotice(
+  state: RuntimeState,
+  message: string,
+  repaint: () => void
+): void {
+  recordSessionNotices(state);
+  state.toast = message;
+  repaint();
 }
 
 export async function handleKey(

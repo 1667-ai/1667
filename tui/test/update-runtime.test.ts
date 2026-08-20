@@ -6,7 +6,7 @@ import {
 import { normalizeUserConfig } from "../src/config.js";
 import {
   createBackgroundUpdateStarter,
-  upgradeCommandForAuthority
+  hasManagedUpgradeAuthority
 } from "../src/update-runtime.js";
 import type { InstallationAuthority } from "../src/install-ownership.js";
 
@@ -16,7 +16,7 @@ if (PUBLISHED_HOST === undefined) throw new Error("no published release target")
 describe("default background update runtime", () => {
   test("maps only proven install authority to an upgrade command", () => {
     const manual: InstallationAuthority = { kind: "manual" };
-    expect(upgradeCommandForAuthority(manual)).toBe(undefined);
+    expect(hasManagedUpgradeAuthority(manual)).toBeFalse();
 
     const shell: InstallationAuthority = {
       kind: "shell",
@@ -33,9 +33,7 @@ describe("default background update runtime", () => {
       installRoot: "/tmp/1667",
       executable: "/tmp/1667/1667"
     };
-    expect(upgradeCommandForAuthority(shell)).toBe(
-      "run 1667 upgrade"
-    );
+    expect(hasManagedUpgradeAuthority(shell)).toBeTrue();
 
     const powershell: InstallationAuthority = {
       kind: "powershell",
@@ -43,7 +41,7 @@ describe("default background update runtime", () => {
       installRoot: "C:\\Users\\test\\1667",
       executable: "C:\\Users\\test\\1667\\1667.exe"
     };
-    expect(upgradeCommandForAuthority(powershell)).toBe("run 1667 upgrade");
+    expect(hasManagedUpgradeAuthority(powershell)).toBeTrue();
   });
 
   test("constructs a checker by default and honors explicit opt-out", () => {

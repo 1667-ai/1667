@@ -253,11 +253,11 @@ describe("background update checking", () => {
     })).toBe("1667 0.1.0+build.2 available");
   });
 
-  test("shows a proven upgrade command and no command for unknown installs", () => {
-    expect(updateNotice("0.2.0", observation, "run 1667 upgrade")).toBe(
-      "1667 0.2.0 available · run 1667 upgrade"
+  test("binds a proven upgrade command to the checked version and channel", () => {
+    expect(updateNotice("0.2.0-beta.1", observation, "beta")).toBe(
+      "1667 0.2.0-beta.1 available · run 1667 upgrade --version 0.2.0-beta.1 --channel beta"
     );
-    expect(updateNotice("0.2.0", observation, "")).toBe("1667 0.2.0 available");
+    expect(updateNotice("0.2.0", observation)).toBe("1667 0.2.0 available");
     expect(updateNotice("0.2.0", observation)).not.toContain("npm");
   });
 

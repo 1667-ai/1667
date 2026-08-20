@@ -30,18 +30,12 @@ export type BackgroundUpdateStarter = (
   onNotice: (message: string) => void
 ) => () => void;
 
-/**
- * Build the command shown with a background notice. A command is emitted only
- * for an InstallationAuthority that proves 1667 owns the install path.
- * Manual, npm, source, and copied installations stay version-only. The same
- * read-only command is useful for both proven methods: PowerShell prints the
- * exact Installer command instead of placing a long encoded command in a
- * toast.
- */
-export function upgradeCommandForAuthority(
+/** Report whether InstallationAuthority proves that 1667 owns the install
+ * path. Manual, npm, source, and copied installations stay version-only. */
+export function hasManagedUpgradeAuthority(
   authority: InstallationAuthority
-): string | undefined {
-  return authority.kind === "manual" ? undefined : "run 1667 upgrade";
+): boolean {
+  return authority.kind !== "manual";
 }
 
 /**
@@ -82,15 +76,15 @@ export function createBackgroundUpdateStarter(
       ? "allow-prerelease"
       : "stable-only"
   };
-  let upgradeCommand: string | undefined;
+  let managedInstall = false;
   try {
-    upgradeCommand = upgradeCommandForAuthority(
+    managedInstall = hasManagedUpgradeAuthority(
       resolveInstallationAuthority()
     );
   } catch {
     // Authority is advisory for this notify-only path. If it cannot be read,
     // keep the version notice and omit a possibly unsafe command.
-    upgradeCommand = undefined;
+    managedInstall = false;
   }
 
   return (onNotice) => startBackgroundUpdateCheck({
@@ -101,7 +95,7 @@ export function createBackgroundUpdateStarter(
     readCache: async () => await readPersistedUpdateCache(cacheKey),
     writeCache: async (entry) => await writePersistedUpdateCache(entry),
     onNotice,
-    ...(upgradeCommand === undefined ? {} : { upgradeCommand }),
+    ...(managedInstall ? { managedInstall: true as const } : {}),
     ...(environment.AI_1667_DEBUG_UPDATES === "1"
       ? { onDebug: (message: string) => process.stderr.write(`1667: ${message}\n`) }
       : {})
