@@ -30,12 +30,14 @@ export type BackgroundUpdateStarter = (
   onNotice: (message: string) => void
 ) => () => void;
 
-/** Report whether InstallationAuthority proves that 1667 owns the install
- * path. Manual, npm, source, and copied installations stay version-only. */
-export function hasManagedUpgradeAuthority(
+/** Return the authoritative channel for an install that 1667 can upgrade.
+ * Manual, npm, source, and copied installations stay version-only. */
+export function managedUpgradeChannel(
   authority: InstallationAuthority
-): boolean {
-  return authority.kind !== "manual";
+): UserConfig["updates"]["channel"] | undefined {
+  if (authority.kind === "shell") return authority.record.channel;
+  if (authority.kind === "powershell") return authority.channel;
+  return undefined;
 }
 
 /**
@@ -50,8 +52,8 @@ export function createBackgroundUpdateStarter(
   platform = process.platform,
   arch = process.arch
 ): BackgroundUpdateStarter | null {
-  const preferences = resolveUpdatePreferences(config.updates, environment);
-  if (preferences.mode === "off") return null;
+  const configuredPreferences = resolveUpdatePreferences(config.updates, environment);
+  if (configuredPreferences.mode === "off") return null;
   const releaseTarget = releaseTargetForRuntime(platform, arch);
   // A held target has no published package, so a background check could only
   // poll the registry for something that is not there. Stay quiet instead.
@@ -60,6 +62,17 @@ export function createBackgroundUpdateStarter(
   // Background work stays notify-only. The cache key is a build-identity
   // fingerprint (installIdentity); this path resolves Ownership only to choose
   // a safe informational command and never installs a Candidate.
+  let managedChannel: UserConfig["updates"]["channel"] | undefined;
+  try {
+    managedChannel = managedUpgradeChannel(resolveInstallationAuthority());
+  } catch {
+    // Authority is advisory for this notify-only path. If it cannot be read,
+    // keep the configured channel and omit a possibly unsafe command.
+    managedChannel = undefined;
+  }
+  const preferences = managedChannel === undefined
+    ? configuredPreferences
+    : { ...configuredPreferences, channel: managedChannel };
   const observation = {
     currentVersion: AI_1667_PRODUCT_VERSION,
     platformPackage: releaseTarget.packageName
@@ -76,17 +89,6 @@ export function createBackgroundUpdateStarter(
       ? "allow-prerelease"
       : "stable-only"
   };
-  let managedInstall = false;
-  try {
-    managedInstall = hasManagedUpgradeAuthority(
-      resolveInstallationAuthority()
-    );
-  } catch {
-    // Authority is advisory for this notify-only path. If it cannot be read,
-    // keep the version notice and omit a possibly unsafe command.
-    managedInstall = false;
-  }
-
   return (onNotice) => startBackgroundUpdateCheck({
     preferences,
     observation,
@@ -95,7 +97,7 @@ export function createBackgroundUpdateStarter(
     readCache: async () => await readPersistedUpdateCache(cacheKey),
     writeCache: async (entry) => await writePersistedUpdateCache(entry),
     onNotice,
-    ...(managedInstall ? { managedInstall: true as const } : {}),
+    ...(managedChannel === undefined ? {} : { managedInstall: true as const }),
     ...(environment.AI_1667_DEBUG_UPDATES === "1"
       ? { onDebug: (message: string) => process.stderr.write(`1667: ${message}\n`) }
       : {})

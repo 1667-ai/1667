@@ -3,9 +3,12 @@ import type { CliRenderer, KeyEvent } from "@opentui/core";
 import { ActionRuntime } from "../src/action-runtime.js";
 import {
   handleKey,
-  initialState,
-  publishBackgroundUpdateNotice
+  initialState
 } from "../src/app.js";
+import {
+  promotePendingUpdateNotice,
+  publishBackgroundUpdateNotice
+} from "../src/background-update-notice.js";
 import { demoAppSource } from "../src/demo.js";
 import { hitAt } from "../src/hit.js";
 import { recordNotice } from "../src/notice-log.js";
@@ -51,9 +54,10 @@ function screen(
 }
 
 describe("C-37 · the session log", () => {
-  test("an update result preserves and replaces an active toast", () => {
+  test("an update result waits behind an active safety confirmation", () => {
     const { state } = harness();
-    state.toast = "update checks · on";
+    state.quitArmed = true;
+    state.toast = "streaming · press Ctrl+C again to discard and quit";
 
     publishBackgroundUpdateNotice(
       state,
@@ -61,8 +65,19 @@ describe("C-37 · the session log", () => {
       () => undefined
     );
 
+    expect(state.toast).toBe("streaming · press Ctrl+C again to discard and quit");
+    expect(state.pendingUpdateNotice).toBe("1667 1.0.0 available");
+    expect(state.notices.entries.map(({ text }) => text)).toEqual([
+      "1667 1.0.0 available",
+      "streaming · press Ctrl+C again to discard and quit"
+    ]);
+
+    state.quitArmed = false;
+    state.toast = null;
+    promotePendingUpdateNotice(state);
+
     expect(state.toast).toBe("1667 1.0.0 available");
-    expect(state.notices.entries[0]?.text).toBe("update checks · on");
+    expect(state.pendingUpdateNotice).toBeNull();
   });
 
   test("! opens a surface holding what the app said", async () => {

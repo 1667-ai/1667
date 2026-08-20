@@ -33,6 +33,10 @@ import { bindLiveReadingPositionState } from "./reading-position-persist.js";
 import { handleOverlayAction } from "./overlay-actions.js";
 import { createNoticeLog, recordSessionNotices } from "./notice-log.js";
 import { announceRelease } from "./release-announcement.js";
+import {
+  promotePendingUpdateNotice,
+  publishBackgroundUpdateNotice
+} from "./background-update-notice.js";
 import { openSettingsPasteTarget } from "./editor-open.js";
 import { createPalette } from "./palette.js";
 import {
@@ -278,6 +282,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
     profile: profileEnabled
   });
   const repaint = () => {
+    promotePendingUpdateNotice(state);
     // A backend task can raise a notice long after the key that started it, so
     // the log is filled here as well as at the end of `dispatch`.
     recordSessionNotices(state);
@@ -617,19 +622,6 @@ export async function runInteractive(source: AppSource): Promise<void> {
   if (backendFailure !== null) throw backendFailure;
 }
 
-/** Preserve the active toast in the session log before the one-shot update
- *  result replaces it. The release notice must not disappear just because a
- *  Settings or startup toast is still visible. */
-export function publishBackgroundUpdateNotice(
-  state: RuntimeState,
-  message: string,
-  repaint: () => void
-): void {
-  recordSessionNotices(state);
-  state.toast = message;
-  repaint();
-}
-
 export async function handleKey(
   key: KeyEvent,
   state: RuntimeState,
@@ -896,6 +888,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     historyDraft: null,
     abort: null,
     pendingGenerationDraft: null,
+    pendingUpdateNotice: null,
     composerClaimEpoch: 0,
     quitArmed: false,
     interactionVersion: 0,

@@ -6,7 +6,7 @@ import {
 import { normalizeUserConfig } from "../src/config.js";
 import {
   createBackgroundUpdateStarter,
-  hasManagedUpgradeAuthority
+  managedUpgradeChannel
 } from "../src/update-runtime.js";
 import type { InstallationAuthority } from "../src/install-ownership.js";
 
@@ -14,9 +14,9 @@ const PUBLISHED_HOST = PUBLISHED_RELEASE_TARGETS[0];
 if (PUBLISHED_HOST === undefined) throw new Error("no published release target");
 
 describe("default background update runtime", () => {
-  test("maps only proven install authority to an upgrade command", () => {
+  test("maps proven install authority to its managed channel", () => {
     const manual: InstallationAuthority = { kind: "manual" };
-    expect(hasManagedUpgradeAuthority(manual)).toBeFalse();
+    expect(managedUpgradeChannel(manual)).toBe(undefined);
 
     const shell: InstallationAuthority = {
       kind: "shell",
@@ -25,7 +25,7 @@ describe("default background update runtime", () => {
         product: "1667",
         installationId: "a".repeat(32),
         method: "shell",
-        channel: "stable",
+        channel: "beta",
         installRoot: "/tmp/1667",
         executable: "/tmp/1667/1667",
         artifactTarget: "linux-x64"
@@ -33,7 +33,7 @@ describe("default background update runtime", () => {
       installRoot: "/tmp/1667",
       executable: "/tmp/1667/1667"
     };
-    expect(hasManagedUpgradeAuthority(shell)).toBeTrue();
+    expect(managedUpgradeChannel(shell)).toBe("beta");
 
     const powershell: InstallationAuthority = {
       kind: "powershell",
@@ -41,13 +41,14 @@ describe("default background update runtime", () => {
       installRoot: "C:\\Users\\test\\1667",
       executable: "C:\\Users\\test\\1667\\1667.exe"
     };
-    expect(hasManagedUpgradeAuthority(powershell)).toBeTrue();
+    expect(managedUpgradeChannel(powershell)).toBe("stable");
   });
 
   test("constructs a checker by default and honors explicit opt-out", () => {
     const host = [PUBLISHED_HOST.platform, PUBLISHED_HOST.arch] as const;
     expect(typeof createBackgroundUpdateStarter(normalizeUserConfig(null), {}, ...host)).toBe("function");
     expect(createBackgroundUpdateStarter(normalizeUserConfig({
+      schemaVersion: 1,
       updates: { mode: "off" }
     }), {}, ...host)).toBe(null);
     expect(createBackgroundUpdateStarter(normalizeUserConfig(null), {

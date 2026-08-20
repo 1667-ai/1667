@@ -311,6 +311,7 @@ describe("user config normalization", () => {
       factsRail: "off",
       quota: { date: "2026-07-21", words: 42 }
     })).toEqual({
+      schemaVersion: 1,
       theme: "bond",
       factsRail: "off",
       composeFocus: "off",
@@ -325,6 +326,7 @@ describe("user config normalization", () => {
 
   test("accepts documented snake-case aliases and normalizes height", () => {
     expect(normalizeUserConfig({
+      schemaVersion: 1,
       theme: "hi-contrast light",
       facts_rail: "off",
       compose_focus: "on",
@@ -338,6 +340,7 @@ describe("user config normalization", () => {
       quota: { date: "", words: 0 },
       lastRunVersion: "0.5.0"
     })).toMatchObject({
+      schemaVersion: 1,
       theme: "hi-contrast light",
       factsRail: "off",
       composeFocus: "on",
@@ -373,6 +376,7 @@ describe("user config normalization", () => {
       quota: { date: 12, words: "many" },
       lastRunVersion: "01.2.3"
     })).toEqual({
+      schemaVersion: 1,
       theme: "lantern",
       factsRail: "auto",
       composeFocus: "off",
@@ -384,6 +388,15 @@ describe("user config normalization", () => {
       settingsViewMode: "simple"
     });
     expect(normalizeUserConfig(null)).toEqual(normalizeUserConfig([]));
+  });
+
+  test("migrates the legacy off default but keeps a schema 1 opt-out", () => {
+    expect(normalizeUserConfig({ updates: { mode: "off" } }).updates.mode)
+      .toBe("notify");
+    expect(normalizeUserConfig({
+      schemaVersion: 1,
+      updates: { mode: "off" }
+    }).updates.mode).toBe("off");
   });
 
   test("keeps word wrap on unless the config turns it off", () => {

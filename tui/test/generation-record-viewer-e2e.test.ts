@@ -84,6 +84,7 @@ function appSource(
     exportDirectory: process.cwd(),
     connection: null,
     config: {
+      schemaVersion: 1,
       theme: "lantern",
       factsRail: "auto",
       composeFocus: "off",
