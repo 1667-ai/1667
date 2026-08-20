@@ -99,7 +99,11 @@ import {
   openGenerationRecordViewer
 } from "./generation-record-actions.js";
 import type { FactsOverlayState, RuntimeState } from "./state.js";
-import type { ActionContext } from "./action-context.js";
+import {
+  INERT_ACTION_LIFECYCLE,
+  type ActionContext,
+  type ActionLifecycle
+} from "./action-context.js";
 
 export type OverlayActionContext = ActionContext;
 
@@ -116,7 +120,8 @@ export async function handleOverlayAction(
   resolved: ResolvedKey,
   state: RuntimeState,
   source: AppSource,
-  context: OverlayActionContext
+  context: OverlayActionContext,
+  lifecycle: ActionLifecycle = INERT_ACTION_LIFECYCLE
 ): Promise<boolean> {
   if (resolved.action === "retry") { await reconnect(state, source, context); return true; }
   if (resolved.action === "open-aside") {
@@ -244,7 +249,8 @@ export async function handleOverlayAction(
       resolved,
       state,
       source,
-      context
+      context,
+      lifecycle
     );
     await synchronizeSettingsModelDiscovery(state, source, context);
     return handled;

@@ -1,4 +1,4 @@
-import type { ActionContext } from "./action-context.js";
+import type { ActionContext, ActionLifecycle } from "./action-context.js";
 import type { AppSource } from "./app.js";
 import {
   saveConfig,
@@ -46,6 +46,7 @@ export async function cycleSettingsRow(
   state: RuntimeState,
   source: AppSource,
   context: ActionContext,
+  lifecycle: ActionLifecycle,
   overlay: SettingsOverlayState,
   magnitude: ScalarMagnitude = "step"
 ): Promise<void> {
@@ -83,7 +84,7 @@ export async function cycleSettingsRow(
       applyUpdateChecksToggle(
         state,
         source,
-        context,
+        lifecycle,
         state.config.updates.mode === "notify" ? "off" : "on"
       );
     } else if (row === "provider") {
@@ -179,7 +180,7 @@ export function applySettingsLocalToggle(
 export function applyUpdateChecksToggle(
   state: RuntimeState,
   source: AppSource,
-  context: Pick<ActionContext, "restartUpdateCheck">,
+  lifecycle: ActionLifecycle,
   value: "on" | "off",
   persist: (config: UserConfig) => boolean = saveConfig
 ): void {
@@ -192,7 +193,7 @@ export function applyUpdateChecksToggle(
   };
   source.config = state.config;
   const saved = state.demo || persist(state.config);
-  context.restartUpdateCheck?.();
+  lifecycle.restartUpdateCheck();
   state.toast = saved
     ? `update checks · ${value}`
     : `update checks · ${value} for this session · config not saved`;

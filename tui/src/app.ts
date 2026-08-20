@@ -716,13 +716,14 @@ export async function dispatch(
     return repaint();
   }
   const context: ActionContext = {
-    cache: wrapCache, repaint, backend, renderer, applyTheme, previewTheme,
-    restartUpdateCheck: lifecycle.restartUpdateCheck
+    cache: wrapCache, repaint, backend, renderer, applyTheme, previewTheme
   };
   // Recovery belongs to the connection banner, above transient part menus
   // and confirmations. Those surfaces stay open while retry runs; otherwise
   // their reducers would swallow the banner's advertised keyboard/click action.
-  if (resolved.action === "retry") await handleOverlayAction(resolved, state, source, context);
+  if (resolved.action === "retry") {
+    await handleOverlayAction(resolved, state, source, context, lifecycle);
+  }
   else if (resolved.action === "open-text-actions") {
     if (resolved.nativeSelection === undefined && resolved.composerEditable === false) return;
     let sync: ReturnType<typeof syncMouseComposerSelection> = "none";
@@ -780,15 +781,15 @@ export async function dispatch(
       } else if (!copied && state.mode === "EDITOR") {
         await inlineEditorAction(action, state, source, context);
       } else if (!copied && state.mode === "SETTINGS") {
-        await handleOverlayAction(action, state, source, context);
+        await handleOverlayAction(action, state, source, context, lifecycle);
       } else if (!copied && state.mode === "ASIDE") {
-        await handleOverlayAction(action, state, source, context);
+        await handleOverlayAction(action, state, source, context, lifecycle);
       }
     }
   }
   else if (state.prune !== null) await pruneAction(resolved, state, source, context);
   else if (state.actions !== null) await actionsMenuAction(resolved, state, source, context);
-  else if (await handleOverlayAction(resolved, state, source, context)) { /* handled */ }
+  else if (await handleOverlayAction(resolved, state, source, context, lifecycle)) { /* handled */ }
   else if (resolved.action === "toggle-context-meter" && (state.mode === "NAV" || state.mode === "COMPOSE")) {
     state.contextMeterExpanded = !state.contextMeterExpanded;
   }

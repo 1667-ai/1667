@@ -11,8 +11,6 @@ export interface ActionContext {
   renderer: CliRenderer | null;
   applyTheme: (theme: ThemeName) => void;
   previewTheme: (theme: ThemeName | null) => void;
-  /** Rebuild the notify-only update lane after its local preference changes. */
-  restartUpdateCheck?: () => void;
   /** Test seam for the release-wide Aside switch. */
   asideEntryPointsOpen?: boolean;
 }
