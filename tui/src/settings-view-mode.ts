@@ -8,6 +8,7 @@ import type { RuntimeState, SettingsOverlayState, SettingsRowId } from "./state.
  *  fixed subscription connection hides them in both modes, one visibility
  *  rule instead of two that could drift apart. */
 const SETTINGS_SIMPLE_ROW_IDS: ReadonlySet<SettingsRowId> = new Set([
+  "update-checks",
   "system-prompt",
   "provider",
   "model",

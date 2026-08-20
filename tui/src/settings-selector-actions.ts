@@ -64,6 +64,7 @@ export async function cycleSettingsRow(
       applySettingsLocalToggle(
         state,
         source,
+        context,
         "compose-focus",
         state.config.composeFocus === "on" ? "off" : "on"
       );
@@ -71,8 +72,17 @@ export async function cycleSettingsRow(
       applySettingsLocalToggle(
         state,
         source,
+        context,
         "word-wrap",
         state.config.wordWrap === "on" ? "off" : "on"
+      );
+    } else if (row === "update-checks") {
+      applySettingsLocalToggle(
+        state,
+        source,
+        context,
+        "update-checks",
+        state.config.updates.mode === "notify" ? "off" : "on"
       );
     } else if (row === "provider") {
       const choice = cycleSettingsProvider(overlay, step);
@@ -144,20 +154,30 @@ export function applySettingsTheme(
   state.toast = `theme · ${theme}`;
 }
 
-/** Compose focus and word wrap are both a plain on/off toggle stored on the
- *  user config, saved and toasted the same way — the only difference is which
- *  field and which label. One function for both instead of two clones. */
+/** Local on/off rows are stored in the user config and save through the same
+ *  path. */
 export function applySettingsLocalToggle(
   state: RuntimeState,
   source: AppSource,
-  row: "compose-focus" | "word-wrap",
+  context: Pick<ActionContext, "restartUpdateCheck">,
+  row: "compose-focus" | "word-wrap" | "update-checks",
   value: "on" | "off"
 ): void {
   state.config = row === "compose-focus"
     ? { ...state.config, composeFocus: value }
-    : { ...state.config, wordWrap: value };
+    : row === "word-wrap"
+      ? { ...state.config, wordWrap: value }
+      : {
+          ...state.config,
+          updates: { ...state.config.updates, mode: value === "on" ? "notify" : "off" }
+        };
   source.config = state.config;
   if (!state.demo) saveConfig(state.config);
-  const label = row === "compose-focus" ? "compose focus" : "word wrap";
+  if (row === "update-checks") context.restartUpdateCheck?.();
+  const label = row === "compose-focus"
+    ? "compose focus"
+    : row === "word-wrap"
+      ? "word wrap"
+      : "update checks";
   state.toast = `${label} · ${value}`;
 }

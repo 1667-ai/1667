@@ -317,7 +317,7 @@ describe("user config normalization", () => {
       wordWrap: "on",
       composeMaxHeight: null,
       quota: { date: "2026-07-21", words: 42 },
-      updates: { mode: "off", channel: "stable", skippedVersion: null },
+      updates: { mode: "notify", channel: "stable", skippedVersion: null },
       lastRunVersion: null,
       settingsViewMode: "simple"
     });
@@ -379,7 +379,7 @@ describe("user config normalization", () => {
       wordWrap: "on",
       composeMaxHeight: null,
       quota: { date: "", words: 0 },
-      updates: { mode: "off", channel: "stable", skippedVersion: null },
+      updates: { mode: "notify", channel: "stable", skippedVersion: null },
       lastRunVersion: null,
       settingsViewMode: "simple"
     });

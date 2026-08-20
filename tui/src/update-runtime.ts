@@ -9,6 +9,10 @@ import {
 } from "../../shared/release-targets.js";
 import type { UserConfig } from "./config.js";
 import {
+  resolveInstallationAuthority,
+  type InstallationAuthority
+} from "./install-ownership.js";
+import {
   startBackgroundUpdateCheck
 } from "./background-update-check.js";
 import {
@@ -25,6 +29,20 @@ import { resolveUpdatePreferences } from "./update-preferences.js";
 export type BackgroundUpdateStarter = (
   onNotice: (message: string) => void
 ) => () => void;
+
+/**
+ * Build the command shown with a background notice. A command is emitted only
+ * for an InstallationAuthority that proves 1667 owns the install path.
+ * Manual, npm, source, and copied installations stay version-only. The same
+ * read-only command is useful for both proven methods: PowerShell prints the
+ * exact Installer command instead of placing a long encoded command in a
+ * toast.
+ */
+export function upgradeCommandForAuthority(
+  authority: InstallationAuthority
+): string | undefined {
+  return authority.kind === "manual" ? undefined : "run 1667 upgrade";
+}
 
 /**
  * The runtime is a parameter for the same reason it is one in
@@ -46,8 +64,8 @@ export function createBackgroundUpdateStarter(
   if (releaseTarget === null || releaseTarget.heldFromPublication !== null) return null;
 
   // Background work stays notify-only. The cache key is a build-identity
-  // fingerprint (installIdentity); this path never resolves Ownership or
-  // installs a Candidate.
+  // fingerprint (installIdentity); this path resolves Ownership only to choose
+  // a safe informational command and never installs a Candidate.
   const observation = {
     currentVersion: AI_1667_PRODUCT_VERSION,
     platformPackage: releaseTarget.packageName
@@ -64,6 +82,16 @@ export function createBackgroundUpdateStarter(
       ? "allow-prerelease"
       : "stable-only"
   };
+  let upgradeCommand: string | undefined;
+  try {
+    upgradeCommand = upgradeCommandForAuthority(
+      resolveInstallationAuthority()
+    );
+  } catch {
+    // Authority is advisory for this notify-only path. If it cannot be read,
+    // keep the version notice and omit a possibly unsafe command.
+    upgradeCommand = undefined;
+  }
 
   return (onNotice) => startBackgroundUpdateCheck({
     preferences,
@@ -73,6 +101,7 @@ export function createBackgroundUpdateStarter(
     readCache: async () => await readPersistedUpdateCache(cacheKey),
     writeCache: async (entry) => await writePersistedUpdateCache(entry),
     onNotice,
+    ...(upgradeCommand === undefined ? {} : { upgradeCommand }),
     ...(environment.AI_1667_DEBUG_UPDATES === "1"
       ? { onDebug: (message: string) => process.stderr.write(`1667: ${message}\n`) }
       : {})

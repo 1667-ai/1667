@@ -1,5 +1,4 @@
 import { isSemVerUpgradeAvailable } from "../../shared/semver.js";
-import { RELEASE_LAUNCHER_PACKAGE } from "../../shared/release-targets.js";
 import {
   UPDATE_CHECK_INITIAL_DELAY_MS,
   createUpdateCacheEntry,
@@ -25,6 +24,8 @@ export interface BackgroundUpdateCheckDependencies {
   readonly readCache: () => Promise<UpdateCacheEntry | null>;
   readonly writeCache: (entry: UpdateCacheEntry) => Promise<unknown>;
   readonly onNotice: (message: string) => void;
+  /** Set only when the caller has proven install authority. */
+  readonly upgradeCommand?: string;
   readonly onDebug?: (message: string) => void;
   readonly now?: () => number;
   readonly random?: () => number;
@@ -107,20 +108,28 @@ export function startBackgroundUpdateCheck(
 
 export function updateNotice(
   latest: string,
-  observation: UpgradeObservation
+  observation: UpgradeObservation,
+  upgradeCommand?: string
 ): string | null {
   if (!isSemVerUpgradeAvailable(latest, observation.currentVersion)) return null;
-  return `1667 ${latest} available · see npmjs.com/package/${RELEASE_LAUNCHER_PACKAGE}`;
+  const command = upgradeCommand?.trim();
+  return command === undefined || command.length === 0
+    ? `1667 ${latest} available`
+    : `1667 ${latest} available · ${command}`;
 }
 
 function publishNotice(
   latest: string,
   dependencies: Pick<
     BackgroundUpdateCheckDependencies,
-    "preferences" | "observation" | "onNotice"
+    "preferences" | "observation" | "onNotice" | "upgradeCommand"
   >
 ): void {
   if (dependencies.preferences.skippedVersion === latest) return;
-  const message = updateNotice(latest, dependencies.observation);
+  const message = updateNotice(
+    latest,
+    dependencies.observation,
+    dependencies.upgradeCommand
+  );
   if (message !== null) dependencies.onNotice(message);
 }

@@ -339,11 +339,12 @@ describe("run C overlay frames", () => {
 
   test("settings overlay shows theme switcher and editable fields", async () => {
     // "m" switches to advanced mode, which is what shows the theme switcher,
-    // and lands on system-prompt (cursor identity carries the flip); one
-    // more down reaches provider, a cycler, for the choice-footer keyline.
+    // and keeps the cursor on update checks. Two downs reach provider, a
+    // cycler, for the choice-footer keyline.
     const frame = await renderWithKeys(demoAppSource(), 120, 36, [
       key(","),
       key("m"),
+      key("down"),
       key("down")
     ]);
     expect(frame).toContain("┏━ settings ━");
@@ -357,12 +358,13 @@ describe("run C overlay frames", () => {
     const clean = await renderOnce(demoAppSource(), 120, 36, ",");
     expect(clean).not.toContain("revision");
 
-    // "m" switches to advanced mode and lands on system-prompt (cursor
-    // identity carries the flip). One more down reaches provider, the row
-    // below it that can cycle and dirty the draft with Right.
+    // "m" switches to advanced mode and keeps the cursor on update checks.
+    // Two downs reach provider, which can cycle and dirty the draft with
+    // Right.
     const dirty = await renderWithKeys(demoAppSource(), 120, 36, [
       key(","),
       key("m"),
+      key("down"),
       key("down"),
       key("right")
     ]);

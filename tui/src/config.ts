@@ -76,7 +76,7 @@ const DEFAULTS: UserConfig = {
   wordWrap: "on",
   composeMaxHeight: null,
   quota: { date: "", words: 0 },
-  updates: { mode: "off", channel: "stable", skippedVersion: null },
+  updates: { mode: "notify", channel: "stable", skippedVersion: null },
   lastRunVersion: null,
   settingsViewMode: "simple"
 };
@@ -136,7 +136,9 @@ export function normalizeUserConfig(value: unknown): UserConfig {
       ? { date: rawQuota.date as string, words: rawQuota.words as number }
       : { ...DEFAULTS.quota },
     updates: {
-      mode: rawUpdates.mode === "notify" ? "notify" : "off",
+      // Update notices are on for new and malformed configs. Keep an explicit
+      // off value as the opt-out.
+      mode: rawUpdates.mode === "off" ? "off" : "notify",
       channel: rawUpdates.channel === "beta" ? "beta" : "stable",
       skippedVersion: isSemVer(rawUpdates.skippedVersion)
         ? rawUpdates.skippedVersion

@@ -5,7 +5,9 @@ import type { SettingsRowId } from "./state.js";
  *  question, and a row that appears in only one of them reads as a draft change
  *  that never saves. This module holds no other state so that both can import
  *  it without depending on each other. */
-export const LOCAL_CONFIG_ROWS = ["theme", "compose-focus", "word-wrap"] as const;
+export const LOCAL_CONFIG_ROWS = [
+  "theme", "compose-focus", "word-wrap", "update-checks"
+] as const;
 
 export type LocalConfigRow = typeof LOCAL_CONFIG_ROWS[number];
 

@@ -56,7 +56,8 @@ export function generationFromProbeTarget(target: ProviderProbeTarget) {
  *  simple/advanced split itself, overrides back to `"simple"`. */
 export function settingsHarness(
   requestQuit: () => void = () => undefined,
-  configOverrides: Partial<UserConfig> = {}
+  configOverrides: Partial<UserConfig> = {},
+  restartUpdateCheck: () => void = () => undefined
 ) {
   const source = demoAppSource();
   const state = initialState(source, false);
@@ -85,7 +86,8 @@ export function settingsHarness(
       source.config = state.config;
     },
     () => undefined,
-    backend
+    backend,
+    restartUpdateCheck
   );
   return { source, state, cache, backend, press, repaints: () => repaintCount };
 }

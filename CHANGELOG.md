@@ -8,6 +8,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 - **ChatGPT and Claude plans show their bundled model catalogs.** Select a
   model in Settings, or enter a model ID manually.
 
+- **1667 now reports available releases by default.** You can turn update
+  checks off in Settings. The check stays silent when the network is not
+  available. A Managed Installation notice shows the upgrade command. Other
+  notices show only the new version.
+
 ## 0.9.10-rc.4 - 2026-08-20
 
 - **The Shell Installer can update a Managed Installation.** Run the Installer

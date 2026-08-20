@@ -81,6 +81,12 @@ npm install --global @1667-ai/cli@latest
 
 npm manages this installation. Use npm to install a later release.
 
+1667 checks for a new release by default. The check reads public package
+metadata from the npm registry. It does not send story, prompt, account, or
+configuration data. Turn **update checks** off in Settings to disable the
+check. A Managed Installation notice shows `1667 upgrade`. Other notices show
+only the new version.
+
 Install from source with the
 [source installation procedure](docs/run-from-source.md).
 Git manages this installation.

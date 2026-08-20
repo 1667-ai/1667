@@ -158,6 +158,7 @@ export function settingsRowEditValue(
   if (row === "theme") return config.theme;
   if (row === "compose-focus") return config.composeFocus;
   if (row === "word-wrap") return config.wordWrap;
+  if (row === "update-checks") return config.updates.mode === "notify" ? "on" : "off";
   if (row === "allow-insecure-http") {
     return overlay.draft.generation.allowInsecureHttp === true ? "on" : "off";
   }

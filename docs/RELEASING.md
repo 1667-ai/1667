@@ -578,7 +578,12 @@ command again for an upgrade. The PowerShell Installer keeps the Installation
 ID. The PowerShell Installer shows archive download progress. Windows does not
 support `1667 upgrade --rollback`.
 
-Background update checks stay notify-only. They never install a Candidate.
+Background update checks are on by default. A user can turn them off in
+Settings. The check reads public package metadata from the npm registry. It
+does not send story, prompt, account, or configuration data. The check stays
+notify-only. It never installs a Candidate. A notice shows `1667 upgrade` only
+when a valid Ownership Record identifies a Managed Installation. Other notices
+show only the new version.
 
 The homepage must serve bytes that match one attested channel Installer for the
 promoted release.

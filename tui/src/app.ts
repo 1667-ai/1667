@@ -85,7 +85,6 @@ import {
   reconcilePresentedSelection,
   retirePresentedSelection
 } from "./presented-selection.js";
-import type { BackgroundUpdateStarter } from "./update-runtime.js";
 import { startPromptTokenCountLane, type PromptTokenCountLane } from "./prompt-token-count.js";
 import {
   activeTextComposer,
@@ -112,7 +111,10 @@ export interface AppSource {
   connection: ConnectionMonitor | null;
   backendRecovery?: RecoveryWarningFeed;
   backendFailure?: Promise<Error>;
-  startUpdateCheck?: BackgroundUpdateStarter;
+  startUpdateCheck?: (
+    config: UserConfig,
+    onNotice: (message: string) => void
+  ) => () => void;
   config: UserConfig;
   /** Local changing store: last focused part per story. Not settings. */
   readingPositions: ReadingPositions;
@@ -284,6 +286,17 @@ export async function runInteractive(source: AppSource): Promise<void> {
     // through, so the token-count lane rides it instead of the dispatcher
     // needing a second notification path (see prompt-token-count.ts).
     tokenCountLane?.notify();
+  };
+  const publishUpdateNotice = (message: string) => {
+    if (exited || state.toast !== null) return;
+    state.toast = message;
+    repaint();
+  };
+  const restartUpdateCheck = () => {
+    stopUpdateCheck?.();
+    stopUpdateCheck = exited
+      ? null
+      : source.startUpdateCheck?.(source.config, publishUpdateNotice) ?? null;
   };
   const backend = new ActionRuntime(state, repaint);
   tokenCountLane = startPromptTokenCountLane({ state, api: source.api, repaint });
@@ -459,7 +472,8 @@ export async function runInteractive(source: AppSource): Promise<void> {
         renderer,
         applyTheme,
         previewTheme,
-        withActionAdmission(backend, admit)
+        withActionAdmission(backend, admit),
+        restartUpdateCheck
       ), (work) => backend.observe(work));
     }, () => {
       retirePresentedSelection(renderer, queuedSelection);
@@ -520,7 +534,8 @@ export async function runInteractive(source: AppSource): Promise<void> {
             renderer,
             applyTheme,
             previewTheme,
-            backend
+            backend,
+            restartUpdateCheck
           );
         }
       } else if (pasteInto(state, text)) {
@@ -572,7 +587,8 @@ export async function runInteractive(source: AppSource): Promise<void> {
           renderer,
           applyTheme,
           previewTheme,
-          withActionAdmission(backend, admit)
+          withActionAdmission(backend, admit),
+          restartUpdateCheck
         ), (work) => backend.observe(work));
       }
     });
@@ -588,11 +604,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
   // One-shot requestRender frames while idle; renderables may request a live
   // loop explicitly when they own native animation.
   renderer.auto();
-  stopUpdateCheck = source.startUpdateCheck?.((message) => {
-    if (exited || state.toast !== null) return;
-    state.toast = message;
-    repaint();
-  }) ?? null;
+  restartUpdateCheck();
 
   if (source.demo) {
     state.focusIndex = lastPartRowIndex(createStoryViewModel(state.payload));
@@ -617,7 +629,8 @@ export async function handleKey(
   renderer: ActionContext["renderer"] = null,
   applyTheme: ActionContext["applyTheme"] = () => undefined,
   previewTheme: ActionContext["previewTheme"] = () => undefined,
-  backend: ActionRunner = new ActionRuntime(state, repaint)
+  backend: ActionRunner = new ActionRuntime(state, repaint),
+  restartUpdateCheck: NonNullable<ActionContext["restartUpdateCheck"]> = () => undefined
 ): Promise<void> {
   if (isCopyShortcut(key)
     && state.mode !== "EDITOR"
@@ -648,7 +661,7 @@ export async function handleKey(
     mapView: state.map?.view
   });
   return await dispatch(resolved, state, source, wrapCache, repaint, cancelStream, requestQuit,
-    renderer, applyTheme, previewTheme, backend);
+    renderer, applyTheme, previewTheme, backend, restartUpdateCheck);
 }
 
 /** Everything after key resolution — shared by the keyboard and the mouse. */
@@ -663,7 +676,8 @@ export async function dispatch(
   renderer: ActionContext["renderer"] = null,
   applyTheme: ActionContext["applyTheme"] = () => undefined,
   previewTheme: ActionContext["previewTheme"] = () => undefined,
-  backend: ActionRunner = new ActionRuntime(state, repaint)
+  backend: ActionRunner = new ActionRuntime(state, repaint),
+  restartUpdateCheck: NonNullable<ActionContext["restartUpdateCheck"]> = () => undefined
 ): Promise<void> {
   const previousMode = state.mode;
   if (state.chapterSummary !== null && resolved.action === "cancel"
@@ -694,7 +708,8 @@ export async function dispatch(
     return repaint();
   }
   const context: ActionContext = {
-    cache: wrapCache, repaint, backend, renderer, applyTheme, previewTheme
+    cache: wrapCache, repaint, backend, renderer, applyTheme, previewTheme,
+    restartUpdateCheck
   };
   // Recovery belongs to the connection banner, above transient part menus
   // and confirmations. Those surfaces stay open while retry runs; otherwise

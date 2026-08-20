@@ -4,15 +4,51 @@ import {
   RELEASE_TARGETS
 } from "../../shared/release-targets.js";
 import { normalizeUserConfig } from "../src/config.js";
-import { createBackgroundUpdateStarter } from "../src/update-runtime.js";
+import {
+  createBackgroundUpdateStarter,
+  upgradeCommandForAuthority
+} from "../src/update-runtime.js";
+import type { InstallationAuthority } from "../src/install-ownership.js";
 
 const PUBLISHED_HOST = PUBLISHED_RELEASE_TARGETS[0];
 if (PUBLISHED_HOST === undefined) throw new Error("no published release target");
 
 describe("default background update runtime", () => {
-  test("does not construct a checker by default or when explicitly disabled", () => {
+  test("maps only proven install authority to an upgrade command", () => {
+    const manual: InstallationAuthority = { kind: "manual" };
+    expect(upgradeCommandForAuthority(manual)).toBe(undefined);
+
+    const shell: InstallationAuthority = {
+      kind: "shell",
+      record: {
+        schemaVersion: 1,
+        product: "1667",
+        installationId: "a".repeat(32),
+        method: "shell",
+        channel: "stable",
+        installRoot: "/tmp/1667",
+        executable: "/tmp/1667/1667",
+        artifactTarget: "linux-x64"
+      },
+      installRoot: "/tmp/1667",
+      executable: "/tmp/1667/1667"
+    };
+    expect(upgradeCommandForAuthority(shell)).toBe(
+      "run 1667 upgrade"
+    );
+
+    const powershell: InstallationAuthority = {
+      kind: "powershell",
+      channel: "stable",
+      installRoot: "C:\\Users\\test\\1667",
+      executable: "C:\\Users\\test\\1667\\1667.exe"
+    };
+    expect(upgradeCommandForAuthority(powershell)).toBe("run 1667 upgrade");
+  });
+
+  test("constructs a checker by default and honors explicit opt-out", () => {
     const host = [PUBLISHED_HOST.platform, PUBLISHED_HOST.arch] as const;
-    expect(createBackgroundUpdateStarter(normalizeUserConfig(null), {}, ...host)).toBe(null);
+    expect(typeof createBackgroundUpdateStarter(normalizeUserConfig(null), {}, ...host)).toBe("function");
     expect(createBackgroundUpdateStarter(normalizeUserConfig({
       updates: { mode: "off" }
     }), {}, ...host)).toBe(null);
@@ -25,6 +61,16 @@ describe("default background update runtime", () => {
     const starter = createBackgroundUpdateStarter(
       normalizeUserConfig({ updates: { mode: "notify" } }),
       {},
+      PUBLISHED_HOST.platform,
+      PUBLISHED_HOST.arch
+    );
+    expect(typeof starter).toBe("function");
+  });
+
+  test("does not require an npm executable", () => {
+    const starter = createBackgroundUpdateStarter(
+      normalizeUserConfig({ updates: { mode: "notify" } }),
+      { PATH: "" },
       PUBLISHED_HOST.platform,
       PUBLISHED_HOST.arch
     );

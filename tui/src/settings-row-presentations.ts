@@ -140,6 +140,11 @@ export function settingsRows(
       hint: "Keeps whole words together when editor lines wrap."
     },
     {
+      id: "update-checks", section: "app", label: "update checks",
+      value: `[ ${config.updates.mode === "notify" ? "on" : "off"} ]`,
+      hint: "Checks for a newer version. Sends no story or account data."
+    },
+    {
       id: "system-prompt", section: "prompt", label: "system",
       value: settings.systemPrompt.replace(/\s+/g, " "),
       hint: "Default Author Brief for prose and story names; a story brief overrides it."
