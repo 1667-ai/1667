@@ -37,28 +37,6 @@ repository contains the terminal user interface (TUI) and its backend runtime.
 - Use a ChatGPT Plus or Pro plan, or a Claude Pro or Max plan, without an API key.
 - Connect to OpenAI-compatible endpoints or Anthropic Messages endpoints.
 
-## Subscription plans
-
-1667 can use a ChatGPT Plus or Pro plan, or a Claude Pro or Max plan. These
-connections do not need a separate API key.
-
-Sign in to ChatGPT:
-
-```sh
-1667 auth login chatgpt
-```
-
-Sign in to Claude:
-
-```sh
-1667 auth login claude
-```
-
-Then select **ChatGPT plan** or **Claude plan** in Settings.
-
-These plan connections are experimental community integrations. The provider
-applies its subscription limits, terms, and data controls.
-
 ## Install
 
 On macOS or Linux, use the Shell Installer:
@@ -113,6 +91,28 @@ only the new version.
 Install from source with the
 [source installation procedure](docs/run-from-source.md).
 Git manages this installation.
+
+## Subscription plans
+
+1667 can use a ChatGPT Plus or Pro plan, or a Claude Pro or Max plan. These
+connections do not need a separate API key.
+
+Sign in to ChatGPT:
+
+```sh
+1667 auth login chatgpt
+```
+
+Sign in to Claude:
+
+```sh
+1667 auth login claude
+```
+
+Then select **ChatGPT plan** or **Claude plan** in Settings.
+
+These plan connections are experimental community integrations. The provider
+applies its subscription limits, terms, and data controls.
 
 ## Keyboard orientation
 
