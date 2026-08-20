@@ -27,6 +27,29 @@ An HTTP generation sends one heartbeat comment each second while its SSE stream
 stays open. A heartbeat does not change the story prose. The attached TUI stops
 the HTTP generation after four seconds without stream bytes.
 
+## Visible stream pacing
+
+The TUI receives provider text at full transport speed. A presentation buffer
+reveals the received text at small grapheme-safe steps. Slow streams stay
+immediate. The buffer holds the last grapheme until the next delta or terminal
+result confirms its boundary. Fast and bursty streams use an adaptive 16 ms
+presentation interval.
+
+The received text remains authoritative for Stop, deadline handling, partial
+commit, and the final provider payload. Stop hides a Continue presentation at
+once. A stopped Rewrite keeps its partial replacement visible until its
+partial-save settlement. The TUI keeps the received text for settlement.
+Before a successful result replaces the live view, the TUI starts a bounded
+catch-up interval. The TUI stops the catch-up work at its deadline. The final
+payload then replaces presentation text that remains.
+
+Stop suspends visible presentation while terminal text can still arrive. If
+the partial save fails, the TUI restores the stream and reveals the remaining
+text in bounded recovery steps.
+
+The same pacing rule applies to Continue, Retake, highlighted Rewrite, summary
+previews, Aside answers, and visible model reasoning.
+
 ## Text Completions boundary
 
 Text Completions converts the provider-neutral request into one text prompt.

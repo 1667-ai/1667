@@ -2,9 +2,9 @@ import type { ReasoningDisplayV2 } from "../../shared/settings-v2-types.js";
 import type { StoryPart } from "./model.js";
 import {
   streamForPart,
-  streamHasSubstantiveReasoning,
-  streamHasSubstantiveText,
-  streamReasoningTrimmedText
+  streamPresentedHasSubstantiveReasoning,
+  streamPresentedHasSubstantiveText,
+  streamPresentedReasoningText
 } from "./stream-text.js";
 import type { StreamView, ThoughtCacheEntry } from "./state.js";
 
@@ -18,7 +18,7 @@ export function partHasThought(
   state: { stream: StreamView | null }
 ): boolean {
   const live = streamForPart(state.stream, part.id);
-  if (live !== null) return streamHasSubstantiveReasoning(live);
+  if (live !== null) return streamPresentedHasSubstantiveReasoning(live);
   return part.stub.reasoning === true;
 }
 
@@ -46,7 +46,8 @@ export function thoughtUnfolded(
  *  substantive check as `partHasThought`'s live branch, so the two can never
  *  disagree about whether a stream "has" a thought yet. */
 export function streamThinkingOnly(stream: StreamView): boolean {
-  return streamHasSubstantiveReasoning(stream) && !streamHasSubstantiveText(stream);
+  return streamPresentedHasSubstantiveReasoning(stream)
+    && !streamPresentedHasSubstantiveText(stream);
 }
 
 /** One take's thought, resolved to what is actually in hand right now — live
@@ -67,7 +68,7 @@ export function resolvedThought(
   const live = streamForPart(state.stream, part.id);
   if (live !== null) {
     return {
-      text: streamReasoningTrimmedText(live),
+      text: streamPresentedReasoningText(live),
       tokenCount: live.reasoning !== undefined && live.reasoning.tokenCount > 0
         ? live.reasoning.tokenCount
         : null,

@@ -12,7 +12,10 @@ import {
 } from "../../../../shared/starter-vault.js";
 import { visibleWidth } from "./frame.js";
 import { type ProseStyle, type StyleRun, type WrapCache, type WrapContentIdentity } from "../../wrap.js";
-import { streamTrimBounds } from "../../stream-text.js";
+import {
+  streamPresentedText,
+  streamPresentedTrimBounds
+} from "../../stream-text.js";
 
 export interface StoryPartWrapPlan {
   partId: string;
@@ -339,8 +342,8 @@ export function storyPartWrapIdentity(
   const bounds = contentStream === null
     ? { start: 0, end: 0 }
     : appending
-      ? { start: 0, end: stream!.text.length }
-      : streamTrimBounds(stream!);
+      ? { start: 0, end: streamPresentedText(stream!).length }
+      : streamPresentedTrimBounds(stream!);
   return {
     source,
     stream: contentStream,
