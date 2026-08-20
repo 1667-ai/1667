@@ -59,7 +59,6 @@ describe("Sampling Settings review regressions", () => {
   test("short Settings cursor window keeps utility route visible and nameable", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     const utilityIndex = SETTINGS_ROW_IDS.indexOf("utility-route");
     state.settings!.cursor = utilityIndex;
     const height = 32;
@@ -174,7 +173,6 @@ describe("Sampling Settings review regressions", () => {
     installSave(source, saved);
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "profile");
     await press(key("N"));
     const selectedProfileId = state.settings?.draft.selectedProfileId;
@@ -200,7 +198,6 @@ describe("Sampling Settings review regressions", () => {
     useSupportedSettings(source);
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "base-url");
     await press(key("return"));
     const edit = state.settings?.edit;
@@ -236,7 +233,6 @@ async function enterSampling(
   press: ReturnType<typeof settingsHarness>["press"]
 ): Promise<void> {
   await openSettings(press);
-  state.settings!.viewMode = "advanced";
   await selectRow(press, state, "sampling");
   await press(key("return"));
   expect(state.settings?.sampling?.panel).toBe("sampling");

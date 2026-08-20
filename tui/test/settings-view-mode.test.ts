@@ -1,10 +1,9 @@
 import { expect, test } from "bun:test";
-import type { SaveSettingsCommand } from "../../shared/settings-v2-types.js";
 import { SETTINGS_ROW_IDS, settingsRowIds } from "../src/settings-row-navigation.js";
 import { settingsCursorRowIdentity } from "../src/settings-row-navigation.js";
+import { settingsDraftChanged } from "../src/settings-overlay-model.js";
 import { settingsTextDraftWithSubscriptionPlan } from "../src/settings-text.js";
 import {
-  installSave,
   key,
   openSettings,
   selectRow,
@@ -13,7 +12,7 @@ import {
 import { configureNetworkSource } from "./settings-model-provenance-test-helpers.js";
 
 test("simple mode shows only the intended rows, and advanced mode shows every row unchanged", async () => {
-  const { state, press } = settingsHarness();
+  const { state, press } = settingsHarness(undefined, { settingsViewMode: "simple" });
   await openSettings(press);
   const overlay = state.settings!;
 
@@ -29,7 +28,7 @@ test("simple mode shows only the intended rows, and advanced mode shows every ro
 });
 
 test("base-url and api-key stay visible in simple mode until a fixed subscription connection hides them", async () => {
-  const { source, state, press } = settingsHarness();
+  const { source, state, press } = settingsHarness(undefined, { settingsViewMode: "simple" });
   configureNetworkSource(source);
   await openSettings(press);
   const overlay = state.settings!;
@@ -50,7 +49,7 @@ test("base-url and api-key stay visible in simple mode until a fixed subscriptio
 });
 
 test("toggling the view mode preserves the cursor by row identity and never parks it on a hidden row", async () => {
-  const { state, press } = settingsHarness();
+  const { state, press } = settingsHarness(undefined, { settingsViewMode: "simple" });
   await openSettings(press);
   const overlay = state.settings!;
 
@@ -69,39 +68,42 @@ test("toggling the view mode preserves the cursor by row identity and never park
   expect(overlay.cursor).toBeLessThan(rows.length);
 });
 
-test("the chosen view mode persists: a saved advanced document reopens in advanced", async () => {
-  const { source, state, press } = settingsHarness();
-  const saved: SaveSettingsCommand[] = [];
-  installSave(source, saved);
-
+// Regression test: `settingsViewMode` lives in `UserConfig` now, not the
+// settings document (settings-view-mode.ts), so the chosen mode has to
+// survive closing and reopening the panel through the config, not a saved
+// document round trip.
+test("toggling the view mode persists across closing and reopening the panel", async () => {
+  const { state, press } = settingsHarness(undefined, { settingsViewMode: "simple" });
   await openSettings(press);
+  expect(state.settings!.viewMode).toBe("simple");
+
   await press(key("m"));
-  await press(key("s"));
+  expect(state.settings!.viewMode).toBe("advanced");
+  expect(state.config.settingsViewMode).toBe("advanced");
 
-  expect(saved).toHaveLength(1);
-  expect(saved[0]!.document.settingsViewMode).toBe("advanced");
+  await press(key("escape"));
+  expect(state.mode).toBe("NAV");
+  await openSettings(press);
 
-  const restarted = settingsHarness();
-  if (!restarted.source.settingsView.editable) {
-    throw new Error("demo settings must be editable");
-  }
-  restarted.source.settingsView = {
-    ...restarted.source.settingsView,
-    document: saved[0]!.document
-  };
-  restarted.source.api.getSettings = async () => restarted.source.settingsView;
-
-  await openSettings(restarted.press);
-
-  expect(settingsRowIds(restarted.state.settings!)).toEqual([...SETTINGS_ROW_IDS]);
+  expect(state.settings!.viewMode).toBe("advanced");
+  expect(settingsRowIds(state.settings!)).toEqual([...SETTINGS_ROW_IDS]);
 });
 
-test("a document with no stored view mode loads and defaults to simple", async () => {
-  const { state, press } = settingsHarness();
+// Regression test: `toggleSettingsViewMode` used to also patch
+// `overlay.draft.document`, which `settingsDraftChanged`'s `JSON.stringify`
+// comparison reads as a real edit — the panel then showed "unsaved draft ·
+// s saves" after a pure view action, and `s` fired a full save mutation just
+// to record a view preference. `m` now only ever touches `overlay.viewMode`
+// and the config, never the draft.
+test("toggling the view mode does not dirty the settings draft", async () => {
+  const { state, press } = settingsHarness(undefined, { settingsViewMode: "simple" });
   await openSettings(press);
   const overlay = state.settings!;
+  expect(settingsDraftChanged(overlay)).toBeFalse();
 
-  expect(overlay.draft.document?.settingsViewMode).toBe(undefined);
-  expect(settingsRowIds(overlay).length).toBeLessThan(SETTINGS_ROW_IDS.length);
-  expect(settingsRowIds(overlay)).toContain("system-prompt");
+  await press(key("m"));
+
+  expect(settingsDraftChanged(overlay)).toBeFalse();
+  expect(overlay.conflict).toBe(null);
+  expect(state.toast).toBe("advanced view");
 });

@@ -55,6 +55,15 @@ const VIEW_MODE_TOGGLE = {
   token: "m mode", action: "toggle-view-mode"
 } as const satisfies { token: string; action: KeyAction };
 
+/** `esc close`'s abbreviated form. Adding the view-mode toggle pushed the
+ *  choice, model, and context keylines' widest variant past 80 columns'
+ *  footer budget, so that width fell straight through to the medium tier —
+ *  which drops the toggle entirely — hiding the one discovery affordance
+ *  for the feature that changed the default view. Shortening this token
+ *  (already how `esc` reads in every narrower tier) reclaims enough width
+ *  to keep the full keyline, toggle included, at 80 columns. */
+const CANCEL_SHORT = { token: "esc", action: "cancel" } as const satisfies { token: string; action: KeyAction };
+
 export const SETTINGS_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" },
   { token: "↓", action: "focus-next" },
@@ -64,7 +73,7 @@ export const SETTINGS_FOOTER_ACTIONS = [
   { token: "s save", action: "save-edit" },
   { token: "c check", action: "check" },
   VIEW_MODE_TOGGLE,
-  { token: "esc close", action: "cancel" }
+  CANCEL_SHORT
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 
 const SETTINGS_TEXT_FOOTER_ACTIONS = [
@@ -85,7 +94,7 @@ const SETTINGS_CONTEXT_FOOTER_ACTIONS = [
   { token: "s save", action: "save-edit" },
   { token: "c check", action: "check" },
   VIEW_MODE_TOGGLE,
-  { token: "esc close", action: "cancel" }
+  CANCEL_SHORT
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 
 const SETTINGS_EDIT_FOOTER_ACTIONS = [
@@ -105,12 +114,12 @@ const SETTINGS_PENDING_FOOTER_ACTIONS = [
   { token: "c check", action: "check" },
   { token: "x discard", action: "discard-pending" },
   VIEW_MODE_TOGGLE,
-  { token: "esc close", action: "cancel" }
+  CANCEL_SHORT
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 
 export const SETTINGS_CHOICE_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ choose · ↵ next · s save · c check · m mode · esc close",
+    text: "↑↓ move · ←→ choose · ↵ next · s save · c check · m mode · esc",
     actions: SETTINGS_FOOTER_ACTIONS
   },
   {
@@ -141,7 +150,7 @@ export const SETTINGS_CHOICE_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_MODEL_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ choose · ↵ custom · s save · c check · m mode · esc close",
+    text: "↑↓ move · ←→ choose · ↵ custom · s save · c check · m mode · esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -151,7 +160,7 @@ export const SETTINGS_MODEL_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "s save", action: "save-edit" },
       { token: "c check", action: "check" },
       VIEW_MODE_TOGGLE,
-      { token: "esc close", action: "cancel" }
+      CANCEL_SHORT
     ]
   },
   {
@@ -382,7 +391,7 @@ export const SETTINGS_SCALAR_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_CONTEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ step · ↵ type · p detect · s save · m mode · esc close",
+    text: "↑↓ move · ←→ step · ↵ type · p detect · s save · m mode · esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -392,11 +401,11 @@ export const SETTINGS_CONTEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "p detect", action: "detect-context" },
       { token: "s save", action: "save-edit" },
       VIEW_MODE_TOGGLE,
-      { token: "esc close", action: "cancel" }
+      CANCEL_SHORT
     ]
   },
   {
-    text: "↑↓ move · ↵ edit · p detect · s save · c check · m mode · esc close",
+    text: "↑↓ move · ↵ edit · p detect · s save · c check · m mode · esc",
     actions: SETTINGS_CONTEXT_FOOTER_ACTIONS
   },
   {
@@ -450,7 +459,7 @@ export const SETTINGS_EDIT_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_PENDING_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ↵ edit · s save · c check · x discard · m mode · esc close",
+    text: "↑↓ move · ↵ edit · s save · c check · x discard · m mode · esc",
     actions: SETTINGS_PENDING_FOOTER_ACTIONS
   },
   {

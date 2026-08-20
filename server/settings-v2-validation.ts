@@ -2,7 +2,6 @@ import {
   FEATURE_SUPPORT_V2_VALUES,
   SETTINGS_PRESET_V2_VALUES,
   SETTINGS_PROTOCOL_V2_VALUES,
-  SETTINGS_VIEW_MODE_V2_VALUES,
   TEXT_PROMPT_FORMAT_V2_VALUES,
   type CredentialReferenceV2,
   type GenerationProfileV2,
@@ -41,8 +40,7 @@ import {
 } from "./settings-v2-scalars.js";
 
 const DOCUMENT = closedShape(
-  ["schemaVersion", "connections", "models", "profiles", "routing", "writing"],
-  ["settingsViewMode"]
+  ["schemaVersion", "connections", "models", "profiles", "routing", "writing"]
 );
 const CONNECTION = closedShape(
   ["name", "preset", "protocol", "baseUrl", "auth", "headers", "timeouts"],
@@ -95,17 +93,13 @@ export function validateSettingsDocumentV2(
       `settings document exceeds the ${MAX_SETTINGS_CREDENTIAL_NAMES}-credential-name limit`
     );
   }
-  const settingsViewMode = root.settingsViewMode === undefined
-    ? undefined
-    : oneOf(root.settingsViewMode, SETTINGS_VIEW_MODE_V2_VALUES, "settings document.settingsViewMode");
   return {
     schemaVersion: 2,
     connections,
     models,
     profiles,
     routing,
-    writing: { defaultAuthorBrief },
-    ...(settingsViewMode === undefined ? {} : { settingsViewMode })
+    writing: { defaultAuthorBrief }
   };
 }
 

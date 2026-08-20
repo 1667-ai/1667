@@ -8,9 +8,10 @@ import type {
 import { ActionRuntime } from "../src/action-runtime.js";
 import { handleKey, initialState } from "../src/app.js";
 import { setComposerText } from "../src/composer-model.js";
+import type { UserConfig } from "../src/config.js";
 import { demoAppSource } from "../src/demo.js";
 import { settingsRowIndex } from "../src/settings-overlay-model.js";
-import type { SettingsRowId } from "../src/state.js";
+import type { RuntimeState, SettingsRowId } from "../src/state.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 
 export function key(
@@ -47,9 +48,20 @@ export function generationFromProbeTarget(target: ProviderProbeTarget) {
     : target;
 }
 
-export function settingsHarness(requestQuit: () => void = () => undefined) {
+/** Most fixtures predate the simple/advanced split and expect every row
+ *  reachable by default, so the harness opens in advanced mode — set once
+ *  here rather than every fixture poking `state.settings.viewMode` (or
+ *  `selectRow` transparently pressing `m` the first time a hidden row was
+ *  asked for) after the fact. `settings-view-mode.test.ts`, which tests the
+ *  simple/advanced split itself, overrides back to `"simple"`. */
+export function settingsHarness(
+  requestQuit: () => void = () => undefined,
+  configOverrides: Partial<UserConfig> = {}
+) {
   const source = demoAppSource();
   const state = initialState(source, false);
+  state.config = { ...state.config, settingsViewMode: "advanced", ...configOverrides };
+  source.config = state.config;
   const cache = createWrapCache<ProseStyle>();
   // Counts every repaint this harness's actions request — the same repaint
   // reference `handleKey` (tui/src/app.ts) threads into the ActionContext
@@ -115,16 +127,26 @@ export async function selectRow(
   state: ReturnType<typeof settingsHarness>["state"],
   row: SettingsRowId
 ): Promise<void> {
-  // Most fixtures predate the simple/advanced split and expect every row
-  // reachable by default. Simple mode is now the overlay's real default, so
-  // transparently switch to advanced the first time a test asks for a row
-  // simple mode does not show, rather than making every such fixture toggle
-  // it by hand.
-  if (settingsRowIndex(row, state.settings!) < 0) await press(key("m"));
   const target = settingsRowIndex(row, state.settings!);
   if (target < 0) throw new Error(`settings has no row for ${row}`);
   while (state.settings!.cursor < target) await press(key("down"));
   while (state.settings!.cursor > target) await press(key("up"));
+}
+
+/** `ActionRuntime.whenIdle` can resolve while a just-deferred automatic
+ *  probe (settings-context-detection.ts's `deferUntilIdle`) is still
+ *  claiming the slot it was waiting for: `whenIdle` resolves every waiter
+ *  from a snapshot taken before any of their continuations run, so a
+ *  waiter registered earlier (the deferred probe) can reclaim the slot
+ *  between that resolution and a caller's next line. Loop until the slot
+ *  is actually free, not just once-idle. */
+export async function settleBackend(
+  state: RuntimeState,
+  backend: ActionRuntime
+): Promise<void> {
+  while (state.backendTask !== null) {
+    await backend.whenIdle();
+  }
 }
 
 export async function draftRow(

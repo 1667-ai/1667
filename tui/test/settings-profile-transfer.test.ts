@@ -25,7 +25,6 @@ describe("Generation Profile transfer", () => {
     installSave(source, commands);
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "profile");
     await press(key("i"));
     expect(state.mode).toBe("SETTINGS");
@@ -39,7 +38,6 @@ describe("Generation Profile transfer", () => {
     expect(commands).toHaveLength(0);
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "profile");
     await press(key("i"));
     await press(key("return"));
@@ -177,7 +175,6 @@ describe("Generation Profile transfer", () => {
     const commands: SaveSettingsCommand[] = [];
     installSave(source, commands);
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "profile");
     state.abort = {
       kind: "generation",
@@ -311,7 +308,6 @@ describe("Generation Profile transfer", () => {
     };
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "profile");
     await press(key("i"));
     if (state.settings === null) throw new Error("editable settings missing");
@@ -393,7 +389,6 @@ async function openFilePrompt(
   press: ReturnType<typeof settingsHarness>["press"]
 ) {
   await openSettings(press);
-  state.settings!.viewMode = "advanced";
   await selectRow(press, state, "profile");
   await press(key("i"));
   for (let index = 0; index < PROFILE_TRANSFER_SOURCES.length - 1; index += 1) {

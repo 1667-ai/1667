@@ -34,7 +34,8 @@ import { inlineEditorAction } from "./editor-action.js";
 import { publishSettingsView } from "./overlay-publication.js";
 import {
   checkSettings,
-  detectSettingsContext
+  detectSettingsContext,
+  detectSettingsContextForModelChange
 } from "./settings-context-detection.js";
 import {
   settingsModelDiscoveryIdentity
@@ -175,6 +176,14 @@ export async function settingsOverlayAction(
     }
     return true;
   }
+  // The one seam every path that can change the selected model passes
+  // through — typing an identifier (settingsInlineEditAction), picking one
+  // from C-15's column (settingsModelPickerAction), or cycling with ←→
+  // (cycleSettingsRow → cycleSettingsModel) — so the auto-detect probe fires
+  // once from here instead of being pasted at each call site, several of
+  // which used to get no probe at all (issue: cycling the model row with
+  // ←→ triggered nothing while typing the same identifier did).
+  const modelBeforeDispatch = overlay.draft.generation.model;
   if (resolved.action === "cancel") {
     // Esc peels exactly one layer: the option column is a layer of its own.
     if (overlay.modelPicker !== null) {
@@ -211,7 +220,7 @@ export async function settingsOverlayAction(
       }
     }
   } else if (overlay.modelPicker !== null) {
-    await settingsModelPickerAction(resolved, state, source, context, overlay);
+    settingsModelPickerAction(resolved, state, overlay);
   } else if (overlay.edit !== null) {
     await settingsInlineEditAction(resolved, state, source, context, overlay);
   } else if (resolved.action === "focus-next") {
@@ -287,11 +296,12 @@ export async function settingsOverlayAction(
     await detectSettingsContext(state, source, context, overlay);
   } else if (resolved.action === "toggle-view-mode") {
     const cursorRow = settingsCursorRowIdentity(overlay);
-    const next = toggleSettingsViewMode(overlay);
+    const next = toggleSettingsViewMode(state, source, overlay);
     restoreSettingsCursor(overlay, cursorRow);
-    state.toast = overlay.draft.document === null
-      ? `${next} view`
-      : `${next} view · s saves settings`;
+    state.toast = `${next} view`;
+  }
+  if (overlay.draft.generation.model !== modelBeforeDispatch) {
+    detectSettingsContextForModelChange(state, source, context, overlay);
   }
   return true;
 }

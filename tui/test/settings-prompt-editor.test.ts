@@ -48,7 +48,6 @@ describe("full-screen Settings prompt editor", () => {
     };
     source.api.getSettings = async () => source.settingsView;
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
 
     await selectRow(press, state, "system-prompt");
     await press(key("return"));
@@ -78,7 +77,6 @@ describe("full-screen Settings prompt editor", () => {
   test("native paste opens the editor and keeps newlines", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "system-prompt");
 
     expect(openSettingsPasteTarget(state)).toBe("editor");
@@ -92,7 +90,6 @@ describe("full-screen Settings prompt editor", () => {
   test("text insertion disarms Settings overwrite consent", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "system-prompt");
     await press(key("return"));
     if (state.settings === null) throw new Error("Settings did not open");
@@ -110,7 +107,6 @@ describe("full-screen Settings prompt editor", () => {
   test("commits a local draft while a generation streams", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "system-prompt");
     await press(key("return"));
     setComposerText(promptEdit(state).composer, "New local prompt");
@@ -135,7 +131,6 @@ describe("full-screen Settings prompt editor", () => {
   test("keeps a wide-character caret visible in a short terminal", async () => {
     const { state, cache, press } = settingsHarness();
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "system-prompt");
     await press(key("return"));
     setComposerText(promptEdit(state).composer, `${"界".repeat(40)}END`);
@@ -162,7 +157,6 @@ describe("full-screen Settings prompt editor", () => {
   test("aligns a caret and native selection after a preserved tab", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "system-prompt");
     await press(key("return"));
     const edit = promptEdit(state);
@@ -203,7 +197,6 @@ describe("full-screen Settings prompt editor", () => {
   test("uses the full terminal for a short prompt", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "system-prompt");
     await press(key("return"));
 
@@ -226,7 +219,6 @@ describe("full-screen Settings prompt editor", () => {
       return saveSettings(command);
     };
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "system-prompt");
     await press(key("return"));
     await press(key("N"));
@@ -259,7 +251,6 @@ describe("full-screen Settings prompt editor", () => {
   test("adopts successive clean prompt refreshes without a false conflict", async () => {
     const { source, state, press } = settingsHarness();
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "system-prompt");
     await press(key("return"));
 
@@ -285,7 +276,6 @@ describe("full-screen Settings prompt editor", () => {
   test("converges a prompt while the same refresh changes a sibling setting", async () => {
     const { source, state, press } = settingsHarness();
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "system-prompt");
     await press(key("return"));
     setComposerText(promptEdit(state).composer, "Remote prompt B");
@@ -333,7 +323,6 @@ describe("full-screen Settings prompt editor", () => {
   test("treats restoring the original prompt after refresh as an overwrite", async () => {
     const { source, state, press } = settingsHarness();
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "system-prompt");
     await press(key("return"));
     const original = promptEdit(state).initial;
@@ -372,7 +361,6 @@ describe("full-screen Settings prompt editor", () => {
       return saveSettings(command);
     };
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "max-tokens", "1024");
 
     const saving = press(key("s"));

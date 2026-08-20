@@ -114,11 +114,11 @@ const footerCases: FooterCase[] = [
     ],
     setup: (state, source) => {
       state.mode = "SETTINGS";
-      state.settings = initialSettingsOverlay(source.settingsView, state.config);
       // Row 0 is "theme" (a cycler, matching this case's CHOICE footer) only
       // in advanced mode; simple mode's row 0 is "system-prompt", a plain
       // text row with a different footer.
-      state.settings.viewMode = "advanced";
+      state.config = { ...state.config, settingsViewMode: "advanced" };
+      state.settings = initialSettingsOverlay(source.settingsView, state.config);
     } }
 ];
 
@@ -1092,9 +1092,9 @@ describe("hit map clickable chrome", () => {
 
     state.editor = null;
     state.mode = "SETTINGS";
-    state.settings = initialSettingsOverlay(source.settingsView, state.config);
     // SETTINGS_ROW_IDS indexes the full (advanced) row list.
-    state.settings.viewMode = "advanced";
+    state.config = { ...state.config, settingsViewMode: "advanced" };
+    state.settings = initialSettingsOverlay(source.settingsView, state.config);
     state.settings.cursor = SETTINGS_ROW_IDS.indexOf("model");
     beginSettingsRowEdit(state.settings, state.config);
     render(state);
@@ -1237,16 +1237,12 @@ describe("hit map clickable chrome", () => {
       { name: "chapters confirm", expected: "↵ jump · s sum · e rename · n break · d confirms · esc keeps",
         setup: (state) => { state.mode = "CHAPTERS"; state.chapters = { cursor: 0, rename: null, deleteArmedId: "chapter-break-1" }; } },
       { name: "settings",
-        // The widest keyline no longer fits 80 columns once it also carries
-        // the view-mode toggle, so that width renders the medium tier.
-        expected: (width: number) => width <= 80
-          ? "↑↓ · ←→ choose · ↵ next · s · c · esc"
-          : "↑↓ move · ←→ choose · ↵ next · s save · c check · m mode · esc close",
+        expected: "↑↓ move · ←→ choose · ↵ next · s save · c check · m mode · esc",
         setup: (state, source) => {
           state.mode = "SETTINGS";
-          state.settings = initialSettingsOverlay(source.settingsView, state.config);
           // Row 0 is "theme" (a cycler) only in advanced mode.
-          state.settings.viewMode = "advanced";
+          state.config = { ...state.config, settingsViewMode: "advanced" };
+          state.settings = initialSettingsOverlay(source.settingsView, state.config);
         } },
       { name: "summary", expected: "esc discards", setup: (state) => {
         state.mode = "SUMMARY";

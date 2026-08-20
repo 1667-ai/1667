@@ -33,13 +33,6 @@ export const TEXT_PROMPT_FORMAT_V2_VALUES = [
 ] as const;
 export type TextPromptFormatV2 = (typeof TEXT_PROMPT_FORMAT_V2_VALUES)[number];
 
-/** Which rows the Settings overlay shows. `simple` is the default and lists
- *  only the most-used rows; `advanced` shows every row. Additive: absence on
- *  a document written before this field existed means `simple`, the same
- *  shape as `ConnectionTimeoutsV2`'s siblings above. */
-export const SETTINGS_VIEW_MODE_V2_VALUES = ["simple", "advanced"] as const;
-export type SettingsViewModeV2 = (typeof SETTINGS_VIEW_MODE_V2_VALUES)[number];
-
 export const SETTINGS_PRESET_V2_VALUES = [
   "dry-run",
   "openai",
@@ -356,10 +349,6 @@ export interface SettingsDocumentV2 {
   readonly writing: {
     readonly defaultAuthorBrief: string;
   };
-  /** Absence means `"simple"`. Only a document saved from the `advanced` view
-   *  carries this field, the same "only the non-default is persisted" shape
-   *  as `ModelConnectionV2.allowInsecureHttp`. */
-  readonly settingsViewMode?: SettingsViewModeV2;
 }
 
 /** Schema 3's document: identical to `SettingsDocumentV2` except every model
@@ -375,9 +364,6 @@ export interface SettingsDocumentV3 {
   readonly writing: {
     readonly defaultAuthorBrief: string;
   };
-  /** Absence means `"simple"`, the same shape as `SettingsDocumentV2`'s field
-   *  of the same name. */
-  readonly settingsViewMode?: SettingsViewModeV2;
 }
 
 export const MODEL_DISCOVERY_SOURCE_V2_VALUES = [

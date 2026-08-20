@@ -58,7 +58,6 @@ describe("Generation Profile settings", () => {
     source.api.getSettings = async () => source.settingsView;
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "profile");
     await press(key("n"));
     await press(key("e"));
@@ -94,7 +93,6 @@ describe("Generation Profile settings", () => {
     const { source, state, press } = settingsHarness();
     installNetworkSettings(source);
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "profile");
     await press(key("n"));
     await draftRow(press, state, "base-url", "https://example.com/v1");
@@ -187,7 +185,6 @@ describe("Generation Profile settings", () => {
     const commands: SaveSettingsCommand[] = [];
     installSave(source, commands);
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     const overlay = state.settings!;
     const profileId = overlay.draft.selectedProfileId!;
     const textDraft = settingsTextDraftWithTextPreset(
@@ -248,7 +245,6 @@ describe("Generation Profile settings", () => {
       const commands: SaveSettingsCommand[] = [];
       installSave(source, commands);
       await openSettings(press);
-      state.settings!.viewMode = "advanced";
       const overlay = state.settings!;
       const profileId = overlay.draft.selectedProfileId!;
       overlay.draft = settingsTextDraftWithSubscriptionPlan(
@@ -303,7 +299,6 @@ describe("Generation Profile settings", () => {
       const commands: SaveSettingsCommand[] = [];
       installSave(source, commands);
       await openSettings(press);
-      state.settings!.viewMode = "advanced";
       const overlay = state.settings!;
       const profileId = overlay.draft.selectedProfileId!;
       overlay.draft = settingsTextDraftWithSubscriptionPlan(
@@ -363,7 +358,6 @@ describe("Generation Profile settings", () => {
       const commands: SaveSettingsCommand[] = [];
       installSave(source, commands);
       await openSettings(press);
-      state.settings!.viewMode = "advanced";
       const overlay = state.settings!;
       const profileId = overlay.draft.selectedProfileId!;
       const sampledDocument = applySamplingSettings(
@@ -427,7 +421,6 @@ describe("Generation Profile settings", () => {
   test("profile cursor stays on profile across mixed plan visibility", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     const overlay = state.settings!;
     const document = overlay.draft.document!;
     const originalId = overlay.draft.selectedProfileId!;
@@ -472,7 +465,6 @@ describe("Generation Profile settings", () => {
       return savedResult(current);
     };
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "profile");
     await press(key("n"));
     await draftRow(press, state, "api-key", "");
@@ -494,7 +486,6 @@ describe("Generation Profile settings", () => {
   test("profile rename has an inline editor and a visible compact footer at 80 columns", async () => {
     const { state, cache, press } = settingsHarness();
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "profile");
     expect(frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines))
       .toContain("↑↓ ←→ n N i e d s esc");
@@ -505,7 +496,6 @@ describe("Generation Profile settings", () => {
   test("shows profile actions and pending discard together", async () => {
     const { state, cache, press } = settingsHarness();
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "profile");
     if (state.settings?.view.dataFormat !== 2) throw new Error("editable settings missing");
     state.settings!.view = { ...state.settings!.view, pendingRevision: 2 };
@@ -520,7 +510,6 @@ describe("Generation Profile settings", () => {
     const { source, state, press } = settingsHarness();
     installNetworkSettings(source);
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "profile");
     await press(key("n"));
 
@@ -541,7 +530,6 @@ describe("Generation Profile settings", () => {
     installNetworkSettings(source);
     const name = "a".repeat(256);
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "profile");
     await press(key("e"));
     setComposerText(state.settings!.edit!.composer, name);
@@ -557,7 +545,6 @@ describe("Generation Profile settings", () => {
     const { source, state, press } = settingsHarness();
     installNetworkSettings(source);
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "profile");
     await press(key("n"));
 
@@ -593,7 +580,6 @@ describe("Generation Profile settings", () => {
     const { source, state, press } = settingsHarness();
     installNetworkSettings(source);
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "profile");
     await press(key("n"));
     await draftRow(press, state, "base-url", "https://profile.example/v1");
@@ -624,7 +610,6 @@ describe("Generation Profile settings", () => {
       return { observedAt: "2026-08-01T00:00:00.000Z", models: [] };
     };
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "api-key", "default-key");
     const defaultSecretId = Object.keys(state.settings!.connectionSecrets)[0]!;
 
@@ -655,7 +640,6 @@ describe("Generation Profile settings", () => {
     const { source, state, cache, press } = settingsHarness();
     installNetworkSettings(source);
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     const document = state.settings?.draft.document;
     if (document === null || document === undefined) throw new Error("editable document missing");
     const modelId = document.profiles.default!.modelId;
@@ -708,7 +692,6 @@ describe("Generation Profile settings", () => {
     };
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     expect(state.settings?.draft.document?.profiles.default?.tokenProbabilities).toBe(undefined);
     await selectRow(press, state, "token-probabilities");
     await press(key("right"));
@@ -735,7 +718,6 @@ describe("Generation Profile settings", () => {
     const { source, state, press } = settingsHarness();
     installNetworkSettings(source);
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "token-probabilities");
     const current = () => state.settings?.draft.document?.profiles.default?.tokenProbabilities;
 
@@ -756,7 +738,6 @@ describe("Generation Profile settings", () => {
     const { source, state, cache, press } = settingsHarness();
     installNetworkSettings(source);
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     const document = state.settings?.draft.document;
     if (document === null || document === undefined) throw new Error("editable document missing");
     const modelId = document.profiles.default!.modelId;
@@ -792,7 +773,6 @@ describe("Generation Profile settings", () => {
     const { source, state, cache, press } = settingsHarness();
     installNetworkSettings(source);
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     const document = state.settings?.draft.document;
     if (document === null || document === undefined) throw new Error("editable document missing");
     const profileId = state.settings!.draft.selectedProfileId!;
@@ -871,7 +851,6 @@ describe("Generation Profile settings", () => {
     const { source, state, cache, press } = settingsHarness();
     installNetworkSettings(source);
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     declareSelectedModelReturnsReasoning(state, "unsupported");
     await selectRow(press, state, "reasoning");
     const frame = frameText(renderStoryScreen(state, { width: 120, height: 24, wrapCache: cache }).lines);
@@ -894,7 +873,6 @@ describe("Generation Profile settings", () => {
     const { source, state, cache, press } = settingsHarness();
     installNetworkSettings(source);
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "reasoning");
     const frame = frameText(renderStoryScreen(state, { width: 120, height: 24, wrapCache: cache }).lines);
     expect(frame).toContain("‹ marker ›");
@@ -908,7 +886,6 @@ describe("Generation Profile settings", () => {
     const { source, state, press } = settingsHarness();
     installNetworkSettings(source);
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     declareSelectedModelReturnsReasoning(state);
     await selectRow(press, state, "reasoning");
     const current = () => state.settings?.draft.document?.profiles.default?.reasoning;
@@ -938,7 +915,6 @@ describe("Generation Profile settings", () => {
       return savedResult(saved);
     };
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     expect(state.settings?.draft.document?.profiles.default?.discardReasoning).toBe(undefined);
     await selectRow(press, state, "keep-thoughts");
     await press(key("right"));
@@ -969,7 +945,6 @@ describe("Generation Profile settings", () => {
     source.api.getSettings = async () => source.settingsView;
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "profile");
     await press(key("n"));
     await press(key("e"));

@@ -16,7 +16,6 @@ import {
   disarmSettingsConflict,
   settingsDraftChanged
 } from "./settings-overlay-model.js";
-import { detectSettingsContextForModelChange } from "./settings-context-detection.js";
 import {
   applySettingsLocalToggle,
   applySettingsTheme
@@ -59,13 +58,11 @@ export async function pasteIntoModelPicker(
   picker.cursor = 0;
 }
 
-export async function settingsModelPickerAction(
+export function settingsModelPickerAction(
   resolved: ResolvedKey,
   state: RuntimeState,
-  source: AppSource,
-  context: ActionContext,
   overlay: SettingsOverlayState
-): Promise<void> {
+): void {
   const picker = overlay.modelPicker!;
   const rows = modelPickerRows(overlay, picker.query);
   // One row past the choices: `use what you typed`.
@@ -99,10 +96,9 @@ export async function settingsModelPickerAction(
     contextWindow: chosen?.contextWindow ?? null
   }, undefined, chosen === undefined ? { kind: "typed" } : { kind: "manual" });
   state.toast = `model · ${model} · s saves settings`;
-  // A discovered row already carried a known context window onto the draft
-  // above; only a typed identifier with none can still need a probe. Fire
-  // and forget, the same as the typed-row commit path below.
-  context.backend.observe(detectSettingsContextForModelChange(state, source, context, overlay));
+  // The auto-detect probe fires from settingsOverlayAction's one seam for
+  // every path that can change the model, this one included — not from
+  // here.
 }
 
 export async function settingsInlineEditAction(
@@ -137,7 +133,6 @@ export async function settingsInlineEditAction(
     return;
   }
   if (resolved.action === "commit-field") {
-    const editedRow = edit.row;
     const applied = applySettingsRowEdit(overlay, state.config);
     if (applied.kind === "error") {
       state.toast = `row kept · ${applied.message}`;
@@ -155,13 +150,9 @@ export async function settingsInlineEditAction(
     if (settingsDraftChanged(overlay)) {
       state.toast = "draft updated · s saves settings";
     }
-    if (editedRow === "model") {
-      // Fire-and-forget: the probe must not hold up the keystroke that
-      // started it (a later edit can still commit while it is in flight),
-      // and detectSettingsContext's own guards already discard a stale
-      // response against a newer draft.
-      context.backend.observe(detectSettingsContextForModelChange(state, source, context, overlay));
-    }
+    // The auto-detect probe fires from settingsOverlayAction's one seam for
+    // every path that can change the model, this one included — not from
+    // here.
     return;
   }
   if (resolved.action === "input") {

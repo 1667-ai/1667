@@ -11,10 +11,7 @@ import {
   settingsPlanRowDisabled,
   settingsSubscriptionRowVisible
 } from "./settings-subscription.js";
-import {
-  settingsSimpleModeRowVisible,
-  settingsViewMode
-} from "./settings-view-mode.js";
+import { settingsSimpleModeRowVisible } from "./settings-view-mode.js";
 import type { SettingsOverlayState, SettingsRowId } from "./state.js";
 
 /** The form's keyboard order. The prompt-layout experiment stays beside the
@@ -59,7 +56,7 @@ export function settingsRowIds(
   overlay: SettingsOverlayState
 ): readonly SettingsRowId[] {
   const visible = SETTINGS_ROW_IDS.filter((row) => settingsSubscriptionRowVisible(overlay, row));
-  return settingsViewMode(overlay) === "advanced"
+  return overlay.viewMode === "advanced"
     ? visible
     : visible.filter(settingsSimpleModeRowVisible);
 }
@@ -92,19 +89,16 @@ export function restoreSettingsCursor(
  * a row, so a semantic shortcut naming it simply leaves the cursor alone. */
 export function settingsRowIndex(
   row: SettingsRowId,
-  overlay?: SettingsOverlayState
+  overlay: SettingsOverlayState
 ): number {
-  return (overlay === undefined ? SETTINGS_ROW_IDS : settingsRowIds(overlay)).indexOf(row);
+  return settingsRowIds(overlay).indexOf(row);
 }
 
 export function boundedSettingsCursor(
   value: number,
-  overlay?: SettingsOverlayState
+  overlay: SettingsOverlayState
 ): number {
-  return Math.max(
-    0,
-    Math.min((overlay === undefined ? SETTINGS_ROW_IDS : settingsRowIds(overlay)).length - 1, value)
-  );
+  return Math.max(0, Math.min(settingsRowIds(overlay).length - 1, value));
 }
 
 /** Rows whose value is a closed choice: `←→` cycles them in place and their

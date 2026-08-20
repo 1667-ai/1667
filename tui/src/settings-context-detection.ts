@@ -20,13 +20,27 @@ import {
 import type { RuntimeState, SettingsOverlayState } from "./state.js";
 
 /** Probe the selected draft without letting a late response overwrite newer
- * inline edits or a context limit entered while the request was in flight. */
+ * inline edits or a context limit entered while the request was in flight.
+ *
+ * `options.reportBusy` defaults to true, matching the manual `p` action: it
+ * asked for this, so a slot already claimed by something else is worth a
+ * toast. The automatic model-change trigger passes `false`
+ * (`detectSettingsContextForModelChange` below) — the writer never asked
+ * for that probe, so it must never announce itself as the reason something
+ * else is "busy".
+ *
+ * Returns whether the probe actually ran: `false` only when the backend
+ * slot was claimed by something else at the moment this called `run`
+ * (`ActionRuntime.run` rejects rather than queuing), so a caller that must
+ * not lose the probe — the deferred retry loop below — knows to wait and
+ * try again instead of treating rejection as "handled". */
 export async function detectSettingsContext(
   state: RuntimeState,
   source: AppSource,
   context: ActionContext,
-  overlay: SettingsOverlayState
-): Promise<void> {
+  overlay: SettingsOverlayState,
+  options: { reportBusy?: boolean } = {}
+): Promise<boolean> {
   const subscriptionPreset = settingsSubscriptionPreset(overlay);
   if (subscriptionPreset !== null) {
     overlay.result = {
@@ -38,9 +52,9 @@ export async function detectSettingsContext(
     };
     overlay.resultRow = "context-window";
     context.repaint();
-    return;
+    return true;
   }
-  await context.backend.run("detecting context window", async (task) => {
+  return context.backend.run("detecting context window", async (task) => {
     if (state.settings !== overlay) return;
     overlay.probing = true;
     overlay.result = null;
@@ -105,42 +119,105 @@ export async function detectSettingsContext(
         message: `context window · ${contextWindow.toLocaleString("en-US")} tokens${suffix}`
       };
       overlay.resultRow = "context-window";
+    } catch (error) {
+      // A rejection here — ECONNREFUSED, a TLS failure, a timeout, the
+      // "selected profile no longer exists" invariant — used to vanish into
+      // an empty `catch {}` at the one call site that awaited this
+      // (detectSettingsContextForModelChange). `context.backend.observe`
+      // (action-runtime.ts) already turns an unhandled rejection into a
+      // toast, but a toast just says something failed; it does not explain
+      // where, and it can be missed entirely if another toast follows
+      // before the writer reads it. The manual `p` action and the automatic
+      // model-change trigger both reach this catch, so both report a probe
+      // failure the same way: a warning parked on the row the writer is
+      // looking at, exactly like the two failure modes above.
+      if (task.owns() && state.settings === overlay) {
+        overlay.result = {
+          state: "warning",
+          message: `context probe failed · ${error instanceof Error ? error.message : String(error)}`
+        };
+        overlay.resultRow = "context-window";
+      }
     } finally {
       if (task.owns() && state.settings === overlay) {
         overlay.probing = false;
       }
     }
-  });
+  }, options);
+}
+
+/** The preconditions that decide whether a model identity needs a
+ *  context-window probe at all: the overlay is still current and editable
+ *  with a document to write into, the model field is not blank, no context
+ *  window is already known, and the writer has not entered one by hand.
+ *  Extracted so this module stays the probe engine and nothing else has to
+ *  re-derive "does this draft still need probing" — the seam in
+ *  settings-overlay-actions.ts only has to notice that the model identity
+ *  changed at all; this decides whether that change still needs a probe,
+ *  both up front and again after a deferred wait (below). */
+function settingsModelChangeNeedsProbe(
+  state: RuntimeState,
+  overlay: SettingsOverlayState
+): boolean {
+  if (state.settings !== overlay || !overlay.view.editable || overlay.draft.document === null) {
+    return false;
+  }
+  if (overlay.draft.generation.model.trim().length === 0) return false;
+  if (overlay.draft.generation.contextWindow !== null) return false;
+  if (settingsContextWindowIsManual(overlay)) return false;
+  return true;
 }
 
 /** Run after a model identity change commits, so the writer never has to
  *  press `p` themselves for the common case. A discovered model already
  *  carries its context window onto the draft the moment it is chosen
  *  (applySettingsModelChoice's `contextWindow` default in
- *  settings-model-selection.ts), so this only ever probes a genuinely
- *  unknown model — and it reuses `detectSettingsContext` verbatim, so the
- *  fixed-subscription warning and the late-response guard both apply exactly
- *  as they do for the manual `p` action. */
-export async function detectSettingsContextForModelChange(
+ *  settings-model-selection.ts), so `settingsModelChangeNeedsProbe` only
+ *  ever lets this reach a genuinely unknown model.
+ *
+ *  Void and self-observing, the same shape as `resolveSamplingBias`
+ *  (sampling-bias-resolution.ts): the caller writes one line —
+ *  `detectSettingsContextForModelChange(state, source, context, overlay)`
+ *  — and cannot forget to route the result through `backend.observe`.
+ *
+ *  Unlike the manual `p` action, this must never contend with the writer
+ *  for `ActionRuntime`'s single admission slot (action-runtime.ts): a save
+ *  or check the writer asked for must not be rejected with a "busy" toast
+ *  just because a background probe claimed the slot first, and the probe
+ *  itself must not be silently dropped just because the slot was busy the
+ *  instant the model committed. `deferUntilIdle` below waits instead of
+ *  contending, and passes `reportBusy: false` so the probe itself never
+ *  announces "busy" on the writer's behalf. */
+export function detectSettingsContextForModelChange(
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext,
+  overlay: SettingsOverlayState
+): void {
+  if (!settingsModelChangeNeedsProbe(state, overlay)) return;
+  context.backend.observe(deferUntilIdle(state, source, context, overlay));
+}
+
+/** Wait for the exclusive backend slot rather than contend for it, retrying
+ *  if another deferred probe wins the race the instant the slot frees —
+ *  `whenIdle` can resolve several waiters in the same turn, and only one of
+ *  them actually claims `run`. Every re-check re-validates the precondition,
+ *  so a probe made unnecessary while it waited (the model moved again, a
+ *  manual context size landed, the overlay closed) quietly stops instead of
+ *  running stale — the same staleness discipline `detectSettingsContext`
+ *  already applies to its own in-flight response. */
+async function deferUntilIdle(
   state: RuntimeState,
   source: AppSource,
   context: ActionContext,
   overlay: SettingsOverlayState
 ): Promise<void> {
-  if (state.settings !== overlay || !overlay.view.editable || overlay.draft.document === null) {
-    return;
-  }
-  if (overlay.draft.generation.model.trim().length === 0) return;
-  if (overlay.draft.generation.contextWindow !== null) return;
-  if (settingsContextWindowIsManual(overlay)) return;
-  try {
-    await detectSettingsContext(state, source, context, overlay);
-  } catch {
-    // Best effort: a model can commit while the rest of the draft is still
-    // incomplete (for example plain HTTP on a LAN host before the insecure
-    // opt-in is set), and building a probe target for that draft throws. The
-    // writer can still press `p` once the draft is complete; an automatic
-    // trigger must never crash the row commit that started it.
+  for (;;) {
+    const idle = await context.backend.whenIdle();
+    if (!idle) return; // the runtime was disposed while this waited
+    if (!settingsModelChangeNeedsProbe(state, overlay)) return;
+    const ran = await detectSettingsContext(state, source, context, overlay, { reportBusy: false });
+    if (ran) return;
   }
 }
 

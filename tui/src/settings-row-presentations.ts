@@ -41,7 +41,10 @@ import {
   tokenProbabilitiesRowState,
   tokenProbabilitiesRowValue
 } from "./settings-token-probabilities-row.js";
-import { connectionTimeoutRows } from "./settings-connection-timeouts.js";
+import {
+  CONNECTION_TIMEOUT_ROWS,
+  connectionTimeoutRows
+} from "./settings-connection-timeouts.js";
 import { storedApiKeyPresentation } from "./settings-secret-sidecar.js";
 import {
   continuationPromptRowHint,
@@ -122,29 +125,41 @@ export function settingsRows(
   const cache = promptCacheSummaryParts(overlay.view, overlay.draft);
   const tokenProbabilities = tokenProbabilitiesRowState(overlay);
   const reasoning = reasoningRowState(overlay);
+  // settingsRowIds is the one canonical visibility list — subscription and
+  // view-mode filtering both live there, so the rendered rows and the
+  // cursor's row list can never drift apart. Filtered first, and each row
+  // below built only when its id survives the filter: the default (simple)
+  // view mode hides most of these rows, so their value/hint/dots — several
+  // call their own row-module helper — are no longer computed and discarded
+  // every frame for a row nobody sees.
+  const visibleRowIds = new Set(settingsRowIds(overlay));
+  const row = (
+    id: SettingsRowId,
+    build: () => SettingsRowPresentation
+  ): readonly SettingsRowPresentation[] => (visibleRowIds.has(id) ? [build()] : []);
   const rows: SettingsRowPresentation[] = [
-    {
+    ...row("theme", () => ({
       id: "theme", section: "app", label: "theme",
       value: `‹ ${config.theme} ›`,
       dots: positionDots(THEME_NAMES, config.theme),
       hint: "Changes colors throughout the app."
-    },
-    {
+    })),
+    ...row("compose-focus", () => ({
       id: "compose-focus", section: "app", label: "focus mode",
       value: `[ ${config.composeFocus} ]`,
       hint: "Dims the story while you write in the compose box."
-    },
-    {
+    })),
+    ...row("word-wrap", () => ({
       id: "word-wrap", section: "app", label: "word wrap",
       value: `[ ${config.wordWrap} ]`,
       hint: "Keeps whole words together when editor lines wrap."
-    },
-    {
+    })),
+    ...row("system-prompt", () => ({
       id: "system-prompt", section: "prompt", label: "system",
       value: settings.systemPrompt.replace(/\s+/g, " "),
       hint: "Default Author Brief for prose and story names; a story brief overrides it."
-    },
-    {
+    })),
+    ...row("provider", () => ({
       id: "provider", section: "connection", label: "provider",
       value: `‹ ${providerChoice.label} ›`,
       dots: providerPositionDots(settings, selectedPreset),
@@ -152,8 +167,8 @@ export function settingsRows(
         ? ""
         : subscriptionHint ?? "Selects the service that runs the model.",
       ...(insecureNeeded ? { invalid: "Turn on plain HTTP to use this address." } : {})
-    },
-    {
+    })),
+    ...row("text-prompt-format", () => ({
       id: "text-prompt-format", section: "connection", label: "prompt format",
       value: settings.provider === "text-completion"
         ? `‹ ${textPromptFormat(overlay)} ›`
@@ -167,8 +182,8 @@ export function settingsRows(
       ...(settingsPlanRowDisabled(overlay, "text-prompt-format")
         ? { disabled: true as const }
         : {})
-    },
-    {
+    })),
+    ...row("split-think-tags", () => ({
       id: "split-think-tags", section: "connection", label: "split thoughts",
       value: settings.provider === "text-completion"
         ? `[ ${splitThinkTags(overlay) ? "on" : "off"} ]`
@@ -179,16 +194,16 @@ export function settingsRows(
       ...(settingsPlanRowDisabled(overlay, "split-think-tags")
         ? { disabled: true as const }
         : {})
-    },
-    {
+    })),
+    ...row("base-url", () => ({
       id: "base-url", section: "connection", label: "base URL",
       value: subscriptionPreset === null ? settings.baseUrl || "—" : "—",
       hint: subscriptionHint ?? "The address used to reach the model service.",
       ...(subscriptionPreset === null
         ? { action: { label: "check connection", key: "check" as const } }
         : { disabled: true as const })
-    },
-    {
+    })),
+    ...row("allow-insecure-http", () => ({
       id: "allow-insecure-http", section: "connection", label: "plain HTTP",
       value: subscriptionPreset === null
         ? `[ ${settings.allowInsecureHttp === true ? "on" : "off"} ]`
@@ -197,86 +212,90 @@ export function settingsRows(
       ...(settingsPlanRowDisabled(overlay, "allow-insecure-http")
         ? { disabled: true as const }
         : {})
-    },
+    })),
     // One way to supply a key. C-14 prefers the env-var form, but offering
     // both put two rows in front of every writer with no answer on screen to
     // "which one do I fill in". An `apiKeyEnv` already in a config still
     // resolves at request time; it simply has no row of its own.
-    {
+    ...row("api-key", () => ({
       id: "api-key", section: "connection", label: "API key",
       value: subscriptionPreset === null ? storedApiKeyPresentation(overlay) : "—",
       hint: subscriptionHint ?? "Saved on this device; never stored with a story.",
       ...(settingsPlanRowDisabled(overlay, "api-key")
         ? { disabled: true as const }
         : {})
-    },
-    ...connectionTimeoutRows(overlay),
-    {
+    })),
+    ...(CONNECTION_TIMEOUT_ROWS.some((id) => visibleRowIds.has(id))
+      ? connectionTimeoutRows(overlay).filter((entry) => visibleRowIds.has(entry.id))
+      : []),
+    ...row("profile", () => ({
       id: "profile", section: "model", label: "profile",
       value: profileRowValue(overlay),
       dots: profilePositionDots(overlay),
       hint: profileRowHint(overlay)
-    },
-    {
+    })),
+    ...row("model", () => ({
       id: "model", section: "model", label: "model",
       value: modelRowValue(overlay),
       hint: modelRowHint(overlay)
-    },
-    {
+    })),
+    ...row("image-input", () => ({
       id: "image-input", section: "model", label: "image input",
       value: imageInputRowValue(imageInputRowState(overlay)),
       hint: imageInputRowHint(imageInputRowState(overlay))
-    },
-    scalarRow("temperature", "temperature", overlay, "Higher values make the writing less predictable."),
-    scalarRow("max-tokens", "max tokens", overlay, "Limits the length of each response."),
-    {
+    })),
+    ...row("temperature", () => scalarRow(
+      "temperature", "temperature", overlay, "Higher values make the writing less predictable."
+    )),
+    ...row("max-tokens", () => scalarRow(
+      "max-tokens", "max tokens", overlay, "Limits the length of each response."
+    )),
+    ...row("sampling", () => ({
       id: "sampling", section: "generation", label: "sampling",
       value: samplingRowValue(overlay),
       hint: "Adjusts word choice, repetition, and token selection."
-    },
-    scalarRow("context-window", "context size", overlay, "Sets how much story context the model can read."),
-    {
+    })),
+    ...row("context-window", () => scalarRow(
+      "context-window", "context size", overlay, "Sets how much story context the model can read."
+    )),
+    ...row("effort", () => ({
       id: "effort", section: "generation", label: "effort",
       value: effortRowValue(overlay),
       dots: effortPositionDots(overlay),
       hint: effortRowHint(overlay)
-    },
-    {
+    })),
+    ...row("cache-policy", () => ({
       id: "cache-policy", section: "generation", label: "prompt cache",
       value: `‹ ${cache.policy} ›`,
       dots: positionDots(PROMPT_CACHE_POLICY_V2_VALUES, overlay.draft.cachePolicy),
       hint: cache.kind === "available" ? cache.description : cache.reason
-    },
-    {
+    })),
+    ...row("continuation-prompt", () => ({
       id: "continuation-prompt", section: "generation", label: "prompt layout",
       value: continuationPromptRowValue(overlay),
       hint: continuationPromptRowHint(overlay)
-    },
-    {
+    })),
+    ...row("token-probabilities", () => ({
       id: "token-probabilities", section: "generation", label: "alternatives",
       value: tokenProbabilitiesRowValue(tokenProbabilities),
       hint: tokenProbabilitiesRowHint(tokenProbabilities)
-    },
-    {
+    })),
+    ...row("reasoning", () => ({
       id: "reasoning", section: "story", label: "reasoning",
       value: reasoningRowValue(reasoning),
       dots: positionDots(reasoningRowChoices(overlay), reasoning.display),
       hint: reasoningRowHint(reasoning)
-    },
-    {
+    })),
+    ...row("keep-thoughts", () => ({
       id: "keep-thoughts", section: "story", label: "save thoughts",
       value: `[ ${keepThoughts(overlay) ? "on" : "off"} ]`,
       hint: "Saves model reasoning with each take."
-    },
-    routeRow("default-route", "default", overlay, "default"),
-    routeRow("prose-route", "prose", overlay, "prose"),
-    routeRow("utility-route", "utility", overlay, "utility")
+    })),
+    ...row("default-route", () => routeRow("default-route", "default", overlay, "default")),
+    ...row("prose-route", () => routeRow("prose-route", "prose", overlay, "prose")),
+    ...row("utility-route", () => routeRow("utility-route", "utility", overlay, "utility"))
   ];
-  // settingsRowIds is the one canonical visibility list — subscription and
-  // view-mode filtering both live there, so the rendered rows and the
-  // cursor's row list can never drift apart.
-  const visibleRowIds = new Set(settingsRowIds(overlay));
-  return rows.filter((row) => visibleRowIds.has(row.id));
+  return rows;
 }
 
 function scalarRow(

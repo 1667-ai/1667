@@ -1,10 +1,14 @@
 import { expect, test } from "bun:test";
 import { settingsTextDraftWithSubscriptionPlan } from "../src/settings-text.js";
+import { publishCurrentSettingsModelDiscovery } from "../src/settings-model-discovery.js";
 import {
   deferred,
   draftRow,
+  key,
   openSettings,
-  settingsHarness
+  selectRow,
+  settingsHarness,
+  settleBackend
 } from "./settings-test-harness.js";
 import { configureNetworkSource } from "./settings-model-provenance-test-helpers.js";
 
@@ -121,4 +125,173 @@ test("a model change that resolves to an already-known context window is not pro
     contextWindow: 65_536
   });
   expect(probeCalls).toBe(0);
+});
+
+// Regression test: cycling the model row with ←→ (cycleSettingsModel) is
+// applySettingsModelChoice's fifth call site, and used to be the one call
+// site settings-field-actions.ts's pasted-in probe calls never covered —
+// typing an identifier probed, cycling silently did not. The seam in
+// settingsOverlayAction now covers every path from one place.
+test("cycling the model row with ←→ also triggers the auto-detect probe", async () => {
+  const { source, state, backend, press } = settingsHarness();
+  configureNetworkSource(source);
+  let probeCalls = 0;
+  const probeContextWindow = source.api.probeContextWindow;
+  source.api.probeContextWindow = async (...args) => {
+    probeCalls += 1;
+    return probeContextWindow(...args);
+  };
+  await openSettings(press);
+  const overlay = state.settings!;
+  publishCurrentSettingsModelDiscovery(overlay, {
+    observedAt: "2026-01-01T00:00:00.000Z",
+    models: [
+      {
+        remoteId: "model-a", name: "model-a",
+        contextWindow: 32_768, maxOutputTokens: null, source: "openai-models"
+      },
+      {
+        remoteId: "model-b", name: "model-b",
+        contextWindow: null, maxOutputTokens: null, source: "openai-models"
+      }
+    ]
+  });
+  await selectRow(press, state, "model");
+
+  // The current model ("novelist-a") is not in the discovered list, so the
+  // first ← → step lands on index 0 — a known context window, no probe.
+  await press(key("right"));
+  expect(overlay.draft.generation.model).toBe("model-a");
+  expect(probeCalls).toBe(0);
+
+  // The second step reaches the model with no known context window.
+  await press(key("right"));
+  expect(overlay.draft.generation.model).toBe("model-b");
+  await settleBackend(state, backend);
+
+  expect(probeCalls).toBe(1);
+  expect(overlay.draft.generation.contextWindow).toBe(32_768);
+});
+
+// Regression test: the C-15 picker column's commit (settingsModelPickerAction)
+// is another of applySettingsModelChoice's call sites; the seam in
+// settingsOverlayAction covers it the same way it covers typing and cycling.
+test("choosing a model from the C-15 picker column also triggers the auto-detect probe", async () => {
+  const { source, state, backend, press } = settingsHarness();
+  configureNetworkSource(source);
+  let probeCalls = 0;
+  const probeContextWindow = source.api.probeContextWindow;
+  source.api.probeContextWindow = async (...args) => {
+    probeCalls += 1;
+    return probeContextWindow(...args);
+  };
+  await openSettings(press);
+  const overlay = state.settings!;
+  // Past eight choices C-15 opens the option column instead of cycling.
+  publishCurrentSettingsModelDiscovery(overlay, {
+    observedAt: "2026-01-01T00:00:00.000Z",
+    models: Array.from({ length: 9 }, (_, index) => ({
+      remoteId: `model-${String(index + 1).padStart(2, "0")}`,
+      name: `Model ${String(index + 1).padStart(2, "0")}`,
+      contextWindow: null,
+      maxOutputTokens: null,
+      source: "openai-models" as const
+    }))
+  });
+
+  await selectRow(press, state, "model");
+  await press(key("return"));
+  expect(overlay.modelPicker).not.toBe(null);
+  overlay.modelPicker!.query = "model-03";
+  await press(key("return"));
+
+  expect(overlay.modelPicker).toBe(null);
+  expect(overlay.draft.generation.model).toBe("model-03");
+  await settleBackend(state, backend);
+
+  expect(probeCalls).toBe(1);
+});
+
+// Regression test for the empty `catch {}` that used to swallow a probe
+// failure: ECONNREFUSED, a TLS failure, a timeout, or the "selected profile
+// no longer exists" invariant used to vanish silently after a model change,
+// leaving the context window empty with no explanation. Both the automatic
+// trigger and the manual `p` action must report the same failure.
+test("a probe failure surfaces a visible warning on the context-window row after a model change", async () => {
+  const { source, state, backend, press } = settingsHarness();
+  configureNetworkSource(source);
+  source.api.probeContextWindow = async () => {
+    throw new Error("ECONNREFUSED");
+  };
+
+  await openSettings(press);
+  await draftRow(press, state, "model", "gpt-5.9");
+  await settleBackend(state, backend);
+
+  expect(state.settings?.result).toEqual({
+    state: "warning",
+    message: "context probe failed · ECONNREFUSED"
+  });
+  expect(state.settings?.resultRow).toBe("context-window");
+});
+
+test("a probe failure from the manual p action reports the same warning", async () => {
+  const { source, state, press } = settingsHarness();
+  configureNetworkSource(source);
+  source.api.probeContextWindow = async () => {
+    throw new Error("ECONNREFUSED");
+  };
+
+  await openSettings(press);
+  await press(key("p"));
+
+  expect(state.settings?.result).toEqual({
+    state: "warning",
+    message: "context probe failed · ECONNREFUSED"
+  });
+  expect(state.settings?.resultRow).toBe("context-window");
+});
+
+// Regression test for the orchestration fix: the automatic probe must not
+// contend with ActionRuntime's single admission slot (action-runtime.ts).
+// A probe deferred behind a genuinely busy runtime must neither interfere
+// with the in-flight explicit action nor be lost — it has to run once the
+// runtime frees up.
+test("a probe deferred behind a busy runtime does not disturb the in-flight action, and still runs once idle", async () => {
+  const { source, state, backend, press } = settingsHarness();
+  configureNetworkSource(source);
+  let probeCalls = 0;
+  const probeContextWindow = source.api.probeContextWindow;
+  source.api.probeContextWindow = async (...args) => {
+    probeCalls += 1;
+    return probeContextWindow(...args);
+  };
+  await openSettings(press);
+
+  // Occupy the one exclusive backend slot with a stand-in for a genuine
+  // user-initiated action, the same slot detectSettingsContext claims.
+  const gate = deferred<void>();
+  const holding = backend.run("saving settings", async () => {
+    await gate.promise;
+  });
+  expect(state.backendTask?.label).toBe("saving settings");
+
+  // Committing a model change while that slot is held must defer the probe
+  // rather than fire it into the busy slot or drop it.
+  await draftRow(press, state, "model", "gpt-5.9");
+  expect(probeCalls).toBe(0);
+  expect(state.backendTask?.label).toBe("saving settings");
+  expect(state.toast).not.toContain("detecting context window");
+
+  // Freeing the slot must let the deferred probe run — not lose it.
+  gate.resolve();
+  await holding;
+  await settleBackend(state, backend);
+
+  expect(probeCalls).toBe(1);
+  expect(state.settings?.draft.generation).toMatchObject({
+    model: "gpt-5.9",
+    contextWindow: 32_768
+  });
+  expect(state.toast).not.toContain("busy");
 });

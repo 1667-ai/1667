@@ -55,7 +55,6 @@ describe("Settings save lifecycle", () => {
     source.api.getSettings = async () => source.settingsView;
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await draftRow(
       press,
       state,
@@ -117,7 +116,6 @@ describe("Settings save lifecycle", () => {
     };
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     expect(state.settings?.modelDiscovery?.models).toHaveLength(1);
     await press(key("x"));
 
@@ -168,7 +166,6 @@ describe("Settings save lifecycle", () => {
     };
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     expect(state.settings?.draft.generation.model).toBe("candidate-model");
     await draftRow(press, state, "model", "fixed-model");
     expect(state.settings?.draft.generation.model).toBe("fixed-model");
@@ -234,7 +231,6 @@ describe("Settings save lifecycle", () => {
     };
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     expect(settingsDraftChanged(state.settings!)).toBeFalse();
     await press(key("s"));
 
@@ -290,7 +286,6 @@ describe("Settings save lifecycle", () => {
     };
     source.api.getSettings = async () => current;
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "max-tokens", "1024");
 
     await press(key("s"));
@@ -326,7 +321,6 @@ describe("Settings save lifecycle", () => {
       throw new Error("matching drafts must not save");
     };
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "max-tokens", "1024");
     const current = source.settingsView;
     if (!current.editable) throw new Error("demo settings must be editable");
@@ -378,7 +372,6 @@ describe("Settings save lifecycle", () => {
     };
     source.api.getSettings = async () => current;
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "max-tokens", "1024");
     try {
       await press(key("s"));

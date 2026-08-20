@@ -16,7 +16,6 @@ describe("continuation prompt settings", () => {
     installSave(source, saves);
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "continuation-prompt");
     const row = settingsRows(state.settings!, state.config).find(
       (candidate) => candidate.id === "continuation-prompt"

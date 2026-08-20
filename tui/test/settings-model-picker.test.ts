@@ -30,7 +30,6 @@ describe("Settings model picker", () => {
     configureNetworkSource(source);
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "base-url", "not-a-url");
     const first = settingsModelSelectionTargetIdentity(state.settings!);
     await draftRow(press, state, "base-url", "still-not-a-url");
@@ -97,7 +96,6 @@ describe("Settings model picker", () => {
     };
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
 
     expect(discoveryTargets).toEqual(["https://api.openai.com/v1"]);
     expect(state.settings?.draft.cachePolicy).toBe("off");
@@ -200,7 +198,6 @@ describe("Settings model picker", () => {
     };
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "model", "");
     expect(state.settings?.draft.generation.model).toBe("novelist-a");
     await draftRow(
@@ -225,7 +222,6 @@ describe("Settings model picker", () => {
     };
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "model", "");
     await draftRow(press, state, "base-url", "https://alpha.example.test/v1");
     await backend.whenIdle();
@@ -292,7 +288,6 @@ describe("Settings model picker", () => {
     source.api.discoverModels = async () => discovery("loaded-local-model");
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
 
     expect(state.settings?.modelDiscovery?.models[0]?.remoteId)
       .toBe("loaded-local-model");
@@ -333,7 +328,6 @@ describe("Settings model picker", () => {
     };
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "model", "");
     await draftRow(press, state, "context-window", "12345");
     expect(state.settings?.draft.generation.contextWindow).toBe(12_345);
@@ -458,7 +452,6 @@ describe("Settings model picker", () => {
     source.api.discoverModels = async () => discovery("novelist-a");
 
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "model");
     await press(key("right"));
 
@@ -473,7 +466,6 @@ describe("Settings model picker", () => {
     configureNetworkSource(source);
     source.api.discoverModels = async () => discovery("novelist-a");
     await openSettings(press);
-    state.settings!.viewMode = "advanced";
     const discoveryResult = state.settings?.modelDiscovery;
 
     await draftRow(press, state, "api-key", "");
