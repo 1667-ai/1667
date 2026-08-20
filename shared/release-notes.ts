@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.10",
+    date: "2026-08-20",
+    body: "- **This release has no additional product changes.** It contains the same\n  behavior as 0.9.10-rc.7."
+  },
+  {
     version: "0.9.10-rc.7",
     date: "2026-08-20",
     body: "- **This beta has no additional product changes.** It contains the same\n  behavior as 0.9.10-rc.6."
