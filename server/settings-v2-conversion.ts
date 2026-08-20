@@ -90,8 +90,24 @@ export function convertGenerationSettingsV1(value: GenerationSettings): Settings
   });
 }
 
-/** Project one route into the serializable Generation Settings view. */
+/** Construct generation-ready settings with the selected provider runtime. */
 export function effectiveGenerationSettings(
+  value: SettingsDocumentV2,
+  purpose: SettingsRoutePurpose = "default",
+  metadata: EffectiveMetadataV2 = {},
+  options: EffectiveGenerationRuntimeOptions = {}
+): GenerationSettings {
+  return effectiveGenerationRuntime(
+    value,
+    purpose,
+    metadata,
+    undefined,
+    options
+  ).settings;
+}
+
+/** Project one route into the serializable Generation Settings view. */
+export function effectiveGenerationView(
   value: SettingsDocumentV2,
   purpose: SettingsRoutePurpose = "default",
   metadata: EffectiveMetadataV2 = {}

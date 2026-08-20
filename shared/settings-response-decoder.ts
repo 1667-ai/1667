@@ -1,9 +1,9 @@
 import {
+  MODEL_DISCOVERY_SOURCE_V2_VALUES,
   REASONING_DISPLAY_V2_VALUES,
   SETTINGS_ACTIVATION_ERROR_CODE_V2_VALUES,
   SETTINGS_SUBSCRIPTION_PROTOCOL_V2_VALUES,
   type ModelDiscoveryResultV2,
-  type ModelDiscoverySourceV2,
   type ReasoningDisplayV2,
   type SettingsActivationOutcomeV2,
   type SettingsDocumentV2,
@@ -236,8 +236,9 @@ export function decodeModelDiscoveryResult(value: unknown): ModelDiscoveryResult
           model.maxOutputTokens,
           `model discovery result.models[${index}].maxOutputTokens`
         ),
-        source: discoverySource(
+        source: oneOf(
           model.source,
+          MODEL_DISCOVERY_SOURCE_V2_VALUES,
           `model discovery result.models[${index}].source`
         )
       };
@@ -296,13 +297,6 @@ function positiveSafeInteger(value: unknown, label: string): number {
 
 function nullablePositiveSafeInteger(value: unknown, label: string): number | null {
   return value === null ? null : positiveSafeInteger(value, label);
-}
-
-function discoverySource(value: unknown, label: string): ModelDiscoverySourceV2 {
-  if (value !== "anthropic-models" && value !== "openai-models"
-    && value !== "lm-studio-models" && value !== "ollama-tags"
-    && value !== "pi-catalog") invalid(label);
-  return value;
 }
 
 function oneOf<const T extends readonly string[]>(

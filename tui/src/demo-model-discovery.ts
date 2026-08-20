@@ -48,7 +48,7 @@ export function discoverDemoModels(
   const settings = route === null
     ? target
     : basicSettingsFromDocument(target.document, route.profileId);
-  const protocol = route?.connection.protocol ?? null;
+  const protocol = route?.connection.protocol ?? settings.protocol ?? null;
   const subscription = protocol !== null && isSubscriptionProtocolV2(protocol);
   const anthropic = settings.provider === "anthropic";
   const source: ModelDiscoverySourceV2 = subscription

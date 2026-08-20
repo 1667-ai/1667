@@ -11,7 +11,7 @@ import { ownedLoopbackHttpSupported } from "./provider-fetch.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
 import {
   effectiveGenerationRuntime,
-  effectiveGenerationSettings
+  effectiveGenerationView
 } from "./settings-v2-conversion.js";
 import { classifyHttpHost, SettingsFormatError } from "./settings-v2-scalars.js";
 import { selectSettingsRoute } from "../shared/settings-route.js";
@@ -44,8 +44,8 @@ export function settingsViewFromState(
     activeRevision: effectiveActiveSettingsRevision(state),
     pendingRevision,
     document: shown,
-    effective: effectiveGenerationSettings(active),
-    effectiveProse: effectiveGenerationSettings(active, "prose"),
+    effective: effectiveGenerationView(active),
+    effectiveProse: effectiveGenerationView(active, "prose"),
     // Read from `active`, never `shown`: `effectiveProse` above already
     // resolves against the active (never pending) document, and this must
     // describe the same route, not whichever document a mid-activation

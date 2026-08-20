@@ -63,3 +63,37 @@ test("demo discovery resolves one non-default route for provider and source", as
   expect(discovery.models.every((model) => model.source === "pi-catalog"))
     .toBeTrue();
 });
+
+test("demo discovery keeps plan protocols on direct probe targets", async () => {
+  const cases = [
+    {
+      provider: "openai-compatible" as const,
+      protocol: "openai-codex-responses" as const,
+      expectedModels: ["gpt-5.4", "gpt-5-mini"]
+    },
+    {
+      provider: "anthropic" as const,
+      protocol: "anthropic-subscription-messages" as const,
+      expectedModels: ["claude-sonnet-4-6", "claude-haiku-4-5"]
+    }
+  ];
+
+  for (const fixture of cases) {
+    const discovery = await demoAppSource().api.discoverModels({
+      provider: fixture.provider,
+      protocol: fixture.protocol,
+      baseUrl: "",
+      model: "",
+      apiKeyEnv: null,
+      temperature: 0.7,
+      maxTokens: 2_048,
+      systemPrompt: "Write plain prose.",
+      contextWindow: null
+    });
+
+    expect(discovery.models.map((model) => model.remoteId))
+      .toEqual(fixture.expectedModels);
+    expect(discovery.models.every((model) => model.source === "pi-catalog"))
+      .toBeTrue();
+  }
+});
