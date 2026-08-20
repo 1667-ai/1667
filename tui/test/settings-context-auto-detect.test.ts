@@ -167,7 +167,7 @@ test("cycling the model row with ←→ also triggers the auto-detect probe", as
   // The second step reaches the model with no known context window.
   await press(key("right"));
   expect(overlay.draft.generation.model).toBe("model-b");
-  await settleBackend(state, backend);
+  await settleBackend(backend);
 
   expect(probeCalls).toBe(1);
   expect(overlay.draft.generation.contextWindow).toBe(32_768);
@@ -207,7 +207,7 @@ test("choosing a model from the C-15 picker column also triggers the auto-detect
 
   expect(overlay.modelPicker).toBe(null);
   expect(overlay.draft.generation.model).toBe("model-03");
-  await settleBackend(state, backend);
+  await settleBackend(backend);
 
   expect(probeCalls).toBe(1);
 });
@@ -226,7 +226,7 @@ test("a probe failure surfaces a visible warning on the context-window row after
 
   await openSettings(press);
   await draftRow(press, state, "model", "gpt-5.9");
-  await settleBackend(state, backend);
+  await settleBackend(backend);
 
   expect(state.settings?.result).toEqual({
     state: "warning",
@@ -286,7 +286,7 @@ test("a probe deferred behind a busy runtime does not disturb the in-flight acti
   // Freeing the slot must let the deferred probe run — not lose it.
   gate.resolve();
   await holding;
-  await settleBackend(state, backend);
+  await settleBackend(backend);
 
   expect(probeCalls).toBe(1);
   expect(state.settings?.draft.generation).toMatchObject({
@@ -294,4 +294,99 @@ test("a probe deferred behind a busy runtime does not disturb the in-flight acti
     contextWindow: 32_768
   });
   expect(state.toast).not.toContain("busy");
+});
+
+// The regression test for probe amplification. Every model edit used to spawn
+// its own deferred retry loop, and a probe that failed left the context window
+// null, so every parked loop re-armed: three edits against an unreachable
+// endpoint produced three round-trips for the one model the writer landed on.
+// The lane key collapses them.
+test("a burst of model edits against a failing endpoint does not probe once per edit", async () => {
+  const { source, state, backend, press } = settingsHarness();
+  configureNetworkSource(source);
+  // Hold the first probe open so the later edits genuinely land while it is
+  // still in flight. That is the burst the lane key has to collapse; edits
+  // separated by a completed probe are three distinct intents and each one
+  // earns its own round-trip.
+  const gate = deferred<void>();
+  let probeCalls = 0;
+  source.api.probeContextWindow = async () => {
+    probeCalls += 1;
+    await gate.promise;
+    throw new Error("connect ECONNREFUSED 127.0.0.1:11434");
+  };
+  await openSettings(press);
+
+  await draftRow(press, state, "model", "gpt-5.9-a");
+  await draftRow(press, state, "model", "gpt-5.9-b");
+  await draftRow(press, state, "model", "gpt-5.9-c");
+  expect(probeCalls).toBe(1);
+
+  gate.resolve();
+  await settleBackend(backend);
+
+  // The lane serves the attempt already committed plus one for the newest
+  // request. What must never happen is one probe per edit.
+  expect(probeCalls).toBe(2);
+  expect(state.settings?.draft.generation.model).toBe("gpt-5.9-c");
+});
+
+// Foreground priority. `runWhenIdle` runs its work without ever claiming the
+// exclusive slot, so an action the writer actually asked for can take that
+// slot while a background probe is still in flight, instead of being rejected
+// as `busy · detecting context window still running`.
+test("an in-flight automatic probe never rejects a user action as busy", async () => {
+  const { source, state, backend, press } = settingsHarness();
+  configureNetworkSource(source);
+  const gate = deferred<void>();
+  let probeCalls = 0;
+  source.api.probeContextWindow = async () => {
+    probeCalls += 1;
+    await gate.promise;
+    return { contextWindow: 32_768 };
+  };
+  await openSettings(press);
+
+  await draftRow(press, state, "model", "gpt-5.9");
+  // Let the deferred lane reach the probe and park inside it.
+  await backend.whenIdle();
+  expect(probeCalls).toBe(1);
+
+  // The writer's own action must be admitted while that probe is running.
+  const admitted = await backend.run("saving settings", async () => {});
+  expect(admitted).toBeTrue();
+  expect(state.toast ?? "").not.toContain("busy");
+
+  gate.resolve();
+  await settleBackend(backend);
+});
+
+// Closing Settings must abandon background work started for that overlay,
+// rather than leaving a probe running against a surface nobody is looking at.
+test("closing the overlay abandons a deferred probe", async () => {
+  const { source, state, backend, press } = settingsHarness();
+  configureNetworkSource(source);
+  let probeCalls = 0;
+  const probeContextWindow = source.api.probeContextWindow;
+  source.api.probeContextWindow = async (...args) => {
+    probeCalls += 1;
+    return probeContextWindow(...args);
+  };
+  await openSettings(press);
+
+  // Hold the slot so the probe is still parked when Settings closes.
+  const gate = deferred<void>();
+  const holding = backend.run("saving settings", async () => {
+    await gate.promise;
+  });
+  await draftRow(press, state, "model", "gpt-5.9");
+  expect(probeCalls).toBe(0);
+
+  await press(key("escape"));
+  gate.resolve();
+  await holding;
+  await settleBackend(backend);
+
+  expect(state.settings).toBeNull();
+  expect(probeCalls).toBe(0);
 });

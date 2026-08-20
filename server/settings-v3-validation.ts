@@ -35,9 +35,7 @@ export type { SettingsValidationOptions };
  * models and capabilities, where `imageInput` is required. This release
  * reads and validates schema 3; nothing here writes one. */
 
-const DOCUMENT = closedShape(
-  ["schemaVersion", "connections", "models", "profiles", "routing", "writing"]
-);
+const DOCUMENT = closedShape(["schemaVersion", "connections", "models", "profiles", "routing", "writing"]);
 const MODEL = closedShape(["connectionId", "remoteId", "name", "discovered", "overrides", "capabilities"]);
 const CAPABILITIES = closedShape(
   ["temperature", "assistantPrefill", "reasoningEffort", "promptCaching", "imageInput"],

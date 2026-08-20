@@ -23,6 +23,7 @@ import {
 } from "./settings-provider-choices.js";
 import {
   applySettingsManualContextDraft,
+  armContextProbeIfUnknown,
   replaceSettingsDraft,
   replaceSettingsProviderDraft
 } from "./settings-draft-transition.js";
@@ -133,6 +134,7 @@ export function initialSettingsOverlay(
     conflict: null,
     checking: false,
     probing: false,
+    contextProbeArmed: false,
     discoveringModels: false,
     modelDiscovery: null,
     modelDiscoveryIdentity: null,
@@ -427,6 +429,12 @@ export function cycleSettingsProvider(
   overlay.result = null;
   if (!settingsDraftChanged(overlay)) overlay.conflict = null;
   else disarmSettingsConflict(overlay);
+  // A preset's default model (`choice.defaults`) can carry no known context
+  // window (most do; dry-run and the subscription plans are the
+  // exceptions) — this is the one other place `overlay.draft.generation
+  // .model` changes outside `applySettingsModelChoice`, so it arms the
+  // same probe intent that function arms.
+  armContextProbeIfUnknown(overlay);
   return choice;
 }
 

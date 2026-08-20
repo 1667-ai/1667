@@ -338,6 +338,14 @@ export interface SettingsOverlayState {
   saveIntent?: SettingsOverlaySaveIntent;
   checking: boolean;
   probing: boolean;
+  /** Armed by a draft transition that just landed a model with no known
+   *  context window (settings-model-selection.ts's `applySettingsModelChoice`,
+   *  settings-overlay-model.ts's `cycleSettingsProvider`), drained by
+   *  `detectSettingsContextForModelChange` (settings-context-detection.ts)
+   *  wherever a model choice can land — the settings dispatch seam and
+   *  discovery's own auto-select alike — so an automatic probe fires
+   *  exactly once per model change regardless of which path landed it. */
+  contextProbeArmed: boolean;
   discoveringModels: boolean;
   modelDiscovery: ModelDiscoveryResultV2 | null;
   modelDiscoveryIdentity: string | null;

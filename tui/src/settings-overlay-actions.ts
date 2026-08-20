@@ -176,14 +176,6 @@ export async function settingsOverlayAction(
     }
     return true;
   }
-  // The one seam every path that can change the selected model passes
-  // through — typing an identifier (settingsInlineEditAction), picking one
-  // from C-15's column (settingsModelPickerAction), or cycling with ←→
-  // (cycleSettingsRow → cycleSettingsModel) — so the auto-detect probe fires
-  // once from here instead of being pasted at each call site, several of
-  // which used to get no probe at all (issue: cycling the model row with
-  // ←→ triggered nothing while typing the same identifier did).
-  const modelBeforeDispatch = overlay.draft.generation.model;
   if (resolved.action === "cancel") {
     // Esc peels exactly one layer: the option column is a layer of its own.
     if (overlay.modelPicker !== null) {
@@ -300,9 +292,14 @@ export async function settingsOverlayAction(
     restoreSettingsCursor(overlay, cursorRow);
     state.toast = `${next} view`;
   }
-  if (overlay.draft.generation.model !== modelBeforeDispatch) {
-    detectSettingsContextForModelChange(state, source, context, overlay);
-  }
+  // Drains overlay.contextProbeArmed (settings-context-detection.ts):
+  // every draft transition that can land the model on an unknown context
+  // window arms it, so this one drain point after the dispatch covers
+  // typing an identifier, picking one from C-15's column, cycling the
+  // model row with ←→, the single-choice cache auto-fill, and cycling
+  // provider — every path above that can change the model, without this
+  // seam having to know which branch ran. A no-op when nothing armed it.
+  detectSettingsContextForModelChange(state, source, context, overlay);
   return true;
 }
 

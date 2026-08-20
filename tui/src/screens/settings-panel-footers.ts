@@ -55,13 +55,16 @@ const VIEW_MODE_TOGGLE = {
   token: "m mode", action: "toggle-view-mode"
 } as const satisfies { token: string; action: KeyAction };
 
-/** `esc close`'s abbreviated form. Adding the view-mode toggle pushed the
- *  choice, model, and context keylines' widest variant past 80 columns'
- *  footer budget, so that width fell straight through to the medium tier —
- *  which drops the toggle entirely — hiding the one discovery affordance
- *  for the feature that changed the default view. Shortening this token
- *  (already how `esc` reads in every narrower tier) reclaims enough width
- *  to keep the full keyline, toggle included, at 80 columns. */
+/** `esc close`'s abbreviated form, paired with `VIEW_MODE_TOGGLE` in every
+ *  widest-tier variant that carries it — not just the ones that need the
+ *  width back, so the panel never shows "esc" in one keyline and "esc
+ *  close" in another. Adding the view-mode toggle pushed the choice,
+ *  model, and context keylines' widest variant past 80 columns' footer
+ *  budget, so that width fell straight through to the medium tier — which
+ *  drops the toggle entirely — hiding the one discovery affordance for the
+ *  feature that changed the default view. Shortening this token (already
+ *  how `esc` reads in every narrower tier) reclaims enough width to keep
+ *  the full keyline, toggle included, at 80 columns. */
 const CANCEL_SHORT = { token: "esc", action: "cancel" } as const satisfies { token: string; action: KeyAction };
 
 export const SETTINGS_FOOTER_ACTIONS = [
@@ -83,7 +86,7 @@ const SETTINGS_TEXT_FOOTER_ACTIONS = [
   { token: "s save", action: "save-edit" },
   { token: "c check", action: "check" },
   VIEW_MODE_TOGGLE,
-  { token: "esc close", action: "cancel" }
+  CANCEL_SHORT
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 
 const SETTINGS_CONTEXT_FOOTER_ACTIONS = [
@@ -191,7 +194,7 @@ export const SETTINGS_MODEL_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s save · m mode · esc close",
+    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s save · m mode · esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -204,7 +207,7 @@ export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "d delete", action: "delete-item" },
       { token: "s save", action: "save-edit" },
       VIEW_MODE_TOGGLE,
-      { token: "esc close", action: "cancel" }
+      CANCEL_SHORT
     ]
   },
   {
@@ -245,7 +248,7 @@ export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
  * command visible with the profile verbs, because both affect the same draft. */
 export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s save · x discard · m mode · esc close",
+    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s save · x discard · m mode · esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -259,7 +262,7 @@ export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "s save", action: "save-edit" },
       { token: "x discard", action: "discard-pending" },
       VIEW_MODE_TOGGLE,
-      { token: "esc close", action: "cancel" }
+      CANCEL_SHORT
     ]
   },
   {
@@ -300,7 +303,7 @@ export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_TEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ↵ edit · s save · c check · m mode · esc close",
+    text: "↑↓ move · ↵ edit · s save · c check · m mode · esc",
     actions: SETTINGS_TEXT_FOOTER_ACTIONS
   },
   {
@@ -352,7 +355,7 @@ export const SETTINGS_PICKER_FOOTERS: ReadonlyArray<SettingsFooter> = [
  *  borrowing the cycler's `choose`. */
 export const SETTINGS_SCALAR_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ step · ⇧ ×10 · ↵ type · s save · m mode · esc close",
+    text: "↑↓ move · ←→ step · ⇧ ×10 · ↵ type · s save · m mode · esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -361,7 +364,7 @@ export const SETTINGS_SCALAR_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "↵ type", action: "open-selected" },
       { token: "s save", action: "save-edit" },
       VIEW_MODE_TOGGLE,
-      { token: "esc close", action: "cancel" }
+      CANCEL_SHORT
     ]
   },
   {

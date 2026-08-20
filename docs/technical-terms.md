@@ -71,6 +71,8 @@ read_when:
 | exact count | A token count from a bundled tokenizer, or a server count of a complete message array |
 | near-exact count | A token count of server-tokenized content that 1667 cannot prove against the serving path |
 | token estimate | A token count of four characters for each token |
+| Simple view | The default Settings view; it shows only the most-used rows |
+| Advanced view | The Settings view that shows every row |
 | Generation Profile | One named set of model behavior settings |
 | Generation Route | The selection of a Generation Profile for one type of work |
 | Sampler Preset | A NovelAI `.preset` file |

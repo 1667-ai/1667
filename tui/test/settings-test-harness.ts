@@ -133,20 +133,14 @@ export async function selectRow(
   while (state.settings!.cursor > target) await press(key("up"));
 }
 
-/** `ActionRuntime.whenIdle` can resolve while a just-deferred automatic
- *  probe (settings-context-detection.ts's `deferUntilIdle`) is still
- *  claiming the slot it was waiting for: `whenIdle` resolves every waiter
- *  from a snapshot taken before any of their continuations run, so a
- *  waiter registered earlier (the deferred probe) can reclaim the slot
- *  between that resolution and a caller's next line. Loop until the slot
- *  is actually free, not just once-idle. */
-export async function settleBackend(
-  state: RuntimeState,
-  backend: ActionRuntime
-): Promise<void> {
-  while (state.backendTask !== null) {
-    await backend.whenIdle();
-  }
+/** Drain both the exclusive slot and every `ActionRuntime.runWhenIdle`
+ *  driver (settings-context-detection.ts's automatic probe uses it) —
+ *  `ActionRuntime.settle()` (test-only) does this properly; a bare
+ *  `while (state.backendTask !== null) await backend.whenIdle()` loop is
+ *  not enough, since `runWhenIdle` work never claims that slot at all, so
+ *  the loop would exit while a background driver is still running. */
+export async function settleBackend(backend: ActionRuntime): Promise<void> {
+  await backend.settle();
 }
 
 export async function draftRow(

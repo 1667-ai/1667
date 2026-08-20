@@ -17,6 +17,10 @@ The command creates a new Generation Profile. It does not change the source
 profile. Use `--profile <name>` to select the target route. Without that option,
 1667 uses the prose route or the default route.
 
+The **profile** row appears only in Advanced view. Press `m` in Settings if
+the row is not visible. See
+[Settings views](model-providers.md#settings-views).
+
 In the TUI, select the **profile** row and press `i`. Select a Starter Profile
 or select `read a file…`. The TUI changes the Settings draft. Press `s` to save
 the draft. Select **export generation profile** in the command palette to write

@@ -888,7 +888,7 @@ describe("inline settings menu", () => {
 
     await draftRow(press, state, "model", "model-b");
     gate.resolve({ contextWindow: 32_768 });
-    await settleBackend(state, backend);
+    await settleBackend(backend);
 
     expect(state.settings?.draft.generation.model).toBe("model-b");
     expect(state.settings?.draft.generation.contextWindow).toBe(32_768);
@@ -919,7 +919,7 @@ describe("inline settings menu", () => {
     // committing model-b also deferred its own auto-detect probe behind the
     // check (the same exclusive slot) rather than losing it; it runs for
     // real once the check frees the slot.
-    await settleBackend(state, backend);
+    await settleBackend(backend);
 
     expect(state.settings?.draft.generation.model).toBe("model-b");
     expect(state.settings?.result).toEqual({

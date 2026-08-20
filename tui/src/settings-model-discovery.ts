@@ -7,6 +7,7 @@ import type {
 import type { GenerationSettings } from "../../shared/types.js";
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
+import { detectSettingsContextForModelChange } from "./settings-context-detection.js";
 import {
   settingsAutomaticModelSelection,
   settingsContextWindowIsManual,
@@ -197,6 +198,14 @@ async function runModelDiscoveryRequest(
         };
         overlay.resultRow = "model";
       }
+      // publishModelDiscovery can auto-select the sole catalog entry or a
+      // remembered automatic choice (applySettingsModelChoice, via
+      // publishModelDiscovery -> applySettingsModelChoice) with no known
+      // context window — a landing this async response delivers well after
+      // any synchronous dispatch has returned, so settings-overlay-
+      // actions.ts's drain point never sees it. Drain here too: same flag,
+      // same no-op when nothing armed it.
+      detectSettingsContextForModelChange(state, source, context, overlay);
     } catch (error) {
       if (!task.owns() || !ownsCurrentRequest(state, overlay, request)) return;
       overlay.result = {

@@ -119,6 +119,12 @@ export interface AppSource {
   /** How long typing pauses before a search scan starts. Tests and fixtures
    *  that answer from memory set 0; production leaves it unset. */
   searchDebounceMs?: number;
+  /** How long a model-identity change waits before the automatic
+   *  context-window probe fires (settings-context-detection.ts), so a burst
+   *  of rapid edits collapses into one attempt instead of one per edit.
+   *  Tests and fixtures that answer from memory set 0; production leaves it
+   *  unset. */
+  contextProbeDebounceMs?: number;
 }
 
 type InteractivePresentedInteraction = PresentedInteraction & {

@@ -39,9 +39,7 @@ import {
   requireSettingsId
 } from "./settings-v2-scalars.js";
 
-const DOCUMENT = closedShape(
-  ["schemaVersion", "connections", "models", "profiles", "routing", "writing"]
-);
+const DOCUMENT = closedShape(["schemaVersion", "connections", "models", "profiles", "routing", "writing"]);
 const CONNECTION = closedShape(
   ["name", "preset", "protocol", "baseUrl", "auth", "headers", "timeouts"],
   ["allowInsecureHttp", "textPromptFormat", "splitThinkTags"]
