@@ -489,7 +489,12 @@ export class SettingsV2Store {
 
     if (operation.method === "saveSettings") {
       assertRuntimeDocumentSupported(operation.document, this.subscription);
-      await assertSavedSamplingBiasResolves(operation.document, this.environment, signal);
+      await assertSavedSamplingBiasResolves(
+        operation.document,
+        this.environment,
+        this.subscription,
+        signal
+      );
     }
     if (current.stateGeneration !== request.expectedAggregateVersion.stateGeneration) {
       throw new ServiceError(

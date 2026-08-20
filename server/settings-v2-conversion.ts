@@ -53,7 +53,7 @@ export interface EffectiveGenerationRuntimeOptions {
   /** Provider checks and discovery do not require a generation-ready model ID. */
   readonly allowBlankModel?: boolean;
   /** Runtime-only subscription seams. They never enter the settings document. */
-  readonly subscription?: SubscriptionRuntimeDependencies;
+  readonly subscription: SubscriptionRuntimeDependencies;
 }
 
 export function convertGenerationSettingsV1(value: GenerationSettings): SettingsDocumentV2 {
@@ -90,22 +90,6 @@ export function convertGenerationSettingsV1(value: GenerationSettings): Settings
   });
 }
 
-/** Construct generation-ready settings with the selected provider runtime. */
-export function effectiveGenerationSettings(
-  value: SettingsDocumentV2,
-  purpose: SettingsRoutePurpose = "default",
-  metadata: EffectiveMetadataV2 = {},
-  options: EffectiveGenerationRuntimeOptions = {}
-): GenerationSettings {
-  return effectiveGenerationRuntime(
-    value,
-    purpose,
-    metadata,
-    undefined,
-    options
-  ).settings;
-}
-
 /** Project one route into the serializable Generation Settings view. */
 export function effectiveGenerationView(
   value: SettingsDocumentV2,
@@ -122,8 +106,8 @@ export function effectiveGenerationRuntime(
   value: SettingsDocumentV2,
   purpose: SettingsRoutePurpose = "default",
   metadata: EffectiveMetadataV2 = {},
-  environment?: NodeJS.ProcessEnv,
-  options: EffectiveGenerationRuntimeOptions = {},
+  environment: NodeJS.ProcessEnv | undefined,
+  options: EffectiveGenerationRuntimeOptions,
   storedSecrets?: ReadonlyMap<string, string>
 ): EffectiveGenerationRuntime {
   const projection = projectEffectiveGeneration(

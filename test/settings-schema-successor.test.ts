@@ -7,7 +7,7 @@ import { SETTINGS_STATE_V2_FILE } from "../server/data-directory-layout.js";
 import { hashSettingsStateV2, parseSettingsStateV2Bytes } from "../server/settings-v2-codec.js";
 import {
   applyEffectiveGenerationSettings,
-  effectiveGenerationSettings
+  effectiveGenerationView
 } from "../server/settings-v2-conversion.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import {
@@ -144,7 +144,7 @@ function withModelCapabilities(
  *  IDs, and the OpenAI-compatible fixture cannot name one. */
 function anthropicCredentialedDocument(environmentName: string, remoteId: string): SettingsDocumentV2 {
   return applyEffectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2, {
-    ...effectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2),
+    ...effectiveGenerationView(INITIAL_SETTINGS_DOCUMENT_V2),
     provider: "anthropic",
     baseUrl: "https://api.anthropic.com",
     model: remoteId,

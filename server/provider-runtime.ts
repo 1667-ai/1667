@@ -106,8 +106,19 @@ export interface ProviderRuntimeOptions {
   readonly reasoning?: ReasoningDisplayV2;
   readonly keepReasoning?: boolean;
   readonly continuationPromptOptimization?: ContinuationPromptOptimizationV2;
-  readonly subscription?: SubscriptionRuntimeDependencies;
 }
+
+export interface SubscriptionProviderRuntimeOptions extends ProviderRuntimeOptions {
+  readonly subscription: SubscriptionRuntimeDependencies;
+}
+
+export type StandardModelConnectionV2 = Omit<ModelConnectionV2, "protocol"> & {
+  readonly protocol: Exclude<SettingsProtocolV2, SubscriptionProtocolV2>;
+};
+
+export type SubscriptionModelConnectionV2 = Omit<ModelConnectionV2, "protocol"> & {
+  readonly protocol: SubscriptionProtocolV2;
+};
 
 /** Attach server-only runtime policy without changing the frozen JSON settings
  * contract. Enumerable symbols survive the small `{ ...settings }` budget
@@ -146,10 +157,28 @@ export function hasProviderRuntime(settings: GenerationSettings): boolean {
 }
 
 export function providerRuntimeFromV2(
+  connection: StandardModelConnectionV2,
+  effort: GenerationEffortV2,
+  capabilities: ModelCapabilitiesV2,
+  options?: ProviderRuntimeOptions
+): StandardProviderRuntime;
+export function providerRuntimeFromV2(
+  connection: SubscriptionModelConnectionV2,
+  effort: GenerationEffortV2,
+  capabilities: ModelCapabilitiesV2,
+  options: SubscriptionProviderRuntimeOptions
+): SubscriptionProviderRuntime;
+export function providerRuntimeFromV2(
   connection: ModelConnectionV2,
   effort: GenerationEffortV2,
   capabilities: ModelCapabilitiesV2,
-  options: ProviderRuntimeOptions = {}
+  options: SubscriptionProviderRuntimeOptions
+): ProviderRuntime;
+export function providerRuntimeFromV2(
+  connection: ModelConnectionV2,
+  effort: GenerationEffortV2,
+  capabilities: ModelCapabilitiesV2,
+  options: ProviderRuntimeOptions | SubscriptionProviderRuntimeOptions = {}
 ): ProviderRuntime {
   const base: ProviderRuntimeBase = {
     preset: connection.preset,
@@ -171,7 +200,7 @@ export function providerRuntimeFromV2(
     ? {
         ...base,
         protocol: connection.protocol,
-        subscription: requireSubscriptionDependencies(options.subscription)
+        subscription: subscriptionDependencies(options)
       }
     : { ...base, protocol: connection.protocol };
   if (options.environment !== undefined || options.storedSecrets !== undefined) {
@@ -196,13 +225,13 @@ export function providerRuntimeFromV2(
   return runtime;
 }
 
-function requireSubscriptionDependencies(
-  value: SubscriptionRuntimeDependencies | undefined
+function subscriptionDependencies(
+  options: ProviderRuntimeOptions | SubscriptionProviderRuntimeOptions
 ): SubscriptionRuntimeDependencies {
-  if (value === undefined) {
+  if (!("subscription" in options)) {
     throw new ProviderError("Subscription credential storage is unavailable.");
   }
-  return value;
+  return options.subscription;
 }
 
 export function resolveProviderHeaders(

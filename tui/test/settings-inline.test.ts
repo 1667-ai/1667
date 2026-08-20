@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parseSettingsDocumentV2 } from "../../server/settings-v2-codec.js";
 import { effectiveGenerationRuntime } from "../../server/settings-v2-conversion.js";
+import { createSubscriptionRuntime } from "../../server/subscription-runtime.js";
 import {
   applyBasicSettingsDraft,
   basicSettingsFromDocument
@@ -40,6 +41,8 @@ import {
   selectRow,
   settingsHarness as harness
 } from "./settings-test-harness.js";
+
+const SUBSCRIPTION_RUNTIME = createSubscriptionRuntime(process.cwd());
 
 describe("inline settings menu", () => {
   test("up/down selects every row; Enter edits text and advances closed choices", async () => {
@@ -799,7 +802,10 @@ describe("inline settings menu", () => {
           target.purpose,
           {},
           {},
-          { allowBlankModel: true }
+          {
+            allowBlankModel: true,
+            subscription: SUBSCRIPTION_RUNTIME
+          }
         );
         expect(runtime.settings.model).toBe("");
         expect(runtime.providerRuntime.preset).toBe(expected.id);

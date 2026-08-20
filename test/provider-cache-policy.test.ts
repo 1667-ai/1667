@@ -12,7 +12,7 @@ import {
 import { parseSettingsDocumentV2 } from "../server/settings-v2-codec.js";
 import {
   convertGenerationSettingsV1,
-  effectiveGenerationSettings,
+  effectiveGenerationView,
   effectivePromptCacheContext
 } from "../server/settings-v2-conversion.js";
 import { promptCachePolicyPresentation } from "../shared/prompt-cache-capabilities.js";
@@ -259,25 +259,25 @@ test("runtime plans cache only stable boundaries and commit rolling state after 
 
 test("runtime admission accepts exact contracts and rejects unsupported policy precisely", () => {
   assert.equal(
-    effectiveGenerationSettings(
+    effectiveGenerationView(
       cacheDocument("openai-compatible", "openai", "supported", "auto", "gpt-5.6")
     ).model,
     "gpt-5.6"
   );
   assert.equal(
-    effectiveGenerationSettings(
+    effectiveGenerationView(
       cacheDocument("anthropic", "anthropic", "supported", "long", "claude-sonnet-4-6")
     ).model,
     "claude-sonnet-4-6"
   );
   assert.throws(
-    () => effectiveGenerationSettings(
+    () => effectiveGenerationView(
       cacheDocument("openai-compatible", "openai", "supported", "long", "gpt-5.6")
     ),
     /Long prompt-cache retention is unavailable/
   );
   assert.throws(
-    () => effectiveGenerationSettings(
+    () => effectiveGenerationView(
       cacheDocument("openai-compatible", "custom", "supported", "auto", "gpt-5.4")
     ),
     /Prompt caching is not supported by the selected provider/

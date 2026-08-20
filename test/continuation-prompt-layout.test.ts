@@ -4,6 +4,7 @@ import { assembleContinuation } from "../server/continuation-assembly.js";
 import { continuationRecordEntries } from "../server/generation-record-prompt.js";
 import { buildOpenAiChatRequestBody } from "../server/provider-request-body.js";
 import { effectiveGenerationRuntime } from "../server/settings-v2-conversion.js";
+import { createSubscriptionRuntime } from "../server/subscription-runtime.js";
 import {
   INITIAL_SETTINGS_DOCUMENT_V2,
   INITIAL_SETTINGS_DOCUMENT_V2_TEXT
@@ -34,6 +35,20 @@ const APPEND_CONTRACT = [
   "Return only the new characters after that boundary; do not repeat, restart, quote, or summarize existing text."
 ].join(" ");
 const PREFILL_CONTINUITY_GUARD = "Preserve the established point of view and tense.";
+const SUBSCRIPTION_RUNTIME = createSubscriptionRuntime(process.cwd());
+
+function generationRuntime(
+  document: SettingsDocumentV2,
+  purpose: "default" | "prose" = "default"
+) {
+  return effectiveGenerationRuntime(
+    document,
+    purpose,
+    {},
+    undefined,
+    { subscription: SUBSCRIPTION_RUNTIME }
+  );
+}
 
 test("compatibility is the default continuation prompt layout", () => {
   const parts = storyParts();
@@ -114,11 +129,11 @@ test("enabled Retake uses the exact v0.9.0 final user contract and route snapsho
     routing: { ...INITIAL_SETTINGS_DOCUMENT_V2.routing, prose: "prose" }
   };
   assert.equal(
-    effectiveGenerationRuntime(splitProfiles, "default").providerRuntime.continuationPromptLayout,
+    generationRuntime(splitProfiles, "default").providerRuntime.continuationPromptLayout,
     "compatibility"
   );
   assert.equal(
-    effectiveGenerationRuntime(splitProfiles, "prose").providerRuntime.continuationPromptLayout,
+    generationRuntime(splitProfiles, "prose").providerRuntime.continuationPromptLayout,
     "late-cache-stable"
   );
 });
@@ -158,7 +173,7 @@ test("late-cache-stable keeps its v0.9.0 final contracts and guards only prefill
   });
   assert.equal(echoContinue.leftAnchor, "n filled the flagstones.");
   const echoBody = await buildOpenAiChatRequestBody(
-    effectiveGenerationRuntime(withContinuationPromptOptimization(INITIAL_SETTINGS_DOCUMENT_V2), "prose").settings,
+    generationRuntime(withContinuationPromptOptimization(INITIAL_SETTINGS_DOCUMENT_V2), "prose").settings,
     echoContinue.prompt,
     { kind: "omit", reason: "policy-off" }
   );
@@ -261,7 +276,7 @@ async function continuationBody(
   document: SettingsDocumentV2,
   appendLast: boolean
 ): Promise<Record<string, unknown>> {
-  const runtime = effectiveGenerationRuntime(document, "prose");
+  const runtime = generationRuntime(document, "prose");
   const story = {
     chapterBreaks: [],
     nodes: [
@@ -287,7 +302,7 @@ async function continuationPlanFor(
   document: SettingsDocumentV2,
   appendLast: boolean
 ): Promise<ContinuationPlan> {
-  const runtime = effectiveGenerationRuntime(document, "prose");
+  const runtime = generationRuntime(document, "prose");
   const story = { chapterBreaks: [], nodes: [node("p1", "Open gate", "Hinges groaned")] };
   return assembleContinuation({
     story,

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   applyEffectiveGenerationSettings,
-  effectiveGenerationSettings
+  effectiveGenerationView
 } from "../server/settings-v2-conversion.js";
 import {
   INITIAL_SETTINGS_DOCUMENT_V2,
@@ -32,7 +32,7 @@ const POINTER_B = { receiptKind: "user", mutationId: MUTATION_B, phase: "prepare
 
 test("non-credential edit replaces active immediately and advances each counter once", () => {
   const document = applyEffectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2, {
-    ...effectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2),
+    ...effectiveGenerationView(INITIAL_SETTINGS_DOCUMENT_V2),
     systemPrompt: "A changed writing brief."
   });
   const state = reduceSettingsStateV2(INITIAL_SETTINGS_STATE_V2, {
@@ -354,7 +354,7 @@ function credentialedDocument(
   apiKeyEnv = "OPENAI_API_KEY"
 ): SettingsDocumentV2 {
   return applyEffectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2, {
-    ...effectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2),
+    ...effectiveGenerationView(INITIAL_SETTINGS_DOCUMENT_V2),
     provider: "openai-compatible",
     baseUrl: "https://api.openai.com/v1",
     model: "test-model",

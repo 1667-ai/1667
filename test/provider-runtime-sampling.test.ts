@@ -5,6 +5,7 @@ import {
   providerRuntimeFromV2,
   resolveProviderHeaders
 } from "../server/provider-runtime.js";
+import { createSubscriptionRuntime } from "../server/subscription-runtime.js";
 import {
   EMPTY_SAMPLING_V2,
   type ModelCapabilitiesV2,
@@ -18,6 +19,8 @@ const CAPABILITIES: ModelCapabilitiesV2 = {
   reasoningEffort: "unknown",
   promptCaching: "unknown"
 };
+
+const SUBSCRIPTION_RUNTIME = createSubscriptionRuntime(process.cwd());
 
 test("v2 runtime accepts named credentials and sampling options", () => {
   const connection: ModelConnectionV2 = {
@@ -52,7 +55,8 @@ test("v2 runtime accepts named credentials and sampling options", () => {
     {
       environment: { AI_1667_COMPAT_HEADER: "environment-secret" },
       storedSecrets: new Map([["compat-secret", "stored-secret"]]),
-      sampling
+      sampling,
+      subscription: SUBSCRIPTION_RUNTIME
     }
   );
 

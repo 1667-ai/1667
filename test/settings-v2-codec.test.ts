@@ -26,8 +26,9 @@ import {
   applyEffectiveGenerationSettings,
   convertGenerationSettingsV1,
   effectiveGenerationRuntime,
-  effectiveGenerationSettings
+  effectiveGenerationView
 } from "../server/settings-v2-conversion.js";
+import { createSubscriptionRuntime } from "../server/subscription-runtime.js";
 import {
   INITIAL_SETTINGS_DOCUMENT_V2,
   INITIAL_SETTINGS_DOCUMENT_V2_HASH,
@@ -83,6 +84,7 @@ const schemaText = readFileSync(path.join(ROOT, "schema", "settings-v2.schema.js
 const corpusText = readFileSync(path.join(ROOT, "schema", "settings-v2.corpus.json"), "utf8");
 const vectorsText = readFileSync(path.join(ROOT, "schema", "settings-v2.hash-vectors.json"), "utf8");
 const corpus = JSON.parse(corpusText) as { schemaVersion: number; cases: CorpusCase[] };
+const SUBSCRIPTION_RUNTIME = createSubscriptionRuntime(process.cwd());
 
 test("settings schema, corpus, and hash vectors are canonical and identity-pinned", () => {
   const schema = JSON.parse(schemaText) as Record<string, unknown>;
@@ -175,7 +177,13 @@ test("sampling parses as a closed optional profile object and projects to runtim
     }
   });
   assert.deepEqual(document.profiles.default?.sampling, sampling);
-  assert.deepEqual(effectiveGenerationRuntime(document).providerRuntime.sampling, sampling);
+  assert.deepEqual(effectiveGenerationRuntime(
+    document,
+    "default",
+    {},
+    undefined,
+    { subscription: SUBSCRIPTION_RUNTIME }
+  ).providerRuntime.sampling, sampling);
   assert.deepEqual(
     parseSettingsDocumentV2Text(formatSettingsDocumentV2(document)),
     document
@@ -395,7 +403,13 @@ test("reasoning and discardReasoning parse as closed optional profile fields and
   assert.equal(document.profiles.default?.reasoning, "open");
   assert.equal(document.profiles.default?.discardReasoning, true);
   assert.deepEqual(parseSettingsDocumentV2Text(formatSettingsDocumentV2(document)), document);
-  const runtime = effectiveGenerationRuntime(document).providerRuntime;
+  const runtime = effectiveGenerationRuntime(
+    document,
+    "default",
+    {},
+    undefined,
+    { subscription: SUBSCRIPTION_RUNTIME }
+  ).providerRuntime;
   assert.equal(runtime.reasoning, "open");
   assert.equal(runtime.keepReasoning, false);
 });
@@ -410,7 +424,13 @@ test("reasoning and discardReasoning stay absent through a document round trip w
   assert.equal(Object.hasOwn(document.profiles.default!, "discardReasoning"), false);
   assert.equal(formatSettingsDocumentV2(document), INITIAL_SETTINGS_DOCUMENT_V2_TEXT);
   assert.equal(hashSettingsDocumentV2(document), INITIAL_SETTINGS_DOCUMENT_V2_HASH);
-  const runtime = effectiveGenerationRuntime(document).providerRuntime;
+  const runtime = effectiveGenerationRuntime(
+    document,
+    "default",
+    {},
+    undefined,
+    { subscription: SUBSCRIPTION_RUNTIME }
+  ).providerRuntime;
   assert.equal(runtime.reasoning, "marker");
   assert.equal(runtime.keepReasoning, true);
 });
@@ -686,7 +706,7 @@ test("v1 conversion preserves provider request fields for all shipped preset URL
     const document = convertGenerationSettingsV1(settings);
     const connection = document.connections["migrated:connection"]!;
     assert.equal(connection.preset, expectedPreset);
-    const projected = effectiveGenerationSettings(document);
+    const projected = effectiveGenerationView(document);
     assert.deepEqual(projected, {
       ...settings,
       baseUrl: settings.baseUrl.replace(/\/+$/u, ""),
@@ -718,7 +738,7 @@ test("effective scalar resolution shares exact precedence and caps the profile o
     builtin: { contextWindow: 20_000, maxOutputTokens: 2_000 }
   };
   assert.deepEqual(
-    scalarProjection(effectiveGenerationSettings(fullyPopulated, "prose", allMetadata)),
+    scalarProjection(effectiveGenerationView(fullyPopulated, "prose", allMetadata)),
     { contextWindow: 60_000, maxTokens: 6_000 },
     "explicit overrides win and an absent prose route falls back to default"
   );
@@ -733,12 +753,12 @@ test("effective scalar resolution shares exact precedence and caps the profile o
     }
   });
   assert.deepEqual(
-    scalarProjection(effectiveGenerationSettings(runtimeWins, "utility", allMetadata)),
+    scalarProjection(effectiveGenerationView(runtimeWins, "utility", allMetadata)),
     { contextWindow: 50_000, maxTokens: 5_000 },
     "runtime metadata wins when no override exists"
   );
   assert.deepEqual(
-    scalarProjection(effectiveGenerationSettings(runtimeWins, "default", {
+    scalarProjection(effectiveGenerationView(runtimeWins, "default", {
       builtin: allMetadata.builtin
     })),
     { contextWindow: 30_000, maxTokens: 3_000 },
@@ -755,14 +775,14 @@ test("effective scalar resolution shares exact precedence and caps the profile o
     }
   });
   assert.deepEqual(
-    scalarProjection(effectiveGenerationSettings(builtinWins, "default", {
+    scalarProjection(effectiveGenerationView(builtinWins, "default", {
       builtin: allMetadata.builtin
     })),
     { contextWindow: 20_000, maxTokens: 2_000 },
     "built-in metadata wins only after override, runtime, and discovery"
   );
   assert.deepEqual(
-    scalarProjection(effectiveGenerationSettings(builtinWins)),
+    scalarProjection(effectiveGenerationView(builtinWins)),
     { contextWindow: null, maxTokens: 10_000 },
     "unknown model limits leave context unknown and preserve the profile budget"
   );
@@ -777,7 +797,7 @@ test("effective scalar resolution shares exact precedence and caps the profile o
     }
   });
   assert.equal(
-    effectiveGenerationSettings(profileCapsOutput, "default", allMetadata).maxTokens,
+    effectiveGenerationView(profileCapsOutput, "default", allMetadata).maxTokens,
     1_500,
     "a model maximum above the requested profile budget does not raise the request"
   );
@@ -822,7 +842,7 @@ test("selected network runtime lowering rejects blank model IDs without normaliz
     }
   });
   assert.equal(
-    effectiveGenerationSettings(document).model,
+    effectiveGenerationView(document).model,
     "  exact/model-id  ",
     "the provider receives the exact admitted nonblank identifier"
   );
@@ -838,7 +858,7 @@ test("selected network runtime lowering rejects blank model IDs without normaliz
     }
   });
   assert.throws(
-    () => effectiveGenerationSettings(blankSelected),
+    () => effectiveGenerationView(blankSelected),
     /nonblank model remote ID/
   );
 });
@@ -852,7 +872,7 @@ test("Anthropic runtime lowering preserves exact authentication references", () 
   ));
   const connection = base.connections["migrated:connection"]!;
   const model = base.models["migrated:model"]!;
-  assert.equal(effectiveGenerationSettings(base).apiKeyEnv, "ANTHROPIC_API_KEY");
+  assert.equal(effectiveGenerationView(base).apiKeyEnv, "ANTHROPIC_API_KEY");
   const unselected = parseSettingsDocumentV2({
     ...INITIAL_SETTINGS_DOCUMENT_V2,
     connections: {
@@ -871,7 +891,7 @@ test("Anthropic runtime lowering preserves exact authentication references", () 
     }
   });
   assert.equal(
-    effectiveGenerationSettings(unselected).provider,
+    effectiveGenerationView(unselected).provider,
     "dry-run",
     "runtime-only Anthropic authentication constraints do not reject an unselected record"
   );
@@ -889,9 +909,15 @@ test("Anthropic runtime lowering preserves exact authentication references", () 
         }
       }
     });
-    const effective = effectiveGenerationSettings(document);
+    const effective = effectiveGenerationView(document);
     assert.equal(effective.apiKeyEnv, "ANTHROPIC_API_KEY");
-    assert.deepEqual(effectiveGenerationRuntime(document).providerRuntime.auth, auth);
+    assert.deepEqual(effectiveGenerationRuntime(
+      document,
+      "default",
+      {},
+      undefined,
+      { subscription: SUBSCRIPTION_RUNTIME }
+    ).providerRuntime.auth, auth);
   }
   for (const auth of [
     { type: "bearer-stored" as const, secretId: "migrated:connection" },
@@ -912,9 +938,15 @@ test("Anthropic runtime lowering preserves exact authentication references", () 
       parseSettingsDocumentV2Text(formatSettingsDocumentV2(document)),
       document
     );
-    const effective = effectiveGenerationSettings(document);
+    const effective = effectiveGenerationView(document);
     assert.equal(effective.apiKeyEnv, null);
-    assert.deepEqual(effectiveGenerationRuntime(document).providerRuntime.auth, auth);
+    assert.deepEqual(effectiveGenerationRuntime(
+      document,
+      "default",
+      {},
+      undefined,
+      { subscription: SUBSCRIPTION_RUNTIME }
+    ).providerRuntime.auth, auth);
   }
   const customHeaderDocument = parseSettingsDocumentV2({
     ...base,
@@ -930,9 +962,15 @@ test("Anthropic runtime lowering preserves exact authentication references", () 
       }
     }
   });
-  const effective = effectiveGenerationSettings(customHeaderDocument);
+  const effective = effectiveGenerationView(customHeaderDocument);
   assert.equal(effective.apiKeyEnv, null);
-  assert.deepEqual(effectiveGenerationRuntime(customHeaderDocument).providerRuntime.headers, [{
+  assert.deepEqual(effectiveGenerationRuntime(
+    customHeaderDocument,
+    "default",
+    {},
+    undefined,
+    { subscription: SUBSCRIPTION_RUNTIME }
+  ).providerRuntime.headers, [{
     name: "x-api-key",
     value: { type: "env", env: "ANTHROPIC_API_KEY" }
   }]);
@@ -966,7 +1004,7 @@ test("Anthropic runtime lowering rejects normalized effort off without a wire ma
   };
 
   assert.throws(
-    () => effectiveGenerationSettings(document),
+    () => effectiveGenerationView(document),
     /Anthropic does not support generation effort set to off\./
   );
 });
@@ -982,7 +1020,7 @@ test("routed profiles reject unsupported temperature and undeclared effort", () 
   const profile = base.profiles.default!;
 
   assert.throws(
-    () => effectiveGenerationSettings({
+    () => effectiveGenerationView({
       ...base,
       models: {
         ...base.models,
@@ -998,7 +1036,7 @@ test("routed profiles reject unsupported temperature and undeclared effort", () 
     /sets temperature for an unsupported model/
   );
   assert.throws(
-    () => effectiveGenerationSettings({
+    () => effectiveGenerationView({
       ...base,
       profiles: {
         ...base.profiles,
@@ -1024,7 +1062,7 @@ test("basic compatibility mapper preserves stable IDs and unrelated records", ()
     }
   });
   const edited = applyEffectiveGenerationSettings(document, {
-    ...effectiveGenerationSettings(document),
+    ...effectiveGenerationView(document),
     provider: "openai-compatible",
     baseUrl: "https://api.openai.com/v1",
     model: "new-model",
