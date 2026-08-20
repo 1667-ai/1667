@@ -5,6 +5,7 @@ import {
   settingsRowIds
 } from "../settings-overlay-model.js";
 import { isSettingsScalarRow } from "../settings-scalar.js";
+import { modelPickerRequired } from "../settings-model-picker.js";
 import { settingsSubscriptionPreset } from "../settings-subscription.js";
 import type { SettingsOverlayState } from "../state.js";
 import { visibleWidth } from "./story/frame.js";
@@ -54,6 +55,32 @@ function withoutPlanProbes(
 const VIEW_MODE_TOGGLE = {
   token: "m mode", action: "toggle-view-mode"
 } as const satisfies { token: string; action: KeyAction };
+
+/** Name the view the toggle will open, so the footer states its action. */
+function withViewModeActionLabel(
+  variants: ReadonlyArray<SettingsFooter>,
+  viewMode: SettingsOverlayState["viewMode"]
+): ReadonlyArray<SettingsFooter> {
+  const token = viewMode === "advanced" ? "m simple" : "m advanced";
+  return variants.map((variant) => ({
+    text: variant.text.replace("m mode", token),
+    actions: variant.actions.map((entry) => entry.action === "toggle-view-mode"
+      ? { ...entry, token }
+      : entry)
+  }));
+}
+
+function withOpenSelectedActionLabel(
+  variants: ReadonlyArray<SettingsFooter>,
+  label: string
+): ReadonlyArray<SettingsFooter> {
+  return variants.map((variant) => ({
+    text: variant.text.replace("↵ edit", label),
+    actions: variant.actions.map((entry) => entry.action === "open-selected"
+      ? { ...entry, token: entry.token.replace("↵ edit", label) }
+      : entry)
+  }));
+}
 
 /** `esc close`'s abbreviated form, paired with `VIEW_MODE_TOGGLE` in every
  *  widest-tier variant that carries it — not just the ones that need the
@@ -153,7 +180,7 @@ export const SETTINGS_CHOICE_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_MODEL_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ choose · ↵ custom · s save · c check · m mode · esc",
+    text: "↑↓ · ←→ choose · ↵ custom · s save · c check · m mode · esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -328,6 +355,11 @@ export const SETTINGS_TEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
   }
 ];
 
+const SETTINGS_MODEL_PICKER_FOOTERS = withOpenSelectedActionLabel(
+  SETTINGS_TEXT_FOOTERS,
+  "↵ choose"
+);
+
 /** C-15 owns `↑↓` and every letter, so the column advertises only what it
  *  actually answers. */
 export const SETTINGS_PICKER_FOOTERS: ReadonlyArray<SettingsFooter> = [
@@ -491,6 +523,11 @@ export const SETTINGS_PENDING_FOOTERS: ReadonlyArray<SettingsFooter> = [
   }
 ];
 
+const SETTINGS_PENDING_MODEL_PICKER_FOOTERS = withOpenSelectedActionLabel(
+  SETTINGS_PENDING_FOOTERS,
+  "↵ choose"
+);
+
 /** Which keyline this panel shows. Footer policy follows the row model, so it
  *  lives with the footers rather than as a ternary chain in the renderer. */
 export function settingsFooterVariants(
@@ -503,16 +540,19 @@ export function settingsFooterVariants(
   const pending = overlay.view.editable && overlay.view.pendingRevision !== null;
   let variants: ReadonlyArray<SettingsFooter>;
   if (row === "profile") {
-    return pending ? SETTINGS_PENDING_PROFILE_FOOTERS : SETTINGS_PROFILE_FOOTERS;
-  }
-  if (pending) variants = SETTINGS_PENDING_FOOTERS;
+    variants = pending ? SETTINGS_PENDING_PROFILE_FOOTERS : SETTINGS_PROFILE_FOOTERS;
+  } else if (pending) variants = row === "model" && modelPickerRequired(overlay)
+    ? SETTINGS_PENDING_MODEL_PICKER_FOOTERS
+    : SETTINGS_PENDING_FOOTERS;
   // The context window is a scalar that can also be probed, so it keeps its
   // own keyline rather than the plain scalar one.
   else if (row === "context-window") variants = SETTINGS_CONTEXT_FOOTERS;
   else if (isSettingsScalarRow(row)) variants = SETTINGS_SCALAR_FOOTERS;
+  else if (row === "model" && modelPickerRequired(overlay)) variants = SETTINGS_MODEL_PICKER_FOOTERS;
   else if (!settingsRowHasArrows(overlay, row)) variants = SETTINGS_TEXT_FOOTERS;
   else variants = row === "model" ? SETTINGS_MODEL_FOOTERS : SETTINGS_CHOICE_FOOTERS;
-  return settingsSubscriptionPreset(overlay) === null
+  const footerVariants = settingsSubscriptionPreset(overlay) === null
     ? variants
     : withoutPlanProbes(variants);
+  return withViewModeActionLabel(footerVariants, overlay.viewMode);
 }

@@ -22,7 +22,7 @@ import {
   settingsRows,
   SETTINGS_ROW_IDS
 } from "../src/settings-overlay-model.js";
-import { settingsRowIds } from "../src/settings-row-navigation.js";
+import { settingsRowHasArrows, settingsRowIds } from "../src/settings-row-navigation.js";
 import { SETTINGS_PROVIDER_CHOICES } from "../src/settings-provider-choices.js";
 import { settingsTextDraftWithSubscriptionPlan } from "../src/settings-text.js";
 import { settingsFooterVariants } from "../src/screens/settings-panel-footers.js";
@@ -348,6 +348,69 @@ describe("C-15 · the model option column", () => {
     await press(key("return"));
     expect(state.settings!.modelPicker).toBe(null);
     expect(state.settings!.draft.generation.model).toBe("model-02");
+  });
+
+  test("subscription plan model lists use the picker even when short", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    const overlay = state.settings!;
+    overlay.draft = settingsTextDraftWithSubscriptionPlan(
+      overlay.draft,
+      "chatgpt-plan",
+      {
+        ...overlay.draft.generation,
+        provider: "openai-compatible",
+        baseUrl: "",
+        model: "gpt-5.4",
+        apiKeyEnv: null,
+        contextWindow: 272_000
+      }
+    );
+    overlay.base = overlay.draft;
+    publishCurrentSettingsModelDiscovery(overlay, {
+      observedAt: "2026-01-01T00:00:00.000Z",
+      models: [
+        {
+          remoteId: "gpt-5.4",
+          name: "GPT-5.4",
+          contextWindow: 272_000,
+          maxOutputTokens: null,
+          source: "pi-catalog"
+        },
+        {
+          remoteId: "gpt-5.4-mini",
+          name: "GPT-5.4 mini",
+          contextWindow: 128_000,
+          maxOutputTokens: null,
+          source: "pi-catalog"
+        }
+      ]
+    });
+
+    await selectRow(press, state, "model");
+    expect(settingsRowHasArrows(overlay, "model")).toBeFalse();
+    const footer = settingsFooterVariants(overlay, false)[0]!;
+    expect(footer.text).toContain("↵ choose");
+    expect(footer.text).not.toContain("←→ choose");
+    expect(footer.actions.some((entry) =>
+      entry.token === "↵ choose" && entry.action === "open-selected"
+    )).toBeTrue();
+
+    const activeView = overlay.view;
+    if (!activeView.editable) throw new Error("editable settings view missing");
+    overlay.view = { ...activeView, pendingRevision: 2 };
+    const pendingFooter = settingsFooterVariants(overlay, false)[0]!;
+    expect(pendingFooter.text).toContain("↵ choose");
+    expect(pendingFooter.text).toContain("x discard");
+    expect(pendingFooter.text).not.toContain("↵ edit");
+    overlay.view = { ...activeView, pendingRevision: null };
+
+    const before = overlay.draft.generation.model;
+    await press(key("right"));
+    expect(overlay.draft.generation.model).toBe(before);
+
+    await press(key("return"));
+    expect(overlay.modelPicker).not.toBe(null);
   });
 
   test("typing narrows the column and an unmatched name is still usable", async () => {

@@ -692,7 +692,7 @@ describe("inline settings menu", () => {
     ).lines);
     expect(rendered).toContain("▸ provider");
     expect(rendered).toContain("‹ dry-run ›");
-    expect(rendered).toContain("↑↓ move · ←→ choose · ↵ next · s save · c check · m mode · esc");
+    expect(rendered).toContain("↑↓ move · ←→ choose · ↵ next · s save · c check · m simple · esc");
 
     await selectRow(press, state, "model");
     await press(key("return"));
