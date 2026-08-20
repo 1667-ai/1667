@@ -141,7 +141,8 @@ export function settingsRowHasArrows(
     : settingsRowCycles(row)
     || isSettingsScalarRow(row)
     || isConnectionTimeoutRow(row)
-    // A cycler stops at eight; past that the option column owns the choice.
+    // A cycler stops at eight; long lists and subscription catalogs use the
+    // option column instead so Enter opens one consistent picker.
     || row === "model" && settingsModelChoices(overlay).length > 0
       && !modelPickerRequired(overlay);
 }

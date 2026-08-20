@@ -168,6 +168,7 @@ function stagePreparedPackage(options: PreparedPackageOptions): StagedReleasePac
   const executablePath = descriptor?.executable ?? "bin/1667.js";
   const layout = { executablePath };
   const common = stageReleaseContent({
+    distribution: "npm-package",
     template,
     sbom: releaseSbomForPackage(options.sboms, template.packageManifest.name),
     entries: releasePackageContentFileSet(template, layout),
