@@ -65,7 +65,8 @@ export type KeyAction =
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
   | "toggle-context-meter" | "open-search" | "toggle-search-case" | "open-request"
   | "complete" | "open-log" | "clear-log" | "row-action"
-  | "open-probs" | "next-part" | "open-text-actions" | "import-profile" | "open-records";
+  | "open-probs" | "next-part" | "open-text-actions" | "import-profile" | "open-records"
+  | "toggle-view-mode";
 
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
@@ -708,6 +709,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "s") return { action: "save-edit" };
     if (key.name === "c") return { action: "check" };
     if (key.name === "p") return { action: "detect-context" };
+    if (key.name === "m") return { action: "toggle-view-mode" };
     if (key.name === "e") return { action: "edit" };
     if (shiftedLetter(key, "n")) return { action: "duplicate-item" };
     if (key.name === "n") return { action: "new-item" };

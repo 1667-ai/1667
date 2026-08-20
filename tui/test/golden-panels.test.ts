@@ -338,7 +338,14 @@ describe("run C overlay frames", () => {
   });
 
   test("settings overlay shows theme switcher and editable fields", async () => {
-    const frame = await renderOnce(demoAppSource(), 120, 36, ",");
+    // "m" switches to advanced mode, which is what shows the theme switcher,
+    // and lands on system-prompt (cursor identity carries the flip); one
+    // more down reaches provider, a cycler, for the choice-footer keyline.
+    const frame = await renderWithKeys(demoAppSource(), 120, 36, [
+      key(","),
+      key("m"),
+      key("down")
+    ]);
     expect(frame).toContain("┏━ settings ━");
     expect(frame).toContain("‹ lantern ›");
     expect(frame).toContain("provider");
@@ -350,13 +357,12 @@ describe("run C overlay frames", () => {
     const clean = await renderOnce(demoAppSource(), 120, 36, ",");
     expect(clean).not.toContain("revision");
 
-    // Down past the three local rows and the system prompt. Only the provider
-    // below them can cycle and dirty the draft with Right.
+    // "m" switches to advanced mode and lands on system-prompt (cursor
+    // identity carries the flip). One more down reaches provider, the row
+    // below it that can cycle and dirty the draft with Right.
     const dirty = await renderWithKeys(demoAppSource(), 120, 36, [
       key(","),
-      key("down"),
-      key("down"),
-      key("down"),
+      key("m"),
       key("down"),
       key("right")
     ]);
@@ -372,7 +378,8 @@ describe("run C overlay frames", () => {
       const view = { ...source.settingsView, pendingRevision, activeRevision: 3 };
       source.settingsView = view as typeof source.settingsView;
       source.api.getSettings = async () => view as typeof source.settingsView;
-      const lines = (await renderOnce(source, 120, 48, ",")).split("\n");
+      // "m" switches to advanced mode, which is what shows the theme row.
+      const lines = (await renderOnce(source, 120, 48, ",m")).split("\n");
       const rowOf = (text: string): number => lines.findIndex((line) => line.includes(text));
       return { theme: rowOf("theme"), provider: rowOf("provider"), prompt: rowOf("system ") };
     };

@@ -20,9 +20,9 @@ import {
 import {
   settingsPlanRowDisabled,
   settingsSubscriptionLoginHint,
-  settingsSubscriptionPreset,
-  settingsSubscriptionRowVisible
+  settingsSubscriptionPreset
 } from "./settings-subscription.js";
+import { settingsRowIds } from "./settings-row-navigation.js";
 import { promptCacheSummaryParts } from "./settings-cache-summary.js";
 import { samplingRowValue } from "./sampling-model.js";
 import {
@@ -272,7 +272,11 @@ export function settingsRows(
     routeRow("prose-route", "prose", overlay, "prose"),
     routeRow("utility-route", "utility", overlay, "utility")
   ];
-  return rows.filter((row) => settingsSubscriptionRowVisible(overlay, row.id));
+  // settingsRowIds is the one canonical visibility list — subscription and
+  // view-mode filtering both live there, so the rendered rows and the
+  // cursor's row list can never drift apart.
+  const visibleRowIds = new Set(settingsRowIds(overlay));
+  return rows.filter((row) => visibleRowIds.has(row.id));
 }
 
 function scalarRow(

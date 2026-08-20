@@ -97,6 +97,8 @@ describe("forced story replacement adoption", () => {
     const source = demoAppSource();
     const app = harness(source);
     await app.press(key(","));
+    // SETTINGS_ROW_IDS indexes the full (advanced) row list.
+    app.state.settings!.viewMode = "advanced";
     const modelRow = SETTINGS_ROW_IDS.indexOf("model");
     while (app.state.settings!.cursor < modelRow) await app.press(key("down"));
     await app.press(key("return"));
@@ -120,6 +122,8 @@ describe("forced story replacement adoption", () => {
     const source = demoAppSource();
     const app = harness(source);
     await app.press(key(","));
+    // SETTINGS_ROW_IDS indexes the full (advanced) row list.
+    app.state.settings!.viewMode = "advanced";
     const row = SETTINGS_ROW_IDS.indexOf("system-prompt");
     for (let index = 0; index < row; index += 1) await app.press(key("down"));
     await app.press(key("return"));

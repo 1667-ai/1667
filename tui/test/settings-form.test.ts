@@ -55,6 +55,7 @@ describe("the settings form follows C-03 and C-08", () => {
   test("groups the form under section rules and lines its columns up", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     const rendered = screen(state);
 
     expect(rendered).toContain("── app ");
@@ -92,6 +93,7 @@ describe("the settings form follows C-03 and C-08", () => {
   test("the selected description wraps without losing text", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "compose-focus");
     const rendered = screen(state, 64, 24);
 
@@ -102,6 +104,7 @@ describe("the settings form follows C-03 and C-08", () => {
   test("the selected description stays visible at the minimum terminal width", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "compose-focus");
     const overlay = state.settings!;
     const rendered = frameText(settingsFormRows({
@@ -122,6 +125,7 @@ describe("the settings form follows C-03 and C-08", () => {
   test("the position line reports settings above and below the visible list", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     expect(/↓ \d+ more settings/.test(screen(state, 80, 24))).toBeTrue();
 
     await selectRow(press, state, "utility-route");
@@ -136,6 +140,7 @@ describe("the settings form follows C-03 and C-08", () => {
   test("save status replaces tail rows without moving the selected setting", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "temperature");
     const row = () => screen(state, 80, 24).split("\n")
       .findIndex((line) => line.includes("temperature"));
@@ -158,6 +163,7 @@ describe("the settings form follows C-03 and C-08", () => {
   test("an exact-fit form stays still when status adds a position line", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "reasoning");
     const row = () => screen(state, 120, 43).split("\n")
       .findIndex((line) => line.includes("reasoning"));
@@ -178,6 +184,7 @@ describe("the settings form follows C-03 and C-08", () => {
   test("image input names a protocol limitation", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "image-input");
 
     const rendered = screen(state, 80, 24);
@@ -188,6 +195,7 @@ describe("the settings form follows C-03 and C-08", () => {
   test("the final setting keeps its description beside pending status", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "utility-route");
     const view = state.settings!.view;
     if (!view.editable) throw new Error("editable settings view missing");
@@ -201,6 +209,7 @@ describe("the settings form follows C-03 and C-08", () => {
   test("a settable number wears a chip, a positional track and a default tick", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "temperature");
     const rendered = screen(state);
 
@@ -216,6 +225,7 @@ describe("the settings form follows C-03 and C-08", () => {
   test("arrows step, shift steps ten, and home and end reach the walls", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "temperature");
     const start = state.settings!.draft.generation.temperature!;
 
@@ -234,6 +244,7 @@ describe("the settings form follows C-03 and C-08", () => {
   test("stepping off the floor returns to the sentinel and back", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "temperature");
 
     await press(key("home"));
@@ -253,6 +264,7 @@ describe("the settings form follows C-03 and C-08", () => {
   test("a value past the wall pins the handle and states the limit", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     state.settings!.draft = {
       ...state.settings!.draft,
       generation: { ...state.settings!.draft.generation, temperature: 4 }
@@ -268,6 +280,7 @@ describe("the settings form follows C-03 and C-08", () => {
   test("a key is supplied one way, and the row says where it is kept", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     const rendered = screen(state);
 
     // Two rows for one job — an env var and a stored key — left every writer
@@ -283,6 +296,7 @@ describe("the settings form follows C-03 and C-08", () => {
   test("the check action reports in place beside the row that runs it", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "base-url");
     expect(screen(state)).toContain("[ check connection ]");
 
@@ -323,6 +337,7 @@ describe("C-15 · the model option column", () => {
   test("a long list opens as a column that owns the arrows", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     withDiscoveredModels(state, 9);
     await selectRow(press, state, "model");
 
@@ -353,6 +368,7 @@ describe("C-15 · the model option column", () => {
   test("typing narrows the column and an unmatched name is still usable", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     withDiscoveredModels(state, 9);
     await selectRow(press, state, "model");
     await press(key("return"));
@@ -378,6 +394,7 @@ describe("the settings row model stays one list", () => {
   test("SETTINGS_ROW_IDS and settingsRows agree, in order", () => {
     const { source, state } = settingsHarness();
     const overlay = initialSettingsOverlay(source.settingsView, state.config);
+    overlay.viewMode = "advanced";
     // The cursor indexes both: one walks the ids, the other paints the rows.
     // Nothing but this test stops a reorder in one from silently retargeting
     // every key in the panel.
@@ -388,6 +405,7 @@ describe("the settings row model stays one list", () => {
   test("subscription plans hide network controls and keep manual model entry", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     const overlay = state.settings!;
     overlay.view = {
       ...overlay.view,
@@ -442,6 +460,7 @@ describe("the settings row model stays one list", () => {
   test("Claude plan help names its terminal sign-in command", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     const overlay = state.settings!;
     overlay.view = {
       ...overlay.view,
@@ -468,6 +487,7 @@ describe("the settings row model stays one list", () => {
   test("subscription plans load catalogs and skip context probes", async () => {
     const { source, state, backend, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     const overlay = state.settings!;
     overlay.view = {
       ...overlay.view,
@@ -563,6 +583,7 @@ describe("the settings row model stays one list", () => {
   test("subscription plans hide probe keys and ignore direct probe shortcuts", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     const overlay = state.settings!;
     overlay.draft = settingsTextDraftWithSubscriptionPlan(
       overlay.draft,
@@ -601,6 +622,7 @@ describe("the settings row model stays one list", () => {
   test("tab runs only the action the focused row declares", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
 
     await selectRow(press, state, "temperature");
     await press(key("tab"));
@@ -619,6 +641,7 @@ describe("C-08 keeps its track through the typing state", () => {
   test("an out-of-range keystroke pins the handle and states the limit", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "temperature");
     await press(key("return"));
     for (const character of "9") await press(key(character, { sequence: character }));

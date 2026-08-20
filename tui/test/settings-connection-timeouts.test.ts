@@ -25,6 +25,7 @@ describe("connection timeout settings rows (issue #127)", () => {
     const { source, state, press } = settingsHarness();
     installNetworkSettings(source);
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
 
     const cases = [
       { row: "timeout-headers", typed: "42", field: "responseHeaderMs", expectedMs: 42_000 },
@@ -54,6 +55,7 @@ describe("connection timeout settings rows (issue #127)", () => {
     source.api.getSettings = async () => source.settingsView;
 
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     const installedFirstTokenMs = resolveSettingsProfile(
       state.settings!.draft.document!,
       state.settings!.draft.selectedProfileId!
@@ -80,6 +82,7 @@ describe("connection timeout settings rows (issue #127)", () => {
     const { source, state, press } = settingsHarness();
     installNetworkSettings(source);
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "timeout-idle");
     const before = resolveSettingsProfile(
       state.settings!.draft.document!,
@@ -102,6 +105,7 @@ describe("connection timeout settings rows (issue #127)", () => {
     // successfully and do nothing.
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     const ids = settingsRows(state.settings!, state.config).map((row) => row.id);
     expect(ids).not.toContain("timeout-first-token");
     expect(ids).toContain("timeout-headers");
@@ -126,6 +130,7 @@ describe("connection timeout settings rows (issue #127)", () => {
       const { source, state, press } = settingsHarness();
       installNetworkSettings(source);
       await openSettings(press);
+      state.settings!.viewMode = "advanced";
       await draftRow(press, state, row, typed);
 
       const document = state.settings!.draft.document!;
@@ -144,6 +149,7 @@ describe("connection timeout settings rows (issue #127)", () => {
       const { source, state, press } = settingsHarness();
       installNetworkSettings(source);
       await openSettings(press);
+      state.settings!.viewMode = "advanced";
       await draftRow(press, state, row, typed);
       await selectRow(press, state, row);
       await press(key("right"));
@@ -163,6 +169,7 @@ describe("connection timeout settings rows (issue #127)", () => {
     const { source, state, press } = settingsHarness();
     installNetworkSettings(source);
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await draftRow(press, state, "timeout-headers", "1.5");
 
     const document = state.settings!.draft.document!;
@@ -183,6 +190,7 @@ describe("connection timeout settings rows (issue #127)", () => {
     const { source, state, press } = settingsHarness();
     installNetworkSettings(source);
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
 
     const overlay = state.settings!;
     const document = overlay.draft.document!;

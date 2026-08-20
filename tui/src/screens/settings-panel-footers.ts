@@ -47,6 +47,14 @@ function withoutPlanProbes(
   });
 }
 
+/** Simple/advanced view toggle. Shown only in the widest footer variant of
+ *  each keyline — the same "narrow terminal loses words before it loses
+ *  keys" tier every other rarely-critical verb (`x discard`, `i import`)
+ *  already skips in the medium and terse variants below. */
+const VIEW_MODE_TOGGLE = {
+  token: "m mode", action: "toggle-view-mode"
+} as const satisfies { token: string; action: KeyAction };
+
 export const SETTINGS_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" },
   { token: "↓", action: "focus-next" },
@@ -55,6 +63,7 @@ export const SETTINGS_FOOTER_ACTIONS = [
   { token: "↵ next", action: "open-selected" },
   { token: "s save", action: "save-edit" },
   { token: "c check", action: "check" },
+  VIEW_MODE_TOGGLE,
   { token: "esc close", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 
@@ -64,6 +73,7 @@ const SETTINGS_TEXT_FOOTER_ACTIONS = [
   { token: "↵ edit", action: "open-selected" },
   { token: "s save", action: "save-edit" },
   { token: "c check", action: "check" },
+  VIEW_MODE_TOGGLE,
   { token: "esc close", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 
@@ -74,6 +84,7 @@ const SETTINGS_CONTEXT_FOOTER_ACTIONS = [
   { token: "p detect", action: "detect-context" },
   { token: "s save", action: "save-edit" },
   { token: "c check", action: "check" },
+  VIEW_MODE_TOGGLE,
   { token: "esc close", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 
@@ -93,12 +104,13 @@ const SETTINGS_PENDING_FOOTER_ACTIONS = [
   { token: "s save", action: "save-edit" },
   { token: "c check", action: "check" },
   { token: "x discard", action: "discard-pending" },
+  VIEW_MODE_TOGGLE,
   { token: "esc close", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 
 export const SETTINGS_CHOICE_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ choose · ↵ next · s save · c check · esc close",
+    text: "↑↓ move · ←→ choose · ↵ next · s save · c check · m mode · esc close",
     actions: SETTINGS_FOOTER_ACTIONS
   },
   {
@@ -129,7 +141,7 @@ export const SETTINGS_CHOICE_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_MODEL_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ choose · ↵ custom · s save · c check · esc close",
+    text: "↑↓ move · ←→ choose · ↵ custom · s save · c check · m mode · esc close",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -138,6 +150,7 @@ export const SETTINGS_MODEL_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "↵ custom", action: "open-selected" },
       { token: "s save", action: "save-edit" },
       { token: "c check", action: "check" },
+      VIEW_MODE_TOGGLE,
       { token: "esc close", action: "cancel" }
     ]
   },
@@ -169,7 +182,7 @@ export const SETTINGS_MODEL_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s save · esc close",
+    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s save · m mode · esc close",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -181,6 +194,7 @@ export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "e rename", action: "edit" },
       { token: "d delete", action: "delete-item" },
       { token: "s save", action: "save-edit" },
+      VIEW_MODE_TOGGLE,
       { token: "esc close", action: "cancel" }
     ]
   },
@@ -222,7 +236,7 @@ export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
  * command visible with the profile verbs, because both affect the same draft. */
 export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s save · x discard · esc close",
+    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s save · x discard · m mode · esc close",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -235,6 +249,7 @@ export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "d delete", action: "delete-item" },
       { token: "s save", action: "save-edit" },
       { token: "x discard", action: "discard-pending" },
+      VIEW_MODE_TOGGLE,
       { token: "esc close", action: "cancel" }
     ]
   },
@@ -276,7 +291,7 @@ export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_TEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ↵ edit · s save · c check · esc close",
+    text: "↑↓ move · ↵ edit · s save · c check · m mode · esc close",
     actions: SETTINGS_TEXT_FOOTER_ACTIONS
   },
   {
@@ -328,7 +343,7 @@ export const SETTINGS_PICKER_FOOTERS: ReadonlyArray<SettingsFooter> = [
  *  borrowing the cycler's `choose`. */
 export const SETTINGS_SCALAR_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ step · ⇧ ×10 · ↵ type · s save · esc close",
+    text: "↑↓ move · ←→ step · ⇧ ×10 · ↵ type · s save · m mode · esc close",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -336,6 +351,7 @@ export const SETTINGS_SCALAR_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "→ step", action: "take-next" },
       { token: "↵ type", action: "open-selected" },
       { token: "s save", action: "save-edit" },
+      VIEW_MODE_TOGGLE,
       { token: "esc close", action: "cancel" }
     ]
   },
@@ -366,7 +382,7 @@ export const SETTINGS_SCALAR_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_CONTEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ step · ↵ type · p detect · s save · esc close",
+    text: "↑↓ move · ←→ step · ↵ type · p detect · s save · m mode · esc close",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -375,11 +391,12 @@ export const SETTINGS_CONTEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "↵ type", action: "open-selected" },
       { token: "p detect", action: "detect-context" },
       { token: "s save", action: "save-edit" },
+      VIEW_MODE_TOGGLE,
       { token: "esc close", action: "cancel" }
     ]
   },
   {
-    text: "↑↓ move · ↵ edit · p detect · s save · c check · esc close",
+    text: "↑↓ move · ↵ edit · p detect · s save · c check · m mode · esc close",
     actions: SETTINGS_CONTEXT_FOOTER_ACTIONS
   },
   {
@@ -433,7 +450,7 @@ export const SETTINGS_EDIT_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_PENDING_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ↵ edit · s save · c check · x discard · esc close",
+    text: "↑↓ move · ↵ edit · s save · c check · x discard · m mode · esc close",
     actions: SETTINGS_PENDING_FOOTER_ACTIONS
   },
   {

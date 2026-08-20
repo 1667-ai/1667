@@ -94,6 +94,7 @@ import {
   cycleSettingsRow
 } from "./settings-selector-actions.js";
 import { settingsSubscriptionPreset } from "./settings-subscription.js";
+import { toggleSettingsViewMode } from "./settings-view-mode.js";
 
 import type {
   RuntimeState,
@@ -210,7 +211,7 @@ export async function settingsOverlayAction(
       }
     }
   } else if (overlay.modelPicker !== null) {
-    settingsModelPickerAction(resolved, state, overlay);
+    await settingsModelPickerAction(resolved, state, source, context, overlay);
   } else if (overlay.edit !== null) {
     await settingsInlineEditAction(resolved, state, source, context, overlay);
   } else if (resolved.action === "focus-next") {
@@ -284,6 +285,13 @@ export async function settingsOverlayAction(
     await checkSettings(state, source, context, overlay);
   } else if (resolved.action === "detect-context") {
     await detectSettingsContext(state, source, context, overlay);
+  } else if (resolved.action === "toggle-view-mode") {
+    const cursorRow = settingsCursorRowIdentity(overlay);
+    const next = toggleSettingsViewMode(overlay);
+    restoreSettingsCursor(overlay, cursorRow);
+    state.toast = overlay.draft.document === null
+      ? `${next} view`
+      : `${next} view · s saves settings`;
   }
   return true;
 }

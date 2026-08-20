@@ -11,6 +11,10 @@ import {
   settingsPlanRowDisabled,
   settingsSubscriptionRowVisible
 } from "./settings-subscription.js";
+import {
+  settingsSimpleModeRowVisible,
+  settingsViewMode
+} from "./settings-view-mode.js";
 import type { SettingsOverlayState, SettingsRowId } from "./state.js";
 
 /** The form's keyboard order. The prompt-layout experiment stays beside the
@@ -47,11 +51,17 @@ export const SETTINGS_ROW_IDS = [
 
 /** URL, plain-HTTP, and API-key controls do not apply to fixed subscription
  * connections. The provider row remains in the list so the writer can leave
- * the plan preset without a hidden cursor jump. */
+ * the plan preset without a hidden cursor jump. `simple` mode narrows the
+ * subscription-filtered list further, so a fixed subscription connection
+ * stays hidden in both modes instead of the two visibility rules drifting
+ * apart. */
 export function settingsRowIds(
   overlay: SettingsOverlayState
 ): readonly SettingsRowId[] {
-  return SETTINGS_ROW_IDS.filter((row) => settingsSubscriptionRowVisible(overlay, row));
+  const visible = SETTINGS_ROW_IDS.filter((row) => settingsSubscriptionRowVisible(overlay, row));
+  return settingsViewMode(overlay) === "advanced"
+    ? visible
+    : visible.filter(settingsSimpleModeRowVisible);
 }
 
 /** Name the selected row before a profile or provider change can reshape the

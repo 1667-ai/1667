@@ -46,6 +46,7 @@ describe("Sampling Settings user flow", () => {
   test("starts collapsed, opens through the Settings row, and shows a shared disabled reason", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
 
     expect(state.settings?.sampling).toBe(null);
     const collapsed = render(state, 120, 36);
@@ -93,6 +94,7 @@ describe("Sampling Settings user flow", () => {
 
     await closeSamplingSettings(state, press);
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "sampling");
     await press(key("return"));
     expect(state.settings?.draft.sampling.topP).toBe(0.7);
@@ -1063,6 +1065,7 @@ async function enterSampling(
   press: ReturnType<typeof settingsHarness>["press"]
 ): Promise<void> {
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await selectRow(press, state, "sampling");
   await press(key("return"));
   expect(state.settings?.sampling?.panel).toBe("sampling");

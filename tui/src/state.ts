@@ -28,7 +28,8 @@ import type {
   ReasoningDisplayV2,
   SaveSettingsCommand,
   SamplingScalarKnobV2,
-  SettingsView
+  SettingsView,
+  SettingsViewModeV2
 } from "../../shared/settings-v2-types.js";
 import type { ReasoningRecord } from "../../shared/reasoning.js";
 import type { SamplingBiasResolutionResult } from "../../shared/sampling-capabilities.js";
@@ -321,6 +322,14 @@ export interface SettingsOverlayState {
   /** Write-only key material; never projected into GenerationSettings/document. */
   connectionSecrets: Record<string, string | null>;
   cursor: number;
+  /** Which rows the field list shows. Read at open time from the document's
+   *  `settingsViewMode` (absence means `simple`); the `m` action flips it for
+   *  the rest of the session and, when a document exists, mirrors the choice
+   *  onto the draft so `s` persists it. A read-only legacy view has no
+   *  document to persist into, so it stays session-only there — the toggle
+   *  still works, since which rows show is a view concern, not an editability
+   *  one. */
+  viewMode: SettingsViewModeV2;
   /** Settings-menu row editor. Full-screen prompts use `RuntimeState.editor`. */
   edit: SettingsInlineEditState | null;
   /** Nested three-layer sampling editor. */

@@ -115,6 +115,12 @@ export async function selectRow(
   state: ReturnType<typeof settingsHarness>["state"],
   row: SettingsRowId
 ): Promise<void> {
+  // Most fixtures predate the simple/advanced split and expect every row
+  // reachable by default. Simple mode is now the overlay's real default, so
+  // transparently switch to advanced the first time a test asks for a row
+  // simple mode does not show, rather than making every such fixture toggle
+  // it by hand.
+  if (settingsRowIndex(row, state.settings!) < 0) await press(key("m"));
   const target = settingsRowIndex(row, state.settings!);
   if (target < 0) throw new Error(`settings has no row for ${row}`);
   while (state.settings!.cursor < target) await press(key("down"));

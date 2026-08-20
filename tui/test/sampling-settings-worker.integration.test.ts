@@ -30,6 +30,7 @@ describe("Sampling Settings through the embedded worker", () => {
     source.api.resolveSamplingBias = worker.api.resolveSamplingBias;
 
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
     await selectRow(press, state, "sampling");
     await press(key("return"));
     for (let index = 0; index < samplingLayerRowIndex("banned-strings"); index += 1) {

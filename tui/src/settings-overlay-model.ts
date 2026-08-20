@@ -48,6 +48,7 @@ import {
   settingsTextDraftWithTextPreset
 } from "./settings-text.js";
 import { settingsPlanRowDisabled } from "./settings-subscription.js";
+import { DEFAULT_SETTINGS_VIEW_MODE } from "./settings-view-mode.js";
 import { renameSettingsProfile } from "./settings-profile-draft.js";
 import { settingsModelDisplayText } from "./settings-profile-controls.js";
 import type {
@@ -126,6 +127,7 @@ export function initialSettingsOverlay(
     modelSelectionByProfile: {},
     connectionSecrets: {},
     cursor: 0,
+    viewMode: draft.document?.settingsViewMode ?? DEFAULT_SETTINGS_VIEW_MODE,
     edit: null,
     sampling: null,
     profileTransfer: null,

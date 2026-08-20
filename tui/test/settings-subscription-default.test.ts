@@ -66,6 +66,7 @@ test("one signed-in plan becomes an unsaved provider draft", async () => {
     source.api.getSettings = async () => source.settingsView;
 
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
 
     expect(settingsSubscriptionPreset(state.settings!)).toBe(fixture.provider);
     expect(settingsDraftChanged(state.settings!)).toBeTrue();
@@ -89,6 +90,7 @@ test("both or neither signed-in plans leave the default provider untouched", asy
     source.api.getSettings = async () => source.settingsView;
 
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
 
     expect(settingsSubscriptionPreset(state.settings!)).toBe(null);
     expect(settingsProviderChoice(state.settings!.draft.generation).id).toBe("dry-run");
@@ -109,6 +111,7 @@ test("cached signed-in auth does not create a draft before fresh settings arrive
   source.api.getSettings = async () => fresh;
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
 
   expect(settingsSubscriptionPreset(state.settings!)).toBe(null);
   expect(settingsProviderChoice(state.settings!.draft.generation).id).toBe("dry-run");
@@ -268,6 +271,7 @@ test("a pending activation keeps the pristine provider untouched", async () => {
   source.api.getSettings = async () => source.settingsView;
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
 
   expect(settingsSubscriptionPreset(state.settings!)).toBe(null);
   expect(settingsProviderChoice(state.settings!.draft.generation).id).toBe("dry-run");
@@ -318,6 +322,7 @@ test("a saved provider, API key, or local route is never replaced", async () => 
     source.api.getSettings = async () => source.settingsView;
 
     await openSettings(press);
+    state.settings!.viewMode = "advanced";
 
     expect(settingsProviderChoice(
       state.settings!.draft.generation,

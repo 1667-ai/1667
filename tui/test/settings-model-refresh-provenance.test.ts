@@ -23,6 +23,7 @@ test("an arrow affirms the only automatic model", async () => {
   installHostModelDiscovery(source);
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "model", "");
   await selectRow(press, state, "model");
   await press(key("right"));
@@ -67,6 +68,7 @@ test("an unchanged model choice does not fork a shared model", async () => {
   });
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   const document = state.settings!.draft.document;
   await selectRow(press, state, "model");
   await press(key("right"));
@@ -112,6 +114,7 @@ test("a prompt format edit keeps its automatic model target", async () => {
   };
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "model", "");
   await selectRow(press, state, "text-prompt-format");
   await press(key("right"));
@@ -125,6 +128,7 @@ test("unchanged inline model keeps its context window", async () => {
   configureNetworkSource(source);
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "context-window", "32768");
   await draftRow(press, state, "model", "novelist-a");
 
@@ -165,6 +169,7 @@ test(`${catalog} next catalog clears an unavailable automatic model`, async () =
   };
 
   await openSettings(press);
+  state.settings!.viewMode = "advanced";
   await draftRow(press, state, "model", "");
   await draftRow(press, state, "context-window", "12345");
   const editingKey = draftRow(press, state, "api-key", "replacement-secret");
