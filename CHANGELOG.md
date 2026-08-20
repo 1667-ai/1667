@@ -5,14 +5,26 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
-- **ChatGPT and Claude plans show their bundled model catalogs.** Select a
-  model in Settings, or enter a model ID manually.
-
 - **1667 now reports available releases by default.** You can turn update
   checks off in Settings. The check stays silent when the network is not
   available. Existing config files use the new default. A Managed Installation
   notice shows the checked version and channel in the upgrade command. Other
   notices show only the new version.
+
+## 0.9.10-rc.5 - 2026-08-20
+
+- **Settings opens in a simple view.** The simple view shows the system
+  prompt, the provider, the model, and the context size. It also shows the
+  base URL and the API key when the provider needs them. Press `m` for the
+  advanced view, which shows every row. 1667 keeps your choice.
+
+- **A model change finds the context size.** When you select a model, 1667
+  asks the provider for the context size and sets it. A size that you type
+  stays. 1667 shows a message on the context size row when the request
+  fails.
+
+- **ChatGPT and Claude plans show their bundled model catalogs.** Select a
+  model in Settings, or enter a model ID manually.
 
 ## 0.9.10-rc.4 - 2026-08-20
 
