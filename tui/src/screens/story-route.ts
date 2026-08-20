@@ -46,10 +46,23 @@ export function resolveStoryScreenRoute(state: StoryScreenState): StoryScreenRou
 
 /** Report whether the selected renderer draws state.toast. */
 export function routeShowsToast(route: StoryScreenRoute): boolean {
-  if (route.kind === "aside") return !route.aside.busy;
-  return route.kind !== "log"
-    && route.kind !== "search"
-    && route.kind !== "record"
-    && route.kind !== "request"
-    && route.kind !== "probs";
+  switch (route.kind) {
+    case "log":
+    case "search":
+    case "record":
+    case "request":
+    case "probs":
+      return false;
+    case "aside":
+      return !route.aside.busy;
+    case "map":
+    case "editor":
+    case "fullscreen-composer":
+    case "page":
+      return true;
+    default: {
+      const exhaustive: never = route;
+      return exhaustive;
+    }
+  }
 }
