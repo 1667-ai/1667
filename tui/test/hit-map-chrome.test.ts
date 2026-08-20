@@ -107,7 +107,8 @@ const footerCases: FooterCase[] = [
         partId: createStoryViewModel(state.payload, state.stream).rows[state.focusIndex]!.id
       };
     } },
-  { name: "settings", mode: "SETTINGS", actions: SETTINGS_FOOTER_ACTIONS,
+  { name: "settings", mode: "SETTINGS", actions: SETTINGS_FOOTER_ACTIONS.map((entry) =>
+      entry.action === "toggle-view-mode" ? { ...entry, token: "m simple" } : entry),
     keys: [
       key("up"), key("down"), key("left"), key("right"),
       key("return"), key("s"), key("c"), key("m"), key("escape")
@@ -1237,7 +1238,7 @@ describe("hit map clickable chrome", () => {
       { name: "chapters confirm", expected: "↵ jump · s sum · e rename · n break · d confirms · esc keeps",
         setup: (state) => { state.mode = "CHAPTERS"; state.chapters = { cursor: 0, rename: null, deleteArmedId: "chapter-break-1" }; } },
       { name: "settings",
-        expected: "↑↓ move · ←→ choose · ↵ next · s save · c check · m mode · esc",
+        expected: "↑↓ move · ←→ choose · ↵ next · s save · c check · m simple · esc",
         setup: (state, source) => {
           state.mode = "SETTINGS";
           // Row 0 is "theme" (a cycler) only in advanced mode.

@@ -3,6 +3,10 @@ import { SETTINGS_ROW_IDS, settingsRowIds } from "../src/settings-row-navigation
 import { settingsCursorRowIdentity } from "../src/settings-row-navigation.js";
 import { settingsDraftChanged } from "../src/settings-overlay-model.js";
 import { settingsTextDraftWithSubscriptionPlan } from "../src/settings-text.js";
+import { publishCurrentSettingsModelDiscovery } from "../src/settings-model-discovery.js";
+import { renderStoryScreen } from "../src/screens/story.js";
+import { frameText } from "../src/screens/story/frame.js";
+import { settingsFooterVariants } from "../src/screens/settings-panel-footers.js";
 import {
   key,
   openSettings,
@@ -10,6 +14,69 @@ import {
   settingsHarness
 } from "./settings-test-harness.js";
 import { configureNetworkSource } from "./settings-model-provenance-test-helpers.js";
+
+test("the footer names the view that the mode toggle will open", async () => {
+  const { state, cache, press } = settingsHarness();
+  await openSettings(press);
+
+  const rendered = (width = 120) => frameText(renderStoryScreen(state, {
+    width,
+    height: 36,
+    wrapCache: cache
+  }).lines);
+
+  expect(rendered()).toContain("m simple");
+  expect(rendered()).not.toContain("m mode");
+
+  await press(key("m"));
+
+  expect(rendered()).toContain("m advanced");
+  expect(rendered()).not.toContain("m mode");
+
+  publishCurrentSettingsModelDiscovery(state.settings!, {
+    observedAt: "2026-01-01T00:00:00.000Z",
+    models: [
+      {
+        remoteId: "model-a",
+        name: "Model A",
+        contextWindow: 32_768,
+        maxOutputTokens: null,
+        source: "openai-models"
+      },
+      {
+        remoteId: "model-b",
+        name: "Model B",
+        contextWindow: 32_768,
+        maxOutputTokens: null,
+        source: "openai-models"
+      }
+    ]
+  });
+  await selectRow(press, state, "model");
+
+  expect(rendered(80)).toContain("m advanced");
+});
+
+test("profile footers name the destination view with and without a pending change", async () => {
+  const { state, press } = settingsHarness();
+  await openSettings(press);
+  await selectRow(press, state, "profile");
+  const footer = () => settingsFooterVariants(state.settings!, false)[0]!;
+
+  expect(footer().text).toContain("m simple");
+  expect(footer().text).not.toContain("m mode");
+
+  const view = state.settings!.view;
+  if (!view.editable) throw new Error("editable settings view missing");
+  state.settings!.view = { ...view, pendingRevision: 2 };
+  expect(footer().text).toContain("x discard");
+  expect(footer().text).toContain("m simple");
+
+  await press(key("m"));
+
+  expect(footer().text).toContain("m advanced");
+  expect(footer().text).not.toContain("m mode");
+});
 
 test("simple mode shows only the intended rows, and advanced mode shows every row unchanged", async () => {
   const { state, press } = settingsHarness(undefined, { settingsViewMode: "simple" });

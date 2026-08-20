@@ -11,6 +11,21 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.10",
+    date: "2026-08-20",
+    body: "- **This release has no additional product changes.** It contains the same\n  behavior as 0.9.10-rc.7."
+  },
+  {
+    version: "0.9.10-rc.7",
+    date: "2026-08-20",
+    body: "- **This beta has no additional product changes.** It contains the same\n  behavior as 0.9.10-rc.6."
+  },
+  {
+    version: "0.9.10-rc.6",
+    date: "2026-08-20",
+    body: "- **1667 now reports available releases by default.** You can turn update\n  checks off in Settings. The check stays silent when the network is not\n  available. Existing config files use the new default. A Managed Installation\n  notice shows the checked version and channel in the upgrade command. Other\n  notices show only the new version.\n\n- **Managed installations at 0.9.9 can upgrade to this release.** The npm\n  packages keep the notice that 0.9.9 accepts. Each SPDX SBOM contains the\n  current notice. Future notice changes do not break this upgrade path.\n\n- **Subscription plans use one model picker action.** Press Enter to open the\n  model picker for a ChatGPT Plan or a Claude Plan. Left Arrow and Right Arrow\n  do not change these models.\n\n- **The Settings mode action shows its destination.** The action says\n  `m advanced` in simple mode. It says `m simple` in advanced mode."
+  },
+  {
     version: "0.9.10-rc.5",
     date: "2026-08-20",
     body: "- **Settings opens in a simple view.** The simple view shows the system\n  prompt, the provider, the model, and the context size. It also shows the\n  base URL and the API key when the provider needs them. Press `m` for the\n  advanced view, which shows every row. 1667 keeps your choice.\n\n- **A model change finds the context size.** When you select a model, 1667\n  asks the provider for the context size and sets it. A size that you type\n  stays. 1667 shows a message on the context size row when the request\n  fails.\n\n- **ChatGPT and Claude plans show their bundled model catalogs.** Select a\n  model in Settings, or enter a model ID manually."

@@ -86,7 +86,14 @@ test("a fixed subscription connection reports the manual-entry warning instead o
     return probeContextWindow(...args);
   };
 
-  await draftRow(press, state, "model", "gpt-5.5");
+  await selectRow(press, state, "model");
+  await press(key("return"));
+  expect(overlay.modelPicker).not.toBe(null);
+  for (const character of "gpt-5.5") {
+    await press(key(character, { sequence: character }));
+  }
+  await press(key("down"));
+  await press(key("return"));
 
   expect(probeCalls).toBe(0);
   expect(overlay.result?.state).toBe("warning");

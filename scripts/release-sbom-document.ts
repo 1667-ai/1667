@@ -51,6 +51,7 @@ export interface SpdxPackage {
   readonly supplier: string;
   readonly primaryPackagePurpose: "APPLICATION" | "LIBRARY";
   readonly comment: string;
+  readonly attributionTexts?: readonly string[];
   readonly checksums?: readonly SpdxChecksum[];
   readonly externalRefs?: readonly SpdxExternalRef[];
   readonly packageFileName?: string;
@@ -286,6 +287,7 @@ function productPackage(
     supplier: PRODUCT_SUPPLIER,
     primaryPackagePurpose: "APPLICATION" as const,
     comment: `Built from tag ${source.tagName} at a clean working tree.`,
+    attributionTexts: Object.freeze([source.noticeText]),
     packageFileName: detail.packageFileName,
     sourceInfo: detail.sourceInfo,
     builtDate: spdxTimestamp(source.buildTimestamp),

@@ -24,6 +24,7 @@ import {
   releasePackageJson,
   RELEASE_LICENSE_FILES,
   RELEASE_LICENSE_FILE_DIGESTS,
+  RELEASE_PACKAGE_LICENSE_FILE_DIGESTS,
   type ReleaseLauncherManifest,
   type ReleasePackageManifest,
   type ReleasePlatformManifest
@@ -69,12 +70,19 @@ export type TarballInspectionEntry = Readonly<{
 export interface ReleaseTarballInspection {
   packageName: string;
   packageJsonSha256: string;
+  noticeAttribution: ReleaseNoticeAttribution;
   entries: readonly TarballInspectionEntry[];
   totalFileBytes: number;
 }
 
-const TARBALL_KEYS = new Set(["packageJsonSha256", "entries"]);
+export interface ReleaseNoticeAttribution {
+  readonly sha256: string;
+  readonly bytes: number;
+}
+
+const TARBALL_KEYS = new Set(["packageJsonSha256", "noticeAttribution", "entries"]);
 const ENTRY_KEYS = new Set(["path", "type", "mode", "size", "sha256"]);
+const NOTICE_ATTRIBUTION_KEYS = new Set(["sha256", "bytes"]);
 
 /**
  * The matrix is what gets published, so it covers the published targets only.
@@ -141,6 +149,7 @@ export function validateReleaseTarballInspection(
 ): ReleaseTarballInspection {
   const input = exactRecord(value, TARBALL_KEYS, `${manifest.name} tarball inspection`);
   const packageJsonSha256 = sha256Digest(input.packageJsonSha256, "package.json");
+  const noticeAttribution = parseNoticeAttribution(input.noticeAttribution);
   if (!Array.isArray(input.entries)) throw new Error("Tarball entries must be an array");
   if (input.entries.length === 0 || input.entries.length > MAX_RELEASE_TARBALL_ENTRIES) {
     throw new Error("Tarball entry count is outside the release bound");
@@ -183,9 +192,24 @@ export function validateReleaseTarballInspection(
   return Object.freeze({
     packageName: manifest.name,
     packageJsonSha256,
+    noticeAttribution,
     entries: Object.freeze(entries),
     totalFileBytes
   });
+}
+
+function parseNoticeAttribution(value: unknown): ReleaseNoticeAttribution {
+  const input = exactRecord(value, NOTICE_ATTRIBUTION_KEYS, "Tarball SBOM NOTICE attribution");
+  const sha256 = sha256Digest(input.sha256, "SBOM NOTICE attribution");
+  if (typeof input.bytes !== "number" || !Number.isSafeInteger(input.bytes)
+    || input.bytes <= 0) {
+    throw new Error("Tarball SBOM NOTICE attribution size is invalid");
+  }
+  const expected = RELEASE_LICENSE_FILE_DIGESTS.NOTICE;
+  if (sha256 !== expected.sha256 || input.bytes !== expected.bytes) {
+    throw new Error("Tarball SBOM does not contain the current NOTICE attribution");
+  }
+  return Object.freeze({ sha256, bytes: input.bytes });
 }
 
 export function tarballFile(
@@ -321,16 +345,14 @@ function assertEntryPolicy(
 }
 
 /**
- * Binds the staged licence files to the exact bytes the project publishes under.
- * Every package stages the same repository-root LICENSE and NOTICE, so a
- * substituted or truncated copy applied to all packages leaves the packages in
- * agreement with each other and with themselves; only a pinned digest rejects
- * it, and shipping an invalid licence to a registry is not reversible.
+ * Binds npm package licence files to the exact bytes the updater accepts.
+ * `NOTICE` is deliberately the compatibility copy from 0.9.9; current
+ * third-party attribution is carried by each package SBOM.
  */
 function assertLicenceFileDigest(entry: TarballInspectionEntry): void {
   for (const name of RELEASE_LICENSE_FILES) {
     if (entry.path !== `package/${name}`) continue;
-    const pinned = RELEASE_LICENSE_FILE_DIGESTS[name];
+    const pinned = RELEASE_PACKAGE_LICENSE_FILE_DIGESTS[name];
     if (entry.sha256 !== pinned.sha256 || entry.size !== pinned.bytes) {
       throw new Error(`${entry.path} is not the reviewed ${name} file`);
     }

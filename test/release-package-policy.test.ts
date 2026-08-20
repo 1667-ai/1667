@@ -27,6 +27,8 @@ import {
   releasePackageJson,
   RELEASE_LICENSE_FILES,
   RELEASE_LICENSE_FILE_DIGESTS,
+  RELEASE_PACKAGE_LICENSE_FILE_DIGESTS,
+  RELEASE_PACKAGE_NOTICE,
   RELEASE_PACKAGE_REPOSITORY
 } from "../scripts/release-package-manifests.js";
 import {
@@ -36,9 +38,11 @@ import {
   validateReleasePackageMatrix,
   validateReleaseTarballInspection
 } from "../scripts/release-package-policy.js";
+import { RELEASE_NOTICE_ATTRIBUTION } from "./release-sbom-fixture.js";
 
 const VERSION = "2.0.0";
 const PLATFORM_PACKAGE = releaseTargetForArtifact("linux-x64").packageName;
+const RELEASE_PACKAGE_NOTICE_BYTES = Buffer.from(RELEASE_PACKAGE_NOTICE, "utf8");
 const REPOSITORY_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   ".."
@@ -223,22 +227,35 @@ test("tarball policy requires a sound LICENSE and NOTICE in every package", () =
   }
 });
 
-// Editing LICENSE or NOTICE requires updating RELEASE_LICENSE_FILE_DIGESTS in
-// the same commit. That coupling is deliberate: changing the licence text a
-// published product ships under should be a reviewed event, not a silent
-// consequence of a staging script, and npm cannot replace a published version.
-test("pinned licence digests match the repository files they authorise", async () => {
-  for (const name of RELEASE_LICENSE_FILES) {
-    const bytes = await readFile(path.join(REPOSITORY_ROOT, name));
-    assert.deepEqual(
-      {
-        sha256: createHash("sha256").update(bytes).digest("hex"),
-        bytes: bytes.byteLength
-      },
-      { ...RELEASE_LICENSE_FILE_DIGESTS[name] },
-      `${name} changed without updating its pinned digest`
-    );
-  }
+// Editing LICENSE or the repository NOTICE requires updating its archive pin.
+// The npm NOTICE pin stays at the 0.9.9 bytes so an old updater can migrate.
+test("release licence digests match their authorised sources", async () => {
+  const license = await readFile(path.join(REPOSITORY_ROOT, "LICENSE"));
+  assert.deepEqual(
+    {
+      sha256: createHash("sha256").update(license).digest("hex"),
+      bytes: license.byteLength
+    },
+    { ...RELEASE_LICENSE_FILE_DIGESTS.LICENSE },
+    "LICENSE changed without updating its pinned digest"
+  );
+  const notice = await readFile(path.join(REPOSITORY_ROOT, "NOTICE"));
+  assert.deepEqual(
+    {
+      sha256: createHash("sha256").update(notice).digest("hex"),
+      bytes: notice.byteLength
+    },
+    { ...RELEASE_LICENSE_FILE_DIGESTS.NOTICE },
+    "NOTICE changed without updating its archive digest"
+  );
+  assert.deepEqual(
+    {
+      sha256: createHash("sha256").update(RELEASE_PACKAGE_NOTICE_BYTES).digest("hex"),
+      bytes: RELEASE_PACKAGE_NOTICE_BYTES.byteLength
+    },
+    { ...RELEASE_PACKAGE_LICENSE_FILE_DIGESTS.NOTICE },
+    "the npm NOTICE compatibility digest changed"
+  );
 });
 
 test("bounded tarball inspection accepts only declared regular files", () => {
@@ -308,6 +325,7 @@ export function tarballFixture(
   const packageJsonSha256 = sha256(`${manifest.name} package.json`);
   return {
     packageJsonSha256,
+    noticeAttribution: RELEASE_NOTICE_ATTRIBUTION,
     entries: [
       directory("package"),
       directory("package/bin"),
@@ -328,7 +346,7 @@ export function tarballFixture(
 
 /** The pin rejects stand-in bytes, so fixtures present the reviewed digests. */
 function licenceFile(name: "LICENSE" | "NOTICE") {
-  const pinned = RELEASE_LICENSE_FILE_DIGESTS[name];
+  const pinned = RELEASE_PACKAGE_LICENSE_FILE_DIGESTS[name];
   return file(`package/${name}`, 0o644, pinned.bytes, pinned.sha256);
 }
 

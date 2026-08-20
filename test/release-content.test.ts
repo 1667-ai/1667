@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { AI_1667_PRODUCT_VERSION } from "../shared/build-identity.js";
 import {
+  releaseContentFileSet,
   releasePackageContentFileSet,
   stageReleaseContent
 } from "../scripts/release-content.js";
@@ -34,18 +35,48 @@ test("the content assembler refuses entries that differ from the template", (t) 
   const source = collectRepositoryReleaseSource(FACTS);
   const { identities, sbomSource } = releaseArtifactInputs(source);
   const template = createReleaseLauncherPackageTemplate(identities);
-  const entries = releasePackageContentFileSet(
+  const packageEntries = releasePackageContentFileSet(
     template,
     { executablePath: "bin/1667.js" }
-  ).filter((entry) => entry.path !== "LICENSE");
+  );
+  const entries = packageEntries.filter((entry) => entry.path !== "LICENSE");
   const output = path.join(root, "package");
   assert.throws(() => stageReleaseContent({
+    distribution: "npm-package",
     template,
     sbom: releaseSbomForPackage(
       createReleaseSboms(sbomSource, repositoryReleaseComponentSources()),
       template.packageManifest.name
     ),
     entries,
+    executable: path.join(process.cwd(), "release", "npm", "launcher.mjs"),
+    directory: output,
+    layout: { executablePath: "bin/1667.js" }
+  }), /do not match/);
+  assert.throws(() => stageReleaseContent({
+    distribution: "release-archive",
+    template,
+    sbom: releaseSbomForPackage(
+      createReleaseSboms(sbomSource, repositoryReleaseComponentSources()),
+      template.packageManifest.name
+    ),
+    entries: packageEntries,
+    executable: path.join(process.cwd(), "release", "npm", "launcher.mjs"),
+    directory: output,
+    layout: { executablePath: "bin/1667.js" }
+  }), /do not match/);
+  assert.throws(() => stageReleaseContent({
+    distribution: "npm-package",
+    template,
+    sbom: releaseSbomForPackage(
+      createReleaseSboms(sbomSource, repositoryReleaseComponentSources()),
+      template.packageManifest.name
+    ),
+    entries: releaseContentFileSet(
+      "launcher",
+      template.packageManifest.version,
+      { executablePath: "bin/1667.js" }
+    ),
     executable: path.join(process.cwd(), "release", "npm", "launcher.mjs"),
     directory: output,
     layout: { executablePath: "bin/1667.js" }

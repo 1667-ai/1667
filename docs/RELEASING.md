@@ -144,17 +144,21 @@ Each of the six release packages contains these files:
 - `LICENSE`
 - `NOTICE`
 
-The pack step copies `LICENSE` and `NOTICE` from the repository root. Do not
-change these two files for one package. All six packages must contain the same
-bytes.
+The pack step copies `LICENSE` from the repository root. It writes the
+0.9.9-compatible `NOTICE` bytes to every npm package. Do not change the npm
+package notice. An installed 0.9.9 updater can then accept a later package.
 
-Preflight pins both files to reviewed digests held in
-`scripts/release-package-manifests.ts`, and rejects any package whose `LICENSE`
-or `NOTICE` entry does not match. Comparing the six packages with each other
-would only prove they agree, which staging the same wrong or truncated file six
-times also satisfies. Editing either file therefore requires updating the pinned
-digests in the same commit; a test compares the pins against the repository
-files, so a stale pin fails the build.
+The product entry in each `sbom.spdx.json` contains the current repository
+notice in its SPDX `attributionTexts` field. Update that attribution when the
+repository `NOTICE` changes. A test compares the attribution with the
+repository file. Preflight rejects a packaged SBOM that does not contain the
+current notice attribution.
+
+GitHub Release Archives keep the current repository `NOTICE`. Preflight pins
+the npm package files and the archive files to reviewed digests held in
+`scripts/release-package-manifests.ts`. It rejects a missing, substituted, or
+truncated file. Editing `LICENSE` or either notice requires updating the
+relevant pinned digest in the same commit.
 
 The Apache License, Version 2.0 makes this content necessary. Section 4(a)
 requires a copy of the licence for each recipient of the work. Section 4(d)

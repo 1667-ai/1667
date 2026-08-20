@@ -5,11 +5,34 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.9.10 - 2026-08-20
+
+- **This release has no additional product changes.** It contains the same
+  behavior as 0.9.10-rc.7.
+
+## 0.9.10-rc.7 - 2026-08-20
+
+- **This beta has no additional product changes.** It contains the same
+  behavior as 0.9.10-rc.6.
+
+## 0.9.10-rc.6 - 2026-08-20
+
 - **1667 now reports available releases by default.** You can turn update
   checks off in Settings. The check stays silent when the network is not
   available. Existing config files use the new default. A Managed Installation
   notice shows the checked version and channel in the upgrade command. Other
   notices show only the new version.
+
+- **Managed installations at 0.9.9 can upgrade to this release.** The npm
+  packages keep the notice that 0.9.9 accepts. Each SPDX SBOM contains the
+  current notice. Future notice changes do not break this upgrade path.
+
+- **Subscription plans use one model picker action.** Press Enter to open the
+  model picker for a ChatGPT Plan or a Claude Plan. Left Arrow and Right Arrow
+  do not change these models.
+
+- **The Settings mode action shows its destination.** The action says
+  `m advanced` in simple mode. It says `m simple` in advanced mode.
 
 ## 0.9.10-rc.5 - 2026-08-20
 

@@ -23,6 +23,8 @@ import {
 } from "../shared/release-targets.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
 import { createReleasePackageTemplates } from "../scripts/release-package-templates.js";
+import { RELEASE_PACKAGE_NOTICE } from "../scripts/release-package-manifests.js";
+import { RELEASE_SBOM_FIXTURE } from "./release-sbom-fixture.js";
 
 const VERSION = "4.0.0";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
@@ -76,11 +78,10 @@ test(`local release preflight CLI validates every tarball and emits canonical ev
   t.after(() => rm(root, { recursive: true, force: true }));
   const identities = createReleaseIdentitySet(sourceEvidence);
   const templates = createReleasePackageTemplates(identities);
-  // Staging copies these repository-root files into every package root, and
-  // release policy pins both to their reviewed digests, so the fixture stages
-  // the real bytes rather than stand-ins.
+  // Staging copies the reviewed package bytes into every package root, so the
+  // fixture stages the real bytes rather than stand-ins.
   const license = await readFile(path.join(REPOSITORY_ROOT, "LICENSE"));
-  const notice = await readFile(path.join(REPOSITORY_ROOT, "NOTICE"));
+  const notice = Buffer.from(RELEASE_PACKAGE_NOTICE, "utf8");
   const artifacts = [];
   for (const [index, template] of [
     templates.launcher,
@@ -115,7 +116,7 @@ test(`local release preflight CLI validates every tarball and emits canonical ev
       entry(
         "package/sbom.spdx.json",
         0o644,
-        Buffer.from('{"spdxVersion":"SPDX-2.3"}')
+        RELEASE_SBOM_FIXTURE
       ),
       entry("package/LICENSE", 0o644, license),
       entry("package/NOTICE", 0o644, notice)
