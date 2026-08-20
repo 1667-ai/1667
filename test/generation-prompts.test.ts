@@ -290,16 +290,10 @@ test("ChatGPT plan continuation uses a boundary user turn and exact echo", () =>
     systemPrompt: "Write.",
     contextWindow: null
   };
-  const runtime = providerRuntimeFor(settings);
-  const planSettings = attachProviderRuntime(settings, {
-    ...runtime,
-    preset: "chatgpt-plan",
-    protocol: "openai-codex-responses",
-    capabilities: {
-      ...runtime.capabilities,
-      assistantPrefill: "unknown"
-    }
-  });
+  const planSettings = {
+    ...settings,
+    protocol: "openai-codex-responses" as const
+  };
   assert.equal(supportsAssistantPrefill(planSettings), false);
 
   const parts = [part("Open the door.", "The latch was unlo")];
@@ -340,13 +334,11 @@ test("ChatGPT plan continuation uses a boundary user turn and exact echo", () =>
     systemPrompt: "Write.",
     contextWindow: null
   };
-  const claudeRuntime = providerRuntimeFor(claudeSettings);
   assert.equal(
-    supportsAssistantPrefill(attachProviderRuntime(claudeSettings, {
-      ...claudeRuntime,
-      preset: "claude-plan",
+    supportsAssistantPrefill({
+      ...claudeSettings,
       protocol: "anthropic-subscription-messages"
-    })),
+    }),
     false
   );
 });

@@ -95,9 +95,16 @@ export function convertGenerationSettingsV1(value: GenerationSettings): Settings
 export function effectiveGenerationSettings(
   value: SettingsDocumentV2,
   purpose: SettingsRoutePurpose = "default",
-  metadata: EffectiveMetadataV2 = {}
+  metadata: EffectiveMetadataV2 = {},
+  options: EffectiveGenerationRuntimeOptions = {}
 ): GenerationSettings {
-  return effectiveGenerationRuntime(value, purpose, metadata).settings;
+  return effectiveGenerationRuntime(
+    value,
+    purpose,
+    metadata,
+    undefined,
+    options
+  ).settings;
 }
 
 /** Project settings and cache policy from one parsed route snapshot. Callers

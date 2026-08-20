@@ -13,6 +13,7 @@ import { effectiveGenerationSettings } from "./settings-v2-conversion.js";
 import { classifyHttpHost, SettingsFormatError } from "./settings-v2-scalars.js";
 import { selectSettingsRoute } from "../shared/settings-route.js";
 import { continuationPromptLayoutForOptimization } from "../shared/continuation-prompt-optimization.js";
+import type { SubscriptionRuntimeDependencies } from "./subscription-runtime.js";
 import { settingsStateRelation } from "./settings-state-validation.js";
 import {
   corruptSettingsStateReceipt,
@@ -20,7 +21,8 @@ import {
 } from "./settings-v2-mutation.js";
 
 export function settingsViewFromState(
-  state: SettingsStateV2
+  state: SettingsStateV2,
+  subscription?: SubscriptionRuntimeDependencies
 ): Extract<SettingsView, { dataFormat: 2 }> {
   // A committed activation is past its point of no return: the candidate is
   // the document generation already uses, so the view reports it as plainly
@@ -33,6 +35,7 @@ export function settingsViewFromState(
     ? activeSettingsDocument(state)
     : pendingSettingsDocument(state);
   const active = activeSettingsDocument(state);
+  const runtimeOptions = subscription === undefined ? {} : { subscription };
   return {
     dataFormat: 2,
     editable: true,
@@ -40,8 +43,8 @@ export function settingsViewFromState(
     activeRevision: effectiveActiveSettingsRevision(state),
     pendingRevision,
     document: shown,
-    effective: effectiveGenerationSettings(active),
-    effectiveProse: effectiveGenerationSettings(active, "prose"),
+    effective: effectiveGenerationSettings(active, "default", {}, runtimeOptions),
+    effectiveProse: effectiveGenerationSettings(active, "prose", {}, runtimeOptions),
     // Read from `active`, never `shown`: `effectiveProse` above already
     // resolves against the active (never pending) document, and this must
     // describe the same route, not whichever document a mid-activation
@@ -97,10 +100,14 @@ export function credentialReferencesResolve(
   return true;
 }
 
-export function assertRuntimeDocumentSupported(document: SettingsDocumentV2): void {
+export function assertRuntimeDocumentSupported(
+  document: SettingsDocumentV2,
+  subscription?: SubscriptionRuntimeDependencies
+): void {
   try {
+    const runtimeOptions = subscription === undefined ? {} : { subscription };
     for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {
-      effectiveGenerationSettings(document, purpose);
+      effectiveGenerationSettings(document, purpose, {}, runtimeOptions);
     }
   } catch (error) {
     throw invalidSettingsMutation(error);

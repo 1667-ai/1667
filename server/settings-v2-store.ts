@@ -170,8 +170,8 @@ export class SettingsV2Store {
     // activate, or prune. Opening proves the state parses and its active
     // document supports a route, exactly like the writable path below.
     if (slot.kind === "v3") {
-      assertRuntimeDocumentSupported(activeSettingsDocument(slot.readOnlyView));
-      settingsViewFromState(slot.readOnlyView);
+      assertRuntimeDocumentSupported(activeSettingsDocument(slot.readOnlyView), this.subscription);
+      settingsViewFromState(slot.readOnlyView, this.subscription);
       return;
     }
     // Every authority that reaches here is schema 2: the branch above
@@ -185,12 +185,12 @@ export class SettingsV2Store {
       await removeProviderSecretsScratch(this.secretsDir);
       await pruneProviderSecrets(this.secretsDir, providerSecretIdsToKeep(state));
     }
-    assertRuntimeDocumentSupported(activeSettingsDocument(state));
-    settingsViewFromState(state);
+    assertRuntimeDocumentSupported(activeSettingsDocument(state), this.subscription);
+    settingsViewFromState(state, this.subscription);
   }
 
   loadView(): Promise<SettingsView> {
-    return readSettingsView(this.dataDir, this.subscription.credentials);
+    return readSettingsView(this.dataDir, this.subscription);
   }
 
   /** The route's runtime settings AND its stored image-input override,
@@ -488,7 +488,7 @@ export class SettingsV2Store {
     }
 
     if (operation.method === "saveSettings") {
-      assertRuntimeDocumentSupported(operation.document);
+      assertRuntimeDocumentSupported(operation.document, this.subscription);
       await assertSavedSamplingBiasResolves(operation.document, this.environment, signal);
     }
     if (current.stateGeneration !== request.expectedAggregateVersion.stateGeneration) {
@@ -813,7 +813,7 @@ export class SettingsV2Store {
     }
     let candidateReady = false;
     try {
-      assertRuntimeDocumentSupported(candidate);
+      assertRuntimeDocumentSupported(candidate, this.subscription);
       const validatedConnections = new Set<string>();
       const probeTargets: GenerationSettings[] = [];
       for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {

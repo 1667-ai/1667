@@ -3,13 +3,32 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import type { Models } from "@earendil-works/pi-ai";
 import { attachProviderRuntime } from "../server/provider-runtime.js";
 import { probeContextWindow } from "../server/context-probe.js";
 import { discoverProviderModels } from "../server/model-discovery.js";
 import { checkModelServer } from "../server/server-check.js";
 import { subscriptionProviderForProtocol } from "../server/subscription-protocol.js";
-import { createSubscriptionRuntime } from "../server/subscription-runtime.js";
+import {
+  createSubscriptionRuntime,
+  type SubscriptionRuntimeDependencies
+} from "../server/subscription-runtime.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
+
+const PLAN_FIXTURES = [
+  {
+    provider: "openai-compatible" as const,
+    preset: "chatgpt-plan" as const,
+    protocol: "openai-codex-responses" as const,
+    model: "gpt-5.4"
+  },
+  {
+    provider: "anthropic" as const,
+    preset: "claude-plan" as const,
+    protocol: "anthropic-subscription-messages" as const,
+    model: "claude-sonnet-4-6"
+  }
+] as const;
 
 test("subscription probes use bundled catalogs without an HTTP URL", async (t) => {
   const secretsDir = await mkdtemp(path.join(tmpdir(), "1667-model-catalog-"));
@@ -20,47 +39,8 @@ test("subscription probes use bundled catalogs without an HTTP URL", async (t) =
     throw new Error("subscription probe attempted HTTP");
   }) as typeof fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
-  for (const fixture of [
-    {
-      provider: "openai-compatible" as const,
-      preset: "chatgpt-plan" as const,
-      protocol: "openai-codex-responses" as const,
-      model: "gpt-5.4"
-    },
-    {
-      provider: "anthropic" as const,
-      preset: "claude-plan" as const,
-      protocol: "anthropic-subscription-messages" as const,
-      model: "claude-sonnet-4-6"
-    }
-  ]) {
-    const settings = attachProviderRuntime({
-      provider: fixture.provider,
-      baseUrl: "",
-      model: fixture.model,
-      apiKeyEnv: null,
-      temperature: 0,
-      maxTokens: 128,
-      systemPrompt: "",
-      contextWindow: null
-    }, {
-      preset: fixture.preset,
-      protocol: fixture.protocol,
-      auth: { type: "none" },
-      headers: [],
-      timeouts: { responseHeaderMs: 1_000, firstTokenMs: 1_000, idleMs: 1_000, totalMs: 2_000 },
-      allowInsecureHttp: false,
-      effort: "default",
-      tokenProbabilities: null,
-      capabilities: {
-        temperature: "supported",
-        assistantPrefill: "unknown",
-        reasoningEffort: "unknown",
-        promptCaching: "unknown"
-      },
-      sampling: EMPTY_SAMPLING_V2,
-      subscription
-    }, true);
+  for (const fixture of PLAN_FIXTURES) {
+    const settings = subscriptionProbeSettings(fixture, subscription);
 
     assert.equal((await checkModelServer(settings)).state, "ready");
     const discovery = await discoverProviderModels(
@@ -80,3 +60,71 @@ test("subscription probes use bundled catalogs without an HTTP URL", async (t) =
     assert.equal(await probeContextWindow(settings), null);
   }
 });
+
+test("subscription catalogs use the durable discovery sanitizer", async () => {
+  const catalog = [
+    {
+      id: " invalid",
+      name: "Invalid",
+      contextWindow: 1,
+      maxTokens: 1
+    },
+    ...Array.from({ length: 256 }, (_, index) => ({
+      id: `valid-${index}`,
+      name: index === 0 ? "e\u0301" : `Valid ${index}`,
+      contextWindow: index === 0 ? 0 : 32_768,
+      maxTokens: index === 0 ? Number.MAX_SAFE_INTEGER : 4_096
+    }))
+  ];
+  const subscription = {
+    credentials: {} as SubscriptionRuntimeDependencies["credentials"],
+    models: { getModels: () => catalog } as unknown as Models
+  };
+
+  const discovery = await discoverProviderModels(
+    subscriptionProbeSettings(PLAN_FIXTURES[0], subscription)
+  );
+
+  assert.equal(discovery.models.length, 256);
+  assert.deepEqual(discovery.models[0], {
+    remoteId: "valid-0",
+    name: "valid-0",
+    contextWindow: null,
+    maxOutputTokens: null,
+    source: "pi-catalog"
+  });
+  assert.equal(discovery.models.at(-1)?.remoteId, "valid-255");
+});
+
+function subscriptionProbeSettings(
+  fixture: (typeof PLAN_FIXTURES)[number],
+  subscription: SubscriptionRuntimeDependencies
+) {
+  return attachProviderRuntime({
+    provider: fixture.provider,
+    baseUrl: "",
+    model: fixture.model,
+    apiKeyEnv: null,
+    temperature: 0,
+    maxTokens: 128,
+    systemPrompt: "",
+    contextWindow: null
+  }, {
+    preset: fixture.preset,
+    protocol: fixture.protocol,
+    auth: { type: "none" },
+    headers: [],
+    timeouts: { responseHeaderMs: 1_000, firstTokenMs: 1_000, idleMs: 1_000, totalMs: 2_000 },
+    allowInsecureHttp: false,
+    effort: "default",
+    tokenProbabilities: null,
+    capabilities: {
+      temperature: "supported",
+      assistantPrefill: "unknown",
+      reasoningEffort: "unknown",
+      promptCaching: "unknown"
+    },
+    sampling: EMPTY_SAMPLING_V2,
+    subscription
+  }, true);
+}

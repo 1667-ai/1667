@@ -1,18 +1,16 @@
 import type {
   DiscoveredModelV2,
   ModelDiscoveryResultV2,
-  ModelDiscoverySourceV2,
-  SubscriptionProtocolV2
+  ModelDiscoverySourceV2
 } from "../shared/settings-v2-types.js";
-import { isSubscriptionProtocolV2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
 import { ProviderError } from "./errors.js";
 import { getProviderJson } from "./provider-json.js";
 import {
+  isSubscriptionProviderRuntime,
   providerRuntimeFor,
-  subscriptionRuntimeFor,
-  type ProviderRuntime
+  type SubscriptionProviderRuntime
 } from "./provider-runtime.js";
 import { providerRoot, providerUrl } from "./providers.js";
 import { subscriptionProviderForProtocol } from "./subscription-protocol.js";
@@ -32,10 +30,10 @@ export async function discoverProviderModels(
     return { observedAt: now().toISOString(), models: [] };
   }
   const runtime = providerRuntimeFor(settings);
-  if (runtime.protocol !== undefined && isSubscriptionProtocolV2(runtime.protocol)) {
+  if (isSubscriptionProviderRuntime(runtime)) {
     return {
       observedAt: now().toISOString(),
-      models: subscriptionCatalog(runtime, runtime.protocol)
+      models: subscriptionCatalog(runtime)
     };
   }
   const root = providerRoot(settings);
@@ -68,19 +66,13 @@ export async function discoverProviderModels(
 }
 
 function subscriptionCatalog(
-  runtime: ProviderRuntime,
-  protocol: SubscriptionProtocolV2
+  runtime: SubscriptionProviderRuntime
 ): readonly DiscoveredModelV2[] {
-  const providerId = subscriptionProviderForProtocol(protocol);
-  return subscriptionRuntimeFor(runtime).models.getModels(providerId)
-    .slice(0, MAX_DISCOVERED_MODELS)
-    .map((model) => ({
-      remoteId: model.id,
-      name: model.name,
-      contextWindow: model.contextWindow,
-      maxOutputTokens: model.maxTokens,
-      source: "pi-catalog"
-    }));
+  const providerId = subscriptionProviderForProtocol(runtime.protocol);
+  return normalizeDiscoveredModels(
+    runtime.subscription.models.getModels(providerId),
+    "pi-catalog"
+  );
 }
 
 function anthropicDiscoveryUrl(settings: GenerationSettings): string {
@@ -108,6 +100,13 @@ async function discover(
   if (entries === null) {
     throw new ProviderError(`Model discovery returned an invalid ${source} catalog.`);
   }
+  return normalizeDiscoveredModels(entries, source);
+}
+
+function normalizeDiscoveredModels(
+  entries: readonly unknown[],
+  source: ModelDiscoverySourceV2
+): readonly DiscoveredModelV2[] {
   const result: DiscoveredModelV2[] = [];
   const seen = new Set<string>();
   for (const entry of entries) {
@@ -120,6 +119,8 @@ async function discover(
       name: modelName(entry, remoteId),
       contextWindow: source === "anthropic-models"
         ? modelScalar(entry, "max_input_tokens")
+        : source === "pi-catalog"
+          ? modelScalar(entry, "contextWindow")
         : source === "lm-studio-models"
           ? modelScalar(entry, "loaded_context_length")
           : modelScalar(entry, "loaded_context_length")
@@ -127,6 +128,8 @@ async function discover(
             ?? modelScalar(entry, "max_context_length"),
       maxOutputTokens: source === "anthropic-models"
         ? modelScalar(entry, "max_tokens")
+        : source === "pi-catalog"
+          ? modelScalar(entry, "maxTokens")
         : modelScalar(entry, "max_output_tokens"),
       source
     });
