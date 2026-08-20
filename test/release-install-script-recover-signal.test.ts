@@ -92,7 +92,7 @@ exec sleep 3600
     digest: hostDigest,
     root: installRoot
   });
-  await writeFile(path.join(prefix, INSTALL_TRANSACTION_FILE), txnBytes);
+  await writeFile(path.join(prefix, INSTALL_TRANSACTION_FILE), txnBytes, { mode: 0o600 });
 
   const child = spawn("sh", [scriptPath, "--prefix", prefix], {
     cwd: root,
@@ -180,6 +180,121 @@ exec sleep 3600
   assert.equal(lockStat.isFile(), true);
   const lock = await acquireInstallationLock(prefix);
   await lock.release();
+});
+
+test("SIGTERM and SIGINT during managed active probe exit cleanly", async (t) => {
+  const homeScratch = path.join(homedir(), ".cache", "1667-tests");
+  await mkdir(homeScratch, { recursive: true, mode: 0o755 });
+  await chmod(homeScratch, 0o755);
+  const root = await mkdtemp(path.join(homeScratch, "install-managed-probe-signal-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const hostTarget = hostShellInstallerTarget();
+  if (hostTarget === null) {
+    t.skip("Host cannot run the POSIX Shell Installer");
+    return;
+  }
+  const digests = await writePublishedArchives(path.join(root, "archives"), INSTALL_VERSION);
+  const scriptBody = renderInstallScriptsForVersion({
+    version: INSTALL_VERSION,
+    repository: INSTALL_REPO,
+    digests,
+    assetBaseUrl: "http://127.0.0.1:1"
+  })["install-beta.sh"]!;
+  const scriptPath = path.join(root, "install-managed-signal.sh");
+  await writeFile(scriptPath, scriptBody, { mode: 0o755 });
+
+  const signals: readonly [NodeJS.Signals, number][] = [
+    ["SIGTERM", 143],
+    ["SIGINT", 130]
+  ];
+  for (const [signal, expectedExit] of signals) {
+    const prefix = path.join(root, signal.toLowerCase());
+    await mkdir(prefix, { mode: 0o755 });
+    await chmod(prefix, 0o755);
+    const probePidPath = path.join(root, signal.toLowerCase() + ".probe.pid");
+    const hangStub = `#!/bin/sh
+printf '%s\\n' "$$" > '${probePidPath.replace(/'/g, `'\\''`)}'
+trap '' TERM INT
+exec sleep 3600
+`;
+    const id = "0123456789abcdef0123456789abcdef";
+    const ownership: string = JSON.stringify({
+      schemaVersion: 1,
+      product: "1667",
+      installationId: id,
+      method: "shell",
+      channel: "beta",
+      installRoot: prefix,
+      executable: prefix + "/1667",
+      artifactTarget: hostTarget
+    }) + "\n";
+    await writeFile(path.join(prefix, "1667"), hangStub, { mode: 0o755 });
+    await writeFile(path.join(prefix, INSTALL_OWNERSHIP_FILE), ownership, { mode: 0o600 });
+
+    const child = spawn("sh", [scriptPath, "--prefix", prefix], {
+      cwd: root,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    child.stdout?.resume();
+    child.stderr?.resume();
+    let childExited = false;
+    const exitPromise = new Promise<number | null>((resolve) => {
+      child.on("exit", (code) => {
+        childExited = true;
+        resolve(code);
+      });
+    });
+    let probePid: number | undefined;
+    try {
+      const probeStarted = await waitForProbePid(probePidPath, exitPromise, 8_000);
+      if (typeof probeStarted !== "number") {
+        throw new Error("managed active probe did not start before installer exit or timeout");
+      }
+      probePid = probeStarted;
+      assert.equal(processAlive(probePid), true, "managed probe must be alive before signal");
+      assert.ok(child.pid !== undefined, "installer parent pid missing");
+      process.kill(child.pid, signal);
+
+      const killTimer = setTimeout(() => {
+        if (child.pid !== undefined && !childExited) {
+          try {
+            process.kill(child.pid, "SIGKILL");
+          } catch {
+            // Gone.
+          }
+        }
+      }, 5_000);
+      let exitCode: number | null;
+      try {
+        exitCode = await exitPromise;
+      } finally {
+        clearTimeout(killTimer);
+      }
+      assert.equal(exitCode, expectedExit);
+      assert.equal(processAlive(probePid), false, "managed probe must be reaped");
+      assert.equal(await readFile(path.join(prefix, INSTALL_OWNERSHIP_FILE), "utf8"), ownership);
+      await access(path.join(prefix, "1667"));
+      await assert.rejects(access(path.join(prefix, INSTALL_TRANSACTION_FILE)));
+      const lock = await acquireInstallationLock(prefix);
+      await lock.release();
+    } finally {
+      if (probePid !== undefined && processAlive(probePid)) {
+        try {
+          process.kill(probePid, "SIGKILL");
+        } catch {
+          // Gone.
+        }
+      }
+      if (!childExited && child.pid !== undefined) {
+        try {
+          process.kill(child.pid, "SIGKILL");
+        } catch {
+          // Gone.
+        }
+      }
+    }
+  }
 });
 
 function processAlive(pid: number): boolean {

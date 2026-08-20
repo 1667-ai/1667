@@ -51,6 +51,30 @@ export type InstallTransactionFileRecord =
   | ShellInstallerTransactionRecord
   | InstallTransactionRecord;
 
+/**
+ * Serializes a managed Install Transaction Record for the shared on-disk contract.
+ * Keep the field order stable: the POSIX Shell Installer compares these bytes.
+ */
+export function serializeInstallTransactionRecord(
+  record: InstallTransactionRecord
+): string {
+  const ordered: InstallTransactionRecord = {
+    kind: record.kind,
+    schemaVersion: record.schemaVersion,
+    operation: record.operation,
+    channel: record.channel,
+    updateChannel: record.updateChannel,
+    activeVersion: record.activeVersion,
+    candidateVersion: record.candidateVersion,
+    installationId: record.installationId,
+    installRoot: record.installRoot,
+    executable: record.executable,
+    artifactTarget: record.artifactTarget,
+    phase: record.phase
+  };
+  return JSON.stringify(ordered) + "\n";
+}
+
 const SHELL_TXN_KEYS = new Set([
   "kind",
   "schemaVersion",
