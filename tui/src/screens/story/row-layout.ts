@@ -345,22 +345,25 @@ function renderPartBody(
   }
   const streaming = stream !== null;
   const lines: FrameLine[] = [];
+  const gutterAt = (lineIndex: number): FrameLine => narrow
+    ? []
+    : gutterFor(part, streaming, lineIndex, thought, gutterRows, state.now, deadlines);
   if (compactLogo) {
     lines.push(prefixLine(
       narrow,
-      gutterFor(part, streaming, 0, thought, gutterRows, state.now, deadlines),
+      gutterAt(0),
       compactStarterLogo(focused)
     ));
   }
   for (const line of wrapped) {
     const lineIndex = lines.length;
-    lines.push(prefixLine(narrow, gutterFor(part, streaming, lineIndex, thought, gutterRows, state.now, deadlines),
+    lines.push(prefixLine(narrow, gutterAt(lineIndex),
       styledWrapped(line, focused ? "prose" : "prose · dim", focused ? "human edit" : "human edit dim",
         "rewritten", state, part, streaming && !appending, deadlines, sourceStart)));
   }
   const proseTip = lines.length - 1;
   for (let lineIndex = lines.length; lineIndex < gutterRowCount; lineIndex += 1) {
-    lines.push(prefixLine(narrow, gutterFor(part, streaming, lineIndex, thought, gutterRows, state.now, deadlines), []));
+    lines.push(prefixLine(narrow, gutterAt(lineIndex), []));
   }
   // Machine insertion stays visually distinct from the writer's solid block.
   if (streaming && proseTip >= 0) lines[proseTip]!.push(segment("▏", "chrome"));
