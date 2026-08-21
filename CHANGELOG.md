@@ -5,6 +5,19 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.9.11-rc.1 - 2026-08-21
+
+- **Fast model responses now appear at a steady reading pace.** 1667 presents
+  large stream batches in small steps. Slow streams stay responsive. Stop and
+  story storage continue to use the complete received response.
+
+- **The Library word count includes every story branch.** It counts prose from
+  all takes and counts each shared part once. Selecting a different take no
+  longer changes the stored total.
+
+- **Active work labels now show a moving light.** The `working` and `thinking`
+  labels animate while work is active. The text and layout do not move.
+
 ## 0.9.10 - 2026-08-20
 
 - **This release has no additional product changes.** It contains the same
