@@ -23,7 +23,7 @@ import {
   readStoredStorySlot,
   type StoredStorySlot
 } from "./story-storage-reader.js";
-import { buildStorySummary } from "./story-summary.js";
+import { buildStoryCatalogSummary } from "./story-summary.js";
 import { storySummaryFromLiveEnvelope } from "./story-v6-codec.js";
 import {
   isEphemeralBundleName,
@@ -372,10 +372,10 @@ function bytesRead(slot: StoredStorySlot): number {
 }
 
 function summaryFromSlot(slot: StoredStorySlot): StorySummary | null {
-  if (slot.kind === "legacy") return buildStorySummary(slot.story);
+  if (slot.kind === "legacy") return buildStoryCatalogSummary(slot.story);
   if (slot.kind === "v5") {
     return {
-      ...buildStorySummary(slot.manifest),
+      ...buildStoryCatalogSummary(slot.manifest),
       aggregateVersion: {
         kind: "v5",
         manifestHash: hashStoryV5ManifestBytes(slot.manifestBytes)
