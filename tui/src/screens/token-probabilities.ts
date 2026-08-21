@@ -60,7 +60,7 @@ export function renderTokenProbabilitiesScreen(
         : populatedBody(probs, part, probs.record, width, barCellsFor(width));
   const header = headerLine(state, view, part, probs, width);
   const keys = keylineRow(width);
-  const status = fitLine(renderStatus(state, view, width, narrow, estimate), width);
+  const status = fitLine(renderStatus(state, view, width, narrow, estimate, deadlines), width);
   const rows: FrameLine[] = [header, [], ...body, [], keys, status];
   const padded = rows.slice(0, height);
   while (padded.length < height) padded.push([]);

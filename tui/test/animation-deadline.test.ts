@@ -11,8 +11,8 @@ import { demoAppSource } from "../src/demo.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { renderConnectionBanner } from "../src/screens/connection-banner.js";
 import { renderStoryScreen } from "../src/screens/story.js";
-import { plainLine } from "../src/screens/story/frame.js";
-import { emptyStreamText } from "../src/stream-text.js";
+import { plainLine, type FrameLine } from "../src/screens/story/frame.js";
+import { appendStreamReasoning, emptyStreamText } from "../src/stream-text.js";
 
 function fakeClock(start = 0) {
   let now = start;
@@ -110,6 +110,54 @@ describe("animation deadlines", () => {
     expect(firstDeadlines.next()).toBe(250);
   });
 
+  test("visible working and thinking words carry one light band", () => {
+    const state = initialState(demoAppSource(false), false);
+    state.backendTask = {
+      id: 1,
+      kind: "action",
+      label: "stalled mutation",
+      storyId: state.payload.id
+    };
+    state.now = 240;
+    const workingDeadlines = createFrameDeadlineCollector(state.now);
+    const workingLine = renderStoryScreen(state, {
+      width: 120, height: 36, deadlines: workingDeadlines
+    }).lines.at(-1)!;
+    const working = keywordSegments(workingLine, "working");
+
+    expect(working.map((part) => part.text).join("")).toBe("working");
+    expect(working.slice(0, 3).map((part) => part.role)).toEqual([
+      "streaming", "focus / accent", "brass dim"
+    ]);
+    expect(workingDeadlines.next()).toBe(360);
+
+    const leaf = state.payload.path.at(-1)!;
+    state.backendTask = null;
+    state.reasoning = "marker";
+    state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), leaf.id);
+    state.stream = {
+      targetId: leaf.id,
+      parentId: leaf.parentId,
+      append: true,
+      startedAt: "2026-07-22T00:00:00.000Z",
+      instruction: "",
+      ...emptyStreamText()
+    };
+    appendStreamReasoning(state.stream, "Weighing routes", 12);
+    const thinkingDeadlines = createFrameDeadlineCollector(state.now);
+    const thinkingFrame = renderStoryScreen(state, {
+      width: 120, height: 36, deadlines: thinkingDeadlines
+    });
+    const thinkingLine = thinkingFrame.lines.find((line) => plainLine(line).includes("thinking"))!;
+    const thinking = keywordSegments(thinkingLine, "thinking");
+
+    expect(thinking.map((part) => part.text).join("")).toBe("thinking");
+    expect(thinking.slice(0, 3).map((part) => part.role)).toEqual([
+      "streaming", "focus / accent", "brass dim"
+    ]);
+    expect(thinkingDeadlines.next()).toBe(360);
+  });
+
   test("the liveness mark travels a whole turn before it repeats", () => {
     const state = initialState(demoAppSource(false), false);
     const leaf = state.payload.path.at(-1)!;
@@ -182,3 +230,11 @@ describe("animation deadlines", () => {
     )).toBe(touched + 14 * 86_400_000);
   });
 });
+
+function keywordSegments(line: FrameLine, keyword: string): FrameLine {
+  const start = line.findIndex((part, index) => line
+    .slice(index, index + keyword.length)
+    .map((candidate) => candidate.text)
+    .join("") === keyword);
+  return start < 0 ? [] : line.slice(start, start + keyword.length);
+}

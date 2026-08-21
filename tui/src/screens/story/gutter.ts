@@ -166,7 +166,7 @@ export function gutterFor(
     // `thought.thinking` is already false in both cases (see
     // `thoughtGutterContext`).
     if (thought.kind === "shown" && thought.thinking) {
-      if (lineIndex === 0) return thinkingGutterLine0(thought.resolved.tokenCount);
+      if (lineIndex === 0) return thinkingGutterLine0(thought.resolved.tokenCount, now, deadlines);
       if (lineIndex === 1) return thinkingGutterLine1(thought.hit);
       return [];
     }

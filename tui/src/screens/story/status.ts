@@ -16,6 +16,8 @@ import {
   placementStopLabel
 } from "../../aside-placement.js";
 import type { StoryScreenState } from "../../state.js";
+import type { FrameDeadlineCollector } from "../../animation-deadline.js";
+import { lightWorkKeyword } from "../work-light.js";
 import {
   fitLine,
   plainLine,
@@ -32,7 +34,8 @@ export function renderStatus(
   view: StoryViewModel,
   width: number,
   narrow: boolean,
-  estimate: NextRequestEstimate
+  estimate: NextRequestEstimate,
+  deadlines?: FrameDeadlineCollector
 ): FrameLine {
   const payload = view.visiblePayload;
   const focused = rowPart(view, state.focusIndex);
@@ -176,12 +179,19 @@ export function renderStatus(
       ? tagged
       : state.chapterSummary != null ? compactSummaryRight : wideRight(false);
   const rightWidth = visibleWidth(plainLine(right));
-  if (rightWidth >= width) return fitLine(right, width);
+  if (rightWidth >= width) {
+    return lightWorkKeyword(fitLine(right, width), "working", state.now, deadlines);
+  }
   const leftWidth = width - rightWidth;
   const responsiveLeft = visibleWidth(plainLine(left)) <= leftWidth
     ? left
     : compactStatusIdentity(modeBlock, payload.title, lineIdentity, location, leftWidth);
-  return [...fitLine(responsiveLeft, leftWidth), ...right];
+  return lightWorkKeyword(
+    [...fitLine(responsiveLeft, leftWidth), ...right],
+    "working",
+    state.now,
+    deadlines
+  );
 }
 
 function renderPruneStatus(block: FrameSegment, text: string, width: number): FrameLine {
