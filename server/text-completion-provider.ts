@@ -9,6 +9,7 @@ import { postProviderJson } from "./provider-json.js";
 import { applySamplingFields } from "./provider-sampling.js";
 import {
   createProviderStreamRedactor,
+  providerReasoningPolicyFor,
   providerRuntimeFor,
   redactProviderSecrets,
   resolveProviderHeaders
@@ -69,6 +70,15 @@ export async function* streamTextCompletion(
   signal: AbortSignal,
   options: TextCompletionOptions
 ): AsyncGenerator<string> {
+  const reasoningPolicy = providerReasoningPolicyFor(settings, options.storySampling);
+  if (reasoningPolicy?.kind === "unavailable") {
+    throw new ProviderError(reasoningPolicy.message);
+  }
+  if (reasoningPolicy?.kind === "available"
+    && providerRuntimeFor(settings).tokenProbabilities !== null
+    && !reasoningPolicy.tokenProbabilitiesAllowed) {
+    throw new ProviderError("Token probabilities are unavailable with the selected reasoning state.");
+  }
   // No text-completion protocol authorizes images
   // (shared/image-input-capabilities.ts), so any image on this prompt is
   // refused here rather than silently dropped from the raw prompt text.

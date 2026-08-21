@@ -657,7 +657,9 @@ export async function rewriteNode(
   const rewriteSettings: GenerationSettings = {
     ...settings,
     // A null temperature normally defers to the provider default — too hot here.
-    temperature: Math.min(settings.temperature ?? REWRITE_MAX_TEMPERATURE, REWRITE_MAX_TEMPERATURE),
+    temperature: settings.temperature === null
+      ? null
+      : Math.min(settings.temperature, REWRITE_MAX_TEMPERATURE),
     maxTokens: requested === "" && selectionWords !== null
       ? Math.min(settings.maxTokens, rewriteOutputBudget(selectionWords))
       : settings.maxTokens

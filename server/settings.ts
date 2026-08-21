@@ -135,6 +135,7 @@ export class SettingsStore {
     return {
       dataFormat: 1,
       editable: false,
+      readOnlyReason: "legacy-migration",
       stateGeneration: null,
       activeRevision: null,
       pendingRevision: null,

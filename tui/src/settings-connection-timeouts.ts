@@ -18,6 +18,7 @@ import {
 } from "./settings-scalar.js";
 import type { SettingsOverlayState, SettingsRowId } from "./state.js";
 import type { SettingsRowPresentation } from "./settings-row-presentations.js";
+import { settingsReadOnlyMessage } from "./settings-read-only.js";
 
 /** The four `ConnectionTimeoutsV2` fields (issue #127), editable with the
  *  same C-08 chip/track/typed-edit widget as temperature, max tokens and
@@ -289,7 +290,9 @@ export function applyConnectionTimeoutEdit(
   text: string
 ): { kind: "draft" } | { kind: "error"; message: string } {
   const scalar = connectionTimeoutScalar(row, overlay);
-  if (scalar === null) return { kind: "error", message: "legacy settings are read-only" };
+  if (scalar === null) {
+    return { kind: "error", message: settingsReadOnlyMessage(overlay.view.readOnlyReason) };
+  }
   const typed = typedScalarValue(scalar, text);
   if ("refused" in typed) return { kind: "error", message: typed.refused };
   if (typed.scalar.value === null) return { kind: "error", message: "this row needs a number" };
@@ -331,7 +334,7 @@ function connectionTimeoutRowPresentation(
       section: "connection",
       label,
       value: "—",
-      hint: "legacy settings are read-only"
+      hint: settingsReadOnlyMessage(overlay.view.readOnlyReason)
     };
   }
   const invalid = scalarInvalidReason(scalar);

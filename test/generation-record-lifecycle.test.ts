@@ -9,6 +9,10 @@ import { continueStory, rewriteNode } from "../server/generation-http.js";
 import { GenerationAdmissionRegistry } from "../server/generation-admission.js";
 import { LEGACY_PROMPT_CACHE_CONTEXT, PromptCacheRuntime } from "../server/provider-cache-policy.js";
 import { attachProviderRuntime } from "../server/provider-runtime.js";
+import { createSettingsRuntimeResolver } from "../server/settings-runtime-resolver.js";
+import { createSubscriptionRuntime } from "../server/subscription-runtime.js";
+import { parseSettingsDocumentV4 } from "../server/settings-v4-codec.js";
+import { INITIAL_SETTINGS_DOCUMENT_V4 } from "../server/settings-v4-default.js";
 import { StoryObjectStore } from "../server/story-objects.js";
 import {
   chunkId,
@@ -367,6 +371,96 @@ test("a chapter summary stores the request record on the chapter summary take", 
   await stories.waitForMaintenance();
 });
 
+test("schema 4 never-sampling story bias refuses summary providers before dispatch", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-summary-policy-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const stories = new StoryStore(dir);
+  await stories.init();
+  const story = await stories.create("Story");
+  const created = await stories.createNode(story.id, null, "A story worth summarizing.", "");
+  await stories.mutate(story.id, (current) => {
+    current.phraseBias = [{ phrase: "ember", weight: 1 }];
+    current.bannedStrings = ["ash"];
+  });
+  const settings = schema4NeverSamplingSettings(dir);
+  const settingsStore = stubSettingsStore(settings);
+  let providerStarts = 0;
+  const providerStarted = () => { providerStarts += 1; };
+
+  await assert.rejects(
+    createSummaryTake(
+      story.id,
+      { nodeId: created.nodes[0]!.id },
+      stories,
+      settingsStore,
+      new PromptCacheRuntime(),
+      () => {},
+      new AbortController().signal,
+      {},
+      { providerStarted }
+    ),
+    /reasoning model rejects|does not accept sampling controls/u
+  );
+  assert.equal(providerStarts, 0);
+
+  let breakId = "";
+  await stories.mutate(story.id, (current) => {
+    breakId = createChapterBreak(current, created.nodes[0]!.id, "Chapter one").id;
+  });
+  await assert.rejects(
+    summarizeChapter(
+      story.id,
+      breakId,
+      stories,
+      settingsStore,
+      new PromptCacheRuntime(),
+      new AbortController().signal,
+      { providerStarted }
+    ),
+    /reasoning model rejects|does not accept sampling controls/u
+  );
+  assert.equal(providerStarts, 0);
+});
+
+test("legacy summary ignores story sampling and still generates", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-generation-record-summary-legacy-sampling-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const stories = new StoryStore(dir);
+  await stories.init();
+  const story = await stories.create("Story");
+  const created = await stories.createNode(story.id, null, "A legacy summary source.", "");
+  await stories.mutate(story.id, (current) => {
+    current.phraseBias = [{ phrase: "ember", weight: 1 }];
+    current.bannedStrings = ["ash"];
+  });
+
+  const settingsStore = stubSettingsStore(dryRunSettings());
+  const summaryId = await createSummaryTake(
+    story.id,
+    { nodeId: created.nodes[0]!.id },
+    stories,
+    settingsStore,
+    new PromptCacheRuntime(),
+    () => {},
+    new AbortController().signal
+  );
+  assert.ok(summaryId);
+  let breakId = "";
+  await stories.mutate(story.id, (current) => {
+    breakId = createChapterBreak(current, created.nodes[0]!.id, "Chapter one").id;
+  });
+  const summarized = await summarizeChapter(
+    story.id,
+    breakId,
+    stories,
+    settingsStore,
+    new PromptCacheRuntime(),
+    new AbortController().signal
+  );
+  assert.ok(summarized.nodes.some((node) => node.chapterBreakId === breakId));
+  await stories.waitForMaintenance();
+});
+
 test("an append raced by a mid-stream chapter break still commits a retargeted Generation Record", async (t) => {
   // Every construction site for ContinueStoryEffect, RewriteNodeEffect,
   // SummaryTakeEffect, and ChapterSummaryEffect must produce a Generation
@@ -499,4 +593,50 @@ function stubSettingsStore(settings: GenerationSettings): SettingsStore {
   return {
     loadGeneration: async () => ({ settings, promptCache: LEGACY_PROMPT_CACHE_CONTEXT, imageInputCapability: null })
   } as unknown as SettingsStore;
+}
+
+function schema4NeverSamplingSettings(dataDir: string): GenerationSettings {
+  const baseModel = INITIAL_SETTINGS_DOCUMENT_V4.models["builtin:dry-run"]!;
+  const baseConnection = INITIAL_SETTINGS_DOCUMENT_V4.connections["builtin:dry-run"]!;
+  const document = parseSettingsDocumentV4({
+    ...INITIAL_SETTINGS_DOCUMENT_V4,
+    connections: {
+      ...INITIAL_SETTINGS_DOCUMENT_V4.connections,
+      openai: {
+        ...baseConnection,
+        name: "OpenAI",
+        preset: "openai",
+        protocol: "openai-chat-completions",
+        baseUrl: "http://127.0.0.1:9/v1"
+      }
+    },
+    models: {
+      ...INITIAL_SETTINGS_DOCUMENT_V4.models,
+      never: {
+        ...baseModel,
+        connectionId: "openai",
+        remoteId: "gpt-5",
+        name: "GPT-5",
+        capabilities: {
+          ...baseModel.capabilities,
+          reasoningEffort: "supported"
+        }
+      }
+    },
+    profiles: {
+      ...INITIAL_SETTINGS_DOCUMENT_V4.profiles,
+      default: {
+        ...INITIAL_SETTINGS_DOCUMENT_V4.profiles.default!,
+        modelId: "never",
+        temperature: null,
+        effort: "default",
+        thinkingMode: "default"
+      }
+    }
+  });
+  const runtime = createSettingsRuntimeResolver({
+    environment: {},
+    subscription: createSubscriptionRuntime(dataDir)
+  }).resolveV4({ document });
+  return attachProviderRuntime(runtime.settings, runtime.providerRuntime, true);
 }

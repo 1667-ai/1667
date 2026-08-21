@@ -417,6 +417,31 @@ describe("run C overlay frames", () => {
       .toBeLessThan(lines.findIndex((line) => line.includes("provider")));
   });
 
+  test("successor schema settings render an update banner", async () => {
+    const source = demoAppSource();
+    const successor = {
+      dataFormat: 1 as const,
+      editable: false as const,
+      readOnlyReason: "successor-schema" as const,
+      stateGeneration: null,
+      activeRevision: null,
+      pendingRevision: null,
+      document: null,
+      effective: source.settings,
+      effectiveProse: source.settings,
+      lastActivationOutcome: null
+    };
+    source.settingsView = successor;
+    source.api.getSettings = async () => successor;
+
+    const frame = await renderOnce(source, 120, 36, ",");
+    expect(frame).toContain("newer settings schema 4");
+    expect(frame).toContain("successor owns settings");
+    expect(frame).toContain("update 1667");
+    expect(frame).not.toContain("legacy data format 1");
+    expect(frame).not.toContain("until migration");
+  });
+
   test("a startup rollback shows its outcome instead of a silent success line", async () => {
     const source = demoAppSource();
     if (!source.settingsView.editable) throw new Error("demo settings must be editable");

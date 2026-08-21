@@ -9,12 +9,14 @@ import type { GenerationSettings } from "../shared/types.js";
 import { checkModelServer } from "./server-check.js";
 import { ownedLoopbackHttpSupported } from "./provider-fetch.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
-import { effectiveGenerationView } from "./settings-v2-conversion.js";
+import { projectEffectiveGeneration } from "./settings-v2-conversion.js";
 import type { SettingsRuntimeResolver } from "./settings-runtime-resolver.js";
 import { classifyHttpHost, SettingsFormatError } from "./settings-v2-scalars.js";
-import { selectSettingsRoute } from "../shared/settings-route.js";
 import { continuationPromptLayoutForOptimization } from "../shared/continuation-prompt-optimization.js";
-import { settingsStateRelation } from "./settings-state-validation.js";
+import {
+  effectiveSettingsStateRevision,
+  settingsStateRelation
+} from "./settings-state-validation.js";
 import {
   corruptSettingsStateReceipt,
   invalidSettingsMutation
@@ -34,6 +36,8 @@ export function settingsViewFromState(
     ? activeSettingsDocument(state)
     : pendingSettingsDocument(state);
   const active = activeSettingsDocument(state);
+  const effective = projectEffectiveGeneration(active, "default", {});
+  const effectiveProse = projectEffectiveGeneration(active, "prose", {});
   return {
     dataFormat: 2,
     editable: true,
@@ -41,15 +45,15 @@ export function settingsViewFromState(
     activeRevision: effectiveActiveSettingsRevision(state),
     pendingRevision,
     document: shown,
-    effective: effectiveGenerationView(active),
-    effectiveProse: effectiveGenerationView(active, "prose"),
+    effective: effective.settings,
+    effectiveProse: effectiveProse.settings,
     // Read from `active`, never `shown`: `effectiveProse` above already
     // resolves against the active (never pending) document, and this must
     // describe the same route, not whichever document a mid-activation
     // window happens to be showing the editor.
-    effectiveProseReasoning: selectSettingsRoute(active, "prose").profile.reasoning ?? "marker",
+    effectiveProseReasoning: effectiveProse.route.profile.reasoning ?? "marker",
     effectiveProseContinuationPromptLayout: continuationPromptLayoutForOptimization(
-      selectSettingsRoute(active, "prose").profile.continuationPromptOptimization
+      effectiveProse.route.profile.continuationPromptOptimization
     ),
     lastActivationOutcome: state.lastActivationOutcome
   };
@@ -63,9 +67,7 @@ export function settingsViewFromState(
  * keeps concurrent views and generation starts on pre-activation or
  * committed credentials, never on a half-activated candidate. */
 export function effectiveActiveSettingsRevision(state: SettingsStateV2): number {
-  return settingsStateRelation(state) === "promoted"
-    ? state.previousRevision!
-    : state.activeRevision;
+  return effectiveSettingsStateRevision(state);
 }
 
 export function activeSettingsDocument(state: SettingsStateV2): SettingsDocumentV2 {

@@ -13,7 +13,11 @@ import type {
 import type { PromptCacheWirePlan } from "./provider-cache-policy.js";
 import { ProviderError } from "./errors.js";
 import { applySamplingFields } from "./provider-sampling.js";
-import { providerRuntimeFor } from "./provider-runtime.js";
+import {
+  legacyGenerationEffortFor,
+  providerReasoningPolicyFor,
+  providerRuntimeFor
+} from "./provider-runtime.js";
 import { resolveTokenProbabilities } from "../shared/token-probability-capabilities.js";
 import { generationEffortAvailabilityForTarget } from "../shared/generation-effort-capabilities.js";
 import type { StorySamplingRequest } from "./sampling-phrase-bias.js";
@@ -39,6 +43,8 @@ export async function buildOpenAiChatRequestBody(
    *  could cause. */
   imageBytes: ReadonlyMap<string, Uint8Array> = NO_IMAGE_BYTES
 ): Promise<Record<string, unknown>> {
+  const reasoningPolicy = providerReasoningPolicyFor(settings, request.storySampling);
+  if (reasoningPolicy?.kind === "unavailable") throw new ProviderError(reasoningPolicy.message);
   const loweredPrompt = lowerPromptForProvider(settings, prompt);
   let messages: unknown;
   const cacheFields: Record<string, unknown> = {};
@@ -77,10 +83,14 @@ export async function buildOpenAiChatRequestBody(
     stream: true,
     ...cacheFields
   };
-  if (sendsTemperature(settings)) body.temperature = settings.temperature;
-  await applySamplingFields(body, settings, "openai-chat-completions", request);
-  applyTokenProbabilities(body, settings);
-  applyGenerationEffort(body, settings, "openai");
+  if (sendsTemperature(settings, reasoningPolicy)) body.temperature = settings.temperature;
+  await applySamplingFields(body, settings, "openai-chat-completions", {
+    ...request,
+    ...(reasoningPolicy?.kind === "available" ? { reasoningPolicy } : {})
+  });
+  applyTokenProbabilities(body, settings, reasoningPolicy);
+  if (reasoningPolicy?.kind === "available") applyReasoningPolicy(body, reasoningPolicy);
+  else applyGenerationEffort(body, settings, "openai");
   return body;
 }
 
@@ -90,10 +100,14 @@ export async function buildOpenAiChatRequestBody(
  *  model — this function only decides whether to ask in the first place. */
 function applyTokenProbabilities(
   body: Record<string, unknown>,
-  settings: GenerationSettings
+  settings: GenerationSettings,
+  policy: ReturnType<typeof providerReasoningPolicyFor>
 ): void {
   const runtime = providerRuntimeFor(settings);
   if (runtime.tokenProbabilities === null) return;
+  if (policy?.kind === "available" && policy.tokenProbabilitiesAllowed === false) {
+    throw new ProviderError("Token probabilities are unavailable with the selected reasoning state.");
+  }
   const resolution = resolveTokenProbabilities({
     protocol: "openai-chat-completions",
     preset: runtime.preset,
@@ -107,9 +121,14 @@ function applyTokenProbabilities(
 
 /** A model that declares no sampling support rejects the whole request, so a
  * temperature left over from an earlier model must not be put on the wire. */
-function sendsTemperature(settings: GenerationSettings): boolean {
-  return settings.temperature !== null
-    && providerRuntimeFor(settings).capabilities.temperature !== "unsupported";
+function sendsTemperature(
+  settings: GenerationSettings,
+  policy: ReturnType<typeof providerReasoningPolicyFor>
+): boolean {
+  if (settings.temperature === null) return false;
+  if (providerRuntimeFor(settings).capabilities.temperature === "unsupported") return false;
+  if (policy?.kind !== "available") return true;
+  return policy.temperatureAllowed;
 }
 
 export async function buildAnthropicMessagesRequestBody(
@@ -120,6 +139,8 @@ export async function buildAnthropicMessagesRequestBody(
   /** See `buildOpenAiChatRequestBody`'s `imageBytes`. */
   imageBytes: ReadonlyMap<string, Uint8Array> = NO_IMAGE_BYTES
 ): Promise<Record<string, unknown>> {
+  const reasoningPolicy = providerReasoningPolicyFor(settings, request.storySampling);
+  if (reasoningPolicy?.kind === "unavailable") throw new ProviderError(reasoningPolicy.message);
   const loweredPrompt = lowerPromptForProvider(settings, prompt);
   let system: string | readonly TextContentBlock[];
   let messages: unknown;
@@ -178,17 +199,22 @@ export async function buildAnthropicMessagesRequestBody(
     stream: true
   };
   if (system.length > 0) body.system = system;
-  if (sendsTemperature(settings)) body.temperature = settings.temperature;
-  await applySamplingFields(body, settings, "anthropic-messages", request);
+  if (sendsTemperature(settings, reasoningPolicy)) body.temperature = settings.temperature;
+  await applySamplingFields(body, settings, "anthropic-messages", {
+    ...request,
+    ...(reasoningPolicy?.kind === "available" ? { reasoningPolicy } : {})
+  });
+  if (reasoningPolicy?.kind === "available"
+    && providerRuntimeFor(settings).tokenProbabilities !== null
+    && !reasoningPolicy.tokenProbabilitiesAllowed) {
+    throw new ProviderError("Token probabilities are unavailable with the selected reasoning state.");
+  }
   if ("top_p" in body) delete body.temperature;
-  applyGenerationEffort(body, settings, "anthropic");
-  // Anthropic Messages documents no logprobs field at all
-  // (resolveTokenProbabilities always reports "protocol" here), so a profile
-  // that configures tokenProbabilities on this route is deliberately not an
-  // error the way an unsupported sampling knob is. A sampling knob's silent
-  // loss would change what the provider actually samples; token
-  // probabilities are a diagnostic the writer opted into, so simply never
-  // sending it is the quiet, correct behavior (issue #291 phase 2).
+  if (reasoningPolicy?.kind === "available") applyReasoningPolicy(body, reasoningPolicy);
+  else applyGenerationEffort(body, settings, "anthropic");
+  // Legacy settings keep the historical quiet omission for Anthropic
+  // token probabilities. Schema 4 reaches the canonical refusal above, so a
+  // successor UI and the request boundary use the same result.
   return body;
 }
 
@@ -226,24 +252,53 @@ function applyGenerationEffort(
   adapter: "openai" | "anthropic"
 ): void {
   const runtime = providerRuntimeFor(settings);
+  const effort = legacyGenerationEffortFor(runtime);
   const effortAvailability = generationEffortAvailabilityForTarget({
     protocol: adapter === "anthropic" ? "anthropic-messages" : "openai-chat-completions",
     reasoningEffort: runtime.capabilities.reasoningEffort
-  }, runtime.effort);
+  }, effort);
   if (effortAvailability.kind === "unavailable") {
     throw new ProviderError(effortAvailability.code === "model-unsupported"
       ? "Generation effort is not supported by the selected model."
       : `${effortAvailability.reason}.`);
   }
-  if (runtime.effort === "default") return;
+  if (effort === "default") return;
   if (adapter === "openai") {
-    body.reasoning_effort = runtime.effort === "off" ? "none" : runtime.effort;
+    body.reasoning_effort = effort === "off" ? "none" : effort;
     return;
   }
-  if (runtime.effort === "off") {
+  if (effort === "off") {
     throw new ProviderError("Anthropic does not support generation effort set to off.");
   }
-  body.output_config = { effort: runtime.effort };
+  body.output_config = { effort };
+}
+
+function applyReasoningPolicy(
+  body: Record<string, unknown>,
+  policy: Extract<ReturnType<typeof providerReasoningPolicyFor>, { kind: "available" }>
+): void {
+  const wire = policy.wire;
+  switch (wire.kind) {
+    case "openai":
+    case "compatible-openai":
+      if (wire.openaiEffort !== undefined) body.reasoning_effort = wire.openaiEffort;
+      return;
+    case "anthropic":
+      if (wire.anthropicEffort !== undefined) body.output_config = { effort: wire.anthropicEffort };
+      if (wire.thinking !== undefined) {
+        body.thinking = {
+          type: wire.thinking.type,
+          ...(wire.thinking.display === undefined ? {} : { display: wire.thinking.display })
+        };
+      }
+      return;
+    case "compatible-anthropic":
+      if (wire.anthropicEffort !== undefined) body.output_config = { effort: wire.anthropicEffort };
+      return;
+    case "compatible":
+    case "none":
+      return;
+  }
 }
 
 /** A turn's `content` stays the plain string it always was unless the turn

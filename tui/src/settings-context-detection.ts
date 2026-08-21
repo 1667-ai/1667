@@ -10,6 +10,7 @@ import { settingsProviderProbeTarget } from "./settings-provider-probe.js";
 import { sameConnectionSecrets } from "./settings-secret-sidecar.js";
 import { activeSettingsEdit } from "./settings-edit-state.js";
 import { replaceSettingsDraft } from "./settings-draft-transition.js";
+import { settingsReadOnlyProbeSuffix } from "./settings-read-only.js";
 import {
   settingsSubscriptionLoginHint,
   settingsSubscriptionPreset
@@ -100,7 +101,7 @@ async function runContextProbe(
     }
     const suffix = editable
       ? " · s saves"
-      : " · legacy settings stay read-only";
+      : ` · ${settingsReadOnlyProbeSuffix(overlay.view.readOnlyReason)}`;
     overlay.result = {
       state: "ready",
       message: `context window · ${contextWindow.toLocaleString("en-US")} tokens${suffix}`

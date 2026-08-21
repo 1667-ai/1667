@@ -43,6 +43,7 @@ import {
 } from "./settings-token-probabilities-row.js";
 import { connectionTimeoutRows } from "./settings-connection-timeouts.js";
 import { storedApiKeyPresentation } from "./settings-secret-sidecar.js";
+import { settingsReadOnlyMessage } from "./settings-read-only.js";
 import {
   continuationPromptRowHint,
   continuationPromptRowValue,
@@ -105,13 +106,13 @@ export function settingsRows(
   config: UserConfig
 ): readonly SettingsRowPresentation[] {
   const settings = overlay.draft.generation;
+  const subscriptionPreset = settingsSubscriptionPreset(overlay);
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
-  const selectedPreset = document === null || profileId === null
+  const selectedPreset = subscriptionPreset ?? (document === null || profileId === null
     ? undefined
-    : resolveSettingsProfile(document, profileId).connection.preset;
+    : resolveSettingsProfile(document, profileId).connection.preset);
   const providerChoice = settingsProviderChoice(settings, selectedPreset);
-  const subscriptionPreset = settingsSubscriptionPreset(overlay);
   const subscriptionHint = subscriptionPreset === null
     ? null
     : settingsSubscriptionLoginHint(subscriptionPreset, overlay.view.subscriptionAuth);
@@ -119,9 +120,18 @@ export function settingsRows(
     && !localProviderPresetsSupported()
     && isPlainHttp(settings.baseUrl)
     && settings.allowInsecureHttp !== true;
+  const successorReadOnly = overlay.view.readOnlyReason === "successor-schema";
+  const readOnlyMessage = settingsReadOnlyMessage(overlay.view.readOnlyReason);
   const cache = promptCacheSummaryParts(overlay.view, overlay.draft);
   const tokenProbabilities = tokenProbabilitiesRowState(overlay);
   const reasoning = reasoningRowState(overlay);
+  const imageInput = imageInputRowState(overlay);
+  const reasoningValue = successorReadOnly
+    ? overlay.view.effectiveProseReasoning === undefined
+      ? "‹ successor-owned ›"
+      : `‹ ${overlay.view.effectiveProseReasoning} ›`
+    : reasoningRowValue(reasoning);
+  const reasoningHint = successorReadOnly ? readOnlyMessage : reasoningRowHint(reasoning);
   const rows: SettingsRowPresentation[] = [
     {
       id: "theme", section: "app", label: "theme",
@@ -161,13 +171,17 @@ export function settingsRows(
     {
       id: "text-prompt-format", section: "connection", label: "prompt format",
       value: settings.provider === "text-completion"
-        ? `‹ ${textPromptFormat(overlay)} ›`
+        ? successorReadOnly ? "‹ successor-owned ›" : `‹ ${textPromptFormat(overlay)} ›`
         : "—",
       dots: settings.provider === "text-completion"
-        ? positionDots(textPromptFormatChoices(overlay), textPromptFormat(overlay))
+        ? successorReadOnly
+          ? ""
+          : positionDots(textPromptFormatChoices(overlay), textPromptFormat(overlay))
         : "",
       hint: settings.provider === "text-completion"
-        ? "Sets how prompts are formatted for text-completion models."
+        ? successorReadOnly
+          ? readOnlyMessage
+          : "Sets how prompts are formatted for text-completion models."
         : "Available with text-completion providers.",
       ...(settingsPlanRowDisabled(overlay, "text-prompt-format")
         ? { disabled: true as const }
@@ -176,10 +190,12 @@ export function settingsRows(
     {
       id: "split-think-tags", section: "connection", label: "split thoughts",
       value: settings.provider === "text-completion"
-        ? `[ ${splitThinkTags(overlay) ? "on" : "off"} ]`
+        ? successorReadOnly ? "‹ successor-owned ›" : `[ ${splitThinkTags(overlay) ? "on" : "off"} ]`
         : "—",
       hint: settings.provider === "text-completion"
-        ? "Keeps <think> text separate from story prose."
+        ? successorReadOnly
+          ? readOnlyMessage
+          : "Keeps <think> text separate from story prose."
         : "Available with text-completion providers.",
       ...(settingsPlanRowDisabled(overlay, "split-think-tags")
         ? { disabled: true as const }
@@ -209,8 +225,12 @@ export function settingsRows(
     // resolves at request time; it simply has no row of its own.
     {
       id: "api-key", section: "connection", label: "API key",
-      value: subscriptionPreset === null ? storedApiKeyPresentation(overlay) : "—",
-      hint: subscriptionHint ?? "Saved on this device; never stored with a story.",
+      value: successorReadOnly
+        ? "‹ successor-owned ›"
+        : subscriptionPreset === null ? storedApiKeyPresentation(overlay) : "—",
+      hint: successorReadOnly
+        ? readOnlyMessage
+        : subscriptionHint ?? "Saved on this device; never stored with a story.",
       ...(settingsPlanRowDisabled(overlay, "api-key")
         ? { disabled: true as const }
         : {})
@@ -229,15 +249,17 @@ export function settingsRows(
     },
     {
       id: "image-input", section: "model", label: "image input",
-      value: imageInputRowValue(imageInputRowState(overlay)),
-      hint: imageInputRowHint(imageInputRowState(overlay))
+      value: successorReadOnly ? "‹ successor-owned ›" : imageInputRowValue(imageInput),
+      hint: successorReadOnly ? readOnlyMessage : imageInputRowHint(imageInput)
     },
     scalarRow("temperature", "temperature", overlay, "Higher values make the writing less predictable."),
     scalarRow("max-tokens", "max tokens", overlay, "Limits the length of each response."),
     {
       id: "sampling", section: "generation", label: "sampling",
       value: samplingRowValue(overlay),
-      hint: "Adjusts word choice, repetition, and token selection."
+      hint: successorReadOnly
+        ? readOnlyMessage
+        : "Adjusts word choice, repetition, and token selection."
     },
     scalarRow("context-window", "context size", overlay, "Sets how much story context the model can read."),
     {
@@ -249,7 +271,9 @@ export function settingsRows(
     {
       id: "cache-policy", section: "generation", label: "prompt cache",
       value: `‹ ${cache.policy} ›`,
-      dots: positionDots(PROMPT_CACHE_POLICY_V2_VALUES, overlay.draft.cachePolicy),
+      dots: cache.kind === "available"
+        ? positionDots(PROMPT_CACHE_POLICY_V2_VALUES, overlay.draft.cachePolicy)
+        : "",
       hint: cache.kind === "available" ? cache.description : cache.reason
     },
     {
@@ -264,14 +288,16 @@ export function settingsRows(
     },
     {
       id: "reasoning", section: "story", label: "reasoning",
-      value: reasoningRowValue(reasoning),
-      dots: positionDots(reasoningRowChoices(overlay), reasoning.display),
-      hint: reasoningRowHint(reasoning)
+      value: reasoningValue,
+      dots: successorReadOnly ? "" : positionDots(reasoningRowChoices(overlay), reasoning.display),
+      hint: reasoningHint
     },
     {
       id: "keep-thoughts", section: "story", label: "save thoughts",
-      value: `[ ${keepThoughts(overlay) ? "on" : "off"} ]`,
-      hint: "Saves model reasoning with each take."
+      value: successorReadOnly ? "‹ successor-owned ›" : `[ ${keepThoughts(overlay) ? "on" : "off"} ]`,
+      hint: successorReadOnly
+        ? readOnlyMessage
+        : "Saves model reasoning with each take."
     },
     routeRow("default-route", "default", overlay, "default"),
     routeRow("prose-route", "prose", overlay, "prose"),

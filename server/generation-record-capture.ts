@@ -37,7 +37,8 @@ export const OPENAI_CHAT_EFFECTIVE_FIELDS = [
 ] as const;
 
 export const ANTHROPIC_MESSAGES_EFFECTIVE_FIELDS = [
-  "max_tokens", "temperature", "top_p", "top_k", "output_config.effort", "stream"
+  "max_tokens", "temperature", "top_p", "top_k", "thinking.type", "thinking.display",
+  "output_config.effort", "stream"
 ] as const;
 
 export const TEXT_COMPLETION_EFFECTIVE_FIELDS = [

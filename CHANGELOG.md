@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **1667 prepares separate controls for Generation Effort and Thinking Mode.**
+  This release reads and runs the successor Settings schema. It refuses to
+  change that schema. A later release can write it and show the new controls
+  without making this release lose a setting.
+
 ## 0.9.10 - 2026-08-20
 
 - **This release has no additional product changes.** It contains the same

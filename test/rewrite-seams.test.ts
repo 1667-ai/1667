@@ -137,10 +137,10 @@ providerTest("openai-compatible retries a 400 that names an unsupported paramete
   assert.equal(requests.length, 3);
   assert.equal(requests[0]!.max_tokens, 100);
   assert.equal(requests[1]!.max_completion_tokens, 100, "max_tokens is renamed, not dropped");
-  assert.equal(requests[1]!.reasoning_effort, "minimal", "a rewrite asks a reasoning model for minimal reasoning");
+  assert.equal("reasoning_effort" in requests[1]!, false, "a retry keeps the resolved reasoning field unchanged");
   assert.equal("max_tokens" in requests[1]!, false);
   assert.equal("temperature" in requests[2]!, false, "a rejected temperature is dropped");
-  assert.equal(requests[2]!.reasoning_effort, "minimal");
+  assert.equal("reasoning_effort" in requests[2]!, false);
 });
 
 providerTest("openai-compatible retries never rewrite or remove explicit effort", async (t) => {

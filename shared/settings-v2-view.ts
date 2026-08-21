@@ -14,12 +14,22 @@ export interface SubscriptionAuthState {
   readonly claude: SubscriptionAuthStatus;
 }
 
+/** Why a format-1 settings view cannot be edited by this release. */
+export const SETTINGS_VIEW_READ_ONLY_REASON_VALUES = [
+  "legacy-migration",
+  "successor-schema"
+] as const;
+export type SettingsViewReadOnlyReason =
+  (typeof SETTINGS_VIEW_READ_ONLY_REASON_VALUES)[number];
+
 /** The settings data that a client can read. The continuation layout is an
  * active-route value, never a pending document projection. */
 export type SettingsView =
   | {
       readonly dataFormat: 1;
       readonly editable: false;
+      /** Absent on older responses; absence means legacy migration. */
+      readonly readOnlyReason?: SettingsViewReadOnlyReason;
       readonly stateGeneration: null;
       readonly activeRevision: null;
       readonly pendingRevision: null;
@@ -45,6 +55,7 @@ export type SettingsView =
   | {
       readonly dataFormat: 2;
       readonly editable: true;
+      readonly readOnlyReason?: never;
       readonly stateGeneration: number;
       readonly activeRevision: number;
       readonly pendingRevision: number | null;

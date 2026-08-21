@@ -10,12 +10,17 @@ import type {
   SettingsStateV2,
   SettingsStateV3
 } from "../shared/settings-v2-types.js";
-import { decodeCanonicalUtf8 } from "./canonical-json.js";
+import type { SettingsStateV4 } from "../shared/settings-v4-types.js";
+import { canonicalJson } from "./canonical-json.js";
 import { ServiceError } from "./errors.js";
-import { hashSettingsDocumentV2, parseSettingsDocumentV2, parseSettingsStateV2Bytes } from "./settings-v2-codec.js";
+import { hashSettingsDocumentV2, parseSettingsDocumentV2, parseSettingsStateV2 } from "./settings-v2-codec.js";
 import { hashCanonicalSettingsDocument } from "./settings-v2-hash.js";
 import { MAX_SETTINGS_STATE_BYTES, SettingsFormatError } from "./settings-v2-scalars.js";
-import { parseSettingsStateV3Text } from "./settings-v3-codec.js";
+import { parseSettingsStateV3 } from "./settings-v3-codec.js";
+import { parseSettingsStateV4 } from "./settings-v4-codec.js";
+import { effectiveSettingsStateRevision } from "./settings-state-validation.js";
+import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
+import { decodeSettingsBytes } from "./settings-codec-shared.js";
 
 /**
  * What the settings-state file actually holds. Structural sibling of
@@ -40,7 +45,11 @@ export type SettingsStateSlot =
       readonly kind: "v3";
       readonly state: SettingsStateV3;
       readonly readOnlyView: SettingsStateV2;
-    };
+    }
+  /** Schema 4 is successor-owned. Keep its full document for a faithful
+   *  runtime reader; V2-shaped consumers must branch before they ask for a
+   *  projection, because effort/thinkingMode cannot be represented there. */
+  | { readonly kind: "v4"; readonly state: SettingsStateV4 };
 
 export type MutableSettingsStateSlot = Extract<SettingsStateSlot, { kind: "v2" }>;
 
@@ -51,7 +60,18 @@ export type MutableSettingsStateSlot = Extract<SettingsStateSlot, { kind: "v2" }
  *  own: `requireMutableSettingsStateSlot` below refuses every mutation
  *  against it, so nothing ever needs one. */
 export function settingsStateSlotReadOnlyView(slot: SettingsStateSlot): SettingsStateV2 {
-  return slot.kind === "v2" ? slot.state : slot.readOnlyView;
+  if (slot.kind === "v2") return slot.state;
+  if (slot.kind === "v3") return slot.readOnlyView;
+  throw new ServiceError(
+    409,
+    "Settings use a schema that only a newer release can change. Read the schema-4 route through its typed runtime view.",
+    "settings_requires_successor"
+  );
+}
+
+/** Return a successor-owned schema-4 state without dropping its new controls. */
+export function settingsStateSlotV4ReadOnlyView(slot: SettingsStateSlot): SettingsStateV4 | null {
+  return slot.kind === "v4" ? slot.state : null;
 }
 
 /** One model's stored image-input data: schema 3's `imageInput`, an explicit
@@ -62,8 +82,8 @@ export interface StoredImageInputCapability {
 }
 
 /** `slot`'s stored image-input data for one model ID, read straight from its
- *  schema-3 active document when it has one. A `"v2"` slot, or a model ID
- *  absent from a `"v3"` slot's active document, has none:
+ *  effective schema-3 or schema-4 document when it has one. A `"v2"` slot, or
+ *  a model ID absent from the effective successor document, has none:
  *  schema 2 cannot carry the field at all, and `resolveImageInputCapability`
  *  (shared/image-input-capabilities.ts) already treats a missing override the
  *  same as an absent one.
@@ -75,6 +95,9 @@ export interface StoredImageInputCapability {
  *  by that validation or leak into schema-2 bytes, exactly the outcome
  *  `downgradeModelCapabilitiesV3ToV2` below exists to prevent. This function
  *  is the separate, out-of-band channel a caller uses instead.
+ *
+ *  Promoted states use the same effective revision as runtime readers, so
+ *  image authorization cannot pair an old runtime with a candidate verdict.
  *
  *  This is the read half of the rollback guarantee running in the other
  *  direction. This release's settings writer never produces schema 3 at
@@ -92,8 +115,8 @@ export function settingsStateSlotImageInputCapability(
   modelId: string
 ): StoredImageInputCapability | null {
   if (slot.kind === "v2") return null;
-  const active = slot.state.documents[String(slot.state.activeRevision)];
-  const model = active?.models[modelId];
+  const effective = slot.state.documents[String(effectiveSettingsStateRevision(slot.state))];
+  const model = effective?.models[modelId];
   if (model === undefined) return null;
   return {
     imageInput: model.capabilities.imageInput,
@@ -110,10 +133,10 @@ export function settingsStateSlotImageInputCapability(
 export function requireMutableSettingsStateSlot(
   slot: SettingsStateSlot
 ): asserts slot is MutableSettingsStateSlot {
-  if (slot.kind === "v3") {
+  if (slot.kind !== "v2") {
     throw new ServiceError(
       409,
-      "Settings use a schema that only a newer release can change. Update 1667, then save again.",
+      `Settings use schema ${slot.kind === "v3" ? 3 : 4}, which only a newer release can change. Update 1667, then save again.`,
       "settings_requires_successor"
     );
   }
@@ -124,40 +147,53 @@ export function requireMutableSettingsStateSlot(
  * back one release still opens their settings this way: schema 2 parses as
  * itself, and schema 3 parses and downgrades to a read-only view.
  *
- * A schema-2 parse runs first because it is what this release's own writer
- * always produces. When it fails, a schema-3 attempt follows; if that also
- * fails, the original schema-2 error is the one reported, since schema 2 is
- * the shape this release expects by default.
+ * The top-level schema version selects exactly one validator. An unknown or
+ * missing version keeps the schema-2 diagnostic, since schema 2 is the shape
+ * this release expects by default. The JSON is decoded and parsed once before
+ * this dispatch, so an invalid successor state reports its own validator
+ * diagnostic instead of a schema-2 failure after multiple full parses.
  */
 export function parseSettingsStateSlotBytes(bytes: Uint8Array): SettingsStateSlot {
-  try {
-    return { kind: "v2", state: parseSettingsStateV2Bytes(bytes) };
-  } catch (v2Error) {
-    let successor: SettingsStateV3;
-    try {
-      successor = parseSettingsStateV3FromBytes(bytes);
-    } catch {
-      throw v2Error;
-    }
-    return {
-      kind: "v3",
-      state: successor,
-      readOnlyView: downgradeSettingsStateV3ToV2(successor)
-    };
-  }
-}
-
-function parseSettingsStateV3FromBytes(bytes: Uint8Array): SettingsStateV3 {
   if (bytes.byteLength > MAX_SETTINGS_STATE_BYTES) {
     throw new SettingsFormatError(`Settings state exceeds its ${MAX_SETTINGS_STATE_BYTES}-byte size limit`);
   }
-  let text: string;
-  try {
-    text = decodeCanonicalUtf8(bytes, "settings state");
-  } catch (error) {
-    throw new SettingsFormatError("settings state is not strict UTF-8", { cause: error });
+  const text = decodeSettingsBytes(bytes, "settings state");
+  const value = parseJsonRejectingDuplicateKeys(text, "settings state");
+  let slot: SettingsStateSlot;
+  switch (settingsStateSchemaVersion(value)) {
+    case 2:
+      slot = { kind: "v2", state: parseSettingsStateV2(value) };
+      break;
+    case 3: {
+      const state = parseSettingsStateV3(value);
+      slot = {
+        kind: "v3",
+        state,
+        readOnlyView: downgradeSettingsStateV3ToV2(state)
+      };
+      break;
+    }
+    case 4:
+      slot = { kind: "v4", state: parseSettingsStateV4(value) };
+      break;
+    default:
+      // Preserve the predecessor's default diagnostic for a missing or
+      // unsupported top-level version.
+      slot = { kind: "v2", state: parseSettingsStateV2(value) };
+      break;
   }
-  return parseSettingsStateV3Text(text);
+  if (canonicalJson(value) !== text) {
+    throw new SettingsFormatError("Settings state is not canonical JSON");
+  }
+  return slot;
+}
+
+function settingsStateSchemaVersion(value: unknown): 2 | 3 | 4 | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const schemaVersion = (value as { readonly schemaVersion?: unknown }).schemaVersion;
+  return schemaVersion === 2 || schemaVersion === 3 || schemaVersion === 4
+    ? schemaVersion
+    : null;
 }
 
 /**

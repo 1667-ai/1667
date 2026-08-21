@@ -49,6 +49,7 @@ import {
   settingsTextDraftWithTextPreset
 } from "./settings-text.js";
 import { settingsPlanRowDisabled } from "./settings-subscription.js";
+import { settingsReadOnlyMessage } from "./settings-read-only.js";
 import { renameSettingsProfile } from "./settings-profile-draft.js";
 import { settingsModelDisplayText } from "./settings-profile-controls.js";
 import type {
@@ -272,7 +273,7 @@ export function applySettingsRowEdit(
   }
   if (edit.row === "profile") {
     if (overlay.draft.document === null || overlay.draft.selectedProfileId === null) {
-      return { kind: "error", message: "legacy settings are read-only" };
+      return { kind: "error", message: settingsReadOnlyMessage(overlay.view.readOnlyReason) };
     }
     const renamed = renameSettingsProfile(
       overlay.draft.document,

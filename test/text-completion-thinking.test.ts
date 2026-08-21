@@ -36,7 +36,14 @@ function koboldFinish(): string {
   return `data: ${JSON.stringify({ token: "", finish_reason: "stop" })}\n\n`;
 }
 
-function textSettings(splitThinkTags: boolean): GenerationSettings {
+function textSettings(
+  splitThinkTags: boolean,
+  reasoning: {
+    readonly effort?: "default" | "low";
+    readonly thinkingMode?: "default" | "on";
+  } = {},
+  tokenProbabilities: number | null = null
+): GenerationSettings {
   return attachProviderRuntime({
     provider: "text-completion",
     baseUrl: "https://kobold.example",
@@ -60,8 +67,9 @@ function textSettings(splitThinkTags: boolean): GenerationSettings {
       totalMs: 5_000
     },
     allowInsecureHttp: false,
-    effort: "default",
-    tokenProbabilities: null,
+    effort: reasoning.effort ?? "default",
+    ...(reasoning.thinkingMode === undefined ? {} : { thinkingMode: reasoning.thinkingMode }),
+    tokenProbabilities,
     capabilities: {
       temperature: "supported",
       assistantPrefill: "unknown",
@@ -146,6 +154,44 @@ test("a connection without the split passes every token through untouched", asyn
 
   assert.equal(prose, "<think>Three ways down.</think>She chose the rope.");
   assert.equal(thought, "");
+});
+
+test("schema-4 text routes refuse non-default reasoning before dispatch", async () => {
+  for (const reasoning of [
+    { effort: "low" as const, thinkingMode: "default" as const },
+    { effort: "default" as const, thinkingMode: "on" as const }
+  ]) {
+    await assert.rejects(
+      run(textSettings(false, reasoning), []),
+      /This provider does not support reasoning controls\./
+    );
+  }
+});
+
+test("schema-4 text routes refuse protocol-unsupported token probabilities", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return new Response(koboldFinish(), { headers: { "content-type": "text/event-stream" } });
+  }) as typeof fetch;
+  try {
+    await assert.rejects(
+      (async () => {
+        for await (const _chunk of streamCompletion(
+          textSettings(false, { thinkingMode: "default" }, 4),
+          PROMPT,
+          new AbortController().signal
+        )) {
+          // Drain.
+        }
+      })(),
+      /Token probabilities are unavailable with the selected reasoning state\./u
+    );
+    assert.equal(fetchCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 // The two channels leave through separate redactors, so a credential divided

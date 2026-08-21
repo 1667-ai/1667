@@ -3,12 +3,14 @@ import test from "node:test";
 import { ProviderError } from "../server/errors.js";
 import {
   attachProviderRuntime,
+  legacyGenerationEffortFor,
   providerRuntimeFor,
   providerRuntimeFromV2,
   redactProviderBody,
   redactProviderSecrets,
   resolveProviderHeaders,
   type ProviderRuntime,
+  type ProviderRuntimeReasoning,
   type StandardProviderRuntime
 } from "../server/provider-runtime.js";
 import {
@@ -20,7 +22,10 @@ import {
   type StreamOutcome
 } from "../server/providers.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
-import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
+import {
+  EMPTY_SAMPLING_V2,
+  type GenerationEffortV2
+} from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { supportsAssistantPrefill } from "../shared/continuation-plan.js";
 import { providerRequestTransportAvailable } from "../server/settings-v2-runtime.js";
@@ -37,6 +42,23 @@ const PROMPT: PromptPlan = {
     }]
   }]
 };
+
+test("provider runtime reasoning keeps schema-4 effort and thinking atomic", () => {
+  const legacy: ProviderRuntimeReasoning = { effort: "off" };
+  const schema4: ProviderRuntimeReasoning = { effort: "max", thinkingMode: "on" };
+  assert.deepEqual(legacy, { effort: "off" });
+  assert.deepEqual(schema4, { effort: "max", thinkingMode: "on" });
+  assert.equal(legacyGenerationEffortFor(providerRuntimeFor(attached({ effort: "off" }))), "off");
+
+  if (false) {
+    // @ts-expect-error Schema-4 effort cannot omit its required Thinking Mode.
+    const missingThinkingMode: ProviderRuntimeReasoning = { effort: "max" };
+    // @ts-expect-error Legacy effort off cannot carry a schema-4 Thinking Mode.
+    const mixedSchemaVersions: ProviderRuntimeReasoning = { effort: "off", thinkingMode: "on" };
+    void missingThinkingMode;
+    void mixedSchemaVersions;
+  }
+});
 
 test("v2 authentication and custom-header references resolve only at dispatch", () => {
   process.env.AI_1667_TEST_NAMED_AUTH = "named-secret";
@@ -1776,7 +1798,8 @@ test("complete SSE frames may share a transport chunk larger than the partial-fr
 });
 
 function attached(
-  overrides: Partial<StandardProviderRuntime> = {},
+  overrides: Omit<Partial<StandardProviderRuntime>, "effort" | "thinkingMode">
+    & { readonly effort?: GenerationEffortV2 } = {},
   settingsOverrides: Partial<GenerationSettings> = {}
 ): GenerationSettings {
   return attachProviderRuntime({ ...baseSettings(), ...settingsOverrides }, {

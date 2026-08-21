@@ -119,6 +119,7 @@ const ANTHROPIC_MINIMUM_TOKENS = new Map<string, number>([
   ["claude-fable-5", 512],
   ["claude-mythos-5", 512],
   ["claude-mythos-preview", 2_048],
+  ["claude-opus-5", 512],
   ["claude-opus-4-8", 1_024],
   ["claude-opus-4-7", 2_048],
   ["claude-opus-4-6", 4_096],

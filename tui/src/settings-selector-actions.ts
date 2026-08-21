@@ -29,6 +29,7 @@ import {
 } from "./settings-profile-controls.js";
 import { cycleTokenProbabilitiesControl } from "./settings-token-probabilities-row.js";
 import { cycleReasoningControl } from "./settings-reasoning-row.js";
+import { settingsReadOnlyMessage } from "./settings-read-only.js";
 import { isSettingsScalarRow } from "./settings-scalar.js";
 import {
   isConnectionTimeoutRow,
@@ -50,7 +51,7 @@ export async function cycleSettingsRow(
   magnitude: ScalarMagnitude = "step"
 ): Promise<void> {
   if (settingsRowUsesServer(row) && !overlay.view.editable) {
-    state.toast = "legacy settings are read-only";
+    state.toast = settingsReadOnlyMessage(overlay.view.readOnlyReason);
     return;
   }
   try {

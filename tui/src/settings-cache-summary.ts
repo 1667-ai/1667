@@ -9,6 +9,7 @@ import type {
   SettingsView
 } from "../../shared/settings-v2-types.js";
 import type { SettingsTextDraft } from "./settings-text.js";
+import { settingsReadOnlyMessage } from "./settings-read-only.js";
 
 /** The policy is the part the row cycles. `detail` keeps the compact summary
  * used outside the form. `description` explains the effect in the form. */
@@ -19,9 +20,11 @@ interface PromptCacheSummaryAvailable {
   readonly description: string;
 }
 
+type PromptCacheDisplayPolicy = PromptCachePolicyV2 | "successor-owned";
+
 interface PromptCacheSummaryUnavailable {
   readonly kind: "unavailable";
-  readonly policy: PromptCachePolicyV2;
+  readonly policy: PromptCacheDisplayPolicy;
   readonly detail: "unavailable";
   readonly reason: string;
   readonly compactReason: string;
@@ -36,6 +39,15 @@ export function promptCacheSummaryParts(
   draft?: SettingsTextDraft
 ): PromptCacheSummaryParts {
   if (!view.editable) {
+    if (view.readOnlyReason === "successor-schema") {
+      return {
+        kind: "unavailable",
+        policy: "successor-owned",
+        detail: "unavailable",
+        reason: settingsReadOnlyMessage(view.readOnlyReason),
+        compactReason: "successor-owned · update 1667"
+      };
+    }
     return {
       kind: "available",
       policy: "off",

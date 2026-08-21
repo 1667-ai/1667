@@ -42,12 +42,12 @@ test("source identity is explicit and cannot masquerade as a packaged build", ()
   // adds Aside routes, Aside failure codes, and the Markdown export fidelity
   // contract. v22 adds the active prose continuation layout to Settings. v23
   // adds machine-tier subscription sign-in state to Settings. v24 adds the
-  // closed `pi-catalog` model-discovery source. An older peer must fail at
-  // preflight.
+  // closed `pi-catalog` model-discovery source. v25 adds the Settings
+  // read-only reason. An older peer must fail at preflight.
   assert.equal(
     HTTP_API_PROTOCOL_VERSION,
-    24,
-    "Subscription model catalogs require HTTP API v24"
+    25,
+    "Successor-owned Settings views require HTTP API v25"
   );
   const source = createSourceBuildIdentity("1.2.3");
   assert.deepEqual(source, {

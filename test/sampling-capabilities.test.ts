@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  OPENAI_SAMPLING_RULES,
   resolveSamplingKnob,
   samplingKnobPresentation,
   type SamplingContext,
@@ -301,13 +302,11 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
   {
     // Reasoning-family OpenAI models reject logit_bias outright (Microsoft's
     // Azure OpenAI docs, which mirror OpenAI's model capabilities, list it
-    // explicitly under "Not Supported" for reasoning models — see the
-    // OPENAI_REASONING_FAMILY_MODELS comment in
-    // shared/sampling-capabilities.ts). This gates logitBias itself, not
-    // only phraseBias/bannedStrings, because a raw token ID rides the same
-    // wire field. Every other knob is unaffected.
+    // explicitly under "Not Supported" for reasoning models. This gates
+    // logitBias itself, not only phraseBias/bannedStrings, because a raw
+    // token ID rides the same wire field. Every other knob is unaffected.
     name: "reasoning-family OpenAI model",
-    context: samplingContext("openai-chat-completions", "openai", "o3-mini"),
+    context: samplingContext("openai-chat-completions", "openai", "gpt-5"),
     sampling: EMPTY_SAMPLING_V2,
     expected: {
       topP: { kind: "available", wireField: "top_p" },
@@ -338,11 +337,11 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
   },
   {
     // A non-"openai" preset that happens to report the same model ID string
-    // is not gated by this list — the reasoning-family check, like the
+    // is not gated by the catalog — the reasoning-family check, like the
     // tokenizer allow-list, is only an authority for the preset whose
     // reported ID is trustworthy (see the resolveSamplingKnob comment).
-    name: "a model ID matching the reasoning-family list on an untrusted preset",
-    context: samplingContext("openai-chat-completions", "custom", "o3-mini"),
+    name: "a model ID matching a catalog never row on an untrusted preset",
+    context: samplingContext("openai-chat-completions", "custom", "gpt-5"),
     sampling: EMPTY_SAMPLING_V2,
     expected: baselineOnly({ kind: "unavailable", reason: "preset-unsupported" })
   },
@@ -378,6 +377,31 @@ test("sampling capability fixtures cover supported protocol, preset, model, and 
         fixture.expected[knob],
         `${fixture.name}/${knob}`
       );
+    }
+  }
+});
+
+test("legacy logit-bias family refusal follows only never rows in the OpenAI sampling catalog", () => {
+  for (const [remoteModelId, rule] of OPENAI_SAMPLING_RULES) {
+    for (const knob of ["logitBias", "phraseBias", "bannedStrings"] as const) {
+      const resolution = resolveSamplingKnob(
+        samplingContext("openai-chat-completions", "openai", remoteModelId),
+        EMPTY_SAMPLING_V2,
+        knob
+      );
+      if (rule === "never") {
+        assert.deepEqual(
+          resolution,
+          { kind: "unavailable", reason: "reasoning-model" },
+          `${remoteModelId} (${rule})/${knob}`
+        );
+      } else if (resolution.kind === "unavailable") {
+        assert.notEqual(
+          resolution.reason,
+          "reasoning-model",
+          `${remoteModelId} (${rule})/${knob}`
+        );
+      }
     }
   }
 });

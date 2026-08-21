@@ -6,6 +6,7 @@ import { applyGenerationSettings } from "./runtime-settings.js";
 import { activeSettingsEdit } from "./settings-edit-state.js";
 import { reconcileSettingsOverlay } from "./settings-overlay-model.js";
 import { autoSelectSettingsSubscriptionPlan } from "./settings-subscription-default.js";
+import { settingsReadOnlyMessage } from "./settings-read-only.js";
 
 interface StoryCatalogSource { stories: StorySummary[] }
 interface SettingsViewSource {
@@ -70,6 +71,6 @@ export function publishSettingsView(
     if (message !== null) state.toast = message;
   }
   if (overlay !== null && !view.editable) {
-    state.toast = "legacy settings are read-only · draft kept";
+    state.toast = `${settingsReadOnlyMessage(view.readOnlyReason)} · draft kept`;
   }
 }

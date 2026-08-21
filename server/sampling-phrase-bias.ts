@@ -26,6 +26,7 @@ import { ServiceError } from "./errors.js";
 import { promptBiasEncoderAvailable, tokenizePhraseTokenIds } from "./openai-prompt-tokenizer.js";
 import { probeKoboldCppTokenize, probeLlamaCppTokenize, stripKoboldCppBosPrefix } from "./context-probe.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
+import type { ResolvedReasoningPolicy } from "../shared/reasoning-capabilities.js";
 
 /** One phraseBias entry or bannedStrings phrase, tagged with the scope
  * (profile or story) it was configured in — the unit `resolveSamplingLogitBias`
@@ -112,6 +113,8 @@ export function storySamplingBias(story: Pick<Story, "phraseBias" | "bannedStrin
 export interface StorySamplingRequest {
   readonly signal?: AbortSignal;
   readonly storySampling?: StorySamplingBias;
+  /** Canonical schema-4 reasoning/sampling result. */
+  readonly reasoningPolicy?: ResolvedReasoningPolicy;
 }
 
 /** Builds the one merge input every caller resolves against: the profile's

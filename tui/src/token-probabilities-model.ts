@@ -173,7 +173,11 @@ const SUPPORTED_PRESET_LABELS: readonly string[] =
  *  plain "not requested" reason rather than guessing which of those it was. */
 export function resolveTokenProbabilityEmptyReason(view: SettingsView): TokenProbabilityEmptyReason {
   if (view.dataFormat === 1) {
-    return { text: tokenProbabilityUnavailableReason("legacy-v1") };
+    return {
+      text: view.readOnlyReason === "successor-schema"
+        ? "Newer settings schema is read-only here; the successor owns it. Update 1667."
+        : tokenProbabilityUnavailableReason("legacy-v1")
+    };
   }
   const route = selectSettingsRoute(view.document, "prose");
   const resolution = resolveTokenProbabilities(samplingContextForRoute(route));

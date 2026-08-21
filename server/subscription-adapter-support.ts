@@ -8,14 +8,23 @@ import {
   adjustMaxTokensForThinking,
   clampMaxTokensToContext
 } from "@earendil-works/pi-ai/api/simple-options";
-import type { ConnectionTimeoutsV2 } from "../shared/settings-v2-types.js";
+import type {
+  ConnectionTimeoutsV2,
+  GenerationEffortV2
+} from "../shared/settings-v2-types.js";
+import type {
+  ReasoningPolicyResolution
+} from "../shared/reasoning-capabilities.js";
 import { ProviderError } from "./errors.js";
 
 export const SUBSCRIPTION_EFFECTIVE_FIELDS = [
   "max_tokens",
   "temperature",
   "thinking.type",
+  "thinking.display",
   "thinking.budget_tokens",
+  "top_p",
+  "top_k",
   "output_config.effort",
   "reasoning.effort",
   "tool_choice",
@@ -24,8 +33,24 @@ export const SUBSCRIPTION_EFFECTIVE_FIELDS = [
 ] as const;
 
 export function openAiReasoningOptions(
-  effort: "default" | "off" | "low" | "medium" | "high"
+  effort: GenerationEffortV2,
+  policy?: ReasoningPolicyResolution | null
 ): Pick<OpenAICodexResponsesOptions, "reasoningEffort"> {
+  if (policy?.kind === "unavailable") throw new ProviderError(policy.message);
+  if (policy?.kind === "available") {
+    switch (policy.wire.kind) {
+      case "openai":
+      case "compatible-openai":
+        return policy.wire.openaiEffort === undefined
+          ? {}
+          : { reasoningEffort: policy.wire.openaiEffort };
+      case "anthropic":
+      case "compatible-anthropic":
+      case "compatible":
+      case "none":
+        return {};
+    }
+  }
   return effort === "default"
     ? {}
     : { reasoningEffort: effort === "off" ? "none" : effort };
@@ -34,9 +59,32 @@ export function openAiReasoningOptions(
 export function anthropicReasoningOptions(
   model: Model<"anthropic-messages">,
   context: Context,
-  effort: "default" | "off" | "low" | "medium" | "high",
-  maxTokens: number
-): Pick<AnthropicOptions, "thinkingEnabled" | "effort" | "thinkingBudgetTokens" | "maxTokens"> {
+  effort: GenerationEffortV2,
+  maxTokens: number,
+  policy?: ReasoningPolicyResolution | null
+): Pick<AnthropicOptions, "thinkingEnabled" | "effort" | "thinkingBudgetTokens" | "thinkingDisplay" | "maxTokens"> {
+  if (policy?.kind === "unavailable") throw new ProviderError(policy.message);
+  if (policy?.kind === "available") {
+    switch (policy.wire.kind) {
+      case "anthropic": {
+        const thinking = policy.wire.thinking;
+        if (thinking === undefined) return {};
+        if (thinking.type === "disabled") return { thinkingEnabled: false };
+        const adaptive: Pick<AnthropicOptions, "thinkingEnabled" | "effort" | "thinkingDisplay"> = {
+          thinkingEnabled: true,
+          ...(policy.wire.anthropicEffort === undefined ? {} : { effort: policy.wire.anthropicEffort }),
+          ...(thinking.display === undefined ? {} : { thinkingDisplay: thinking.display })
+        };
+        return adaptive;
+      }
+      case "openai":
+      case "compatible-openai":
+      case "compatible-anthropic":
+      case "compatible":
+      case "none":
+        return {};
+    }
+  }
   if (effort === "default" || effort === "off") return { thinkingEnabled: false };
   if (model.compat?.forceAdaptiveThinking === true) {
     return { thinkingEnabled: true, effort };
