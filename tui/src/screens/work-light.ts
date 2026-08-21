@@ -7,7 +7,7 @@ const WORK_LIGHT_EDGE_FRAMES = 2;
 /** Move one light band through a visible work-state keyword. */
 export function lightWorkKeyword(
   line: FrameLine,
-  keyword: "working" | "thinking",
+  keyword: "working" | "writing" | "thinking",
   now: number,
   deadlines?: FrameDeadlineCollector
 ): FrameLine {

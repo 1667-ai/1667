@@ -83,7 +83,7 @@ describe("animation deadlines", () => {
     expect(deadlines.next()).toBe(1_330);
   });
 
-  test("a silent stream advances one visible liveness mark per frame deadline", () => {
+  test("a silent stream advances its liveness mark and light band", () => {
     const state = initialState(demoAppSource(false), false);
     const leaf = state.payload.path.at(-1)!;
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), leaf.id);
@@ -107,10 +107,10 @@ describe("animation deadlines", () => {
 
     expect(first).toContain("⠋ writing");
     expect(second).toContain("⠙ writing");
-    expect(firstDeadlines.next()).toBe(250);
+    expect(firstDeadlines.next()).toBe(120);
   });
 
-  test("visible working and thinking words carry one light band", () => {
+  test("visible working, writing, and thinking words carry one light band", () => {
     const state = initialState(demoAppSource(false), false);
     state.backendTask = {
       id: 1,
@@ -133,7 +133,6 @@ describe("animation deadlines", () => {
 
     const leaf = state.payload.path.at(-1)!;
     state.backendTask = null;
-    state.reasoning = "marker";
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), leaf.id);
     state.stream = {
       targetId: leaf.id,
@@ -143,6 +142,21 @@ describe("animation deadlines", () => {
       instruction: "",
       ...emptyStreamText()
     };
+    state.now = 250;
+    const writingDeadlines = createFrameDeadlineCollector(state.now);
+    const writingFrame = renderStoryScreen(state, {
+      width: 120, height: 36, deadlines: writingDeadlines
+    });
+    const writingLine = writingFrame.lines.find((line) => plainLine(line).includes("writing"))!;
+    const writing = keywordSegments(writingLine, "writing");
+
+    expect(writing.map((part) => part.text).join("")).toBe("writing");
+    expect(writing.slice(0, 3).map((part) => part.role)).toEqual([
+      "streaming", "focus / accent", "brass dim"
+    ]);
+    expect(writingDeadlines.next()).toBe(360);
+
+    state.reasoning = "marker";
     appendStreamReasoning(state.stream, "Weighing routes", 12);
     const thinkingDeadlines = createFrameDeadlineCollector(state.now);
     const thinkingFrame = renderStoryScreen(state, {
