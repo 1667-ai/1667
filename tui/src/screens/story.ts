@@ -293,7 +293,14 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   // terminal's right edge.
   const surfaceRows = Math.max(0, height - 1);
   const status = fitLine(
-    renderStoryStatus(state, view, frameLayout.railRight ?? frameLayout.fullWidth, narrow, estimate),
+    renderStoryStatus(
+      state,
+      view,
+      frameLayout.railRight ?? frameLayout.fullWidth,
+      narrow,
+      estimate,
+      options.deadlines
+    ),
     frameLayout.fullWidth
   );
   let lines: FrameLine[] = [
@@ -755,7 +762,9 @@ function renderFullscreenComposer(
     softWrap: state.config.wordWrap === "on"
   });
   const withImages = spliceDraftImageRows(composer, draftImagesFor(state.composer), "");
-  const lines = [...withImages.lines, renderStoryStatus(state, view, width, width < 100, estimate)]
+  const lines = [...withImages.lines, renderStoryStatus(
+    state, view, width, width < 100, estimate, deadlines
+  )]
     .slice(0, height)
     .map((line) => fitLine(line, width));
   const hitRows: HitRows = Array.from({ length: height }, (_, row): HitRow | null => row < height - 1
@@ -894,7 +903,9 @@ function renderEditorLayoutFrame(
   layout: ComposerLayout,
   deadlines?: FrameDeadlineCollector
 ): StoryScreenFrame {
-  const base = [...layout.lines, renderStoryStatus(state, view, width, width < 100, estimate)]
+  const base = [...layout.lines, renderStoryStatus(
+    state, view, width, width < 100, estimate, deadlines
+  )]
     .slice(0, height)
     .map((line) => fitLine(line, width));
   const hitRows: HitRows = Array.from({ length: height }, (_, row): HitRow | null => row < height - 1
@@ -944,9 +955,10 @@ function renderStoryStatus(
   view: StoryViewModel,
   width: number,
   narrow: boolean,
-  estimate: NextRequestEstimate
+  estimate: NextRequestEstimate,
+  deadlines?: FrameDeadlineCollector
 ): FrameLine {
-  const status = renderCanonicalStatus(state, view, width, narrow, estimate);
+  const status = renderCanonicalStatus(state, view, width, narrow, estimate, deadlines);
   const prompt = state.mode === "COMPOSE" ? state.retakePrompt : null;
   if (prompt === null) return status;
   const [modeBlock, ...rest] = status;

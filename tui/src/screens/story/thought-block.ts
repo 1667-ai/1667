@@ -2,6 +2,8 @@ import type { HitTarget } from "../../hit.js";
 import { formatTokensScaled } from "../../rail.js";
 import type { ResolvedThought } from "../../reasoning-model.js";
 import { wrapText } from "../../wrap.js";
+import type { FrameDeadlineCollector } from "../../animation-deadline.js";
+import { lightWorkKeyword } from "../work-light.js";
 import { segment, visibleWidth, type FrameLine } from "./frame.js";
 
 /** Ghost role for every thought affordance — settings §13's "marker is a
@@ -39,9 +41,13 @@ export function focusedFoldedThoughtLine(hit: HitTarget): FrameLine {
  *  the `writing` branch it stands in for) and adds `T peeks` in the same
  *  role, since this line is a status line, not the ghost-margin affordance
  *  the folded/unfolded marks are. */
-export function thinkingGutterLine0(tokenCount: number | null): FrameLine {
+export function thinkingGutterLine0(
+  tokenCount: number | null,
+  now = 0,
+  deadlines?: FrameDeadlineCollector
+): FrameLine {
   const label = tokenCount === null ? "⟳ thinking" : `⟳ thinking · ${tokenCount} tok`;
-  return [segment(label, "focus / accent")];
+  return lightWorkKeyword([segment(label, "focus / accent")], "thinking", now, deadlines);
 }
 
 export function thinkingGutterLine1(hit: HitTarget): FrameLine {
