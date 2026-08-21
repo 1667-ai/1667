@@ -1,9 +1,9 @@
 import type { Credential, CredentialStore, Models } from "@earendil-works/pi-ai";
 import type {
-  SettingsDocumentV2,
   SettingsStateV2,
   SubscriptionAuthState
 } from "../shared/settings-v2-types.js";
+import type { CredentialBearingSettingsDocument } from "../shared/settings-credential-slots.js";
 import {
   SUBSCRIPTION_SECRET_IDS,
   createSubscriptionCredentialStore
@@ -76,7 +76,7 @@ export function providerSecretIdsToKeep(state: SettingsStateV2): Set<string> {
 }
 
 export function storedSecretIdsInDocument(
-  document: SettingsDocumentV2
+  document: CredentialBearingSettingsDocument
 ): Set<string> {
   const ids = new Set<string>();
   for (const connection of Object.values(document.connections)) {

@@ -24,6 +24,9 @@ import { clipAttribution } from "./story-nodes.js";
 import type { SettingsStore } from "./settings.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
 import { optionalString, requireString } from "./validation.js";
+import type { StorySamplingBias } from "./sampling-phrase-bias.js";
+import { storySamplingBias } from "./sampling-phrase-bias.js";
+import { isSchema4ProviderRuntime, providerRuntimeFor } from "./provider-runtime.js";
 import {
   createPromptCacheRequest,
   type PromptCacheRequest,
@@ -125,6 +128,9 @@ export async function createSummaryTake(
   // `summarySettings(settings, ...)`, not `settings` itself, so this is the
   // only correct place to learn what it actually resolved.
   const providerSecrets: ProviderSecretsCollector = { secrets: [] };
+  const summaryStorySampling = isSchema4ProviderRuntime(providerRuntimeFor(settings))
+    ? storySamplingBias(source)
+    : undefined;
   try {
     for await (const delta of streamCompletion(summarySettings(settings, plan.outputBudget), plan.prompt, signal, {
       outcome,
@@ -132,7 +138,8 @@ export async function createSummaryTake(
       promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
       generationRecord: generationRecordCollector,
       onReasoning: reasoning.onReasoning,
-      providerSecrets
+      providerSecrets,
+      storySampling: summaryStorySampling
     })) {
       raw += delta;
       if (raw.length > SUMMARY_OUTPUT_LIMIT) {
@@ -252,11 +259,15 @@ export async function generateSummaryText(
     targetTokens?: number;
     providerStarted?: () => void | Promise<void>;
     promptCache?: PromptCacheRequest;
+    storySampling?: StorySamplingBias;
   } = {}
 ): Promise<GeneratedSummaryText> {
   const tag = randomUUID().slice(0, 8);
   const marker = `[[summary-complete-${tag}]]`;
   const plan = planSummary(settings, title, parts, tag, options.targetTokens);
+  const summaryStorySampling = isSchema4ProviderRuntime(providerRuntimeFor(settings))
+    ? options.storySampling
+    : undefined;
   const outcome: StreamOutcome = {
     finishReason: null,
     providerTerminal: false
@@ -268,7 +279,8 @@ export async function generateSummaryText(
       outcome,
       providerStarted: options.providerStarted,
       promptCache: options.promptCache,
-      generationRecord: generationRecordCollector
+      generationRecord: generationRecordCollector,
+      storySampling: summaryStorySampling
     })) {
       raw += delta;
       if (raw.length > SUMMARY_OUTPUT_LIMIT) {
@@ -490,5 +502,9 @@ function incompleteSummaryMessage(outcome: StreamOutcome, windowBound: boolean):
 }
 
 function summarySettings(settings: GenerationSettings, outputBudget: number): GenerationSettings {
-  return { ...settings, maxTokens: outputBudget, temperature: Math.min(settings.temperature ?? 0.2, 0.2) };
+  return {
+    ...settings,
+    maxTokens: outputBudget,
+    temperature: settings.temperature === null ? null : Math.min(settings.temperature, 0.2)
+  };
 }

@@ -47,6 +47,7 @@ import {
   settingsTextDraftWithCachePolicy,
   settingsTextDraftWithGeneration
 } from "./settings-text.js";
+import { settingsReadOnlyMessage } from "./settings-read-only.js";
 import type { SettingsOverlayState } from "./state.js";
 
 /** C-08 stepping, applied to the draft. Only a row with a sentinel can reach
@@ -91,10 +92,19 @@ const CONTINUATION_PROMPT_CHOICES: readonly (ContinuationPromptOptimizationV2 | 
 ];
 
 export function continuationPromptRowValue(overlay: SettingsOverlayState): string {
+  if (overlay.view.readOnlyReason === "successor-schema") {
+    const layout = overlay.view.effectiveProseContinuationPromptLayout;
+    return layout === undefined
+      ? "‹ successor-owned ›"
+      : `[ ${layout === "compatibility" ? "off" : "on"} ]`;
+  }
   return `[ ${continuationPromptOptimization(overlay) === null ? "off" : "on"} ]`;
 }
 
 export function continuationPromptRowHint(overlay: SettingsOverlayState): string {
+  if (overlay.view.readOnlyReason === "successor-schema") {
+    return settingsReadOnlyMessage(overlay.view.readOnlyReason);
+  }
   return continuationPromptOptimization(overlay) === null
     ? "Uses the established Continue and Retake layout; the alternative is experimental."
     : "The experimental layout moves task instructions after story context to improve prompt caching.";
@@ -339,7 +349,11 @@ export function promptCacheRowValue(view: SettingsView, draft?: SettingsOverlayS
 export function effortRowValue(overlay: SettingsOverlayState): string {
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
-  if (document === null || profileId === null) return "‹ default ›";
+  if (document === null || profileId === null) {
+    return overlay.view.readOnlyReason === "successor-schema"
+      ? "‹ unavailable ›"
+      : "‹ default ›";
+  }
   return `‹ ${document.profiles[profileId]?.effort ?? "default"} ›`;
 }
 
@@ -347,7 +361,9 @@ export function effortRowHint(overlay: SettingsOverlayState): string {
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
   if (document === null || profileId === null) {
-    return "Sets how much reasoning the model does before writing.";
+    return overlay.view.readOnlyReason === "successor-schema"
+      ? settingsReadOnlyMessage(overlay.view.readOnlyReason)
+      : "Sets how much reasoning the model does before writing.";
   }
   const effort = document.profiles[profileId]?.effort ?? "default";
   return generationEffortChoices(document, profileId).includes(effort)
@@ -384,7 +400,11 @@ export function profilePositionDots(overlay: SettingsOverlayState): string {
 export function profileRowHint(overlay: SettingsOverlayState): string {
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
-  if (document === null || profileId === null) return "Legacy settings are read-only.";
+  if (document === null || profileId === null) {
+    return overlay.view.readOnlyReason === "successor-schema"
+      ? settingsReadOnlyMessage(overlay.view.readOnlyReason)
+      : "Legacy settings are read-only.";
+  }
   return profileRouteState(document, profileId) === "unrouted"
     ? "No requests currently use this profile."
     : "Groups a model with its generation settings.";
@@ -424,7 +444,11 @@ export function generationEffortChoices(
 export function profileRowValue(overlay: SettingsOverlayState): string {
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
-  if (document === null || profileId === null) return "‹ legacy profile ›";
+  if (document === null || profileId === null) {
+    return overlay.view.readOnlyReason === "successor-schema"
+      ? "‹ successor-owned ›"
+      : "‹ legacy profile ›";
+  }
   const profile = document.profiles[profileId];
   if (profile === undefined) return "‹ unavailable ›";
   return `‹ ${profile.name} ›`;

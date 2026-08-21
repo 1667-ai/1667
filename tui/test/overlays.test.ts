@@ -18,6 +18,7 @@ import { fuzzyFilter, fuzzyMatch } from "../src/fuzzy.js";
 import { libraryRows, libraryTotals, typedTitleMatches } from "../src/library-model.js";
 import { deriveSummaryProgress, narrowedSummaryToast, summaryStretch } from "../src/summary-model.js";
 import { promptCacheRowValue } from "../src/settings-overlay-model.js";
+import { promptCacheSummaryParts } from "../src/settings-cache-summary.js";
 import { convertGenerationSettingsV1 } from "../../server/settings-v2-conversion.js";
 import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
 import { createFailureEnvelope } from "../../shared/failure-envelope.js";
@@ -222,6 +223,33 @@ describe("settings cache summary", () => {
     expect(summary).toContain("Dry run");
     expect(summary).toContain("unavailable");
   });
+
+  test("does not guess a successor prompt cache policy", () => {
+    for (const cachePolicy of ["auto", "long"] as const) {
+      const view = readOnlyCacheView(cachePolicy, "successor-schema");
+      expect(promptCacheSummaryParts(view)).toEqual({
+        kind: "unavailable",
+        policy: "successor-owned",
+        detail: "unavailable",
+        reason: "newer settings are read-only · successor owns settings · update 1667",
+        compactReason: "successor-owned · update 1667"
+      });
+      expect(promptCacheRowValue(view)).toBe(
+        "‹ successor-owned › · unavailable · newer settings are read-only · successor owns settings · update 1667"
+      );
+    }
+
+    const legacy = readOnlyCacheView("auto");
+    expect(promptCacheSummaryParts(legacy)).toEqual({
+      kind: "available",
+      policy: "off",
+      detail: "no opt-in controls · format 1",
+      description: "Prompt caching is unavailable in legacy settings."
+    });
+    expect(promptCacheRowValue(legacy)).toBe(
+      "‹ off › · no opt-in controls · format 1"
+    );
+  });
 });
 
 describe("connection monitor error classes", () => {
@@ -366,6 +394,25 @@ function cacheView(
     document,
     effective: basicSettingsFromDocument(document),
     effectiveProse: basicSettingsFromDocument(document),
+    lastActivationOutcome: null
+  };
+}
+
+function readOnlyCacheView(
+  cachePolicy: PromptCachePolicyV2,
+  readOnlyReason?: "successor-schema"
+): Extract<SettingsView, { dataFormat: 1 }> {
+  const editable = cacheView("anthropic", "claude-sonnet-5", cachePolicy);
+  return {
+    dataFormat: 1,
+    editable: false,
+    ...(readOnlyReason === undefined ? {} : { readOnlyReason }),
+    stateGeneration: null,
+    activeRevision: null,
+    pendingRevision: null,
+    document: null,
+    effective: editable.effective,
+    effectiveProse: editable.effectiveProse,
     lastActivationOutcome: null
   };
 }

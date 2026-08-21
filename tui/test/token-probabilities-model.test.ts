@@ -187,6 +187,17 @@ describe("resolveTokenProbabilityEmptyReason", () => {
     expect(reason.supportedPresets).toBe(undefined);
   });
 
+  test("successor schema settings name the update path", () => {
+    const reason = resolveTokenProbabilityEmptyReason({
+      ...legacyView,
+      readOnlyReason: "successor-schema"
+    });
+    expect(reason.text).toBe(
+      "Newer settings schema is read-only here; the successor owns it. Update 1667."
+    );
+    expect(reason.supportedPresets).toBe(undefined);
+  });
+
   test("an Anthropic Messages route resolves protocol, naming the presets that do work", () => {
     const reason = resolveTokenProbabilityEmptyReason(routeView("anthropic", "anthropic-messages"));
     expect(reason.text).toBe("This provider does not support token probabilities.");

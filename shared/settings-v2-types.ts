@@ -5,8 +5,12 @@ import type { GenerationSettings } from "./types.js";
 
 export type {
   SettingsView,
+  SettingsViewReadOnlyReason,
   SubscriptionAuthState,
   SubscriptionAuthStatus
+} from "./settings-v2-view.js";
+export {
+  SETTINGS_VIEW_READ_ONLY_REASON_VALUES
 } from "./settings-v2-view.js";
 
 export const SETTINGS_PROTOCOL_V2_VALUES = [
@@ -471,9 +475,9 @@ export type SettingsTransactionPointerV2 =
     };
 
 /** The field list for one settings-state aggregate, generic over its schema
- *  version and its document type. `SettingsStateV2` and `SettingsStateV3` are
- *  the only two instantiations; neither restates a field. */
-export interface SettingsStateEnvelope<V extends 2 | 3, D> {
+ *  version and its document type. Each schema module supplies its own
+ *  document type; none restates the envelope fields. */
+export interface SettingsStateEnvelope<V extends 2 | 3 | 4, D> {
   readonly schemaVersion: V;
   readonly stateGeneration: number;
   readonly settingsRevisionClock: number;

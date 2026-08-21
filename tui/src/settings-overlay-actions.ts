@@ -45,6 +45,7 @@ import {
   openSystemPromptEditor
 } from "./settings-prompt-editor.js";
 import { activeSettingsEdit } from "./settings-edit-state.js";
+import { settingsReadOnlyMessage } from "./settings-read-only.js";
 import {
   acknowledgeAllSettingsModelSelections,
   cloneSettingsProfileDraft,
@@ -208,7 +209,7 @@ export async function settingsOverlayAction(
       if (settingsRowCycles(row)) {
         state.toast = "this row is a selector · use ←→";
       } else if (!overlay.view.editable) {
-        state.toast = "legacy settings are read-only";
+        state.toast = settingsReadOnlyMessage(overlay.view.readOnlyReason);
       }
     }
   } else if (overlay.modelPicker !== null) {
@@ -224,14 +225,14 @@ export async function settingsOverlayAction(
   } else if (resolved.action === "edit"
     && settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)] === "profile") {
     if (!overlay.view.editable) {
-      state.toast = "legacy settings are read-only";
+      state.toast = settingsReadOnlyMessage(overlay.view.readOnlyReason);
     } else {
       beginSettingsRowEdit(overlay, state.config);
     }
   } else if (resolved.action === "open-selected" || resolved.action === "edit") {
     const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
     if (settingsRowUsesServer(row) && !overlay.view.editable) {
-      state.toast = "legacy settings are read-only";
+      state.toast = settingsReadOnlyMessage(overlay.view.readOnlyReason);
     } else if (row === "model") {
       // C-15: past eight options the list is a column, not a cycler. Below
       // that the row keeps opening for a typed identifier.
@@ -311,7 +312,7 @@ function manageSettingsProfile(
   const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
   if (row !== "profile") return;
   if (!overlay.view.editable || overlay.draft.document === null || overlay.draft.selectedProfileId === null) {
-    state.toast = "legacy settings are read-only";
+    state.toast = settingsReadOnlyMessage(overlay.view.readOnlyReason);
     return;
   }
   const document = overlay.draft.document;
@@ -376,7 +377,9 @@ async function saveSettingsDraft(
   context: ActionContext,
   overlay: SettingsOverlayState
 ): Promise<void> {
-  if (!overlay.view.editable) return void (state.toast = "legacy settings are read-only");
+  if (!overlay.view.editable) {
+    return void (state.toast = settingsReadOnlyMessage(overlay.view.readOnlyReason));
+  }
   if (state.connection.down) {
     return void (state.toast = "offline · draft kept until the connection returns");
   }

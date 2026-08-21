@@ -239,13 +239,13 @@ providerTest("chapter summary rejects an instruction-only source edit", async (t
   );
 });
 
-providerTest("summary take: an unset creative temperature still uses the continuity-safe cap", async (t) => {
+providerTest("summary take: an unset creative temperature stays provider-default", async (t) => {
   const model = await fakeModel(t, (body, response) => stream(response, [`Recap.\n${markerFrom(promptFrom(body))}`]));
   const base = await testApp(t, summarySettings(model.baseUrl, 4096, 512, null));
   const story = await seededStory(base, "Source.");
   const response = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/summary-take`, post({ nodeId: story.path[0]!.id }));
   assert.match(await response.text(), /"type":"done"/);
-  assert.equal(model.requests[0]!.temperature, 0.2);
+  assert.equal(Object.hasOwn(model.requests[0]!, "temperature"), false);
 });
 
 providerTest("summary take: when even the earliest single part does not fit, the refusal names an action and nothing is committed", async (t) => {

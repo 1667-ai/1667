@@ -9,6 +9,7 @@ import {
   type SettingsDocumentV2,
   type SettingsMutationResult,
   type SettingsView,
+  SETTINGS_VIEW_READ_ONLY_REASON_VALUES,
   type SubscriptionAuthState,
   type SubscriptionAuthStatus,
   type SubscriptionProtocolV2
@@ -23,13 +24,17 @@ export function decodeGenerationSettingsResponse(value: unknown): GenerationSett
   const settings = closedRecord(value, "generation settings", [
     "provider", "baseUrl", "model", "apiKeyEnv", "temperature",
     "maxTokens", "systemPrompt", "contextWindow"
-  ], ["protocol"]);
+  ], ["protocol", "allowInsecureHttp"]);
   const protocol = optionalSubscriptionProtocol(settings.protocol);
+  const allowInsecureHttp = Object.hasOwn(settings, "allowInsecureHttp")
+    ? booleanValue(settings.allowInsecureHttp, "generation settings.allowInsecureHttp")
+    : undefined;
   return {
     provider: providerValue(settings.provider, "generation settings.provider"),
     baseUrl: stringValue(settings.baseUrl, "generation settings.baseUrl"),
     model: stringValue(settings.model, "generation settings.model"),
     apiKeyEnv: nullableString(settings.apiKeyEnv, "generation settings.apiKeyEnv"),
+    ...(allowInsecureHttp === undefined ? {} : { allowInsecureHttp }),
     ...(protocol === undefined ? {} : { protocol }),
     temperature: nullableFiniteNumber(settings.temperature, "generation settings.temperature"),
     maxTokens: positiveSafeInteger(settings.maxTokens, "generation settings.maxTokens"),
@@ -55,7 +60,7 @@ export function decodeSettingsViewResponse(
     "pendingRevision", "document", "effective", "effectiveProse", "lastActivationOutcome"
   ], [
     "effectiveProseReasoning", "effectiveProseContinuationPromptLayout",
-    "subscriptionAuth", "subscriptionAutoSelectEligible"
+    "subscriptionAuth", "subscriptionAutoSelectEligible", "readOnlyReason"
   ]);
   const effective = decodeGenerationSettingsResponse(response.effective);
   const effectiveProse = decodeGenerationSettingsResponse(response.effectiveProse);
@@ -84,6 +89,13 @@ export function decodeSettingsViewResponse(
       "settings view.subscriptionAutoSelectEligible"
     )
     : undefined;
+  const readOnlyReason = Object.hasOwn(response, "readOnlyReason")
+    ? oneOf(
+      response.readOnlyReason,
+      SETTINGS_VIEW_READ_ONLY_REASON_VALUES,
+      "settings view.readOnlyReason"
+    )
+    : undefined;
   if (response.dataFormat === 1) {
     if (response.editable !== false || response.stateGeneration !== null
       || response.activeRevision !== null || response.pendingRevision !== null
@@ -93,6 +105,7 @@ export function decodeSettingsViewResponse(
     return {
       dataFormat: 1,
       editable: false,
+      ...(readOnlyReason === undefined ? {} : { readOnlyReason }),
       stateGeneration: null,
       activeRevision: null,
       pendingRevision: null,
@@ -108,6 +121,7 @@ export function decodeSettingsViewResponse(
       lastActivationOutcome: null
     };
   }
+  if (readOnlyReason !== undefined) invalid("settings view.readOnlyReason");
   if (response.dataFormat !== 2 || response.editable !== true) invalid("settings view format");
   return {
     dataFormat: 2,

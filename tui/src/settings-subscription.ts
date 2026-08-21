@@ -1,4 +1,8 @@
-import { isSubscriptionPresetV2 } from "../../shared/settings-v2-types.js";
+import {
+  isSubscriptionPresetV2,
+  isSubscriptionProtocolV2,
+  subscriptionPresetForProtocolV2
+} from "../../shared/settings-v2-types.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import type {
   SettingsView,
@@ -27,13 +31,19 @@ const SUBSCRIPTION_HIDDEN_ROWS: ReadonlySet<SettingsRowId> = new Set([
   "api-key"
 ]);
 
-/** Return the fixed subscription preset on the selected editable route. */
+/** Return the fixed subscription preset on the selected route. */
 export function settingsSubscriptionPreset(
   overlay: SettingsOverlayState
 ): SettingsSubscriptionPreset | null {
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
-  if (document === null || profileId === null) return null;
+  if (document === null || profileId === null) {
+    if (overlay.view.readOnlyReason !== "successor-schema") return null;
+    const protocol = overlay.view.effective.protocol;
+    return protocol !== undefined && isSubscriptionProtocolV2(protocol)
+      ? subscriptionPresetForProtocolV2(protocol)
+      : null;
+  }
   try {
     const preset = resolveSettingsProfile(document, profileId).connection.preset;
     return isSubscriptionPresetV2(preset) ? preset : null;

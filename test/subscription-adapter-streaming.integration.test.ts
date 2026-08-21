@@ -3,6 +3,10 @@ import test from "node:test";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { ProviderError } from "../server/errors.js";
 import { streamCompletion, type StreamOutcome } from "../server/providers.js";
+import {
+  attachProviderRuntime,
+  providerRuntimeFor
+} from "../server/provider-runtime.js";
 import { createSubscriptionCredentialStore } from "../server/subscription-credential-store.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
 import {
@@ -20,6 +24,44 @@ import {
   successfulStream,
   temporaryDirectory
 } from "./subscription-adapter-test-helpers.js";
+
+test("pinned subscription adapters refuse token probabilities before Pi dispatch", async (t) => {
+  const secretsDir = await temporaryDirectory(t, "1667-subscription-token-probabilities-");
+  const credentials = createSubscriptionCredentialStore(secretsDir);
+  await credentials.modify("openai-codex", async () => oauth(ACCESS));
+  await credentials.modify("anthropic", async () => oauth(ACCESS));
+
+  for (const [protocol, provider, api, providerId] of [
+    ["openai-codex-responses", "openai-compatible", "openai-codex-responses", "openai-codex"],
+    ["anthropic-subscription-messages", "anthropic", "anthropic-messages", "anthropic"]
+  ] as const) {
+    const model = modelFor(providerId, api);
+    let streamCalls = 0;
+    const settings = subscriptionSettings(
+      protocol,
+      provider,
+      api,
+      credentials,
+      fakeModels(model, () => {
+        streamCalls += 1;
+        return successfulStream(model, false);
+      })
+    );
+    const runtime = providerRuntimeFor(settings);
+    const tokenProbabilitySettings = attachProviderRuntime(
+      settings,
+      { ...runtime, tokenProbabilities: 5 },
+      true
+    );
+
+    await assert.rejects(
+      collect(streamCompletion(tokenProbabilitySettings, PROMPT, new AbortController().signal)),
+      (error: unknown) => error instanceof ProviderError
+        && error.message === "Token probabilities are unavailable because the pinned subscription adapter cannot serialize token probabilities."
+    );
+    assert.equal(streamCalls, 0);
+  }
+});
 
 test("Pi terminal timing survives slow consumers after buffered deltas", async (t) => {
   const secretsDir = await temporaryDirectory(t, "1667-subscription-slow-consumer-");

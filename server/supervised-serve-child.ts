@@ -366,19 +366,21 @@ export async function recoverDescriptors(
   return results;
 }
 
-async function credentialNames(dataDir: string): Promise<string[]> {
-  let state;
+export async function credentialNames(dataDir: string): Promise<string[]> {
+  let slot;
   try {
-    // Read-only: a schema-3 authority downgrades to its schema-2 view here
-    // exactly as it does through server/settings-state-file.ts, so a writer
-    // who moved back one release still gets a correct credential list.
-    state = settingsStateSlotReadOnlyView(parseSettingsStateSlotBytes(
+    slot = parseSettingsStateSlotBytes(
       await readFile(path.join(dataDir, SETTINGS_STATE_V2_FILE))
-    ));
+    );
   } catch (error) {
     if (isErrorCode(error, "ENOENT")) return [];
     throw error;
   }
+  // Read-only: a successor authority keeps its full readable state so newer
+  // document fields do not block supervised credential discovery.
+  const state = slot.kind === "v4"
+    ? slot.state
+    : settingsStateSlotReadOnlyView(slot);
   const names = settingsStateEnvironmentCredentialNames(state);
   if (names.length > MAX_CREDENTIAL_NAMES_PER_STATE || names.some((name) =>
     !isCredentialEnvironmentName(name))) {

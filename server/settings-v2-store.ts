@@ -87,10 +87,9 @@ import {
 } from "./settings-state-file.js";
 import {
   requireMutableSettingsStateSlot,
-  settingsStateSlotImageInputCapability,
-  settingsStateSlotReadOnlyView,
   type SettingsStateSlot
 } from "./settings-state-slot.js";
+import { activeSettingsDocumentV4 } from "./settings-v4-state-validation.js";
 import { requireFreshUnseenMutationId } from "./mutation-id-policy.js";
 import { parseSettingsDocumentV2 } from "./settings-v2-codec.js";
 import { storedCredentialSecretId } from "../shared/settings-stored-credential.js";
@@ -102,6 +101,12 @@ import {
   storedSecretIdsInState
 } from "./subscription-runtime.js";
 import { readSettingsView } from "./settings-v2-view-read.js";
+import {
+  readSettingsRuntimeSnapshot,
+  resolveSettingsRuntimeSnapshot,
+  settingsRuntimeSnapshotActiveDocument,
+  settingsRuntimeSnapshotPendingDocument
+} from "./settings-runtime-snapshot.js";
 
 type Clock = () => Date;
 export type SettingsActivationMode = "activation-capable" | "recover-only";
@@ -179,6 +184,13 @@ export class SettingsV2Store {
       settingsViewFromState(slot.readOnlyView);
       return;
     }
+    if (slot.kind === "v4") {
+      const document = activeSettingsDocumentV4(slot.state);
+      for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {
+        this.runtimeResolver.resolveV4({ document, purpose });
+      }
+      return;
+    }
     // Every authority that reaches here is schema 2: the branch above
     // already returned for a schema-3 one, and every write below stays
     // schema 2 too, so the pipeline is schema-2-typed throughout.
@@ -195,12 +207,16 @@ export class SettingsV2Store {
   }
 
   loadView(): Promise<SettingsView> {
-    return readSettingsView(this.dataDir, this.runtimeResolver.credentials);
+    return readSettingsView(
+      this.dataDir,
+      this.runtimeResolver.credentials,
+      this.runtimeResolver
+    );
   }
 
   /** The route's runtime settings AND its stored image-input override,
    *  `imageInput`/`imageTokenCeiling`, read from the exact same snapshot
-   *  (`readRuntimeSnapshot` below): one disk read of the settings-state slot,
+   *  (`readSettingsRuntimeSnapshot`): one disk read of the settings-state slot,
    *  resolved to one route. Earlier this shipped as two public methods,
    *  `loadRuntime` and `loadImageInputCapability`, each opening the state
    *  file on its own. A caller running them concurrently (`generation-http.ts`
@@ -212,59 +228,15 @@ export class SettingsV2Store {
    *  than merely unlikely: there is only one read to race with, and both
    *  values fall out of it.
    *
-   *  `imageInputCapability` is `null` when this directory has no schema-3
-   *  authority for this model (a `"v2"` authority, or a model the active
-   *  schema-3 document does not carry). `null` and
+   *  `imageInputCapability` is `null` when this directory has no successor
+   *  image-input override for this model (a `"v2"` authority, or a model the
+   *  effective schema-3/schema-4 document does not carry). `null` and
    *  `resolveImageInputCapability`'s (shared/image-input-capabilities.ts) own
    *  no-override default agree, so a caller passes it straight through as
    *  `ImageInputContext.override`/`overrideTokenCeiling` with no translation. */
   async loadRuntime(purpose: SettingsRoutePurpose = "default") {
-    const { slot, state, storedSecrets } = await this.readRuntimeSnapshot();
-    const document = activeSettingsDocument(state);
-    const runtime = this.runtimeResolver.resolve({ document, purpose, storedSecrets });
-    assertRuntimeGenerationSettingsSupported(runtime.settings);
-    // Same `document` object the runtime resolver just resolved a
-    // route from, above — a second call to the same pure route-selection
-    // function, not a second read. `selectSettingsRoute` is deterministic
-    // given a document and a purpose, so this always names the same model
-    // the settings above came from.
-    const modelId = selectSettingsRoute(document, purpose).profile.modelId;
-    return {
-      ...runtime,
-      imageInputCapability: settingsStateSlotImageInputCapability(slot, modelId)
-    };
-  }
-
-  /** One coherent (slot, state, secrets) triple. Secrets are written before
-   * the state that references them is published, and pruned only after the
-   * state that unreferences them is published — so the only torn triple a
-   * reader can see is an old effective revision next to a secret file that
-   * already lost its credential. Retrying that exact condition converges on
-   * the newer state. `slot` is the undowngraded read (`readSettingsStateSlot`),
-   * kept alongside its schema-2-projected `state` so a caller can also read
-   * schema-3-only data, such as a stored image-input capability, off the
-   * exact same read that produced `state` — see `loadRuntime` above. */
-  private async readRuntimeSnapshot(): Promise<{
-    readonly slot: SettingsStateSlot;
-    readonly state: SettingsStateV2;
-    readonly storedSecrets: Awaited<ReturnType<typeof readProviderSecrets>>;
-  }> {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      if (attempt > 0) {
-        await new Promise((resolve) => setTimeout(resolve, attempt * 5));
-      }
-      const slot = await readSettingsStateSlot(this.dataDir);
-      const state = settingsStateSlotReadOnlyView(slot);
-      const storedSecrets = await readProviderSecrets(this.secretsDir);
-      const referenced = storedSecretIdsInDocument(activeSettingsDocument(state));
-      if ([...referenced].every((secretId) => storedSecrets.has(secretId))) {
-        return { slot, state, storedSecrets };
-      }
-    }
-    throw new ServiceError(
-      503,
-      "Settings changed repeatedly while reading provider credentials; retry."
-    );
+    const snapshot = await readSettingsRuntimeSnapshot(this.dataDir, this.secretsDir);
+    return resolveSettingsRuntimeSnapshot(snapshot, this.runtimeResolver, purpose);
   }
 
   async loadEffective() {
@@ -277,8 +249,9 @@ export class SettingsV2Store {
     readonly connectionId: string;
     readonly providerRuntime: ProviderRuntime;
   }[]> {
-    const { state, storedSecrets } = await this.readRuntimeSnapshot();
-    const document = activeSettingsDocument(state);
+    const snapshot = await readSettingsRuntimeSnapshot(this.dataDir, this.secretsDir);
+    const storedSecrets = snapshot.storedSecrets;
+    const document = settingsRuntimeSnapshotActiveDocument(snapshot);
     const exact: Array<{
       readonly connectionId: string;
       readonly providerRuntime: ProviderRuntime;
@@ -320,7 +293,8 @@ export class SettingsV2Store {
     const document = parseSettingsDocumentV2(documentValue);
     const route = selectSettingsRoute(document, purpose);
     const connectionId = route.model.connectionId;
-    const { state, storedSecrets } = await this.readRuntimeSnapshot();
+    const snapshot = await readSettingsRuntimeSnapshot(this.dataDir, this.secretsDir);
+    const storedSecrets = snapshot.storedSecrets;
     // Probe-only key material. It is resolved for this request and never
     // published, so it is layered over the store rather than into it.
     const probeSecretId = storedCredentialSecretId(route.connection.auth);
@@ -334,16 +308,15 @@ export class SettingsV2Store {
     // a probe tests. Requiring a save first would make the model list
     // unreachable until after the very step it exists to inform.
     if (!suppliedProbeSecret && usesCredentialReferences(route.connection)) {
-      const activeConnection =
-        activeSettingsDocument(state).connections[connectionId];
+      const activeDocument = settingsRuntimeSnapshotActiveDocument(snapshot);
+      const activeConnection = activeDocument.connections[connectionId];
       const activeTargetSaved = activeConnection !== undefined
         && sameActivatedCredentialTarget(activeConnection, route.connection);
       // A staged candidate only exists after its own durable save, so probing
       // its credential target is as legitimate as probing the active one —
       // and it is exactly what recovery from a failed activation needs.
-      const pendingConnection = state.pendingRevision === null
-        ? undefined
-        : pendingSettingsDocument(state).connections[connectionId];
+      const pendingConnection = settingsRuntimeSnapshotPendingDocument(snapshot)
+        ?.connections[connectionId];
       const pendingTargetSaved = pendingConnection !== undefined
         && sameActivatedCredentialTarget(pendingConnection, route.connection);
       if (!activeTargetSaved && !pendingTargetSaved) {
@@ -704,7 +677,7 @@ export class SettingsV2Store {
     // A later release staged this candidate and crashed before publishing:
     // `current` is confirmed schema 2 here, so it never took effect. Discard
     // it unchecked, like every other provably unpublished `.next` below.
-    if (nextSlot.kind === "v3") {
+    if (nextSlot.kind === "v3" || nextSlot.kind === "v4") {
       await discardStagedSettingsState(this.dataDir);
       return;
     }

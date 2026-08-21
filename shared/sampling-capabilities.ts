@@ -10,9 +10,9 @@ import {
 import type { SelectedSettingsRouteV2 } from "./settings-route.js";
 import {
   isLogitBiasFamilyKnob,
-  OPENAI_REASONING_FAMILY_MODELS,
   promptBiasTokenizerEncoding
 } from "./sampling-phrase-resolution.js";
+import type { GenerationEffortV4 } from "./settings-v4-types.js";
 
 export { SAMPLING_KNOB_V2_VALUES } from "./settings-v2-types.js";
 export type { SamplingKnobV2 } from "./settings-v2-types.js";
@@ -41,6 +41,67 @@ export interface SamplingContext {
   readonly remoteModelId: string;
   readonly temperatureSupport: FeatureSupportV2;
 }
+
+/** The final reasoning state that can change sampling support. Kept here so
+ * reasoning and sampling share one model/effort decision. */
+export interface ReasoningSamplingContext {
+  readonly provider: "openai" | "anthropic" | "compatible" | "none";
+  readonly remoteModelId: string;
+  readonly effectiveEffort: GenerationEffortV4 | "none";
+  readonly thinkingOn: boolean;
+  readonly temperature: number | null;
+  readonly sampling: SamplingSettingsV2;
+  readonly tokenProbabilities: number | null;
+  readonly storySampling?: Readonly<{
+    readonly phraseBias: boolean;
+    readonly bannedStrings: boolean;
+  }>;
+}
+
+export interface ResolvedReasoningSampling {
+  readonly kind: "available";
+  readonly allowedSampling: ReadonlySet<SamplingKnobV2>;
+  readonly omittedSampling: ReadonlySet<SamplingKnobV2>;
+  readonly temperatureAllowed: boolean;
+  readonly tokenProbabilitiesAllowed: boolean;
+}
+
+export interface ReasoningSamplingUnavailable {
+  readonly kind: "unavailable";
+  readonly message: string;
+  readonly field?: string;
+}
+
+export type ReasoningSamplingResolution =
+  | ResolvedReasoningSampling
+  | ReasoningSamplingUnavailable;
+
+export type OpenAiSamplingRule = "none-only" | "never" | "normal";
+
+/** Exact OpenAI model rules that affect reasoning-dependent sampling. */
+export const OPENAI_SAMPLING_RULES: ReadonlyMap<string, OpenAiSamplingRule> = new Map([
+  ["gpt-5.6", "normal"],
+  ["gpt-5.6-sol", "normal"],
+  ["gpt-5.6-terra", "normal"],
+  ["gpt-5.6-luna", "normal"],
+  ["gpt-5.5", "normal"],
+  ["gpt-5.4", "none-only"],
+  ["gpt-5.4-mini", "none-only"],
+  ["gpt-5.4-nano", "none-only"],
+  ["gpt-5.2", "none-only"],
+  ["gpt-5.2-2025-12-11", "none-only"],
+  ["gpt-5.1", "none-only"],
+  ["gpt-5", "never"],
+  ["gpt-5-mini", "never"],
+  ["gpt-5-nano", "never"],
+  ["gpt-5.3-codex-spark", "never"],
+  ["o1", "never"],
+  ["o1-mini", "never"],
+  ["o1-preview", "never"],
+  ["o3", "never"],
+  ["o3-mini", "never"],
+  ["o4-mini", "never"]
+]);
 
 export type SamplingUnavailableReason =
   | "legacy-v1"
@@ -328,15 +389,25 @@ function needsExactTokenizer(knob: SamplingKnobV2): boolean {
 }
 
 // Anthropic documents top_p/top_k restrictions by exact model ID. Keep this
-// allow-list closed so a new model cannot cause an unexpected 400 response.
-const ANTHROPIC_TRUNCATION_SAMPLING: ReadonlySet<string> = new Set([
-  "claude-opus-4-5",
-  "claude-opus-4-5-20251101",
-  "claude-sonnet-4-5",
-  "claude-sonnet-4-5-20250929",
-  "claude-haiku-4-5",
-  "claude-haiku-4-5-20251001",
-  "claude-opus-4-6"
+// catalog closed so a new model cannot cause an unexpected 400 response.
+// The same table drives the route-level knob resolver and the final reasoning
+// resolver below; no second reasoning-specific sampling list is needed.
+export const ANTHROPIC_SAMPLING_RULES: ReadonlyMap<string, "default-only" | "truncated"> = new Map([
+  ["claude-fable-5", "default-only"],
+  ["claude-mythos-5", "default-only"],
+  ["claude-mythos-preview", "default-only"],
+  ["claude-opus-5", "default-only"],
+  ["claude-opus-4-8", "default-only"],
+  ["claude-opus-4-7", "default-only"],
+  ["claude-sonnet-5", "default-only"],
+  ["claude-opus-4-6", "truncated"],
+  ["claude-sonnet-4-6", "truncated"],
+  ["claude-opus-4-5", "truncated"],
+  ["claude-opus-4-5-20251101", "truncated"],
+  ["claude-sonnet-4-5", "truncated"],
+  ["claude-sonnet-4-5-20250929", "truncated"],
+  ["claude-haiku-4-5", "truncated"],
+  ["claude-haiku-4-5-20251001", "truncated"]
 ]);
 
 const KNOB_LABELS: Readonly<Record<SamplingKnobV2, string>> = {
@@ -439,16 +510,17 @@ export function resolveSamplingKnob(
   if (
     context.protocol === "anthropic-messages"
     && (knob === "topP" || knob === "topK")
-    && !ANTHROPIC_TRUNCATION_SAMPLING.has(context.remoteModelId)
   ) {
-    return { kind: "unavailable", reason: "model-unknown" };
+    const rule = ANTHROPIC_SAMPLING_RULES.get(context.remoteModelId);
+    if (rule === undefined) return { kind: "unavailable", reason: "model-unknown" };
+    if (rule === "default-only") return { kind: "unavailable", reason: "model-unsupported" };
   }
 
   if (
     context.protocol === "openai-chat-completions"
     && context.preset === "openai"
     && isLogitBiasFamilyKnob(knob)
-    && OPENAI_REASONING_FAMILY_MODELS.has(context.remoteModelId)
+    && OPENAI_SAMPLING_RULES.get(context.remoteModelId) === "never"
   ) {
     return { kind: "unavailable", reason: "reasoning-model" };
   }
@@ -545,6 +617,131 @@ export function resolveConfiguredSamplingKnobs(
     // is not a validation error and does not belong in the request plan. Every
     // other unavailable reason is still a real refusal and stays in the list.
     .filter(({ resolution }) => !(resolution.kind === "unavailable" && resolution.reason === "mirostat-off"));
+}
+
+/** Resolve the sampling restrictions imposed by one final reasoning state.
+ * Route and preset support stays in `resolveSamplingKnob`; this function only
+ * handles exact-model reasoning rules and their omission semantics. */
+export function resolveReasoningSampling(
+  context: ReasoningSamplingContext
+): ReasoningSamplingResolution {
+  const allowedSampling = new Set<SamplingKnobV2>(SAMPLING_KNOB_V2_VALUES);
+  const omittedSampling = new Set<SamplingKnobV2>();
+
+  if (context.provider === "anthropic") {
+    allowedSampling.clear();
+    for (const knob of ["topP", "topK", "stop"] as const) allowedSampling.add(knob);
+    const rule = ANTHROPIC_SAMPLING_RULES.get(context.remoteModelId);
+    if (rule === undefined) {
+      return {
+        kind: "unavailable",
+        message: "The exact Anthropic model is missing from the sampling capability catalog.",
+        field: "sampling"
+      };
+    }
+    if (rule === "default-only") {
+      allowedSampling.delete("topP");
+      allowedSampling.delete("topK");
+      if (
+        context.temperature !== null
+        || context.tokenProbabilities !== null
+        || samplingRequestHasAnyValue(context.sampling, context.storySampling, [
+          "topP", "topK", "frequencyPenalty", "presencePenalty",
+          "logitBias", "phraseBias", "bannedStrings"
+        ])
+      ) {
+        return {
+          kind: "unavailable",
+          message: "This Anthropic model does not accept custom sampling.",
+          field: "sampling"
+        };
+      }
+    } else if (context.thinkingOn) {
+      allowedSampling.delete("topK");
+      omittedSampling.add("topK");
+      if (context.sampling.topP !== null && (context.sampling.topP < 0.95 || context.sampling.topP > 1)) {
+        return {
+          kind: "unavailable",
+          message: "Anthropic thinking requests require top p between 0.95 and 1.",
+          field: "top_p"
+        };
+      }
+    } else if (context.temperature !== null && context.sampling.topP !== null) {
+      return {
+        kind: "unavailable",
+        message: "Anthropic requests cannot combine temperature with top p on this model.",
+        field: "sampling"
+      };
+    }
+    return {
+      kind: "available",
+      allowedSampling,
+      omittedSampling,
+      temperatureAllowed: rule !== "default-only" && !context.thinkingOn,
+      tokenProbabilitiesAllowed: false
+    };
+  }
+
+  if (context.provider === "openai") {
+    const constraint = OPENAI_SAMPLING_RULES.get(context.remoteModelId);
+    if (constraint === undefined) {
+      return {
+        kind: "unavailable",
+        message: "The exact OpenAI model is missing from the sampling capability catalog.",
+        field: "sampling"
+      };
+    }
+    const onlyNone = constraint === "none-only" && context.effectiveEffort !== "none";
+    if (constraint === "never" || onlyNone) {
+      if (constraint === "never") allowedSampling.clear();
+      else allowedSampling.delete("topP");
+      const customSampling = constraint === "never"
+        ? samplingRequestHasAnyValue(context.sampling, context.storySampling)
+        : samplingRequestHasAnyValue(context.sampling, context.storySampling, ["topP"]);
+      if (
+        context.temperature !== null
+        || context.tokenProbabilities !== null
+        || customSampling
+      ) {
+        return {
+          kind: "unavailable",
+          message: constraint === "never"
+            ? "This OpenAI reasoning model does not accept sampling controls."
+            : "This OpenAI model accepts sampling controls only when effective effort is none.",
+          field: "sampling"
+        };
+      }
+    }
+    return {
+      kind: "available",
+      allowedSampling,
+      omittedSampling,
+      temperatureAllowed: constraint === "normal"
+        || (constraint === "none-only" && context.effectiveEffort === "none"),
+      tokenProbabilitiesAllowed: constraint !== "never"
+        && (constraint !== "none-only" || context.effectiveEffort === "none")
+    };
+  }
+
+  return {
+    kind: "available",
+    allowedSampling,
+    omittedSampling,
+    temperatureAllowed: true,
+    tokenProbabilitiesAllowed: true
+  };
+}
+
+/** Return whether a profile or story has a value for any selected knob. */
+export function samplingRequestHasAnyValue(
+  sampling: SamplingSettingsV2,
+  storySampling?: Readonly<{ phraseBias: boolean; bannedStrings: boolean }>,
+  knobs: readonly SamplingKnobV2[] = SAMPLING_KNOB_V2_VALUES
+): boolean {
+  if (knobs.some((knob) => samplingKnobValueIsSet(sampling, knob))) return true;
+  if (storySampling === undefined) return false;
+  return (storySampling.phraseBias && knobs.includes("phraseBias"))
+    || (storySampling.bannedStrings && knobs.includes("bannedStrings"));
 }
 
 export function applySamplingSettings(

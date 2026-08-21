@@ -22,8 +22,10 @@ import { lowerPromptForProvider } from "./provider-request-body.js";
 import { ProviderError } from "./errors.js";
 import {
   createProviderStreamRedactor,
+  legacyGenerationEffortFor,
   isSubscriptionProviderRuntime,
   providerRuntimeFor,
+  providerReasoningPolicyFor,
   redactProviderSecrets,
   type SubscriptionProviderRuntime
 } from "./provider-runtime.js";
@@ -79,6 +81,11 @@ export async function* streamSubscription(
   if (!isSubscriptionProviderRuntime(runtime)) {
     throw new ProviderError("Subscription protocol is not supported.");
   }
+  if (runtime.tokenProbabilities !== null) {
+    throw new ProviderError(
+      "Token probabilities are unavailable because the pinned subscription adapter cannot serialize token probabilities."
+    );
+  }
   const protocol = runtime.protocol;
   requireLogitBiasFamilyAvailable(settings, protocol, options.storySampling);
   const dependencies = runtime.subscription;
@@ -90,6 +97,13 @@ export async function* streamSubscription(
     );
   }
   const model = modelValue;
+  const reasoningPolicy = providerReasoningPolicyFor(settings, options.storySampling);
+  if (reasoningPolicy?.kind === "unavailable") {
+    throw new ProviderError(reasoningPolicy.message);
+  }
+  const legacyEffort = reasoningPolicy === null
+    ? legacyGenerationEffortFor(runtime)
+    : "default" as const;
   if (activeImageAttachments(prompt).length > 0) {
     throw new ProviderError("Subscription providers do not support image prompts.");
   }
@@ -162,11 +176,11 @@ export async function* streamSubscription(
         signal: requestSignal.signal,
         apiKey: auth,
         maxTokens: settings.maxTokens,
-        ...(settings.temperature === null ? {} : { temperature: settings.temperature }),
+        ...(subscriptionTemperatureAllowed(settings, reasoningPolicy) ? { temperature: settings.temperature! } : {}),
         toolChoice: "none",
         timeoutMs: runtime.timeouts.totalMs,
         onPayload,
-        ...openAiReasoningOptions(runtime.effort)
+        ...openAiReasoningOptions(legacyEffort, reasoningPolicy)
       };
       stream = dependencies.models.stream(model, context, streamOptions);
     } else {
@@ -178,11 +192,11 @@ export async function* streamSubscription(
         signal: requestSignal.signal,
         apiKey: auth,
         maxTokens,
-        ...(settings.temperature === null ? {} : { temperature: settings.temperature }),
+        ...(subscriptionTemperatureAllowed(settings, reasoningPolicy) ? { temperature: settings.temperature! } : {}),
         toolChoice: "none",
         timeoutMs: runtime.timeouts.totalMs,
         onPayload,
-        ...anthropicReasoningOptions(model, context, runtime.effort, maxTokens)
+        ...anthropicReasoningOptions(model, context, legacyEffort, maxTokens, reasoningPolicy)
       };
       stream = dependencies.models.stream(model, context, streamOptions);
     }
@@ -316,6 +330,15 @@ export async function* streamSubscription(
     outputRedactor?.finish();
     await reasoning?.finish();
   }
+}
+
+function subscriptionTemperatureAllowed(
+  settings: GenerationSettings,
+  policy: ReturnType<typeof providerReasoningPolicyFor>
+): boolean {
+  if (settings.temperature === null) return false;
+  if (policy?.kind !== "available") return true;
+  return policy.temperatureAllowed;
 }
 
 async function resolveSubscriptionAuth(

@@ -1,4 +1,7 @@
-import type { GenerationProfileV2 } from "../../shared/settings-v2-types.js";
+import type {
+  GenerationProfileV2,
+  SettingsViewReadOnlyReason
+} from "../../shared/settings-v2-types.js";
 import { MAX_ALTERNATIVE_TOKENS } from "../../shared/token-probabilities.js";
 import {
   resolveTokenProbabilities,
@@ -35,6 +38,7 @@ const TOKEN_PROBABILITIES_CHOICES: readonly (number | null)[] = [
 export interface TokenProbabilitiesRowState {
   readonly resolution: TokenProbabilityResolution | null;
   readonly count: number | null;
+  readonly readOnlyReason?: SettingsViewReadOnlyReason;
 }
 
 export function tokenProbabilitiesRowState(
@@ -43,7 +47,10 @@ export function tokenProbabilitiesRowState(
   const context = samplingContextForOverlayOrNull(overlay);
   return {
     resolution: context === null ? null : resolveTokenProbabilities(context),
-    count: currentTokenProbabilities(overlay)
+    count: currentTokenProbabilities(overlay),
+    ...(overlay.view.readOnlyReason === undefined
+      ? {}
+      : { readOnlyReason: overlay.view.readOnlyReason })
   };
 }
 
@@ -60,7 +67,11 @@ export function tokenProbabilitiesRowHint(state: TokenProbabilitiesRowState): st
   if (state.resolution.kind === "available") {
     return "Shows other tokens the model considered while writing.";
   }
-  if (state.resolution.reason === "legacy-v1") return "Legacy settings are read-only.";
+  if (state.resolution.reason === "legacy-v1") {
+    return state.readOnlyReason === "successor-schema"
+      ? "Newer settings schema is read-only here; update 1667."
+      : "Legacy settings are read-only.";
+  }
   if (state.resolution.reason === "preset-unknown") {
     return "Alternative token data might not be available from this provider.";
   }

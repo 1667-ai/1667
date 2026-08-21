@@ -77,7 +77,8 @@ export function validateSettingsDocumentV3(
   };
 }
 
-function parseModelsV3(
+/** Parse the model and capability records shared by schema 3 and schema 4. */
+export function parseModelsV3(
   value: unknown,
   connections: Readonly<Record<string, unknown>>
 ): Record<string, ModelDefinitionV3> {

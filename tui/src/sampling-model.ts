@@ -295,6 +295,7 @@ export function samplingSummary(sampling: SamplingSettingsV2): string {
 }
 
 export function samplingRowValue(overlay: SettingsOverlayState): string {
+  if (overlay.view.readOnlyReason === "successor-schema") return "‹ successor-owned ›";
   const summary = samplingSummary(overlay.draft.sampling);
   if (overlay.view.editable) return summary;
   const reason = samplingScalarRows(overlay)[0]!.reasonCompact;

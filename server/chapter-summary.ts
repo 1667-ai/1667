@@ -21,6 +21,7 @@ import { promptEntriesInline } from "./generation-record-prompt.js";
 import { lowerPromptForProvider } from "./provider-request-body.js";
 import { finalizeRequiredGenerationRecord } from "./generation-record-finalize.js";
 import { assertGenerationRecordCapacity } from "./story-node-generation-records.js";
+import { storySamplingBias } from "./sampling-phrase-bias.js";
 
 interface ChapterSummaryOptions {
   providerStarted?: () => void | Promise<void>;
@@ -57,6 +58,7 @@ export async function summarizeChapter(
     {
       targetTokens: SUMMARY_TARGET_TOKENS,
       providerStarted: options.providerStarted,
+      storySampling: storySamplingBias(snapshot),
       promptCache: createPromptCacheRequest(
         promptCacheRuntime,
         promptCache,

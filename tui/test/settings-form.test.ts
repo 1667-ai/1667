@@ -183,6 +183,11 @@ describe("the settings form follows C-03 and C-08", () => {
     const rendered = screen(state, 80, 24);
     expect(rendered).toContain("The selected protocol cannot send image");
     expect(rendered).toContain("· attachments.");
+    expect(settingsRows(state.settings!, state.config).find((row) => row.id === "image-input"))
+      .toMatchObject({
+        value: "‹ - ›",
+        hint: "The selected protocol cannot send image attachments."
+      });
   });
 
   test("the final setting keeps its description beside pending status", async () => {

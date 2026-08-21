@@ -49,6 +49,15 @@ export async function applySamplingFields(
   };
   const configured = resolveConfiguredSamplingKnobs(context, sampling);
   for (const { knob, resolution } of configured) {
+    if (request.reasoningPolicy !== undefined
+      && request.reasoningPolicy.omittedSampling.has(knob)) continue;
+    if (request.reasoningPolicy !== undefined
+      && !request.reasoningPolicy.allowedSampling.has(knob)) {
+      throw new ProviderError(
+        `Configured sampling parameter ${samplingKnobLabel(knob)} is unavailable: `
+        + "the selected reasoning state does not accept it"
+      );
+    }
     if (resolution.kind === "unavailable") {
       throw new ProviderError(
         `Configured sampling parameter ${samplingKnobLabel(knob)} is unavailable: ${
@@ -99,6 +108,8 @@ export async function applySamplingFields(
     }
   }
   for (const { knob, resolution } of configured) {
+    if (request.reasoningPolicy !== undefined
+      && request.reasoningPolicy.omittedSampling.has(knob)) continue;
     if (resolution.kind !== "available") continue;
     if (isLogitBiasFamilyKnob(knob)) continue;
     body[resolution.wireField] = encodeSamplingValue(knob, sampling);

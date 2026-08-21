@@ -70,10 +70,13 @@ export const AI_1667_PRODUCT = "1667" as const;
  * before it can use the rest of Settings. v24 adds `pi-catalog` to the closed
  * model-discovery source enum. A v23 client would reject a subscription model
  * list from a v24 server. A v24 client would accept a v23 response but receive
- * the old empty subscription catalog. */
-export const HTTP_API_PROTOCOL_VERSION = 24;
-export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 24;
-export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 24;
+ * the old empty subscription catalog. v25 adds the reason that distinguishes
+ * a successor-owned read-only Settings view from legacy migration settings.
+ * A v24 client would reject that additive closed-record field before it can
+ * use the rest of Settings. */
+export const HTTP_API_PROTOCOL_VERSION = 25;
+export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 25;
+export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 25;
 
 export type ArtifactTarget = "source" | BuiltArtifactTarget;
 

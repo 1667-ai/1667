@@ -30,6 +30,7 @@ import {
   modelPickerRows
 } from "../settings-model-picker.js";
 import { wrapFeedback } from "./feedback-wrap.js";
+import { settingsReadOnlyBanner } from "../settings-read-only.js";
 import {
   truncate,
   visibleWidth,
@@ -328,7 +329,7 @@ function settingsStatusLines(
   if (!view.editable) {
     return {
       top: [
-        [raisedSegment("  ▲ legacy data format 1 · settings are read-only until migration", "danger text")],
+        [raisedSegment(settingsReadOnlyBanner(view.readOnlyReason), "danger text")],
         []
       ],
       bottom: []

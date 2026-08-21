@@ -26,7 +26,10 @@ import {
   promptCacheContextForRoute
 } from "../shared/prompt-cache-capabilities.js";
 import { generationEffortAvailabilityForRoute } from "../shared/generation-effort-capabilities.js";
-import { selectSettingsRoute } from "../shared/settings-route.js";
+import {
+  selectSettingsRoute,
+  type SelectedSettingsRouteV2
+} from "../shared/settings-route.js";
 import { parseGenerationSettingsV1 } from "./settings-v1-codec.js";
 import { parseSettingsDocumentV2 } from "./settings-v2-codec.js";
 import {
@@ -86,7 +89,36 @@ export function projectEffectiveGeneration(
   allowBlankModel = false
 ) {
   const document = parseSettingsDocumentV2(value);
-  const route = selectSettingsRoute(document, purpose);
+  return projectEffectiveGenerationAtRoute(
+    document.writing.defaultAuthorBrief,
+    selectSettingsRoute(document, purpose),
+    metadata,
+    allowBlankModel
+  );
+}
+
+/** Project one already selected route without reparsing or applying routing
+ * fallback again. */
+export function projectEffectiveGenerationFromRoute(
+  defaultAuthorBrief: string,
+  route: SelectedSettingsRouteV2,
+  metadata: EffectiveMetadataV2,
+  allowBlankModel = false
+) {
+  return projectEffectiveGenerationAtRoute(
+    defaultAuthorBrief,
+    route,
+    metadata,
+    allowBlankModel
+  );
+}
+
+function projectEffectiveGenerationAtRoute(
+  defaultAuthorBrief: string,
+  route: SelectedSettingsRouteV2,
+  metadata: EffectiveMetadataV2,
+  allowBlankModel: boolean
+) {
   const { profile, model, connection } = route;
   const promptCache = promptCacheContextForRoute(route);
   const promptCachePlan = lowerPromptCache(promptCache);
@@ -109,12 +141,15 @@ export function projectEffectiveGeneration(
     baseUrl: connection.baseUrl ?? "",
     model: remoteId,
     apiKeyEnv: effectiveApiKeyEnv(connection),
+    ...(connection.allowInsecureHttp === true
+      ? { allowInsecureHttp: true as const }
+      : {}),
     ...(isSubscriptionProtocolV2(connection.protocol)
       ? { protocol: connection.protocol }
       : {}),
     temperature: profile.temperature,
     maxTokens: clampMaxOutputTokensToModel(profile.maxOutputTokens, model, metadata),
-    systemPrompt: document.writing.defaultAuthorBrief,
+    systemPrompt: defaultAuthorBrief,
     contextWindow: contextWindow ?? null
   };
   return {
