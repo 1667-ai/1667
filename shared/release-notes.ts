@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.1",
+    date: "2026-08-21",
+    body: "- **This release has no additional product changes.** It contains the same\n  behavior as 0.10.1-rc.2."
+  },
+  {
     version: "0.10.1-rc.2",
     date: "2026-08-21",
     body: "- **The left story gutter now lights the active `writing` label.** It uses the\n  same moving light as `thinking`. Narrow layouts do not schedule hidden\n  gutter frames."

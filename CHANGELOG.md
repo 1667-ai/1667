@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.1 - 2026-08-21
+
+- **This release has no additional product changes.** It contains the same
+  behavior as 0.10.1-rc.2.
+
 ## 0.10.1-rc.2 - 2026-08-21
 
 - **The left story gutter now lights the active `writing` label.** It uses the
