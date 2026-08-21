@@ -100,14 +100,20 @@ describe("animation deadlines", () => {
     const first = renderStoryScreen(state, {
       width: 120, height: 36, deadlines: firstDeadlines
     }).lines.map(plainLine).join("\n");
+    const narrowDeadlines = createFrameDeadlineCollector(state.now);
+    const narrow = renderStoryScreen(state, {
+      width: 80, height: 24, deadlines: narrowDeadlines
+    }).lines.map(plainLine).join("\n");
 
     state.now = 250;
     const second = renderStoryScreen(state, { width: 120, height: 36 })
       .lines.map(plainLine).join("\n");
 
     expect(first).toContain("⠋ writing");
+    expect(narrow).toContain("⠋ writing");
     expect(second).toContain("⠙ writing");
     expect(firstDeadlines.next()).toBe(120);
+    expect(narrowDeadlines.next()).toBe(250);
   });
 
   test("visible working, writing, and thinking words carry one light band", () => {
