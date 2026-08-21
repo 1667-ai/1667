@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.1-rc.2 - 2026-08-21
+
+- **The left story gutter now lights the active `writing` label.** It uses the
+  same moving light as `thinking`. Narrow layouts do not schedule hidden
+  gutter frames.
+
 ## 0.10.1-rc.1 - 2026-08-21
 
 - **This beta has no additional product changes.** It contains the same
