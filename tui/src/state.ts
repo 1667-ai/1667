@@ -48,6 +48,7 @@ import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 import type { PromptProjectionIdentity } from "./request-context.js";
 import type { StoryScalarField } from "./story-scalar-fields.js";
 import type { DraftImage } from "./draft-image.js";
+import type { TextPresentation } from "./text-presentation.js";
 
 export type BackendTaskKind = "action" | "connection-reconcile" | "explicit-retry";
 
@@ -70,6 +71,9 @@ export interface StreamView {
   /** Explicit composer-owner epoch at launch. Legacy stop restoration may
    * proceed only while no newer editor has been claimed. */
   composerClaimEpoch?: number;
+  /** Visible prefix controller. `text` remains the received, authoritative
+   *  stream used by Stop and durable settlement. */
+  presentation?: TextPresentation;
   instruction: string;
   text: string;
   /** Incrementally maintained String.trim() bounds in UTF-16 offsets. */
@@ -106,6 +110,8 @@ export interface StreamReasoning {
    *  provider-reported count when available, otherwise a count of received
    *  reasoning deltas. */
   tokenCount: number;
+  /** Visible prefix controller for the separate reasoning channel. */
+  presentation?: TextPresentation;
 }
 
 /** The on-demand fetch of one take's stored thought, mirroring
@@ -384,6 +390,8 @@ export interface SummaryOverlayState {
   end: number;
   totalParts: number;
   text: string;
+  /** `text` remains the received summary; this controls its visible prefix. */
+  presentation?: TextPresentation;
   controller: AbortController;
 }
 
@@ -697,7 +705,13 @@ export interface StoryScreenState extends OverlayState {
      *  the pre-rewrite draft; requestRewriteStop and the reload's catch
      *  branch both gate on this flag instead of assuming an abort or an
      *  error always means nothing was saved. */
-    | { kind: "rewrite"; controller: AbortController; committed: boolean }
+    | {
+        kind: "rewrite";
+        controller: AbortController;
+        committed: boolean;
+        /** True only for the writer's explicit Stop, not a provider timeout. */
+        explicitStop: boolean;
+      }
     | null;
   freshLandedAt: ReadonlyMap<string, number>;
   now: number;

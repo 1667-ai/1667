@@ -30,9 +30,16 @@ import type { ProseStyle, WrapCache } from "./wrap.js";
 import { followStoryViewport } from "./viewport-intent.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import {
+  attachReasoningPresentation,
+  attachStreamPresentation,
   appendStreamReasoning,
   appendStreamText,
+  drainStreamPresentation,
+  disposeStreamPresentation,
   emptyStreamText,
+  recoverStreamPresentation,
+  resumeStreamPresentation,
+  suspendStreamPresentation,
   streamHasSubstantiveText,
   streamTrimmedText
 } from "./stream-text.js";
@@ -85,6 +92,7 @@ export function requestGenerationStop(state: RuntimeState, repaint: () => void):
     active.controller.abort();
   }
   state.stream = null;
+  if (stream !== null) suspendStreamPresentation(stream);
   restoreStoryFocus(state, focus);
   if (restoredDraft && state.mode === "COMPOSE" && state.retakePrompt !== null) {
     focusVisibleRetakeTarget(state, state.retakePrompt);
@@ -215,6 +223,9 @@ export async function generate(
     ...(virtualNumber === undefined ? {} : { partNumber: virtualNumber }),
     ...(regenerateNode === null ? {} : { retakeNodeId: regenerateNode.id })
   };
+  attachStreamPresentation(stream, () => {
+    if (state.stream === stream && state.payload.id === storyId) repaint();
+  });
   const preStreamFocus = captureStoryFocus(state);
   state.stream = stream;
   const previousFocus = state.focusIndex;
@@ -253,8 +264,9 @@ export async function generate(
           || (state.stream !== stream && !signal.aborted)) return;
         appendStreamText(stream, delta);
         // Content identity makes exact reads miss while the completed prior
-        // entry remains available for resumable append-prefix reuse.
-        if (state.stream === stream) repaint();
+        // entry remains available for resumable append-prefix reuse. The
+        // presentation controller repaints only when its visible prefix
+        // changes.
       },
       signal,
       {
@@ -265,7 +277,6 @@ export async function generate(
         onStopped: (tail) => {
           if (!owns() || !storyCurrent()) return;
           appendStreamText(stream, tail);
-          if (state.stream === stream) repaint();
         },
         // Same ownership guard as onDelta, on the reasoning channel. Durable
         // storage stays server-owned; this callback only updates the live
@@ -275,19 +286,31 @@ export async function generate(
           if (!owns()
             || !storyCurrent()
             || (state.stream !== stream && !signal.aborted)) return;
+          const visible = state.stream === stream;
+          const presentation = attachReasoningPresentation(stream, () => {
+            if (state.stream === stream && state.payload.id === storyId) repaint();
+          });
+          if (!visible) presentation.suspend();
           appendStreamReasoning(stream, delta.text, delta.tokenCount);
-          if (state.stream === stream) repaint();
+          if (delta.text.length === 0 && visible) repaint();
         },
         // Same withheld-tail contract as onStopped, on the reasoning channel.
         onReasoningStopped: (tail) => {
           if (!owns() || !storyCurrent()) return;
+          const visible = state.stream === stream;
+          const presentation = attachReasoningPresentation(stream, () => {
+            if (state.stream === stream && state.payload.id === storyId) repaint();
+          });
+          if (!visible) presentation.suspend();
           appendStreamReasoning(stream, tail, stream.reasoning?.tokenCount ?? 0);
-          if (state.stream === stream) repaint();
         }
       },
       imageReferences
     );
     if (result !== null && storyCurrent()) {
+      await drainStreamPresentation(stream);
+      if (!storyCurrent()) return;
+      if (state.stream === stream) state.stream = null;
       const updated = result.payload;
       adoptSameStoryPayload(state, updated, cache);
       const landed = new Map(state.freshLandedAt);
@@ -378,6 +401,7 @@ export async function generate(
       reconcileStoryActions(state);
       reconcileMapNavigation(state);
     }
+    if (state.stream !== stream) disposeStreamPresentation(stream);
     if (!adopted && interactionCurrent()) {
       state.focusIndex = Math.min(previousFocus, Math.max(0, createStoryViewModel(state.payload).rows.length - 1));
     }
@@ -581,9 +605,14 @@ async function settleStoppedGeneration(
         });
       }
     }
+    // Keep the visible prefix aligned with the durable payload. `stream.text`
+    // remains the authoritative value used by this recovery commit.
+    resumeStreamPresentation(stream);
+    await drainStreamPresentation(stream);
     if (!storyCurrent()) {
       return { adopted: false, preserveStream: false, committed: substantive };
     }
+    if (state.stream === stream) state.stream = null;
     adoptSameStoryPayload(state, payload, cache);
     if (!substantive) {
       restoreStoppedGenerationDraft(
@@ -606,6 +635,9 @@ async function settleStoppedGeneration(
     if (adopted) adoptSameStoryPayload(state, payload, cache);
     if (substantive) {
       state.stream = stream;
+      // A preserved recovery stream must expose every undurable byte without
+      // one unbounded repaint on the failure path.
+      recoverStreamPresentation(stream);
     }
     restorePendingGenerationDraft(
       state,

@@ -506,13 +506,17 @@ function commandSearchLine(query: string, width: number): FrameLine {
 
 function renderSummary(base: FrameLine[], state: OverlayState & { hitRows: HitRows }, width: number, height: number): FrameComposition {
   const summary = state.summary!;
-  const progress = deriveSummaryProgress(summary.text, summary.totalParts);
+  const presentation = summary.presentation;
+  const text = presentation === undefined || presentation.bypassed
+    ? summary.text
+    : presentation.presentedText;
+  const progress = deriveSummaryProgress(text, summary.totalParts);
   const content: FrameLine[] = [
     summaryProgressLine(progress),
     [raisedSegment("  summarized stretch is locked while this writes", "summary")],
     [raisedSegment("  everything after it stays editable", "chrome")],
     [],
-    [raisedSegment(`  ${truncate(summary.text.replace(/\s+/g, " "), 64)}`, "prose · dim")]
+    [raisedSegment(`  ${truncate(text.replace(/\s+/g, " "), 64)}`, "prose · dim")]
   ];
   // Inert, not transparent — see renderKeysOverlay.
   return placePanel(base, `summary take ━ compressing ¶ ${summary.start}–${summary.end} into a continuity record`, content,

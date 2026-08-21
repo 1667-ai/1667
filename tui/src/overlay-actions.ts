@@ -793,7 +793,10 @@ async function asideKeyAction(
       // Clear has no abort path. Its missing in-flight question is the
       // existing distinction from an Ask, so Esc remains a no-op while it
       // commits instead of pretending to stop anything.
-      if (surface.inflightQuestion !== null) stopAsideAsk(state);
+      if (surface.inflightQuestion !== null) {
+        stopAsideAsk(state);
+        context.repaint();
+      }
       return;
     }
     closeAside(state);

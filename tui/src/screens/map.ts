@@ -17,6 +17,7 @@ import { createMapPathRow, renderMapPathRow, type MapPathRow } from "./map-path-
 import { tagGlyph, tagRole, formatMapWords, formatMapWordsBare } from "./map-row-labels.js";
 import { mapTreeFoldFootnote, renderMapTreeRow } from "./map-tree-row.js";
 import { renderSurfaceBreadcrumb } from "./surface-breadcrumb.js";
+import { lightWorkKeyword } from "./work-light.js";
 import {
   fitLine,
   plainLine,
@@ -74,7 +75,7 @@ export function renderMapScreen(
     ...shown,
     ...Array.from({ length: Math.max(0, bodyHeight - shown.length) }, (): FrameLine => []),
     [segment("─".repeat(Math.max(0, width)), "dimmed page")],
-    renderBreadcrumb(visualState, map, body.crumb, width)
+    renderBreadcrumb(visualState, map, body.crumb, width, deadlines)
   ].slice(0, height).map((line) => fitLine(line, width));
 
   hitRows.length = height;
@@ -318,11 +319,22 @@ function mapTitleHits(): HitRegion[] {
   });
 }
 
-function renderBreadcrumb(state: StoryScreenState, map: MapState, crumb: string, width: number): FrameLine {
+function renderBreadcrumb(
+  state: StoryScreenState,
+  map: MapState,
+  crumb: string,
+  width: number,
+  deadlines?: FrameDeadlineCollector
+): FrameLine {
   if (state.prune != null) return renderPruneBreadcrumb(pruneConfirmText(state.prune), width);
   if (state.toast !== null && state.toast !== undefined) return renderMapNotice(state.toast, width);
   if (state.backendTask !== null && state.backendTask !== undefined) {
-    return renderMapNotice(`working · ${state.backendTask.label}`, width);
+    return lightWorkKeyword(
+      renderMapNotice(`working · ${state.backendTask.label}`, width),
+      "working",
+      state.now,
+      deadlines
+    );
   }
   const payload = state.payload;
   const view = map.view;

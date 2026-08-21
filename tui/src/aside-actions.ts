@@ -16,6 +16,7 @@ import {
 import { noteCursorAfterHistoryScroll } from "./aside-note-scroll.js";
 import type { RuntimeState } from "./state.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
+import { createTextPresentation, drainTextPresentation } from "./text-presentation.js";
 import { createStoryViewModel } from "./model.js";
 import { persistablePartId } from "./reading-position.js";
 import { truncate } from "./screens/story/frame.js";
@@ -62,6 +63,14 @@ function wrappedRows(text: string, width: number, prefix = ""): string[] {
   const prefixWidth = prefix.length;
   const wrapped = wrapText(text, [], Math.max(1, width - prefixWidth));
   return wrapped.map((line, index) => `${index === 0 ? prefix : " ".repeat(prefixWidth)}${line.text}`);
+}
+
+function presentedAsideText(surface: AsideSurfaceState): string {
+  if (surface.streamHidden === true) return "";
+  const presentation = surface.presentation;
+  return presentation === undefined || presentation.bypassed
+    ? surface.streamText
+    : presentation.presentedText;
 }
 
 function divider(width: number): string {
@@ -133,7 +142,7 @@ export function asideHistoryLayout(surface: AsideSurfaceState, cols: number): As
   const noteContentEnds: number[] = [];
   const rowNoteIndex: (number | null)[] = [];
   if (surface.notes.length === 0
-    && surface.streamText.length === 0
+    && presentedAsideText(surface).length === 0
     && surface.inflightQuestion === null) {
     body.push("(no Side Notes yet)");
     rowNoteIndex.push(null);
@@ -158,10 +167,11 @@ export function asideHistoryLayout(surface: AsideSurfaceState, cols: number): As
     body.push("");
     rowNoteIndex.push(null);
   }
-  if (surface.inflightQuestion !== null || surface.streamText.length > 0) {
+  const streamText = presentedAsideText(surface);
+  if (surface.inflightQuestion !== null || streamText.length > 0) {
     // Same five-cell prefixes as saved notes so stream → save does not rewrap.
     const inflightQ = wrappedRows(surface.inflightQuestion ?? "", width, questionPrefix);
-    const inflightA = wrappedRows(surface.streamText, width, answerPrefix);
+    const inflightA = wrappedRows(streamText, width, answerPrefix);
     body.push(...inflightQ, ...inflightA);
     for (let row = 0; row < inflightQ.length + inflightA.length; row += 1) {
       rowNoteIndex.push(null);
@@ -405,10 +415,22 @@ export async function sendAsideQuestion(
   const interactionCurrent = options.task?.interactionCurrent ?? (() => true);
   const repaint = options.repaint ?? (() => undefined);
   const current = () => state.aside === surface && owns() && storyCurrent();
+  // Presentation timers can outlive ActionRuntime's task ownership after the
+  // provider settles. Keep repaint ownership on the live surface and story;
+  // provider callbacks still use `current()` below.
+  const presentationCurrent = () => state.aside === surface
+    && state.payload.id === surface.storyId;
   surface.busy = true;
   surface.scrollTop = null;
   surface.inflightQuestion = trimmed;
   surface.streamText = "";
+  surface.streamHidden = false;
+  surface.presentation?.dispose();
+  surface.presentation = createTextPresentation({
+    onPresented: () => {
+      if (presentationCurrent()) repaint();
+    }
+  });
   setComposerText(surface.composer, "");
   const controller = new AbortController();
   const active = {
@@ -431,16 +453,22 @@ export async function sendAsideQuestion(
       (text) => {
         if (!current()) return;
         surface.streamText += text;
-        repaint();
+        surface.presentation?.receive(text);
+        if (surface.presentation === undefined) repaint();
       },
       controller.signal
     );
+    if (!current()) return;
+    if (surface.presentation !== undefined) await drainTextPresentation(surface.presentation);
     if (!current()) return;
     if (result === null) {
       // Cancelled or stopped: return the question to the input.
       const restore = mayRestore();
       if (restore) setComposerText(surface.composer, trimmed);
       surface.streamText = "";
+      surface.streamHidden = false;
+      surface.presentation?.dispose();
+      surface.presentation = undefined;
       surface.inflightQuestion = null;
       if (restore) surface.scrollTop = null;
       surface.busy = false;
@@ -453,6 +481,9 @@ export async function sendAsideQuestion(
     surface.noteCursor = Math.max(0, surface.notes.length - 1);
     clampAsideNoteCursor(surface);
     surface.streamText = "";
+    surface.streamHidden = false;
+    surface.presentation?.dispose();
+    surface.presentation = undefined;
     surface.inflightQuestion = null;
     surface.scrollTop = null;
     surface.busy = false;
@@ -473,6 +504,9 @@ export async function sendAsideQuestion(
     const restore = mayRestore();
     if (restore) setComposerText(surface.composer, trimmed);
     surface.streamText = "";
+    surface.streamHidden = false;
+    surface.presentation?.dispose();
+    surface.presentation = undefined;
     surface.inflightQuestion = null;
     if (restore) surface.scrollTop = null;
     surface.busy = false;
@@ -503,6 +537,8 @@ export function stopAsideAsk(state: RuntimeState): boolean {
     active.stopInteractionVersion = state.interactionVersion;
   }
   active.controller.abort();
+  surface.streamHidden = true;
+  surface.presentation?.dispose();
   return true;
 }
 

@@ -8,6 +8,7 @@ import { retireGenerationBusyToast } from "./generation-action.js";
 import type { ActionContext } from "./action-context.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
+import { createTextPresentation, drainTextPresentation } from "./text-presentation.js";
 
 type SummaryActionContext = Pick<ActionContext, "backend" | "cache" | "repaint">;
 
@@ -40,6 +41,11 @@ export async function startSummary(
       text: "",
       controller
     };
+    summary.presentation = createTextPresentation({
+      onPresented: () => {
+        if (state.summary === summary && state.payload.id === task.storyId) context.repaint();
+      }
+    });
     const fingerprint = textHash(activeLineFingerprintSource(state.payload.title, state.payload.path));
     state.summary = summary;
     state.mode = "SUMMARY";
@@ -51,22 +57,40 @@ export async function startSummary(
       const result = await source.api.createSummaryTake(task.storyId, { nodeId: leaf.id }, (delta) => {
         if (!task.owns() || state.summary !== summary) return;
         summary.text += delta;
-        context.repaint();
+        summary.presentation?.receive(delta);
+        if (summary.presentation === undefined) context.repaint();
       }, controller.signal);
-      if (controller.signal.aborted) return await reloadAfterStop(state, source, task.storyId, task.storyCurrent, context.cache);
+      if (controller.signal.aborted) {
+        return await reloadAfterStop(state, source, task.storyId, task.storyCurrent, context.cache);
+      }
       if (result === null || !task.storyCurrent()) return;
+      // Start presentation drain while the fingerprint and line switch are
+      // in flight. Keep the promise so adoption waits for the visible prefix
+      // after switchLine returns, without changing create/switch ordering.
+      const presentationDrain = summary.presentation === undefined
+        ? Promise.resolve(true)
+        : drainTextPresentation(summary.presentation);
       const { nodeId, narrowedTo } = result;
 
       const expectedLineFingerprint = await fingerprint;
-      if (controller.signal.aborted) return await reloadAfterStop(state, source, task.storyId, task.storyCurrent, context.cache);
+      if (controller.signal.aborted) {
+        return await reloadAfterStop(state, source, task.storyId, task.storyCurrent, context.cache);
+      }
       if (!task.storyCurrent()) return;
       const switched = await source.api.switchLine(task.storyId, nodeId, {
         stopAtNode: true,
         expectedLineFingerprint
       });
-      if (controller.signal.aborted) return await reloadAfterStop(state, source, task.storyId, task.storyCurrent, context.cache);
+      if (controller.signal.aborted) {
+        return await reloadAfterStop(state, source, task.storyId, task.storyCurrent, context.cache);
+      }
       if (!task.storyCurrent()) return;
 
+      const drained = await presentationDrain;
+      if (controller.signal.aborted) {
+        return await reloadAfterStop(state, source, task.storyId, task.storyCurrent, context.cache);
+      }
+      if (!drained || !task.storyCurrent()) return;
       adoptSameStoryPayload(state, switched, context.cache);
       if (!task.interactionCurrent() || state.summary !== summary) return;
       const index = switched.path.findIndex((node) => node.id === nodeId);
@@ -91,6 +115,7 @@ export async function startSummary(
         state.abort = null;
         retireGenerationBusyToast(state);
       }
+      summary.presentation?.dispose();
       if (state.summary === summary) {
         state.summary = null;
         if (state.mode === "SUMMARY") state.mode = "NAV";
@@ -105,6 +130,7 @@ export function cancelSummary(state: RuntimeState): void {
   const summary = state.summary;
   if (summary === null) return;
   summary.controller.abort();
+  summary.presentation?.dispose();
   state.summary = null;
   state.mode = "NAV";
   state.toast = SUMMARY_STOPPING_TOAST;

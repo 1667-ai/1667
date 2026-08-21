@@ -1,4 +1,9 @@
 import type { StreamReasoning, StreamView } from "./state.js";
+import {
+  createTextPresentation,
+  drainTextPresentation,
+  type TextPresentation
+} from "./text-presentation.js";
 
 const TRIM_CHARACTER = /^\s$/u;
 const LEGACY_TRIM_SCAN_LIMIT = 8_192;
@@ -44,6 +49,7 @@ export function appendStreamText(stream: StreamView, delta: string): void {
     stream.trimStart = current.start;
     stream.trimEnd = current.end;
   }
+  stream.presentation?.receive(delta);
 }
 
 export function streamHasSubstantiveText(stream: StreamView): boolean {
@@ -54,6 +60,118 @@ export function streamHasSubstantiveText(stream: StreamView): boolean {
 export function streamTrimmedText(stream: StreamView): string {
   const bounds = streamTrimBounds(stream);
   return stream.text.slice(bounds.start, bounds.end);
+}
+
+/** Text currently safe for the visible frame. `stream.text` stays the
+ * received, authoritative text used by Stop and durable settlement. */
+export function streamPresentedText(stream: StreamView): string {
+  const presentation = stream.presentation;
+  return presentation === undefined || presentation.bypassed
+    ? stream.text
+    : presentation.presentedText;
+}
+
+export function streamPresentedTrimmedText(stream: StreamView): string {
+  const bounds = streamPresentedTrimBounds(stream);
+  const text = streamPresentedText(stream);
+  return text.slice(bounds.start, bounds.end);
+}
+
+export function streamPresentedHasSubstantiveText(stream: StreamView): boolean {
+  const bounds = streamPresentedTrimBounds(stream);
+  return bounds.end > bounds.start;
+}
+
+export function streamPresentedTrimBounds(stream: StreamView): StreamTrimBounds {
+  const presentation = stream.presentation;
+  return presentation === undefined || presentation.bypassed
+    ? streamTrimBounds(stream)
+    : {
+      start: presentation.presentedTrimStart,
+      end: presentation.presentedTrimEnd
+    };
+}
+
+/** Attach one controller to a prose stream. The callback performs its own
+ * ownership check because terminal tails can arrive after Stop. */
+export function attachStreamPresentation(
+  stream: StreamView,
+  onPresented: () => void
+): TextPresentation {
+  return stream.presentation ??= createTextPresentation({ onPresented });
+}
+
+export function attachReasoningPresentation(
+  stream: StreamView,
+  onPresented: () => void
+): TextPresentation {
+  const reasoning = stream.reasoning ??= emptyStreamReasoning();
+  return reasoning.presentation ??= createTextPresentation({ onPresented });
+}
+
+export async function settleStreamPresentation(
+  stream: StreamView,
+  maxWaitMs?: number
+): Promise<boolean> {
+  const settled = await Promise.all([
+    stream.presentation?.settle(maxWaitMs) ?? Promise.resolve(true),
+    stream.reasoning?.presentation?.settle(maxWaitMs) ?? Promise.resolve(true)
+  ]);
+  return settled.every(Boolean);
+}
+
+export function disposeStreamPresentation(stream: StreamView): void {
+  stream.presentation?.dispose();
+  delete stream.presentation;
+  if (stream.reasoning !== undefined) {
+    stream.reasoning.presentation?.dispose();
+    delete stream.reasoning.presentation;
+  }
+}
+
+export function suspendStreamPresentation(stream: StreamView): void {
+  stream.presentation?.suspend();
+  stream.reasoning?.presentation?.suspend();
+}
+
+export function resumeStreamPresentation(stream: StreamView): void {
+  stream.presentation?.resume();
+  stream.reasoning?.presentation?.resume();
+}
+
+/** Recover a failed stream without retrying a quarantined grapheme forever.
+ * If a controller cannot make one bounded step, it enters one-way bypass.
+ * The stream's authoritative text then becomes its visible one-frame
+ * fallback; this is safer than rendering a partial grapheme or leaving an
+ * empty view. */
+export function recoverStreamPresentation(stream: StreamView): boolean {
+  let progressed = false;
+  const prose = stream.presentation;
+  if (prose !== undefined) {
+    const changed = prose.recover();
+    progressed ||= changed;
+  }
+  const reasoning = stream.reasoning?.presentation;
+  if (reasoning !== undefined) {
+    const changed = reasoning.recover();
+    progressed ||= changed;
+  }
+  return progressed;
+}
+
+/** Finish a visible adoption lifecycle. A normal bounded settle is preferred;
+ * a large but safe queue continues in bounded recovery steps. A quarantined
+ * oversized cluster enters bypass and falls back to authoritative text. */
+export async function drainStreamPresentation(stream: StreamView): Promise<boolean> {
+  const settled = await Promise.all([
+    stream.presentation === undefined
+      ? Promise.resolve(true)
+      : drainTextPresentation(stream.presentation),
+    stream.reasoning?.presentation === undefined
+      ? Promise.resolve(true)
+      : drainTextPresentation(stream.reasoning.presentation)
+  ]);
+  return settled.every(Boolean);
 }
 
 export function streamTrimBounds(stream: StreamView): StreamTrimBounds {
@@ -108,6 +226,7 @@ export function appendStreamReasoning(
   tokenCount: number
 ): void {
   const reasoning = stream.reasoning ??= emptyStreamReasoning();
+  const presentation = reasoning.presentation;
   reasoning.tokenCount = tokenCount;
   if (delta.length === 0) return;
   const current = streamReasoningTrimBounds(stream);
@@ -123,6 +242,7 @@ export function appendStreamReasoning(
     reasoning.trimStart = current.start;
     reasoning.trimEnd = current.end;
   }
+  presentation?.receive(delta);
 }
 
 export function streamHasSubstantiveReasoning(stream: StreamView): boolean {
@@ -135,6 +255,21 @@ export function streamReasoningTrimmedText(stream: StreamView): string {
   if (stream.reasoning === undefined) return "";
   const bounds = streamReasoningTrimBounds(stream);
   return stream.reasoning.text.slice(bounds.start, bounds.end);
+}
+
+export function streamPresentedReasoningText(stream: StreamView): string {
+  const presentation = stream.reasoning?.presentation;
+  if (presentation === undefined || presentation.bypassed) return streamReasoningTrimmedText(stream);
+  return presentation.presentedText.slice(
+    presentation.presentedTrimStart,
+    presentation.presentedTrimEnd
+  );
+}
+
+export function streamPresentedHasSubstantiveReasoning(stream: StreamView): boolean {
+  const presentation = stream.reasoning?.presentation;
+  if (presentation === undefined || presentation.bypassed) return streamHasSubstantiveReasoning(stream);
+  return presentation.presentedTrimEnd > presentation.presentedTrimStart;
 }
 
 function streamReasoningTrimBounds(stream: StreamView): StreamTrimBounds {

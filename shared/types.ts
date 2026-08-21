@@ -694,6 +694,7 @@ export interface StorySummary {
   title: string;
   updatedAt: string;
   partCount: number;
+  /** Words stored across all prose branches. Shared ancestors count once. */
   words: number;
   forked: boolean;
   lineCount: number;

@@ -39,7 +39,7 @@ import { summarySourceFingerprint, type SummaryPoint } from "../server/summary-t
 
 const NOW = "2026-01-01T00:00:00.000Z";
 
-test("story store: node create, edit, delete, and list summaries use active-path data", async (t) => {
+test("story store: list summaries total every prose branch", async (t) => {
   const { store } = await testStore(t);
   const story = fixture("crud", [node("root", null, "Opening")], "root");
   await store.save(story);
@@ -62,13 +62,16 @@ test("story store: node create, edit, delete, and list summaries use active-path
     (error: unknown) => error instanceof HttpError && error.status === 409
   );
 
+  const forked = await store.createNode(story.id, "root", "A quiet alternate ending", "Turn right");
+  const alternate = forked.nodes.at(-1)!;
+
   const summary = (await store.list()).find((entry) => entry.id === story.id)!;
   assert.equal(summary.partCount, 2);
-  assert.equal(summary.words, 5);
-  assert.equal(summary.lineCount, 1);
-  assert.equal(summary.forked, false);
+  assert.equal(summary.words, 9);
+  assert.equal(summary.lineCount, 2);
+  assert.equal(summary.forked, true);
   const deleted = await store.deleteNode(story.id, take.id, 1);
-  assert.deepEqual(deleted.nodes.map(({ id }) => id), ["root"]);
+  assert.deepEqual(deleted.nodes.map(({ id }) => id), ["root", alternate.id]);
 });
 
 test("story store: editing a node that fully reclaims its rewritten span deletes the field instead of storing an empty array", async (t) => {
