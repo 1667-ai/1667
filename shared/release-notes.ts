@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.9.11-rc.1",
+    date: "2026-08-21",
+    body: "- **Fast model responses now appear at a steady reading pace.** 1667 presents\n  large stream batches in small steps. Slow streams stay responsive. Stop and\n  story storage continue to use the complete received response.\n\n- **The Library word count includes every story branch.** It counts prose from\n  all takes and counts each shared part once. Selecting a different take no\n  longer changes the stored total.\n\n- **Active work labels now show a moving light.** The `working` and `thinking`\n  labels animate while work is active. The text and layout do not move."
+  },
+  {
     version: "0.9.10",
     date: "2026-08-20",
     body: "- **This release has no additional product changes.** It contains the same\n  behavior as 0.9.10-rc.7."
