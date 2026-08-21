@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, readFile, readdir, rm, truncate, unlink, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, readdir, rm, truncate, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -30,13 +30,19 @@ test("story V6 store: existing list, read, and export surfaces support live stat
   await service.init();
   t.after(async () => { await service.dispose(); await rm(dataDir, { recursive: true, force: true }); });
 
-  await service.stories.save(fixture("v5-story", "V5 prose"));
-  await service.stories.save(fixture("v6-story", "V6 prose"));
+  await service.stories.save(branchingFixture("v5-story", "V5 prose"));
+  await service.stories.save(branchingFixture("v6-story", "V6 prose"));
   await service.stories.save(fixture("deleted-story", "Deleted prose"));
   await promoteLive(path.join(dataDir, "stories"), "v6-story");
   await promoteDeleted(path.join(dataDir, "stories"), "deleted-story");
 
-  assert.deepEqual((await service.listStories()).map(({ id }) => id).sort(), ["v5-story", "v6-story"]);
+  const summaries = await service.listStories();
+  assert.deepEqual(summaries.map(({ id }) => id).sort(), ["v5-story", "v6-story"]);
+  assert.equal(summaries.find(({ id }) => id === "v5-story")?.words, 7);
+  assert.equal(summaries.find(({ id }) => id === "v6-story")?.words, 7);
+  const catalog = await service.listStoriesPage({ cursor: null, maxEntries: 64 });
+  assert.equal(catalog.items.find(({ id }) => id === "v5-story")?.words, 7);
+  assert.equal(catalog.items.find(({ id }) => id === "v6-story")?.words, 7);
   assert.equal((await service.loadStory("v6-story")).path[0]!.text, "V6 prose");
   assert.match((await service.exportStory("v6-story")).markdown, /V6 prose/);
   await assert.rejects(() => service.loadStory("deleted-story"), hasServiceError("not_found"));
@@ -290,6 +296,7 @@ async function promoteDeleted(root: string, id: string): Promise<void> {
     }
   };
   await writeFile(file, formatV6(manifest));
+  await chmod(file, 0o600);
 }
 
 function fixture(id: string, text: string): Story {
@@ -301,6 +308,22 @@ function fixture(id: string, text: string): Story {
     id, title: id, createdAt: NOW, updatedAt: NOW, nodes: [root], activeRootId: root.id,
     tags: [], recentNodeIds: [], facts: [], chapterBreaks: []
   };
+}
+
+function branchingFixture(id: string, text: string): Story {
+  const story = fixture(id, text);
+  const root = story.nodes[0]!;
+  const active: StoryNode = {
+    id: `${id}-active`, parentId: root.id, instruction: "Continue", text: "Active ending",
+    model: "test", createdAt: NOW, activeChildId: null
+  };
+  const alternate: StoryNode = {
+    id: `${id}-alternate`, parentId: root.id, instruction: "Continue", text: "Alternate path turns",
+    model: "test", createdAt: NOW, activeChildId: null
+  };
+  root.activeChildId = active.id;
+  story.nodes.push(active, alternate);
+  return story;
 }
 
 function uint64(value: number): string {

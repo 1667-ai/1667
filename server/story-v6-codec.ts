@@ -14,7 +14,7 @@ import {
   type StoryManifestV9
 } from "./story-format.js";
 import { hasLegacyTopLevelSchemaVersion } from "./json-schema-version.js";
-import { buildStorySummary } from "./story-summary.js";
+import { buildStoryCatalogSummary, buildStorySummary } from "./story-summary.js";
 import {
   MAX_STORY_MANIFEST_BYTES,
   MAX_STORY_TITLE_CHARS,
@@ -219,7 +219,8 @@ export function requireV6Manifest(manifest: StoryEnvelopeManifest, context: stri
 }
 
 export function storySummaryFromLiveEnvelope(manifest: LiveStoryEnvelopeManifest): StorySummary {
-  const words = safeSummaryNumber(manifest.summary.words, "summary.words");
+  safeSummaryNumber(manifest.summary.words, "summary.words");
+  const words = buildStoryCatalogSummary(manifest.content).words;
   const lineCount = safeSummaryNumber(manifest.summary.lineCount, "summary.lineCount");
   return {
     id: manifest.summary.id,

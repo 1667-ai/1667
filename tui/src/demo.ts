@@ -515,11 +515,10 @@ function normalizeDemoFactMetadata(fact: Story["facts"][number]): void {
 }
 
 function storySummary(story: Story): StorySummary {
-  const line = activePath(story);
   const prose = story.nodes.filter((node) => !isChapterSummary(node));
   const leaves = prose.filter((node) => !prose.some((candidate) => candidate.parentId === node.id));
   return { id: story.id, title: story.title, updatedAt: story.updatedAt, partCount: prose.length,
-    words: line.reduce((sum, node) => sum + countWords(node.text), 0), forked: story.origin !== undefined, lineCount: leaves.length };
+    words: prose.reduce((sum, node) => sum + countWords(node.text), 0), forked: story.origin !== undefined, lineCount: leaves.length };
 }
 
 function payloadFrom(story: Story): StoryPayload {
