@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.1-rc.1 - 2026-08-21
+
+- **This beta has no additional product changes.** It contains the same
+  behavior as 0.10.0.
+
 ## 0.10.0 - 2026-08-21
 
 - **1667 prepares separate controls for Generation Effort and Thinking Mode.**
