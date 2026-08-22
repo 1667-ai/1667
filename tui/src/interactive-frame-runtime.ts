@@ -23,7 +23,7 @@ import {
   deriveStoryFrameLayout,
   singlePaneStoryFrameLayout
 } from "./story-frame-layout.js";
-import { createStoryWrapBuild } from "./story-wrap-build.js";
+import { createStoryWrapBuild, type WrapBuildClock } from "./story-wrap-build.js";
 import type { ProseStyle, WrapCache } from "./wrap.js";
 
 export type FrameInvalidationReason = "state" | "resize";
@@ -52,6 +52,9 @@ export interface InteractiveFrameRuntimeOptions {
   onPresentationFailure?(): void;
   onError(error: unknown): void;
   profile?: boolean;
+  /** Deterministic clock for the cold prose build; tests inject one so a
+   * contended host cannot turn a fully warm frame into a loading frame. */
+  wrapBuildClock?: WrapBuildClock;
 }
 
 interface PendingPresentation {
@@ -154,7 +157,8 @@ export function createInteractiveFrameRuntime(
   const animations = createAnimationDeadlineScheduler(() => requestFrame("animation"));
   const cold = createStoryWrapBuild(wrapCache, {
     onReady: () => requestFrame("cold-ready"),
-    onError
+    onError,
+    ...(options.wrapBuildClock ? { clock: options.wrapBuildClock } : {})
   });
   const scheduler = createFrameScheduler(() => {
     if (frameFailed && failureRecovery !== "claimed") {

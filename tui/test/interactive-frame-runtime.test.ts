@@ -84,7 +84,11 @@ describe("interactive frame runtime", () => {
       wrapCache,
       onBuilt: (version) => built.push(version),
       onError: (error) => { throw error; },
-      profile: true
+      profile: true,
+      // A frozen clock keeps the pre-warmed build synchronous even on a
+      // contended host, where wall-clock jitter alone would split the scan
+      // and flash a loading frame this test must never see.
+      wrapBuildClock: { now: () => 0, yield: (callback) => setTimeout(callback, 0) }
     });
 
     runtime.invalidate();
@@ -563,7 +567,10 @@ describe("interactive frame runtime", () => {
         builds.push({ version, interactive });
       },
       onError: (error) => { throw error; },
-      profile: true
+      profile: true,
+      // Frozen clock: the pre-warmed scan must never split into a loading
+      // frame just because a contended host burned the wall-clock budget.
+      wrapBuildClock: { now: () => 0, yield: (callback) => setTimeout(callback, 0) }
     });
 
     runtime.invalidate();
@@ -888,7 +895,10 @@ describe("interactive frame runtime", () => {
         built.push({ interactive, frameToken });
       },
       onPresentationFailure: inputs.presentationFailed,
-      onError: (error) => errors.push(error)
+      onError: (error) => errors.push(error),
+      // Frozen clock: recovery must admit a committed interactive frame even
+      // when host jitter would otherwise split the pre-warmed scan.
+      wrapBuildClock: { now: () => 0, yield: (callback) => setTimeout(callback, 0) }
     });
 
     inputs.enqueue(() => { handled += 1; });

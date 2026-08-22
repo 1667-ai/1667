@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import {
-  access,
   chmod,
   mkdir,
   mkdtemp,
@@ -330,7 +329,7 @@ test("version-changing managed bootstrap does not leak the Install Root lock to 
   await lock.release();
 });
 
-async function waitForPid(filePath: string, timeoutMs = 5_000): Promise<number> {
+async function waitForPid(filePath: string, timeoutMs = 30_000): Promise<number> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
@@ -341,8 +340,9 @@ async function waitForPid(filePath: string, timeoutMs = 5_000): Promise<number> 
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  await access(filePath);
-  throw new Error("comparison helper did not start");
+  throw new Error(
+    `helper did not write a live pid to ${filePath} within ${timeoutMs}ms`
+  );
 }
 
 function processAlive(pid: number): boolean {

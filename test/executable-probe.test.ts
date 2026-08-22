@@ -7,7 +7,6 @@
  */
 import assert from "node:assert/strict";
 import {
-  access,
   chmod,
   mkdir,
   mkdtemp,
@@ -39,15 +38,19 @@ async function makeRoot(label: string): Promise<string> {
   return mkdtemp(path.join(homeScratch, label));
 }
 
-async function waitForFile(filePath: string, timeoutMs = 3_000): Promise<void> {
+/**
+ * Waits until the fixture wrote its payload. Shell redirection creates an
+ * empty pid file before the write lands, so existence alone is not enough.
+ */
+async function waitForNonEmptyFile(filePath: string, timeoutMs = 3_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      await access(filePath);
-      return;
+      if ((await readFile(filePath, "utf8")).trim() !== "") return;
     } catch {
-      await new Promise((r) => setTimeout(r, 10));
+      // Not written yet.
     }
+    await new Promise((r) => setTimeout(r, 10));
   }
   throw new Error(`timeout waiting for ${filePath}`);
 }
@@ -119,8 +122,8 @@ test("abort reaps SIGTERM-ignoring probe and descendant before reject", {
     (value) => ({ ok: true as const, value }),
     (error: unknown) => ({ ok: false as const, error })
   );
-  await waitForFile(probePidFile);
-  await waitForFile(descendantPidFile);
+  await waitForNonEmptyFile(probePidFile);
+  await waitForNonEmptyFile(descendantPidFile);
   probePid = await readPid(probePidFile);
   descendantPid = await readPid(descendantPidFile);
   assert.notEqual(probePid, descendantPid);
@@ -186,8 +189,8 @@ test("probe abort under Install Root lock reaps before lock can release", {
     }
   })();
 
-  await waitForFile(probePidFile);
-  await waitForFile(descendantPidFile);
+  await waitForNonEmptyFile(probePidFile);
+  await waitForNonEmptyFile(descendantPidFile);
   probePid = await readPid(probePidFile);
   descendantPid = await readPid(descendantPidFile);
   assert.notEqual(probePid, descendantPid);
@@ -273,8 +276,8 @@ test("setsid descendant cannot keep probe promise open past settlement deadline"
     (value) => ({ ok: true as const, value }),
     (error: unknown) => ({ ok: false as const, error })
   );
-  await waitForFile(probePidFile);
-  await waitForFile(escapedPidFile);
+  await waitForNonEmptyFile(probePidFile);
+  await waitForNonEmptyFile(escapedPidFile);
   probePid = await readPid(probePidFile);
   escapedPid = await readPid(escapedPidFile);
   assert.notEqual(probePid, escapedPid);
@@ -327,8 +330,8 @@ test("timeout reaps sticky process group before reject", {
     (value) => ({ ok: true as const, value }),
     (error: unknown) => ({ ok: false as const, error })
   );
-  await waitForFile(probePidFile);
-  await waitForFile(descendantPidFile);
+  await waitForNonEmptyFile(probePidFile);
+  await waitForNonEmptyFile(descendantPidFile);
   probePid = await readPid(probePidFile);
   descendantPid = await readPid(descendantPidFile);
   assert.notEqual(probePid, descendantPid);
@@ -383,8 +386,8 @@ exit 1
     (value) => ({ ok: true as const, value }),
     (error: unknown) => ({ ok: false as const, error })
   );
-  await waitForFile(probePidFile);
-  await waitForFile(descendantPidFile);
+  await waitForNonEmptyFile(probePidFile);
+  await waitForNonEmptyFile(descendantPidFile);
   probePid = await readPid(probePidFile);
   descendantPid = await readPid(descendantPidFile);
   assert.notEqual(probePid, descendantPid);

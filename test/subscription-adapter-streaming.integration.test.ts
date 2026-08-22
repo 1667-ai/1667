@@ -69,24 +69,29 @@ test("Pi terminal timing survives slow consumers after buffered deltas", async (
   await credentials.modify("anthropic", async () => oauth(ACCESS));
   const model = modelFor("anthropic", "anthropic-messages");
   const textDeltas = Array.from({ length: 64 }, () => "a");
+  // Two margins hold this test open. The producer must finish far inside
+  // totalMs even on a loaded runner, because the total deadline stops only
+  // when the pump observes the terminal event; and the consumer must drain
+  // for longer than totalMs, so a regression that let the total deadline
+  // measure consumer backpressure fails here instead of passing silently.
   const settings = subscriptionSettings(
     "anthropic-subscription-messages",
     "anthropic",
     "anthropic-messages",
     credentials,
     fakeModels(model, () => successfulStream(model, true, textDeltas)),
-    { responseHeaderMs: 1_000, idleMs: 15, totalMs: 75 }
+    { responseHeaderMs: 1_000, idleMs: 15, totalMs: 1_000 }
   );
   const reasoning: string[] = [];
   const output: string[] = [];
   for await (const chunk of streamCompletion(settings, PROMPT, new AbortController().signal, {
     onReasoning: async (delta) => {
       reasoning.push(delta.text);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 600));
     }
   })) {
     output.push(chunk);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 600));
   }
   assert.deepEqual(reasoning, ["thinking"]);
   assert.equal(output.join(""), textDeltas.join(""));
