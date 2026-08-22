@@ -7,6 +7,7 @@ import test from "node:test";
 import { promisify } from "node:util";
 import { initializeProject } from "../server/project-discovery.js";
 import { StoryService } from "../server/story-service.js";
+import { stripInheritedAcl } from "./state-root-fixture.js";
 import { toPublicServiceError } from "../server/service-error-policy.js";
 import { planCardImport } from "../shared/card-import.js";
 import { MAX_FACT_TEXT_CHARS } from "../shared/types.js";
@@ -124,6 +125,7 @@ test("a malformed lorebook produces a 4xx with its real message too, matching th
 
 test("E2E integration: import-card adds JSON and PNG card Facts, and a V3 card's Facts and book", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-card-import-e2e-"));
+  await stripInheritedAcl(root);
   t.after(async () => { await rm(root, { recursive: true, force: true }); });
 
   const project = await initializeProject(root);

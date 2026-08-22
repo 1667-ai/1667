@@ -10,6 +10,7 @@ import { partsFromMarkdown } from "../server/import-md.js";
 import { storyFromImport } from "../server/import-st.js";
 import { parseImportCommand } from "../tui/src/import-cli.js";
 import { initializeProject } from "../server/project-discovery.js";
+import { stripInheritedAcl } from "./state-root-fixture.js";
 import type { StoryPayload } from "../shared/types.js";
 import {
   decodeMarkdownHttpBody,
@@ -464,6 +465,7 @@ linuxTest("HTTP POST /api/import/markdown bounds raw Markdown without JSON escap
 
 test("E2E integration: 1667 import routes to a project and returns a failure exit status", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-tui-cli-import-"));
+  await stripInheritedAcl(root);
   t.after(async () => { await rm(root, { recursive: true, force: true }); });
 
   const project = await initializeProject(root);
@@ -500,8 +502,11 @@ test("E2E integration: 1667 import routes to a project and returns a failure exi
       bun,
       [entrypoint, "import", "--data", project.root, fifo],
       {
-        env: { ...process.env, AI_1667_STATE: path.join(root, "machine") },
-        timeout: 5_000
+      env: { ...process.env, AI_1667_STATE: path.join(root, "machine") },
+      // A cold CLI start on a contended runner can take several seconds
+      // before it reads the fifo and refuses it; only a real hang should
+      // reach this bound.
+      timeout: 30_000
       }
     ).catch((error: unknown) => error);
     assert.ok(fifoFailure instanceof Error && "code" in fifoFailure && fifoFailure.code === 1);
@@ -516,6 +521,7 @@ test("E2E integration: npm import persists through the root maintenance boundary
   skip: process.platform === "win32"
 }, async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-server-cli-import-"));
+  await stripInheritedAcl(root);
   t.after(async () => { await rm(root, { recursive: true, force: true }); });
 
   const sampleMd = path.join(root, "server-sample.md");

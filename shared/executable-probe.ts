@@ -6,7 +6,13 @@ import {
 import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
 import type { BuiltArtifactTarget } from "./release-targets.js";
 
-export const EXECUTABLE_PROBE_TIMEOUT_MS = 5_000;
+/**
+ * Whole-probe budget for spawning the installed binary and reading its
+ * identity. The target audience includes old or memory-pressured machines
+ * where even a shell stub can take seconds to schedule, so this stays far
+ * above a laptop's cold start rather than at its ceiling.
+ */
+export const EXECUTABLE_PROBE_TIMEOUT_MS = 15_000;
 export const EXECUTABLE_PROBE_MAX_STDOUT_BYTES = 64 * 1024;
 /** Bounded SIGTERM→SIGKILL grace while reaping a probe process group. */
 export const EXECUTABLE_PROBE_TERMINATION_GRACE_MS = 250;

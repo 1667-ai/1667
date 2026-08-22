@@ -148,7 +148,9 @@ test("CLI errors cannot write terminal control characters", () => {
       + "await runCli(['--unknown\\u001b[31m']);"
   ], {
     encoding: "utf8",
-    timeout: 2_000
+    // Cold-starting the CLI imports the whole app graph; on a contended
+    // runner that can take seconds. Only a hang should kill the child.
+    timeout: 15_000
   });
 
   expect(child.status).toBe(2);

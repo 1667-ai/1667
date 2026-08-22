@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { initializeProject } from "../server/project-discovery.js";
+import { stripInheritedAcl } from "./state-root-fixture.js";
 import { StoryService } from "../server/story-service.js";
 import { parseWorkerMutation } from "../server/worker-mutations.js";
 import type { StoryPayload } from "../shared/types.js";
@@ -193,6 +194,7 @@ test("worker mutation parsing accepts the NovelAI container", () => {
 
 test("1667 import routes a .story file to a project", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "1667-tui-cli-nai-import-"));
+  await stripInheritedAcl(root);
   t.after(async () => { await rm(root, { recursive: true, force: true }); });
 
   const project = await initializeProject(root);
@@ -225,6 +227,7 @@ test("1667 import routes a .story file to a project", async (t) => {
 
 test("1667 import routes a real-shaped legacy .scenario through the service", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "1667-tui-cli-nai-scenario-"));
+  await stripInheritedAcl(root);
   t.after(async () => { await rm(root, { recursive: true, force: true }); });
 
   const project = await initializeProject(root);
@@ -257,6 +260,7 @@ test("1667 import routes a real-shaped legacy .scenario through the service", as
 
 test("1667 import-lorebook routes a real-shaped legacy Lorebook through the service", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "1667-tui-cli-nai-lorebook-"));
+  await stripInheritedAcl(root);
   t.after(async () => { await rm(root, { recursive: true, force: true }); });
 
   const project = await initializeProject(root);
