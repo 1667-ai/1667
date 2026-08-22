@@ -22,7 +22,6 @@ import type {
   PreparedUserMutationRecord
 } from "./mutation-ledger-types.js";
 import {
-  hashSettingsDocumentV2,
   hashSettingsStateV2
 } from "./settings-v2-codec.js";
 import {
@@ -38,10 +37,9 @@ import { defaultModelCapabilities } from "../shared/settings-provider-defaults.j
 import {
   isExactSettingsActivationSuccessor,
   recoveryEventForSettingsStateV2,
-  reduceSettingsStateV2,
-  SETTINGS_SAVE_ADMISSIBLE_RELATIONS,
-  settingsStateRelation
+  reduceSettingsStateV2
 } from "./settings-v2-reducer.js";
+import { settingsStateRelation } from "./settings-state-validation.js";
 import {
   completeSettingsMutation,
   corruptSettingsStateReceipt,
@@ -49,33 +47,24 @@ import {
   parseDiscardPendingSettingsCommand,
   parseSaveSettingsCommandEnvelope,
   parseSaveSettingsConnectionSecrets,
-  parseSaveSettingsDocument,
-  prepareSettingsMutation,
   requireExactSettingsReceiptState,
-  requireMatchingSettingsPrepared,
   requireSettingsPrepared,
   requireSettingsReceiptNotAhead,
   settingsCoordinatorAdmissionRequest,
-  settingsCoordinatorRequest,
-  settingsMutationFingerprint,
-  type SettingsMutationOperation
+  settingsCoordinatorRequest
 } from "./settings-v2-mutation.js";
 import {
-  deleteProviderSecret,
   pruneProviderSecrets,
   readProviderSecrets,
-  removeProviderSecretsScratch,
-  writeProviderSecret
+  removeProviderSecretsScratch
 } from "./provider-secret-store.js";
 import {
-  activeSettingsDocument,
   assertRuntimeDocumentSupported,
   credentialReferencesResolve,
   defaultCandidateValidator,
   assertRuntimeGenerationSettingsSupported,
   pendingSettingsDocument,
-  providerRequestTransportAvailable,
-  settingsViewFromState
+  providerRequestTransportAvailable
 } from "./settings-v2-runtime.js";
 import {
   discardStagedSettingsState,
@@ -86,18 +75,21 @@ import {
   stageSettingsState
 } from "./settings-state-file.js";
 import {
-  requireMutableSettingsStateSlot,
+  requireSettingsStateSlotWriteAdmission,
   type SettingsStateSlot
 } from "./settings-state-slot.js";
-import { activeSettingsDocumentV4 } from "./settings-v4-state-validation.js";
+import { activeSettingsDocumentV5 } from "./settings-v5-state-validation.js";
+import { settingsStateRelationV3 } from "./settings-v3-state-validation.js";
+import { settingsStateRelationV4 } from "./settings-v4-state-validation.js";
 import { requireFreshUnseenMutationId } from "./mutation-id-policy.js";
-import { parseSettingsDocumentV2 } from "./settings-v2-codec.js";
 import { storedCredentialSecretId } from "../shared/settings-stored-credential.js";
+import type { SettingsStateV5 } from "../shared/settings-v5-types.js";
+import type { ProviderProbeRouteV1 } from "../shared/provider-probe-route-v1.js";
+import { settingsDocumentFromProviderProbeRoute } from "./provider-probe-route.js";
 import { assertSavedSamplingBiasResolves } from "./settings-v2-save-bias-check.js";
 import {
   createSubscriptionRuntime,
   providerSecretIdsToKeep,
-  storedSecretIdsInDocument,
   storedSecretIdsInState
 } from "./subscription-runtime.js";
 import { readSettingsView } from "./settings-v2-view-read.js";
@@ -107,9 +99,56 @@ import {
   settingsRuntimeSnapshotActiveDocument,
   settingsRuntimeSnapshotPendingDocument
 } from "./settings-runtime-snapshot.js";
+import type { SettingsActivationMode, SettingsSaveHooks } from "./settings-save-hooks.js";
+import {
+  convertSettingsStateSlotToV5,
+  hashSettingsStateSlot,
+  readSettingsStateAuthority,
+  sourceSchemaVersionOf,
+  stageSettingsStateBytes,
+  stageSettingsStateV5
+} from "./settings-state-authority.js";
+import {
+  activateStagedV5,
+  commitSettingsSaveV5,
+  type SettingsV5SaveContext
+} from "./settings-v5-store-save.js";
+import {
+  parseSaveSettingsDocumentV5,
+  requireExactSettingsReceiptStateV5,
+  requireMatchingSettingsPreparedV5,
+  requireSettingsReceiptNotAheadV5,
+  settingsMutationFingerprintV5,
+  type SettingsMutationOperationV5
+} from "./settings-v5-mutation.js";
+import { hashSettingsStateV5 } from "./settings-v5-codec.js";
+import { reduceSettingsStateV5, recoveryEventForSettingsStateV5 } from "./settings-v5-reducer.js";
+import { reduceSettingsStateV3, recoveryEventForSettingsStateV3 } from "./settings-v3-reducer.js";
+import { reduceSettingsStateV4, recoveryEventForSettingsStateV4 } from "./settings-v4-reducer.js";
+import { formatSettingsStateV3 } from "./settings-v3-codec.js";
+import { formatSettingsStateV4Bytes } from "./settings-v4-codec.js";
+import { assertRuntimeDocumentSupportedV5, settingsViewFromSlot } from "./settings-v5-runtime.js";
+import {
+  unmatchedSchema5NextError,
+  hashSettingsSchema5UpgradePrepared,
+  readSettingsSchema5UpgradePrepared,
+  readSettingsSchema5UpgradeCompleted,
+  removeSettingsSchema5UpgradeReceipts
+} from "./settings-schema5-upgrade.js";
+import {
+  readSettingsPendingSecretsV1,
+  removeSettingsPendingSecretsV1
+} from "./settings-pending-secrets.js";
+import { deleteProviderSecret } from "./provider-secret-store.js";
+import { isMintedSecretId } from "./settings-secret-ids.js";
+import {
+  usesCredentialReferences,
+  sameActivatedCredentialTarget
+} from "./settings-secret-guards.js";
+
 
 type Clock = () => Date;
-export type SettingsActivationMode = "activation-capable" | "recover-only";
+export type { SettingsActivationMode } from "./settings-save-hooks.js";
 
 /** Re-exported from the module that now owns the save-time bias check
  * (server/settings-v2-save-bias-check.ts, issue #282 review round 5, finding
@@ -120,9 +159,6 @@ export { SAMPLING_BIAS_SAVE_PROBE_DEADLINE_MS } from "./settings-v2-save-bias-ch
  * predate the mint-per-key change and cannot arise from another writer's
  * connection-derived or caller-selected naming. Only these ever qualify for
  * targeted supersession deletion in the shared machine tier. */
-const MINTED_SECRET_ID_PATTERN =
-  /\.k[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
 export interface SettingsV2StoreOptions {
   readonly coordinator?: MutationCoordinator;
   readonly ledger?: MutationLedgerStore;
@@ -132,6 +168,7 @@ export interface SettingsV2StoreOptions {
   readonly activationMode?: SettingsActivationMode;
   /** The machine tier. Absent means this directory is its own machine tier. */
   readonly secretsDir?: string;
+  readonly saveHooks?: SettingsSaveHooks;
 }
 
 /** Format-2 settings authority: admission, receipts, aggregate replacement,
@@ -148,6 +185,7 @@ export class SettingsV2Store {
   private readonly secretsDir: string;
   private readonly prunesSecrets: boolean;
   private readonly runtimeResolver: SettingsRuntimeResolver;
+  private readonly saveHooks: SettingsSaveHooks | undefined;
 
   constructor(
     private readonly dataDir: string,
@@ -169,41 +207,16 @@ export class SettingsV2Store {
     this.now = options.now ?? (() => new Date());
     this.validateCandidate = options.validateCandidate ?? defaultCandidateValidator;
     this.activationMode = options.activationMode ?? "activation-capable";
+    this.saveHooks = options.saveHooks;
   }
 
   async init(): Promise<void> {
     await this.ledger.init();
+    await this.recoverAuthority();
     const slot = await readSettingsStateSlot(this.dataDir);
-    // A successor-owned authority is not this build's to change, and that is
-    // an ordinary startup state rather than a failure, so it is a branch here
-    // rather than a caught throw. There is nothing of its own to recover,
-    // activate, or prune. Opening proves the state parses and its active
-    // document supports a route, exactly like the writable path below.
-    if (slot.kind === "v3") {
-      assertRuntimeDocumentSupported(activeSettingsDocument(slot.readOnlyView), this.runtimeResolver);
-      settingsViewFromState(slot.readOnlyView);
-      return;
-    }
-    if (slot.kind === "v4") {
-      const document = activeSettingsDocumentV4(slot.state);
-      for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {
-        this.runtimeResolver.resolveV4({ document, purpose });
-      }
-      return;
-    }
-    // Every authority that reaches here is schema 2: the branch above
-    // already returned for a schema-3 one, and every write below stays
-    // schema 2 too, so the pipeline is schema-2-typed throughout.
-    let state = await this.recoverReceiptTransaction();
-    const preActivation = state;
-    state = await this.recoverActivation(state);
-    await this.deleteSupersededSecrets([preActivation], state);
-    if (this.prunesSecrets) {
-      await removeProviderSecretsScratch(this.secretsDir);
-      await pruneProviderSecrets(this.secretsDir, providerSecretIdsToKeep(state));
-    }
-    assertRuntimeDocumentSupported(activeSettingsDocument(state), this.runtimeResolver);
-    settingsViewFromState(state);
+    const working = convertSettingsStateSlotToV5(slot);
+    assertRuntimeDocumentSupportedV5(activeSettingsDocumentV5(working), this.runtimeResolver);
+    settingsViewFromSlot(slot, this.runtimeResolver);
   }
 
   loadView(): Promise<SettingsView> {
@@ -285,18 +298,14 @@ export class SettingsV2Store {
     return exact.length > 0 ? exact : fallback;
   }
 
-  async loadProviderProbeTarget(
-    documentValue: unknown,
-    purpose: SettingsRoutePurpose,
-    probeSecrets: Readonly<Record<string, string>> = {}
+  async loadProviderProbeRoute(
+    route: ProviderProbeRouteV1
   ): Promise<GenerationSettings> {
-    const document = parseSettingsDocumentV2(documentValue);
-    const route = selectSettingsRoute(document, purpose);
+    const document = settingsDocumentFromProviderProbeRoute(route);
     const connectionId = route.model.connectionId;
     const snapshot = await readSettingsRuntimeSnapshot(this.dataDir, this.secretsDir);
     const storedSecrets = snapshot.storedSecrets;
-    // Probe-only key material. It is resolved for this request and never
-    // published, so it is layered over the store rather than into it.
+    const probeSecrets = route.secrets ?? {};
     const probeSecretId = storedCredentialSecretId(route.connection.auth);
     const suppliedProbeSecret = probeSecretId !== null
       && probeSecrets[probeSecretId] !== undefined
@@ -304,17 +313,11 @@ export class SettingsV2Store {
     const resolvedSecrets = suppliedProbeSecret
       ? new Map([...storedSecrets, [probeSecretId, probeSecrets[probeSecretId]!]])
       : storedSecrets;
-    // A caller that supplies the key has proved possession of it, which is all
-    // a probe tests. Requiring a save first would make the model list
-    // unreachable until after the very step it exists to inform.
     if (!suppliedProbeSecret && usesCredentialReferences(route.connection)) {
       const activeDocument = settingsRuntimeSnapshotActiveDocument(snapshot);
       const activeConnection = activeDocument.connections[connectionId];
       const activeTargetSaved = activeConnection !== undefined
         && sameActivatedCredentialTarget(activeConnection, route.connection);
-      // A staged candidate only exists after its own durable save, so probing
-      // its credential target is as legitimate as probing the active one —
-      // and it is exactly what recovery from a failed activation needs.
       const pendingConnection = settingsRuntimeSnapshotPendingDocument(snapshot)
         ?.connections[connectionId];
       const pendingTargetSaved = pendingConnection !== undefined
@@ -327,9 +330,9 @@ export class SettingsV2Store {
         );
       }
     }
-    const runtime = this.runtimeResolver.resolve({
+    const runtime = this.runtimeResolver.resolveV5({
       document,
-      purpose,
+      purpose: "default",
       allowBlankModel: true,
       storedSecrets: resolvedSecrets
     });
@@ -368,14 +371,14 @@ export class SettingsV2Store {
       settingsCoordinatorAdmissionRequest(command),
       () => {
         try {
-          const document = parseSaveSettingsDocument(commandValue);
-          const operation: SettingsMutationOperation = {
+          const document = parseSaveSettingsDocumentV5(commandValue);
+          const operation: SettingsMutationOperationV5 = {
             method: "saveSettings",
             document,
             connectionSecrets: parseSaveSettingsConnectionSecrets(commandValue)
           };
           return {
-            fingerprint: settingsMutationFingerprint(
+            fingerprint: settingsMutationFingerprintV5(
               operation,
               command.expectedStateGeneration
             ),
@@ -391,10 +394,10 @@ export class SettingsV2Store {
 
   async discardPending(commandValue: unknown): Promise<SettingsMutationResult> {
     const command = parseDiscardPendingSettingsCommand(commandValue);
-    const operation: SettingsMutationOperation = {
+    const operation: SettingsMutationOperationV5 = {
       method: "discardPendingSettings"
     };
-    const fingerprint = settingsMutationFingerprint(
+    const fingerprint = settingsMutationFingerprintV5(
       operation,
       command.expectedStateGeneration
     );
@@ -405,16 +408,25 @@ export class SettingsV2Store {
   }
 
   private async runMutation(
-    operation: SettingsMutationOperation,
+    operation: SettingsMutationOperationV5,
     request: MutationCoordinatorRequest<SettingsMutationTarget>,
     signal?: AbortSignal
   ): Promise<SettingsMutationResult> {
-    // Refuse before any write touches disk: a schema-3 authority requires a
-    // successor release to change, so this check runs before the mutation
-    // recovery below reads or writes anything.
-    const slot = await readSettingsStateSlot(this.dataDir);
-    requireMutableSettingsStateSlot(slot);
-    const current = await this.recoverReceiptTransaction();
+    await this.recoverDurableState();
+    let slot = await readSettingsStateSlot(this.dataDir);
+    let sourceRecoveryGeneration: number | null = null;
+    if (slot.kind === "v3" || slot.kind === "v4") {
+      const relation = slot.kind === "v3"
+        ? settingsStateRelationV3(slot.state)
+        : settingsStateRelationV4(slot.state);
+      if (relation !== "clean" && relation !== "staged") {
+        sourceRecoveryGeneration = slot.state.stateGeneration;
+        await this.recoverSourceActivation(slot);
+        slot = await readSettingsStateSlot(this.dataDir);
+      }
+    }
+    requireSettingsStateSlotWriteAdmission(slot);
+    const currentV5 = convertSettingsStateSlotToV5(slot);
     const existing = await this.ledger.loadUserReceipt("settings", request.mutationId);
     if (existing.prepared === null && existing.completed === null) {
       requireFreshUnseenMutationId(
@@ -423,15 +435,15 @@ export class SettingsV2Store {
       );
     }
     if (existing.prepared !== null) {
-      const prepared = requireMatchingSettingsPrepared(
+      const prepared = requireMatchingSettingsPreparedV5(
         existing.prepared,
         operation,
         request.mutationId,
         request.fingerprint
       );
       if (existing.completed === null) {
-        if (prepared.oldStateHash !== hashSettingsStateV2(current)
-          || pointsToUserMutation(current, request.mutationId)) {
+        if (prepared.oldStateHash !== hashSettingsStateSlot(slot)
+          || pointsToUserMutationV5(currentV5, request.mutationId)) {
           throw new ServiceError(
             409,
             "Settings mutation recovery is incomplete; retry after restarting the backend.",
@@ -444,148 +456,109 @@ export class SettingsV2Store {
           hashPreparedMutationRecord(prepared)
         );
       } else {
-        requireSettingsReceiptNotAhead(prepared, current);
-        return settingsResult(prepared, responseActivationOutcome(current, request.mutationId));
+        requireSettingsReceiptNotAheadV5(prepared, currentV5);
+        return settingsResult(prepared, responseActivationOutcomeV5(currentV5, request.mutationId));
       }
     }
 
     if (operation.method === "saveSettings") {
-      assertRuntimeDocumentSupported(operation.document, this.runtimeResolver);
+      assertRuntimeDocumentSupportedV5(operation.document, this.runtimeResolver);
       await assertSavedSamplingBiasResolves(
         operation.document,
         this.runtimeResolver,
         signal
       );
     }
-    if (current.stateGeneration !== request.expectedAggregateVersion.stateGeneration) {
+    if (
+      currentV5.stateGeneration !== request.expectedAggregateVersion.stateGeneration
+      && sourceRecoveryGeneration !== request.expectedAggregateVersion.stateGeneration
+    ) {
       throw new ServiceError(
         409,
         "Settings changed since this edit began; reload before saving.",
         "revision_conflict"
       );
     }
-    const relation = settingsStateRelation(current);
-    // One spelling of save admission: the reducer owns the set, this layer
-    // only maps inadmissible relations onto the transport's 409. A staged
-    // save replaces the pending candidate, so a failed activation stays
-    // directly editable instead of demanding an explicit discard first.
-    if (
-      operation.method === "saveSettings"
-      && !SETTINGS_SAVE_ADMISSIBLE_RELATIONS.includes(relation)
-    ) {
-      throw new ServiceError(409, "Settings activation is incomplete; retry after restarting the backend.");
-    }
+    const relation = settingsStateRelation(currentV5);
     if (operation.method === "discardPendingSettings" && relation !== "staged") {
       throw new ServiceError(409, "There are no pending settings to discard.");
     }
 
-    const connectionSecretEntries = operation.method === "saveSettings"
-      ? Object.entries(operation.connectionSecrets ?? {})
-      : [];
-    if (operation.method === "saveSettings") {
-      requireConnectionSecretsMatchDocument(
-        operation.document,
-        connectionSecretEntries
-      );
-      requireActiveSecretRebindingRekeyed(
-        activeSettingsDocument(current),
-        operation.document,
-        connectionSecretEntries
-      );
-      requireMintedSecretIntroduction(
-        current,
-        operation.document,
-        connectionSecretEntries
-      );
-      // Clean state only: from staged, a save of the active document is the
-      // discard-pending route below, and taking this shortcut instead would
-      // leave the failed candidate silently pending.
-      if (
-        relation === "clean"
-        && connectionSecretEntries.length > 0
-        && hashSettingsDocumentV2(operation.document)
-          === hashSettingsDocumentV2(activeSettingsDocument(current))
-      ) {
-        for (const [secretId, value] of connectionSecretEntries) {
-          if (value !== null) await writeProviderSecret(this.secretsDir, secretId, value);
-        }
-        const prepared = prepareSettingsMutation(
-          operation,
-          request,
-          current,
-          current,
-          this.timestamp()
-        );
-        await this.ledger.writeUserRecord(prepared);
-        await this.pruneUnreferencedSecrets(current);
-        await this.ledger.writeUserRecord(
-          completeSettingsMutation(prepared, this.timestamp())
-        );
-        return settingsResult(prepared, responseActivationOutcome(current, request.mutationId));
-      }
-    }
-
-    let next: SettingsStateV2;
+    const ctx = this.saveContext();
     try {
-      const pointer = {
-        receiptKind: "user" as const,
-        mutationId: request.mutationId,
-        phase: "prepared" as const
-      };
-      next = operation.method === "saveSettings"
-        ? reduceSettingsStateV2(current, {
-            kind: "save-document",
-            document: operation.document,
-            lastTransaction: pointer
-          })
-        : reduceSettingsStateV2(current, {
-            kind: "discard-pending",
-            lastTransaction: pointer
-          });
+      const { prepared, settled } = await commitSettingsSaveV5(
+        ctx,
+        operation,
+        request,
+        slot,
+        currentV5
+      );
+      return settingsResult(prepared, responseActivationOutcomeV5(settled, request.mutationId));
     } catch (error) {
       throw invalidSettingsMutation(error);
     }
+  }
 
-    const prepared = prepareSettingsMutation(
-      operation,
-      request,
-      current,
-      next,
-      this.timestamp()
-    );
-    await stageSettingsState(this.dataDir, next);
-    // Replacement takes effect on save by design; a post-stage failure is recoverable by re-entering the key.
-    for (const [secretId, value] of connectionSecretEntries) {
-      if (value !== null) await writeProviderSecret(this.secretsDir, secretId, value);
+  private saveContext(): SettingsV5SaveContext {
+    return {
+      dataDir: this.dataDir,
+      secretsDir: this.secretsDir,
+      prunesSecrets: this.prunesSecrets,
+      ledger: this.ledger,
+      environment: this.environment,
+      runtimeResolver: this.runtimeResolver,
+      validateCandidate: this.validateCandidate,
+      activationMode: this.activationMode,
+      now: this.now,
+      hooks: this.saveHooks
+    };
+  }
+
+  private async recoverDurableState(): Promise<void> {
+    const { current, next } = await readSettingsStateAuthority(this.dataDir);
+    if (next !== null) {
+      await this.recoverUnpublishedNextSlot(current, next);
     }
-    try {
-      await this.ledger.writeUserRecord(prepared);
-    } catch (error) {
-      await this.cleanupUncommitted(prepared).catch(() => undefined);
-      throw error;
+    const slot = await readSettingsStateSlot(this.dataDir);
+    if (slot.kind === "v5") {
+      await this.recoverSchema5Receipt(slot);
+      await this.recoverPendingSecretsWhileSourceAuthoritative(slot);
+      return;
     }
-    await publishStagedSettingsState(this.dataDir);
-    await this.pruneUnreferencedSecrets(next);
-    await this.ledger.writeUserRecord(completeSettingsMutation(prepared, this.timestamp()));
-    // A credential-touching save activates in the same request: the same
-    // sequence init() uses for crash recovery, still inside the coordinator's
-    // settings scope. The durable receipt keeps its staging result; the
-    // response and the view's lastActivationOutcome carry what happened next.
-    // A validation failure keeps the candidate staged, so nothing is
-    // discarded silently.
-    let settled = next;
-    if (
-      operation.method === "saveSettings"
-      && this.activationMode === "activation-capable"
-      && settingsStateRelation(next) === "staged"
-    ) {
-      settled = await this.activateStaged(next);
-      // A committed activation may drop the old revision; only now are its
-      // replaced stored secrets unreferenced, so prune again.
-      await this.pruneUnreferencedSecrets(settled);
+    if (slot.kind === "v2") {
+      await this.recoverReceiptTransaction();
+      await this.recoverPendingSecretsWhileSourceAuthoritative(slot);
+      return;
     }
-    await this.deleteSupersededSecrets([current, next], settled);
-    return settingsResult(prepared, responseActivationOutcome(settled, request.mutationId));
+    await this.recoverPendingSecretsWhileSourceAuthoritative(slot);
+  }
+
+  private async recoverAuthority(): Promise<void> {
+    await this.recoverDurableState();
+    const slot = await readSettingsStateSlot(this.dataDir);
+    if (slot.kind === "v5") {
+      const recovered = convertSettingsStateSlotToV5(slot);
+      const settled = await this.recoverActivationV5(recovered);
+      await this.deleteSupersededSecrets([recovered], settled);
+      await this.recoverPendingSecretsAfterPublish(slot, settled);
+      if (this.prunesSecrets) {
+        await pruneProviderSecrets(this.secretsDir, providerSecretIdsToKeep(settled));
+      }
+      return;
+    }
+    if (slot.kind === "v2") {
+      const preActivation = await readSettingsState(this.dataDir);
+      const state = await this.recoverActivation(preActivation);
+      await this.deleteSupersededSecrets([preActivation], state);
+      if (this.prunesSecrets) {
+        await removeProviderSecretsScratch(this.secretsDir);
+        await pruneProviderSecrets(this.secretsDir, providerSecretIdsToKeep(state));
+      }
+      return;
+    }
+    // Source-schema state is read-only during startup. Complete any source
+    // activation as part of the first save, immediately before conversion,
+    // so opening a successor-owned file never changes its bytes.
   }
 
   /** Delete exactly the stored credentials this transition superseded. The
@@ -617,14 +590,14 @@ export class SettingsV2Store {
    * so this is a strict improvement, and a persisted cleanup record would
    * cost settings-state schema churn that outweighs the residual. */
   private async deleteSupersededSecrets(
-    preceding: readonly SettingsStateV2[],
-    settled: SettingsStateV2
+    preceding: readonly { readonly documents: Readonly<Record<string, { readonly connections: SettingsDocumentV2["connections"] }>> }[],
+    settled: { readonly documents: Readonly<Record<string, { readonly connections: SettingsDocumentV2["connections"] }>> }
   ): Promise<void> {
     const remaining = storedSecretIdsInState(settled);
     const superseded = new Set<string>();
     for (const state of preceding) {
       for (const secretId of storedSecretIdsInState(state)) {
-        if (!remaining.has(secretId) && MINTED_SECRET_ID_PATTERN.test(secretId)) {
+        if (!remaining.has(secretId) && isMintedSecretId(secretId)) {
           superseded.add(secretId);
         }
       }
@@ -637,6 +610,224 @@ export class SettingsV2Store {
   private async pruneUnreferencedSecrets(state: SettingsStateV2): Promise<void> {
     if (!this.prunesSecrets) return;
     await pruneProviderSecrets(this.secretsDir, providerSecretIdsToKeep(state));
+  }
+
+  private async recoverUnpublishedNextSlot(
+    current: SettingsStateSlot,
+    next: SettingsStateSlot
+  ): Promise<void> {
+    if (next.kind === "v5") {
+      const prepared = await readSettingsSchema5UpgradePrepared(this.dataDir);
+      const userPointer = next.state.lastTransaction;
+      if (userPointer?.receiptKind !== "user") {
+        throw unmatchedSchema5NextError();
+      }
+      const receipt = await this.ledger.loadUserReceipt("settings", userPointer.mutationId);
+      if (receipt.prepared === null) {
+        throw unmatchedSchema5NextError();
+      }
+      if (receipt.prepared.newStateHash !== hashSettingsStateV5(next.state)) {
+        throw unmatchedSchema5NextError();
+      }
+      if (current.kind !== "v5") {
+        if (
+          prepared === null
+          || prepared.mutationId !== userPointer.mutationId
+          || prepared.sourceStateHash !== hashSettingsStateSlot(current)
+          || prepared.candidateStateHash !== hashSettingsStateV5(next.state)
+        ) {
+          throw unmatchedSchema5NextError();
+        }
+      }
+      const stored = await readProviderSecrets(this.secretsDir);
+      for (const secretId of storedSecretIdsInState(next.state)) {
+        if (!stored.has(secretId)) return;
+      }
+      await publishStagedSettingsState(this.dataDir);
+      return;
+    }
+    if (current.kind === "v2") {
+      await this.recoverUnpublishedNext(current.state, next);
+    }
+  }
+
+  private async recoverSchema5Receipt(slot: Extract<SettingsStateSlot, { kind: "v5" }>): Promise<void> {
+    const pointer = slot.state.lastTransaction;
+    const upgradePrepared = await readSettingsSchema5UpgradePrepared(this.dataDir);
+    const upgradeCompleted = await readSettingsSchema5UpgradeCompleted(this.dataDir);
+    if (pointer === null || pointer.receiptKind !== "user") {
+      if (upgradePrepared !== null || upgradeCompleted !== null) {
+        throw corruptSettingsStateReceipt("schema-5 upgrade");
+      }
+      return;
+    }
+    const receipt = await this.ledger.loadUserReceipt("settings", pointer.mutationId);
+    if (receipt.prepared === null) throw corruptSettingsStateReceipt(pointer.mutationId);
+    requireSettingsPrepared(receipt.prepared, pointer.mutationId);
+    if (upgradePrepared !== null || upgradeCompleted !== null) {
+      if (
+        upgradePrepared === null
+        || upgradePrepared.mutationId !== pointer.mutationId
+        || upgradePrepared.candidateStateHash !== receipt.prepared.newStateHash
+        || (upgradeCompleted !== null
+          && upgradeCompleted.preparedRecordHash !== hashSettingsSchema5UpgradePrepared(upgradePrepared))
+      ) {
+        throw corruptSettingsStateReceipt("schema-5 upgrade");
+      }
+    }
+    if (receipt.completed === null) {
+      requireExactSettingsReceiptStateV5(receipt.prepared, slot.state);
+      await this.ledger.writeUserRecord(completeSettingsMutation(receipt.prepared, this.timestamp()));
+    } else {
+      requireSettingsReceiptNotAheadV5(receipt.prepared, slot.state);
+    }
+    if (upgradePrepared !== null) {
+      await removeSettingsSchema5UpgradeReceipts(this.dataDir);
+    }
+  }
+
+  private async recoverSourceActivation(
+    slot: Extract<SettingsStateSlot, { kind: "v3" } | { kind: "v4" }>
+  ): Promise<void> {
+    if (slot.kind === "v3") {
+      let state = slot.state;
+      for (let edge = 0; edge < 6; edge += 1) {
+        const relation = settingsStateRelation(state);
+        if (relation === "clean" || relation === "staged") return;
+        const event = recoveryEventForSettingsStateV3(state);
+        if (event === null) throw corruptSettingsStateReceipt("settings activation");
+        state = reduceSettingsStateV3(state, event);
+        await stageSettingsStateBytes(this.dataDir, Buffer.from(formatSettingsStateV3(state), "utf8"));
+        await publishStagedSettingsState(this.dataDir);
+      }
+      throw corruptSettingsStateReceipt("settings activation edge bound");
+    }
+    let state = slot.state;
+    for (let edge = 0; edge < 6; edge += 1) {
+      const relation = settingsStateRelation(state);
+      if (relation === "clean" || relation === "staged") return;
+      const event = recoveryEventForSettingsStateV4(state);
+      if (event === null) throw corruptSettingsStateReceipt("settings activation");
+      state = reduceSettingsStateV4(state, event);
+      await stageSettingsStateBytes(this.dataDir, formatSettingsStateV4Bytes(state));
+      await publishStagedSettingsState(this.dataDir);
+    }
+    throw corruptSettingsStateReceipt("settings activation edge bound");
+  }
+
+  private async recoverActivationV5(initial: SettingsStateV5): Promise<SettingsStateV5> {
+    let state = initial;
+    for (let edge = 0; edge < 6; edge += 1) {
+      const relation = settingsStateRelation(state);
+      if (relation === "clean") return state;
+      if (relation === "staged") {
+        return this.activationMode === "activation-capable"
+          ? await activateStagedV5(this.saveContext(), state)
+          : state;
+      }
+      const event = recoveryEventForSettingsStateV5(state);
+      if (event === null) throw corruptSettingsStateReceipt("settings activation");
+      state = reduceSettingsStateV5(state, event);
+      await stageSettingsStateV5(this.dataDir, state);
+      await publishStagedSettingsState(this.dataDir);
+    }
+    throw corruptSettingsStateReceipt("settings activation edge bound");
+  }
+
+  private async recoverPendingSecretsWhileSourceAuthoritative(
+    slot: SettingsStateSlot
+  ): Promise<void> {
+    const ownership = await readSettingsPendingSecretsV1(this.dataDir);
+    if (ownership === null) {
+      await this.recoverSchema5UpgradeWhileSourceAuthoritative(slot);
+      return;
+    }
+    if (ownership.sourceStateHash !== hashSettingsStateSlot(slot)) return;
+    for (const secretId of ownership.mintedSecretIds) {
+      await deleteProviderSecret(this.secretsDir, secretId);
+    }
+    const receipt = await this.ledger.loadUserReceipt("settings", ownership.mutationId);
+    if (receipt.prepared !== null && receipt.completed === null) {
+      await this.ledger.removeOrphanPreparedUserReceipt(
+        "settings",
+        ownership.mutationId,
+        hashPreparedMutationRecord(receipt.prepared)
+      );
+    }
+    const upgrade = await readSettingsSchema5UpgradePrepared(this.dataDir);
+    if (upgrade !== null && upgrade.mutationId === ownership.mutationId) {
+      await removeSettingsSchema5UpgradeReceipts(this.dataDir);
+    }
+    await removeSettingsPendingSecretsV1(this.dataDir);
+    await this.recoverSchema5UpgradeWhileSourceAuthoritative(slot);
+  }
+
+  /** Remove an upgrade receipt after a crash that left the source schema
+   * authoritative. This path also covers saves that introduced no new
+   * provider secret, so they have no pending-secret ownership record to drive
+   * cleanup. */
+  private async recoverSchema5UpgradeWhileSourceAuthoritative(
+    slot: SettingsStateSlot
+  ): Promise<void> {
+    if (slot.kind === "v5") return;
+    const prepared = await readSettingsSchema5UpgradePrepared(this.dataDir);
+    const completed = await readSettingsSchema5UpgradeCompleted(this.dataDir);
+    if (prepared === null && completed === null) return;
+    if (
+      prepared === null
+      || completed !== null
+      || prepared.sourceSchemaVersion !== sourceSchemaVersionOf(slot)
+      || prepared.sourceStateHash !== hashSettingsStateSlot(slot)
+    ) {
+      throw corruptSettingsStateReceipt("schema-5 upgrade");
+    }
+    const receipt = await this.ledger.loadUserReceipt("settings", prepared.mutationId);
+    if (receipt.prepared === null) {
+      await removeSettingsSchema5UpgradeReceipts(this.dataDir);
+      return;
+    }
+    requireSettingsPrepared(receipt.prepared, prepared.mutationId);
+    if (
+      receipt.completed !== null
+      || receipt.prepared.newStateHash !== prepared.candidateStateHash
+    ) {
+      throw corruptSettingsStateReceipt(prepared.mutationId);
+    }
+    await this.ledger.removeOrphanPreparedUserReceipt(
+      "settings",
+      prepared.mutationId,
+      hashPreparedMutationRecord(receipt.prepared)
+    );
+    await removeSettingsSchema5UpgradeReceipts(this.dataDir);
+  }
+
+  private async recoverPendingSecretsAfterPublish(
+    previous: SettingsStateSlot,
+    settled: SettingsStateV5
+  ): Promise<void> {
+    const ownership = await readSettingsPendingSecretsV1(this.dataDir);
+    if (ownership === null) return;
+    const publishedCandidate = previous.kind === "v5"
+      && ownership.candidateHash === hashSettingsStateV5(previous.state)
+      && previous.state.lastTransaction?.receiptKind === "user"
+      && previous.state.lastTransaction.mutationId === ownership.mutationId;
+    const settledMutation = settled.lastTransaction?.receiptKind === "user"
+      && settled.lastTransaction.mutationId === ownership.mutationId;
+    if (!publishedCandidate && !settledMutation) return;
+    const remaining = storedSecretIdsInState(settled);
+    for (const secretId of storedSecretIdsInState(
+      previous.kind === "v5" ? previous.state : convertSettingsStateSlotToV5(previous)
+    )) {
+      if (!remaining.has(secretId) && isMintedSecretId(secretId)) {
+        await deleteProviderSecret(this.secretsDir, secretId);
+      }
+    }
+    for (const secretId of ownership.mintedSecretIds) {
+      if (!remaining.has(secretId)) {
+        await deleteProviderSecret(this.secretsDir, secretId);
+      }
+    }
+    await removeSettingsPendingSecretsV1(this.dataDir);
   }
 
   /** Final is always authoritative. A valid reserved `.next` is either an
@@ -677,7 +868,7 @@ export class SettingsV2Store {
     // A later release staged this candidate and crashed before publishing:
     // `current` is confirmed schema 2 here, so it never took effect. Discard
     // it unchecked, like every other provably unpublished `.next` below.
-    if (nextSlot.kind === "v3" || nextSlot.kind === "v4") {
+    if (nextSlot.kind === "v3" || nextSlot.kind === "v4" || nextSlot.kind === "v5") {
       await discardStagedSettingsState(this.dataDir);
       return;
     }
@@ -829,20 +1020,17 @@ export class SettingsV2Store {
   }
 }
 
-function usesCredentialReferences(
-  connection: SettingsDocumentV2["connections"][string]
-): boolean {
-  return connection.auth.type !== "none" || connection.headers.length > 0;
+function pointsToUserMutationV5(state: SettingsStateV5, mutationId: string): boolean {
+  return state.lastTransaction?.receiptKind === "user"
+    && state.lastTransaction.mutationId === mutationId;
 }
 
-function sameActivatedCredentialTarget(
-  active: SettingsDocumentV2["connections"][string],
-  candidate: SettingsDocumentV2["connections"][string]
-): boolean {
-  return active.protocol === candidate.protocol
-    && active.baseUrl === candidate.baseUrl
-    && JSON.stringify(active.auth) === JSON.stringify(candidate.auth)
-    && JSON.stringify(active.headers) === JSON.stringify(candidate.headers);
+function responseActivationOutcomeV5(
+  state: SettingsStateV5,
+  mutationId: string
+): SettingsActivationOutcomeV2 | null {
+  const outcome = state.lastActivationOutcome;
+  return outcome !== null && outcome.transactionId === mutationId ? outcome : null;
 }
 
 function pointsToUserMutation(state: SettingsStateV2, mutationId: string): boolean {
@@ -869,89 +1057,4 @@ function responseActivationOutcome(
 ): SettingsActivationOutcomeV2 | null {
   const outcome = state.lastActivationOutcome;
   return outcome !== null && outcome.transactionId === mutationId ? outcome : null;
-}
-
-/** A stored secret ID binds one credential target to one value. While the
- * active document still resolves an ID, a save may overwrite its value only
- * for that same target — rotation in place. Rebinding it to a different
- * target would hand the new key to the old endpoint through every reader of
- * the still-active revision, including one racing this very save, and the
- * mismatched pairing would persist if the candidate then failed validation. */
-function requireActiveSecretRebindingRekeyed(
-  active: SettingsDocumentV2,
-  submitted: SettingsDocumentV2,
-  entries: readonly (readonly [string, string | null])[]
-): void {
-  for (const [secretId, value] of entries) {
-    if (value === null) continue;
-    const activeReferences = connectionsResolvingStoredSecret(active, secretId);
-    if (activeReferences.length === 0) continue;
-    const submittedReferences = connectionsResolvingStoredSecret(submitted, secretId);
-    const rotationInPlace = activeReferences.every((reference) =>
-      submittedReferences.some((candidate) =>
-        sameActivatedCredentialTarget(reference, candidate)));
-    if (!rotationInPlace) {
-      throw new ServiceError(
-        400,
-        "A stored key for a changed credential target needs a new secret ID; the active settings still resolve this one.",
-        "invalid_request"
-      );
-    }
-  }
-}
-
-function connectionsResolvingStoredSecret(
-  document: SettingsDocumentV2,
-  secretId: string
-): readonly SettingsDocumentV2["connections"][string][] {
-  return Object.values(document.connections).filter(
-    (connection) => storedCredentialSecretId(connection.auth) === secretId
-  );
-}
-
-/** The minted namespace (`.k<uuid>` suffix) is reserved. A save may reference
- * a mint-shaped secret ID only when the current state's documents already
- * reference it — existing references, including a copied project's, keep
- * working — or when this same save stores the ID's key material, which is the
- * shape of a genuine sidecar mint. Referencing a foreign minted ID without
- * its material is refused, so a mint-shaped ID inside a project's documents
- * provably entered through a mint, which is what keeps targeted supersession
- * deletion in the shared tier safe. */
-function requireMintedSecretIntroduction(
-  current: SettingsStateV2,
-  submitted: SettingsDocumentV2,
-  entries: readonly (readonly [string, string | null])[]
-): void {
-  const known = storedSecretIdsInState(current);
-  const supplied = new Set(
-    entries.filter(([, value]) => value !== null).map(([secretId]) => secretId)
-  );
-  for (const secretId of storedSecretIdsInDocument(submitted)) {
-    if (!MINTED_SECRET_ID_PATTERN.test(secretId)) continue;
-    if (known.has(secretId) || supplied.has(secretId)) continue;
-    throw new ServiceError(
-      400,
-      "A minted secret ID can only enter settings through the save that stores its key; store the key or reference an ID these settings already use.",
-      "invalid_request"
-    );
-  }
-}
-
-function requireConnectionSecretsMatchDocument(
-  document: SettingsDocumentV2,
-  entries: readonly (readonly [string, string | null])[]
-): void {
-  const referenced = storedSecretIdsInDocument(document);
-  for (const [secretId, value] of entries) {
-    if (
-      (value === null && referenced.has(secretId))
-      || (value !== null && !referenced.has(secretId))
-    ) {
-      throw new ServiceError(
-        400,
-        "Settings secret sidecar does not match the document credential references.",
-        "invalid_request"
-      );
-    }
-  }
 }

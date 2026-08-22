@@ -1,15 +1,16 @@
 import { expect, test } from "bun:test";
-import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../../server/settings-v2-default.js";
+import { INITIAL_SETTINGS_DOCUMENT_V5 } from "../../server/settings-v5-default.js";
 import {
   applyBasicSettingsDraft,
   basicSettingsFromDocument
 } from "../../shared/settings-basic-draft.js";
 import type {
-  SettingsDocumentV2,
   SettingsView,
   SubscriptionAuthState
 } from "../../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 } from "../../shared/settings-v5-types.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
+import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
 import { setComposerText } from "../src/composer-model.js";
 import {
   publishCurrentSettingsModelDiscovery,
@@ -31,7 +32,7 @@ import {
 function initialSettingsView(
   subscriptionAuth: SubscriptionAuthState,
   activeRevision = 1,
-  document: SettingsDocumentV2 = INITIAL_SETTINGS_DOCUMENT_V2,
+  document: SettingsDocumentV5 = INITIAL_SETTINGS_DOCUMENT_V5,
   subscriptionAutoSelectEligible = true
 ): Extract<SettingsView, { dataFormat: 2 }> {
   const effective = basicSettingsFromDocument(document);
@@ -41,11 +42,12 @@ function initialSettingsView(
     stateGeneration: activeRevision,
     activeRevision,
     pendingRevision: null,
-    document,
+    document: document as never,
     effective,
     effectiveProse: effective,
     subscriptionAuth,
     subscriptionAutoSelectEligible,
+    activeWriting: writingPromptSettingsFromAuthorBrief(effective.systemPrompt),
     lastActivationOutcome: null
   };
 }
@@ -303,7 +305,7 @@ test("a pending activation keeps the pristine provider untouched", async () => {
     ...initialSettingsView(
       { chatgpt: "signed-in", claude: "signed-out" },
       1,
-      INITIAL_SETTINGS_DOCUMENT_V2,
+      INITIAL_SETTINGS_DOCUMENT_V5,
       false
     ),
     pendingRevision: 2
@@ -318,11 +320,11 @@ test("a pending activation keeps the pristine provider untouched", async () => {
 });
 
 test("a saved provider, API key, or local route is never replaced", async () => {
-  const initial = basicSettingsFromDocument(INITIAL_SETTINGS_DOCUMENT_V2);
+  const initial = basicSettingsFromDocument(INITIAL_SETTINGS_DOCUMENT_V5);
   const saved = [
     {
       choice: "openai",
-      document: applyBasicSettingsDraft(INITIAL_SETTINGS_DOCUMENT_V2, {
+      document: applyBasicSettingsDraft(INITIAL_SETTINGS_DOCUMENT_V5, {
         ...initial,
         provider: "openai-compatible",
         baseUrl: "https://api.openai.com/v1",
@@ -333,7 +335,7 @@ test("a saved provider, API key, or local route is never replaced", async () => 
     },
     {
       choice: "ollama",
-      document: applyBasicSettingsDraft(INITIAL_SETTINGS_DOCUMENT_V2, {
+      document: applyBasicSettingsDraft(INITIAL_SETTINGS_DOCUMENT_V5, {
         ...initial,
         provider: "openai-compatible",
         baseUrl: "http://127.0.0.1:11434/v1",
@@ -346,7 +348,7 @@ test("a saved provider, API key, or local route is never replaced", async () => 
       // The document still has the checked-in default shape. Revision 2
       // proves that a writer explicitly saved the default provider.
       choice: "dry-run",
-      document: INITIAL_SETTINGS_DOCUMENT_V2
+      document: INITIAL_SETTINGS_DOCUMENT_V5
     }
   ] as const;
 

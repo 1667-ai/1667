@@ -18,7 +18,7 @@ import {
 } from "../server/settings-v4-codec.js";
 import {
   parseSettingsStateSlotBytes,
-  requireMutableSettingsStateSlot,
+  requireSettingsStateSlotWriteAdmission,
   settingsStateSlotV4ReadOnlyView
 } from "../server/settings-state-slot.js";
 
@@ -115,15 +115,11 @@ test("schema 4 slot parsing reports schema 4 validation errors", () => {
   );
 });
 
-test("schema 4 mutation refusal leaves the state bytes identical", () => {
+test("schema 4 upgrade admission leaves the source state bytes identical", () => {
   const bytes = Buffer.from(formatSettingsStateV4(INITIAL_SETTINGS_STATE_V4), "utf8");
   const before = createHash("sha256").update(bytes).digest("hex");
   const slot = parseSettingsStateSlotBytes(bytes);
-  assert.throws(
-    () => requireMutableSettingsStateSlot(slot),
-    (error: unknown) => error instanceof Error
-      && "code" in error
-      && error.code === "settings_requires_successor"
-  );
+  assert.equal(slot.kind, "v4");
+  assert.doesNotThrow(() => requireSettingsStateSlotWriteAdmission(slot));
   assert.equal(createHash("sha256").update(bytes).digest("hex"), before);
 });

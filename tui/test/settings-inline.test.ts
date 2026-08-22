@@ -1,15 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { parseSettingsDocumentV2 } from "../../server/settings-v2-codec.js";
-import { effectiveStandardGenerationRuntime } from "../../server/settings-runtime-resolver.js";
 import {
   applyBasicSettingsDraft,
   basicSettingsFromDocument
 } from "../../shared/settings-basic-draft.js";
 import type {
-  ProviderProbeTarget,
   SaveSettingsCommand,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import {
+  isProviderProbeRouteV1,
+  type ProviderProbeTarget
+} from "../../shared/provider-probe-route-v1.js";
+import {
+  isWritingPromptRow,
+  writingPromptSettingsFromAuthorBrief
+} from "../../shared/settings-v5-writing.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
 import {
   selectedComposerText,
@@ -52,7 +57,7 @@ describe("inline settings menu", () => {
     for (const [index, row] of SETTINGS_ROW_IDS.entries()) {
       expect(state.settings?.cursor).toBe(index);
       await press(key("return"));
-      if (row === "system-prompt") {
+      if (isWritingPromptRow(row)) {
         expect(state.mode).toBe("EDITOR");
         expect(state.editor?.kind).toBe("document");
         expect(state.settings?.edit).toBe(null);
@@ -253,6 +258,7 @@ describe("inline settings menu", () => {
       document: null,
       effective: source.settings,
       effectiveProse: source.settings,
+      activeWriting: writingPromptSettingsFromAuthorBrief(source.settings.systemPrompt),
       lastActivationOutcome: null
     };
     source.settingsView = legacy;
@@ -743,11 +749,11 @@ describe("inline settings menu", () => {
     await press(key("c"));
 
     const checked = checks[0];
-    if (checked === undefined || !("kind" in checked)) {
+    if (checked === undefined || !isProviderProbeRouteV1(checked)) {
       throw new Error("expected a format-2 provider probe target");
     }
-    expect(checked.kind).toBe("settings-document");
-    const connection = selectSettingsRoute(checked.document).connection;
+    expect(checked.kind).toBe("provider-probe-route-v1");
+    const connection = checked.connection;
     expect(connection.baseUrl).toBe("http://gpu-box.local:11434/v1");
     expect(connection.allowInsecureHttp).toBeTrue();
     expect(state.settings?.result?.message).toBe("LAN draft ready");
@@ -811,16 +817,9 @@ describe("inline settings menu", () => {
       let probes = 0;
       source.api.probeContextWindow = async (target) => {
         probes += 1;
-        if (!("kind" in target)) throw new Error("expected a settings document");
-        const runtime = effectiveStandardGenerationRuntime(
-          parseSettingsDocumentV2(target.document),
-          target.purpose,
-          {},
-          {},
-          { allowBlankModel: true }
-        );
-        expect(runtime.settings.model).toBe("");
-        expect(runtime.providerRuntime.preset).toBe(expected.id);
+        if (!isProviderProbeRouteV1(target)) throw new Error("expected a selected-route probe");
+        expect(target.model.remoteId === "dry-run" || target.model.remoteId === "").toBeTrue();
+        expect(target.connection.preset).toBe(expected.id);
         return { contextWindow: expected.contextWindow };
       };
       await openSettings(press);

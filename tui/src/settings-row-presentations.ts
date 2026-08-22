@@ -63,6 +63,11 @@ import {
   textPromptFormat,
   textPromptFormatChoices
 } from "./settings-profile-controls.js";
+import {
+  WRITING_PROMPT_FIELD_DEFINITIONS,
+  writingPromptRowHelp
+} from "../../shared/settings-v5-writing.js";
+import { draftWriting } from "./settings-writing-draft.js";
 
 /** The form groups under `── light ──` section rules. One list, named once:
  * the rule is the section heading, and clicking it jumps there. */
@@ -154,11 +159,7 @@ export function settingsRows(
       value: `[ ${config.updates.mode === "notify" ? "on" : "off"} ]`,
       hint: "Checks for a newer version. Sends no story or account data."
     },
-    {
-      id: "system-prompt", section: "prompt", label: "system",
-      value: settings.systemPrompt.replace(/\s+/g, " "),
-      hint: "Default Author Brief for prose and story names; a story brief overrides it."
-    },
+    ...writingPromptRows(overlay),
     {
       id: "provider", section: "connection", label: "provider",
       value: `‹ ${providerChoice.label} ›`,
@@ -308,6 +309,23 @@ export function settingsRows(
   // cursor's row list can never drift apart.
   const visibleRowIds = new Set(settingsRowIds(overlay));
   return rows.filter((row) => visibleRowIds.has(row.id));
+}
+
+function writingPromptRows(
+  overlay: SettingsOverlayState
+): readonly SettingsRowPresentation[] {
+  const writing = draftWriting(overlay.draft);
+  return WRITING_PROMPT_FIELD_DEFINITIONS.map((definition) => ({
+    id: definition.row,
+    section: "prompt" as const,
+    label: definition.label,
+    value: writingPromptRowValue(writing[definition.field]),
+    hint: writingPromptRowHelp(definition)
+  }));
+}
+
+function writingPromptRowValue(value: string): string {
+  return value.length === 0 ? "—" : value.replace(/\s+/g, " ");
 }
 
 function scalarRow(

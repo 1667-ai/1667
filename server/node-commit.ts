@@ -1,8 +1,10 @@
 import type { CreateNodeRequest, Story } from "../shared/types.js";
 import { ServiceError } from "./errors.js";
 import { currentModel } from "./generation-http.js";
-import type { GenerationAdmissionRegistry } from "./generation-admission.js";
-import { DEFAULT_INSTRUCTION } from "./generation-prompts.js";
+import {
+  generatedTakeInstruction,
+  type GenerationAdmissionRegistry
+} from "./generation-admission.js";
 import {
   generationRecordForHandoff,
   reasoningForHandoff,
@@ -27,7 +29,9 @@ export async function commitNode(
   if (rawText.trim().length === 0) throw new ServiceError(400, "Nothing to save");
   const genId = body.genId ?? null;
   const providedInstruction = body.instruction ?? "";
-  const instruction = genId === null ? providedInstruction : providedInstruction.trim() || DEFAULT_INSTRUCTION;
+  const instruction = genId === null
+    ? providedInstruction
+    : generatedTakeInstruction(generationAdmission, id, genId, providedInstruction);
 
   return await stories.withLock(id, async () => {
     const story = await stories.loadForMutation(id);

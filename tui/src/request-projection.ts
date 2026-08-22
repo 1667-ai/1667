@@ -103,6 +103,8 @@ interface NextRequestBaseContext {
   systemPrompt: string;
   /** Current COMPOSE draft; NAV passes an empty string for an empty Continue. */
   instruction: string;
+  /** Active Default Continue direction. Omission keeps `Continue the story.` */
+  defaultContinueDirection?: string;
   assistantPrefill: boolean;
   /** Active prose route's resolved continuation layout. Omission keeps the
    *  compatibility projection used by older callers and tests. */
@@ -146,7 +148,13 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
   const regenerateNode = request.operation === "continue"
     ? null
     : payload.path.find((node) => node.id === request.targetId) ?? null;
-  const intent = continuationIntent(payload, request.targetId, request.instruction, regenerateNode);
+  const intent = continuationIntent(
+    payload,
+    request.targetId,
+    request.instruction,
+    regenerateNode,
+    request.defaultContinueDirection
+  );
   // The same candidate selection shared/fact-selection.ts's activeBudgetedFacts
   // runs for a real request — StoryPayload satisfies its structural
   // FactsBudgetSource parameter the same way Story does, so this meter's

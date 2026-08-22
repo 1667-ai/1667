@@ -84,7 +84,7 @@ export interface FixedContextSelection extends FixedContextAdmission {
    *  (server/generation-admission.ts) reads this together with
    *  `droppableCount` to choose which of its three errors to throw,
    *  without re-measuring the Author's Note or the Facts message itself. */
-  readonly overBudgetCause: "note" | "facts" | null;
+  readonly overBudgetCause: "note" | "facts" | "prompt" | null;
 }
 
 /**
@@ -127,7 +127,7 @@ export function selectFactsForFixedContext(
   // sort the same candidates again for no different answer (issue #316).
   const sheddable = factsInSheddingOrder(ownCapSurvivors);
   const droppableCount = sheddable.length;
-  if (settings.contextWindow === null || (initialMessage === null && !notePresent)) {
+  if (settings.contextWindow === null) {
     return {
       facts: ownCapSurvivors, factsMessage: initialMessage, dropped: ownCapDrops,
       fits: true, fixedTokens: fixedContextTokens(initialMessage, authorsNote, otherFixed, fixedImageTokens),
@@ -140,6 +140,13 @@ export function selectFactsForFixedContext(
     return {
       facts: ownCapSurvivors, factsMessage: initialMessage, dropped: ownCapDrops,
       fits: true, fixedTokens: initialFixed, usableTokens: usable, droppableCount, overBudgetCause: null
+    };
+  }
+  if (initialMessage === null && !notePresent) {
+    return {
+      facts: ownCapSurvivors, factsMessage: initialMessage, dropped: ownCapDrops,
+      fits: false, fixedTokens: initialFixed, usableTokens: usable, droppableCount,
+      overBudgetCause: "prompt"
     };
   }
 
@@ -186,7 +193,9 @@ export function selectFactsForFixedContext(
   if (fixed > usable) {
     const noteCost = notePresent ? upperBoundTokens(authorsNote!) : 0;
     const factsCost = factsMessage === null ? 0 : upperBoundTokens(factsMessage);
-    overBudgetCause = noteCost > factsCost ? "note" : "facts";
+    const promptCost = otherFixed.reduce((sum, text) => sum + upperBoundTokens(text), 0);
+    if (promptCost >= noteCost && promptCost >= factsCost) overBudgetCause = "prompt";
+    else overBudgetCause = noteCost > factsCost ? "note" : "facts";
   }
   return {
     facts: kept, factsMessage, dropped: [...ownCapDrops, ...spaceDrops],

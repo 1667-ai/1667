@@ -1,7 +1,5 @@
 import type { GenerationSettings, Provider } from "../shared/types.js";
 import type {
-  ProviderProbeDocumentTargetV2,
-  SettingsDocumentV2,
   SettingsMutationResult,
   SettingsRoutePurpose,
   SettingsView
@@ -22,12 +20,15 @@ import {
 import {
   attachProviderRuntime
 } from "./provider-runtime.js";
-import { requireSecretId } from "./settings-v2-scalars.js";
-import { validateProviderSecretValue } from "../shared/provider-secret-value.js";
-
-/** A probe resolves one route, so it needs one credential. The ceiling keeps a
- * malformed or hostile payload from turning a probe into bulk secret input. */
-const MAX_PROVIDER_PROBE_SECRETS = 4;
+import {
+  DEFAULT_WRITING_PROMPT_SETTINGS,
+  writingPromptSettingsFromAuthorBrief,
+  type WritingPromptSettings
+} from "../shared/settings-v5-writing.js";
+import {
+  isProviderProbeRouteV1,
+  parseProviderProbeRouteV1
+} from "./provider-probe-route.js";
 
 export const DEFAULT_SYSTEM_PROMPT = [
   "You are a skilled fiction writer collaborating on a story.",
@@ -65,6 +66,8 @@ export interface LoadedGenerationSettings {
    *  no schema-3 authority to read one from, and for a format 2+ directory
    *  whose active document carries no override for this route's model. */
   readonly imageInputCapability: StoredImageInputCapability | null;
+  /** Writing prompts from the same active Settings revision as `settings`. */
+  readonly writing: WritingPromptSettings;
 }
 
 export class SettingsStore {
@@ -111,10 +114,12 @@ export class SettingsStore {
   ): Promise<LoadedGenerationSettings> {
     const initialized = this.requireInitialized();
     if (initialized.dataFormat === 1) {
+      const settings = await loadGenerationSettingsV1(this.dir);
       return {
-        settings: await loadGenerationSettingsV1(this.dir),
+        settings,
         promptCache: LEGACY_PROMPT_CACHE_CONTEXT,
-        imageInputCapability: null
+        imageInputCapability: null,
+        writing: writingPromptSettingsFromAuthorBrief(settings.systemPrompt)
       };
     }
     const runtime = await initialized.store.loadRuntime(purpose);
@@ -124,7 +129,8 @@ export class SettingsStore {
         runtime.settings,
         runtime.providerRuntime,
         true
-      )
+      ),
+      writing: runtime.writing ?? DEFAULT_WRITING_PROMPT_SETTINGS
     };
   }
 
@@ -144,6 +150,7 @@ export class SettingsStore {
       effectiveProse: effective,
       effectiveProseReasoning: "marker",
       effectiveProseContinuationPromptLayout: "compatibility",
+      activeWriting: writingPromptSettingsFromAuthorBrief(effective.systemPrompt),
       lastActivationOutcome: null
     };
   }
@@ -217,31 +224,35 @@ export class SettingsStore {
 
   async resolveProviderProbe(value: unknown): Promise<GenerationSettings> {
     const initialized = this.requireInitialized();
-    const documentTarget = parseProviderProbeDocumentTarget(value);
-    if (documentTarget === null) {
-      return await this.assertProviderProbeSupported(normalizeForProbe(value));
+    if (isProviderProbeRouteV1(value) || isLegacySettingsDocumentProbe(value)) {
+      if (initialized.dataFormat === 1) {
+        throw new ServiceError(
+          400,
+          "Selected-route probe targets require data format 2.",
+          "invalid_request"
+        );
+      }
+      if (!isProviderProbeRouteV1(value)) {
+        throw new ServiceError(
+          400,
+          "Full-document provider probes are closed; send provider-probe-route-v1.",
+          "invalid_request"
+        );
+      }
+      try {
+        return await initialized.store.loadProviderProbeRoute(
+          parseProviderProbeRouteV1(value)
+        );
+      } catch (error) {
+        if (error instanceof ServiceError) throw error;
+        throw new ServiceError(
+          400,
+          error instanceof Error ? error.message : "Provider probe target is invalid.",
+          "invalid_request"
+        );
+      }
     }
-    if (initialized.dataFormat === 1) {
-      throw new ServiceError(
-        400,
-        "Settings-document probe targets require data format 2.",
-        "invalid_request"
-      );
-    }
-    try {
-      return await initialized.store.loadProviderProbeTarget(
-        documentTarget.document,
-        documentTarget.purpose,
-        documentTarget.secrets
-      );
-    } catch (error) {
-      if (error instanceof ServiceError) throw error;
-      throw new ServiceError(
-        400,
-        error instanceof Error ? error.message : "Provider probe target is invalid.",
-        "invalid_request"
-      );
-    }
+    return await this.assertProviderProbeSupported(normalizeForProbe(value));
   }
 
   private requireEditable(): SettingsV2Store {
@@ -273,71 +284,11 @@ export function normalizeForProbe(value: unknown): GenerationSettings {
   return normalize(value);
 }
 
-function parseProviderProbeDocumentTarget(
-  value: unknown
-): ProviderProbeDocumentTargetV2 | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  const raw = value as Record<string, unknown>;
-  if (raw.kind !== "settings-document") return null;
-  if (
-    raw.purpose !== "default"
-    && raw.purpose !== "prose"
-    && raw.purpose !== "utility"
-  ) {
-    throw new ServiceError(
-      400,
-      "Provider probe purpose is invalid.",
-      "invalid_request"
-    );
-  }
-  return {
-    kind: "settings-document",
-    document: raw.document as SettingsDocumentV2,
-    purpose: raw.purpose,
-    ...(raw.secrets === undefined
-      ? {}
-      : { secrets: parseProviderProbeSecrets(raw.secrets) })
-  };
-}
-
-/** Key material a probe carries for a credential the editor has not saved yet.
- * It is validated exactly like a stored secret so a probe cannot smuggle a
- * value the secret store would reject, and it is bounded because a probe
- * resolves one route: a large map is a mistake, not a use case. */
-function parseProviderProbeSecrets(
-  value: unknown
-): Readonly<Record<string, string>> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new ServiceError(
-      400,
-      "Provider probe secrets must be an object.",
-      "invalid_request"
-    );
-  }
-  const entries = Object.entries(value as Record<string, unknown>);
-  if (entries.length > MAX_PROVIDER_PROBE_SECRETS) {
-    throw new ServiceError(
-      400,
-      `A provider probe carries at most ${MAX_PROVIDER_PROBE_SECRETS} secrets.`,
-      "invalid_request"
-    );
-  }
-  const result: Record<string, string> = {};
-  for (const [secretId, secret] of entries) {
-    try {
-      requireSecretId(secretId, "Provider probe secret ID");
-      result[secretId] = validateProviderSecretValue(secret);
-    } catch (error) {
-      throw new ServiceError(
-        400,
-        error instanceof Error ? error.message : "Provider probe secret is invalid.",
-        "invalid_request"
-      );
-    }
-  }
-  return result;
+function isLegacySettingsDocumentProbe(value: unknown): boolean {
+  return value !== null
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && (value as { readonly kind?: unknown }).kind === "settings-document";
 }
 
 function normalize(value: unknown): GenerationSettings {

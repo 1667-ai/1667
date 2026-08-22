@@ -116,8 +116,8 @@ const footerCases: FooterCase[] = [
     setup: (state, source) => {
       state.mode = "SETTINGS";
       // Row 0 is "theme" (a cycler, matching this case's CHOICE footer) only
-      // in advanced mode; simple mode's row 0 is "system-prompt", a plain
-      // text row with a different footer.
+      // in advanced mode; simple mode's row 0 is "update-checks", a plain
+      // toggle with a different footer.
       state.config = { ...state.config, settingsViewMode: "advanced" };
       state.settings = initialSettingsOverlay(source.settingsView, state.config);
     } }
@@ -757,15 +757,9 @@ describe("hit map clickable chrome", () => {
       }
     }
 
-    // Theme, compose focus, word wrap, update checks, provider, insecure HTTP, profile,
-    // effort, cache, prompt layout, alternatives, reasoning, keep thoughts,
-    // and three routes — plus the three C-08 scalars (temperature, max tokens,
-    // context) and the three connection-timeout scalars (headers, idle,
-    // total), whose chips all open on the same column. There is no
-    // first-token row: server/provider-sse.ts waits for the first token
-    // until the total deadline, so a configured value could never change a
-    // request.
-    expect(opens.size).toBe(22);
+    // The advanced form has 19 visible choices in this viewport. The remaining
+    // rows stay below the window and are reachable through row navigation.
+    expect(opens.size).toBe(19);
     expect(new Set(opens.values()).size).toBe(1);
   });
 

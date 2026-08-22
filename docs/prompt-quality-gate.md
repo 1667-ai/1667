@@ -69,6 +69,11 @@ The default continuation prompt layout is the compatibility baseline. A
 Generation Profile can enable one approved experimental layout. A missing
 setting is off. The current candidate is `late-cache-stable`.
 
+Default Settings keep the approved Continue and Retake request bytes. Custom
+Default Continue direction and operation guidance are writer input. They do
+not have one fixed quality score. Do not use a Gemma replay for custom
+guidance.
+
 The baseline keeps these properties:
 
 - The operation contract is present on every continuation path.

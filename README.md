@@ -24,7 +24,9 @@ repository contains the terminal user interface (TUI) and its backend runtime.
 - Read a story as a story line, a tree, or a mass map.
 - View Facts and estimated request context in the side rail.
 - Keep one Author's Note for the next continuation or prompted retake.
-- Override the default Author Brief for one story.
+- Override the Default Author Brief for one story.
+- Set the Default Author Brief and the Default Continue direction in Settings.
+- Set Rewrite, Title, Summary, and Aside guidance in Advanced view.
 - Use keys to include a Fact only when the request context matches it.
 - Order, rank, and budget Facts so a full context window drops low-value ones first.
 - Inspect the next provider request in the request viewer.
@@ -36,6 +38,23 @@ repository contains the terminal user interface (TUI) and its backend runtime.
 - Stop a generation and save model text that already arrived.
 - Use a ChatGPT Plus or Pro plan, or a Claude Pro or Max plan, without an API key.
 - Connect to OpenAI-compatible endpoints or Anthropic Messages endpoints.
+
+## Writing prompts
+
+The system prompt in Settings is the Default Author Brief. 1667 uses this
+value. Set the Default Continue direction in Simple view. Set Rewrite, Title,
+Summary, and Aside guidance in Advanced view.
+
+These fields add guidance. They do not replace fixed operation contracts.
+Title, summary, and Aside still use the Utility Generation Profile. Each of
+those operations has its own guidance row.
+
+Writing prompts are machine-wide Settings values. A Profile Export does not
+include them.
+
+The first successful Settings save publishes Settings schema 5. An older
+release refuses a schema 5 Settings document. Back up Settings before you try
+`0.10.2-rc.1`. An older release cannot open schema 5.
 
 ## Install
 
@@ -164,6 +183,8 @@ context can contain:
 - Chapter summaries
 - Author's Note
 - Author Brief
+- Default Continue direction
+- Rewrite, Title, Summary, or Aside guidance
 - User instructions
 
 1667 sends the selected credential in the authentication header when a

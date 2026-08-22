@@ -24,6 +24,11 @@ point of view, tense, voice, and recurring style cues. Summary generation sends
 no story facts and caps temperature at `0.2`, including when no creative
 temperature is configured.
 
+Summary-take and chapter-summary use the Utility Generation Profile. Summary
+guidance is a separate Settings value. Empty Summary guidance adds no request
+block. Summary guidance cannot replace the coverage rules or the completion
+marker.
+
 The model must return a request-specific completion marker or no take is saved.
 Detection tolerates light decoration and a short trailing remark. When the
 marker is missing, the provider's finish reason selects the error: output cut

@@ -41,9 +41,14 @@ import {
 } from "./provider-request-body.js";
 import { reasoningCapture, reasoningSafeToStore } from "./reasoning-capture.js";
 import { storySamplingBias } from "./sampling-phrase-bias.js";
-import { AnchoredOutputFilter, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, supportsAssistantPrefill } from "./generation-prompts.js";
+import { AnchoredOutputFilter, phraseRewritePlan, rewritePlan, supportsAssistantPrefill } from "./generation-prompts.js";
 import { assembleContinuation } from "./continuation-assembly.js";
 import { admitFactsIntoPrompt, assertImageContextAdmitted, type GenerationAdmissionRegistry } from "./generation-admission.js";
+import {
+  operationGuidanceContext,
+  resolveContinueRequestDirection
+} from "../shared/writing-prompt-runtime.js";
+import { DEFAULT_WRITING_PROMPT_SETTINGS } from "../shared/settings-v5-writing.js";
 import type { FactBudgetDrop } from "../shared/fact-budget.js";
 import type { SettingsStore } from "./settings.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
@@ -137,24 +142,26 @@ export async function autonameStory(
   }
   const line = activePath(snapshot);
   if (line.length === 0) throw new HttpError(400, "Write some of the story before asking the model to name it.");
-  const { settings, promptCache } = await settingsStore.loadGeneration("utility");
+  const { settings, promptCache, writing } = await settingsStore.loadGeneration("utility");
   let raw = "";
   const titleSettings = { ...settings, maxTokens: Math.min(settings.maxTokens, 64) };
   // A known window shrinks the prose excerpt: ~3 chars/token, minus the facts,
-  // author brief, and fixed framing that must ride along whole. The guard then
-  // covers facts plus the builder-owned fixed texts, so a long story with a
-  // small fact is shortened rather than refused. Factless stories keep the
-  // pre-facts 24k excerpt byte-for-byte.
+  // author brief, title guidance, and fixed framing that must ride along whole.
+  // The guard then covers facts plus the builder-owned fixed texts, so a long
+  // story with a small fact is shortened rather than refused. Factless stories
+  // keep the pre-facts 24k excerpt byte-for-byte when title guidance is empty.
   const titleBudgeted = activeBudgetedFacts(snapshot);
   const titleFacts = formatFactsMessage(titleBudgeted.kept);
   const authorBrief = resolveAuthorBrief(snapshot.authorBrief, settings.systemPrompt);
   const briefChars = Math.min(authorBrief.trim().length, 2_000);
-  const promptCharBudget = titleFacts === null || settings.contextWindow === null
+  const titleGuidance = writing?.titleGuidance ?? "";
+  const promptCharBudget = settings.contextWindow === null
+    || (titleFacts === null && titleGuidance.length === 0)
     ? MAX_STORY_CONTEXT_CHARS
     : Math.min(
         MAX_STORY_CONTEXT_CHARS,
         Math.max(1_000, (settings.contextWindow - titleSettings.maxTokens) * 3
-          - titleFacts.length - briefChars - 800)
+          - (titleFacts?.length ?? 0) - briefChars - titleGuidance.length - 800)
       );
   // The char budget stays fixed across a possible rebuild below — a few Facts
   // shorter than assumed only makes it more conservative, never wrong.
@@ -162,7 +169,13 @@ export async function autonameStory(
     titleSettings,
     titleBudgeted.kept,
     null,
-    (factsMessage) => autonamePrompt(snapshot, authorBrief, promptCharBudget, factsMessage)
+    (factsMessage) => autonamePrompt(
+      snapshot,
+      authorBrief,
+      promptCharBudget,
+      factsMessage,
+      titleGuidance
+    )
   );
   const titlePrompt = titlePlan.prompt;
   await bindIntent?.(titleSettings, { kind: "title", messages: renderPromptPlan(titlePrompt) });
@@ -235,7 +248,6 @@ export async function continueStory(
     throw new HttpError(500, "Image resolution is not available for this request.", "image_input_not_supported");
   }
   const requestedInstruction = (optionalString(body.instruction) ?? "").trim();
-  const instruction = requestedInstruction || DEFAULT_INSTRUCTION;
   // Stamped on whatever this generation commits, so a Stop that races the commit
   // can tell "already saved" from "nothing saved yet".
   const genId = requireString(body.genId, "genId");
@@ -308,12 +320,6 @@ export async function continueStory(
     appendTo,
     draftImageReferences
   );
-  const budgetedFacts = activeBudgetedFacts(story, {
-    contextParts,
-    chapterBreaks: story.chapterBreaks,
-    nodes: story.nodes,
-    instruction
-  });
   // One read, not two: `settings` and `imageInputCapability` both come out of
   // `settingsStore.loadGeneration`'s single snapshot
   // (`SettingsV2Store.loadRuntime`, server/settings-v2-store.ts). Reading
@@ -327,9 +333,21 @@ export async function continueStory(
   // an image: `activeImageContext` below never calls
   // `resolveImageInputCapability` for a text-only request, so this value sits
   // unused for the common case, and the request's own text-only bytes never
-  // change either way.
-  const { settings, promptCache, imageInputCapability } = await settingsStore.loadGeneration("prose");
+  // change either way. Writing prompts come from that same active revision.
+  const { settings, promptCache, imageInputCapability, writing } = await settingsStore.loadGeneration("prose");
   if (signal.aborted) return null;
+  const genuineAppend = appendTo !== null;
+  const instruction = resolveContinueRequestDirection(
+    requestedInstruction,
+    writing ?? DEFAULT_WRITING_PROMPT_SETTINGS,
+    genuineAppend
+  );
+  const budgetedFacts = activeBudgetedFacts(story, {
+    contextParts,
+    chapterBreaks: story.chapterBreaks,
+    nodes: story.nodes,
+    instruction
+  });
   const model = settings.provider === "dry-run" ? "dry-run" : settings.model;
   // Record it now: a Stop that saves the partial must credit this model, even if
   // the user switches models while the stream is still running.
@@ -376,6 +394,7 @@ export async function continueStory(
   // the prompt is never reported as if nothing had been dropped (issue #281
   // review finding I).
   onFactsDropped?.([...budgetedFacts.dropped, ...admission.dropped]);
+  if (!genuineAppend) generationAdmission.rememberContinueDirection(id, genId, instruction);
   await bindIntent?.(settings, {
     kind: "continue",
     story: { title: story.title, nodes: story.nodes, chapterBreaks: story.chapterBreaks },
@@ -637,8 +656,9 @@ export async function rewriteNode(
   if (destination !== "take") assertGenerationRecordCapacity(part);
   const originalText = part.text;
   const budgetedFacts = activeBudgetedFactsForRewrite(story, partId, instruction, expected);
-  const { settings, promptCache } = await settingsStore.loadGeneration("prose");
+  const { settings, promptCache, writing } = await settingsStore.loadGeneration("prose");
   if (signal.aborted) return null;
+  const rewriteGuidance = writing?.rewriteGuidance ?? "";
   // A fresh nonce makes the rewrite markers and output terminator impossible to
   // collide with prose already in the story.
   const tag = `rw-${randomUUID().slice(0, 8)}`;
@@ -684,8 +704,12 @@ export async function rewriteNode(
         tag
       };
       return bareMode
-        ? phraseRewritePlan({ ...common, passage: !phraseMode })
-        : rewritePlan({ ...common, assistantPrefill: supportsAssistantPrefill(settings) });
+        ? phraseRewritePlan({ ...common, passage: !phraseMode, guidance: rewriteGuidance })
+        : rewritePlan({
+          ...common,
+          assistantPrefill: supportsAssistantPrefill(settings),
+          guidance: rewriteGuidance
+        });
     }
   );
   await bindIntent?.(rewriteSettings, {
@@ -700,7 +724,8 @@ export async function rewriteNode(
     instruction,
     bareMode,
     phraseMode,
-    destination
+    destination,
+    ...operationGuidanceContext(rewriteGuidance)
   });
   const rewriteGenerationRecordCollector: GenerationRecordCollector = { effective: null };
   const rewriteGenerationRecordEntries = promptEntriesInline(

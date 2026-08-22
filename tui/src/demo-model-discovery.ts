@@ -1,6 +1,6 @@
 import { ANTHROPIC_MODELS as PI_ANTHROPIC_MODELS } from "@earendil-works/pi-ai/providers/anthropic.models";
 import { OPENAI_CODEX_MODELS as PI_OPENAI_CODEX_MODELS } from "@earendil-works/pi-ai/providers/openai-codex.models";
-import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
+
 import {
   discoverBundledModels,
   type BundledCatalogModel
@@ -10,10 +10,14 @@ import {
   type DiscoveredModelV2,
   type ModelDiscoveryResultV2,
   type ModelDiscoverySourceV2,
-  type ProviderProbeTarget,
   type SubscriptionProtocolV2
 } from "../../shared/settings-v2-types.js";
-import { selectSettingsRoute } from "../../shared/settings-route.js";
+import {
+  generationSettingsFromProbeTarget,
+  isProviderProbeRouteV1,
+  type ProviderProbeTarget
+} from "../../shared/provider-probe-route-v1.js";
+
 
 export type DemoSubscriptionCatalogs = Readonly<
   Record<SubscriptionProtocolV2, readonly BundledCatalogModel[]>
@@ -61,10 +65,9 @@ export function discoverDemoModels(
 ): ModelDiscoveryResultV2 {
   let settings;
   let protocol;
-  if ("kind" in target) {
-    const route = selectSettingsRoute(target.document, target.purpose);
-    settings = basicSettingsFromDocument(target.document, route.profileId);
-    protocol = route.connection.protocol;
+  if (isProviderProbeRouteV1(target)) {
+    settings = generationSettingsFromProbeTarget(target);
+    protocol = target.connection.protocol;
   } else {
     settings = target;
     protocol = target.protocol ?? null;

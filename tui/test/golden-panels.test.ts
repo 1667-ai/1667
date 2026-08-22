@@ -9,6 +9,7 @@ import { cellWidth } from "../src/cell-width.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { createTokenProbabilities } from "../../shared/token-probabilities.js";
 import type { SettingsPresetV2, SettingsProtocolV2, SettingsView } from "../../shared/settings-v2-types.js";
+import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
 import { dryRunProbabilityStep } from "../../server/token-probability-capture.js";
 
 function key(name: string, sequence = name): KeyEvent {
@@ -339,11 +340,16 @@ describe("run C overlay frames", () => {
 
   test("settings overlay shows theme switcher and editable fields", async () => {
     // "m" switches to advanced mode, which is what shows the theme switcher,
-    // and keeps the cursor on update checks. Two downs reach provider, a
-    // cycler, for the choice-footer keyline.
+    // and keeps the cursor on update checks. Seven downs skip the writing
+    // rows and reach provider, a cycler, for the choice-footer keyline.
     const frame = await renderWithKeys(demoAppSource(), 120, 36, [
       key(","),
       key("m"),
+      key("down"),
+      key("down"),
+      key("down"),
+      key("down"),
+      key("down"),
       key("down"),
       key("down")
     ]);
@@ -359,11 +365,16 @@ describe("run C overlay frames", () => {
     expect(clean).not.toContain("revision");
 
     // "m" switches to advanced mode and keeps the cursor on update checks.
-    // Two downs reach provider, which can cycle and dirty the draft with
+    // Seven downs reach provider, which can cycle and dirty the draft with
     // Right.
     const dirty = await renderWithKeys(demoAppSource(), 120, 36, [
       key(","),
       key("m"),
+      key("down"),
+      key("down"),
+      key("down"),
+      key("down"),
+      key("down"),
       key("down"),
       key("down"),
       key("right")
@@ -383,7 +394,7 @@ describe("run C overlay frames", () => {
       // "m" switches to advanced mode, which is what shows the theme row.
       const lines = (await renderOnce(source, 120, 48, ",m")).split("\n");
       const rowOf = (text: string): number => lines.findIndex((line) => line.includes(text));
-      return { theme: rowOf("theme"), provider: rowOf("provider"), prompt: rowOf("system ") };
+      return { theme: rowOf("theme"), provider: rowOf("provider"), prompt: rowOf("author brief") };
     };
 
     const active = await rowsFor(null);
@@ -402,6 +413,7 @@ describe("run C overlay frames", () => {
       document: null,
       effective: source.settings,
       effectiveProse: source.settings,
+      activeWriting: writingPromptSettingsFromAuthorBrief(source.settings.systemPrompt),
       lastActivationOutcome: null
     };
     source.settingsView = legacy;
@@ -429,6 +441,7 @@ describe("run C overlay frames", () => {
       document: null,
       effective: source.settings,
       effectiveProse: source.settings,
+      activeWriting: writingPromptSettingsFromAuthorBrief(source.settings.systemPrompt),
       lastActivationOutcome: null
     };
     source.settingsView = successor;
@@ -702,6 +715,7 @@ function routeSource(preset: SettingsPresetV2, protocol: SettingsProtocolV2) {
     },
     effective: source.settingsView.effective,
     effectiveProse: source.settingsView.effectiveProse,
+    activeWriting: writingPromptSettingsFromAuthorBrief(source.settingsView.effective.systemPrompt),
     lastActivationOutcome: null
   };
   source.settingsView = view;
@@ -719,6 +733,7 @@ function legacySource() {
     document: null,
     effective: source.settingsView.effective,
     effectiveProse: source.settingsView.effectiveProse,
+    activeWriting: writingPromptSettingsFromAuthorBrief(source.settingsView.effective.systemPrompt),
     lastActivationOutcome: null
   };
   return source;

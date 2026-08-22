@@ -62,7 +62,7 @@ export function activeSettingsEdit(
     && editor.target.owner === overlay
       ? {
         kind: "row",
-        row: "system-prompt",
+        row: editor.target.row,
         composer: editor.composer,
         initialText: () => editor.initial,
         setInitialText: (value) => { editor.initial = value; }

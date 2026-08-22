@@ -6,6 +6,7 @@ import {
 } from "../server/provider-runtime.js";
 import { SettingsStore } from "../server/settings.js";
 import type { SettingsDocumentV2 } from "../shared/settings-v2-types.js";
+import { providerProbeRouteFromDocument } from "../shared/provider-probe-route-v1.js";
 import type { GenerationSettings } from "../shared/types.js";
 import {
   FIXED_TIME,
@@ -236,11 +237,9 @@ test("settings-document probes preserve credentialless draft connection policy",
     }
   };
 
-  const admitted = await store.resolveProviderProbe({
-    kind: "settings-document",
-    document,
-    purpose: "default"
-  });
+  const admitted = await store.resolveProviderProbe(
+    providerProbeRouteFromDocument(document)
+  );
 
   assert.equal(admitted.baseUrl, "http://192.168.1.25:5001/v1");
   assert.equal(admitted.model, "");
@@ -261,11 +260,7 @@ test("settings-document probes require changed credential targets to activate", 
   const document = credentialedDocument("AI_1667_NEW_TARGET_KEY");
 
   await assert.rejects(
-    store.resolveProviderProbe({
-      kind: "settings-document",
-      document,
-      purpose: "default"
-    }),
+    store.resolveProviderProbe(providerProbeRouteFromDocument(document)),
     /must be saved and activated/
   );
 });

@@ -13,6 +13,10 @@ import {
 
 import { MAX_IMPORT_BYTES } from "./import-model.js";
 import {
+  MAX_PROVIDER_PROBE_REQUEST_BYTES,
+  MAX_SETTINGS_SAVE_REQUEST_BYTES
+} from "../shared/settings-v5-limits.js";
+import {
   decodeMarkdownHttpBody,
   MAX_MARKDOWN_HTTP_BODY_BYTES
 } from "../shared/import-markdown-wire.js";
@@ -269,7 +273,7 @@ async function handleApi(
   if (head === "settings" && id === undefined) {
     if (method === "GET") return sendJson(response, 200, await service.getSettings());
     if (method === "PUT") {
-      const command = await jsonBody();
+      const command = await readJsonBody(request, operation.signal, MAX_SETTINGS_SAVE_REQUEST_BYTES);
       requireCommandMutationId(command, operation.mutationId);
       return sendJson(response, 200, await service.saveSettings({
         ...command,
@@ -289,28 +293,40 @@ async function handleApi(
     return sendJson(
       response,
       200,
-      await service.probeContextWindow(await jsonBody(), operation.signal)
+      await service.probeContextWindow(
+        await readJsonBody(request, operation.signal, MAX_PROVIDER_PROBE_REQUEST_BYTES),
+        operation.signal
+      )
     );
   }
   if (head === "settings" && id === "check-server" && method === "POST") {
     return sendJson(
       response,
       200,
-      await service.checkModelServer(await jsonBody(), operation.signal)
+      await service.checkModelServer(
+        await readJsonBody(request, operation.signal, MAX_PROVIDER_PROBE_REQUEST_BYTES),
+        operation.signal
+      )
     );
   }
   if (head === "settings" && id === "discover-models" && method === "POST") {
     return sendJson(
       response,
       200,
-      await service.discoverModels(await jsonBody(), operation.signal)
+      await service.discoverModels(
+        await readJsonBody(request, operation.signal, MAX_PROVIDER_PROBE_REQUEST_BYTES),
+        operation.signal
+      )
     );
   }
   if (head === "settings" && id === "resolve-sampling-bias" && method === "POST") {
     return sendJson(
       response,
       200,
-      await service.resolveSamplingBias(await jsonBody(), operation.signal)
+      await service.resolveSamplingBias(
+        await readJsonBody(request, operation.signal, MAX_PROVIDER_PROBE_REQUEST_BYTES),
+        operation.signal
+      )
     );
   }
   // No settings and no story id: this always counts against the backend's

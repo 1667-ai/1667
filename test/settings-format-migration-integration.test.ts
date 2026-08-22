@@ -73,9 +73,12 @@ test("migrated settings remain receipt-editable and restart cleanly", async (t) 
   if (view.document === null || view.stateGeneration === null) {
     throw new Error("migrated format-2 settings are not editable");
   }
-  const edited: SettingsDocumentV2 = {
+  const edited = {
     ...view.document,
-    writing: { defaultAuthorBrief: "Edited after Release B migration." }
+    writing: {
+      ...view.document.writing,
+      defaultAuthorBrief: "Edited after Release B migration."
+    }
   };
   await first.save(saveCommand(MUTATION_A, view.stateGeneration, edited));
 

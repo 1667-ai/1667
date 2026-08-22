@@ -18,10 +18,10 @@ import { settingsMutationFailureAction } from "../../shared/settings-mutation-fa
 import { resolveSettingsProfile, selectSettingsRoute } from "../../shared/settings-route.js";
 import { EMPTY_SAMPLING_V2 } from "../../shared/settings-v2-types.js";
 import type {
-  SettingsDocumentV2,
   SettingsMutationResult,
   SettingsRoutePurpose
 } from "../../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 as SettingsDocumentV2 } from "../../shared/settings-v5-types.js";
 import type { AppSource } from "./app.js";
 import { apiErrorCode } from "./api.js";
 import { insertComposerText } from "./composer-model.js";
@@ -42,8 +42,13 @@ import {
 } from "./settings-model-discovery.js";
 import {
   openSettingsPasteTarget,
-  openSystemPromptEditor
+  openWritingPromptEditor
 } from "./settings-prompt-editor.js";
+import {
+  WRITING_PROMPT_FIELD_DEFINITIONS,
+  isWritingPromptRow
+} from "../../shared/settings-v5-writing.js";
+import { draftWriting, validateWritingPromptValue } from "./settings-writing-draft.js";
 import { activeSettingsEdit } from "./settings-edit-state.js";
 import { settingsReadOnlyMessage } from "./settings-read-only.js";
 import {
@@ -240,8 +245,8 @@ export async function settingsOverlayAction(
       else beginSettingsRowEdit(overlay, state.config);
     } else if (settingsRowCycles(row)) {
       await cycleSettingsRow(row, 1, state, source, context, overlay);
-    } else if (row === "system-prompt") {
-      openSystemPromptEditor(state);
+    } else if (isWritingPromptRow(row)) {
+      openWritingPromptEditor(state, row);
     } else if (row === "sampling") {
       overlay.sampling = {
         panel: "sampling",
@@ -410,16 +415,25 @@ async function saveSettingsDraft(
       if (draft.document === null || draft.selectedProfileId === null) {
         throw new Error("Editable settings document is unavailable");
       }
+      const writing = draftWriting(draft);
+      for (const definition of WRITING_PROMPT_FIELD_DEFINITIONS) {
+        const writingError = validateWritingPromptValue(
+          definition,
+          writing[definition.field],
+          writing
+        );
+        if (writingError !== null) throw new Error(writingError);
+      }
       const discovery = overlay.modelDiscoveryIdentity
           === settingsModelDiscoveryIdentity(draft.generation)
         ? overlay.modelDiscovery
         : null;
       const savedDocument = applyBasicSettingsDraft(
-          draft.document,
+          draft.document as never,
           draft.generation,
           draft.selectedProfileId,
           settingsContextWindowIsManual(overlay)
-      );
+      ) as unknown as SettingsDocumentV2;
       const selectedRemoteId = resolveSettingsProfile(
         savedDocument,
         draft.selectedProfileId
@@ -428,19 +442,19 @@ async function saveSettingsDraft(
         (model) => model.remoteId === selectedRemoteId
       ) === true;
       document = applyBasicModelDiscovery(
-        discoveryMatchesSelectedModel
+        (discoveryMatchesSelectedModel
           ? isolateSettingsProfileModel(savedDocument, draft.selectedProfileId)
-          : savedDocument,
+          : savedDocument) as never,
         discovery,
         draft.generation.contextWindow,
         draft.selectedProfileId,
         settingsContextWindowIsManual(overlay)
-      );
+      ) as unknown as SettingsDocumentV2;
       document = applySamplingSettings(
-        document,
+        document as unknown as never,
         draft.sampling,
         draft.selectedProfileId
-      );
+      ) as unknown as SettingsDocumentV2;
       assertSamplingDraftAvailable(document, draft.selectedProfileId);
       const cacheContext = promptCacheContextForProfile(document, draft.selectedProfileId);
       const presentation = promptCachePolicyPresentation(cacheContext, draft.cachePolicy);
@@ -523,7 +537,7 @@ async function saveSettingsDraft(
 
 function assertSamplingDraftAvailable(document: SettingsDocumentV2, profileId: string): void {
   const route = resolveSettingsProfile(document, profileId);
-  const context = samplingContextForRoute(route);
+  const context = samplingContextForRoute(route as never);
   const sampling = route.profile.sampling ?? EMPTY_SAMPLING_V2;
   for (const { knob, resolution } of resolveConfiguredSamplingKnobs(context, sampling)) {
     if (resolution.kind === "unavailable") {

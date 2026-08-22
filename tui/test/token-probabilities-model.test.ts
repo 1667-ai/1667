@@ -6,6 +6,7 @@ import type {
 } from "../../shared/settings-v2-types.js";
 import type { TokenProbabilityStep } from "../../shared/token-probabilities.js";
 import { DEMO_SETTINGS_DOCUMENT, DEMO_SETTINGS_VIEW } from "../src/demo.js";
+import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
 import {
   resolveTokenProbabilityEmptyReason,
   tokenDisplayGlyph,
@@ -178,6 +179,7 @@ describe("resolveTokenProbabilityEmptyReason", () => {
     document: null,
     effective: DEMO_SETTINGS_VIEW.effective,
     effectiveProse: DEMO_SETTINGS_VIEW.effectiveProse,
+    activeWriting: writingPromptSettingsFromAuthorBrief(DEMO_SETTINGS_VIEW.effective.systemPrompt),
     lastActivationOutcome: null
   };
 
@@ -241,6 +243,7 @@ function routeView(preset: SettingsPresetV2, protocol: SettingsProtocolV2): Sett
     },
     effective: DEMO_SETTINGS_VIEW.effective,
     effectiveProse: DEMO_SETTINGS_VIEW.effectiveProse,
+    activeWriting: writingPromptSettingsFromAuthorBrief(DEMO_SETTINGS_VIEW.effective.systemPrompt),
     lastActivationOutcome: null
   };
 }

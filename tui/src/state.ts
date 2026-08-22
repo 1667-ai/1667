@@ -38,6 +38,7 @@ import type {
   StorySelectionProjection,
   StorySelectionSpan
 } from "./selection-projection.js";
+import type { WritingPromptRowId } from "../../shared/settings-v5-writing.js";
 import type { SettingsTextDraft } from "./settings-text.js";
 import type { SettingsModelPicker } from "./settings-model-picker.js";
 import type { TokenProbabilityRecord } from "../../shared/token-probabilities.js";
@@ -234,7 +235,7 @@ export type SettingsRowId =
   | "default-route"
   | "prose-route"
   | "utility-route"
-  | "system-prompt";
+  | WritingPromptRowId;
 
 export interface SettingsEditBufferState {
   composer: ComposerState;
@@ -243,7 +244,7 @@ export interface SettingsEditBufferState {
 
 export interface SettingsInlineEditState extends SettingsEditBufferState {
   kind: "inline";
-  row: Exclude<SettingsRowId, "system-prompt" | "sampling">;
+  row: Exclude<SettingsRowId, WritingPromptRowId | "sampling">;
   mode: "text" | "secret";
 }
 
@@ -545,7 +546,12 @@ export type InlineEditorTarget =
    *  means "empty is unset", matching the composer's own text, so
    *  reconciliation compares like the Author's Note editor does. */
   | { kind: "story-scalar"; field: StoryScalarField; expected: string }
-  | { kind: "settings-prompt"; owner: SettingsOverlayState; scope: "global" };
+  | {
+      kind: "settings-prompt";
+      owner: SettingsOverlayState;
+      row: WritingPromptRowId;
+      scope: "global";
+    };
 
 export interface FactEditorTarget {
   kind: "fact";
@@ -729,6 +735,8 @@ export interface StoryScreenState extends OverlayState {
    *  text only; bar growth uses a likely-response estimate from recent prose. */
   maxTokens: number;
   systemPrompt: string;
+  /** Active writing prompts from Settings `activeWriting`, never a pending document. */
+  activeWriting: import("../../shared/settings-v5-writing.js").WritingPromptSettings;
   /** Whether the configured provider accepts an assistant continuation prefill. */
   assistantPrefill: boolean;
   /** Active prose route's continuation prompt layout. */

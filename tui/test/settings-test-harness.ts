@@ -1,10 +1,12 @@
 import { expect } from "bun:test";
-import type { KeyEvent } from "@opentui/core";
 import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
-import type {
-  ProviderProbeTarget,
-  SaveSettingsCommand
-} from "../../shared/settings-v2-types.js";
+import type { KeyEvent } from "@opentui/core";
+
+import type { SaveSettingsCommand } from "../../shared/settings-v2-types.js";
+import {
+  generationSettingsFromProbeTarget,
+  type ProviderProbeTarget
+} from "../../shared/provider-probe-route-v1.js";
 import { ActionRuntime } from "../src/action-runtime.js";
 import { handleKey, initialState } from "../src/app.js";
 import { setComposerText } from "../src/composer-model.js";
@@ -47,9 +49,7 @@ export function deferred<T>() {
 }
 
 export function generationFromProbeTarget(target: ProviderProbeTarget) {
-  return "kind" in target
-    ? basicSettingsFromDocument(target.document)
-    : target;
+  return generationSettingsFromProbeTarget(target);
 }
 
 /** Most fixtures predate the simple/advanced split and expect every row
@@ -103,6 +103,10 @@ export function installSave(
   source: ReturnType<typeof demoAppSource>,
   saved: SaveSettingsCommand[]
 ): void {
+  // Keep the test source and the in-memory API projection aligned. The demo
+  // API owns its own settings closure, so a test save must also make later
+  // refreshes read the authoritative source projection.
+  source.api.getSettings = async () => source.settingsView;
   source.api.saveSettings = async (command) => {
     saved.push(command);
     const current = source.settingsView;
@@ -113,7 +117,8 @@ export function installSave(
       stateGeneration: current.stateGeneration + 1,
       activeRevision: current.activeRevision + 1,
       document: command.document,
-      effective
+      effective,
+      activeWriting: command.document.writing
     };
     return {
       kind: "settings" as const,

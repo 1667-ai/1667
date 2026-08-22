@@ -10,7 +10,7 @@ import {
   settingsStateSlotReadOnlyView,
   type SettingsStateSlot
 } from "./settings-state-slot.js";
-import { MAX_SETTINGS_STATE_BYTES } from "./settings-v2-scalars.js";
+import { MAX_SETTINGS_STATE_V5_BYTES } from "../shared/settings-v5-limits.js";
 import {
   publishSettingsFile,
   readOptionalMutableSettingsAuthority,
@@ -37,8 +37,8 @@ export interface SettingsStateFiles {
  *  whether a receipt could ever apply to it. */
 export async function readSettingsStateFiles(dataDir: string): Promise<SettingsStateFiles> {
   const [currentBytes, nextBytes] = await Promise.all([
-    readOptionalMutableSettingsAuthority(currentPath(dataDir), MAX_SETTINGS_STATE_BYTES),
-    readOptionalSettingsFile(nextPath(dataDir), MAX_SETTINGS_STATE_BYTES)
+    readOptionalMutableSettingsAuthority(currentPath(dataDir), MAX_SETTINGS_STATE_V5_BYTES),
+    readOptionalSettingsFile(nextPath(dataDir), MAX_SETTINGS_STATE_V5_BYTES)
   ]);
   if (currentBytes === null) throw new Error("Format-2 settings state is missing");
   const currentSlot = parseSettingsStateSlotBytes(currentBytes);
@@ -48,14 +48,13 @@ export async function readSettingsStateFiles(dataDir: string): Promise<SettingsS
   };
 }
 
-/** The current settings-state authority's exact kind: schema 2 (mutable) or
- *  schema 3 (successor-owned, read-only). A mutation must call this and
- *  `requireMutableSettingsStateSlot` (server/settings-state-slot.ts) before
- *  it stages or writes anything. */
+/** The current settings-state authority's exact schema kind. A mutation must
+ *  call `requireSettingsStateSlotWriteAdmission`
+ *  (server/settings-state-slot.ts) before it stages or writes anything. */
 export async function readSettingsStateSlot(dataDir: string): Promise<SettingsStateSlot> {
   const bytes = await readOptionalMutableSettingsAuthority(
     currentPath(dataDir),
-    MAX_SETTINGS_STATE_BYTES
+    MAX_SETTINGS_STATE_V5_BYTES
   );
   if (bytes === null) throw new Error("Format-2 settings state is missing");
   return parseSettingsStateSlotBytes(bytes);

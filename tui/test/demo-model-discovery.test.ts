@@ -1,13 +1,15 @@
 import { expect, test } from "bun:test";
 import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
 import { demoAppSource, DEMO_SETTINGS_DOCUMENT } from "../src/demo.js";
+import { providerProbeRouteFromV5Route } from "../../shared/provider-probe-route-v1.js";
+import { selectSettingsRoute } from "../../shared/settings-route.js";
 import {
   discoverDemoModels,
   type DemoSubscriptionCatalogs
 } from "../src/demo-model-discovery.js";
 
 test("demo discovery resolves one non-default route for provider and source", async () => {
-  const document: SettingsDocumentV2 = {
+  const document = {
     ...DEMO_SETTINGS_DOCUMENT,
     connections: {
       ...DEMO_SETTINGS_DOCUMENT.connections,
@@ -56,11 +58,9 @@ test("demo discovery resolves one non-default route for provider and source", as
     routing: { ...DEMO_SETTINGS_DOCUMENT.routing, utility: "utility" }
   };
 
-  const discovery = await demoAppSource().api.discoverModels({
-    kind: "settings-document",
-    document,
-    purpose: "utility"
-  });
+  const discovery = await demoAppSource().api.discoverModels(
+    providerProbeRouteFromV5Route(selectSettingsRoute(document as never, "utility"))
+  );
 
   expect(discovery.models.map((model) => model.remoteId))
     .toContain("claude-sonnet-4-6");

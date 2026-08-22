@@ -1,9 +1,9 @@
 import type {
   DiscoveredModelV2,
   ModelDiscoveryResultV2,
-  SettingsDocumentV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 as SettingsDocumentV2 } from "../../shared/settings-v5-types.js";
 import type { GenerationSettings } from "../../shared/types.js";
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";

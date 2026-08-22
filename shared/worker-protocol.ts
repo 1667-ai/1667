@@ -23,11 +23,11 @@ import type { PromptTokenCount } from "./tokenize-source.js";
 import type {
   DiscardPendingSettingsCommand,
   ModelDiscoveryResultV2,
-  ProviderProbeTarget,
   SaveSettingsCommand,
   SettingsMutationResult,
   SettingsView
 } from "./settings-v2-types.js";
+import type { ProviderProbeTarget } from "./provider-probe-route-v1.js";
 import type { LorebookImport } from "./lorebook-entry.js";
 import type { CardImportPlan } from "./card-import.js";
 import type { FactBudgetDrop } from "./fact-budget.js";
@@ -65,7 +65,8 @@ export const PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION = 7;
 export const PRE_FACT_ACTIVATION_WORKER_PROTOCOL_VERSION = 8;
 export const PRE_FACT_ORDER_PRIORITY_BUDGET_WORKER_PROTOCOL_VERSION = 9;
 export const PRE_ASIDE_WORKER_PROTOCOL_VERSION = 10;
-export const WORKER_PROTOCOL_VERSION = 11;
+export const PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION = 11;
+export const WORKER_PROTOCOL_VERSION = 12;
 /** Exact provider recovery changes the status and acknowledgement inputs. */
 export const MUTATION_INPUT_PROTOCOL_VERSION = WORKER_PROTOCOL_VERSION;
 export const WORKER_BUILD_IDENTITY = AI_1667_BUILD_IDENTITY;
@@ -105,6 +106,7 @@ export function isCurrentWorkerInputProtocolVersion(
     || value === PRE_FACT_ACTIVATION_WORKER_PROTOCOL_VERSION
     || value === PRE_FACT_ORDER_PRIORITY_BUDGET_WORKER_PROTOCOL_VERSION
     || value === PRE_ASIDE_WORKER_PROTOCOL_VERSION
+    || value === PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION
     || value === WORKER_PROTOCOL_VERSION;
 }
 

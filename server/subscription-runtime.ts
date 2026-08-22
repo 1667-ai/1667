@@ -1,6 +1,5 @@
 import type { Credential, CredentialStore, Models } from "@earendil-works/pi-ai";
 import type {
-  SettingsStateV2,
   SubscriptionAuthState
 } from "../shared/settings-v2-types.js";
 import type { CredentialBearingSettingsDocument } from "../shared/settings-credential-slots.js";
@@ -67,7 +66,9 @@ export function createSubscriptionRuntime(
 }
 
 /** Return all settings and subscription secret IDs that pruning must retain. */
-export function providerSecretIdsToKeep(state: SettingsStateV2): Set<string> {
+export function providerSecretIdsToKeep(
+  state: { readonly documents: Readonly<Record<string, CredentialBearingSettingsDocument>> }
+): Set<string> {
   const ids = storedSecretIdsInState(state);
   for (const secretId of Object.values(SUBSCRIPTION_SECRET_IDS)) {
     ids.add(secretId);
@@ -88,7 +89,9 @@ export function storedSecretIdsInDocument(
   return ids;
 }
 
-export function storedSecretIdsInState(state: SettingsStateV2): Set<string> {
+export function storedSecretIdsInState(
+  state: { readonly documents: Readonly<Record<string, CredentialBearingSettingsDocument>> }
+): Set<string> {
   const ids = new Set<string>();
   for (const document of Object.values(state.documents)) {
     for (const secretId of storedSecretIdsInDocument(document)) ids.add(secretId);

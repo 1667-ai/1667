@@ -6,7 +6,6 @@ import {
   type ModelDiscoveryResultV2,
   type ReasoningDisplayV2,
   type SettingsActivationOutcomeV2,
-  type SettingsDocumentV2,
   type SettingsMutationResult,
   type SettingsView,
   SETTINGS_VIEW_READ_ONLY_REASON_VALUES,
@@ -17,8 +16,13 @@ import {
 import { CONTINUATION_PROMPT_LAYOUTS } from "./continuation-prompt-optimization.js";
 import { MAX_DISCOVERED_MODELS } from "./settings-scalar-policy.js";
 import type { GenerationSettings, Provider } from "./types.js";
+import {
+  WRITING_PROMPT_FIELD_IDS,
+  type WritingPromptSettings
+} from "./settings-v5-writing.js";
+import type { SettingsDocumentV5 } from "./settings-v5-types.js";
 
-export type SettingsDocumentResponseDecoder = (value: unknown) => SettingsDocumentV2;
+export type SettingsDocumentResponseDecoder = (value: unknown) => SettingsDocumentV5;
 
 export function decodeGenerationSettingsResponse(value: unknown): GenerationSettings {
   const settings = closedRecord(value, "generation settings", [
@@ -57,11 +61,13 @@ export function decodeSettingsViewResponse(
 ): SettingsView {
   const response = closedRecord(value, "settings view", [
     "dataFormat", "editable", "stateGeneration", "activeRevision",
-    "pendingRevision", "document", "effective", "effectiveProse", "lastActivationOutcome"
+    "pendingRevision", "document", "effective", "effectiveProse", "activeWriting",
+    "lastActivationOutcome"
   ], [
     "effectiveProseReasoning", "effectiveProseContinuationPromptLayout",
     "subscriptionAuth", "subscriptionAutoSelectEligible", "readOnlyReason"
   ]);
+  const activeWriting = decodeActiveWriting(response.activeWriting);
   const effective = decodeGenerationSettingsResponse(response.effective);
   const effectiveProse = decodeGenerationSettingsResponse(response.effectiveProse);
   const effectiveProseReasoning = Object.hasOwn(response, "effectiveProseReasoning")
@@ -118,6 +124,7 @@ export function decodeSettingsViewResponse(
       ...(subscriptionAutoSelectEligible === undefined
         ? {}
         : { subscriptionAutoSelectEligible }),
+      activeWriting,
       lastActivationOutcome: null
     };
   }
@@ -141,10 +148,20 @@ export function decodeSettingsViewResponse(
     ...(subscriptionAutoSelectEligible === undefined
       ? {}
       : { subscriptionAutoSelectEligible }),
+    activeWriting,
     lastActivationOutcome: response.lastActivationOutcome === null
       ? null
       : decodeActivationOutcome(response.lastActivationOutcome)
   };
+}
+
+function decodeActiveWriting(value: unknown): WritingPromptSettings {
+  const writing = closedRecord(value, "settings view.activeWriting", WRITING_PROMPT_FIELD_IDS);
+  const result = {} as { -readonly [Field in keyof WritingPromptSettings]: string };
+  for (const field of WRITING_PROMPT_FIELD_IDS) {
+    result[field] = stringValue(writing[field], `settings view.activeWriting.${field}`);
+  }
+  return result;
 }
 
 function decodeSubscriptionAuth(value: unknown): SubscriptionAuthState {

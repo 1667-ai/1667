@@ -14,19 +14,25 @@ import {
  * carrying its own private copy.
  */
 
-export function assertSettingsDocumentSize(text: string): void {
+export function assertSettingsDocumentSize(
+  text: string,
+  maxBytes = MAX_SETTINGS_DOCUMENT_BYTES
+): void {
   const bytes = Buffer.byteLength(text, "utf8");
-  if (bytes > MAX_SETTINGS_DOCUMENT_BYTES) {
+  if (bytes > maxBytes) {
     throw new SettingsFormatError(
-      `Settings document exceeds its ${MAX_SETTINGS_DOCUMENT_BYTES}-byte size limit`
+      `Settings document exceeds its ${maxBytes}-byte size limit`
     );
   }
 }
 
-export function assertSettingsStateSize(text: string): void {
+export function assertSettingsStateSize(
+  text: string,
+  maxBytes = MAX_SETTINGS_STATE_BYTES
+): void {
   const bytes = Buffer.byteLength(text, "utf8");
-  if (bytes > MAX_SETTINGS_STATE_BYTES) {
-    throw new SettingsFormatError(`Settings state exceeds its ${MAX_SETTINGS_STATE_BYTES}-byte size limit`);
+  if (bytes > maxBytes) {
+    throw new SettingsFormatError(`Settings state exceeds its ${maxBytes}-byte size limit`);
   }
 }
 

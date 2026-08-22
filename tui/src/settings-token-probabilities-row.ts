@@ -92,7 +92,7 @@ export function cycleTokenProbabilitiesControl(
     step,
     tokenProbabilitiesChoices(overlay),
     (profile) => profile.tokenProbabilities ?? null,
-    profileWithTokenProbabilities
+    profileWithTokenProbabilities as never
   );
   return next === undefined ? null : next === null ? "off" : String(next);
 }

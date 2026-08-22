@@ -62,7 +62,7 @@ describe("the settings form follows C-03 and C-08", () => {
     expect(rendered).toContain("── connection ");
     expect(rendered).toContain("── generation ");
     expect(rendered.indexOf("── prompt ")).toBeLessThan(rendered.indexOf("── connection "));
-    expect(rendered).toContain("system");
+    expect(rendered).toContain("author brief");
     expect(rendered).toMatch(/↓ \d+ more settings/);
     // The rule is the section heading. It used to be printed twice — once in a
     // jump rail and again beside it — which is what made the panel read as
@@ -84,9 +84,10 @@ describe("the settings form follows C-03 and C-08", () => {
       ][index]!)))));
     expect(columns.size).toBe(1);
 
-    await selectRow(press, state, "system-prompt");
-    expect(screen(state)).toContain("Default Author Brief for prose and story names;");
-    expect(screen(state)).toContain("a story brief overrides it.");
+    await selectRow(press, state, "default-author-brief");
+    expect(screen(state)).toContain("Default Author Brief for prose and story names.");
+    expect(screen(state)).toContain("A story brief overrides it.");
+    expect(screen(state)).toContain("Empty omits the global brief.");
   });
 
   test("the selected description wraps without losing text", async () => {

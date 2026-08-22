@@ -20,7 +20,7 @@ import {
 } from "../server/settings-v4-default.js";
 import { SettingsV2Store } from "../server/settings-v2-store.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
-import { parseSettingsDocumentV2 } from "../server/settings-v2-codec.js";
+import { parseSettingsDocumentV5 } from "../server/settings-v5-codec.js";
 import { decodeSettingsViewResponse } from "../shared/settings-response-decoder.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
@@ -192,7 +192,7 @@ const PROMPT: PromptPlan = {
   }]
 };
 
-test("the predecessor loads schema 4 faithfully through the store and refuses mutation", async (t) => {
+test("schema 4 opens as an editable schema-5 working document and first save publishes schema 5", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-settings-v4-store-");
   const state = reasoningState(reasoningDocument());
   await writeFile(statePath(dataDir), formatSettingsStateV4(state), { mode: 0o600 });
@@ -200,22 +200,14 @@ test("the predecessor loads schema 4 faithfully through the store and refuses mu
   const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
   await store.init();
   const view = await store.loadView();
-  if (view.dataFormat !== 1) throw new Error("successor view was not read-only");
-  assert.equal(view.dataFormat, 1);
-  assert.equal(view.editable, false);
-  assert.equal(view.readOnlyReason, "successor-schema");
-  assert.equal(view.document, null);
+  assert.equal(view.dataFormat, 2);
+  assert.equal(view.editable, true);
+  assert.equal(view.document?.schemaVersion, 5);
+  assert.equal(view.document?.profiles.default?.generationReasoning.kind, "independent");
   assert.equal(view.effective.model, "gpt-5");
   assert.equal(view.effectiveProse.model, "gpt-5");
   assert.equal(view.effective.allowInsecureHttp, undefined);
   assert.equal(view.effectiveProseReasoning, "marker");
-  const decoded = decodeSettingsViewResponse(
-    JSON.parse(JSON.stringify(view)),
-    () => INITIAL_SETTINGS_DOCUMENT_V2
-  );
-  if (decoded.dataFormat !== 1) throw new Error("decoded successor view was editable");
-  assert.equal(decoded.effective.allowInsecureHttp, undefined);
-  assert.equal(decoded.readOnlyReason, "successor-schema");
   const runtime = await store.loadRuntime();
   const providerRuntime = providerRuntimeFor(runtime.settings);
   assert.equal(providerRuntime.effort, "high");
@@ -228,12 +220,11 @@ test("the predecessor loads schema 4 faithfully through the store and refuses mu
   );
   assert.equal(request.reasoning_effort, "high");
 
-  const before = await readFile(statePath(dataDir));
-  await assert.rejects(
-    store.save(saveCommand(MUTATION_B, 1, INITIAL_SETTINGS_DOCUMENT_V2)),
-    hasServiceCode("settings_requires_successor")
-  );
-  assert.deepEqual(await readFile(statePath(dataDir)), before);
+  assert.ok(view.document);
+  const saved = await store.save(saveCommand(MUTATION_B, view.stateGeneration, view.document));
+  assert.equal(saved.kind, "settings");
+  const published = JSON.parse(await readFile(statePath(dataDir), "utf8")) as { schemaVersion: number };
+  assert.equal(published.schemaVersion, 5);
 });
 
 test("schema 4 plaintext policy survives the real view and response decoder into TUI", async (t) => {
@@ -247,12 +238,12 @@ test("schema 4 plaintext policy survives the real view and response decoder into
   const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
   await store.init();
   const view = await store.loadView();
-  assert.equal(view.dataFormat, 1);
+  assert.equal(view.dataFormat, 2);
   assert.equal(view.effective.allowInsecureHttp, true);
   assert.equal(view.effectiveProse.allowInsecureHttp, true);
 
   const wire = JSON.parse(JSON.stringify(view));
-  const decoded = decodeSettingsViewResponse(wire, parseSettingsDocumentV2);
+  const decoded = decodeSettingsViewResponse(wire, parseSettingsDocumentV5);
   assert.equal(decoded.effective.allowInsecureHttp, true);
   assert.equal(decoded.effectiveProse.allowInsecureHttp, true);
 
@@ -268,7 +259,7 @@ test("schema 4 plaintext policy survives the real view and response decoder into
     effective: { ...wire.effective, allowInsecureHttp: "true" }
   };
   assert.throws(
-    () => decodeSettingsViewResponse(invalidWire, parseSettingsDocumentV2),
+    () => decodeSettingsViewResponse(invalidWire, parseSettingsDocumentV5),
     /generation settings\.allowInsecureHttp/
   );
 });
@@ -281,8 +272,8 @@ test("schema 4 subscription sampling stays readable and refuses before adapter d
   const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
   await store.init();
   const view = await store.loadView();
-  assert.equal(view.dataFormat, 1);
-  assert.equal(view.readOnlyReason, "successor-schema");
+  assert.equal(view.dataFormat, 2);
+  assert.equal(view.editable, true);
   assert.equal(view.effective.model, "gpt-5.6-sol");
 
   const runtime = await store.loadRuntime();
@@ -306,12 +297,12 @@ test("schema 4 subscription sampling stays readable and refuses before adapter d
   );
   assert.equal(providerStarted, false);
 
-  const before = await readFile(statePath(dataDir));
-  await assert.rejects(
-    store.save(saveCommand(MUTATION_B, 1, INITIAL_SETTINGS_DOCUMENT_V2)),
-    hasServiceCode("settings_requires_successor")
-  );
-  assert.deepEqual(await readFile(statePath(dataDir)), before);
+  const latest = await store.loadView();
+  if (latest.stateGeneration === null) throw new Error("schema-4 view is not editable");
+  const saved = await store.save(saveCommand(MUTATION_B, latest.stateGeneration, INITIAL_SETTINGS_DOCUMENT_V2));
+  assert.equal(saved.kind, "settings");
+  const published = JSON.parse(await readFile(statePath(dataDir), "utf8")) as { schemaVersion: number };
+  assert.equal(published.schemaVersion, 5);
 });
 
 test("schema 4 keyless loopback HTTP opens before request transport admission", async (t) => {
@@ -419,7 +410,7 @@ test("schema 4 route fallback and explicit purpose keep runtime, cache, image, a
   assert.equal(providerRuntimeFor(proseRuntime.settings).reasoning, "open");
 
   const view = await store.loadView();
-  assert.equal(view.dataFormat, 1);
+  assert.equal(view.dataFormat, 2);
   assert.equal(view.effective.model, "gpt-5");
   assert.equal(view.effectiveProse.model, "prose-model");
   assert.equal(view.effectiveProseReasoning, "open");

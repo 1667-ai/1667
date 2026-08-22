@@ -1,13 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { parseSettingsDocumentV2 } from "../../server/settings-v2-codec.js";
+import { parseSettingsDocumentV5 } from "../../server/settings-v5-codec.js";
 import { resolveSettingsProfile, selectSettingsRoute } from "../../shared/settings-route.js";
 import { defaultConnectionTimeouts } from "../../shared/settings-provider-defaults.js";
 import { applySamplingSettings } from "../../shared/sampling-capabilities.js";
 import { EMPTY_SAMPLING_V2 } from "../../shared/settings-v2-types.js";
-import type {
-  SaveSettingsCommand,
-  ProviderProbeTarget
-} from "../../shared/settings-v2-types.js";
+import type { SaveSettingsCommand } from "../../shared/settings-v2-types.js";
+import type { ProviderProbeTarget } from "../../shared/provider-probe-route-v1.js";
 import { MAX_ALTERNATIVE_TOKENS } from "../../shared/token-probabilities.js";
 import { setComposerText } from "../src/composer-model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
@@ -80,7 +78,11 @@ describe("Generation Profile settings", () => {
     const document = commands[0]!.document;
     const utility = document.profiles["profile.1"];
     if (utility === undefined) throw new Error("new profile was not saved");
-    expect(utility).toMatchObject({ name: "Utility", effort: "off", cachePolicy: "auto" });
+    expect(utility).toMatchObject({
+      name: "Utility",
+      generationReasoning: { kind: "legacy", effort: "off" },
+      cachePolicy: "auto"
+    });
     expect(document.routing.utility).toBe("profile.1");
     expect(document.routing.prose).toBe(undefined);
     expect(selectSettingsRoute(document, "utility").profileId).toBe("profile.1");
@@ -213,11 +215,11 @@ describe("Generation Profile settings", () => {
     expect(overlay.draft.generation.model).toBe("gpt-5.4");
     const route = resolveSettingsProfile(overlay.draft.document!, profileId);
     expect(route.connection.protocol).toBe("openai-codex-responses");
-    parseSettingsDocumentV2(overlay.draft.document!);
+    parseSettingsDocumentV5(overlay.draft.document!);
 
     await press(key("s"));
     expect(commands).toHaveLength(1);
-    const saved = parseSettingsDocumentV2(commands[0]!.document);
+    const saved = parseSettingsDocumentV5(commands[0]!.document);
     expect(resolveSettingsProfile(saved, profileId).model.remoteId).toBe("gpt-5.4");
   });
 
@@ -268,12 +270,12 @@ describe("Generation Profile settings", () => {
       for (let step = 0; step < plan.stepsToLow; step += 1) {
         await press(key("right"));
       }
-      expect(overlay.draft.document!.profiles[profileId]!.effort).toBe("low");
+      expect(overlay.draft.document!.profiles[profileId]!.generationReasoning.effort).toBe("low");
       await press(key("s"));
 
       expect(commands).toHaveLength(1);
-      const saved = parseSettingsDocumentV2(commands[0]!.document);
-      expect(resolveSettingsProfile(saved, profileId).profile.effort).toBe("low");
+      const saved = parseSettingsDocumentV5(commands[0]!.document);
+      expect(resolveSettingsProfile(saved, profileId).profile.generationReasoning.effort).toBe("low");
     }
   });
 
@@ -318,21 +320,21 @@ describe("Generation Profile settings", () => {
       for (let step = 0; step < plan.stepsToLow; step += 1) {
         await press(key("right"));
       }
-      expect(overlay.draft.document!.profiles[profileId]!.effort).toBe("low");
+      expect(overlay.draft.document!.profiles[profileId]!.generationReasoning.effort).toBe("low");
       await editSubscriptionModel(press, state, `${plan.model}-edited`);
 
       const route = resolveSettingsProfile(overlay.draft.document!, profileId);
       expect(route.model.capabilities.reasoningEffort).toBe("supported");
-      expect(route.profile.effort).toBe("low");
-      parseSettingsDocumentV2(overlay.draft.document!);
+      expect(route.profile.generationReasoning.effort).toBe("low");
+      parseSettingsDocumentV5(overlay.draft.document!);
       await press(key("s"));
 
       expect(commands).toHaveLength(1);
-      const saved = parseSettingsDocumentV2(commands[0]!.document);
+      const saved = parseSettingsDocumentV5(commands[0]!.document);
       const savedRoute = resolveSettingsProfile(saved, profileId);
       expect(savedRoute.model.remoteId).toBe(`${plan.model}-edited`);
       expect(savedRoute.model.capabilities.reasoningEffort).toBe("supported");
-      expect(savedRoute.profile.effort).toBe("low");
+      expect(savedRoute.profile.generationReasoning.effort).toBe("low");
     }
   });
 
@@ -367,12 +369,12 @@ describe("Generation Profile settings", () => {
             ...overlay.draft.document!.profiles,
             [profileId]: {
               ...overlay.draft.document!.profiles[profileId]!,
-              effort: "off",
+              generationReasoning: { kind: "legacy", effort: "off" },
               cachePolicy: "auto",
               tokenProbabilities: 3
             }
           }
-        },
+        } as never,
         {
           ...EMPTY_SAMPLING_V2,
           topP: 0.8,
@@ -384,7 +386,7 @@ describe("Generation Profile settings", () => {
         },
         profileId
       );
-      const sampledDraft = settingsTextDraftForDocument(sampledDocument, profileId);
+      const sampledDraft = settingsTextDraftForDocument(sampledDocument as never, profileId);
       const next = settingsTextDraftWithSubscriptionPlan(sampledDraft, plan.preset, {
         ...sampledDraft.generation,
         provider: plan.provider,
@@ -400,19 +402,19 @@ describe("Generation Profile settings", () => {
       expect(next.sampling).toEqual(EMPTY_SAMPLING_V2);
       const fitted = next.document!.profiles[profileId]!;
       expect(fitted.sampling).toBe(undefined);
-      expect(fitted.effort).toBe(plan.expectedEffort);
+      expect(fitted.generationReasoning.effort).toBe(plan.expectedEffort);
       expect(fitted.cachePolicy).toBe("off");
       expect(fitted.tokenProbabilities).toBe(undefined);
-      parseSettingsDocumentV2(next.document!);
+      parseSettingsDocumentV5(next.document!);
       await press(key("s"));
 
       expect(commands).toHaveLength(1);
-      const saved = parseSettingsDocumentV2(commands[0]!.document);
+      const saved = parseSettingsDocumentV5(commands[0]!.document);
       const route = resolveSettingsProfile(saved, profileId);
       expect(route.profile.sampling).toBe(undefined);
       expect(route.profile.temperature).toBe(0.4);
       expect(route.profile.maxOutputTokens).toBe(4_096);
-      expect(route.profile.effort).toBe(plan.expectedEffort);
+      expect(route.profile.generationReasoning.effort).toBe(plan.expectedEffort);
       expect(route.profile.cachePolicy).toBe("off");
       expect(route.profile.tokenProbabilities).toBe(undefined);
     }
@@ -647,7 +649,10 @@ describe("Generation Profile settings", () => {
       ...document,
       profiles: {
         ...document.profiles,
-        default: { ...document.profiles.default!, effort: "high" as const }
+        default: {
+          ...document.profiles.default!,
+          generationReasoning: { kind: "legacy" as const, effort: "high" as const }
+        }
       },
       models: {
         ...document.models,
@@ -670,14 +675,14 @@ describe("Generation Profile settings", () => {
     expect(frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines))
       .toContain("This model does not support reasoning effort.");
     await press(key("left"));
-    expect(state.settings?.draft.document?.profiles.default?.effort).toBe("default");
+    expect(state.settings?.draft.document?.profiles.default?.generationReasoning.effort).toBe("default");
 
     state.settings!.draft = settingsTextDraftForDocument(
       unsupported,
       undefined
     );
     await press(key("right"));
-    expect(state.settings?.draft.document?.profiles.default?.effort).toBe("default");
+    expect(state.settings?.draft.document?.profiles.default?.generationReasoning.effort).toBe("default");
   });
 
   test("alternatives writes the count on, and clears the field entirely on off", async () => {

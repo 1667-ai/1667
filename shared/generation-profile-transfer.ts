@@ -45,6 +45,8 @@ import {
   SAMPLING_SCALAR_DESCRIPTORS
 } from "./sampling-validation-policy.js";
 import { generationEffortAvailabilityForRoute } from "./generation-effort-capabilities.js";
+import { withSettingsProfileEffort } from "./settings-document-update.js";
+import type { GenerationProfileV5 } from "./settings-v5-types.js";
 import {
   promptCacheContextForRoute,
   promptCachePolicyPresentation
@@ -81,6 +83,13 @@ export function fitProfileToRoute(
   const fittedMaxOutputTokens = candidate.maxOutputTokens === undefined
     ? null
     : fitMaximumOutputTokens(candidate.maxOutputTokens, route, fidelity, options.modelMetadata);
+  const destinationIsSchema5 = (document as { schemaVersion?: number }).schemaVersion === 5;
+  if (candidate.reasoning?.kind === "independent" && !destinationIsSchema5) {
+    countCandidate();
+    fidelity.push(
+      "independent reasoning not imported; destination profile cannot store Thinking Mode"
+    );
+  }
   const effortAvailability = candidate.effort === undefined
     ? null
     : generationEffortAvailabilityForRoute(route, candidate.effort);
@@ -136,6 +145,9 @@ export function fitProfileToRoute(
     candidate.continuationPromptOptimization
   );
   const { sampling: _sourceSampling, ...nextProfile } = profileWithContinuationPromptOptimization;
+  const schema5Reasoning = destinationIsSchema5 && importsEffort
+    ? fittedSchema5Reasoning(nextProfile as unknown as GenerationProfileV5, candidate)
+    : undefined;
   const documentWithProfile = {
     ...document,
     profiles: {
@@ -149,7 +161,8 @@ export function fitProfileToRoute(
         ...(importsMaxOutputTokens ? {
           maxOutputTokens: fittedMaxOutputTokens!
         } : {}),
-        ...(importsEffort ? { effort: candidate.effort! } : {}),
+        ...(schema5Reasoning !== undefined ? { generationReasoning: schema5Reasoning } : {}),
+        ...(importsEffort && !destinationIsSchema5 ? { effort: candidate.effort! } : {}),
         ...(importsCachePolicy ? { cachePolicy: candidate.cachePolicy! } : {}),
         ...(candidate.tokenProbabilities !== undefined
           && candidate.tokenProbabilities !== null
@@ -428,6 +441,14 @@ function withSamplingValue(
 function withoutTokenProbabilities(profile: GenerationProfileV2) {
   const { tokenProbabilities: _tokenProbabilities, ...withoutTokenProbabilities } = profile;
   return withoutTokenProbabilities;
+}
+
+function fittedSchema5Reasoning(
+  profile: GenerationProfileV5,
+  candidate: ProfileTransferCandidate
+): GenerationProfileV5["generationReasoning"] {
+  if (candidate.reasoning !== undefined) return candidate.reasoning;
+  return withSettingsProfileEffort(profile, candidate.effort!).generationReasoning;
 }
 
 function fitMaximumOutputTokens(

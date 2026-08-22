@@ -6,6 +6,7 @@ import {
 } from "../server/settings-v2-conversion.js";
 import { createSettingsRuntimeResolver } from "../server/settings-runtime-resolver.js";
 import { parseSettingsDocumentV2 } from "../server/settings-v2-codec.js";
+import { parseSettingsDocumentV5 } from "../server/settings-v5-codec.js";
 import { settingsViewFromState } from "../server/settings-v2-runtime.js";
 import { createSubscriptionRuntime } from "../server/subscription-runtime.js";
 import { supportsAssistantPrefill } from "../shared/continuation-plan.js";
@@ -55,7 +56,7 @@ test("subscription presets keep their fixed connection shape and runtime route",
         ...INITIAL_SETTINGS_STATE_V2,
         documents: { "1": document }
       }))),
-      parseSettingsDocumentV2
+      parseSettingsDocumentV5
     );
     assert.equal(decoded.effectiveProse.protocol, protocol);
     assert.equal(supportsAssistantPrefill(decoded.effectiveProse), false);

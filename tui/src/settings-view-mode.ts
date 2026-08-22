@@ -1,3 +1,4 @@
+import { WRITING_PROMPT_FIELD_DEFINITIONS } from "../../shared/settings-v5-writing.js";
 import { saveConfig, type SettingsViewMode } from "./config.js";
 import type { AppSource } from "./app.js";
 import type { RuntimeState, SettingsOverlayState, SettingsRowId } from "./state.js";
@@ -6,10 +7,13 @@ import type { RuntimeState, SettingsOverlayState, SettingsRowId } from "./state.
  *  listed here too, but the subscription visibility filter
  *  (settings-subscription.ts) still owns whether they actually render: a
  *  fixed subscription connection hides them in both modes, one visibility
- *  rule instead of two that could drift apart. */
+ *  rule instead of two that could drift apart. Writing rows come from the
+ *  field-definition table so simple/advanced visibility cannot drift. */
 const SETTINGS_SIMPLE_ROW_IDS: ReadonlySet<SettingsRowId> = new Set([
   "update-checks",
-  "system-prompt",
+  ...WRITING_PROMPT_FIELD_DEFINITIONS
+    .filter((entry) => entry.view === "simple")
+    .map((entry) => entry.row),
   "provider",
   "model",
   "context-window",

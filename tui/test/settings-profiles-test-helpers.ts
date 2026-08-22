@@ -4,9 +4,9 @@ import {
 } from "../../shared/settings-basic-draft.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
 import type {
-  SettingsDocumentV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 as SettingsDocumentV2 } from "../../shared/settings-v5-types.js";
 import { settingsTextDraftForDocument } from "../src/settings-text.js";
 import type { settingsHarness } from "./settings-test-harness.js";
 

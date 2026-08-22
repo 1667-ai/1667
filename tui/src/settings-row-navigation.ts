@@ -1,3 +1,4 @@
+import { WRITING_PROMPT_ROW_IDS } from "../../shared/settings-v5-writing.js";
 import {
   CONNECTION_TIMEOUT_ROWS,
   isConnectionTimeoutRow
@@ -21,7 +22,7 @@ export const SETTINGS_ROW_IDS = [
   "compose-focus",
   "word-wrap",
   "update-checks",
-  "system-prompt",
+  ...WRITING_PROMPT_ROW_IDS,
   "provider",
   "text-prompt-format",
   "split-think-tags",

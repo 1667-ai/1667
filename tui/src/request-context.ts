@@ -9,6 +9,7 @@ type RequestContextState = Pick<
   StoryScreenState,
   "payload" | "stream" | "focusIndex" | "mode" | "composer" | "retakePrompt"
   | "systemPrompt" | "assistantPrefill" | "continuationPromptLayout" | "request"
+  | "activeWriting"
   | "contextWindow" | "maxTokens" | "model"
 >;
 
@@ -35,6 +36,7 @@ export function nextRequestContext(
     : null;
   const base = {
     systemPrompt: state.systemPrompt,
+    defaultContinueDirection: state.activeWriting.defaultContinueDirection,
     instruction: composeRequest && !rewriteComposer ? state.composer.text : "",
     assistantPrefill: state.assistantPrefill,
     continuationPromptLayout: state.continuationPromptLayout,
@@ -86,6 +88,7 @@ export interface PromptProjectionIdentity {
   readonly streamText: string | null;
   readonly streamTargetId: string | null;
   readonly systemPrompt: string;
+  readonly defaultContinueDirection: string;
   readonly instruction: string;
   readonly assistantPrefill: boolean;
   readonly continuationPromptLayout: import("../../shared/continuation-prompt-optimization.js").ContinuationPromptLayout;
@@ -102,6 +105,7 @@ export function promptProjectionIdentity(
     streamText: state.stream?.text ?? null,
     streamTargetId: state.stream?.targetId ?? null,
     systemPrompt: context.systemPrompt,
+    defaultContinueDirection: context.defaultContinueDirection ?? "",
     instruction: context.instruction,
     assistantPrefill: context.assistantPrefill,
     continuationPromptLayout: context.continuationPromptLayout ?? "compatibility",
@@ -118,6 +122,7 @@ export function sameProjectionIdentity(
     && left.streamText === right.streamText
     && left.streamTargetId === right.streamTargetId
     && left.systemPrompt === right.systemPrompt
+    && left.defaultContinueDirection === right.defaultContinueDirection
     && left.instruction === right.instruction
     && left.assistantPrefill === right.assistantPrefill
     && left.continuationPromptLayout === right.continuationPromptLayout

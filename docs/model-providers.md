@@ -132,9 +132,9 @@ every droppable Fact.
 
 The context meter states how many Facts a request dropped, and why.
 
-Select the system prompt row to open the full-screen editor. This machine-wide
-value is the default Author Brief. A story that sets its own Author Brief uses
-that value instead.
+Select the **author brief** row to open the full-screen editor. This
+machine-wide value is the Default Author Brief. A story that sets its own
+Author Brief uses that value instead.
 
 The context meter shows the size of the next request. Its pulsing segment
 estimates response growth from recent provider text. The configured maximum
@@ -261,9 +261,10 @@ values.
 Each story can hold one Author Brief. Open the command palette with `Ctrl+P`
 or `:`. Select **Author brief**. This command has no direct key.
 
-A story Author Brief overrides the default Author Brief when you set it. The
-default Author Brief is the system prompt row in Settings. 1667 falls back to
-the default Author Brief when a story has none of its own.
+A story Author Brief overrides the Default Author Brief when you set it. The
+Default Author Brief is the **author brief** row in Settings. This row is the
+existing system prompt. 1667 uses this value. 1667 falls back to the Default
+Author Brief when a story has none of its own.
 
 1667 sends the resolved Author Brief with every continuation request, prompted
 retake, highlighted rewrite, and autoname request. The Author's Note applies to
@@ -272,13 +273,50 @@ fewer operations: only continuation and prompted retake requests.
 1667 does not save an Author Brief that has more than 65,536 Unicode scalar
 values.
 
+## Writing prompts
+
+Settings holds six machine-wide writing prompts:
+
+| Row | View | Effect |
+| --- | --- | --- |
+| Default Author Brief | Simple | Supplies the machine-wide Author Brief |
+| Default Continue direction | Simple | Replaces `Continue the story.` for a new empty Continue request |
+| Rewrite guidance | Advanced | Adds standing guidance to Rewrite requests |
+| Title guidance | Advanced | Adds standing guidance to autoname requests |
+| Summary guidance | Advanced | Adds standing guidance to summary-take and chapter-summary requests |
+| Aside guidance | Advanced | Adds standing guidance to Aside requests |
+
+Each row uses the full-screen editor. Press `Ctrl+S` to keep the row in the
+Settings draft. Press `s` in Settings to save the complete Settings document.
+
+An empty Default Author Brief omits the global brief. An empty Default
+Continue direction uses `Continue the story.`. An empty optional guidance row
+adds no request block.
+
+A writer can add guidance. A writer cannot replace a fixed operation contract.
+1667 still owns Continue and append contracts, Rewrite selection and boundary
+contracts, title output format and source quarantine, summary coverage rules
+and the completion marker, Aside canon and source rules, and
+provider-specific message folding.
+
+Title, summary, and Aside still use the Utility Generation Profile. They do
+not share one Utility prompt. Each operation has its own guidance row.
+
+These writing prompts are machine-wide Settings values. A Profile Export does
+not include them.
+
+The first successful Settings save publishes Settings schema 5. An older
+release refuses a schema 5 Settings document. Back up Settings before you try
+`0.10.2-rc.1`. An older release cannot open schema 5.
+
 ## Settings views
 
 Settings has two views: **Simple view** and **Advanced view**. Simple view
-is the default. Simple view shows the system prompt row, the provider row,
-the model row, the context size row, the base URL row, and the API key row.
-Advanced view shows every row. Every row this document names that is not in
-that list appears only in Advanced view.
+is the default. Simple view shows the Default Author Brief row, the Default
+Continue direction row, the provider row, the model row, the context size
+row, the base URL row, and the API key row. Advanced view shows every row.
+Every row this document names that is not in that list appears only in
+Advanced view.
 
 Press `,` to open Settings. Press `m` to switch between Simple view and
 Advanced view. 1667 remembers your choice for your next session.

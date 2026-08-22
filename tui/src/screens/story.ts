@@ -35,6 +35,7 @@ import { deriveStoryFrameLayout, type StoryFrameLayout } from "../story-frame-la
 import { createWrapCache, type ProseStyle, type WrapCache } from "../wrap.js";
 import { renderFactsRail } from "./story/facts-rail.js";
 import { renderFactEditorLayout } from "./story/fact-editor-layout.js";
+import { writingPromptEditorStatus } from "../settings-prompt-editor.js";
 import { spliceDraftImageRows } from "./story/draft-image-rows.js";
 import { draftImagesFor } from "../draft-image.js";
 import { dimPage, panelHorizontalGeometry, placePanel, raisedSegment } from "./overlay.js";
@@ -825,7 +826,7 @@ function renderInlineEditor(
     ? host.target.owner.conflict?.message
     : host.conflict?.message;
   const footerNotice = state.toast ?? editorConflict ?? null;
-  const status = authorNoteStatus(host, width);
+  const status = authorNoteStatus(host, width) ?? writingPromptEditorStatus(host, width);
   const layout = host.kind === "fact"
     ? renderFactEditorLayout(host, {
         width,

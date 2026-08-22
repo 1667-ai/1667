@@ -143,7 +143,7 @@ export async function askAside(
     }).join("\n\n");
 
   // utility → default fallback is owned by selectSettingsRoute.
-  const { settings, promptCache } = await settingsStore.loadGeneration("utility");
+  const { settings, promptCache, writing } = await settingsStore.loadGeneration("utility");
   if (signal.aborted) return null;
 
   const usableTokens = settings.contextWindow === null
@@ -158,7 +158,8 @@ export async function askAside(
       nodes: story.nodes,
       history: asideHistoryFromDocument(document),
       question,
-      usableTokens
+      usableTokens,
+      guidance: writing?.asideGuidance ?? ""
     });
   } catch (error) {
     if (error instanceof AsideContextAdmissionError) {

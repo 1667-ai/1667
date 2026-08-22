@@ -2,12 +2,13 @@ import type { GenerationSettings } from "../../shared/types.js";
 import { supportsAssistantPrefill } from "../../shared/continuation-plan.js";
 import type { ContinuationPromptLayout } from "../../shared/continuation-prompt-optimization.js";
 import type { ReasoningDisplayV2, SettingsView } from "../../shared/settings-v2-types.js";
+import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
 import type { StoryScreenState } from "./state.js";
 
 type GenerationRuntimeState = Pick<
   StoryScreenState,
   "model" | "contextWindow" | "maxTokens" | "systemPrompt" | "assistantPrefill" | "reasoning"
-    | "continuationPromptLayout"
+    | "continuationPromptLayout" | "activeWriting"
 >;
 
 interface GenerationSettingsSource {
@@ -30,7 +31,8 @@ export function deriveGenerationRuntime(
     systemPrompt: settings.systemPrompt,
     assistantPrefill: supportsAssistantPrefill(settings),
     reasoning,
-    continuationPromptLayout
+    continuationPromptLayout,
+    activeWriting: writingPromptSettingsFromAuthorBrief(settings.systemPrompt)
   };
 }
 
@@ -44,12 +46,15 @@ export function deriveContinuationRuntime(
   demo: boolean
 ): GenerationRuntimeState {
   const continuationPromptLayout = view.effectiveProseContinuationPromptLayout ?? "compatibility";
-  return deriveGenerationRuntime(
-    view.effectiveProse,
-    demo,
-    view.effectiveProseReasoning ?? "marker",
-    continuationPromptLayout
-  );
+  return {
+    ...deriveGenerationRuntime(
+      view.effectiveProse,
+      demo,
+      view.effectiveProseReasoning ?? "marker",
+      continuationPromptLayout
+    ),
+    activeWriting: view.activeWriting
+  };
 }
 
 /** What identifies the route a token count was taken against, so a count can

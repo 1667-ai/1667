@@ -15,7 +15,8 @@ import type {
 
 export {
   openSettingsPasteTarget,
-  openSystemPromptEditor
+  openSystemPromptEditor,
+  openWritingPromptEditor
 } from "./settings-prompt-editor.js";
 
 export function openPartEditor(state: RuntimeState, humanSibling: boolean): void {
