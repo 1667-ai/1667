@@ -140,9 +140,10 @@ nothing else connects the two. `DEMO_FONT` overrides the Berkeley Mono path.
 
 The GIF is served from 1667.ai rather than committed here. The README embeds an
 absolute URL because npmjs.com renders the same README for `@1667-ai/cli` and
-drops relative image paths. The name carries a revision, so a new recording is
-published as `demo-2.gif` and the README link moves: GitHub's camo proxy caches
-these images long enough that overwriting one in place does not reach readers.
+drops relative image paths. The name carries a revision. Publish each new
+recording with the next number, and move the README link. GitHub's camo proxy
+caches these images long enough that overwriting one in place does not reach
+readers.
 
 Publishing a new recording means copying the GIF into the homepage repository's
 `public/`, adding its `_headers` rule, deploying, then updating the README link
