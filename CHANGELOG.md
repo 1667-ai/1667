@@ -5,6 +5,20 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.2-rc.1 - 2026-08-22
+
+- **Settings now controls the guidance for each writing action.** The simple
+  view contains the Default Author Brief and Default Continue direction. The
+  advanced view also contains the Rewrite, Title, Summary, and Aside guidance.
+  Existing default values keep the previous model requests unchanged.
+
+- **A prompt opens in a full-screen editor.** Press Ctrl+S to keep an edited
+  prompt in the Settings draft. Save Settings to activate all draft changes.
+
+- **The first prompt save upgrades the Settings data.** An older 1667 release
+  refuses the new Settings schema. Use this beta only when that downgrade
+  limit is acceptable.
+
 ## 0.10.1 - 2026-08-21
 
 - **This release has no additional product changes.** It contains the same
