@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SettingsView } from "../../shared/settings-v2-types.js";
+import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
 import {
   effortRowHint,
   effortRowValue,
@@ -28,6 +29,7 @@ function readOnlyView(
     document: null,
     effective: source.settingsView.effective,
     effectiveProse: source.settingsView.effectiveProse,
+    activeWriting: writingPromptSettingsFromAuthorBrief(source.settingsView.effective.systemPrompt),
     lastActivationOutcome: null,
     ...overrides
   };

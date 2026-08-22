@@ -15,6 +15,11 @@ The story must contain prose. The naming request uses these items:
 - The active story line
 - Facts
 - The Author Brief
+- Title guidance, when that Settings value is not empty
+
+Autoname uses the Utility Generation Profile. Title guidance is separate from
+that profile. Empty Title guidance adds no request block. Title guidance
+cannot replace the title output format or the source quarantine.
 
 1667 limits story prose in the request to 24,000 characters. It keeps text from
 the start and the newest direction of the story. For a fork, it separates

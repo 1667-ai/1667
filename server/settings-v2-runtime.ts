@@ -13,6 +13,8 @@ import { projectEffectiveGeneration } from "./settings-v2-conversion.js";
 import type { SettingsRuntimeResolver } from "./settings-runtime-resolver.js";
 import { classifyHttpHost, SettingsFormatError } from "./settings-v2-scalars.js";
 import { continuationPromptLayoutForOptimization } from "../shared/continuation-prompt-optimization.js";
+import { writingPromptSettingsFromAuthorBrief } from "../shared/settings-v5-writing.js";
+import { convertSettingsDocumentV2ToV5 } from "./settings-v5-conversion.js";
 import {
   effectiveSettingsStateRevision,
   settingsStateRelation
@@ -44,7 +46,7 @@ export function settingsViewFromState(
     stateGeneration: state.stateGeneration,
     activeRevision: effectiveActiveSettingsRevision(state),
     pendingRevision,
-    document: shown,
+    document: convertSettingsDocumentV2ToV5(shown),
     effective: effective.settings,
     effectiveProse: effectiveProse.settings,
     // Read from `active`, never `shown`: `effectiveProse` above already
@@ -55,6 +57,7 @@ export function settingsViewFromState(
     effectiveProseContinuationPromptLayout: continuationPromptLayoutForOptimization(
       effectiveProse.route.profile.continuationPromptOptimization
     ),
+    activeWriting: writingPromptSettingsFromAuthorBrief(active.writing.defaultAuthorBrief),
     lastActivationOutcome: state.lastActivationOutcome
   };
 }
@@ -80,7 +83,7 @@ export function pendingSettingsDocument(state: SettingsStateV2): SettingsDocumen
 }
 
 export function credentialReferencesResolve(
-  document: SettingsDocumentV2,
+  document: { readonly connections: SettingsDocumentV2["connections"] },
   environment: NodeJS.ProcessEnv,
   storedSecretIds: ReadonlySet<string> = new Set()
 ): boolean {

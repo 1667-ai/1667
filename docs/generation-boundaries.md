@@ -9,6 +9,11 @@ read_when:
 
 # Generation boundaries
 
+Default Continue direction and Rewrite guidance add writer text. They do not
+replace the Continue, append, or Rewrite contracts. An empty Default Continue
+direction uses `Continue the story.` for a new empty Continue request. An
+empty Rewrite guidance adds no request block.
+
 Empty Continue is not a new user turn. On providers that support assistant
 prefill, the active passage remains the final assistant message so generation
 begins after its last character. Providers known to reject prefills receive a

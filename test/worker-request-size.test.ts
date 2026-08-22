@@ -9,6 +9,7 @@ import {
   PRE_ASIDE_WORKER_PROTOCOL_VERSION,
   PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION,
   PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION,
+  PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION,
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
   WORKER_PROTOCOL_VERSION
 } from "../shared/worker-protocol.js";
@@ -70,7 +71,10 @@ test("protocol-v10 mutation inputs survive the Aside protocol bump", () => {
   }, id);
 
   assert.equal(parsed.protocolVersion, PRE_ASIDE_WORKER_PROTOCOL_VERSION);
-  assert.equal(WORKER_PROTOCOL_VERSION, PRE_ASIDE_WORKER_PROTOCOL_VERSION + 1);
+  assert.equal(
+    WORKER_PROTOCOL_VERSION,
+    PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION + 1
+  );
 });
 
 test("worker import measures raw JSONL bytes rather than escaped protocol bytes", () => {

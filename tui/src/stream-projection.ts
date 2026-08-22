@@ -211,7 +211,9 @@ function takeProjection(payload: StoryPayload, stream: StreamView, text: string)
   // words as the trimmed take text and later prefixes can extend the tally.
   const presentedText = streamPresentedText(stream);
   const wordState = appendPresentedWordEffect(WORD_COUNT_START, stream, false);
-  const instruction = stream.instruction.trim() || DEFAULT_INSTRUCTION;
+  const instruction = stream.instruction.trim().length > 0
+    ? stream.instruction.trim()
+    : DEFAULT_INSTRUCTION;
   const node: StoryNode = {
     id: stream.targetId,
     parentId: stream.parentId,

@@ -5,7 +5,9 @@ import {
 import { hashCanonicalSettingsDocument } from "./settings-v2-hash.js";
 import { INITIAL_SETTINGS_DOCUMENT_V3_HASH } from "./settings-v3-initial-vectors.js";
 import {
+  settingsStateRelation,
   validateSettingsState,
+  type SettingsStateRelation,
   type SettingsStateSchema
 } from "./settings-state-validation.js";
 import { validateSettingsDocumentV3, type SettingsValidationOptions } from "./settings-v3-validation.js";
@@ -29,4 +31,10 @@ export function validateSettingsStateV3(
   options: SettingsValidationOptions = {}
 ): SettingsStateV3 {
   return validateSettingsState(value, SETTINGS_STATE_V3_SCHEMA, options);
+}
+
+export type SettingsStateRelationV3 = SettingsStateRelation;
+
+export function settingsStateRelationV3(state: SettingsStateV3): SettingsStateRelationV3 {
+  return settingsStateRelation(state);
 }

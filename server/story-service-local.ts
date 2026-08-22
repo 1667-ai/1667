@@ -3,7 +3,7 @@ import { activeLineFingerprintSource } from "../shared/story-text.js";
 import type { Story, StoryPayload } from "../shared/types.js";
 import { ServiceError } from "./errors.js";
 import { currentModel } from "./generation-http.js";
-import { DEFAULT_INSTRUCTION } from "./generation-prompts.js";
+import { generatedTakeInstruction } from "./generation-admission.js";
 import type { GenerationAdmissionRegistry } from "./generation-admission.js";
 import {
   generationRecordForHandoff,
@@ -301,7 +301,7 @@ export class StoryServiceLocal {
       const providedInstruction = body.instruction ?? "";
       const instruction = genId === null
         ? providedInstruction
-        : providedInstruction.trim() || DEFAULT_INSTRUCTION;
+        : generatedTakeInstruction(this.dependencies.generationAdmission, id, genId, providedInstruction);
       const model = genId === null
         ? "human"
         : this.dependencies.generationAdmission.modelFor(id, genId)

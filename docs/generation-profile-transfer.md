@@ -29,13 +29,30 @@ a Profile Export.
 Run `1667 profile export` to write a Profile Export in the project root. The
 export contains generation behavior and sampling settings. It does not contain
 a connection, a model identifier, credentials, headers, private endpoint data,
-or timeouts.
+or timeouts. It does not contain machine-wide writing prompts. Those values
+stay in Settings.
 
 A Profile Export also contains an enabled experimental continuation prompt
 layout. An export that contains this setting uses Profile Export version 2.
 An export with the default layout uses Profile Export version 1. Importing an
 enabled layout preserves the setting. A version 2 export must contain the
 enabled layout.
+
+Profile Export version 3 holds the independent schema-5 reasoning pair. A
+version 3 file requires both `effort` and `thinkingMode`. 1667 exports a
+`legacy` profile as version 1 or version 2 with the same bytes as before.
+1667 exports every `independent` profile as version 3. This includes
+`default`/`default`, because those scalars do not have legacy lowering
+semantics.
+
+When a version-1 or version-2 file supplies effort, 1667 imports it as one
+`legacy` reasoning value. When the file omits effort, 1667 omits reasoning
+from the transfer candidate. The destination reasoning value stays unchanged.
+1667 imports a version-3 pair as one `independent` reasoning value. Profile
+fitting applies or rejects the reasoning union as one value. Import does not
+change destination writing prompts.
+
+Keep Profile Export versions 1 and 2 closed. Do not change their bytes.
 
 1667 imports temperature, maximum output, top P, top K, min P, frequency
 penalty, presence penalty, and Mirostat. 1667 imports Mirostat as version 2

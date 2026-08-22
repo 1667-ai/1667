@@ -1,4 +1,5 @@
 import type {
+  ModelCapabilitiesV2,
   ModelCapabilitiesV3,
   ModelDiscoveryResultV2,
   ModelConnectionV2,
@@ -8,6 +9,7 @@ import type {
   SettingsProtocolV2,
   SettingsView
 } from "./settings-v2-types.js";
+import type { SettingsDocumentV5 } from "./settings-v5-types.js";
 import {
   isSubscriptionProtocolV2,
   subscriptionPresetForProtocolV2
@@ -28,12 +30,12 @@ import { withSupportedReasoningDisplays } from "./reasoning-display-capabilities
  * Apply the deliberately small Release A editor to the active default route.
  * IDs and advanced fields survive; the basic form changes only values it owns.
  */
-export function applyBasicSettingsDraft(
-  document: SettingsDocumentV2,
+export function applyBasicSettingsDraft<D extends SettingsDocumentV2 | SettingsDocumentV5>(
+  document: D,
   draft: GenerationSettings,
   profileId: string = document.routing.default,
   retainContextWindowOverride = false
-): SettingsDocumentV2 {
+): D {
   return applyBasicSettingsDocumentDraft(
     document,
     draft,
@@ -48,11 +50,11 @@ export function applyBasicSettingsDraft(
  * A probe can use the model that the server loaded.
  */
 export function applyBasicSettingsProbeDraft(
-  document: SettingsDocumentV2,
+  document: SettingsDocumentV2 | SettingsDocumentV5,
   draft: GenerationSettings,
   profileId: string = document.routing.default,
   retainContextWindowOverride = false
-): SettingsDocumentV2 {
+): SettingsDocumentV2 | SettingsDocumentV5 {
   return applyBasicSettingsDocumentDraft(
     document,
     draft,
@@ -67,14 +69,14 @@ type ModelIdentity = {
   readonly name: string;
 };
 
-function applyBasicSettingsDocumentDraft(
-  document: SettingsDocumentV2,
+function applyBasicSettingsDocumentDraft<D extends SettingsDocumentV2 | SettingsDocumentV5>(
+  document: D,
   draft: GenerationSettings,
   modelIdentityFor: (settings: GenerationSettings) => ModelIdentity,
   profileId: string,
   retainContextWindowOverride: boolean
-): SettingsDocumentV2 {
-  const route = resolveSettingsProfile(document, profileId);
+): D {
+  const route = resolveSettingsProfile(document as unknown as SettingsDocumentV2, profileId);
   const projected = basicSettingsFromDocument(document, profileId);
   const storedAuth = storedCredentialSecretId(route.connection.auth) !== null;
   const subscriptionProtocol = isSubscriptionProtocolV2(route.connection.protocol)
@@ -140,12 +142,11 @@ function applyBasicSettingsDocumentDraft(
           && normalizedDraft.contextWindow !== null
           ? { contextWindow: normalizedDraft.contextWindow }
           : {},
-        capabilities: isSubscriptionProtocolV2(protocol)
-          ? {
-              ...defaultModelCapabilities(normalizedDraft.provider),
-              reasoningEffort: "supported" as const
-            }
-          : defaultModelCapabilities(normalizedDraft.provider)
+        capabilities: capabilitiesForModelIdentityChange(
+          document,
+          normalizedDraft.provider,
+          isSubscriptionProtocolV2(protocol)
+        )
       }
     : {
         ...route.model,
@@ -179,8 +180,11 @@ function applyBasicSettingsDocumentDraft(
         maxOutputTokens: normalizedDraft.maxTokens
       }
     },
-    writing: { defaultAuthorBrief: normalizedDraft.systemPrompt }
-  });
+    writing: {
+      ...document.writing,
+      defaultAuthorBrief: normalizedDraft.systemPrompt
+    }
+  }) as D;
 }
 
 /** Persist metadata from the latest explicit discovery separately from a
@@ -242,6 +246,19 @@ export function defaultModelCapabilitiesForModelChangeV3(provider: Provider): Mo
   return defaultModelCapabilitiesV3(provider);
 }
 
+function capabilitiesForModelIdentityChange(
+  document: SettingsDocumentV2 | SettingsDocumentV5,
+  provider: Provider,
+  subscription: boolean
+): ModelCapabilitiesV2 | ModelCapabilitiesV3 {
+  const capabilities = document.schemaVersion >= 3
+    ? defaultModelCapabilitiesV3(provider)
+    : defaultModelCapabilities(provider);
+  return subscription
+    ? { ...capabilities, reasoningEffort: "supported" as const }
+    : capabilities;
+}
+
 export function settingsDocumentSupportsBasicEditor(document: SettingsDocumentV2): boolean {
   try {
     resolveSettingsProfile(document, document.routing.default);
@@ -253,10 +270,10 @@ export function settingsDocumentSupportsBasicEditor(document: SettingsDocumentV2
 
 /** Project the active default route back into the legacy/basic editor shape. */
 export function basicSettingsFromDocument(
-  document: SettingsDocumentV2,
+  document: SettingsDocumentV2 | SettingsDocumentV5,
   profileId: string = document.routing.default
 ): GenerationSettings {
-  const route = resolveSettingsProfile(document, profileId);
+  const route = resolveSettingsProfile(document as unknown as SettingsDocumentV2, profileId);
   const provider: Provider = route.connection.protocol === "dry-run"
     ? "dry-run"
     : route.connection.protocol === "anthropic-messages"

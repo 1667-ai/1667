@@ -2,6 +2,7 @@ import type {
   ContinuationPromptOptimizationV2
 } from "./continuation-prompt-optimization.js";
 import type { GenerationSettings } from "./types.js";
+import type { SettingsDocumentV5 } from "./settings-v5-types.js";
 
 export type {
   SettingsView,
@@ -392,22 +393,6 @@ export interface ModelDiscoveryResultV2 {
   readonly models: readonly DiscoveredModelV2[];
 }
 
-/** A probe may carry a validated draft document so connection policy is not
- * flattened out before the server constructs its provider runtime.
- *
- * `secrets` carries key material the editor holds but has not saved yet, so a
- * key can be tested the moment it is typed. The server resolves it in memory
- * for this one request and never writes it to the secret store: a probe proves
- * possession of the key, it does not activate a credential. */
-export interface ProviderProbeDocumentTargetV2 {
-  readonly kind: "settings-document";
-  readonly document: SettingsDocumentV2;
-  readonly purpose: SettingsRoutePurpose;
-  readonly secrets?: Readonly<Record<string, string>>;
-}
-
-export type ProviderProbeTarget = GenerationSettings | ProviderProbeDocumentTargetV2;
-
 export const SETTINGS_ACTIVATION_STATE_V2_VALUES = [
   "validating",
   "prepared",
@@ -477,7 +462,7 @@ export type SettingsTransactionPointerV2 =
 /** The field list for one settings-state aggregate, generic over its schema
  *  version and its document type. Each schema module supplies its own
  *  document type; none restates the envelope fields. */
-export interface SettingsStateEnvelope<V extends 2 | 3 | 4, D> {
+export interface SettingsStateEnvelope<V extends 2 | 3 | 4 | 5, D> {
   readonly schemaVersion: V;
   readonly stateGeneration: number;
   readonly settingsRevisionClock: number;
@@ -505,7 +490,7 @@ export interface SaveSettingsCommand {
   readonly transportOperationId: string;
   readonly mutationId: string;
   readonly expectedStateGeneration: number;
-  readonly document: SettingsDocumentV2;
+  readonly document: SettingsDocumentV5;
   /** Secret values are a write-only sidecar and never enter the settings document. */
   readonly connectionSecrets?: Readonly<Record<string, string | null>>;
 }

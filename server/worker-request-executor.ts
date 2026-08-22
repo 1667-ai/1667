@@ -1,5 +1,6 @@
 import {
   STREAM_METHODS,
+  PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION,
   isLocalDurabilityMutation,
   isMutatingWorkerMethod,
   isServiceOwnedSettingsMutation,
@@ -224,6 +225,16 @@ async function executeSettingsMutation(
   message: WorkerRequest,
   signal: AbortSignal
 ): Promise<unknown> {
+  if (
+    message.method === "saveSettings"
+    && message.protocolVersion === PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION
+  ) {
+    throw new ServiceError(
+      400,
+      "saveSettings requires worker protocol 12",
+      "invalid_request"
+    );
+  }
   const input = requireRecord(message.input, `${message.method} input`);
   const command = requireRecord(input.command, "command");
   return message.method === "saveSettings"

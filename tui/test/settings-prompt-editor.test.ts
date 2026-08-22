@@ -49,7 +49,7 @@ describe("full-screen Settings prompt editor", () => {
     source.api.getSettings = async () => source.settingsView;
     await openSettings(press);
 
-    await selectRow(press, state, "system-prompt");
+    await selectRow(press, state, "default-author-brief");
     await press(key("return"));
     expect(state.mode).toBe("EDITOR");
     expect(state.editor?.kind).toBe("document");
@@ -60,7 +60,7 @@ describe("full-screen Settings prompt editor", () => {
     expect(frameText(renderStoryScreen(
       state,
       { width: 80, height: 24, wrapCache: createWrapCache() }
-    ).lines)).toContain("┏━ system prompt");
+    ).lines)).toContain("┏━ Default Author Brief");
     setComposerText(
       edit.composer,
       edit.composer.text.replace("indentation", "structure")
@@ -77,7 +77,7 @@ describe("full-screen Settings prompt editor", () => {
   test("native paste opens the editor and keeps newlines", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
-    await selectRow(press, state, "system-prompt");
+    await selectRow(press, state, "default-author-brief");
 
     expect(openSettingsPasteTarget(state)).toBe("editor");
     expect(pasteInto(state, "First line\nSecond line")).toBeTrue();
@@ -90,7 +90,7 @@ describe("full-screen Settings prompt editor", () => {
   test("text insertion disarms Settings overwrite consent", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
-    await selectRow(press, state, "system-prompt");
+    await selectRow(press, state, "default-author-brief");
     await press(key("return"));
     if (state.settings === null) throw new Error("Settings did not open");
     state.settings.conflict = { message: "Settings changed", armed: true };
@@ -107,7 +107,7 @@ describe("full-screen Settings prompt editor", () => {
   test("commits a local draft while a generation streams", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
-    await selectRow(press, state, "system-prompt");
+    await selectRow(press, state, "default-author-brief");
     await press(key("return"));
     setComposerText(promptEdit(state).composer, "New local prompt");
     state.stream = {
@@ -125,13 +125,13 @@ describe("full-screen Settings prompt editor", () => {
     expect(state.mode).toBe("SETTINGS");
     expect(state.settings?.draft.generation.systemPrompt).toBe("New local prompt");
     expect(state.stream?.targetId).toBe("streaming-settings-save");
-    expect(state.toast).toBe("system prompt updated · s saves settings");
+    expect(state.toast).toBe("Default Author Brief updated · s saves settings");
   });
 
   test("keeps a wide-character caret visible in a short terminal", async () => {
     const { state, cache, press } = settingsHarness();
     await openSettings(press);
-    await selectRow(press, state, "system-prompt");
+    await selectRow(press, state, "default-author-brief");
     await press(key("return"));
     setComposerText(promptEdit(state).composer, `${"界".repeat(40)}END`);
 
@@ -140,16 +140,16 @@ describe("full-screen Settings prompt editor", () => {
       { width: 60, height: 20, wrapCache: cache }
     ).lines);
 
-    expect(rendered).toContain("┏━ system prompt");
+    expect(rendered).toContain("┏━ Default Author Brief");
     expect(rendered).toContain("END");
-    expect(rendered).not.toContain("▸ system prompt");
+    expect(rendered).not.toContain("▸ Default Author Brief");
 
     for (let height = 10; height <= 14; height += 1) {
       rendered = frameText(renderStoryScreen(
         state,
         { width: 60, height, wrapCache: cache }
       ).lines);
-      expect(rendered).toContain("┏━ system prompt");
+      expect(rendered).toContain("┏━ Default Author Brief");
       expect(rendered).toContain("END");
     }
   });
@@ -157,7 +157,7 @@ describe("full-screen Settings prompt editor", () => {
   test("aligns a caret and native selection after a preserved tab", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
-    await selectRow(press, state, "system-prompt");
+    await selectRow(press, state, "default-author-brief");
     await press(key("return"));
     const edit = promptEdit(state);
     setComposerText(edit.composer, "a\tb");
@@ -197,7 +197,7 @@ describe("full-screen Settings prompt editor", () => {
   test("uses the full terminal for a short prompt", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
-    await selectRow(press, state, "system-prompt");
+    await selectRow(press, state, "default-author-brief");
     await press(key("return"));
 
     const frame = renderStoryScreen(
@@ -206,7 +206,7 @@ describe("full-screen Settings prompt editor", () => {
     );
 
     expect(frame.lines).toHaveLength(20);
-    expect(frameText(frame.lines)).toContain("┏━ system prompt");
+    expect(frameText(frame.lines)).toContain("┏━ Default Author Brief");
     expect(frameText(frame.lines)).toContain("ctrl+s keep draft");
   });
 
@@ -219,7 +219,7 @@ describe("full-screen Settings prompt editor", () => {
       return saveSettings(command);
     };
     await openSettings(press);
-    await selectRow(press, state, "system-prompt");
+    await selectRow(press, state, "default-author-brief");
     await press(key("return"));
     await press(key("N"));
 
@@ -251,7 +251,7 @@ describe("full-screen Settings prompt editor", () => {
   test("adopts successive clean prompt refreshes without a false conflict", async () => {
     const { source, state, press } = settingsHarness();
     await openSettings(press);
-    await selectRow(press, state, "system-prompt");
+    await selectRow(press, state, "default-author-brief");
     await press(key("return"));
 
     for (const systemPrompt of ["Remote prompt B", "Remote prompt C"]) {
@@ -276,7 +276,7 @@ describe("full-screen Settings prompt editor", () => {
   test("converges a prompt while the same refresh changes a sibling setting", async () => {
     const { source, state, press } = settingsHarness();
     await openSettings(press);
-    await selectRow(press, state, "system-prompt");
+    await selectRow(press, state, "default-author-brief");
     await press(key("return"));
     setComposerText(promptEdit(state).composer, "Remote prompt B");
 
@@ -323,7 +323,7 @@ describe("full-screen Settings prompt editor", () => {
   test("treats restoring the original prompt after refresh as an overwrite", async () => {
     const { source, state, press } = settingsHarness();
     await openSettings(press);
-    await selectRow(press, state, "system-prompt");
+    await selectRow(press, state, "default-author-brief");
     await press(key("return"));
     const original = promptEdit(state).initial;
     await press(key("N"));
@@ -365,7 +365,7 @@ describe("full-screen Settings prompt editor", () => {
 
     const saving = press(key("s"));
     await entered.promise;
-    await selectRow(press, state, "system-prompt");
+    await selectRow(press, state, "default-author-brief");
     await press(key("return"));
     await press(key("N"));
     gate.resolve();

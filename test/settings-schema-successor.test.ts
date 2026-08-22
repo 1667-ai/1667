@@ -33,7 +33,6 @@ import {
   MUTATION_A,
   MUTATION_B,
   credentialedDocument,
-  hasServiceCode,
   initializedFormat2Directory,
   pauseNextFileRead,
   saveCommand,
@@ -91,11 +90,8 @@ async function writeSuccessorSettingsState(dataDir: string, document: SettingsDo
  *  (`pendingRevision: null`), and `validateTransactionBinding`
  *  (server/settings-state-validation.ts) does not inspect a clean state's
  *  pointer contents beyond its shape, so this needs no matching ledger
- *  receipt to pass validation. A store only ever READS a schema-3 state
- *  (`requireMutableSettingsStateSlot`, server/settings-state-slot.ts, refuses
- *  every mutation against one, unconditionally), so it never reaches
- *  `recoverReceiptTransaction` and never needs a matching receipt to open
- *  it. */
+ *  receipt to pass validation. Plain reads leave the successor state alone;
+ *  clean and staged states can upgrade on their first save. */
 function settledSuccessorSettingsState(document: SettingsDocumentV3): SettingsStateV3 {
   return parseSettingsStateV3({
     schemaVersion: 3,
@@ -169,13 +165,10 @@ test("a schema-3 settings state opens and every setting reads correctly", async 
     false,
     "a successor-owned state cannot authorize the subscription draft default"
   );
-  assert.equal(view.document?.schemaVersion, 2, "the store presents a schema-2 read-only view");
+  assert.equal(view.document?.schemaVersion, 5, "this release exposes a schema-5 working document");
   const capabilities = view.document?.models["builtin:dry-run"]?.capabilities;
   assert.equal(capabilities?.temperature, "supported");
-  assert.ok(
-    capabilities !== undefined && !("imageInput" in capabilities),
-    "the successor-only field never reaches a schema-2 read-only view"
-  );
+  assert.equal(capabilities?.imageInput, "unknown");
   assert.deepEqual(
     view.document?.connections["builtin:dry-run"]?.auth,
     { type: "bearer-env", env: "IMAGE_INPUT_SUCCESSOR_READ_ENV" }
@@ -188,7 +181,7 @@ test("a schema-3 settings state opens and every setting reads correctly", async 
   assert.equal(effective.apiKeyEnv, "IMAGE_INPUT_SUCCESSOR_READ_ENV");
 });
 
-test("every mutation against a schema-3 state refuses unconditionally and leaves the file byte identical", async (t) => {
+test("a clean schema-3 state upgrades on its first save", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-settings-successor-refuse-");
   await writeSuccessorSettingsState(
     dataDir,
@@ -200,21 +193,12 @@ test("every mutation against a schema-3 state refuses unconditionally and leaves
   await store.init();
   assert.equal(await sha256(statePath(dataDir)), before, "init() never writes for a schema-3 authority it cannot own");
 
-  await assert.rejects(
-    store.save(saveCommand(MUTATION_B, 2, writingDocument("Blocked by the successor schema."))),
-    hasServiceCode("settings_requires_successor")
-  );
-  assert.equal(await sha256(statePath(dataDir)), before, "a refused save leaves the file untouched");
-
-  await assert.rejects(
-    store.discardPending({
-      transportOperationId: "transport:discard",
-      mutationId: MUTATION_B,
-      expectedStateGeneration: 2
-    }),
-    hasServiceCode("settings_requires_successor")
-  );
-  assert.equal(await sha256(statePath(dataDir)), before, "a refused discard leaves the file untouched");
+  const view = await store.loadView();
+  assert.ok(view.document);
+  await store.save(saveCommand(MUTATION_B, view.stateGeneration!, writingDocument("Converted by schema 5.")));
+  const published = JSON.parse(await readFile(statePath(dataDir), "utf8")) as { schemaVersion: number };
+  assert.equal(published.schemaVersion, 5);
+  assert.notEqual(await sha256(statePath(dataDir)), before);
 });
 
 /**
@@ -235,8 +219,8 @@ test("an ordinary save always stays schema 2, and a predecessor mutates it too",
   const afterWrite = await readFile(statePath(dataDir));
   assert.equal(
     (JSON.parse(afterWrite.toString("utf8")) as { schemaVersion: unknown }).schemaVersion,
-    2,
-    "an ordinary save never upgrades a document with nothing to gain from schema 3"
+    5,
+    "the first successful Settings save publishes schema 5"
   );
 
   // A fresh store over the exact same directory: an ordinary genuine
@@ -268,15 +252,11 @@ test("an ordinary save always stays schema 2, and a predecessor mutates it too",
  * which re-validates the downgraded documents map and throws on the two
  * byte-identical revisions.
  *
- * This release's settings writer never produces schema 3, and there is no
- * activation switch left to reconsider that:
- * `requireMutableSettingsStateSlot` (server/settings-state-slot.ts) refuses
- * a schema-3 slot unconditionally, the same way a genuine predecessor
- * always has. This test builds exactly the crashing pair and proves
- * `init()` opens the directory without writing anything and every mutation
- * is still refused.
+ * The write admission helper runs only after save-time recovery. This test
+ * builds exactly the crashing pair and proves `init()` opens the directory
+ * without writing anything.
  */
-test("a rolled-back writer opens a schema-3 directory whose candidate revision differs from active only by a capability, and still refuses to mutate it", async (t) => {
+test("a rolled-back writer recovers a capability-only schema-3 candidate before upgrade", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-settings-successor-rollback-pair-");
   const modelId = "builtin:dry-run";
   const active = convertSettingsDocumentV2ToV3(INITIAL_SETTINGS_DOCUMENT_V2);
@@ -313,24 +293,11 @@ test("a rolled-back writer opens a schema-3 directory whose candidate revision d
     "init() opens the directory without writing anything for a schema-3 authority it does not own"
   );
 
-  await assert.rejects(
-    store.save(saveCommand(MUTATION_B, 2, writingDocument("Must never reach disk."))),
-    hasServiceCode("settings_requires_successor")
-  );
-  assert.equal(await sha256(statePath(dataDir)), before, "a refused save leaves the file untouched");
-
-  await assert.rejects(
-    store.discardPending({
-      transportOperationId: "transport:discard",
-      mutationId: MUTATION_B,
-      expectedStateGeneration: 2
-    }),
-    hasServiceCode("settings_requires_successor")
-  );
-  assert.equal(await sha256(statePath(dataDir)), before, "a refused discard leaves the file untouched");
+  await store.save(saveCommand(MUTATION_B, 2, writingDocument("Recovery clears the capability-only candidate.")));
+  assert.notEqual(await sha256(statePath(dataDir)), before, "the first save recovers and upgrades the source");
 });
 
-test("a schema-2 directory still reads and saves exactly as before", async (t) => {
+test("a schema-2 directory publishes schema 5 on its first save", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-settings-successor-v2-unaffected-");
   const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
   await store.init();
@@ -340,7 +307,7 @@ test("a schema-2 directory still reads and saves exactly as before", async (t) =
   assert.equal((await store.loadView()).effective.systemPrompt, "Still schema 2.");
 
   const raw = JSON.parse(await readFile(statePath(dataDir), "utf8")) as { schemaVersion: unknown };
-  assert.equal(raw.schemaVersion, 2);
+  assert.equal(raw.schemaVersion, 5);
 });
 
 /**
@@ -351,19 +318,18 @@ test("a schema-2 directory still reads and saves exactly as before", async (t) =
  * decision. Two consecutive saves prove every write stays schema 2 under
  * repetition, not only once.
  */
-test("repeated ordinary saves never drift into schema 3", async (t) => {
+test("repeated ordinary saves remain schema 5", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-settings-successor-write-repeated-");
   const store = new SettingsV2Store(dataDir, { now: () => FIXED_TIME });
   await store.init();
   await store.save(saveCommand(MUTATION_A, 1, writingDocument("First write.")));
   const firstRaw = await readRawState(dataDir);
-  assert.equal(firstRaw.schemaVersion, 2, "an ordinary save never upgrades a document with nothing to gain from schema 3");
+  assert.equal(firstRaw.schemaVersion, 5, "the first successful save publishes schema 5");
 
-  // A second save against the same directory, no restart: still schema 2,
-  // because nothing about this document ever needed schema 3.
+  // A second save against the same directory, no restart: still schema 5.
   await store.save(saveCommand(MUTATION_B, 2, writingDocument("Second write, still nothing to gain.")));
   const secondRaw = await readRawState(dataDir);
-  assert.equal(secondRaw.schemaVersion, 2);
+  assert.equal(secondRaw.schemaVersion, 5);
   assert.equal(
     (await store.loadView()).effective.systemPrompt,
     "Second write, still nothing to gain."

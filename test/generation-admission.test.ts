@@ -205,6 +205,17 @@ test("fixed-context admission checks a note-only prompt and names its owner", ()
   assert.doesNotThrow(() => assertFixedContextFits(settings, [], null, []));
 });
 
+test("fixed-context admission measures guidance with no Facts or Author's Note", () => {
+  const settings = smallWindowSettings();
+  assert.throws(
+    () => assertFixedContextFits(settings, [], null, ["x".repeat(400)]),
+    (error) => error instanceof ServiceError
+      && error.status === 400
+      && error.message.includes("request prompt")
+      && error.message.includes("operation guidance")
+  );
+});
+
 test("fixed-context admission names the priority-marking remedy when nothing was droppable at all", () => {
   // Review finding E: a default "always"/"normal" Fact is never droppable, so
   // a story of default Facts has zero droppable Facts and the shed loop never

@@ -161,12 +161,12 @@ function applyCandidate(
   const document = overlay.draft.document!;
   const sourceId = overlay.draft.selectedProfileId!;
   const cursorRow = settingsCursorRowIdentity(overlay);
-  const fitted = applyProfileTransfer(document, sourceId, candidate);
+  const fitted = applyProfileTransfer(document as never, sourceId, candidate);
   if ("error" in fitted) { prompt.error = fitted.error; return; }
   cloneSettingsProfileDraft(
     overlay,
     settingsTextDraftForDocument(
-      fitted.document,
+      fitted.document as never,
       fitted.profileId
     ),
     sourceId

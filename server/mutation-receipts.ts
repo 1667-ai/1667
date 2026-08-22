@@ -212,6 +212,9 @@ export class MutationReceiptStore {
             .digest("hex");
           const existing = receipt.context?.[namespace];
           if (existing !== undefined && existing !== fingerprint) {
+            if (receipt.state === "provider_started") {
+              throw providerRecoveryRequired(mutationId);
+            }
             throw new ServiceError(
               409,
               "The generation context changed before recovery; the retained request was not sent.",

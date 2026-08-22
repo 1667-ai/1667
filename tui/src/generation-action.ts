@@ -157,7 +157,13 @@ export async function generate(
     || (active.stopInteractionVersion !== null
       && state.interactionVersion === active.stopInteractionVersion);
   const focusPart = rowPart(createStoryViewModel(state.payload), state.focusIndex);
-  const intent = continuationIntent(state.payload, focusPart?.id ?? null, instruction, regenerateNode);
+  const intent = continuationIntent(
+    state.payload,
+    focusPart?.id ?? null,
+    instruction,
+    regenerateNode,
+    state.activeWriting.defaultContinueDirection
+  );
   const path = state.payload.path;
   const leaf = intent.leaf;
   const fromSeam = intent.fromSeam;
@@ -215,7 +221,7 @@ export async function generate(
     append,
     startedAt: new Date().toISOString(),
     composerClaimEpoch,
-    instruction,
+    instruction: append ? instruction : intent.instruction,
     ...emptyStreamText(),
     genId,
     ...(pendingDraft === null ? {} : { pendingDraft }),

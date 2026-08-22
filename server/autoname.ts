@@ -2,6 +2,7 @@ import type { PromptPlan, PromptTurn } from "../shared/prompt-plan.js";
 import type { Story, StoryNode } from "../shared/types.js";
 import { activePath } from "../shared/story-tree.js";
 import { factsSystemMessage } from "../shared/fact-selection.js";
+import { operationGuidanceTurns } from "../shared/writing-prompt-runtime.js";
 
 export const MAX_STORY_CONTEXT_CHARS = 24_000;
 const MAX_AUTHOR_BRIEF_CHARS = 2_000;
@@ -32,7 +33,8 @@ export function autonamePrompt(
   // Facts ride in their canonical system role, like every other model
   // operation — inside the user message they would sit outside the
   // story-data quarantine and read as instructions.
-  facts: string | null = factsSystemMessage(story)
+  facts: string | null = factsSystemMessage(story),
+  guidance = ""
 ): AutonamePrompt {
   const brief = excerpt(authorBrief.trim(), MAX_AUTHOR_BRIEF_CHARS);
   const storyBudget = Math.max(1_000, promptCharBudget);
@@ -69,6 +71,7 @@ export function autonamePrompt(
         boundaryAfter: "candidate" as const
       }]
     }]),
+    ...operationGuidanceTurns(guidance),
     {
       role: "system",
       blocks: [{

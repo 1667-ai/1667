@@ -9,6 +9,7 @@ import test from "node:test";
 import { applyBasicSettingsDraft } from "../shared/settings-basic-draft.js";
 import { applySamplingSettings } from "../shared/sampling-capabilities.js";
 import { EMPTY_SAMPLING_V2, type SamplingSettingsV2 } from "../shared/settings-v2-types.js";
+import { providerProbeRouteFromDocument } from "../shared/provider-probe-route-v1.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { ServiceError } from "../server/errors.js";
 import { ownedLoopbackHttpSupported } from "../server/provider-fetch.js";
@@ -353,7 +354,7 @@ test("resolveSamplingBias resolves llama.cpp phrase bias when the routed model n
   };
 
   const result = await service.resolveSamplingBias({
-    settings: { kind: "settings-document", document, purpose: "default" },
+    settings: providerProbeRouteFromDocument(document),
     logitBias: {},
     phraseBias: [{ phrase: "griffin", weight: -3 }],
     bannedStrings: []
@@ -398,7 +399,7 @@ test("resolveSamplingBias resolves KoboldCpp phrase bias through the tokencount 
   const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
 
   const result = await service.resolveSamplingBias({
-    settings: { kind: "settings-document", document, purpose: "default" },
+    settings: providerProbeRouteFromDocument(document),
     logitBias: {},
     phraseBias: [{ phrase: "ember", weight: -3 }],
     bannedStrings: ["a phrase with several words"]
@@ -482,7 +483,7 @@ test("resolveSamplingBias strips a KoboldCpp build's calibrated BOS prefix so a 
   const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
 
   const result = await service.resolveSamplingBias({
-    settings: { kind: "settings-document", document, purpose: "default" },
+    settings: providerProbeRouteFromDocument(document),
     logitBias: {},
     phraseBias: [
       { phrase: "ember", weight: -3 },
@@ -537,7 +538,7 @@ test("resolveSamplingBias rejects a KoboldCpp phrase whose stripped IDs are empt
   const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
 
   const result = await service.resolveSamplingBias({
-    settings: { kind: "settings-document", document, purpose: "default" },
+    settings: providerProbeRouteFromDocument(document),
     logitBias: {},
     phraseBias: [{ phrase: "ghost", weight: 1 }],
     bannedStrings: []
@@ -578,7 +579,7 @@ test("resolveSamplingBias reports tokenizer-unavailable when a KoboldCpp phrase'
   const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
 
   const result = await service.resolveSamplingBias({
-    settings: { kind: "settings-document", document, purpose: "default" },
+    settings: providerProbeRouteFromDocument(document),
     logitBias: {},
     phraseBias: [{ phrase: "ember", weight: -3 }],
     bannedStrings: []
@@ -604,7 +605,7 @@ test("resolveSamplingBias reports the KoboldCpp tokenizer as unavailable when th
   const document = documentFor("https://provider.example", "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
 
   const result = await service.resolveSamplingBias({
-    settings: { kind: "settings-document", document, purpose: "default" },
+    settings: providerProbeRouteFromDocument(document),
     logitBias: {},
     phraseBias: [{ phrase: "ember", weight: -3 }],
     bannedStrings: []
@@ -658,7 +659,7 @@ test("resolveSamplingBias blocks (via the phraseBias row) a KoboldCpp phrase bia
   const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
 
   const result = await service.resolveSamplingBias({
-    settings: { kind: "settings-document", document, purpose: "default" },
+    settings: providerProbeRouteFromDocument(document),
     logitBias: {},
     // Profile-scoped contradiction: boosts and bans "ember" together.
     phraseBias: [{ phrase: "ember", weight: 5 }],
@@ -717,7 +718,7 @@ test("resolveSamplingBias blocks (via the phraseBias row) a phrase bias that con
   const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
 
   const result = await service.resolveSamplingBias({
-    settings: { kind: "settings-document", document, purpose: "default" },
+    settings: providerProbeRouteFromDocument(document),
     logitBias: {},
     phraseBias: [{ phrase: "ember", weight: 5 }],
     bannedStrings: ["Ember"]
@@ -757,7 +758,7 @@ test("resolveSamplingBias overrides (not blocks) a KoboldCpp phrase bias when a 
   const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
 
   const result = await service.resolveSamplingBias({
-    settings: { kind: "settings-document", document, purpose: "default" },
+    settings: providerProbeRouteFromDocument(document),
     logitBias: {},
     phraseBias: [{ phrase: "ember", weight: 5 }],
     bannedStrings: [],
@@ -803,7 +804,7 @@ test("resolveSamplingBias overrides (not blocks) a KoboldCpp banned string when 
   const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
 
   const result = await service.resolveSamplingBias({
-    settings: { kind: "settings-document", document, purpose: "default" },
+    settings: providerProbeRouteFromDocument(document),
     logitBias: {},
     phraseBias: [],
     bannedStrings: ["ember"],
@@ -857,7 +858,7 @@ test("resolveSamplingBias keeps a story phrase bias's own tokens in logit_bias e
   const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
 
   const result = await service.resolveSamplingBias({
-    settings: { kind: "settings-document", document, purpose: "default" },
+    settings: providerProbeRouteFromDocument(document),
     logitBias: {},
     phraseBias: [{ phrase: "ember", weight: 5 }],
     bannedStrings: [],
@@ -915,7 +916,7 @@ test("resolveSamplingBias keeps a phrase bias's lowercase tokens when only its c
   const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
 
   const result = await service.resolveSamplingBias({
-    settings: { kind: "settings-document", document, purpose: "default" },
+    settings: providerProbeRouteFromDocument(document),
     logitBias: {},
     phraseBias: [{ phrase: "ember", weight: 5 }],
     bannedStrings: [],
@@ -984,7 +985,7 @@ test("resolveSamplingBias rejects a KoboldCpp phrase spelling special-token synt
   const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
 
   const result = await service.resolveSamplingBias({
-    settings: { kind: "settings-document", document, purpose: "default" },
+    settings: providerProbeRouteFromDocument(document),
     logitBias: {},
     phraseBias: [
       { phrase: "<|eot_id|>", weight: -10 },
@@ -1062,7 +1063,7 @@ test("resolveSamplingBias rejects Gemma's end-of-turn marker and the rest of the
   const guardedPhrases = ["<end_of_turn>", "<unk>", "<eos>", "<extra_id_0>", "<0x0A>"];
   const unaffectedPhrases = ["a < b and c > d", "[note]", "x<y|z>w"];
   const result = await service.resolveSamplingBias({
-    settings: { kind: "settings-document", document, purpose: "default" },
+    settings: providerProbeRouteFromDocument(document),
     logitBias: {},
     phraseBias: [...guardedPhrases, ...unaffectedPhrases].map((phrase) => ({ phrase, weight: 1 })),
     bannedStrings: []

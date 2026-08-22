@@ -6,6 +6,7 @@ import type {
   SettingsPresetV2,
   SettingsRoutePurpose
 } from "../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 } from "../shared/settings-v5-types.js";
 import { isSubscriptionProtocolV2 } from "../shared/settings-v2-types.js";
 import {
   clampMaxOutputTokensToModel,
@@ -173,14 +174,18 @@ export function effectivePromptCacheContext(
 /** Compatibility editor for the existing simple GenerationSettings UI. It
  * updates only the selected default connection/model/profile and writing brief,
  * preserving IDs, routing, unselected records, discovery, effort, and policy. */
-export function applyEffectiveGenerationSettings(
-  value: SettingsDocumentV2,
+export function applyEffectiveGenerationSettings<D extends SettingsDocumentV2 | SettingsDocumentV5>(
+  value: D,
   generationValue: GenerationSettings
-): SettingsDocumentV2 {
-  const document = parseSettingsDocumentV2(value);
+): D {
   const { allowInsecureHttp: _allowInsecureHttp, ...legacyValue } = generationValue;
   const settings = parseGenerationSettingsV1(legacyValue);
-  return parseSettingsDocumentV2(applyBasicSettingsDraft(document, settings));
+  if (value.schemaVersion === 5) {
+    return applyBasicSettingsDraft(value, settings);
+  }
+  return parseSettingsDocumentV2(
+    applyBasicSettingsDraft(parseSettingsDocumentV2(value), settings)
+  ) as D;
 }
 
 export function inferSettingsPresetV2(provider: Provider, baseUrl: string): SettingsPresetV2 {

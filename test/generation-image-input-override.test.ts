@@ -149,7 +149,10 @@ test("a stored 'supported' override with a token ceiling authorizes and reaches 
     temperature: null,
     maxTokens: 64,
     systemPrompt: "Write coherent prose.",
-    contextWindow: 4_096
+    // The fixed request guidance is just above a 4K context once the image
+    // admission path includes its reserved input budget. Keep this fixture's
+    // context large enough to exercise authorization and provider dispatch.
+    contextWindow: 8_192
   };
   const settingsStore = fakeSettingsStore(
     settings,

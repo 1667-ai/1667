@@ -107,11 +107,15 @@ export function reasoningDisplayAvailabilityForRoute(
  *  then be a document `parseProfiles` refuses, from a row that is no longer
  *  on screen to correct it. Absence is the safe landing: it means the default
  *  fold state, exactly as for a document saved before the field existed. */
-export function withSupportedReasoningDisplays(
-  document: SettingsDocumentV2
-): SettingsDocumentV2 {
+export function withSupportedReasoningDisplays<TDocument extends SettingsDocumentV2 | {
+  readonly profiles: Readonly<Record<string, { readonly modelId: string; readonly reasoning?: ReasoningDisplayV2 }>>;
+  readonly models: Readonly<Record<string, { readonly connectionId: string; readonly capabilities: Pick<ModelCapabilitiesV2, "reasoningContent"> }>>;
+  readonly connections: Readonly<Record<string, ModelConnectionV2>>;
+}>(
+  document: TDocument
+): TDocument {
   let changed = false;
-  const profiles: Record<string, GenerationProfileV2> = {};
+  const profiles: Record<string, TDocument["profiles"][string]> = {} as Record<string, TDocument["profiles"][string]>;
   for (const [id, profile] of Object.entries(document.profiles)) {
     const model = document.models[profile.modelId];
     const connection = model === undefined
@@ -125,12 +129,12 @@ export function withSupportedReasoningDisplays(
         reasoningContent: effectiveReasoningContent(connection, model.capabilities)
       }).includes(profile.reasoning)
     ) {
-      profiles[id] = profile;
+      profiles[id] = profile as TDocument["profiles"][string];
       continue;
     }
     const { reasoning: _unsupported, ...rest } = profile;
-    profiles[id] = rest;
+    profiles[id] = rest as TDocument["profiles"][string];
     changed = true;
   }
-  return changed ? { ...document, profiles } : document;
+  return changed ? { ...document, profiles } as TDocument : document;
 }

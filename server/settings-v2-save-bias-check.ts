@@ -2,6 +2,7 @@ import {
   SETTINGS_ROUTE_PURPOSE_VALUES,
   type SettingsDocumentV2
 } from "../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 } from "../shared/settings-v5-types.js";
 import { selectSettingsRoute } from "../shared/settings-route.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { ProviderError } from "./errors.js";
@@ -58,7 +59,7 @@ export const SAMPLING_BIAS_SAVE_PROBE_DEADLINE_MS = 5_000;
  * check resolves credentials exactly like the rest of the save path does.
  */
 export async function assertSavedSamplingBiasResolves(
-  document: SettingsDocumentV2,
+  document: SettingsDocumentV2 | SettingsDocumentV5,
   runtimeResolver: SettingsRuntimeResolver,
   signal?: AbortSignal
 ): Promise<void> {
@@ -66,6 +67,36 @@ export async function assertSavedSamplingBiasResolves(
   const probeSignal = signal === undefined ? deadline : AbortSignal.any([signal, deadline]);
   const resolvedProfileIds = new Set<string>();
   for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {
+    if (document.schemaVersion === 5) {
+      const route = selectSettingsRoute(document, purpose);
+      if (route.profile.sampling === undefined || resolvedProfileIds.has(route.profileId)) continue;
+      resolvedProfileIds.add(route.profileId);
+      let settings: GenerationSettings;
+      try {
+        settings = runtimeResolver.resolveV5({ document, purpose }).settings;
+      } catch {
+        continue;
+      }
+      let resolution: Awaited<ReturnType<typeof resolveSamplingBiasForSettings>>;
+      try {
+        resolution = await resolveSamplingBiasForSettings(route.profile.sampling, settings, { signal: probeSignal });
+      } catch (error) {
+        if (!isFailOpenSamplingProbeError(error, probeSignal)) throw error;
+        continue;
+      }
+      try {
+        validateSamplingRoute(
+          route.profileId,
+          route.profile as never,
+          route.model as never,
+          route.connection,
+          resolution
+        );
+      } catch (error) {
+        throw invalidSettingsMutation(error);
+      }
+      continue;
+    }
     const route = selectSettingsRoute(document, purpose);
     if (route.profile.sampling === undefined || resolvedProfileIds.has(route.profileId)) continue;
     resolvedProfileIds.add(route.profileId);

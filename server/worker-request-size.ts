@@ -3,10 +3,15 @@ import {
   MAX_JSON_BODY_BYTES,
   MAX_STORED_TITLE_CHARS
 } from "../shared/types.js";
+import {
+  MAX_PROVIDER_PROBE_REQUEST_BYTES,
+  MAX_SETTINGS_SAVE_REQUEST_BYTES
+} from "../shared/settings-v5-limits.js";
 import { MAX_SOURCE_IMAGE_BYTES } from "../shared/image-attachment.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
 import {
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
+  PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION,
   isCurrentWorkerInputProtocolVersion,
   messageByteLength,
   type WorkerMethod
@@ -64,11 +69,29 @@ export function validateWorkerRequestSize(
     return;
   }
 
+  if (
+    method === "saveSettings"
+    && protocolVersion === PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION
+  ) {
+    throw new ServiceError(
+      400,
+      "saveSettings requires worker protocol 12",
+      "invalid_request"
+    );
+  }
   const body = logicalRequestBody(method, input, protocolVersion);
   if (body === undefined) return;
   const size = messageByteLength(body);
   if (size === null) throw new ServiceError(400, "Worker request body must be serializable");
-  if (size > MAX_JSON_BODY_BYTES) throw new ServiceError(413, "Request body too large");
+  const limit = method === "saveSettings"
+    ? MAX_SETTINGS_SAVE_REQUEST_BYTES
+    : method === "checkModelServer"
+      || method === "probeContextWindow"
+      || method === "discoverModels"
+      || method === "resolveSamplingBias"
+      ? MAX_PROVIDER_PROBE_REQUEST_BYTES
+      : MAX_JSON_BODY_BYTES;
+  if (size > limit) throw new ServiceError(413, "Request body too large");
 }
 
 function logicalRequestBody(
@@ -141,6 +164,15 @@ function logicalRequestBody(
     case "probeContextWindow":
     case "discoverModels":
       return input.settings;
+    case "resolveSamplingBias":
+      return {
+        settings: input.settings,
+        logitBias: input.logitBias,
+        phraseBias: input.phraseBias,
+        bannedStrings: input.bannedStrings,
+        storyPhraseBias: input.storyPhraseBias,
+        storyBannedStrings: input.storyBannedStrings
+      };
     // Bounded upstream by MAX_COUNTED_PROMPT_CHARS (400,000 characters), well
     // under this ceiling in every realistic script, so no bespoke limit here.
     case "countPromptTokens":

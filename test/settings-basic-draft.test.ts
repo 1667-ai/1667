@@ -9,6 +9,7 @@ import {
 } from "../shared/settings-basic-draft.js";
 import { imageInputForModelChangeV3 } from "../tui/src/settings-text.js";
 import { applySamplingSettings } from "../shared/sampling-capabilities.js";
+import { writingPromptSettingsFromAuthorBrief } from "../shared/settings-v5-writing.js";
 import {
   attachProviderRuntime,
   isStandardModelConnectionV2,
@@ -564,10 +565,11 @@ test("pending views display the candidate while retaining the active effective p
     document: candidate,
     effective: active,
     effectiveProse: active,
+    activeWriting: writingPromptSettingsFromAuthorBrief(active.systemPrompt),
     lastActivationOutcome: null
   };
 
-  assert.equal(basicSettingsForDisplay(view).model, "candidate-model");
+  assert.equal(basicSettingsForDisplay(view as never).model, "candidate-model");
   assert.equal(view.effective.model, "old-model");
 });
 
@@ -585,6 +587,7 @@ test("clean editable views display their document while format-1 views display e
     document: DOCUMENT,
     effective,
     effectiveProse: effective,
+    activeWriting: writingPromptSettingsFromAuthorBrief(effective.systemPrompt),
     lastActivationOutcome: null
   };
   const legacy = {
@@ -596,11 +599,12 @@ test("clean editable views display their document while format-1 views display e
     document: null,
     effective,
     effectiveProse: effective,
+    activeWriting: writingPromptSettingsFromAuthorBrief(effective.systemPrompt),
     lastActivationOutcome: null
   };
 
-  assert.equal(basicSettingsForDisplay(editable).model, "old-model");
-  assert.equal(basicSettingsForDisplay(legacy).model, "runtime-only-model");
+  assert.equal(basicSettingsForDisplay(editable as never).model, "old-model");
+  assert.equal(basicSettingsForDisplay(legacy as never).model, "runtime-only-model");
 });
 
 test("clearing a discovered-only context window persists an unknown projection", () => {

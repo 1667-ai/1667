@@ -33,7 +33,7 @@ export function reasoningRowState(overlay: SettingsOverlayState): ReasoningRowSt
   return {
     route: document === null || profileId === null || profile === undefined
       ? null
-      : resolveSettingsProfile(document, profileId),
+      : resolveSettingsProfile(document, profileId) as never,
     display: profile?.reasoning ?? "marker"
   };
 }
@@ -77,7 +77,7 @@ export function cycleReasoningControl(
     step,
     reasoningRowChoices(overlay),
     (profile) => profile.reasoning ?? "marker",
-    profileWithReasoning
+    profileWithReasoning as never
   ) ?? null;
 }
 

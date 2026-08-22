@@ -85,7 +85,7 @@ export async function runProfileCommand(
       const view = await backend.api.getSettings();
       if (!view.editable) throw new Error("Generation Profiles require settings format 2");
       const profileId = selectProfileId(view.document, command.profile);
-      const archive = exportGenerationProfile(view.document, profileId);
+      const archive = exportGenerationProfile(view.document as never, profileId);
       const file = await writeExportFile({
         directory: project.root,
         title: view.document.profiles[profileId]!.name,
@@ -103,13 +103,13 @@ export async function runProfileCommand(
         const view = await backend.api.getSettings();
         if (!view.editable) throw new Error("Generation Profiles require settings format 2");
         const sourceProfileId = selectProfileId(view.document, command.profile);
-        const fitted = applyProfileTransfer(view.document, sourceProfileId, candidate);
+        const fitted = applyProfileTransfer(view.document as never, sourceProfileId, candidate);
         if ("error" in fitted) throw new Error(fitted.error);
         const result = await backend.api.saveSettings({
           transportOperationId: crypto.randomUUID(),
           mutationId: createDurableMutationId(),
           expectedStateGeneration: view.stateGeneration,
-          document: fitted.document
+          document: fitted.document as never
         });
         const importedName = fitted.document.profiles[fitted.profileId]!.name;
         const activation = profileImportActivation(result);
@@ -155,8 +155,8 @@ function profileImportActivation(
     : { kind: "active" };
 }
 
-function selectProfileId(document: SettingsDocumentV2, selector: string | null): string {
-  if (selector === null) return selectSettingsRoute(document, "prose").profileId;
+function selectProfileId(document: { readonly routing: { readonly default: string; readonly prose?: string }; readonly profiles: Readonly<Record<string, { readonly name: string }>> }, selector: string | null): string {
+  if (selector === null) return selectSettingsRoute(document as never, "prose").profileId;
   if (Object.hasOwn(document.profiles, selector)) return selector;
   const matches = Object.entries(document.profiles).filter(([, profile]) => profile.name === selector);
   if (matches.length === 1) return matches[0]![0];

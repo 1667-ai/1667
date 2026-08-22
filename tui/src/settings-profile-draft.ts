@@ -1,7 +1,9 @@
 import type {
-  SettingsDocumentV2,
   SettingsRoutePurpose
 } from "../../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 as SettingsDocumentV2 } from "../../shared/settings-v5-types.js";
+import type { GenerationReasoningV5 } from "../../shared/settings-v5-reasoning.js";
+import { updateSettingsDocumentV5 } from "../../shared/settings-document-update.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import type { GenerationSettings } from "../../shared/types.js";
 
@@ -60,17 +62,21 @@ export function cycleSettingsRoute(
   if (purpose === "default") {
     return next === document.routing.default
       ? document
-      : { ...document, routing: { ...document.routing, default: next! } };
+      : updateSettingsDocumentV5(document, {
+        routing: { ...document.routing, default: next! }
+      });
   }
   if (next === null) {
     if (document.routing[purpose] === undefined) return document;
     const routing = { ...document.routing };
     delete routing[purpose];
-    return { ...document, routing };
+    return updateSettingsDocumentV5(document, { routing });
   }
   return document.routing[purpose] === next
     ? document
-    : { ...document, routing: { ...document.routing, [purpose]: next } };
+    : updateSettingsDocumentV5(document, {
+      routing: { ...document.routing, [purpose]: next }
+    });
 }
 
 export function createSettingsProfile(
@@ -88,7 +94,11 @@ export function createSettingsProfile(
       ...document,
       profiles: {
         ...document.profiles,
-        [profileId]: { ...selected, name }
+        [profileId]: {
+          ...selected,
+          name,
+          generationReasoning: cloneGenerationReasoning(selected.generationReasoning)
+        }
       }
     },
     profileId
@@ -111,12 +121,25 @@ export function duplicateSettingsProfile(
         ...document.profiles,
         [profileId]: {
           ...selected,
-          name: freshProfileName(document, selected.name, " copy")
+          name: freshProfileName(document, selected.name, " copy"),
+          generationReasoning: cloneGenerationReasoning(selected.generationReasoning)
         }
       }
     },
     profileId
   };
+}
+
+function cloneGenerationReasoning(
+  reasoning: GenerationReasoningV5
+): GenerationReasoningV5 {
+  return reasoning.kind === "legacy"
+    ? { kind: "legacy", effort: reasoning.effort }
+    : {
+        kind: "independent",
+        effort: reasoning.effort,
+        thinkingMode: reasoning.thinkingMode
+      };
 }
 
 export function renameSettingsProfile(

@@ -5,9 +5,10 @@ import {
   type SamplingSettingsV2,
   type PromptCachePolicyV2,
   type ModelConnectionV2,
-  type SettingsDocumentV2,
   type SettingsView
 } from "../../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 as SettingsDocumentV2 } from "../../shared/settings-v5-types.js";
+import { updateSettingsDocumentV5 } from "../../shared/settings-document-update.js";
 import {
   PROVIDER_VALUES,
   type GenerationSettings,
@@ -24,7 +25,7 @@ import {
 } from "../../shared/settings-basic-draft.js";
 import {
   defaultConnectionTimeouts,
-  defaultModelCapabilities
+  defaultModelCapabilitiesV3
 } from "../../shared/settings-provider-defaults.js";
 import {
   subscriptionProtocolForPresetV2
@@ -195,7 +196,7 @@ export function settingsTextDraftWithSubscriptionPlan(
       ? {}
       : { contextWindow: generation.contextWindow },
     capabilities: {
-      ...defaultModelCapabilities(generation.provider),
+      ...defaultModelCapabilitiesV3(generation.provider),
       reasoningEffort: "supported" as const
     }
   };
@@ -206,13 +207,12 @@ export function settingsTextDraftWithSubscriptionPlan(
   } = route.profile;
   const planProfile: typeof route.profile = {
     ...profileWithoutTransferFields,
-    effort: "default",
+    generationReasoning: { kind: "legacy", effort: "default" },
     cachePolicy: "off",
     temperature: generation.temperature,
     maxOutputTokens: generation.maxTokens
   };
-  const planDocument = {
-    ...isolatedDocument,
+  const planDocument = updateSettingsDocumentV5(isolatedDocument, {
     connections: {
       ...isolatedDocument.connections,
       [route.model.connectionId]: connection
@@ -225,17 +225,21 @@ export function settingsTextDraftWithSubscriptionPlan(
       ...isolatedDocument.profiles,
       [profileId]: planProfile
     },
-    writing: { defaultAuthorBrief: generation.systemPrompt }
-  };
+    writing: {
+      ...isolatedDocument.writing,
+      defaultAuthorBrief: generation.systemPrompt
+    }
+  });
   // Re-fit every transferable profile value against the subscription route.
   // The baseline above leaves unsupported effort, cache, token-probability,
   // and sampling values out; the fitter restores only values the new route
   // can use. Temperature and output length stay owned by this draft.
-  const fitted = fitProfileToRoute(planDocument, profileId, {
+  const fitted = fitProfileToRoute(planDocument as never, profileId, {
     name: route.profile.name,
     temperature: planProfile.temperature,
     maxOutputTokens: planProfile.maxOutputTokens,
-    effort: route.profile.effort,
+    effort: route.profile.generationReasoning.effort as never,
+    reasoning: route.profile.generationReasoning,
     cachePolicy: route.profile.cachePolicy,
     sampling: route.profile.sampling,
     ...(route.profile.tokenProbabilities === undefined
@@ -245,7 +249,7 @@ export function settingsTextDraftWithSubscriptionPlan(
       ? {}
       : { continuationPromptOptimization: route.profile.continuationPromptOptimization })
   });
-  return settingsTextDraftForDocument(fitted.document, profileId);
+  return settingsTextDraftForDocument(fitted.document as never, profileId);
 }
 
 export function settingsTextDraftWithCachePolicy(
@@ -256,7 +260,7 @@ export function settingsTextDraftWithCachePolicy(
     return { ...draft, cachePolicy };
   }
   return settingsTextDraftForDocument(
-    applyPromptCachePolicy(draft.document, cachePolicy, draft.selectedProfileId),
+    applyPromptCachePolicy(draft.document as unknown as never, cachePolicy, draft.selectedProfileId) as unknown as SettingsDocumentV2,
     draft.selectedProfileId
   );
 }
@@ -518,7 +522,7 @@ function applySettingsGenerationDraft(
       generation,
       profileId,
       retainContextWindowOverride
-    );
+    ) as SettingsDocumentV2;
   } catch {
     return applyIncompleteGenerationDraft(document, generation, profileId);
   }
@@ -563,8 +567,7 @@ function applyIncompleteGenerationDraft(
     textPromptFormat: currentTextPromptFormat,
     ...connectionBase
   } = route.connection;
-  return {
-    ...document,
+  return updateSettingsDocumentV5(document, {
     connections: {
       ...document.connections,
       [route.model.connectionId]: {
@@ -603,15 +606,8 @@ function applyIncompleteGenerationDraft(
                 reasoningEffort: provider === "dry-run" ? "unsupported" : "unknown",
                 // Always restated rather than inherited: a route moved off
                 // text completion must lose that protocol's refusal.
-                reasoningContent: provider === "text-completion" ? "unsupported" : "unknown"
-                // Schema 3 adds `imageInput` as a required sibling of these
-                // keys. This spread stays on schema 2 (release N keeps
-                // writing schema 2), which has no `imageInput` field to
-                // restate. `imageInputForModelChangeV3` below carries the
-                // exact value this spread would need to add once a schema-3
-                // draft path replaces it. Do not let a future edit here add
-                // `imageInput` inline without also restating it, the same
-                // drift hazard `reasoningContent` guards against above.
+                reasoningContent: provider === "text-completion" ? "unsupported" : "unknown",
+                imageInput: imageInputForModelChangeV3(provider)
               }
             }
           : {}),
@@ -627,7 +623,7 @@ function applyIncompleteGenerationDraft(
       }
     },
     writing: { ...document.writing, defaultAuthorBrief: generation.systemPrompt }
-  };
+  });
 }
 
 function incompletePreset(

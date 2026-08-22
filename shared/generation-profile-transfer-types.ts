@@ -7,6 +7,7 @@ import type {
   SamplingSettingsV2,
   SettingsDocumentV2
 } from "./settings-v2-types.js";
+import type { GenerationReasoningV5 } from "./settings-v5-reasoning.js";
 
 /** A protocol-neutral set of generation behavior that can move between routes. */
 export interface ProfileTransferCandidate extends ContinuationPromptOptimizationTransferCandidate {
@@ -14,6 +15,9 @@ export interface ProfileTransferCandidate extends ContinuationPromptOptimization
   readonly temperature?: number | null;
   readonly maxOutputTokens?: number;
   readonly effort?: GenerationEffortV2;
+  /** Present when the file supplied a reasoning value. Omitted effort in v1/v2
+   *  leaves the destination reasoning unchanged. */
+  readonly reasoning?: GenerationReasoningV5;
   readonly cachePolicy?: PromptCachePolicyV2;
   /** Alternative tokens per generated token; null means off. */
   readonly tokenProbabilities?: number | null;

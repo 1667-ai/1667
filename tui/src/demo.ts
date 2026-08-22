@@ -33,6 +33,8 @@ import type {
   SettingsMutationResult,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
+import { convertSettingsDocumentV2ToV5 } from "../../server/settings-v5-conversion.js";
 import {
   buildSearchCorpus,
   createSearchScan,
@@ -591,7 +593,7 @@ export const DEMO_SETTINGS: GenerationSettings = {
   temperature: 0.7, maxTokens: 2_048, systemPrompt: "Continue the story in its established voice.", contextWindow: 32_768
 };
 
-export const DEMO_SETTINGS_DOCUMENT: SettingsDocumentV2 = {
+export const DEMO_SETTINGS_DOCUMENT_V2: SettingsDocumentV2 = {
   schemaVersion: 2,
   connections: {
     demo: {
@@ -633,6 +635,8 @@ export const DEMO_SETTINGS_DOCUMENT: SettingsDocumentV2 = {
   writing: { defaultAuthorBrief: DEMO_SETTINGS.systemPrompt }
 };
 
+export const DEMO_SETTINGS_DOCUMENT = convertSettingsDocumentV2ToV5(DEMO_SETTINGS_DOCUMENT_V2);
+
 export const DEMO_SETTINGS_VIEW: SettingsView = {
   dataFormat: 2,
   editable: true,
@@ -642,6 +646,7 @@ export const DEMO_SETTINGS_VIEW: SettingsView = {
   document: DEMO_SETTINGS_DOCUMENT,
   effective: DEMO_SETTINGS,
   effectiveProse: DEMO_SETTINGS,
+  activeWriting: writingPromptSettingsFromAuthorBrief(DEMO_SETTINGS.systemPrompt),
   lastActivationOutcome: null
 };
 
@@ -758,6 +763,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
         document: command.document,
         effective,
         effectiveProse,
+        activeWriting: command.document.writing,
         lastActivationOutcome: null
       };
       return settingsMutationResult(settingsView);

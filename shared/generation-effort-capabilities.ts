@@ -57,7 +57,10 @@ export function generationEffortAvailabilityForTarget(
 
 /** Return only request values that the exact profile route can lower safely. */
 export function generationEffortChoicesForRoute(
-  route: SelectedSettingsRouteV2
+  route: GenerationEffortTarget & {
+    readonly connection: { readonly protocol: SettingsProtocolV2 };
+    readonly model: { readonly capabilities: { readonly reasoningEffort: FeatureSupportV2 } };
+  } | SelectedSettingsRouteV2
 ): readonly GenerationEffortV2[] {
   return generationEffortChoicesForTarget({
     protocol: route.connection.protocol,

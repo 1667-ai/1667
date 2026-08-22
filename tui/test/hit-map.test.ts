@@ -15,7 +15,8 @@ import {
 import { createStoryViewModel, rowPart } from "../src/model.js";
 import {
   beginSettingsRowEdit,
-  initialSettingsOverlay
+  initialSettingsOverlay,
+  settingsRowIndex
 } from "../src/settings-overlay-model.js";
 import {
   TAGS_FOOTER_ACTIONS, CHAPTERS_FOOTER_ACTIONS, COMMANDS_FOOTER_ACTIONS,
@@ -377,11 +378,10 @@ describe("hit map from rendered frames", () => {
     const settings = initialState(source, false);
     settings.mode = "SETTINGS";
     settings.settings = initialSettingsOverlay(source.settingsView, settings.config);
-    // Row 1 is "system-prompt" by default (simple mode), which
-    // beginSettingsRowEdit refuses (it opens the full-screen editor
-    // instead). Move to "provider", an ordinary inline row, so this state
+    // Simple-mode writing rows open the full-screen editor, so beginSettingsRowEdit
+    // refuses them. Move to "provider", an ordinary inline row, so this state
     // actually owns text like the other two surfaces under test.
-    settings.settings.cursor = 2;
+    settings.settings.cursor = settingsRowIndex("provider", settings.settings);
     beginSettingsRowEdit(settings.settings, settings.config);
     const editor = initialState(source, false);
     openPartEditor(editor, false);

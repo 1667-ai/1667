@@ -19,6 +19,7 @@ import {
   type ImageInputCapabilityResolution
 } from "../shared/image-input-capabilities.js";
 import type { StoryFact } from "../shared/types.js";
+import { DEFAULT_INSTRUCTION } from "../shared/continuation-plan.js";
 import { ServiceError } from "./errors.js";
 import {
   generationRecordHandoffRevisionIds,
@@ -26,6 +27,19 @@ import {
 } from "./generation-record-handoff.js";
 
 export const MAX_GENERATION_MODEL_ATTRIBUTIONS = 50;
+
+/** Instruction a generated-take createNode commit stores. Prefer the
+ *  direction pinned before streaming. Use the request body only for a
+ *  human take or a legacy slot that has no pin. */
+export function generatedTakeInstruction(
+  admission: GenerationAdmissionRegistry,
+  storyId: string,
+  genId: string,
+  providedInstruction: string
+): string {
+  return admission.continueDirectionFor(storyId, genId)
+    ?? (providedInstruction.trim() || DEFAULT_INSTRUCTION);
+}
 
 /**
  * The throwing wrapper `server/generation-http.ts` uses for a real request:
@@ -58,6 +72,14 @@ export function assertFixedContextFits(
       `The Author's Note is too large for the model's context window ` +
       `(~${fixed.toLocaleString()} fixed prompt tokens, ~${Math.max(0, usable).toLocaleString()} usable). ` +
       `Shorten the Author's Note, or raise the context window in Settings.`
+    );
+  }
+  if (selection.overBudgetCause === "prompt") {
+    throw new ServiceError(
+      400,
+      `The request prompt is too large for the model's context window ` +
+      `(~${fixed.toLocaleString()} fixed prompt tokens, ~${Math.max(0, usable).toLocaleString()} usable). ` +
+      `Shorten the direction or operation guidance, or raise the context window in Settings.`
     );
   }
   if (selection.droppableCount === 0) {
@@ -182,6 +204,9 @@ interface GenerationAttribution {
   readonly storyId: string;
   readonly genId: string;
   model: string;
+  /** Effective Continue direction pinned before streaming. Absent for a
+   *  genuine append and for a legacy slot that predates pinning. */
+  continueDirection: string | null;
   /** Set only by a continuation request that got cancelled mid-stream (issue
    *  Generation Records / stop-and-save): what the later, separate
    *  `createNode` call the client makes to save the partial needs to attach
@@ -255,13 +280,42 @@ export class GenerationAdmissionRegistry {
       return;
     }
     this.evictOldestIfFull();
-    this.modelAttributions.push({ storyId, genId, model, record: null, releaseRevisionPin: null });
+    this.modelAttributions.push({
+      storyId, genId, model, continueDirection: null, record: null, releaseRevisionPin: null
+    });
   }
 
   modelFor(storyId: string, genId: string): string | undefined {
     return this.modelAttributions.find(
       (candidate) => candidate.storyId === storyId && candidate.genId === genId
     )?.model;
+  }
+
+  /** Pin the Continue direction before streaming starts so later createNode
+   *  commits, including stopped saves, store the same effective value. */
+  rememberContinueDirection(storyId: string, genId: string, direction: string): void {
+    const existing = this.modelAttributions.find(
+      (candidate) => candidate.storyId === storyId && candidate.genId === genId
+    );
+    if (existing !== undefined) {
+      existing.continueDirection = direction;
+      return;
+    }
+    this.evictOldestIfFull();
+    this.modelAttributions.push({
+      storyId,
+      genId,
+      model: "",
+      continueDirection: direction,
+      record: null,
+      releaseRevisionPin: null
+    });
+  }
+
+  continueDirectionFor(storyId: string, genId: string): string | undefined {
+    return this.modelAttributions.find(
+      (candidate) => candidate.storyId === storyId && candidate.genId === genId
+    )?.continueDirection ?? undefined;
   }
 
   /** Called once, by a continuation request that just discovered its own
@@ -287,7 +341,9 @@ export class GenerationAdmissionRegistry {
       return;
     }
     this.evictOldestIfFull();
-    this.modelAttributions.push({ storyId, genId, model: record.model, record, releaseRevisionPin });
+    this.modelAttributions.push({
+      storyId, genId, model: record.model, continueDirection: null, record, releaseRevisionPin
+    });
   }
 
   /** Read by a stop-save commit at most once in practice — `commitTake`'s own

@@ -180,7 +180,7 @@ export function resolveTokenProbabilityEmptyReason(view: SettingsView): TokenPro
     };
   }
   const route = selectSettingsRoute(view.document, "prose");
-  const resolution = resolveTokenProbabilities(samplingContextForRoute(route));
+  const resolution = resolveTokenProbabilities(samplingContextForRoute(route as never));
   if (resolution.kind === "available") {
     return {
       text: "Press , for Settings. Set alt count (alternatives per token) to 1–20. Save, then generate again."

@@ -3,9 +3,11 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
+import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
 import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
 import type { SettingsMutationResult } from "../../shared/settings-v2-types.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../../server/settings-v2-default.js";
+import { convertSettingsDocumentV2ToV5 } from "../../server/settings-v5-conversion.js";
 import { initializeProject } from "../../server/project-discovery.js";
 import {
   parseProfileCommand,
@@ -275,9 +277,10 @@ function profileCommandBackend(
           stateGeneration: 1,
           activeRevision: 1,
           pendingRevision: null,
-          document,
+          document: convertSettingsDocumentV2ToV5(document),
           effective,
           effectiveProse: effective,
+          activeWriting: writingPromptSettingsFromAuthorBrief(effective.systemPrompt),
           lastActivationOutcome: null
         }),
         saveSettings: async () => result

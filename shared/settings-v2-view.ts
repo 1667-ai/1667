@@ -2,9 +2,10 @@ import type { ContinuationPromptLayout } from "./continuation-prompt-optimizatio
 import type { GenerationSettings } from "./types.js";
 import type {
   ReasoningDisplayV2,
-  SettingsActivationOutcomeV2,
-  SettingsDocumentV2
+  SettingsActivationOutcomeV2
 } from "./settings-v2-types.js";
+import type { SettingsDocumentV5 } from "./settings-v5-types.js";
+import type { WritingPromptSettings } from "./settings-v5-writing.js";
 
 export type SubscriptionAuthStatus = "signed-in" | "signed-out";
 
@@ -50,6 +51,9 @@ export type SettingsView =
       readonly effectiveProseReasoning?: ReasoningDisplayV2;
       /** The active prose route's resolved continuation layout. */
       readonly effectiveProseContinuationPromptLayout?: ContinuationPromptLayout;
+      /** Active writing prompts. Format 1 uses `effective.systemPrompt` as
+       *  Default Author Brief plus schema-5 defaults for the other fields. */
+      readonly activeWriting: WritingPromptSettings;
       readonly lastActivationOutcome: null;
     }
   | {
@@ -59,7 +63,7 @@ export type SettingsView =
       readonly stateGeneration: number;
       readonly activeRevision: number;
       readonly pendingRevision: number | null;
-      readonly document: SettingsDocumentV2;
+      readonly document: SettingsDocumentV5;
       readonly effective: GenerationSettings;
       /** Read-only machine-tier status for Settings presentation. */
       readonly subscriptionAuth?: SubscriptionAuthState;
@@ -71,5 +75,8 @@ export type SettingsView =
       readonly effectiveProseReasoning?: ReasoningDisplayV2;
       /** The active prose route's resolved continuation layout. */
       readonly effectiveProseContinuationPromptLayout?: ContinuationPromptLayout;
+      /** Active writing prompts. Schema 2/3/4 project stored Author Brief plus
+       *  schema-5 defaults. Schema 5 uses the active revision. */
+      readonly activeWriting: WritingPromptSettings;
       readonly lastActivationOutcome: SettingsActivationOutcomeV2 | null;
     };

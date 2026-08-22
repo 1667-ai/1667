@@ -5,10 +5,10 @@ import {
 } from "../../shared/settings-basic-draft.js";
 import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 import type {
-  ProviderProbeTarget,
   SaveSettingsCommand,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import type { ProviderProbeTarget } from "../../shared/provider-probe-route-v1.js";
 import { publishSettingsView } from "../src/overlay-publication.js";
 import { settingsDraftChanged } from "../src/settings-overlay-model.js";
 import { WorkerApiError } from "../src/worker-api.js";
@@ -298,7 +298,7 @@ describe("Settings save lifecycle", () => {
     expect(commands).toHaveLength(1);
     expect(state.settings?.conflict?.armed).toBeTrue();
 
-    await selectRow(press, state, "system-prompt");
+    await selectRow(press, state, "default-author-brief");
     await press(key("return"));
     await press(key("N"));
     await press(key("s", { ctrl: true }));

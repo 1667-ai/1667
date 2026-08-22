@@ -13,7 +13,7 @@ import type {
 import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 import { parseTokenProbabilities, type TokenProbabilityRecord } from "../../shared/token-probabilities.js";
 import { parseReasoning, type ReasoningRecord } from "../../shared/reasoning.js";
-import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 } from "../../shared/settings-v5-types.js";
 import {
   SAMPLING_BIAS_SCOPE_VALUES,
   SAMPLING_BIAS_VARIANT_VALUES,
@@ -42,8 +42,8 @@ export {
   decodeSettingsMutationResult
 } from "../../shared/settings-response-decoder.js";
 import { assertNfcJsonStrings } from "../../server/canonical-json.js";
-import { MAX_SETTINGS_DOCUMENT_BYTES } from "../../server/settings-v2-scalars.js";
-import { validateSettingsDocumentV2 } from "../../server/settings-v2-validation.js";
+import { MAX_SETTINGS_DOCUMENT_V5_BYTES } from "../../shared/settings-v5-limits.js";
+import { validateSettingsDocumentV5 } from "../../server/settings-v5-validation.js";
 import { parseStoryAggregateVersion } from "../../shared/story-aggregate-version.js";
 import type { StoryCatalogPage } from "../../shared/story-catalog.js";
 import type { SearchHit, SearchResponse } from "../../shared/story-search.js";
@@ -610,11 +610,11 @@ export function responseRecord(value: unknown, label: string): Record<string, un
 /** TUI can connect to a separately launched server, so compose the shared
  * envelope decoder with the canonical pure document validator. Persistence,
  * hashing, and file-codec modules stay out of the client dependency graph. */
-function decodeSettingsDocumentResponse(value: unknown): SettingsDocumentV2 {
+function decodeSettingsDocumentResponse(value: unknown): SettingsDocumentV5 {
   assertNfcJsonStrings(value, "settings document");
-  const document = validateSettingsDocumentV2(value);
-  if (new TextEncoder().encode(JSON.stringify(document)).byteLength > MAX_SETTINGS_DOCUMENT_BYTES) {
-    throw new Error(`Settings document exceeds its ${MAX_SETTINGS_DOCUMENT_BYTES}-byte size limit`);
+  const document = validateSettingsDocumentV5(value);
+  if (new TextEncoder().encode(JSON.stringify(document)).byteLength > MAX_SETTINGS_DOCUMENT_V5_BYTES) {
+    throw new Error(`Settings document exceeds its ${MAX_SETTINGS_DOCUMENT_V5_BYTES}-byte size limit`);
   }
   return deepFreeze(document);
 }

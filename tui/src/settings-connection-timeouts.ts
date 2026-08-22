@@ -1,7 +1,7 @@
 import type {
-  ConnectionTimeoutsV2,
-  SettingsDocumentV2
+  ConnectionTimeoutsV2
 } from "../../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 as SettingsDocumentV2 } from "../../shared/settings-v5-types.js";
 import { defaultConnectionTimeouts } from "../../shared/settings-provider-defaults.js";
 import { MAX_SETTINGS_TIMEOUT_MS, MIN_SETTINGS_TIMEOUT_MS } from "../../server/settings-v2-scalars.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";

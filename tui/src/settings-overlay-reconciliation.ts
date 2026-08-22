@@ -1,12 +1,21 @@
 import type { SettingsView } from "../../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../../shared/types.js";
 import { samplingSettingsEqual } from "../../shared/sampling-capabilities.js";
+import {
+  isWritingPromptRow,
+  writingPromptFieldDefinitionForRow
+} from "../../shared/settings-v5-writing.js";
 import { setComposerText } from "./composer-model.js";
 import type { ActiveSettingsEdit } from "./settings-edit-state.js";
 import {
   settingsRowIsLocal,
   type LocalConfigRow
 } from "./settings-local-rows.js";
+import {
+  draftWriting,
+  settingsTextDraftWithMergedWriting,
+  settingsTextDraftWithWritingField
+} from "./settings-writing-draft.js";
 import { renameSettingsProfile } from "./settings-profile-draft.js";
 import {
   connectionTimeoutEditValueForDraft,
@@ -42,8 +51,7 @@ type EditableSettingsFieldRow =
   | "api-key-env"
   | "temperature"
   | "max-tokens"
-  | "context-window"
-  | "system-prompt";
+  | "context-window";
 
 const SETTINGS_FIELD_KEYS = {
   provider: "provider",
@@ -52,8 +60,7 @@ const SETTINGS_FIELD_KEYS = {
   "api-key-env": "apiKeyEnv",
   temperature: "temperature",
   "max-tokens": "maxTokens",
-  "context-window": "contextWindow",
-  "system-prompt": "systemPrompt"
+  "context-window": "contextWindow"
 } as const satisfies Record<EditableSettingsFieldRow, string>;
 
 export function settingsDraftChanged(overlay: SettingsOverlayState): boolean {
@@ -95,6 +102,9 @@ export function reconcileSettingsOverlay(
   }
   const samplingWasOpen = overlay.sampling !== null;
   const draftWasClean = !settingsDraftChanged(overlay);
+  if (!draftWasClean) {
+    overlay.draft = settingsTextDraftWithMergedWriting(overlay.draft, overlay.base, nextBase);
+  }
   const editAffectsServer = edit !== null && (
     edit.kind === "sampling"
     || !settingsRowIsLocal(edit.row)
@@ -115,7 +125,12 @@ export function reconcileSettingsOverlay(
   }
   overlay.base = nextBase;
 
-  if (edit !== null && (draftWasClean || converged) && editWasClean) {
+  if (edit !== null && edit.kind === "row" && isWritingPromptRow(edit.row) && editWasClean) {
+    const refreshed = draftRowEditValue(overlay.draft, edit.row);
+    setComposerText(edit.composer, refreshed);
+    if (refreshed.length > 0) edit.composer.anchor = 0;
+    edit.setInitialText(refreshed);
+  } else if (edit !== null && (draftWasClean || converged) && editWasClean) {
     if (edit.kind === "sampling") {
       edit.close();
     } else if (settingsDraftTextRow(edit.row)) {
@@ -303,6 +318,9 @@ export function draftRowEditValue(
   if (row === "temperature") return settings.temperature?.toString() ?? "";
   if (row === "max-tokens") return settings.maxTokens.toString();
   if (row === "context-window") return settings.contextWindow?.toString() ?? "";
+  if (isWritingPromptRow(row)) {
+    return draftWriting(draft)[writingPromptFieldDefinitionForRow(row).field];
+  }
   return settings.systemPrompt;
 }
 
@@ -335,11 +353,12 @@ function draftWithActiveEdit(
   if (row === "api-key" || row === "allow-insecure-http") {
     return edit.composer.text === edit.initialText() ? draft : null;
   }
-  if (row === "system-prompt") {
-    return settingsTextDraftWithGeneration(draft, {
-      ...draft.generation,
-      systemPrompt: edit.composer.text
-    });
+  if (isWritingPromptRow(row)) {
+    return settingsTextDraftWithWritingField(
+      draft,
+      writingPromptFieldDefinitionForRow(row).field,
+      edit.composer.text
+    );
   }
   if (isConnectionTimeoutRow(row)) {
     return draftWithConnectionTimeoutEditText(draft, row, edit.composer.text);

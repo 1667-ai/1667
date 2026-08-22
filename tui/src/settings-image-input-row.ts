@@ -21,7 +21,7 @@ export function imageInputRowState(overlay: SettingsOverlayState): ImageInputRow
   return {
     route: document === null || profileId === null || profile === undefined
       ? null
-      : resolveSettingsProfile(document, profileId)
+      : resolveSettingsProfile(document, profileId) as never
   };
 }
 

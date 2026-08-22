@@ -2,18 +2,19 @@ import {
   GENERATION_EFFORT_V2_VALUES,
   PROMPT_CACHE_POLICY_V2_VALUES,
   TEXT_PROMPT_FORMAT_V2_VALUES,
-  type GenerationProfileV2,
   type SettingsPresetV2,
   type SettingsRoutePurpose,
   type TextPromptFormatV2,
   type SettingsView
 } from "../../shared/settings-v2-types.js";
+import type { GenerationProfileV5 as GenerationProfileV2 } from "../../shared/settings-v5-types.js";
 import {
   CONTINUATION_PROMPT_OPTIMIZATION_V2_VALUES,
   type ContinuationPromptOptimizationV2
 } from "../../shared/continuation-prompt-optimization.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import { generationEffortChoicesForRoute } from "../../shared/generation-effort-capabilities.js";
+import { withSettingsProfileEffort } from "../../shared/settings-document-update.js";
 import { withSupportedReasoningDisplays } from "../../shared/reasoning-display-capabilities.js";
 import type { GenerationSettings } from "../../shared/types.js";
 import {
@@ -184,8 +185,8 @@ export function cycleEffortControl(
     overlay,
     step,
     generationEffortChoices(document, profileId),
-    (profile) => profile.effort,
-    (profile, effort) => ({ ...profile, effort })
+    (profile) => profile.generationReasoning.effort,
+    (profile, effort) => withSettingsProfileEffort(profile, effort)
   ) ?? null;
 }
 
@@ -354,7 +355,7 @@ export function effortRowValue(overlay: SettingsOverlayState): string {
       ? "‹ unavailable ›"
       : "‹ default ›";
   }
-  return `‹ ${document.profiles[profileId]?.effort ?? "default"} ›`;
+  return `‹ ${document.profiles[profileId]?.generationReasoning.effort ?? "default"} ›`;
 }
 
 export function effortRowHint(overlay: SettingsOverlayState): string {
@@ -365,8 +366,8 @@ export function effortRowHint(overlay: SettingsOverlayState): string {
       ? settingsReadOnlyMessage(overlay.view.readOnlyReason)
       : "Sets how much reasoning the model does before writing.";
   }
-  const effort = document.profiles[profileId]?.effort ?? "default";
-  return generationEffortChoices(document, profileId).includes(effort)
+  const effort = document.profiles[profileId]?.generationReasoning.effort ?? "default";
+  return generationEffortChoices(document, profileId).includes(effort as never)
     ? "Sets how much reasoning the model does before writing."
     : "This model does not support reasoning effort.";
 }
@@ -377,7 +378,7 @@ export function effortPositionDots(overlay: SettingsOverlayState): string {
   if (document === null || profileId === null) return "";
   return positionDots(
     generationEffortChoices(document, profileId),
-    document.profiles[profileId]?.effort ?? "default"
+    document.profiles[profileId]?.generationReasoning.effort ?? "default"
   );
 }
 
@@ -438,7 +439,7 @@ export function generationEffortChoices(
 ): readonly (typeof GENERATION_EFFORT_V2_VALUES)[number][] {
   const profile = document.profiles[profileId];
   if (profile === undefined) return ["default"];
-  return generationEffortChoicesForRoute(resolveSettingsProfile(document, profileId));
+  return generationEffortChoicesForRoute(resolveSettingsProfile(document, profileId) as never);
 }
 
 export function profileRowValue(overlay: SettingsOverlayState): string {

@@ -20,6 +20,7 @@ import {
   MemoryHttpMutationIntentStore
 } from "../src/http-mutation-intents.js";
 import { DEMO_SETTINGS_DOCUMENT, DEMO_SETTINGS_VIEW } from "../src/demo.js";
+import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
 import { HTTP_AUTHORIZATION_HEADER } from "../../shared/http-auth.js";
 import {
   HTTP_OPERATION_LIFETIME_MS,
@@ -766,6 +767,7 @@ test("HTTP StoryApi rejects malformed successful responses for every response fa
       model: "cafe\u0301",
       systemPrompt: "Continue cafe\u0301."
     },
+    activeWriting: writingPromptSettingsFromAuthorBrief("Continue cafe\u0301."),
     lastActivationOutcome: null
   };
   response = legacyView;

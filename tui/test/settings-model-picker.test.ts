@@ -8,6 +8,7 @@ import type {
   ModelDiscoveryResultV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
 import { setComposerText } from "../src/composer-model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
@@ -281,6 +282,7 @@ describe("Settings model picker", () => {
       document: null,
       effective: source.settings,
       effectiveProse: source.settings,
+      activeWriting: writingPromptSettingsFromAuthorBrief(source.settings.systemPrompt),
       lastActivationOutcome: null
     };
     source.settingsView = view;
@@ -352,10 +354,10 @@ describe("Settings model picker", () => {
     const view: SettingsView = {
       ...source.settingsView,
       document: applyBasicModelDiscovery(
-        source.settingsView.document,
+        source.settingsView.document as never,
         discoveryWithContext("novelist-a", 32_768),
         32_768
-      ),
+      ) as never,
       effective: source.settings,
       effectiveProse: source.settings
     };

@@ -4,6 +4,12 @@ import {
   type SettingsView
 } from "../../shared/settings-v2-types.js";
 import {
+  isWritingPromptRow,
+  writingPromptFieldDefinition,
+  type WritingPromptFieldId,
+  type WritingPromptRowId
+} from "../../shared/settings-v5-writing.js";
+import {
   LOCAL_CONFIG_ROWS,
   settingsRowIsLocal,
   type LocalConfigRow
@@ -48,6 +54,11 @@ import {
   settingsTextDraftWithSubscriptionPlan,
   settingsTextDraftWithTextPreset
 } from "./settings-text.js";
+import {
+  draftWriting,
+  settingsTextDraftWithWritingField,
+  validateWritingPromptValue
+} from "./settings-writing-draft.js";
 import { settingsPlanRowDisabled } from "./settings-subscription.js";
 import { settingsReadOnlyMessage } from "./settings-read-only.js";
 import { renameSettingsProfile } from "./settings-profile-draft.js";
@@ -113,7 +124,7 @@ export {
   settleSettingsOverlaySave
 } from "./settings-overlay-reconciliation.js";
 
-type SettingsInlineRow = Exclude<SettingsRowId, "system-prompt" | "sampling">;
+type SettingsInlineRow = Exclude<SettingsRowId, WritingPromptRowId | "sampling">;
 
 export function initialSettingsOverlay(
   view: SettingsView,
@@ -179,7 +190,7 @@ export function beginSettingsRowEdit(
   config: UserConfig
 ): void {
   const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
-  if (row === "system-prompt" || row === "sampling") return;
+  if (isWritingPromptRow(row) || row === "sampling") return;
   if (settingsPlanRowDisabled(overlay, row)) return;
   if (settingsRowUsesServer(row)) overlay.result = null;
   const initial = settingsRowEditValue(overlay, config, row);
@@ -218,7 +229,7 @@ export function beginSettingsPasteEdit(
 ): boolean {
   if (overlay.edit !== null) return true;
   const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
-  if (row === "system-prompt" || row === "sampling") return false;
+  if (isWritingPromptRow(row) || row === "sampling") return false;
   if (settingsPlanRowDisabled(overlay, row)) return false;
   // Closed choices cycle in place; paste must not open their row editor.
   if (settingsRowCycles(row)) return false;
@@ -351,20 +362,32 @@ export function applySettingsRowEdit(
   return { kind: "draft" };
 }
 
+export function applyWritingPromptDraft(
+  overlay: SettingsOverlayState,
+  field: WritingPromptFieldId,
+  value: string
+): string | null {
+  const error = validateWritingPromptValue(
+    writingPromptFieldDefinition(field),
+    value,
+    draftWriting(overlay.draft)
+  );
+  if (error !== null) return error;
+  disarmSettingsConflict(overlay);
+  replaceSettingsDraft(
+    overlay,
+    settingsTextDraftWithWritingField(overlay.draft, field, value)
+  );
+  if (sameSettingsDraft(overlay.draft, overlay.base)) overlay.conflict = null;
+  overlay.result = null;
+  return null;
+}
+
 export function applySystemPromptDraft(
   overlay: SettingsOverlayState,
   systemPrompt: string
 ): void {
-  disarmSettingsConflict(overlay);
-  replaceSettingsDraft(
-    overlay,
-    settingsTextDraftWithGeneration(overlay.draft, {
-      ...overlay.draft.generation,
-      systemPrompt
-    })
-  );
-  if (sameSettingsDraft(overlay.draft, overlay.base)) overlay.conflict = null;
-  overlay.result = null;
+  applyWritingPromptDraft(overlay, "defaultAuthorBrief", systemPrompt);
 }
 
 /** One spelling for every surface that reports why an activation failed. */

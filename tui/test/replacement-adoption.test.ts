@@ -124,7 +124,7 @@ describe("forced story replacement adoption", () => {
     const source = demoAppSource();
     const app = harness(source);
     await app.press(key(","));
-    const row = SETTINGS_ROW_IDS.indexOf("system-prompt");
+    const row = SETTINGS_ROW_IDS.indexOf("default-author-brief");
     for (let index = 0; index < row; index += 1) await app.press(key("down"));
     await app.press(key("return"));
     const session = app.state.editor;

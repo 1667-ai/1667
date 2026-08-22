@@ -10,6 +10,12 @@ import {
   type SelectedSettingsRouteV4,
   type SettingsDocumentV4
 } from "../shared/settings-v4-types.js";
+import {
+  selectSettingsRouteV5,
+  type SelectedSettingsRouteV5,
+  type SettingsDocumentV5
+} from "../shared/settings-v5-types.js";
+import type { GenerationReasoningV5 } from "../shared/settings-v5-reasoning.js";
 import type { SelectedSettingsRouteV2 } from "../shared/settings-route.js";
 import type { GenerationSettings } from "../shared/types.js";
 import type { PromptCacheContext } from "./provider-cache-policy.js";
@@ -65,6 +71,14 @@ export interface SettingsRuntimeRequestV4 {
   readonly storedSecrets?: ReadonlyMap<string, string>;
 }
 
+export interface SettingsRuntimeRequestV5 {
+  readonly document: SettingsDocumentV5;
+  readonly purpose?: SettingsRoutePurpose;
+  readonly metadata?: EffectiveMetadataV2;
+  readonly allowBlankModel?: boolean;
+  readonly storedSecrets?: ReadonlyMap<string, string>;
+}
+
 export interface ProviderRuntimeResolutionRequest {
   readonly connection: ModelConnectionV2;
   readonly effort: SettingsDocumentV2["profiles"][string]["effort"];
@@ -77,6 +91,7 @@ export interface SettingsRuntimeResolver {
   readonly credentials: SubscriptionRuntimeDependencies["credentials"];
   resolve(request: SettingsRuntimeRequest): EffectiveGenerationRuntime;
   resolveV4(request: SettingsRuntimeRequestV4): EffectiveGenerationRuntime;
+  resolveV5(request: SettingsRuntimeRequestV5): EffectiveGenerationRuntime;
   resolveConnection(request: ProviderRuntimeResolutionRequest): ProviderRuntime;
 }
 
@@ -96,6 +111,11 @@ export function createSettingsRuntimeResolver(
       dependencies.subscription
     ),
     resolveV4: (request) => materializeEffectiveGenerationRuntimeV4(
+      request,
+      dependencies.environment,
+      dependencies.subscription
+    ),
+    resolveV5: (request) => materializeEffectiveGenerationRuntimeV5(
       request,
       dependencies.environment,
       dependencies.subscription
@@ -230,7 +250,7 @@ function materializeEffectiveGenerationRuntime(
 }
 
 function effectiveRuntimeRoute(
-  route: SelectedSettingsRouteV2 | SelectedSettingsRouteV4
+  route: SelectedSettingsRouteV2 | SelectedSettingsRouteV4 | SelectedSettingsRouteV5
 ): EffectiveRuntimeRoute {
   return {
     profileId: route.profileId,
@@ -291,6 +311,94 @@ function resolveProviderRuntimeV4(
     return providerRuntimeFromV2(connection, effort, capabilities, options);
   }
   throw new SettingsFormatError("The selected provider protocol is unavailable.");
+}
+
+/** Resolve schema 5 through the persisted reasoning discriminator. Legacy
+ *  profiles keep historical lowering. Independent profiles keep the schema-4
+ *  effort and Thinking Mode pair. */
+function materializeEffectiveGenerationRuntimeV5(
+  request: SettingsRuntimeRequestV5,
+  environment?: NodeJS.ProcessEnv,
+  subscription?: SubscriptionRuntimeDependencies
+): EffectiveGenerationRuntime {
+  const route = selectSettingsRouteV5(
+    request.document,
+    request.purpose ?? "default"
+  );
+  const projection = projectEffectiveGenerationFromRoute(
+    request.document.writing.defaultAuthorBrief,
+    settingsRouteV5RuntimeProjection(route),
+    request.metadata ?? {},
+    request.allowBlankModel === true
+  );
+  const sharedOptions = {
+    environment,
+    storedSecrets: request.storedSecrets,
+    sampling: route.profile.sampling ?? EMPTY_SAMPLING_V2,
+    tokenProbabilities: route.profile.tokenProbabilities ?? null,
+    reasoning: route.profile.reasoning ?? "marker",
+    keepReasoning: route.profile.discardReasoning !== true,
+    continuationPromptOptimization: route.profile.continuationPromptOptimization
+  };
+  const providerRuntime = resolveProviderRuntimeFromReasoning(
+    route.connection,
+    route.profile.generationReasoning,
+    route.model.capabilities,
+    sharedOptions,
+    subscription
+  );
+  return {
+    promptCache: projection.promptCache,
+    providerRuntime,
+    settings: attachProviderRuntime(projection.settings, providerRuntime),
+    route: effectiveRuntimeRoute(route)
+  };
+}
+
+function settingsRouteV5RuntimeProjection(
+  route: SelectedSettingsRouteV5
+): SelectedSettingsRouteV2 {
+  const {
+    generationReasoning,
+    ...profile
+  } = route.profile;
+  const {
+    imageInput: _imageInput,
+    imageTokenCeiling: _imageTokenCeiling,
+    ...capabilities
+  } = route.model.capabilities;
+  const effort = generationReasoning.kind === "legacy" ? generationReasoning.effort : "default";
+  return {
+    profileId: route.profileId,
+    profile: { ...profile, effort },
+    model: { ...route.model, capabilities },
+    connection: route.connection
+  };
+}
+
+function resolveProviderRuntimeFromReasoning(
+  connection: ModelConnectionV2,
+  generationReasoning: GenerationReasoningV5,
+  capabilities: ModelCapabilitiesV2,
+  options: ProviderRuntimeOptions,
+  subscription?: SubscriptionRuntimeDependencies
+): ProviderRuntime {
+  if (generationReasoning.kind === "independent") {
+    return resolveProviderRuntimeV4(
+      connection,
+      generationReasoning.effort,
+      capabilities,
+      { ...options, thinkingMode: generationReasoning.thinkingMode },
+      subscription
+    );
+  }
+  return resolveProviderRuntime(
+    connection,
+    generationReasoning.effort,
+    capabilities,
+    options,
+    subscription
+  );
 }
 
 function resolveConnectionRuntime(

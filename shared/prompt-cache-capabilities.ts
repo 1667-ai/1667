@@ -9,7 +9,8 @@ import type {
 import {
   resolveSettingsProfile,
   selectSettingsRoute,
-  type SelectedSettingsRouteV2
+  type SelectedSettingsRouteV2,
+  type SettingsRouteDocument
 } from "./settings-route.js";
 import {
   isOfficialAnthropicBaseUrl,
@@ -153,23 +154,42 @@ export function promptCacheAdapter(
 }
 
 export function promptCacheContextForDocument(
-  document: SettingsDocumentV2,
+  document: SettingsRouteDocument<
+    { readonly modelId: string; readonly cachePolicy: PromptCachePolicyV2 },
+    { readonly connectionId: string; readonly capabilities: { readonly promptCaching: FeatureSupportV2 } },
+    { readonly protocol: SettingsProtocolV2 }
+  >,
   purpose: SettingsRoutePurpose = "default"
 ): PromptCacheContext {
-  return promptCacheContextForRoute(selectSettingsRoute(document, purpose));
+  return promptCacheContextForRoute(selectSettingsRoute(document, purpose) as never);
 }
 
 /** Profile-editor projections already hold a profile identity. Keep that
  * distinct from a routing purpose, whose fallback belongs to route selection. */
 export function promptCacheContextForProfile(
-  document: SettingsDocumentV2,
+  document: SettingsRouteDocument<
+    { readonly modelId: string; readonly cachePolicy: PromptCachePolicyV2 },
+    { readonly connectionId: string; readonly capabilities: { readonly promptCaching: FeatureSupportV2 } },
+    { readonly protocol: SettingsProtocolV2 }
+  >,
   profileId: string
 ): PromptCacheContext {
-  return promptCacheContextForRoute(resolveSettingsProfile(document, profileId));
+  return promptCacheContextForRoute(resolveSettingsProfile(document, profileId) as never);
 }
 
 export function promptCacheContextForRoute(
-  route: SelectedSettingsRouteV2
+  route: {
+    readonly profile: { readonly cachePolicy: PromptCachePolicyV2 };
+    readonly model: {
+      readonly remoteId: string;
+      readonly capabilities: { readonly promptCaching: FeatureSupportV2 };
+    };
+    readonly connection: {
+      readonly protocol: SettingsProtocolV2;
+      readonly preset: SettingsPresetV2;
+      readonly baseUrl: string | null;
+    };
+  }
 ): PromptCacheContext {
   const { profile, model, connection } = route;
   return {

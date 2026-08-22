@@ -628,7 +628,7 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
     const profileId = selectSettingsRoute(document, "prose").profileId;
     await context.backend.run("exporting Generation Profile", async (task) => {
       try {
-        const archive = exportGenerationProfile(document, profileId);
+        const archive = exportGenerationProfile(document as never, profileId);
         const file = await writeExportFile({
           directory: source.exportDirectory,
           title: document.profiles[profileId]!.name,

@@ -28,6 +28,7 @@ import type {
   SettingsView
 } from "../../shared/settings-v2-types.js";
 import { EMPTY_SAMPLING_V2 } from "../../shared/settings-v2-types.js";
+import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
 
 describe("fuzzy matching", () => {
   test("orders contiguous early matches first", () => {
@@ -391,9 +392,10 @@ function cacheView(
     stateGeneration: 1,
     activeRevision: 1,
     pendingRevision: null,
-    document,
+    document: document as never,
     effective: basicSettingsFromDocument(document),
     effectiveProse: basicSettingsFromDocument(document),
+    activeWriting: writingPromptSettingsFromAuthorBrief(document.writing.defaultAuthorBrief),
     lastActivationOutcome: null
   };
 }
@@ -413,6 +415,7 @@ function readOnlyCacheView(
     document: null,
     effective: editable.effective,
     effectiveProse: editable.effectiveProse,
+    activeWriting: writingPromptSettingsFromAuthorBrief(editable.effective.systemPrompt),
     lastActivationOutcome: null
   };
 }

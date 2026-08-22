@@ -178,7 +178,7 @@ export function samplingContextForOverlayOrNull(
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
   if (document === null || profileId === null) return null;
-  return samplingContextForRoute(resolveSettingsProfile(document, profileId));
+  return samplingContextForRoute(resolveSettingsProfile(document, profileId) as never);
 }
 
 export function samplingContextForOverlay(

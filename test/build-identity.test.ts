@@ -43,11 +43,12 @@ test("source identity is explicit and cannot masquerade as a packaged build", ()
   // contract. v22 adds the active prose continuation layout to Settings. v23
   // adds machine-tier subscription sign-in state to Settings. v24 adds the
   // closed `pi-catalog` model-discovery source. v25 adds the Settings
-  // read-only reason. An older peer must fail at preflight.
+  // read-only reason. v26 adds required activeWriting, ProviderProbeRouteV1,
+  // and Settings schema 5. An older peer must fail at preflight.
   assert.equal(
     HTTP_API_PROTOCOL_VERSION,
-    25,
-    "Successor-owned Settings views require HTTP API v25"
+    26,
+    "Configurable writing prompts require HTTP API v26"
   );
   const source = createSourceBuildIdentity("1.2.3");
   assert.deepEqual(source, {

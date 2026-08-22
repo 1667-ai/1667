@@ -14,8 +14,9 @@ import {
   activeSettingsDocument,
   settingsViewFromState
 } from "../server/settings-v2-runtime.js";
-import { readSettingsState } from "../server/settings-state-file.js";
+import { readSettingsState, readSettingsStateSlot } from "../server/settings-state-file.js";
 import type { SettingsDocumentV2 } from "../shared/settings-v2-types.js";
+import { providerProbeRouteFromDocument } from "../shared/provider-probe-route-v1.js";
 import type { MutationId } from "../server/mutation-ledger-types.js";
 import {
   FIXED_TIME,
@@ -795,25 +796,21 @@ test("a saved-but-unactivated credential target stays testable; unsaved targets 
   const candidate = credentialedDocument("AI_1667_STAGED_PROBE_KEY");
   await store.save(saveCommand(MUTATION_A, 1, candidate));
   assert.equal(
-    (await readSettingsState(dataDir)).pendingRevision,
+    (await readSettingsStateSlot(dataDir)).state.pendingRevision,
     2,
     "the probe target below is the staged, not yet activated candidate"
   );
 
-  const probe = await store.resolveProviderProbe({
-    kind: "settings-document",
-    document: candidate,
-    purpose: "default"
-  });
+  const probe = await store.resolveProviderProbe(
+    providerProbeRouteFromDocument(candidate)
+  );
   assert.equal(probe.baseUrl, "https://api.openai.com/v1");
   assert.equal(probe.apiKeyEnv, "AI_1667_STAGED_PROBE_KEY");
 
   await assert.rejects(
-    store.resolveProviderProbe({
-      kind: "settings-document",
-      document: credentialedDocument("AI_1667_NEVER_SAVED_KEY"),
-      purpose: "default"
-    }),
+    store.resolveProviderProbe(
+      providerProbeRouteFromDocument(credentialedDocument("AI_1667_NEVER_SAVED_KEY"))
+    ),
     hasServiceCode("credential_test_requires_activation")
   );
 });
