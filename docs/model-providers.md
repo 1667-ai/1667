@@ -321,6 +321,12 @@ Advanced view.
 Press `,` to open Settings. Press `m` to switch between Simple view and
 Advanced view. 1667 remembers your choice for your next session.
 
+Press `Ctrl+P` or `:` and type a Settings row name to open that row. The
+command palette also lists each Sampling control. If a row needs Advanced
+view, 1667 opens Advanced view for this visit. It does not change your saved
+view. If a row does not apply to the selected provider, 1667 selects the
+provider row and reports that the requested row is not available.
+
 ## Provider support
 
 1667 supports these provider protocols:

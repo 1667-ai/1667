@@ -5,6 +5,10 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **The command palette opens each Settings control.** Search for a Settings
+  row or a Sampling control to open it directly. A hidden Advanced row opens
+  without changing the saved Settings view.
+
 ## 0.10.2-rc.1 - 2026-08-22
 
 - **Settings now controls the guidance for each writing action.** The simple

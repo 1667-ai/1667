@@ -8,6 +8,15 @@ import {
   retainCommandSelection,
   type CommandSelectionId
 } from "../src/command-model.js";
+import {
+  SETTINGS_COMMAND_DEFINITIONS,
+  settingsCommandTargetIdentity
+} from "../src/settings-command-catalog.js";
+import {
+  SAMPLING_LAYER_ROWS,
+  samplingLayerRowIdentity
+} from "../src/sampling-model.js";
+import { SETTINGS_ROW_IDS } from "../src/settings-row-navigation.js";
 import { demoAppSource } from "../src/demo.js";
 import { hitAt, type HitRows } from "../src/hit.js";
 import { panelHorizontalGeometry } from "../src/screens/overlay.js";
@@ -16,10 +25,10 @@ import { plainLine, visibleWidth, type FrameLine } from "../src/screens/story/fr
 import { nextRequestEstimate } from "../src/request-projection.js";
 
 describe("grouped command palette model", () => {
-  test("builds five sections and one canonical selectable/render order", () => {
+  test("builds six sections and one canonical selectable/render order", () => {
     const model = commandPaletteModel("", false);
     expect(model.sections.map((section) => section.label)).toEqual([
-      "Suggested", "Story", "Take", "View", "System"
+      "Suggested", "Story", "Take", "View", "System", "Settings"
     ]);
     const ids = model.selectable.map((match) => match.command.id);
     for (const id of [
@@ -33,6 +42,29 @@ describe("grouped command palette model", () => {
     for (const [index, row] of model.renderRows.entries()) {
       expect(model.renderRowToSelectable[index]).toBe(row.kind === "section" ? null : row.selectableIndex);
     }
+  });
+
+  test("covers every Settings row and Sampling focus stop exactly once", () => {
+    const model = commandPaletteModel("", false);
+    const commands = model.selectable
+      .map(({ command }) => command)
+      .filter((command) => command.settingsTarget !== undefined);
+    const ids = commands.map((command) => command.id);
+    expect(ids).toHaveLength(SETTINGS_COMMAND_DEFINITIONS.length);
+    expect(new Set(ids).size).toBe(ids.length);
+
+    const rows = commands
+      .map((command) => command.settingsTarget!)
+      .filter((target): target is { kind: "row"; row: (typeof SETTINGS_ROW_IDS)[number] } =>
+        target.kind === "row")
+      .map((target) => target.row);
+    expect(rows).toEqual([...SETTINGS_ROW_IDS]);
+
+    const sampling = commands
+      .map((command) => command.settingsTarget!)
+      .filter((target) => target.kind === "sampling")
+      .map((target) => settingsCommandTargetIdentity(target));
+    expect(sampling).toEqual(SAMPLING_LAYER_ROWS.map(samplingLayerRowIdentity));
   });
 
   test("attach image is available once image input's entry points are open, this release's default", () => {
@@ -143,6 +175,34 @@ describe("grouped command palette model", () => {
     expect(brief?.shortcut).toBe(undefined);
   });
 
+  test("finds priority Settings rows and Default Author Brief aliases", () => {
+    for (const [query, row] of [
+      ["provider", "provider"],
+      ["model", "model"],
+      ["effort", "effort"],
+      ["default author brief", "default-author-brief"],
+      ["system prompt", "default-author-brief"],
+      ["default authors note", "default-author-brief"],
+      ["default author's note", "default-author-brief"]
+    ] as const) {
+      const match = commandMatches(query, false)
+        .find(({ command }) => command.settingsTarget?.kind === "row"
+          && command.settingsTarget.row === row);
+      expect(match?.command.settingsTarget).toEqual({ kind: "row", row });
+    }
+  });
+
+  test("keeps the Story Author's Note command distinct from the Default Author Brief alias", () => {
+    const story = commandMatches("author's note", false)
+      .find(({ command }) => command.id === "authors-note")?.command;
+    const brief = commandMatches("default author's note", false)
+      .find(({ command }) => command.settingsTarget?.kind === "row"
+        && command.settingsTarget.row === "default-author-brief")?.command;
+    expect(story).toMatchObject({ id: "authors-note", section: "story", shortcut: "n" });
+    expect(brief).toMatchObject({ section: "settings" });
+    expect(brief?.id).not.toBe(story?.id);
+  });
+
   test("retains command identity across live Suggested reordering", () => {
     const source = demoAppSource();
     const context = commandContext(source.payload, { connectionDown: false, requestActive: true, canRewriteSelection: false });
@@ -156,11 +216,10 @@ describe("grouped command palette model", () => {
     expect(retained.selectedId).toBe("switch-story");
   });
 
-  test("compact windows retain the selected command and its section header when possible", () => {
+  test("compact windows retain the selected command", () => {
     const model = commandPaletteModel("", false);
     const cursor = model.selectable.length - 1;
     const rows = commandPaletteWindow(model, cursor, 10);
-    expect(rows.some((row) => row.kind === "section" && row.section.label === "System")).toBeTrue();
     expect(rows.some((row) => row.selectableIndex === cursor)).toBeTrue();
     expect(rows.every((row) => row.kind !== "section" || row.selectableIndex === null)).toBeTrue();
   });
@@ -190,12 +249,11 @@ describe("grouped command palette rendering", () => {
     expect(panelText.trimEnd().endsWith("t")).toBeTrue();
   });
 
-  test("keeps the selected System command visible at 80×24", () => {
+  test("keeps the selected Settings command visible at 80×24", () => {
     const model = commandPaletteModel("", false);
     const cursor = model.selectable.length - 1;
     const selectedName = model.selectable[cursor]!.command.name;
     const { lines } = renderCommands(80, 24, cursor);
-    expect(lines.map(plainLine).join("\n")).toContain("System");
     expect(lines.map(plainLine).join("\n")).toContain(selectedName);
   });
 

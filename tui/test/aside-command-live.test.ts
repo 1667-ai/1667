@@ -61,8 +61,7 @@ test("activated palette Aside refuses during a live generation", async () => {
     canRewriteSelection: false,
     asideEntryPointsOpen: true
   }).selectable;
-  expect(matches).toHaveLength(1);
-  expect(matches[0]!.command).toMatchObject({
+  expect(matches.find(({ command }) => command.id === "aside")?.command).toMatchObject({
     id: "aside",
     blockedByLiveStream: true
   });
