@@ -27,6 +27,7 @@ repository contains the terminal user interface (TUI) and its backend runtime.
 - Override the Default Author Brief for one story.
 - Set the Default Author Brief and the Default Continue direction in Settings.
 - Set Rewrite, Title, Summary, and Aside guidance in Advanced view.
+- Open each Settings row and Sampling control from the command palette.
 - Use keys to include a Fact only when the request context matches it.
 - Order, rank, and budget Facts so a full context window drops low-value ones first.
 - Inspect the next provider request in the request viewer.

@@ -1,6 +1,7 @@
 import {
   commandContext,
   commandMatches,
+  commandQueryCursor,
   retainCommandSelection,
   type CommandMatch,
   type PaletteCommand
@@ -514,7 +515,7 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
     matches = liveCommandMatches(
       state, overlay.query, undefined, context.asideEntryPointsOpen
     );
-    selectCommand(overlay, matches, 0);
+    selectCommand(overlay, matches, commandQueryCursor(matches, overlay.query));
   }
   else if (resolved.action === "open-selected") {
     const command = matches[overlay.cursor]?.command;
@@ -667,7 +668,10 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
     if (plan === null) state.toast = "nothing to prune · every leaf is protected";
     else state.prune = plan;
   } else if (command.id === "prompts") { state.showInstructions = !state.showInstructions; state.toast = `directions ${state.showInstructions ? "shown" : "hidden"}`; }
-  else if (command.id === "settings") await openSettingsOverlay(state, source, context);
+  else if (command.settingsTarget !== undefined || command.id === "settings") {
+    await openSettingsOverlay(state, source, context, command.settingsTarget);
+    await synchronizeSettingsModelDiscovery(state, source, context);
+  }
   else if (command.id === "theme" && command.theme !== undefined) {
     context.applyTheme(command.theme);
     state.toast = `theme · ${command.theme}`;

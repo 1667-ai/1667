@@ -3,8 +3,13 @@ import { imageInputEntryPointsOpen } from "../../shared/image-input-release.js";
 import { asideEntryPointsOpen } from "../../shared/aside-release.js";
 import { THEME_NAMES, type ThemeName } from "./config.js";
 import { fuzzyMatch } from "./fuzzy.js";
+import {
+  SETTINGS_COMMAND_DEFINITIONS,
+  type SettingsCommandId,
+  type SettingsCommandTarget
+} from "./settings-command-catalog.js";
 
-export type CommandSectionId = "suggested" | "story" | "take" | "view" | "system";
+export type CommandSectionId = "suggested" | "story" | "take" | "view" | "system" | "settings";
 export type CommandId =
   | "export" | "summary" | "tag-line"
   | "switch-story" | "rename-story" | "folder" | "autoname" | "import-card" | "import-archive"
@@ -13,7 +18,8 @@ export type CommandId =
   | "direct-take" | "retake" | "rewrite-selection" | "prune" | "attach-image"
   | "tags" | "chapters" | "chapter" | "prompts"
   | "next-request" | "token-probabilities" | "generation-records"
-  | "settings" | "reconnect" | "disconnect" | "export-profile" | "theme";
+  | "settings" | "reconnect" | "disconnect" | "export-profile" | "theme"
+  | SettingsCommandId;
 
 export type CommandSelectionId = Exclude<CommandId, "theme"> | `theme:${ThemeName}`;
 
@@ -35,6 +41,10 @@ export interface PaletteCommand {
   /** Extra live gate beyond demo/mutating, e.g. rewrite-selection needing a
    *  selection this build can actually rewrite. Absent means always allowed. */
   requires?: (context: CommandPaletteContext) => boolean;
+  /** Target for a generated Settings shortcut. */
+  settingsTarget?: SettingsCommandTarget;
+  /** Extra terms used for literal and fuzzy search without changing the label. */
+  searchTerms?: readonly string[];
 }
 
 export interface CommandMatch {
@@ -88,7 +98,8 @@ const SECTIONS: ReadonlyArray<{ id: CommandSectionId; label: string }> = [
   { id: "story", label: "Story" },
   { id: "take", label: "Take" },
   { id: "view", label: "View" },
-  { id: "system", label: "System" }
+  { id: "system", label: "System" },
+  { id: "settings", label: "Settings" }
 ];
 
 const COMMANDS: readonly PaletteCommand[] = [
@@ -157,7 +168,8 @@ const COMMANDS: readonly PaletteCommand[] = [
     description: "switch the palette · persists per user"
   })),
   { id: "export-profile", section: "system", name: "export generation profile", description: "write the routed profile as shareable JSON" },
-  { id: "disconnect", section: "system", name: "simulate disconnect", description: "demo-only connection banner fixture", demoOnly: true }
+  { id: "disconnect", section: "system", name: "simulate disconnect", description: "demo-only connection banner fixture", demoOnly: true },
+  ...SETTINGS_COMMAND_DEFINITIONS
 ];
 
 export function commandContext(
@@ -196,7 +208,8 @@ export function commandPaletteModel(
   const literal = needle.length === 0 ? candidates : candidates.filter(({ command }) =>
     command.name.toLocaleLowerCase().includes(needle)
     || command.description.toLocaleLowerCase().includes(needle)
-    || command.shortcut?.toLocaleLowerCase() === needle);
+    || command.shortcut?.toLocaleLowerCase() === needle
+    || command.searchTerms?.some((term) => term.toLocaleLowerCase() === needle) === true);
   const matched = literal.length > 0 ? literal : candidates;
   const sections: CommandPaletteSection[] = [];
   const selectable: CommandMatch[] = [];
@@ -228,7 +241,12 @@ export function commandPaletteModel(
   };
 
   function matchCommand(command: PaletteCommand): CommandMatch | null {
-    const match = fuzzyMatch(`${command.name} ${command.description} ${command.shortcut ?? ""}`, query);
+    const match = fuzzyMatch([
+      command.name,
+      command.description,
+      command.shortcut ?? "",
+      ...(command.searchTerms ?? [])
+    ].join(" "), query);
     if (match === null) return null;
     const nameLength = [...command.name].length;
     return {
@@ -246,6 +264,22 @@ export function commandMatches(
   context: CommandPaletteContext = DEFAULT_CONTEXT
 ): CommandMatch[] {
   return commandPaletteModel(query, demo, context).selectable;
+}
+
+/** Prefer an exact destination name, alias, or shortcut without changing the
+ * grouped render order. Earlier sections can still contain incidental prose
+ * matches, but Enter should open the destination the writer named. */
+export function commandQueryCursor(
+  matches: readonly CommandMatch[],
+  query: string
+): number {
+  const needle = query.trim().toLocaleLowerCase();
+  if (needle.length === 0) return 0;
+  const exact = matches.findIndex(({ command }) =>
+    command.name.toLocaleLowerCase() === needle
+    || command.shortcut?.toLocaleLowerCase() === needle
+    || command.searchTerms?.some((term) => term.toLocaleLowerCase() === needle) === true);
+  return exact >= 0 ? exact : 0;
 }
 
 export interface RetainedCommandSelection {
