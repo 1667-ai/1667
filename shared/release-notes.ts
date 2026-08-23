@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.2",
+    date: "2026-08-23",
+    body: "- **This release has no additional product changes.** It contains the same\n  behavior as 0.10.2-rc.2."
+  },
+  {
     version: "0.10.2-rc.2",
     date: "2026-08-23",
     body: "- **The command palette opens each Settings control.** Search for a Settings\n  row or a Sampling control to open it directly. A hidden Advanced row opens\n  without changing the saved Settings view."
