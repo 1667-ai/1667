@@ -5,6 +5,8 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.2-rc.2 - 2026-08-23
+
 - **The command palette opens each Settings control.** Search for a Settings
   row or a Sampling control to open it directly. A hidden Advanced row opens
   without changing the saved Settings view.

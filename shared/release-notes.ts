@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.2-rc.2",
+    date: "2026-08-23",
+    body: "- **The command palette opens each Settings control.** Search for a Settings\n  row or a Sampling control to open it directly. A hidden Advanced row opens\n  without changing the saved Settings view."
+  },
+  {
     version: "0.10.2-rc.1",
     date: "2026-08-22",
     body: "- **Settings now controls the guidance for each writing action.** The simple\n  view contains the Default Author Brief and Default Continue direction. The\n  advanced view also contains the Rewrite, Title, Summary, and Aside guidance.\n  Existing default values keep the previous model requests unchanged.\n\n- **A prompt opens in a full-screen editor.** Press Ctrl+S to keep an edited\n  prompt in the Settings draft. Save Settings to activate all draft changes.\n\n- **The first prompt save upgrades the Settings data.** An older 1667 release\n  refuses the new Settings schema. Use this beta only when that downgrade\n  limit is acceptable."
