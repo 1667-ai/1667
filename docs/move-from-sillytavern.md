@@ -38,8 +38,9 @@ lock.
 
 Export the chat from SillyTavern as a JSONL file. The
 [SillyTavern JSONL export](https://docs.sillytavern.app/usage/core-concepts/chatfilemanagement/#export-as-jsonl)
-does not include images or file attachments. Save those files separately
-before you import the chat. Then run:
+keeps message records that refer to images and file attachments. It does not
+include the attached file contents. 1667 ignores the attachment records. Save
+the attached files separately before you import the chat. Then run:
 
 ```sh
 1667 import chat.jsonl
@@ -144,13 +145,13 @@ Export World Info from SillyTavern as JSON. Then run:
 You can also select `import archive` in the command palette. This adds Facts to
 the open story.
 
-The World Info JSON file must not exceed 1 MB. Each imported Fact can contain
-at most 100,000 characters. The command truncates longer entry text and reports
-the change. A story can contain 128 Facts, including existing Facts. The import
-keeps entries in source order until it reaches the remaining Fact capacity. A
-request that adds Facts must also fit within 1 MB. The command drops later Facts
-that do not fit this request limit. The Fidelity Report gives each affected
-count.
+The World Info JSON file must not exceed 1 MB. The command refuses a file with
+more than 10,000 entries. Each imported Fact can contain at most 100,000
+characters. The command truncates longer entry text and reports the change. A
+story can contain 128 Facts, including existing Facts. The import keeps entries
+in source order until it reaches the remaining Fact capacity. A request that
+adds Facts must also fit within 1 MB. The command drops later Facts that do not
+fit this request limit. The Fidelity Report gives each affected count.
 
 1667 keeps these settings when the file provides them:
 
@@ -188,8 +189,14 @@ Anthropic endpoints.
 
 Use SillyTavern for chat roleplay, personas, active group chats, and its card
 tools. Use 1667 for a long-form story with alternative takes and a selected
-story line. Import copies supported material from SillyTavern into 1667. It
-does not export material back to SillyTavern.
+story line. Import copies supported material from SillyTavern into 1667. 1667
+does not export SillyTavern chats or character cards.
+
+You can copy Facts back as World Info. Run `1667 export --format lorebook`,
+then import the `.lorebook` file in SillyTavern. Fact text, primary keys, and
+tags transfer. SillyTavern imports every entry as non-constant. Secondary keys,
+secondary-key rules, scan depth, recursion, priority, and Fact token limits do
+not transfer.
 
 ## Detailed references
 
