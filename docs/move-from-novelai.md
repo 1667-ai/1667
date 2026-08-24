@@ -19,7 +19,7 @@ storage, and model access.
 | Memory | An `always` Fact | Import gives the Fact the `memory` tag |
 | Lorebook Entry | A Fact | Entry keys and activation become Fact settings |
 | Author's Note | Author's Note | The text imports; the position resets to the default depth |
-| Retry | Take | A supported plain retry can become one take |
+| Retry | Take | A retry that is a plain new take can become one take |
 | Sampler Preset | Generation Profile | Supported sampling values become Profile settings |
 | `.story` file | Story | One file becomes one story |
 | `.scenario` file | Story | The prompt becomes the first story parts |
@@ -48,7 +48,7 @@ part. Change the depth in the Author's Note editor.
 A NovelAI retry maps to a [take](technical-terms.md). A take is one
 alternative version of a story part. 1667 keeps each imported take, and the
 mass map shows all of them. Import reads the retry history from a `.story`
-file. Each supported plain retry that import keeps becomes a take. The retry
+file. Import can turn a retry that is a plain new take into a take. The retry
 you had open in NovelAI becomes the selected take for its story part.
 
 Import does not read NovelAI's own generation settings. The
@@ -243,19 +243,26 @@ Exit 1667 first. These commands export the most recently updated story:
 Use `--story st1_...` to select a story by its ID. Use `--all` to export every
 story.
 
-These Archives are not complete backups:
+These Archives are transfer files, not complete backups:
 
-- A `.story` or `.scenario` Archive contains only the selected prose line. A
-  `.story` Archive has no retry history.
+- Of the available prose branches, a `.story` or `.scenario` Archive contains
+  only the selected story line. Both formats also contain Facts, Memory, and
+  the Author's Note. A `.story` Archive has no retry history.
 - A `.lorebook` Archive contains Facts but no prose.
 - The exports can omit alternate takes, directions, summaries, chapter breaks,
   tags, and Side Notes.
 - The exports omit Fact secondary keys, secondary-key mode, scan depth,
   recursion, priority, and per-Fact token budgets. The Fidelity Report does not
   list these losses.
+- The exports omit the Facts budget, Author's Note depth, story phrase bias,
+  and banned strings. Both `.story` and `.scenario` omit the Author Brief. Only
+  the `.scenario` Fidelity Report names that loss. The exports also omit Image
+  Attachments, thoughts, token probabilities, and Generation Records.
 
 The export command writes a Fidelity Report to standard error. Check it for
-changes and omissions.
+changes and omissions. The report and the examples above are not complete loss
+inventories. Refer to [Story storage](story-storage.md#export-a-story) for the
+content and selection rules of each format.
 
 ## NovelAI model access
 
