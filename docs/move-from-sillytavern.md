@@ -20,7 +20,7 @@ Info files. It runs on macOS, Linux, and Windows x64.
 | User message | Direction | User messages before a reply guide that story part. |
 | Character card | Facts | Supported card text becomes editable Facts. |
 | Character Book | Facts | Supported activation settings transfer. |
-| World Info | Facts | Constant and keyed entries become Facts. |
+| World Info | Facts | Enabled constant and keyed entries become Facts. |
 | API connection | Provider | 1667 has presets for common local servers. |
 
 ## Before you start
@@ -100,9 +100,11 @@ Supported Character Book settings include:
 - The `@@activate` and `@@dont_activate` control lines.
 
 The Fidelity Report names unsupported Character Book settings. For a V3 card,
-it also names unsupported card fields. Greetings, example messages, system
-prompts, post-history instructions, and assets do not transfer. A V1 or V2
-report does not list these omitted card fields.
+it names unsupported greetings, example messages, assets, creator notes,
+prompts, version data, tags, and creator data. A V1 or V2 report does not list
+these omitted card fields. The converter also does not import
+`creator_notes_multilingual`, `source`, `creation_date`, or `modification_date`.
+The Fidelity Report does not name these metadata fields.
 
 ## Import World Info
 
@@ -124,6 +126,9 @@ the open story.
 - Scan depth from 1 to 20 story parts.
 - Chain activation opt-out.
 - The `@@activate` and `@@dont_activate` control lines.
+
+A disabled entry does not import. An entry that starts with `@@dont_activate`
+also does not import. The Fidelity Report names each skipped entry.
 
 Some World Info settings have no matching Fact setting. These settings include
 insertion position and order, firing probability, timed effects, prompt roles,
