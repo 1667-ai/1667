@@ -36,7 +36,10 @@ lock.
 
 ## Import a chat
 
-Export the chat from SillyTavern as a JSONL file. Then run:
+Export the chat from SillyTavern as a JSONL file. The
+[SillyTavern JSONL export](https://docs.sillytavern.app/usage/core-concepts/chatfilemanagement/#export-as-jsonl)
+does not include images or file attachments. Save those files separately
+before you import the chat. Then run:
 
 ```sh
 1667 import chat.jsonl
@@ -57,18 +60,17 @@ sender name, the importer adds `Name: ` before the text. 1667 does not provide
 a group-chat runtime.
 
 The source file does not change. The command refuses the chat and creates no
-story if the chat exceeds one of these limits:
+story if the input exceeds one of these limits:
 
 - 20 MB per file.
 - 50,000 records per file.
 - 50,000 total swipe records per file.
-- 5,000 story parts per file.
-- 4,000,000 characters after name substitution.
 
-The command gives the selected story line priority. If that line fits but its
-alternate swipes exceed the remaining story-part or text limit, the command
-creates the story without those extra swipes. It reports the omitted swipe
-count.
+The selected story line must fit within 5,000 story parts and 4,000,000
+characters after name substitution. The command refuses the chat if the
+selected line exceeds either limit. Alternate swipes use the remaining part
+and text capacity. The command omits an alternate swipe that does not fit. It
+creates the story and reports the omitted swipe count.
 
 ## Import a character card
 
@@ -122,6 +124,14 @@ Export World Info from SillyTavern as JSON. Then run:
 
 You can also select `import archive` in the command palette. This adds Facts to
 the open story.
+
+The World Info JSON file must not exceed 1 MB. Each imported Fact can contain
+at most 100,000 characters. The command truncates longer entry text and reports
+the change. A story can contain 128 Facts, including existing Facts. The import
+keeps entries in source order until it reaches the remaining Fact capacity. A
+request that adds Facts must also fit within 1 MB. The command drops later Facts
+that do not fit this request limit. The Fidelity Report gives each affected
+count.
 
 1667 keeps these settings when the file provides them:
 
