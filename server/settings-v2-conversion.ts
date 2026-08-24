@@ -6,12 +6,13 @@ import type {
   SettingsPresetV2,
   SettingsRoutePurpose
 } from "../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 } from "../shared/settings-v5-types.js";
+import { isSubscriptionProtocolV2 } from "../shared/settings-v2-types.js";
 import {
   clampMaxOutputTokensToModel,
   resolveModelScalar,
   type ModelScalarMetadataSourcesV2
 } from "../shared/model-scalar-resolution.js";
-import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import {
   defaultConnectionTimeouts,
   defaultModelCapabilities,
@@ -26,31 +27,18 @@ import {
   promptCacheContextForRoute
 } from "../shared/prompt-cache-capabilities.js";
 import { generationEffortAvailabilityForRoute } from "../shared/generation-effort-capabilities.js";
-import { selectSettingsRoute } from "../shared/settings-route.js";
+import {
+  selectSettingsRoute,
+  type SelectedSettingsRouteV2
+} from "../shared/settings-route.js";
 import { parseGenerationSettingsV1 } from "./settings-v1-codec.js";
 import { parseSettingsDocumentV2 } from "./settings-v2-codec.js";
 import {
   MAX_SETTINGS_NAME_SCALARS,
   SettingsFormatError
 } from "./settings-v2-scalars.js";
-import {
-  attachProviderRuntime,
-  providerRuntimeFromV2,
-  type ProviderRuntime
-} from "./provider-runtime.js";
 
 export interface EffectiveMetadataV2 extends ModelScalarMetadataSourcesV2 {}
-
-export interface EffectiveGenerationRuntime {
-  readonly settings: GenerationSettings;
-  readonly promptCache: PromptCacheContext;
-  readonly providerRuntime: ProviderRuntime;
-}
-
-export interface EffectiveGenerationRuntimeOptions {
-  /** Provider checks and discovery do not require a generation-ready model ID. */
-  readonly allowBlankModel?: boolean;
-}
 
 export function convertGenerationSettingsV1(value: GenerationSettings): SettingsDocumentV2 {
   const settings = parseGenerationSettingsV1(value);
@@ -86,29 +74,52 @@ export function convertGenerationSettingsV1(value: GenerationSettings): Settings
   });
 }
 
-/** Project the selected v2 route into the unchanged provider runtime contract.
- * Unsupported v2-only semantics fail explicitly rather than being dropped. */
-export function effectiveGenerationSettings(
+/** Project one route into the serializable Generation Settings view. */
+export function effectiveGenerationView(
   value: SettingsDocumentV2,
   purpose: SettingsRoutePurpose = "default",
   metadata: EffectiveMetadataV2 = {}
 ): GenerationSettings {
-  return effectiveGenerationRuntime(value, purpose, metadata).settings;
+  return projectEffectiveGeneration(value, purpose, metadata).settings;
 }
 
-/** Project settings and cache policy from one parsed route snapshot. Callers
- * must not combine independent reads: a settings activation between them could
- * otherwise pair one provider target with another target's cache contract. */
-export function effectiveGenerationRuntime(
+export function projectEffectiveGeneration(
   value: SettingsDocumentV2,
-  purpose: SettingsRoutePurpose = "default",
-  metadata: EffectiveMetadataV2 = {},
-  environment?: NodeJS.ProcessEnv,
-  options: EffectiveGenerationRuntimeOptions = {},
-  storedSecrets?: ReadonlyMap<string, string>
-): EffectiveGenerationRuntime {
+  purpose: SettingsRoutePurpose,
+  metadata: EffectiveMetadataV2,
+  allowBlankModel = false
+) {
   const document = parseSettingsDocumentV2(value);
-  const route = selectSettingsRoute(document, purpose);
+  return projectEffectiveGenerationAtRoute(
+    document.writing.defaultAuthorBrief,
+    selectSettingsRoute(document, purpose),
+    metadata,
+    allowBlankModel
+  );
+}
+
+/** Project one already selected route without reparsing or applying routing
+ * fallback again. */
+export function projectEffectiveGenerationFromRoute(
+  defaultAuthorBrief: string,
+  route: SelectedSettingsRouteV2,
+  metadata: EffectiveMetadataV2,
+  allowBlankModel = false
+) {
+  return projectEffectiveGenerationAtRoute(
+    defaultAuthorBrief,
+    route,
+    metadata,
+    allowBlankModel
+  );
+}
+
+function projectEffectiveGenerationAtRoute(
+  defaultAuthorBrief: string,
+  route: SelectedSettingsRouteV2,
+  metadata: EffectiveMetadataV2,
+  allowBlankModel: boolean
+) {
   const { profile, model, connection } = route;
   const promptCache = promptCacheContextForRoute(route);
   const promptCachePlan = lowerPromptCache(promptCache);
@@ -123,33 +134,28 @@ export function effectiveGenerationRuntime(
   const remoteId = effectiveRemoteId(
     provider,
     model.remoteId,
-    options.allowBlankModel === true
+    allowBlankModel
   );
   const contextWindow = resolveModelScalar(model, metadata, "contextWindow");
-  const providerRuntime = providerRuntimeFromV2(
-    connection,
-    profile.effort,
-    model.capabilities,
-    environment,
-    storedSecrets,
-    profile.sampling ?? EMPTY_SAMPLING_V2,
-    profile.tokenProbabilities ?? null,
-    profile.reasoning ?? "marker",
-    profile.discardReasoning !== true
-  );
-  const settings = attachProviderRuntime({
-      provider,
-      baseUrl: connection.baseUrl ?? "",
-      model: remoteId,
-      apiKeyEnv: effectiveApiKeyEnv(connection),
-      temperature: profile.temperature,
-      maxTokens: clampMaxOutputTokensToModel(profile.maxOutputTokens, model, metadata),
-      systemPrompt: document.writing.defaultAuthorBrief,
-      contextWindow: contextWindow ?? null
-    }, providerRuntime);
+  const settings: GenerationSettings = {
+    provider,
+    baseUrl: connection.baseUrl ?? "",
+    model: remoteId,
+    apiKeyEnv: effectiveApiKeyEnv(connection),
+    ...(connection.allowInsecureHttp === true
+      ? { allowInsecureHttp: true as const }
+      : {}),
+    ...(isSubscriptionProtocolV2(connection.protocol)
+      ? { protocol: connection.protocol }
+      : {}),
+    temperature: profile.temperature,
+    maxTokens: clampMaxOutputTokensToModel(profile.maxOutputTokens, model, metadata),
+    systemPrompt: defaultAuthorBrief,
+    contextWindow: contextWindow ?? null
+  };
   return {
+    route,
     promptCache,
-    providerRuntime,
     settings
   };
 }
@@ -168,14 +174,18 @@ export function effectivePromptCacheContext(
 /** Compatibility editor for the existing simple GenerationSettings UI. It
  * updates only the selected default connection/model/profile and writing brief,
  * preserving IDs, routing, unselected records, discovery, effort, and policy. */
-export function applyEffectiveGenerationSettings(
-  value: SettingsDocumentV2,
+export function applyEffectiveGenerationSettings<D extends SettingsDocumentV2 | SettingsDocumentV5>(
+  value: D,
   generationValue: GenerationSettings
-): SettingsDocumentV2 {
-  const document = parseSettingsDocumentV2(value);
+): D {
   const { allowInsecureHttp: _allowInsecureHttp, ...legacyValue } = generationValue;
   const settings = parseGenerationSettingsV1(legacyValue);
-  return parseSettingsDocumentV2(applyBasicSettingsDraft(document, settings));
+  if (value.schemaVersion === 5) {
+    return applyBasicSettingsDraft(value, settings);
+  }
+  return parseSettingsDocumentV2(
+    applyBasicSettingsDraft(parseSettingsDocumentV2(value), settings)
+  ) as D;
 }
 
 export function inferSettingsPresetV2(provider: Provider, baseUrl: string): SettingsPresetV2 {
@@ -237,12 +247,18 @@ function connectionFromGenerationSettings(settings: GenerationSettings): ModelCo
 }
 
 export function providerForProtocol(protocol: ModelConnectionV2["protocol"]): Provider {
+  if (isSubscriptionProtocolV2(protocol)) {
+    return protocol === "openai-codex-responses"
+      ? "openai-compatible"
+      : "anthropic";
+  }
   switch (protocol) {
     case "dry-run": return "dry-run";
     case "openai-chat-completions": return "openai-compatible";
     case "text-completions": return "text-completion";
     case "anthropic-messages": return "anthropic";
   }
+  throw new SettingsFormatError("Unsupported settings protocol");
 }
 
 function effectiveRemoteId(
@@ -285,4 +301,5 @@ function connectionName(preset: SettingsPresetV2): string {
     case "koboldcpp": return "KoboldCpp";
     case "custom": return "Custom";
   }
+  throw new SettingsFormatError("Unsupported settings preset");
 }

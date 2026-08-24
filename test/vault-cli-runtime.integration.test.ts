@@ -7,6 +7,7 @@ import test from "node:test";
 import { promisify } from "node:util";
 import { initializeProject } from "../server/project-discovery.js";
 import { isSealed } from "../shared/vault-cipher.js";
+import { stripInheritedAcl } from "./state-root-fixture.js";
 
 const execFileAsync = promisify(execFile);
 const PASSPHRASE = "correct horse battery staple";
@@ -19,6 +20,7 @@ const PASSPHRASE = "correct horse battery staple";
  */
 test("E2E integration: the Bun runtime seals and unseals a project vault", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-vault-runtime-"));
+  await stripInheritedAcl(root);
   t.after(async () => { await rm(root, { recursive: true, force: true }); });
 
   const project = await initializeProject(root);

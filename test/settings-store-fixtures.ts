@@ -15,7 +15,7 @@ import type {
 import { hashSettingsStateV2 } from "../server/settings-v2-codec.js";
 import {
   applyEffectiveGenerationSettings,
-  effectiveGenerationSettings
+  effectiveGenerationView
 } from "../server/settings-v2-conversion.js";
 import {
   INITIAL_SETTINGS_DOCUMENT_V2,
@@ -27,6 +27,8 @@ import type {
   SettingsDocumentV2,
   SettingsStateV2
 } from "../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 } from "../shared/settings-v5-types.js";
+import { convertSettingsDocumentV2ToV5 } from "../server/settings-v5-conversion.js";
 
 export const MUTATION_A = `m1.1767225600000.${"a".repeat(32)}` as MutationId;
 export const MUTATION_B = `m1.1767225600001.${"b".repeat(32)}` as MutationId;
@@ -56,7 +58,7 @@ export function writingDocument(brief: string): SettingsDocumentV2 {
 
 export function credentialedDocument(environmentName: string): SettingsDocumentV2 {
   return applyEffectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2, {
-    ...effectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2),
+    ...effectiveGenerationView(INITIAL_SETTINGS_DOCUMENT_V2),
     provider: "openai-compatible",
     baseUrl: "https://api.openai.com/v1",
     model: "test-model",
@@ -67,10 +69,17 @@ export function credentialedDocument(environmentName: string): SettingsDocumentV
 export function saveCommand(
   mutationId: MutationId,
   expectedStateGeneration: number,
-  document: SettingsDocumentV2,
+  document: SettingsDocumentV2 | SettingsDocumentV5,
   transportOperationId = `transport:${mutationId}`
 ): SaveSettingsCommand {
-  return { transportOperationId, mutationId, expectedStateGeneration, document };
+  return {
+    transportOperationId,
+    mutationId,
+    expectedStateGeneration,
+    document: document.schemaVersion === 5
+      ? document
+      : convertSettingsDocumentV2ToV5(document)
+  };
 }
 
 export function changedState(

@@ -7,6 +7,7 @@ import {
 import {
   currentPlatformPackage,
   executeUpgradeCli,
+  formatUpgradeApplyCommand,
   parseUpgradeArguments,
   runProcessUpgrade,
   windowsInstallCommand
@@ -110,6 +111,14 @@ test("parser never emits impossible command combinations", () => {
   const rollback = parseUpgradeArguments(["--rollback"]);
   expect(rollback?.command).toEqual({ kind: "rollback" });
   expect(Object.keys(rollback!.command)).toEqual(["kind"]);
+});
+
+test("typed apply commands have one terminal formatter", () => {
+  expect(formatUpgradeApplyCommand({
+    kind: "apply",
+    channel: "beta",
+    version: "2.0.0-beta.1"
+  })).toBe("1667 upgrade --version 2.0.0-beta.1 --channel beta");
 });
 
 test("JSON success emits exactly one stable envelope and command stays null", async () => {

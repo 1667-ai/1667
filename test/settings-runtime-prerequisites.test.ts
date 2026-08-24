@@ -14,7 +14,7 @@ import { MutationLedgerStore } from "../server/mutation-ledger-store.js";
 import { SettingsStore } from "../server/settings.js";
 import {
   applyEffectiveGenerationSettings,
-  effectiveGenerationSettings
+  effectiveGenerationView
 } from "../server/settings-v2-conversion.js";
 import {
   INITIAL_SETTINGS_DOCUMENT_V2,
@@ -85,7 +85,7 @@ test("direct saves validate cache policy on utility and prose routes", async (t)
   );
   const store = new SettingsStore(dataDir, { now: () => FIXED_TIME });
   await store.init(2);
-  const initial = effectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2);
+  const initial = effectiveGenerationView(INITIAL_SETTINGS_DOCUMENT_V2);
   const document = applyEffectiveGenerationSettings(
     INITIAL_SETTINGS_DOCUMENT_V2,
     {
@@ -138,7 +138,7 @@ test("externally persisted invalid selected routes fail initialization and runti
 });
 
 function invalidRuntimePrerequisites(): readonly RuntimePrerequisiteCase[] {
-  const initialEffective = effectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2);
+  const initialEffective = effectiveGenerationView(INITIAL_SETTINGS_DOCUMENT_V2);
   const openAi = applyEffectiveGenerationSettings(
     INITIAL_SETTINGS_DOCUMENT_V2,
     {

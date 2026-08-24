@@ -178,7 +178,7 @@ export function samplingContextForOverlayOrNull(
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
   if (document === null || profileId === null) return null;
-  return samplingContextForRoute(resolveSettingsProfile(document, profileId));
+  return samplingContextForRoute(resolveSettingsProfile(document, profileId) as never);
 }
 
 export function samplingContextForOverlay(
@@ -295,6 +295,7 @@ export function samplingSummary(sampling: SamplingSettingsV2): string {
 }
 
 export function samplingRowValue(overlay: SettingsOverlayState): string {
+  if (overlay.view.readOnlyReason === "successor-schema") return "‹ successor-owned ›";
   const summary = samplingSummary(overlay.draft.sampling);
   if (overlay.view.editable) return summary;
   const reason = samplingScalarRows(overlay)[0]!.reasonCompact;

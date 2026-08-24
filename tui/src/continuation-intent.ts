@@ -1,5 +1,6 @@
 import type { StoryNode, StoryPayload } from "../../shared/types.js";
 import { DEFAULT_INSTRUCTION } from "../../shared/continuation-plan.js";
+import { resolveDefaultContinueDirection } from "../../shared/writing-prompt-runtime.js";
 
 /** One canonical description of the continuation the TUI is about to ask for.
  * Generation owns transport details; the meter consumes the same context shape. */
@@ -18,7 +19,8 @@ export function continuationIntent(
   payload: StoryPayload,
   focusedPathId: string | null,
   requestedInstruction: string,
-  regenerateNode: StoryNode | null = null
+  regenerateNode: StoryNode | null = null,
+  defaultContinueDirection: string = DEFAULT_INSTRUCTION
 ): ContinuationIntent {
   const path = payload.path;
   const leaf = path.at(-1) ?? null;
@@ -48,7 +50,10 @@ export function continuationIntent(
   return {
     leaf,
     contextParts: contextEnd < 0 ? [] : path.slice(0, contextEnd + 1),
-    instruction: requestedInstruction.trim() || DEFAULT_INSTRUCTION,
+    instruction: requestedInstruction.trim()
+      || (requestAppend && !crossesChapterBreak
+        ? DEFAULT_INSTRUCTION
+        : resolveDefaultContinueDirection(defaultContinueDirection)),
     requestAppend,
     appendLast: requestAppend && !crossesChapterBreak,
     fromSeam,

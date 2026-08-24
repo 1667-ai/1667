@@ -43,7 +43,15 @@ export interface UpdatePreferences {
   skippedVersion: string | null;
 }
 
+/** Which rows the Settings panel shows: `simple` lists only the most-used
+ *  rows, `advanced` shows every row. A view preference, not a setting, so it
+ *  lives here beside `factsRail` rather than in the server-backed settings
+ *  document (see settings-local-rows.ts). */
+export type SettingsViewMode = "simple" | "advanced";
+
 export interface UserConfig {
+  /** Version of the persisted user-config document. */
+  schemaVersion: 1;
   theme: ThemeName;
   factsRail: "auto" | "off";
   composeFocus: "on" | "off";
@@ -57,17 +65,23 @@ export interface UserConfig {
   updates: UpdatePreferences;
   /** The product version of the last interactive run. Null before the first run. */
   lastRunVersion: string | null;
+  /** Which rows the Settings panel shows. `m` flips it for the rest of the
+   *  session and persists the choice here, the same way compose focus and
+   *  word wrap persist (settings-selector-actions.ts). */
+  settingsViewMode: SettingsViewMode;
 }
 
 const DEFAULTS: UserConfig = {
+  schemaVersion: 1,
   theme: "lantern",
   factsRail: "auto",
   composeFocus: "off",
   wordWrap: "on",
   composeMaxHeight: null,
   quota: { date: "", words: 0 },
-  updates: { mode: "off", channel: "stable", skippedVersion: null },
-  lastRunVersion: null
+  updates: { mode: "notify", channel: "stable", skippedVersion: null },
+  lastRunVersion: null,
+  settingsViewMode: "simple"
 };
 
 type ConfigRecord = Record<string, unknown>;
@@ -110,20 +124,28 @@ export function normalizeUserConfig(value: unknown): UserConfig {
   const composeFocus = configValue(raw, "composeFocus", "compose_focus");
   const wordWrap = configValue(raw, "wordWrap", "word_wrap");
   const composeMaxHeight = configValue(raw, "composeMaxHeight", "compose_max_height");
+  const settingsViewMode = configValue(raw, "settingsViewMode", "settings_view_mode");
   const quotaValid = typeof rawQuota.date === "string"
     && typeof rawQuota.words === "number"
     && Number.isFinite(rawQuota.words);
   return {
+    schemaVersion: 1,
     theme: THEME_NAMES.includes(theme as ThemeName) ? theme as ThemeName : DEFAULTS.theme,
     factsRail: factsRail === "off" ? "off" : "auto",
     composeFocus: normalizedComposeFocus(composeFocus),
     wordWrap: normalizedWordWrap(wordWrap),
     composeMaxHeight: normalizedComposeMaxHeight(composeMaxHeight),
+    settingsViewMode: settingsViewMode === "advanced" ? "advanced" : "simple",
     quota: quotaValid
       ? { date: rawQuota.date as string, words: rawQuota.words as number }
       : { ...DEFAULTS.quota },
     updates: {
-      mode: rawUpdates.mode === "notify" ? "notify" : "off",
+      // The old schema persisted "off" as its default. It cannot distinguish
+      // that value from an opt-out, so migrate it to the new default. Schema 1
+      // marks choices made after the Settings control became available.
+      mode: raw.schemaVersion === 1 && rawUpdates.mode === "off"
+        ? "off"
+        : "notify",
       channel: rawUpdates.channel === "beta" ? "beta" : "stable",
       skippedVersion: isSemVer(rawUpdates.skippedVersion)
         ? rawUpdates.skippedVersion

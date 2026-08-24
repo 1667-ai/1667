@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { StreamView } from "../src/state.js";
+import { createTextPresentation } from "../src/text-presentation.js";
 import {
   appendStreamReasoning,
   appendStreamText,
@@ -7,6 +8,8 @@ import {
   streamHasSubstantiveReasoning,
   streamHasSubstantiveText,
   streamReasoningTrimmedText,
+  streamPresentedTrimBounds,
+  streamPresentedTrimmedText,
   streamTrimBounds,
   streamTrimmedText
 } from "../src/stream-text.js";
@@ -63,6 +66,21 @@ describe("incremental stream trim metadata", () => {
     expect(() => streamTrimBounds(legacy)).toThrow(
       "Large stream text is missing incremental trim metadata."
     );
+  });
+
+  test("keeps exact presented trim offsets when the prefix starts with whitespace", () => {
+    const current = stream();
+    current.presentation = createTextPresentation();
+    appendStreamText(current, "  hello  ");
+
+    expect(streamPresentedTrimBounds(current)).toEqual({ start: 2, end: 7 });
+    expect(streamPresentedTrimmedText(current)).toBe("hello");
+
+    appendStreamText(current, " world ");
+    current.presentation.advance();
+    expect(streamPresentedTrimBounds(current)).toEqual({ start: 2, end: 15 });
+    expect(streamPresentedTrimmedText(current)).toBe("hello   world");
+    current.presentation.dispose();
   });
 });
 

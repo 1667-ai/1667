@@ -4,7 +4,7 @@ import {
   type ProfileTransferFitOptions,
   type ProfileTransferCandidate
 } from "../../shared/generation-profile-transfer.js";
-import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 as SettingsDocumentV2 } from "../../shared/settings-v5-types.js";
 import {
   duplicateSettingsProfile,
   renameImportedSettingsProfile,
@@ -18,10 +18,10 @@ export function applyProfileTransfer(
   candidate: ProfileTransferCandidate,
   options: ProfileTransferFitOptions = {}
 ): FittedProfileTransfer | { readonly error: string } {
-  const name = uniqueSettingsProfileName(document, candidate.name);
-  const duplicate = duplicateSettingsProfile(document, sourceProfileId);
+  const name = uniqueSettingsProfileName(document as never, candidate.name);
+  const duplicate = duplicateSettingsProfile(document as never, sourceProfileId);
   if ("error" in duplicate) return duplicate;
-  const renamed = renameImportedSettingsProfile(duplicate.document, duplicate.profileId, name);
+  const renamed = renameImportedSettingsProfile(duplicate.document as never, duplicate.profileId, name);
   if ("error" in renamed) return renamed;
-  return fitProfileToRoute(renamed, duplicate.profileId, { ...candidate, name }, options);
+  return fitProfileToRoute(renamed as never, duplicate.profileId, { ...candidate, name }, options);
 }

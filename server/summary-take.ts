@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { summaryNodeInstruction } from "../shared/chapters.js";
 import { renderPromptPlan, type PromptPlan } from "../shared/prompt-plan.js";
+import {
+  operationGuidanceContext,
+  operationGuidanceTurns
+} from "../shared/writing-prompt-runtime.js";
 import { contextSlice, pathTo } from "../shared/story-tree.js";
 import { estimateTokens } from "../shared/tokens.js";
 import type { GenerationSettings, Story, StoryNode } from "../shared/types.js";
@@ -24,6 +28,9 @@ import { clipAttribution } from "./story-nodes.js";
 import type { SettingsStore } from "./settings.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
 import { optionalString, requireString } from "./validation.js";
+import type { StorySamplingBias } from "./sampling-phrase-bias.js";
+import { storySamplingBias } from "./sampling-phrase-bias.js";
+import { isSchema4ProviderRuntime, providerRuntimeFor } from "./provider-runtime.js";
 import {
   createPromptCacheRequest,
   type PromptCacheRequest,
@@ -91,15 +98,22 @@ export async function createSummaryTake(
   // `expected` still matching) before any fallback search runs, so a bad
   // request still fails the same way it always has.
   const requestedPrefix = summarizedPath(source, requestedPoint, requestedExpected);
-  const { settings, promptCache } = await settingsStore.loadGeneration("utility");
+  const { settings, promptCache, writing } = await settingsStore.loadGeneration("utility");
   if (signal.aborted) return null;
+  const summaryGuidance = writing?.summaryGuidance ?? "";
   // Issue #139: a story that has grown to fill the context window could
   // request a summary and be refused outright — the one operation that
   // shortens the prompt was refused for being too long itself. Search for
   // the latest point that fits instead of failing straight away; see
   // `fittingSummaryPoint`'s own comment for why this is a binary search
   // over parts, not a size estimate.
-  const resolved = fittingSummaryPoint(settings, source, requestedPoint, requestedPrefix);
+  const resolved = fittingSummaryPoint(
+    settings,
+    source,
+    requestedPoint,
+    requestedPrefix,
+    summaryGuidance
+  );
   if (resolved === null) throw new HttpError(422, NOTHING_FITS_SUMMARY_MESSAGE);
   const { point, prefix } = resolved;
   // `expected` guarded the requested point's exact cut boundary; an earlier
@@ -109,10 +123,17 @@ export async function createSummaryTake(
   const narrowed = point.nodeId !== requestedPoint.nodeId || point.offset !== requestedPoint.offset;
   const expected = narrowed ? null : requestedExpected;
   const fingerprint = summarySourceFingerprint(source.title, prefix, point);
-  await bindIntent?.(settings, { kind: "summary", title: source.title, prefix, point, expected });
+  await bindIntent?.(settings, {
+    kind: "summary",
+    title: source.title,
+    prefix,
+    point,
+    expected,
+    ...operationGuidanceContext(summaryGuidance)
+  });
   const tag = randomUUID().slice(0, 8);
   const marker = `[[summary-complete-${tag}]]`;
-  const plan = planSummary(settings, source.title, prefix, tag);
+  const plan = planSummary(settings, source.title, prefix, tag, settings.maxTokens, summaryGuidance);
   const outcome: StreamOutcome = {
     finishReason: null,
     providerTerminal: false
@@ -125,6 +146,9 @@ export async function createSummaryTake(
   // `summarySettings(settings, ...)`, not `settings` itself, so this is the
   // only correct place to learn what it actually resolved.
   const providerSecrets: ProviderSecretsCollector = { secrets: [] };
+  const summaryStorySampling = isSchema4ProviderRuntime(providerRuntimeFor(settings))
+    ? storySamplingBias(source)
+    : undefined;
   try {
     for await (const delta of streamCompletion(summarySettings(settings, plan.outputBudget), plan.prompt, signal, {
       outcome,
@@ -132,7 +156,8 @@ export async function createSummaryTake(
       promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
       generationRecord: generationRecordCollector,
       onReasoning: reasoning.onReasoning,
-      providerSecrets
+      providerSecrets,
+      storySampling: summaryStorySampling
     })) {
       raw += delta;
       if (raw.length > SUMMARY_OUTPUT_LIMIT) {
@@ -252,11 +277,23 @@ export async function generateSummaryText(
     targetTokens?: number;
     providerStarted?: () => void | Promise<void>;
     promptCache?: PromptCacheRequest;
+    storySampling?: StorySamplingBias;
+    guidance?: string;
   } = {}
 ): Promise<GeneratedSummaryText> {
   const tag = randomUUID().slice(0, 8);
   const marker = `[[summary-complete-${tag}]]`;
-  const plan = planSummary(settings, title, parts, tag, options.targetTokens);
+  const plan = planSummary(
+    settings,
+    title,
+    parts,
+    tag,
+    options.targetTokens,
+    options.guidance ?? ""
+  );
+  const summaryStorySampling = isSchema4ProviderRuntime(providerRuntimeFor(settings))
+    ? options.storySampling
+    : undefined;
   const outcome: StreamOutcome = {
     finishReason: null,
     providerTerminal: false
@@ -268,7 +305,8 @@ export async function generateSummaryText(
       outcome,
       providerStarted: options.providerStarted,
       promptCache: options.promptCache,
-      generationRecord: generationRecordCollector
+      generationRecord: generationRecordCollector,
+      storySampling: summaryStorySampling
     })) {
       raw += delta;
       if (raw.length > SUMMARY_OUTPUT_LIMIT) {
@@ -305,9 +343,10 @@ function summaryPromptRoom(
   title: string,
   prefix: readonly StoryNode[],
   tag: string,
-  outputBudget: number
+  outputBudget: number,
+  guidance = ""
 ): { prompt: PromptPlan; room: number | null } {
-  const prompt = summaryTakePrompt(title, prefix, outputBudget, tag);
+  const prompt = summaryTakePrompt(title, prefix, outputBudget, tag, guidance);
   if (settings.contextWindow === null) return { prompt, room: null };
   const messages = renderPromptPlan(prompt);
   const input = messages.reduce((sum, message) => sum + estimateTokens(message.content) + 4, 0);
@@ -325,11 +364,12 @@ function planSummary(
   title: string,
   prefix: readonly StoryNode[],
   tag: string,
-  targetTokens = settings.maxTokens
+  targetTokens = settings.maxTokens,
+  guidance = ""
 ): SummaryPlan {
   const cap = settings.maxTokens;
   const target = Math.max(1, Math.min(targetTokens, cap));
-  const { prompt, room } = summaryPromptRoom(settings, title, prefix, tag, target);
+  const { prompt, room } = summaryPromptRoom(settings, title, prefix, tag, target, guidance);
   if (room === null) return { prompt, outputBudget: cap, windowBound: false };
   if (room < Math.min(MIN_SUMMARY_TOKENS, cap)) {
     throw new HttpError(422, "The story prefix alone nearly fills the configured context window, leaving no room for its summary. Choose an earlier summary point or grow the story from an existing summary.");
@@ -339,7 +379,9 @@ function planSummary(
   // more than fits, and cap at exactly what is left.
   const bounded = Math.min(target, room);
   return {
-    prompt: bounded === target ? prompt : summaryTakePrompt(title, prefix, bounded, tag),
+    prompt: bounded === target
+      ? prompt
+      : summaryTakePrompt(title, prefix, bounded, tag, guidance),
     outputBudget: room,
     windowBound: true
   };
@@ -352,8 +394,20 @@ function planSummary(
  *  once the search settles on a point. */
 const SEARCH_PROBE_TAG = "00000000";
 
-function summaryPrefixFits(settings: GenerationSettings, title: string, prefix: readonly StoryNode[]): boolean {
-  const { room } = summaryPromptRoom(settings, title, prefix, SEARCH_PROBE_TAG, settings.maxTokens);
+function summaryPrefixFits(
+  settings: GenerationSettings,
+  title: string,
+  prefix: readonly StoryNode[],
+  guidance = ""
+): boolean {
+  const { room } = summaryPromptRoom(
+    settings,
+    title,
+    prefix,
+    SEARCH_PROBE_TAG,
+    settings.maxTokens,
+    guidance
+  );
   return room === null || room >= Math.min(MIN_SUMMARY_TOKENS, settings.maxTokens);
 }
 
@@ -385,9 +439,10 @@ function fittingSummaryPoint(
   settings: GenerationSettings,
   source: Story,
   requestedPoint: SummaryPoint,
-  requestedPrefix: readonly StoryNode[]
+  requestedPrefix: readonly StoryNode[],
+  guidance = ""
 ): { point: SummaryPoint; prefix: readonly StoryNode[] } | null {
-  if (summaryPrefixFits(settings, source.title, requestedPrefix)) {
+  if (summaryPrefixFits(settings, source.title, requestedPrefix, guidance)) {
     return { point: requestedPoint, prefix: requestedPrefix };
   }
   const fullPath = contextSlice(pathTo(source, requestedPoint.nodeId));
@@ -397,7 +452,8 @@ function fittingSummaryPoint(
     const point: SummaryPoint = { nodeId: fullPath[partCount - 1 - dropCount]!.id, offset: null };
     return { point, prefix: summarizedPath(source, point, null) };
   };
-  const fits = (dropCount: number): boolean => summaryPrefixFits(settings, source.title, candidateAt(dropCount).prefix);
+  const fits = (dropCount: number): boolean =>
+    summaryPrefixFits(settings, source.title, candidateAt(dropCount).prefix, guidance);
   // Not even the earliest single part fits alone — no point in this story
   // leaves room for a summary.
   if (!fits(partCount - 1)) return null;
@@ -414,7 +470,8 @@ export function summaryTakePrompt(
   sourceTitle: string,
   parts: readonly StoryNode[],
   outputBudget: number,
-  tag: string
+  tag: string,
+  guidance = ""
 ): PromptPlan {
   const source = parts.map((part, index) => `[Part ${index + 1}]\n${part.text}`).join("\n\n");
   const wordTarget = Math.max(1, Math.min(Math.floor(outputBudget * 0.68), Math.max(250, countWords(source) * 2)));
@@ -422,6 +479,7 @@ export function summaryTakePrompt(
   return {
     operation: "summary",
     turns: [
+      ...operationGuidanceTurns(guidance),
       {
         role: "system",
         blocks: [{
@@ -490,5 +548,9 @@ function incompleteSummaryMessage(outcome: StreamOutcome, windowBound: boolean):
 }
 
 function summarySettings(settings: GenerationSettings, outputBudget: number): GenerationSettings {
-  return { ...settings, maxTokens: outputBudget, temperature: Math.min(settings.temperature ?? 0.2, 0.2) };
+  return {
+    ...settings,
+    maxTokens: outputBudget,
+    temperature: settings.temperature === null ? null : Math.min(settings.temperature, 0.2)
+  };
 }

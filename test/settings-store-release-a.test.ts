@@ -8,12 +8,18 @@ import {
 import { SettingsStore } from "../server/settings.js";
 import {
   convertGenerationSettingsV1,
-  effectiveGenerationSettings
+  effectiveGenerationView
 } from "../server/settings-v2-conversion.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
-import { readSettingsState } from "../server/settings-state-file.js";
+import {
+  readSettingsState,
+  readSettingsStateSlot
+} from "../server/settings-state-file.js";
 import { settingsMutationFingerprint } from "../server/settings-v2-mutation.js";
+import { settingsMutationFingerprintV5 } from "../server/settings-v5-mutation.js";
+import { convertSettingsDocumentV2ToV5 } from "../server/settings-v5-conversion.js";
 import type { SettingsDocumentV2 } from "../shared/settings-v2-types.js";
+import { providerProbeRouteFromDocument } from "../shared/provider-probe-route-v1.js";
 import {
   BlockingLookupLedger,
   FIXED_TIME,
@@ -28,6 +34,14 @@ import {
   writingDocument
 } from "./settings-store-fixtures.js";
 
+async function readCurrentSettingsStateV5(dataDir: string) {
+  const slot = await readSettingsStateSlot(dataDir);
+  if (slot.kind !== "v5") {
+    throw new Error(`Expected schema-5 settings state, got ${slot.kind}`);
+  }
+  return slot.state;
+}
+
 test("format-2 immediate save replays before version policy and distinguishes conflicts", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-settings-v2-replay-");
   const store = new SettingsStore(dataDir, { now: () => FIXED_TIME });
@@ -39,8 +53,8 @@ test("format-2 immediate save replays before version policy and distinguishes co
   assert.deepEqual(await store.inspectMutationReceipt(MUTATION_A), {
     state: "completed",
     method: "saveSettings",
-    fingerprint: settingsMutationFingerprint(
-      { method: "saveSettings", document },
+    fingerprint: settingsMutationFingerprintV5(
+      { method: "saveSettings", document: convertSettingsDocumentV2ToV5(document) },
       1
     )
   });
@@ -227,7 +241,7 @@ test("restart activates a staged credential document when every reference resolv
     },
     "receipt replay keeps the durable staging result and reports the attempt that has since run"
   );
-  assert.deepEqual((await readSettingsState(dataDir)).lastActivationOutcome, {
+  assert.deepEqual((await readCurrentSettingsStateV5(dataDir)).lastActivationOutcome, {
     transactionId: MUTATION_A,
     candidateRevision: 2,
     result: "committed",
@@ -325,7 +339,7 @@ test("restart retries an unresolved credential and keeps the candidate staged on
   assert.equal(view.activeRevision, 1);
   assert.equal(view.pendingRevision, 2, "startup recovery never discards the candidate");
   assert.equal(view.effective.provider, "dry-run");
-  const state = await readSettingsState(dataDir);
+  const state = await readCurrentSettingsStateV5(dataDir);
   assert.equal(state.settingsRevisionClock, 2, "rejected candidate revision is never reused");
   assert.deepEqual(state.lastActivationOutcome, {
     transactionId: MUTATION_A,
@@ -360,7 +374,7 @@ test("restart ignores inherited environment properties before candidate validati
   assert.equal(validationCalls, 0);
   assert.equal((await restarted.loadView()).activeRevision, 1);
   assert.equal(
-    (await readSettingsState(dataDir)).lastActivationOutcome?.errorCode,
+    (await readCurrentSettingsStateV5(dataDir)).lastActivationOutcome?.errorCode,
     "credential_unresolved"
   );
 });
@@ -418,7 +432,7 @@ test("migrated plaintext presets use owned loopback only on supported targets", 
     });
     await first.init(2);
     const migrated = convertGenerationSettingsV1({
-      ...effectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2),
+      ...effectiveGenerationView(INITIAL_SETTINGS_DOCUMENT_V2),
       provider: "openai-compatible",
       baseUrl,
       model: `${preset}-model`
@@ -447,9 +461,12 @@ test("migrated plaintext presets use owned loopback only on supported targets", 
       "only supported owned-loopback targets validate the provider"
     );
 
-    const edited: SettingsDocumentV2 = {
+    const edited = {
       ...view.document,
-      writing: { defaultAuthorBrief: `Edited ${preset} settings.` }
+      writing: {
+        ...view.document.writing,
+        defaultAuthorBrief: `Edited ${preset} settings.`
+      }
     };
     const saved = await restarted.save(saveCommand(
       MUTATION_B,
@@ -522,20 +539,13 @@ test("format-2 probes resolve a key the editor has typed but not saved", async (
   // Without the key the probe has nothing to authenticate with. Reading the
   // model list here is what produced a 401 from the provider instead.
   await assert.rejects(
-    store.resolveProviderProbe({
-      kind: "settings-document",
-      document,
-      purpose: "default"
-    }),
+    store.resolveProviderProbe(providerProbeRouteFromDocument(document)),
     hasServiceCode("credential_test_requires_activation")
   );
 
-  const settings = await store.resolveProviderProbe({
-    kind: "settings-document",
-    document,
-    purpose: "default",
-    secrets: { [secretId]: "sk-ant-pending-probe-key" }
-  });
+  const settings = await store.resolveProviderProbe(
+    providerProbeRouteFromDocument(document, "default", { [secretId]: "sk-ant-pending-probe-key" })
+  );
   const { headers } = resolveProviderHeaders(settings, {});
   assert.equal(headers["x-api-key"], "sk-ant-pending-probe-key");
 
@@ -543,11 +553,7 @@ test("format-2 probes resolve a key the editor has typed but not saved", async (
   const state = await readSettingsState(dataDir);
   assert.equal(state.pendingRevision, null);
   await assert.rejects(
-    store.resolveProviderProbe({
-      kind: "settings-document",
-      document,
-      purpose: "default"
-    }),
+    store.resolveProviderProbe(providerProbeRouteFromDocument(document)),
     hasServiceCode("credential_test_requires_activation")
   );
 });

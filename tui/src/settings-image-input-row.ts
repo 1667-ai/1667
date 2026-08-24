@@ -21,7 +21,7 @@ export function imageInputRowState(overlay: SettingsOverlayState): ImageInputRow
   return {
     route: document === null || profileId === null || profile === undefined
       ? null
-      : resolveSettingsProfile(document, profileId)
+      : resolveSettingsProfile(document, profileId) as never
   };
 }
 
@@ -39,12 +39,12 @@ export function imageInputRowValue(state: ImageInputRowState): string {
 }
 
 export function imageInputRowHint(state: ImageInputRowState): string {
-  if (state.route === null) return "whether this model accepts an image";
+  if (state.route === null) return "Shows whether this model accepts image attachments.";
   const resolution = resolveImageInputCapability({
     protocol: state.route.connection.protocol,
     remoteModelId: state.route.model.remoteId
   });
-  if (resolution.support === "supported") return "images may be attached to a request";
-  if (resolution.reason === "protocol-unsupported") return "this protocol does not accept images";
-  return "unknown until an explicit override is set";
+  if (resolution.support === "supported") return "This model accepts image attachments.";
+  if (resolution.reason === "protocol-unsupported") return "The selected protocol cannot send image attachments.";
+  return "Image support is unknown for this model.";
 }

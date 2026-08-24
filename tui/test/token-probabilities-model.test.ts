@@ -6,6 +6,7 @@ import type {
 } from "../../shared/settings-v2-types.js";
 import type { TokenProbabilityStep } from "../../shared/token-probabilities.js";
 import { DEMO_SETTINGS_DOCUMENT, DEMO_SETTINGS_VIEW } from "../src/demo.js";
+import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
 import {
   resolveTokenProbabilityEmptyReason,
   tokenDisplayGlyph,
@@ -178,12 +179,24 @@ describe("resolveTokenProbabilityEmptyReason", () => {
     document: null,
     effective: DEMO_SETTINGS_VIEW.effective,
     effectiveProse: DEMO_SETTINGS_VIEW.effectiveProse,
+    activeWriting: writingPromptSettingsFromAuthorBrief(DEMO_SETTINGS_VIEW.effective.systemPrompt),
     lastActivationOutcome: null
   };
 
   test("format 1 settings resolve legacy-v1, with no preset list", () => {
     const reason = resolveTokenProbabilityEmptyReason(legacyView);
     expect(reason.text).toBe("Format 1 settings are read-only.");
+    expect(reason.supportedPresets).toBe(undefined);
+  });
+
+  test("successor schema settings name the update path", () => {
+    const reason = resolveTokenProbabilityEmptyReason({
+      ...legacyView,
+      readOnlyReason: "successor-schema"
+    });
+    expect(reason.text).toBe(
+      "Newer settings schema is read-only here; the successor owns it. Update 1667."
+    );
     expect(reason.supportedPresets).toBe(undefined);
   });
 
@@ -230,6 +243,7 @@ function routeView(preset: SettingsPresetV2, protocol: SettingsProtocolV2): Sett
     },
     effective: DEMO_SETTINGS_VIEW.effective,
     effectiveProse: DEMO_SETTINGS_VIEW.effectiveProse,
+    activeWriting: writingPromptSettingsFromAuthorBrief(DEMO_SETTINGS_VIEW.effective.systemPrompt),
     lastActivationOutcome: null
   };
 }

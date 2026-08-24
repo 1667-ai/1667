@@ -2,8 +2,11 @@ import {
   samplingBiasPresetRules,
   type SamplingBiasResolutionResult
 } from "../../shared/sampling-capabilities.js";
-import { resolveSettingsProfile } from "../../shared/settings-route.js";
-import type { ProviderProbeTarget } from "../../shared/settings-v2-types.js";
+
+import {
+  isProviderProbeRouteV1,
+  type ProviderProbeTarget
+} from "../../shared/provider-probe-route-v1.js";
 import {
   combineSamplingBiasSources,
   normalizeStorySamplingBias,
@@ -67,8 +70,8 @@ import {
  * every rule rides one record instead of one parameter each, a future rule
  * needs no change at this call site at all — only a new field on
  * `SamplingBiasPresetRules`, read wherever it is needed.
- * `request.settings` is always the routed connection's document-target form
- * in demo mode (`settingsProviderProbeTarget`, tui/src/settings-provider-probe.ts,
+ * `request.settings` is always the closed selected-route probe in demo mode
+ * (`settingsProviderProbeTarget`, tui/src/settings-provider-probe.ts,
  * only ever returns the resolved `GenerationSettings` form for a
  * non-editable view, which demo mode never is) — a caller with no settings
  * at all (a bare preview with no route selected yet) gets `samplingBiasPresetRules`'s
@@ -93,15 +96,15 @@ export function demoResolveSamplingBias(
 /** The routed preset behind `settings`, or "legacy-v1" (which
  * `samplingBiasPresetRules` treats the same as any preset with no native
  * transport of its own) when there is nothing to derive one from. A
- * demo-mode `ProviderProbeTarget` is always the document-target form (see
- * this file's own doc comment above) — a bare `GenerationSettings` is not a
- * shape demo mode ever produces, so it is treated the same as "nothing to
- * derive a preset from" rather than guessed at. */
+ * demo-mode `ProviderProbeTarget` is always the closed selected-route form
+ * (see this file's own doc comment above) — a bare `GenerationSettings` is
+ * not a shape demo mode ever produces, so it is treated the same as
+ * "nothing to derive a preset from" rather than guessed at. */
 function demoPresetFor(settings: ProviderProbeTarget | undefined) {
-  if (settings === undefined || !("kind" in settings) || settings.kind !== "settings-document") {
+  if (settings === undefined || !isProviderProbeRouteV1(settings)) {
     return "legacy-v1" as const;
   }
-  return resolveSettingsProfile(settings.document, settings.document.routing.default).connection.preset;
+  return settings.connection.preset;
 }
 
 /** Deterministic, non-cryptographic hash-based fake token ID — the same

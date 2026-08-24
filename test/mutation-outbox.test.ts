@@ -379,7 +379,7 @@ test("mutation outbox reads legacy archives without accepting new fields", async
   );
 });
 
-test("legacy internal archive messages stay private during recovery", async (t) => {
+test("legacy internal archive messages stay actionable during recovery", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-outbox-legacy-error-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const mutationId = `m1-${Date.now().toString(36)}-${"a".padStart(32, "0")}`;
@@ -419,7 +419,7 @@ test("legacy internal archive messages stay private during recovery", async (t) 
     {
       kind: "plain",
       code: "internal",
-      message: "Internal server error",
+      message: "Private legacy path: /srv/1667/settings.json",
       status: 500
     }
   );

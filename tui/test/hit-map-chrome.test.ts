@@ -19,7 +19,8 @@ import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import {
   beginSettingsRowEdit,
   initialSettingsOverlay,
-  SETTINGS_ROW_IDS
+  SETTINGS_ROW_IDS,
+  settingsRowIndex
 } from "../src/settings-overlay-model.js";
 import { publishCurrentSettingsModelDiscovery } from "../src/settings-model-discovery.js";
 import { currentPartActions, openActions } from "../src/story-actions.js";
@@ -106,13 +107,18 @@ const footerCases: FooterCase[] = [
         partId: createStoryViewModel(state.payload, state.stream).rows[state.focusIndex]!.id
       };
     } },
-  { name: "settings", mode: "SETTINGS", actions: SETTINGS_FOOTER_ACTIONS,
+  { name: "settings", mode: "SETTINGS", actions: SETTINGS_FOOTER_ACTIONS.map((entry) =>
+      entry.action === "toggle-view-mode" ? { ...entry, token: "m simple" } : entry),
     keys: [
       key("up"), key("down"), key("left"), key("right"),
-      key("return"), key("s"), key("c"), key("escape")
+      key("return"), key("s"), key("c"), key("m"), key("escape")
     ],
     setup: (state, source) => {
       state.mode = "SETTINGS";
+      // Row 0 is "theme" (a cycler, matching this case's CHOICE footer) only
+      // in advanced mode; simple mode's row 0 is "update-checks", a plain
+      // toggle with a different footer.
+      state.config = { ...state.config, settingsViewMode: "advanced" };
       state.settings = initialSettingsOverlay(source.settingsView, state.config);
     } }
 ];
@@ -713,7 +719,10 @@ describe("hit map clickable chrome", () => {
     const isArrow = (region: { target: HitTarget }, index: number) =>
       region.target.kind === "action" && region.target.index === index
       && (region.target.action === "take-previous" || region.target.action === "take-next");
-    for (const index of [0, 3]) {
+    for (const index of [
+      SETTINGS_ROW_IDS.indexOf("theme"),
+      SETTINGS_ROW_IDS.indexOf("provider")
+    ]) {
       const selectorRow = state.hitRows.findIndex((row) =>
         row?.overrides?.some((region) => isArrow(region, index)) === true);
       const arrows = state.hitRows[selectorRow]!.overrides!.filter((region) =>
@@ -748,15 +757,9 @@ describe("hit map clickable chrome", () => {
       }
     }
 
-    // Theme, compose focus, word wrap, provider, insecure HTTP, profile,
-    // effort, cache, alternatives, reasoning, keep thoughts, and three
-    // routes — plus the three C-08 scalars (temperature, max tokens,
-    // context) and the three connection-timeout scalars (headers, idle,
-    // total), whose chips all open on the same column. There is no
-    // first-token row: server/provider-sse.ts waits for the first token
-    // until the total deadline, so a configured value could never change a
-    // request.
-    expect(opens.size).toBe(20);
+    // The advanced form has 19 visible choices in this viewport. The remaining
+    // rows stay below the window and are reachable through row navigation.
+    expect(opens.size).toBe(19);
     expect(new Set(opens.values()).size).toBe(1);
   });
 
@@ -862,7 +865,9 @@ describe("hit map clickable chrome", () => {
       () => undefined
     );
     expect(state.mode).toBe("SETTINGS");
-    expect(state.settings?.cursor).toBe(SETTINGS_ROW_IDS.indexOf("context-window"));
+    // "context-window" is one of simple mode's rows too, so the overlay opens
+    // at its simple-mode index (simple is the default), not the full list's.
+    expect(state.settings?.cursor).toBe(settingsRowIndex("context-window", state.settings!));
     expect(state.settings?.draft.selectedProfileId).toBe("prose");
   });
 
@@ -894,8 +899,9 @@ describe("hit map clickable chrome", () => {
         state.settings!.cursor = SETTINGS_ROW_IDS.indexOf("context-window");
       } },
       { name: "editing", setup: (state: State) => {
-        state.settings!.cursor = 3;
+        state.settings!.cursor = SETTINGS_ROW_IDS.indexOf("base-url");
         beginSettingsRowEdit(state.settings!, state.config);
+        if (state.settings!.edit === null) throw new Error("settings edit did not open");
       } },
       { name: "pending", setup: (state: State) => {
         const view = state.settings!.view;
@@ -1081,6 +1087,8 @@ describe("hit map clickable chrome", () => {
 
     state.editor = null;
     state.mode = "SETTINGS";
+    // SETTINGS_ROW_IDS indexes the full (advanced) row list.
+    state.config = { ...state.config, settingsViewMode: "advanced" };
     state.settings = initialSettingsOverlay(source.settingsView, state.config);
     state.settings.cursor = SETTINGS_ROW_IDS.indexOf("model");
     beginSettingsRowEdit(state.settings, state.config);
@@ -1224,9 +1232,11 @@ describe("hit map clickable chrome", () => {
       { name: "chapters confirm", expected: "↵ jump · s sum · e rename · n break · d confirms · esc keeps",
         setup: (state) => { state.mode = "CHAPTERS"; state.chapters = { cursor: 0, rename: null, deleteArmedId: "chapter-break-1" }; } },
       { name: "settings",
-        expected: "↑↓ move · ←→ choose · ↵ next · s save · c check · esc close",
+        expected: "↑↓ move · ←→ choose · ↵ next · s save · c check · m simple · esc",
         setup: (state, source) => {
           state.mode = "SETTINGS";
+          // Row 0 is "theme" (a cycler) only in advanced mode.
+          state.config = { ...state.config, settingsViewMode: "advanced" };
           state.settings = initialSettingsOverlay(source.settingsView, state.config);
         } },
       { name: "summary", expected: "esc discards", setup: (state) => {

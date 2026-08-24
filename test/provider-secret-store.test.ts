@@ -4,6 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   PROVIDER_SECRETS_NEXT_FILE,
+  SETTINGS_STATE_V2_FILE,
   SETTINGS_STATE_V2_NEXT_FILE
 } from "../server/data-directory-layout.js";
 import {
@@ -14,7 +15,7 @@ import {
 } from "../server/provider-secret-store.js";
 import { resolveProviderHeaders } from "../server/provider-runtime.js";
 import { SettingsStore } from "../server/settings.js";
-import { readSettingsState } from "../server/settings-state-file.js";
+import { parseSettingsStateV5 } from "../server/settings-v5-codec.js";
 import { settingsMutationFingerprint } from "../server/settings-v2-mutation.js";
 import type { SettingsDocumentV2 } from "../shared/settings-v2-types.js";
 import {
@@ -167,7 +168,9 @@ test("missing stored auth fails activation as credential_unresolved", async (t) 
 
   assert.equal((await restarted.loadView()).activeRevision, 1);
   assert.equal(
-    (await readSettingsState(dataDir)).lastActivationOutcome?.errorCode,
+    parseSettingsStateV5(
+      JSON.parse(await readFile(path.join(dataDir, SETTINGS_STATE_V2_FILE), "utf8"))
+    ).lastActivationOutcome?.errorCode,
     "credential_unresolved"
   );
 });

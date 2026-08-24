@@ -1,7 +1,7 @@
 import type {
-  ModelConnectionV2,
-  SettingsDocumentV2
+  ModelConnectionV2
 } from "../../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 as SettingsDocumentV2 } from "../../shared/settings-v5-types.js";
 import { validateProviderSecretValue } from "../../shared/provider-secret-value.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import { storedCredentialSecretId } from "../../shared/settings-stored-credential.js";

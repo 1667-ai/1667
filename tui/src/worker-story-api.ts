@@ -14,6 +14,7 @@ import {
 import { explicitMutationUnsentFromCause } from "./api-error.js";
 import type { StoryPayload, StorySummary } from "../../shared/types.js";
 import { normalizeMarkdownDefaultTitle } from "../../shared/import-markdown-wire.js";
+import type { SaveSettingsCommand } from "../../shared/settings-v2-types.js";
 
 export interface StoryWorkerTransport {
   call<M extends WorkerMethod>(
@@ -27,6 +28,16 @@ export interface StoryWorkerTransport {
     }
   ): Promise<WorkerOutput<M>>;
   dismissArchivedMutation?(mutationId: string): Promise<void>;
+}
+
+/** Materialize the JSON settings command before the Worker boundary. A draft
+ * can share nested profile values; JSON wire materialization keeps each
+ * profile's reasoning union in its own value instead of relying on the
+ * runtime's structured-clone alias handling. */
+function materializeSaveSettingsCommand(
+  command: SaveSettingsCommand
+): SaveSettingsCommand {
+  return JSON.parse(JSON.stringify(command)) as SaveSettingsCommand;
 }
 
 export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): StoryApi {
@@ -428,7 +439,10 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         { expectedAggregateVersion: await expectedVersion(storyId) }
       )),
     getSettings: () => transport.call("getSettings", {}),
-    saveSettings: (command) => transport.call("saveSettings", { command }),
+    saveSettings: (command) => transport.call(
+      "saveSettings",
+      { command: materializeSaveSettingsCommand(command) }
+    ),
     discardPendingSettings: (command) => transport.call("discardPendingSettings", { command }),
     checkModelServer: (settings) => transport.call("checkModelServer", { settings }),
     probeContextWindow: (settings) => transport.call("probeContextWindow", { settings }),

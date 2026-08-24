@@ -157,7 +157,9 @@ const PRESET_LABEL: Readonly<Record<SettingsPresetV2, string>> = {
   ollama: "Ollama",
   "llama-cpp": "llama.cpp",
   koboldcpp: "KoboldCpp",
-  custom: "custom"
+  custom: "custom",
+  "chatgpt-plan": "ChatGPT plan",
+  "claude-plan": "Claude plan"
 };
 
 const SUPPORTED_PRESET_LABELS: readonly string[] =
@@ -171,10 +173,14 @@ const SUPPORTED_PRESET_LABELS: readonly string[] =
  *  plain "not requested" reason rather than guessing which of those it was. */
 export function resolveTokenProbabilityEmptyReason(view: SettingsView): TokenProbabilityEmptyReason {
   if (view.dataFormat === 1) {
-    return { text: tokenProbabilityUnavailableReason("legacy-v1") };
+    return {
+      text: view.readOnlyReason === "successor-schema"
+        ? "Newer settings schema is read-only here; the successor owns it. Update 1667."
+        : tokenProbabilityUnavailableReason("legacy-v1")
+    };
   }
   const route = selectSettingsRoute(view.document, "prose");
-  const resolution = resolveTokenProbabilities(samplingContextForRoute(route));
+  const resolution = resolveTokenProbabilities(samplingContextForRoute(route as never));
   if (resolution.kind === "available") {
     return {
       text: "Press , for Settings. Set alt count (alternatives per token) to 1–20. Save, then generate again."

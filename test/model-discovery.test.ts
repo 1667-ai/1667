@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import test from "node:test";
 import { discoverProviderModels } from "../server/model-discovery.js";
 import { decodeModelDiscoveryResult } from "../shared/settings-response-decoder.js";
+import { MAX_DISCOVERED_MODELS } from "../shared/settings-scalar-policy.js";
 import {
   attachProviderRuntime,
   providerRuntimeFor,
@@ -469,9 +470,15 @@ test("model discovery wire decoder is closed and bounded", () => {
       name: "Fixture",
       contextWindow: 8_192,
       maxOutputTokens: null,
-      source: "openai-models"
+      source: "pi-catalog"
     }]
-  }).models[0]?.remoteId, "fixture");
+  }).models[0], {
+    remoteId: "fixture",
+    name: "Fixture",
+    contextWindow: 8_192,
+    maxOutputTokens: null,
+    source: "pi-catalog"
+  });
   assert.throws(
     () => decodeModelDiscoveryResult({
       observedAt: "not-a-date",
@@ -482,7 +489,7 @@ test("model discovery wire decoder is closed and bounded", () => {
   assert.throws(
     () => decodeModelDiscoveryResult({
       observedAt: "2026-07-24T00:00:00.000Z",
-      models: Array.from({ length: 257 }, () => ({
+      models: Array.from({ length: MAX_DISCOVERED_MODELS + 1 }, () => ({
         remoteId: "fixture",
         name: "Fixture",
         contextWindow: null,

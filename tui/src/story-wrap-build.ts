@@ -10,9 +10,11 @@ import {
 import type { StoryFrameLayout } from "./story-frame-layout.js";
 import type { StoryScreenState, StreamView } from "./state.js";
 import {
-  streamHasSubstantiveText,
+  streamPresentedHasSubstantiveText,
   streamMode,
-  streamTrimmedText
+  streamPresentedText,
+  streamPresentedTrimBounds,
+  streamPresentedTrimmedText
 } from "./stream-text.js";
 import {
   createResumableWrap,
@@ -60,9 +62,9 @@ export interface StoryWrapBuildOptions {
  * the snapshot lets ensure() notice growth and replace the job. */
 interface StreamCapture {
   live: StreamView;
-  textLength: number;
-  trimStart: number | undefined;
-  trimEnd: number | undefined;
+  presentedLength: number;
+  presentedTrimStart: number;
+  presentedTrimEnd: number;
 }
 
 interface PlanInput {
@@ -292,13 +294,18 @@ function captureBuildInput(
 function capturePlanInput(state: StoryScreenState, layout: StoryFrameLayout): PlanInput {
   return {
     payload: state.payload,
-    stream: state.stream === null ? null : {
-      live: state.stream,
-      textLength: state.stream.text.length,
-      trimStart: state.stream.trimStart,
-      trimEnd: state.stream.trimEnd
-    },
+    stream: state.stream === null ? null : captureStream(state.stream),
     measure: storyProseMeasure(layout.pageWidth)
+  };
+}
+
+function captureStream(stream: StreamView): StreamCapture {
+  const bounds = streamPresentedTrimBounds(stream);
+  return {
+    live: stream,
+    presentedLength: streamPresentedText(stream).length,
+    presentedTrimStart: bounds.start,
+    presentedTrimEnd: bounds.end
   };
 }
 
@@ -314,9 +321,9 @@ function sameBuildInput(left: BuildInput, right: BuildInput): boolean {
 function sameStreamCapture(left: StreamCapture | null, right: StreamCapture | null): boolean {
   return left === right || (left !== null && right !== null
     && left.live === right.live
-    && left.textLength === right.textLength
-    && left.trimStart === right.trimStart
-    && left.trimEnd === right.trimEnd);
+    && left.presentedLength === right.presentedLength
+    && left.presentedTrimStart === right.presentedTrimStart
+    && left.presentedTrimEnd === right.presentedTrimEnd);
 }
 
 /** Yield one canonical wrap plan at a time. No payload-wide projection or
@@ -324,7 +331,7 @@ function sameStreamCapture(left: StreamCapture | null, right: StreamCapture | nu
 function* storyWrapPlans(input: PlanInput): Generator<StoryPartWrapPlan> {
   const { payload, measure } = input;
   const stream = input.stream?.live ?? null;
-  const substantive = stream !== null && streamHasSubstantiveText(stream);
+  const substantive = stream !== null && streamPresentedHasSubstantiveText(stream);
   // A rewrite targets a node already on the path, never a claimed new take —
   // both new-take branches below must stay closed to it, or the node it splices
   // into gets fabricated a second time as a virtual sibling.
@@ -364,7 +371,7 @@ function streamTakePlan(
     id: stream.targetId,
     parentId: stream.parentId,
     instruction: stream.instruction,
-    text: streamTrimmedText(stream),
+    text: streamPresentedTrimmedText(stream),
     model: "writing",
     createdAt: stream.startedAt,
     activeChildId: null

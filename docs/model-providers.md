@@ -132,9 +132,9 @@ every droppable Fact.
 
 The context meter states how many Facts a request dropped, and why.
 
-Select the system prompt row to open the full-screen editor. This machine-wide
-value is the default Author Brief. A story that sets its own Author Brief uses
-that value instead.
+Select the **author brief** row to open the full-screen editor. This
+machine-wide value is the Default Author Brief. A story that sets its own
+Author Brief uses that value instead.
 
 The context meter shows the size of the next request. Its pulsing segment
 estimates response growth from recent provider text. The configured maximum
@@ -232,7 +232,7 @@ Copying and pasting a story line does not copy a Generation Record. See
 
 ## Author's Note
 
-Each story can hold one Author's Note. Press `a` to write it. 1667 sends the
+Each story can hold one Author's Note. Press `n` to write it. 1667 sends the
 Author's Note with each continuation request. 1667 puts it immediately before
 the last story part by default.
 
@@ -261,9 +261,10 @@ values.
 Each story can hold one Author Brief. Open the command palette with `Ctrl+P`
 or `:`. Select **Author brief**. This command has no direct key.
 
-A story Author Brief overrides the default Author Brief when you set it. The
-default Author Brief is the system prompt row in Settings. 1667 falls back to
-the default Author Brief when a story has none of its own.
+A story Author Brief overrides the Default Author Brief when you set it. The
+Default Author Brief is the **author brief** row in Settings. This row is the
+existing system prompt. 1667 uses this value. 1667 falls back to the Default
+Author Brief when a story has none of its own.
 
 1667 sends the resolved Author Brief with every continuation request, prompted
 retake, highlighted rewrite, and autoname request. The Author's Note applies to
@@ -271,6 +272,60 @@ fewer operations: only continuation and prompted retake requests.
 
 1667 does not save an Author Brief that has more than 65,536 Unicode scalar
 values.
+
+## Writing prompts
+
+Settings holds six machine-wide writing prompts:
+
+| Row | View | Effect |
+| --- | --- | --- |
+| Default Author Brief | Simple | Supplies the machine-wide Author Brief |
+| Default Continue direction | Simple | Replaces `Continue the story.` for a new empty Continue request |
+| Rewrite guidance | Advanced | Adds standing guidance to Rewrite requests |
+| Title guidance | Advanced | Adds standing guidance to autoname requests |
+| Summary guidance | Advanced | Adds standing guidance to summary-take and chapter-summary requests |
+| Aside guidance | Advanced | Adds standing guidance to Aside requests |
+
+Each row uses the full-screen editor. Press `Ctrl+S` to keep the row in the
+Settings draft. Press `s` in Settings to save the complete Settings document.
+
+An empty Default Author Brief omits the global brief. An empty Default
+Continue direction uses `Continue the story.`. An empty optional guidance row
+adds no request block.
+
+A writer can add guidance. A writer cannot replace a fixed operation contract.
+1667 still owns Continue and append contracts, Rewrite selection and boundary
+contracts, title output format and source quarantine, summary coverage rules
+and the completion marker, Aside canon and source rules, and
+provider-specific message folding.
+
+Title, summary, and Aside still use the Utility Generation Profile. They do
+not share one Utility prompt. Each operation has its own guidance row.
+
+These writing prompts are machine-wide Settings values. A Profile Export does
+not include them.
+
+The first successful Settings save publishes Settings schema 5. An older
+release refuses a schema 5 Settings document. Back up Settings before you try
+`0.10.2-rc.1`. An older release cannot open schema 5.
+
+## Settings views
+
+Settings has two views: **Simple view** and **Advanced view**. Simple view
+is the default. Simple view shows the Default Author Brief row, the Default
+Continue direction row, the provider row, the model row, the context size
+row, the base URL row, and the API key row. Advanced view shows every row.
+Every row this document names that is not in that list appears only in
+Advanced view.
+
+Press `,` to open Settings. Press `m` to switch between Simple view and
+Advanced view. 1667 remembers your choice for your next session.
+
+Press `Ctrl+P` or `:` and type a Settings row name to open that row. The
+command palette also lists each Sampling control. If a row needs Advanced
+view, 1667 opens Advanced view for this visit. It does not change your saved
+view. If a row does not apply to the selected provider, 1667 selects the
+provider row and reports that the requested row is not available.
 
 ## Provider support
 
@@ -280,6 +335,8 @@ values.
 - OpenAI Chat Completions
 - Text Completions
 - Anthropic Messages
+- `openai-codex-responses` for a ChatGPT plan
+- `anthropic-subscription-messages` for a Claude plan
 
 Settings contains these provider choices:
 
@@ -293,6 +350,8 @@ Settings contains these provider choices:
 - llama.cpp text
 - KoboldCpp
 - KoboldCpp text
+- ChatGPT plan
+- Claude plan
 
 Use **OpenAI** for the official OpenAI endpoint. Use **OpenAI-compatible** for
 OpenRouter and other compatible chat endpoints. Use **OpenAI-compatible text**
@@ -301,6 +360,9 @@ for an endpoint that implements `POST /v1/completions`.
 Use **llama.cpp text** for the native `POST /completion` endpoint. Use
 **KoboldCpp text** for the native `POST /api/extra/generate/stream` endpoint.
 All release targets show the local provider choices.
+
+The **prompt format** row appears only in Advanced view. See
+[Settings views](#settings-views).
 
 The **prompt format** row applies only to Text Completions. The `raw` prompt
 format is the default. It joins message content with one blank line. The
@@ -320,11 +382,53 @@ Settings selects the model when the list contains one model and the model row
 is blank. An unsaved stored API key can read the model list. Settings uses the
 key for this request only. Save the settings to store the key.
 
+### ChatGPT and Claude plan connections
+
+The **ChatGPT plan** choice uses the fixed
+`openai-codex-responses` protocol. The **Claude plan** choice uses
+the fixed `anthropic-subscription-messages` protocol.
+
+A plan connection has no base URL, API key, plain-HTTP option, or custom
+header. Settings hides these controls. Do not enter a custom endpoint for a
+plan connection.
+
+Run `1667 auth login chatgpt` to sign in to ChatGPT. Run
+`1667 auth login claude` to sign in to Claude. The command asks for consent
+before sign-in. Run `1667 auth status` to read local sign-in metadata. Status
+does not refresh a credential or contact a provider. A stale stored OAuth
+credential shows `signed in (refreshes on next use)`. Run
+`1667 auth logout chatgpt` or `1667 auth logout claude` to remove one local
+credential.
+
+1667 stores the OAuth access and refresh credentials in the private machine
+tier. The project settings document stores no OAuth credential. Pi can use a
+refresh credential to obtain a new access credential during a provider
+operation. A refresh failure does not change the settings document.
+
+These plan connections are an experimental community integration. The
+provider can change or stop the sign-in flow. The provider applies its own
+subscription limits, terms, and data controls. A provider change can also
+change model behavior, output limits, request cost, and privacy controls.
+
+ChatGPT output length is best effort. The provider can stop before the
+configured maximum or apply its own limit. Claude plan support is experimental.
+
+1667 reads each plan model list from the bundled Pi catalog. Select a model in
+the **model** row, or enter a model ID manually. Catalog updates arrive with Pi
+dependency updates. The plan choices use `gpt-5.4` and `claude-sonnet-4-6` as
+current defaults. The provider catalog remains the authority. If plan sign-in
+is unavailable, use an API-key connection. Use
+**OpenAI** or **OpenAI-compatible** with an OpenAI key for ChatGPT-compatible
+work. Use **Anthropic** with an Anthropic API key for Claude-compatible work.
+
 ## Use Generation Profiles and Generation Routes
+
+The rows in this section appear only in Advanced view. See
+[Settings views](#settings-views).
 
 A **Generation Profile** is one set of model behavior settings. It contains a
 model, a temperature, a maximum output, a reasoning effort, a cache policy,
-and an alternative count.
+an alternative count, and an optional continuation prompt layout.
 
 Select the **profile** row to see a Generation Profile. Use `Left Arrow` or
 `Right Arrow` to select a different Generation Profile. Press `n` to create a
@@ -349,6 +453,13 @@ Select the **cache** row to set the cache policy. Use `Left Arrow` or
 `Right Arrow` to select `off`, `auto`, or `long`. Settings shows an unavailable
 message when the selected model cannot use the cache policy.
 
+Select the experimental **prompt layout** row to control the continuation
+prompt optimization. The default value is `off`. This value keeps the v0.8.0
+compatibility prompt. Select `on` to use the `late-cache-stable` layout for
+Continue and Retake. This layout moves the operation-specific contract after
+the story history. It can change the writing style. The setting belongs to the
+selected Generation Profile.
+
 Select the **alt count** row to set the token probability count. Use
 `Left Arrow` or `Right Arrow` to select `off` or a number from 1 to 20. The
 TUI checks the value against the selected protocol and preset. The TUI
@@ -356,10 +467,11 @@ renders an unavailable row as `‹ — ›` with a short reason.
 
 ## Sampling settings
 
-Sampling is an Advanced Settings group. The group starts collapsed.
+The sampling row appears only in Advanced view. See
+[Settings views](#settings-views).
 
-Press `,` to open Settings. Select `sampling`. Press `Enter` to open the
-sampling panel.
+Press `,` to open Settings. Press `m` if the sampling row is not visible.
+Select `sampling`. Press `Enter` to open the sampling panel.
 
 The sampling panel holds these parameters:
 
@@ -515,6 +627,9 @@ provider reports no count, 1667 counts the pieces of the thought that it
 receives, which gives an approximate number. Press `Esc` to stop the
 generation.
 
+The **Reasoning** row, the **Keep thought** row, and the **max tokens** row
+appear only in Advanced view. See [Settings views](#settings-views).
+
 The **Reasoning** row in Settings selects how 1667 shows a thought:
 
 | Reasoning mode | What 1667 shows |
@@ -529,9 +644,11 @@ indent keep the thought apart from the prose. Press `T` again to fold the
 thought. The `T` key does nothing on a story part that has no thought.
 
 The **Keep thought** row controls storage. Keep thought is on by default.
-1667 then saves each thought with its take. The thought stays after you
-close the story. Set Keep thought to off to save no thought. 1667 then
-shows each thought while the model writes it, but keeps none of it.
+1667 then saves each thought with its take. This also applies when you stop
+after the model sends prose or when a clean timeout saves that prose. The
+thought stays after you close the story. Set Keep thought to off to save no
+thought. 1667 then shows each thought while the model writes it, but keeps
+none of it.
 
 Some routes cannot return reasoning text. A text completion route is one,
 because that protocol has no field for it. The Reasoning row then shows
@@ -559,6 +676,9 @@ for **idle**. It uses 30 minutes for **total**. The document also holds a
 **first token** value, which 1667 keeps but does not read.
 
 ### Change a deadline in Settings
+
+The **headers**, **idle**, and **total** rows appear only in Advanced view.
+See [Settings views](#settings-views).
 
 The Settings panel shows three of the deadlines in the **connection**
 section: **headers**, **idle**, and **total**. Select a deadline row. Press
@@ -609,6 +729,9 @@ sends response headers goes undetected until the **total** deadline passes.
 
 Plain HTTP provider endpoints cannot use credentials. On Linux, a loopback
 endpoint also needs proof that the current user owns the exact socket.
+
+The **insecure HTTP (LAN)** row appears only in Advanced view. See
+[Settings views](#settings-views).
 
 A provider connection can permit plain HTTP on a private network. Set
 **insecure HTTP (LAN)** to `on` for that connection. 1667 resolves the host

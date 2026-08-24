@@ -38,7 +38,7 @@ describe("Sampling Settings review regressions", () => {
     if (!current.editable) throw new Error("demo settings must be editable");
     const profile = current.document.profiles[current.document.routing.default];
     if (profile === undefined) throw new Error("default profile is missing");
-    const document = applySamplingSettings(current.document, {
+    const document = applySamplingSettings(current.document as never, {
       ...(profile.sampling ?? EMPTY_SAMPLING_V2),
       topP: 0.8
     });
@@ -46,7 +46,7 @@ describe("Sampling Settings review regressions", () => {
       ...current,
       stateGeneration: current.stateGeneration + 1,
       activeRevision: current.activeRevision + 1,
-      document,
+      document: document as never,
       effective: basicSettingsFromDocument(document)
     });
 

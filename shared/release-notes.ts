@@ -11,6 +11,111 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.2",
+    date: "2026-08-23",
+    body: "- **This release has no additional product changes.** It contains the same\n  behavior as 0.10.2-rc.2."
+  },
+  {
+    version: "0.10.2-rc.2",
+    date: "2026-08-23",
+    body: "- **The command palette opens each Settings control.** Search for a Settings\n  row or a Sampling control to open it directly. A hidden Advanced row opens\n  without changing the saved Settings view."
+  },
+  {
+    version: "0.10.2-rc.1",
+    date: "2026-08-22",
+    body: "- **Settings now controls the guidance for each writing action.** The simple\n  view contains the Default Author Brief and Default Continue direction. The\n  advanced view also contains the Rewrite, Title, Summary, and Aside guidance.\n  Existing default values keep the previous model requests unchanged.\n\n- **A prompt opens in a full-screen editor.** Press Ctrl+S to keep an edited\n  prompt in the Settings draft. Save Settings to activate all draft changes.\n\n- **The first prompt save upgrades the Settings data.** An older 1667 release\n  refuses the new Settings schema. Use this beta only when that downgrade\n  limit is acceptable."
+  },
+  {
+    version: "0.10.1",
+    date: "2026-08-21",
+    body: "- **This release has no additional product changes.** It contains the same\n  behavior as 0.10.1-rc.2."
+  },
+  {
+    version: "0.10.1-rc.2",
+    date: "2026-08-21",
+    body: "- **The left story gutter now lights the active `writing` label.** It uses the\n  same moving light as `thinking`. Narrow layouts do not schedule hidden\n  gutter frames."
+  },
+  {
+    version: "0.10.1-rc.1",
+    date: "2026-08-21",
+    body: "- **This beta has no additional product changes.** It contains the same\n  behavior as 0.10.0."
+  },
+  {
+    version: "0.10.0",
+    date: "2026-08-21",
+    body: "- **1667 prepares separate controls for Generation Effort and Thinking Mode.**\n  This release reads and runs the successor Settings schema. It refuses to\n  change that schema. A later release can write it and show the new controls\n  without making this release lose a setting.\n\n- **Fast model responses now appear at a steady reading pace.** 1667 presents\n  large stream batches in small steps. Slow streams stay responsive. Stop and\n  story storage continue to use the complete received response.\n\n- **The Library word count includes every story branch.** It counts prose from\n  all takes and counts each shared part once. Selecting a different take no\n  longer changes the stored total.\n\n- **Active work labels now show a moving light.** The `working` and `thinking`\n  labels animate while work is active. The text and layout do not move."
+  },
+  {
+    version: "0.9.11-rc.1",
+    date: "2026-08-21",
+    body: "- **Fast model responses now appear at a steady reading pace.** 1667 presents\n  large stream batches in small steps. Slow streams stay responsive. Stop and\n  story storage continue to use the complete received response.\n\n- **The Library word count includes every story branch.** It counts prose from\n  all takes and counts each shared part once. Selecting a different take no\n  longer changes the stored total.\n\n- **Active work labels now show a moving light.** The `working` and `thinking`\n  labels animate while work is active. The text and layout do not move."
+  },
+  {
+    version: "0.9.10",
+    date: "2026-08-20",
+    body: "- **This release has no additional product changes.** It contains the same\n  behavior as 0.9.10-rc.7."
+  },
+  {
+    version: "0.9.10-rc.7",
+    date: "2026-08-20",
+    body: "- **This beta has no additional product changes.** It contains the same\n  behavior as 0.9.10-rc.6."
+  },
+  {
+    version: "0.9.10-rc.6",
+    date: "2026-08-20",
+    body: "- **1667 now reports available releases by default.** You can turn update\n  checks off in Settings. The check stays silent when the network is not\n  available. Existing config files use the new default. A Managed Installation\n  notice shows the checked version and channel in the upgrade command. Other\n  notices show only the new version.\n\n- **Managed installations at 0.9.9 can upgrade to this release.** The npm\n  packages keep the notice that 0.9.9 accepts. Each SPDX SBOM contains the\n  current notice. Future notice changes do not break this upgrade path.\n\n- **Subscription plans use one model picker action.** Press Enter to open the\n  model picker for a ChatGPT Plan or a Claude Plan. Left Arrow and Right Arrow\n  do not change these models.\n\n- **The Settings mode action shows its destination.** The action says\n  `m advanced` in simple mode. It says `m simple` in advanced mode."
+  },
+  {
+    version: "0.9.10-rc.5",
+    date: "2026-08-20",
+    body: "- **Settings opens in a simple view.** The simple view shows the system\n  prompt, the provider, the model, and the context size. It also shows the\n  base URL and the API key when the provider needs them. Press `m` for the\n  advanced view, which shows every row. 1667 keeps your choice.\n\n- **A model change finds the context size.** When you select a model, 1667\n  asks the provider for the context size and sets it. A size that you type\n  stays. 1667 shows a message on the context size row when the request\n  fails.\n\n- **ChatGPT and Claude plans show their bundled model catalogs.** Select a\n  model in Settings, or enter a model ID manually."
+  },
+  {
+    version: "0.9.10-rc.4",
+    date: "2026-08-20",
+    body: "- **The Shell Installer can update a Managed Installation.** Run the Installer\n  again to recover when an old 1667 version refuses a package with updated\n  legal notices. The Installer keeps the Installation ID and the previous\n  executable. It refuses an unmanaged executable and an automatic downgrade."
+  },
+  {
+    version: "0.9.10-rc.3",
+    date: "2026-08-19",
+    body: "- **This beta has no additional product changes.** It contains the same\n  behavior as 0.9.10-rc.2."
+  },
+  {
+    version: "0.9.10-rc.2",
+    date: "2026-08-19",
+    body: "- **A slow generation Stop keeps 1667 open.** If the embedded backend needs\n  more than 10 seconds to stop a generation, 1667 now checks the operation\n  status. It keeps the application open while the backend answers. It still\n  requires a restart if the backend stops answering.\n\n- **Fresh Settings can select a signed-in subscription plan.** When exactly\n  one plan is signed in, Settings selects that plan as an unsaved draft. Both\n  or neither signed-in plan keeps the current choice. Settings does not replace\n  a choice that the user saved.\n\n- **Managed upgrades accept updated legal notices.** An installed version no\n  longer compares a new package's `LICENSE` and `NOTICE` files with its own old\n  copies. The release process still requires the reviewed files. The updater\n  still checks the package contents, metadata, integrity, and source identity."
+  },
+  {
+    version: "0.9.10-rc.1",
+    date: "2026-08-19",
+    body: "- **ChatGPT and Claude subscriptions can connect directly.** Run\n  `1667 auth login chatgpt` to connect a ChatGPT plan. Run\n  `1667 auth login claude` to connect a Claude plan. Settings can use both\n  connections. 1667 keeps the subscription credentials on this machine."
+  },
+  {
+    version: "0.9.9",
+    date: "2026-08-17",
+    body: "- **Settings reads remain available during activation.** 1667 now serializes a\n  settings read and a settings authority replacement in one process. A read no\n  longer fails while activation replaces the settings authority.\n\n- **Stopped takes keep their thought and finish cleanly.** If **Keep thought**\n  is on, a take saved after Stop or a clean timeout keeps the thought that was\n  visible during streaming. 1667 also gives an embedded model server more time\n  to close after Stop. This prevents a restart-required error during normal\n  cleanup."
+  },
+  {
+    version: "0.9.8",
+    date: "2026-08-17",
+    body: "- **Settings shows important controls and help sooner.** The system prompt is\n  now near the top of the panel. The panel uses its bottom space to show how\n  many settings are above or below the visible list. Select a setting to read\n  its complete description. Long descriptions wrap instead of ending at the\n  panel edge. The descriptions now explain the effect of each setting.\n\n- **The cache-stable continuation prompt is now an optional experiment.** The\n  **prompt layout** row in a Generation Profile is off by default. The off\n  value keeps the v0.8.0 Continue and Retake prompt. The on value moves the\n  operation-specific contract after the story history. Profile Export files\n  preserve the enabled value."
+  },
+  {
+    version: "0.9.7",
+    date: "2026-08-16",
+    body: "- **Internal errors now include useful diagnostic text.** 1667 shows the\n  error name, the error message, and a short cause chain. It keeps the\n  `err_…` reference as a link to the detailed local log. The visible message\n  does not include a stack or a provider response body."
+  },
+  {
+    version: "0.9.6",
+    date: "2026-08-16",
+    body: "- **Stopping an Aside answer keeps the text that arrived.** Press `Esc` after\n  answer text appears to save that text as a Side Note. If no answer text\n  appears, 1667 restores the question.\n\n- **The PowerShell Installer shows the command that starts 1667.** After the\n  installation, the Installer shows the exact executable path. This command\n  works when the Install Root is not in `PATH`."
+  },
+  {
+    version: "0.9.6-rc.2",
+    date: "2026-08-15",
+    body: "- **Aside and the Author's Note have new navigation keys.** Press `a` to open\n  Aside. Press `n` to edit the Author's Note. To create a story, press `o` to\n  open Library, and then press `n`."
+  },
+  {
     version: "0.9.6-rc.1",
     date: "2026-08-15",
     body: "- **A Side Note can now add text to Direct or to the story.** In Aside, press\n  `Tab` to focus the saved Side Notes. Press `Enter` to open the use menu.\n  **insert into compose** puts the complete answer at the Direct cursor and\n  keeps the existing draft. **insert into story…** opens Placement mode. Use\n  the Up Arrow and Down Arrow keys to select an existing Part for a new Take,\n  or select the final gap for a new Part. Press `Enter` to add the text. Press\n  `Esc` to return to Aside without a story change."
@@ -18,7 +123,7 @@ export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
     version: "0.9.5",
     date: "2026-08-14",
-    body: "- **Banned strings now save from Settings.** Adding a banned string no longer\n  reports `logitBias must be an object`. Settings now copies each sampling\n  value before it sends the settings document to the worker."
+    body: "- **Prompt-plan changes now have a Gemma quality gate.** The gate compares the\n  v0.8.0 prompt with a candidate on one frozen story and one fixed profile. It\n  uses blind Retake and Continue scores. It requires no score regression for\n  any operation, seed, or rubric field. CI checks the committed evidence. It\n  does not run Gemma 4 31B.\n\n- **Banned strings now save from Settings.** Adding a banned string no longer\n  reports `logitBias must be an object`. Settings now copies each sampling\n  value before it sends the settings document to the worker."
   },
   {
     version: "0.9.5-rc.1",
@@ -58,7 +163,7 @@ export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
     version: "0.9.2",
     date: "2026-08-13",
-    body: "- **Local model servers keep the story-writing instruction during a\n  continuation.** An assistant prefill has no final user message. This path\n  could omit the operation contract and make a long continuation lose focus.\n  1667 now keeps the mode-independent part of the contract in the stable\n  prompt prefix. The mode-dependent part stays in the final user message when\n  that message exists."
+    body: "- **The dependency audit is clean.** 1667 now uses `fast-uri` 3.1.5.\n\n- **Local model servers keep the story-writing instruction during a\n  continuation.** An assistant prefill has no final user message. This path\n  could omit the operation contract and make a long continuation lose focus.\n  1667 now keeps the mode-independent part of the contract in the stable\n  prompt prefix. The mode-dependent part stays in the final user message when\n  that message exists."
   },
   {
     version: "0.9.1",
@@ -73,12 +178,12 @@ export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
     version: "0.8.0",
     date: "2026-08-11",
-    body: "- **1667 prepares to send images to a model.** This release contains the\n  complete Image Input implementation and keeps every entry point closed. It\n  cannot attach an image yet. 1667 releases a new storage schema in two steps:\n  this release reads and validates the successor story and settings documents\n  and refuses to change them, and the next release writes them. That order lets\n  a writer go back one version without losing a story or a setting. The next\n  release opens the feature."
+    body: "- **1667 no longer ends a generation while a model server is still\n  processing the prompt.** Prefill is the model server's work before it\n  sends the first output token. The server sends no stream output while it\n  does this, and a large prompt takes longer to prefill than a short prompt.\n  1667 cannot tell a server that is still prefilling apart from a server\n  that failed, so it now waits for the first token until the connection's\n  own total deadline, not the shorter first-token value alone. The headers\n  deadline is unchanged: a server that has not returned response headers\n  still ends the generation quickly.\n\n- **Three connection deadlines are editable in Settings.** The new\n  **headers**, **idle**, and **total** rows sit under the **connection**\n  section. Each value already lived in the settings document, and Settings\n  now shows and edits it directly instead of a hand edit of the settings\n  file. There is no row for the first-token deadline, because 1667 waits for\n  the first token until the **total** deadline and a first-token value\n  cannot change a request. To give a slow prompt more time, raise **total**.\n\n- **1667 prepares to send images to a model.** This release contains the\n  complete Image Input implementation and keeps every entry point closed. It\n  cannot attach an image yet. 1667 releases a new storage schema in two steps:\n  this release reads and validates the successor story and settings documents\n  and refuses to change them, and the next release writes them. That order lets\n  a writer go back one version without losing a story or a setting. The next\n  release opens the feature."
   },
   {
     version: "0.7.0",
     date: "2026-08-10",
-    body: "- **Every generated take keeps its request details.** Press `h` on a take to\n  open the Generation Record Viewer. It shows the provider, the model, the\n  effective settings, provider adjustments, and the ordered request pipeline.\n  It keeps the request text from that generation after a later edit. It never\n  stores a credential, a custom header value, or a base URL."
+    body: "- **The log now shows a release note with its paragraphs and list kept.**\n  Before this fix, the log joined a release note into one line, and it\n  showed the raw `**` and backtick marks. The log now keeps each paragraph\n  and each list item on its own line. It also shows bold text and code text\n  in their own style, with the marks removed.\n\n- **Every generated take keeps its request details.** Press `h` on a take to\n  open the Generation Record Viewer. It shows the provider, the model, the\n  effective settings, provider adjustments, and the ordered request pipeline.\n  It keeps the request text from that generation after a later edit. It never\n  stores a credential, a custom header value, or a base URL."
   },
   {
     version: "0.6.1",
@@ -86,9 +191,49 @@ export const RELEASE_NOTES: readonly ReleaseNote[] = [
     body: "- **Alt count no longer loses a long generation on KoboldCpp.** KoboldCpp\n  sends the alternative tokens of a whole generation in one message, so that\n  message grows with the generation. Past about a thousand tokens it crossed a\n  size limit, and 1667 ended the generation and dropped the prose. The limit\n  now follows the output limit for the generation, up to a fixed ceiling. A\n  message within that limit but still too large to keep gives no alternative\n  token for that take, and the generation keeps its prose. A message past the\n  ceiling still ends the generation, the same as any other oversized response\n  from the model.\n\n- **A Fact can now hold up to 100,000 characters, and an over-long Fact says\n  so.** The old limit was 4,000 characters, well under what a NovelAI\n  Lorebook entry or a SillyTavern World Info entry allows. The token budget\n  already governs what a request sends, so the character limit no longer\n  needs to be so tight. The Fact editor shows a character count as a Fact\n  nears the new limit. It also refuses an over-limit Fact right away, with a\n  message that names the limit. Before this fix, the refusal could arrive\n  after the writer's next keystroke had already cleared it from view.\n\n- **1667 shows the release notes after an upgrade.** The first run of a new\n  build shows a toast: `Updated to <version> · press ! for what changed`.\n  Press `!` to open the log. The log shows the release note for each version\n  between your last run and this one. An existing installation that predates\n  this feature shows the release note for the version it lands on, because\n  1667 cannot know its earlier version. 1667 shows this one time for each\n  upgrade. A fresh install shows nothing, because a new writer has no earlier\n  version to compare against."
   },
   {
+    version: "0.6.0",
+    date: "2026-08-10",
+    body: "- **1667 shows what a model thinks before it writes.** Some models write\n  reasoning text before prose. 1667 calls this text a thought and keeps it\n  apart from your story. The margin shows `⟳ thinking` while the model works,\n  then the word `thought` on a story part that has one. Press `T` to unfold it\n  above the prose, behind a rail. The new **Reasoning** row in Settings selects\n  off, marker, or open, and the new **Keep thought** row selects whether 1667\n  saves each thought with its take.\n\n- **A model that thinks for a long time no longer stops at the first-token\n  deadline.** 1667 waited for prose. A model that thinks first sent no prose,\n  so the deadline ended the generation while the model was still working. 1667\n  now accepts any stream activity, and reasoning text counts."
+  },
+  {
+    version: "0.5.5",
+    date: "2026-08-10",
+    body: "- **Settings loads a provider's only model before Save.** A provider or base\n  URL change could return one model while the model row stayed blank. The\n  writer then had to save or select the model. Settings now selects the model\n  when the current model is blank. It does not replace a model name that the\n  writer typed."
+  },
+  {
+    version: "0.5.4",
+    date: "2026-08-09",
+    body: "- Show live download progress for managed upgrades and the Windows Installer."
+  },
+  {
+    version: "0.5.3",
+    date: "2026-08-09",
+    body: "- **Prompt-token counting stops for all active provider work.** A count could\n  continue before a generation showed its stream. It could also restart while\n  a stopped generation was still settling. 1667 now stops an active count when\n  provider work starts. It counts once after the provider owner releases the\n  operation. This behavior also applies to rewrites and summaries."
+  },
+  {
+    version: "0.4.2",
+    date: "2026-08-07",
+    body: "- **1667 installs and updates in a directory that other software also uses.**\n  The Installer and `1667 upgrade` refused an Install Root when any directory\n  above it was group-writable or world-writable, was a symbolic link, or\n  belonged to another user. Debian and Ubuntu ship `/usr/local` this way,\n  Ubuntu gives each user a private group, and Homebrew ships its `bin`\n  directory this way, so the refusal named a real permission bit and no real\n  exposure. 1667 now judges the Install Root alone: it must be a directory this\n  user owns, and no other account can be able to write it. A group-writable\n  directory is accepted when the group holds nobody except this user and root,\n  which is what those layouts are.\n\n- **A refusal about an Install Root says what is wrong and how to fix it.**\n  Each message names the directory, its mode, the account or group that can\n  write it, and the command that corrects it.\n\n- **`--force` installs or updates into an Install Root 1667 refused.** The\n  Installer and `1667 upgrade` accept it after printing what they accepted. It\n  waives no checksum, no attestation, no release identity, and no version\n  check."
+  },
+  {
+    version: "0.4.1",
+    date: "2026-08-07",
+    body: "- **`1667 upgrade` accepts a release that supports one more platform.** The\n  upgrade checked the packages of a new release against the platform list its\n  own build carried, and refused a release that named one more. The first\n  release with Windows support therefore stopped every earlier installation\n  from updating, and the refusal came from the installed program, where no\n  later fix could reach it. 1667 now checks that each package belongs to this\n  product and carries the exact version of the release, so a release that adds\n  a platform installs. An installation before 0.4.0 must be installed again.\n\n- **The stable channel finds the current release.** `1667 upgrade` read a\n  registry tag that a release does not write, so the stable channel stopped at\n  0.2.1 and reported a newer installation as current. The stable channel now\n  reads the tag each release writes.\n\n- **Upgrade output says less.** An installation that 1667 can update no longer\n  reads a sentence about how it was installed."
+  },
+  {
+    version: "0.4.0",
+    date: "2026-08-07",
+    body: "- **Generation Profiles can move between projects.** Import a NovelAI Sampler\n  Preset or a Profile Export with `1667 profile import`. Export a shareable\n  Profile Export with `1667 profile export`. The command creates a new profile\n  and reports values that the selected route cannot use. 1667 also provides\n  conservative, balanced, and adventurous prose Starter Profiles.\n\n- **A stopped or expired generation keeps all text that arrived.** After the\n  writer stops a generation, the live stream does not move again. The text\n  that arrives after the Stop lands in the saved take in one piece. When a\n  request deadline ends a generation, the backend now sends the stream text\n  that it did not post yet together with the error, and the TUI keeps that\n  text with the streamed prose. The failure result does not change.\n\n- **A retried import reports the import that occurred.** A crash could stop a\n  Lorebook import or a character-card import after the story transaction\n  committed and before the mutation receipt completed. A retry then computed\n  a new plan from the changed story, and the report could show a smaller\n  import than the import that occurred. 1667 now keeps the bounded import\n  plan in the mutation receipt before the import commits. A retry returns\n  that plan and its Fidelity Report. The Facts were never duplicated; only\n  the report was wrong."
+  },
+  {
+    version: "0.3.0",
+    date: "2026-08-05",
+    body: "- **Editors now have standard clipboard actions.** Right-click an editable\n  text field to open Copy, Paste, and Select all. Press `Ctrl+A` or\n  `Command+A` to select all text. Direct supports these actions in its inline\n  and full-screen forms. Use `Ctrl+X` or `Command+X` to cut selected text. Use\n  `Ctrl+Z` or `Command+Z` to undo an edit. Add `Shift` to redo the edit. Use\n  `Command+Arrow` to move to a line end or a buffer end. Use\n  `Command+Backspace` to delete to the start of a line. Use `Page Up` or\n  `Page Down` to move by one editor page.\n\n- **A token probability viewer shows the alternative tokens the model\n  weighed.** Press `l` on a story part to open it. The viewer shows the\n  take's prose with the selected token marked, and below it the alternative\n  tokens the model weighed at that position with their probabilities and log\n  probabilities. Use the arrow keys to move between tokens and between\n  alternatives, and `Tab` to move to the next story part. Token\n  probabilities are off by default, because the alternatives make each\n  response much larger. Set the alternative count on a Generation Profile to\n  turn them on. OpenAI, OpenRouter, llama.cpp, KoboldCpp, and LM Studio send\n  the fields. Ollama and a custom endpoint do not, because neither documents\n  them. Anthropic Messages has no such field at all. When a model refuses\n  the fields, 1667 sends the request again without them, and the generation\n  keeps its prose. 1667 stores the alternatives beside the take that\n  produced them, so they survive a restart, and removes them once no take\n  refers to them.\n\n- **Facts now support a move order, a priority, and a token budget.** Select a\n  Fact in the Facts panel and press `Shift+Up Arrow` or `Shift+Down Arrow` to\n  move it. The Fact editor gains a priority row (`low`, `normal`, or `high`,\n  selected with the arrow keys) and a budget row (a token count, or empty for\n  no cap), controlling which Facts drop first when a request does not fit\n  the model's context window. Open the command palette and select\n  **facts budget** to cap the combined tokens every Fact in a request may\n  spend. A request that does not fit now drops droppable Facts by priority\n  instead of failing outright, and the context meter and the Facts panel\n  state what was dropped, and why.\n\n- **The Sampling group now accepts phrase bias and banned strings.** Type a\n  text phrase and a weight. Or type a banned string. 1667 tokenizes the\n  phrase four ways: as typed, with a leading space, with a capital letter,\n  and with both. 1667 biases a phrase only when every one of the four forms\n  is one token. Where a phrase needs more than one token in a form, 1667\n  refuses the phrase at commit and shows the token IDs, so a writer can see\n  why. 1667 never spreads one phrase over more than one token, because that\n  action would also change every other place those tokens appear. A phrase\n  entry and a banned string merge into the same logit bias field as a token\n  ID entry. A token ID that a writer sets by hand keeps priority over the\n  merged value. Two phrase entries can tokenize to the same token. For\n  example, \"hello\" and \"Hello\" share a form. When both entries want the same\n  weight for that token, 1667 keeps both entries and biases every token\n  either one names. When the entries want different weights, 1667 refuses a\n  new entry at commit if it would lose the token, the same way it refuses a\n  multi-token phrase. If a later commit causes an existing entry to lose the\n  token, 1667 keeps that entry in the draft and marks it. 1667 refuses to\n  save the settings while a marked entry stays in the draft. 1667 also\n  refuses to send the request. 1667 names the entry that kept the token and\n  the exact forms that lost their bias. A banned string makes the text\n  unlikely. It does not make the text impossible, because the same text can\n  come from different token boundaries. Phrase bias works for an OpenAI\n  model on the tokenizer list, for llama.cpp, and for KoboldCpp, which 1667\n  asks to tokenize the text directly. Banned strings work the same way for\n  OpenAI and llama.cpp. They do not yet work for LM Studio, Ollama,\n  OpenRouter, or a custom endpoint. 1667 shows a clear reason when a\n  phrase, a banned string, or logit bias itself is not available for the\n  routed model.\n\n- **KoboldCpp banned strings send the literal text, not a token bias.** 1667\n  sends a KoboldCpp banned string to its own banned-string field instead of\n  tokenizing it. This needs no tokenizer at all, so 1667 accepts a banned\n  string of more than one token on KoboldCpp, where every other preset\n  refuses it. A banned string on KoboldCpp still only makes the text\n  unlikely, the same promise as every other preset. A banned string cannot\n  name the same word as a phrase bias entry in the same scope. 1667 refuses\n  to save this combination. 1667 also refuses to send it, and names the\n  conflicting phrase bias entry.\n\n- **A story can now set its own phrase bias and banned strings.** Open the\n  command palette. Select **phrase bias** or **banned strings**. Each list\n  adds to the profile's own list; it does not replace it. 1667 merges the\n  profile's lists first, then the story's lists. When a story entry and a\n  profile entry name the same token with different weights, the story entry\n  wins. 1667 does not block the request in this case. When two profile\n  entries, or two story entries, name the same token with different weights,\n  1667 still blocks the request, the same as it already does for two\n  profile entries. 1667 blocks the request even when a third entry from the\n  other side also names that token and wins it.\n\n- **Character card import now reads Character Card V3.** This covers V3 JSON\n  and the `ccv3` PNG chunk; when a PNG has both `ccv3` and a V1 or V2 `chara`\n  fallback, 1667 reads `ccv3`. A V3 or V2 card's embedded `character_book`\n  becomes Facts through the same Entry Mapping as `1667 import-lorebook`: a\n  constant entry becomes an always-active Fact, and a keyed entry keeps its\n  keys. The Fidelity Report names the `character_book` mechanisms a Fact has\n  no place for, and the V3 fields this converter does not import — greetings,\n  example messages, assets, creator notes, the system prompt, the\n  post-history instructions, the character version, tags, and the creator.\n  CHARX, the zip container, stays unsupported.\n\n- **The Author's Note now has a depth setting.** Depth sets how many story\n  parts from the end the note lands before. The default depth, 1, is today's\n  placement: immediately before the last story part. Open the Author's Note\n  editor and press `⌥-` or `⌥=` to change it. The request viewer shows the\n  placement the note actually used.\n\n- **Stories can now override the default Author Brief.** Open the command\n  palette. Select **Author brief**. A story Author Brief overrides the\n  machine-wide default for that story's continuation, prompted retake,\n  highlighted rewrite, and autoname requests. A story with no Author Brief of\n  its own keeps the machine-wide default.\n\n- **The context meter and the request viewer now count tokens.** Before, they\n  counted four characters for each token. 1667 now uses the tokenize source of\n  the preset: the bundled tokenizer for the official OpenAI host, the count\n  endpoint for the official Anthropic host, and the tokenize endpoint of\n  llama.cpp or KoboldCpp. An exact count shows no mark. A near-exact count\n  shows `≈`. A preset with no tokenize source keeps the `~` estimate. 1667\n  counts the request after you stop typing, so a count never delays a\n  keystroke. If the model server does not answer, 1667 keeps the estimate.\n\n- **`1667 import-lorebook` now reads a SillyTavern World Info file.** Give the\n  `.json` file to the command or to `import archive` in the command palette.\n  1667 reads the file to know its format. A constant Entry becomes an always\n  active Fact, and a keyed Entry keeps its keys. The Fidelity Report gives the\n  World Info mechanisms that a Fact has no place for.\n\n- **Settings now includes a collapsed Sampling group.** Open the group to\n  edit scalar values, stop sequences, and logit bias rows. The TUI shows a\n  short reason for an unavailable value. An unavailable scalar row shows\n  `‹ — ›`. A save keeps the draft when a configured value is unavailable.\n\n- **The Sampling group now offers DRY, XTC, dynamic temperature, and\n  Mirostat.** llama.cpp and KoboldCpp are the presets that accept these\n  parameters. The panel groups the new rows under a rule line for each\n  parameter family. `mirostat` reads `off`, `v1`, or `v2`. `mirostat tau` and\n  `mirostat eta` open once Mirostat is on.\n\n- **A NovelAI `.story` or `.scenario` export now carries the Facts, the Memory,\n  and the Author's Note.** An export and an import carry the same items, so a\n  story that leaves 1667 and comes back keeps the world that steers it. A\n  Scenario now carries the story's own Author's Note in place of the author\n  brief.\n\n- **`1667 --help` is now one page for each command.** The first page gives the\n  commands and the usual options, and it fits a short terminal. Use\n  `1667 <command> --help` for what one command accepts. This command also\n  replaces the error that `1667 import --help` gave before.\n\n- **1667 can now import character cards into an existing story.** The command\n  palette opens a path prompt with `Tab` completion. The `1667 import-card`\n  command accepts one or more JSON or PNG files. It adds their Facts to the\n  story that `--story` names."
+  },
+  {
     version: "0.2.1",
     date: "2026-08-01",
-    body: "- **Facts can now activate only when request context matches their keys.** The\n  default `always` mode keeps the existing behavior. The `keyed` mode scans the\n  recent assembled story context and the current instruction. The Fact editor\n  sets the mode and a comma-separated key list. The Facts panel and side rail\n  show the keyed activation state for the next request.\n\n- **`1667 export` now writes NovelAI archives.** Use `--format story`,\n  `--format scenario`, or `--format lorebook`. Use `--all` to export every\n  story. The command reports content changes and omissions for each archive.\n\n\n- **Stories now have an Author's Note.** Press `a` to write short steering for\n  the next continuation or prompted retake. 1667 shows the note cost in the\n  context meter and warns above 300 estimated tokens.\n\n- **The TUI now shows the next request plan.** Press `Ctrl+R` to open the\n  request viewer. It shows each message, the estimated token counts, chapter\n  summary replacements, the routed model, and the context window. It does not\n  show credentials.\n\n- **`1667 import` now imports NovelAI `.story` files.** Supports Editor V2\n  MessagePack documents and Editor V1 legacy stories. Story title and section\n  prose are converted to 1667 story parts. Container settings, Memory, Author's\n  Note, Lorebook, and retry history are not imported.\n- **`1667 import` now imports 1667-exported Markdown files as new stories.**\n  Markdown `#` headings set the story title. `##` headings become chapter\n  boundaries. Prose blocks separated by blank lines become story parts.\n- **1667 now publishes a native Windows x64 package.** The PowerShell Installer\n  verifies the Release Archive and manages upgrades. CI tests the Windows\n  package, private state DACLs, and Installer on Windows.\n- **The install command now shows its progress.** It names each stage. It also\n  shows the transfer while it downloads. The command was silent until it\n  stopped. You could not see the difference between a slow network and a stopped\n  command. The command writes the stage lines to a pipe or to a log. It does not\n  write the transfer bar to a pipe or to a log.\n- **`1667 upgrade` now uses plain language.** The help text, the messages, and\n  the refusals tell you what occurred. They also tell you what to do. They do\n  not use the internal names for the install model. The `--json` result keeps\n  the same fields. It also keeps the same error codes.\n- **Settings now reads the model list from the selected provider.** Use\n  `Left Arrow` or `Right Arrow` to select a model. Press `Enter` to type a\n  custom model name. Settings includes an OpenAI preset. The cache policy is\n  not available in Settings. New profiles use the `off` cache policy."
+    body: "- **Facts can now activate only when request context matches their keys.** The\n  default `always` mode keeps the existing behavior. The `keyed` mode scans the\n  recent assembled story context and the current instruction. The Fact editor\n  sets the mode and a comma-separated key list. The Facts panel and side rail\n  show the keyed activation state for the next request.\n\n- **`1667 export` now writes NovelAI archives.** Use `--format story`,\n  `--format scenario`, or `--format lorebook`. Use `--all` to export every\n  story. The command reports content changes and omissions for each archive.\n\n- **Stories now have an Author's Note.** Press `a` to write short steering for\n  the next continuation or prompted retake. 1667 shows the note cost in the\n  context meter and warns above 300 estimated tokens.\n\n- **The TUI now shows the next request plan.** Press `Ctrl+R` to open the\n  request viewer. It shows each message, the estimated token counts, chapter\n  summary replacements, the routed model, and the context window. It does not\n  show credentials.\n\n- **`1667 import` now imports NovelAI `.story` files.** Supports Editor V2\n  MessagePack documents and Editor V1 legacy stories. Story title and section\n  prose are converted to 1667 story parts. Container settings, Memory, Author's\n  Note, Lorebook, and retry history are not imported.\n- **`1667 import` now imports 1667-exported Markdown files as new stories.**\n  Markdown `#` headings set the story title. `##` headings become chapter\n  boundaries. Prose blocks separated by blank lines become story parts.\n- **1667 now publishes a native Windows x64 package.** The PowerShell Installer\n  verifies the Release Archive and manages upgrades. CI tests the Windows\n  package, private state DACLs, and Installer on Windows.\n- **The install command now shows its progress.** It names each stage. It also\n  shows the transfer while it downloads. The command was silent until it\n  stopped. You could not see the difference between a slow network and a stopped\n  command. The command writes the stage lines to a pipe or to a log. It does not\n  write the transfer bar to a pipe or to a log.\n- **`1667 upgrade` now uses plain language.** The help text, the messages, and\n  the refusals tell you what occurred. They also tell you what to do. They do\n  not use the internal names for the install model. The `--json` result keeps\n  the same fields. It also keeps the same error codes.\n- **Settings now reads the model list from the selected provider.** Use\n  `Left Arrow` or `Right Arrow` to select a model. Press `Enter` to type a\n  custom model name. Settings includes an OpenAI preset. The cache policy is\n  not available in Settings. New profiles use the `off` cache policy."
   },
   {
     version: "0.1.2",

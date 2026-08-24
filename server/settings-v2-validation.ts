@@ -1,8 +1,5 @@
 import {
   FEATURE_SUPPORT_V2_VALUES,
-  GENERATION_EFFORT_V2_VALUES,
-  PROMPT_CACHE_POLICY_V2_VALUES,
-  REASONING_DISPLAY_V2_VALUES,
   SETTINGS_PRESET_V2_VALUES,
   SETTINGS_PROTOCOL_V2_VALUES,
   TEXT_PROMPT_FORMAT_V2_VALUES,
@@ -14,22 +11,20 @@ import {
   type ModelScalarMetadataV2,
   type SettingsDocumentV2,
   type SettingsPresetV2,
-  type SettingsProtocolV2
+  type SettingsProtocolV2,
+  isSubscriptionProtocolV2,
+  isSubscriptionPresetV2,
+  subscriptionPresetForProtocolV2
 } from "../shared/settings-v2-types.js";
-import { parseSampling, validateSamplingRoute } from "./settings-v2-sampling-validation.js";
 import { boundedArray, closedRecord, closedShape, literal } from "./story-wire-validation.js";
-import { MAX_ALTERNATIVE_TOKENS } from "../shared/token-probabilities.js";
-import { generationEffortAvailabilityForTarget } from "../shared/generation-effort-capabilities.js";
-import {
-  effectiveReasoningContent,
-  reasoningDisplayChoicesForTarget
-} from "../shared/reasoning-display-capabilities.js";
+import { parseProfiles } from "./settings-v2-profile-validation.js";
+import { settingsMap } from "./settings-v2-validation-record.js";
+import { oneOf } from "./settings-v2-validation-values.js";
 import {
   MAX_SETTINGS_AUTHOR_BRIEF_SCALARS,
   MAX_SETTINGS_CREDENTIAL_NAMES,
   MAX_SETTINGS_HEADERS,
   MAX_SETTINGS_NAME_SCALARS,
-  MAX_SETTINGS_RECORDS,
   MAX_SETTINGS_REMOTE_ID_SCALARS,
   MAX_SETTINGS_TIMEOUT_MS,
   MAX_SETTINGS_TOKEN_COUNT,
@@ -38,7 +33,6 @@ import {
   normalizeSettingsBaseUrl,
   requireBoundedSettingsString,
   requireCredentialName,
-  requireFiniteTemperature,
   requireHeaderName,
   requirePositiveSettingsInteger,
   requireSecretId,
@@ -63,10 +57,6 @@ const METADATA = closedShape([], ["contextWindow", "maxOutputTokens"]);
 const CAPABILITIES = closedShape(
   ["temperature", "assistantPrefill", "reasoningEffort", "promptCaching"],
   ["reasoningContent"]
-);
-const PROFILE = closedShape(
-  ["name", "modelId", "temperature", "maxOutputTokens", "effort", "cachePolicy"],
-  ["sampling", "tokenProbabilities", "reasoning", "discardReasoning"]
 );
 const ROUTING = closedShape(["default"], ["prose", "utility"]);
 const WRITING = closedShape(["defaultAuthorBrief"]);
@@ -150,9 +140,30 @@ export function parseConnections(
     const allowInsecureHttp = connection.allowInsecureHttp === undefined
       ? undefined
       : literal(connection.allowInsecureHttp, true, `connection ${id}.allowInsecureHttp`);
+    if (
+      isSubscriptionPresetV2(preset)
+      && (!isSubscriptionProtocolV2(protocol)
+        || subscriptionPresetForProtocolV2(protocol) !== preset)
+    ) {
+      throw new SettingsFormatError(
+        `connection ${id} subscription preset requires its matching subscription protocol`
+      );
+    }
     const baseUrl = protocol === "dry-run"
       ? parseDryRunConnection(id, preset, connection.baseUrl, auth, headers, allowInsecureHttp)
-      : parseNetworkConnection(id, preset, protocol, connection.baseUrl, auth, headers, allowInsecureHttp);
+      : isSubscriptionProtocolV2(protocol)
+        ? parseSubscriptionConnection(
+            id,
+            preset,
+            protocol,
+            connection.baseUrl,
+            auth,
+            headers,
+            allowInsecureHttp,
+            textPromptFormat,
+            splitThinkTags
+          )
+        : parseNetworkConnection(id, preset, protocol, connection.baseUrl, auth, headers, allowInsecureHttp);
     if (protocol !== "text-completions" && textPromptFormat !== undefined) {
       throw new SettingsFormatError(
         `connection ${id}.textPromptFormat requires text-completions`
@@ -253,6 +264,34 @@ function parseNetworkConnection(
   throw new SettingsFormatError(
     `connection ${id} plain HTTP requires loopback or allowInsecureHttp on a LAN host`
   );
+}
+
+function parseSubscriptionConnection(
+  id: string,
+  preset: SettingsPresetV2,
+  protocol: Extract<SettingsProtocolV2, "openai-codex-responses" | "anthropic-subscription-messages">,
+  baseUrl: unknown,
+  auth: CredentialReferenceV2,
+  headers: readonly unknown[],
+  allowInsecureHttp: true | undefined,
+  textPromptFormat: unknown,
+  splitThinkTags: true | undefined
+): null {
+  const expectedPreset = subscriptionPresetForProtocolV2(protocol);
+  if (
+    preset !== expectedPreset
+    || baseUrl !== null
+    || auth.type !== "none"
+    || headers.length !== 0
+    || allowInsecureHttp !== undefined
+    || textPromptFormat !== undefined
+    || splitThinkTags !== undefined
+  ) {
+    throw new SettingsFormatError(
+      `connection ${id} subscription protocol requires the ${expectedPreset} preset, null URL, no authentication, no headers, and no HTTP or text options`
+    );
+  }
+  return null;
 }
 
 function parseAuth(
@@ -403,93 +442,7 @@ function parseCapabilities(value: unknown, label: string): ModelCapabilitiesV2 {
   };
 }
 
-export function parseProfiles(
-  value: unknown,
-  models: Readonly<Record<string, ModelDefinitionV2>>,
-  connections: Readonly<Record<string, ModelConnectionV2>>
-): Record<string, GenerationProfileV2> {
-  const record = settingsMap(value, "settings document.profiles");
-  const result: Record<string, GenerationProfileV2> = {};
-  for (const [id, raw] of Object.entries(record)) {
-    requireSettingsId(id, "profile ID");
-    const profile = closedRecord(raw, `profile ${id}`, PROFILE);
-    const modelId = requireSettingsId(profile.modelId, `profile ${id}.modelId`);
-    const model = models[modelId];
-    if (!Object.hasOwn(models, modelId) || model === undefined) {
-      throw new SettingsFormatError(`profile ${id}.modelId does not resolve`);
-    }
-    const connection = connections[model.connectionId];
-    if (connection === undefined) {
-      throw new SettingsFormatError(`model ${modelId}.connectionId does not resolve`);
-    }
-    const temperature = requireFiniteTemperature(profile.temperature, `profile ${id}.temperature`);
-    const effort = oneOf(profile.effort, GENERATION_EFFORT_V2_VALUES, `profile ${id}.effort`);
-    if (temperature !== null && model.capabilities.temperature === "unsupported") {
-      throw new SettingsFormatError(`profile ${id} sets temperature for an unsupported model`);
-    }
-    const effortAvailability = generationEffortAvailabilityForTarget({
-      protocol: connection.protocol,
-      reasoningEffort: model.capabilities.reasoningEffort
-    }, effort);
-    if (effortAvailability.kind === "unavailable" && effortAvailability.code === "model-unsupported") {
-      throw new SettingsFormatError(`profile ${id} sets effort without explicit model support`);
-    }
-    const sampling = parseSampling(profile.sampling, `profile ${id}.sampling`);
-    // Absent means the request asks for no alternatives, the default for
-    // every existing and new profile, so a document saved before this field
-    // existed keeps meaning exactly what it did — same shape as `sampling`.
-    const tokenProbabilities = profile.tokenProbabilities === undefined
-      ? undefined
-      : requirePositiveSettingsInteger(
-        profile.tokenProbabilities,
-        `profile ${id}.tokenProbabilities`,
-        MAX_ALTERNATIVE_TOKENS
-      );
-    // Absent means "marker", the default fold state, so a document saved
-    // before this field existed keeps meaning exactly what it did — same
-    // shape as `sampling` and `tokenProbabilities` above. A present, explicit
-    // value still has to be one this route can actually populate: `off` is
-    // always fine, but `marker`/`open` is refused on a model that reports it
-    // returns no reasoning content at all.
-    const reasoning = profile.reasoning === undefined
-      ? undefined
-      : oneOf(profile.reasoning, REASONING_DISPLAY_V2_VALUES, `profile ${id}.reasoning`);
-    if (
-      reasoning !== undefined
-      && !reasoningDisplayChoicesForTarget({
-        // The connection's split is what makes a text route return reasoning
-        // at all, so this has to read the same effective value the settings
-        // UI offers from. Keying off the model alone would refuse a value the
-        // writer was just given.
-        reasoningContent: effectiveReasoningContent(connection, model.capabilities)
-      }).includes(reasoning)
-    ) {
-      throw new SettingsFormatError(`profile ${id} sets reasoning on a model that returns none`);
-    }
-    const discardReasoning = profile.discardReasoning === undefined
-      ? undefined
-      : literal(profile.discardReasoning, true, `profile ${id}.discardReasoning`);
-    const parsedProfile: GenerationProfileV2 = {
-      name: requireBoundedSettingsString(profile.name, `profile ${id}.name`, MAX_SETTINGS_NAME_SCALARS, 1),
-      modelId,
-      temperature,
-      maxOutputTokens: requirePositiveSettingsInteger(
-        profile.maxOutputTokens,
-        `profile ${id}.maxOutputTokens`,
-        MAX_SETTINGS_TOKEN_COUNT
-      ),
-      effort,
-      cachePolicy: oneOf(profile.cachePolicy, PROMPT_CACHE_POLICY_V2_VALUES, `profile ${id}.cachePolicy`),
-      ...(sampling === undefined ? {} : { sampling }),
-      ...(tokenProbabilities === undefined ? {} : { tokenProbabilities }),
-      ...(reasoning === undefined ? {} : { reasoning }),
-      ...(discardReasoning === undefined ? {} : { discardReasoning })
-    };
-    validateSamplingRoute(id, parsedProfile, model, connection);
-    result[id] = parsedProfile;
-  }
-  return result;
-}
+export { parseProfiles } from "./settings-v2-profile-validation.js";
 
 export function parseRouting(
   value: unknown,
@@ -508,17 +461,7 @@ export function parseRouting(
   return result;
 }
 
-export function settingsMap(value: unknown, label: string): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new SettingsFormatError(`${label} must be an object`);
-  }
-  const record = value as Record<string, unknown>;
-  const count = Object.keys(record).length;
-  if (count < 1 || count > MAX_SETTINGS_RECORDS) {
-    throw new SettingsFormatError(`${label} must contain 1..${MAX_SETTINGS_RECORDS} entries`);
-  }
-  return record;
-}
+export { settingsMap } from "./settings-v2-validation-record.js";
 
 function credential(
   value: unknown,
@@ -541,9 +484,4 @@ function routeReference(
   return id;
 }
 
-export function oneOf<const T extends readonly string[]>(value: unknown, choices: T, label: string): T[number] {
-  if (typeof value !== "string" || !(choices as readonly string[]).includes(value)) {
-    throw new SettingsFormatError(`${label} must be one of ${choices.join(" | ")}`);
-  }
-  return value as T[number];
-}
+export { oneOf } from "./settings-v2-validation-values.js";

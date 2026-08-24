@@ -13,7 +13,7 @@ import type { ConnectionState } from "./connection.js";
 import type { FilePathPrompt } from "./path-completion.js";
 import type { NoticeLog } from "./notice-log.js";
 import type { HitRows } from "./hit.js";
-import type { UserConfig } from "./config.js";
+import type { SettingsViewMode, UserConfig } from "./config.js";
 import type { ReadingPositions } from "./reading-position.js";
 import type { AppMode, ResolvedKey } from "./keys.js";
 import type { UndoEntry } from "./model.js";
@@ -38,6 +38,7 @@ import type {
   StorySelectionProjection,
   StorySelectionSpan
 } from "./selection-projection.js";
+import type { WritingPromptRowId } from "../../shared/settings-v5-writing.js";
 import type { SettingsTextDraft } from "./settings-text.js";
 import type { SettingsModelPicker } from "./settings-model-picker.js";
 import type { TokenProbabilityRecord } from "../../shared/token-probabilities.js";
@@ -48,6 +49,7 @@ import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 import type { PromptProjectionIdentity } from "./request-context.js";
 import type { StoryScalarField } from "./story-scalar-fields.js";
 import type { DraftImage } from "./draft-image.js";
+import type { TextPresentation } from "./text-presentation.js";
 
 export type BackendTaskKind = "action" | "connection-reconcile" | "explicit-retry";
 
@@ -70,6 +72,9 @@ export interface StreamView {
   /** Explicit composer-owner epoch at launch. Legacy stop restoration may
    * proceed only while no newer editor has been claimed. */
   composerClaimEpoch?: number;
+  /** Visible prefix controller. `text` remains the received, authoritative
+   *  stream used by Stop and durable settlement. */
+  presentation?: TextPresentation;
   instruction: string;
   text: string;
   /** Incrementally maintained String.trim() bounds in UTF-16 offsets. */
@@ -106,6 +111,8 @@ export interface StreamReasoning {
    *  provider-reported count when available, otherwise a count of received
    *  reasoning deltas. */
   tokenCount: number;
+  /** Visible prefix controller for the separate reasoning channel. */
+  presentation?: TextPresentation;
 }
 
 /** The on-demand fetch of one take's stored thought, mirroring
@@ -201,6 +208,7 @@ export type SettingsRowId =
   | "theme"
   | "compose-focus"
   | "word-wrap"
+  | "update-checks"
   | "provider"
   | "text-prompt-format"
   | "split-think-tags"
@@ -220,13 +228,14 @@ export type SettingsRowId =
   | "context-window"
   | "effort"
   | "cache-policy"
+  | "continuation-prompt"
   | "token-probabilities"
   | "reasoning"
   | "keep-thoughts"
   | "default-route"
   | "prose-route"
   | "utility-route"
-  | "system-prompt";
+  | WritingPromptRowId;
 
 export interface SettingsEditBufferState {
   composer: ComposerState;
@@ -235,7 +244,7 @@ export interface SettingsEditBufferState {
 
 export interface SettingsInlineEditState extends SettingsEditBufferState {
   kind: "inline";
-  row: Exclude<SettingsRowId, "system-prompt" | "sampling">;
+  row: Exclude<SettingsRowId, WritingPromptRowId | "sampling">;
   mode: "text" | "secret";
 }
 
@@ -320,6 +329,13 @@ export interface SettingsOverlayState {
   /** Write-only key material; never projected into GenerationSettings/document. */
   connectionSecrets: Record<string, string | null>;
   cursor: number;
+  /** Which rows the field list shows. Session state, seeded at open time
+   *  from `UserConfig.settingsViewMode`; the `m` action flips it for the
+   *  rest of the session and persists the choice back to the config
+   *  (settings-view-mode.ts), the same local-preference path compose focus
+   *  and word wrap use. Independent of the settings draft: which rows show
+   *  is a view concern, not something the save pipeline round-trips. */
+  viewMode: SettingsViewMode;
   /** Settings-menu row editor. Full-screen prompts use `RuntimeState.editor`. */
   edit: SettingsInlineEditState | null;
   /** Nested three-layer sampling editor. */
@@ -330,6 +346,14 @@ export interface SettingsOverlayState {
   saveIntent?: SettingsOverlaySaveIntent;
   checking: boolean;
   probing: boolean;
+  /** Armed by a draft transition that just landed a model with no known
+   *  context window (settings-model-selection.ts's `applySettingsModelChoice`,
+   *  settings-overlay-model.ts's `cycleSettingsProvider`), drained by
+   *  `detectSettingsContextForModelChange` (settings-context-detection.ts)
+   *  wherever a model choice can land — the settings dispatch seam and
+   *  discovery's own auto-select alike — so an automatic probe fires
+   *  exactly once per model change regardless of which path landed it. */
+  contextProbeArmed: boolean;
   discoveringModels: boolean;
   modelDiscovery: ModelDiscoveryResultV2 | null;
   modelDiscoveryIdentity: string | null;
@@ -367,6 +391,8 @@ export interface SummaryOverlayState {
   end: number;
   totalParts: number;
   text: string;
+  /** `text` remains the received summary; this controls its visible prefix. */
+  presentation?: TextPresentation;
   controller: AbortController;
 }
 
@@ -520,7 +546,12 @@ export type InlineEditorTarget =
    *  means "empty is unset", matching the composer's own text, so
    *  reconciliation compares like the Author's Note editor does. */
   | { kind: "story-scalar"; field: StoryScalarField; expected: string }
-  | { kind: "settings-prompt"; owner: SettingsOverlayState; scope: "global" };
+  | {
+      kind: "settings-prompt";
+      owner: SettingsOverlayState;
+      row: WritingPromptRowId;
+      scope: "global";
+    };
 
 export interface FactEditorTarget {
   kind: "fact";
@@ -680,7 +711,13 @@ export interface StoryScreenState extends OverlayState {
      *  the pre-rewrite draft; requestRewriteStop and the reload's catch
      *  branch both gate on this flag instead of assuming an abort or an
      *  error always means nothing was saved. */
-    | { kind: "rewrite"; controller: AbortController; committed: boolean }
+    | {
+        kind: "rewrite";
+        controller: AbortController;
+        committed: boolean;
+        /** True only for the writer's explicit Stop, not a provider timeout. */
+        explicitStop: boolean;
+      }
     | null;
   freshLandedAt: ReadonlyMap<string, number>;
   now: number;
@@ -698,8 +735,12 @@ export interface StoryScreenState extends OverlayState {
    *  text only; bar growth uses a likely-response estimate from recent prose. */
   maxTokens: number;
   systemPrompt: string;
+  /** Active writing prompts from Settings `activeWriting`, never a pending document. */
+  activeWriting: import("../../shared/settings-v5-writing.js").WritingPromptSettings;
   /** Whether the configured provider accepts an assistant continuation prefill. */
   assistantPrefill: boolean;
+  /** Active prose route's continuation prompt layout. */
+  continuationPromptLayout: import("../../shared/continuation-prompt-optimization.js").ContinuationPromptLayout;
   map: MapState | null;
   /** The full-bleed search navigator, or null when it is closed. */
   search: SearchState | null;
@@ -811,6 +852,8 @@ export interface RuntimeState extends StoryScreenState {
   /** Unsent live-slot draft retained while submitted history is visible. */
   historyDraft: string | null;
   pendingGenerationDraft: PendingGenerationDraft | null;
+  /** A release notice already in the log and waiting for the toast line. */
+  pendingUpdateNotice: string | null;
   /** Monotonic fence for explicit Direct/retake editor claims. */
   composerClaimEpoch: number;
   quitArmed: boolean;

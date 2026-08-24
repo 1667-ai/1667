@@ -59,13 +59,14 @@ export type KeyAction =
   | "open-library" | "open-facts" | "open-commands" | "open-settings"
   | "open-selected" | "new-item" | "duplicate-item" | "rename-item" | "delete-item"
   | "move-item-up" | "move-item-down"
-  | "open-authors-note" | "note-depth-decrease" | "note-depth-increase"
+  | "open-aside" | "open-authors-note" | "note-depth-decrease" | "note-depth-increase"
   | "filter" | "cycle" | "check" | "detect-context" | "discard-pending" | "retry" | "continue"
   | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index"
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
   | "toggle-context-meter" | "open-search" | "toggle-search-case" | "open-request"
   | "complete" | "open-log" | "clear-log" | "row-action"
-  | "open-probs" | "next-part" | "open-text-actions" | "import-profile" | "open-records";
+  | "open-probs" | "next-part" | "open-text-actions" | "import-profile" | "open-records"
+  | "toggle-view-mode";
 
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
@@ -132,7 +133,7 @@ export const MUTATING_ACTIONS: ReadonlySet<KeyAction> = new Set([
   "prune", "apply", "delete-tag", "edit", "write", "regenerate", "tag",
   "new-item", "duplicate-item", "rename-item", "delete-item", "discard-pending",
   "move-item-up", "move-item-down",
-  "create-chapter", "summarize-chapter", "open-authors-note", "save-edit", "save-edit-inplace"
+  "create-chapter", "summarize-chapter", "open-aside", "open-authors-note", "save-edit", "save-edit-inplace"
 ]);
 
 /** Global-scope editor saves update local application state, not the story. */
@@ -708,6 +709,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "s") return { action: "save-edit" };
     if (key.name === "c") return { action: "check" };
     if (key.name === "p") return { action: "detect-context" };
+    if (key.name === "m") return { action: "toggle-view-mode" };
     if (key.name === "e") return { action: "edit" };
     if (shiftedLetter(key, "n")) return { action: "duplicate-item" };
     if (key.name === "n") return { action: "new-item" };

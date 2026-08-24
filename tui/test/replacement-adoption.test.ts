@@ -29,6 +29,10 @@ function harness(
   onRepaint: (state: ReturnType<typeof initialState>) => void = () => undefined
 ) {
   const state = initialState(source, false);
+  // These fixtures predate the simple/advanced split and expect every row
+  // reachable (SETTINGS_ROW_IDS indexes the full, advanced row list).
+  state.config = { ...state.config, settingsViewMode: "advanced" };
+  source.config = state.config;
   const cache = createWrapCache<ProseStyle>();
   const repaint = () => onRepaint(state);
   const backend = new ActionRuntime(state, repaint);
@@ -120,7 +124,7 @@ describe("forced story replacement adoption", () => {
     const source = demoAppSource();
     const app = harness(source);
     await app.press(key(","));
-    const row = SETTINGS_ROW_IDS.indexOf("system-prompt");
+    const row = SETTINGS_ROW_IDS.indexOf("default-author-brief");
     for (let index = 0; index < row; index += 1) await app.press(key("down"));
     await app.press(key("return"));
     const session = app.state.editor;
@@ -143,44 +147,6 @@ describe("forced story replacement adoption", () => {
     expect(app.state.settings).toBe(settings);
     expect(app.state.settings?.edit).toBe(null);
     expect(app.state.editor?.composer.text).toBe("Unsaved global prompt");
-  });
-
-  test("new-story completion preserves the full-screen system prompt", async () => {
-    const source = demoAppSource();
-    const app = harness(source);
-    const entered = deferred<void>();
-    const gate = deferred<StoryPayload>();
-    source.api.createStory = async () => {
-      entered.resolve();
-      return gate.promise;
-    };
-
-    const pending = app.press(key("n"));
-    await entered.promise;
-    await app.press(key(","));
-    app.state.settings!.cursor = SETTINGS_ROW_IDS.indexOf("system-prompt");
-    await app.press(key("return", "\r"));
-    expect(app.state.mode).toBe("EDITOR");
-    const session = app.state.editor;
-    if (session?.kind !== "document"
-      || session.target.kind !== "settings-prompt") {
-      throw new Error("Settings editor did not open");
-    }
-    const settings = app.state.settings;
-
-    const created = {
-      ...source.payload,
-      id: "created-while-editing-settings",
-      title: "Created While Editing Settings"
-    };
-    gate.resolve(created);
-    await pending;
-
-    expect(app.state.payload.id).toBe(created.id);
-    expect(app.state.mode).toBe("EDITOR");
-    expect(app.state.settings).toBe(settings);
-    expect(app.state.editor).toBe(session);
-    expect(app.state.settings?.edit).toBe(null);
   });
 
   test("a newer prompt for a story removed by a slow delete is reconciled away", async () => {

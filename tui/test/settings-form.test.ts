@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderStoryScreen } from "../src/screens/story.js";
+import { settingsFormRows } from "../src/screens/settings-form.js";
 import { frameText, visibleWidth } from "../src/screens/story/frame.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import {
@@ -7,12 +8,24 @@ import {
   DEFAULT_PROFILE_TEMPERATURE
 } from "../../shared/settings-v2-types.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2_TEXT } from "../../server/settings-v2-initial-vectors.js";
-import { publishCurrentSettingsModelDiscovery } from "../src/settings-model-discovery.js";
+import {
+  discoverSettingsModels,
+  publishCurrentSettingsModelDiscovery,
+  settingsModelChoices
+} from "../src/settings-model-discovery.js";
+import {
+  checkSettings,
+  detectSettingsContext
+} from "../src/settings-context-detection.js";
 import {
   initialSettingsOverlay,
   settingsRows,
   SETTINGS_ROW_IDS
 } from "../src/settings-overlay-model.js";
+import { settingsRowHasArrows, settingsRowIds } from "../src/settings-row-navigation.js";
+import { SETTINGS_PROVIDER_CHOICES } from "../src/settings-provider-choices.js";
+import { settingsTextDraftWithSubscriptionPlan } from "../src/settings-text.js";
+import { settingsFooterVariants } from "../src/screens/settings-panel-footers.js";
 import {
   key,
   openSettings,
@@ -45,27 +58,150 @@ describe("the settings form follows C-03 and C-08", () => {
     const rendered = screen(state);
 
     expect(rendered).toContain("── app ");
+    expect(rendered).toContain("── prompt ");
     expect(rendered).toContain("── connection ");
     expect(rendered).toContain("── generation ");
+    expect(rendered.indexOf("── prompt ")).toBeLessThan(rendered.indexOf("── connection "));
+    expect(rendered).toContain("author brief");
+    expect(rendered).toMatch(/↓ \d+ more settings/);
     // The rule is the section heading. It used to be printed twice — once in a
     // jump rail and again beside it — which is what made the panel read as
     // chaos, together with hints that started in a different column per row.
     expect(rendered).not.toContain("│");
     const hints = [
-      "the whole palette, remapped",
-      "dim the page while you type",
-      "who answers a request",
-      "how far it strays"
+      "Dims the story",
+      "Keeps whole words",
+      "Selects the service",
+      "Higher values make"
     ].map((hint) => rendered.split("\n").find((line) => line.includes(hint))!);
     expect(hints.every((line) => line !== undefined)).toBeTrue();
     const columns = new Set(hints.map((line, index) =>
       visibleWidth(line.slice(0, line.indexOf([
-        "the whole palette, remapped",
-        "dim the page while you type",
-        "who answers a request",
-        "how far it strays"
+        "Dims the story",
+        "Keeps whole words",
+        "Selects the service",
+        "Higher values make"
       ][index]!)))));
     expect(columns.size).toBe(1);
+
+    await selectRow(press, state, "default-author-brief");
+    expect(screen(state)).toContain("Default Author Brief for prose and story names.");
+    expect(screen(state)).toContain("A story brief overrides it.");
+    expect(screen(state)).toContain("Empty omits the global brief.");
+  });
+
+  test("the selected description wraps without losing text", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    await selectRow(press, state, "compose-focus");
+    const rendered = screen(state, 64, 24);
+
+    expect(rendered).toContain("· Dims the story while you write in");
+    expect(rendered).toContain("· the compose box.");
+  });
+
+  test("the selected description stays visible at the minimum terminal width", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    await selectRow(press, state, "compose-focus");
+    const overlay = state.settings!;
+    const rendered = frameText(settingsFormRows({
+      rows: settingsRows(overlay, state.config),
+      cursor: overlay.cursor,
+      edit: overlay.edit,
+      contentWidth: 12,
+      terminalWidth: 20,
+      hasArrows: () => false,
+      actionReport: null
+    }).map((row) => row.line));
+
+    for (const word of ["Dims", "story", "while", "write", "compose", "box."]) {
+      expect(rendered).toContain(word);
+    }
+  });
+
+  test("the position line reports settings above and below the visible list", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    expect(/↓ \d+ more settings/.test(screen(state, 80, 24))).toBeTrue();
+
+    await selectRow(press, state, "utility-route");
+    const rendered = screen(state, 80, 24);
+    expect(/↑ \d+ earlier settings/.test(rendered)).toBeTrue();
+    expect(/↓ \d+ more settings/.test(rendered)).toBeFalse();
+
+    await selectRow(press, state, "temperature");
+    expect(screen(state, 40, 14)).toMatch(/↑ \d+ · ↓ \d+/);
+  });
+
+  test("save status replaces tail rows without moving the selected setting", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    await selectRow(press, state, "temperature");
+    const row = () => screen(state, 80, 24).split("\n")
+      .findIndex((line) => line.includes("temperature"));
+    const clean = row();
+
+    await press(key("right"));
+    const dirty = row();
+    const view = state.settings!.view;
+    if (!view.editable) throw new Error("editable settings view missing");
+    state.settings!.view = {
+      ...view,
+      pendingRevision: 2
+    };
+
+    expect(clean).toBeGreaterThan(-1);
+    expect(dirty).toBe(clean);
+    expect(row()).toBe(clean);
+  });
+
+  test("an exact-fit form stays still when status adds a position line", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    await selectRow(press, state, "reasoning");
+    const row = () => screen(state, 120, 43).split("\n")
+      .findIndex((line) => line.includes("reasoning"));
+    expect(screen(state, 120, 43)).not.toContain("more settings");
+    const clean = row();
+    state.settings!.draft = {
+      ...state.settings!.draft,
+      generation: {
+        ...state.settings!.draft.generation,
+        systemPrompt: `${state.settings!.draft.generation.systemPrompt} x`
+      }
+    };
+
+    expect(screen(state, 120, 43)).toContain("more settings");
+    expect(row()).toBe(clean);
+  });
+
+  test("image input names a protocol limitation", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    await selectRow(press, state, "image-input");
+
+    const rendered = screen(state, 80, 24);
+    expect(rendered).toContain("The selected protocol cannot send image");
+    expect(rendered).toContain("· attachments.");
+    expect(settingsRows(state.settings!, state.config).find((row) => row.id === "image-input"))
+      .toMatchObject({
+        value: "‹ - ›",
+        hint: "The selected protocol cannot send image attachments."
+      });
+  });
+
+  test("the final setting keeps its description beside pending status", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    await selectRow(press, state, "utility-route");
+    const view = state.settings!.view;
+    if (!view.editable) throw new Error("editable settings view missing");
+    state.settings!.view = { ...view, pendingRevision: 2 };
+
+    for (const width of [64, 80]) {
+      expect(screen(state, width, 24)).toContain("support tasks.");
+    }
   });
 
   test("a settable number wears a chip, a positional track and a default tick", async () => {
@@ -142,11 +278,11 @@ describe("the settings form follows C-03 and C-08", () => {
 
     // Two rows for one job — an env var and a stored key — left every writer
     // guessing which one to fill in.
-    expect(rendered).toContain("stored key");
+    expect(rendered).toContain("API key");
     expect(rendered).not.toContain("key env");
     // The keys live in the machine-tier state root, whose path is a platform
     // detail; what matters is that they never travel with a story.
-    expect(rendered).toContain("kept on this machine");
+    expect(rendered).toContain("Saved on this device");
     expect(rendered).not.toContain(".config/1667");
   });
 
@@ -220,6 +356,69 @@ describe("C-15 · the model option column", () => {
     expect(state.settings!.draft.generation.model).toBe("model-02");
   });
 
+  test("subscription plan model lists use the picker even when short", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    const overlay = state.settings!;
+    overlay.draft = settingsTextDraftWithSubscriptionPlan(
+      overlay.draft,
+      "chatgpt-plan",
+      {
+        ...overlay.draft.generation,
+        provider: "openai-compatible",
+        baseUrl: "",
+        model: "gpt-5.4",
+        apiKeyEnv: null,
+        contextWindow: 272_000
+      }
+    );
+    overlay.base = overlay.draft;
+    publishCurrentSettingsModelDiscovery(overlay, {
+      observedAt: "2026-01-01T00:00:00.000Z",
+      models: [
+        {
+          remoteId: "gpt-5.4",
+          name: "GPT-5.4",
+          contextWindow: 272_000,
+          maxOutputTokens: null,
+          source: "pi-catalog"
+        },
+        {
+          remoteId: "gpt-5.4-mini",
+          name: "GPT-5.4 mini",
+          contextWindow: 128_000,
+          maxOutputTokens: null,
+          source: "pi-catalog"
+        }
+      ]
+    });
+
+    await selectRow(press, state, "model");
+    expect(settingsRowHasArrows(overlay, "model")).toBeFalse();
+    const footer = settingsFooterVariants(overlay, false)[0]!;
+    expect(footer.text).toContain("↵ choose");
+    expect(footer.text).not.toContain("←→ choose");
+    expect(footer.actions.some((entry) =>
+      entry.token === "↵ choose" && entry.action === "open-selected"
+    )).toBeTrue();
+
+    const activeView = overlay.view;
+    if (!activeView.editable) throw new Error("editable settings view missing");
+    overlay.view = { ...activeView, pendingRevision: 2 };
+    const pendingFooter = settingsFooterVariants(overlay, false)[0]!;
+    expect(pendingFooter.text).toContain("↵ choose");
+    expect(pendingFooter.text).toContain("x discard");
+    expect(pendingFooter.text).not.toContain("↵ edit");
+    overlay.view = { ...activeView, pendingRevision: null };
+
+    const before = overlay.draft.generation.model;
+    await press(key("right"));
+    expect(overlay.draft.generation.model).toBe(before);
+
+    await press(key("return"));
+    expect(overlay.modelPicker).not.toBe(null);
+  });
+
   test("typing narrows the column and an unmatched name is still usable", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
@@ -253,6 +452,219 @@ describe("the settings row model stays one list", () => {
     // every key in the panel.
     expect(settingsRows(overlay, state.config).map((row) => row.id))
       .toEqual([...SETTINGS_ROW_IDS]);
+  });
+
+  test("subscription plans hide network controls and keep manual model entry", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    const overlay = state.settings!;
+    overlay.view = {
+      ...overlay.view,
+      subscriptionAuth: { chatgpt: "signed-out", claude: "signed-out" }
+    };
+    overlay.draft = settingsTextDraftWithSubscriptionPlan(
+      overlay.draft,
+      "chatgpt-plan",
+      {
+        ...overlay.draft.generation,
+        provider: "openai-compatible",
+        baseUrl: "",
+        model: "gpt-5.4",
+        apiKeyEnv: null,
+        contextWindow: 272_000
+      }
+    );
+    overlay.base = overlay.draft;
+
+    const rows = settingsRows(overlay, state.config);
+    expect(rows.map((row) => row.id)).not.toContain("base-url");
+    expect(rows.map((row) => row.id)).not.toContain("allow-insecure-http");
+    expect(rows.map((row) => row.id)).not.toContain("api-key");
+    expect(rows.find((row) => row.id === "provider")?.value)
+      .toContain("ChatGPT plan");
+    expect(rows.find((row) => row.id === "provider")?.hint)
+      .toBe("In a terminal, run 1667 auth login chatgpt to sign in. ChatGPT output length is best effort.");
+    expect(rows.find((row) => row.id === "text-prompt-format")?.disabled).toBe(true);
+    expect(rows.find((row) => row.id === "text-prompt-format")?.hint)
+      .toBe("Available with text-completion providers.");
+    expect(rows.find((row) => row.id === "split-think-tags")?.disabled).toBe(true);
+    expect(rows.find((row) => row.id === "split-think-tags")?.hint)
+      .toBe("Available with text-completion providers.");
+    expect(rows.map((row) => row.id)).toEqual(settingsRowIds(overlay));
+    expect(settingsRowIds(overlay)).not.toContain("base-url");
+    expect(settingsRowIds(overlay)).toContain("model");
+    expect(overlay.draft.generation.model).toBe("gpt-5.4");
+
+    const claude = SETTINGS_PROVIDER_CHOICES.find((choice) => choice.id === "claude-plan");
+    expect(claude).toMatchObject({
+      label: "Claude plan",
+      provider: "anthropic",
+      defaults: {
+        baseUrl: "",
+        model: "claude-sonnet-4-6",
+        apiKeyEnv: null,
+        contextWindow: 1_000_000
+      }
+    });
+  });
+
+  test("Claude plan help names its terminal sign-in command", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    const overlay = state.settings!;
+    overlay.view = {
+      ...overlay.view,
+      subscriptionAuth: { chatgpt: "signed-out", claude: "signed-out" }
+    };
+    const draft = settingsTextDraftWithSubscriptionPlan(
+      overlay.draft,
+      "claude-plan",
+      {
+        ...overlay.draft.generation,
+        provider: "anthropic",
+        baseUrl: "",
+        model: "claude-sonnet-4-6",
+        apiKeyEnv: null,
+        contextWindow: 1_000_000
+      }
+    );
+    const rows = settingsRows({ ...overlay, draft }, state.config);
+
+    expect(rows.find((row) => row.id === "provider")?.hint)
+      .toBe("In a terminal, run 1667 auth login claude to sign in. Claude plan support is experimental.");
+  });
+
+  test("subscription plans load catalogs and skip context probes", async () => {
+    const { source, state, backend, press } = settingsHarness();
+    await openSettings(press);
+    const overlay = state.settings!;
+    overlay.view = {
+      ...overlay.view,
+      subscriptionAuth: { chatgpt: "signed-in", claude: "signed-out" }
+    };
+    overlay.draft = settingsTextDraftWithSubscriptionPlan(
+      overlay.draft,
+      "chatgpt-plan",
+      {
+        ...overlay.draft.generation,
+        provider: "openai-compatible",
+        baseUrl: "",
+        model: "gpt-5.4",
+        apiKeyEnv: null,
+        contextWindow: 272_000
+      }
+    );
+    overlay.base = overlay.draft;
+    let discoveryCalls = 0;
+    let probeCalls = 0;
+    const discoverModels = source.api.discoverModels;
+    const probeContextWindow = source.api.probeContextWindow;
+    source.api.discoverModels = async (...args) => {
+      discoveryCalls += 1;
+      return discoverModels(...args);
+    };
+    source.api.probeContextWindow = async (...args) => {
+      probeCalls += 1;
+      return probeContextWindow(...args);
+    };
+    const context = {
+      backend,
+      repaint: () => undefined,
+      cache: createWrapCache<ProseStyle>(),
+      renderer: null,
+      applyTheme: () => undefined,
+      previewTheme: () => undefined
+    };
+
+    await discoverSettingsModels(state, source, context, overlay);
+    await detectSettingsContext(state, source, context, overlay);
+
+    expect(discoveryCalls).toBe(1);
+    expect(settingsModelChoices(overlay).map((model) => model.remoteId))
+      .toContain("gpt-5.4");
+    expect(settingsModelChoices(overlay).every((model) =>
+      model.remoteId.startsWith("gpt-") && model.source === "pi-catalog"
+    )).toBeTrue();
+    expect(probeCalls).toBe(0);
+    expect(overlay.result?.message).toContain("ChatGPT plan is signed in.");
+    expect(overlay.result?.message).not.toContain("auth login");
+
+    await checkSettings(state, source, context, overlay);
+    expect(overlay.result?.message).toContain("ChatGPT plan is signed in.");
+    expect(overlay.result?.message).not.toContain("auth login");
+  });
+
+  test("Claude plan discovery shows only Claude demo models", async () => {
+    const { source, state, backend, press } = settingsHarness();
+    await openSettings(press);
+    const overlay = state.settings!;
+    overlay.draft = settingsTextDraftWithSubscriptionPlan(
+      overlay.draft,
+      "claude-plan",
+      {
+        ...overlay.draft.generation,
+        provider: "anthropic",
+        baseUrl: "",
+        model: "claude-sonnet-4-6",
+        apiKeyEnv: null,
+        contextWindow: 1_000_000
+      }
+    );
+    overlay.base = overlay.draft;
+    const context = {
+      backend,
+      repaint: () => undefined,
+      cache: createWrapCache<ProseStyle>(),
+      renderer: null,
+      applyTheme: () => undefined,
+      previewTheme: () => undefined
+    };
+
+    await discoverSettingsModels(state, source, context, overlay);
+
+    expect(settingsModelChoices(overlay).map((model) => model.remoteId))
+      .toContain("claude-sonnet-4-6");
+    expect(settingsModelChoices(overlay).every((model) =>
+      model.remoteId.startsWith("claude-") && model.source === "pi-catalog"
+    )).toBeTrue();
+  });
+
+  test("subscription plans hide probe keys and ignore direct probe shortcuts", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    const overlay = state.settings!;
+    overlay.draft = settingsTextDraftWithSubscriptionPlan(
+      overlay.draft,
+      "chatgpt-plan",
+      {
+        ...overlay.draft.generation,
+        provider: "openai-compatible",
+        baseUrl: "",
+        model: "gpt-5.4",
+        apiKeyEnv: null,
+        contextWindow: 272_000
+      }
+    );
+    overlay.base = overlay.draft;
+
+    for (const row of ["provider", "context-window"] as const) {
+      await selectRow(press, state, row);
+      const footers = settingsFooterVariants(overlay, false);
+      expect(footers.flatMap((footer) => footer.actions).map((entry) => entry.action))
+        .not.toContain("check");
+      expect(footers.flatMap((footer) => footer.actions).map((entry) => entry.action))
+        .not.toContain("detect-context");
+      expect(/(?:c check|p detect| · [cp] · | [cp] esc$)/u.test(
+        footers.map((footer) => footer.text).join("\n")
+      )).toBe(false);
+    }
+
+    overlay.result = null;
+    overlay.deleteArmedProfileId = overlay.draft.selectedProfileId;
+    await press(key("c"));
+    expect(overlay.deleteArmedProfileId).toBe(null);
+    await press(key("p"));
+    expect(overlay.result).toBe(null);
   });
 
   test("tab runs only the action the focused row declares", async () => {

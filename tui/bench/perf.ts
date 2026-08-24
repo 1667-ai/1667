@@ -26,6 +26,7 @@ import {
 } from "../src/story-wrap-build.js";
 import { appendStreamText, emptyStreamText } from "../src/stream-text.js";
 import { createNoticeLog } from "../src/notice-log.js";
+import { DEFAULT_WRITING_PROMPT_SETTINGS } from "../../shared/settings-v5-writing.js";
 
 const SENTENCE_WORDS = "The lantern held its flame while the storm counted windows, and nobody in the inn below said the traveler's name aloud."
   .split(" ");
@@ -148,6 +149,7 @@ function stateFor(payload: StoryPayload): StoryScreenState {
     toast: null, notices: createNoticeLog(), stream: null, abort: null, backendTask: null,
     freshLandedAt: new Map(), now: 1_667_000_000_000,
     model: "bench", systemPrompt: "Continue the story.", assistantPrefill: true,
+    activeWriting: DEFAULT_WRITING_PROMPT_SETTINGS,
     contextWindow: 32768, maxTokens: 1024,
     map: null, search: null, contextMeterExpanded: false, prune: null, tag: null, typewriter: false,
     expandedChapterSummaryIds: new Set(), chapterDeleteArmedId: null,

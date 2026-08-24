@@ -847,14 +847,17 @@ describe("demo action pipeline", () => {
     expect(state.historyIndex).toBe(1);
   });
 
-  test("n starts a new story regardless of the focused part", async () => {
+  test("n opens the Author's Note regardless of the focused part", async () => {
     const { state, press } = harness();
     state.focusIndex = 4;
     const previousStoryId = state.payload.id;
     await press("n");
-    expect(state.payload.id).not.toBe(previousStoryId);
-    expect(state.payload.path).toHaveLength(0);
-    expect(state.mode).toBe("COMPOSE");
+    expect(state.payload.id).toBe(previousStoryId);
+    expect(state.mode).toBe("EDITOR");
+    expect(state.editor).toMatchObject({
+      kind: "document",
+      target: { kind: "authors-note" }
+    });
   });
 
   test("Space continues from the focused seam without opening Direct", async () => {

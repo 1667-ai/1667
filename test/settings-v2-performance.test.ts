@@ -17,7 +17,7 @@ import {
 } from "../server/settings-v2-codec.js";
 import {
   applyEffectiveGenerationSettings,
-  effectiveGenerationSettings
+  effectiveGenerationView
 } from "../server/settings-v2-conversion.js";
 import {
   INITIAL_SETTINGS_DOCUMENT_V2,
@@ -90,7 +90,7 @@ test("settings v2 pure operations stay comfortably bounded", {
   await t.test("500 staged whole-path preflights and bounded recoveries", (context) => {
     const iterations = 500;
     const candidate = applyEffectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2, {
-      ...effectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2),
+      ...effectiveGenerationView(INITIAL_SETTINGS_DOCUMENT_V2),
       provider: "openai-compatible",
       baseUrl: "https://api.openai.com/v1",
       model: "performance-model",

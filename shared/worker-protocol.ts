@@ -23,11 +23,11 @@ import type { PromptTokenCount } from "./tokenize-source.js";
 import type {
   DiscardPendingSettingsCommand,
   ModelDiscoveryResultV2,
-  ProviderProbeTarget,
   SaveSettingsCommand,
   SettingsMutationResult,
   SettingsView
 } from "./settings-v2-types.js";
+import type { ProviderProbeTarget } from "./provider-probe-route-v1.js";
 import type { LorebookImport } from "./lorebook-entry.js";
 import type { CardImportPlan } from "./card-import.js";
 import type { FactBudgetDrop } from "./fact-budget.js";
@@ -65,7 +65,8 @@ export const PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION = 7;
 export const PRE_FACT_ACTIVATION_WORKER_PROTOCOL_VERSION = 8;
 export const PRE_FACT_ORDER_PRIORITY_BUDGET_WORKER_PROTOCOL_VERSION = 9;
 export const PRE_ASIDE_WORKER_PROTOCOL_VERSION = 10;
-export const WORKER_PROTOCOL_VERSION = 11;
+export const PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION = 11;
+export const WORKER_PROTOCOL_VERSION = 12;
 /** Exact provider recovery changes the status and acknowledgement inputs. */
 export const MUTATION_INPUT_PROTOCOL_VERSION = WORKER_PROTOCOL_VERSION;
 export const WORKER_BUILD_IDENTITY = AI_1667_BUILD_IDENTITY;
@@ -81,7 +82,12 @@ export const WORKER_STARTUP_LIVENESS_TIMEOUT_MS = 10_000;
 export const WORKER_STARTUP_TIMEOUT_MS = 60_000;
 export const WORKER_TERMINATION_CONFIRM_MS = 2_000;
 export const WORKER_SHUTDOWN_GRACE_MS = 5_000;
-export const WORKER_CANCEL_GRACE_MS = 2_000;
+/** Bound local durable work that must finish before cancellation delivery. */
+export const WORKER_CANCEL_PERSISTENCE_TIMEOUT_MS = 2_000;
+/** Stop hides the stream immediately. Give the provider, retained stream
+ *  tail, and durable terminal settlement time to unwind before the main
+ *  process treats the worker as unsafe. */
+export const WORKER_CANCEL_GRACE_MS = 10_000;
 export const WORKER_OPERATION_CAPACITY = 1_024;
 export const WORKER_TERMINAL_RETENTION_MS = 5 * 60_000;
 export const WORKER_MAX_OPERATION_SEQUENCE = (1n << 64n) - 1n;
@@ -100,6 +106,7 @@ export function isCurrentWorkerInputProtocolVersion(
     || value === PRE_FACT_ACTIVATION_WORKER_PROTOCOL_VERSION
     || value === PRE_FACT_ORDER_PRIORITY_BUDGET_WORKER_PROTOCOL_VERSION
     || value === PRE_ASIDE_WORKER_PROTOCOL_VERSION
+    || value === PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION
     || value === WORKER_PROTOCOL_VERSION;
 }
 
@@ -313,7 +320,7 @@ export interface WorkerMethodContract {
     input: { storyId: string };
     output: { notes: readonly { question: string; answer: string }[] };
   };
-  /** Stream one Aside question. Null means cancelled before save. */
+  /** Stream one Aside question. Null means no answer text was saved. */
   askAside: {
     input: { storyId: string; question: string };
     output: { notes: readonly { question: string; answer: string }[] } | null;

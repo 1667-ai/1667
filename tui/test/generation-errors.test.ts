@@ -8,6 +8,10 @@ import { demoAppSource } from "../src/demo.js";
 import { generate, requestGenerationStop } from "../src/generation-action.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { recordSessionNotices } from "../src/notice-log.js";
+import {
+  streamPresentedReasoningText,
+  streamPresentedText
+} from "../src/stream-text.js";
 import { currentPartActions, openActions } from "../src/story-actions.js";
 import { workerApiErrorFromFailure } from "../src/worker-error.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
@@ -18,6 +22,15 @@ function deferred<T>() {
     resolve = resolvePromise;
   });
   return { promise, resolve };
+}
+
+async function waitForRecoveredPresentation(state: ReturnType<typeof initialState>): Promise<void> {
+  const deadline = Date.now() + 1_000;
+  while ((state.stream?.presentation?.pendingLength ?? 0) > 0
+    || (state.stream?.reasoning?.presentation?.pendingLength ?? 0) > 0) {
+    if (Date.now() > deadline) throw new Error("Recovered presentation did not drain");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 /** The exact wire shape server/worker-request-cancellation.ts's
@@ -206,10 +219,16 @@ describe("generation errors", () => {
     const source = demoAppSource();
     const state = initialState(source, false);
     const cache = createWrapCache<ProseStyle>();
-    const backend = new ActionRuntime(state, () => undefined);
+    const presentationLengths: Array<number | null> = [];
+    const repaint = () => {
+      presentationLengths.push(state.stream?.presentation?.presentedText.length ?? null);
+    };
+    const backend = new ActionRuntime(state, repaint);
     const entered = deferred<void>();
     const gate = deferred<void>();
     let saves = 0;
+    let savedText = "";
+    const arrived = "queued provider text ".repeat(12).trimEnd();
     source.api.continueStory = async (
       _storyId,
       _instruction,
@@ -217,25 +236,75 @@ describe("generation errors", () => {
       _target,
       onDelta
     ) => {
-      onDelta("arrived text");
+      onDelta(arrived);
       entered.resolve();
       await gate.promise;
       throw new Error("cancellation control failed");
     };
-    source.api.createNode = async () => {
+    source.api.createNode = async (_storyId, body) => {
       saves += 1;
+      savedText = body.text;
       return source.payload;
     };
 
     const pending = backend.run("generating prose", (task) =>
-      generate(state, source, cache, () => undefined, "", null, null, task));
+      generate(state, source, cache, repaint, "", null, null, task));
     await entered.promise;
-    requestGenerationStop(state, () => undefined);
+    expect(state.stream?.text).toBe(arrived);
+    expect(state.stream?.presentation?.pendingLength ?? 0).toBeGreaterThan(0);
+    requestGenerationStop(state, repaint);
+    expect(state.stream).toBe(null);
+    expect(presentationLengths.at(-1)).toBe(null);
     gate.resolve();
     await pending;
 
     expect(saves).toBe(1);
+    expect(savedText).toBe(arrived);
     expect(state.toast).toBe(null);
+  });
+
+  test("successful generation drains the presentation before payload adoption", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const cache = createWrapCache<ProseStyle>();
+    const presentationLengths: Array<number | null> = [];
+    const repaint = () => {
+      presentationLengths.push(state.stream?.presentation?.presentedText.length ?? null);
+    };
+    const generated = "x".repeat(160);
+    source.api.continueStory = async (
+      storyId,
+      instruction,
+      genId,
+      target,
+      onDelta
+    ) => {
+      onDelta(generated);
+      const payload = target.appendTo !== undefined
+        ? await source.api.createNode(storyId, {
+          appendTo: target.appendTo,
+          expectedTextHash: target.expectedTextHash!,
+          instruction,
+          text: generated,
+          genId
+        })
+        : await source.api.createNode(storyId, {
+          parentId: target.parentId ?? null,
+          instruction,
+          text: generated,
+          genId
+        });
+      return { payload, droppedFacts: [] };
+    };
+
+    const backend = new ActionRuntime(state, repaint);
+    await backend.run("generating prose", (task) =>
+      generate(state, source, cache, repaint, "", null, null, task));
+
+    expect(presentationLengths).toContain(16);
+    expect(presentationLengths).toContain(generated.length);
+    expect(state.payload.path.some((node) => node.text.endsWith(generated))).toBeTrue();
+    expect(state.stream).toBe(null);
   });
 
   test("a deadline failure keeps text that already streamed", async () => {
@@ -347,6 +416,7 @@ describe("generation errors", () => {
     const backend = new ActionRuntime(state, () => undefined);
     const entered = deferred<void>();
     const gate = deferred<void>();
+    const arrived = "deadline provider burst ".repeat(32).trimEnd();
     source.api.continueStory = async (
       _storyId,
       _instruction,
@@ -354,7 +424,7 @@ describe("generation errors", () => {
       _target,
       onDelta
     ) => {
-      onDelta("prose that arrived before the deadline");
+      onDelta(arrived);
       entered.resolve();
       await gate.promise;
       throw workerDeadlineFailure("Worker request deadline exceeded");
@@ -373,6 +443,7 @@ describe("generation errors", () => {
     await entered.promise;
     gate.resolve();
     await pending;
+    await waitForRecoveredPresentation(state);
 
     // The real save failure reaches the writer, not a "text kept" claim, and
     // it is not silently overwritten by the deadline's own toast.
@@ -380,7 +451,51 @@ describe("generation errors", () => {
     expect(state.notices.entries.some((entry) => entry.text.includes("text kept"))).toBe(false);
     // The prose is not lost — it survives in the still-visible stream, even
     // though the commit never landed.
-    expect(state.stream?.text).toBe("prose that arrived before the deadline");
+    expect(state.stream?.text).toBe(arrived);
+    expect(state.stream?.presentation).toBeDefined();
+    expect(state.stream === null ? "" : streamPresentedText(state.stream)).toBe(arrived);
+  });
+
+  test("ordinary recovery repaints after the generation task releases", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const cache = createWrapCache<ProseStyle>();
+    const repaints: number[] = [];
+    const repaint = () => {
+      if (state.stream?.presentation !== undefined) {
+        repaints.push(state.stream.presentation.presentedText.length);
+      }
+    };
+    const backend = new ActionRuntime(state, repaint);
+    const entered = deferred<void>();
+    const gate = deferred<void>();
+    const arrived = "ordinary recovery burst ".repeat(200).trimEnd();
+    source.api.continueStory = async (
+      _storyId,
+      _instruction,
+      _genId,
+      _target,
+      onDelta
+    ) => {
+      onDelta(arrived);
+      entered.resolve();
+      await gate.promise;
+      throw workerDeadlineFailure("Worker request deadline exceeded");
+    };
+    source.api.createNode = async () => {
+      throw new Error("recovery save failed");
+    };
+
+    const pending = backend.run("generating prose", (task) =>
+      generate(state, source, cache, repaint, "keep going", null, null, task));
+    await entered.promise;
+    gate.resolve();
+    await pending;
+    const repaintsAfterTask = repaints.length;
+    await waitForRecoveredPresentation(state);
+
+    expect(repaints.length).toBeGreaterThan(repaintsAfterTask);
+    expect(state.stream?.text).toBe(arrived);
   });
 
   test("a deadline failure whose recovery save also fails is still logged without focus", async () => {
@@ -648,6 +763,51 @@ describe("generation errors", () => {
     const backend = new ActionRuntime(state, () => undefined);
     const generationEntered = deferred<void>();
     const generationGate = deferred<void>();
+    const arrived = "large stopped provider batch ".repeat(16).trimEnd();
+    source.api.continueStory = async (
+      _storyId,
+      _instruction,
+      _genId,
+      _target,
+      onDelta,
+      _signal,
+      callbacks
+    ) => {
+      onDelta(arrived);
+      generationEntered.resolve();
+      await generationGate.promise;
+      callbacks?.onReasoningStopped?.("reasoning only after Stop");
+      return null;
+    };
+    source.api.createNode = async () => {
+      throw new Error("partial save failed");
+    };
+
+    const pending = backend.run("generating prose", (task) =>
+      generate(state, source, cache, () => undefined, "", null, null, task));
+    await generationEntered.promise;
+    requestGenerationStop(state, () => undefined);
+    generationGate.resolve();
+    await pending;
+    await waitForRecoveredPresentation(state);
+
+    expect(state.toast).toBe("partial save failed");
+    expect(state.stream?.text).toBe(arrived);
+    expect(state.stream?.presentation).toBeDefined();
+    expect(state.stream === null ? "" : streamPresentedText(state.stream)).toBe(arrived);
+    expect(state.stream?.reasoning?.presentation).toBeDefined();
+    expect(state.stream === null ? "" : streamPresentedReasoningText(state.stream))
+      .toBe("reasoning only after Stop");
+  });
+
+  test("a failed stopped save exposes an oversized grapheme without a recovery spin", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const cache = createWrapCache<ProseStyle>();
+    const backend = new ActionRuntime(state, () => undefined);
+    const generationEntered = deferred<void>();
+    const generationGate = deferred<void>();
+    const oversized = `e${"\u0301".repeat(1_000)}`;
     source.api.continueStory = async (
       _storyId,
       _instruction,
@@ -655,7 +815,7 @@ describe("generation errors", () => {
       _target,
       onDelta
     ) => {
-      onDelta("arrived text");
+      onDelta(oversized);
       generationEntered.resolve();
       await generationGate.promise;
       return null;
@@ -671,8 +831,9 @@ describe("generation errors", () => {
     generationGate.resolve();
     await pending;
 
-    expect(state.toast).toBe("partial save failed");
-    expect(state.stream?.text).toBe("arrived text");
+    expect(state.stream?.text).toBe(oversized);
+    expect(state.stream?.presentation?.bypassed).toBeTrue();
+    expect(state.stream === null ? "" : streamPresentedText(state.stream)).toBe(oversized);
   });
 
   test("a failed stopped-text save cannot steal focus from later navigation", async () => {

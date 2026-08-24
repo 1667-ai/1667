@@ -1,9 +1,15 @@
 import type { CreateNodeRequest, Story } from "../shared/types.js";
 import { ServiceError } from "./errors.js";
 import { currentModel } from "./generation-http.js";
-import type { GenerationAdmissionRegistry } from "./generation-admission.js";
-import { DEFAULT_INSTRUCTION } from "./generation-prompts.js";
-import { generationRecordForHandoff, type GenerationRecordHandoff } from "./generation-record-handoff.js";
+import {
+  generatedTakeInstruction,
+  type GenerationAdmissionRegistry
+} from "./generation-admission.js";
+import {
+  generationRecordForHandoff,
+  reasoningForHandoff,
+  type GenerationRecordHandoff
+} from "./generation-record-handoff.js";
 import type { SettingsStore } from "./settings.js";
 import { commitTake, createEditedTake } from "./story-nodes.js";
 import type { StoryStore } from "./stories.js";
@@ -23,7 +29,9 @@ export async function commitNode(
   if (rawText.trim().length === 0) throw new ServiceError(400, "Nothing to save");
   const genId = body.genId ?? null;
   const providedInstruction = body.instruction ?? "";
-  const instruction = genId === null ? providedInstruction : providedInstruction.trim() || DEFAULT_INSTRUCTION;
+  const instruction = genId === null
+    ? providedInstruction
+    : generatedTakeInstruction(generationAdmission, id, genId, providedInstruction);
 
   return await stories.withLock(id, async () => {
     const story = await stories.loadForMutation(id);
@@ -69,6 +77,7 @@ export async function commitNode(
       // above returns before this runs), or a genId this process never saw
       // stream anything.
       const generationRecord = generationRecordForHandoff(handoff, appendTo, text, new Date().toISOString());
+      const reasoning = reasoningForHandoff(handoff, appendTo, text);
       const { duplicate } = commitTake(story, {
         parentId: appendCrossesBreak ? requestedAppendTo : appendTo === null ? parentId : null,
         appendTo,
@@ -78,6 +87,7 @@ export async function commitNode(
         model,
         genId,
         generationRecord,
+        reasoning,
         ...(mutationNodeId === undefined ? {} : { nodeId: mutationNodeId })
       });
       if (!duplicate) await stories.save(story);

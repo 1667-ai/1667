@@ -35,6 +35,7 @@ import { deriveStoryFrameLayout, type StoryFrameLayout } from "../story-frame-la
 import { createWrapCache, type ProseStyle, type WrapCache } from "../wrap.js";
 import { renderFactsRail } from "./story/facts-rail.js";
 import { renderFactEditorLayout } from "./story/fact-editor-layout.js";
+import { writingPromptEditorStatus } from "../settings-prompt-editor.js";
 import { spliceDraftImageRows } from "./story/draft-image-rows.js";
 import { draftImagesFor } from "../draft-image.js";
 import { dimPage, panelHorizontalGeometry, placePanel, raisedSegment } from "./overlay.js";
@@ -49,6 +50,7 @@ import { wrapFeedback } from "./feedback-wrap.js";
 import { renderPanels, renderTextActionsPanel } from "./panels.js";
 import { renderConnectionBanner } from "./connection-banner.js";
 import { renderAsideScreen } from "./story/aside-screen.js";
+import { resolveStoryScreenRoute } from "./story-route.js";
 import {
   fitLine,
   hintItem,
@@ -151,49 +153,47 @@ function effectivePromptTokenCount(
 
 export function renderStoryScreen(state: StoryScreenState, options: StoryScreenOptions): StoryScreenFrame {
   const { height } = options;
-  if (state.mode === "LOG") return renderLog(state, options.width, height, options.deadlines);
-  if (state.search !== null && state.mode === "SEARCH") {
-    return renderSearch(state, state.search, options.width, height, options.deadlines);
+  const route = resolveStoryScreenRoute(state);
+  if (route.kind === "log") return renderLog(state, options.width, height, options.deadlines);
+  if (route.kind === "search") {
+    return renderSearch(state, route.search, options.width, height, options.deadlines);
   }
-  if (state.map !== null && (state.mode === "MAP"
-    || state.mode === "TAG" && state.tag?.returnMode === "MAP")) {
-    return renderMap(state, state.map, options.width, height, options.deadlines);
+  if (route.kind === "map") {
+    return renderMap(state, route.map, options.width, height, options.deadlines);
   }
-  if (state.mode === "RECORD" && state.record !== null) {
-    return renderGenerationRecordViewerScreen(state, state.record, options.width, height, options.deadlines);
+  if (route.kind === "record") {
+    return renderGenerationRecordViewerScreen(state, route.record, options.width, height, options.deadlines);
   }
-  const fullscreen = state.mode === "COMPOSE" && state.composer.fullscreen;
   const view = createStoryViewModel(state.payload, state.stream);
   const projectedRequest = projectNextRequest(state, view);
   const estimate = nextRequestEstimate(projectedRequest.payload, projectedRequest.context);
   const promptTokenCount = effectivePromptTokenCount(state, projectedRequest);
-  if (state.mode === "REQUEST" && state.request !== null) {
+  if (route.kind === "request") {
     return renderRequestViewerScreen(
-      state, state.request, projectedRequest.context,
+      state, route.request, projectedRequest.context,
       estimate, options.width, height, options.deadlines, promptTokenCount
     );
   }
-  if (state.mode === "PROBS" && state.probs !== null) {
+  if (route.kind === "probs") {
     return renderTokenProbabilitiesScreen(
-      state, state.probs, estimate, options.width, height, options.deadlines
+      state, route.probs, estimate, options.width, height, options.deadlines
     );
   }
-  if (state.mode === "ASIDE" && state.aside !== null) {
-    return renderAsideScreen(state, state.aside, options.width, height, options.deadlines);
+  if (route.kind === "aside") {
+    return renderAsideScreen(state, route.aside, options.width, height, options.deadlines);
   }
-  const editor = state.mode === "EDITOR" ? state.editor : null;
-  if (editor !== null) {
+  if (route.kind === "editor") {
     return renderInlineEditor(
       state,
       view,
-      editor,
+      route.editor,
       options.width,
       height,
       estimate,
       options.deadlines
     );
   }
-  if (fullscreen) {
+  if (route.kind === "fullscreen-composer") {
     return renderFullscreenComposer(state, view, options.width, height, estimate, options.deadlines);
   }
   const frameLayout = options.layout ?? deriveStoryFrameLayout(options.width, state.config);
@@ -294,7 +294,14 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   // terminal's right edge.
   const surfaceRows = Math.max(0, height - 1);
   const status = fitLine(
-    renderStoryStatus(state, view, frameLayout.railRight ?? frameLayout.fullWidth, narrow, estimate),
+    renderStoryStatus(
+      state,
+      view,
+      frameLayout.railRight ?? frameLayout.fullWidth,
+      narrow,
+      estimate,
+      options.deadlines
+    ),
     frameLayout.fullWidth
   );
   let lines: FrameLine[] = [
@@ -701,9 +708,10 @@ function navHintItems(state: StoryScreenState, view: StoryViewModel): HintItem[]
     return withThoughtHint([
       hintItem([actionHint(`space continues ¶ ${focused.number}`, "continue")]),
       hintItem([actionHint("enter direct", "compose")]),
-      hintItem([actionHint("G leaf", "leaf")], 1),
-      hintItem([actionHint("n new story", "new-item")], 3),
-      hintItem([actionHint("? keys", "open-keys")], 2)
+      hintItem([actionHint("G leaf", "leaf")], 4),
+      hintItem([actionHint("a aside", "open-aside")], 2),
+      hintItem([actionHint("n note", "open-authors-note")], 3),
+      hintItem([actionHint("? keys", "open-keys")], 1)
     ]);
   }
   const leafBreak = focused !== null && focused.pathIndex === state.payload.path.length - 1
@@ -715,7 +723,8 @@ function navHintItems(state: StoryScreenState, view: StoryViewModel): HintItem[]
       hintItem([segment(`next part opens chapter ${chapterWord(focused.chapterNumber + 1).toLowerCase()}`, "chrome")], 3),
       hintItem([actionHint("space continues", "continue")]),
       hintItem([actionHint("c chapters", "open-chapters")], 1),
-      hintItem([actionHint("n new story", "new-item")], 2)
+      hintItem([actionHint("a aside", "open-aside")], 2),
+      hintItem([actionHint("n note", "open-authors-note")], 4)
     ]);
   }
   // No `←→ flips takes` here: the focused part's own `‹ take j/m ›` carries
@@ -723,8 +732,9 @@ function navHintItems(state: StoryScreenState, view: StoryViewModel): HintItem[]
   return withThoughtHint([
     hintItem([actionHint("space continues", "continue")]),
     hintItem([actionHint("enter directs", "compose")]),
-    hintItem([actionHint("n new story", "new-item")], 2),
-    hintItem([actionHint("m map", "open-map")], 3),
+    hintItem([actionHint("a aside", "open-aside")], 2),
+    hintItem([actionHint("n note", "open-authors-note")], 3),
+    hintItem([actionHint("m map", "open-map")], 4),
     hintItem([actionHint("? keys", "open-keys")], 1)
   ]);
 }
@@ -753,7 +763,9 @@ function renderFullscreenComposer(
     softWrap: state.config.wordWrap === "on"
   });
   const withImages = spliceDraftImageRows(composer, draftImagesFor(state.composer), "");
-  const lines = [...withImages.lines, renderStoryStatus(state, view, width, width < 100, estimate)]
+  const lines = [...withImages.lines, renderStoryStatus(
+    state, view, width, width < 100, estimate, deadlines
+  )]
     .slice(0, height)
     .map((line) => fitLine(line, width));
   const hitRows: HitRows = Array.from({ length: height }, (_, row): HitRow | null => row < height - 1
@@ -814,7 +826,7 @@ function renderInlineEditor(
     ? host.target.owner.conflict?.message
     : host.conflict?.message;
   const footerNotice = state.toast ?? editorConflict ?? null;
-  const status = authorNoteStatus(host, width);
+  const status = authorNoteStatus(host, width) ?? writingPromptEditorStatus(host, width);
   const layout = host.kind === "fact"
     ? renderFactEditorLayout(host, {
         width,
@@ -892,7 +904,9 @@ function renderEditorLayoutFrame(
   layout: ComposerLayout,
   deadlines?: FrameDeadlineCollector
 ): StoryScreenFrame {
-  const base = [...layout.lines, renderStoryStatus(state, view, width, width < 100, estimate)]
+  const base = [...layout.lines, renderStoryStatus(
+    state, view, width, width < 100, estimate, deadlines
+  )]
     .slice(0, height)
     .map((line) => fitLine(line, width));
   const hitRows: HitRows = Array.from({ length: height }, (_, row): HitRow | null => row < height - 1
@@ -942,9 +956,10 @@ function renderStoryStatus(
   view: StoryViewModel,
   width: number,
   narrow: boolean,
-  estimate: NextRequestEstimate
+  estimate: NextRequestEstimate,
+  deadlines?: FrameDeadlineCollector
 ): FrameLine {
-  const status = renderCanonicalStatus(state, view, width, narrow, estimate);
+  const status = renderCanonicalStatus(state, view, width, narrow, estimate, deadlines);
   const prompt = state.mode === "COMPOSE" ? state.retakePrompt : null;
   if (prompt === null) return status;
   const [modeBlock, ...rest] = status;

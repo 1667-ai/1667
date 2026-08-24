@@ -21,18 +21,19 @@ import {
   createReleaseLauncherManifest,
   createReleasePlatformManifest,
   releasePackageJson,
-  RELEASE_LICENSE_FILE_DIGESTS
+  RELEASE_PACKAGE_LICENSE_FILE_DIGESTS
 } from "../scripts/release-package-manifests.js";
 import {
   parseReleasePackageManifest
 } from "../scripts/release-package-policy.js";
+import { RELEASE_NOTICE_ATTRIBUTION } from "./release-sbom-fixture.js";
 
 const VERSION = "2.0.0";
 const PLATFORM_PACKAGE = releaseTargetForArtifact("linux-x64").packageName;
-// Staged verbatim from the repository root and pinned by release package
-// policy, so fixtures must present the reviewed bytes rather than stand-ins.
-const LICENSE = RELEASE_LICENSE_FILE_DIGESTS.LICENSE;
-const NOTICE = RELEASE_LICENSE_FILE_DIGESTS.NOTICE;
+// Staged by the npm package policy and pinned to reviewed bytes, so fixtures
+// must present the reviewed values rather than stand-ins.
+const LICENSE = RELEASE_PACKAGE_LICENSE_FILE_DIGESTS.LICENSE;
+const NOTICE = RELEASE_PACKAGE_LICENSE_FILE_DIGESTS.NOTICE;
 const identities = createReleaseIdentitySet({
   schemaVersion: 1,
   productVersion: VERSION,
@@ -172,6 +173,7 @@ function artifact(
     tarball: digestRecord(`${manifest.name} tarball`, 2048),
     tarEntries: {
       packageJsonSha256: packageJson.sha256,
+      noticeAttribution: RELEASE_NOTICE_ATTRIBUTION,
       entries: [
         directory("package"),
         directory("package/bin"),

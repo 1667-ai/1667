@@ -916,7 +916,7 @@ test("a chapter rename records nothing to undo", async () => {
     expect(state.expandedChapterSummaryIds.has("chapter-summary-1")).toBeFalse();
   });
 
-  test("n starts a new story when a chapter summary is focused", async () => {
+  test("n opens the Author's Note when a chapter summary is focused", async () => {
     const { state, press } = harness();
     const previousId = state.payload.id;
     const view = createStoryViewModel(state.payload);
@@ -924,11 +924,15 @@ test("a chapter rename records nothing to undo", async () => {
 
     await press("n");
 
-    expect(state.payload.id).not.toBe(previousId);
-    expect(state.mode).toBe("COMPOSE");
+    expect(state.payload.id).toBe(previousId);
+    expect(state.mode).toBe("EDITOR");
+    expect(state.editor).toMatchObject({
+      kind: "document",
+      target: { kind: "authors-note" }
+    });
   });
 
-  test("n starts a new story when a chapter divider is focused", async () => {
+  test("n opens the Author's Note when a chapter divider is focused", async () => {
     const { state, press } = harness();
     const previousId = state.payload.id;
     const view = createStoryViewModel(state.payload);
@@ -936,8 +940,12 @@ test("a chapter rename records nothing to undo", async () => {
 
     await press("n");
 
-    expect(state.payload.id).not.toBe(previousId);
-    expect(state.mode).toBe("COMPOSE");
+    expect(state.payload.id).toBe(previousId);
+    expect(state.mode).toBe("EDITOR");
+    expect(state.editor).toMatchObject({
+      kind: "document",
+      target: { kind: "authors-note" }
+    });
   });
 
   test("bracket keys jump to adjacent opening dividers", async () => {

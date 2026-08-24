@@ -1,4 +1,4 @@
-import type { GenerationProfileV2 } from "../../shared/settings-v2-types.js";
+import type { GenerationProfileV5 as GenerationProfileV2 } from "../../shared/settings-v5-types.js";
 import { replaceSettingsDraft } from "./settings-draft-transition.js";
 import { settingsTextDraftForDocument } from "./settings-text.js";
 import type { SettingsOverlayState } from "./state.js";

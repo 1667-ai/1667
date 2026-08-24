@@ -124,6 +124,7 @@ export function stageReleaseArchive(
     descriptor.packageName
   );
   const staged = stageReleaseContent({
+    distribution: "release-archive",
     template,
     sbom,
     entries,

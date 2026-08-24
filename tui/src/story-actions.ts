@@ -730,6 +730,7 @@ export function armPrune(state: RuntimeState, targetId?: string): void {
 
 export function landOnNode(state: RuntimeState, source: AppSource, targetId: string): void {
   state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(state.payload), targetId));
+  followStoryViewport(state);
   state.mode = "NAV";
   rememberFocus(state, source);
 }

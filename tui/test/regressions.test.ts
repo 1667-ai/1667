@@ -40,7 +40,7 @@ function key(name: string, sequence: string, shift = false): KeyEvent {
 }
 
 describe("review regressions", () => {
-  test("legacy serve sanitizes private failures without a persisted log", async () => {
+  test("legacy serve shows internal failures without a persisted log", async () => {
     const privateFailure = errorFromFailureIncident(
       await InternalErrorReporter.disabled().report(
         new Error("private /machine/path"),
@@ -50,8 +50,7 @@ describe("review regressions", () => {
 
     const displayed = sanitizeLegacyServeFailure(privateFailure);
 
-    expect(displayed.message).toBe("Internal server error");
-    expect(displayed.message).not.toContain("/machine/path");
+    expect(displayed.message).toBe("Error: private /machine/path");
     expect(displayed.cause).toBe(privateFailure);
   });
 

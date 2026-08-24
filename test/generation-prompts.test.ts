@@ -279,6 +279,70 @@ test("official OpenAI chat uses a verified echo because assistant messages are h
   }
 });
 
+test("ChatGPT plan continuation uses a boundary user turn and exact echo", () => {
+  const settings = {
+    provider: "openai-compatible" as const,
+    baseUrl: "",
+    model: "gpt-5.4",
+    apiKeyEnv: null,
+    temperature: 0,
+    maxTokens: 100,
+    systemPrompt: "Write.",
+    contextWindow: null
+  };
+  const planSettings = {
+    ...settings,
+    protocol: "openai-codex-responses" as const
+  };
+  assert.equal(supportsAssistantPrefill(planSettings), false);
+
+  const parts = [part("Open the door.", "The latch was unlo")];
+  const plan = continuationPlan(
+    planSettings.systemPrompt,
+    null,
+    null,
+    parts,
+    "Continue the story.",
+    true,
+    supportsAssistantPrefill(planSettings),
+    "ct-chatgpt",
+    [],
+    parts
+  );
+  const messages = rendered(plan);
+  const boundary = messages.at(-1);
+  assert.equal(boundary?.role, "user");
+  assert.match(boundary?.content ?? "", /LEFT BOUNDARY/);
+  assert.match(
+    boundary?.content ?? "",
+    /<ct-chatgpt-left>The latch was unlo<\/ct-chatgpt-left>/
+  );
+  assert.equal(plan.requiresEcho, true);
+
+  const filter = new AnchoredOutputFilter(plan.leftAnchor, "", "", true);
+  assert.equal(filter.push(plan.leftAnchor), "");
+  assert.equal(filter.matchedPrefix, true);
+  assert.equal(filter.push("cked."), "cked.");
+
+  const claudeSettings = {
+    provider: "anthropic" as const,
+    baseUrl: "",
+    model: "claude-sonnet-4-6",
+    apiKeyEnv: null,
+    temperature: 0,
+    maxTokens: 100,
+    systemPrompt: "Write.",
+    contextWindow: null
+  };
+  assert.equal(
+    supportsAssistantPrefill({
+      ...claudeSettings,
+      protocol: "anthropic-subscription-messages"
+    }),
+    false
+  );
+});
+
 test("continuation context resets at the last summary and keeps its instruction and text", () => {
   const before = { ...part("Old direction", "Old prose"), id: "before" };
   const summary = { ...part("Use this recap", "Continuity recap"), id: "summary", role: "summary" as const };

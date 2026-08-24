@@ -1,15 +1,23 @@
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
-import { saveConfig, THEME_NAMES, type ThemeName } from "./config.js";
+import {
+  saveConfig,
+  THEME_NAMES,
+  type ThemeName,
+  type UserConfig
+} from "./config.js";
 import { cycleAllowInsecureHttp } from "./settings-allow-insecure.js";
 import {
   cycleSettingsModel,
   cycleSettingsProvider,
+  restoreSettingsCursor,
+  settingsCursorRowIdentity,
   settingsModelDisplayText,
   settingsRowUsesServer
 } from "./settings-overlay-model.js";
 import {
   cycleCachePolicyControl,
+  cycleContinuationPromptControl,
   cycleEffortControl,
   cycleKeepThoughtsControl,
   cycleProfileControl,
@@ -21,6 +29,7 @@ import {
 } from "./settings-profile-controls.js";
 import { cycleTokenProbabilitiesControl } from "./settings-token-probabilities-row.js";
 import { cycleReasoningControl } from "./settings-reasoning-row.js";
+import { settingsReadOnlyMessage } from "./settings-read-only.js";
 import { isSettingsScalarRow } from "./settings-scalar.js";
 import {
   isConnectionTimeoutRow,
@@ -42,7 +51,7 @@ export async function cycleSettingsRow(
   magnitude: ScalarMagnitude = "step"
 ): Promise<void> {
   if (settingsRowUsesServer(row) && !overlay.view.editable) {
-    state.toast = "legacy settings are read-only";
+    state.toast = settingsReadOnlyMessage(overlay.view.readOnlyReason);
     return;
   }
   try {
@@ -71,6 +80,12 @@ export async function cycleSettingsRow(
         "word-wrap",
         state.config.wordWrap === "on" ? "off" : "on"
       );
+    } else if (row === "update-checks") {
+      applyUpdateChecksToggle(
+        state,
+        source,
+        state.config.updates.mode === "notify" ? "off" : "on"
+      );
     } else if (row === "provider") {
       const choice = cycleSettingsProvider(overlay, step);
       state.toast = `provider · ${choice.label} · s saves settings`;
@@ -95,7 +110,9 @@ export async function cycleSettingsRow(
           `model · ${settingsModelDisplayText(model)} · s saves settings`;
       }
     } else if (row === "profile") {
+      const cursorRow = settingsCursorRowIdentity(overlay);
       const profile = cycleProfileControl(overlay, step);
+      restoreSettingsCursor(overlay, cursorRow);
       if (profile !== null) state.toast = `profile · ${profile}`;
     } else if (row === "effort") {
       const effort = cycleEffortControl(overlay, step);
@@ -103,6 +120,9 @@ export async function cycleSettingsRow(
     } else if (row === "cache-policy") {
       const policy = cycleCachePolicyControl(overlay, step);
       if (policy !== null) state.toast = `cache · ${policy} · s saves settings`;
+    } else if (row === "continuation-prompt") {
+      const value = cycleContinuationPromptControl(overlay, step);
+      if (value !== null) state.toast = `experimental prompt · ${value} · s saves settings`;
     } else if (row === "token-probabilities") {
       const value = cycleTokenProbabilitiesControl(overlay, step);
       if (value !== null) state.toast = `alt count · ${value} · s saves settings`;
@@ -136,9 +156,8 @@ export function applySettingsTheme(
   state.toast = `theme · ${theme}`;
 }
 
-/** Compose focus and word wrap are both a plain on/off toggle stored on the
- *  user config, saved and toasted the same way — the only difference is which
- *  field and which label. One function for both instead of two clones. */
+/** Local on/off rows are stored in the user config and save through the same
+ *  path. */
 export function applySettingsLocalToggle(
   state: RuntimeState,
   source: AppSource,
@@ -150,6 +169,30 @@ export function applySettingsLocalToggle(
     : { ...state.config, wordWrap: value };
   source.config = state.config;
   if (!state.demo) saveConfig(state.config);
-  const label = row === "compose-focus" ? "compose focus" : "word wrap";
+  const label = row === "compose-focus"
+    ? "compose focus"
+    : "word wrap";
   state.toast = `${label} · ${value}`;
+}
+
+/** Persist and immediately apply the update-check preference. */
+export function applyUpdateChecksToggle(
+  state: RuntimeState,
+  source: AppSource,
+  value: "on" | "off",
+  persist: (config: UserConfig) => boolean = saveConfig
+): void {
+  const nextConfig: UserConfig = {
+    ...state.config,
+    updates: {
+      ...state.config.updates,
+      mode: value === "on" ? "notify" : "off"
+    }
+  };
+  state.config = nextConfig;
+  source.config = nextConfig;
+  const saved = state.demo || persist(nextConfig);
+  state.toast = saved
+    ? `update checks · ${value}`
+    : `update checks · ${value} for this session · config not saved`;
 }

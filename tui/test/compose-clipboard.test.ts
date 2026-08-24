@@ -40,11 +40,11 @@ function backendContext(state: RuntimeState) {
 function setRoute(source: AppSource, protocol: SettingsProtocolV2, remoteId: string): void {
   const view = source.settingsView;
   if (view.document === null) throw new Error("demo settings must carry a schema-2 document");
-  const base: SettingsDocumentV2 = structuredClone(view.document);
+  const base = structuredClone(view.document);
   const connection = base.connections.demo;
   const model = base.models.demo;
   if (connection === undefined || model === undefined) throw new Error("demo document is missing its fixture route");
-  const document: SettingsDocumentV2 = {
+  const document = {
     ...base,
     connections: { ...base.connections, demo: { ...connection, protocol } },
     models: { ...base.models, demo: { ...model, remoteId } }

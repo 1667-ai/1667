@@ -1,12 +1,17 @@
 import { assembleChapterContext, type PromptPart } from "./chapters.js";
 import { normalizeAuthorsNote, type AuthorsNotePlacement } from "./authors-note.js";
-import type { PromptPlan, PromptTurn } from "./prompt-plan.js";
+import type { PromptBlock, PromptPlan, PromptTurn } from "./prompt-plan.js";
+import type { ContinuationPromptLayout } from "./continuation-prompt-optimization.js";
 import { isOfficialAnthropicBaseUrl } from "./settings-provider-defaults.js";
+import { isSubscriptionProtocolV2, type SettingsProtocolV2 } from "./settings-v2-types.js";
 import type { StoryImageAttachment } from "./image-attachment.js";
 import type { ChapterBreak, GenerationSettings, StoryNode } from "./types.js";
 
 export const DEFAULT_INSTRUCTION = "Continue the story.";
 export const BOUNDARY_ANCHOR_CHARACTERS = 24;
+
+export { CONTINUATION_PROMPT_LAYOUTS } from "./continuation-prompt-optimization.js";
+export type { ContinuationPromptLayout } from "./continuation-prompt-optimization.js";
 
 const APPEND_CONTRACT = [
   "Continuation mode: the final assistant message is an unfinished passage.",
@@ -18,6 +23,8 @@ const CONTINUE_CONTRACT = [
   "Write the next passage of the story in response to the final user direction.",
   "Return only story prose: no summary, explanation, or commentary."
 ].join(" ");
+
+const PREFILL_CONTINUITY_GUARD = "Preserve the established point of view and tense.";
 
 export type ContinuationPromptEntry =
   | { category: "voice" | "facts"; turn: PromptTurn; partId?: never }
@@ -64,7 +71,8 @@ export function continuationPlan(
    *  generated from, so a new image can only ever start a new child
    *  take. This function forces the new-passage turn either way; it cannot
    *  refuse the append itself because it never sees `appendTo`. */
-  newImages: readonly StoryImageAttachment[] = []
+  newImages: readonly StoryImageAttachment[] = [],
+  layout: ContinuationPromptLayout = "compatibility"
 ): ContinuationPlan {
   const note = authorsNote === null ? null : normalizeAuthorsNote(authorsNote.text);
   const sourceContext = assembleChapterContext(parts, chapterBreaks, nodes);
@@ -100,22 +108,26 @@ export function continuationPlan(
         }]
       }
     }]),
-    {
-      category: "voice",
+    ...(layout === "compatibility" ? [{
+      category: "voice" as const,
       turn: {
-        role: "system",
+        role: "system" as const,
         blocks: [{
-          stability: "stable",
-          kind: "operation-contract",
+          stability: "stable" as const,
+          kind: "operation-contract" as const,
           text: continuePassage ? APPEND_CONTRACT : CONTINUE_CONTRACT,
-          boundaryAfter: "candidate"
+          boundaryAfter: "candidate" as const
         }]
       }
-    },
+    }] : []),
   ];
-  const partEntries: PartPromptEntry[] = context.flatMap((part): PartPromptEntry[] => {
+  const partEntries: PartPromptEntry[] = context.flatMap((part, index): PartPromptEntry[] => {
       const category = part.role === "summary" ? "summary" as const : "recent" as const;
       const images = partImageAttachments(part);
+      const carriesPrefillContinuityGuard = layout === "late-cache-stable"
+        && continuePassage
+        && assistantPrefill
+        && index === context.length - 1;
       return [
         { category, turn: {
           role: "user",
@@ -131,7 +143,13 @@ export function continuationPlan(
               kind: "source" as const,
               text: part.instruction.trim() || DEFAULT_INSTRUCTION,
               boundaryAfter: "none" as const
-            }
+            },
+            ...(carriesPrefillContinuityGuard ? [{
+              stability: "stable" as const,
+              kind: "operation-contract" as const,
+              text: `\n\n${PREFILL_CONTINUITY_GUARD}`,
+              boundaryAfter: "none" as const
+            }] : [])
           ]
         }, partId: part.id },
         { category, turn: {
@@ -176,6 +194,7 @@ export function continuationPlan(
       turn: {
         role: "user",
         blocks: [
+          ...(layout === "late-cache-stable" ? [operationContractBlock(CONTINUE_CONTRACT)] : []),
           ...newImages.map((image) => ({
             stability: "volatile" as const,
             kind: "image" as const,
@@ -215,16 +234,30 @@ export function continuationPlan(
     category: "voice",
     turn: {
       role: "user",
-      blocks: [{
-        stability: "volatile",
-        kind: "boundary",
-        text: boundaryInstruction,
-        boundaryAfter: "none"
-      }]
+      blocks: [
+        ...(layout === "late-cache-stable" ? [operationContractBlock(APPEND_CONTRACT)] : []),
+        {
+          stability: "volatile",
+          kind: "boundary",
+          text: boundaryInstruction,
+          boundaryAfter: "none"
+        }
+      ]
     }
   });
   assertAuthorsNoteFollowedByUser(entries);
   return continuationResult(entries, contextPartIds, leftAnchor, leftAnchor.length > 0);
+}
+
+/** Keep the operation-specific late contract in the final user turn. Some
+ * local chat templates reject a system turn after story assistant turns. */
+function operationContractBlock(text: string): PromptBlock {
+  return {
+    stability: "stable",
+    kind: "operation-contract",
+    text: `${text}\n\n`,
+    boundaryAfter: "none"
+  };
 }
 
 function sealPartEntry(entry: PartPromptEntry): PartPromptEntry {
@@ -267,14 +300,18 @@ function continuationResult(
 /** OpenAI documents assistant entries as previous messages, not response prefills;
  * Claude 4.6+ rejects prefills. Those APIs use the exact-boundary echo fallback. */
 export function supportsAssistantPrefill(settings: GenerationSettings): boolean {
+  if (settings.protocol !== undefined) return false;
   const runtime = (
     settings as GenerationSettings & {
       [key: symbol]: {
-        protocol?: "dry-run" | "openai-chat-completions" | "text-completions" | "anthropic-messages";
+        protocol?: SettingsProtocolV2;
         capabilities?: { assistantPrefill?: "supported" | "unsupported" | "unknown" };
       } | undefined;
     }
   )[Symbol.for("1667.provider-runtime")];
+  if (runtime?.protocol !== undefined && isSubscriptionProtocolV2(runtime.protocol)) {
+    return false;
+  }
   if (runtime?.protocol === "text-completions" || settings.provider === "text-completion") {
     return true;
   }

@@ -24,15 +24,15 @@ import {
   type FrameLine
 } from "./story/frame.js";
 
-/** F-3's shared column budget: label 12, so the value column starts at 14 on
- *  every surface and stacked components line up without anyone measuring. The
- *  hint truncates; it never wraps.
+/** F-3's shared column budget: label 13, so the value column starts at 15 on
+ *  every surface and stacked components line up without anyone measuring. An
+ *  unselected hint truncates. The selected hint wraps below its field.
  *
  *  There is no jump rail. It repeated every section name beside the rule that
  *  already carried it, and spent thirteen columns doing so — the grouping the
  *  rail was there to show is what `── light ──` already says. */
 const LEAD_WIDTH = 2;
-const LABEL_WIDTH = 12;
+const LABEL_WIDTH = 13;
 /** What a plain value gets before its position dots. */
 const VALUE_WIDTH = 22;
 /** A C-08 chip is short and its track needs the cells the value column would
@@ -104,7 +104,7 @@ export function settingsFormRows(options: SettingsFormOptions): SettingsFormRow[
   return painted;
 }
 
-/** C-07's note line: the sentence a row sometimes has to say, indented to the
+/** C-07's note line: the selected row's description or status, indented to the
  *  value column and wrapped there.
  *
  *  Without it the hint slot held four things at once — a standing hint, a
@@ -117,16 +117,22 @@ function noteRows(
   options: SettingsFormOptions
 ): SettingsFormRow[] {
   if (index !== options.cursor) return [];
+  const description = row.hint.length === 0
+    ? null
+    : { text: row.hint, role: "chrome" as DisplayRole };
   // While a scalar is being typed, its own limit is the note: F-2 says the
   // reason shows live and typing is never blocked. Text the row cannot read at
   // all says so, rather than reporting the last value it could.
   if (options.edit !== null) {
-    if (row.scalar === undefined) return [];
+    if (row.scalar === undefined) {
+      return description === null ? [] : noteLines(index, description, options);
+    }
     const typed = typedScalarValue(row.scalar, options.edit.composer.text);
     const reason = "refused" in typed ? typed.refused : scalarInvalidReason(typed.scalar);
-    return reason === null
-      ? []
-      : noteLines(index, { text: reason, role: "danger text" }, options);
+    const note = reason === null
+      ? description
+      : { text: reason, role: "danger text" as DisplayRole };
+    return note === null ? [] : noteLines(index, note, options);
   }
   const report = options.actionReport?.row === row.id ? options.actionReport : null;
   const note = row.invalid !== undefined
@@ -136,7 +142,7 @@ function noteRows(
         text: report.text,
         role: (report.ok ? "focus / accent" : "danger text") as DisplayRole
       }
-      : null;
+      : description;
   if (note === null) return [];
   return noteLines(index, note, options);
 }
@@ -147,8 +153,14 @@ function noteLines(
   note: { text: string; role: DisplayRole },
   options: SettingsFormOptions
 ): SettingsFormRow[] {
-  const inset = LEAD_WIDTH + LABEL_WIDTH;
-  const measure = Math.max(8, options.contentWidth - inset - 2);
+  const valueInset = LEAD_WIDTH + responsiveLabelWidth(options.contentWidth);
+  // Keep an eight-cell sentence on a supported narrow terminal. The note
+  // moves left of the value column only when that is necessary to stay visible.
+  const inset = Math.min(
+    valueInset,
+    Math.max(0, options.contentWidth - HINT_MIN_WIDTH - 2)
+  );
+  const measure = Math.max(1, options.contentWidth - inset - 2);
   return wrapText(note.text, [], measure).map((line): SettingsFormRow => ({
     line: [
       raisedSegment(" ".repeat(inset), "chrome"),
@@ -184,7 +196,7 @@ function fieldRow(
   const edit = selected && options.edit?.kind === "inline" ? options.edit : null;
   const bodyWidth = Math.max(1, options.contentWidth);
   const lead = selected ? "▸ " : "  ";
-  const labelWidth = Math.min(LABEL_WIDTH, Math.max(4, bodyWidth - 8));
+  const labelWidth = responsiveLabelWidth(bodyWidth);
   const valueLeft = LEAD_WIDTH + labelWidth;
   const line: FrameLine = [
     raisedSegment(lead, selected ? "focus / accent" : "chrome"),
@@ -234,7 +246,8 @@ function fieldRow(
     row.scalar === undefined ? VALUE_WIDTH : SCALAR_CHIP_WIDTH,
     control
   );
-  const valueRole: DisplayRole = invalid ? "danger text"
+  const valueRole: DisplayRole = row.disabled ? "dimmed page"
+    : invalid ? "danger text"
     : selected ? "focus / accent" : "prose";
   const drawn = truncate(row.value, chipWidth);
   line.push(raisedSegment(padTo(drawn, chipWidth), valueRole));
@@ -264,15 +277,21 @@ function fieldRow(
   // hint slot holds one one-liner and never has to rank four claimants.
   const hint: { text: string; role: DisplayRole } = row.action !== undefined && selected
     ? { text: `[ ${row.action.label} ]  tab`, role: "accent · deep" }
-    : { text: row.hint, role: "chrome" };
+    : { text: selected ? "" : row.hint, role: "chrome" };
   if (hintRoom >= HINT_MIN_WIDTH && hint.text.length > 0) {
     line.push(raisedSegment("  "), raisedSegment(truncate(hint.text, hintRoom), hint.role));
   }
   return {
     line,
     target: { kind: "list", index },
-    overrides: options.hasArrows(row) ? arrowRegions(drawn, valueLeft, index) : []
+    overrides: row.disabled || !options.hasArrows(row)
+      ? []
+      : arrowRegions(drawn, valueLeft, index)
   };
+}
+
+function responsiveLabelWidth(contentWidth: number): number {
+  return Math.min(LABEL_WIDTH, Math.max(4, Math.max(1, contentWidth) - 8));
 }
 
 function trackSegments(

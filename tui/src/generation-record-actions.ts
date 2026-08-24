@@ -16,6 +16,13 @@ import type {
 } from "./state.js";
 import { projectStreamedPayload } from "./stream-projection.js";
 
+/** Lane `runWhenIdle` (action-runtime.ts) collapses detail-fetch retries
+ *  onto. The viewer shows one selection's detail at a time (`selectsRecord`
+ *  reads the single live `eventIndex` cursor), so only the latest
+ *  selection's retry is ever wanted — a fixed key is correct: it lets a
+ *  later selection replace a still-waiting retry outright. */
+const DETAIL_FETCH_RETRY_LANE = "generation-record-detail-retry";
+
 /** Open the read-only Generation Record Viewer (RECORD mode) without moving
  *  NAV's or MAP's own focus — `h` from either place, and the palette's
  *  "generation records" command from NAV. */
@@ -198,11 +205,27 @@ async function loadSelectedDetail(
   const admitted = await runDetailFetch(state, source, context, nodeId, recordId);
   const current = state.record;
   if (!admitted && current !== null && selectsRecord(current, nodeId, recordId)) {
-    // A faster later selection may already own the runtime. Rather than
-    // declaring this — the latest — selection "busy", keep it in its
-    // loading state and retry once the runtime frees up. If the writer
-    // moves on again before then, `selectsRecord` below stops the retry.
-    context.backend.observe(retryDetailFetchWhenIdle(state, source, context, nodeId, recordId));
+    // A faster later selection may already own the runtime; retry once it
+    // frees up rather than declaring the latest selection busy.
+    const wanted = (): GenerationRecordViewerState | null => {
+      const record = state.record;
+      return record !== null && selectsRecord(record, nodeId, recordId) ? record : null;
+    };
+    context.backend.runWhenIdle(
+      DETAIL_FETCH_RETRY_LANE,
+      async () => {
+        const record = wanted();
+        if (record === null) return;
+        // A concurrent fetch may already have cached this record.
+        const cached = record.cache.get(recordId);
+        if (cached !== undefined) {
+          record.detail = { status: "ready", recordId, detail: cached };
+          return;
+        }
+        await runDetailFetch(state, source, context, nodeId, recordId);
+      },
+      () => wanted() !== null
+    );
   }
 }
 
@@ -229,28 +252,6 @@ async function runDetailFetch(
     if (detail.status === "ready") current.cache.set(recordId, detail.detail);
     current.detail = detail;
   }, { reportBusy: false });
-}
-
-async function retryDetailFetchWhenIdle(
-  state: RuntimeState,
-  source: AppSource,
-  context: ActionContext,
-  nodeId: string,
-  recordId: string
-): Promise<void> {
-  while (true) {
-    const current = state.record;
-    if (current === null || !selectsRecord(current, nodeId, recordId)) return;
-    if (!await context.backend.whenIdle()) return;
-    const stillCurrent = state.record;
-    if (stillCurrent === null || !selectsRecord(stillCurrent, nodeId, recordId)) return;
-    const cached = stillCurrent.cache.get(recordId);
-    if (cached !== undefined) {
-      stillCurrent.detail = { status: "ready", recordId, detail: cached };
-      return;
-    }
-    if (await runDetailFetch(state, source, context, nodeId, recordId)) return;
-  }
 }
 
 function selectsRecord(record: GenerationRecordViewerState, nodeId: string, recordId: string): boolean {

@@ -14,7 +14,7 @@
 1667 also provides a direct connection to a selected model provider. This
 repository contains the terminal user interface (TUI) and its backend runtime.
 
-[![1667 in a terminal: a direction is composed, the model streams the next part, two sibling takes are compared, and the path map opens](https://1667.ai/demo-2.gif)](https://1667.ai)
+[![1667 in a terminal: a direction is composed, the model streams the next part, two sibling takes are compared, and the path map opens](https://1667.ai/demo-3.gif)](https://1667.ai)
 
 ## Features
 
@@ -24,7 +24,10 @@ repository contains the terminal user interface (TUI) and its backend runtime.
 - Read a story as a story line, a tree, or a mass map.
 - View Facts and estimated request context in the side rail.
 - Keep one Author's Note for the next continuation or prompted retake.
-- Override the default Author Brief for one story.
+- Override the Default Author Brief for one story.
+- Set the Default Author Brief and the Default Continue direction in Settings.
+- Set Rewrite, Title, Summary, and Aside guidance in Advanced view.
+- Open each Settings row and Sampling control from the command palette.
 - Use keys to include a Fact only when the request context matches it.
 - Order, rank, and budget Facts so a full context window drops low-value ones first.
 - Inspect the next provider request in the request viewer.
@@ -34,7 +37,25 @@ repository contains the terminal user interface (TUI) and its backend runtime.
 - Use the embedded backend worker without a network port.
 - Seal project files at rest with a Vault Password.
 - Stop a generation and save model text that already arrived.
+- Use a ChatGPT Plus or Pro plan, or a Claude Pro or Max plan, without an API key.
 - Connect to OpenAI-compatible endpoints or Anthropic Messages endpoints.
+
+## Writing prompts
+
+The system prompt in Settings is the Default Author Brief. 1667 uses this
+value. Set the Default Continue direction in Simple view. Set Rewrite, Title,
+Summary, and Aside guidance in Advanced view.
+
+These fields add guidance. They do not replace fixed operation contracts.
+Title, summary, and Aside still use the Utility Generation Profile. Each of
+those operations has its own guidance row.
+
+Writing prompts are machine-wide Settings values. A Profile Export does not
+include them.
+
+The first successful Settings save publishes Settings schema 5. An older
+release refuses a schema 5 Settings document. Back up Settings before you try
+`0.10.2-rc.1`. An older release cannot open schema 5.
 
 ## Install
 
@@ -59,6 +80,11 @@ created. The command shows download progress in a terminal. On Windows, exit
 1667 and run the PowerShell Installer again. The Installer shows download
 progress. `1667 upgrade` shows the required command.
 
+Run the Shell Installer again to update a valid Shell Managed Installation. It
+preserves the `installationId`, keeps the previous executable for rollback,
+and sets the selected Installer channel. It refuses an unmanaged executable or
+invalid installation state.
+
 `1667 upgrade --version <version>` selects an exact published release. The
 version can be older than the current version. Before a downgrade, 1667 warns
 that the downgrade can make the Vault unreadable or damage Vault data. Back up
@@ -76,9 +102,37 @@ npm install --global @1667-ai/cli@latest
 
 npm manages this installation. Use npm to install a later release.
 
+1667 checks for a new release by default. The check reads public package
+metadata from the npm registry. It does not send story, prompt, account, or
+configuration data. Turn **update checks** off in Settings to disable the
+check. A Managed Installation notice shows `1667 upgrade`. Other notices show
+only the new version.
+
 Install from source with the
 [source installation procedure](docs/run-from-source.md).
 Git manages this installation.
+
+## Subscription plans
+
+1667 can use a ChatGPT Plus or Pro plan, or a Claude Pro or Max plan. These
+connections do not need a separate API key.
+
+Sign in to ChatGPT:
+
+```sh
+1667 auth login chatgpt
+```
+
+Sign in to Claude:
+
+```sh
+1667 auth login claude
+```
+
+Then select **ChatGPT plan** or **Claude plan** in Settings.
+
+These plan connections are experimental community integrations. The provider
+applies its subscription limits, terms, and data controls.
 
 ## Keyboard orientation
 
@@ -101,7 +155,8 @@ Git manages this installation.
 | Open the editor action menu | Right-click an editor |
 | Add a manual take | `w` |
 | Edit the selected story part | `e` |
-| Edit the Author's Note | `a` |
+| Open Aside | `a` |
+| Edit the Author's Note | `n` |
 | Generate a take with the same or a new prompt | `r` or `R` |
 | Copy the selected story part or story line | `y` or `Y` |
 | Undo an added or removed chapter break | `u` |
@@ -129,6 +184,8 @@ context can contain:
 - Chapter summaries
 - Author's Note
 - Author Brief
+- Default Continue direction
+- Rewrite, Title, Summary, or Aside guidance
 - User instructions
 
 1667 sends the selected credential in the authentication header when a
@@ -146,6 +203,7 @@ request plan. It does not show the authentication header or its credential.
 - [Move from SillyTavern](docs/move-from-sillytavern.md)
 - [SillyTavern import](docs/sillytavern-import.md)
 - [Character card import](docs/character-card-import.md)
+- [Move from NovelAI](docs/move-from-novelai.md)
 - [Generation Profile transfer](docs/generation-profile-transfer.md)
 - [Platforms and standalone builds](docs/platforms-and-builds.md)
 - [Development reference](docs/development.md)

@@ -146,8 +146,15 @@ function refusingStories<M extends "continueStory" | "rewriteNode">(
 
 /** SSE headers plus deltas, then silence: the stream stays open so only the
  * idle deadline can end it. */
-function stall(response: ServerResponse, chunks: readonly string[]): void {
+function stall(response: ServerResponse, chunks: readonly string[], reasoning?: string): void {
   response.writeHead(200, { "content-type": "text/event-stream" });
+  if (reasoning !== undefined) {
+    response.write(
+      `data: ${JSON.stringify({
+        choices: [{ delta: { reasoning_content: reasoning }, finish_reason: null }]
+      })}\n\n`
+    );
+  }
   for (const content of chunks) {
     response.write(
       `data: ${JSON.stringify({
@@ -175,11 +182,13 @@ function timeoutEnvelope(error: unknown) {
 }
 
 providerTest("generation timeouts: a provider idle timeout keeps streamed prose and carries provider-idle provenance", async (t) => {
+  const thought = "The slower opening better fits the scene.";
   const model = await fakeModel(t, (_body, response) => {
-    stall(response, ["The cat ", "stretched slowly"]);
+    stall(response, ["The cat ", "stretched slowly"], thought);
   });
   const { story, nodeId } = fixtureStory();
   const streamed: string[] = [];
+  const admission = new GenerationAdmissionRegistry();
 
   await assert.rejects(
     continueStory(
@@ -188,7 +197,7 @@ providerTest("generation timeouts: a provider idle timeout keeps streamed prose 
       refusingStories<"continueStory">(story),
       stubSettingsStore(timedSettings(model.baseUrl, { assistantPrefill: "supported" })),
       new PromptCacheRuntime(),
-      new GenerationAdmissionRegistry(),
+      admission,
       (delta) => { streamed.push(delta); },
       new AbortController().signal
     ),
@@ -206,6 +215,10 @@ providerTest("generation timeouts: a provider idle timeout keeps streamed prose 
   // The prose that streamed before the deadline reached the caller intact;
   // preserving it is the caller's decision, not a lost cause.
   assert.equal(streamed.join(""), "The cat stretched slowly");
+  assert.equal(
+    admission.generationRecordHandoffFor(story.id, "idle-gen")?.reasoning?.text,
+    thought
+  );
   assert.equal(story.nodes.length, 1);
   assert.equal(story.nodes[0]!.text, STORY_TEXT);
 });

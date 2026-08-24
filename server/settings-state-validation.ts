@@ -46,14 +46,15 @@ export type SettingsStateRelation =
  * below: how to validate and hash its document, and the hash of the exact
  * canonical initial document. Every other rule in `validateSettingsState`
  * reads no document-version-specific field at all, so it runs unchanged for
- * schema 2 (`server/settings-v2-state-validation.ts`) and schema 3
- * (`server/settings-v3-state-validation.ts`).
+ * schema 2 (`server/settings-v2-state-validation.ts`), schema 3
+ * (`server/settings-v3-state-validation.ts`), and schema 4.
  */
-export interface SettingsStateSchema<V extends 2 | 3, D extends CredentialBearingSettingsDocument> {
+export interface SettingsStateSchema<V extends 2 | 3 | 4 | 5, D extends CredentialBearingSettingsDocument> {
   readonly schemaVersion: V;
   readonly validateDocument: (value: unknown, options: SettingsValidationOptions) => D;
   readonly hashDocument: (document: D) => string;
   readonly initialDocumentHash: string;
+  readonly maxDocumentBytes?: number;
 }
 
 /** The one settings-state validator, for any schema version whose document
@@ -61,7 +62,7 @@ export interface SettingsStateSchema<V extends 2 | 3, D extends CredentialBearin
  *  near-identical ~250-line copies, one per schema version: every rule here
  *  used to read no version-specific field at all except for which document
  *  validator and hash to call. */
-export function validateSettingsState<V extends 2 | 3, D extends CredentialBearingSettingsDocument>(
+export function validateSettingsState<V extends 2 | 3 | 4 | 5, D extends CredentialBearingSettingsDocument>(
   value: unknown,
   schema: SettingsStateSchema<V, D>,
   options: SettingsValidationOptions = {}
@@ -119,7 +120,7 @@ export function validateSettingsState<V extends 2 | 3, D extends CredentialBeari
   return state;
 }
 
-export function settingsStateRelation<V extends 2 | 3, D extends CredentialBearingSettingsDocument>(
+export function settingsStateRelation<V extends 2 | 3 | 4 | 5, D extends CredentialBearingSettingsDocument>(
   state: SettingsStateEnvelope<V, D>
 ): SettingsStateRelation {
   const { activeRevision: active, pendingRevision: pending, previousRevision: previous, activation } = state;
@@ -148,7 +149,18 @@ export function settingsStateRelation<V extends 2 | 3, D extends CredentialBeari
   throw new SettingsFormatError(`settings state has an invalid ${activation.state} role relation`);
 }
 
-function parseDocuments<V extends 2 | 3, D extends CredentialBearingSettingsDocument>(
+/** The document that runtime readers may use during activation. A promoted
+ *  state has not reached its point of no return, so readers stay on the old
+ *  revision until the commit edge. */
+export function effectiveSettingsStateRevision(
+  state: SettingsStateEnvelope<2 | 3 | 4 | 5, CredentialBearingSettingsDocument>
+): number {
+  return settingsStateRelation(state) === "promoted"
+    ? state.previousRevision!
+    : state.activeRevision;
+}
+
+function parseDocuments<V extends 2 | 3 | 4 | 5, D extends CredentialBearingSettingsDocument>(
   value: unknown,
   clock: number,
   schema: SettingsStateSchema<V, D>,
@@ -163,14 +175,15 @@ function parseDocuments<V extends 2 | 3, D extends CredentialBearingSettingsDocu
   }
   const result: Record<string, D> = {};
   const hashes = new Set<string>();
+  const maxDocumentBytes = schema.maxDocumentBytes ?? MAX_SETTINGS_DOCUMENT_BYTES;
   for (const [key, raw] of entries) {
     const revision = parseRevisionKey(key);
     if (revision > clock) throw new SettingsFormatError(`settings document revision ${key} exceeds the clock`);
     const document = schema.validateDocument(raw, options);
     const bytes = Buffer.byteLength(canonicalJson(document), "utf8");
-    if (bytes > MAX_SETTINGS_DOCUMENT_BYTES) {
+    if (bytes > maxDocumentBytes) {
       throw new SettingsFormatError(
-        `settings document revision ${key} exceeds its ${MAX_SETTINGS_DOCUMENT_BYTES}-byte limit`
+        `settings document revision ${key} exceeds its ${maxDocumentBytes}-byte limit`
       );
     }
     const hash = schema.hashDocument(document);
@@ -181,7 +194,7 @@ function parseDocuments<V extends 2 | 3, D extends CredentialBearingSettingsDocu
   return result;
 }
 
-function validateRoleDocuments<V extends 2 | 3, D extends CredentialBearingSettingsDocument>(
+function validateRoleDocuments<V extends 2 | 3 | 4 | 5, D extends CredentialBearingSettingsDocument>(
   state: SettingsStateEnvelope<V, D>,
   relation: SettingsStateRelation
 ): void {
@@ -205,7 +218,7 @@ function validateRoleDocuments<V extends 2 | 3, D extends CredentialBearingSetti
   }
 }
 
-function validateActivationBinding<V extends 2 | 3, D extends CredentialBearingSettingsDocument>(
+function validateActivationBinding<V extends 2 | 3 | 4 | 5, D extends CredentialBearingSettingsDocument>(
   state: SettingsStateEnvelope<V, D>,
   relation: SettingsStateRelation,
   hashDocument: (document: D) => string
@@ -227,7 +240,7 @@ function validateActivationBinding<V extends 2 | 3, D extends CredentialBearingS
   }
 }
 
-function validateTransactionBinding<V extends 2 | 3, D extends CredentialBearingSettingsDocument>(
+function validateTransactionBinding<V extends 2 | 3 | 4 | 5, D extends CredentialBearingSettingsDocument>(
   state: SettingsStateEnvelope<V, D>,
   relation: SettingsStateRelation
 ): void {
@@ -241,7 +254,7 @@ function validateTransactionBinding<V extends 2 | 3, D extends CredentialBearing
   }
 }
 
-function validateInitialNullPointer<V extends 2 | 3, D extends CredentialBearingSettingsDocument>(
+function validateInitialNullPointer<V extends 2 | 3 | 4 | 5, D extends CredentialBearingSettingsDocument>(
   state: SettingsStateEnvelope<V, D>,
   relation: SettingsStateRelation,
   hashDocument: (document: D) => string,
@@ -264,7 +277,7 @@ function validateInitialNullPointer<V extends 2 | 3, D extends CredentialBearing
 
 /** Version-free: the fixed-envelope byte bound applies to any settings
  *  state, whichever document version it carries. */
-export function settingsStateEnvelopeBytes<V extends 2 | 3, D extends CredentialBearingSettingsDocument>(
+export function settingsStateEnvelopeBytes<V extends 2 | 3 | 4 | 5, D extends CredentialBearingSettingsDocument>(
   state: SettingsStateEnvelope<V, D>
 ): number {
   const total = Buffer.byteLength(canonicalJson(state), "utf8");

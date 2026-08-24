@@ -4,12 +4,26 @@ import type { PromptOperation, PromptPlan } from "../shared/prompt-plan.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { GenerationResultError } from "../server/errors.js";
 import { streamModel } from "../server/generation-stream.js";
-import { ProviderError, streamCompletion } from "../server/providers.js";
+import {
+  ProviderError,
+  streamCompletion,
+  type TokenProbabilityCollector
+} from "../server/providers.js";
+import {
+  attachProviderRuntime,
+  providerRuntimeFromV2,
+  type StandardModelConnectionV2
+} from "../server/provider-runtime.js";
 import {
   createPromptCacheRequest,
   PromptCacheRuntime,
   type PromptCacheContext
 } from "../server/provider-cache-policy.js";
+import {
+  EMPTY_SAMPLING_V2,
+  type ModelCapabilitiesV2,
+  type SamplingSettingsV2
+} from "../shared/settings-v2-types.js";
 
 test("provider admission is recorded only immediately before a real fetch", async () => {
   let admissions = 0;
@@ -76,6 +90,57 @@ test("dry-run refuses a story's phrase bias the same way a real request would, a
     })),
     /Configured sampling parameter phrase bias is unavailable: Dry run does not send provider requests\./
   );
+});
+
+test("schema-4 dry-run refuses non-default reasoning before fabricating output", async () => {
+  for (const [effort, thinkingMode] of [
+    ["low", "default"],
+    ["default", "on"]
+  ] as const) {
+    await assert.rejects(
+      drain(streamCompletion(
+        schema4DryRunSettings(effort, thinkingMode),
+        prompt("continue"),
+        new AbortController().signal
+      )),
+      (error: unknown) => error instanceof ProviderError
+        && error.message === "This provider does not support reasoning controls."
+    );
+  }
+});
+
+test("schema-4 dry-run refuses sampling before output and keeps token probabilities", async () => {
+  let output = "";
+  let providerStarted = 0;
+  await assert.rejects(
+    (async () => {
+      for await (const delta of streamCompletion(
+        schema4DryRunSettings("default", "default", { ...EMPTY_SAMPLING_V2, topP: 0.9 }),
+        prompt("continue"),
+        new AbortController().signal,
+        { providerStarted: () => { providerStarted += 1; } }
+      )) {
+        output += delta;
+      }
+    })(),
+    (error: unknown) => error instanceof ProviderError
+      && error.message === "Dry run does not send provider requests."
+  );
+  assert.equal(output, "");
+  assert.equal(providerStarted, 0);
+
+  const tokenProbabilities: TokenProbabilityCollector = { record: null };
+  for await (const delta of streamCompletion(
+    schema4DryRunSettings("default", "default", EMPTY_SAMPLING_V2, 3),
+    prompt("continue"),
+    new AbortController().signal,
+    { tokenProbabilities }
+  )) {
+    output += delta;
+  }
+  assert.notEqual(output, "");
+  assert.ok(tokenProbabilities.record);
+  assert.equal(tokenProbabilities.record.requested, 3);
 });
 
 test("cache rolling state advances only with provider admission", async () => {
@@ -270,6 +335,43 @@ test("an empty completed provider stream is a terminal generation result", async
 
 async function drain(stream: AsyncGenerator<string>): Promise<void> {
   for await (const _delta of stream) { /* drain */ }
+}
+
+const DRY_RUN_CAPABILITIES: ModelCapabilitiesV2 = {
+  temperature: "supported",
+  assistantPrefill: "unsupported",
+  reasoningEffort: "unsupported",
+  promptCaching: "unsupported"
+};
+
+function schema4DryRunSettings(
+  effort: "default" | "low",
+  thinkingMode: "default" | "on",
+  sampling: SamplingSettingsV2 = EMPTY_SAMPLING_V2,
+  tokenProbabilities: number | null = null
+): GenerationSettings {
+  const connection: StandardModelConnectionV2 = {
+    name: "Dry Run",
+    preset: "dry-run",
+    protocol: "dry-run",
+    baseUrl: null,
+    auth: { type: "none" },
+    headers: [],
+    timeouts: {
+      responseHeaderMs: 1_000,
+      firstTokenMs: 1_000,
+      idleMs: 1_000,
+      totalMs: 5_000
+    }
+  };
+  return attachProviderRuntime(
+    settings("dry-run"),
+    providerRuntimeFromV2(connection, effort, DRY_RUN_CAPABILITIES, {
+      thinkingMode,
+      sampling,
+      tokenProbabilities
+    })
+  );
 }
 
 function settings(

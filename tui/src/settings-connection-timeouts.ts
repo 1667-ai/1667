@@ -1,7 +1,7 @@
 import type {
-  ConnectionTimeoutsV2,
-  SettingsDocumentV2
+  ConnectionTimeoutsV2
 } from "../../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 as SettingsDocumentV2 } from "../../shared/settings-v5-types.js";
 import { defaultConnectionTimeouts } from "../../shared/settings-provider-defaults.js";
 import { MAX_SETTINGS_TIMEOUT_MS, MIN_SETTINGS_TIMEOUT_MS } from "../../server/settings-v2-scalars.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
@@ -17,7 +17,8 @@ import {
   type SettingsScalar
 } from "./settings-scalar.js";
 import type { SettingsOverlayState, SettingsRowId } from "./state.js";
-import type { SettingsRowPresentation } from "./settings-profile-controls.js";
+import type { SettingsRowPresentation } from "./settings-row-presentations.js";
+import { settingsReadOnlyMessage } from "./settings-read-only.js";
 
 /** The four `ConnectionTimeoutsV2` fields (issue #127), editable with the
  *  same C-08 chip/track/typed-edit widget as temperature, max tokens and
@@ -97,7 +98,7 @@ const CONNECTION_TIMEOUT_ROW_SPECS: Record<ConnectionTimeoutRow, ConnectionTimeo
     acceptedMax: MAX_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     acceptedMin: MIN_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     step: 5,
-    hint: "wait for response headers to start arriving"
+    hint: "Stops if the model service does not begin responding."
   },
   "timeout-idle": {
     field: "idleMs",
@@ -109,7 +110,7 @@ const CONNECTION_TIMEOUT_ROW_SPECS: Record<ConnectionTimeoutRow, ConnectionTimeo
     acceptedMax: MAX_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     acceptedMin: MIN_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     step: 5,
-    hint: "wait between stream events once output has started"
+    hint: "Stops if a response pauses for this long."
   },
   "timeout-total": {
     field: "totalMs",
@@ -124,7 +125,7 @@ const CONNECTION_TIMEOUT_ROW_SPECS: Record<ConnectionTimeoutRow, ConnectionTimeo
     acceptedMax: MAX_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     acceptedMin: MIN_SETTINGS_TIMEOUT_MS / MS_PER_SECOND,
     step: 30,
-    hint: "wall-clock limit for the whole generation"
+    hint: "Stops a generation after this total time."
   }
 };
 
@@ -289,7 +290,9 @@ export function applyConnectionTimeoutEdit(
   text: string
 ): { kind: "draft" } | { kind: "error"; message: string } {
   const scalar = connectionTimeoutScalar(row, overlay);
-  if (scalar === null) return { kind: "error", message: "legacy settings are read-only" };
+  if (scalar === null) {
+    return { kind: "error", message: settingsReadOnlyMessage(overlay.view.readOnlyReason) };
+  }
   const typed = typedScalarValue(scalar, text);
   if ("refused" in typed) return { kind: "error", message: typed.refused };
   if (typed.scalar.value === null) return { kind: "error", message: "this row needs a number" };
@@ -331,7 +334,7 @@ function connectionTimeoutRowPresentation(
       section: "connection",
       label,
       value: "—",
-      hint: "legacy settings are read-only"
+      hint: settingsReadOnlyMessage(overlay.view.readOnlyReason)
     };
   }
   const invalid = scalarInvalidReason(scalar);

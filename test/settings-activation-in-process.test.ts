@@ -7,15 +7,16 @@ import { SETTINGS_STATE_V2_NEXT_FILE } from "../server/data-directory-layout.js"
 import { readProviderSecrets } from "../server/provider-secret-store.js";
 import { resolveProviderHeaders } from "../server/provider-runtime.js";
 import { SettingsStore } from "../server/settings.js";
-import { effectiveGenerationSettings } from "../server/settings-v2-conversion.js";
+import { effectiveGenerationView } from "../server/settings-v2-conversion.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import { reduceSettingsStateV2 } from "../server/settings-v2-reducer.js";
 import {
   activeSettingsDocument,
   settingsViewFromState
 } from "../server/settings-v2-runtime.js";
-import { readSettingsState } from "../server/settings-state-file.js";
+import { readSettingsState, readSettingsStateSlot } from "../server/settings-state-file.js";
 import type { SettingsDocumentV2 } from "../shared/settings-v2-types.js";
+import { providerProbeRouteFromDocument } from "../shared/provider-probe-route-v1.js";
 import type { MutationId } from "../server/mutation-ledger-types.js";
 import {
   FIXED_TIME,
@@ -244,7 +245,7 @@ test("mid-activation states keep the old document effective until the commit edg
 
   for (const state of [staged, validating, prepared, promoted]) {
     assert.equal(
-      effectiveGenerationSettings(activeSettingsDocument(state)).provider,
+      effectiveGenerationView(activeSettingsDocument(state)).provider,
       "dry-run",
       "a reversible activation state never exposes the candidate to readers"
     );
@@ -256,7 +257,7 @@ test("mid-activation states keep the old document effective until the commit edg
   // Commit is the durable point of no return: recovery only completes it, so
   // the candidate reads as plainly active — never as its own pending revision.
   assert.equal(
-    effectiveGenerationSettings(activeSettingsDocument(committed)).provider,
+    effectiveGenerationView(activeSettingsDocument(committed)).provider,
     "openai-compatible"
   );
   const committedView = settingsViewFromState(committed);
@@ -266,7 +267,7 @@ test("mid-activation states keep the old document effective until the commit edg
 });
 
 test("a pending prose route cannot replace the active prose projection", () => {
-  const active = proseRouteDocument("active-prose-model", 16_384, 768);
+  const active = proseRouteDocument("active-prose-model", 16_384, 768, "late-cache-stable");
   const candidateBase = proseRouteDocument("candidate-prose-model", 1_024, 512);
   const defaultProfile = candidateBase.profiles[candidateBase.routing.default]!;
   const defaultModel = candidateBase.models[defaultProfile.modelId]!;
@@ -295,6 +296,12 @@ test("a pending prose route cannot replace the active prose projection", () => {
   assert.equal(view.effectiveProse.model, "active-prose-model");
   assert.equal(view.effectiveProse.contextWindow, 16_384);
   assert.equal(view.effectiveProse.maxTokens, 768);
+  assert.equal(view.effectiveProseContinuationPromptLayout, "late-cache-stable");
+  assert.equal(
+    view.document.profiles[view.document.routing.prose!]?.continuationPromptOptimization,
+    undefined,
+    "the pending document must not replace the active prompt layout"
+  );
 });
 
 test("generation snapshots stay coherent while an activation replaces a stored credential", async (t) => {
@@ -789,25 +796,21 @@ test("a saved-but-unactivated credential target stays testable; unsaved targets 
   const candidate = credentialedDocument("AI_1667_STAGED_PROBE_KEY");
   await store.save(saveCommand(MUTATION_A, 1, candidate));
   assert.equal(
-    (await readSettingsState(dataDir)).pendingRevision,
+    (await readSettingsStateSlot(dataDir)).state.pendingRevision,
     2,
     "the probe target below is the staged, not yet activated candidate"
   );
 
-  const probe = await store.resolveProviderProbe({
-    kind: "settings-document",
-    document: candidate,
-    purpose: "default"
-  });
+  const probe = await store.resolveProviderProbe(
+    providerProbeRouteFromDocument(candidate)
+  );
   assert.equal(probe.baseUrl, "https://api.openai.com/v1");
   assert.equal(probe.apiKeyEnv, "AI_1667_STAGED_PROBE_KEY");
 
   await assert.rejects(
-    store.resolveProviderProbe({
-      kind: "settings-document",
-      document: credentialedDocument("AI_1667_NEVER_SAVED_KEY"),
-      purpose: "default"
-    }),
+    store.resolveProviderProbe(
+      providerProbeRouteFromDocument(credentialedDocument("AI_1667_NEVER_SAVED_KEY"))
+    ),
     hasServiceCode("credential_test_requires_activation")
   );
 });
@@ -890,7 +893,8 @@ function twoConnectionDocument(defaultEnv: string, proseEnv: string): SettingsDo
 function proseRouteDocument(
   remoteId: string,
   contextWindow: number,
-  maxOutputTokens: number
+  maxOutputTokens: number,
+  continuationPromptOptimization?: "late-cache-stable"
 ): SettingsDocumentV2 {
   const base = INITIAL_SETTINGS_DOCUMENT_V2;
   const defaultProfile = base.profiles[base.routing.default]!;
@@ -912,7 +916,10 @@ function proseRouteDocument(
         ...defaultProfile,
         name: "Prose",
         modelId: "prose:model",
-        maxOutputTokens
+        maxOutputTokens,
+        ...(continuationPromptOptimization === undefined
+          ? {}
+          : { continuationPromptOptimization })
       }
     },
     routing: { ...base.routing, prose: "prose" }

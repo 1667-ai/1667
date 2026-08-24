@@ -103,6 +103,23 @@ export function applySettingsModelChoiceDraft(
   );
 }
 
+/** Arm the intent to auto-probe: call after any draft transition that may
+ *  have just landed the generation on a model with no known context
+ *  window. `detectSettingsContextForModelChange` (settings-context-
+ *  detection.ts) drains this wherever a model choice can land — the
+ *  settings dispatch seam and discovery's own auto-select alike — instead
+ *  of each caller separately deciding whether to trigger a probe.
+ *  `applySettingsModelChoiceDraft`'s own callers (`applySettingsModelChoice`
+ *  in settings-model-selection.ts) and `cycleSettingsProvider`
+ *  (settings-overlay-model.ts, which lands a provider preset's default
+ *  model through a different transition) both call this — the only two
+ *  functions that can change `overlay.draft.generation.model`. */
+export function armContextProbeIfUnknown(overlay: SettingsOverlayState): void {
+  if (overlay.draft.generation.contextWindow === null) {
+    overlay.contextProbeArmed = true;
+  }
+}
+
 export function clearSettingsModelChoiceDraft(
   overlay: SettingsOverlayState
 ): void {

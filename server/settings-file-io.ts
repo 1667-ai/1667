@@ -7,7 +7,8 @@ import {
   readOptionalPrivateFile,
   removePrivateFile
 } from "./private-file-publication.js";
-import { MAX_SETTINGS_STATE_BYTES } from "./settings-v2-scalars.js";
+import { withReservedPathOwnership } from "./reserved-path-owner.js";
+import { MAX_SETTINGS_STATE_V5_BYTES } from "../shared/settings-v5-limits.js";
 import { syncDirectory } from "./story-lifecycle.js";
 
 const SETTINGS_FILE_LABEL = "Reserved settings file";
@@ -39,9 +40,11 @@ export async function readOptionalMutableSettingsAuthority(
   maxBytes: number
 ): Promise<Buffer | null> {
   try {
-    await inspectPrivateDirectory(path.dirname(file), SETTINGS_FILE_LABEL);
-    return await readBoundedMutableAuthorityFile(file, maxBytes, {
-      requirePrivate: true
+    return await withReservedPathOwnership(file, async () => {
+      await inspectPrivateDirectory(path.dirname(file), SETTINGS_FILE_LABEL);
+      return await readBoundedMutableAuthorityFile(file, maxBytes, {
+        requirePrivate: true
+      });
     });
   } catch (error) {
     if (isErrorCode(error, "ENOENT")) return null;
@@ -52,11 +55,12 @@ export async function readOptionalMutableSettingsAuthority(
 /** Durably publish one complete reserved replacement without overwriting it. */
 export async function writePrivateSettingsFile(
   file: string,
-  bytes: Uint8Array
+  bytes: Uint8Array,
+  maxBytes: number = MAX_SETTINGS_STATE_V5_BYTES
 ): Promise<void> {
   await publishPrivateFileNoReplace(file, bytes, {
     label: SETTINGS_FILE_LABEL,
-    maxBytes: MAX_SETTINGS_STATE_BYTES
+    maxBytes
   });
 }
 
@@ -66,8 +70,10 @@ export async function publishSettingsFile(
   finalFile: string,
   options: SettingsPublicationOptions = {}
 ): Promise<void> {
-  await renameSettingsFile(nextFile, finalFile, options);
-  await syncDirectory(path.dirname(finalFile));
+  await withReservedPathOwnership(finalFile, async () => {
+    await renameSettingsFile(nextFile, finalFile, options);
+    await syncDirectory(path.dirname(finalFile));
+  });
 }
 
 async function renameSettingsFile(
@@ -101,7 +107,7 @@ export async function removeSettingsFile(
 ): Promise<void> {
   await removePrivateFile(file, {
     label: SETTINGS_FILE_LABEL,
-    maxBytes: MAX_SETTINGS_STATE_BYTES,
+    maxBytes: MAX_SETTINGS_STATE_V5_BYTES,
     allowLegacyReadMode: options.allowLegacyReadMode
   });
 }

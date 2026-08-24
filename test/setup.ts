@@ -2,11 +2,13 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { MACHINE_TIER_OVERRIDE_VARIABLE } from "../server/machine-tier.js";
+import { stripInheritedAclSync } from "./state-root-fixture.js";
 
 const previousStateRoot = process.env[MACHINE_TIER_OVERRIDE_VARIABLE];
 const stateRoot = realpathSync(
   mkdtempSync(path.join(tmpdir(), "1667-root-test-state-"))
 );
+stripInheritedAclSync(stateRoot);
 process.env[MACHINE_TIER_OVERRIDE_VARIABLE] = stateRoot;
 process.once("exit", () => {
   if (previousStateRoot === undefined) {

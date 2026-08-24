@@ -281,9 +281,14 @@ test("save acknowledges an automatic model that equals the saved value", async (
     saves += 1;
     throw new Error("an equal draft must not reach the server");
   };
+  // The sole discovered choice auto-fills with no known context window,
+  // which now also fires a background probe. Report nothing found so this
+  // draft stays equal to the saved value, as the test's premise requires.
+  source.api.probeContextWindow = async () => ({ contextWindow: null });
 
   await openSettings(press);
   await draftRow(press, state, "model", "");
+  await backend.whenIdle();
   await selectRow(press, state, "profile");
   await press(key("right"));
   await press(key("s"));

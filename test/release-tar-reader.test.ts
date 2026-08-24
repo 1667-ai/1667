@@ -33,12 +33,17 @@ import {
 import {
   createReleaseLauncherManifest,
   createReleasePlatformManifest,
-  releasePackageJson
+  releasePackageJson,
+  RELEASE_PACKAGE_NOTICE
 } from "../scripts/release-package-manifests.js";
 import { readReleaseTarball } from "../scripts/release-tar-reader.js";
 import {
   normalizeWindowsNpmLauncherTarball
 } from "../scripts/windows-npm-launcher-tar.js";
+import {
+  RELEASE_NOTICE_TEXT,
+  RELEASE_SBOM_FIXTURE
+} from "./release-sbom-fixture.js";
 
 const PLATFORM_MANIFEST = releasePackageJson(
   createReleasePlatformManifest("linux-x64", "3.0.0")
@@ -66,13 +71,13 @@ const REPOSITORY_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   ".."
 );
-// Release policy pins both licence files to the reviewed repository bytes, so a
-// fixture that must survive validation stages the real files.
+// The npm package policy pins LICENSE to the repository and NOTICE to the
+// 0.9.9-compatible bytes, so fixtures stage those reviewed values.
 const LICENSE = await readFile(path.join(REPOSITORY_ROOT, "LICENSE"));
-const NOTICE = await readFile(path.join(REPOSITORY_ROOT, "NOTICE"));
+const NOTICE = Buffer.from(RELEASE_PACKAGE_NOTICE, "utf8");
 
-test("non-extracting reader hashes a bounded ustar package for policy validation", async () => {
-  const tarball = gzipSync(tar([
+function platformTarball(sbom: Buffer): Buffer {
+  return gzipSync(tar([
     entry(
       "package/package.json",
       "0",
@@ -81,10 +86,14 @@ test("non-extracting reader hashes a bounded ustar package for policy validation
     ),
     entry("package/bin/1667", "0", 0o755, Buffer.from("native executable")),
     entry("package/build-manifest.json", "0", 0o644, Buffer.from('{"schemaVersion":1}')),
-    entry("package/sbom.spdx.json", "0", 0o644, Buffer.from('{"spdxVersion":"SPDX-2.3"}')),
+    entry("package/sbom.spdx.json", "0", 0o644, sbom),
     entry("package/LICENSE", "0", 0o644, LICENSE),
     entry("package/NOTICE", "0", 0o644, NOTICE)
   ]));
+}
+
+test("non-extracting reader hashes a bounded ustar package for policy validation", async () => {
+  const tarball = platformTarball(RELEASE_SBOM_FIXTURE);
   const result = await readReleaseTarball(tarball);
   const validated = validateReleaseTarballInspection(result.inspection, manifest);
   assert.equal(validated.entries.length, 6);
@@ -97,6 +106,47 @@ test("non-extracting reader hashes a bounded ustar package for policy validation
   assert.equal(
     result.gzip.sha256,
     createHash("sha256").update(tarball).digest("hex")
+  );
+});
+
+test("final package validation rejects missing or changed NOTICE attribution", async () => {
+  await assert.rejects(
+    readReleaseTarball(platformTarball(Buffer.from(JSON.stringify({
+      spdxVersion: "SPDX-2.3",
+      documentDescribes: ["SPDXRef-Product"],
+      packages: [{ SPDXID: "SPDXRef-Product", name: "1667" }]
+    })))),
+    /incomplete NOTICE attribution/u
+  );
+
+  const changed = await readReleaseTarball(platformTarball(Buffer.from(JSON.stringify({
+    spdxVersion: "SPDX-2.3",
+    documentDescribes: ["SPDXRef-Product"],
+    packages: [{
+      SPDXID: "SPDXRef-Product",
+      name: "1667",
+      attributionTexts: ["different notice"]
+    }]
+  }))));
+  assert.throws(
+    () => validateReleaseTarballInspection(changed.inspection, manifest),
+    /current NOTICE attribution/u
+  );
+
+  await assert.rejects(
+    readReleaseTarball(platformTarball(Buffer.from(JSON.stringify({
+      spdxVersion: "SPDX-2.3",
+      documentDescribes: ["SPDXRef-Product"],
+      packages: [
+        { SPDXID: "SPDXRef-Product", name: "1667" },
+        {
+          SPDXID: "SPDXRef-Decoy",
+          name: "1667",
+          attributionTexts: [RELEASE_NOTICE_TEXT]
+        }
+      ]
+    })))),
+    /incomplete NOTICE attribution/u
   );
 });
 
@@ -114,7 +164,7 @@ test("reader accepts the actual script-disabled npm pack format", async (t) => {
   await writeFile(executable, "native executable");
   await chmod(executable, process.platform === "win32" ? 0o644 : 0o755);
   await writeFile(path.join(root, "build-manifest.json"), '{"schemaVersion":1}\n');
-  await writeFile(path.join(root, "sbom.spdx.json"), '{"spdxVersion":"SPDX-2.3"}\n');
+  await writeFile(path.join(root, "sbom.spdx.json"), RELEASE_SBOM_FIXTURE);
   await writeFile(path.join(root, "LICENSE"), LICENSE);
   await writeFile(path.join(root, "NOTICE"), NOTICE);
   const npmCli = process.env.npm_execpath
@@ -180,7 +230,7 @@ test("Windows npm launcher mode normalization preserves strict policy", async ()
       "package/sbom.spdx.json",
       "0",
       0o644,
-      Buffer.from('{"spdxVersion":"SPDX-2.3"}')
+      RELEASE_SBOM_FIXTURE
     ),
     entry("package/LICENSE", "0", 0o644, LICENSE),
     entry("package/NOTICE", "0", 0o644, NOTICE)
@@ -404,6 +454,12 @@ async function writeLargeTarball(filePath: string, nativeBytes: number): Promise
     "package/build-manifest.json",
     0o644,
     Buffer.from('{"schemaVersion":1}')
+  );
+  await writeSmallEntry(
+    gzip,
+    "package/sbom.spdx.json",
+    0o644,
+    RELEASE_SBOM_FIXTURE
   );
   gzip.end(Buffer.alloc(1024));
   await completion;

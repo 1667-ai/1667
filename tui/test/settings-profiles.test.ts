@@ -1,17 +1,34 @@
 import { describe, expect, test } from "bun:test";
+import { parseSettingsDocumentV5 } from "../../server/settings-v5-codec.js";
 import { resolveSettingsProfile, selectSettingsRoute } from "../../shared/settings-route.js";
-import type {
-  SaveSettingsCommand,
-  ProviderProbeTarget
-} from "../../shared/settings-v2-types.js";
+import { defaultConnectionTimeouts } from "../../shared/settings-provider-defaults.js";
+import { applySamplingSettings } from "../../shared/sampling-capabilities.js";
+import { EMPTY_SAMPLING_V2 } from "../../shared/settings-v2-types.js";
+import type { SaveSettingsCommand } from "../../shared/settings-v2-types.js";
+import type { ProviderProbeTarget } from "../../shared/provider-probe-route-v1.js";
 import { MAX_ALTERNATIVE_TOKENS } from "../../shared/token-probabilities.js";
 import { setComposerText } from "../src/composer-model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
-import { settingsTextDraftForDocument } from "../src/settings-text.js";
+import { duplicateSettingsProfile } from "../src/settings-profile-draft.js";
+import { generationEffortChoices } from "../src/settings-profile-controls.js";
+import { applySettingsModelChoice } from "../src/settings-model-selection.js";
+import {
+  cycleSettingsProvider,
+  restoreSettingsCursor,
+  settingsCursorRowIdentity,
+  settingsRowIds
+} from "../src/settings-overlay-model.js";
+import {
+  settingsTextDraftForDocument,
+  settingsTextDraftWithGeneration,
+  settingsTextDraftWithSubscriptionPlan,
+  settingsTextDraftWithTextPreset
+} from "../src/settings-text.js";
 import { publishCurrentSettingsModelDiscovery } from "../src/settings-model-discovery.js";
 import {
   draftRow,
+  installSave,
   key,
   openSettings,
   selectRow,
@@ -61,7 +78,11 @@ describe("Generation Profile settings", () => {
     const document = commands[0]!.document;
     const utility = document.profiles["profile.1"];
     if (utility === undefined) throw new Error("new profile was not saved");
-    expect(utility).toMatchObject({ name: "Utility", effort: "off", cachePolicy: "auto" });
+    expect(utility).toMatchObject({
+      name: "Utility",
+      generationReasoning: { kind: "legacy", effort: "off" },
+      cachePolicy: "auto"
+    });
     expect(document.routing.utility).toBe("profile.1");
     expect(document.routing.prose).toBe(undefined);
     expect(selectSettingsRoute(document, "utility").profileId).toBe("profile.1");
@@ -87,6 +108,354 @@ describe("Generation Profile settings", () => {
     expect(original.connection.baseUrl).toBe("https://api.openai.com/v1");
     expect(original.model.connectionId).not.toBe(selectedRoute.model.connectionId);
     expect(selectedRoute.connection.baseUrl).toBe("https://example.com/v1");
+  });
+
+  test("selecting a subscription plan isolates shared profile resources", () => {
+    const { source } = settingsHarness();
+    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
+    const originalId = source.settingsView.document.routing.default;
+    const duplicate = duplicateSettingsProfile(source.settingsView.document, originalId);
+    if ("error" in duplicate) throw new Error(duplicate.error);
+    const draft = settingsTextDraftForDocument(duplicate.document, duplicate.profileId);
+    const next = settingsTextDraftWithSubscriptionPlan(draft, "chatgpt-plan", {
+      ...draft.generation,
+      provider: "openai-compatible",
+      baseUrl: "",
+      model: "gpt-5.4",
+      apiKeyEnv: null,
+      contextWindow: 272_000
+    });
+    const selected = resolveSettingsProfile(next.document!, duplicate.profileId);
+    const original = resolveSettingsProfile(next.document!, originalId);
+    expect(selected.profile.modelId).not.toBe(original.profile.modelId);
+    expect(selected.model.connectionId).not.toBe(original.model.connectionId);
+    expect(selected.connection.protocol).toBe("openai-codex-responses");
+    expect(original.connection.protocol).toBe("dry-run");
+  });
+
+  test("selecting a subscription plan resets timeout defaults after a protocol change", () => {
+    const { source } = settingsHarness();
+    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
+    const profileId = source.settingsView.document.routing.default;
+    const route = resolveSettingsProfile(source.settingsView.document, profileId);
+    const document = {
+      ...source.settingsView.document,
+      connections: {
+        ...source.settingsView.document.connections,
+        [route.model.connectionId]: {
+          ...route.connection,
+          timeouts: {
+            responseHeaderMs: 42_000,
+            firstTokenMs: 43_000,
+            idleMs: 44_000,
+            totalMs: 45_000
+          }
+        }
+      }
+    };
+    const draft = settingsTextDraftForDocument(document, profileId);
+    const plans = [
+      {
+        preset: "chatgpt-plan" as const,
+        provider: "openai-compatible" as const,
+        model: "gpt-5.4",
+        contextWindow: 272_000
+      },
+      {
+        preset: "claude-plan" as const,
+        provider: "anthropic" as const,
+        model: "claude-sonnet-4-6",
+        contextWindow: 1_000_000
+      }
+    ];
+    for (const plan of plans) {
+      const next = settingsTextDraftWithSubscriptionPlan(draft, plan.preset, {
+        ...draft.generation,
+        provider: plan.provider,
+        baseUrl: "",
+        model: plan.model,
+        apiKeyEnv: null,
+        contextWindow: plan.contextWindow
+      });
+      expect(resolveSettingsProfile(next.document!, profileId).connection.timeouts)
+        .toEqual(defaultConnectionTimeouts(plan.provider));
+    }
+  });
+
+  test("plan provider transition keeps an automatic model equal to its default", async () => {
+    const { source, state, press } = settingsHarness();
+    const commands: SaveSettingsCommand[] = [];
+    installSave(source, commands);
+    await openSettings(press);
+    const overlay = state.settings!;
+    const profileId = overlay.draft.selectedProfileId!;
+    const textDraft = settingsTextDraftWithTextPreset(
+      settingsTextDraftWithGeneration(overlay.draft, {
+        ...overlay.draft.generation,
+        provider: "text-completion",
+        baseUrl: "http://127.0.0.1:5001/v1",
+        model: "gpt-5.4",
+        apiKeyEnv: null,
+        contextWindow: null
+      }),
+      "koboldcpp"
+    );
+    overlay.draft = textDraft;
+    applySettingsModelChoice(
+      overlay,
+      { remoteId: "gpt-5.4", contextWindow: null },
+      null,
+      { kind: "automatic", targetIdentity: "automatic-test" }
+    );
+    expect(overlay.modelSelectionByProfile[profileId]?.automaticModel?.remoteId)
+      .toBe("gpt-5.4");
+
+    const choice = cycleSettingsProvider(overlay, 1);
+    expect(choice.id).toBe("chatgpt-plan");
+    expect(overlay.draft.generation.model).toBe("gpt-5.4");
+    const route = resolveSettingsProfile(overlay.draft.document!, profileId);
+    expect(route.connection.protocol).toBe("openai-codex-responses");
+    parseSettingsDocumentV5(overlay.draft.document!);
+
+    await press(key("s"));
+    expect(commands).toHaveLength(1);
+    const saved = parseSettingsDocumentV5(commands[0]!.document);
+    expect(resolveSettingsProfile(saved, profileId).model.remoteId).toBe("gpt-5.4");
+  });
+
+  test("subscription plans expose supported effort choices and save a non-default effort", async () => {
+    const plans = [
+      {
+        preset: "chatgpt-plan" as const,
+        provider: "openai-compatible" as const,
+        model: "gpt-5.4",
+        contextWindow: 272_000,
+        choices: ["default", "off", "low", "medium", "high"] as const,
+        stepsToLow: 2
+      },
+      {
+        preset: "claude-plan" as const,
+        provider: "anthropic" as const,
+        model: "claude-sonnet-4-6",
+        contextWindow: 1_000_000,
+        choices: ["default", "low", "medium", "high"] as const,
+        stepsToLow: 1
+      }
+    ];
+    for (const plan of plans) {
+      const { source, state, press } = settingsHarness();
+      const commands: SaveSettingsCommand[] = [];
+      installSave(source, commands);
+      await openSettings(press);
+      const overlay = state.settings!;
+      const profileId = overlay.draft.selectedProfileId!;
+      overlay.draft = settingsTextDraftWithSubscriptionPlan(
+        overlay.draft,
+        plan.preset,
+        {
+          ...overlay.draft.generation,
+          provider: plan.provider,
+          baseUrl: "",
+          model: plan.model,
+          apiKeyEnv: null,
+          contextWindow: plan.contextWindow
+        }
+      );
+      const route = resolveSettingsProfile(overlay.draft.document!, profileId);
+      expect(route.model.capabilities.reasoningEffort).toBe("supported");
+      expect(generationEffortChoices(overlay.draft.document!, profileId))
+        .toEqual(plan.choices);
+
+      await selectRow(press, state, "effort");
+      for (let step = 0; step < plan.stepsToLow; step += 1) {
+        await press(key("right"));
+      }
+      expect(overlay.draft.document!.profiles[profileId]!.generationReasoning.effort).toBe("low");
+      await press(key("s"));
+
+      expect(commands).toHaveLength(1);
+      const saved = parseSettingsDocumentV5(commands[0]!.document);
+      expect(resolveSettingsProfile(saved, profileId).profile.generationReasoning.effort).toBe("low");
+    }
+  });
+
+  test("editing a subscription model preserves effort capability and saves", async () => {
+    const plans = [
+      {
+        preset: "chatgpt-plan" as const,
+        provider: "openai-compatible" as const,
+        model: "gpt-5.4",
+        contextWindow: 272_000,
+        stepsToLow: 2
+      },
+      {
+        preset: "claude-plan" as const,
+        provider: "anthropic" as const,
+        model: "claude-sonnet-4-6",
+        contextWindow: 1_000_000,
+        stepsToLow: 1
+      }
+    ];
+    for (const plan of plans) {
+      const { source, state, press } = settingsHarness();
+      const commands: SaveSettingsCommand[] = [];
+      installSave(source, commands);
+      await openSettings(press);
+      const overlay = state.settings!;
+      const profileId = overlay.draft.selectedProfileId!;
+      overlay.draft = settingsTextDraftWithSubscriptionPlan(
+        overlay.draft,
+        plan.preset,
+        {
+          ...overlay.draft.generation,
+          provider: plan.provider,
+          baseUrl: "",
+          model: plan.model,
+          apiKeyEnv: null,
+          contextWindow: plan.contextWindow
+        }
+      );
+
+      await selectRow(press, state, "effort");
+      for (let step = 0; step < plan.stepsToLow; step += 1) {
+        await press(key("right"));
+      }
+      expect(overlay.draft.document!.profiles[profileId]!.generationReasoning.effort).toBe("low");
+      await editSubscriptionModel(press, state, `${plan.model}-edited`);
+
+      const route = resolveSettingsProfile(overlay.draft.document!, profileId);
+      expect(route.model.capabilities.reasoningEffort).toBe("supported");
+      expect(route.profile.generationReasoning.effort).toBe("low");
+      parseSettingsDocumentV5(overlay.draft.document!);
+      await press(key("s"));
+
+      expect(commands).toHaveLength(1);
+      const saved = parseSettingsDocumentV5(commands[0]!.document);
+      const savedRoute = resolveSettingsProfile(saved, profileId);
+      expect(savedRoute.model.remoteId).toBe(`${plan.model}-edited`);
+      expect(savedRoute.model.capabilities.reasoningEffort).toBe("supported");
+      expect(savedRoute.profile.generationReasoning.effort).toBe("low");
+    }
+  });
+
+  test("selecting a subscription plan fits incompatible profile fields before save", async () => {
+    const plans = [
+      {
+        preset: "chatgpt-plan" as const,
+        provider: "openai-compatible" as const,
+        model: "gpt-5.4",
+        contextWindow: 272_000,
+        expectedEffort: "off" as const
+      },
+      {
+        preset: "claude-plan" as const,
+        provider: "anthropic" as const,
+        model: "claude-sonnet-4-6",
+        contextWindow: 1_000_000,
+        expectedEffort: "default" as const
+      }
+    ];
+    for (const plan of plans) {
+      const { source, state, press } = settingsHarness();
+      const commands: SaveSettingsCommand[] = [];
+      installSave(source, commands);
+      await openSettings(press);
+      const overlay = state.settings!;
+      const profileId = overlay.draft.selectedProfileId!;
+      const sampledDocument = applySamplingSettings(
+        {
+          ...overlay.draft.document!,
+          profiles: {
+            ...overlay.draft.document!.profiles,
+            [profileId]: {
+              ...overlay.draft.document!.profiles[profileId]!,
+              generationReasoning: { kind: "legacy", effort: "off" },
+              cachePolicy: "auto",
+              tokenProbabilities: 3
+            }
+          }
+        } as never,
+        {
+          ...EMPTY_SAMPLING_V2,
+          topP: 0.8,
+          frequencyPenalty: 0.4,
+          presencePenalty: -0.2,
+          seed: 42,
+          stop: ["END"],
+          dryBreakers: ["*"]
+        },
+        profileId
+      );
+      const sampledDraft = settingsTextDraftForDocument(sampledDocument as never, profileId);
+      const next = settingsTextDraftWithSubscriptionPlan(sampledDraft, plan.preset, {
+        ...sampledDraft.generation,
+        provider: plan.provider,
+        baseUrl: "",
+        model: plan.model,
+        apiKeyEnv: null,
+        contextWindow: plan.contextWindow,
+        temperature: 0.4,
+        maxTokens: 4_096
+      });
+      overlay.draft = next;
+
+      expect(next.sampling).toEqual(EMPTY_SAMPLING_V2);
+      const fitted = next.document!.profiles[profileId]!;
+      expect(fitted.sampling).toBe(undefined);
+      expect(fitted.generationReasoning.effort).toBe(plan.expectedEffort);
+      expect(fitted.cachePolicy).toBe("off");
+      expect(fitted.tokenProbabilities).toBe(undefined);
+      parseSettingsDocumentV5(next.document!);
+      await press(key("s"));
+
+      expect(commands).toHaveLength(1);
+      const saved = parseSettingsDocumentV5(commands[0]!.document);
+      const route = resolveSettingsProfile(saved, profileId);
+      expect(route.profile.sampling).toBe(undefined);
+      expect(route.profile.temperature).toBe(0.4);
+      expect(route.profile.maxOutputTokens).toBe(4_096);
+      expect(route.profile.generationReasoning.effort).toBe(plan.expectedEffort);
+      expect(route.profile.cachePolicy).toBe("off");
+      expect(route.profile.tokenProbabilities).toBe(undefined);
+    }
+  });
+
+  test("profile cursor stays on profile across mixed plan visibility", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    const overlay = state.settings!;
+    const document = overlay.draft.document!;
+    const originalId = overlay.draft.selectedProfileId!;
+    const duplicate = duplicateSettingsProfile(document, originalId);
+    if ("error" in duplicate) throw new Error(duplicate.error);
+    const plan = settingsTextDraftWithSubscriptionPlan(
+      settingsTextDraftForDocument(duplicate.document, duplicate.profileId),
+      "chatgpt-plan",
+      {
+        ...overlay.draft.generation,
+        provider: "openai-compatible",
+        baseUrl: "",
+        model: "gpt-5.4",
+        apiKeyEnv: null,
+        contextWindow: 272_000
+      }
+    );
+    overlay.draft = settingsTextDraftForDocument(plan.document!, originalId);
+    overlay.base = overlay.draft;
+
+    await selectRow(press, state, "profile");
+    expect(settingsRowIds(overlay)[overlay.cursor]).toBe("profile");
+    await press(key("right"));
+    expect(overlay.draft.selectedProfileId).toBe(duplicate.profileId);
+    expect(settingsRowIds(overlay)[overlay.cursor]).toBe("profile");
+    await press(key("left"));
+    expect(overlay.draft.selectedProfileId).toBe(originalId);
+    expect(settingsRowIds(overlay)[overlay.cursor]).toBe("profile");
+
+    overlay.cursor = Number.MAX_SAFE_INTEGER;
+    expect(settingsCursorRowIdentity(overlay)).toBe("utility-route");
+    restoreSettingsCursor(overlay, null);
+    expect(overlay.cursor).toBe(settingsRowIds(overlay).length - 1);
   });
 
   test("clearing a duplicated stored key preserves the original profile credential", async () => {
@@ -280,7 +649,10 @@ describe("Generation Profile settings", () => {
       ...document,
       profiles: {
         ...document.profiles,
-        default: { ...document.profiles.default!, effort: "high" as const }
+        default: {
+          ...document.profiles.default!,
+          generationReasoning: { kind: "legacy" as const, effort: "high" as const }
+        }
       },
       models: {
         ...document.models,
@@ -301,16 +673,16 @@ describe("Generation Profile settings", () => {
     expect(frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines))
       .toContain("‹ high ›");
     expect(frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines))
-      .toContain("not on this model");
+      .toContain("This model does not support reasoning effort.");
     await press(key("left"));
-    expect(state.settings?.draft.document?.profiles.default?.effort).toBe("default");
+    expect(state.settings?.draft.document?.profiles.default?.generationReasoning.effort).toBe("default");
 
     state.settings!.draft = settingsTextDraftForDocument(
       unsupported,
       undefined
     );
     await press(key("right"));
-    expect(state.settings?.draft.document?.profiles.default?.effort).toBe("default");
+    expect(state.settings?.draft.document?.profiles.default?.generationReasoning.effort).toBe("default");
   });
 
   test("alternatives writes the count on, and clears the field entirely on off", async () => {
@@ -393,12 +765,91 @@ describe("Generation Profile settings", () => {
     await selectRow(press, state, "token-probabilities");
     const frame = frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines);
     expect(frame).toContain("‹ — ›");
-    expect(frame).toContain("support unknown");
+    expect(frame).toContain("· Alternative token data might not be available from");
+    expect(frame).toContain("· this provider.");
 
     // Cycling an unavailable row is a no-op: it never writes a count the
     // request was never going to carry.
     await press(key("right"));
     expect(state.settings?.draft.document?.profiles.default?.tokenProbabilities).toBe(undefined);
+  });
+
+  test("prompt cache explains provider-managed retention in Settings", async () => {
+    const { source, state, cache, press } = settingsHarness();
+    installNetworkSettings(source);
+    await openSettings(press);
+    const document = state.settings?.draft.document;
+    if (document === null || document === undefined) throw new Error("editable document missing");
+    const profileId = state.settings!.draft.selectedProfileId!;
+    const modelId = document.profiles[profileId]!.modelId;
+    await selectRow(press, state, "cache-policy");
+    const offFrame = frameText(renderStoryScreen(state, {
+      width: 120,
+      height: 36,
+      wrapCache: cache
+    }).lines);
+    expect(offFrame).toContain("Prompt caching is off for this profile.");
+
+    const connectionId = document.models[modelId]!.connectionId;
+    state.settings!.draft = settingsTextDraftForDocument({
+      ...document,
+      connections: {
+        ...document.connections,
+        [connectionId]: {
+          ...document.connections[connectionId]!,
+          baseUrl: "https://models.example.com/v1"
+        }
+      }
+    }, profileId);
+    const compatibleFrame = frameText(renderStoryScreen(state, {
+      width: 120,
+      height: 36,
+      wrapCache: cache
+    }).lines);
+    expect(compatibleFrame).toContain("The provider might manage prompt caching.");
+
+    state.settings!.draft = settingsTextDraftForDocument({
+      ...document,
+      profiles: {
+        ...document.profiles,
+        [profileId]: { ...document.profiles[profileId]!, cachePolicy: "auto" }
+      },
+      models: {
+        ...document.models,
+        [modelId]: { ...document.models[modelId]!, remoteId: "gpt-4o" }
+      }
+    }, profileId);
+
+    const frame = frameText(renderStoryScreen(state, { width: 120, height: 36, wrapCache: cache }).lines);
+    expect(frame).toContain("The provider decides how long");
+    expect(frame).toContain("· to keep it.");
+    expect(frame).not.toContain("for provider");
+
+    const dirtyPrimary = frameText(renderStoryScreen(state, {
+      width: 64,
+      height: 24,
+      wrapCache: cache
+    }).lines);
+    expect(dirtyPrimary).toContain("extra cost.");
+    const view = state.settings!.view;
+    if (!view.editable) throw new Error("editable settings view missing");
+    state.settings!.view = { ...view, pendingRevision: 2 };
+    const pendingPrimary = frameText(renderStoryScreen(state, {
+      width: 64,
+      height: 24,
+      wrapCache: cache
+    }).lines);
+    expect(pendingPrimary).toContain("extra cost.");
+
+    const shortFrame = frameText(renderStoryScreen(state, {
+      width: 40,
+      height: 14,
+      wrapCache: cache
+    }).lines);
+    expect(shortFrame).toContain("▸ prompt cache");
+    expect(shortFrame).toContain("Lets th");
+    expect(shortFrame.split("\n").some((line) => line.includes("·") && line.includes("…")))
+      .toBeTrue();
   });
 
   test("reasoning is disabled only where the model reports it returns none", async () => {
@@ -409,7 +860,7 @@ describe("Generation Profile settings", () => {
     await selectRow(press, state, "reasoning");
     const frame = frameText(renderStoryScreen(state, { width: 120, height: 24, wrapCache: cache }).lines);
     expect(frame).toContain("‹ — ›");
-    expect(frame).toContain("gpt-5.6 @ openai returns none");
+    expect(frame).toContain("This route does not expose model reasoning.");
 
     // Cycling a disabled row only ever snaps to its one available choice,
     // `off` — the same "resets to the sole available choice" behavior the
@@ -540,3 +991,23 @@ describe("Generation Profile settings", () => {
   });
 
 });
+
+async function editSubscriptionModel(
+  press: ReturnType<typeof settingsHarness>["press"],
+  state: ReturnType<typeof settingsHarness>["state"],
+  value: string
+): Promise<void> {
+  await selectRow(press, state, "model");
+  await press(key("return"));
+  const overlay = state.settings!;
+  if (overlay.modelPicker !== null) {
+    for (const character of value) {
+      await press(key(character, { sequence: character }));
+    }
+    await press(key("return"));
+    return;
+  }
+  if (overlay.edit?.kind !== "inline") throw new Error("model row did not open");
+  setComposerText(overlay.edit.composer, value);
+  await press(key("return"));
+}

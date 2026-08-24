@@ -4,8 +4,7 @@ import {
   settingsActivationFailureText,
   settingsDraftChanged,
   settingsRowHasArrows,
-  settingsRows,
-  SETTINGS_ROW_IDS
+  settingsRows
 } from "../settings-overlay-model.js";
 import type { OverlayState, SettingsRowId } from "../state.js";
 import {
@@ -31,7 +30,9 @@ import {
   modelPickerRows
 } from "../settings-model-picker.js";
 import { wrapFeedback } from "./feedback-wrap.js";
+import { settingsReadOnlyBanner } from "../settings-read-only.js";
 import {
+  truncate,
   visibleWidth,
   type FrameComposition,
   type FrameLine
@@ -45,6 +46,9 @@ const SETTINGS_PANEL_WIDTH = 96;
 const RESULT_ROW_CAP = 3;
 /** `!` is a page key, so the route out of Settings names both presses. */
 const RESULT_OVERFLOW = "esc then ! for all of it";
+/** One position row, three status rows, and four normal help rows can replace
+ * these tail rows. Unused rows hold settings, not blanks. */
+const SETTINGS_TAIL_RESERVE = 8;
 
 type SettingsPanelState = Pick<OverlayState, "settings" | "config"> & {
   hitRows: HitRows;
@@ -67,57 +71,85 @@ export function renderSettingsPanel(
     : modelPickerColumn(overlay, overlay.modelPicker, horizontal.contentWidth);
   const painted = picker?.choices ?? settingsFormRows({
     rows,
-    cursor: boundedSettingsCursor(overlay.cursor),
+    cursor: boundedSettingsCursor(overlay.cursor, overlay),
     edit: overlay.edit,
     contentWidth: horizontal.contentWidth,
     terminalWidth: width,
     hasArrows: (row) => settingsRowHasArrows(overlay, row.id),
     actionReport: inPlaceActionReport(overlay)
   });
-  // The bottom strip keeps its padded height whatever it says, so a pending
-  // restart cannot lift the panel and move every field with it. The sectioned
-  // form always fills the panel, so trading the strip for one more field row
-  // would make that lift happen on exactly the frame the notice appears.
-  //
   // Complete notices outrank fields: a selected row can scroll away for a
   // moment, but an error must not lose its final wrapped rows. On a panel too
   // short for both, the fields yield entirely — no error reads as no problem.
   const fixedRows = status.top.length + status.bottom.length + resultLines.length;
-  const shown = contentCapacity < fixedRows + 1
+  // One line in the existing bottom area tells the writer when the form
+  // continues off-screen. If the full form fits, fields use that line too.
+  const positionRows = picker === null
+    && painted.length > Math.max(1, contentCapacity - fixedRows)
+    ? 1
+    : 0;
+  const shown = contentCapacity < fixedRows + positionRows + 1
     ? []
     : (() => {
+      const cursorOffset = picker === null
+        ? paintedRowOffset(painted, boundedSettingsCursor(overlay.cursor, overlay))
+        : boundedModelPickerCursor(
+          overlay.modelPicker!.cursor,
+          modelPickerRows(overlay, overlay.modelPicker!.query).length + 1
+        );
+      const formCapacity = Math.max(
+        1,
+        contentCapacity - fixedRows - positionRows - (picker === null ? 0 : 1)
+      );
+      const stableCapacity = formCapacity + status.bottom.length + positionRows;
       const window = panelRowWindow(
         painted.map(() => 1),
-        picker === null
-          ? paintedRowOffset(painted, boundedSettingsCursor(overlay.cursor))
-          : boundedModelPickerCursor(
-            overlay.modelPicker!.cursor,
-            modelPickerRows(overlay, overlay.modelPicker!.query).length + 1
-          ),
-        Math.max(1, contentCapacity - fixedRows - (picker === null ? 0 : 1))
+        cursorOffset,
+        stableCapacity
       );
       // The filter row holds the live query and the count; it is chrome above
       // the column, not the first option, so it never scrolls away.
       const filter: SettingsFormRow[] = picker === null
         ? []
         : [{ line: picker.filter, target: null, overrides: [] }];
-      // A field's note line is part of the field. Extend the window over the
-      // rows that belong to the cursor so a refusal reason cannot fall off it.
-      let end = window.end;
-      const cursorRow = boundedSettingsCursor(overlay.cursor);
+      // Keep a small tail after the cursor. A status replaces these fields
+      // instead of moving the selected field or drawing blank reserve rows.
+      const tailReserve = picker === null
+        ? Math.min(SETTINGS_TAIL_RESERVE, painted.length - cursorOffset - 1)
+        : 0;
+      const cursorRow = boundedSettingsCursor(overlay.cursor, overlay);
       const belongsToCursor = (row: SettingsFormRow | undefined): boolean => {
         const target = row?.target;
         return target !== undefined && target !== null
           && target.kind === "list" && target.index === cursorRow;
       };
-      while (end < painted.length && belongsToCursor(painted[end])) end += 1;
-      const start = Math.max(0, window.start + (end - window.end));
-      return [...filter, ...painted.slice(start, end)];
+      let selectedEnd = cursorOffset + 1;
+      while (picker === null && belongsToCursor(painted[selectedEnd])) selectedEnd += 1;
+      let start = Math.max(
+        0,
+        window.start,
+        cursorOffset - formCapacity + 1,
+        Math.min(cursorOffset, cursorOffset + tailReserve - stableCapacity + 1)
+      );
+      // Selected help outranks preceding fields. On a panel too short for the
+      // complete note, the field remains first and the final visible line says ….
+      start = Math.min(cursorOffset, Math.max(start, selectedEnd - formCapacity));
+      const end = Math.min(painted.length, start + formCapacity);
+      const visible = painted.slice(start, end);
+      if (picker === null && end < selectedEnd && visible.length > 0) {
+        visible[visible.length - 1] = withContinuation(visible.at(-1)!);
+      }
+      return [...filter, ...visible];
     })();
   const leading = shown.length === 0
     ? shortPanelNotices([resultLines, status.top, status.bottom], contentCapacity)
     : status.top;
-  const trailing = shown.length === 0 ? [] : [...status.bottom, ...resultLines];
+  const position = shown.length === 0 || picker !== null
+    ? []
+    : settingsPositionLines(shown, rows.length, horizontal.contentWidth);
+  const trailing = shown.length === 0
+    ? []
+    : [...position, ...status.bottom, ...resultLines];
   const content: FrameLine[] = [
     ...leading,
     ...shown.map((row) => row.line),
@@ -148,9 +180,22 @@ export function renderSettingsPanel(
       rows: state.hitRows,
       targets,
       overrides,
-      footerActions: footer.actions
+      footerActions: footer.actions,
+      anchorTop: true
     }
   );
+}
+
+/** Mark a selected description that has more physical lines than the panel. */
+function withContinuation(row: SettingsFormRow): SettingsFormRow {
+  const line = [...row.line];
+  const final = line.at(-1);
+  if (final === undefined) return row;
+  line[line.length - 1] = {
+    ...final,
+    text: truncate(`${final.text} …`, visibleWidth(final.text))
+  };
+  return { ...row, line };
 }
 
 /** Where a settings row landed among the painted rows. The form already knows
@@ -159,6 +204,35 @@ function paintedRowOffset(painted: readonly SettingsFormRow[], index: number): n
   const at = painted.findIndex((row) =>
     row.target?.kind === "list" && row.target.index === index);
   return at < 0 ? 0 : at;
+}
+
+/** Use the panel's bottom area to state how much of the Settings list is off
+ * screen. Counts are logical settings, not section rules or wrapped notes. */
+function settingsPositionLines(
+  shown: readonly SettingsFormRow[],
+  total: number,
+  contentWidth: number
+): FrameLine[] {
+  const visible = shown.flatMap((row) => {
+    const target = row.target;
+    return target?.kind === "list" && target.index !== undefined ? [target.index] : [];
+  });
+  if (visible.length === 0) return [];
+  const above = visible[0]!;
+  const below = Math.max(0, total - visible.at(-1)! - 1);
+  if (above === 0 && below === 0) return [];
+  const parts = [
+    ...(above > 0 ? [`↑ ${above} earlier setting${above === 1 ? "" : "s"}`] : []),
+    ...(below > 0 ? [`↓ ${below} more setting${below === 1 ? "" : "s"}`] : [])
+  ];
+  const verbose = parts.join(" · ");
+  const compact = [
+    ...(above > 0 ? [`↑ ${above}`] : []),
+    ...(below > 0 ? [`↓ ${below}`] : [])
+  ].join(" · ");
+  const text = visibleWidth(`  ${verbose}`) <= contentWidth ? verbose : compact;
+  const inset = visibleWidth(`  ${text}`) <= contentWidth ? "  " : "";
+  return [[raisedSegment(`${inset}${text}`, "chrome")]];
 }
 
 
@@ -255,7 +329,7 @@ function settingsStatusLines(
   if (!view.editable) {
     return {
       top: [
-        [raisedSegment("  ▲ legacy data format 1 · settings are read-only until migration", "danger text")],
+        [raisedSegment(settingsReadOnlyBanner(view.readOnlyReason), "danger text")],
         []
       ],
       bottom: []
@@ -322,20 +396,7 @@ function settingsStatusLines(
   };
 }
 
-/** The tallest `bottom` variant: a separating blank, then the pending pair. */
-const BOTTOM_STATUS_ROWS = 3;
-
-/** Pads a bottom notice to a constant height, anchored to the footer.
- *
- * `placePanel` centres the panel on its content, so a variant one line taller
- * moves the panel top up and drags every field and hit target with it. Before
- * this notice moved below the fields, the extra pending line pushed them back
- * down by the same row and hid the effect; below the fields nothing cancels it.
- * Reserving the tallest variant's height keeps the whole panel still, which is
- * what the position was chosen for.
- */
+/** A status uses only the rows it needs. The form takes the remaining space. */
 function bottomStatus(lines: FrameLine[]): FrameLine[] {
-  const padding = Array.from({ length: BOTTOM_STATUS_ROWS - lines.length }, (): FrameLine => []);
-  return [...padding, ...lines];
+  return lines.length === 0 ? [] : [[], ...lines];
 }
-

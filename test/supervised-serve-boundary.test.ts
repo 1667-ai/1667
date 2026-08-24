@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -25,10 +25,21 @@ import {
 } from "../tui/src/serve-supervisor.js";
 import {
   assertSupervisedMachineTierOutsideProject,
+  credentialNames,
   resolveSupervisedProject,
   recoverDescriptors,
   runSupervisedServeChild
 } from "../server/supervised-serve-child.js";
+import { SETTINGS_STATE_V2_FILE } from "../server/data-directory-layout.js";
+import {
+  formatSettingsStateV4,
+  parseSettingsDocumentV4,
+  parseSettingsStateV4
+} from "../server/settings-v4-codec.js";
+import {
+  INITIAL_SETTINGS_DOCUMENT_V4,
+  INITIAL_SETTINGS_STATE_V4
+} from "../server/settings-v4-default.js";
 import { DataDirectoryLock } from "../server/data-directory-lock.js";
 import { publishDataDirectoryOwnerMarker } from "../server/data-directory-format.js";
 import { PlatformStateRootError } from "../server/platform-state-root.js";
@@ -79,6 +90,42 @@ test("supervised child environment keeps state root but excludes secrets", () =>
     HOME: "/home/reader",
     [MACHINE_TIER_OVERRIDE_VARIABLE]: "/tmp/1667-state"
   });
+});
+
+test("supervised credential discovery reads environment names from schema 4", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-supervised-v4-credentials-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const baseConnection = INITIAL_SETTINGS_DOCUMENT_V4.connections["builtin:dry-run"]!;
+  const document = parseSettingsDocumentV4({
+    ...INITIAL_SETTINGS_DOCUMENT_V4,
+    connections: {
+      ...INITIAL_SETTINGS_DOCUMENT_V4.connections,
+      credentialed: {
+        ...baseConnection,
+        name: "Credentialed",
+        preset: "openai",
+        protocol: "openai-chat-completions",
+        baseUrl: "https://api.openai.com/v1",
+        auth: { type: "bearer-env", env: "OPENAI_API_KEY" }
+      }
+    }
+  });
+  const state = parseSettingsStateV4({
+    ...INITIAL_SETTINGS_STATE_V4,
+    documents: { "1": document },
+    lastTransaction: {
+      receiptKind: "user",
+      mutationId: "m1.1767225600000.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      phase: "prepared"
+    }
+  });
+  await writeFile(
+    path.join(dataDir, SETTINGS_STATE_V2_FILE),
+    formatSettingsStateV4(state),
+    { mode: 0o600 }
+  );
+
+  assert.deepEqual(await credentialNames(dataDir), ["OPENAI_API_KEY"]);
 });
 
 test("supervised serve keeps machine state outside the project", async (t) => {
@@ -267,7 +314,7 @@ test("machine-tier startup preserves only actionable state-root failures", () =>
     toPublicServiceError(
       diagnosticMachineTierFailure(new Error("private resolution detail"))
     ).message,
-    "Internal server error"
+    "Error: private resolution detail"
   );
 });
 
@@ -284,7 +331,7 @@ test("local startup storage exposure is shared across transports", () => {
     toPublicServiceError(
       localStartupFailure(new Error("private runtime storage detail"))
     ).message,
-    "Internal server error"
+    "Error: private runtime storage detail"
   );
 });
 

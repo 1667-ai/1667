@@ -21,6 +21,7 @@ interface OpenPendingWorkerCallOptions {
   timeoutMs: number | null;
   deadlineAfterMs: number;
   cancelGraceMs: number;
+  cancelPersistenceTimeoutMs: number;
   pendingRequests: PendingRequestRegistry;
   worker: WorkerLike;
   outbox: SerializedWorkerOutbox;
@@ -52,6 +53,7 @@ export function openPendingWorkerCall<T>(
         worker: options.worker,
         outbox: options.outbox,
         graceMs: options.cancelGraceMs,
+        persistenceTimeoutMs: options.cancelPersistenceTimeoutMs,
         fail: options.failForRestart
       }),
       onTimeout: (id) => {

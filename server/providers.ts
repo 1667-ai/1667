@@ -33,6 +33,7 @@ import {
 } from "./provider-request-body.js";
 import {
   createProviderStreamRedactor,
+  providerReasoningPolicyFor,
   providerRuntimeFor,
   redactProviderSecrets,
   resolveProviderHeaders
@@ -60,6 +61,7 @@ import {
   OPENAI_CHAT_EFFECTIVE_FIELDS,
   type GenerationRecordCollector
 } from "./generation-record-capture.js";
+import { streamSubscription } from "./subscription-adapter.js";
 export { ProviderError } from "./errors.js";
 export type { ChatMessage, PromptPlan } from "../shared/prompt-plan.js";
 export { forgetRefusedTokenProbabilities } from "./token-probability-capture.js";
@@ -143,6 +145,10 @@ export function streamCompletion(
   signal: AbortSignal,
   options: StreamCompletionOptions = {}
 ): AsyncGenerator<string> {
+  const protocol = providerRuntimeFor(settings).protocol as string | undefined;
+  if (protocol === "openai-codex-responses" || protocol === "anthropic-subscription-messages") {
+    return streamSubscription(settings, prompt, signal, options);
+  }
   switch (settings.provider) {
     case "dry-run":
       return streamDryRun(settings, prompt, signal, options);
@@ -176,7 +182,6 @@ async function* streamOpenAiCompatible(
   );
   assertImageBearingBodyFits(body, activeImageAttachments(prompt).length > 0);
   const runtime = providerRuntimeFor(settings);
-  const explicitEffort = runtime.effort !== "default";
   const generationRecord = createGenerationRecordCapture(
     options.generationRecord,
     "openai-chat-completions",
@@ -285,7 +290,7 @@ async function* streamOpenAiCompatible(
         }
         if (streamed || attempt >= 3) throw error;
         const beforeAdjustment = { ...body };
-        if (!adjustRejectedParameter(body, error, prompt.operation, explicitEffort, settings)) throw error;
+        if (!adjustRejectedParameter(body, error, settings)) throw error;
         generationRecord.recordRetryAdjustment(beforeAdjustment, body, attempt);
       }
     }
@@ -299,8 +304,6 @@ async function* streamOpenAiCompatible(
 function adjustRejectedParameter(
   body: Record<string, unknown>,
   error: unknown,
-  kind: PromptOperation,
-  explicitEffort: boolean,
   settings: GenerationSettings
 ): boolean {
   if (!(error instanceof ProviderError) || error.status !== 400) return false;
@@ -314,17 +317,6 @@ function adjustRejectedParameter(
   if (detail.code === "unsupported_parameter" && detail.param === "max_tokens" && "max_tokens" in body) {
     body.max_completion_tokens = body.max_tokens;
     delete body.max_tokens;
-    // Only reasoning models reject max_tokens, and their hidden reasoning would
-    // spend the small fixed budgets of the precision tasks (a plain rewrite gets
-    // ~100 tokens, a title 64) before any prose comes out.
-    if (!explicitEffort && (kind === "rewrite" || kind === "title")) {
-      body.reasoning_effort = "minimal";
-    }
-    return true;
-  }
-  if (detail.code === "unsupported_parameter" && detail.param === "reasoning_effort" && "reasoning_effort" in body) {
-    if (explicitEffort) return false;
-    delete body.reasoning_effort;
     return true;
   }
   if (
@@ -617,6 +609,10 @@ async function* streamDryRun(
   options: StreamCompletionOptions
 ): AsyncGenerator<string> {
   const { outcome, storySampling, tokenProbabilities, onReasoning } = options;
+  const reasoningPolicy = providerReasoningPolicyFor(settings, storySampling);
+  if (reasoningPolicy?.kind === "unavailable") {
+    throw new ProviderError(reasoningPolicy.message);
+  }
   // Dry-run never dispatches to a provider, and the dry-run protocol never
   // authorizes images (shared/image-input-capabilities.ts), so any image on
   // this prompt is refused here rather than silently dropped.

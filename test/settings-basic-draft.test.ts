@@ -9,8 +9,10 @@ import {
 } from "../shared/settings-basic-draft.js";
 import { imageInputForModelChangeV3 } from "../tui/src/settings-text.js";
 import { applySamplingSettings } from "../shared/sampling-capabilities.js";
+import { writingPromptSettingsFromAuthorBrief } from "../shared/settings-v5-writing.js";
 import {
   attachProviderRuntime,
+  isStandardModelConnectionV2,
   providerRuntimeFromV2,
   resolveProviderHeaders
 } from "../server/provider-runtime.js";
@@ -350,6 +352,65 @@ test("model identity changes reset owned metadata and use Anthropic capabilities
   });
 });
 
+test("subscription model edits preserve supported reasoning effort", () => {
+  for (const plan of [
+    {
+      preset: "chatgpt-plan" as const,
+      protocol: "openai-codex-responses" as const,
+      model: "gpt-5.4"
+    },
+    {
+      preset: "claude-plan" as const,
+      protocol: "anthropic-subscription-messages" as const,
+      model: "claude-sonnet-4-6"
+    }
+  ]) {
+    const subscription = validateSettingsDocumentV2({
+      ...DOCUMENT,
+      connections: {
+        ...DOCUMENT.connections,
+        active: {
+          ...DOCUMENT.connections.active!,
+          name: plan.preset === "chatgpt-plan" ? "ChatGPT plan" : "Claude plan",
+          preset: plan.preset,
+          protocol: plan.protocol,
+          baseUrl: null,
+          auth: { type: "none" },
+          headers: []
+        }
+      },
+      models: {
+        ...DOCUMENT.models,
+        active: {
+          ...DOCUMENT.models.active!,
+          remoteId: plan.model,
+          name: plan.model,
+          capabilities: {
+            ...DOCUMENT.models.active!.capabilities,
+            reasoningEffort: "supported"
+          }
+        }
+      },
+      profiles: {
+        ...DOCUMENT.profiles,
+        default: {
+          ...DOCUMENT.profiles.default!,
+          effort: "low"
+        }
+      }
+    });
+    const edited = applyBasicSettingsDraft(subscription, {
+      ...basicSettingsFromDocument(subscription),
+      model: `${plan.model}-edited`
+    });
+    const route = selectSettingsRoute(edited);
+
+    assert.equal(route.model.capabilities.reasoningEffort, "supported");
+    assert.equal(route.profile.effort, "low");
+    assert.doesNotThrow(() => validateSettingsDocumentV2(edited));
+  }
+});
+
 test("schema 3's model-identity-change reset: dry-run stays unsupported, every other provider becomes unknown", () => {
   // Site 1: shared/settings-basic-draft.ts replaces the whole capability
   // record on a model-identity change; defaultModelCapabilitiesForModelChangeV3
@@ -457,6 +518,9 @@ function resolvedStoredHeaders(
   if (auth.type !== "bearer-stored" && auth.type !== "header-stored") {
     throw new Error("test document must use stored auth");
   }
+  if (!isStandardModelConnectionV2(connection)) {
+    throw new Error("test document must use a standard provider");
+  }
   return resolveProviderHeaders(
     attachProviderRuntime(
       basicSettingsFromDocument(document),
@@ -464,8 +528,10 @@ function resolvedStoredHeaders(
         connection,
         "default",
         model.capabilities,
-        {},
-        new Map([[auth.secretId, secret]])
+        {
+          environment: {},
+          storedSecrets: new Map([[auth.secretId, secret]])
+        }
       ),
       true
     ),
@@ -499,10 +565,11 @@ test("pending views display the candidate while retaining the active effective p
     document: candidate,
     effective: active,
     effectiveProse: active,
+    activeWriting: writingPromptSettingsFromAuthorBrief(active.systemPrompt),
     lastActivationOutcome: null
   };
 
-  assert.equal(basicSettingsForDisplay(view).model, "candidate-model");
+  assert.equal(basicSettingsForDisplay(view as never).model, "candidate-model");
   assert.equal(view.effective.model, "old-model");
 });
 
@@ -520,6 +587,7 @@ test("clean editable views display their document while format-1 views display e
     document: DOCUMENT,
     effective,
     effectiveProse: effective,
+    activeWriting: writingPromptSettingsFromAuthorBrief(effective.systemPrompt),
     lastActivationOutcome: null
   };
   const legacy = {
@@ -531,11 +599,12 @@ test("clean editable views display their document while format-1 views display e
     document: null,
     effective,
     effectiveProse: effective,
+    activeWriting: writingPromptSettingsFromAuthorBrief(effective.systemPrompt),
     lastActivationOutcome: null
   };
 
-  assert.equal(basicSettingsForDisplay(editable).model, "old-model");
-  assert.equal(basicSettingsForDisplay(legacy).model, "runtime-only-model");
+  assert.equal(basicSettingsForDisplay(editable as never).model, "old-model");
+  assert.equal(basicSettingsForDisplay(legacy as never).model, "runtime-only-model");
 });
 
 test("clearing a discovered-only context window persists an unknown projection", () => {

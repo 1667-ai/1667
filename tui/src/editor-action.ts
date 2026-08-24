@@ -31,9 +31,10 @@ import { textHash } from "./api.js";
 import { findCreatedTake } from "./created-take.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import {
-  applySystemPromptDraft,
+  applyWritingPromptDraft,
   settingsDraftChanged
 } from "./settings-overlay-model.js";
+import { writingPromptFieldDefinitionForRow } from "../../shared/settings-v5-writing.js";
 
 export {
   openChapterSummaryEditor,
@@ -168,11 +169,16 @@ async function saveInlineEditor(
     if (state.settings !== target.owner) {
       return closeInlineEditor(state, editor);
     }
-    applySystemPromptDraft(target.owner, submitted);
+    const definition = writingPromptFieldDefinitionForRow(target.row);
+    const error = applyWritingPromptDraft(target.owner, definition.field, submitted);
+    if (error !== null) {
+      state.toast = error;
+      return;
+    }
     closeInlineEditor(state, editor);
     state.toast = settingsDraftChanged(target.owner)
-      ? "system prompt updated · s saves settings"
-      : "system prompt unchanged";
+      ? `${definition.title} updated · s saves settings`
+      : `${definition.title} unchanged`;
     return;
   }
   // A depth draft alone (unchanged text) still has to save.

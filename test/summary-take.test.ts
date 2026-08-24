@@ -57,10 +57,18 @@ providerTest("summary take: offset source lands beneath a cut sibling, preserves
   const summary = saved.path[1]!;
   assert.equal(summary.role, "summary");
   assert.equal(summary.text, "Detailed continuity recap.");
+  const summaryBeforeAppend = saved.nodes.find((node) => node.id === summary.id);
+  assert.ok(summaryBeforeAppend);
   const append = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/continue`, post({
     appendTo: summary.id, expectedTextHash: sha256(summary.text), instruction: "", genId: "bad-summary-append"
   }));
-  assert.equal(append.status, 400);
+  await assertSummaryAppendRefused(append);
+  const afterAppend = await getStory(base, story.id);
+  assert.deepEqual(
+    afterAppend.nodes.find((node) => node.id === summary.id),
+    summaryBeforeAppend,
+    "a refused summary append must not change the summary"
+  );
 });
 
 providerTest("summary take: completion does not steal a line extended while streaming", async (t) => {
@@ -231,13 +239,13 @@ providerTest("chapter summary rejects an instruction-only source edit", async (t
   );
 });
 
-providerTest("summary take: an unset creative temperature still uses the continuity-safe cap", async (t) => {
+providerTest("summary take: an unset creative temperature stays provider-default", async (t) => {
   const model = await fakeModel(t, (body, response) => stream(response, [`Recap.\n${markerFrom(promptFrom(body))}`]));
   const base = await testApp(t, summarySettings(model.baseUrl, 4096, 512, null));
   const story = await seededStory(base, "Source.");
   const response = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/summary-take`, post({ nodeId: story.path[0]!.id }));
   assert.match(await response.text(), /"type":"done"/);
-  assert.equal(model.requests[0]!.temperature, 0.2);
+  assert.equal(Object.hasOwn(model.requests[0]!, "temperature"), false);
 });
 
 providerTest("summary take: when even the earliest single part does not fit, the refusal names an action and nothing is committed", async (t) => {
@@ -332,6 +340,19 @@ function doneNodeId(events: string): string {
   const nodeId = /"type":"done","nodeId":"([^"]+)"/.exec(events)?.[1];
   assert.ok(nodeId, `missing summary node id in ${events}`);
   return nodeId;
+}
+
+// Summary validation runs before provider dispatch, but a slow load can let
+// streamResponse's heartbeat open first; HTTP 400 and HTTP 200/SSE error are
+// both valid wire forms for this refusal.
+async function assertSummaryAppendRefused(response: Response): Promise<void> {
+  const body = await response.text();
+  if (response.status === 400) {
+    assert.match(body, /Cannot write inside a summary/);
+    return;
+  }
+  assert.equal(response.status, 200);
+  assert.match(body, /"type":"error"[\s\S]*Cannot write inside a summary/);
 }
 
 async function seededStory(base: string, text: string): Promise<StoryPayload> {

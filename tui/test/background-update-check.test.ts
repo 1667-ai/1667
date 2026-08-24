@@ -52,7 +52,7 @@ describe("background update checking", () => {
     await fake.runNext();
     expect(registryCalls).toBe(0);
     expect(notices).toEqual([
-      "1667 0.2.0 available · see npmjs.com/package/@1667-ai/cli"
+      "1667 0.2.0 available"
     ]);
     stop();
   });
@@ -103,6 +103,35 @@ describe("background update checking", () => {
     await fake.runNext();
     expect(fake.delays).toEqual([1_000, 3_750]);
     expect(debug[0] ?? "").toContain("offline");
+  });
+
+  test("unexpected offline errors remain silent without a retry or crash", async () => {
+    const fake = scheduler();
+    const notices: string[] = [];
+    const debug: string[] = [];
+    startBackgroundUpdateCheck({
+      preferences: { mode: "notify", channel: "stable", skippedVersion: null },
+      observation,
+      cacheKey,
+      registry: registry({
+        channelHead: async () => {
+          throw new TypeError("fetch failed: network is offline");
+        }
+      }),
+      readCache: async () => null,
+      writeCache: async () => undefined,
+      onNotice: (message) => notices.push(message),
+      onDebug: (message) => debug.push(message),
+      schedule: fake.schedule,
+      cancel: fake.cancel
+    });
+
+    // `check` runs in a detached Promise. The scheduler must still settle
+    // cleanly when fetch rejects with an ordinary platform error.
+    await fake.runNext();
+    expect(notices).toEqual([]);
+    expect(fake.delays).toEqual([1_000]);
+    expect(debug[0] ?? "").toContain("network is offline");
   });
 
   test("non-retryable failures remain silent and stop checking", async () => {
@@ -172,7 +201,7 @@ describe("background update checking", () => {
     await Promise.resolve();
     expect(written).toEqual(["0.1.0+build.2"]);
     expect(notices).toEqual([
-      "1667 0.1.0+build.2 available · see npmjs.com/package/@1667-ai/cli"
+      "1667 0.1.0+build.2 available"
     ]);
   });
 
@@ -208,7 +237,7 @@ describe("background update checking", () => {
     await fake.runNext();
     expect(registryCalls).toBe(0);
     expect(notices).toEqual([
-      "1667 0.1.0+build.2 available · see npmjs.com/package/@1667-ai/cli"
+      "1667 0.1.0+build.2 available"
     ]);
   });
 
@@ -221,7 +250,19 @@ describe("background update checking", () => {
     expect(updateNotice("0.1.0+build.2", {
       ...observation,
       currentVersion: "0.1.0+build.1"
-    })).toBe("1667 0.1.0+build.2 available · see npmjs.com/package/@1667-ai/cli");
+    })).toBe("1667 0.1.0+build.2 available");
+  });
+
+  test("binds a proven upgrade command to the checked version and channel", () => {
+    expect(updateNotice(
+      "0.2.0-beta.1",
+      observation,
+      "1667 upgrade --version 0.2.0-beta.1 --channel beta"
+    )).toBe(
+      "1667 0.2.0-beta.1 available · run 1667 upgrade --version 0.2.0-beta.1 --channel beta"
+    );
+    expect(updateNotice("0.2.0", observation)).toBe("1667 0.2.0 available");
+    expect(updateNotice("0.2.0", observation)).not.toContain("npm");
   });
 
   test("stopping aborts an in-flight registry request without scheduling retry", async () => {

@@ -1,4 +1,5 @@
 import type {
+  ModelCapabilitiesV2,
   ModelCapabilitiesV3,
   ModelDiscoveryResultV2,
   ModelConnectionV2,
@@ -7,6 +8,11 @@ import type {
   SettingsPresetV2,
   SettingsProtocolV2,
   SettingsView
+} from "./settings-v2-types.js";
+import type { SettingsDocumentV5 } from "./settings-v5-types.js";
+import {
+  isSubscriptionProtocolV2,
+  subscriptionPresetForProtocolV2
 } from "./settings-v2-types.js";
 import type { GenerationSettings, Provider } from "./types.js";
 import {
@@ -24,12 +30,12 @@ import { withSupportedReasoningDisplays } from "./reasoning-display-capabilities
  * Apply the deliberately small Release A editor to the active default route.
  * IDs and advanced fields survive; the basic form changes only values it owns.
  */
-export function applyBasicSettingsDraft(
-  document: SettingsDocumentV2,
+export function applyBasicSettingsDraft<D extends SettingsDocumentV2 | SettingsDocumentV5>(
+  document: D,
   draft: GenerationSettings,
   profileId: string = document.routing.default,
   retainContextWindowOverride = false
-): SettingsDocumentV2 {
+): D {
   return applyBasicSettingsDocumentDraft(
     document,
     draft,
@@ -44,11 +50,11 @@ export function applyBasicSettingsDraft(
  * A probe can use the model that the server loaded.
  */
 export function applyBasicSettingsProbeDraft(
-  document: SettingsDocumentV2,
+  document: SettingsDocumentV2 | SettingsDocumentV5,
   draft: GenerationSettings,
   profileId: string = document.routing.default,
   retainContextWindowOverride = false
-): SettingsDocumentV2 {
+): SettingsDocumentV2 | SettingsDocumentV5 {
   return applyBasicSettingsDocumentDraft(
     document,
     draft,
@@ -63,18 +69,31 @@ type ModelIdentity = {
   readonly name: string;
 };
 
-function applyBasicSettingsDocumentDraft(
-  document: SettingsDocumentV2,
+function applyBasicSettingsDocumentDraft<D extends SettingsDocumentV2 | SettingsDocumentV5>(
+  document: D,
   draft: GenerationSettings,
   modelIdentityFor: (settings: GenerationSettings) => ModelIdentity,
   profileId: string,
   retainContextWindowOverride: boolean
-): SettingsDocumentV2 {
-  const route = resolveSettingsProfile(document, profileId);
+): D {
+  const route = resolveSettingsProfile(document as unknown as SettingsDocumentV2, profileId);
   const projected = basicSettingsFromDocument(document, profileId);
   const storedAuth = storedCredentialSecretId(route.connection.auth) !== null;
-  const normalizedProjection = normalizeBasicSettingsIdentity(projected, false, storedAuth);
-  const normalizedDraft = normalizeBasicSettingsIdentity(draft, true, storedAuth);
+  const subscriptionProtocol = isSubscriptionProtocolV2(route.connection.protocol)
+    ? route.connection.protocol
+    : null;
+  const normalizedProjection = normalizeBasicSettingsIdentity(
+    projected,
+    false,
+    storedAuth,
+    subscriptionProtocol !== null
+  );
+  const normalizedDraft = normalizeBasicSettingsIdentity(
+    draft,
+    true,
+    storedAuth,
+    subscriptionProtocol !== null
+  );
   // The saved reducer validates identity even when an editable probe document
   // already contains the same incomplete value. The probe reducer deliberately
   // accepts a blank model so discovery can complete that draft.
@@ -85,7 +104,11 @@ function applyBasicSettingsDocumentDraft(
     return document;
   }
 
-  const protocol = protocolFor(normalizedDraft.provider);
+  const protocol = protocolFor(
+    normalizedDraft.provider,
+    route.connection,
+    normalizedDraft
+  );
   const protocolChanged = route.connection.protocol !== protocol;
   const baseUrlChanged = normalizedProjection.baseUrl !== normalizedDraft.baseUrl;
   const nextBaseUrl = !baseUrlChanged
@@ -119,7 +142,11 @@ function applyBasicSettingsDocumentDraft(
           && normalizedDraft.contextWindow !== null
           ? { contextWindow: normalizedDraft.contextWindow }
           : {},
-        capabilities: defaultModelCapabilities(normalizedDraft.provider)
+        capabilities: capabilitiesForModelIdentityChange(
+          document,
+          normalizedDraft.provider,
+          isSubscriptionProtocolV2(protocol)
+        )
       }
     : {
         ...route.model,
@@ -153,8 +180,11 @@ function applyBasicSettingsDocumentDraft(
         maxOutputTokens: normalizedDraft.maxTokens
       }
     },
-    writing: { defaultAuthorBrief: normalizedDraft.systemPrompt }
-  });
+    writing: {
+      ...document.writing,
+      defaultAuthorBrief: normalizedDraft.systemPrompt
+    }
+  }) as D;
 }
 
 /** Persist metadata from the latest explicit discovery separately from a
@@ -216,6 +246,19 @@ export function defaultModelCapabilitiesForModelChangeV3(provider: Provider): Mo
   return defaultModelCapabilitiesV3(provider);
 }
 
+function capabilitiesForModelIdentityChange(
+  document: SettingsDocumentV2 | SettingsDocumentV5,
+  provider: Provider,
+  subscription: boolean
+): ModelCapabilitiesV2 | ModelCapabilitiesV3 {
+  const capabilities = document.schemaVersion >= 3
+    ? defaultModelCapabilitiesV3(provider)
+    : defaultModelCapabilities(provider);
+  return subscription
+    ? { ...capabilities, reasoningEffort: "supported" as const }
+    : capabilities;
+}
+
 export function settingsDocumentSupportsBasicEditor(document: SettingsDocumentV2): boolean {
   try {
     resolveSettingsProfile(document, document.routing.default);
@@ -227,13 +270,14 @@ export function settingsDocumentSupportsBasicEditor(document: SettingsDocumentV2
 
 /** Project the active default route back into the legacy/basic editor shape. */
 export function basicSettingsFromDocument(
-  document: SettingsDocumentV2,
+  document: SettingsDocumentV2 | SettingsDocumentV5,
   profileId: string = document.routing.default
 ): GenerationSettings {
-  const route = resolveSettingsProfile(document, profileId);
+  const route = resolveSettingsProfile(document as unknown as SettingsDocumentV2, profileId);
   const provider: Provider = route.connection.protocol === "dry-run"
     ? "dry-run"
     : route.connection.protocol === "anthropic-messages"
+      || route.connection.protocol === "anthropic-subscription-messages"
       ? "anthropic"
       : route.connection.protocol === "text-completions"
         ? "text-completion"
@@ -298,6 +342,26 @@ function connectionFor(
       ...portable,
       name: "Dry Run",
       preset: "dry-run",
+      protocol,
+      baseUrl: null,
+      auth: { type: "none" },
+      headers: [],
+      timeouts: protocolChanged ? defaultConnectionTimeouts(draft.provider) : current.timeouts
+    };
+  }
+
+  if (isSubscriptionProtocolV2(protocol)) {
+    const {
+      allowInsecureHttp: _allowInsecureHttp,
+      textPromptFormat: _textPromptFormat,
+      splitThinkTags: _splitThinkTags,
+      ...portable
+    } = current;
+    const preset = subscriptionPresetForProtocolV2(protocol);
+    return {
+      ...portable,
+      name: subscriptionConnectionName(preset),
+      preset,
       protocol,
       baseUrl: null,
       auth: { type: "none" },
@@ -415,7 +479,22 @@ function sameBasicSettings(left: GenerationSettings, right: GenerationSettings):
     && left.contextWindow === right.contextWindow;
 }
 
-function protocolFor(provider: Provider): SettingsProtocolV2 {
+function protocolFor(
+  provider: Provider,
+  current: ModelConnectionV2 | undefined = undefined,
+  draft: GenerationSettings | undefined = undefined
+): SettingsProtocolV2 {
+  if (
+    current !== undefined
+    && draft !== undefined
+    && isSubscriptionProtocolV2(current.protocol)
+    && ((current.protocol === "openai-codex-responses" && provider === "openai-compatible")
+      || (current.protocol === "anthropic-subscription-messages" && provider === "anthropic"))
+    && draft.baseUrl.trim() === ""
+    && draft.apiKeyEnv === null
+  ) {
+    return current.protocol;
+  }
   if (provider === "dry-run") return "dry-run";
   if (provider === "anthropic") return "anthropic-messages";
   if (provider === "text-completion") return "text-completions";
@@ -453,7 +532,15 @@ export function basicSettingsConnectionName(preset: SettingsPresetV2): string {
   if (preset === "ollama") return "Ollama";
   if (preset === "llama-cpp") return "llama.cpp";
   if (preset === "koboldcpp") return "KoboldCpp";
+  if (preset === "chatgpt-plan") return "ChatGPT plan";
+  if (preset === "claude-plan") return "Claude plan";
   return "Custom";
+}
+
+export function subscriptionConnectionName(
+  preset: "chatgpt-plan" | "claude-plan"
+): string {
+  return preset === "chatgpt-plan" ? "ChatGPT plan" : "Claude plan";
 }
 
 function requireBasicBaseUrl(
@@ -493,10 +580,15 @@ function requireBasicBaseUrl(
 function normalizeBasicSettingsIdentity(
   settings: GenerationSettings,
   requireHostedHttps: boolean,
-  hasStoredCredential: boolean
+  hasStoredCredential: boolean,
+  allowSubscriptionIdentity = false
 ): GenerationSettings {
   const model = settings.model.trim();
-  const baseUrl = settings.provider === "dry-run"
+  const subscriptionIdentity = allowSubscriptionIdentity
+    && (settings.provider === "openai-compatible" || settings.provider === "anthropic")
+    && settings.baseUrl.trim() === ""
+    && settings.apiKeyEnv === null;
+  const baseUrl = settings.provider === "dry-run" || subscriptionIdentity
     ? ""
     : requireHostedHttps
       ? requireBasicBaseUrl(
@@ -523,6 +615,22 @@ function connectionWithBasicPolicy(
   draft: GenerationSettings,
   auth: ModelConnectionV2["auth"]
 ): ModelConnectionV2 {
+  if (isSubscriptionProtocolV2(current.protocol)) {
+    const {
+      allowInsecureHttp: _allowInsecureHttp,
+      textPromptFormat: _textPromptFormat,
+      splitThinkTags: _splitThinkTags,
+      ...portable
+    } = current;
+    return {
+      ...portable,
+      name: subscriptionConnectionName(subscriptionPresetForProtocolV2(current.protocol)),
+      preset: subscriptionPresetForProtocolV2(current.protocol),
+      baseUrl: null,
+      auth: { type: "none" },
+      headers: []
+    };
+  }
   const { allowInsecureHttp: _allowInsecureHttp, ...portable } = current;
   return {
     ...portable,
@@ -569,6 +677,12 @@ function savedModelIdentity(settings: GenerationSettings): ModelIdentity {
 function probeModelIdentity(settings: GenerationSettings): ModelIdentity {
   if (settings.provider === "dry-run") return savedModelIdentity(settings);
   const remoteId = settings.model.trim();
+  if (settings.baseUrl.trim().length === 0) {
+    return {
+      remoteId,
+      name: settings.provider === "anthropic" ? "Claude plan" : "ChatGPT plan"
+    };
+  }
   return {
     remoteId,
     name: remoteId.length > 0

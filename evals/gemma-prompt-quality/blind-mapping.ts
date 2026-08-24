@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes as cryptoRandomBytes } from "node:crypto";
+import { createHash, randomBytes as cryptoRandomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { canonicalJson } from "../../server/canonical-json.js";
 import { parseJsonRejectingDuplicateKeys } from "../../server/strict-json.js";
@@ -16,27 +16,25 @@ import {
   GEMMA_REPLAY_OPERATIONS,
   GEMMA_REPLAY_SCHEMA_VERSION,
   GEMMA_REPLAY_SEEDS,
-  GEMMA_RUBRIC_KEYS,
+  parseCandidateOptimization,
+  type GemmaCandidateOptimization,
   type GemmaReplayArm
 } from "./contract.js";
 import { writePrivateJson } from "./private-json-file.js";
-
+import { GEMMA_RUBRIC_KEYS } from "./contract.js";
 const BLIND_MAPPING_SCHEMA_VERSION = 1 as const;
-const BLIND_MAPPING_SECRET_BYTES = 32;
+const BLIND_ENTROPY_BYTES = 32;
 const BLIND_ID_PATTERN = /^blind-\d{2}$/u;
 const FINGERPRINT_PATTERN = /^sha256:[a-f0-9]{64}$/u;
-const MAPPING_DIGEST_PATTERN = /^hmac-sha256:[a-f0-9]{64}$/u;
 
 export interface BlindSample {
   readonly blindId: string;
   readonly output: string;
   readonly referenceId: string;
 }
-
 /** Bytes used to create a private blind mapping. Tests can inject a fixed
  * source. Production callers use cryptographic random bytes. */
 export type BlindEntropy = (length: number) => Uint8Array;
-
 export interface BlindPackOptions {
   readonly entropy?: BlindEntropy;
 }
@@ -52,7 +50,6 @@ export interface BlindPack {
   readonly references: Readonly<Record<string, BlindReference>>;
   readonly samples: readonly BlindSample[];
 }
-
 export interface BlindReferenceBinding {
   readonly referenceId: string;
   readonly operation: GemmaReplayOperation;
@@ -67,17 +64,16 @@ export interface BlindMappingEntry {
   readonly arm: GemmaReplayArm;
   readonly outputFingerprint: string;
 }
-
 export interface BlindMapping {
   readonly schemaVersion: typeof BLIND_MAPPING_SCHEMA_VERSION;
+  /** Private binding. The scorer-facing blind pack does not expose it. */
+  readonly optimization: GemmaCandidateOptimization;
   readonly packFingerprint: string;
   readonly replayFingerprint: string;
-  readonly mappingSecret: string;
-  /** Published in final evidence only. It is not part of the blind pack. */
+  /** Private randomized seed. It is not part of the blind pack. */
   readonly shuffleSeed: number;
   readonly referenceBindings: readonly BlindReferenceBinding[];
   readonly assignments: readonly BlindMappingEntry[];
-  readonly mappingDigest: string;
 }
 
 export interface BlindPackArtifacts {
@@ -105,9 +101,9 @@ export function createBlindPackArtifacts(
   result: ReplayResult,
   options: BlindPackOptions = {}
 ): BlindPackArtifacts {
-  const secret = mappingSecret(options.entropy ?? randomEntropy);
-  const referenceIds = referenceIdsFor(secret);
-  const assignments = shuffledAssignments(result, secret, referenceIds);
+  const seed = shuffleSeed(options.entropy ?? randomEntropy);
+  const referenceIds = referenceIdsFor(seed);
+  const assignments = shuffledAssignments(result, seed, referenceIds);
   const pack: BlindPack = {
     schemaVersion: GEMMA_REPLAY_SCHEMA_VERSION,
     harness: GEMMA_REPLAY_HARNESS,
@@ -121,21 +117,18 @@ export function createBlindPackArtifacts(
       referenceId: assignment.referenceId
     }))
   };
-  const mappingWithoutDigest = {
+  const mapping = {
     schemaVersion: BLIND_MAPPING_SCHEMA_VERSION,
+    optimization: result.optimization,
     packFingerprint: fingerprint(pack),
     replayFingerprint: fingerprint(result),
-    mappingSecret: secret.toString("hex"),
-    shuffleSeed: secret.readUInt32BE(0),
+    shuffleSeed: seed,
     referenceBindings: referenceBindings(referenceIds),
     assignments: assignments.map((assignment, index) => mappingEntry(assignment, blindId(index)))
-  } satisfies Omit<BlindMapping, "mappingDigest">;
+  } satisfies BlindMapping;
   return {
     pack,
-    mapping: {
-      ...mappingWithoutDigest,
-      mappingDigest: mappingDigest(secret, mappingWithoutDigest)
-    }
+    mapping
   };
 }
 
@@ -211,15 +204,15 @@ function mappingEntry(assignment: BlindAssignment, id: string): BlindMappingEntr
 
 function shuffledAssignments(
   result: ReplayResult,
-  secret: Uint8Array,
-  referenceIds: ReadonlyMap<GemmaReplayOperation, string> = referenceIdsFor(secret)
+  seed: number,
+  referenceIds: ReadonlyMap<GemmaReplayOperation, string> = referenceIdsFor(seed)
 ): BlindAssignment[] {
   const values = result.samples.flatMap((sample) => [
     blindOutput(sample, "baseline", referenceIds),
     blindOutput(sample, "candidate", referenceIds)
   ]);
   for (let index = values.length - 1; index > 0; index -= 1) {
-    const swap = secretIndex(secret, index, index + 1);
+    const swap = seededIndex(seed, index, index + 1);
     const value = values[index]!;
     values[index] = values[swap]!;
     values[swap] = value;
@@ -227,11 +220,11 @@ function shuffledAssignments(
   return values;
 }
 
-function secretIndex(secret: Uint8Array, position: number, bound: number): number {
+function seededIndex(seed: number, position: number, bound: number): number {
   const limit = 0x1_0000_0000 - (0x1_0000_0000 % bound);
   for (let attempt = 0; ; attempt += 1) {
-    const digest = createHmac("sha256", secret)
-      .update(`blind-order-v1\0${position}\0${attempt}`, "utf8")
+    const digest = createHash("sha256")
+      .update(`blind-order-v1\0${seed}\0${position}\0${attempt}`, "utf8")
       .digest();
     const value = digest.readUInt32BE(0);
     if (value < limit) return value % bound;
@@ -246,10 +239,10 @@ function referenceId(index: number): string {
   return `ref-${String(index + 1).padStart(2, "0")}`;
 }
 
-function referenceIdsFor(secret: Uint8Array): ReadonlyMap<GemmaReplayOperation, string> {
+function referenceIdsFor(seed: number): ReadonlyMap<GemmaReplayOperation, string> {
   const ids = GEMMA_REPLAY_OPERATIONS.map((_, index) => referenceId(index));
   for (let index = ids.length - 1; index > 0; index -= 1) {
-    const swap = secretIndex(secret, ids.length + index, index + 1);
+    const swap = seededIndex(seed, ids.length + index, index + 1);
     const value = ids[index]!;
     ids[index] = ids[swap]!;
     ids[swap] = value;
@@ -278,9 +271,11 @@ function referenceBindings(
 }
 
 function verifyMapping(result: ReplayResult, pack: BlindPack, mapping: BlindMapping): void {
-  const secret = parseMappingSecret(mapping.mappingSecret);
   if (mapping.schemaVersion !== BLIND_MAPPING_SCHEMA_VERSION) {
     throw new Error("blind mapping schema version is invalid");
+  }
+  if (mapping.optimization !== result.optimization) {
+    throw new Error("blind mapping optimization does not match the replay");
   }
   if (!FINGERPRINT_PATTERN.test(mapping.packFingerprint)) {
     throw new Error("blind mapping pack fingerprint is invalid");
@@ -294,18 +289,12 @@ function verifyMapping(result: ReplayResult, pack: BlindPack, mapping: BlindMapp
   if (mapping.replayFingerprint !== fingerprint(result)) {
     throw new Error("blind mapping does not belong to the replay");
   }
-  if (mapping.shuffleSeed !== secret.readUInt32BE(0)) {
-    throw new Error("blind mapping shuffle seed is invalid");
-  }
-  if (mapping.mappingDigest !== mappingDigest(secret, withoutMappingDigest(mapping))) {
-    throw new Error("blind mapping digest is invalid");
-  }
-  const referenceIds = referenceIdsFor(secret);
+  const referenceIds = referenceIdsFor(mapping.shuffleSeed);
   const expectedReferenceBindings = referenceBindings(referenceIds);
   if (canonicalJson(mapping.referenceBindings) !== canonicalJson(expectedReferenceBindings)) {
     throw new Error("blind mapping reference bindings do not match the replay");
   }
-  const expectedAssignments = shuffledAssignments(result, secret).map((assignment, index) =>
+  const expectedAssignments = shuffledAssignments(result, mapping.shuffleSeed).map((assignment, index) =>
     mappingEntry(assignment, blindId(index))
   );
   if (canonicalJson(mapping.assignments) !== canonicalJson(expectedAssignments)) {
@@ -325,11 +314,6 @@ function verifyMapping(result: ReplayResult, pack: BlindPack, mapping: BlindMapp
       throw new Error("blind mapping does not match the blind pack outputs");
     }
   }
-}
-
-function withoutMappingDigest(mapping: BlindMapping): Omit<BlindMapping, "mappingDigest"> {
-  const { mappingDigest: _mappingDigest, ...withoutDigest } = mapping;
-  return withoutDigest;
 }
 
 export function parseBlindPack(value: unknown): BlindPack {
@@ -385,12 +369,13 @@ export function parseBlindPack(value: unknown): BlindPack {
 
 export function parseBlindMapping(value: unknown): BlindMapping {
   const mapping = requireRecord(value, "blind mapping");
-  requireKeys(mapping, ["schemaVersion", "packFingerprint", "replayFingerprint", "mappingSecret", "shuffleSeed", "referenceBindings", "assignments", "mappingDigest"], "blind mapping");
+  requireKeys(mapping, ["schemaVersion", "optimization", "packFingerprint", "replayFingerprint", "shuffleSeed", "referenceBindings", "assignments"], "blind mapping");
   if (mapping.schemaVersion !== BLIND_MAPPING_SCHEMA_VERSION) throw new Error("blind mapping schemaVersion is invalid");
+  const optimization = parseCandidateOptimization(mapping.optimization, "blind mapping optimization");
   if (typeof mapping.packFingerprint !== "string" || !FINGERPRINT_PATTERN.test(mapping.packFingerprint)) throw new Error("blind mapping packFingerprint is invalid");
   if (typeof mapping.replayFingerprint !== "string" || !FINGERPRINT_PATTERN.test(mapping.replayFingerprint)) throw new Error("blind mapping replayFingerprint is invalid");
-  const secret = parseMappingSecret(mapping.mappingSecret);
-  if (typeof mapping.shuffleSeed !== "number" || !Number.isSafeInteger(mapping.shuffleSeed)) throw new Error("blind mapping shuffleSeed must be an integer");
+  if (typeof mapping.shuffleSeed !== "number" || !Number.isSafeInteger(mapping.shuffleSeed)
+    || mapping.shuffleSeed < 0 || mapping.shuffleSeed > 0xffff_ffff) throw new Error("blind mapping shuffleSeed must be an integer");
   if (!Array.isArray(mapping.referenceBindings) || mapping.referenceBindings.length !== GEMMA_REPLAY_OPERATIONS.length) {
     throw new Error("blind mapping referenceBindings are invalid");
   }
@@ -437,37 +422,24 @@ export function parseBlindMapping(value: unknown): BlindMapping {
   });
   const result: BlindMapping = {
     schemaVersion: BLIND_MAPPING_SCHEMA_VERSION,
+    optimization,
     packFingerprint: mapping.packFingerprint,
     replayFingerprint: mapping.replayFingerprint,
-    mappingSecret: mapping.mappingSecret as string,
     shuffleSeed: mapping.shuffleSeed,
     referenceBindings,
-    assignments,
-    mappingDigest: mapping.mappingDigest as string
+    assignments
   };
-  if (!MAPPING_DIGEST_PATTERN.test(result.mappingDigest)) throw new Error("blind mapping digest is invalid");
-  if (result.shuffleSeed !== secret.readUInt32BE(0)) throw new Error("blind mapping shuffleSeed is invalid");
-  if (result.mappingDigest !== mappingDigest(secret, withoutMappingDigest(result))) throw new Error("blind mapping digest is invalid");
   return result;
 }
 
-function mappingSecret(entropy: BlindEntropy): Buffer {
-  const bytes = entropy(BLIND_MAPPING_SECRET_BYTES);
-  if (!(bytes instanceof Uint8Array) || bytes.byteLength !== BLIND_MAPPING_SECRET_BYTES) throw new Error(`blind mapping entropy must provide ${BLIND_MAPPING_SECRET_BYTES} bytes`);
-  return Buffer.from(bytes);
+function shuffleSeed(entropy: BlindEntropy): number {
+  const bytes = entropy(BLIND_ENTROPY_BYTES);
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength !== BLIND_ENTROPY_BYTES) throw new Error(`blind mapping entropy must provide ${BLIND_ENTROPY_BYTES} bytes`);
+  return Buffer.from(bytes).readUInt32BE(0);
 }
 
 function randomEntropy(length: number): Uint8Array {
   return cryptoRandomBytes(length);
-}
-
-function parseMappingSecret(value: unknown): Buffer {
-  if (typeof value !== "string" || !/^[a-f0-9]{64}$/u.test(value)) throw new Error("blind mapping mappingSecret must contain 32-byte hexadecimal entropy");
-  return Buffer.from(value, "hex");
-}
-
-function mappingDigest(secret: Uint8Array, mapping: Omit<BlindMapping, "mappingDigest">): string {
-  return `hmac-sha256:${createHmac("sha256", secret).update(canonicalJson(mapping), "utf8").digest("hex")}`;
 }
 
 function fingerprint(value: unknown): string {

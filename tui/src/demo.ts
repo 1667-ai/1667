@@ -33,6 +33,8 @@ import type {
   SettingsMutationResult,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
+import { convertSettingsDocumentV2ToV5 } from "../../server/settings-v5-conversion.js";
 import {
   buildSearchCorpus,
   createSearchScan,
@@ -45,6 +47,7 @@ import type { RemovedChapterBreak, StoryApi } from "./api.js";
 import type { AppSource } from "./app.js";
 import { normalizeUserConfig } from "./config.js";
 import { demoResolveSamplingBias } from "./demo-token-ids.js";
+import { discoverDemoModels } from "./demo-model-discovery.js";
 import { streamFake } from "./fake-stream.js";
 import {
   createDemoChapterBreak,
@@ -514,11 +517,10 @@ function normalizeDemoFactMetadata(fact: Story["facts"][number]): void {
 }
 
 function storySummary(story: Story): StorySummary {
-  const line = activePath(story);
   const prose = story.nodes.filter((node) => !isChapterSummary(node));
   const leaves = prose.filter((node) => !prose.some((candidate) => candidate.parentId === node.id));
   return { id: story.id, title: story.title, updatedAt: story.updatedAt, partCount: prose.length,
-    words: line.reduce((sum, node) => sum + countWords(node.text), 0), forked: story.origin !== undefined, lineCount: leaves.length };
+    words: prose.reduce((sum, node) => sum + countWords(node.text), 0), forked: story.origin !== undefined, lineCount: leaves.length };
 }
 
 function payloadFrom(story: Story): StoryPayload {
@@ -591,7 +593,7 @@ export const DEMO_SETTINGS: GenerationSettings = {
   temperature: 0.7, maxTokens: 2_048, systemPrompt: "Continue the story in its established voice.", contextWindow: 32_768
 };
 
-export const DEMO_SETTINGS_DOCUMENT: SettingsDocumentV2 = {
+export const DEMO_SETTINGS_DOCUMENT_V2: SettingsDocumentV2 = {
   schemaVersion: 2,
   connections: {
     demo: {
@@ -633,6 +635,8 @@ export const DEMO_SETTINGS_DOCUMENT: SettingsDocumentV2 = {
   writing: { defaultAuthorBrief: DEMO_SETTINGS.systemPrompt }
 };
 
+export const DEMO_SETTINGS_DOCUMENT = convertSettingsDocumentV2ToV5(DEMO_SETTINGS_DOCUMENT_V2);
+
 export const DEMO_SETTINGS_VIEW: SettingsView = {
   dataFormat: 2,
   editable: true,
@@ -642,12 +646,13 @@ export const DEMO_SETTINGS_VIEW: SettingsView = {
   document: DEMO_SETTINGS_DOCUMENT,
   effective: DEMO_SETTINGS,
   effectiveProse: DEMO_SETTINGS,
+  activeWriting: writingPromptSettingsFromAuthorBrief(DEMO_SETTINGS.systemPrompt),
   lastActivationOutcome: null
 };
 
 /** The demo fixture behind the same StoryApi the live server speaks — the app
- *  never branches on which backend it has. Streaming methods honor abort with
- *  the server's invariant: an aborted stream never commits. */
+ *  never branches on which backend it has. Aside keeps answer text that
+ *  streamed before a user Stop. Other aborted streams do not commit. */
 export function demoStoryApi(demo: DemoController): StoryApi {
   const unavailable = (feature: string) => { throw new Error(`${feature} is not available in the demo fixture`); };
   let settingsView = structuredClone(DEMO_SETTINGS_VIEW);
@@ -684,7 +689,6 @@ export function demoStoryApi(demo: DemoController): StoryApi {
       if (signal.aborted) return null;
       const answer = `Demo Aside answer for: ${question}`;
       onDelta(answer);
-      if (signal.aborted) return null;
       const document = appendSideNote(
         asideDocuments.get(storyId) ?? null,
         question,
@@ -759,6 +763,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
         document: command.document,
         effective,
         effectiveProse,
+        activeWriting: command.document.writing,
         lastActivationOutcome: null
       };
       return settingsMutationResult(settingsView);
@@ -777,25 +782,8 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     resolveSamplingBias: async (request) => demoResolveSamplingBias(request),
     // The demo has no provider behind it, so there is never a tokenize source.
     countPromptTokens: async () => ({ kind: "estimate", reason: "no-source" }),
-    discoverModels: async (): Promise<ModelDiscoveryResultV2> => ({
-      observedAt: "2026-01-01T00:00:00.000Z",
-      models: [
-        {
-          remoteId: "gpt-5.4",
-          name: "GPT-5.4",
-          contextWindow: 1_000_000,
-          maxOutputTokens: 128_000,
-          source: "openai-models"
-        },
-        {
-          remoteId: "gpt-5-mini",
-          name: "GPT-5 mini",
-          contextWindow: 400_000,
-          maxOutputTokens: 128_000,
-          source: "openai-models"
-        }
-      ]
-    }),
+    discoverModels: async (target): Promise<ModelDiscoveryResultV2> =>
+      discoverDemoModels(target),
     importSillyTavern: async () => unavailable("SillyTavern import"),
     importMarkdown: async () => unavailable("Markdown import"),
     importNovelAI: async () => unavailable("NovelAI import"),
@@ -900,6 +888,7 @@ export function demoAppSource(dense = false): AppSource {
     // that path sends its keys and captures the frame at once, so a scan that
     // had not started yet would be captured for ever as `searching…`.
     searchDebounceMs: 0,
+    contextProbeDebounceMs: 0,
     config: normalizeUserConfig({ updates: { mode: "notify" } }),
     readingPositions: {}
   };

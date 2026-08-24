@@ -411,6 +411,30 @@ describe("global search screen and model", () => {
     expect(state.payload.path.some((node) => node.id === targetId)).toBeTrue();
   });
 
+  test("enter on a prompt hit reveals its take after manual story scrolling", async () => {
+    const { state, press, typeString, render } = setupSearchHarness();
+    // Search is full-bleed, but the story viewport keeps its prior manual pin.
+    // Landing must return to focus-following so the selected take is visible.
+    state.viewScroll = 0;
+    await press("/");
+    await typeString("burn the old coin");
+
+    const model = searchRows(state.search!, state.payload);
+    const promptHitRow = model.rows.find(
+      (row): row is SearchHitRow & { select: number } => row.kind === "hit" && row.hit.kind === "prompt"
+    );
+    expect(promptHitRow).toBeDefined();
+    state.search!.cursor = promptHitRow!.select;
+
+    await press("return", "\r");
+
+    expect(state.mode).toBe("NAV");
+    expect(state.viewScroll).toBe(null);
+    const frame = render(80, 20).lines.map(plainLine).join("\n");
+    expect(frame).toContain("burn the old coin");
+    expect(frame).toContain("She dropped one coin into the fire");
+  });
+
   test("enter at vault scope switches to target story", async () => {
     const { state, press, typeString } = setupSearchHarness();
     await press("/");

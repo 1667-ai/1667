@@ -319,6 +319,69 @@ test("canonical package fixtures reject missing required entries", async () => {
   }
 });
 
+test("managed extraction accepts a future NOTICE but keeps archive safety policy", async () => {
+  const { materializeCandidate } = await import("../src/upgrade-candidate.js");
+  const root = managedScratchRoot("policy-notice-");
+  try {
+    const futureNotice = "Copyright 2027 1667 contributors.\n";
+    const cases = [
+      {
+        label: "future NOTICE",
+        package: buildCanonicalPlatformPackage({
+          packageName: PACKAGE,
+          version: NEXT,
+          target: TARGET,
+          noticeBody: futureNotice,
+          sbomBody: JSON.stringify({
+            spdxVersion: "SPDX-2.3",
+            packages: [{ name: "1667", attributionTexts: [futureNotice] }]
+          })
+        }),
+        accepted: true
+      },
+      {
+        label: "empty NOTICE",
+        package: buildCanonicalPlatformPackage({
+          packageName: PACKAGE,
+          version: NEXT,
+          target: TARGET,
+          noticeBody: ""
+        }),
+        accepted: false
+      },
+      {
+        label: "unsafe NOTICE mode",
+        package: buildCanonicalPlatformPackage({
+          packageName: PACKAGE,
+          version: NEXT,
+          target: TARGET,
+          badMode: "package/NOTICE"
+        }),
+        accepted: false
+      }
+    ] as const;
+    for (const sample of cases) {
+      const destination = path.join(root, `candidate-${sample.label.replaceAll(" ", "-")}`);
+      writeFileSync(path.join(root, `${sample.label}.tgz`), sample.package.bytes);
+      let accepted = true;
+      try {
+        await materializeCandidate({
+          packagePath: path.join(root, `${sample.label}.tgz`),
+          destinationPath: destination,
+          packageName: PACKAGE,
+          version: NEXT,
+          signal: new AbortController().signal
+        });
+      } catch {
+        accepted = false;
+      }
+      expect(accepted).toBe(sample.accepted);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("package build-manifest accepts real release schema; rejects skew", async () => {
   const { createReleasePackageBuildManifest } =
     await import("../../scripts/release-package-templates.js");

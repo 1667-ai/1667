@@ -16,6 +16,8 @@ import {
   INITIAL_SETTINGS_STATE_V2_TEXT
 } from "../server/settings-v2-default.js";
 import { settingsMutationFingerprint } from "../server/settings-v2-mutation.js";
+import { settingsMutationFingerprintV5 } from "../server/settings-v5-mutation.js";
+import { convertSettingsDocumentV2ToV5 } from "../server/settings-v5-conversion.js";
 import {
   isExactSettingsActivationSuccessor,
   reduceSettingsStateV2
@@ -232,7 +234,10 @@ test("same-fingerprint retry proof-cleans prepared-only residue after next clean
     MUTATION_A,
     INITIAL_SETTINGS_STATE_V2,
     next,
-    settingsMutationFingerprint({ method: "saveSettings", document }, 1)
+    settingsMutationFingerprintV5({
+      method: "saveSettings",
+      document: convertSettingsDocumentV2ToV5(document)
+    }, 1)
   );
   const ledger = new MutationLedgerStore(dataDir);
   await ledger.init();

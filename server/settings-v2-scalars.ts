@@ -2,6 +2,10 @@ import { StoryFormatError } from "./story-format-facts.js";
 import { unicodeScalarLength } from "../shared/unicode.js";
 import { MAX_AUTHOR_BRIEF_CHARS } from "../shared/author-brief.js";
 import {
+  MAX_SETTINGS_REMOTE_ID_SCALARS,
+  MAX_SETTINGS_TOKEN_COUNT
+} from "../shared/settings-scalar-policy.js";
+import {
   CREDENTIAL_ENV_PATTERN,
   CREDENTIAL_ENV_PATTERN_SOURCE,
   MAX_CREDENTIAL_NAMES_PER_DOCUMENT,
@@ -29,7 +33,7 @@ export const MAX_SETTINGS_CREDENTIAL_NAMES =
   MAX_CREDENTIAL_NAMES_PER_DOCUMENT;
 export const MAX_SETTINGS_ID_SCALARS = 128;
 export const MAX_SETTINGS_NAME_SCALARS = 256;
-export const MAX_SETTINGS_REMOTE_ID_SCALARS = 512;
+export { MAX_SETTINGS_REMOTE_ID_SCALARS, MAX_SETTINGS_TOKEN_COUNT };
 export const MAX_SETTINGS_URL_SCALARS = 4_096;
 /** The story-scoped Author Brief field shares this exact bound (`shared/author-brief.ts`),
  * so a single value governs both — see `MAX_AUTHOR_BRIEF_CHARS`. */
@@ -40,7 +44,6 @@ export const MAX_SETTINGS_TIMEOUT_MS = 86_400_000;
  *  it presents the domain the document accepts instead of guessing one from
  *  whatever unit it happens to display. */
 export const MIN_SETTINGS_TIMEOUT_MS = 1;
-export const MAX_SETTINGS_TOKEN_COUNT = 1_000_000_000;
 
 export const SETTINGS_ID_PATTERN_SOURCE = "[A-Za-z0-9][A-Za-z0-9._:-]{0,127}";
 export const SETTINGS_ID_PATTERN = new RegExp(`^(?:${SETTINGS_ID_PATTERN_SOURCE})$`, "u");

@@ -84,6 +84,7 @@ function appSource(
     exportDirectory: process.cwd(),
     connection: null,
     config: {
+      schemaVersion: 1,
       theme: "lantern",
       factsRail: "auto",
       composeFocus: "off",
@@ -91,7 +92,8 @@ function appSource(
       composeMaxHeight: null,
       quota: { date: "", words: 0 },
       updates: { mode: "notify", channel: "stable", skippedVersion: null },
-      lastRunVersion: null
+      lastRunVersion: null,
+      settingsViewMode: "simple"
     },
     readingPositions: {}
   };

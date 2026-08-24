@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type test from "node:test";
@@ -32,14 +30,6 @@ export async function emptyLibraryDataDirectory(prefix: string): Promise<string>
   return dataDir;
 }
 
-export async function availablePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const port = (server.address() as AddressInfo).port;
-  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  return port;
-}
-
 /** Start the product server on an empty library and give back its origin. The
  * server and its data directory close when the test ends. */
 export async function testApp(
@@ -47,13 +37,12 @@ export async function testApp(
   temporaryPrefix: string
 ): Promise<string> {
   const dataDir = await emptyLibraryDataDirectory(temporaryPrefix);
-  const port = await availablePort();
   const server = spawn(
     process.execPath,
     ["--import", "tsx", "server/index.ts", "--print-logs"],
     {
       cwd: path.resolve(import.meta.dirname, ".."),
-      env: { ...process.env, AI_1667_DATA: dataDir, AI_1667_PORT: String(port) },
+      env: { ...process.env, AI_1667_DATA: dataDir, AI_1667_PORT: "0" },
       stdio: ["ignore", "pipe", "pipe"]
     }
   );
@@ -64,8 +53,7 @@ export async function testApp(
     await stopTestServerProcess(server);
     await rm(dataDir, { recursive: true, force: true });
   });
-  const base = `http://127.0.0.1:${port}`;
-  await waitForTestServer(server, base, () => output);
+  const base = await waitForTestServer(server, () => output);
   return base;
 }
 

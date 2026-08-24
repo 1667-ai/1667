@@ -35,11 +35,13 @@ import { runLorebookImport } from "./lorebook-import-cli.js";
 import { runProfileCommand } from "./profile-cli.js";
 import { runHttpCommand } from "./http-commands.js";
 import { runVaultDecrypt, runVaultEncrypt } from "./vault-cli.js";
+import { runAuthCommand } from "./auth-cli.js";
 
 import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.js";
 import {
   createCompatibleHttpFailureEnvelope
 } from "../../shared/failure-envelope.js";
+import { terminalLineText } from "../../shared/terminal-text.js";
 import { resolveMachineTierRoot } from "../../server/machine-tier.js";
 import { resolvePlatformDataDirectory } from "../../server/platform-data-directory.js";
 import { adoptDataDirectory } from "../../server/project-adoption.js";
@@ -92,6 +94,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     }
   }
   if (await runHttpCommand(argv)) return;
+  if (argv[0] === "auth") {
+    await runAuthCommand(argv.slice(1));
+    return;
+  }
   if (argv[0] === "upgrade") {
     await runProcessUpgrade(argv.slice(1));
     return;
@@ -536,13 +542,22 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
     );
     configureReadingPositionStore(storeFile);
     const readingPositions = loadReadingPositions({ file: storeFile });
-    const startUpdateCheck = createBackgroundUpdateStarter(config);
+    const startUpdateCheck: NonNullable<AppSource["startUpdateCheck"]> = (
+      currentConfig,
+      onNotice
+    ) => {
+      try {
+        return createBackgroundUpdateStarter(currentConfig)?.(onNotice) ?? (() => undefined);
+      } catch {
+        return () => undefined;
+      }
+    };
     const source = { payload, api, demo: false,
       stories, settingsView, settings: settingsView.effective,
       storyFolder, exportDirectory, connection,
       ...(worker === null ? {} : { backendFailure: worker.failure }),
       backendRecovery,
-      ...(startUpdateCheck === null ? {} : { startUpdateCheck }),
+      startUpdateCheck,
       config,
       readingPositions };
     return {
@@ -614,12 +629,15 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     await main(argv);
   } catch (error) {
     if (error instanceof UsageError) {
-      process.stderr.write(`1667: ${error.message}\nTry '1667 --help'.\n`);
+      process.stderr.write(
+        `1667: ${terminalLineText(error.message)}\nTry '1667 --help'.\n`
+      );
       process.exitCode = 2;
       return;
     }
     if (error instanceof BackendRestartRequiredError) exitForBackendRestart(error);
-    process.stderr.write(`1667: ${error instanceof Error ? error.message : String(error)}\n`);
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`1667: ${terminalLineText(message)}\n`);
     process.exitCode = 1;
   }
 }

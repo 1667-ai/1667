@@ -2,43 +2,47 @@ import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { createServer, type IncomingMessage, type Server } from "node:http";
-import { createServer as createSecureServer, type Server as SecureServer } from "node:https";
-import type { AddressInfo } from "node:net";
+import { createServer } from "node:http";
+import { createServer as createSecureServer } from "node:https";
 import test from "node:test";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { canonicalJson } from "../server/canonical-json.js";
-import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import { createBlindPackArtifacts, scoreReplay } from "../evals/gemma-prompt-quality/scoring.js";
 import {
   aggregateRequestFingerprint,
+  GEMMA_CANDIDATE_OPTIMIZATION,
   GEMMA_EXPECTED_BLIND_SAMPLE_COUNT,
   GEMMA_REPLAY_OPERATIONS,
-  GEMMA_REPLAY_SEEDS
+  GEMMA_REPLAY_SEEDS,
+  GEMMA_SCORING_PROTOCOL,
+  GEMMA_SCORING_PROTOCOL_FINGERPRINT,
+  gemmaScoringProtocolMarkdown
 } from "../evals/gemma-prompt-quality/contract.js";
 import { parseGemmaCompatibilityEvidence } from "../evals/gemma-prompt-quality/evidence-schema.js";
 import { parseReplayResult } from "../evals/gemma-prompt-quality/replay-schema.js";
-import { parseReplayProfileManifest } from "../evals/gemma-prompt-quality/profile.js";
-import { parseGemmaRuntimeConfiguration } from "../evals/gemma-prompt-quality/runtime.js";
 import { runReplay } from "../evals/gemma-prompt-quality/runner.js";
-
-const TEST_RUNTIME = parseGemmaRuntimeConfiguration({
-  schemaVersion: 1,
-  runtime: "llama.cpp",
-  model: {
-    id: "gemma-4-31b",
-    identity: "Gemma 4 31B",
-    artifact: {
-      fileName: "gemma-4-31b-Q4_K_M.gguf",
-      sha256: `sha256:${"a".repeat(64)}`,
-      quantization: "Q4_K_M"
-    }
-  },
-  llamaCpp: { build: "b1234", chatTemplate: "gemma", contextWindow: 32768 }
-});
+import {
+  close,
+  closeSecure,
+  listen,
+  listenSecure,
+  requestText,
+  TEST_RUNTIME,
+  testProfile
+} from "./gemma-prompt-quality-test-support.js";
 const runFile = promisify(execFile);
+
+test("Gemma scoring anchors bind the scorer instructions to the gate floor", () => {
+  const readme = readFileSync(path.join(process.cwd(), "evals/gemma-prompt-quality/README.md"), "utf8");
+  assert.equal(readme.includes(gemmaScoringProtocolMarkdown()), true);
+  assert.equal(GEMMA_SCORING_PROTOCOL.baselineScoreFloor, 2);
+  assert.equal(GEMMA_SCORING_PROTOCOL.anchors[1].includes("major defect or break"), true);
+  assert.equal(GEMMA_SCORING_PROTOCOL.anchors[2].includes("noticeable but non-major"), true);
+  assert.match(GEMMA_SCORING_PROTOCOL.dimensionGuidance.styleVoiceCadenceContinuity, /Use 1 only for a major voice or cadence break/);
+  assert.match(GEMMA_SCORING_PROTOCOL_FINGERPRINT, /^sha256:[a-f0-9]{64}$/u);
+});
 
 test("Gemma replay pairs both prompt versions and preserves profile sampling", async (t) => {
   const requests: Record<string, unknown>[] = [];
@@ -62,9 +66,11 @@ test("Gemma replay pairs both prompt versions and preserves profile sampling", a
   const profile = testProfile();
   const result = await runReplay({
     endpointBaseUrl: `${origin}/v1`,
-    model: "gemma-4-31b",
+    model: "koboldcpp/gemma-4-31B-it-uncensored-heretic-Q8_0",
     runtime: TEST_RUNTIME,
-    profile
+    profile,
+    optimization: GEMMA_CANDIDATE_OPTIMIZATION,
+    operatorAcknowledgedExclusiveServer: true
   });
 
   for (const changedProfile of [
@@ -75,15 +81,21 @@ test("Gemma replay pairs both prompt versions and preserves profile sampling", a
     await assert.rejects(
       runReplay({
         endpointBaseUrl: `${origin}/v1`,
-        model: "gemma-4-31b",
+        model: "koboldcpp/gemma-4-31B-it-uncensored-heretic-Q8_0",
         runtime: TEST_RUNTIME,
-        profile: changedProfile
+        profile: changedProfile,
+        optimization: GEMMA_CANDIDATE_OPTIMIZATION,
+        operatorAcknowledgedExclusiveServer: true
       }),
       /profile does not match approved replay protocol/
     );
   }
 
   assert.equal(requests.length, GEMMA_EXPECTED_BLIND_SAMPLE_COUNT);
+  assert.equal(result.optimization, GEMMA_CANDIDATE_OPTIMIZATION);
+  assert.equal(result.operatorAcknowledgedExclusiveServer, true);
+  assert.equal(result.runtime.configuration.koboldCpp.version, "1.117.1");
+  assert.equal(result.runtime.configuration.model.artifact.sha256, `sha256:${"a".repeat(64)}`);
   assert.deepEqual(result.seeds, GEMMA_REPLAY_SEEDS);
   assert.deepEqual(result.operations, GEMMA_REPLAY_OPERATIONS);
   assert.equal(new Set(result.samples.map((sample) => sample.pairId)).size, 10);
@@ -94,13 +106,15 @@ test("Gemma replay pairs both prompt versions and preserves profile sampling", a
     const expectedFinalRole = sample.operation === "retake" ? "user" : "assistant";
     assert.equal(sample.baseline.request.promptShape.finalRole, expectedFinalRole);
     assert.equal(sample.candidate.request.promptShape.finalRole, expectedFinalRole);
+    assert.equal(sample.baseline.request.preset, "koboldcpp");
+    assert.equal(sample.candidate.request.preset, "koboldcpp");
   }
   assert.deepEqual([...dispatchCounts.entries()].sort(), [
     ["baseline/candidate", 5],
     ["candidate/baseline", 5]
   ]);
   for (const body of requests) {
-    assert.equal(body.model, "gemma-4-31b");
+    assert.equal(body.model, "koboldcpp/gemma-4-31B-it-uncensored-heretic-Q8_0");
     assert.equal(body.temperature, 0.7);
     assert.equal(body.max_tokens, 400);
     assert.equal(body.top_p, 0.92);
@@ -117,6 +131,24 @@ test("Gemma replay pairs both prompt versions and preserves profile sampling", a
   assert.deepEqual([...seedCounts.entries()].sort((a, b) => a[0] - b[0]), [[101, 4], [202, 4], [303, 4], [404, 4], [505, 4]]);
 
   const reparsed = parseReplayResult(JSON.parse(JSON.stringify(result)));
+  for (const value of [undefined, "off", "late-cache-stable+other"]) {
+    const invalidOptimization = JSON.parse(JSON.stringify(result)) as Record<string, unknown>;
+    if (value === undefined) delete invalidOptimization.optimization;
+    else invalidOptimization.optimization = value;
+    assert.throws(
+      () => parseReplayResult(invalidOptimization),
+      /replay(?:\.optimization)?(?: must be exactly late-cache-stable| has unsupported or missing fields)/
+    );
+  }
+  for (const value of [undefined, false]) {
+    const invalidAttestation = JSON.parse(JSON.stringify(result)) as Record<string, unknown>;
+    if (value === undefined) delete invalidAttestation.operatorAcknowledgedExclusiveServer;
+    else invalidAttestation.operatorAcknowledgedExclusiveServer = value;
+    assert.throws(
+      () => parseReplayResult(invalidAttestation),
+      /replay(?:\.operatorAcknowledgedExclusiveServer)?(?: must be true| is invalid| has unsupported or missing fields)/
+    );
+  }
   for (const [label, change] of invalidProfileChanges()) {
     const invalidReplay = JSON.parse(JSON.stringify(result)) as Record<string, unknown>;
     change(invalidReplay.profile as Record<string, unknown>);
@@ -170,6 +202,25 @@ test("Gemma replay pairs both prompt versions and preserves profile sampling", a
   const evidence = scoreReplay(reparsed, scores, artifacts);
   assert.equal(evidence.evaluation.passed, true);
   assert.equal(parseGemmaCompatibilityEvidence(evidence).evaluation.sampleCount, 20);
+  const wrongScoringProtocol = JSON.parse(JSON.stringify(evidence)) as Record<string, unknown>;
+  ((wrongScoringProtocol.evaluation as Record<string, unknown>).blindScoring as Record<string, unknown>).protocolFingerprint =
+    `sha256:${"0".repeat(64)}`;
+  assert.throws(
+    () => parseGemmaCompatibilityEvidence(wrongScoringProtocol),
+    /blind scoring\.protocolFingerprint must be/
+  );
+  const wrongOptimization = JSON.parse(JSON.stringify(evidence)) as Record<string, unknown>;
+  (wrongOptimization.candidate as Record<string, unknown>).optimization = "off";
+  assert.throws(
+    () => parseGemmaCompatibilityEvidence(wrongOptimization),
+    /evidence\.candidate\.optimization must be exactly late-cache-stable/
+  );
+  const missingAttestation = JSON.parse(JSON.stringify(evidence)) as Record<string, unknown>;
+  delete (missingAttestation.candidate as Record<string, unknown>).operatorAcknowledgedExclusiveServer;
+  assert.throws(
+    () => parseGemmaCompatibilityEvidence(missingAttestation),
+    /evidence\.candidate has unsupported or missing fields/
+  );
   for (const value of [
     ["sk", "proj", "verysecrettoken"].join("-"),
     ["ghp", "verysecrettoken"].join("_"),
@@ -210,9 +261,11 @@ test("Gemma replay fails on a provider rejection without retrying or changing th
   await assert.rejects(
     runReplay({
       endpointBaseUrl: `${origin}/v1`,
-      model: "gemma-4-31b",
+      model: "koboldcpp/gemma-4-31B-it-uncensored-heretic-Q8_0",
       runtime: TEST_RUNTIME,
-      profile: testProfile()
+      profile: testProfile(),
+      optimization: GEMMA_CANDIDATE_OPTIMIZATION,
+      operatorAcknowledgedExclusiveServer: true
     }),
     /Model request failed \(400\)/
   );
@@ -231,7 +284,10 @@ test("Gemma replay preserves model output when a short credential occurs in pros
   const server = createSecureServer({
     key: readFileSync(keyPath),
     cert: readFileSync(certificatePath)
-  }, (_request, response) => {
+  }, async (request, response) => {
+    assert.equal(request.method, "POST");
+    assert.equal(request.url, "/proxy/v1/chat/completions");
+    const body = JSON.parse(await requestText(request)) as Record<string, unknown>;
     response.writeHead(200, { "content-type": "text/event-stream" });
     response.end([
       `data: ${JSON.stringify({ choices: [{ delta: { content: "testing testament" }, finish_reason: null }] })}`,
@@ -252,8 +308,8 @@ test("Gemma replay preserves model output when a short credential occurs in pros
     import { parseGemmaRuntimeConfiguration } from "./evals/gemma-prompt-quality/runtime.ts";
     import { EMPTY_SAMPLING_V2 } from "./shared/settings-v2-types.ts";
     const runtime = parseGemmaRuntimeConfiguration(${JSON.stringify(TEST_RUNTIME.configuration)});
-    const profile = parseReplayProfileManifest({ schemaVersion: 1, runtimeArtifactSha256: runtime.configuration.model.artifact.sha256, profile: { name: "credential output", generation: { temperature: .7, maxOutputTokens: 400, effort: "default", cachePolicy: "off", tokenProbabilities: null }, sampling: { ...EMPTY_SAMPLING_V2, topP: .92, topK: 40, minP: .05, repeatPenalty: 1.08 } } }, runtime);
-    const result = await runReplay({ endpointBaseUrl: ${JSON.stringify(`${origin}/v1`)}, runtime, profile });
+    const profile = parseReplayProfileManifest({ schemaVersion: 1, runtimeArtifactSha256: runtime.configuration.model.artifact.sha256, profile: { name: "credential output", generation: { temperature: .7, maxOutputTokens: 400, effort: "default", cachePolicy: "off", tokenProbabilities: null }, sampling: { ...EMPTY_SAMPLING_V2, topP: .92, topK: 40, minP: .05, repeatPenalty: 1.08 }, timeouts: { responseHeaderMs: 600000, firstTokenMs: 120000, idleMs: 120000, totalMs: 1800000 } } }, runtime);
+    const result = await runReplay({ endpointBaseUrl: ${JSON.stringify(`${origin}/proxy/v1`)}, runtime, profile, optimization: "late-cache-stable", operatorAcknowledgedExclusiveServer: true });
     process.stdout.write(JSON.stringify(result.samples.map((sample) => [sample.baseline.output, sample.candidate.output])));
   `;
   const { stdout } = await runFile(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], {
@@ -263,30 +319,6 @@ test("Gemma replay preserves model output when a short credential occurs in pros
   assert.deepEqual(JSON.parse(stdout), Array.from({ length: 10 }, () => ["testing testament", "testing testament"]));
 });
 
-function testProfile() {
-  return parseReplayProfileManifest({
-    schemaVersion: 1,
-    runtimeArtifactSha256: TEST_RUNTIME.configuration.model.artifact.sha256,
-    profile: {
-      name: "Gemma test profile",
-      generation: {
-        temperature: 0.7,
-        maxOutputTokens: 400,
-        effort: "default",
-        cachePolicy: "off",
-        tokenProbabilities: null
-      },
-      sampling: {
-      ...EMPTY_SAMPLING_V2,
-      topP: 0.92,
-      topK: 40,
-      minP: 0.05,
-      repeatPenalty: 1.08
-      }
-    }
-  }, TEST_RUNTIME);
-}
-
 function fingerprint(value: unknown): string {
   return `sha256:${createHash("sha256").update(canonicalJson(value), "utf8").digest("hex")}`;
 }
@@ -294,6 +326,9 @@ function fingerprint(value: unknown): string {
 function invalidProfileChanges(): readonly [RegExp, (profile: Record<string, unknown>) => void][] {
   return [
     [/requires generation\.effort to be default/, (profile) => { profile.effort = "off"; }],
+    [/(source fingerprint|profile does not match approved replay protocol)/, (profile) => {
+      profile.timeouts = { ...(profile.timeouts as Record<string, unknown>), responseHeaderMs: 120_000 };
+    }],
     [/key "01" is invalid/, (profile) => {
       profile.sampling = { ...(profile.sampling as Record<string, unknown>), logitBias: { "01": 0 } };
       profile.logitBiasState = "present";
@@ -310,41 +345,4 @@ function invalidProfileChanges(): readonly [RegExp, (profile: Record<string, unk
       profile.logitBiasState = "present";
     }]
   ];
-}
-
-function requestText(request: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    request.on("data", (chunk: Buffer) => chunks.push(chunk));
-    request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    request.on("error", reject);
-  });
-}
-
-function listen(server: Server): Promise<string> {
-  return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      server.off("error", reject);
-      resolve(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
-    });
-  });
-}
-
-function close(server: Server): Promise<void> {
-  return new Promise((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error)));
-}
-
-function listenSecure(server: SecureServer): Promise<string> {
-  return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      server.off("error", reject);
-      resolve(`https://127.0.0.1:${(server.address() as AddressInfo).port}`);
-    });
-  });
-}
-
-function closeSecure(server: SecureServer): Promise<void> {
-  return new Promise((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error)));
 }

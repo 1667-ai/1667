@@ -11,9 +11,13 @@ read_when:
 
 ## Troubleshoot internal errors
 
-1667 gives unexpected embedded and HTTP backend errors a safe public message.
-After 1667 saves a diagnostic, the public error includes an `err_…` reference.
-Use that reference to find the entry in the private machine-tier log:
+1667 shows a bounded diagnostic for unexpected embedded and HTTP backend
+errors. The diagnostic includes the error name, the error message, and
+a short cause chain. It does not include a stack or a provider response body.
+
+After 1667 saves the detailed diagnostic, the error also includes an `err_…`
+reference. Use that reference to find the entry in the private machine-tier
+log:
 
 - macOS: `~/Library/Application Support/1667/State/log/1667.log`
 - Linux: `$XDG_STATE_HOME/1667/log/1667.log`, or
@@ -29,9 +33,10 @@ Add `--print-logs` to print new diagnostics to stderr:
 1667 --print-logs
 ```
 
-1667 omits provider request and response bodies from the log. The log can
-contain local paths and exception messages. 1667 resets the active log before
-it exceeds 5 MiB. Inspect the log before you share it.
+The error message and the log can contain local paths and exception messages.
+1667 omits provider request and response bodies from both outputs. The log can
+also contain a stack. 1667 resets the active log before it exceeds 5 MiB.
+Inspect the output before you share it.
 
 1667 also saves a diagnostic when the embedded backend stops unexpectedly.
 The host-state fields contain operation names and numeric stream progress.
@@ -135,9 +140,10 @@ nothing else connects the two. `DEMO_FONT` overrides the Berkeley Mono path.
 
 The GIF is served from 1667.ai rather than committed here. The README embeds an
 absolute URL because npmjs.com renders the same README for `@1667-ai/cli` and
-drops relative image paths. The name carries a revision, so a new recording is
-published as `demo-2.gif` and the README link moves: GitHub's camo proxy caches
-these images long enough that overwriting one in place does not reach readers.
+drops relative image paths. The name carries a revision. Publish each new
+recording with the next number, and move the README link. GitHub's camo proxy
+caches these images long enough that overwriting one in place does not reach
+readers.
 
 Publishing a new recording means copying the GIF into the homepage repository's
 `public/`, adding its `_headers` rule, deploying, then updating the README link

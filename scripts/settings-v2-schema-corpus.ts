@@ -18,13 +18,23 @@ import {
 import {
   reduceSettingsStateV2
 } from "../server/settings-v2-reducer.js";
+import {
+  legacyShapedSamplingDocumentText,
+  withContinuationPromptOptimization,
+  withDefaultModelId,
+  withKnownTokenizerModel,
+  withRawContinuationPromptOptimization,
+  withRawReasoning,
+  withRawSampling,
+  withReasoning,
+  withReasoningCapability,
+  withSampling,
+  withTokenProbabilities
+} from "./settings-v2-corpus-profile-fixtures.js";
 import { settingsV2CorpusV3 } from "./settings-v2-schema-corpus-v3.js";
 import type { GenerationSettings } from "../shared/types.js";
 import {
   EMPTY_SAMPLING_V2,
-  type FeatureSupportV2,
-  type ReasoningDisplayV2,
-  type SamplingSettingsV2,
   type SettingsDocumentV2,
   type SettingsStateV2
 } from "../shared/settings-v2-types.js";
@@ -96,6 +106,10 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
   // tokenProbabilities key still has to parse identically to one written
   // before the field existed, which "converted-openai" already covers.
   const tokenProbabilitiesOpenAi = withTokenProbabilities(sampledOpenAi, 8);
+  const continuationPromptOptimizedOpenAi = withContinuationPromptOptimization(
+    convertedOpenAi,
+    "late-cache-stable"
+  );
   const reasoningOpenAi = withReasoning(withReasoningCapability(convertedOpenAi), "open", true);
   const candidate = applyEffectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2, openAi);
   const staged = reduceSettingsStateV2(INITIAL_SETTINGS_STATE_V2, {
@@ -117,9 +131,19 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     ...INITIAL_SETTINGS_DOCUMENT_V2,
     routing: { default: "missing" }
   };
-  const unresolvedConstructorModel = withDefaultModelId("constructor");
-  const unresolvedToStringModel = withDefaultModelId("toString");
+  const unresolvedConstructorModel = withDefaultModelId("constructor", INITIAL_SETTINGS_DOCUMENT_V2);
+  const unresolvedToStringModel = withDefaultModelId("toString", INITIAL_SETTINGS_DOCUMENT_V2);
   const networkConnection = convertedOpenAi.connections["migrated:connection"]!;
+  const chatgptPlan = subscriptionPlanDocument(
+    convertedOpenAi,
+    "chatgpt-plan",
+    "openai-codex-responses"
+  );
+  const claudePlan = subscriptionPlanDocument(
+    convertedAnthropic,
+    "claude-plan",
+    "anthropic-subscription-messages"
+  );
   const storedBearer = {
     ...convertedOpenAi,
     connections: {
@@ -184,9 +208,16 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     validText("document-empty-sampling", "document", canonicalJson(emptySampling)),
     validText("document-sampling-legacy-fields-absent", "document", legacySamplingText),
     valid("document-with-token-probabilities", "document", tokenProbabilitiesOpenAi),
+    valid(
+      "document-with-continuation-prompt-optimization",
+      "document",
+      continuationPromptOptimizedOpenAi
+    ),
     valid("document-with-reasoning", "document", reasoningOpenAi),
     valid("converted-anthropic", "document", convertedAnthropic),
     valid("converted-loopback", "document", convertedLocal),
+    valid("converted-chatgpt-plan", "document", chatgptPlan),
+    valid("converted-claude-plan", "document", claudePlan),
     valid("stored-bearer", "document", storedBearer),
     valid("stored-header", "document", storedHeader),
     valid("staged", "state", staged),
@@ -214,6 +245,36 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
       surprise: true
     }, false),
     invalid("document-newer-reserved-protocol", "document", newerProtocol, false),
+    invalid("document-chatgpt-plan-with-url", "document", {
+      ...chatgptPlan,
+      connections: {
+        ...chatgptPlan.connections,
+        "migrated:connection": {
+          ...chatgptPlan.connections["migrated:connection"]!,
+          baseUrl: "https://example.com"
+        }
+      }
+    }, false),
+    invalid("document-chatgpt-plan-with-claude-protocol", "document", {
+      ...chatgptPlan,
+      connections: {
+        ...chatgptPlan.connections,
+        "migrated:connection": {
+          ...chatgptPlan.connections["migrated:connection"]!,
+          protocol: "anthropic-subscription-messages"
+        }
+      }
+    }, false),
+    invalid("document-claude-plan-with-header", "document", {
+      ...claudePlan,
+      connections: {
+        ...claudePlan.connections,
+        "migrated:connection": {
+          ...claudePlan.connections["migrated:connection"]!,
+          headers: [{ name: "x-test", value: "bad" }]
+        }
+      }
+    }, false),
     invalid("document-unresolved-default-route", "document", badRoute, true),
     invalid("document-unresolved-constructor-model", "document", unresolvedConstructorModel, true),
     invalid("document-unresolved-to-string-model", "document", unresolvedToStringModel, true),
@@ -255,6 +316,12 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
       "document-token-probabilities-out-of-bounds",
       "document",
       withTokenProbabilities(sampledOpenAi, MAX_ALTERNATIVE_TOKENS + 1),
+      false
+    ),
+    invalid(
+      "document-continuation-prompt-optimization-invalid",
+      "document",
+      withRawContinuationPromptOptimization(convertedOpenAi, "compatibility"),
       false
     ),
     invalid(
@@ -308,169 +375,6 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
   ];
 }
 
-function withDefaultModelId(modelId: string): SettingsDocumentV2 {
-  const defaultProfile = INITIAL_SETTINGS_DOCUMENT_V2.profiles.default;
-  if (defaultProfile === undefined) {
-    throw new Error("Canonical initial settings are missing the default profile");
-  }
-  return {
-    ...INITIAL_SETTINGS_DOCUMENT_V2,
-    profiles: {
-      ...INITIAL_SETTINGS_DOCUMENT_V2.profiles,
-      default: {
-        ...defaultProfile,
-        modelId
-      }
-    }
-  };
-}
-
-/** Simulates a document saved before issue #282 added phraseBias and
- * bannedStrings: same document, but with those two keys stripped out of
- * `sampling` before serialization. Proves the schema and the codec still
- * accept the exact shape a pre-existing document has on disk. */
-function legacyShapedSamplingDocumentText(document: SettingsDocumentV2): string {
-  const profileId = document.routing.default;
-  const profile = document.profiles[profileId];
-  if (profile === undefined || profile.sampling === undefined) {
-    throw new Error("Canonical settings are missing sampling on the default profile");
-  }
-  const { phraseBias: _phraseBias, bannedStrings: _bannedStrings, ...legacySampling } = profile.sampling;
-  return canonicalJson({
-    ...document,
-    profiles: {
-      ...document.profiles,
-      [profileId]: { ...profile, sampling: legacySampling }
-    }
-  });
-}
-
-function withTokenProbabilities(
-  document: SettingsDocumentV2,
-  tokenProbabilities: number
-): SettingsDocumentV2 {
-  const profileId = document.routing.default;
-  const profile = document.profiles[profileId];
-  if (profile === undefined) throw new Error("Canonical settings are missing the default profile");
-  return {
-    ...document,
-    profiles: {
-      ...document.profiles,
-      [profileId]: { ...profile, tokenProbabilities }
-    }
-  };
-}
-
-/** Declares what the default profile's model reports about returning
- *  reasoning content. Only `"unsupported"` narrows the route to `off`
- *  (`shared/reasoning-display-capabilities.ts`). */
-function withReasoningCapability(
-  document: SettingsDocumentV2,
-  reasoningContent: FeatureSupportV2 = "supported"
-): SettingsDocumentV2 {
-  const profileId = document.routing.default;
-  const profile = document.profiles[profileId];
-  const model = profile === undefined ? undefined : document.models[profile.modelId];
-  if (profile === undefined || model === undefined) {
-    throw new Error("Canonical settings are missing the default profile's model");
-  }
-  return {
-    ...document,
-    models: {
-      ...document.models,
-      [profile.modelId]: {
-        ...model,
-        capabilities: { ...model.capabilities, reasoningContent }
-      }
-    }
-  };
-}
-
-function withReasoning(
-  document: SettingsDocumentV2,
-  reasoning: ReasoningDisplayV2,
-  discardReasoning?: true
-): SettingsDocumentV2 {
-  const profileId = document.routing.default;
-  const profile = document.profiles[profileId];
-  if (profile === undefined) throw new Error("Canonical settings are missing the default profile");
-  return {
-    ...document,
-    profiles: {
-      ...document.profiles,
-      [profileId]: {
-        ...profile,
-        reasoning,
-        ...(discardReasoning === undefined ? {} : { discardReasoning })
-      }
-    }
-  };
-}
-
-/** Same as `withReasoning`, but for a deliberately malformed value a corpus
- *  "invalid" case needs — e.g. one `ReasoningDisplayV2` itself would reject
- *  at compile time. */
-function withRawReasoning(document: SettingsDocumentV2, reasoning: unknown): unknown {
-  const profileId = document.routing.default;
-  const profile = document.profiles[profileId];
-  if (profile === undefined) throw new Error("Canonical settings are missing the default profile");
-  return {
-    ...document,
-    profiles: {
-      ...document.profiles,
-      [profileId]: { ...profile, reasoning }
-    }
-  };
-}
-
-function withKnownTokenizerModel(document: SettingsDocumentV2): SettingsDocumentV2 {
-  const profileId = document.routing.default;
-  const profile = document.profiles[profileId];
-  const model = profile === undefined ? undefined : document.models[profile.modelId];
-  if (profile === undefined || model === undefined) {
-    throw new Error("Canonical settings are missing the default profile's model");
-  }
-  return {
-    ...document,
-    models: {
-      ...document.models,
-      [profile.modelId]: { ...model, remoteId: "gpt-4o" }
-    }
-  };
-}
-
-function withSampling(
-  document: SettingsDocumentV2,
-  sampling: SamplingSettingsV2
-): SettingsDocumentV2 {
-  const profileId = document.routing.default;
-  const profile = document.profiles[profileId];
-  if (profile === undefined) throw new Error("Canonical settings are missing the default profile");
-  return {
-    ...document,
-    profiles: {
-      ...document.profiles,
-      [profileId]: { ...profile, sampling }
-    }
-  };
-}
-
-/** Same as withSampling, but for a deliberately malformed sampling shape a
- * corpus "invalid" case needs — e.g. an extra key the SamplingSettingsV2
- * type itself would reject at compile time. */
-function withRawSampling(document: SettingsDocumentV2, sampling: unknown): unknown {
-  const profileId = document.routing.default;
-  const profile = document.profiles[profileId];
-  if (profile === undefined) throw new Error("Canonical settings are missing the default profile");
-  return {
-    ...document,
-    profiles: {
-      ...document.profiles,
-      [profileId]: { ...profile, sampling }
-    }
-  };
-}
-
 function openAiSettings(): GenerationSettings {
   return {
     provider: "openai-compatible",
@@ -481,6 +385,29 @@ function openAiSettings(): GenerationSettings {
     maxTokens: 2_048,
     systemPrompt: "Continue in the established voice.",
     contextWindow: 32_768
+  };
+}
+
+function subscriptionPlanDocument(
+  document: SettingsDocumentV2,
+  preset: "chatgpt-plan" | "claude-plan",
+  protocol: "openai-codex-responses" | "anthropic-subscription-messages"
+): SettingsDocumentV2 {
+  const connection = document.connections["migrated:connection"]!;
+  return {
+    ...document,
+    connections: {
+      ...document.connections,
+      "migrated:connection": {
+        ...connection,
+        name: preset === "chatgpt-plan" ? "ChatGPT plan" : "Claude plan",
+        preset,
+        protocol,
+        baseUrl: null,
+        auth: { type: "none" },
+        headers: []
+      }
+    }
   };
 }
 

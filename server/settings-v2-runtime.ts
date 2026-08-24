@@ -1,5 +1,6 @@
 import {
   SETTINGS_ROUTE_PURPOSE_VALUES,
+  isSubscriptionProtocolV2,
   type SettingsDocumentV2,
   type SettingsStateV2,
   type SettingsView
@@ -8,10 +9,16 @@ import type { GenerationSettings } from "../shared/types.js";
 import { checkModelServer } from "./server-check.js";
 import { ownedLoopbackHttpSupported } from "./provider-fetch.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
-import { effectiveGenerationSettings } from "./settings-v2-conversion.js";
+import { projectEffectiveGeneration } from "./settings-v2-conversion.js";
+import type { SettingsRuntimeResolver } from "./settings-runtime-resolver.js";
 import { classifyHttpHost, SettingsFormatError } from "./settings-v2-scalars.js";
-import { selectSettingsRoute } from "../shared/settings-route.js";
-import { settingsStateRelation } from "./settings-state-validation.js";
+import { continuationPromptLayoutForOptimization } from "../shared/continuation-prompt-optimization.js";
+import { writingPromptSettingsFromAuthorBrief } from "../shared/settings-v5-writing.js";
+import { convertSettingsDocumentV2ToV5 } from "./settings-v5-conversion.js";
+import {
+  effectiveSettingsStateRevision,
+  settingsStateRelation
+} from "./settings-state-validation.js";
 import {
   corruptSettingsStateReceipt,
   invalidSettingsMutation
@@ -31,20 +38,26 @@ export function settingsViewFromState(
     ? activeSettingsDocument(state)
     : pendingSettingsDocument(state);
   const active = activeSettingsDocument(state);
+  const effective = projectEffectiveGeneration(active, "default", {});
+  const effectiveProse = projectEffectiveGeneration(active, "prose", {});
   return {
     dataFormat: 2,
     editable: true,
     stateGeneration: state.stateGeneration,
     activeRevision: effectiveActiveSettingsRevision(state),
     pendingRevision,
-    document: shown,
-    effective: effectiveGenerationSettings(active),
-    effectiveProse: effectiveGenerationSettings(active, "prose"),
+    document: convertSettingsDocumentV2ToV5(shown),
+    effective: effective.settings,
+    effectiveProse: effectiveProse.settings,
     // Read from `active`, never `shown`: `effectiveProse` above already
     // resolves against the active (never pending) document, and this must
     // describe the same route, not whichever document a mid-activation
     // window happens to be showing the editor.
-    effectiveProseReasoning: selectSettingsRoute(active, "prose").profile.reasoning ?? "marker",
+    effectiveProseReasoning: effectiveProse.route.profile.reasoning ?? "marker",
+    effectiveProseContinuationPromptLayout: continuationPromptLayoutForOptimization(
+      effectiveProse.route.profile.continuationPromptOptimization
+    ),
+    activeWriting: writingPromptSettingsFromAuthorBrief(active.writing.defaultAuthorBrief),
     lastActivationOutcome: state.lastActivationOutcome
   };
 }
@@ -57,9 +70,7 @@ export function settingsViewFromState(
  * keeps concurrent views and generation starts on pre-activation or
  * committed credentials, never on a half-activated candidate. */
 export function effectiveActiveSettingsRevision(state: SettingsStateV2): number {
-  return settingsStateRelation(state) === "promoted"
-    ? state.previousRevision!
-    : state.activeRevision;
+  return effectiveSettingsStateRevision(state);
 }
 
 export function activeSettingsDocument(state: SettingsStateV2): SettingsDocumentV2 {
@@ -72,7 +83,7 @@ export function pendingSettingsDocument(state: SettingsStateV2): SettingsDocumen
 }
 
 export function credentialReferencesResolve(
-  document: SettingsDocumentV2,
+  document: { readonly connections: SettingsDocumentV2["connections"] },
   environment: NodeJS.ProcessEnv,
   storedSecretIds: ReadonlySet<string> = new Set()
 ): boolean {
@@ -92,10 +103,13 @@ export function credentialReferencesResolve(
   return true;
 }
 
-export function assertRuntimeDocumentSupported(document: SettingsDocumentV2): void {
+export function assertRuntimeDocumentSupported(
+  document: SettingsDocumentV2,
+  runtimeResolver: SettingsRuntimeResolver
+): void {
   try {
     for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {
-      effectiveGenerationSettings(document, purpose);
+      runtimeResolver.resolve({ document, purpose });
     }
   } catch (error) {
     throw invalidSettingsMutation(error);
@@ -110,6 +124,8 @@ export const PLAINTEXT_PROVIDER_HTTPS_REMEDIATION =
 export function providerRequestTransportAvailable(
   effective: GenerationSettings
 ): boolean {
+  const protocol = providerRuntimeFor(effective).protocol;
+  if (protocol !== undefined && isSubscriptionProtocolV2(protocol)) return true;
   if (effective.provider === "dry-run") return true;
   const url = new URL(effective.baseUrl);
   const runtime = providerRuntimeFor(effective);
@@ -144,6 +160,8 @@ export function assertRuntimeGenerationSettingsSupported(
 export async function defaultCandidateValidator(
   settings: GenerationSettings
 ): Promise<boolean> {
+  const protocol = providerRuntimeFor(settings).protocol;
+  if (protocol !== undefined && isSubscriptionProtocolV2(protocol)) return true;
   return (await checkModelServer(
     settings,
     undefined,

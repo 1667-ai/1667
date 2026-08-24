@@ -3,12 +3,15 @@ import test from "node:test";
 import { ProviderError } from "../server/errors.js";
 import {
   attachProviderRuntime,
+  legacyGenerationEffortFor,
   providerRuntimeFor,
   providerRuntimeFromV2,
   redactProviderBody,
   redactProviderSecrets,
   resolveProviderHeaders,
-  type ProviderRuntime
+  type ProviderRuntime,
+  type ProviderRuntimeReasoning,
+  type StandardProviderRuntime
 } from "../server/provider-runtime.js";
 import {
   BoundedProviderSseParser,
@@ -19,7 +22,10 @@ import {
   type StreamOutcome
 } from "../server/providers.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
-import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
+import {
+  EMPTY_SAMPLING_V2,
+  type GenerationEffortV2
+} from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { supportsAssistantPrefill } from "../shared/continuation-plan.js";
 import { providerRequestTransportAvailable } from "../server/settings-v2-runtime.js";
@@ -36,6 +42,23 @@ const PROMPT: PromptPlan = {
     }]
   }]
 };
+
+test("provider runtime reasoning keeps schema-4 effort and thinking atomic", () => {
+  const legacy: ProviderRuntimeReasoning = { effort: "off" };
+  const schema4: ProviderRuntimeReasoning = { effort: "max", thinkingMode: "on" };
+  assert.deepEqual(legacy, { effort: "off" });
+  assert.deepEqual(schema4, { effort: "max", thinkingMode: "on" });
+  assert.equal(legacyGenerationEffortFor(providerRuntimeFor(attached({ effort: "off" }))), "off");
+
+  if (false) {
+    // @ts-expect-error Schema-4 effort cannot omit its required Thinking Mode.
+    const missingThinkingMode: ProviderRuntimeReasoning = { effort: "max" };
+    // @ts-expect-error Legacy effort off cannot carry a schema-4 Thinking Mode.
+    const mixedSchemaVersions: ProviderRuntimeReasoning = { effort: "off", thinkingMode: "on" };
+    void missingThinkingMode;
+    void mixedSchemaVersions;
+  }
+});
 
 test("v2 authentication and custom-header references resolve only at dispatch", () => {
   process.env.AI_1667_TEST_NAMED_AUTH = "named-secret";
@@ -121,7 +144,10 @@ test("stored bearer and named-header credentials resolve and enter redaction", (
       assistantPrefill: "unknown",
       reasoningEffort: "unknown",
       promptCaching: "unknown"
-    }, {}, new Map([[auth.secretId, secret]]));
+    }, {
+      environment: {},
+      storedSecrets: new Map([[auth.secretId, secret]])
+    });
     const resolved = resolveProviderHeaders(
       attachProviderRuntime(baseSettings(), runtime),
       {}
@@ -251,7 +277,9 @@ test("v2 runtime uses its bounded credential snapshot, not later process environ
     reasoningEffort: "unknown",
     promptCaching: "unknown"
   }, {
-    AI_1667_SNAPSHOT_KEY: "snapshotted-secret"
+    environment: {
+      AI_1667_SNAPSHOT_KEY: "snapshotted-secret"
+    }
   });
   process.env.AI_1667_SNAPSHOT_KEY = "later-process-value";
   try {
@@ -609,11 +637,12 @@ test("SSE diagnostics redact complete credentials before truncation", async (t) 
 
 test("a stalled provider stream survives its first-token floor and fails at the total deadline", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
-        input.signal.addEventListener("abort", () => controller.error(input.signal.reason), {
+        signal?.addEventListener("abort", () => controller.error(signal.reason), {
           once: true
         });
       }
@@ -701,14 +730,15 @@ test("configured response-header deadline keeps typed timeout provenance", async
 
 test("a stream that sends headers and then stays silent survives past the first-token floor to the total deadline", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     // Headers arrive immediately; the body then never sends anything — a
     // server that flushed headers before hanging mid-prefill, the case
     // provider-sse.ts's first-token phase now has to tolerate.
     return new Response(new ReadableStream({
       start(controller) {
-        input.signal.addEventListener("abort", () => controller.error(input.signal.reason), {
+        signal?.addEventListener("abort", () => controller.error(signal.reason), {
           once: true
         });
       }
@@ -802,12 +832,13 @@ test("caller cancellation is preserved while reading an error body", async (t) =
   const originalFetch = globalThis.fetch;
   let responseStarted!: () => void;
   const started = new Promise<void>((resolve) => { responseStarted = resolve; });
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
-        input.signal.addEventListener("abort", () => {
-          controller.error(input.signal.reason);
+        signal?.addEventListener("abort", () => {
+          controller.error(signal.reason);
         }, { once: true });
         responseStarted();
       }
@@ -825,15 +856,16 @@ test("caller cancellation is preserved while reading an error body", async (t) =
 
 test("caller cancellation stops before draining buffered provider events", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => new Response(new ReadableStream({
+  globalThis.fetch = (async (input, init) => new Response(new ReadableStream({
     start(stream) {
       stream.enqueue(new TextEncoder().encode([
         openAiDelta("first"),
         openAiDelta(" second")
       ].join("")));
       assert.ok(input instanceof Request);
-      input.signal.addEventListener("abort", () => {
-        stream.error(input.signal.reason);
+      const signal = init?.signal ?? input.signal;
+      signal?.addEventListener("abort", () => {
+        stream.error(signal.reason);
       }, { once: true });
     }
   }), {
@@ -854,15 +886,16 @@ test("credentialed cancellation flushes the safe redaction tail", async (t) => {
   process.env.AI_1667_TEST_CANCEL_SECRET = secret;
   t.after(() => { delete process.env.AI_1667_TEST_CANCEL_SECRET; });
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode(
           openAiDelta("abcdefghijklmnopqrstuvwxyz")
         ));
-        input.signal.addEventListener("abort", () => {
-          controller.error(input.signal.reason);
+        signal?.addEventListener("abort", () => {
+          controller.error(signal.reason);
         }, { once: true });
       }
     }), { headers: { "content-type": "text/event-stream" } });
@@ -1021,11 +1054,12 @@ test("OpenAI parameter retries share one total deadline", async (t) => {
 
 test("non-success stream body deadlines preserve the known provider status", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
-        input.signal.addEventListener("abort", () => controller.error(input.signal.reason), {
+        signal?.addEventListener("abort", () => controller.error(signal.reason), {
           once: true
         });
       }
@@ -1057,14 +1091,15 @@ test("non-success stream body deadlines preserve the known provider status", asy
 
 test("usage-only SSE events do not satisfy first activity, so a stall still runs to the total deadline", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode(
           'data: {"usage":{"prompt_tokens":12},"choices":[]}\n\n'
         ));
-        input.signal.addEventListener("abort", () => controller.error(input.signal.reason), {
+        signal?.addEventListener("abort", () => controller.error(signal.reason), {
           once: true
         });
       }
@@ -1099,8 +1134,9 @@ test("usage-only SSE events do not satisfy first activity, so a stall still runs
 
 test("OpenAI-compatible reasoning activity prevents a first-activity timeout without entering story prose", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode(
@@ -1112,9 +1148,9 @@ test("OpenAI-compatible reasoning activity prevents a first-activity timeout wit
           ));
           controller.close();
         }, 30);
-        input.signal.addEventListener("abort", () => {
+        signal?.addEventListener("abort", () => {
           clearTimeout(timer);
-          controller.error(input.signal.reason);
+          controller.error(signal.reason);
         }, { once: true });
       }
     }), { headers: { "content-type": "text/event-stream" } });
@@ -1140,8 +1176,9 @@ test("OpenAI-compatible reasoning activity prevents a first-activity timeout wit
 
 test("Anthropic thinking activity prevents a first-activity timeout without entering story prose", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode(
@@ -1156,9 +1193,9 @@ test("Anthropic thinking activity prevents a first-activity timeout without ente
           ].join("\n\n")));
           controller.close();
         }, 30);
-        input.signal.addEventListener("abort", () => {
+        signal?.addEventListener("abort", () => {
           clearTimeout(timer);
-          controller.error(input.signal.reason);
+          controller.error(signal.reason);
         }, { once: true });
       }
     }), { headers: { "content-type": "text/event-stream" } });
@@ -1304,14 +1341,15 @@ test("streamCompletion without onReasoning drops reasoning deltas silently", asy
 
 test("configured idle deadline aborts after the first stream event", async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     assert.ok(input instanceof Request);
+    const signal = init?.signal ?? input.signal;
     return new Response(new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode(
           'data: {"choices":[{"delta":{"content":"first"}}]}\n\n'
         ));
-        input.signal.addEventListener("abort", () => controller.error(input.signal.reason), {
+        signal?.addEventListener("abort", () => controller.error(signal.reason), {
           once: true
         });
       }
@@ -1760,7 +1798,8 @@ test("complete SSE frames may share a transport chunk larger than the partial-fr
 });
 
 function attached(
-  overrides: Partial<ProviderRuntime> = {},
+  overrides: Omit<Partial<StandardProviderRuntime>, "effort" | "thinkingMode">
+    & { readonly effort?: GenerationEffortV2 } = {},
   settingsOverrides: Partial<GenerationSettings> = {}
 ): GenerationSettings {
   return attachProviderRuntime({ ...baseSettings(), ...settingsOverrides }, {

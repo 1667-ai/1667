@@ -75,8 +75,8 @@ export function timeoutProvenanceOf(
   return null;
 }
 
-/** A startup/runtime failure whose message is explicitly safe and actionable
- * at the local process boundary. Unexpected errors remain private. */
+/** A startup/runtime failure whose message is ready for the local process
+ * boundary. */
 export class PublicRuntimeError extends Error {
   constructor(message: string, options: { readonly cause?: unknown } = {}) {
     super(

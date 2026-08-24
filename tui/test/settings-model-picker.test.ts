@@ -8,6 +8,7 @@ import type {
   ModelDiscoveryResultV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
 import { setComposerText } from "../src/composer-model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
@@ -38,7 +39,7 @@ describe("Settings model picker", () => {
   });
 
   test("reads provider models, cycles them, and accepts a custom name", async () => {
-    const { source, state, cache, press } = settingsHarness();
+    const { source, state, cache, press, backend } = settingsHarness();
     if (!source.settingsView.editable) throw new Error("demo settings must be editable");
     const document = applyBasicSettingsDraft(source.settingsView.document, {
       ...source.settings,
@@ -125,9 +126,13 @@ describe("Settings model picker", () => {
     expect(state.settings?.edit?.row).toBe("model");
     setComposerText(state.settings!.edit!.composer, "private-preview-model");
     await press(key("return"));
+    // The commit clears the stale value synchronously, then a background
+    // probe (unmocked here, so it uses the demo's default reading) lands
+    // automatically.
+    await backend.whenIdle();
     expect(state.settings?.draft.generation).toMatchObject({
       model: "private-preview-model",
-      contextWindow: null
+      contextWindow: 32_768
     });
     rendered = frameText(renderStoryScreen(
       state,
@@ -277,6 +282,7 @@ describe("Settings model picker", () => {
       document: null,
       effective: source.settings,
       effectiveProse: source.settings,
+      activeWriting: writingPromptSettingsFromAuthorBrief(source.settings.systemPrompt),
       lastActivationOutcome: null
     };
     source.settingsView = view;
@@ -348,10 +354,10 @@ describe("Settings model picker", () => {
     const view: SettingsView = {
       ...source.settingsView,
       document: applyBasicModelDiscovery(
-        source.settingsView.document,
+        source.settingsView.document as never,
         discoveryWithContext("novelist-a", 32_768),
         32_768
-      ),
+      ) as never,
       effective: source.settings,
       effectiveProse: source.settings
     };

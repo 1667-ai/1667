@@ -1,11 +1,20 @@
 import { expect, test } from "bun:test";
+import type { KeyEvent } from "@opentui/core";
 import { ActionRuntime } from "../src/action-runtime.js";
-import { initialState } from "../src/app.js";
+import { handleKey, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { handleOverlayAction } from "../src/overlay-actions.js";
 import { commandPaletteModel } from "../src/command-model.js";
 import { createWrapCache } from "../src/wrap.js";
 type ProseStyle = import("../src/wrap.js").ProseStyle;
+
+const key = (name: string): KeyEvent => ({
+  name,
+  sequence: name,
+  shift: false,
+  ctrl: false,
+  meta: false
+}) as KeyEvent;
 
 function context(state: ReturnType<typeof initialState>) {
   return {
@@ -52,8 +61,7 @@ test("activated palette Aside refuses during a live generation", async () => {
     canRewriteSelection: false,
     asideEntryPointsOpen: true
   }).selectable;
-  expect(matches).toHaveLength(1);
-  expect(matches[0]!.command).toMatchObject({
+  expect(matches.find(({ command }) => command.id === "aside")?.command).toMatchObject({
     id: "aside",
     blockedByLiveStream: true
   });
@@ -70,4 +78,28 @@ test("activated palette Aside refuses during a live generation", async () => {
   expect(state.mode).toBe("COMMANDS");
   expect(state.aside).toBeNull();
   expect(reads).toBe(0);
+});
+
+test("a opens Aside from story navigation", async () => {
+  const source = demoAppSource();
+  const state = initialState(source, false);
+  let requestedStoryId: string | null = null;
+  source.api.getAside = async (storyId) => {
+    requestedStoryId = storyId;
+    return { notes: [] };
+  };
+
+  await handleKey(
+    key("a"),
+    state,
+    source,
+    createWrapCache<ProseStyle>(),
+    () => undefined,
+    async () => undefined,
+    () => undefined
+  );
+
+  expect(requestedStoryId).toBe(source.payload.id);
+  expect(state.mode).toBe("ASIDE");
+  expect(state.aside?.storyId).toBe(source.payload.id);
 });

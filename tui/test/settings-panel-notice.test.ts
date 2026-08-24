@@ -48,6 +48,13 @@ test("a short panel keeps what fits of a notice rather than dropping it", () => 
   expect(text).toContain("Server is reachable");
 });
 
+test("a short panel keeps the final overflow instruction", () => {
+  const message = `${"The provider returned a detailed connection error. ".repeat(12)}· R retries`;
+  const text = sentence(panelText(message, 12));
+
+  expect(text).toContain("esc then ! for all of it");
+});
+
 function panelText(message: string, height = 36): string {
   const source = demoAppSource();
   const state = initialState(source, false);

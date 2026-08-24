@@ -10,8 +10,29 @@ import type {
   SettingsProtocolV2,
   SettingsPresetV2
 } from "../shared/settings-v2-types.js";
-import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
+import type { SubscriptionProtocolV2 } from "../shared/settings-v2-types.js";
+import {
+  resolveReasoningPolicy,
+  reasoningAdapterFor,
+  type ReasoningEffort,
+  type ReasoningPolicyResolution,
+  type ReasoningTarget,
+  type ThinkingMode
+} from "../shared/reasoning-capabilities.js";
+import type { GenerationEffortV4 } from "../shared/settings-v4-types.js";
+import type { SubscriptionRuntimeDependencies } from "./subscription-runtime.js";
+import {
+  continuationPromptLayoutForOptimization,
+  type ContinuationPromptLayout,
+  type ContinuationPromptOptimizationV2
+} from "../shared/continuation-prompt-optimization.js";
+import {
+  EMPTY_SAMPLING_V2,
+  GENERATION_EFFORT_V2_VALUES,
+  isSubscriptionProtocolV2
+} from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
+import type { StorySamplingBias } from "./sampling-phrase-bias.js";
 import { defaultConnectionTimeouts } from "../shared/settings-provider-defaults.js";
 import {
   validateProviderSecretValue
@@ -29,10 +50,21 @@ const PROVIDER_SECRET_REDACTORS = new WeakMap<
   (value: string) => string
 >();
 
-export interface ProviderRuntime {
+/** Runtime reasoning controls stay versioned as one value. Schema 2/3 and
+ * legacy attachments have only the V2 effort; schema 4 carries the required
+ * effort/mode pair. The absent `thinkingMode` is the legacy discriminator. */
+export type ProviderRuntimeReasoning =
+  | {
+      readonly effort: GenerationEffortV2;
+      readonly thinkingMode?: never;
+    }
+  | {
+      readonly effort: GenerationEffortV4;
+      readonly thinkingMode: ThinkingMode;
+    };
+
+interface ProviderRuntimeFields {
   readonly preset: SettingsPresetV2;
-  /** Absent only on legacy test/runtime attachments. */
-  readonly protocol?: SettingsProtocolV2;
   /** Text routes use raw prompts when this value is absent. */
   readonly textPromptFormat?: "raw" | "server-template" | "chatml";
   /** From `ModelConnectionV2.splitThinkTags`. A text route otherwise passes
@@ -43,7 +75,6 @@ export interface ProviderRuntime {
   readonly headers: readonly CustomHeaderV2[];
   readonly timeouts: ConnectionTimeoutsV2;
   readonly allowInsecureHttp: boolean;
-  readonly effort: GenerationEffortV2;
   /** Alternative tokens to ask the provider for with each generated token,
    *  from `GenerationProfileV2.tokenProbabilities`. Null means the request
    *  asks for none — the default for every existing and legacy runtime. */
@@ -59,9 +90,28 @@ export interface ProviderRuntime {
    *  resolves an absent profile field to `true` — reasoning is kept —
    *  rather than leaving this field itself absent. */
   readonly keepReasoning?: boolean;
+  /** Resolved continuation prompt layout. Legacy settings and omitted test
+   *  attachments use the v0.8.0 compatibility layout. Real settings runtimes
+   *  always set this value. */
+  readonly continuationPromptLayout?: ContinuationPromptLayout;
   readonly capabilities: ModelCapabilitiesV2;
   readonly sampling: SamplingSettingsV2;
 }
+
+type ProviderRuntimeBase = ProviderRuntimeFields & ProviderRuntimeReasoning;
+
+export type SubscriptionProviderRuntime = ProviderRuntimeBase & {
+  readonly protocol: SubscriptionProtocolV2;
+  readonly subscription: SubscriptionRuntimeDependencies;
+};
+
+export type StandardProviderRuntime = ProviderRuntimeBase & {
+  /** Absent only on legacy test/runtime attachments. */
+  readonly protocol?: Exclude<SettingsProtocolV2, SubscriptionProtocolV2>;
+  readonly subscription?: never;
+};
+
+export type ProviderRuntime = SubscriptionProviderRuntime | StandardProviderRuntime;
 
 type RuntimeSettings = GenerationSettings & {
   readonly [PROVIDER_RUNTIME]?: ProviderRuntime;
@@ -70,6 +120,52 @@ type RuntimeSettings = GenerationSettings & {
 export interface ResolvedProviderHeaders {
   readonly headers: Record<string, string>;
   readonly secrets: readonly string[];
+}
+
+/** Runtime-only inputs resolved alongside one v2 provider connection. */
+export interface ProviderRuntimeOptions {
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly storedSecrets?: ReadonlyMap<string, string>;
+  readonly sampling?: SamplingSettingsV2;
+  readonly tokenProbabilities?: number | null;
+  readonly reasoning?: ReasoningDisplayV2;
+  readonly keepReasoning?: boolean;
+  /** Schema-4 controls use `Schema4ProviderRuntimeOptions` so effort and
+   * thinking mode cannot be supplied as an incomplete pair. */
+  readonly thinkingMode?: never;
+  readonly continuationPromptOptimization?: ContinuationPromptOptimizationV2;
+}
+
+export type Schema4ProviderRuntimeOptions = Omit<ProviderRuntimeOptions, "thinkingMode"> & {
+  readonly thinkingMode: ThinkingMode;
+};
+
+export interface SubscriptionProviderRuntimeOptions extends ProviderRuntimeOptions {
+  readonly subscription: SubscriptionRuntimeDependencies;
+}
+
+type Schema4SubscriptionProviderRuntimeOptions = Omit<SubscriptionProviderRuntimeOptions, "thinkingMode"> & {
+  readonly thinkingMode: ThinkingMode;
+};
+
+export type StandardModelConnectionV2 = Omit<ModelConnectionV2, "protocol"> & {
+  readonly protocol: Exclude<SettingsProtocolV2, SubscriptionProtocolV2>;
+};
+
+export type SubscriptionModelConnectionV2 = Omit<ModelConnectionV2, "protocol"> & {
+  readonly protocol: SubscriptionProtocolV2;
+};
+
+export function isSubscriptionModelConnectionV2(
+  connection: ModelConnectionV2
+): connection is SubscriptionModelConnectionV2 {
+  return isSubscriptionProtocolV2(connection.protocol);
+}
+
+export function isStandardModelConnectionV2(
+  connection: ModelConnectionV2
+): connection is StandardModelConnectionV2 {
+  return !isSubscriptionProtocolV2(connection.protocol);
 }
 
 /** Attach server-only runtime policy without changing the frozen JSON settings
@@ -98,49 +194,177 @@ export function providerRuntimeFor(settings: GenerationSettings): ProviderRuntim
   return (settings as RuntimeSettings)[PROVIDER_RUNTIME] ?? legacyProviderRuntime(settings);
 }
 
+type LegacyProviderRuntime = ProviderRuntime & {
+  readonly effort: GenerationEffortV2;
+  readonly thinkingMode?: never;
+};
+
+type Schema4ProviderRuntime = ProviderRuntime & {
+  readonly effort: GenerationEffortV4;
+  readonly thinkingMode: ThinkingMode;
+};
+
+function isLegacyProviderRuntime(
+  runtime: ProviderRuntime
+): runtime is LegacyProviderRuntime {
+  return runtime.thinkingMode === undefined;
+}
+
+export function isSchema4ProviderRuntime(
+  runtime: ProviderRuntime
+): runtime is Schema4ProviderRuntime {
+  return runtime.thinkingMode !== undefined;
+}
+
+/** Narrow a runtime before it reaches a schema-2/3 or legacy serializer. */
+export function legacyGenerationEffortFor(
+  runtime: ProviderRuntime
+): GenerationEffortV2 {
+  if (!isLegacyProviderRuntime(runtime)) {
+    throw new ProviderError("The legacy provider runtime cannot lower schema-4 reasoning controls.");
+  }
+  return runtime.effort;
+}
+
+/** Build the canonical capability target for one final request. The adapter
+ * identity uses protocol, preset, and the exact official HTTPS host; it never
+ * trusts a model name to classify a compatible endpoint. */
+export function providerReasoningTarget(settings: GenerationSettings): ReasoningTarget {
+  const runtime = providerRuntimeFor(settings);
+  const protocol = runtime.protocol ?? (
+    settings.provider === "dry-run"
+      ? "dry-run"
+      : settings.provider === "anthropic"
+        ? "anthropic-messages"
+        : settings.provider === "text-completion"
+          ? "text-completions"
+          : "openai-chat-completions"
+  );
+  return {
+    adapter: reasoningAdapterFor(protocol, runtime.preset, settings.baseUrl),
+    protocol,
+    preset: runtime.preset,
+    remoteModelId: settings.model,
+    reasoningEffort: runtime.capabilities.reasoningEffort,
+    temperature: runtime.capabilities.temperature
+  };
+}
+
+/** Resolve schema-4 reasoning only when the runtime carries the new pair.
+ * Legacy/schema-2/schema-3 attachments return null and keep their historical
+ * lowering until the settings runtime is upgraded. */
+export function providerReasoningPolicyFor(
+  settings: GenerationSettings,
+  storySampling?: Pick<StorySamplingBias, "phraseBias" | "bannedStrings">
+): ReasoningPolicyResolution | null {
+  const runtime = providerRuntimeFor(settings);
+  if (!isSchema4ProviderRuntime(runtime)) return null;
+  return resolveReasoningPolicy({
+    target: providerReasoningTarget(settings),
+    effort: runtime.effort,
+    thinkingMode: runtime.thinkingMode,
+    temperature: settings.temperature,
+    sampling: runtime.sampling,
+    tokenProbabilities: runtime.tokenProbabilities,
+    ...(storySampling === undefined ? {} : {
+      storySampling: {
+        phraseBias: storySampling.phraseBias.length > 0,
+        bannedStrings: storySampling.bannedStrings.length > 0
+      }
+    }),
+    reasoningDisplay: runtime.reasoning,
+    keepReasoning: runtime.keepReasoning
+  });
+}
+
+export function isSubscriptionProviderRuntime(
+  runtime: ProviderRuntime
+): runtime is SubscriptionProviderRuntime {
+  return runtime.protocol !== undefined && isSubscriptionProtocolV2(runtime.protocol);
+}
+
 export function hasProviderRuntime(settings: GenerationSettings): boolean {
   return (settings as RuntimeSettings)[PROVIDER_RUNTIME] !== undefined;
 }
 
 export function providerRuntimeFromV2(
+  connection: StandardModelConnectionV2,
+  effort: GenerationEffortV2,
+  capabilities: ModelCapabilitiesV2,
+  options?: ProviderRuntimeOptions
+): StandardProviderRuntime;
+export function providerRuntimeFromV2(
+  connection: StandardModelConnectionV2,
+  effort: GenerationEffortV4,
+  capabilities: ModelCapabilitiesV2,
+  options: Schema4ProviderRuntimeOptions
+): StandardProviderRuntime;
+export function providerRuntimeFromV2(
+  connection: SubscriptionModelConnectionV2,
+  effort: GenerationEffortV2,
+  capabilities: ModelCapabilitiesV2,
+  options: SubscriptionProviderRuntimeOptions
+): SubscriptionProviderRuntime;
+export function providerRuntimeFromV2(
+  connection: SubscriptionModelConnectionV2,
+  effort: GenerationEffortV4,
+  capabilities: ModelCapabilitiesV2,
+  options: Schema4SubscriptionProviderRuntimeOptions
+): SubscriptionProviderRuntime;
+export function providerRuntimeFromV2(
   connection: ModelConnectionV2,
   effort: GenerationEffortV2,
   capabilities: ModelCapabilitiesV2,
-  environment?: NodeJS.ProcessEnv,
-  storedSecrets?: ReadonlyMap<string, string>,
-  sampling: SamplingSettingsV2 = EMPTY_SAMPLING_V2,
-  tokenProbabilities: number | null = null,
-  reasoning: ReasoningDisplayV2 = "marker",
-  keepReasoning = true
+  options: SubscriptionProviderRuntimeOptions
+): ProviderRuntime;
+export function providerRuntimeFromV2(
+  connection: ModelConnectionV2,
+  effort: GenerationEffortV4,
+  capabilities: ModelCapabilitiesV2,
+  options: Schema4ProviderRuntimeOptions | Schema4SubscriptionProviderRuntimeOptions
+): ProviderRuntime;
+export function providerRuntimeFromV2(
+  connection: ModelConnectionV2,
+  effort: ReasoningEffort | GenerationEffortV2,
+  capabilities: ModelCapabilitiesV2,
+  options: ProviderRuntimeFactoryOptions = {}
 ): ProviderRuntime {
-  const runtime: ProviderRuntime = {
+  const reasoning = providerRuntimeReasoningFor(effort, options);
+  const base: ProviderRuntimeBase = {
     preset: connection.preset,
-    protocol: connection.protocol,
     textPromptFormat: connection.textPromptFormat ?? "raw",
     splitThinkTags: connection.splitThinkTags === true,
     auth: connection.auth,
     headers: connection.headers,
     timeouts: connection.timeouts,
     allowInsecureHttp: connection.allowInsecureHttp === true,
-    effort,
-    tokenProbabilities,
-    reasoning,
-    keepReasoning,
+    ...reasoning,
+    tokenProbabilities: options.tokenProbabilities ?? null,
+    reasoning: options.reasoning ?? "marker",
+    keepReasoning: options.keepReasoning ?? true,
+    continuationPromptLayout: continuationPromptLayoutForOptimization(options.continuationPromptOptimization),
     capabilities,
-    sampling
+    sampling: options.sampling ?? EMPTY_SAMPLING_V2
   };
-  if (environment !== undefined || storedSecrets !== undefined) {
+  const runtime: ProviderRuntime = isSubscriptionProtocolV2(connection.protocol)
+    ? {
+        ...base,
+        protocol: connection.protocol,
+        subscription: subscriptionDependencies(options)
+      }
+    : { ...base, protocol: connection.protocol };
+  if (options.environment !== undefined || options.storedSecrets !== undefined) {
     const slots = new Map<string, string>();
     for (const reference of credentialReferences(connection)) {
       if (reference.kind === "env") {
-        if (environment !== undefined) {
-          const value = environmentCredential(environment, reference.name);
+        if (options.environment !== undefined) {
+          const value = environmentCredential(options.environment, reference.name);
           if (value !== undefined) {
             slots.set(environmentSlotKey(reference.name), value);
           }
         }
       } else {
-        const stored = storedSecrets?.get(reference.secretId);
+        const stored = options.storedSecrets?.get(reference.secretId);
         if (stored !== undefined) {
           slots.set(storedSlotKey(reference.secretId), stored);
         }
@@ -149,6 +373,45 @@ export function providerRuntimeFromV2(
     PROVIDER_CREDENTIALS.set(runtime, slots);
   }
   return runtime;
+}
+
+type ProviderRuntimeFactoryOptions =
+  | ProviderRuntimeOptions
+  | Schema4ProviderRuntimeOptions
+  | SubscriptionProviderRuntimeOptions
+  | Schema4SubscriptionProviderRuntimeOptions;
+
+function providerRuntimeReasoningFor(
+  effort: ReasoningEffort | GenerationEffortV2,
+  options: ProviderRuntimeFactoryOptions
+): ProviderRuntimeReasoning {
+  if (options.thinkingMode === undefined) {
+    if (!isGenerationEffortV2(effort)) {
+      throw new ProviderError(
+        "Schema-4 reasoning requires Thinking Mode when effort is not a legacy value."
+      );
+    }
+    return { effort };
+  }
+  if (effort === "off") {
+    throw new ProviderError("Schema-4 reasoning does not support legacy effort off.");
+  }
+  return { effort, thinkingMode: options.thinkingMode };
+}
+
+function isGenerationEffortV2(
+  effort: ReasoningEffort | GenerationEffortV2
+): effort is GenerationEffortV2 {
+  return (GENERATION_EFFORT_V2_VALUES as readonly string[]).includes(effort);
+}
+
+function subscriptionDependencies(
+  options: ProviderRuntimeFactoryOptions
+): SubscriptionRuntimeDependencies {
+  if (!("subscription" in options)) {
+    throw new ProviderError("Subscription credential storage is unavailable.");
+  }
+  return options.subscription;
 }
 
 export function resolveProviderHeaders(
@@ -506,6 +769,7 @@ function legacyProviderRuntime(settings: GenerationSettings): ProviderRuntime {
     tokenProbabilities: null,
     reasoning: "marker",
     keepReasoning: true,
+    continuationPromptLayout: "compatibility",
     sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature: "unknown",

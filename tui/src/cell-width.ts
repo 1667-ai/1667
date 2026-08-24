@@ -11,6 +11,11 @@ const EMOJI_PRESENTATION = /\p{Emoji_Presentation}|\p{Regional_Indicator}/u;
 const KEYCAP = /\u20E3/u;
 const PRINTABLE_ASCII = /^[\x20-\x7E]*$/;
 
+/** Maximum UTF-16 units passed to Intl.Segmenter for one presentation probe.
+ *  A provider can make one grapheme arbitrarily large with combining marks.
+ *  Keep that input bounded even when the pending stream is much larger. */
+export const MAX_GRAPHEME_PROBE_UNITS = 256;
+
 // A writer types a no-break space to hold two words on one row, so it is the
 // one whitespace a wrap must not break at. U+FEFF is already zero width, and
 // it joins the set for the same reason.
@@ -30,6 +35,66 @@ export interface GraphemeCell {
 
 export function graphemeCells(text: string): GraphemeCell[] {
   return [...iterateGraphemeCells(text)];
+}
+
+export interface GraphemePrefixOptions {
+  /** Include one atomic grapheme that exceeds the limit. */
+  includeOversized?: boolean;
+  /** Keep the final grapheme so a later provider delta can extend it. */
+  retainLast?: boolean;
+}
+
+/** Return a complete grapheme prefix within `limit` UTF-16 units. */
+export function graphemePrefixLength(
+  text: string,
+  limit: number,
+  options: GraphemePrefixOptions = {}
+): number {
+  const { includeOversized = false, retainLast = false } = options;
+  const bounded = Math.max(0, Math.min(text.length, Math.floor(limit)));
+  if (bounded === 0 || text.length === 0) return 0;
+  if (bounded >= text.length && !retainLast) {
+    return highSurrogate(text.charCodeAt(text.length - 1)) ? text.length - 1 : text.length;
+  }
+  if (bounded >= text.length
+    && text.length >= 2
+    && printableAscii(text.charCodeAt(text.length - 2))
+    && printableAscii(text.charCodeAt(text.length - 1))) {
+    return text.length - 1;
+  }
+  if (printableAscii(text.charCodeAt(bounded - 1))
+    && printableAscii(text.charCodeAt(bounded))) return bounded;
+
+  // Segment only a bounded probe. A segment whose end touches a truncated
+  // probe may continue in the pending text, so keep it quarantined. This is
+  // conservative by design: presentation must never draw a partial grapheme
+  // merely because a provider supplied an oversized combining sequence.
+  let probeEnd = Math.min(text.length, MAX_GRAPHEME_PROBE_UNITS);
+  if (highSurrogate(text.charCodeAt(probeEnd - 1))) probeEnd -= 1;
+  if (probeEnd <= 0) return 0;
+  const probe = text.slice(0, probeEnd);
+  const truncated = probeEnd < text.length;
+  let boundary = 0;
+  let lastStart = 0;
+  let previousStart = 0;
+  for (const entry of GRAPHEMES.segment(probe)) {
+    const end = entry.index + entry.segment.length;
+    // The final segment of a truncated probe is not known to be complete.
+    // Do not include it as an oversized atomic unit, and do not count it as
+    // the last confirmed boundary for a non-terminal presentation step.
+    if (end > bounded) {
+      const complete = !truncated || end < probeEnd;
+      return boundary === 0 && includeOversized && complete ? end : boundary;
+    }
+    if (truncated && end === probeEnd) return boundary;
+    previousStart = lastStart;
+    lastStart = entry.index;
+    boundary = end;
+  }
+  if (!retainLast) return boundary;
+  return highSurrogate(text.charCodeAt(text.length - 1))
+    ? previousStart
+    : lastStart;
 }
 
 /** Lazy form used by bounded rendering work so large paragraphs can yield
@@ -84,6 +149,10 @@ function graphemeWidth(grapheme: string): number {
 
 function printableAscii(code: number): boolean {
   return code >= 0x20 && code <= 0x7e;
+}
+
+function highSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
 }
 
 function isFullwidthCodePoint(codePoint: number): boolean {

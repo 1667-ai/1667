@@ -20,6 +20,7 @@ import {
   MemoryHttpMutationIntentStore
 } from "../src/http-mutation-intents.js";
 import { DEMO_SETTINGS_DOCUMENT, DEMO_SETTINGS_VIEW } from "../src/demo.js";
+import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
 import { HTTP_AUTHORIZATION_HEADER } from "../../shared/http-auth.js";
 import {
   HTTP_OPERATION_LIFETIME_MS,
@@ -766,6 +767,7 @@ test("HTTP StoryApi rejects malformed successful responses for every response fa
       model: "cafe\u0301",
       systemPrompt: "Continue cafe\u0301."
     },
+    activeWriting: writingPromptSettingsFromAuthorBrief("Continue cafe\u0301."),
     lastActivationOutcome: null
   };
   response = legacyView;
@@ -1516,6 +1518,22 @@ test("HTTP StoryApi rejects DNS loopback before compatibility fetch", async () =
   expect(error instanceof Error).toBeTrue();
   expect((error as Error).message).toContain("canonical numeric loopback");
   expect(calls).toEqual([]);
+});
+
+test("HTTP StoryApi rejects a protocol-22 server before Settings decodes subscription auth", async () => {
+  const calls: string[] = [];
+  globalThis.fetch = (async (input) => {
+    calls.push(String(input));
+    return Response.json(metadata(undefined, {
+      apiProtocolVersion: 22,
+      minClientProtocolVersion: 22,
+      maxClientProtocolVersion: 22
+    }));
+  }) as typeof fetch;
+
+  const failure = await rejection(createApi("http://127.0.0.1:7373").listStories());
+  expect((failure as Error).message).toContain("Incompatible");
+  expect(calls).toEqual(["http://127.0.0.1:7373/api/health"]);
 });
 
 test("HTTP StoryApi rejects an older compatibility range and malformed metadata", async () => {

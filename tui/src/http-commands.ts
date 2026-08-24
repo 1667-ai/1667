@@ -30,7 +30,7 @@ import { attachHttpServer } from "./http-attach.js";
 import { refuseSealedVaultForHttp } from "../../server/vault-access-policy.js";
 
 export async function runHttpCommand(argv: string[]): Promise<boolean> {
-  if (argv[0] === "auth") {
+  if (argv[0] === "auth" && argv[1] === "show") {
     await runAuthShow(argv.slice(1));
     return true;
   }

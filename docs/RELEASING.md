@@ -41,7 +41,7 @@ This document uses these Technical Names:
 | platform package | A package that contains one native executable |
 | candidate | A possible release package that the workflow has not published |
 | Installer | A Shell Installer or a PowerShell Installer |
-| Shell Installer | A channel-specific release script that installs one native executable |
+| Shell Installer | A channel-specific release script that installs or updates one native executable |
 | PowerShell Installer | A Windows release script that installs one native executable |
 | Managed Installation | An installation that an Installer creates and registers |
 | Ownership Record | The durable file that grants 1667 authority to replace one executable |
@@ -144,17 +144,21 @@ Each of the six release packages contains these files:
 - `LICENSE`
 - `NOTICE`
 
-The pack step copies `LICENSE` and `NOTICE` from the repository root. Do not
-change these two files for one package. All six packages must contain the same
-bytes.
+The pack step copies `LICENSE` from the repository root. It writes the
+0.9.9-compatible `NOTICE` bytes to every npm package. Do not change the npm
+package notice. An installed 0.9.9 updater can then accept a later package.
 
-Preflight pins both files to reviewed digests held in
-`scripts/release-package-manifests.ts`, and rejects any package whose `LICENSE`
-or `NOTICE` entry does not match. Comparing the six packages with each other
-would only prove they agree, which staging the same wrong or truncated file six
-times also satisfies. Editing either file therefore requires updating the pinned
-digests in the same commit; a test compares the pins against the repository
-files, so a stale pin fails the build.
+The product entry in each `sbom.spdx.json` contains the current repository
+notice in its SPDX `attributionTexts` field. Update that attribution when the
+repository `NOTICE` changes. A test compares the attribution with the
+repository file. Preflight rejects a packaged SBOM that does not contain the
+current notice attribution.
+
+GitHub Release Archives keep the current repository `NOTICE`. Preflight pins
+the npm package files and the archive files to reviewed digests held in
+`scripts/release-package-manifests.ts`. It rejects a missing, substituted, or
+truncated file. Editing `LICENSE` or either notice requires updating the
+relevant pinned digest in the same commit.
 
 The Apache License, Version 2.0 makes this content necessary. Section 4(a)
 requires a copy of the licence for each recipient of the work. Section 4(d)
@@ -536,8 +540,15 @@ The launcher job does not rebuild native executables. The `publish` job does
 not rebuild them either.
 
 A Managed Installation writes `.1667-install.json` next to the executable. Only
-a valid Ownership Record grants installation authority. npm, source, and copied
-installations stay read-only to `1667 upgrade`.
+a valid Ownership Record grants replacement authority to a Shell Installer or
+`1667 upgrade`. npm, source, and copied installations stay read-only to
+`1667 upgrade`.
+
+The Shell Installer can run again in the Install Root that it created. It
+updates only a valid Shell Managed Installation. It verifies the Ownership
+Record, preserves the `installationId`, retains the previous executable for
+rollback, and sets the selected Installer channel. It refuses an unmanaged
+executable, an invalid Ownership Record, or ambiguous transaction state.
 
 `1667 upgrade` downloads the Platform Package from the canonical npm registry.
 It shows download progress when standard error is a terminal. It writes no
@@ -571,7 +582,12 @@ command again for an upgrade. The PowerShell Installer keeps the Installation
 ID. The PowerShell Installer shows archive download progress. Windows does not
 support `1667 upgrade --rollback`.
 
-Background update checks stay notify-only. They never install a Candidate.
+Background update checks are on by default. A user can turn them off in
+Settings. The check reads public package metadata from the npm registry. It
+does not send story, prompt, account, or configuration data. The check stays
+notify-only. It never installs a Candidate. A notice shows `1667 upgrade` only
+when a valid Ownership Record identifies a Managed Installation. Other notices
+show only the new version.
 
 The homepage must serve bytes that match one attested channel Installer for the
 promoted release.
@@ -625,7 +641,7 @@ The command does these checks:
 3. It verifies the up-to-date result from `1667 upgrade --check` and
    `1667 upgrade`.
 4. It executes the verified homepage bytes in the same prefix again. It
-   verifies that the script refuses the existing executable.
+   verifies that the script keeps the active bytes and the `installationId`.
 5. It executes `1667 upgrade --rollback` without a previous executable. It
    verifies the error result and the active executable.
 6. It downloads and verifies the previous installer script. It executes the
@@ -633,7 +649,9 @@ The command does these checks:
    Record.
 7. It copies the previous executable without the Ownership Record. It verifies
    that `1667 upgrade` does not replace the copy.
-8. It upgrades the previous Managed Installation. It verifies upgrade,
+8. It runs the current Shell Installer against the previous Managed
+   Installation. It verifies the current identity, the preserved
+   `installationId`, and the retained previous executable. It then verifies
    rollback, re-upgrade, no-op, and channel-change results. The beta channel can
    hold a release that is more recent than the stable channel. The command first
    asks the beta channel what it offers. It then verifies the applied result

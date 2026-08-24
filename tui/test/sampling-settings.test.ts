@@ -48,6 +48,7 @@ describe("Sampling Settings user flow", () => {
     await openSettings(press);
 
     expect(state.settings?.sampling).toBe(null);
+    await selectRow(press, state, "sampling");
     const collapsed = render(state, 120, 36);
     expect(collapsed).toContain("sampling");
     expect(collapsed).not.toContain("┏━ sampling");
@@ -1177,7 +1178,7 @@ function publishSamplingRefresh(
   const profileId = current.document.routing.default;
   const profile = current.document.profiles[profileId];
   if (profile === undefined) throw new Error("default profile is missing");
-  const document = applySamplingSettings(current.document, {
+  const document = applySamplingSettings(current.document as never, {
     ...(profile.sampling ?? EMPTY_SAMPLING_V2),
     topP
   });
@@ -1186,7 +1187,7 @@ function publishSamplingRefresh(
     ...current,
     stateGeneration: current.stateGeneration + 1,
     activeRevision: current.activeRevision + 1,
-    document,
+    document: document as never,
     effective
   });
 }

@@ -12,11 +12,12 @@ interface WorkerUserCancellationOptions {
   worker: WorkerLike;
   outbox: SerializedWorkerOutbox;
   graceMs: number;
+  persistenceTimeoutMs: number;
   fail(message: string, cause?: unknown): void;
 }
 
 /** Durably records caller cancellation, delivers it, then, for a mutation,
- * requires terminal worker evidence within a fixed grace period. A
+ * requires terminal worker evidence or a responsive running status. A
  * non-mutating call is read-only advisory: once delivery succeeds, the local
  * call retires immediately, and any worker delta or terminal that arrives
  * for it afterward lands on an unknown ID, which the transport already
@@ -38,9 +39,9 @@ export function cancelPendingWorkerRequest(
   const persistenceTimer = setTimeout(() => {
     if (!options.pendingRequests.isCurrent(pending)) return;
     options.fail(
-      `Embedded backend ${pending.method} cancellation was not durably recorded within ${options.graceMs} ms`
+      `Embedded backend ${pending.method} cancellation was not durably recorded within ${options.persistenceTimeoutMs} ms`
     );
-  }, options.graceMs);
+  }, options.persistenceTimeoutMs);
   void options.outbox.runIndependent(() => store.cancel(mutationId)).then(
     () => {
       clearTimeout(persistenceTimer);
@@ -79,7 +80,7 @@ function deliverCancellation(
     retireDeliveredCancellation(options, pending);
     return;
   }
-  armGrace(options, pending, "did not reach terminal state");
+  armStatusCheck(options, pending);
 }
 
 /** A non-mutating call has nothing to fence: there is no durable intent to
@@ -95,17 +96,31 @@ function retireDeliveredCancellation(
   pending.resolve(null);
 }
 
-function armGrace(
+function armStatusCheck(
   options: WorkerUserCancellationOptions,
-  pending: PendingCall,
-  outcome: string
+  pending: PendingCall
 ): void {
-  pending.startCancellationGrace(options.graceMs, () => {
+  const check = () => {
     if (!canDeliverCancellation(options, pending)) return;
-    options.fail(
-      `Embedded backend ${pending.method} cancellation ${outcome} within ${options.graceMs} ms`
-    );
-  });
+    if (pending.cancellationStatusPending) {
+      options.fail(
+        `Embedded backend ${pending.method} stopped responding after cancellation within ${options.graceMs} ms`
+      );
+      return;
+    }
+    pending.cancellationStatusPending = true;
+    try {
+      options.worker.postMessage({ type: "status", id: pending.id });
+    } catch (error) {
+      options.fail(
+        `Embedded backend ${pending.method} cancellation status could not be requested`,
+        error
+      );
+      return;
+    }
+    pending.continueCancellationGrace(options.graceMs, check);
+  };
+  pending.startCancellationGrace(options.graceMs, check);
 }
 
 function canDeliverCancellation(

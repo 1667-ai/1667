@@ -166,7 +166,8 @@ function fakeHandoff(model: string): GenerationRecordHandoff {
     effective: { wireProtocol: "dry-run", fields: [], adjustments: [] },
     entries: { ok: true, entries: [] },
     emittedRawDigest: sha256(""),
-    emittedTrimmedDigest: sha256("")
+    emittedTrimmedDigest: sha256(""),
+    reasoning: null
   };
 }
 
@@ -202,6 +203,17 @@ test("fixed-context admission checks a note-only prompt and names its owner", ()
       && error.message.includes("Author's Note")
   );
   assert.doesNotThrow(() => assertFixedContextFits(settings, [], null, []));
+});
+
+test("fixed-context admission measures guidance with no Facts or Author's Note", () => {
+  const settings = smallWindowSettings();
+  assert.throws(
+    () => assertFixedContextFits(settings, [], null, ["x".repeat(400)]),
+    (error) => error instanceof ServiceError
+      && error.status === 400
+      && error.message.includes("request prompt")
+      && error.message.includes("operation guidance")
+  );
 });
 
 test("fixed-context admission names the priority-marking remedy when nothing was droppable at all", () => {

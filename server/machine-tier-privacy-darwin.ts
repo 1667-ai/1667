@@ -54,10 +54,13 @@ export async function assertNoDarwinExtendedAllow(
     if (Number(acl) === 0) {
       // Darwin reports ENOENT when a valid open file has no extended ACL.
       // The descriptor makes this distinct from a missing or replaced path.
-      if (readDarwinErrno(ffi, libc) === DARWIN_ENOENT) return;
-      throw privacyError(target, label);
+      const errno = readDarwinErrno(ffi, libc);
+      if (errno === DARWIN_ENOENT) return;
+      throw privacyError(target, label,
+        `the scan read errno ${errno} for a file without an extended ACL`);
     }
     let selector = ACL_FIRST_ENTRY;
+    let entryIndex = 0;
     for (;;) {
       const result = Number(libc.symbols.acl_get_entry!(
         acl,
@@ -65,19 +68,28 @@ export async function assertNoDarwinExtendedAllow(
         ffi.ptr(entry)
       ));
       if (result === -1) return;
-      if (result !== 0) throw privacyError(target, label);
+      if (result !== 0) {
+        throw privacyError(target, label,
+          `the scan could not read entry ${entryIndex}`);
+      }
       selector = ACL_NEXT_ENTRY;
+      entryIndex += 1;
       const entryPointer = Number(entry.readBigUInt64LE());
-      if (entryPointer === 0
-        || Number(libc.symbols.acl_get_tag_type!(
-          entryPointer,
-          ffi.ptr(tag)
-        )) !== 0) {
-        throw privacyError(target, label);
+      if (entryPointer === 0) {
+        throw privacyError(target, label,
+          `entry ${entryIndex - 1} carried no tag pointer`);
+      }
+      if (Number(libc.symbols.acl_get_tag_type!(
+        entryPointer,
+        ffi.ptr(tag)
+      )) !== 0) {
+        throw privacyError(target, label,
+          `the scan could not read entry ${entryIndex - 1}'s tag type`);
       }
       const tagType = tag.readInt32LE();
       if (tagType !== ACL_EXTENDED_DENY) {
-        throw privacyError(target, label);
+        throw privacyError(target, label,
+          `entry ${entryIndex - 1} has tag ${tagType}, not a deny entry`);
       }
     }
   } finally {
@@ -99,10 +111,11 @@ function readDarwinErrno(
   return new DataView(bytes).getInt32(0, true);
 }
 
-function privacyError(target: string, label: string): ServiceError {
+function privacyError(target: string, label: string, detail: string): ServiceError {
   return new ServiceError(
     409,
-    `1667 ${label} has an unsupported Darwin extended ACL: ${target}`,
+    `1667 ${label} has an unsupported Darwin extended ACL: ${target}. `
+      + `The scan refused it because it ${detail}.`,
     "data_directory_unowned"
   );
 }

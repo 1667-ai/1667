@@ -17,6 +17,7 @@ import { isChapterSummary } from "../../shared/story-tree.js";
 import { estimateTokens } from "../../shared/tokens.js";
 import { isChapterSummaryNodeStub, type StoryPayload } from "../../shared/types.js";
 import type { StoryImageAttachment } from "../../shared/image-attachment.js";
+import type { ContinuationPromptLayout } from "../../shared/continuation-prompt-optimization.js";
 import {
   estimateImageTokens,
   resolveImageInputCapability,
@@ -102,7 +103,12 @@ interface NextRequestBaseContext {
   systemPrompt: string;
   /** Current COMPOSE draft; NAV passes an empty string for an empty Continue. */
   instruction: string;
+  /** Active Default Continue direction. Omission keeps `Continue the story.` */
+  defaultContinueDirection?: string;
   assistantPrefill: boolean;
+  /** Active prose route's resolved continuation layout. Omission keeps the
+   *  compatibility projection used by older callers and tests. */
+  continuationPromptLayout?: ContinuationPromptLayout;
   /** The configured model window and output cap — the same two settings
    *  fields server/generation-admission.ts reads to decide whether Facts
    *  need to be shed for window pressure. Required so that decision can be
@@ -142,7 +148,13 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
   const regenerateNode = request.operation === "continue"
     ? null
     : payload.path.find((node) => node.id === request.targetId) ?? null;
-  const intent = continuationIntent(payload, request.targetId, request.instruction, regenerateNode);
+  const intent = continuationIntent(
+    payload,
+    request.targetId,
+    request.instruction,
+    regenerateNode,
+    request.defaultContinueDirection
+  );
   // The same candidate selection shared/fact-selection.ts's activeBudgetedFacts
   // runs for a real request — StoryPayload satisfies its structural
   // FactsBudgetSource parameter the same way Story does, so this meter's
@@ -168,7 +180,8 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     null,
     payload.chapterBreaks,
     promptNodes(payload),
-    request.draftImages ?? []
+    request.draftImages ?? [],
+    request.continuationPromptLayout
   );
   // The same window-pressure selection server/generation-admission.ts's
   // assertFixedContextFits runs on the real request (shared/fact-admission.ts's

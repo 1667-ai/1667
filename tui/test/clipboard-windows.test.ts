@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { budgetTimeout } from "../../test/performance-budget.js";
 import { MAX_SOURCE_IMAGE_BYTES } from "../../shared/image-attachment.js";
 import { runClipboardHelperProcess, type ClipboardCommandRunner } from "../src/clipboard-command-runner.js";
 import {
@@ -67,6 +68,48 @@ describe("Windows clipboard image read, through the injectable seam", () => {
   });
 });
 
+/**
+ * The real helper's measured healthy wall cost, rounded up. `budgetTimeout`
+ * takes this as setup work that no budget measures, because this file has no
+ * budget for the helper: it checks the helper's reply, not its speed.
+ */
+const REAL_HELPER_WALL_MS = 1_000;
+
+/**
+ * The deadline for one real helper run. This is a hang guard, not a
+ * performance budget. Nothing in this file measures how fast the helper runs.
+ *
+ * The old deadline was a flat 5 seconds, and it failed the CI job at random
+ * (issue #267). Across 40 healthy Windows CI runs, the helper measured 470ms
+ * to 2,196ms, with a median of 696ms. Every failed run measured between
+ * 5,031ms and 5,757ms. The gap between those two ranges shows a crossed
+ * deadline, not slow work. A hosted runner shares its cores with other jobs,
+ * and its process starts and its disk reads change speed by a large factor.
+ * One local run under heavy load measured 9,208ms, and the helper still gave
+ * the correct NO_IMAGE reply with no error. That delay comes from the runner,
+ * not from the product, which is the failure `test/performance-budget.ts`
+ * describes at its top. `budgetTimeout` supplies the contention slack that
+ * covers it.
+ *
+ * Windows sets a second, larger limit of its own. A clipboard read can wait
+ * up to 30 seconds for a delayed-render owner, and Windows does not let a
+ * caller change that limit. The old 5-second deadline was below the
+ * platform's own worst case. This deadline stays above it.
+ */
+const REAL_HELPER_DEADLINE_MS = budgetTimeout([], REAL_HELPER_WALL_MS);
+
+/**
+ * The per-test timeout for the real helper test. This stays above the
+ * helper deadline, so a wedged helper fails on the assertions below
+ * instead of on an opaque test timeout.
+ *
+ * `tui/src/clipboard-windows.ts` keeps its own, much smaller deadline for
+ * the same helper. That deadline is a product decision: a paste holds the
+ * TUI input queue until the helper answers. This deadline only stops a
+ * wedged test.
+ */
+const REAL_HELPER_TEST_TIMEOUT_MS = REAL_HELPER_DEADLINE_MS * 2;
+
 describe("Windows clipboard image read, on a real machine", () => {
   test.skipIf(process.platform !== "win32")(
     "returns no image when the clipboard holds no image, proven through the real helper",
@@ -82,12 +125,13 @@ describe("Windows clipboard image read, on a real machine", () => {
       // code did not throw, and the clipboard genuinely held no image, all
       // in one command.
       const { error, stdout } = await runClipboardHelperProcess(windowsClipboardImageCommand(), {
-        timeoutMs: 5_000,
+        timeoutMs: REAL_HELPER_DEADLINE_MS,
         maxBuffer: Math.ceil((MAX_SOURCE_IMAGE_BYTES * 4) / 3) + 4_096
       });
       expect(error).toBeNull();
       expect(stdout.trim()).toBe("NO_IMAGE");
-    }
+    },
+    REAL_HELPER_TEST_TIMEOUT_MS
   );
 
   test.skipIf(process.platform !== "win32")(

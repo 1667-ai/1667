@@ -65,11 +65,11 @@ import type {
 import type {
   DiscardPendingSettingsCommand,
   ModelDiscoveryResultV2,
-  ProviderProbeTarget,
   SaveSettingsCommand,
   SettingsMutationResult,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import type { ProviderProbeTarget } from "../../shared/provider-probe-route-v1.js";
 import type { ChatMessage } from "../../shared/prompt-plan.js";
 import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 import {

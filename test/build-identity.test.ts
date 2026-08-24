@@ -40,11 +40,15 @@ test("source identity is explicit and cannot masquerade as a packaged build", ()
   // server, and a v19 client collapses every image code it does not know to
   // `internal`, so it cannot tell a writer that a Draft Lease expired. v21
   // adds Aside routes, Aside failure codes, and the Markdown export fidelity
-  // contract. An older peer must fail at preflight.
+  // contract. v22 adds the active prose continuation layout to Settings. v23
+  // adds machine-tier subscription sign-in state to Settings. v24 adds the
+  // closed `pi-catalog` model-discovery source. v25 adds the Settings
+  // read-only reason. v26 adds required activeWriting, ProviderProbeRouteV1,
+  // and Settings schema 5. An older peer must fail at preflight.
   assert.equal(
     HTTP_API_PROTOCOL_VERSION,
-    21,
-    "Aside routes, failure codes, and export fidelity require HTTP API v21"
+    26,
+    "Configurable writing prompts require HTTP API v26"
   );
   const source = createSourceBuildIdentity("1.2.3");
   assert.deepEqual(source, {

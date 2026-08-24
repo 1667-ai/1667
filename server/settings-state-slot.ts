@@ -10,48 +10,55 @@ import type {
   SettingsStateV2,
   SettingsStateV3
 } from "../shared/settings-v2-types.js";
-import { decodeCanonicalUtf8 } from "./canonical-json.js";
+import type { SettingsStateV4 } from "../shared/settings-v4-types.js";
+import type { SettingsStateV5 } from "../shared/settings-v5-types.js";
+import { MAX_SETTINGS_STATE_V5_BYTES } from "../shared/settings-v5-limits.js";
+import { canonicalJson } from "./canonical-json.js";
 import { ServiceError } from "./errors.js";
-import { hashSettingsDocumentV2, parseSettingsDocumentV2, parseSettingsStateV2Bytes } from "./settings-v2-codec.js";
+import { hashSettingsDocumentV2, parseSettingsDocumentV2, parseSettingsStateV2 } from "./settings-v2-codec.js";
 import { hashCanonicalSettingsDocument } from "./settings-v2-hash.js";
-import { MAX_SETTINGS_STATE_BYTES, SettingsFormatError } from "./settings-v2-scalars.js";
-import { parseSettingsStateV3Text } from "./settings-v3-codec.js";
+import { SettingsFormatError } from "./settings-v2-scalars.js";
+import { parseSettingsStateV3 } from "./settings-v3-codec.js";
+import { parseSettingsStateV4 } from "./settings-v4-codec.js";
+import { parseSettingsStateV5 } from "./settings-v5-codec.js";
+import {
+  effectiveSettingsStateRevision,
+  settingsStateRelation,
+  type SettingsStateRelation
+} from "./settings-state-validation.js";
+import { SETTINGS_SAVE_ADMISSIBLE_RELATIONS } from "./settings-state-reducer.js";
+import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
+import { decodeSettingsBytes } from "./settings-codec-shared.js";
 
-/**
- * What the settings-state file actually holds. Structural sibling of
- * `StoredStorySlot` (server/story-storage-reader.ts): a discriminated union
- * of every shape the file may hold, with `MutableSettingsStateSlot` naming
- * the subset a write may act on. A `"v3"` slot is never mutable by this
- * release: this release's settings writer never produces schema 3 (there is
- * no successor settings writer in this build at all), so an on-disk
- * schema-3 authority can only belong to a later release, and this release
- * must leave it exactly as it found it, forever, the same way a genuine
- * predecessor always has (`requireMutableSettingsStateSlot` below is what
- * refuses it). `readOnlyView` is a schema-2-shaped projection of a
- * schema-3 state, used for every plain read. Nothing in this codebase
- * treats a bare `SettingsStateV2` value as proof that a save may proceed;
- * every mutation path calls `requireMutableSettingsStateSlot` first, which
- * inspects `kind`, not a projected value, so the projection can never be
- * mistaken for something a save may write back without that check.
- */
+/** What the settings-state file actually holds. `readOnlyView` is a
+ * schema-2-shaped projection used only by plain readers of schema 3. */
 export type SettingsStateSlot =
   | { readonly kind: "v2"; readonly state: SettingsStateV2 }
   | {
       readonly kind: "v3";
       readonly state: SettingsStateV3;
       readonly readOnlyView: SettingsStateV2;
-    };
+    }
+  /** Keep schema 4's full document for a faithful runtime reader. Clean and
+   *  staged schema-4 states can upgrade on their first save. */
+  | { readonly kind: "v4"; readonly state: SettingsStateV4 }
+  | { readonly kind: "v5"; readonly state: SettingsStateV5 };
 
-export type MutableSettingsStateSlot = Extract<SettingsStateSlot, { kind: "v2" }>;
-
-/** The read-only presentation of one settings state, transparent to schema
- *  version: a genuine schema-2 state as itself, a schema-3 state downgraded
- *  for reading. Every plain settings read goes through this. A
- *  `"v3"` slot never has a mutation working view of its
- *  own: `requireMutableSettingsStateSlot` below refuses every mutation
- *  against it, so nothing ever needs one. */
+/** The read-only presentation of one settings state. Plain readers use this
+ * projection for schema 3 and keep schema 4/5 in their typed runtime path. */
 export function settingsStateSlotReadOnlyView(slot: SettingsStateSlot): SettingsStateV2 {
-  return slot.kind === "v2" ? slot.state : slot.readOnlyView;
+  if (slot.kind === "v2") return slot.state;
+  if (slot.kind === "v3") return slot.readOnlyView;
+  throw new ServiceError(
+    409,
+    "Settings use a schema that only a newer release can change. Read the schema-4 or schema-5 route through its typed runtime view.",
+    "settings_requires_successor"
+  );
+}
+
+/** Return a successor-owned schema-4 state without dropping its new controls. */
+export function settingsStateSlotV4ReadOnlyView(slot: SettingsStateSlot): SettingsStateV4 | null {
+  return slot.kind === "v4" ? slot.state : null;
 }
 
 /** One model's stored image-input data: schema 3's `imageInput`, an explicit
@@ -62,8 +69,8 @@ export interface StoredImageInputCapability {
 }
 
 /** `slot`'s stored image-input data for one model ID, read straight from its
- *  schema-3 active document when it has one. A `"v2"` slot, or a model ID
- *  absent from a `"v3"` slot's active document, has none:
+ *  effective schema-3 or schema-4 document when it has one. A `"v2"` slot, or
+ *  a model ID absent from the effective successor document, has none:
  *  schema 2 cannot carry the field at all, and `resolveImageInputCapability`
  *  (shared/image-input-capabilities.ts) already treats a missing override the
  *  same as an absent one.
@@ -75,6 +82,9 @@ export interface StoredImageInputCapability {
  *  by that validation or leak into schema-2 bytes, exactly the outcome
  *  `downgradeModelCapabilitiesV3ToV2` below exists to prevent. This function
  *  is the separate, out-of-band channel a caller uses instead.
+ *
+ *  Promoted states use the same effective revision as runtime readers, so
+ *  image authorization cannot pair an old runtime with a candidate verdict.
  *
  *  This is the read half of the rollback guarantee running in the other
  *  direction. This release's settings writer never produces schema 3 at
@@ -92,8 +102,8 @@ export function settingsStateSlotImageInputCapability(
   modelId: string
 ): StoredImageInputCapability | null {
   if (slot.kind === "v2") return null;
-  const active = slot.state.documents[String(slot.state.activeRevision)];
-  const model = active?.models[modelId];
+  const effective = slot.state.documents[String(effectiveSettingsStateRevision(slot.state))];
+  const model = effective?.models[modelId];
   if (model === undefined) return null;
   return {
     imageInput: model.capabilities.imageInput,
@@ -101,21 +111,37 @@ export function settingsStateSlotImageInputCapability(
   };
 }
 
-/** Refuse a mutation against a schema-3 settings state. Call this before any
- *  write so the refusal happens before the file changes, and the file stays
- *  byte identical. A schema-3 slot refuses unconditionally: this release's
- *  settings writer never produces schema 3, so an on-disk schema-3
- *  authority can only be a later release's, never this one's own prior
- *  write, and this release must leave it exactly as it found it. */
-export function requireMutableSettingsStateSlot(
+/** Admit a settings write only at a stable activation boundary.
+ *
+ * Source schemas 3 and 4 are writable during their first save, but only after
+ * the caller recovers any in-progress activation. This check is the single
+ * write-admission policy for every schema. Plain reads do not call it, so
+ * startup can remain read-only for successor-owned files. */
+export function requireSettingsStateSlotWriteAdmission(
   slot: SettingsStateSlot
-): asserts slot is MutableSettingsStateSlot {
-  if (slot.kind === "v3") {
+): void {
+  const relation = settingsStateSlotRelation(slot);
+  if (SETTINGS_SAVE_ADMISSIBLE_RELATIONS.includes(relation)) return;
+  if (slot.kind === "v3" || slot.kind === "v4") {
     throw new ServiceError(
       409,
-      "Settings use a schema that only a newer release can change. Update 1667, then save again.",
+      "Settings use a schema that only a newer release can change while activation is incomplete.",
       "settings_requires_successor"
     );
+  }
+  throw new ServiceError(
+    409,
+    "Settings activation is incomplete; retry after restarting the backend.",
+    "conflict"
+  );
+}
+
+function settingsStateSlotRelation(slot: SettingsStateSlot): SettingsStateRelation {
+  switch (slot.kind) {
+    case "v2": return settingsStateRelation(slot.state);
+    case "v3": return settingsStateRelation(slot.state);
+    case "v4": return settingsStateRelation(slot.state);
+    case "v5": return settingsStateRelation(slot.state);
   }
 }
 
@@ -124,40 +150,56 @@ export function requireMutableSettingsStateSlot(
  * back one release still opens their settings this way: schema 2 parses as
  * itself, and schema 3 parses and downgrades to a read-only view.
  *
- * A schema-2 parse runs first because it is what this release's own writer
- * always produces. When it fails, a schema-3 attempt follows; if that also
- * fails, the original schema-2 error is the one reported, since schema 2 is
- * the shape this release expects by default.
+ * The top-level schema version selects exactly one validator. An unknown or
+ * missing version keeps the schema-2 diagnostic, since schema 2 is the shape
+ * this release expects by default. The JSON is decoded and parsed once before
+ * this dispatch, so an invalid successor state reports its own validator
+ * diagnostic instead of a schema-2 failure after multiple full parses.
  */
 export function parseSettingsStateSlotBytes(bytes: Uint8Array): SettingsStateSlot {
-  try {
-    return { kind: "v2", state: parseSettingsStateV2Bytes(bytes) };
-  } catch (v2Error) {
-    let successor: SettingsStateV3;
-    try {
-      successor = parseSettingsStateV3FromBytes(bytes);
-    } catch {
-      throw v2Error;
-    }
-    return {
-      kind: "v3",
-      state: successor,
-      readOnlyView: downgradeSettingsStateV3ToV2(successor)
-    };
+  if (bytes.byteLength > MAX_SETTINGS_STATE_V5_BYTES) {
+    throw new SettingsFormatError(`Settings state exceeds its ${MAX_SETTINGS_STATE_V5_BYTES}-byte size limit`);
   }
+  const text = decodeSettingsBytes(bytes, "settings state");
+  const value = parseJsonRejectingDuplicateKeys(text, "settings state");
+  let slot: SettingsStateSlot;
+  switch (settingsStateSchemaVersion(value)) {
+    case 2:
+      slot = { kind: "v2", state: parseSettingsStateV2(value) };
+      break;
+    case 3: {
+      const state = parseSettingsStateV3(value);
+      slot = {
+        kind: "v3",
+        state,
+        readOnlyView: downgradeSettingsStateV3ToV2(state)
+      };
+      break;
+    }
+    case 4:
+      slot = { kind: "v4", state: parseSettingsStateV4(value) };
+      break;
+    case 5:
+      slot = { kind: "v5", state: parseSettingsStateV5(value) };
+      break;
+    default:
+      // Preserve the predecessor's default diagnostic for a missing or
+      // unsupported top-level version.
+      slot = { kind: "v2", state: parseSettingsStateV2(value) };
+      break;
+  }
+  if (canonicalJson(value) !== text) {
+    throw new SettingsFormatError("Settings state is not canonical JSON");
+  }
+  return slot;
 }
 
-function parseSettingsStateV3FromBytes(bytes: Uint8Array): SettingsStateV3 {
-  if (bytes.byteLength > MAX_SETTINGS_STATE_BYTES) {
-    throw new SettingsFormatError(`Settings state exceeds its ${MAX_SETTINGS_STATE_BYTES}-byte size limit`);
-  }
-  let text: string;
-  try {
-    text = decodeCanonicalUtf8(bytes, "settings state");
-  } catch (error) {
-    throw new SettingsFormatError("settings state is not strict UTF-8", { cause: error });
-  }
-  return parseSettingsStateV3Text(text);
+function settingsStateSchemaVersion(value: unknown): 2 | 3 | 4 | 5 | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const schemaVersion = (value as { readonly schemaVersion?: unknown }).schemaVersion;
+  return schemaVersion === 2 || schemaVersion === 3 || schemaVersion === 4 || schemaVersion === 5
+    ? schemaVersion
+    : null;
 }
 
 /**
@@ -165,10 +207,9 @@ function parseSettingsStateV3FromBytes(bytes: Uint8Array): SettingsStateV3 {
  * state's revision table is projected, there are at most two, the active
  * document and a pending candidate mid-activation, so a reader sees a
  * consistent picture regardless of the successor's own in-progress
- * transitions. This is a read-only presentation: `requireMutableSettingsStateSlot`
- * (above) refuses every mutation against a `"v3"` slot, so
- * this projection is never re-validated as a mutation pipeline's own working
- * view and never needs to be. It is still re-validated once per document,
+ * transitions. This is a read-only presentation. The write admission helper
+ * runs on the full slot before conversion, so this projection is never used
+ * as a mutation working view. It is still re-validated once per document,
  * through `parseSettingsDocumentV2` in `downgradeSettingsDocumentV3ToV2`
  * below, so a caller can trust the shape it returns.
  *
@@ -176,10 +217,7 @@ function parseSettingsStateV3FromBytes(bytes: Uint8Array): SettingsStateV3 {
  * out byte identical: two schema-3 documents differing only by a model's
  * `imageInput`/`imageTokenCeiling` project to the same schema-2 bytes, since
  * this function drops exactly those two fields. That is expected here, for a
- * read-only view, and is why this release never treats `readOnlyView` as
- * something a save may write back (`requireMutableSettingsStateSlot` refuses
- * first, unconditionally, before any code path could re-validate the
- * documents map for uniqueness).
+ * read-only view. A save never writes this projection back.
  *
  * `activation` cannot travel unchanged: `oldHash`/`candidateHash` were bound
  * to the original schema-3 documents by the schema-3 validator
@@ -251,9 +289,8 @@ function documentAtHashV3(
  *  the two schemas. Re-validating through `parseSettingsDocumentV2` proves
  *  the projection is a genuine schema-2 document and freezes it.
  *
- *  A dropped capability field is never silently lost: this release refuses
- *  every mutation against a `"v3"` slot
- *  (`requireMutableSettingsStateSlot` above), so nothing ever writes this
+ *  A dropped capability field is never silently lost: the write admission
+ *  helper runs against the full successor slot, so nothing ever writes this
  *  projection back. `settingsStateSlotImageInputCapability` above is the
  *  separate, out-of-band channel a caller uses to still read
  *  `imageInput`/`imageTokenCeiling` without embedding them here. */

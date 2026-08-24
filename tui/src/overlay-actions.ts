@@ -1,6 +1,7 @@
 import {
   commandContext,
   commandMatches,
+  commandQueryCursor,
   retainCommandSelection,
   type CommandMatch,
   type PaletteCommand
@@ -119,6 +120,12 @@ export async function handleOverlayAction(
   context: OverlayActionContext
 ): Promise<boolean> {
   if (resolved.action === "retry") { await reconnect(state, source, context); return true; }
+  if (resolved.action === "open-aside") {
+    await openAside(state, source.api, {
+      entryPointsOpen: context.asideEntryPointsOpen
+    });
+    return true;
+  }
   if (resolved.action === "open-authors-note") {
     openAuthorsNoteEditor(state);
     return true;
@@ -234,12 +241,7 @@ export async function handleOverlayAction(
   if (state.mode === "ARCHIVE" && state.archive !== null) return await archiveImportAction(resolved, state, source, context);
   if (state.mode === "IMAGE" && state.image != null) return await imageAttachAction(resolved, state, source, context);
   if (state.mode === "SETTINGS" && state.settings !== null) {
-    const handled = await settingsOverlayAction(
-      resolved,
-      state,
-      source,
-      context
-    );
+    const handled = await settingsOverlayAction(resolved, state, source, context);
     await synchronizeSettingsModelDiscovery(state, source, context);
     return handled;
   }
@@ -513,7 +515,7 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
     matches = liveCommandMatches(
       state, overlay.query, undefined, context.asideEntryPointsOpen
     );
-    selectCommand(overlay, matches, 0);
+    selectCommand(overlay, matches, commandQueryCursor(matches, overlay.query));
   }
   else if (resolved.action === "open-selected") {
     const command = matches[overlay.cursor]?.command;
@@ -627,7 +629,7 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
     const profileId = selectSettingsRoute(document, "prose").profileId;
     await context.backend.run("exporting Generation Profile", async (task) => {
       try {
-        const archive = exportGenerationProfile(document, profileId);
+        const archive = exportGenerationProfile(document as never, profileId);
         const file = await writeExportFile({
           directory: source.exportDirectory,
           title: document.profiles[profileId]!.name,
@@ -666,7 +668,10 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
     if (plan === null) state.toast = "nothing to prune · every leaf is protected";
     else state.prune = plan;
   } else if (command.id === "prompts") { state.showInstructions = !state.showInstructions; state.toast = `directions ${state.showInstructions ? "shown" : "hidden"}`; }
-  else if (command.id === "settings") await openSettingsOverlay(state, source, context);
+  else if (command.settingsTarget !== undefined || command.id === "settings") {
+    await openSettingsOverlay(state, source, context, command.settingsTarget);
+    await synchronizeSettingsModelDiscovery(state, source, context);
+  }
   else if (command.id === "theme" && command.theme !== undefined) {
     context.applyTheme(command.theme);
     state.toast = `theme · ${command.theme}`;
@@ -785,13 +790,17 @@ async function asideKeyAction(
       surface.confirmClear = false;
       return;
     }
-    // Esc while answering stops the request and restores the question.
+    // Esc stops the request. It keeps received answer text as a Side Note, or
+    // restores the question if no answer text arrived.
     // Esc when idle returns to Write.
     if (surface.busy) {
       // Clear has no abort path. Its missing in-flight question is the
       // existing distinction from an Ask, so Esc remains a no-op while it
       // commits instead of pretending to stop anything.
-      if (surface.inflightQuestion !== null) stopAsideAsk(state);
+      if (surface.inflightQuestion !== null) {
+        stopAsideAsk(state);
+        context.repaint();
+      }
       return;
     }
     closeAside(state);

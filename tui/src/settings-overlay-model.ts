@@ -4,6 +4,12 @@ import {
   type SettingsView
 } from "../../shared/settings-v2-types.js";
 import {
+  isWritingPromptRow,
+  writingPromptFieldDefinition,
+  type WritingPromptFieldId,
+  type WritingPromptRowId
+} from "../../shared/settings-v5-writing.js";
+import {
   LOCAL_CONFIG_ROWS,
   settingsRowIsLocal,
   type LocalConfigRow
@@ -23,6 +29,7 @@ import {
 } from "./settings-provider-choices.js";
 import {
   applySettingsManualContextDraft,
+  armContextProbeIfUnknown,
   replaceSettingsDraft,
   replaceSettingsProviderDraft
 } from "./settings-draft-transition.js";
@@ -34,21 +41,26 @@ import {
   settingsModelChoices,
   settingsModelSelectionTargetIdentity
 } from "./settings-model-discovery.js";
-import { isSettingsScalarRow } from "./settings-scalar.js";
 import {
   applyConnectionTimeoutEdit,
-  CONNECTION_TIMEOUT_ROWS,
   connectionTimeoutEditValue,
   isConnectionTimeoutRow
 } from "./settings-connection-timeouts.js";
-import { modelPickerRequired } from "./settings-model-picker.js";
 import {
   parseSettings,
   settingsTextDraftForDocument,
   settingsTextDraftForView,
   settingsTextDraftWithGeneration,
+  settingsTextDraftWithSubscriptionPlan,
   settingsTextDraftWithTextPreset
 } from "./settings-text.js";
+import {
+  draftWriting,
+  settingsTextDraftWithWritingField,
+  validateWritingPromptValue
+} from "./settings-writing-draft.js";
+import { settingsPlanRowDisabled } from "./settings-subscription.js";
+import { settingsReadOnlyMessage } from "./settings-read-only.js";
 import { renameSettingsProfile } from "./settings-profile-draft.js";
 import { settingsModelDisplayText } from "./settings-profile-controls.js";
 import type {
@@ -68,50 +80,36 @@ import {
   settingsDraftChanged,
   settingsFieldKey
 } from "./settings-overlay-reconciliation.js";
+import {
+  boundedSettingsCursor,
+  SETTINGS_ROW_IDS,
+  settingsRowCycles,
+  settingsRowHasArrows,
+  settingsRowIndex,
+  settingsRowIds,
+  settingsCursorRowIdentity,
+  restoreSettingsCursor
+} from "./settings-row-navigation.js";
 export {
-  promptCacheRowValue,
-  settingsModelDisplayText,
+  settingsModelDisplayText
+} from "./settings-profile-controls.js";
+export {
   settingsRows,
   SETTINGS_SECTIONS,
   type SettingsRowPresentation,
   type SettingsSectionId
-} from "./settings-profile-controls.js";
-
-export const SETTINGS_ROW_IDS = [
-  "theme",
-  "compose-focus",
-  "word-wrap",
-  "provider",
-  "text-prompt-format",
-  "split-think-tags",
-  "base-url",
-  "allow-insecure-http",
-  "api-key",
-  ...CONNECTION_TIMEOUT_ROWS,
-  "profile",
-  "model",
-  "image-input",
-  "temperature",
-  "max-tokens",
-  "sampling",
-  "context-window",
-  "effort",
-  "cache-policy",
-  "token-probabilities",
-  "reasoning",
-  "keep-thoughts",
-  "default-route",
-  "prose-route",
-  "utility-route",
-  "system-prompt"
-] as const satisfies readonly SettingsRowId[];
-
-/** Where a row sits in the cursor's list, or -1 for one the surface no longer
- *  shows. `apiKeyEnv` is still a setting a config may carry; it stopped being
- *  a row, so a semantic shortcut naming it simply leaves the cursor alone. */
-export function settingsRowIndex(row: SettingsRowId): number {
-  return (SETTINGS_ROW_IDS as readonly SettingsRowId[]).indexOf(row);
-}
+} from "./settings-row-presentations.js";
+export { promptCacheRowValue } from "./settings-profile-controls.js";
+export {
+  boundedSettingsCursor,
+  SETTINGS_ROW_IDS,
+  settingsRowCycles,
+  settingsRowHasArrows,
+  settingsRowIndex,
+  settingsRowIds,
+  settingsCursorRowIdentity,
+  restoreSettingsCursor
+} from "./settings-row-navigation.js";
 
 /** Rows that live in the user config rather than a server-backed settings
  *  revision. One list backs every "is this row local?" test in the overlay,
@@ -126,7 +124,7 @@ export {
   settleSettingsOverlaySave
 } from "./settings-overlay-reconciliation.js";
 
-type SettingsInlineRow = Exclude<SettingsRowId, "system-prompt" | "sampling">;
+type SettingsInlineRow = Exclude<SettingsRowId, WritingPromptRowId | "sampling">;
 
 export function initialSettingsOverlay(
   view: SettingsView,
@@ -134,19 +132,21 @@ export function initialSettingsOverlay(
   selectedProfileId?: string
 ): SettingsOverlayState {
   const draft = settingsTextDraftForView(view, selectedProfileId);
-  return {
+  const overlay: SettingsOverlayState = {
     view,
     base: draft,
     draft,
     modelSelectionByProfile: {},
     connectionSecrets: {},
     cursor: 0,
+    viewMode: config.settingsViewMode,
     edit: null,
     sampling: null,
     profileTransfer: null,
     conflict: null,
     checking: false,
     probing: false,
+    contextProbeArmed: false,
     discoveringModels: false,
     modelDiscovery: null,
     modelDiscoveryIdentity: null,
@@ -159,6 +159,7 @@ export function initialSettingsOverlay(
     deleteArmedProfileId: null,
     modelPicker: null
   };
+  return overlay;
 }
 
 export function settingsRowEditValue(
@@ -169,6 +170,7 @@ export function settingsRowEditValue(
   if (row === "theme") return config.theme;
   if (row === "compose-focus") return config.composeFocus;
   if (row === "word-wrap") return config.wordWrap;
+  if (row === "update-checks") return config.updates.mode === "notify" ? "on" : "off";
   if (row === "allow-insecure-http") {
     return overlay.draft.generation.allowInsecureHttp === true ? "on" : "off";
   }
@@ -187,8 +189,9 @@ export function beginSettingsRowEdit(
   overlay: SettingsOverlayState,
   config: UserConfig
 ): void {
-  const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
-  if (row === "system-prompt" || row === "sampling") return;
+  const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
+  if (isWritingPromptRow(row) || row === "sampling") return;
+  if (settingsPlanRowDisabled(overlay, row)) return;
   if (settingsRowUsesServer(row)) overlay.result = null;
   const initial = settingsRowEditValue(overlay, config, row);
   const composer = createComposer(initial);
@@ -225,8 +228,9 @@ export function beginSettingsPasteEdit(
   config: UserConfig
 ): boolean {
   if (overlay.edit !== null) return true;
-  const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
-  if (row === "system-prompt" || row === "sampling") return false;
+  const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
+  if (isWritingPromptRow(row) || row === "sampling") return false;
+  if (settingsPlanRowDisabled(overlay, row)) return false;
   // Closed choices cycle in place; paste must not open their row editor.
   if (settingsRowCycles(row)) return false;
   if (settingsRowUsesServer(row) && !overlay.view.editable) {
@@ -246,6 +250,10 @@ export function applySettingsRowEdit(
   const edit = overlay.edit;
   if (edit?.kind !== "inline") {
     return { kind: "error", message: "no settings row is being edited" };
+  }
+  if (settingsPlanRowDisabled(overlay, edit.row)) {
+    overlay.edit = null;
+    return { kind: "error", message: "subscription plan controls are fixed" };
   }
   const rawValue = edit.composer.text;
   const value = rawValue.trim();
@@ -276,7 +284,7 @@ export function applySettingsRowEdit(
   }
   if (edit.row === "profile") {
     if (overlay.draft.document === null || overlay.draft.selectedProfileId === null) {
-      return { kind: "error", message: "legacy settings are read-only" };
+      return { kind: "error", message: settingsReadOnlyMessage(overlay.view.readOnlyReason) };
     }
     const renamed = renameSettingsProfile(
       overlay.draft.document,
@@ -354,20 +362,32 @@ export function applySettingsRowEdit(
   return { kind: "draft" };
 }
 
+export function applyWritingPromptDraft(
+  overlay: SettingsOverlayState,
+  field: WritingPromptFieldId,
+  value: string
+): string | null {
+  const error = validateWritingPromptValue(
+    writingPromptFieldDefinition(field),
+    value,
+    draftWriting(overlay.draft)
+  );
+  if (error !== null) return error;
+  disarmSettingsConflict(overlay);
+  replaceSettingsDraft(
+    overlay,
+    settingsTextDraftWithWritingField(overlay.draft, field, value)
+  );
+  if (sameSettingsDraft(overlay.draft, overlay.base)) overlay.conflict = null;
+  overlay.result = null;
+  return null;
+}
+
 export function applySystemPromptDraft(
   overlay: SettingsOverlayState,
   systemPrompt: string
 ): void {
-  disarmSettingsConflict(overlay);
-  replaceSettingsDraft(
-    overlay,
-    settingsTextDraftWithGeneration(overlay.draft, {
-      ...overlay.draft.generation,
-      systemPrompt
-    })
-  );
-  if (sameSettingsDraft(overlay.draft, overlay.base)) overlay.conflict = null;
-  overlay.result = null;
+  applyWritingPromptDraft(overlay, "defaultAuthorBrief", systemPrompt);
 }
 
 /** One spelling for every surface that reports why an activation failed. */
@@ -387,51 +407,6 @@ export function settingsActivationFailureText(
   }
 }
 
-export function boundedSettingsCursor(value: number): number {
-  return Math.max(0, Math.min(SETTINGS_ROW_IDS.length - 1, value));
-}
-
-/** Rows whose value is a closed choice: `←→` cycles them in place and their
- * value's brackets are click targets. Everything else is free text the row
- * editor owns. One spelling of the set, read by the panel and the key handler.
- * Deliberately not the inverse of `settingsRowUsesServer`: provider cycles and
- * is server-backed, while theme and compose focus cycle and are local. */
-export function settingsRowCycles(row: SettingsRowId): boolean {
-  return row === "theme"
-    || row === "compose-focus"
-    || row === "word-wrap"
-    || row === "provider"
-    || row === "text-prompt-format"
-    || row === "split-think-tags"
-    || row === "allow-insecure-http"
-    || row === "profile"
-    || row === "effort"
-    || row === "cache-policy"
-    || row === "token-probabilities"
-    || row === "reasoning"
-    || row === "keep-thoughts"
-    || row === "default-route"
-    || row === "prose-route"
-    || row === "utility-route";
-}
-
-/** Rows `←→` acts on: a cycler steps through its options, a C-08 scalar steps
- *  through its range. Both wear brackets or chevrons, which is what the arrows
- *  are anchored to. */
-export function settingsRowHasArrows(
-  overlay: SettingsOverlayState,
-  row: SettingsRowId
-): boolean {
-  return row === "text-prompt-format" || row === "split-think-tags"
-    ? overlay.draft.generation.provider === "text-completion"
-    : settingsRowCycles(row)
-    || isSettingsScalarRow(row)
-    || isConnectionTimeoutRow(row)
-    // A cycler stops at eight; past that the option column owns the choice.
-    || row === "model" && settingsModelChoices(overlay).length > 0
-      && !modelPickerRequired(overlay);
-}
-
 /** Local-only rows live in the user config; every other row edits a
  * server-backed settings revision. */
 export function settingsRowUsesServer(row: SettingsRowId): boolean {
@@ -442,21 +417,30 @@ export function cycleSettingsProvider(
   overlay: SettingsOverlayState,
   step: -1 | 1
 ): SettingsProviderChoice {
+  const cursorRow = settingsCursorRowIdentity(overlay);
   const choice = nextSettingsProviderChoice(
     overlay.draft.generation,
     step,
     selectedConnectionPreset(overlay)
   );
   const preserveStoredApiKey = hasStoredApiKey(overlay);
-  replaceSettingsProviderDraft(
-    overlay,
-    settingsTextDraftWithGeneration(overlay.draft, {
-      ...overlay.draft.generation,
-      provider: choice.provider,
-      ...choice.defaults,
-      ...(preserveStoredApiKey ? { apiKeyEnv: null } : {})
-    })
-  );
+  const generation = {
+    ...overlay.draft.generation,
+    provider: choice.provider,
+    ...choice.defaults,
+    ...(preserveStoredApiKey ? { apiKeyEnv: null } : {})
+  };
+  if (choice.id === "chatgpt-plan" || choice.id === "claude-plan") {
+    replaceSettingsProviderDraft(
+      overlay,
+      settingsTextDraftWithSubscriptionPlan(overlay.draft, choice.id, generation)
+    );
+  } else {
+    replaceSettingsProviderDraft(
+      overlay,
+      settingsTextDraftWithGeneration(overlay.draft, generation)
+    );
+  }
   const textPreset = textPresetForChoice(choice);
   if (textPreset !== null) {
     replaceSettingsDraft(
@@ -466,9 +450,16 @@ export function cycleSettingsProvider(
   }
   rekeyPendingStoredSecret(overlay);
   discardUnreferencedConnectionSecretWrites(overlay);
+  restoreSettingsCursor(overlay, cursorRow);
   overlay.result = null;
   if (!settingsDraftChanged(overlay)) overlay.conflict = null;
   else disarmSettingsConflict(overlay);
+  // A preset's default model (`choice.defaults`) can carry no known context
+  // window (most do; dry-run and the subscription plans are the
+  // exceptions) — this is the one other place `overlay.draft.generation
+  // .model` changes outside `applySettingsModelChoice`, so it arms the
+  // same probe intent that function arms.
+  armContextProbeIfUnknown(overlay);
   return choice;
 }
 

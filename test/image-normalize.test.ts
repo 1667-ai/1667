@@ -209,9 +209,7 @@ test("the PNG reduction sequence shrinks dimensions, never drops transparency", 
 test("a payload truncated deep inside compressed data is isolated to one child process", async () => {
   const source = await opaquePng(600, 400);
   const corrupted = corruptPayload(source, 40, 200);
-  const outcome = await launchImageNormalizeChild(corrupted, "image/png", {
-    deadlineMs: 10_000
-  }).then(
+  const outcome = await launchImageNormalizeChild(corrupted, "image/png").then(
     () => ({ ok: true as const }),
     (error: unknown) => ({ ok: false as const, error })
   );
@@ -225,7 +223,7 @@ test("a payload truncated deep inside compressed data is isolated to one child p
   // one-normalization-per-child design isolates a panicked WASM instance
   // to the process that panicked rather than poisoning the next request.
   const clean = await opaquePng(64, 64);
-  const result = await launchImageNormalizeChild(clean, "image/png", { deadlineMs: 10_000 });
+  const result = await launchImageNormalizeChild(clean, "image/png");
   assert.equal(result.mediaType, "image/png");
 });
 

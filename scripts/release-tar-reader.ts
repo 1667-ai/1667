@@ -17,8 +17,10 @@ import {
   type UstarEntry
 } from "../shared/release-ustar.js";
 import {
+  MAX_RELEASE_SBOM_BYTES,
   MAX_RELEASE_TARBALL_ENTRIES,
   MAX_RELEASE_TARBALL_FILE_BYTES,
+  type ReleaseNoticeAttribution,
   type TarballInspectionEntry
 } from "./release-package-policy.js";
 
@@ -41,14 +43,15 @@ export interface ReadReleaseTarballResult {
   };
   inspection: {
     packageJsonSha256: string;
+    noticeAttribution: ReleaseNoticeAttribution;
     entries: readonly TarballInspectionEntry[];
   };
 }
 
 /**
  * Reads, hashes, and validates a gzip-compressed ustar archive without extracting
- * it or retaining file bodies in memory. Only the two bounded JSON manifests are
- * buffered; native executables are hashed incrementally.
+ * it or retaining large file bodies in memory. It buffers only bounded JSON
+ * metadata files. It hashes native executables incrementally.
  */
 export async function readReleaseTarball(
   input: ReleaseTarballInput
@@ -123,27 +126,34 @@ function createInspectionSink(): {
 } {
   const entries: TarballInspectionEntry[] = [];
   let currentHash: Hash | null = null;
-  let manifestChunks: Buffer[] | null = null;
+  let documentChunks: Buffer[] | null = null;
   let packageManifest: unknown;
   let buildManifest: unknown;
+  let noticeAttribution: ReleaseNoticeAttribution | undefined;
 
   return {
     onEntryStart(entry) {
-      const captureManifest = entry.type === "file"
-        && (entry.path === "package/package.json" || entry.path === "package/build-manifest.json");
-      if (captureManifest && (entry.size === 0 || entry.size > MAX_RELEASE_MANIFEST_BYTES)) {
+      const captureDocument = entry.type === "file" && (
+        entry.path === "package/package.json"
+        || entry.path === "package/build-manifest.json"
+        || entry.path === "package/sbom.spdx.json"
+      );
+      const maximum = entry.path === "package/sbom.spdx.json"
+        ? MAX_RELEASE_SBOM_BYTES
+        : MAX_RELEASE_MANIFEST_BYTES;
+      if (captureDocument && (entry.size === 0 || entry.size > maximum)) {
         throw releaseTarballError(`Tarball ${entry.path} is outside the size bound`);
       }
       currentHash = entry.type === "file" ? createHash("sha256") : null;
-      manifestChunks = captureManifest ? [] : null;
+      documentChunks = captureDocument ? [] : null;
     },
     onBody(chunk) {
       currentHash?.update(chunk);
-      if (manifestChunks !== null) manifestChunks.push(Buffer.from(chunk));
+      if (documentChunks !== null) documentChunks.push(Buffer.from(chunk));
     },
     onEntryEnd(entry) {
-      if (manifestChunks !== null) {
-        parseManifest(entry.path, Buffer.concat(manifestChunks, entry.size));
+      if (documentChunks !== null) {
+        parseDocument(entry.path, Buffer.concat(documentChunks, entry.size));
       }
       entries.push(Object.freeze({
         path: entry.path,
@@ -153,7 +163,7 @@ function createInspectionSink(): {
         sha256: currentHash?.digest("hex") ?? null
       }));
       currentHash = null;
-      manifestChunks = null;
+      documentChunks = null;
     },
     finish() {
       const packageJson = entries.find((entry) => {
@@ -168,18 +178,22 @@ function createInspectionSink(): {
       if (buildManifest === undefined) {
         throw releaseTarballError("Tarball build manifest could not be parsed");
       }
+      if (noticeAttribution === undefined) {
+        throw releaseTarballError("Tarball SBOM NOTICE attribution could not be parsed");
+      }
       return Object.freeze({
         packageManifest,
         buildManifest,
         inspection: Object.freeze({
           packageJsonSha256: packageJson.sha256,
+          noticeAttribution,
           entries: Object.freeze(entries)
         })
       });
     }
   };
 
-  function parseManifest(path: string, bytes: Uint8Array): void {
+  function parseDocument(path: string, bytes: Uint8Array): void {
     let text: string;
     try {
       text = UTF8.decode(bytes);
@@ -193,8 +207,42 @@ function createInspectionSink(): {
       throw releaseTarballError(`Tarball ${path} is not strict JSON`, error);
     }
     if (path === "package/package.json") packageManifest = parsed;
-    else buildManifest = parsed;
+    else if (path === "package/build-manifest.json") buildManifest = parsed;
+    else noticeAttribution = noticeAttributionFromSbom(parsed);
   }
+}
+
+function noticeAttributionFromSbom(value: unknown): ReleaseNoticeAttribution {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw releaseTarballError("Tarball SBOM is not a JSON object");
+  }
+  const packages = (value as Record<string, unknown>).packages;
+  if (!Array.isArray(packages)) {
+    throw releaseTarballError("Tarball SBOM has no packages array");
+  }
+  const documentDescribes = (value as Record<string, unknown>).documentDescribes;
+  if (!Array.isArray(documentDescribes) || documentDescribes.length !== 1
+    || typeof documentDescribes[0] !== "string") {
+    throw releaseTarballError("Tarball SBOM must describe one product package");
+  }
+  const products = packages.filter((entry) => {
+    return entry !== null && typeof entry === "object" && !Array.isArray(entry)
+      && (entry as Record<string, unknown>).SPDXID === documentDescribes[0];
+  });
+  if (products.length !== 1
+    || (products[0] as Record<string, unknown>).name !== "1667") {
+    throw releaseTarballError("Tarball SBOM must contain one 1667 product package");
+  }
+  const attributionTexts = (products[0] as Record<string, unknown>).attributionTexts;
+  if (!Array.isArray(attributionTexts) || attributionTexts.length !== 1
+    || typeof attributionTexts[0] !== "string" || attributionTexts[0].length === 0) {
+    throw releaseTarballError("Tarball SBOM has incomplete NOTICE attribution");
+  }
+  const bytes = Buffer.from(attributionTexts[0], "utf8");
+  return Object.freeze({
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    bytes: bytes.byteLength
+  });
 }
 
 async function* inputChunks(

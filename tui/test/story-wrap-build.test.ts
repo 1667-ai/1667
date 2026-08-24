@@ -378,7 +378,7 @@ describe("sliced story wrap build", () => {
   for (const surface of [
     "map",
     "editor",
-    "system prompt",
+    "Default Author Brief",
     "fullscreen compose"
   ] as const) {
     test(`${surface} renders immediately without replacing the underlying prose owner`, () => {
@@ -421,13 +421,13 @@ describe("sliced story wrap build", () => {
             returnMode: "NAV",
             conflict: null
           };
-        } else if (surface === "system prompt") {
+        } else if (surface === "Default Author Brief") {
           state.mode = "EDITOR";
           state.settings = initialSettingsOverlay(
             demoAppSource(false).settingsView,
             state.config
           );
-          state.settings.cursor = SETTINGS_ROW_IDS.indexOf("system-prompt");
+          state.settings.cursor = SETTINGS_ROW_IDS.indexOf("default-author-brief");
           openSystemPromptEditor(state);
         } else {
           state.mode = "COMPOSE";

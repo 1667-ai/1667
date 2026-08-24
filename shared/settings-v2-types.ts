@@ -1,12 +1,35 @@
+import type {
+  ContinuationPromptOptimizationV2
+} from "./continuation-prompt-optimization.js";
 import type { GenerationSettings } from "./types.js";
+import type { SettingsDocumentV5 } from "./settings-v5-types.js";
+
+export type {
+  SettingsView,
+  SettingsViewReadOnlyReason,
+  SubscriptionAuthState,
+  SubscriptionAuthStatus
+} from "./settings-v2-view.js";
+export {
+  SETTINGS_VIEW_READ_ONLY_REASON_VALUES
+} from "./settings-v2-view.js";
 
 export const SETTINGS_PROTOCOL_V2_VALUES = [
   "dry-run",
   "openai-chat-completions",
   "text-completions",
-  "anthropic-messages"
+  "anthropic-messages",
+  "openai-codex-responses",
+  "anthropic-subscription-messages"
 ] as const;
 export type SettingsProtocolV2 = (typeof SETTINGS_PROTOCOL_V2_VALUES)[number];
+
+/** Protocols owned by the fixed subscription connections. */
+export const SETTINGS_SUBSCRIPTION_PROTOCOL_V2_VALUES = [
+  "openai-codex-responses",
+  "anthropic-subscription-messages"
+] as const;
+export type SubscriptionProtocolV2 = (typeof SETTINGS_SUBSCRIPTION_PROTOCOL_V2_VALUES)[number];
 
 export const TEXT_PROMPT_FORMAT_V2_VALUES = [
   "raw",
@@ -24,9 +47,45 @@ export const SETTINGS_PRESET_V2_VALUES = [
   "ollama",
   "llama-cpp",
   "koboldcpp",
-  "custom"
+  "custom",
+  "chatgpt-plan",
+  "claude-plan"
 ] as const;
 export type SettingsPresetV2 = (typeof SETTINGS_PRESET_V2_VALUES)[number];
+
+/** Presets owned by the fixed subscription connections. */
+export const SETTINGS_SUBSCRIPTION_PRESET_V2_VALUES = [
+  "chatgpt-plan",
+  "claude-plan"
+] as const;
+export type SubscriptionPresetV2 = (typeof SETTINGS_SUBSCRIPTION_PRESET_V2_VALUES)[number];
+
+export function isSubscriptionProtocolV2(
+  value: SettingsProtocolV2
+): value is SubscriptionProtocolV2 {
+  return value === "openai-codex-responses"
+    || value === "anthropic-subscription-messages";
+}
+
+export function isSubscriptionPresetV2(
+  value: SettingsPresetV2
+): value is SubscriptionPresetV2 {
+  return value === "chatgpt-plan" || value === "claude-plan";
+}
+
+export function subscriptionPresetForProtocolV2(
+  protocol: SubscriptionProtocolV2
+): SubscriptionPresetV2 {
+  return protocol === "openai-codex-responses" ? "chatgpt-plan" : "claude-plan";
+}
+
+export function subscriptionProtocolForPresetV2(
+  preset: SubscriptionPresetV2
+): SubscriptionProtocolV2 {
+  return preset === "chatgpt-plan"
+    ? "openai-codex-responses"
+    : "anthropic-subscription-messages";
+}
 
 export type CredentialReferenceV2 =
   | { readonly type: "none" }
@@ -275,6 +334,9 @@ export interface GenerationProfileV2 {
    *  action for a field whose default is off rather than on. Only literal
    *  `true` is ever persisted. */
   readonly discardReasoning?: true;
+  /** Experimental continuation prompt layout. Absent keeps the v0.8.0
+   *  compatibility layout. Only the named opt-in is persisted. */
+  readonly continuationPromptOptimization?: ContinuationPromptOptimizationV2;
 }
 
 export interface SettingsRoutingV2 {
@@ -309,11 +371,14 @@ export interface SettingsDocumentV3 {
   };
 }
 
-export type ModelDiscoverySourceV2 =
-  | "anthropic-models"
-  | "openai-models"
-  | "lm-studio-models"
-  | "ollama-tags";
+export const MODEL_DISCOVERY_SOURCE_V2_VALUES = [
+  "anthropic-models",
+  "openai-models",
+  "lm-studio-models",
+  "ollama-tags",
+  "pi-catalog"
+] as const;
+export type ModelDiscoverySourceV2 = (typeof MODEL_DISCOVERY_SOURCE_V2_VALUES)[number];
 
 export interface DiscoveredModelV2 {
   readonly remoteId: string;
@@ -327,22 +392,6 @@ export interface ModelDiscoveryResultV2 {
   readonly observedAt: string;
   readonly models: readonly DiscoveredModelV2[];
 }
-
-/** A probe may carry a validated draft document so connection policy is not
- * flattened out before the server constructs its provider runtime.
- *
- * `secrets` carries key material the editor holds but has not saved yet, so a
- * key can be tested the moment it is typed. The server resolves it in memory
- * for this one request and never writes it to the secret store: a probe proves
- * possession of the key, it does not activate a credential. */
-export interface ProviderProbeDocumentTargetV2 {
-  readonly kind: "settings-document";
-  readonly document: SettingsDocumentV2;
-  readonly purpose: SettingsRoutePurpose;
-  readonly secrets?: Readonly<Record<string, string>>;
-}
-
-export type ProviderProbeTarget = GenerationSettings | ProviderProbeDocumentTargetV2;
 
 export const SETTINGS_ACTIVATION_STATE_V2_VALUES = [
   "validating",
@@ -411,9 +460,9 @@ export type SettingsTransactionPointerV2 =
     };
 
 /** The field list for one settings-state aggregate, generic over its schema
- *  version and its document type. `SettingsStateV2` and `SettingsStateV3` are
- *  the only two instantiations; neither restates a field. */
-export interface SettingsStateEnvelope<V extends 2 | 3, D> {
+ *  version and its document type. Each schema module supplies its own
+ *  document type; none restates the envelope fields. */
+export interface SettingsStateEnvelope<V extends 2 | 3 | 4 | 5, D> {
   readonly schemaVersion: V;
   readonly stateGeneration: number;
   readonly settingsRevisionClock: number;
@@ -437,46 +486,11 @@ export type SettingsStateV3 = SettingsStateEnvelope<3, SettingsDocumentV3>;
 export const SETTINGS_ROUTE_PURPOSE_VALUES = ["default", "prose", "utility"] as const;
 export type SettingsRoutePurpose = (typeof SETTINGS_ROUTE_PURPOSE_VALUES)[number];
 
-export type SettingsView =
-  | {
-      readonly dataFormat: 1;
-      readonly editable: false;
-      readonly stateGeneration: null;
-      readonly activeRevision: null;
-      readonly pendingRevision: null;
-      readonly document: null;
-      readonly effective: GenerationSettings;
-      /** The active continuation route. Format 1 falls back to `effective`. */
-      readonly effectiveProse: GenerationSettings;
-      /** The active prose route's `GenerationProfileV2.reasoning`, resolved
-       *  the same safe way as `effectiveProse` itself — never the editable
-       *  `document`, which can show a pending activation candidate while
-       *  `effectiveProse` still names the settings actually in force. Absent
-       *  means `"marker"`, the same default an absent profile field resolves
-       *  to everywhere else. Format 1 has no profile to read one from. */
-      readonly effectiveProseReasoning?: ReasoningDisplayV2;
-      readonly lastActivationOutcome: null;
-    }
-  | {
-      readonly dataFormat: 2;
-      readonly editable: true;
-      readonly stateGeneration: number;
-      readonly activeRevision: number;
-      readonly pendingRevision: number | null;
-      readonly document: SettingsDocumentV2;
-      readonly effective: GenerationSettings;
-      /** The active continuation route, never a pending document projection. */
-      readonly effectiveProse: GenerationSettings;
-      /** See the format-1 variant's own doc — same field, same resolution. */
-      readonly effectiveProseReasoning?: ReasoningDisplayV2;
-      readonly lastActivationOutcome: SettingsActivationOutcomeV2 | null;
-    };
-
 export interface SaveSettingsCommand {
   readonly transportOperationId: string;
   readonly mutationId: string;
   readonly expectedStateGeneration: number;
-  readonly document: SettingsDocumentV2;
+  readonly document: SettingsDocumentV5;
   /** Secret values are a write-only sidecar and never enter the settings document. */
   readonly connectionSecrets?: Readonly<Record<string, string | null>>;
 }

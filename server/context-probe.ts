@@ -1,4 +1,5 @@
 import type { GenerationSettings } from "../shared/types.js";
+import { isSubscriptionProtocolV2 } from "../shared/settings-v2-types.js";
 import { withCallerCancellation } from "../shared/promise-cancellation.js";
 import { getProviderJson, postProviderJson } from "./provider-json.js";
 import {
@@ -20,9 +21,10 @@ export async function probeContextWindow(
   settings: GenerationSettings,
   signal?: AbortSignal
 ): Promise<number | null> {
+  const runtime = providerRuntimeFor(settings);
+  if (runtime.protocol !== undefined && isSubscriptionProtocolV2(runtime.protocol)) return null;
   const root = providerRoot(settings);
   const probes: (() => Promise<number | null>)[] = [];
-  const runtime = providerRuntimeFor(settings);
   const legacyNativeFallback = !hasProviderRuntime(settings);
   signal?.throwIfAborted();
 

@@ -17,6 +17,8 @@ import {
 } from "../../shared/install-ownership-record.js";
 import { sha512Integrity } from "../../shared/release-tar-extract.js";
 import {
+  RELEASE_PACKAGE_LICENSE_FILE_DIGESTS,
+  RELEASE_PACKAGE_NOTICE,
   RELEASE_LICENSE_FILE_DIGESTS
 } from "../../shared/release-package-layout.js";
 import { createPackageBuildManifest } from "../../shared/package-build-manifest.js";
@@ -90,6 +92,8 @@ export function buildCanonicalPlatformPackage(input: {
   readonly target: BuiltArtifactTarget;
   readonly omit?: string;
   readonly badMode?: string;
+  readonly noticeBody?: Buffer | string;
+  readonly sbomBody?: Buffer | string;
   readonly buildManifestBody?: string;
   readonly sourceCommit?: string;
   readonly buildTimestamp?: string;
@@ -107,13 +111,14 @@ export function buildCanonicalPlatformPackage(input: {
     throw new Error("fixture package name does not match target");
   }
   const license = readFileSync(path.join(repoRoot, "LICENSE"));
-  const notice = readFileSync(path.join(repoRoot, "NOTICE"));
+  const notice = input.noticeBody ?? Buffer.from(RELEASE_PACKAGE_NOTICE, "utf8");
   if (createHash("sha256").update(license).digest("hex")
     !== RELEASE_LICENSE_FILE_DIGESTS.LICENSE.sha256) {
     throw new Error("fixture LICENSE digest drifted from the release pin");
   }
-  if (createHash("sha256").update(notice).digest("hex")
-    !== RELEASE_LICENSE_FILE_DIGESTS.NOTICE.sha256) {
+  if (input.noticeBody === undefined
+    && createHash("sha256").update(notice).digest("hex")
+      !== RELEASE_PACKAGE_LICENSE_FILE_DIGESTS.NOTICE.sha256) {
     throw new Error("fixture NOTICE digest drifted from the release pin");
   }
   const packageBuildManifest = input.buildManifestBody ?? JSON.stringify(
@@ -149,7 +154,7 @@ export function buildCanonicalPlatformPackage(input: {
     license: "Apache-2.0",
     publishConfig: { access: "public" }
   });
-  const sbom = JSON.stringify({
+  const sbom = input.sbomBody ?? JSON.stringify({
     spdxVersion: "SPDX-2.3",
     dataLicense: "CC0-1.0",
     SPDXID: "SPDXRef-DOCUMENT",

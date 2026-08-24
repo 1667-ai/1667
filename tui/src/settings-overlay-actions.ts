@@ -18,32 +18,38 @@ import { settingsMutationFailureAction } from "../../shared/settings-mutation-fa
 import { resolveSettingsProfile, selectSettingsRoute } from "../../shared/settings-route.js";
 import { EMPTY_SAMPLING_V2 } from "../../shared/settings-v2-types.js";
 import type {
-  SettingsDocumentV2,
   SettingsMutationResult,
   SettingsRoutePurpose
 } from "../../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 as SettingsDocumentV2 } from "../../shared/settings-v5-types.js";
 import type { AppSource } from "./app.js";
 import { apiErrorCode } from "./api.js";
 import { insertComposerText } from "./composer-model.js";
 import { applyComposerEdit } from "./composer-editing.js";
 import { samplingOverlayAction } from "./sampling-actions.js";
-import { resolveSamplingBias } from "./sampling-bias-resolution.js";
 import { readFromClipboard } from "./clipboard.js";
 import { applyTextKey, sanitizePastedText, type ResolvedKey } from "./keys.js";
 import { inlineEditorAction } from "./editor-action.js";
 import { publishSettingsView } from "./overlay-publication.js";
 import {
   checkSettings,
-  detectSettingsContext
+  detectSettingsContext,
+  detectSettingsContextForModelChange
 } from "./settings-context-detection.js";
 import {
   settingsModelDiscoveryIdentity
 } from "./settings-model-discovery.js";
 import {
   openSettingsPasteTarget,
-  openSystemPromptEditor
+  openWritingPromptEditor
 } from "./settings-prompt-editor.js";
+import {
+  WRITING_PROMPT_FIELD_DEFINITIONS,
+  isWritingPromptRow
+} from "../../shared/settings-v5-writing.js";
+import { draftWriting, validateWritingPromptValue } from "./settings-writing-draft.js";
 import { activeSettingsEdit } from "./settings-edit-state.js";
+import { settingsReadOnlyMessage } from "./settings-read-only.js";
 import {
   acknowledgeAllSettingsModelSelections,
   cloneSettingsProfileDraft,
@@ -58,12 +64,14 @@ import {
   disarmSettingsConflict,
   initialSettingsOverlay,
   sameSettingsDraft,
-  SETTINGS_ROW_IDS,
   settingsActivationFailureText,
   settingsDraftChanged,
   settingsRowHasArrows,
   settingsRowCycles,
   settingsRowIndex,
+  settingsRowIds,
+  restoreSettingsCursor,
+  settingsCursorRowIdentity,
   settingsRows,
   settingsRowUsesServer,
   settleSettingsOverlaySave
@@ -91,6 +99,13 @@ import {
   applySettingsTheme,
   cycleSettingsRow
 } from "./settings-selector-actions.js";
+import { settingsSubscriptionPreset } from "./settings-subscription.js";
+import { toggleSettingsViewMode } from "./settings-view-mode.js";
+import type { SettingsCommandTarget } from "./settings-command-catalog.js";
+import {
+  focusSettingsTarget,
+  initializeSamplingOverlay
+} from "./settings-target-navigation.js";
 
 import type {
   RuntimeState,
@@ -103,7 +118,7 @@ export async function openSettingsOverlay(
   state: RuntimeState,
   source: AppSource,
   context: ActionContext,
-  row?: SettingsRowId,
+  rowOrTarget?: SettingsRowId | SettingsCommandTarget,
   profilePurpose?: SettingsRoutePurpose
 ): Promise<void> {
   const selectedProfileId = profilePurpose !== undefined && source.settingsView.editable
@@ -115,20 +130,27 @@ export async function openSettingsOverlay(
     selectedProfileId
   );
   const overlay = state.settings;
-  if (row !== undefined) {
-    const at = settingsRowIndex(row);
-    if (at >= 0) overlay.cursor = at;
+  const target: SettingsCommandTarget | undefined = rowOrTarget !== undefined
+    && typeof rowOrTarget !== "string" ? rowOrTarget : undefined;
+  if (typeof rowOrTarget === "string") {
+    const index = settingsRowIndex(rowOrTarget, overlay);
+    if (index >= 0) overlay.cursor = index;
   }
   state.mode = "SETTINGS";
   context.repaint();
-  if (state.connection.down) return;
-  await context.backend.run("refreshing settings", async (task) => {
-    try {
-      const settings = await source.api.getSettings();
-      if (!task.owns()) return;
-      publishSettingsView(state, source, settings);
-    } catch { /* connection decorator owns the banner */ }
-  });
+  if (!state.connection.down) {
+    await context.backend.run("refreshing settings", async (task) => {
+      try {
+        const settings = await source.api.getSettings();
+        if (!task.owns()) return;
+        publishSettingsView(state, source, settings);
+      } catch { /* connection decorator owns the banner */ }
+    });
+  }
+  if (target !== undefined && state.settings === overlay) {
+    focusSettingsTarget(target, state, overlay, source, context);
+    context.repaint();
+  }
 }
 
 export async function settingsOverlayAction(
@@ -152,6 +174,10 @@ export async function settingsOverlayAction(
     && resolved.action !== "cancel") {
     overlay.deleteArmedProfileId = null;
   }
+  if (settingsSubscriptionPreset(overlay) !== null
+    && (resolved.action === "check" || resolved.action === "detect-context")) {
+    return true;
+  }
   if (overlay.sampling !== null) {
     await samplingOverlayAction(resolved, state, source, context);
     return true;
@@ -161,7 +187,7 @@ export async function settingsOverlayAction(
     return true;
   }
   if (resolved.action === "import-profile") {
-    const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+    const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
     if (row === "profile" && overlay.view.editable && overlay.draft.document !== null) {
       openProfileTransfer(overlay);
     }
@@ -186,7 +212,7 @@ export async function settingsOverlayAction(
     // filling a row editor hidden behind it.
     await pasteIntoModelPicker(state, overlay);
   } else if (resolved.action === "paste-clipboard") {
-    const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+    const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
     const target = openSettingsPasteTarget(state);
     if (target === "editor") {
       const editor = state.editor;
@@ -199,7 +225,7 @@ export async function settingsOverlayAction(
       if (settingsRowCycles(row)) {
         state.toast = "this row is a selector · use ←→";
       } else if (!overlay.view.editable) {
-        state.toast = "legacy settings are read-only";
+        state.toast = settingsReadOnlyMessage(overlay.view.readOnlyReason);
       }
     }
   } else if (overlay.modelPicker !== null) {
@@ -207,22 +233,22 @@ export async function settingsOverlayAction(
   } else if (overlay.edit !== null) {
     await settingsInlineEditAction(resolved, state, source, context, overlay);
   } else if (resolved.action === "focus-next") {
-    overlay.cursor = boundedSettingsCursor(overlay.cursor + 1);
+    overlay.cursor = boundedSettingsCursor(overlay.cursor + 1, overlay);
   } else if (resolved.action === "focus-previous") {
-    overlay.cursor = boundedSettingsCursor(overlay.cursor - 1);
+    overlay.cursor = boundedSettingsCursor(overlay.cursor - 1, overlay);
   } else if (resolved.action === "focus-index") {
-    overlay.cursor = boundedSettingsCursor(resolved.index ?? overlay.cursor);
+    overlay.cursor = boundedSettingsCursor(resolved.index ?? overlay.cursor, overlay);
   } else if (resolved.action === "edit"
-    && SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)] === "profile") {
+    && settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)] === "profile") {
     if (!overlay.view.editable) {
-      state.toast = "legacy settings are read-only";
+      state.toast = settingsReadOnlyMessage(overlay.view.readOnlyReason);
     } else {
       beginSettingsRowEdit(overlay, state.config);
     }
   } else if (resolved.action === "open-selected" || resolved.action === "edit") {
-    const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+    const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
     if (settingsRowUsesServer(row) && !overlay.view.editable) {
-      state.toast = "legacy settings are read-only";
+      state.toast = settingsReadOnlyMessage(overlay.view.readOnlyReason);
     } else if (row === "model") {
       // C-15: past eight options the list is a column, not a cycler. Below
       // that the row keeps opening for a typed identifier.
@@ -230,19 +256,10 @@ export async function settingsOverlayAction(
       else beginSettingsRowEdit(overlay, state.config);
     } else if (settingsRowCycles(row)) {
       await cycleSettingsRow(row, 1, state, source, context, overlay);
-    } else if (row === "system-prompt") {
-      openSystemPromptEditor(state);
+    } else if (isWritingPromptRow(row)) {
+      openWritingPromptEditor(state, row);
     } else if (row === "sampling") {
-      overlay.sampling = {
-        panel: "sampling",
-        cursor: 0,
-        logitBiasOrder: Object.keys(overlay.draft.sampling.logitBias),
-        edit: null,
-        result: null,
-        biasResolution: { kind: "idle" },
-        resolutionGeneration: 0
-      };
-      resolveSamplingBias(overlay, source, context);
+      initializeSamplingOverlay(overlay, source, context);
     } else {
       beginSettingsRowEdit(overlay, state.config);
     }
@@ -250,7 +267,7 @@ export async function settingsOverlayAction(
     // C-18: `tab` runs whatever this row declares, and nothing where a row
     // declares none.
     const action = settingsRows(overlay, state.config)[
-      boundedSettingsCursor(overlay.cursor)
+      boundedSettingsCursor(overlay.cursor, overlay)
     ]?.action;
     if (action !== undefined) {
       await settingsOverlayAction({ action: action.key }, state, source, context);
@@ -262,10 +279,10 @@ export async function settingsOverlayAction(
     manageSettingsProfile(resolved.action, state, overlay);
   } else if (resolved.action === "take-next" || resolved.action === "take-previous") {
     if (resolved.index !== undefined) {
-      overlay.cursor = boundedSettingsCursor(resolved.index);
+      overlay.cursor = boundedSettingsCursor(resolved.index, overlay);
     }
     const step = resolved.action === "take-next" ? 1 : -1;
-    const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+    const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
     if (settingsRowHasArrows(overlay, row)) {
       await cycleSettingsRow(
         row, step, state, source, context, overlay, resolved.magnitude ?? "step"
@@ -277,7 +294,20 @@ export async function settingsOverlayAction(
     await checkSettings(state, source, context, overlay);
   } else if (resolved.action === "detect-context") {
     await detectSettingsContext(state, source, context, overlay);
+  } else if (resolved.action === "toggle-view-mode") {
+    const cursorRow = settingsCursorRowIdentity(overlay);
+    const next = toggleSettingsViewMode(state, source, overlay);
+    restoreSettingsCursor(overlay, cursorRow);
+    state.toast = `${next} view`;
   }
+  // Drains overlay.contextProbeArmed (settings-context-detection.ts):
+  // every draft transition that can land the model on an unknown context
+  // window arms it, so this one drain point after the dispatch covers
+  // typing an identifier, picking one from C-15's column, cycling the
+  // model row with ←→, the single-choice cache auto-fill, and cycling
+  // provider — every path above that can change the model, without this
+  // seam having to know which branch ran. A no-op when nothing armed it.
+  detectSettingsContextForModelChange(state, source, context, overlay);
   return true;
 }
 
@@ -286,14 +316,15 @@ function manageSettingsProfile(
   state: RuntimeState,
   overlay: SettingsOverlayState
 ): void {
-  const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+  const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
   if (row !== "profile") return;
   if (!overlay.view.editable || overlay.draft.document === null || overlay.draft.selectedProfileId === null) {
-    state.toast = "legacy settings are read-only";
+    state.toast = settingsReadOnlyMessage(overlay.view.readOnlyReason);
     return;
   }
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
+  const cursorRow = settingsCursorRowIdentity(overlay);
   if (action === "new-item" || action === "duplicate-item") {
     const created = action === "new-item"
       ? createSettingsProfile(document, profileId)
@@ -313,6 +344,7 @@ function manageSettingsProfile(
     overlay.deleteArmedProfileId = null;
     overlay.result = null;
     overlay.conflict = overlay.conflict === null ? null : { ...overlay.conflict, armed: false };
+    restoreSettingsCursor(overlay, cursorRow);
     state.toast = `${action === "new-item" ? "profile created" : "profile duplicated"} · s saves settings`;
     return;
   }
@@ -342,6 +374,7 @@ function manageSettingsProfile(
   overlay.deleteArmedProfileId = null;
   overlay.result = null;
   overlay.conflict = overlay.conflict === null ? null : { ...overlay.conflict, armed: false };
+  restoreSettingsCursor(overlay, cursorRow);
   state.toast = "profile deleted · routes repaired · s saves settings";
 }
 
@@ -351,7 +384,9 @@ async function saveSettingsDraft(
   context: ActionContext,
   overlay: SettingsOverlayState
 ): Promise<void> {
-  if (!overlay.view.editable) return void (state.toast = "legacy settings are read-only");
+  if (!overlay.view.editable) {
+    return void (state.toast = settingsReadOnlyMessage(overlay.view.readOnlyReason));
+  }
   if (state.connection.down) {
     return void (state.toast = "offline · draft kept until the connection returns");
   }
@@ -382,16 +417,25 @@ async function saveSettingsDraft(
       if (draft.document === null || draft.selectedProfileId === null) {
         throw new Error("Editable settings document is unavailable");
       }
+      const writing = draftWriting(draft);
+      for (const definition of WRITING_PROMPT_FIELD_DEFINITIONS) {
+        const writingError = validateWritingPromptValue(
+          definition,
+          writing[definition.field],
+          writing
+        );
+        if (writingError !== null) throw new Error(writingError);
+      }
       const discovery = overlay.modelDiscoveryIdentity
           === settingsModelDiscoveryIdentity(draft.generation)
         ? overlay.modelDiscovery
         : null;
       const savedDocument = applyBasicSettingsDraft(
-          draft.document,
+          draft.document as never,
           draft.generation,
           draft.selectedProfileId,
           settingsContextWindowIsManual(overlay)
-      );
+      ) as unknown as SettingsDocumentV2;
       const selectedRemoteId = resolveSettingsProfile(
         savedDocument,
         draft.selectedProfileId
@@ -400,19 +444,19 @@ async function saveSettingsDraft(
         (model) => model.remoteId === selectedRemoteId
       ) === true;
       document = applyBasicModelDiscovery(
-        discoveryMatchesSelectedModel
+        (discoveryMatchesSelectedModel
           ? isolateSettingsProfileModel(savedDocument, draft.selectedProfileId)
-          : savedDocument,
+          : savedDocument) as never,
         discovery,
         draft.generation.contextWindow,
         draft.selectedProfileId,
         settingsContextWindowIsManual(overlay)
-      );
+      ) as unknown as SettingsDocumentV2;
       document = applySamplingSettings(
-        document,
+        document as unknown as never,
         draft.sampling,
         draft.selectedProfileId
-      );
+      ) as unknown as SettingsDocumentV2;
       assertSamplingDraftAvailable(document, draft.selectedProfileId);
       const cacheContext = promptCacheContextForProfile(document, draft.selectedProfileId);
       const presentation = promptCachePolicyPresentation(cacheContext, draft.cachePolicy);
@@ -495,7 +539,7 @@ async function saveSettingsDraft(
 
 function assertSamplingDraftAvailable(document: SettingsDocumentV2, profileId: string): void {
   const route = resolveSettingsProfile(document, profileId);
-  const context = samplingContextForRoute(route);
+  const context = samplingContextForRoute(route as never);
   const sampling = route.profile.sampling ?? EMPTY_SAMPLING_V2;
   for (const { knob, resolution } of resolveConfiguredSamplingKnobs(context, sampling)) {
     if (resolution.kind === "unavailable") {

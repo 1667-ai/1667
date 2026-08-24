@@ -100,7 +100,7 @@ import {
   type StoryMetadata,
   type StoredStorySlot
 } from "./story-storage-reader.js";
-import { buildStorySummary } from "./story-summary.js";
+import { buildStoryCatalogSummary } from "./story-summary.js";
 import { storySummaryFromLiveEnvelope } from "./story-v6-codec.js";
 import {
   applyProviderStoryEffect,
@@ -436,9 +436,9 @@ export class StoryStore {
     const ids = await catalogStoryIds(this.dir);
     const summaries = await mapWithConcurrency(ids, STORY_LIST_IO_CONCURRENCY, async (id) => this.withIo(id, async () => {
       const slot = await readStoredStorySlot(this.dir, id);
-      if (slot.kind === "legacy") return buildStorySummary(slot.story);
+      if (slot.kind === "legacy") return buildStoryCatalogSummary(slot.story);
       if (slot.kind === "v5") return {
-        ...buildStorySummary(slot.manifest),
+        ...buildStoryCatalogSummary(slot.manifest),
         aggregateVersion: aggregateVersionFromSlot(slot)
       };
       if (slot.kind === "v6-live" || slot.kind === "v8-live" || slot.kind === "v10-live") return {

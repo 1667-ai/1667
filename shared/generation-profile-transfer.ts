@@ -1,13 +1,24 @@
 import {
   EMPTY_SAMPLING_V2,
   SAMPLING_KNOB_V2_VALUES,
-  type GenerationEffortV2,
   type GenerationProfileV2,
-  type PromptCachePolicyV2,
   type SamplingKnobV2,
   type SamplingSettingsV2,
   type SettingsDocumentV2
 } from "./settings-v2-types.js";
+import {
+  applyContinuationPromptOptimizationTransfer,
+} from "./continuation-prompt-optimization-profile-transfer.js";
+import type {
+  FittedProfileTransfer,
+  ProfileTransferCandidate,
+  ProfileTransferFitOptions
+} from "./generation-profile-transfer-types.js";
+export type {
+  FittedProfileTransfer,
+  ProfileTransferCandidate,
+  ProfileTransferFitOptions
+} from "./generation-profile-transfer-types.js";
 import { resolveSettingsProfile, type SelectedSettingsRouteV2 } from "./settings-route.js";
 import {
   clampMaxOutputTokensToModel,
@@ -34,6 +45,8 @@ import {
   SAMPLING_SCALAR_DESCRIPTORS
 } from "./sampling-validation-policy.js";
 import { generationEffortAvailabilityForRoute } from "./generation-effort-capabilities.js";
+import { withSettingsProfileEffort } from "./settings-document-update.js";
+import type { GenerationProfileV5 } from "./settings-v5-types.js";
 import {
   promptCacheContextForRoute,
   promptCachePolicyPresentation
@@ -42,36 +55,6 @@ import {
   resolveTokenProbabilities,
   tokenProbabilityUnavailableReasonCompact
 } from "./token-probability-capabilities.js";
-
-/** A protocol-neutral set of generation behavior that can move between routes. */
-export interface ProfileTransferCandidate {
-  readonly name: string;
-  readonly temperature?: number | null;
-  readonly maxOutputTokens?: number;
-  readonly effort?: GenerationEffortV2;
-  readonly cachePolicy?: PromptCachePolicyV2;
-  /** Alternative tokens per generated token; null means off. */
-  readonly tokenProbabilities?: number | null;
-  readonly sampling?: Partial<SamplingSettingsV2>;
-  /** Active source parameters that had no transferable candidate value. */
-  readonly omittedCount?: number;
-  readonly fidelity?: readonly string[];
-}
-
-export interface FittedProfileTransfer {
-  readonly document: SettingsDocumentV2;
-  readonly profileId: string;
-  readonly importedCount: number;
-  readonly candidateCount: number;
-  readonly fidelity: readonly string[];
-}
-
-/** Optional model metadata supplied by an import path that owns it. */
-export interface ProfileTransferFitOptions {
-  readonly modelMetadata?: ModelScalarMetadataSourcesV2;
-  /** A canonical resolution of the offered text-bias settings, when the caller owns it. */
-  readonly samplingBiasResolution?: SamplingBiasResolutionResult;
-}
 
 /** Apply a candidate to an already-created profile. The route owns capability filtering. */
 export function fitProfileToRoute(
@@ -100,6 +83,13 @@ export function fitProfileToRoute(
   const fittedMaxOutputTokens = candidate.maxOutputTokens === undefined
     ? null
     : fitMaximumOutputTokens(candidate.maxOutputTokens, route, fidelity, options.modelMetadata);
+  const destinationIsSchema5 = (document as { schemaVersion?: number }).schemaVersion === 5;
+  if (candidate.reasoning?.kind === "independent" && !destinationIsSchema5) {
+    countCandidate();
+    fidelity.push(
+      "independent reasoning not imported; destination profile cannot store Thinking Mode"
+    );
+  }
   const effortAvailability = candidate.effort === undefined
     ? null
     : generationEffortAvailabilityForRoute(route, candidate.effort);
@@ -115,11 +105,13 @@ export function fitProfileToRoute(
   const tokenProbabilityResolution = resolveTokenProbabilities(samplingContextForRoute(route));
   const importsTokenProbabilities = candidate.tokenProbabilities !== undefined
     && (candidate.tokenProbabilities === null || tokenProbabilityResolution.kind === "available");
+  const importsContinuationPromptOptimization = candidate.continuationPromptOptimization !== undefined;
   if (candidate.temperature !== undefined) countCandidate();
   if (candidate.maxOutputTokens !== undefined) countCandidate();
   if (candidate.effort !== undefined) countCandidate();
   if (candidate.cachePolicy !== undefined) countCandidate();
   if (candidate.tokenProbabilities !== undefined) countCandidate();
+  if (candidate.continuationPromptOptimization !== undefined) countCandidate();
   if (candidate.temperature !== undefined && !importsTemperature) {
     fidelity.push("temperature not imported; model does not support temperature");
   }
@@ -141,13 +133,21 @@ export function fitProfileToRoute(
     fidelity.push(`token probabilities not imported; ${tokenProbabilityUnavailableReasonCompact(tokenProbabilityResolution.reason)}`);
   }
   importedCount += Number(importsTemperature) + Number(importsMaxOutputTokens)
-    + Number(importsEffort) + Number(importsCachePolicy) + Number(importsTokenProbabilities);
+    + Number(importsEffort) + Number(importsCachePolicy) + Number(importsTokenProbabilities)
+    + Number(importsContinuationPromptOptimization);
   const clearsTokenProbabilities = candidate.tokenProbabilities === null
     || (candidate.tokenProbabilities !== undefined && !importsTokenProbabilities);
   const profileWithTokenProbabilities = clearsTokenProbabilities
     ? withoutTokenProbabilities(profile)
     : profile;
-  const { sampling: _sourceSampling, ...nextProfile } = profileWithTokenProbabilities;
+  const profileWithContinuationPromptOptimization = applyContinuationPromptOptimizationTransfer(
+    profileWithTokenProbabilities,
+    candidate.continuationPromptOptimization
+  );
+  const { sampling: _sourceSampling, ...nextProfile } = profileWithContinuationPromptOptimization;
+  const schema5Reasoning = destinationIsSchema5 && importsEffort
+    ? fittedSchema5Reasoning(nextProfile as unknown as GenerationProfileV5, candidate)
+    : undefined;
   const documentWithProfile = {
     ...document,
     profiles: {
@@ -161,13 +161,14 @@ export function fitProfileToRoute(
         ...(importsMaxOutputTokens ? {
           maxOutputTokens: fittedMaxOutputTokens!
         } : {}),
-        ...(importsEffort ? { effort: candidate.effort! } : {}),
+        ...(schema5Reasoning !== undefined ? { generationReasoning: schema5Reasoning } : {}),
+        ...(importsEffort && !destinationIsSchema5 ? { effort: candidate.effort! } : {}),
         ...(importsCachePolicy ? { cachePolicy: candidate.cachePolicy! } : {}),
         ...(candidate.tokenProbabilities !== undefined
           && candidate.tokenProbabilities !== null
           && importsTokenProbabilities
           ? { tokenProbabilities: candidate.tokenProbabilities }
-          : {})
+          : {}),
       }
     }
   };
@@ -440,6 +441,14 @@ function withSamplingValue(
 function withoutTokenProbabilities(profile: GenerationProfileV2) {
   const { tokenProbabilities: _tokenProbabilities, ...withoutTokenProbabilities } = profile;
   return withoutTokenProbabilities;
+}
+
+function fittedSchema5Reasoning(
+  profile: GenerationProfileV5,
+  candidate: ProfileTransferCandidate
+): GenerationProfileV5["generationReasoning"] {
+  if (candidate.reasoning !== undefined) return candidate.reasoning;
+  return withSettingsProfileEffort(profile, candidate.effort!).generationReasoning;
 }
 
 function fitMaximumOutputTokens(

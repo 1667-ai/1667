@@ -2,10 +2,11 @@ import {
   SETTINGS_ROUTE_PURPOSE_VALUES,
   type SettingsDocumentV2
 } from "../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 } from "../shared/settings-v5-types.js";
 import { selectSettingsRoute } from "../shared/settings-route.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { ProviderError } from "./errors.js";
-import { effectiveGenerationRuntime } from "./settings-v2-conversion.js";
+import type { SettingsRuntimeResolver } from "./settings-runtime-resolver.js";
 import { invalidSettingsMutation } from "./settings-v2-mutation.js";
 import { resolveSamplingBiasForSettings } from "./sampling-phrase-bias.js";
 import { validateSamplingRoute } from "./settings-v2-sampling-validation.js";
@@ -54,25 +55,54 @@ export const SAMPLING_BIAS_SAVE_PROBE_DEADLINE_MS = 5_000;
  * verdict, only reach the same verdict sooner: there is nothing this budget
  * protects by running longer.
  *
- * `environment` is the store's own resolved `NodeJS.ProcessEnv` snapshot,
- * passed through rather than read from `process.env` here, so this check
- * resolves credentials exactly like the rest of the save path does.
+ * The runtime resolver owns the store's `NodeJS.ProcessEnv` snapshot, so this
+ * check resolves credentials exactly like the rest of the save path does.
  */
 export async function assertSavedSamplingBiasResolves(
-  document: SettingsDocumentV2,
-  environment: NodeJS.ProcessEnv,
+  document: SettingsDocumentV2 | SettingsDocumentV5,
+  runtimeResolver: SettingsRuntimeResolver,
   signal?: AbortSignal
 ): Promise<void> {
   const deadline = AbortSignal.timeout(SAMPLING_BIAS_SAVE_PROBE_DEADLINE_MS);
   const probeSignal = signal === undefined ? deadline : AbortSignal.any([signal, deadline]);
   const resolvedProfileIds = new Set<string>();
   for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {
+    if (document.schemaVersion === 5) {
+      const route = selectSettingsRoute(document, purpose);
+      if (route.profile.sampling === undefined || resolvedProfileIds.has(route.profileId)) continue;
+      resolvedProfileIds.add(route.profileId);
+      let settings: GenerationSettings;
+      try {
+        settings = runtimeResolver.resolveV5({ document, purpose }).settings;
+      } catch {
+        continue;
+      }
+      let resolution: Awaited<ReturnType<typeof resolveSamplingBiasForSettings>>;
+      try {
+        resolution = await resolveSamplingBiasForSettings(route.profile.sampling, settings, { signal: probeSignal });
+      } catch (error) {
+        if (!isFailOpenSamplingProbeError(error, probeSignal)) throw error;
+        continue;
+      }
+      try {
+        validateSamplingRoute(
+          route.profileId,
+          route.profile as never,
+          route.model as never,
+          route.connection,
+          resolution
+        );
+      } catch (error) {
+        throw invalidSettingsMutation(error);
+      }
+      continue;
+    }
     const route = selectSettingsRoute(document, purpose);
     if (route.profile.sampling === undefined || resolvedProfileIds.has(route.profileId)) continue;
     resolvedProfileIds.add(route.profileId);
     let settings: GenerationSettings;
     try {
-      settings = effectiveGenerationRuntime(document, purpose, {}, environment).settings;
+      settings = runtimeResolver.resolve({ document, purpose }).settings;
     } catch {
       continue;
     }
@@ -105,11 +135,9 @@ export async function assertSavedSamplingBiasResolves(
       // plain SettingsFormatError, the same as every other save-time
       // validation failure in server/settings-v2-store.ts — wrap it the
       // same way (server/settings-v2-mutation.ts, invalidSettingsMutation)
-      // so it reaches the writer as its own 400 message instead of falling
-      // through to a generic "Internal server error" at the transport's
-      // classifyServiceError boundary (server/service-error-policy.ts),
-      // which only recognizes ServiceError and a short allow-list of
-      // other known types.
+      // so it reaches the writer as a 400 validation error instead of an
+      // internal 500 at the classifyServiceError boundary
+      // (server/service-error-policy.ts).
       throw invalidSettingsMutation(error);
     }
   }

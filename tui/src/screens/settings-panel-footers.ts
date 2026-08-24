@@ -2,9 +2,11 @@ import type { KeyAction } from "../keys.js";
 import {
   boundedSettingsCursor,
   settingsRowHasArrows,
-  SETTINGS_ROW_IDS
+  settingsRowIds
 } from "../settings-overlay-model.js";
 import { isSettingsScalarRow } from "../settings-scalar.js";
+import { modelPickerRequired } from "../settings-model-picker.js";
+import { settingsSubscriptionPreset } from "../settings-subscription.js";
 import type { SettingsOverlayState } from "../state.js";
 import { visibleWidth } from "./story/frame.js";
 
@@ -27,6 +29,71 @@ export function fittingFooter(
     ?? variants.at(-1)!;
 }
 
+function withoutPlanProbes(
+  variants: ReadonlyArray<SettingsFooter>
+): ReadonlyArray<SettingsFooter> {
+  return variants.map((variant) => {
+    const probes = variant.actions.filter((entry) =>
+      entry.action === "check" || entry.action === "detect-context"
+    );
+    const text = probes.reduce((current, entry) => current
+      .replace(` · ${entry.token} · `, " · ")
+      .replace(` ${entry.token} `, " "), variant.text);
+    return {
+      text,
+      actions: variant.actions.filter((entry) =>
+        entry.action !== "check" && entry.action !== "detect-context"
+      )
+    };
+  });
+}
+
+/** Simple/advanced view toggle. Shown only in the widest footer variant of
+ *  each keyline — the same "narrow terminal loses words before it loses
+ *  keys" tier every other rarely-critical verb (`x discard`, `i import`)
+ *  already skips in the medium and terse variants below. */
+const VIEW_MODE_TOGGLE = {
+  token: "m mode", action: "toggle-view-mode"
+} as const satisfies { token: string; action: KeyAction };
+
+/** Name the view the toggle will open, so the footer states its action. */
+function withViewModeActionLabel(
+  variants: ReadonlyArray<SettingsFooter>,
+  viewMode: SettingsOverlayState["viewMode"]
+): ReadonlyArray<SettingsFooter> {
+  const token = viewMode === "advanced" ? "m simple" : "m advanced";
+  return variants.map((variant) => ({
+    text: variant.text.replace("m mode", token),
+    actions: variant.actions.map((entry) => entry.action === "toggle-view-mode"
+      ? { ...entry, token }
+      : entry)
+  }));
+}
+
+function withOpenSelectedActionLabel(
+  variants: ReadonlyArray<SettingsFooter>,
+  label: string
+): ReadonlyArray<SettingsFooter> {
+  return variants.map((variant) => ({
+    text: variant.text.replace("↵ edit", label),
+    actions: variant.actions.map((entry) => entry.action === "open-selected"
+      ? { ...entry, token: entry.token.replace("↵ edit", label) }
+      : entry)
+  }));
+}
+
+/** `esc close`'s abbreviated form, paired with `VIEW_MODE_TOGGLE` in every
+ *  widest-tier variant that carries it — not just the ones that need the
+ *  width back, so the panel never shows "esc" in one keyline and "esc
+ *  close" in another. Adding the view-mode toggle pushed the choice,
+ *  model, and context keylines' widest variant past 80 columns' footer
+ *  budget, so that width fell straight through to the medium tier — which
+ *  drops the toggle entirely — hiding the one discovery affordance for the
+ *  feature that changed the default view. Shortening this token (already
+ *  how `esc` reads in every narrower tier) reclaims enough width to keep
+ *  the full keyline, toggle included, at 80 columns. */
+const CANCEL_SHORT = { token: "esc", action: "cancel" } as const satisfies { token: string; action: KeyAction };
+
 export const SETTINGS_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" },
   { token: "↓", action: "focus-next" },
@@ -35,7 +102,8 @@ export const SETTINGS_FOOTER_ACTIONS = [
   { token: "↵ next", action: "open-selected" },
   { token: "s save", action: "save-edit" },
   { token: "c check", action: "check" },
-  { token: "esc close", action: "cancel" }
+  VIEW_MODE_TOGGLE,
+  CANCEL_SHORT
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 
 const SETTINGS_TEXT_FOOTER_ACTIONS = [
@@ -44,7 +112,8 @@ const SETTINGS_TEXT_FOOTER_ACTIONS = [
   { token: "↵ edit", action: "open-selected" },
   { token: "s save", action: "save-edit" },
   { token: "c check", action: "check" },
-  { token: "esc close", action: "cancel" }
+  VIEW_MODE_TOGGLE,
+  CANCEL_SHORT
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 
 const SETTINGS_CONTEXT_FOOTER_ACTIONS = [
@@ -54,7 +123,8 @@ const SETTINGS_CONTEXT_FOOTER_ACTIONS = [
   { token: "p detect", action: "detect-context" },
   { token: "s save", action: "save-edit" },
   { token: "c check", action: "check" },
-  { token: "esc close", action: "cancel" }
+  VIEW_MODE_TOGGLE,
+  CANCEL_SHORT
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 
 const SETTINGS_EDIT_FOOTER_ACTIONS = [
@@ -73,12 +143,13 @@ const SETTINGS_PENDING_FOOTER_ACTIONS = [
   { token: "s save", action: "save-edit" },
   { token: "c check", action: "check" },
   { token: "x discard", action: "discard-pending" },
-  { token: "esc close", action: "cancel" }
+  VIEW_MODE_TOGGLE,
+  CANCEL_SHORT
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 
 export const SETTINGS_CHOICE_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ choose · ↵ next · s save · c check · esc close",
+    text: "↑↓ move · ←→ choose · ↵ next · s save · c check · m mode · esc",
     actions: SETTINGS_FOOTER_ACTIONS
   },
   {
@@ -109,7 +180,7 @@ export const SETTINGS_CHOICE_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_MODEL_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ choose · ↵ custom · s save · c check · esc close",
+    text: "↑↓ · ←→ choose · ↵ custom · s save · c check · m mode · esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -118,7 +189,8 @@ export const SETTINGS_MODEL_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "↵ custom", action: "open-selected" },
       { token: "s save", action: "save-edit" },
       { token: "c check", action: "check" },
-      { token: "esc close", action: "cancel" }
+      VIEW_MODE_TOGGLE,
+      CANCEL_SHORT
     ]
   },
   {
@@ -149,7 +221,7 @@ export const SETTINGS_MODEL_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s save · esc close",
+    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s save · m mode · esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -161,7 +233,8 @@ export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "e rename", action: "edit" },
       { token: "d delete", action: "delete-item" },
       { token: "s save", action: "save-edit" },
-      { token: "esc close", action: "cancel" }
+      VIEW_MODE_TOGGLE,
+      CANCEL_SHORT
     ]
   },
   {
@@ -202,7 +275,7 @@ export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
  * command visible with the profile verbs, because both affect the same draft. */
 export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s save · x discard · esc close",
+    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s save · x discard · m mode · esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -215,7 +288,8 @@ export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "d delete", action: "delete-item" },
       { token: "s save", action: "save-edit" },
       { token: "x discard", action: "discard-pending" },
-      { token: "esc close", action: "cancel" }
+      VIEW_MODE_TOGGLE,
+      CANCEL_SHORT
     ]
   },
   {
@@ -256,7 +330,7 @@ export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_TEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ↵ edit · s save · c check · esc close",
+    text: "↑↓ move · ↵ edit · s save · c check · m mode · esc",
     actions: SETTINGS_TEXT_FOOTER_ACTIONS
   },
   {
@@ -280,6 +354,11 @@ export const SETTINGS_TEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
     ]
   }
 ];
+
+const SETTINGS_MODEL_PICKER_FOOTERS = withOpenSelectedActionLabel(
+  SETTINGS_TEXT_FOOTERS,
+  "↵ choose"
+);
 
 /** C-15 owns `↑↓` and every letter, so the column advertises only what it
  *  actually answers. */
@@ -308,7 +387,7 @@ export const SETTINGS_PICKER_FOOTERS: ReadonlyArray<SettingsFooter> = [
  *  borrowing the cycler's `choose`. */
 export const SETTINGS_SCALAR_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ step · ⇧ ×10 · ↵ type · s save · esc close",
+    text: "↑↓ move · ←→ step · ⇧ ×10 · ↵ type · s save · m mode · esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -316,7 +395,8 @@ export const SETTINGS_SCALAR_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "→ step", action: "take-next" },
       { token: "↵ type", action: "open-selected" },
       { token: "s save", action: "save-edit" },
-      { token: "esc close", action: "cancel" }
+      VIEW_MODE_TOGGLE,
+      CANCEL_SHORT
     ]
   },
   {
@@ -346,7 +426,7 @@ export const SETTINGS_SCALAR_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_CONTEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ step · ↵ type · p detect · s save · esc close",
+    text: "↑↓ move · ←→ step · ↵ type · p detect · s save · m mode · esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -355,11 +435,12 @@ export const SETTINGS_CONTEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "↵ type", action: "open-selected" },
       { token: "p detect", action: "detect-context" },
       { token: "s save", action: "save-edit" },
-      { token: "esc close", action: "cancel" }
+      VIEW_MODE_TOGGLE,
+      CANCEL_SHORT
     ]
   },
   {
-    text: "↑↓ move · ↵ edit · p detect · s save · c check · esc close",
+    text: "↑↓ move · ↵ edit · p detect · s save · c check · m mode · esc",
     actions: SETTINGS_CONTEXT_FOOTER_ACTIONS
   },
   {
@@ -413,7 +494,7 @@ export const SETTINGS_EDIT_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_PENDING_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ↵ edit · s save · c check · x discard · esc close",
+    text: "↑↓ move · ↵ edit · s save · c check · x discard · m mode · esc",
     actions: SETTINGS_PENDING_FOOTER_ACTIONS
   },
   {
@@ -442,6 +523,11 @@ export const SETTINGS_PENDING_FOOTERS: ReadonlyArray<SettingsFooter> = [
   }
 ];
 
+const SETTINGS_PENDING_MODEL_PICKER_FOOTERS = withOpenSelectedActionLabel(
+  SETTINGS_PENDING_FOOTERS,
+  "↵ choose"
+);
+
 /** Which keyline this panel shows. Footer policy follows the row model, so it
  *  lives with the footers rather than as a ternary chain in the renderer. */
 export function settingsFooterVariants(
@@ -450,16 +536,23 @@ export function settingsFooterVariants(
 ): ReadonlyArray<SettingsFooter> {
   if (pickerOpen) return SETTINGS_PICKER_FOOTERS;
   if (overlay.edit !== null) return SETTINGS_EDIT_FOOTERS;
-  const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+  const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
   const pending = overlay.view.editable && overlay.view.pendingRevision !== null;
+  let variants: ReadonlyArray<SettingsFooter>;
   if (row === "profile") {
-    return pending ? SETTINGS_PENDING_PROFILE_FOOTERS : SETTINGS_PROFILE_FOOTERS;
-  }
-  if (pending) return SETTINGS_PENDING_FOOTERS;
+    variants = pending ? SETTINGS_PENDING_PROFILE_FOOTERS : SETTINGS_PROFILE_FOOTERS;
+  } else if (pending) variants = row === "model" && modelPickerRequired(overlay)
+    ? SETTINGS_PENDING_MODEL_PICKER_FOOTERS
+    : SETTINGS_PENDING_FOOTERS;
   // The context window is a scalar that can also be probed, so it keeps its
   // own keyline rather than the plain scalar one.
-  if (row === "context-window") return SETTINGS_CONTEXT_FOOTERS;
-  if (isSettingsScalarRow(row)) return SETTINGS_SCALAR_FOOTERS;
-  if (!settingsRowHasArrows(overlay, row)) return SETTINGS_TEXT_FOOTERS;
-  return row === "model" ? SETTINGS_MODEL_FOOTERS : SETTINGS_CHOICE_FOOTERS;
+  else if (row === "context-window") variants = SETTINGS_CONTEXT_FOOTERS;
+  else if (isSettingsScalarRow(row)) variants = SETTINGS_SCALAR_FOOTERS;
+  else if (row === "model" && modelPickerRequired(overlay)) variants = SETTINGS_MODEL_PICKER_FOOTERS;
+  else if (!settingsRowHasArrows(overlay, row)) variants = SETTINGS_TEXT_FOOTERS;
+  else variants = row === "model" ? SETTINGS_MODEL_FOOTERS : SETTINGS_CHOICE_FOOTERS;
+  const footerVariants = settingsSubscriptionPreset(overlay) === null
+    ? variants
+    : withoutPlanProbes(variants);
+  return withViewModeActionLabel(footerVariants, overlay.viewMode);
 }

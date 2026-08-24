@@ -10,7 +10,6 @@ import {
 import {
   MAX_RELEASE_SBOM_BYTES,
   RELEASE_LICENSE,
-  RELEASE_LICENSE_FILE_DIGESTS,
   RELEASE_LICENSE_FILES,
   RELEASE_PACKAGE_REPOSITORY,
   type TarballEntry
@@ -37,7 +36,9 @@ export interface ValidatedPlatformPackage {
 
 /**
  * Validates a platform package inspection against the same entry policy used by
- * release preflight: exact paths, modes, licence digests, manifests, and bounds.
+ * release preflight: exact paths, modes, manifests, and bounds. Reviewed
+ * licence-file digests belong to release/build-time validation; an installed
+ * updater must accept a later release that changes NOTICE or LICENSE.
  */
 export function validatePlatformPackageInspection(input: {
   readonly packageName: PublishedPlatformPackage;
@@ -214,13 +215,6 @@ function assertEntryPolicy(
       ? MAX_RELEASE_SBOM_BYTES
       : 1024 * 1024;
   if (entry.size > maximum) throw new Error(`${entry.path} exceeds its size bound`);
-  for (const name of RELEASE_LICENSE_FILES) {
-    if (entry.path !== `package/${name}`) continue;
-    const pinned = RELEASE_LICENSE_FILE_DIGESTS[name];
-    if (entry.sha256 !== pinned.sha256 || entry.size !== pinned.bytes) {
-      throw new Error(`${entry.path} is not the reviewed ${name} file`);
-    }
-  }
 }
 
 function exactStringArray(value: unknown, expected: readonly string[], label: string): void {

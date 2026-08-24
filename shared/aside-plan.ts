@@ -9,6 +9,7 @@ import { renderPromptPlan, type PromptPlan, type PromptTurn } from "./prompt-pla
 import type { StoryNode, ChapterBreak } from "./types.js";
 import { assembleChapterContext } from "./chapters.js";
 import { estimateTokens } from "./tokens.js";
+import { operationGuidanceTurns } from "./writing-prompt-runtime.js";
 
 export const ASIDE_OPERATION = "aside" as const;
 
@@ -75,6 +76,8 @@ export function asidePlan(options: {
    * cut (still drops nothing when the list is short).
    */
   usableTokens: number | null;
+  /** Optional Aside guidance. Empty adds no request block. */
+  guidance?: string;
 }): PromptPlan {
   const { facts, parts, chapterBreaks, nodes, history, question, usableTokens } = options;
   const sourceContext = assembleChapterContext(parts, chapterBreaks, nodes)
@@ -82,7 +85,13 @@ export function asidePlan(options: {
   const sourceBody = sourceContext.map((part) => part.text).join("\n\n");
   const sourceText = sourceBody.length === 0 ? "" : SOURCE_PREFACE + sourceBody;
 
-  const fixedTurns = fixedAsideTurns(ASIDE_CONTRACT, facts, sourceText, question);
+  const fixedTurns = fixedAsideTurns(
+    ASIDE_CONTRACT,
+    facts,
+    sourceText,
+    question,
+    options.guidance ?? ""
+  );
   const fixedTokens = fixedAsideTokens(fixedTurns);
   if (usableTokens !== null && fixedTokens > usableTokens) {
     throw new AsideContextAdmissionError(fixedTokens, usableTokens);
@@ -129,9 +138,11 @@ function fixedAsideTurns(
   contract: string,
   facts: string | null,
   sourceText: string,
-  question: string
+  question: string,
+  guidance = ""
 ): PromptTurn[] {
   return [
+    ...operationGuidanceTurns(guidance),
     {
       role: "system",
       blocks: [{

@@ -1,5 +1,6 @@
 import {
   STREAM_METHODS,
+  PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION,
   isLocalDurabilityMutation,
   isMutatingWorkerMethod,
   isServiceOwnedSettingsMutation,
@@ -224,6 +225,16 @@ async function executeSettingsMutation(
   message: WorkerRequest,
   signal: AbortSignal
 ): Promise<unknown> {
+  if (
+    message.method === "saveSettings"
+    && message.protocolVersion === PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION
+  ) {
+    throw new ServiceError(
+      400,
+      "saveSettings requires worker protocol 12",
+      "invalid_request"
+    );
+  }
   const input = requireRecord(message.input, `${message.method} input`);
   const command = requireRecord(input.command, "command");
   return message.method === "saveSettings"
@@ -236,7 +247,8 @@ async function executeMutation(
   message: WorkerRequest,
   onDelta: (text: string) => void,
   onReasoning: (delta: ReasoningStreamDelta) => void,
-  signal: AbortSignal
+  signal: AbortSignal,
+  canCommitStoppedAside?: () => boolean
 ): Promise<unknown> {
   const method = message.method;
   if (!isMutatingWorkerMethod(method)) {
@@ -298,6 +310,9 @@ async function executeMutation(
         onDelta,
         onReasoning,
         signal,
+        ...(canCommitStoppedAside === undefined
+          ? {}
+          : { canCommitStoppedAside }),
         ...(storyMutationRequest === undefined
           ? {}
           : { storyMutationRequest })
@@ -495,7 +510,14 @@ async function executeWorkerMutationWithRetry(
 ): Promise<unknown> {
   for (;;) {
     try {
-      return await executeMutation(service, message, onDelta, onReasoning, cancellation.signal);
+      return await executeMutation(
+        service,
+        message,
+        onDelta,
+        onReasoning,
+        cancellation.signal,
+        () => cancellation.userCancellationRequested
+      );
     } catch (error) {
       if (message.method !== "commitPartialRewrite"
         || !isRetryablePartialSettlementFailure(error)

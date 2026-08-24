@@ -33,7 +33,7 @@ export function reasoningRowState(overlay: SettingsOverlayState): ReasoningRowSt
   return {
     route: document === null || profileId === null || profile === undefined
       ? null
-      : resolveSettingsProfile(document, profileId),
+      : resolveSettingsProfile(document, profileId) as never,
     display: profile?.reasoning ?? "marker"
   };
 }
@@ -49,9 +49,11 @@ export function reasoningRowValue(state: ReasoningRowState): string {
 }
 
 export function reasoningRowHint(state: ReasoningRowState): string {
-  if (state.route === null) return "off · marker · open";
+  if (state.route === null) return "Controls whether model reasoning is hidden, marked, or shown.";
   const availability = reasoningDisplayAvailabilityForRoute(state.route, state.display);
-  return availability.kind === "unavailable" ? availability.reason : "off · marker · open";
+  return availability.kind === "unavailable"
+    ? "This route does not expose model reasoning."
+    : "Controls whether model reasoning is hidden, marked, or shown.";
 }
 
 /** Every route offers `off`; only a route the capability matrix reports
@@ -75,7 +77,7 @@ export function cycleReasoningControl(
     step,
     reasoningRowChoices(overlay),
     (profile) => profile.reasoning ?? "marker",
-    profileWithReasoning
+    profileWithReasoning as never
   ) ?? null;
 }
 

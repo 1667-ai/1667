@@ -1,5 +1,6 @@
 import {
   applySettingsModelChoiceDraft,
+  armContextProbeIfUnknown,
   clearSettingsModelChoiceDraft,
   type SettingsModelChoiceOrigin
 } from "./settings-draft-transition.js";
@@ -17,6 +18,7 @@ export function applySettingsModelChoice(
   overlay.result = null;
   if (!settingsDraftChanged(overlay)) overlay.conflict = null;
   else if (overlay.conflict !== null) overlay.conflict.armed = false;
+  armContextProbeIfUnknown(overlay);
 }
 
 export function applyCachedSettingsModelChoice(

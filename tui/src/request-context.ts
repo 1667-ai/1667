@@ -8,7 +8,9 @@ import { streamHasSubstantiveText } from "./stream-text.js";
 type RequestContextState = Pick<
   StoryScreenState,
   "payload" | "stream" | "focusIndex" | "mode" | "composer" | "retakePrompt"
-  | "systemPrompt" | "assistantPrefill" | "request" | "contextWindow" | "maxTokens" | "model"
+  | "systemPrompt" | "assistantPrefill" | "continuationPromptLayout" | "request"
+  | "activeWriting"
+  | "contextWindow" | "maxTokens" | "model"
 >;
 
 /** The generation seam and prompt settings used by every next-request meter.
@@ -34,8 +36,10 @@ export function nextRequestContext(
     : null;
   const base = {
     systemPrompt: state.systemPrompt,
+    defaultContinueDirection: state.activeWriting.defaultContinueDirection,
     instruction: composeRequest && !rewriteComposer ? state.composer.text : "",
     assistantPrefill: state.assistantPrefill,
+    continuationPromptLayout: state.continuationPromptLayout,
     contextWindow: state.contextWindow,
     maxTokens: state.maxTokens,
     remoteModelId: state.model,
@@ -84,8 +88,10 @@ export interface PromptProjectionIdentity {
   readonly streamText: string | null;
   readonly streamTargetId: string | null;
   readonly systemPrompt: string;
+  readonly defaultContinueDirection: string;
   readonly instruction: string;
   readonly assistantPrefill: boolean;
+  readonly continuationPromptLayout: import("../../shared/continuation-prompt-optimization.js").ContinuationPromptLayout;
   readonly operation: string;
   readonly targetId: string | null;
 }
@@ -99,8 +105,10 @@ export function promptProjectionIdentity(
     streamText: state.stream?.text ?? null,
     streamTargetId: state.stream?.targetId ?? null,
     systemPrompt: context.systemPrompt,
+    defaultContinueDirection: context.defaultContinueDirection ?? "",
     instruction: context.instruction,
     assistantPrefill: context.assistantPrefill,
+    continuationPromptLayout: context.continuationPromptLayout ?? "compatibility",
     operation: context.operation,
     targetId: context.targetId
   };
@@ -114,8 +122,10 @@ export function sameProjectionIdentity(
     && left.streamText === right.streamText
     && left.streamTargetId === right.streamTargetId
     && left.systemPrompt === right.systemPrompt
+    && left.defaultContinueDirection === right.defaultContinueDirection
     && left.instruction === right.instruction
     && left.assistantPrefill === right.assistantPrefill
+    && left.continuationPromptLayout === right.continuationPromptLayout
     && left.operation === right.operation
     && left.targetId === right.targetId;
 }

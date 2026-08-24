@@ -1,16 +1,20 @@
 import { applyBasicSettingsProbeDraft } from "../../shared/settings-basic-draft.js";
 import type {
   ModelConnectionV2,
-  ProviderProbeTarget,
-  SettingsDocumentV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import type { SettingsDocumentV5 } from "../../shared/settings-v5-types.js";
 import type { GenerationSettings } from "../../shared/types.js";
 import {
   resolveSettingsProfile,
   selectSettingsRoute
 } from "../../shared/settings-route.js";
 import { storedCredentialSecretId } from "../../shared/settings-stored-credential.js";
+import {
+  isProviderProbeRouteV1,
+  providerProbeRouteFromV5Route,
+  type ProviderProbeTarget
+} from "../../shared/provider-probe-route-v1.js";
 
 /** Editable format-2 drafts must retain document-only connection policy across
  * the probe boundary. Legacy views keep their effective runtime. A staged view
@@ -26,7 +30,7 @@ export function settingsProviderProbeTarget(
   view: SettingsView,
   settings: GenerationSettings,
   connectionSecrets: Readonly<Record<string, string | null>>,
-  draftDocument?: SettingsDocumentV2 | null,
+  draftDocument?: SettingsDocumentV5 | null,
   selectedProfileId?: string | null
 ): ProviderProbeTarget {
   if (!view.editable) return settings;
@@ -36,31 +40,28 @@ export function settingsProviderProbeTarget(
     throw new Error("Selected profile no longer exists");
   }
   const probeDocument = applyBasicSettingsProbeDraft(source, settings, profileId);
-  // Provider APIs expose only a route purpose. Pin this transient probe copy to
-  // the selected profile instead of inventing a profile-specific purpose.
   const document = {
     ...probeDocument,
     routing: { ...probeDocument.routing, default: profileId }
-  };
+  } as SettingsDocumentV5;
+  const route = selectSettingsRoute(document, "default");
   const secretId = storedCredentialSecretId(
     resolveSettingsProfile(document, profileId).connection.auth
   );
   const pendingSecret = secretId === null ? undefined : connectionSecrets[secretId];
-  return {
-    kind: "settings-document",
-    document,
-    purpose: "default",
-    ...(typeof pendingSecret !== "string" || secretId === null
-      ? {}
-      : { secrets: { [secretId]: pendingSecret } })
-  };
+  return providerProbeRouteFromV5Route(
+    route,
+    typeof pendingSecret !== "string" || secretId === null
+      ? undefined
+      : { [secretId]: pendingSecret }
+  );
 }
 
 export function settingsModelTargetFingerprint(
   view: SettingsView,
   settings: GenerationSettings,
   connectionSecrets: Readonly<Record<string, string | null>>,
-  draftDocument?: SettingsDocumentV2 | null,
+  draftDocument?: SettingsDocumentV5 | null,
   selectedProfileId?: string | null
 ): string {
   const target = settingsProviderProbeTarget(
@@ -70,12 +71,10 @@ export function settingsModelTargetFingerprint(
     draftDocument,
     selectedProfileId
   );
-  const connection = "kind" in target
-    ? modelDiscoveryConnectionTarget(
-        selectSettingsRoute(target.document, target.purpose).connection
-      )
+  const connection = isProviderProbeRouteV1(target)
+    ? modelDiscoveryConnectionTarget(target.connection)
     : null;
-  const secretIntent = "kind" in target
+  const secretIntent = isProviderProbeRouteV1(target)
     ? Object.keys(target.secrets ?? {})
       .sort((left, right) => left.localeCompare(right))
       .map((id) => [id, "replace"] as const)

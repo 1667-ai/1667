@@ -1,6 +1,7 @@
 import { BOUNDARY_ANCHOR_CHARACTERS } from "../shared/continuation-plan.js";
 import { assembleRewriteContext } from "../shared/fact-activation.js";
 import type { PromptPlan, PromptTurn } from "../shared/prompt-plan.js";
+import { operationGuidanceTurns } from "../shared/writing-prompt-runtime.js";
 export {
   continuationPlan,
   DEFAULT_INSTRUCTION,
@@ -56,7 +57,12 @@ function bareRewriteContract(passage: boolean): string {
   ].join(" ");
 }
 
-function rewritePrelude(authorBrief: string, facts: string | null, contract: string): PromptTurn[] {
+function rewritePrelude(
+  authorBrief: string,
+  facts: string | null,
+  contract: string,
+  guidance = ""
+): PromptTurn[] {
   const brief = authorBrief.trim();
   return [
     ...(brief.length === 0 ? [] : [{
@@ -82,6 +88,7 @@ function rewritePrelude(authorBrief: string, facts: string | null, contract: str
         boundaryAfter: "candidate" as const
       }]
     }]),
+    ...operationGuidanceTurns(guidance),
     {
       role: "system",
       blocks: [{
@@ -112,6 +119,7 @@ export function rewritePlan(options: {
   authorBrief: string;
   tag: string;
   assistantPrefill: boolean;
+  guidance?: string;
 }): RewritePlan {
   const {
     story,
@@ -156,7 +164,7 @@ export function rewritePlan(options: {
     ? `After the replacement, copy the RIGHT BOUNDARY text exactly, then output ${endMarker}.`
     : `After the replacement, output ${endMarker}.`;
   const turns: PromptTurn[] = [
-    ...rewritePrelude(authorBrief, options.facts, REWRITE_CONTRACT),
+    ...rewritePrelude(authorBrief, options.facts, REWRITE_CONTRACT, options.guidance ?? ""),
     {
       role: "user",
       blocks: [
@@ -257,6 +265,7 @@ export function phraseRewritePlan(options: {
   authorBrief: string;
   tag: string;
   passage?: boolean;
+  guidance?: string;
 }): RewritePlan {
   const { story, facts, partId, start, end, expected, instruction, lengthTarget, authorBrief, tag } = options;
   const part = activePath(story).find((item) => item.id === partId);
@@ -273,7 +282,12 @@ export function phraseRewritePlan(options: {
     prompt: {
       operation: "rewrite",
       turns: [
-        ...rewritePrelude(authorBrief, facts, bareRewriteContract(options.passage === true)),
+        ...rewritePrelude(
+          authorBrief,
+          facts,
+          bareRewriteContract(options.passage === true),
+          options.guidance ?? ""
+        ),
         {
           role: "user",
           blocks: [

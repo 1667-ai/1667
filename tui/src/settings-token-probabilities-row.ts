@@ -1,8 +1,10 @@
-import type { GenerationProfileV2 } from "../../shared/settings-v2-types.js";
+import type {
+  GenerationProfileV2,
+  SettingsViewReadOnlyReason
+} from "../../shared/settings-v2-types.js";
 import { MAX_ALTERNATIVE_TOKENS } from "../../shared/token-probabilities.js";
 import {
   resolveTokenProbabilities,
-  tokenProbabilityUnavailableReasonCompact,
   type TokenProbabilityResolution
 } from "../../shared/token-probability-capabilities.js";
 import { samplingContextForOverlayOrNull } from "./sampling-model.js";
@@ -36,6 +38,7 @@ const TOKEN_PROBABILITIES_CHOICES: readonly (number | null)[] = [
 export interface TokenProbabilitiesRowState {
   readonly resolution: TokenProbabilityResolution | null;
   readonly count: number | null;
+  readonly readOnlyReason?: SettingsViewReadOnlyReason;
 }
 
 export function tokenProbabilitiesRowState(
@@ -44,7 +47,10 @@ export function tokenProbabilitiesRowState(
   const context = samplingContextForOverlayOrNull(overlay);
   return {
     resolution: context === null ? null : resolveTokenProbabilities(context),
-    count: currentTokenProbabilities(overlay)
+    count: currentTokenProbabilities(overlay),
+    ...(overlay.view.readOnlyReason === undefined
+      ? {}
+      : { readOnlyReason: overlay.view.readOnlyReason })
   };
 }
 
@@ -58,9 +64,20 @@ export function tokenProbabilitiesRowValue(state: TokenProbabilitiesRowState): s
 
 export function tokenProbabilitiesRowHint(state: TokenProbabilitiesRowState): string {
   if (state.resolution === null) return "";
-  return state.resolution.kind === "unavailable"
-    ? tokenProbabilityUnavailableReasonCompact(state.resolution.reason)
-    : "alternatives kept as token probabilities";
+  if (state.resolution.kind === "available") {
+    return "Shows other tokens the model considered while writing.";
+  }
+  if (state.resolution.reason === "legacy-v1") {
+    return state.readOnlyReason === "successor-schema"
+      ? "Newer settings schema is read-only here; update 1667."
+      : "Legacy settings are read-only.";
+  }
+  if (state.resolution.reason === "preset-unknown") {
+    return "Alternative token data might not be available from this provider.";
+  }
+  return state.resolution.reason === "model-refused"
+    ? "This model does not offer alternative token data."
+    : "This provider does not offer alternative token data.";
 }
 
 /** C-09 cycler: `off` writes a profile with the key dropped, and every other
@@ -75,7 +92,7 @@ export function cycleTokenProbabilitiesControl(
     step,
     tokenProbabilitiesChoices(overlay),
     (profile) => profile.tokenProbabilities ?? null,
-    profileWithTokenProbabilities
+    profileWithTokenProbabilities as never
   );
   return next === undefined ? null : next === null ? "off" : String(next);
 }

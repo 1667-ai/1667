@@ -47,6 +47,12 @@ read_when:
 | Author's Note | One short instruction that 1667 sends near the end of each provider request |
 | Author's Note depth | The number of story parts from the end where the Author's Note occurs |
 | Author Brief | The story or machine-wide instruction that 1667 sends with each provider request |
+| Default Author Brief | The machine-wide Author Brief in Settings. This value was the system prompt |
+| Default Continue direction | The machine-wide direction that 1667 uses for a new empty Continue request |
+| Rewrite guidance | Optional standing text that 1667 adds to a Rewrite request |
+| Title guidance | Optional standing text that 1667 adds to an autoname request |
+| Summary guidance | Optional standing text that 1667 adds to a summary-take or chapter-summary request |
+| Aside guidance | Optional standing text that 1667 adds to an Aside request |
 | Archive | A NovelAI `.story`, `.scenario`, or `.lorebook` file |
 | Container | A `.story` Archive that contains prose and settings |
 | Lorebook | A collection of NovelAI Lorebook Entries |
@@ -71,6 +77,8 @@ read_when:
 | exact count | A token count from a bundled tokenizer, or a server count of a complete message array |
 | near-exact count | A token count of server-tokenized content that 1667 cannot prove against the serving path |
 | token estimate | A token count of four characters for each token |
+| Simple view | The default Settings view; it shows only the most-used rows |
+| Advanced view | The Settings view that shows every row |
 | Generation Profile | One named set of model behavior settings |
 | Generation Route | The selection of a Generation Profile for one type of work |
 | Sampler Preset | A NovelAI `.preset` file |
@@ -90,6 +98,7 @@ read_when:
 | provider | A local or hosted service that supplies a language model |
 | Text Completions | The provider protocol that sends one text prompt and receives one text continuation |
 | prompt format | The rule that converts a provider-neutral request into one text prompt |
+| continuation prompt layout | The rule that places continuation instructions around story history |
 | machine tier | Private 1667 data for one machine |
 | project tier | Story data and settings in a `.1667/` directory |
 | working tier | User files in a project root |

@@ -13,7 +13,8 @@ import {
 import type {
   SamplingKnobV2,
   SamplingPhraseBiasEntryV2,
-  SamplingSettingsV2
+  SamplingSettingsV2,
+  SettingsDocumentV2
 } from "../../shared/settings-v2-types.js";
 import { replaceSettingsDraft } from "./settings-draft-transition.js";
 import type { SamplingListPanel, SettingsOverlayState } from "./state.js";
@@ -317,10 +318,10 @@ export function updateSamplingDraft(
   const document = overlay.draft.document === null || overlay.draft.selectedProfileId === null
     ? overlay.draft.document
     : applySamplingSettings(
-        overlay.draft.document,
+        overlay.draft.document as unknown as SettingsDocumentV2,
         sampling,
         overlay.draft.selectedProfileId
-      );
+      ) as unknown as typeof overlay.draft.document;
   replaceSettingsDraft(overlay, { ...overlay.draft, document, sampling });
   if (overlay.conflict !== null) overlay.conflict.armed = false;
   overlay.result = null;

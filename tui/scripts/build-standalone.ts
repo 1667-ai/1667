@@ -45,8 +45,9 @@ const repositoryRoot = path.dirname(tuiRoot);
 const outputDirectory = path.join(tuiRoot, "dist");
 const outputFile = path.join(outputDirectory, process.platform === "win32" ? "1667.exe" : "1667");
 const execFileAsync = promisify(execFile);
-// Defender can delay the first launch of the compiled Windows executable.
-const coldRenderBudgetMs = process.platform === "win32" ? 20_000 : 10_000;
+// Defender can delay the first launch of the compiled Windows executable;
+// observed cold renders have reached past 25 seconds under that scan.
+const coldRenderBudgetMs = process.platform === "win32" ? 45_000 : 10_000;
 
 await mkdir(outputDirectory, { recursive: true });
 const buildIdentity = await deriveBuildIdentity();
@@ -267,7 +268,10 @@ async function smokeStandalone(executable: string, expectedIdentity: BuildIdenti
       executable,
       ["--data", embeddedData, "--render-once", "--size", "20x10"],
       directory,
-      environment
+      environment,
+      // The budget check below must speak first; the smoke's default kill
+      // would otherwise cancel a slow-but-passing render mid-flight.
+      coldRenderBudgetMs + 15_000
     );
     if (render.exitCode !== 0) {
       throw new Error(`Standalone render smoke failed (${render.exitCode}): ${render.stderr.trim()}`);

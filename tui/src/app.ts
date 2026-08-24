@@ -33,6 +33,15 @@ import { bindLiveReadingPositionState } from "./reading-position-persist.js";
 import { handleOverlayAction } from "./overlay-actions.js";
 import { createNoticeLog, recordSessionNotices } from "./notice-log.js";
 import { announceRelease } from "./release-announcement.js";
+import {
+  promotePendingUpdateNotice,
+  publishBackgroundUpdateNotice
+} from "./background-update-notice.js";
+import {
+  createUpdateCheckSession,
+  type ConfiguredUpdateStarter,
+  type UpdateCheckSession
+} from "./update-runtime.js";
 import { openSettingsPasteTarget } from "./editor-open.js";
 import { createPalette } from "./palette.js";
 import {
@@ -85,7 +94,6 @@ import {
   reconcilePresentedSelection,
   retirePresentedSelection
 } from "./presented-selection.js";
-import type { BackgroundUpdateStarter } from "./update-runtime.js";
 import { startPromptTokenCountLane, type PromptTokenCountLane } from "./prompt-token-count.js";
 import {
   activeTextComposer,
@@ -112,13 +120,19 @@ export interface AppSource {
   connection: ConnectionMonitor | null;
   backendRecovery?: RecoveryWarningFeed;
   backendFailure?: Promise<Error>;
-  startUpdateCheck?: BackgroundUpdateStarter;
+  startUpdateCheck?: ConfiguredUpdateStarter;
   config: UserConfig;
   /** Local changing store: last focused part per story. Not settings. */
   readingPositions: ReadingPositions;
   /** How long typing pauses before a search scan starts. Tests and fixtures
    *  that answer from memory set 0; production leaves it unset. */
   searchDebounceMs?: number;
+  /** How long a model-identity change waits before the automatic
+   *  context-window probe fires (settings-context-detection.ts), so a burst
+   *  of rapid edits collapses into one attempt instead of one per edit.
+   *  Tests and fixtures that answer from memory set 0; production leaves it
+   *  unset. */
+  contextProbeDebounceMs?: number;
 }
 
 type InteractivePresentedInteraction = PresentedInteraction & {
@@ -220,7 +234,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
   let profileReport: TuiFrameProfileReport | null = null;
   let backendFailure: Error | null = null;
   let stopRecoveryOrchestration: (() => void) | null = null;
-  let stopUpdateCheck: (() => void) | null = null;
+  let updateCheckSession: UpdateCheckSession | null = null;
   let tokenCountLane: PromptTokenCountLane | null = null;
   let resolveExit!: () => void;
   const exit = new Promise<void>((resolve) => { resolveExit = resolve; });
@@ -270,6 +284,8 @@ export async function runInteractive(source: AppSource): Promise<void> {
     profile: profileEnabled
   });
   const repaint = () => {
+    updateCheckSession?.synchronize(source.config);
+    promotePendingUpdateNotice(state);
     // A backend task can raise a notice long after the key that started it, so
     // the log is filled here as well as at the end of `dispatch`.
     recordSessionNotices(state);
@@ -279,6 +295,14 @@ export async function runInteractive(source: AppSource): Promise<void> {
     // needing a second notification path (see prompt-token-count.ts).
     tokenCountLane?.notify();
   };
+  const publishUpdateNotice = (message: string) => {
+    if (exited) return;
+    publishBackgroundUpdateNotice(state, message, repaint);
+  };
+  updateCheckSession = createUpdateCheckSession(
+    source.startUpdateCheck,
+    publishUpdateNotice
+  );
   const backend = new ActionRuntime(state, repaint);
   tokenCountLane = startPromptTokenCountLane({ state, api: source.api, repaint });
   const captureProfile = () => {
@@ -296,7 +320,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
     if (state.search !== null) abortPendingSearch(state.search);
     frames.dispose();
     stopRecoveryOrchestration?.();
-    stopUpdateCheck?.();
+    updateCheckSession?.dispose();
     tokenCountLane?.dispose();
     backend.dispose();
     source.connection?.dispose();
@@ -582,11 +606,6 @@ export async function runInteractive(source: AppSource): Promise<void> {
   // One-shot requestRender frames while idle; renderables may request a live
   // loop explicitly when they own native animation.
   renderer.auto();
-  stopUpdateCheck = source.startUpdateCheck?.((message) => {
-    if (exited || state.toast !== null) return;
-    state.toast = message;
-    repaint();
-  }) ?? null;
 
   if (source.demo) {
     state.focusIndex = lastPartRowIndex(createStoryViewModel(state.payload));
@@ -693,7 +712,9 @@ export async function dispatch(
   // Recovery belongs to the connection banner, above transient part menus
   // and confirmations. Those surfaces stay open while retry runs; otherwise
   // their reducers would swallow the banner's advertised keyboard/click action.
-  if (resolved.action === "retry") await handleOverlayAction(resolved, state, source, context);
+  if (resolved.action === "retry") {
+    await handleOverlayAction(resolved, state, source, context);
+  }
   else if (resolved.action === "open-text-actions") {
     if (resolved.nativeSelection === undefined && resolved.composerEditable === false) return;
     let sync: ReturnType<typeof syncMouseComposerSelection> = "none";
@@ -863,6 +884,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     historyDraft: null,
     abort: null,
     pendingGenerationDraft: null,
+    pendingUpdateNotice: null,
     composerClaimEpoch: 0,
     quitArmed: false,
     interactionVersion: 0,

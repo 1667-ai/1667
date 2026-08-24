@@ -1,15 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { parseSettingsDocumentV2 } from "../../server/settings-v2-codec.js";
-import { effectiveGenerationRuntime } from "../../server/settings-v2-conversion.js";
 import {
   applyBasicSettingsDraft,
   basicSettingsFromDocument
 } from "../../shared/settings-basic-draft.js";
 import type {
-  ProviderProbeTarget,
   SaveSettingsCommand,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import {
+  isProviderProbeRouteV1,
+  type ProviderProbeTarget
+} from "../../shared/provider-probe-route-v1.js";
+import {
+  isWritingPromptRow,
+  writingPromptSettingsFromAuthorBrief
+} from "../../shared/settings-v5-writing.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
 import {
   selectedComposerText,
@@ -38,6 +43,7 @@ import {
   key,
   openSettings,
   selectRow,
+  settleBackend,
   settingsHarness as harness
 } from "./settings-test-harness.js";
 
@@ -45,11 +51,13 @@ describe("inline settings menu", () => {
   test("up/down selects every row; Enter edits text and advances closed choices", async () => {
     const { state, press } = harness();
     await openSettings(press);
+    // This walk covers every row in SETTINGS_ROW_IDS, which only advanced
+    // mode shows.
 
     for (const [index, row] of SETTINGS_ROW_IDS.entries()) {
       expect(state.settings?.cursor).toBe(index);
       await press(key("return"));
-      if (row === "system-prompt") {
+      if (isWritingPromptRow(row)) {
         expect(state.mode).toBe("EDITOR");
         expect(state.editor?.kind).toBe("document");
         expect(state.settings?.edit).toBe(null);
@@ -181,6 +189,7 @@ describe("inline settings menu", () => {
   test("theme is a scoped selector and compose focus cycles as a closed choice", async () => {
     const { source, state, press } = harness();
     await openSettings(press);
+    await selectRow(press, state, "theme");
 
     await press(key("right"));
     await press(key("right"));
@@ -249,11 +258,13 @@ describe("inline settings menu", () => {
       document: null,
       effective: source.settings,
       effectiveProse: source.settings,
+      activeWriting: writingPromptSettingsFromAuthorBrief(source.settings.systemPrompt),
       lastActivationOutcome: null
     };
     source.settingsView = legacy;
     source.api.getSettings = async () => legacy;
     await openSettings(press);
+    await selectRow(press, state, "theme");
 
     await press(key("right"));
     await press(key("right"));
@@ -266,11 +277,20 @@ describe("inline settings menu", () => {
   });
 
   test("provider is a closed selector with an OpenAI preset", async () => {
-    const { source, state, press } = harness();
+    const { source, state, backend, press } = harness();
+    // Switching provider also changes the model identity (dry-run's blank
+    // model to the OpenAI preset's default), so it now feeds the same
+    // auto-detect seam a typed or picked model row does. This test is about
+    // provider cycling, not auto-detection: resolve the probe with "unknown"
+    // (a real outcome — the draft's own contextWindow stays untouched) and
+    // let it settle before the rest of the flow, rather than leaving it to
+    // race the save two lines down.
+    source.api.probeContextWindow = async () => ({ contextWindow: null });
     await openSettings(press);
 
     await selectRow(press, state, "provider");
     await press(key("return"));
+    await backend.whenIdle();
     expect(state.settings?.edit).toBe(null);
     expect(state.settings?.draft.generation.provider).toBe("openai-compatible");
     expect(state.settings?.draft.generation).toMatchObject({
@@ -678,7 +698,7 @@ describe("inline settings menu", () => {
     ).lines);
     expect(rendered).toContain("▸ provider");
     expect(rendered).toContain("‹ dry-run ›");
-    expect(rendered).toContain("↑↓ move · ←→ choose · ↵ next · s save");
+    expect(rendered).toContain("↑↓ move · ←→ choose · ↵ next · s save · c check · m simple · esc");
 
     await selectRow(press, state, "model");
     await press(key("return"));
@@ -729,18 +749,18 @@ describe("inline settings menu", () => {
     await press(key("c"));
 
     const checked = checks[0];
-    if (checked === undefined || !("kind" in checked)) {
+    if (checked === undefined || !isProviderProbeRouteV1(checked)) {
       throw new Error("expected a format-2 provider probe target");
     }
-    expect(checked.kind).toBe("settings-document");
-    const connection = selectSettingsRoute(checked.document).connection;
+    expect(checked.kind).toBe("provider-probe-route-v1");
+    const connection = checked.connection;
     expect(connection.baseUrl).toBe("http://gpu-box.local:11434/v1");
     expect(connection.allowInsecureHttp).toBeTrue();
     expect(state.settings?.result?.message).toBe("LAN draft ready");
   });
 
   test("p detects the context window from the unsaved provider draft", async () => {
-    const { source, state, cache, press } = harness();
+    const { source, state, cache, press, backend } = harness();
     let probedModel: string | null = null;
     const probes: ProviderProbeTarget[] = [];
     source.api.probeContextWindow = async (settings) => {
@@ -773,7 +793,11 @@ describe("inline settings menu", () => {
     ).lines);
     expect(rendered).toContain("context window · 65,536 tokens · s saves");
     await draftRow(press, state, "model", "another-model");
-    expect(state.settings?.draft.generation.contextWindow).toBe(null);
+    // The commit clears the stale value synchronously; the model change
+    // then probes again in the background and lands the same mocked reading.
+    await backend.whenIdle();
+    expect(probedModel).toBe("another-model");
+    expect(state.settings?.draft.generation.contextWindow).toBe(65_536);
   });
 
   test("p probes blank-model KoboldCpp and llama.cpp drafts at the real boundary", async () => {
@@ -793,16 +817,9 @@ describe("inline settings menu", () => {
       let probes = 0;
       source.api.probeContextWindow = async (target) => {
         probes += 1;
-        if (!("kind" in target)) throw new Error("expected a settings document");
-        const runtime = effectiveGenerationRuntime(
-          parseSettingsDocumentV2(target.document),
-          target.purpose,
-          {},
-          {},
-          { allowBlankModel: true }
-        );
-        expect(runtime.settings.model).toBe("");
-        expect(runtime.providerRuntime.preset).toBe(expected.id);
+        if (!isProviderProbeRouteV1(target)) throw new Error("expected a selected-route probe");
+        expect(target.model.remoteId === "dry-run" || target.model.remoteId === "").toBeTrue();
+        expect(target.connection.preset).toBe(expected.id);
         return { contextWindow: expected.contextWindow };
       };
       await openSettings(press);
@@ -849,7 +866,7 @@ describe("inline settings menu", () => {
   });
 
   test("a late context probe cannot overwrite a newer inline draft", async () => {
-    const { source, state, press } = harness();
+    const { source, state, press, backend } = harness();
     const entered = deferred<void>();
     const gate = deferred<{ contextWindow: number | null }>();
     source.api.probeContextWindow = async () => {
@@ -857,23 +874,32 @@ describe("inline settings menu", () => {
       return gate.promise;
     };
     await openSettings(press);
-    await draftRow(press, state, "model", "model-a");
-    await draftRow(press, state, "context-window", "8192");
 
-    const probing = press(key("p"));
+    // Committing model-a already starts a probe automatically — no manual
+    // `p` needed. Committing model-b while it is still in flight defers a
+    // second automatic probe behind the first (action-runtime.ts's slot is
+    // exclusive) rather than losing it: the late model-a response is
+    // discarded by the same guard `p` always used, and the deferred probe
+    // then runs for real against model-b once the slot frees.
+    await draftRow(press, state, "model", "model-a");
     await entered.promise;
+    expect(state.settings?.probing).toBeTrue();
+
     await draftRow(press, state, "model", "model-b");
     gate.resolve({ contextWindow: 32_768 });
-    await probing;
+    await settleBackend(backend);
 
     expect(state.settings?.draft.generation.model).toBe("model-b");
-    expect(state.settings?.draft.generation.contextWindow).toBe(null);
-    expect(state.settings?.result).toBe(null);
+    expect(state.settings?.draft.generation.contextWindow).toBe(32_768);
+    expect(state.settings?.result).toEqual({
+      state: "ready",
+      message: "context window · 32,768 tokens · s saves"
+    });
     expect(state.settings?.probing).toBeFalse();
   });
 
   test("a late server check cannot publish against a newer inline draft", async () => {
-    const { source, state, press } = harness();
+    const { source, state, backend, press } = harness();
     const entered = deferred<void>();
     const gate = deferred<{ state: "ready"; message: string }>();
     source.api.checkModelServer = async () => {
@@ -888,9 +914,17 @@ describe("inline settings menu", () => {
     await draftRow(press, state, "model", "model-b");
     gate.resolve({ state: "ready", message: "model A ready" });
     await checking;
+    // The check's stale response is discarded by its own guard, but
+    // committing model-b also deferred its own auto-detect probe behind the
+    // check (the same exclusive slot) rather than losing it; it runs for
+    // real once the check frees the slot.
+    await settleBackend(backend);
 
     expect(state.settings?.draft.generation.model).toBe("model-b");
-    expect(state.settings?.result).toBe(null);
+    expect(state.settings?.result).toEqual({
+      state: "ready",
+      message: "context window · 32,768 tokens · s saves"
+    });
     expect(state.settings?.checking).toBeFalse();
   });
 

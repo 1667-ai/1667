@@ -21,6 +21,8 @@ import { promptEntriesInline } from "./generation-record-prompt.js";
 import { lowerPromptForProvider } from "./provider-request-body.js";
 import { finalizeRequiredGenerationRecord } from "./generation-record-finalize.js";
 import { assertGenerationRecordCapacity } from "./story-node-generation-records.js";
+import { storySamplingBias } from "./sampling-phrase-bias.js";
+import { operationGuidanceContext } from "../shared/writing-prompt-runtime.js";
 
 interface ChapterSummaryOptions {
   providerStarted?: () => void | Promise<void>;
@@ -47,8 +49,15 @@ export async function summarizeChapter(
   // brand-new node and needs no preflight.
   if (chapter.summary !== null) assertGenerationRecordCapacity(chapter.summary);
   const fingerprint = chapterSourceFingerprint(snapshot, breakId);
-  const { settings, promptCache } = await settingsStore.loadGeneration("utility");
-  await options.bindIntent?.(settings, { kind: "chapter-summary", storyId: id, breakId, fingerprint });
+  const { settings, promptCache, writing } = await settingsStore.loadGeneration("utility");
+  const summaryGuidance = writing?.summaryGuidance ?? "";
+  await options.bindIntent?.(settings, {
+    kind: "chapter-summary",
+    storyId: id,
+    breakId,
+    fingerprint,
+    ...operationGuidanceContext(summaryGuidance)
+  });
   const { summary, generationRecordCollector, prompt } = await generateSummaryText(
     settings,
     snapshot.title,
@@ -57,12 +66,14 @@ export async function summarizeChapter(
     {
       targetTokens: SUMMARY_TARGET_TOKENS,
       providerStarted: options.providerStarted,
+      storySampling: storySamplingBias(snapshot),
       promptCache: createPromptCacheRequest(
         promptCacheRuntime,
         promptCache,
         id,
         "summary"
-      )
+      ),
+      guidance: summaryGuidance
     }
   );
   if (signal.aborted) {

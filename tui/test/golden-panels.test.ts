@@ -9,6 +9,7 @@ import { cellWidth } from "../src/cell-width.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { createTokenProbabilities } from "../../shared/token-probabilities.js";
 import type { SettingsPresetV2, SettingsProtocolV2, SettingsView } from "../../shared/settings-v2-types.js";
+import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
 import { dryRunProbabilityStep } from "../../server/token-probability-capture.js";
 
 function key(name: string, sequence = name): KeyEvent {
@@ -338,7 +339,20 @@ describe("run C overlay frames", () => {
   });
 
   test("settings overlay shows theme switcher and editable fields", async () => {
-    const frame = await renderOnce(demoAppSource(), 120, 36, ",");
+    // "m" switches to advanced mode, which is what shows the theme switcher,
+    // and keeps the cursor on update checks. Seven downs skip the writing
+    // rows and reach provider, a cycler, for the choice-footer keyline.
+    const frame = await renderWithKeys(demoAppSource(), 120, 36, [
+      key(","),
+      key("m"),
+      key("down"),
+      key("down"),
+      key("down"),
+      key("down"),
+      key("down"),
+      key("down"),
+      key("down")
+    ]);
     expect(frame).toContain("┏━ settings ━");
     expect(frame).toContain("‹ lantern ›");
     expect(frame).toContain("provider");
@@ -350,10 +364,16 @@ describe("run C overlay frames", () => {
     const clean = await renderOnce(demoAppSource(), 120, 36, ",");
     expect(clean).not.toContain("revision");
 
-    // Down past theme, focus, and word wrap, which are local rows: only the
-    // server-backed provider below them can dirty the draft.
+    // "m" switches to advanced mode and keeps the cursor on update checks.
+    // Seven downs reach provider, which can cycle and dirty the draft with
+    // Right.
     const dirty = await renderWithKeys(demoAppSource(), 120, 36, [
       key(","),
+      key("m"),
+      key("down"),
+      key("down"),
+      key("down"),
+      key("down"),
       key("down"),
       key("down"),
       key("down"),
@@ -363,23 +383,18 @@ describe("run C overlay frames", () => {
     expect(dirty).not.toContain("revision");
   });
 
-  test("a pending restart moves no settings row", async () => {
-    // The panel is centred on its content, so a taller status variant lifts the
-    // panel and takes every field with it. The old mid-panel position hid this
-    // for the fields below it — the extra line pushed them back down by the row
-    // the lift took away — and moved the pinned rows above it instead.
+  test("a pending restart does not move settings rows", async () => {
+    // Settings stays anchored while the status uses only its actual rows.
+    // This keeps the fields still without restoring blank bottom padding.
     const rowsFor = async (pendingRevision: number | null): Promise<Record<string, number>> => {
       const source = demoAppSource();
       const view = { ...source.settingsView, pendingRevision, activeRevision: 3 };
       source.settingsView = view as typeof source.settingsView;
       source.api.getSettings = async () => view as typeof source.settingsView;
-      // Height 48, not 44: the connection section now carries the four
-      // connection-timeout rows (headers, first token, idle, total) above
-      // the Story section's Reasoning and Keep thoughts rows, so the panel
-      // needs four more rows to reach the System row without scrolling.
-      const lines = (await renderOnce(source, 120, 48, ",")).split("\n");
+      // "m" switches to advanced mode, which is what shows the theme row.
+      const lines = (await renderOnce(source, 120, 48, ",m")).split("\n");
       const rowOf = (text: string): number => lines.findIndex((line) => line.includes(text));
-      return { theme: rowOf("theme"), provider: rowOf("provider"), prompt: rowOf("system ") };
+      return { theme: rowOf("theme"), provider: rowOf("provider"), prompt: rowOf("author brief") };
     };
 
     const active = await rowsFor(null);
@@ -398,6 +413,7 @@ describe("run C overlay frames", () => {
       document: null,
       effective: source.settings,
       effectiveProse: source.settings,
+      activeWriting: writingPromptSettingsFromAuthorBrief(source.settings.systemPrompt),
       lastActivationOutcome: null
     };
     source.settingsView = legacy;
@@ -411,6 +427,32 @@ describe("run C overlay frames", () => {
     const lines = frame.split("\n");
     expect(lines.findIndex((line) => line.includes("legacy data format 1")))
       .toBeLessThan(lines.findIndex((line) => line.includes("provider")));
+  });
+
+  test("successor schema settings render an update banner", async () => {
+    const source = demoAppSource();
+    const successor = {
+      dataFormat: 1 as const,
+      editable: false as const,
+      readOnlyReason: "successor-schema" as const,
+      stateGeneration: null,
+      activeRevision: null,
+      pendingRevision: null,
+      document: null,
+      effective: source.settings,
+      effectiveProse: source.settings,
+      activeWriting: writingPromptSettingsFromAuthorBrief(source.settings.systemPrompt),
+      lastActivationOutcome: null
+    };
+    source.settingsView = successor;
+    source.api.getSettings = async () => successor;
+
+    const frame = await renderOnce(source, 120, 36, ",");
+    expect(frame).toContain("newer settings schema 4");
+    expect(frame).toContain("successor owns settings");
+    expect(frame).toContain("update 1667");
+    expect(frame).not.toContain("legacy data format 1");
+    expect(frame).not.toContain("until migration");
   });
 
   test("a startup rollback shows its outcome instead of a silent success line", async () => {
@@ -673,6 +715,7 @@ function routeSource(preset: SettingsPresetV2, protocol: SettingsProtocolV2) {
     },
     effective: source.settingsView.effective,
     effectiveProse: source.settingsView.effectiveProse,
+    activeWriting: writingPromptSettingsFromAuthorBrief(source.settingsView.effective.systemPrompt),
     lastActivationOutcome: null
   };
   source.settingsView = view;
@@ -690,6 +733,7 @@ function legacySource() {
     document: null,
     effective: source.settingsView.effective,
     effectiveProse: source.settingsView.effectiveProse,
+    activeWriting: writingPromptSettingsFromAuthorBrief(source.settingsView.effective.systemPrompt),
     lastActivationOutcome: null
   };
   return source;

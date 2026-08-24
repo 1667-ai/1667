@@ -12,6 +12,7 @@ import type { PromptCacheWirePlan } from "../server/provider-cache-policy.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
 import {
   EMPTY_SAMPLING_V2,
+  type GenerationEffortV2,
   type SamplingSettingsV2
 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
@@ -1610,7 +1611,7 @@ function settings(provider: GenerationSettings["provider"]): GenerationSettings 
 
 function withEffort(
   value: GenerationSettings,
-  effort: ProviderRuntime["effort"],
+  effort: GenerationEffortV2,
   reasoningEffort: ProviderRuntime["capabilities"]["reasoningEffort"] = "supported"
 ): GenerationSettings {
   return attachProviderRuntime(value, {

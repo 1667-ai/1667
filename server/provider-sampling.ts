@@ -21,7 +21,8 @@ import {
   type SamplingKnobV2,
   type SamplingScalarKnobV2,
   type SamplingSettingsV2,
-  type SettingsPresetV2
+  type SettingsPresetV2,
+  type SettingsProtocolV2
 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { ProviderError } from "./errors.js";
@@ -48,6 +49,15 @@ export async function applySamplingFields(
   };
   const configured = resolveConfiguredSamplingKnobs(context, sampling);
   for (const { knob, resolution } of configured) {
+    if (request.reasoningPolicy !== undefined
+      && request.reasoningPolicy.omittedSampling.has(knob)) continue;
+    if (request.reasoningPolicy !== undefined
+      && !request.reasoningPolicy.allowedSampling.has(knob)) {
+      throw new ProviderError(
+        `Configured sampling parameter ${samplingKnobLabel(knob)} is unavailable: `
+        + "the selected reasoning state does not accept it"
+      );
+    }
     if (resolution.kind === "unavailable") {
       throw new ProviderError(
         `Configured sampling parameter ${samplingKnobLabel(knob)} is unavailable: ${
@@ -98,6 +108,8 @@ export async function applySamplingFields(
     }
   }
   for (const { knob, resolution } of configured) {
+    if (request.reasoningPolicy !== undefined
+      && request.reasoningPolicy.omittedSampling.has(knob)) continue;
     if (resolution.kind !== "available") continue;
     if (isLogitBiasFamilyKnob(knob)) continue;
     body[resolution.wireField] = encodeSamplingValue(knob, sampling);
@@ -215,7 +227,7 @@ function resolveLogitBiasFamilyKnob(
  * can actually report. */
 export function requireLogitBiasFamilyAvailable(
   settings: GenerationSettings,
-  protocol: "openai-chat-completions" | "text-completions" | "anthropic-messages" | "dry-run",
+  protocol: SettingsProtocolV2,
   storySampling?: StorySamplingBias
 ): void {
   const runtime = providerRuntimeFor(settings);

@@ -61,26 +61,6 @@ export function promptBiasTokenizerEncoding(remoteModelId: string): PromptBiasEn
   return OPENAI_PROMPT_BIAS_ENCODING.get(remoteModelId) ?? null;
 }
 
-// OpenAI's reasoning-family models reject `logit_bias` outright — a 400, not
-// a partial application. OpenAI's own current API reference
-// (https://platform.openai.com/docs/api-reference/chat/create) flags
-// `max_tokens` and `stop` by name for reasoning models but does not call out
-// `logit_bias` there specifically. Microsoft's Azure OpenAI docs, which
-// mirror OpenAI's own model capabilities, do state it explicitly:
-// "The following are currently unsupported with reasoning models:
-// `temperature`, `top_p`, `presence_penalty`, `frequency_penalty`,
-// `logprobs`, `top_logprobs`, `logit_bias`, `max_tokens`"
-// (https://github.com/MicrosoftDocs/azure-ai-docs/blob/main/articles/foundry/openai/how-to/reasoning.md).
-// That matches real-world 400s reported against OpenAI's own API for other
-// reasoning-only-unsupported parameters. Closed allow-list of exact model
-// IDs, the reasoning-family subset of OPENAI_PROMPT_BIAS_ENCODING above —
-// this gates logitBias too, not only phraseBias/bannedStrings, because a raw
-// token ID hits the same wire field and the same rejection.
-export const OPENAI_REASONING_FAMILY_MODELS: ReadonlySet<string> = new Set([
-  "o1", "o1-mini", "o1-preview", "o3", "o3-mini", "o4-mini",
-  "gpt-5", "gpt-5-mini", "gpt-5-nano"
-]);
-
 /** True for the three knobs that ride the same `logit_bias` wire field
  * (server/provider-sampling.ts merges them into one object) — exported so
  * server/sampling-phrase-bias.ts does not keep a second copy of this list. */

@@ -21,7 +21,7 @@ async function drainMicrotasks(): Promise<void> {
 }
 
 describe("Aside presented input", () => {
-  test("Enter admits a pending ask, repaints deltas, and lets queued Esc abort it", async () => {
+  test("queued Esc keeps an Aside answer that already streamed", async () => {
     const source = demoAppSource();
     let release!: () => void;
     let signal: AbortSignal | null = null;
@@ -35,7 +35,9 @@ describe("Aside presented input", () => {
         emitDelta = onDelta;
         requestSignal.addEventListener("abort", () => { aborted.push(true); }, { once: true });
         await gate;
-        return requestSignal.aborted ? null : { notes: [] };
+        return requestSignal.aborted
+          ? { notes: [{ question: "Why did it change?", answer: "partial answer" }] }
+          : { notes: [] };
       }
     };
     const state = initialState(source, false);
@@ -85,7 +87,12 @@ describe("Aside presented input", () => {
     await drainMicrotasks();
     expect(state.aside.busy).toBeFalse();
     expect(state.aside.streamText).toBe("");
-    expect(state.aside.composer.text).toBe("Why did it change?");
+    expect(state.aside.composer.text).toBe("");
+    expect(state.aside.notes).toEqual([{
+      question: "Why did it change?",
+      answer: "partial answer"
+    }]);
+    expect(state.toast).toBe("Aside stopped · answer kept");
     expect(state.abort).toBeNull();
     backend.dispose();
   });

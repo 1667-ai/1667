@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { exportGenerationProfile, importProfileExport } from "../../server/import-profile-export.js";
 import type { SaveSettingsCommand } from "../../shared/settings-v2-types.js";
+import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
 import { applyProfileTransfer } from "../src/profile-transfer-apply.js";
 import { profileTransferAction } from "../src/profile-transfer-actions.js";
 import { PROFILE_TRANSFER_SOURCES } from "../src/screens/profile-transfer-panel.js";
@@ -75,7 +76,7 @@ describe("Generation Profile transfer", () => {
         ...document,
         profiles: { ...document.profiles, default: { ...document.profiles.default!, name } }
       };
-      const candidate = importProfileExport(exportGenerationProfile(exportedDocument, "default").text);
+      const candidate = importProfileExport(exportGenerationProfile(exportedDocument as never, "default").text);
       const imported = applyProfileTransfer(document, "default", candidate);
       if ("error" in imported) throw new Error(imported.error);
       expect(imported.document.profiles[imported.profileId]!.name).toBe(name);
@@ -367,6 +368,7 @@ describe("Generation Profile transfer", () => {
         document: null,
         effective: legacy.source.settings,
         effectiveProse: legacy.source.settings,
+        activeWriting: writingPromptSettingsFromAuthorBrief(legacy.source.settings.systemPrompt),
         lastActivationOutcome: null
       };
       await runPaletteCommand(legacy.press, "export generation profile");

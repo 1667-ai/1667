@@ -6,6 +6,7 @@ import {
   STREAM_METHODS,
   WORKER_BUILD_IDENTITY,
   WORKER_CANCEL_GRACE_MS,
+  WORKER_CANCEL_PERSISTENCE_TIMEOUT_MS,
   WORKER_MUTATION_DEADLINE_MS,
   WORKER_PROVIDER_CHECK_TIMEOUT_MS,
   WORKER_GENERATION_RECORD_READ_TIMEOUT_MS,
@@ -300,7 +301,8 @@ export class WorkerTransport {
           expectedAggregateVersion: options.expectedAggregateVersion
         }),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
-        graceMs: this.options.cancelGraceMs ?? WORKER_CANCEL_GRACE_MS,
+        graceMs: this.options.cancelGraceMs
+          ?? WORKER_CANCEL_PERSISTENCE_TIMEOUT_MS,
         outbox: this.outbox,
         store: outbox,
         hardFence: (message, cause) => this.failForRestart(message, cause)
@@ -351,6 +353,8 @@ export class WorkerTransport {
         timeoutMs,
         deadlineAfterMs,
         cancelGraceMs: this.options.cancelGraceMs ?? WORKER_CANCEL_GRACE_MS,
+        cancelPersistenceTimeoutMs: this.options.cancelGraceMs
+          ?? WORKER_CANCEL_PERSISTENCE_TIMEOUT_MS,
         pendingRequests: this.pending,
         worker: this.worker,
         outbox: this.outbox,
@@ -401,7 +405,8 @@ export class WorkerTransport {
         await this.stopArchivedMutationCleanup();
         const prepared = preparePendingWorkerShutdown(
           this.pending, this.outbox, this.worker,
-          this.options.cancelGraceMs ?? WORKER_CANCEL_GRACE_MS,
+          this.options.cancelGraceMs
+            ?? WORKER_CANCEL_PERSISTENCE_TIMEOUT_MS,
           (message, cause) => this.failForRestart(message, cause)
         ).then(() => null);
         const restart = await Promise.race([prepared, this.restartSignal]);
@@ -474,7 +479,7 @@ export class WorkerTransport {
     if (message.type === "protocolError") {
       const failure = workerApiErrorFromFailure(message.failure);
       if (this.lifecycle.hasReachedReady) {
-        this.failForRestart(failure.message, failure);
+        this.failForRestart(failure.failure.message, failure);
         return;
       }
       return this.fail(failure, false);
@@ -517,7 +522,11 @@ export class WorkerTransport {
       return;
     }
     if (message.type === "operation") {
-      if (pending === undefined || pending.settling || message.state === "running") return;
+      if (pending === undefined || pending.settling) return;
+      if (message.state === "running") {
+        if (pending.cancelled) pending.cancellationStatusPending = false;
+        return;
+      }
       if (message.state === "unknown") {
         if (isWorkerMutationMethod(pending.method)) {
           await settleWorkerTerminal({

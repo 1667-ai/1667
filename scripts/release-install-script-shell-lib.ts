@@ -67,22 +67,22 @@ group_other_members() {
   if [ -x /usr/bin/getent ] || [ -x /bin/getent ]; then
     getent_bin=/usr/bin/getent
     [ -x "\$getent_bin" ] || getent_bin=/bin/getent
-    line=\$("\$getent_bin" group "\$gid" 2>/dev/null) || return 1
+    line=\$(exec 9>&-; "\$getent_bin" group "\$gid" 2>/dev/null) || return 1
     [ -n "\$line" ] || return 1
     GROUP_NAME=\${line%%:*}
     members=\${line##*:}
   elif [ -x /usr/bin/dscl ]; then
-    GROUP_NAME=\$(/usr/bin/dscl . -search /Groups PrimaryGroupID "\$gid" 2>/dev/null \\
+    GROUP_NAME=\$(exec 9>&-; /usr/bin/dscl . -search /Groups PrimaryGroupID "\$gid" 2>/dev/null \\
       | awk 'NR==1{print \$1}') || return 1
     [ -n "\$GROUP_NAME" ] || return 1
     # A group with nobody in it has no GroupMembership key, and dscl exits
     # nonzero. That is an empty membership, not a failed lookup.
-    members=\$(/usr/bin/dscl . -read "/Groups/\$GROUP_NAME" GroupMembership 2>/dev/null \\
+    members=\$(exec 9>&-; /usr/bin/dscl . -read "/Groups/\$GROUP_NAME" GroupMembership 2>/dev/null \\
       | sed -n 's/^GroupMembership: //p') || members=
   else
     return 1
   fi
-  GROUP_OTHERS=\$(printf '%s' "\$members" | tr ', ' '\\n\\n' \\
+  GROUP_OTHERS=\$(exec 9>&-; printf '%s' "\$members" | tr ', ' '\\n\\n' \\
     | grep -v -e '^\$' -e "^root\\\$" -e "^\$me\\\$" | tr '\\n' ' ' || true)
   GROUP_OTHERS=\${GROUP_OTHERS% }
   return 0
@@ -201,7 +201,7 @@ write_txn() {
   target=\$3
   digest=\$4
   tmp="\$root/.1667-install-txn.\$\$.tmp"
-  rm -f "\$tmp"
+  rm -f "\$tmp" 9>&-
   umask 077
   # Noclobber writer is a parenthesized subshell that inherits FD 9; close it.
   if ! (
@@ -211,7 +211,7 @@ write_txn() {
   ); then
     die "Could not create a Transaction Record"
   fi
-  mv "\$tmp" "\$root/\$TXN_FILE"
+  mv "\$tmp" "\$root/\$TXN_FILE" 9>&-
   fsync_path "\$root/\$TXN_FILE"
 }
 
@@ -227,16 +227,16 @@ validate_txn() {
   tmp="\$file.validate.\$\$"
   for phase in downloading extracted candidate-ready activated; do
     if ! canonical_txn_bytes "\$phase" "\$expected_target" "\$expected_digest" "\$root" > "\$tmp"; then
-      rm -f "\$tmp"
+      rm -f "\$tmp" 9>&-
       die "Could not build a comparison Transaction Record"
     fi
-    if cmp -s "\$file" "\$tmp"; then
-      rm -f "\$tmp"
+    if cmp -s "\$file" "\$tmp" 9>&-; then
+      rm -f "\$tmp" 9>&-
       printf '%s\\n' "\$phase"
       return 0
     fi
   done
-  rm -f "\$tmp"
+  rm -f "\$tmp" 9>&-
   die "Install transaction is not a canonical phase record"
 }
 
@@ -246,20 +246,22 @@ remove_extract_stage() {
   root=\$1
   stage="\$root/\$EXTRACT_STAGE"
   if [ -L "\$stage" ]; then
-    rm -f "\$stage"
+    rm -f "\$stage" 9>&-
     return 0
   fi
   if [ -d "\$stage" ]; then
-    rm -rf "\$stage"
+    rm -rf "\$stage" 9>&-
     return 0
   fi
   if [ -e "\$stage" ]; then
-    rm -f "\$stage"
+    rm -f "\$stage" 9>&-
   fi
 }
 
 # Recovery runs in the lock-owning shell so PROBE_PID stays visible to traps.
-# Sets RECOVER_STATUS (none|reset|completed). Do not wrap in command substitution.
+# Sets RECOVER_STATUS (none|reset|completed|managed-reset|managed-completed).
+# The caller must handle every value explicitly. Do not wrap in command
+# substitution: recovery runs in the lock-owning shell so probe traps work.
 recover_install() {
   root=\$1
   executable=\$2
@@ -269,17 +271,35 @@ recover_install() {
   archive=\$5
   RECOVER_STATUS=
   txn="\$root/\$TXN_FILE"
+  if [ -L "\$txn" ]; then
+    die "Install transaction must not be a symbolic link"
+  fi
   if [ ! -e "\$txn" ]; then
     # No Transaction Record: do not delete reserved staging. Ownership is unproven.
     RECOVER_STATUS=none
     return 0
   fi
-  if [ -L "\$txn" ]; then
-    die "Install transaction must not be a symbolic link"
-  fi
   if [ ! -f "\$txn" ]; then
     die "Install transaction must be a regular file"
   fi
+  validate_managed_file_safety "\$txn" "Install Transaction Record"
+  txn_mode=\$(exec 9>&-; file_mode "\$txn") || die "Could not inspect Install Transaction Record permissions"
+  [ "\$txn_mode" = 600 ] || die "Install Transaction Record must have mode 600"
+  txn_size=\$(exec 9>&-; wc -c < "\$txn" | tr -d ' ')
+  [ -n "\$txn_size" ] && [ "\$txn_size" -le "\$MAX_TRANSACTION_BYTES" ] \
+    || die "Install Transaction Record is too large"
+  txn_text=\$(exec 9>&-; cat "\$txn") || die "Could not read Install Transaction Record"
+  txn_kind=\$(exec 9>&-; json_string_field "\$txn_text" kind)
+  if [ "\$txn_kind" = managed ]; then
+    validate_managed_txn "\$txn" "\$target" "\$root"
+    # Managed Transaction Records do not own Shell Installer-only staging.
+    # Refuse it before recovery grants cleanup authority.
+    refuse_prior_managed_path "\$root/\$EXTRACT_STAGE" "extract staging"
+    refuse_prior_managed_path "\$root/\$archive" "Release Archive staging"
+    recover_managed_install "\$root" "\$executable" "\$target" "\$txn"
+    return 0
+  fi
+  [ "\$txn_kind" = shell-installer ] || die "Install transaction is not a canonical phase record"
   # validate_txn subshell inherits FD 9; close it so a hung validator cannot pin.
   phase=\$(
     exec 9>&-
@@ -289,7 +309,8 @@ recover_install() {
   CLEANUP_OWNS_STAGING=1
   case "\$phase" in
     downloading|extracted)
-      rm -f "\$root/\$CANDIDATE_FILE" "\$root/\$archive"
+      rm -f "\$root/\$CANDIDATE_FILE" "\$root/\$PREVIOUS_NEXT_FILE" \
+        "\$root/\$PROBE_OUTPUT_FILE" "\$root/\$archive" 9>&-
       remove_extract_stage "\$root"
       clear_txn "\$root"
       RECOVER_STATUS=reset
@@ -305,7 +326,7 @@ recover_install() {
             random_hex_32
           )
           write_ownership "\$root" "\$installation_id" "\$executable" "\$target"
-          rm -f "\$root/\$CANDIDATE_FILE"
+          rm -f "\$root/\$CANDIDATE_FILE" 9>&-
           remove_extract_stage "\$root"
           clear_txn "\$root"
           RECOVER_STATUS=completed
@@ -313,7 +334,7 @@ recover_install() {
         fi
         die "Install left an active executable that does not match the pinned release"
       fi
-      rm -f "\$root/\$CANDIDATE_FILE"
+      rm -f "\$root/\$CANDIDATE_FILE" 9>&-
       remove_extract_stage "\$root"
       clear_txn "\$root"
       RECOVER_STATUS=reset
@@ -325,12 +346,19 @@ recover_install() {
       fi
       probe_candidate "\$executable" "\$target"
       fsync_path "\$executable"
-      installation_id=\$(
-        exec 9>&-
-        random_hex_32
-      )
-      write_ownership "\$root" "\$installation_id" "\$executable" "\$target"
-      rm -f "\$root/\$CANDIDATE_FILE"
+      ownership="\$root/\$OWNERSHIP_FILE"
+      if [ -e "\$ownership" ] || [ -L "\$ownership" ]; then
+        validate_managed_ownership "\$root" "\$executable" "\$target"
+        [ "\$OWNERSHIP_CHANNEL" = "\$INSTALL_CHANNEL" ] || die "Ownership Record channel does not match the Install Transaction Record"
+        fsync_path "\$ownership"
+      else
+        installation_id=\$(
+          exec 9>&-
+          random_hex_32
+        )
+        write_ownership "\$root" "\$installation_id" "\$executable" "\$target"
+      fi
+      rm -f "\$root/\$CANDIDATE_FILE" 9>&-
       remove_extract_stage "\$root"
       clear_txn "\$root"
       RECOVER_STATUS=completed
@@ -384,7 +412,7 @@ download_archive() {
   set -e
   DOWNLOAD_PID=
   if [ "\$status" -ne 0 ]; then
-    rm -f "\$out"
+    rm -f "\$out" 9>&-
     die "Download failed"
   fi
   # size= subshell inherits FD 9; close it so a hung wc cannot pin the lock.
@@ -393,7 +421,7 @@ download_archive() {
     wc -c < "\$out" | tr -d ' '
   )
   if [ "\$size" -le 0 ] || [ "\$size" -gt "\$MAX_ARCHIVE_BYTES" ]; then
-    rm -f "\$out"
+    rm -f "\$out" 9>&-
     die "Release Archive size is outside the bound"
   fi
 }
@@ -438,13 +466,14 @@ canonical_ownership_bytes() {
   exe=\$2
   target=\$3
   root=\$4
-  cat <<EOF
+  channel=\$5
+  cat 9>&- <<EOF
 {
   "schemaVersion": 1,
   "product": "1667",
   "installationId": "\$id",
   "method": "shell",
-  "channel": "\$INSTALL_CHANNEL",
+  "channel": "\$channel",
   "installRoot": "\$root",
   "executable": "\$exe",
   "artifactTarget": "\$target"
@@ -457,6 +486,7 @@ write_ownership() {
   id=\$2
   exe=\$3
   target=\$4
+  channel=\${5:-\$INSTALL_CHANNEL}
   dest="\$root/\$OWNERSHIP_FILE"
   # Refuse a pre-existing destination that is not a regular non-symlink file
   # (directory, device, or symlink) before any atomic replacement.
@@ -468,44 +498,46 @@ write_ownership() {
   fi
   tmp="\$root/.1667-install.\$\$.tmp"
   verify="\$root/.1667-install.\$\$.verify"
-  rm -f "\$tmp" "\$verify"
+  rm -f "\$tmp" "\$verify" 9>&-
   umask 077
   # Noclobber writers inherit FD 9; close it in each parenthesized subshell.
   if ! (
     exec 9>&-
     set -C
-    canonical_ownership_bytes "\$id" "\$exe" "\$target" "\$root" > "\$tmp"
+    canonical_ownership_bytes "\$id" "\$exe" "\$target" "\$root" "\$channel" > "\$tmp"
   ); then
     die "Could not create an Ownership Record"
   fi
+  fsync_path "\$tmp"
   # Keep expected bytes for post-replace verification (mv consumes \$tmp).
   if ! (
     exec 9>&-
     set -C
-    canonical_ownership_bytes "\$id" "\$exe" "\$target" "\$root" > "\$verify"
+    canonical_ownership_bytes "\$id" "\$exe" "\$target" "\$root" "\$channel" > "\$verify"
   ); then
-    rm -f "\$tmp"
+    rm -f "\$tmp" 9>&-
     die "Could not create an Ownership Record verification copy"
   fi
-  mv "\$tmp" "\$dest"
-  chmod 0600 "\$dest"
+  mv "\$tmp" "\$dest" 9>&-
+  chmod 0600 "\$dest" 9>&-
   # Ownership must be durable before any later Transaction Record removal.
   fsync_path "\$dest"
+  fsync_dir "\$root"
   # Verify final path type and exact bytes after atomic replacement.
   if [ -L "\$dest" ] || [ ! -f "\$dest" ]; then
-    rm -f "\$verify"
+    rm -f "\$verify" 9>&-
     die "Ownership Record path is not a regular file after write"
   fi
-  if ! cmp -s "\$dest" "\$verify"; then
-    rm -f "\$verify"
+  if ! cmp -s "\$dest" "\$verify" 9>&-; then
+    rm -f "\$verify" 9>&-
     die "Ownership Record verification failed after write"
   fi
-  rm -f "\$verify"
+  rm -f "\$verify" 9>&-
 }
 
 clear_txn() {
   root=\$1
-  rm -f "\$root/\$TXN_FILE"
+  rm -f "\$root/\$TXN_FILE" 9>&-
   fsync_dir "\$root"
 }
 

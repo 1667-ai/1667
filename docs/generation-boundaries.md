@@ -9,6 +9,11 @@ read_when:
 
 # Generation boundaries
 
+Default Continue direction and Rewrite guidance add writer text. They do not
+replace the Continue, append, or Rewrite contracts. An empty Default Continue
+direction uses `Continue the story.` for a new empty Continue request. An
+empty Rewrite guidance adds no request block.
+
 Empty Continue is not a new user turn. On providers that support assistant
 prefill, the active passage remains the final assistant message so generation
 begins after its last character. Providers known to reject prefills receive a
@@ -26,6 +31,29 @@ the original passage unchanged.
 An HTTP generation sends one heartbeat comment each second while its SSE stream
 stays open. A heartbeat does not change the story prose. The attached TUI stops
 the HTTP generation after four seconds without stream bytes.
+
+## Visible stream pacing
+
+The TUI receives provider text at full transport speed. A presentation buffer
+reveals the received text at small grapheme-safe steps. Slow streams stay
+immediate. The buffer holds the last grapheme until the next delta or terminal
+result confirms its boundary. Fast and bursty streams use an adaptive 16 ms
+presentation interval.
+
+The received text remains authoritative for Stop, deadline handling, partial
+commit, and the final provider payload. Stop hides a Continue presentation at
+once. A stopped Rewrite keeps its partial replacement visible until its
+partial-save settlement. The TUI keeps the received text for settlement.
+Before a successful result replaces the live view, the TUI starts a bounded
+catch-up interval. The TUI stops the catch-up work at its deadline. The final
+payload then replaces presentation text that remains.
+
+Stop suspends visible presentation while terminal text can still arrive. If
+the partial save fails, the TUI restores the stream and reveals the remaining
+text in bounded recovery steps.
+
+The same pacing rule applies to Continue, Retake, highlighted Rewrite, summary
+previews, Aside answers, and visible model reasoning.
 
 ## Text Completions boundary
 
@@ -118,6 +146,14 @@ not cover prompt-cache or request-adapter changes. The deterministic HTTP
 integration test in `test/model-connection-e2e.test.ts` protects the transport
 wire for those changes.
 
+The experimental `late-cache-stable` continuation prompt layout is optional.
+The setting is off when the Generation Profile omits it. The compatibility
+layout keeps the operation contract before the story history. The
+`late-cache-stable` layout puts the operation-specific contract in the final
+user turn. An assistant-prefill Continue sends no operation contract. It adds
+a point of view and tense guard to the final user turn. The server and the TUI
+request viewer resolve the layout from the active prose route.
+
 Retake starts a new user turn. It does not use the assistant-prefill
 continuation path. A Retake style regression can therefore remain after a fix
 for a missing Continue contract. Issue [#176](https://github.com/1667-ai/1667/issues/176)
@@ -145,7 +181,15 @@ manual renames beat autoname, rewrites and summaries revalidate their source,
 continuations preserve a line moved by the writer, and a Stop save wins by
 generation ID. Stop closes the provider record. If model text arrived before
 Stop, the TUI waits for terminal settlement. It then saves that text with the
-same generation ID.
+same generation ID. If Keep thought is on, it also saves the thought that the
+model sent before Stop. A clean timeout uses the same save behavior.
+Stop hides the stream immediately. The main process gives local durable
+cancellation work 2 seconds to finish. It then gives the embedded backend 10
+seconds to close the provider stream and publish its terminal state. If the
+operation is still active, the main process checks its status every 10 seconds.
+A responsive worker keeps the operation until it publishes a terminal state.
+The main process stops the embedded backend only if the worker does not answer
+a status check.
 After the Stop aborts the request signal, the worker transport sends no more
 live text to the caller. The transport collects the text that arrives after
 the abort. The transport delivers the collected text one time, at terminal

@@ -6,7 +6,11 @@ import { releaseTargetForRuntime } from "../shared/release-targets.js";
 import { isSemVerUpgradeAvailable } from "../shared/semver.js";
 import { isPrereleaseVersion } from "./release-publication-assets.js";
 import { INSTALL_PREVIOUS_FILE } from "../shared/install-layout.js";
-import { INSTALL_ACTIVE_EXECUTABLE } from "../shared/install-ownership-record.js";
+import {
+  INSTALL_ACTIVE_EXECUTABLE,
+  INSTALL_OWNERSHIP_FILE,
+  parseInstallOwnershipRecordText
+} from "../shared/install-ownership-record.js";
 import {
   execProcess,
   fetchBytes,
@@ -136,30 +140,35 @@ export async function runInstallUpgradeE2e(
 
   logStepPass(3, "Current managed install upgrade check reports up-to-date");
 
-  // Step 4: Re-running homepage installer into same prefix must refuse
+  // Step 4: Re-running homepage installer into same prefix is idempotent
+  const currentOwnershipBefore = parseInstallOwnershipRecordText(
+    await readFile(path.join(current.prefix, INSTALL_OWNERSHIP_FILE), "utf8")
+  );
   await withUnchangedBytes(
     current.executable,
     4,
     "Re-running homepage installer modified active executable bytes.",
     async () => {
       const reinstall = await executeInstaller(homepageBytes, current.prefix);
-      if (reinstall.exitCode === 0) {
+      if (reinstall.exitCode !== 0) {
         throw new StepError(
           4,
-          "Re-running homepage installer into existing prefix unexpectedly succeeded; expected refusal."
+          `Re-running homepage installer into an existing Managed Installation failed:\n${reinstall.stderr || reinstall.stdout}`
         );
       }
-      const failureOutput = reinstall.stderr + reinstall.stdout;
-      if (!/existing 1667/i.test(failureOutput) || !/1667 upgrade/i.test(failureOutput)) {
+      const currentOwnershipAfter = parseInstallOwnershipRecordText(
+        await readFile(path.join(current.prefix, INSTALL_OWNERSHIP_FILE), "utf8")
+      );
+      if (currentOwnershipAfter.installationId !== currentOwnershipBefore.installationId) {
         throw new StepError(
           4,
-          `Installer refusal output did not identify existing binary and direct user to 1667 upgrade:\n${failureOutput}`
+          "Re-running homepage installer changed the Managed Installation installationId."
         );
       }
     }
   );
 
-  logStepPass(4, "Re-running homepage installer into existing prefix refuses managed binary");
+  logStepPass(4, "Re-running homepage installer keeps the Managed Installation unchanged");
 
   // Step 5: Rollback with no previous executable fails safely with valid JSON error envelope
   await withUnchangedBytes(
@@ -266,31 +275,33 @@ export async function runInstallUpgradeE2e(
 
   const previousBytesBeforeUpgrade = await readFile(previous.executable);
 
-  // 8b: exact-upgrade
-  assertEnvelope(
-    await runUpgrade(
-      previous.executable,
-      ["--version", currentVersion, "--channel", "stable"],
-      8,
-      `Managed upgrade to ${currentVersion}`
-    ),
-    {
-      status: "applied",
-      method: "shell",
-      current: args.fromVersion,
-      target: currentVersion,
-      channel: "stable"
-    },
-    8,
-    "Managed exact-upgrade"
+  // 8b: current Shell Installer bootstrap across the old NOTICE boundary.
+  // This exercises the recovery path that reaches users whose old in-binary
+  // updater cannot validate the current Release Archive.
+  const previousOwnershipBeforeBootstrap = parseInstallOwnershipRecordText(
+    await readFile(path.join(previous.prefix, INSTALL_OWNERSHIP_FILE), "utf8")
   );
-  await probeIdentity(previous.executable, currentIdentity, 8, "Upgraded executable");
+  const bootstrap = await executeInstaller(currentBytes, previous.prefix);
+  if (bootstrap.exitCode !== 0) {
+    throw new StepError(
+      8,
+      `Current Shell Installer could not bootstrap the previous Managed Installation:\n${bootstrap.stderr || bootstrap.stdout}`
+    );
+  }
+  await probeIdentity(previous.executable, currentIdentity, 8, "Bootstrapped executable");
+  await verifyOwnershipRecord(previous.prefix, "stable", 8, "Bootstrapped installation");
+  const previousOwnershipAfterBootstrap = parseInstallOwnershipRecordText(
+    await readFile(path.join(previous.prefix, INSTALL_OWNERSHIP_FILE), "utf8")
+  );
+  if (previousOwnershipAfterBootstrap.installationId !== previousOwnershipBeforeBootstrap.installationId) {
+    throw new StepError(8, "Shell Installer bootstrap changed the installationId.");
+  }
   const currentBytesAfterUpgrade = await readFile(previous.executable);
   const retainedPreviousBytes = await readFile(path.join(previous.prefix, INSTALL_PREVIOUS_FILE));
   if (!retainedPreviousBytes.equals(previousBytesBeforeUpgrade)) {
     throw new StepError(
       8,
-      `${INSTALL_PREVIOUS_FILE} bytes do not match original previous executable bytes.`
+      `${INSTALL_PREVIOUS_FILE} bytes do not match the original executable after Shell Installer bootstrap.`
     );
   }
 
@@ -309,22 +320,19 @@ export async function runInstallUpgradeE2e(
     );
   }
 
-  // 8d: stable re-upgrade
-  assertEnvelope(
-    await runUpgrade(previous.executable, ["--channel", "stable"], 8, "Re-upgrade"),
-    {
-      status: "applied",
-      method: "shell",
-      current: args.fromVersion,
-      target: currentVersion,
-      channel: "stable"
-    },
-    8,
-    "Managed re-upgrade"
-  );
+  // 8d: the current Shell Installer can cross the same boundary again after
+  // rollback. Do not use the old in-binary updater for this step.
+  const rebootstrap = await executeInstaller(currentBytes, previous.prefix);
+  if (rebootstrap.exitCode !== 0) {
+    throw new StepError(
+      8,
+      `Shell Installer re-bootstrap failed:\n${rebootstrap.stderr || rebootstrap.stdout}`
+    );
+  }
   await probeIdentity(previous.executable, currentIdentity, 8, "Re-upgraded executable");
+  await verifyOwnershipRecord(previous.prefix, "stable", 8, "Re-bootstrapped installation");
   if (!(await readFile(previous.executable)).equals(currentBytesAfterUpgrade)) {
-    throw new StepError(8, "Re-upgrade produced executable bytes that differ from the first upgrade.");
+    throw new StepError(8, "Shell Installer re-bootstrap produced different executable bytes.");
   }
 
   // 8e: stable no-op
@@ -390,7 +398,7 @@ export async function runInstallUpgradeE2e(
   }
   await verifyOwnershipRecord(previous.prefix, "beta", 8, "Channel switch");
 
-  logStepPass(8, "Managed previous install upgrades, rolls back, re-upgrades, and switches channel");
+  logStepPass(8, "Shell Installer bootstraps the previous install, then verifies rollback, re-upgrade, and channel switch");
 
   // Step 9: npm external lane
   const npmScratch = path.join(scratchRoot, "npm-lane");

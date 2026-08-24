@@ -9,19 +9,22 @@ import type {
   SettingsView
 } from "../../shared/settings-v2-types.js";
 import type { SettingsTextDraft } from "./settings-text.js";
+import { settingsReadOnlyMessage } from "./settings-read-only.js";
 
-/** The policy is the part the row cycles; the detail is what that choice
- * costs. The row keeps them apart so the arrows can sit on the policy alone
- * and the detail can follow the closing bracket. */
+/** The policy is the part the row cycles. `detail` keeps the compact summary
+ * used outside the form. `description` explains the effect in the form. */
 interface PromptCacheSummaryAvailable {
   readonly kind: "available";
   readonly policy: PromptCachePolicyV2;
   readonly detail: string;
+  readonly description: string;
 }
+
+type PromptCacheDisplayPolicy = PromptCachePolicyV2 | "successor-owned";
 
 interface PromptCacheSummaryUnavailable {
   readonly kind: "unavailable";
-  readonly policy: PromptCachePolicyV2;
+  readonly policy: PromptCacheDisplayPolicy;
   readonly detail: "unavailable";
   readonly reason: string;
   readonly compactReason: string;
@@ -36,10 +39,20 @@ export function promptCacheSummaryParts(
   draft?: SettingsTextDraft
 ): PromptCacheSummaryParts {
   if (!view.editable) {
+    if (view.readOnlyReason === "successor-schema") {
+      return {
+        kind: "unavailable",
+        policy: "successor-owned",
+        detail: "unavailable",
+        reason: settingsReadOnlyMessage(view.readOnlyReason),
+        compactReason: "successor-owned · update 1667"
+      };
+    }
     return {
       kind: "available",
       policy: "off",
-      detail: "no opt-in controls · format 1"
+      detail: "no opt-in controls · format 1",
+      description: "Prompt caching is unavailable in legacy settings."
     };
   }
   let document = view.document;
@@ -72,15 +85,25 @@ export function promptCacheSummaryParts(
     };
   }
   if (context.policy === "off") {
+    const explicitOff = resolution.kind === "available"
+      && resolution.capability.kind === "openai-explicit";
+    const providerManaged = resolution.kind === "available"
+      && resolution.capability.kind === "openai-automatic";
+    const providerMayManage = context.adapter === "openai-official"
+      || context.adapter === "compatible";
     return {
       kind: "available",
       policy: "off",
-      detail: resolution.kind === "available"
-        && resolution.capability.kind === "openai-explicit"
+      detail: explicitOff
         ? "no breakpoints · TTL none · no writes"
-        : context.adapter === "openai-official" || context.adapter === "compatible"
+        : providerMayManage
           ? "no opt-in · TTL provider-managed"
-          : "no controls · TTL none"
+          : "no controls · TTL none",
+      description: explicitOff || !providerMayManage
+        ? "Prompt caching is off for this profile."
+        : providerManaged
+          ? "The provider manages prompt caching."
+          : "The provider might manage prompt caching."
     };
   }
   if (resolution.kind !== "available") {
@@ -101,6 +124,36 @@ export function promptCacheSummaryParts(
   return {
     kind: "available",
     policy: context.policy,
-    detail: `${behavior} · ${presentation.compactTtl} · ${writeCost}`
+    detail: `${behavior} · ${presentation.compactTtl} · ${writeCost}`,
+    description: cacheDescription(
+      resolution.capability.kind,
+      presentation.compactTtl,
+      writeMultiplier
+    )
   };
+}
+
+function cacheDescription(
+  kind: "anthropic-explicit" | "openai-automatic" | "openai-explicit",
+  ttl: string,
+  writeMultiplier: number
+): string {
+  const reuse = kind === "openai-automatic"
+    ? "Lets the provider reuse matching prompt text"
+    : kind === "anthropic-explicit"
+      ? "Reuses the unchanged start of the prompt"
+      : "Reuses prompt text at marked breakpoints";
+  const duration = ttl.startsWith("≤")
+    ? `for up to ${ttl.slice(1)}`
+    : ttl.startsWith("≥")
+      ? `for at least ${ttl.slice(1)}`
+      : ttl === "provider"
+        ? null
+        : `for ${ttl}`;
+  const cost = writeMultiplier === 1
+    ? "Caching new prompt text has no extra cost."
+    : `Caching new prompt text costs ${writeMultiplier}× the normal input price.`;
+  return duration === null
+    ? `${reuse}. The provider decides how long to keep it. ${cost}`
+    : `${reuse} ${duration}. ${cost}`;
 }

@@ -14,7 +14,9 @@ export type SettingsProviderChoiceId =
   | "llama-cpp"
   | "koboldcpp"
   | "llama-cpp-text"
-  | "koboldcpp-text";
+  | "koboldcpp-text"
+  | "chatgpt-plan"
+  | "claude-plan";
 
 export interface SettingsProviderChoice {
   readonly id: SettingsProviderChoiceId;
@@ -159,6 +161,28 @@ export const SETTINGS_PROVIDER_CHOICES: readonly SettingsProviderChoice[] = [
       apiKeyEnv: null,
       contextWindow: null
     }
+  },
+  {
+    id: "chatgpt-plan",
+    label: "ChatGPT plan",
+    provider: "openai-compatible",
+    defaults: {
+      baseUrl: "",
+      model: "gpt-5.4",
+      apiKeyEnv: null,
+      contextWindow: 272_000
+    }
+  },
+  {
+    id: "claude-plan",
+    label: "Claude plan",
+    provider: "anthropic",
+    defaults: {
+      baseUrl: "",
+      model: "claude-sonnet-4-6",
+      apiKeyEnv: null,
+      contextWindow: 1_000_000
+    }
   }
 ];
 
@@ -185,6 +209,9 @@ export function settingsProviderChoice(
   settings: GenerationSettings,
   textPreset?: SettingsPresetV2
 ): SettingsProviderChoice {
+  if (textPreset === "chatgpt-plan" || textPreset === "claude-plan") {
+    return SETTINGS_PROVIDER_CHOICES.find((choice) => choice.id === textPreset)!;
+  }
   if (settings.provider === "text-completion") {
     const id = textPreset === "llama-cpp" ? "llama-cpp-text"
       : textPreset === "koboldcpp" ? "koboldcpp-text"

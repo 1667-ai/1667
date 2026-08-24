@@ -25,6 +25,7 @@ export interface PendingCall {
    * so cancellation and terminal settlement skip outbox transitions. */
   readonly durableIntent: boolean;
   cancelled: boolean;
+  cancellationStatusPending: boolean;
   settling: boolean;
   expectedSequence: number;
   readonly openedAtMs: number;
@@ -46,6 +47,7 @@ export interface PendingCall {
   resolve(value: unknown): void;
   reject(error: unknown): void;
   startCancellationGrace(timeoutMs: number, onTimeout: () => void): void;
+  continueCancellationGrace(timeoutMs: number, onTimeout: () => void): void;
   cleanup(): void;
 }
 
@@ -140,6 +142,10 @@ export class PendingRequestRegistry {
       cancellationGraceStarted = true;
       replaceTimeout(timeoutMs, onTimeout);
     };
+    const continueCancellationGrace = (timeoutMs: number, onTimeout: () => void) => {
+      if (!cancellationGraceStarted) return;
+      replaceTimeout(timeoutMs, onTimeout);
+    };
     replaceTimeout(options.timeoutMs, () => options.onTimeout(id));
     const cleanup = () => {
       if (timer !== null) clearTimeout(timer);
@@ -153,6 +159,7 @@ export class PendingRequestRegistry {
       stream: options.stream,
       durableIntent: options.durableIntent,
       cancelled: false,
+      cancellationStatusPending: false,
       settling: false,
       expectedSequence: 0,
       openedAtMs: Date.now(),
@@ -168,6 +175,7 @@ export class PendingRequestRegistry {
       resolve: (value) => resolvePromise(value as T),
       reject: rejectPromise,
       startCancellationGrace,
+      continueCancellationGrace,
       cleanup
     };
     this.calls.set(key, call);

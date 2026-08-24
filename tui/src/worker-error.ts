@@ -4,12 +4,16 @@ import {
   type CompatibleHttpFailureEnvelope,
   type FailureEnvelope
 } from "../../shared/failure-envelope.js";
+import { terminalLineText } from "../../shared/terminal-text.js";
+import { sliceWellFormedUtf16Prefix } from "../../shared/unicode.js";
 import { ApiFailureError } from "./api-error.js";
 
 export const BACKEND_RESTART_REQUIRED_EXIT_CODE = 75;
+const MAX_BACKEND_RESTART_DETAIL_LENGTH = 1_024;
 
 export class BackendRestartRequiredError extends Error {
   readonly code = "backend_restart_required";
+  readonly detail: string;
   private attachedDiagnosticRef: string | null;
 
   constructor(
@@ -18,6 +22,7 @@ export class BackendRestartRequiredError extends Error {
   ) {
     super(`backend_restart_required: ${message}`, options);
     this.name = "BackendRestartRequiredError";
+    this.detail = message;
     this.attachedDiagnosticRef = isDiagnosticReference(options.diagnosticRef)
       ? options.diagnosticRef
       : null;
@@ -37,6 +42,9 @@ export class BackendRestartRequiredError extends Error {
 export function exitForBackendRestart(
   error?: BackendRestartRequiredError
 ): never {
+  const detail = error === undefined
+    ? ""
+    : backendRestartDetail(error);
   const diagnostic = error?.diagnosticRef === null
     || error?.diagnosticRef === undefined
     ? ""
@@ -45,11 +53,26 @@ export function exitForBackendRestart(
     writeSync(
       process.stderr.fd,
       "1667: the local backend stopped before it confirmed the last change. "
-        + `Restart 1667. Saved state will be checked before more work is accepted.${diagnostic}\n`
+        + `Restart 1667. Saved state will be checked before more work is accepted.${detail}${diagnostic}\n`
     );
   } finally {
     process.exit(BACKEND_RESTART_REQUIRED_EXIT_CODE);
   }
+}
+
+function backendRestartDetail(error: BackendRestartRequiredError): string {
+  const normalized = terminalLineText(
+    error.detail.replace(/\s+/gu, " ").trim()
+  );
+  const bounded = normalized.length <= MAX_BACKEND_RESTART_DETAIL_LENGTH
+    ? normalized
+    : `${sliceWellFormedUtf16Prefix(
+        normalized,
+        MAX_BACKEND_RESTART_DETAIL_LENGTH - 1
+      ).trimEnd()}…`;
+  return bounded.length === 0
+    ? ""
+    : ` Failure detail: ${bounded}${/[.!?…]$/.test(bounded) ? "" : "."}`;
 }
 
 /** Authoritative mutation settlement from the worker transport. */

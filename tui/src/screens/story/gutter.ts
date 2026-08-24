@@ -11,6 +11,7 @@ import {
   type FrameSegment
 } from "./frame.js";
 import type { FrameDeadlineCollector } from "../../animation-deadline.js";
+import { lightWorkKeyword } from "../work-light.js";
 import {
   focusedFoldedThoughtLine,
   ghostThoughtMark,
@@ -166,11 +167,18 @@ export function gutterFor(
     // `thought.thinking` is already false in both cases (see
     // `thoughtGutterContext`).
     if (thought.kind === "shown" && thought.thinking) {
-      if (lineIndex === 0) return thinkingGutterLine0(thought.resolved.tokenCount);
+      if (lineIndex === 0) return thinkingGutterLine0(thought.resolved.tokenCount, now, deadlines);
       if (lineIndex === 1) return thinkingGutterLine1(thought.hit);
       return [];
     }
-    if (lineIndex === 0) return [segment(`${streamLivenessMark(now, deadlines)} writing`, "focus / accent")];
+    if (lineIndex === 0) {
+      return lightWorkKeyword(
+        [segment(`${streamLivenessMark(now, deadlines)} writing`, "focus / accent")],
+        "writing",
+        now,
+        deadlines
+      );
+    }
     if (lineIndex === 1) return [actionHint("esc stops", "cancel")];
     return [];
   }

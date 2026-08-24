@@ -214,7 +214,6 @@ async function startTestApp(
       { encoding: "utf8", mode: 0o600, flag: "wx" }
     );
   }
-  const port = await availablePort();
   const server = spawn(
     process.execPath,
     ["--import", "tsx", "server/index.ts", "--print-logs"],
@@ -223,7 +222,7 @@ async function startTestApp(
       env: {
         ...process.env,
         AI_1667_DATA: dataDir,
-        AI_1667_PORT: String(port)
+        AI_1667_PORT: "0"
       },
       stdio: ["ignore", "pipe", "pipe"]
     }
@@ -235,8 +234,7 @@ async function startTestApp(
     await stopTestServerProcess(server);
     await rm(dataDir, { recursive: true, force: true });
   });
-  const base = `http://127.0.0.1:${port}`;
-  await waitForTestServer(server, base, () => output);
+  const base = await waitForTestServer(server, () => output);
   if (currentDataFormat) await saveFixtureSettings(t, base, settings);
   return base;
 }
@@ -262,16 +260,6 @@ async function saveFixtureSettings(
   assert.equal(result.pendingSettingsRevision, null);
   const saved = await api.getSettings();
   assert.deepEqual(saved.effective, settings);
-}
-
-async function availablePort(): Promise<number> {
-  const probe = createServer();
-  await new Promise<void>((resolve) =>
-    probe.listen(0, "127.0.0.1", resolve)
-  );
-  const port = (probe.address() as AddressInfo).port;
-  await closeServer(probe);
-  return port;
 }
 
 async function closeServer(

@@ -7,6 +7,7 @@ import {
 } from "../../shared/release-targets.js";
 import { loadConfig } from "./config.js";
 import {
+  managedInstallationChannel,
   resolveInstallationAuthority,
   type InstallationAuthority
 } from "./install-ownership.js";
@@ -23,6 +24,7 @@ import {
 import type { PackageDownloadProgressHandler } from "./upgrade-download.js";
 import { createUpgradeProgressRenderer } from "./upgrade-progress.js";
 import {
+  formatUpgradeApplyCommand,
   parseUpgradeArguments,
   upgradeCommandChannel,
   type ParsedUpgradeArguments,
@@ -44,7 +46,10 @@ import {
   type UpgradeRegistry
 } from "./upgrade-plan.js";
 
-export { parseUpgradeArguments } from "./upgrade-command.js";
+export {
+  formatUpgradeApplyCommand,
+  parseUpgradeArguments
+} from "./upgrade-command.js";
 export type {
   ParsedUpgradeArguments,
   UpgradeApplyCommand,
@@ -128,11 +133,8 @@ export async function executeUpgradeCli(
     authority = { kind: "manual" };
   }
   const configChannel = dependencies.defaultChannel ?? "stable";
-  const defaultChannel: UpgradeChannel = authority.kind === "shell"
-    ? authority.record.channel
-    : authority.kind === "powershell"
-      ? authority.channel
-      : configChannel;
+  const defaultChannel: UpgradeChannel =
+    managedInstallationChannel(authority) ?? configChannel;
   let parsed: ParsedUpgradeArguments | null;
   try {
     parsed = parseUpgradeArguments(argv, defaultChannel);

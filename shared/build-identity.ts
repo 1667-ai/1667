@@ -63,10 +63,23 @@ export const AI_1667_PRODUCT = "1667" as const;
  * Markdown export fidelity contract. A v21 client against a v20 server would
  * pass preflight and then lose the new Side Note behavior or misread the
  * export result. A v20 client against a v21 server would not know the new
- * response and failure shapes. */
-export const HTTP_API_PROTOCOL_VERSION = 21;
-export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 21;
-export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 21;
+ * response and failure shapes. v22 carries the server-resolved active prose
+ * continuation layout in the Settings view. A v21 client would reject that
+ * additive closed-record field. v23 carries machine-tier subscription sign-in
+ * state in the Settings view. A v22 client would reject that additive field
+ * before it can use the rest of Settings. v24 adds `pi-catalog` to the closed
+ * model-discovery source enum. A v23 client would reject a subscription model
+ * list from a v24 server. A v24 client would accept a v23 response but receive
+ * the old empty subscription catalog. v25 adds the reason that distinguishes
+ * a successor-owned read-only Settings view from legacy migration settings.
+ * A v24 client would reject that additive closed-record field before it can
+ * use the rest of Settings. v26 adds the required closed `activeWriting`
+ * projection, replaces full-document provider probes with
+ * `ProviderProbeRouteV1`, and publishes Settings schema 5. Mixed 0.10.1 and
+ * 0.10.2 HTTP processes refuse during negotiation. */
+export const HTTP_API_PROTOCOL_VERSION = 26;
+export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 26;
+export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 26;
 
 export type ArtifactTarget = "source" | BuiltArtifactTarget;
 

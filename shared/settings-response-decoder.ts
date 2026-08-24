@@ -1,28 +1,45 @@
 import {
+  MODEL_DISCOVERY_SOURCE_V2_VALUES,
   REASONING_DISPLAY_V2_VALUES,
   SETTINGS_ACTIVATION_ERROR_CODE_V2_VALUES,
+  SETTINGS_SUBSCRIPTION_PROTOCOL_V2_VALUES,
   type ModelDiscoveryResultV2,
-  type ModelDiscoverySourceV2,
   type ReasoningDisplayV2,
   type SettingsActivationOutcomeV2,
-  type SettingsDocumentV2,
   type SettingsMutationResult,
-  type SettingsView
+  type SettingsView,
+  SETTINGS_VIEW_READ_ONLY_REASON_VALUES,
+  type SubscriptionAuthState,
+  type SubscriptionAuthStatus,
+  type SubscriptionProtocolV2
 } from "./settings-v2-types.js";
+import { CONTINUATION_PROMPT_LAYOUTS } from "./continuation-prompt-optimization.js";
+import { MAX_DISCOVERED_MODELS } from "./settings-scalar-policy.js";
 import type { GenerationSettings, Provider } from "./types.js";
+import {
+  WRITING_PROMPT_FIELD_IDS,
+  type WritingPromptSettings
+} from "./settings-v5-writing.js";
+import type { SettingsDocumentV5 } from "./settings-v5-types.js";
 
-export type SettingsDocumentResponseDecoder = (value: unknown) => SettingsDocumentV2;
+export type SettingsDocumentResponseDecoder = (value: unknown) => SettingsDocumentV5;
 
 export function decodeGenerationSettingsResponse(value: unknown): GenerationSettings {
   const settings = closedRecord(value, "generation settings", [
     "provider", "baseUrl", "model", "apiKeyEnv", "temperature",
     "maxTokens", "systemPrompt", "contextWindow"
-  ]);
+  ], ["protocol", "allowInsecureHttp"]);
+  const protocol = optionalSubscriptionProtocol(settings.protocol);
+  const allowInsecureHttp = Object.hasOwn(settings, "allowInsecureHttp")
+    ? booleanValue(settings.allowInsecureHttp, "generation settings.allowInsecureHttp")
+    : undefined;
   return {
     provider: providerValue(settings.provider, "generation settings.provider"),
     baseUrl: stringValue(settings.baseUrl, "generation settings.baseUrl"),
     model: stringValue(settings.model, "generation settings.model"),
     apiKeyEnv: nullableString(settings.apiKeyEnv, "generation settings.apiKeyEnv"),
+    ...(allowInsecureHttp === undefined ? {} : { allowInsecureHttp }),
+    ...(protocol === undefined ? {} : { protocol }),
     temperature: nullableFiniteNumber(settings.temperature, "generation settings.temperature"),
     maxTokens: positiveSafeInteger(settings.maxTokens, "generation settings.maxTokens"),
     systemPrompt: stringValue(settings.systemPrompt, "generation settings.systemPrompt"),
@@ -33,18 +50,57 @@ export function decodeGenerationSettingsResponse(value: unknown): GenerationSett
   };
 }
 
+function optionalSubscriptionProtocol(value: unknown): SubscriptionProtocolV2 | undefined {
+  if (value === undefined) return undefined;
+  return oneOf(value, SETTINGS_SUBSCRIPTION_PROTOCOL_V2_VALUES, "generation settings.protocol");
+}
+
 export function decodeSettingsViewResponse(
   value: unknown,
   decodeDocument: SettingsDocumentResponseDecoder
 ): SettingsView {
   const response = closedRecord(value, "settings view", [
     "dataFormat", "editable", "stateGeneration", "activeRevision",
-    "pendingRevision", "document", "effective", "effectiveProse", "lastActivationOutcome"
-  ], ["effectiveProseReasoning"]);
+    "pendingRevision", "document", "effective", "effectiveProse", "activeWriting",
+    "lastActivationOutcome"
+  ], [
+    "effectiveProseReasoning", "effectiveProseContinuationPromptLayout",
+    "subscriptionAuth", "subscriptionAutoSelectEligible", "readOnlyReason"
+  ]);
+  const activeWriting = decodeActiveWriting(response.activeWriting);
   const effective = decodeGenerationSettingsResponse(response.effective);
   const effectiveProse = decodeGenerationSettingsResponse(response.effectiveProse);
   const effectiveProseReasoning = Object.hasOwn(response, "effectiveProseReasoning")
     ? reasoningDisplayValue(response.effectiveProseReasoning, "settings view.effectiveProseReasoning")
+    : undefined;
+  const effectiveProseContinuationPromptLayout = Object.hasOwn(
+    response,
+    "effectiveProseContinuationPromptLayout"
+  )
+    ? oneOf(
+      response.effectiveProseContinuationPromptLayout,
+      CONTINUATION_PROMPT_LAYOUTS,
+      "settings view.effectiveProseContinuationPromptLayout"
+    )
+    : undefined;
+  const subscriptionAuth = Object.hasOwn(response, "subscriptionAuth")
+    ? decodeSubscriptionAuth(response.subscriptionAuth)
+    : undefined;
+  const subscriptionAutoSelectEligible = Object.hasOwn(
+    response,
+    "subscriptionAutoSelectEligible"
+  )
+    ? booleanValue(
+      response.subscriptionAutoSelectEligible,
+      "settings view.subscriptionAutoSelectEligible"
+    )
+    : undefined;
+  const readOnlyReason = Object.hasOwn(response, "readOnlyReason")
+    ? oneOf(
+      response.readOnlyReason,
+      SETTINGS_VIEW_READ_ONLY_REASON_VALUES,
+      "settings view.readOnlyReason"
+    )
     : undefined;
   if (response.dataFormat === 1) {
     if (response.editable !== false || response.stateGeneration !== null
@@ -55,6 +111,7 @@ export function decodeSettingsViewResponse(
     return {
       dataFormat: 1,
       editable: false,
+      ...(readOnlyReason === undefined ? {} : { readOnlyReason }),
       stateGeneration: null,
       activeRevision: null,
       pendingRevision: null,
@@ -62,9 +119,16 @@ export function decodeSettingsViewResponse(
       effective,
       effectiveProse,
       effectiveProseReasoning,
+      effectiveProseContinuationPromptLayout,
+      ...(subscriptionAuth === undefined ? {} : { subscriptionAuth }),
+      ...(subscriptionAutoSelectEligible === undefined
+        ? {}
+        : { subscriptionAutoSelectEligible }),
+      activeWriting,
       lastActivationOutcome: null
     };
   }
+  if (readOnlyReason !== undefined) invalid("settings view.readOnlyReason");
   if (response.dataFormat !== 2 || response.editable !== true) invalid("settings view format");
   return {
     dataFormat: 2,
@@ -79,10 +143,42 @@ export function decodeSettingsViewResponse(
     effective,
     effectiveProse,
     effectiveProseReasoning,
+    effectiveProseContinuationPromptLayout,
+    ...(subscriptionAuth === undefined ? {} : { subscriptionAuth }),
+    ...(subscriptionAutoSelectEligible === undefined
+      ? {}
+      : { subscriptionAutoSelectEligible }),
+    activeWriting,
     lastActivationOutcome: response.lastActivationOutcome === null
       ? null
       : decodeActivationOutcome(response.lastActivationOutcome)
   };
+}
+
+function decodeActiveWriting(value: unknown): WritingPromptSettings {
+  const writing = closedRecord(value, "settings view.activeWriting", WRITING_PROMPT_FIELD_IDS);
+  const result = {} as { -readonly [Field in keyof WritingPromptSettings]: string };
+  for (const field of WRITING_PROMPT_FIELD_IDS) {
+    result[field] = stringValue(writing[field], `settings view.activeWriting.${field}`);
+  }
+  return result;
+}
+
+function decodeSubscriptionAuth(value: unknown): SubscriptionAuthState {
+  const auth = closedRecord(value, "settings subscription auth", ["chatgpt", "claude"]);
+  return {
+    chatgpt: subscriptionAuthStatus(auth.chatgpt, "settings subscription auth.chatgpt"),
+    claude: subscriptionAuthStatus(auth.claude, "settings subscription auth.claude")
+  };
+}
+
+function subscriptionAuthStatus(value: unknown, label: string): SubscriptionAuthStatus {
+  return oneOf(value, ["signed-in", "signed-out"] as const, label);
+}
+
+function booleanValue(value: unknown, label: string): boolean {
+  if (typeof value !== "boolean") invalid(label);
+  return value;
 }
 
 function reasoningDisplayValue(value: unknown, label: string): ReasoningDisplayV2 {
@@ -152,7 +248,7 @@ export function decodeModelDiscoveryResult(value: unknown): ModelDiscoveryResult
   const response = closedRecord(value, "model discovery result", ["observedAt", "models"]);
   const observedAt = stringValue(response.observedAt, "model discovery result.observedAt");
   if (!isCanonicalDate(observedAt) || !Array.isArray(response.models)
-    || response.models.length > 256) {
+    || response.models.length > MAX_DISCOVERED_MODELS) {
     invalid("model discovery result");
   }
   return {
@@ -172,8 +268,9 @@ export function decodeModelDiscoveryResult(value: unknown): ModelDiscoveryResult
           model.maxOutputTokens,
           `model discovery result.models[${index}].maxOutputTokens`
         ),
-        source: discoverySource(
+        source: oneOf(
           model.source,
+          MODEL_DISCOVERY_SOURCE_V2_VALUES,
           `model discovery result.models[${index}].source`
         )
       };
@@ -185,9 +282,10 @@ export function decodeModelDiscoveryResult(value: unknown): ModelDiscoveryResult
  *  check either way — unlike `fields`, which must all be present. Mirrors
  *  `closedShape`/`closedRecord` (server/story-wire-validation.ts), the
  *  server-side validator's own required/optional split for exactly this
- *  reason: an additive field (`effectiveProseReasoning`) must stay decodable
- *  whether or not a given response — or a test fixture built from an older
- *  literal — happens to carry it. */
+ *  reason: additive fields (`effectiveProseReasoning` and
+ *  `effectiveProseContinuationPromptLayout`) must stay decodable whether or
+ *  not a given response — or a test fixture built from an older literal —
+ *  happens to carry them. */
 function closedRecord(
   value: unknown,
   label: string,
@@ -231,12 +329,6 @@ function positiveSafeInteger(value: unknown, label: string): number {
 
 function nullablePositiveSafeInteger(value: unknown, label: string): number | null {
   return value === null ? null : positiveSafeInteger(value, label);
-}
-
-function discoverySource(value: unknown, label: string): ModelDiscoverySourceV2 {
-  if (value !== "anthropic-models" && value !== "openai-models"
-    && value !== "lm-studio-models" && value !== "ollama-tags") invalid(label);
-  return value;
 }
 
 function oneOf<const T extends readonly string[]>(
