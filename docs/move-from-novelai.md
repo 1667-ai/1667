@@ -8,6 +8,8 @@ read_when:
 
 # Move from NovelAI
 
+[Read the published guide.](https://1667.ai/docs/move-from-novelai)
+
 This guide shows how to import NovelAI `.story`, `.scenario`, `.lorebook`, and
 `.preset` files into 1667. It explains supported transfers, import limits, data
 storage, and model access.
