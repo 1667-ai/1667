@@ -8,8 +8,6 @@ read_when:
 
 # Move from NovelAI
 
-[Read the published guide.](https://1667.ai/docs/move-from-novelai)
-
 This guide shows how to import NovelAI `.story`, `.scenario`, `.lorebook`, and
 `.preset` files into 1667. It explains supported transfers, import limits, data
 storage, and model access.
@@ -50,8 +48,8 @@ part. Change the depth in the Author's Note editor.
 A NovelAI retry maps to a [take](technical-terms.md). A take is one
 alternative version of a story part. 1667 keeps each imported take, and the
 mass map shows all of them. Import reads the retry history from a `.story`
-file. Each supported plain retry becomes a take. The take you had open in
-NovelAI becomes the selected story line.
+file. Each supported plain retry becomes a take. The retry you had open in
+NovelAI becomes the selected take for its story part.
 
 Import does not read NovelAI's own generation settings. The
 Fidelity Report states this omission.
@@ -103,8 +101,11 @@ these structure limits:
 
 - A MessagePack array or map in a current `.story` file must not exceed 50,000
   items.
-- The `fragments` and `datablocks` lists in a legacy JSON `.story` file must not
-  exceed 50,000 items each.
+- The `fragments` list in a legacy JSON `.story` file must not exceed 50,000
+  items. The command refuses a file that exceeds this limit.
+- If the legacy `datablocks` list exceeds 50,000 items, the selected story line
+  imports without its retry history. The Fidelity Report lists the retry
+  history as malformed.
 - Decoded MessagePack and JSON input must not exceed 500,000 values.
 
 The selected story line must fit within 5,000 parts and 4,000,000 UTF-16 code
@@ -227,7 +228,16 @@ project root that you select. Refer to [Story storage](story-storage.md).
   that keep the [context meter](technical-terms.md) exact.
 
 You can export your 1667 stories as NovelAI [Archives](technical-terms.md).
-Use `1667 export --format story`, `--format scenario`, or `--format lorebook`.
+Exit 1667 first. These commands export the most recently updated story:
+
+```
+1667 export --format story
+1667 export --format scenario
+1667 export --format lorebook
+```
+
+Use `--story st1_...` to select a story by its ID. Use `--all` to export every
+story.
 
 ## NovelAI model access
 
