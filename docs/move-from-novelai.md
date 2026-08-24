@@ -8,6 +8,8 @@ read_when:
 
 # Move from NovelAI
 
+[Read the published guide.](https://1667.ai/docs/move-from-novelai)
+
 This guide shows how to import NovelAI `.story`, `.scenario`, `.lorebook`, and
 `.preset` files into 1667. It explains supported transfers, import limits, data
 storage, and model access.
@@ -19,7 +21,7 @@ storage, and model access.
 | Memory | An `always` Fact | Import gives the Fact the `memory` tag |
 | Lorebook Entry | A Fact | Entry keys and activation become Fact settings |
 | Author's Note | Author's Note | The text imports; the position resets to the default depth |
-| Retry | Take | Each generation makes one take |
+| Retry | Take | Each supported plain retry becomes one take |
 | Sampler Preset | Generation Profile | Supported sampling values become Profile settings |
 | `.story` file | Story | One file becomes one story |
 | `.scenario` file | Story | The prompt becomes the first story parts |
@@ -27,7 +29,8 @@ storage, and model access.
 A [Fact](technical-terms.md) is one note that 1667 sends with a provider
 request. An `always` Fact is in each continuation request and rewrite request.
 A `keyed` Fact enters the request when the story text matches one of its keys.
-1667 matches keys without case differences.
+1667 matches literal keys without case differences. Regex keys are
+case-sensitive unless they use the `i` flag.
 
 Import turns each Lorebook Entry into one Fact through the
 [Entry Mapping](technical-terms.md). Its text becomes the Fact text, and its
@@ -45,10 +48,10 @@ It does not read the NovelAI placement. The imported note lands at the default
 part. Change the depth in the Author's Note editor.
 
 A NovelAI retry maps to a [take](technical-terms.md). A take is one
-alternative version of a story part. 1667 keeps each take, and the mass map
-shows all of them. Import reads the retry history from a `.story` file. Each
-retry becomes a take. The take you had open in NovelAI becomes the selected
-story line.
+alternative version of a story part. 1667 keeps each imported take, and the
+mass map shows all of them. Import reads the retry history from a `.story`
+file. Each supported plain retry becomes a take. The take you had open in
+NovelAI becomes the selected story line.
 
 Import does not read NovelAI's own generation settings. The
 Fidelity Report states this omission.
@@ -95,6 +98,10 @@ that it reads. It prints one line for each file:
 alderaan.story: imported "Alderaan" (312 parts, 24 facts) as st1_...
 ```
 
+Each `.story` or `.scenario` file must not exceed 20 MB. A `.story` file must
+not contain more than 50,000 NovelAI records. The imported story must not
+exceed 5,000 parts or 4,000,000 characters.
+
 The last value is the story ID. Use it to open the story:
 
 ```
@@ -140,6 +147,8 @@ world.lorebook: imported 12 facts into "Alderaan"
 The command reads a `.lorebook` file as JSON or inside a PNG. It reads the
 file content to find the format. It does not use the file name.
 
+The Lorebook JSON must not exceed 1 MB.
+
 The PNG reader accepts uncompressed `tEXt` metadata with the `naidata` key.
 If a PNG has no archive metadata, the import reports `no lorebook data in this PNG · export the lorebook again from NovelAI`. It does not inspect image pixels or another hidden encoding.
 
@@ -181,7 +190,8 @@ world.lorebook: 14 entries read; 12 facts imported; unsupported search ranges, b
 
 1667 does not read sampling settings from a NovelAI `.story` or `.scenario`
 file. Import a NovelAI `.preset` file with `1667 profile import`. Refer to
-[Generation Profile transfer](generation-profile-transfer.md).
+[Generation Profile transfer](generation-profile-transfer.md). A `.preset`
+file must not exceed 64 KiB (65,536 bytes).
 
 The report adds one item, after a semicolon, for each other change that
 occurred:
@@ -206,9 +216,8 @@ project root that you select. Refer to [Story storage](story-storage.md).
   in the generation requests that you start, and in the token-count requests
   that keep the [context meter](technical-terms.md) exact.
 
-The way back stays open. `1667 export --format story`, `--format scenario`,
-and `--format lorebook` write NovelAI [Archives](technical-terms.md) from your
-stories.
+You can export your 1667 stories as NovelAI [Archives](technical-terms.md).
+Use `1667 export --format story`, `--format scenario`, or `--format lorebook`.
 
 ## NovelAI model access
 

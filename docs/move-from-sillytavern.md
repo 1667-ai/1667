@@ -7,6 +7,8 @@ read_when:
 
 # Move from SillyTavern
 
+[Read the published guide.](https://1667.ai/docs/move-from-sillytavern)
+
 1667 is a full-screen terminal app for long-form fiction. It imports
 SillyTavern chats, swipe history, character cards, Character Books, and World
 Info files. It runs on macOS, Linux, and Windows x64.
@@ -188,9 +190,9 @@ the report does not name them.
 
 ## Model servers
 
-1667 has presets for Ollama, LM Studio, llama.cpp, and KoboldCpp. The two apps
-can use the same local model server. 1667 also supports OpenAI-compatible and
-Anthropic endpoints.
+1667 has presets for Ollama, LM Studio, llama.cpp, and KoboldCpp. SillyTavern
+and 1667 can use the same local model server. 1667 also supports
+OpenAI-compatible and Anthropic endpoints.
 
 ## When to keep using SillyTavern
 
