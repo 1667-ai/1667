@@ -7,6 +7,8 @@ read_when:
 
 # Move from SillyTavern
 
+[Read the published guide.](https://1667.ai/docs/move-from-sillytavern)
+
 1667 is a full-screen terminal app for long-form fiction. It imports
 SillyTavern chats, swipe history, character cards, Character Books, and World
 Info files. It runs on macOS, Linux, and Windows x64.
@@ -74,12 +76,12 @@ story if the input exceeds one of these limits:
 - 50,000 total swipe records per file.
 
 The selected story line must fit within 5,000 story parts. Its imported prose
-and directions must fit within 4,000,000 characters after name substitution
-and speaker-prefix insertion. The command refuses the chat if the selected
-line exceeds either limit. Alternate swipes use the remaining part and text
-capacity. Each alternate also stores a copy of its direction. The command omits
-an alternate swipe that does not fit. It creates the story and reports the
-omitted swipe count.
+and directions must fit within 4,000,000 UTF-16 code units after name
+substitution and speaker-prefix insertion. The command refuses the chat if the
+selected line exceeds either limit. Alternate swipes use the remaining part
+and text capacity. Each alternate also stores a copy of its direction. The
+command omits an alternate swipe that does not fit. It creates the story and
+reports the omitted swipe count.
 
 ## Import a character card
 
@@ -188,9 +190,9 @@ the report does not name them.
 
 ## Model servers
 
-1667 has presets for Ollama, LM Studio, llama.cpp, and KoboldCpp. The two apps
-can use the same local model server. 1667 also supports OpenAI-compatible and
-Anthropic endpoints.
+1667 has presets for Ollama, LM Studio, llama.cpp, and KoboldCpp. SillyTavern
+and 1667 can use the same local model server. 1667 also supports
+OpenAI-compatible and Anthropic endpoints.
 
 ## When to keep using SillyTavern
 
