@@ -56,15 +56,19 @@ For a group chat, 1667 keeps real sender names. If the prose does not contain a
 sender name, the importer adds `Name: ` before the text. 1667 does not provide
 a group-chat runtime.
 
-The source file does not change. The command reports data that did not fit.
-
-The main chat limits are:
+The source file does not change. The command refuses the chat and creates no
+story if the chat exceeds one of these limits:
 
 - 20 MB per file.
 - 50,000 records per file.
 - 50,000 total swipe records per file.
 - 5,000 story parts per file.
 - 4,000,000 characters after name substitution.
+
+The command gives the selected story line priority. If that line fits but its
+alternate swipes exceed the remaining story-part or text limit, the command
+creates the story without those extra swipes. It reports the omitted swipe
+count.
 
 ## Import a character card
 
