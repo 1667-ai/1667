@@ -31,8 +31,8 @@ Make a 1667 project:
 1667 init
 ```
 
-Exit 1667 if it has this project open. Each import command needs the project
-lock.
+Exit 1667 before you run an import command in another terminal. An in-app
+import uses the open 1667 process and does not need this step.
 
 ## Import a chat
 

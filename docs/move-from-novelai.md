@@ -148,8 +148,9 @@ import-lorebook` for that file.
 
 An import can change or omit data. The Fidelity Report lists the changes and
 omissions described below. It does not list Unicode normalization, line-ending
-changes in prose, paragraph splitting or trimming, or title trimming. The
-import commands print the report to standard error, one line for each file.
+changes in prose, paragraph splitting or trimming, title whitespace trimming,
+or title truncation after 4,096 Unicode characters. The import commands print
+the report to standard error, one line for each file.
 
 Each `.story` import reports its retry takes and its one fixed omission:
 
