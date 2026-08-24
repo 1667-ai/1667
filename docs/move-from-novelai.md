@@ -19,7 +19,7 @@ storage, and model access.
 | Memory | An `always` Fact | Import gives the Fact the `memory` tag |
 | Lorebook Entry | A Fact | Entry keys and activation become Fact settings |
 | Author's Note | Author's Note | The text imports; the position resets to the default depth |
-| Retry | Take | Each supported plain retry becomes one take |
+| Retry | Take | A supported plain retry can become one take |
 | Sampler Preset | Generation Profile | Supported sampling values become Profile settings |
 | `.story` file | Story | One file becomes one story |
 | `.scenario` file | Story | The prompt becomes the first story parts |
@@ -48,8 +48,8 @@ part. Change the depth in the Author's Note editor.
 A NovelAI retry maps to a [take](technical-terms.md). A take is one
 alternative version of a story part. 1667 keeps each imported take, and the
 mass map shows all of them. Import reads the retry history from a `.story`
-file. Each supported plain retry becomes a take. The retry you had open in
-NovelAI becomes the selected take for its story part.
+file. Each supported plain retry that import keeps becomes a take. The retry
+you had open in NovelAI becomes the selected take for its story part.
 
 Import does not read NovelAI's own generation settings. The
 Fidelity Report states this omission.
@@ -65,6 +65,10 @@ reads the `datablocks` history from the legacy story format. A legacy retry
 must start after a complete imported story part. Import drops a legacy retry
 that starts inside one story part. This rule prevents the import from changing
 or omitting shared prose.
+
+Import can omit the complete retry history if replay work reaches its safety
+limit. The Fidelity Report states `retry history omitted: replay work limit
+reached`.
 
 ## Before you start
 
@@ -238,6 +242,17 @@ Exit 1667 first. These commands export the most recently updated story:
 
 Use `--story st1_...` to select a story by its ID. Use `--all` to export every
 story.
+
+These Archives are not complete backups:
+
+- A `.story` or `.scenario` Archive contains only the selected prose line. A
+  `.story` Archive has no retry history.
+- A `.lorebook` Archive contains Facts but no prose.
+- The exports can omit alternate takes, directions, summaries, chapter breaks,
+  tags, and Side Notes.
+
+The export command writes a Fidelity Report to standard error. Check it for
+changes and omissions.
 
 ## NovelAI model access
 
