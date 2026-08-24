@@ -250,6 +250,9 @@ These Archives are not complete backups:
 - A `.lorebook` Archive contains Facts but no prose.
 - The exports can omit alternate takes, directions, summaries, chapter breaks,
   tags, and Side Notes.
+- The exports omit Fact secondary keys, secondary-key mode, scan depth,
+  recursion, priority, and per-Fact token budgets. The Fidelity Report does not
+  list these losses.
 
 The export command writes a Fidelity Report to standard error. Check it for
 changes and omissions.
