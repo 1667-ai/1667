@@ -77,6 +77,11 @@ creates the story and reports the omitted swipe count.
 Open a story. Open the command palette. Select `import character card`. Enter
 the card path.
 
+A story can contain 128 Facts. Card import uses the remaining Fact capacity.
+It imports Character Facts before Character Book Facts. If the story has no
+remaining capacity, the command imports nothing. The Fidelity Report gives the
+number of Facts that did not fit.
+
 You can also use the command line:
 
 ```sh
@@ -94,6 +99,11 @@ You can also use the command line:
 
 The card name, description, personality, and scenario become Facts. Empty
 fields do not import. A V2 or V3 `character_book` also becomes Facts.
+
+The converter changes `{{user}}` to `the protagonist`. It changes `{{char}}`
+to the V3 nickname, when present, or to the card name. These substitutions
+apply to card text and Character Book content. The Fidelity Report does not
+name these substitutions.
 
 Supported Character Book settings include:
 
@@ -151,9 +161,13 @@ individual entries.
 
 Some World Info settings have no matching Fact setting. These settings include
 insertion position and order, firing probability, timed effects, prompt roles,
-entry groups, some recursion controls, extra scan sources, macros, retrieval by
+entry groups, some recursion controls, extra scan sources, retrieval by
 meaning, character filters, AND-ALL, and NOT-ALL. The Fidelity Report names
 these limits. It gives affected entry counts where they are available.
+
+Macros in entry text and primary keys stay as literal text. The Fidelity Report
+gives the affected entry count. Macros in secondary keys also stay literal, but
+the report does not name them.
 
 ## Model servers
 
