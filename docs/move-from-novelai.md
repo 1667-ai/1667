@@ -8,9 +8,6 @@ read_when:
 
 # Move from NovelAI
 
-The published guide is at
-[1667.ai/docs/move-from-novelai](https://1667.ai/docs/move-from-novelai).
-
 This guide moves your NovelAI work into 1667. It maps each NovelAI concept to
 its 1667 equivalent. It shows the import commands and the
 [Fidelity Report](technical-terms.md). It states where your data lives. It also

@@ -7,9 +7,6 @@ read_when:
 
 # Move from SillyTavern
 
-The published guide is at
-[1667.ai/docs/move-from-sillytavern](https://1667.ai/docs/move-from-sillytavern).
-
 1667 is a full-screen terminal app for long-form fiction. It imports
 SillyTavern chats, swipe history, character cards, Character Books, and World
 Info files. It runs on macOS, Linux, and Windows x64.
@@ -22,7 +19,7 @@ Info files. It runs on macOS, Linux, and Windows x64.
 | Chat | Story | Character messages become story parts. |
 | User message | Direction | User messages before a reply guide that story part. |
 | Character card | Facts | Supported card text becomes editable Facts. |
-| Character Book | Facts | Supported entries keep their activation settings. |
+| Character Book | Facts | Supported activation settings transfer. |
 | World Info | Facts | Constant and keyed entries become Facts. |
 | API connection | Provider | 1667 has presets for common local servers. |
 
@@ -65,6 +62,7 @@ The main chat limits are:
 
 - 20 MB per file.
 - 50,000 records per file.
+- 50,000 total swipe records per file.
 - 5,000 story parts per file.
 - 4,000,000 characters after name substitution.
 
