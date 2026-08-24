@@ -8,8 +8,6 @@ read_when:
 
 # Move from NovelAI
 
-[Read the published guide.](https://1667.ai/docs/move-from-novelai)
-
 This guide shows how to import NovelAI `.story`, `.scenario`, `.lorebook`, and
 `.preset` files into 1667. It explains supported transfers, import limits, data
 storage, and model access.
@@ -98,9 +96,14 @@ that it reads. It prints one line for each file:
 alderaan.story: imported "Alderaan" (312 parts, 24 facts) as st1_...
 ```
 
-Each `.story` or `.scenario` file must not exceed 20 MB. A `.story` file must
-not contain more than 50,000 NovelAI records. The imported story must not
-exceed 5,000 parts or 4,000,000 characters.
+Each `.story` or `.scenario` file must not exceed 20 MB. 1667 refuses a
+MessagePack container or high-level story collection with more than 50,000
+items.
+
+The active story must fit within 5,000 parts and 4,000,000 UTF-16 code units.
+Retry takes use the remaining capacity. If they reach either limit, the active
+story imports without the remaining retry takes. The Fidelity Report lists
+this omission.
 
 The last value is the story ID. Use it to open the story:
 
