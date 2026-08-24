@@ -102,8 +102,10 @@ Supported Character Book settings include:
 The Fidelity Report names unsupported Character Book settings. For a V3 card,
 it names unsupported greetings, example messages, assets, creator notes,
 prompts, version data, tags, and creator data. A V1 or V2 report does not list
-these omitted card fields. The converter also does not import
-`creator_notes_multilingual`, `source`, `creation_date`, or `modification_date`.
+these omitted card fields. The converter also does not import these card
+metadata fields: `creator_notes_multilingual`, `source`, `creation_date`,
+`modification_date`, or `extensions`. It does not import Character Book `name`,
+`description`, or `extensions`. It does not import entry `id` or `extensions`.
 The Fidelity Report does not name these metadata fields.
 
 ## Import World Info
@@ -127,8 +129,11 @@ the open story.
 - Chain activation opt-out.
 - The `@@activate` and `@@dont_activate` control lines.
 
-A disabled entry does not import. An entry that starts with `@@dont_activate`
-also does not import. The Fidelity Report names each skipped entry.
+A disabled entry does not import. An entry with `@@dont_activate` does not
+import unless its leading decorators also include `@@activate`. In that case,
+`@@activate` has priority and makes an always-active Fact. The Fidelity Report
+gives the count and reason for skipped entries. It does not identify the
+individual entries.
 
 Some World Info settings have no matching Fact setting. These settings include
 insertion position and order, firing probability, timed effects, prompt roles,
@@ -146,8 +151,8 @@ Anthropic endpoints.
 
 Use SillyTavern for chat roleplay, personas, active group chats, and its card
 tools. Use 1667 for a long-form story with alternative takes and a selected
-story line. Import lets you move the same material between those types of
-work.
+story line. Import copies supported material from SillyTavern into 1667. It
+does not export material back to SillyTavern.
 
 ## Detailed references
 
