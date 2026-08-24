@@ -34,6 +34,9 @@ Make a 1667 project:
 Exit 1667 before you run an import command in another terminal. An in-app
 import uses the open 1667 process and does not need this step.
 
+The Fidelity Report lists import changes and omissions. A command-line import
+writes the report to standard error. An in-app import writes it to the log.
+
 ## Import a chat
 
 Export the chat from SillyTavern as a JSONL file. The

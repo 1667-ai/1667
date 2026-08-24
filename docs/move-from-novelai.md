@@ -8,10 +8,9 @@ read_when:
 
 # Move from NovelAI
 
-This guide moves your NovelAI work into 1667. It maps each NovelAI concept to
-its 1667 equivalent. It shows the import commands and the
-[Fidelity Report](technical-terms.md). It states where your data lives. It also
-states the model access limit.
+This guide shows how to import NovelAI `.story`, `.scenario`, `.lorebook`, and
+`.preset` files into 1667. It explains supported transfers, import limits, data
+storage, and model access.
 
 ## The concept map
 
@@ -99,10 +98,11 @@ The last value is the story ID. Use it to open the story:
 ```
 
 A `.story` file is a [Container](technical-terms.md). It carries the prose,
-the embedded Lorebook, the Memory, and the Author's Note. Import keeps all
-four. The Memory becomes one `always` Fact with the `memory` tag. Each
-Lorebook Entry becomes one Fact. The Author's Note text stays the Author's
-Note.
+the embedded Lorebook, the Memory, and the Author's Note. The Memory becomes
+one `always` Fact with the `memory` tag. A supported, enabled, readable
+Lorebook Entry becomes one Fact when the story has capacity. Check the Fidelity
+Report for skipped or changed entries. The Author's Note text stays the
+Author's Note.
 
 A `.scenario` file carries a prompt in place of prose. The prompt becomes the
 first story parts. The Memory, the Author's Note, and the Lorebook import the
