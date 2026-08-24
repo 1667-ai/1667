@@ -99,10 +99,10 @@ The last value is the story ID. Use it to open the story:
 
 A `.story` file is a [Container](technical-terms.md). It carries the prose,
 the embedded Lorebook, the Memory, and the Author's Note. The Memory becomes
-one `always` Fact with the `memory` tag. A supported, enabled, readable
-Lorebook Entry becomes one Fact when the story has capacity. Check the Fidelity
-Report for skipped or changed entries. The Author's Note text stays the
-Author's Note.
+one `always` Fact with the `memory` tag. 1667 tries to turn each enabled
+Lorebook Entry into one Fact. Empty or invalid text and the story's Fact limit
+can prevent this transfer. Check the Fidelity Report for skipped or changed
+entries. The Author's Note text stays the Author's Note.
 
 A `.scenario` file carries a prompt in place of prose. The prompt becomes the
 first story parts. The Memory, the Author's Note, and the Lorebook import the
