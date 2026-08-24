@@ -258,11 +258,14 @@ These Archives are transfer files, not complete backups:
   and banned strings. Both `.story` and `.scenario` omit the Author Brief. Only
   the `.scenario` Fidelity Report names that loss. The exports also omit Image
   Attachments, thoughts, token probabilities, and Generation Records.
+- For each prose part, the exports omit the model name, whether you wrote the
+  part, human-edit ranges, rewritten ranges, and creation and update times. The
+  exports also omit the story origin.
 
 The export command writes a Fidelity Report to standard error. Check it for
-changes and omissions. The report and the examples above are not complete loss
-inventories. Refer to [Story storage](story-storage.md#export-a-story) for the
-content and selection rules of each format.
+changes and omissions. Refer to
+[Story storage](story-storage.md#export-a-story) for the content and selection
+rules of each format.
 
 ## NovelAI model access
 
