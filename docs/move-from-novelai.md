@@ -36,8 +36,9 @@ keys become the Fact keys. An always-on entry arrives as an `always` Fact. A
 disabled entry does not import.
 
 A keyed Fact can use literal or restricted regex keys. It can also use
-secondary keys with AND or NOT logic. Scan depth and chain activation control
-how far 1667 searches for a match.
+secondary keys with AND or NOT logic. Scan depth sets how many recent story
+parts 1667 searches. Chain activation lets the text of an active Fact activate
+other Facts.
 
 The Author's Note keeps its name. 1667 sends it near the end of each
 continuation request and prompted retake request. Import reads the note text.
