@@ -250,10 +250,11 @@ These Archives are transfer files, not complete backups:
   the Author's Note. A `.story` Archive has no retry history.
 - A `.lorebook` Archive contains Facts but no prose.
 - The exports can omit alternate takes, directions, summaries, chapter breaks,
-  tags, and Side Notes.
+  the first chapter title, tags, and Side Notes. The Fidelity Report counts
+  chapter breaks but does not name a lost first chapter title.
 - The exports omit Fact secondary keys, secondary-key mode, scan depth,
-  recursion, priority, and per-Fact token budgets. The Fidelity Report does not
-  list these losses.
+  recursion, priority, per-Fact token budgets, creation times, and source story
+  part links. The Fidelity Report does not list these losses.
 - The exports omit the Facts budget, Author's Note depth, story phrase bias,
   and banned strings. Both `.story` and `.scenario` omit the Author Brief. Only
   the `.scenario` Fidelity Report names that loss. The exports also omit Image
