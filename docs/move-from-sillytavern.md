@@ -55,9 +55,12 @@ The command creates one new story.
 - System messages and empty messages do not import.
 - User messages at the end without a reply do not import.
 
-For a group chat, 1667 keeps real sender names. If the prose does not contain a
-sender name, the importer adds `Name: ` before the text. 1667 does not provide
-a group-chat runtime.
+1667 treats a file as a group chat when it contains assistant messages from
+more than one non-narrator sender. For that file, it keeps the sender names. If
+the prose does not contain a sender name, the importer adds `Name: ` before the
+text. If only one character has replied, 1667 treats the file as a solo chat
+and does not add a missing sender name. 1667 does not provide a group-chat
+runtime.
 
 The source file does not change. The command refuses the chat and creates no
 story if the input exceeds one of these limits:
@@ -66,16 +69,19 @@ story if the input exceeds one of these limits:
 - 50,000 records per file.
 - 50,000 total swipe records per file.
 
-The selected story line must fit within 5,000 story parts and 4,000,000
-characters after name substitution. The command refuses the chat if the
-selected line exceeds either limit. Alternate swipes use the remaining part
-and text capacity. The command omits an alternate swipe that does not fit. It
-creates the story and reports the omitted swipe count.
+The selected story line must fit within 5,000 story parts. Its imported prose
+and directions must fit within 4,000,000 characters after name substitution
+and speaker-prefix insertion. The command refuses the chat if the selected
+line exceeds either limit. Alternate swipes use the remaining part and text
+capacity. Each alternate also stores a copy of its direction. The command omits
+an alternate swipe that does not fit. It creates the story and reports the
+omitted swipe count.
 
 ## Import a character card
 
-Open a story. Open the command palette. Select `import character card`. Enter
-the card path.
+Open the character in SillyTavern and select `Export character`. Save a JSON or
+PNG card. Then open a story in 1667. Open the command palette. Select
+`import character card`. Enter the exported card path.
 
 A story can contain 128 Facts. Card import uses the remaining Fact capacity.
 It imports Character Facts before Character Book Facts. If the story has no
@@ -97,8 +103,11 @@ You can also use the command line:
 
 1667 does not read CHARX, WebP, compressed PNG text, or an ordinary image.
 
-The card name, description, personality, and scenario become Facts. Empty
-fields do not import. A V2 or V3 `character_book` also becomes Facts.
+The non-empty description, personality, and scenario become Character Facts.
+The card name labels those Facts. A V2 or V3 `character_book` also becomes
+Facts. A card with only Character Book content does not create a Character
+Fact. Its character identity is stored only where `{{char}}` in book content
+becomes the nickname or card name.
 
 The converter changes `{{user}}` to `the protagonist`. It changes `{{char}}`
 to the V3 nickname, when present, or to the card name. These substitutions
