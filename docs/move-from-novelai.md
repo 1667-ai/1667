@@ -67,8 +67,12 @@ or omitting shared prose.
 
 ## Before you start
 
-Export your work from NovelAI first: each story as a `.story` file, and each
-Lorebook as a `.lorebook` file.
+Export each file from NovelAI:
+
+- In the Story tab, select **Export Story**, then **To File** for a `.story`
+  file or **As Scenario** for a `.scenario` file.
+- In the Lorebook, select the export button for a `.lorebook` file.
+- In the Config Preset settings, select the export button for a `.preset` file.
 
 Then make a 1667 project:
 
@@ -140,9 +144,12 @@ The PNG reader accepts uncompressed `tEXt` metadata with the `naidata` key.
 If a PNG has no archive metadata, the import reports `no lorebook data in this PNG · export the lorebook again from NovelAI`. It does not inspect image pixels or another hidden encoding.
 
 To add a `.lorebook` or World Info JSON file to the open story, select `import
-archive` in the command palette. This command also imports `.story` and
-`.scenario` files as new stories. It does not read a PNG Lorebook. Use `1667
-import-lorebook` for that file.
+archive` in the command palette. This command does not read a PNG Lorebook. Use
+`1667 import-lorebook` for that file.
+
+The in-app command can import `.story` and `.scenario` files, but it does not
+write their Fidelity Report. Use `1667 import` for these files so that you can
+check the report.
 
 ## The Fidelity Report
 

@@ -199,8 +199,15 @@ tools. Use 1667 for a long-form story with alternative takes and a selected
 story line. Import copies supported material from SillyTavern into 1667. 1667
 does not export SillyTavern chats or character cards.
 
-You can copy Facts back as World Info. Exit 1667. Use the story ID that the
-import command printed:
+You can copy Facts back as World Info. Exit 1667 after you update the intended
+story. Run:
+
+```
+1667 export --format lorebook
+```
+
+This command exports the most recently updated story. To export another story,
+find its `st1_...` directory name in `.1667/stories/`. Then select that ID:
 
 ```
 1667 export --story st1_... --format lorebook
