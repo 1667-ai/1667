@@ -29,8 +29,8 @@ storage, and model access.
 A [Fact](technical-terms.md) is one note that 1667 sends with a provider
 request. An `always` Fact is in each continuation request and rewrite request.
 A `keyed` Fact enters the request when the story text matches one of its keys.
-1667 matches literal keys without case differences. Regex keys are
-case-sensitive unless they use the `i` flag.
+1667 ignores letter case for literal keys. Regex keys are case-sensitive unless
+they use the `i` flag.
 
 Import turns each Lorebook Entry into one Fact through the
 [Entry Mapping](technical-terms.md). Its text becomes the Fact text, and its
@@ -98,8 +98,14 @@ that it reads. It prints one line for each file:
 alderaan.story: imported "Alderaan" (312 parts, 24 facts) as st1_...
 ```
 
-Each `.story` or `.scenario` file must not exceed 20 MB. A `.story` file must
-not contain more than 50,000 items in one story data list or map.
+Each `.story` or `.scenario` file must not exceed 20 MB. 1667 also applies
+these structure limits:
+
+- A MessagePack array or map in a current `.story` file must not exceed 50,000
+  items.
+- The `fragments` and `datablocks` lists in a legacy JSON `.story` file must not
+  exceed 50,000 items each.
+- Decoded MessagePack and JSON input must not exceed 500,000 values.
 
 The selected story line must fit within 5,000 parts and 4,000,000 UTF-16 code
 units. Retry takes use the remaining capacity. If they reach either limit, the
