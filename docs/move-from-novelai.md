@@ -98,14 +98,13 @@ that it reads. It prints one line for each file:
 alderaan.story: imported "Alderaan" (312 parts, 24 facts) as st1_...
 ```
 
-Each `.story` or `.scenario` file must not exceed 20 MB. 1667 refuses a
-MessagePack container or high-level story collection with more than 50,000
-items.
+Each `.story` or `.scenario` file must not exceed 20 MB. A `.story` file must
+not contain more than 50,000 items in one story data list or map.
 
-The active story must fit within 5,000 parts and 4,000,000 UTF-16 code units.
-Retry takes use the remaining capacity. If they reach either limit, the active
-story imports without the remaining retry takes. The Fidelity Report lists
-this omission.
+The selected story line must fit within 5,000 parts and 4,000,000 UTF-16 code
+units. Retry takes use the remaining capacity. If they reach either limit, the
+selected story line imports without the remaining retry takes. The Fidelity
+Report lists this omission.
 
 The last value is the story ID. Use it to open the story:
 

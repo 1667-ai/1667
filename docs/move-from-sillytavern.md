@@ -76,12 +76,12 @@ story if the input exceeds one of these limits:
 - 50,000 total swipe records per file.
 
 The selected story line must fit within 5,000 story parts. Its imported prose
-and directions must fit within 4,000,000 characters after name substitution
-and speaker-prefix insertion. The command refuses the chat if the selected
-line exceeds either limit. Alternate swipes use the remaining part and text
-capacity. Each alternate also stores a copy of its direction. The command omits
-an alternate swipe that does not fit. It creates the story and reports the
-omitted swipe count.
+and directions must fit within 4,000,000 UTF-16 code units after name
+substitution and speaker-prefix insertion. The command refuses the chat if the
+selected line exceeds either limit. Alternate swipes use the remaining part
+and text capacity. Each alternate also stores a copy of its direction. The
+command omits an alternate swipe that does not fit. It creates the story and
+reports the omitted swipe count.
 
 ## Import a character card
 
