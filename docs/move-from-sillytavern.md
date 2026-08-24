@@ -160,7 +160,6 @@ fit this request limit. The Fidelity Report gives each affected count.
 - AND-ANY and NOT-ANY secondary-key rules.
 - Restricted regex keys.
 - Scan depth from 1 to 20 story parts.
-- Chain activation opt-out.
 - The `@@activate` and `@@dont_activate` control lines.
 
 A disabled entry does not import. An entry with `@@dont_activate` does not
@@ -171,9 +170,14 @@ individual entries.
 
 Some World Info settings have no matching Fact setting. These settings include
 insertion position and order, firing probability, timed effects, prompt roles,
-entry groups, some recursion controls, extra scan sources, retrieval by
+entry groups, extra scan sources, retrieval by
 meaning, character filters, AND-ALL, and NOT-ALL. The Fidelity Report names
 these limits. It gives affected entry counts where they are available.
+
+The `excludeRecursion` setting changes meaning. In SillyTavern, it keeps the
+entry out of recursive scans. In 1667, it stops the imported Fact's text from
+activating other Facts. The Fidelity Report does not name this change. The
+`preventRecursion` and `delayUntilRecursion` settings do not transfer.
 
 Macros in entry text and primary keys stay as literal text. The Fidelity Report
 gives the affected entry count. Macros in secondary keys also stay literal, but

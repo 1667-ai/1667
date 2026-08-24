@@ -108,9 +108,11 @@ A `.scenario` file carries a prompt in place of prose. The prompt becomes the
 first story parts. The Memory, the Author's Note, and the Lorebook import the
 same way.
 
-Import reads Scenario versions 0, 1, and 3. It reads NovelAI Lorebook
-versions 1, 3, 4, and 6. An unknown version is refused so that the import does
-not guess at a changed file shape.
+Import reads Scenario versions 0, 1, and 3. It reads NovelAI Lorebook versions
+1, 3, 4, and 6. The command refuses an unknown Scenario version or a standalone
+Lorebook with an unknown version. If a story or scenario contains an unknown
+Lorebook version, the prose imports without its Lorebook Facts. The Fidelity
+Report names the omitted Lorebook version.
 
 You can give more than one file. If the command cannot read one file, it
 continues with the other files. It prints each failure and exits with an error
@@ -137,14 +139,17 @@ file content to find the format. It does not use the file name.
 The PNG reader accepts uncompressed `tEXt` metadata with the `naidata` key.
 If a PNG has no archive metadata, the import reports `no lorebook data in this PNG · export the lorebook again from NovelAI`. It does not inspect image pixels or another hidden encoding.
 
-The command palette command `import archive` does the same for the open story.
-It also reads `.story` and `.scenario` files.
+To add a `.lorebook` or World Info JSON file to the open story, select `import
+archive` in the command palette. This command also imports `.story` and
+`.scenario` files as new stories. It does not read a PNG Lorebook. Use `1667
+import-lorebook` for that file.
 
 ## The Fidelity Report
 
-An import can change or omit data. The Fidelity Report names each change and
-each omission. The import commands print the report to standard error, one
-line for each file.
+An import can change or omit data. The Fidelity Report lists the changes and
+omissions described below. It does not list Unicode normalization, line-ending
+changes in prose, paragraph splitting or trimming, or title trimming. The
+import commands print the report to standard error, one line for each file.
 
 Each `.story` import reports its retry takes and its one fixed omission:
 
@@ -199,9 +204,8 @@ stories.
 
 ## NovelAI model access
 
-1667 cannot send requests to NovelAI's hosted models. NovelAI's terms do not
-give clear permission for a third-party client. The project closed this work as
-not planned and does not intend to reopen it.
+1667 does not send requests to NovelAI's hosted models. The project does not
+plan this integration.
 
 Use an OpenAI-compatible host, Anthropic, or a local model server. 1667 supports
 chat and text completion protocols. The file import and export features do not
