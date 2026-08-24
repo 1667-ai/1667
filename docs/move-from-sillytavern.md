@@ -199,11 +199,17 @@ tools. Use 1667 for a long-form story with alternative takes and a selected
 story line. Import copies supported material from SillyTavern into 1667. 1667
 does not export SillyTavern chats or character cards.
 
-You can copy Facts back as World Info. Run `1667 export --format lorebook`,
-then import the `.lorebook` file in SillyTavern. Fact text, primary keys, and
-tags transfer. SillyTavern imports every entry as non-constant. Secondary keys,
-secondary-key rules, scan depth, recursion, priority, and Fact token limits do
-not transfer.
+You can copy Facts back as World Info. Exit 1667. Use the story ID that the
+import command printed:
+
+```
+1667 export --story st1_... --format lorebook
+```
+
+Import the `.lorebook` file in SillyTavern. Fact text and primary keys transfer.
+Each Fact tag becomes the World Info entry comment, also called the memo.
+SillyTavern imports every entry as non-constant. Secondary keys, secondary-key
+rules, scan depth, recursion, priority, and Fact token limits do not transfer.
 
 ## Detailed references
 
