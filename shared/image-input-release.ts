@@ -1,7 +1,7 @@
 /**
  * The one switch that decides whether this build WRITES the successor story
- * document that Image Input needs, and opens every user-facing image entry
- * point.
+ * document that Image Input needs, and opens its stable user-facing entry
+ * points.
  *
  * 1667 releases a schema in two steps. A release learns to read and validate
  * a successor document and refuses to mutate it before any release writes
@@ -10,10 +10,10 @@
  * version without losing a story.
  *
  * This release writes the successor STORY document: a story upgrades the
- * moment it gains an Image Attachment, and every entry point that can
- * produce one (`attach image`, the attach panel, a clipboard image paste,
- * the staging and release routes, a Continue request naming a Draft Image)
- * is open while this constant is true.
+ * moment it gains an Image Attachment. The `attach image` panel, the staging
+ * and release routes, and a Continue request that names a Draft Image are
+ * open while this constant is true. Clipboard image paste has a separate
+ * release switch because it is not ready for production.
  *
  * This release does NOT write the successor SETTINGS document. There is no
  * successor settings writer in this build at all, and no switch that could
@@ -40,10 +40,9 @@ export function resolveImageInputActivation(option?: boolean): boolean {
 }
 
 /**
- * Whether a user-facing image entry point may run at all: the `attach
- * image` palette command, the attach panel, a clipboard image paste, the
- * staging and release HTTP routes and worker methods, and a Continue
- * request that names a Draft Image.
+ * Whether a stable image entry point may run at all: the `attach image`
+ * palette command, the attach panel, the staging and release HTTP routes and
+ * worker methods, and a Continue request that names a Draft Image.
  *
  * Reads the same release switch as the document writers above, so a single
  * flip opens every entry point together. A caller that passes nothing gets
@@ -54,4 +53,14 @@ export function resolveImageInputActivation(option?: boolean): boolean {
  */
 export function imageInputEntryPointsOpen(option?: boolean): boolean {
   return option ?? IMAGE_INPUT_ACTIVATED;
+}
+
+/** Keep clipboard image paste unavailable until its platform behavior is
+ *  ready for production. Text clipboard operations do not use this switch. */
+export const IMAGE_CLIPBOARD_ACTIVATED = false;
+
+/** Resolve clipboard image paste separately from stable Image Input. An
+ *  explicit option lets tests operate the inactive behavior. */
+export function imageClipboardEntryPointOpen(option?: boolean): boolean {
+  return option ?? (imageInputEntryPointsOpen() && IMAGE_CLIPBOARD_ACTIVATED);
 }

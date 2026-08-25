@@ -5,7 +5,7 @@ import { insertComposerText, type ComposerState } from "./composer-model.js";
 import { attachDraftImage, draftImagesFor, MAX_DRAFT_IMAGES } from "./draft-image.js";
 import { currentImageInputCapability, imageInputRefusalMessage } from "./image-input-runtime.js";
 import { imageAttachmentLabel } from "../../shared/image-attachment.js";
-import { imageInputEntryPointsOpen } from "../../shared/image-input-release.js";
+import { imageClipboardEntryPointOpen } from "../../shared/image-input-release.js";
 import { sanitizePastedText } from "./keys.js";
 import type { RetakePromptSession } from "./state.js";
 
@@ -20,18 +20,18 @@ interface ComposeClipboardHost {
 /** Read the platform clipboard without applying a result to a changed draft.
  *  Text inserts into the draft exactly as before; an image stages and
  *  attaches as a Draft Image instead, never as marker text, but only once
- *  the release gate (shared/image-input-release.ts) is open. While it is
- *  closed, a clipboard image falls back to exactly the behavior it had
+ *  the clipboard image release gate (shared/image-input-release.ts) is open.
+ *  While it is closed, a clipboard image falls back to the behavior it had
  *  before Image Input existed: unreadable, the same as any other content
  *  `readFromClipboard` cannot turn into text.
  *
- *  `entryPointsOpen` defaults to the release constant; a test that needs to
- *  drive the image branch past the release gate passes an explicit value. */
+ *  `imageClipboardOpen` defaults to the release constant. A test can pass an
+ *  explicit value to operate the image branch behind the release gate. */
 export async function pasteClipboardIntoComposer(
   host: ComposeClipboardHost,
   source: AppSource,
   context: BackendActionContext,
-  entryPointsOpen: boolean = imageInputEntryPointsOpen()
+  imageClipboardOpen: boolean = imageClipboardEntryPointOpen()
 ): Promise<void> {
   const claim = {
     interactionVersion: host.interactionVersion,
@@ -48,14 +48,14 @@ export async function pasteClipboardIntoComposer(
     && host.composer.cursor === claim.cursor
     && host.composer.anchor === claim.anchor
     && host.composer.fullscreen === claim.fullscreen;
-  const content = await readClipboardContent();
+  const content = await readClipboardContent(imageClipboardOpen);
   if (!unchanged()) return;
   if (content === null) {
     host.toast = "clipboard unreadable · paste with ⌘V or ctrl+shift+v";
     return;
   }
   if (content.type === "image") {
-    if (!entryPointsOpen) {
+    if (!imageClipboardOpen) {
       // Same message and same outcome `readFromClipboard` gave for an image
       // before Image Input existed: unreadable, never an error.
       host.toast = "clipboard unreadable · paste with ⌘V or ctrl+shift+v";
