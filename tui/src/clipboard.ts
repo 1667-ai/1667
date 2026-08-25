@@ -6,6 +6,7 @@ import {
 } from "../../shared/image-attachment.js";
 import { readClipboardImageMacOS } from "./clipboard-macos.js";
 import { isWslHost, readClipboardImageWindows } from "./clipboard-windows.js";
+import { imageClipboardEntryPointOpen } from "../../shared/image-input-release.js";
 
 const ESC = String.fromCharCode(27);
 const BEL = String.fromCharCode(7);
@@ -82,11 +83,12 @@ export async function copyToClipboard(
  *  still enters through OpenTUI's paste event, which is always text — see
  *  `keys.ts`'s `pasteInto`.
  *
- * Negotiates a type before falling back to text: on Wayland it lists the
- * offered types, on X11 it reads `TARGETS`, on macOS and Windows/WSL a
- * bounded platform helper answers directly. Every image path bounds bytes
- * before this function ever constructs the `Uint8Array` it returns — see
- * each platform reader's own doc comment.
+ * When the clipboard image release switch is open, this function negotiates
+ * a type before it falls back to text. On Wayland it lists the offered types.
+ * On X11 it reads `TARGETS`. On macOS and Windows/WSL, a bounded platform
+ * helper answers directly. Every image path bounds bytes before this function
+ * constructs the `Uint8Array` that it returns. See each platform reader's
+ * doc comment.
  *
  * The story composer's own paste path (`compose-clipboard.ts`) and the
  * shared composer-backed field paste path (`composer-surface-action.ts`)
@@ -94,13 +96,17 @@ export async function copyToClipboard(
  * composer-backed surface (settings values, Sampling fields, Generation
  * Profile import, a rename field) is plain text and reads `readFromClipboard`
  * below instead, unchanged from before Image Input existed. */
-export async function readClipboardContent(): Promise<ClipboardContent | null> {
+export async function readClipboardContent(
+  imageClipboardOpen: boolean = imageClipboardEntryPointOpen()
+): Promise<ClipboardContent | null> {
   // Platform readers address the host running 1667, not the terminal
   // client's clipboard. Remote sessions use the remembered in-app copy.
   const remembered = sessionClipboard.beforePlatformRead(isRemoteSession());
   if (remembered.handled) return remembered.content;
-  const image = await readClipboardImage(process.platform);
-  if (image !== null) return image;
+  if (imageClipboardOpen) {
+    const image = await readClipboardImage(process.platform);
+    if (image !== null) return image;
+  }
   for (const command of clipboardReadCommands(process.platform)) {
     const text = await readClipboardCommand(command);
     if (text !== null) return { type: "text", text };
