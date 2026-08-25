@@ -188,6 +188,18 @@ describe("lane layout model", () => {
     expect(followLane(fromAlt)).toBe("p8-alt-3");
   });
 
+  test("followLane stays put on a leaf whose revealed sketches share its own lane (bug: followLane into a sketch)", () => {
+    // The active leaf's lone sketch children draw on lane 0, right below
+    // `◉` — the same lane the reading line itself occupies. `followLane`
+    // must not read that as the line continuing.
+    const payload = fixture([
+      ["root", null], ["leaf", "root"], ["s1", "leaf"], ["s2", "leaf"]
+    ], ["root", "leaf"], []);
+    const layout = createLaneLayout(payload, { now: NOW, cursorId: "leaf", showSketches: true });
+    expect(layout.allRows.find((row) => row.id === "s1")).toMatchObject({ kind: "sketch", lane: 0 });
+    expect(followLane(layout)).toBe("leaf");
+  });
+
   test("cold-folds only past the threshold and never on the active line; a fold opens with openedColdFolds", () => {
     const demo = createDemoController();
     const payload = demo.payload();
@@ -292,12 +304,14 @@ describe("lane layout model", () => {
     expect(rendered).not.toContain("├");
   });
 
-  test("nested fork ranks follow trunk-first depth-first order, not stack-pop order (bug: openFork push order)", () => {
+  test("nested fork ranks follow the order chains are walked in, not the order they were forked in (bug: chainRank at push vs pop)", () => {
     // Two off-path siblings (A, B), each forking a further off-path child
-    // (A2, B2) at the same depth. `openFork` used to push child chains onto
-    // the work stack in fork order; since the stack pops LIFO, B was walked
-    // — and its own fork's rank assigned — before A, so B2 could rank ahead
-    // of A2 even though A is the earlier sibling.
+    // (A2, B2) at the same depth. `openFork` used to hand out `chainRank`
+    // when it *pushed* the tasks — in fork order — so B's own rank was
+    // already lower than A's nested branch's rank, which is only assigned
+    // once A is actually walked. Ranking at pop time instead makes the sort
+    // read a true depth-first walk: A's own continuation, then A's
+    // forked-off grandchild, only then B's.
     const payload = fixture([
       ["root", null], ["trunk-leaf", "root"],
       ["A", "root"], ["A1", "A"], ["A2", "A"],
@@ -305,10 +319,16 @@ describe("lane layout model", () => {
     ], ["root", "trunk-leaf"], ["A", "B", "A1", "A2", "B1", "B2"]);
     const layout = createLaneLayout(payload, { now: NOW });
     const ids = layout.allRows.map((row) => row.id);
+    const a1 = layout.allRows.find((row) => row.id === "A1")!;
     const a2 = layout.allRows.find((row) => row.id === "A2")!;
-    const b2 = layout.allRows.find((row) => row.id === "B2")!;
-    expect(a2.depth).toBe(b2.depth);
-    expect(ids.indexOf("A2")).toBeLessThan(ids.indexOf("B2"));
+    const b1 = layout.allRows.find((row) => row.id === "B1")!;
+    // A1 (A's own continuation), A2 (A's forked-off grandchild), and B1 (B's
+    // own continuation) all land at the same depth, so only `chainRank`
+    // orders them.
+    expect(a1.depth).toBe(a2.depth);
+    expect(a2.depth).toBe(b1.depth);
+    expect(ids.indexOf("A1")).toBeLessThan(ids.indexOf("A2"));
+    expect(ids.indexOf("A2")).toBeLessThan(ids.indexOf("B1"));
   });
 
   test("a 200-child fork renders only the visible window in linear time", () => {

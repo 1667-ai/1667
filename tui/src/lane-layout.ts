@@ -41,7 +41,7 @@ type ChainStart =
   | { kind: "sketches"; forkNodeId: string; sketches: NodeStub[]; forkDepth: number };
 
 interface ChainTask {
-  chainId: string; chainRank: number; insideOpened: boolean; start: ChainStart;
+  chainId: string; insideOpened: boolean; start: ChainStart;
 }
 
 export function createLaneLayout(payload: StoryPayload, options: LaneLayoutOptions): LaneLayout {
@@ -107,11 +107,13 @@ export function createLaneLayout(payload: StoryPayload, options: LaneLayoutOptio
   }
 
   /** Opens the fork row (if there is anything to fork) and pushes each new
-   *  chain onto the work stack. Chain rank is assigned here, in fork order, so
-   *  the sort's tiebreaker matches a trunk-first depth-first walk — which
-   *  needs the *push* to run in reverse: the stack is LIFO, so pushing the
-   *  first sibling last is what makes it pop (and so rank its own nested
-   *  forks) first. */
+   *  chain onto the work stack, unranked — the sort's tiebreaker has to match
+   *  a trunk-first depth-first walk, and only the order chains are actually
+   *  *walked* in gives that, not the order they're forked in: a rank handed
+   *  out here, at push time, would let a later sibling's own row outrank an
+   *  earlier sibling's nested branch, which is walked later still. The work
+   *  loop ranks each chain when it pops it instead. Pushing in reverse is
+   *  what makes the first sibling pop (and so rank) first. */
   function openFork(
     node: NodeStub, depth: number, chainId: string, chainRank: number,
     starts: ChainStart[], insideOpened: boolean, forkId = `${node.id}:fork`
@@ -121,9 +123,8 @@ export function createLaneLayout(payload: StoryPayload, options: LaneLayoutOptio
     const tasks: ChainTask[] = [];
     for (const start of starts) {
       const id = `${forkId}:${childChainIds.length}`;
-      const rank = nextRank();
       childChainIds.push(id);
-      tasks.push({ chainId: id, chainRank: rank, insideOpened, start });
+      tasks.push({ chainId: id, insideOpened, start });
     }
     for (let i = tasks.length - 1; i >= 0; i -= 1) stack.push(tasks[i]!);
     items.push({ itemKind: "fork", depth, order: 2, chainId, chainRank, childChainIds, forkId });
@@ -260,11 +261,15 @@ export function createLaneLayout(payload: StoryPayload, options: LaneLayoutOptio
   walkTrunk();
   while (stack.length > 0) {
     const task = stack.pop()!;
-    if (task.start.kind === "line") walkLineChain(task.chainId, task.chainRank, task.start.node, task.insideOpened);
-    else if (task.start.kind === "cold") pushCold(task.chainId, task.chainRank, task.start.entry);
+    // Ranked here, not when `openFork` pushed it: this is the order chains
+    // are actually walked in, which is what a trunk-first depth-first sort
+    // tiebreaker needs.
+    const rank = nextRank();
+    if (task.start.kind === "line") walkLineChain(task.chainId, rank, task.start.node, task.insideOpened);
+    else if (task.start.kind === "cold") pushCold(task.chainId, rank, task.start.entry);
     else {
-      const depth = pushSketches(task.chainId, task.chainRank, task.start.forkNodeId, task.start.sketches, task.start.forkDepth + 1);
-      items.push({ itemKind: "close", depth, order: 1, chainId: task.chainId, chainRank: task.chainRank });
+      const depth = pushSketches(task.chainId, rank, task.start.forkNodeId, task.start.sketches, task.start.forkDepth + 1);
+      items.push({ itemKind: "close", depth, order: 1, chainId: task.chainId, chainRank: rank });
     }
   }
 
@@ -360,7 +365,12 @@ export function followLane(layout: LaneLayout): string | null {
   for (let index = at + 1; index < rows.length; index += 1) {
     const row = rows[index]!;
     if (row.kind === "close" && row.lanes.includes(cursorRow.lane)) return cursorRow.id;
-    if (laneSelectable(row) && row.lane === cursorRow.lane) return row.id;
+    if (row.lane !== cursorRow.lane) continue;
+    if (row.kind === "node") return row.id;
+    // A sketch, end, or cold row on the same lane is not the reading line
+    // continuing (revealed sketches off the active leaf sit on its own lane,
+    // right below it) — it ends the walk here, same as the lane closing.
+    if (laneSelectable(row)) return cursorRow.id;
   }
   return cursorRow.id;
 }

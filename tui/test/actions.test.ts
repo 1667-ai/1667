@@ -119,6 +119,16 @@ describe("demo action pipeline", () => {
     }
   });
 
+  test("tab on a cold fold opens path view there too, not wherever the cursor was left stale (bug: map-hide-lanes on cold)", async () => {
+    const { state, press } = harness();
+    await press("m");
+    await press("m");
+    state.map!.treeCursorId = "p5-alt";
+    await press("tab");
+    expect(state.map?.view).toBe("path");
+    expect(state.map?.pathCursorId).toBe("p5-alt");
+  });
+
   test("the page take strip rings an alternate that branches, never the take you are reading", async () => {
     // The shipped demo happens to branch only on the take being read, so give
     // one alternate a continuation of its own — that is what wears the ring.

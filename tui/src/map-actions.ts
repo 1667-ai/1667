@@ -5,7 +5,6 @@ import {
   createLaneLayout,
   followLane,
   laneLayoutOptions,
-  laneSelectable,
   laneTakeId,
   moveLaneCursor,
   moveLaneCursorAcross,
@@ -192,7 +191,10 @@ async function treeAction(
       break;
     }
     case "map-hide-lanes":
-      if (row !== null && laneSelectable(row) && row.kind !== "cold") openRowInPath(map, row);
+      // A cold row's own id is its anchor node's — a fine path cursor, unlike
+      // `apply`/`open-selected`'s reroute target, which a folded subtree has
+      // no single take to name.
+      if (row !== null) openRowInPath(map, row);
       else map.view = "path";
       break;
     case "map-follow":
