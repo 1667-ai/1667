@@ -149,21 +149,33 @@ describe("arrow-first key routing", () => {
     }
   });
 
-  test("tree and mass reserve l for follow/open; horizontal arrows stay idle", () => {
-    for (const mapView of ["tree", "mass"] as const) {
-      const options = { mapView };
-      expect(resolveKey(key("down"), "MAP", options).action).toBe("focus-next");
-      expect(resolveKey(key("up"), "MAP", options).action).toBe("focus-previous");
-      expect(resolveKey(key("l"), "MAP", options).action).toBe("map-follow");
-      expect(resolveKey(key("left"), "MAP", options).action).toBe("none");
-      expect(resolveKey(key("right"), "MAP", options).action).toBe("none");
-      // Only mass has an order to cycle; the tree is the graph order itself.
-      expect(resolveKey(key("s"), "MAP", options).action)
-        .toBe(mapView === "mass" ? "map-cycle-sort" : "none");
-      expect(resolveKey(key("h"), "MAP", options).action).toBe("open-records");
-      for (const dead of ["j", "k"]) {
-        expect(resolveKey(key(dead), "MAP", options).action).toBe("none");
-      }
+  test("mass reserves l for open; horizontal arrows stay idle", () => {
+    const options = { mapView: "mass" as const };
+    expect(resolveKey(key("down"), "MAP", options).action).toBe("focus-next");
+    expect(resolveKey(key("up"), "MAP", options).action).toBe("focus-previous");
+    expect(resolveKey(key("l"), "MAP", options).action).toBe("map-follow");
+    expect(resolveKey(key("left"), "MAP", options).action).toBe("none");
+    expect(resolveKey(key("right"), "MAP", options).action).toBe("none");
+    expect(resolveKey(key("s"), "MAP", options).action).toBe("map-cycle-sort");
+    expect(resolveKey(key("h"), "MAP", options).action).toBe("open-records");
+    for (const dead of ["j", "k"]) {
+      expect(resolveKey(key(dead), "MAP", options).action).toBe("none");
+    }
+  });
+
+  test("tree reserves l for follow and ←→ for lanes; tab hides them", () => {
+    const options = { mapView: "tree" as const };
+    expect(resolveKey(key("down"), "MAP", options).action).toBe("focus-next");
+    expect(resolveKey(key("up"), "MAP", options).action).toBe("focus-previous");
+    expect(resolveKey(key("l"), "MAP", options).action).toBe("map-follow");
+    // `←→` jump lanes; the tree is the whole story now, not a sortable list.
+    expect(resolveKey(key("left"), "MAP", options).action).toBe("take-previous");
+    expect(resolveKey(key("right"), "MAP", options).action).toBe("take-next");
+    expect(resolveKey(key("s"), "MAP", options).action).toBe("none");
+    expect(resolveKey(key("tab"), "MAP", options).action).toBe("map-hide-lanes");
+    expect(resolveKey(key("h"), "MAP", options).action).toBe("open-records");
+    for (const dead of ["j", "k"]) {
+      expect(resolveKey(key(dead), "MAP", options).action).toBe("none");
     }
   });
 

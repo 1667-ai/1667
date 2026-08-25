@@ -1,6 +1,7 @@
 import type { KeyEvent } from "@opentui/core";
 import { ApiFailureError } from "./api-error.js";
 import { createAtlasLayout } from "./atlas-layout.js";
+import { createLaneLayout, laneSelectable } from "./lane-layout.js";
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
 import { createGenerationRecordDetailCache } from "./generation-record-detail-cache.js";
@@ -73,12 +74,25 @@ function focusedMapNodeId(state: RuntimeState): string | null {
   if (map === null) return null;
   if (map.view === "path") return map.pathCursorId;
   const payload = projectStreamedPayload(state.payload, state.stream, { includePendingTake: true });
+  if (map.view === "tree") {
+    const layout = createLaneLayout(payload, {
+      now: state.now,
+      cursorId: map.treeCursorId,
+      showSketches: map.showSketches,
+      openedColdFolds: map.openedColdFolds
+    });
+    const row = layout.allRows.find((candidate) => candidate.cursor) ?? null;
+    // A folded cold row names a whole subtree, not one take — the same rule
+    // `laneSelectable` uses for cursor placement excludes it too, but `node`,
+    // `end`, and `sketch` rows all name exactly one take.
+    return row !== null && laneSelectable(row) && row.kind !== "cold" ? row.id : null;
+  }
   const layout = createAtlasLayout(payload, {
     now: state.now,
     cursorId: map.treeCursorId,
     showSketches: map.showSketches,
     openedColdFolds: map.openedColdFolds,
-    sort: map.view === "tree" ? "graph" : map.massSort
+    sort: map.massSort
   });
   const row = layout.allRows.find((candidate) => candidate.cursor) ?? null;
   return row !== null && (row.kind === "node" || row.kind === "sketch") ? row.id : null;

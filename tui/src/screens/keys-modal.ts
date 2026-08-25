@@ -226,6 +226,11 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("mapTreeFollow"),
         binding("mapMassFollow")
       ]),
+      entry("tree · jump to next lane", [
+        binding("mapTreeLanePrevious"),
+        binding("mapTreeLaneNext")
+      ]),
+      entry("hide tree lanes · path", [binding("mapTreePath")]),
       entry("sort the mass view", [binding("mapMassSort")]),
       entry("prune · tag · path", [
         binding("mapPathPrune"),

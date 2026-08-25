@@ -67,8 +67,10 @@ interface ClassifyFrame {
   nodes: readonly NodeStub[]; forkId: string; insideOpened: boolean; target: VisualNode[];
 }
 
-const DAY = 86_400_000;
-const COLD_DAYS = 21;
+/** Shared with `lane-layout.ts`, which folds the tree the same way the graph
+ *  sort here always has. */
+export const DAY = 86_400_000;
+export const COLD_DAYS = 21;
 export function createAtlasLayout(payload: StoryPayload, options: AtlasLayoutOptions): AtlasLayout {
   const index = createStoryIndex(payload);
   const activeIds = new Set(payload.path.map((node) => node.id));
@@ -417,12 +419,15 @@ function subtreeWords(nodes: readonly NodeStub[]): ReadonlyMap<string, number> {
   }
   return totals;
 }
-function cumulativeWords(nodes: readonly NodeStub[]): ReadonlyMap<string, number> {
+/** Shared with `lane-layout.ts`: an `end` row's word count must read the same
+ *  number the mass view (and the old tree) always gave a line — words from
+ *  the root, not just words along the segment that happens to be off-path. */
+export function cumulativeWords(nodes: readonly NodeStub[]): ReadonlyMap<string, number> {
   const totals = new Map<string, number>();
   for (const node of nodes) totals.set(node.id, (node.parentId === null ? 0 : totals.get(node.parentId) ?? 0) + node.words);
   return totals;
 }
-function ageDays(value: string, now: number): number {
+export function ageDays(value: string, now: number): number {
   const touched = Date.parse(value);
   return Number.isFinite(touched) ? Math.floor(Math.max(0, now - touched) / DAY) : 0;
 }

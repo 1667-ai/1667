@@ -96,9 +96,9 @@ describe("demo action pipeline", () => {
     const frame = frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: createWrapCache() }).lines);
     expect(frame).toContain("◉");
     expect(frame).toContain("¶13");
-    // Doc 20c: branches are indentation and one `↳`, never a rail.
-    expect(frame).toContain("      ↳ ");
-    expect(frame).not.toContain("│");
+    // Doc "10a": the whole tree draws as lanes now, a fixed rail per live line.
+    expect(frame).toContain("│");
+    expect(frame).toContain("├─╮");
   });
 
   test("the page take strip rings an alternate that branches, never the take you are reading", async () => {
