@@ -71,7 +71,7 @@ import { addInlineHits } from "./story/hits.js";
 import { partHasThought } from "../reasoning-model.js";
 import { layoutStoryRow, renderChapterOneHeading, type StickyStoryPrompt } from "./story/row-layout.js";
 import { paintStorySelection } from "./story/selection-highlight.js";
-import { stickFocusedGutter, type FocusedStickyGutter } from "./story/sticky-gutter.js";
+import { stickStoryGutters, type OwnedStickyGutter } from "./story/sticky-gutter.js";
 import { stickStoryPrompt } from "./story/sticky-prompt.js";
 import {
   applyComposePageMode,
@@ -205,7 +205,7 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   const parts = view.parts;
   const rows = view.rows;
   const blocks: ViewportBlock[] = [];
-  let focusedGutter: FocusedStickyGutter | null = null;
+  const stickyGutters: OwnedStickyGutter[] = [];
   const stickyPrompts = new Map<number, StickyStoryPrompt>();
   if (view.chapters.length > 1) {
     blocks.push({
@@ -217,11 +217,11 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   for (const [rowIndex, row] of rows.entries()) {
     const layout = layoutStoryRow(row, rowIndex, parts, state, measure, narrow, cache, options.deadlines);
     if (layout.stickyGutter !== null) {
-      focusedGutter = {
+      stickyGutters.push({
         rowIndex,
         partHeight: layout.height,
         gutter: layout.stickyGutter
-      };
+      });
     }
     if (layout.stickyPrompt !== null) {
       stickyPrompts.set(rowIndex, layout.stickyPrompt);
@@ -274,11 +274,11 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
     focusAtStarterIntro
   );
   const visibleBody = stickStoryPrompt(
-    stickFocusedGutter(
+    stickStoryGutters(
       viewport.lines,
       viewport.owners,
       viewport.blockRows,
-      focusedGutter,
+      stickyGutters,
       width
     ),
     viewport.owners,

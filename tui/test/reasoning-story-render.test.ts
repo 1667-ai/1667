@@ -299,6 +299,24 @@ describe("streaming thought line", () => {
     expect(text).toContain("writing");
   });
 
+  test("the thinking gutter pair stays in view while an append onto a long part scrolls", () => {
+    const state = streamingState("Weighing three routes down.", 618);
+    const leaf = state.payload.path.at(-1)!;
+    leaf.text = Array.from({ length: 60 }, (_, index) => `Settled line ${index + 1} stands.`).join("\n");
+    state.stream = { ...state.stream!, targetId: leaf.id, append: true };
+    state.focusIndex = 2;
+
+    const lines = render(state, 120, 24).map(plainLine);
+    const text = lines.join("\n");
+
+    expect(text).toContain("Settled line 60 stands.");
+    expect(text).not.toContain("Settled line 1 stands.");
+    const thinkingRow = lines.findIndex((line) => line.includes("⟳ thinking · 618 tok"));
+    expect(thinkingRow).toBeGreaterThan(-1);
+    expect(lines[thinkingRow + 1]).toContain("esc stops · T peeks");
+    expect(text.match(/T peeks/g)).toHaveLength(1);
+  });
+
   test("off suppresses the streaming line too", () => {
     const state = streamingState("Weighing three routes down.", 618);
     state.reasoning = "off";

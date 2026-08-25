@@ -5,6 +5,10 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **The streaming gutter pair stays visible while a long take scrolls.** The
+  `writing · esc stops` and `thinking · esc stops · T peeks` lines stick to
+  the top of the visible part, the same way the focused verb menu does.
+
 ## 0.10.2-rc.1 - 2026-08-22
 
 - **Settings now controls the guidance for each writing action.** The simple

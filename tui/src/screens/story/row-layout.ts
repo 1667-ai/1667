@@ -139,9 +139,20 @@ export function layoutStoryRow(
   // both fall back to measuring the real, fully-built prefix once.
   const needsMeasuredPrefix = expandedPrompt || prefixFlags.thought;
   const prefixRows = needsMeasuredPrefix ? preparePrefix().length : prefixHeight(prefixFlags);
-  const stickyGutter = focused && !narrow && !row.isSummary && !streaming
-    ? { start: prefixRows, lines: gutterRows ?? [] }
-    : null;
+  // Both gutters that can outlive their own rows stick: the focused menu,
+  // and the streaming pair (`writing`/`esc stops`, or `thinking`/`T peeks`),
+  // which otherwise scrolls off the top with the head of a take that has
+  // grown taller than the viewport — the viewport follows the tail while
+  // text lands, so that is exactly when the stop affordance is needed.
+  const stickyGutter: StickyStoryGutter | null = streaming && !narrow
+    ? {
+        start: prefixRows,
+        lines: [0, 1].map((lineIndex) =>
+          gutterFor(row, true, lineIndex, thought, null, state.now, deadlines))
+      }
+    : focused && !narrow && !row.isSummary
+      ? { start: prefixRows, lines: gutterRows ?? [] }
+      : null;
   const promptRowIndex = narrow ? 1 : 0;
   const partRows = prefixRows + Math.max(wrapped, gutterRowCount);
   const stickyPrompt: StickyStoryPrompt | null = prefixFlags.prompt && !expandedPrompt

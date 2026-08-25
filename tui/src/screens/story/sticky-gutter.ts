@@ -1,22 +1,38 @@
 import type { FrameLine } from "./frame.js";
 import { replaceStoryGutter, type StickyStoryGutter } from "./row-layout.js";
 
-export interface FocusedStickyGutter {
+export interface OwnedStickyGutter {
   rowIndex: number;
   partHeight: number;
   gutter: StickyStoryGutter;
 }
 
-/** CSS-sticky semantics inside a story part: stay at the viewport top while
- * that part scrolls, then leave with the part at its lower boundary. */
-export function stickFocusedGutter(
+/** Every sticky gutter the frame carries: the focused part's menu and the
+ *  streaming part's `writing`/`thinking` pair, which live on different rows
+ *  once the reader moves focus away from a running generation. */
+export function stickStoryGutters(
   lines: FrameLine[],
   owners: number[],
   blockRows: number[],
-  focused: FocusedStickyGutter | null,
+  gutters: readonly OwnedStickyGutter[],
   width: number
 ): FrameLine[] {
-  if (focused === null || focused.gutter.lines.length === 0) return lines;
+  return gutters.reduce(
+    (result, gutter) => stickOwnedGutter(result, owners, blockRows, gutter, width),
+    lines
+  );
+}
+
+/** CSS-sticky semantics inside a story part: stay at the viewport top while
+ * that part scrolls, then leave with the part at its lower boundary. */
+function stickOwnedGutter(
+  lines: FrameLine[],
+  owners: number[],
+  blockRows: number[],
+  focused: OwnedStickyGutter,
+  width: number
+): FrameLine[] {
+  if (focused.gutter.lines.length === 0) return lines;
   const visible = owners.flatMap((owner, frameRow) =>
     owner === focused.rowIndex && (blockRows[frameRow] ?? focused.partHeight) < focused.partHeight
       ? [{ frameRow, blockRow: blockRows[frameRow]! }]
