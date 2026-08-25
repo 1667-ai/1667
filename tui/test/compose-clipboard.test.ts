@@ -4,6 +4,7 @@ import { initialState } from "../src/app.js";
 import type { AppSource } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { draftImagesFor } from "../src/draft-image.js";
+import { composeAction } from "../src/story-actions.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import type { RuntimeState } from "../src/state.js";
 import type { SettingsDocumentV2, SettingsProtocolV2 } from "../../shared/settings-v2-types.js";
@@ -31,7 +32,11 @@ const { pasteClipboardIntoComposer } = await import("../src/compose-clipboard.js
 function backendContext(state: RuntimeState) {
   return {
     cache: createWrapCache<ProseStyle>(),
-    backend: new ActionRuntime(state, () => undefined)
+    backend: new ActionRuntime(state, () => undefined),
+    repaint: () => undefined,
+    renderer: null,
+    applyTheme: () => undefined,
+    previewTheme: () => undefined
   };
 }
 
@@ -53,7 +58,7 @@ function setRoute(source: AppSource, protocol: SettingsProtocolV2, remoteId: str
 }
 
 describe("a clipboard image and the release gate", () => {
-  test("falls back to the pre-Image-Input unreadable toast, never an error, while entry points are closed", async () => {
+  test("the production flag keeps clipboard image paste unavailable", async () => {
     clipboardContent = { type: "image", mediaType: "image/png", bytes: new Uint8Array([1, 2, 3]) };
     const source = demoAppSource();
     setRoute(source, "anthropic-messages", "claude-sonnet-5");
@@ -62,17 +67,19 @@ describe("a clipboard image and the release gate", () => {
     let staged = false;
     source.api.stageStoryImage = async () => { staged = true; throw new Error("must not stage while entry points are closed"); };
 
-    // This release's own default opens the gate (shared/image-input-release.ts),
-    // so a genuine predecessor's refusal needs the explicit override; the
-    // test right below drives the bare default instead.
-    await pasteClipboardIntoComposer(state, source, backendContext(state), false);
+    await composeAction(
+      { action: "paste-clipboard" },
+      state,
+      source,
+      backendContext(state)
+    );
 
     expect(staged).toBeFalse();
     expect(state.toast).toBe("clipboard unreadable · paste with ⌘V or ctrl+shift+v");
     expect(draftImagesFor(state.composer)).toHaveLength(0);
   });
 
-  test("attaches the clipboard image as a Draft Image once entry points are open", async () => {
+  test("attaches the clipboard image as a Draft Image when the flag is enabled", async () => {
     clipboardContent = { type: "image", mediaType: "image/png", bytes: new Uint8Array([1, 2, 3]) };
     const source = demoAppSource();
     setRoute(source, "anthropic-messages", "claude-sonnet-5");

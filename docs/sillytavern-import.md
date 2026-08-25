@@ -152,7 +152,7 @@ character name, the story name is `Imported chat`.
 - Maximum records in one file: 50,000
 - Maximum story parts from one file: 5,000
 - Maximum sender name length: 200 characters
-- Maximum total text after substitution: 4,000,000 characters
+- Maximum total text after substitution: 4,000,000 UTF-16 code units
 
 A file that is larger than the maximum file size fails before the command reads
 it.

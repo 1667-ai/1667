@@ -27,6 +27,7 @@ repository contains the terminal user interface (TUI) and its backend runtime.
 - Override the Default Author Brief for one story.
 - Set the Default Author Brief and the Default Continue direction in Settings.
 - Set Rewrite, Title, Summary, and Aside guidance in Advanced view.
+- Open each Settings row and Sampling control from the command palette.
 - Use keys to include a Fact only when the request context matches it.
 - Order, rank, and budget Facts so a full context window drops low-value ones first.
 - Inspect the next provider request in the request viewer.
@@ -199,9 +200,10 @@ request plan. It does not show the authentication header or its credential.
 - [Run 1667 from source](docs/run-from-source.md)
 - [Story storage](docs/story-storage.md)
 - [Facts, context, and model providers](docs/model-providers.md)
+- [Move from SillyTavern](https://1667.ai/docs/move-from-sillytavern)
 - [SillyTavern import](docs/sillytavern-import.md)
 - [Character card import](docs/character-card-import.md)
-- [Move from NovelAI](docs/move-from-novelai.md)
+- [Move from NovelAI](https://1667.ai/docs/move-from-novelai)
 - [Generation Profile transfer](docs/generation-profile-transfer.md)
 - [Platforms and standalone builds](docs/platforms-and-builds.md)
 - [Development reference](docs/development.md)

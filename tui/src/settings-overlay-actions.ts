@@ -27,7 +27,6 @@ import { apiErrorCode } from "./api.js";
 import { insertComposerText } from "./composer-model.js";
 import { applyComposerEdit } from "./composer-editing.js";
 import { samplingOverlayAction } from "./sampling-actions.js";
-import { resolveSamplingBias } from "./sampling-bias-resolution.js";
 import { readFromClipboard } from "./clipboard.js";
 import { applyTextKey, sanitizePastedText, type ResolvedKey } from "./keys.js";
 import { inlineEditorAction } from "./editor-action.js";
@@ -102,6 +101,11 @@ import {
 } from "./settings-selector-actions.js";
 import { settingsSubscriptionPreset } from "./settings-subscription.js";
 import { toggleSettingsViewMode } from "./settings-view-mode.js";
+import type { SettingsCommandTarget } from "./settings-command-catalog.js";
+import {
+  focusSettingsTarget,
+  initializeSamplingOverlay
+} from "./settings-target-navigation.js";
 
 import type {
   RuntimeState,
@@ -114,7 +118,7 @@ export async function openSettingsOverlay(
   state: RuntimeState,
   source: AppSource,
   context: ActionContext,
-  row?: SettingsRowId,
+  rowOrTarget?: SettingsRowId | SettingsCommandTarget,
   profilePurpose?: SettingsRoutePurpose
 ): Promise<void> {
   const selectedProfileId = profilePurpose !== undefined && source.settingsView.editable
@@ -126,20 +130,27 @@ export async function openSettingsOverlay(
     selectedProfileId
   );
   const overlay = state.settings;
-  if (row !== undefined) {
-    const at = settingsRowIndex(row, overlay);
-    if (at >= 0) overlay.cursor = at;
+  const target: SettingsCommandTarget | undefined = rowOrTarget !== undefined
+    && typeof rowOrTarget !== "string" ? rowOrTarget : undefined;
+  if (typeof rowOrTarget === "string") {
+    const index = settingsRowIndex(rowOrTarget, overlay);
+    if (index >= 0) overlay.cursor = index;
   }
   state.mode = "SETTINGS";
   context.repaint();
-  if (state.connection.down) return;
-  await context.backend.run("refreshing settings", async (task) => {
-    try {
-      const settings = await source.api.getSettings();
-      if (!task.owns()) return;
-      publishSettingsView(state, source, settings);
-    } catch { /* connection decorator owns the banner */ }
-  });
+  if (!state.connection.down) {
+    await context.backend.run("refreshing settings", async (task) => {
+      try {
+        const settings = await source.api.getSettings();
+        if (!task.owns()) return;
+        publishSettingsView(state, source, settings);
+      } catch { /* connection decorator owns the banner */ }
+    });
+  }
+  if (target !== undefined && state.settings === overlay) {
+    focusSettingsTarget(target, state, overlay, source, context);
+    context.repaint();
+  }
 }
 
 export async function settingsOverlayAction(
@@ -248,16 +259,7 @@ export async function settingsOverlayAction(
     } else if (isWritingPromptRow(row)) {
       openWritingPromptEditor(state, row);
     } else if (row === "sampling") {
-      overlay.sampling = {
-        panel: "sampling",
-        cursor: 0,
-        logitBiasOrder: Object.keys(overlay.draft.sampling.logitBias),
-        edit: null,
-        result: null,
-        biasResolution: { kind: "idle" },
-        resolutionGeneration: 0
-      };
-      resolveSamplingBias(overlay, source, context);
+      initializeSamplingOverlay(overlay, source, context);
     } else {
       beginSettingsRowEdit(overlay, state.config);
     }

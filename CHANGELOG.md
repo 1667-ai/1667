@@ -14,6 +14,17 @@ This file records notable changes to 1667. Product terms use the definitions in
   `writing · esc stops` and `thinking · esc stops · T peeks` lines stick to
   the top of the visible part, the same way the focused verb menu does.
 
+## 0.10.2 - 2026-08-23
+
+- **This release has no additional product changes.** It contains the same
+  behavior as 0.10.2-rc.2.
+
+## 0.10.2-rc.2 - 2026-08-23
+
+- **The command palette opens each Settings control.** Search for a Settings
+  row or a Sampling control to open it directly. A hidden Advanced row opens
+  without changing the saved Settings view.
+
 ## 0.10.2-rc.1 - 2026-08-22
 
 - **Settings now controls the guidance for each writing action.** The simple
