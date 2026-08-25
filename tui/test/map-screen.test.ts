@@ -449,8 +449,9 @@ describe("full-bleed map screen", () => {
 
   test("tree keeps graph rows clickable and drops preview only at narrow geometry", () => {
     const narrow = render("tree");
-    expect(narrow.text).toContain("⋯ 1 part");
-    expect(narrow.text).toContain("↑↓ row · l follow");
+    // Doc "10a": the narrow keyline sheds `l follow` and `a sketches` first,
+    // keeping row and lane navigation plus the path escape hatch.
+    expect(narrow.text).toContain("m mass · ↑↓ row · ←→ lane · tab path · esc");
     expect(narrow.text).toContain("sketches");
     expect(narrow.text).not.toContain("  ‥ ");
     const rowTargets = targets(narrow.hits).filter((target) => target.kind === "list");

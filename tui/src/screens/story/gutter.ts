@@ -151,6 +151,35 @@ export function gutterRowsFor(
   return rows;
 }
 
+/** The streaming gutter's two fixed lines: `writing`/`esc stops`, or, while
+ *  reasoning arrives with no prose yet, `thinking`/`esc peeks`. Built once so
+ *  `gutterFor`'s per-line lookup and `row-layout.ts`'s sticky-gutter length
+ *  can never drift apart the way two hand-derived formulas could. */
+export function streamingGutterRows(
+  part: StoryPart,
+  thought: ThoughtGutterContext,
+  now: number,
+  deadlines?: FrameDeadlineCollector
+): FrameLine[] {
+  // Reasoning is arriving and no prose has started: swap the usual
+  // writing/esc-stops pair for thinking/esc-peeks. Once prose starts, or once
+  // `reasoning` is off, this falls through to the ordinary pair —
+  // `thought.thinking` is already false in both cases (see
+  // `thoughtGutterContext`).
+  if (thought.kind === "shown" && thought.thinking) {
+    return [thinkingGutterLine0(thought.resolved.tokenCount, now, deadlines), thinkingGutterLine1(thought.hit)];
+  }
+  return [
+    lightWorkKeyword(
+      [segment(`${streamLivenessMark(now, deadlines)} writing`, "focus / accent")],
+      "writing",
+      now,
+      deadlines
+    ),
+    [actionHint("esc stops", "cancel")]
+  ];
+}
+
 export function gutterFor(
   part: StoryPart,
   streaming: boolean,
@@ -161,26 +190,7 @@ export function gutterFor(
   deadlines?: FrameDeadlineCollector
 ): FrameLine {
   if (streaming) {
-    // Reasoning is arriving and no prose has started: swap the usual
-    // writing/esc-stops pair for thinking/esc-peeks. Once prose starts, or
-    // once `reasoning` is off, this falls through to the ordinary pair —
-    // `thought.thinking` is already false in both cases (see
-    // `thoughtGutterContext`).
-    if (thought.kind === "shown" && thought.thinking) {
-      if (lineIndex === 0) return thinkingGutterLine0(thought.resolved.tokenCount, now, deadlines);
-      if (lineIndex === 1) return thinkingGutterLine1(thought.hit);
-      return [];
-    }
-    if (lineIndex === 0) {
-      return lightWorkKeyword(
-        [segment(`${streamLivenessMark(now, deadlines)} writing`, "focus / accent")],
-        "writing",
-        now,
-        deadlines
-      );
-    }
-    if (lineIndex === 1) return [actionHint("esc stops", "cancel")];
-    return [];
+    return streamingGutterRows(part, thought, now, deadlines)[lineIndex] ?? [];
   }
   // Focused, not narrow, not streaming, not a summary: `rows` was built once
   // by `gutterRowsFor` in `layoutStoryRow` and carries this line's content —

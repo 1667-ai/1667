@@ -95,6 +95,7 @@ read_when:
 | Mirostat | A sampling algorithm that holds output perplexity near a target value |
 | provider adjustment | A change 1667 made before or during a provider request |
 | mass map | A map that shows all takes |
+| lane | One two-column track in the tree map that one story line owns while the line is alive |
 | provider | A local or hosted service that supplies a language model |
 | Text Completions | The provider protocol that sends one text prompt and receives one text continuation |
 | prompt format | The rule that converts a provider-neutral request into one text prompt |

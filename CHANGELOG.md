@@ -5,6 +5,15 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **The tree map draws the whole story in lanes.** Rows are reading order. Each live story
+  line owns a two-column lane. A line that ends hands its lane back and the next fork reuses
+  it. Lane 0 is the reading line. Press `←` or `→` to jump to the nearest row in the next
+  lane. Press `tab` to hide the lanes and open the path view on the same part.
+
+- **The streaming gutter pair stays visible while a long take scrolls.** The
+  `writing · esc stops` and `thinking · esc stops · T peeks` lines stick to
+  the top of the visible part, the same way the focused verb menu does.
+
 ## 0.10.2 - 2026-08-23
 
 - **This release has no additional product changes.** It contains the same

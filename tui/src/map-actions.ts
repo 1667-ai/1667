@@ -1,8 +1,18 @@
 import { createStoryIndex, rememberedLeafId } from "../../shared/story-model.js";
 import type { AppSource } from "./app.js";
-import { createAtlasLayout, followAtlasRail, moveAtlasCursor } from "./atlas-layout.js";
+import { createAtlasLayout, moveAtlasCursor } from "./atlas-layout.js";
+import {
+  createLaneLayout,
+  followLane,
+  laneLayoutOptions,
+  laneTakeId,
+  moveLaneCursor,
+  moveLaneCursorAcross,
+  type LaneRow
+} from "./lane-layout.js";
 import type { ResolvedKey } from "./keys.js";
 import { initialPathCursor, movePathCursor, visiblePathSiblings } from "./path-layout.js";
+import type { MapState } from "./map-state.js";
 import { nextMapView, nextMassSort } from "./map-state.js";
 import { createStoryViewModel, rowPart } from "./model.js";
 import type { RuntimeState } from "./state.js";
@@ -75,7 +85,8 @@ export async function mapAction(
     return;
   }
   if (map.view === "path") return await pathAction(resolved, state, source, context);
-  return await wholeTreeAction(resolved, state, source, context);
+  if (map.view === "tree") return await treeAction(resolved, state, source, context);
+  return await massAction(resolved, state, source, context);
 }
 
 async function pathAction(
@@ -115,7 +126,42 @@ async function pathAction(
   }
 }
 
-async function wholeTreeAction(
+/** The shared fast path for `focus-index` and an in-window `focus-next`/
+ *  `focus-previous`: both tree and mass move the cursor along the painted
+ *  `map.rowIds` window — whose canonical ids came from the last layout —
+ *  before ever rebuilding one. Returns whether it handled the action;
+ *  a move that crosses the window edge falls through so the caller rebuilds. */
+function moveWithinWindow(map: MapState, resolved: ResolvedKey): boolean {
+  if (resolved.action === "focus-index") {
+    const visibleId = map.rowIds[Math.max(0, Math.min(map.rowIds.length - 1, resolved.index ?? 0))];
+    if (visibleId !== undefined) map.treeCursorId = visibleId;
+    return true;
+  }
+  if (resolved.action === "focus-next" || resolved.action === "focus-previous") {
+    const at = Math.max(0, map.rowIds.indexOf(map.treeCursorId ?? ""));
+    const direction = resolved.action === "focus-next" ? 1 : -1;
+    const nearby = map.rowIds[at + direction];
+    if (nearby !== undefined) {
+      map.treeCursorId = nearby;
+      return true;
+    }
+  }
+  return false;
+}
+
+/** The `pathCursorId = …; view = "path"` pair shared by `map-hide-lanes` and
+ *  an off-lane `map-follow`. Path view hides a sketch entirely in its default
+ *  branches-only mode, so opening one there must widen to all takes first —
+ *  otherwise `createPathLayout` resolves the cursor to a different node. */
+function openRowInPath(map: MapState, row: LaneRow): void {
+  map.pathCursorId = row.id;
+  if (row.kind === "sketch") map.pathShowAllTakes = true;
+  map.view = "path";
+}
+
+/** Doc "10a": the tree is the lane graph — every row a `LaneRow` on a fixed
+ *  gutter, never the local-camera one `createAtlasLayout` still draws for mass. */
+async function treeAction(
   resolved: ResolvedKey,
   state: RuntimeState,
   source: AppSource,
@@ -123,42 +169,69 @@ async function wholeTreeAction(
 ): Promise<void> {
   const map = state.map!;
   const payload = mapPayload(state);
-  if (resolved.action === "focus-index") {
-    const visibleId = map.rowIds[Math.max(0, Math.min(map.rowIds.length - 1, resolved.index ?? 0))];
-    if (visibleId !== undefined) map.treeCursorId = visibleId;
+  if (moveWithinWindow(map, resolved)) return;
+  const layout = createLaneLayout(payload, laneLayoutOptions(state, map));
+  const row = layout.allRows.find((candidate) => candidate.cursor) ?? null;
+  if ((resolved.action === "map-follow" || resolved.action === "open-selected") && row?.kind === "cold") {
+    map.openedColdFolds.add(row.id);
+    map.treeCursorId = rememberedLeafId(payload, row.id, createStoryIndex(payload));
     return;
   }
-  if (resolved.action === "focus-next" || resolved.action === "focus-previous") {
-    const at = Math.max(0, map.rowIds.indexOf(map.treeCursorId ?? ""));
-    const direction = resolved.action === "focus-next" ? 1 : -1;
-    const nearby = map.rowIds[at + direction];
-    // Most arrow moves stay inside the painted window, whose canonical IDs
-    // came from the last layout. Rebuild only when crossing that window edge.
-    if (nearby !== undefined) {
-      map.treeCursorId = nearby;
-      return;
+  switch (resolved.action) {
+    case "focus-next":
+    case "focus-previous":
+      map.treeCursorId = moveLaneCursor(layout, resolved.action === "focus-next" ? 1 : -1);
+      break;
+    case "take-next":
+    case "take-previous": {
+      // `←→` jumps to the nearest row one lane over; a cursor with no such
+      // neighbour (spec's example: the rightmost lane-0 row) just stays put.
+      const across = moveLaneCursorAcross(layout, resolved.action === "take-next" ? 1 : -1);
+      if (across !== null) map.treeCursorId = across;
+      break;
     }
+    case "map-hide-lanes":
+      // A cold row's own id is its anchor node's — a fine path cursor, unlike
+      // `apply`/`open-selected`'s reroute target, which a folded subtree has
+      // no single take to name.
+      if (row !== null) openRowInPath(map, row);
+      else map.view = "path";
+      break;
+    case "map-follow":
+      // Lane 0 is the reading line: `l` walks it down. Any other lane has
+      // nowhere further to walk within the tree, so it opens in path instead.
+      if (row !== null && row.lane === 0) map.treeCursorId = followLane(layout);
+      else if (row !== null) openRowInPath(map, row);
+      break;
+    case "apply":
+    case "open-selected": {
+      const takeId = row === null ? null : laneTakeId(row);
+      if (takeId !== null) await context.reroute(state, source, context, takeId);
+      break;
+    }
+    default:
+      break;
   }
-  const sort = map.view === "tree" ? "graph" : map.massSort;
-  const options = {
+}
+
+async function massAction(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  source: AppSource,
+  context: MapActionContext
+): Promise<void> {
+  const map = state.map!;
+  const payload = mapPayload(state);
+  if (moveWithinWindow(map, resolved)) return;
+  const layout = createAtlasLayout(payload, {
     now: state.now,
     cursorId: map.treeCursorId,
     showSketches: map.showSketches,
-    openedColdFolds: map.openedColdFolds,
-    sort
-  } as const;
-  const layout = createAtlasLayout(payload, options);
+    sort: map.massSort
+  });
   const row = layout.allRows.find((candidate) => candidate.cursor) ?? null;
   if (resolved.action === "focus-next" || resolved.action === "focus-previous") {
     map.treeCursorId = moveAtlasCursor(layout, resolved.action === "focus-next" ? 1 : -1);
-  } else if ((resolved.action === "map-follow" || resolved.action === "open-selected") && row?.kind === "cold") {
-    map.openedColdFolds.add(row.id);
-    map.treeCursorId = rememberedLeafId(payload, row.id, createStoryIndex(payload));
-  } else if (resolved.action === "map-follow" && map.view === "tree" && row !== null && !row.branch) {
-    // On the trunk, `l` walks the reading line down; on a collapsed branch stub
-    // it opens that line in the path view (spec §4 "follows the trunk or opens a
-    // stub"), since a stub is one row with nowhere further to follow.
-    map.treeCursorId = followAtlasRail(layout);
   } else if (resolved.action === "map-follow" && row !== null) {
     map.pathCursorId = row.id;
     map.view = "path";
@@ -166,6 +239,30 @@ async function wholeTreeAction(
     && row !== null && (row.kind === "node" || row.kind === "sketch")) {
     await context.reroute(state, source, context, row.id);
   }
+}
+
+/** The node id `h` targets from MAP mode: the path cursor in Path view, or
+ *  the cursor row's node in Tree/Mass — a folded "cold" row names a whole
+ *  subtree, not one take, so it names nothing. Map logic, so it lives here
+ *  rather than in `generation-record-actions.ts`, which just calls it. */
+export function mapCursorNodeId(state: RuntimeState): string | null {
+  const map = state.map;
+  if (map === null) return null;
+  if (map.view === "path") return map.pathCursorId;
+  const payload = mapPayload(state);
+  if (map.view === "tree") {
+    const layout = createLaneLayout(payload, laneLayoutOptions(state, map));
+    const row = layout.allRows.find((candidate) => candidate.cursor) ?? null;
+    return row === null ? null : laneTakeId(row);
+  }
+  const layout = createAtlasLayout(payload, {
+    now: state.now,
+    cursorId: map.treeCursorId,
+    showSketches: map.showSketches,
+    sort: map.massSort
+  });
+  const row = layout.allRows.find((candidate) => candidate.cursor) ?? null;
+  return row !== null && (row.kind === "node" || row.kind === "sketch") ? row.id : null;
 }
 
 function mapPayload(state: Pick<RuntimeState, "payload" | "stream">) {

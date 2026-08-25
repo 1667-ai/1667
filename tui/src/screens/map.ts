@@ -1,7 +1,6 @@
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
 import {
   createAtlasLayout,
-  selectableRow,
   type AtlasLayout,
   type AtlasRow
 } from "../atlas-layout.js";
@@ -14,8 +13,9 @@ import type { StoryScreenState } from "../state.js";
 import { projectStreamedPayload } from "../stream-projection.js";
 import { createMapMassScale, renderMapMassRow, renderMapSketchFold } from "./map-mass-row.js";
 import { createMapPathRow, renderMapPathRow, type MapPathRow } from "./map-path-row.js";
-import { tagGlyph, tagRole, formatMapWords, formatMapWordsBare } from "./map-row-labels.js";
-import { mapTreeFoldFootnote, renderMapTreeRow } from "./map-tree-row.js";
+import { tagGlyph, tagRole } from "./map-row-labels.js";
+import { renderLaneTreeBody } from "./map-lane-body.js";
+import { appendMapPreview } from "./map-preview.js";
 import { renderSurfaceBreadcrumb } from "./surface-breadcrumb.js";
 import { lightWorkKeyword } from "./work-light.js";
 import {
@@ -40,7 +40,7 @@ export interface MapScreenFrame extends FrameComposition {
   derived: MapScreenDerived;
 }
 
-interface MapBody {
+export interface MapBody {
   lines: FrameLine[];
   hits: Array<HitRow | null>;
   stats: string;
@@ -66,7 +66,7 @@ export function renderMapScreen(
   const body = map.view === "path"
     ? renderPathBody(visualState, map, width, bodyHeight)
     : map.view === "tree"
-      ? renderTreeBody(visualState, map, width, bodyHeight, deadlines)
+      ? renderLaneTreeBody(visualState, map, width, bodyHeight, deadlines)
       : renderMassBody(visualState, map, width, bodyHeight, deadlines);
   const shown = body.lines.slice(0, bodyHeight);
   const lines = [
@@ -144,57 +144,6 @@ function pathTakeHits(
   return hits;
 }
 
-function renderTreeBody(
-  state: StoryScreenState,
-  map: MapState,
-  width: number,
-  bodyHeight: number,
-  deadlines?: FrameDeadlineCollector
-): MapBody {
-  const reserve = (width >= 100 ? 2 : 0) + 3;
-  const layout = createAtlasLayout(state.payload, {
-    now: state.now,
-    cursorId: map.treeCursorId,
-    showSketches: map.showSketches,
-    openedColdFolds: map.openedColdFolds,
-    sort: "graph",
-    maxRows: Math.max(1, bodyHeight - reserve),
-    deadlines
-  });
-  const mapRows = layout.rows.flatMap((row) => {
-    const kind = selectableRow(row, layout.sort) ? mapRowKind(row.kind) : null;
-    return kind === null ? [] : [{ id: row.id, kind }];
-  });
-  const rowIds = mapRows.map((row) => row.id);
-  const indexById = new Map(rowIds.map((id, index) => [id, index] as const));
-  const mapRowById = new Map(mapRows.map((row) => [row.id, row] as const));
-  const lines = layout.rows.map((row) => renderMapTreeRow(row, width, state.stream?.targetId ?? null));
-  const hits: Array<HitRow | null> = layout.rows.map((row) => {
-    const index = indexById.get(row.id);
-    const mapRow = mapRowById.get(row.id);
-    return index === undefined || mapRow === undefined
-      ? null
-      : { target: { kind: "list", index, mapRow }, left: 0, right: width };
-  });
-  appendWindowLine(lines, hits, layout);
-  const footnote = mapTreeFoldFootnote(layout, map.showSketches);
-  if (footnote.length > 0) {
-    lines.push([], foldFootnoteLine(footnote, layout.foldedWords, width));
-    hits.push(null, { target: { kind: "action", action: "toggle-sketches" }, left: 0, right: width });
-  }
-  appendPreview(lines, hits, layout, width);
-  const cursor = layout.allRows.find((row) => row.cursor) ?? null;
-  const hot = Math.max(0, layout.totalLines - layout.coldLines);
-  const cold = layout.coldLines > 0 ? ` ━ ${hot} hot · ${layout.coldLines} folded cold` : "";
-  const window = layout.totalRows > layout.rows.length
-    ? ` ━ rows ${layout.visibleStart + 1}–${layout.visibleEnd} of ${layout.totalRows}` : "";
-  return {
-    lines, hits,
-    stats: `${state.payload.title} ━ ${layout.totalLines} lines · ${layout.totalParts} parts · ${layout.forkCount} forks${cold}${window}`,
-    crumb: cursor === null ? "tree" : `¶ ${cursor.depth}`,
-    derived: { rowIds, pathCursorId: map.pathCursorId, treeCursorId: layout.cursorId }
-  };
-}
 
 function renderMassBody(
   state: StoryScreenState,
@@ -210,7 +159,6 @@ function renderMassBody(
     now: state.now,
     cursorId: map.treeCursorId,
     showSketches: map.showSketches,
-    openedColdFolds: map.openedColdFolds,
     sort: map.massSort,
     maxRows: Math.max(1, bodyHeight - reserve),
     deadlines
@@ -253,19 +201,8 @@ function renderMassBody(
   };
 }
 
-function mapRowKind(kind: AtlasRow["kind"]): "node" | "sketch" | "cold" | null {
-  return kind === "node" || kind === "sketch" || kind === "cold" ? kind : null;
-}
-
-/** The fused fold footnote, its weight landing in the same right gutter the
- *  rows above use, so it reads as one more row rather than a caption. */
-function foldFootnoteLine(text: string, words: number, width: number): FrameLine {
-  const tail = formatMapWordsBare(words);
-  const line: FrameLine = [segment("    ↳ ", "accent · deep"), segment(text, "prose · dim")];
-  const padding = width - visibleWidth(tail) - 2 - lineWidth(line);
-  if (padding > 0) line.push(segment(" ".repeat(padding)));
-  line.push(segment(tail, "chrome"));
-  return line;
+function mapRowKind(kind: AtlasRow["kind"]): "node" | "sketch" | null {
+  return kind === "node" || kind === "sketch" ? kind : null;
 }
 
 function appendWindowLine(lines: FrameLine[], hits: Array<HitRow | null>, layout: AtlasLayout): void {
@@ -283,14 +220,8 @@ function appendPreview(
   layout: AtlasLayout,
   width: number
 ): void {
-  if (width < 100) return;
-  const cursor = layout.allRows.find((row) => row.cursor && row.kind !== "cold");
-  if (cursor === undefined) return;
-  const detail = `¶ ${cursor.depth} · ${formatMapWords(cursor.ownWords)}`;
-  const preview = truncate(cursor.node.preview.replace(/\s+/g, " ").trim(), Math.max(8, width - visibleWidth(detail) - 8));
-  lines.push([], [segment("  ‥ ", "summary"), segment(preview, "summary"),
-    segment(" ".repeat(Math.max(1, width - visibleWidth(preview) - visibleWidth(detail) - 5))), segment(detail, "chrome")]);
-  hits.push(null, null);
+  const cursor = layout.allRows.find((row) => row.cursor) ?? null;
+  appendMapPreview(lines, hits, cursor, width);
 }
 
 function renderTitle(view: MapView, stats: string, width: number): FrameLine {
@@ -419,6 +350,14 @@ function mapHintSegments(map: MapState, density: MapHintDensity): FrameLine {
   const escape = (text: string): FrameLine => [segment(text, "chrome", { kind: "action", action: "cancel" })];
   const sort: FrameLine = [segment("s sort", "chrome", { kind: "action", action: "map-cycle-sort" })];
   const follow = (text: string): FrameLine => [segment(text, "chrome", { kind: "action", action: "map-follow" })];
+  // `←→` jumps to the nearest row in the next lane; `tab` hides the lanes and
+  // opens the path view on the same part (doc "10a": lane 0 is path view).
+  const lanes: FrameLine = [
+    segment("←", "chrome", { kind: "action", action: "take-previous" }),
+    segment("→", "chrome", { kind: "action", action: "take-next" }),
+    segment(" lane", "chrome")
+  ];
+  const hideLanes: FrameLine = [segment("tab path", "chrome", { kind: "action", action: "map-hide-lanes" })];
   // The fold rows used to advertise `a` inside the canvas. Decision 21 took
   // in-canvas hints out of mass; C-06 puts them here for both whole-tree views.
   const sketches: FrameLine = [
@@ -439,11 +378,11 @@ function mapHintSegments(map: MapState, density: MapHintDensity): FrameLine {
     }
   } else if (map.view === "tree") {
     if (density === "narrow") {
-      appendToken(cycle("m mass")); appendToken(rows("row")); appendToken(follow("l follow")); appendToken(escape("esc"));
+      appendToken(cycle("m mass")); appendToken(rows("row")); appendToken(lanes); appendToken(hideLanes); appendToken(escape("esc"));
     } else if (density === "medium") {
-      appendToken(cycle("m mass")); appendToken(rows("row")); appendToken(sketches); appendToken(follow("l follow")); appendToken(reroute("enter")); appendToken(escape("esc writes"));
+      appendToken(cycle("m mass")); appendToken(rows("row")); appendToken(lanes); appendToken(sketches); appendToken(hideLanes); appendToken(reroute("enter")); appendToken(escape("esc writes"));
     } else {
-      appendToken(cycle("m mass")); appendToken(rows("row")); appendToken(sketches); appendToken(follow("l follow")); appendToken(reroute("enter reroute")); appendToken(escape("esc writes"));
+      appendToken(cycle("m mass")); appendToken(rows("row")); appendToken(lanes); appendToken(sketches); appendToken(follow("l follow")); appendToken(hideLanes); appendToken(reroute("enter reroute")); appendToken(escape("esc writes"));
     }
   } else {
     if (density === "narrow") {

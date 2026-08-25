@@ -96,9 +96,37 @@ describe("demo action pipeline", () => {
     const frame = frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: createWrapCache() }).lines);
     expect(frame).toContain("◉");
     expect(frame).toContain("¶13");
-    // Doc 20c: branches are indentation and one `↳`, never a rail.
-    expect(frame).toContain("      ↳ ");
-    expect(frame).not.toContain("│");
+    // Doc "10a": the whole tree draws as lanes now, a fixed rail per live line.
+    expect(frame).toContain("│");
+    expect(frame).toContain("├─╮");
+  });
+
+  test("leaving the lane tree onto a revealed sketch keeps it visible in path view (bug: openRowInPath)", async () => {
+    // Path view hides a sketch entirely in its default branches-only mode, so
+    // handing it the cursor without widening to all takes would resolve to a
+    // different node the moment path view lays itself out.
+    for (const followKey of ["tab", "l"] as const) {
+      const { state, press } = harness();
+      await press("m");
+      await press("m");
+      expect(state.map?.showSketches).toBeTrue();
+      state.map!.pathShowAllTakes = false;
+      state.map!.treeCursorId = "p12-t1";
+      await press(followKey);
+      expect(state.map?.view).toBe("path");
+      expect(state.map?.pathCursorId).toBe("p12-t1");
+      expect(state.map?.pathShowAllTakes).toBeTrue();
+    }
+  });
+
+  test("tab on a cold fold opens path view there too, not wherever the cursor was left stale (bug: map-hide-lanes on cold)", async () => {
+    const { state, press } = harness();
+    await press("m");
+    await press("m");
+    state.map!.treeCursorId = "p5-alt";
+    await press("tab");
+    expect(state.map?.view).toBe("path");
+    expect(state.map?.pathCursorId).toBe("p5-alt");
   });
 
   test("the page take strip rings an alternate that branches, never the take you are reading", async () => {

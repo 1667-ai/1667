@@ -176,7 +176,8 @@ describe("hit map clickable chrome", () => {
   test("map views advertise only their live arrow navigation", () => {
     const expected = {
       path: { up: "focus-previous", down: "focus-next", left: "take-previous", right: "take-next", l: "none" },
-      tree: { up: "focus-previous", down: "focus-next", left: "none", right: "none", l: "map-follow" },
+      // `←→` jump lanes in the tree now (doc "10a"), same as path's takes.
+      tree: { up: "focus-previous", down: "focus-next", left: "take-previous", right: "take-next", l: "map-follow" },
       mass: { up: "focus-previous", down: "focus-next", left: "none", right: "none", l: "map-follow" }
     } as const;
     for (const view of ["path", "tree", "mass"] as const) {
@@ -277,7 +278,8 @@ describe("hit map clickable chrome", () => {
       path: [["m tree", "cycle-map-view"], ["a branches", "toggle-path-takes"],
         ["enter reroute", "apply"], ["esc writes", "cancel"]],
       tree: [["m mass", "cycle-map-view"], ["a sketches", "toggle-sketches"],
-        ["l follow", "map-follow"], ["enter reroute", "apply"], ["esc writes", "cancel"]],
+        ["l follow", "map-follow"], ["tab path", "map-hide-lanes"],
+        ["enter reroute", "apply"], ["esc writes", "cancel"]],
       mass: [["m path", "cycle-map-view"], ["s sort", "map-cycle-sort"],
         ["a sketches", "toggle-sketches"],
         ["l open line", "map-follow"], ["enter reroute", "apply"], ["esc writes", "cancel"]]
@@ -301,6 +303,12 @@ describe("hit map clickable chrome", () => {
       const arrows = visibleWidth(line.slice(0, line.indexOf("↑↓")));
       expect(hitAt(state.hitRows, arrows, footer)).toEqual({ kind: "action", action: "focus-previous" });
       expect(hitAt(state.hitRows, arrows + 1, footer)).toEqual({ kind: "action", action: "focus-next" });
+      if (view === "tree") {
+        // `←→` jumps lanes: its own glyph pair, split the same way `↑↓` is.
+        const lanes = visibleWidth(line.slice(0, line.indexOf("←→")));
+        expect(hitAt(state.hitRows, lanes, footer)).toEqual({ kind: "action", action: "take-previous" });
+        expect(hitAt(state.hitRows, lanes + 1, footer)).toEqual({ kind: "action", action: "take-next" });
+      }
     }
   });
 
@@ -1182,10 +1190,10 @@ describe("hit map clickable chrome", () => {
           : "m tree · a branches · ↑↓ depth · ←→ take · enter reroute · esc writes",
         setup: (state) => { showMap(state, "path", "p12"); } },
       { name: "map tree", expected: (width) => width < 100
-        ? "m mass · ↑↓ row · l follow · esc"
+        ? "m mass · ↑↓ row · ←→ lane · tab path · esc"
         : width < 136
-          ? "m mass · ↑↓ row · a sketches · l follow · enter · esc writes"
-          : "m mass · ↑↓ row · a sketches · l follow · enter reroute · esc writes",
+          ? "m mass · ↑↓ row · ←→ lane · a sketches · tab path · enter · esc writes"
+          : "m mass · ↑↓ row · ←→ lane · a sketches · l follow · tab path · enter reroute · esc writes",
         setup: (state) => { showMap(state, "tree", state.payload.path.at(-1)!.id); } },
       { name: "map mass", expected: (width) => width < 100
         ? "m path · ↑↓ row · s sort · l open · esc"

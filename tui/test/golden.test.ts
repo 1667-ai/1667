@@ -92,42 +92,45 @@ describe("deterministic demo frames", () => {
     expect(frame).not.toContain("␠ continue");
   });
 
-  test("a second m cycles MAP to the tree graph at 120x36", async () => {
+  test("a second m cycles MAP to the tree lanes at 120x36", async () => {
     const source = demoSource();
     const frame = await renderOnce(source, 120, 36, "mm");
     const leaf = source.payload.path.at(-1)!;
     const tag = source.payload.tags.find((item) => item.nodeId === leaf.id)!;
     expect(frame.startsWith("━━ map ·  path   tree   mass")).toBeTrue();
     expect(frame).toContain("4 lines · 23 parts · 5 forks");
-    // Doc 20c: the reading line is the trunk at column 0, its runs step in once
-    // and its branches twice behind one `↳`. No box-drawing anywhere.
-    expect(frame).toContain("    ⋯ 1 part");
-    expect(frame).toContain("      ↳ ✕ burned");
-    expect(/[│├└┼]/.test(frame)).toBeFalse();
+    // Doc "10a": the whole tree draws in lanes now — box-drawing is the
+    // picture itself, not a defect the old local-camera graph avoided.
+    expect(frame).toContain("├─╮");
+    expect(frame).toContain("│");
+    expect(frame).toContain("╵");
+    expect(frame).not.toContain("↳");
     expect(frame).toContain("×1 line · cold 8 wks");
-    // One fused footnote where two dense lines used to sit, weighed in the same
-    // right gutter as the rows above it.
-    expect(frame).toContain("    ↳ 1 cold subtree · 7 sketches revealed");
+    // `openMap` starts with sketches revealed, so folds never draw here.
+    // The word count is cumulative from the root, the same number mass gives
+    // this line — not the 13 words along the off-path segment alone.
+    expect(frame).toContain("✕ burned · 103w");
+    expect(frame).toMatch(/○ .*‥”/);
     expect(frame).toContain(`⚑ ${tag.name}`);
     expect(frame).toContain("‥ Outside, the storm leaned on the shutters");
     expect(frame).toContain("MAP  tree");
-    expect(frame).toContain("m mass · ↑↓ row · a sketches · l follow · enter · esc writes");
+    expect(frame).toContain("m mass · ↑↓ row · ←→ lane · a sketches · tab path · enter · esc writes");
     expect(frame).not.toContain("┏━");
   });
 
-  test("MAP tree at 80x24 preserves graph structure and drops the preview", async () => {
+  test("MAP tree at 80x24 draws the lanes and drops the preview", async () => {
     const source = demoSource();
     const frame = await renderOnce(source, 80, 24, "mm");
     const leaf = source.payload.path.at(-1)!;
     const tag = source.payload.tags.find((item) => item.nodeId === leaf.id)!;
     expect(frame.startsWith("━━ map ·  path   tree   mass")).toBeTrue();
-    // Narrow keeps the same shape — one trunk, indented stubs, no rails at all.
-    expect(frame).toContain("      ↳ ");
-    expect(/[│├└┼]/.test(frame)).toBeFalse();
+    // Narrow keeps the same shape — a fixed gutter of lanes, no `↳` stubs.
+    expect(frame).toContain("├─╮");
+    expect(frame).not.toContain("↳");
     expect(frame).toContain(`⚑ ${tag.name}`);
-    expect(frame).toContain("↑ 5 earlier");
-    expect(frame).toContain("7 sketches revealed");
-    expect(frame).toContain("m mass · ↑↓ row · l follow · esc");
+    expect(frame).toContain("▲ 15 above");
+    expect(frame).toMatch(/○ .*‥”/);
+    expect(frame).toContain("m mass · ↑↓ row · ←→ lane · tab path · esc");
     expect(frame).not.toContain("‥ Outside");
     expect(frame).not.toContain("enter reroute");
   });

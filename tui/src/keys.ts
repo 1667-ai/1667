@@ -43,6 +43,7 @@ export type KeyAction =
   | "save-edit" | "save-edit-inplace" | "commit-field"
   | "history-next" | "backspace" | "input" | "none" | "open-map"
   | "cycle-map-view" | "toggle-path-takes" | "toggle-sketches" | "map-follow" | "map-cycle-sort"
+  | "map-hide-lanes"
   | "set-map-view"
   | "cursor-left" | "cursor-right" | "cursor-up" | "cursor-down" | "toggle-compose-fullscreen"
   | "cursor-word-left" | "cursor-word-right"
