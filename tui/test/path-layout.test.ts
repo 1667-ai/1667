@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createDemoController } from "../src/demo.js";
 import { createAtlasLayout } from "../src/atlas-layout.js";
+import { createLaneLayout } from "../src/lane-layout.js";
 import { createPathLayout, initialPathCursor, movePathCursor, resolveRerouteTarget } from "../src/path-layout.js";
 
 describe("path layout model", () => {
@@ -47,11 +48,11 @@ describe("path layout model", () => {
 
     expect(movePathCursor(payload, "p8", 0, 1)).toBe("p8-alt-3");
     expect(movePathCursor(payload, "p8", 0, 1, true)).toBe("p8-alt-1");
-    const tree = createAtlasLayout(payload, { now: 1_667_000_000_000 });
+    const tree = createLaneLayout(payload, { now: 1_667_000_000_000 });
     const mass = createAtlasLayout(payload, { now: 1_667_000_000_000, sort: "size" });
     expect([folded.totalLines, revealed.totalLines, tree.totalLines, mass.totalLines])
       .toEqual([4, 4, 4, 4]);
-    expect([folded.sketchCount, revealed.sketchCount, tree.sketchCount, mass.sketchCount])
-      .toEqual([7, 7, 7, 7]);
+    expect([folded.sketchCount, revealed.sketchCount, mass.sketchCount])
+      .toEqual([7, 7, 7]);
   });
 });

@@ -14,31 +14,17 @@ describe("atlas layout model", () => {
     const parentId = payload.nodes.find((node) => node.id === leafId)!.parentId;
     payload = demo.createChild(parentId, "another ending", "The shutters gave all at once.");
     const activeLeafId = payload.path.at(-1)!.id;
-    const layout = createAtlasLayout(payload, { now: NOW });
+    const layout = createAtlasLayout(payload, { now: NOW, sort: "size" });
     expect(layout.allRows.find((row) => row.id === activeLeafId)).toMatchObject({ kind: "node", lineEnd: true });
     expect(layout.allRows.some((row) => row.active)).toBeTrue();
-  });
-  test("the supplied two-sketch fork repro remains represented", () => {
-    const demo = createDemoController();
-    demo.createChild("p8-alt-1", "one", "First dead end.");
-    const payload = demo.createChild("p8-alt-1", "two", "Second dead end.");
-    const layout = createAtlasLayout(payload, { now: NOW });
-    expect(layout.allRows.some((row) => row.id === "p8-alt-1")).toBeTrue();
   });
   test("a fork terminus remains when every visible child is a folded sketch", () => {
     const demo = createDemoController();
     demo.createChild("p8-alt-1", "one", "First dead end.");
     demo.createChild("p8-alt-1", "two", "Second dead end.");
     const payload = demo.switchTo("p13");
-    const layout = createAtlasLayout(payload, { now: NOW, openedColdFolds: new Set(["p8-alt-1"]) });
+    const layout = createAtlasLayout(payload, { now: NOW, sort: "size" });
     expect(layout.allRows.find((row) => row.id === "p8-alt-1")?.kind).toBe("node");
-  });
-  test("collapses runs with depth-minus-anchor arithmetic", () => {
-    const payload = arithmeticTree();
-    const runs = createAtlasLayout(payload, { now: NOW }).allRows
-      .filter((row) => row.kind === "run").map((row) => row.run);
-    // Only the trunk collapses runs now; alternate lines are single stubs.
-    expect(runs).toEqual([5, 3, 8]);
   });
 
   test("a line stopped above its continuation is one mass line, not two", () => {
@@ -51,9 +37,6 @@ describe("atlas layout model", () => {
     const mass = createAtlasLayout(payload, { now: NOW, sort: "size" });
     expect(new Set(mass.allRows.filter((row) => row.kind === "node").map((row) => row.id))).toEqual(new Set(["below", "other-leaf"]));
     expect(mass.totalLines).toBe(2);
-    // The graph still draws the stop row, so `◉ you` never disappears.
-    const graph = createAtlasLayout(payload, { now: NOW });
-    expect(graph.allRows.some((row) => row.id === "stopped" && row.lineEnd)).toBeTrue();
   });
 
   test("a stopped line keeps ◉ and the cursor on its remembered endpoint in mass", () => {
@@ -98,8 +81,8 @@ describe("atlas layout model", () => {
       ["root", null], ["kept", "root"], ["kept-leaf", "kept"],
       ["stub", "root"], ["d1", "stub"], ["d2", "stub"]
     ], ["root", "kept", "kept-leaf"], ["kept-leaf"]);
-    const folded = createAtlasLayout(payload, { now: NOW });
-    const revealed = createAtlasLayout(payload, { now: NOW, showSketches: true });
+    const folded = createAtlasLayout(payload, { now: NOW, sort: "size" });
+    const revealed = createAtlasLayout(payload, { now: NOW, sort: "size", showSketches: true });
     const lineIds = (layout: AtlasLayout): string[] => layout.allRows.filter((row) => row.lineEnd).map((row) => row.id);
 
     expect(lineIds(folded)).toContain("stub");
@@ -108,22 +91,6 @@ describe("atlas layout model", () => {
     expect(lineIds(folded)).toHaveLength(folded.totalLines);
     expect(lineIds(revealed)).toHaveLength(revealed.totalLines);
     expect(revealed.allRows.filter((row) => row.kind === "sketch").map((row) => row.id)).toEqual(["d1", "d2"]);
-  });
-
-  test("a cold subtree under a fork does not invent a line at the fork", () => {
-    // `alt` reaches a fork whose outgoing subtrees are all stale. The lines live
-    // inside the cold folds; `alt` itself is not a line and must get no stub.
-    const payload = touch(fixture([
-      ["root", null], ["kept", "root"], ["kept-leaf", "kept"],
-      ["alt", "root"], ["c1", "alt"], ["c1-leaf", "c1"], ["c2", "alt"], ["c2-leaf", "c2"]
-    ], ["root", "kept", "kept-leaf"], ["kept-leaf", "c1-leaf", "c2-leaf"]), "c1", "2022-08-01T09:00:00.000Z");
-    const withCold = touch(payload, "c2", "2022-08-01T09:00:00.000Z");
-    const layout = createAtlasLayout(withCold, { now: NOW });
-    expect(layout.allRows.some((row) => row.kind === "cold")).toBeTrue();
-    expect(layout.allRows.filter((row) => row.lineEnd).map((row) => row.id)).not.toContain("alt");
-    // Exactly the counted lines get a row: the reading line plus the two folds.
-    expect(layout.allRows.filter((row) => row.lineEnd).length + layout.allRows.filter((row) => row.kind === "cold")
-      .reduce((sum, row) => sum + (row.cold?.lineCount ?? 0), 0)).toBe(layout.totalLines);
   });
 
   test("a branch whose node id is 'trunk' is not mistaken for the trunk", () => {
@@ -144,74 +111,21 @@ describe("atlas layout model", () => {
     expect(mass.cursorId).toBe("below");
   });
 
-  test("zero-length runs vanish while positive runs receive one spacer", () => {
-    const payload = fixture([
-      ["root", null], ["active", "root"], ["continued", "root"], ["continued-leaf", "continued"]
-    ], ["root", "active"], ["active", "continued-leaf"]);
-    const rows = createAtlasLayout(payload, { now: NOW }).allRows;
-    const active = rows.findIndex((row) => row.id === "active");
-    expect(rows[active]?.kind).toBe("node");
-    const run = rows.findIndex((row) => row.kind === "run" && row.node.id === "continued-leaf");
-    expect(run).toBe(-1);
-  });
   test("a continued or tagged fork child is a line; a lone take is a sketch", () => {
     const payload = fixture([
       ["root", null], ["continued", "root"], ["continued-leaf", "continued"],
       ["sketch", "root"], ["named", "root"]
     ], ["root", "continued", "continued-leaf"], ["continued-leaf", "named"]);
-    const folded = createAtlasLayout(payload, { now: NOW });
+    const folded = createAtlasLayout(payload, { now: NOW, sort: "size" });
     expect(folded.sketchCount).toBe(1);
-    expect(folded.allRows.filter((row) => row.lineEnd).map((row) => row.id)).toEqual(["named", "continued-leaf"]);
-    const revealed = createAtlasLayout(payload, { now: NOW, showSketches: true });
+    // Mass sorts by size; both lines carry the fixture's default word count,
+    // so the tie preserves draw order — the trunk's own line first, its
+    // off-path sibling after.
+    expect(folded.allRows.filter((row) => row.lineEnd).map((row) => row.id)).toEqual(["continued-leaf", "named"]);
+    const revealed = createAtlasLayout(payload, { now: NOW, sort: "size", showSketches: true });
     expect(revealed.allRows.find((row) => row.id === "sketch")?.kind).toBe("sketch");
   });
-  test("cold-folds only after 21 days and never folds the active line", () => {
-    const base = fixture([
-      ["root", null], ["active", "root"], ["active-leaf", "active"],
-      ["old", "root"], ["old-fork", "old"], ["old-a", "old-fork"], ["old-b", "old-fork"]
-    ], ["root", "active", "active-leaf"], ["active-leaf", "old-a", "old-b"]);
-    const atThreshold = touch(base, "old", new Date(NOW - 21 * 86_400_000).toISOString());
-    const thresholdDeadlines = createFrameDeadlineCollector(NOW);
-    expect(createAtlasLayout(atThreshold, {
-      now: NOW,
-      deadlines: thresholdDeadlines
-    }).allRows.some((row) => row.kind === "cold")).toBeFalse();
-    expect(thresholdDeadlines.next()).toBe(NOW + 86_400_000);
-    const old = touch(base, "old", new Date(NOW - 22 * 86_400_000).toISOString());
-    const coldDeadlines = createFrameDeadlineCollector(NOW);
-    const layout = createAtlasLayout(old, { now: NOW, deadlines: coldDeadlines });
-    expect(layout.allRows.find((row) => row.id === "old")?.kind).toBe("cold");
-    expect(layout.allRows.find((row) => row.id === "old")?.cold?.lineCount).toBe(2);
-    expect(coldDeadlines.next()).toBe(NOW + 6 * 86_400_000);
-    expect(layout.allRows.find((row) => row.id === "active-leaf")?.kind).toBe("node");
-  });
-  test("cold deadlines keep offscreen transitions but skip offscreen weekly labels", () => {
-    const base = fixture([
-      ["root", null], ["active", "root"], ["active-leaf", "active"],
-      ["old", "root"], ["old-leaf", "old"]
-    ], ["root", "active", "active-leaf"], ["active-leaf", "old-leaf"]);
-    const threshold = touch(base, "old", new Date(NOW - 21 * 86_400_000).toISOString());
-    const transitionDeadlines = createFrameDeadlineCollector(NOW);
-    createAtlasLayout(threshold, {
-      now: NOW, cursorId: "active-leaf", maxRows: 1, deadlines: transitionDeadlines
-    });
-    expect(transitionDeadlines.next()).toBe(NOW + 86_400_000);
 
-    const cold = touch(base, "old", new Date(NOW - 22 * 86_400_000).toISOString());
-    const offscreenDeadlines = createFrameDeadlineCollector(NOW);
-    const offscreen = createAtlasLayout(cold, {
-      now: NOW, cursorId: "active-leaf", maxRows: 1, deadlines: offscreenDeadlines
-    });
-    expect(offscreen.rows.map((row) => row.id)).toEqual(["active-leaf"]);
-    expect(offscreenDeadlines.next()).toBe(null);
-
-    const visibleDeadlines = createFrameDeadlineCollector(NOW);
-    const visible = createAtlasLayout(cold, {
-      now: NOW, cursorId: "old", maxRows: 1, deadlines: visibleDeadlines
-    });
-    expect(visible.rows.map((row) => row.id)).toEqual(["old"]);
-    expect(visibleDeadlines.next()).toBe(NOW + 6 * 86_400_000);
-  });
   test("mass schedules the repaint that sinks a line's bar when it turns cold", () => {
     // Mass never folds, so nothing else asks for that frame; without it a map
     // left open keeps a cold line bright until some unrelated key redraws it.
@@ -231,27 +145,13 @@ describe("atlas layout model", () => {
       { now: NOW, sort: "size", deadlines: settled });
     expect(settled.next()).toBe(null);
   });
-  test("cold folds retain the same global sketch and line totals in every view", () => {
-    const base = fixture([
-      ["root", null], ["active", "root"], ["active-leaf", "active"],
-      ["old", "root"], ["old-fork", "old"], ["old-line", "old-fork"],
-      ["old-leaf", "old-line"], ["old-sketch", "old-fork"]
-    ], ["root", "active", "active-leaf"], ["old-leaf"]);
-    const payload = touch(base, "old", new Date(NOW - 22 * 86_400_000).toISOString());
-    const path = createPathLayout(payload, "active-leaf");
-    const tree = createAtlasLayout(payload, { now: NOW });
-    const mass = createAtlasLayout(payload, { now: NOW, sort: "size" });
 
-    expect(tree.allRows.some((row) => row.kind === "cold")).toBeTrue();
-    expect([path.sketchCount, tree.sketchCount, mass.sketchCount]).toEqual([1, 1, 1]);
-    expect([path.totalLines, tree.totalLines, mass.totalLines]).toEqual([2, 2, 2]);
-  });
-  test("uses leaf-count and fork-count rollups", () => {
+  test("uses fork-count rollups", () => {
     const demo = createDemoController().payload();
-    const layout = createAtlasLayout(demo, { now: NOW });
+    const layout = createAtlasLayout(demo, { now: NOW, sort: "size" });
     expect(layout.forkCount).toBe(5);
-    expect(layout.allRows.find((row) => row.kind === "cold")?.cold?.lineCount).toBe(1);
   });
+
   test("chapter summaries never interrupt a prose continuation", () => {
     const payload = fixture([
       ["root", null], ["continued", "root"], ["active-leaf", "continued"]
@@ -262,44 +162,27 @@ describe("atlas layout model", () => {
       childCount: 0, leafCount: 0, role: "summary", text: "Previously.", instruction: "Use this summary.",
       chapterBreakId: "chapter-1", activeChildId: null
     });
-    const layout = createAtlasLayout(payload, { now: NOW, showSketches: true });
+    const layout = createAtlasLayout(payload, { now: NOW, sort: "size", showSketches: true });
     expect(layout.allRows.some((row) => row.id === "active-leaf" && row.active)).toBeTrue();
     expect(layout.allRows.some((row) => row.id === "chapter-summary")).toBeFalse();
     expect(layout.allRows.some((row) => row.node.chapterBreakId !== undefined)).toBeFalse();
   });
-  test("revealed sketches sort below continued lines at an inactive fork", () => {
-    const payload = fixture([
+
+  test("cold folds retain the same global sketch and line totals across path and mass", () => {
+    // Cold folding is the lane tree's own concern now (`lane-layout.test.ts`);
+    // path and mass never fold, so their totals only need to agree with each
+    // other.
+    const base = fixture([
       ["root", null], ["active", "root"], ["active-leaf", "active"],
-      ["inactive-fork", "root"], ["older-sketch", "inactive-fork"],
-      ["continued", "inactive-fork"], ["continued-leaf", "continued"]
-    ], ["root", "active", "active-leaf"], ["active-leaf", "continued-leaf"]);
-    const ids = createAtlasLayout(payload, { now: NOW, showSketches: true }).allRows.map((row) => row.id);
-    expect(ids.indexOf("continued-leaf")).toBeLessThan(ids.indexOf("older-sketch"));
-  });
-  test("a line stopped before its structural child still owns a row", () => {
-    // Stopping a generation and summarising both switch with
-    // stopAtNode, leaving the line on a node that still has a child. Collapsing
-    // that node into the run erased the reader's position from the map.
-    const payload = createDemoController().switchTo("p12", { stopAtNode: true });
-    const layout = createAtlasLayout(payload, { now: NOW });
-    const active = layout.allRows.find((row) => row.id === "p12");
-    expect(active?.active).toBeTrue();
-    expect(active).toMatchObject({ kind: "node", lineEnd: true });
-    expect(layout.cursorId).toBe("p12");
-    // the unfollowed continuation stays on the map, hanging beneath it
-    expect(layout.allRows.map((row) => row.id)).toContain("p13");
-  });
-  test("opening a cold fold reveals lines past its inner forks, not more folds", () => {
-    // The opened set names one node; everything under it must stay open, or a
-    // subtree with an inner fork answers `l` with another rank of cold rows.
-    const payload = touch(fixture([
-      ["r", null], ["rc", "r"],
-      ["o1", null], ["o2", "o1"], ["o3", "o2"], ["o3l", "o3"], ["o4", "o2"], ["o4l", "o4"]
-    ], ["r", "rc"], []), "o1", "2022-08-01T09:00:00.000Z");
-    const opened = createAtlasLayout(payload, { now: NOW, openedColdFolds: new Set(["o1"]) });
-    expect(opened.allRows.filter((row) => row.kind === "cold")).toHaveLength(0);
-    expect(opened.allRows.map((row) => row.id)).toContain("o3l");
-    expect(opened.allRows.map((row) => row.id)).toContain("o4l");
+      ["old", "root"], ["old-fork", "old"], ["old-line", "old-fork"],
+      ["old-leaf", "old-line"], ["old-sketch", "old-fork"]
+    ], ["root", "active", "active-leaf"], ["old-leaf"]);
+    const payload = touch(base, "old", new Date(NOW - 22 * 86_400_000).toISOString());
+    const path = createPathLayout(payload, "active-leaf");
+    const mass = createAtlasLayout(payload, { now: NOW, sort: "size" });
+
+    expect([path.sketchCount, mass.sketchCount]).toEqual([1, 1]);
+    expect([path.totalLines, mass.totalLines]).toEqual([2, 2]);
   });
 
   test("a 19,999-node forked line does not consume the JavaScript call stack", () => {
@@ -317,10 +200,14 @@ describe("atlas layout model", () => {
       tags.push(side);
     }
 
-    const layout = createAtlasLayout(fixture(edges, active, tags), { now: NOW, maxRows: 24 });
+    const layout = createAtlasLayout(fixture(edges, active, tags), { now: NOW, sort: "size", maxRows: 24 });
 
     expect(layout.totalParts).toBe(19_999);
-    expect(layout.totalRows).toBe(19_999);
+    // 9,999 tagged side leaves plus the trunk's own final mass line — mass
+    // never folds, but it also never draws the 9,998 intermediate trunk rows
+    // a fork-every-step trunk collapses to nothing (each is a fork with
+    // children, not a line end).
+    expect(layout.totalRows).toBe(10_000);
     expect(layout.totalLines).toBe(10_000);
     expect(layout.cursorId).toBe("trunk-9999");
     expect(layout.rows).toHaveLength(24);
@@ -351,27 +238,6 @@ describe("atlas layout model", () => {
     expect(layout.rows).toHaveLength(24);
   });
 });
-function arithmeticTree(): StoryPayload {
-  const edges: Array<[string, string | null]> = [["a1", null]];
-  chain(edges, "a", 2, 6, "a1");
-  chain(edges, "b", 7, 10, "a6");
-  chain(edges, "c", 11, 19, "b10");
-  chain(edges, "d", 11, 13, "b10");
-  chain(edges, "e", 7, 8, "a6");
-  chain(edges, "f", 9, 13, "e8");
-  edges.push(["g9", "e8"]);
-  const active = ["a1", "a2", "a3", "a4", "a5", "a6", "b7", "b8", "b9", "b10",
-    "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18", "c19"];
-  return fixture(edges, active, ["c19", "d13", "f13", "g9"]);
-}
-function chain(edges: Array<[string, string | null]>, prefix: string, from: number, to: number, parent: string): void {
-  let previous = parent;
-  for (let depth = from; depth <= to; depth += 1) {
-    const id = `${prefix}${depth}`;
-    edges.push([id, previous]);
-    previous = id;
-  }
-}
 function fixture(edges: Array<[string, string | null]>, activeIds: string[], tagged: string[]): StoryPayload {
   const children = new Map<string, string[]>();
   for (const [id, parent] of edges) if (parent !== null) children.set(parent, [...children.get(parent) ?? [], id]);

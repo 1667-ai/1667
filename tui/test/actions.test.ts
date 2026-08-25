@@ -101,6 +101,24 @@ describe("demo action pipeline", () => {
     expect(frame).toContain("├─╮");
   });
 
+  test("leaving the lane tree onto a revealed sketch keeps it visible in path view (bug: openRowInPath)", async () => {
+    // Path view hides a sketch entirely in its default branches-only mode, so
+    // handing it the cursor without widening to all takes would resolve to a
+    // different node the moment path view lays itself out.
+    for (const followKey of ["tab", "l"] as const) {
+      const { state, press } = harness();
+      await press("m");
+      await press("m");
+      expect(state.map?.showSketches).toBeTrue();
+      state.map!.pathShowAllTakes = false;
+      state.map!.treeCursorId = "p12-t1";
+      await press(followKey);
+      expect(state.map?.view).toBe("path");
+      expect(state.map?.pathCursorId).toBe("p12-t1");
+      expect(state.map?.pathShowAllTakes).toBeTrue();
+    }
+  });
+
   test("the page take strip rings an alternate that branches, never the take you are reading", async () => {
     // The shipped demo happens to branch only on the take being read, so give
     // one alternate a continuation of its own — that is what wears the ring.

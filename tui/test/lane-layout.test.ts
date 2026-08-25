@@ -19,7 +19,7 @@ import {
 import { createDemoController } from "../src/demo.js";
 import type { HitRows } from "../src/hit.js";
 import { renderMapScreen, type MapScreenFrame } from "../src/screens/map.js";
-import { renderLaneRow } from "../src/screens/map-lane-row.js";
+import { renderLaneMarker, renderLaneRow } from "../src/screens/map-lane-row.js";
 import { frameText, plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import type { StoryScreenState } from "../src/state.js";
 
@@ -54,8 +54,8 @@ describe("lane layout model", () => {
     // p2, p4, p7, p10, p11 each fork; p7 opens two lanes at once (a line and a
     // folded sketch lane); lane 1 is reused across the other four.
     const forks = layout.allRows.filter((row): row is Extract<LaneRow, { kind: "fork" }> => row.kind === "fork");
-    expect(forks.map((row) => row.node.id).sort()).toEqual(["p10", "p11", "p2", "p4", "p7"]);
-    const p7Fork = forks.find((row) => row.node.id === "p7")!;
+    expect(forks.map((row) => row.id).sort()).toEqual(["p10:fork", "p11:fork", "p2:fork", "p4:fork", "p7:fork"]);
+    const p7Fork = forks.find((row) => row.id === "p7:fork")!;
     expect(p7Fork.toLanes).toEqual([1, 2]);
     expect(forks.filter((row) => row.toLanes.includes(1)).length).toBeGreaterThan(1);
 
@@ -199,6 +199,26 @@ describe("lane layout model", () => {
     expect(opened.allRows.find((row) => row.id === "p5-alt")?.kind).toBe("end");
   });
 
+  test("an opened cold fold along a stopped trunk's continuation keeps its own cold grandchild open too (bug: walkTrunk open tracking)", () => {
+    // `stopped` is a dead-end reading line whose only continuation is
+    // `cold-root`, itself a subtree that has gone cold — but the reader
+    // opened it. Every node here has exactly one child, so the whole chain
+    // (stopped → cold-root → cold-child) reads on as a trunk extension, not a
+    // forked-off chain — which makes this a direct test of `walkTrunk` itself:
+    // it used to classify every step with `open: false`, so once it read past
+    // `cold-root` (a "line" because *it* is opened) it forgot that state and
+    // re-folded `cold-child`, `cold-root`'s own child.
+    const base = fixture([
+      ["root", null], ["stopped", "root"],
+      ["cold-root", "stopped"], ["cold-child", "cold-root"]
+    ], ["root", "stopped"], []);
+    const old = touch(base, "cold-root", new Date(NOW - 22 * 86_400_000).toISOString());
+    const opened = createLaneLayout(old, { now: NOW, openedColdFolds: new Set(["cold-root"]) });
+    expect(opened.allRows.some((row) => row.kind === "cold")).toBeFalse();
+    expect(opened.coldLines).toBe(0);
+    expect(opened.allRows.find((row) => row.id === "cold-child")).toMatchObject({ kind: "node", active: false });
+  });
+
   test("80×24 windows both markers and never exceeds the frame height", () => {
     const { frame, text } = renderTree(createDemoController().payload(), "p7", false, 80, 24);
     expect(frame.lines).toHaveLength(24);
@@ -206,12 +226,43 @@ describe("lane layout model", () => {
     expect(text).toContain("▼");
   });
 
+  test("the bottom window marker draws the first hidden row's lanes, not a lane a close row above it just ended (bug: markerAlive)", () => {
+    const demo = createDemoController();
+    const payload = demo.payload();
+    const width = 80;
+    const height = 11;
+    // Mirrors `renderLaneTreeBody`'s own `maxRows` math (SHELL_ROWS 4, a
+    // 2-row reserve under width 100) so this layout windows identically to
+    // the one `renderMapScreen` below actually draws.
+    const maxRows = height - 4 - 2;
+    const layout = createLaneLayout(payload, { now: NOW, cursorId: "p3", showSketches: false, maxRows });
+
+    // Confirms the fixture exercises the bug: the window's last visible row
+    // is a `close` row, whose own `alive` still counts the lane(s) it closes
+    // ("before this row's own effect") — reading it directly for the marker
+    // would draw `│` in a lane that just ended.
+    const lastVisible = layout.rows[layout.rows.length - 1]!;
+    expect(lastVisible.kind).toBe("close");
+    expect(layout.moreRows).toBeGreaterThan(0);
+    const firstHidden = layout.allRows[layout.visibleEnd]!;
+    const sameAlive = firstHidden.alive.length === lastVisible.alive.length
+      && firstHidden.alive.every((value, index) => value === lastVisible.alive[index]);
+    expect(sameAlive).toBeFalse();
+
+    const expectedMarker = plainLine(renderLaneMarker(firstHidden.alive, `▼ ${layout.moreRows} below`, layout, width));
+    const { frame, text } = renderTree(payload, "p3", false, width, height);
+    expect(text).toContain(`▼ ${layout.moreRows} below`);
+    const belowLine = frame.lines.map(plainLine).find((line) => line.includes("▼"));
+    // `renderTree` fits the whole frame line to `width`, padding the marker's
+    // own (unpadded) content out with trailing spaces.
+    expect(belowLine?.trimEnd()).toBe(expectedMarker.trimEnd());
+  });
+
   test("extra root lines fork from a virtual root at depth 0", () => {
     const payload = twoExtraRootsFixture();
     const folded = createLaneLayout(payload, { now: NOW });
     expect(folded.allRows[0]).toMatchObject({ kind: "fork", id: "virtual-root:fork", lane: 0, depth: 0 });
     const fork = folded.allRows[0] as Extract<LaneRow, { kind: "fork" }>;
-    expect(fork.node.id).toBe("t1");
     expect(fork.toLanes).toEqual([1, 2]);
     expect(folded.allRows.find((row) => row.id === "r-line")).toMatchObject({ kind: "end", lane: 1, depth: 1 });
     expect(folded.allRows.find((row) => row.kind === "sketches")).toMatchObject({ lane: 2 });
@@ -227,7 +278,7 @@ describe("lane layout model", () => {
     const payload = parkedForkFixture();
     const layout = createLaneLayout(payload, { now: NOW });
     const c7Fork = layout.allRows.find(
-      (row): row is Extract<LaneRow, { kind: "fork" }> => row.kind === "fork" && row.node.id === "c7"
+      (row): row is Extract<LaneRow, { kind: "fork" }> => row.kind === "fork" && row.id === "c7:fork"
     )!;
     expect(c7Fork.lane).toBe(-1);
     expect(c7Fork.toLanes).toEqual([]);
@@ -239,6 +290,25 @@ describe("lane layout model", () => {
     const rendered = plainLine(renderLaneRow(c7Fork, layout, 120, null));
     expect(rendered).not.toContain("┼");
     expect(rendered).not.toContain("├");
+  });
+
+  test("nested fork ranks follow trunk-first depth-first order, not stack-pop order (bug: openFork push order)", () => {
+    // Two off-path siblings (A, B), each forking a further off-path child
+    // (A2, B2) at the same depth. `openFork` used to push child chains onto
+    // the work stack in fork order; since the stack pops LIFO, B was walked
+    // — and its own fork's rank assigned — before A, so B2 could rank ahead
+    // of A2 even though A is the earlier sibling.
+    const payload = fixture([
+      ["root", null], ["trunk-leaf", "root"],
+      ["A", "root"], ["A1", "A"], ["A2", "A"],
+      ["B", "root"], ["B1", "B"], ["B2", "B"]
+    ], ["root", "trunk-leaf"], ["A", "B", "A1", "A2", "B1", "B2"]);
+    const layout = createLaneLayout(payload, { now: NOW });
+    const ids = layout.allRows.map((row) => row.id);
+    const a2 = layout.allRows.find((row) => row.id === "A2")!;
+    const b2 = layout.allRows.find((row) => row.id === "B2")!;
+    expect(a2.depth).toBe(b2.depth);
+    expect(ids.indexOf("A2")).toBeLessThan(ids.indexOf("B2"));
   });
 
   test("a 200-child fork renders only the visible window in linear time", () => {
@@ -333,4 +403,12 @@ function fixture(edges: Array<[string, string | null]>, activeIds: string[], tag
   }));
   return { id: "lanes", title: "lanes", createdAt: "", updatedAt: "", nodes, path,
     activeRootId: activeIds[0] ?? null, tags, recentNodeIds: [], facts: [], chapterBreaks: [] };
+}
+
+/** Ported from `atlas-layout.test.ts`: back-dates a subtree's `lastTouched`
+ *  so a fixture goes cold on demand. */
+function touch(payload: StoryPayload, rootId: string, lastTouched: string): StoryPayload {
+  const descendants = new Set([rootId]);
+  for (const node of payload.nodes) if (node.parentId !== null && descendants.has(node.parentId)) descendants.add(node.id);
+  return { ...payload, nodes: payload.nodes.map((node) => descendants.has(node.id) ? { ...node, lastTouched } : node) };
 }

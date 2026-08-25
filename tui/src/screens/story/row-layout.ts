@@ -37,6 +37,7 @@ import {
   actionHint,
   gutterFor,
   gutterRowsFor,
+  streamingGutterRows,
   streamLivenessMark
 } from "./gutter.js";
 
@@ -54,12 +55,14 @@ export interface StickyStoryGutter {
 }
 
 export interface StickyStoryPrompt {
-  /** Natural row of the prompt inside this part's block. */
-  start: number;
   /** Rows this part paints, excluding the blank that separates it from the next. */
   partRows: number;
-  /** Rendered lazily: blocks the viewport never paints must not be prepared. */
-  line: () => FrameLine;
+  /** Sticky prefix lines stacked from the viewport's own top row down. Every
+   *  case but one is the compact prompt alone; a narrow, streaming take stacks
+   *  the boundary row above it too (item D — the side gutter is off, so the
+   *  boundary is the only place `writing`/`esc stops` lives). Rendered lazily:
+   *  blocks the viewport never paints must not be prepared. */
+  lines: Array<{ start: number; line: () => FrameLine }>;
 }
 
 /** One row plan owns measurement and visible rendering. Fixed rows are real
@@ -128,7 +131,8 @@ export function layoutStoryRow(
   const gutterRows = focused && !narrow && !streaming && !row.isSummary
     ? gutterRowsFor(row, thought)
     : null;
-  const gutterRowCount = streaming && !narrow ? 2 : gutterRows?.length ?? 0;
+  const streamingRows = streaming && !narrow ? streamingGutterRows(row, thought, state.now, deadlines) : null;
+  const gutterRowCount = streamingRows?.length ?? gutterRows?.length ?? 0;
   let prefix: FrameLine[] | null = null;
   const preparePrefix = () => prefix ??= partPrefix(
     row, rowIndex, allParts, state, measure, narrow, focused, streaming, prefixFlags, thought, deadlines
@@ -144,23 +148,27 @@ export function layoutStoryRow(
   // which otherwise scrolls off the top with the head of a take that has
   // grown taller than the viewport — the viewport follows the tail while
   // text lands, so that is exactly when the stop affordance is needed.
-  const stickyGutter: StickyStoryGutter | null = streaming && !narrow
-    ? {
-        start: prefixRows,
-        lines: [0, 1].map((lineIndex) =>
-          gutterFor(row, true, lineIndex, thought, null, state.now, deadlines))
-      }
-    : focused && !narrow && !row.isSummary
-      ? { start: prefixRows, lines: gutterRows ?? [] }
-      : null;
+  // `gutterRows` is already null in every case but its own
+  // `focused && !narrow && !row.isSummary` guard above — the streaming and
+  // summary conditions there already exclude it — so it needs no extra guard
+  // to serve as the non-streaming sticky source below.
+  const stickyGutterLines = streaming && !narrow ? streamingRows : gutterRows;
+  const stickyGutter: StickyStoryGutter | null = stickyGutterLines === null
+    ? null
+    : { start: prefixRows, lines: stickyGutterLines };
   const promptRowIndex = narrow ? 1 : 0;
   const partRows = prefixRows + Math.max(wrapped, gutterRowCount);
-  const stickyPrompt: StickyStoryPrompt | null = prefixFlags.prompt && !expandedPrompt
-    ? {
-        start: promptRowIndex,
-        partRows,
-        line: () => preparePrefix()[promptRowIndex] ?? []
-      }
+  // A narrow, streaming take has no side gutter to carry `writing`/`esc
+  // stops` (`gutterAt` returns `[]` when narrow) — the boundary row is the
+  // only place that text lives, so it sticks first; the compact prompt, if
+  // shown, stacks under it on the next frame row.
+  const stickyPromptLines: StickyStoryPrompt["lines"] = [];
+  if (narrow && streaming) stickyPromptLines.push({ start: 0, line: () => preparePrefix()[0] ?? [] });
+  if (prefixFlags.prompt && !expandedPrompt) {
+    stickyPromptLines.push({ start: promptRowIndex, line: () => preparePrefix()[promptRowIndex] ?? [] });
+  }
+  const stickyPrompt: StickyStoryPrompt | null = stickyPromptLines.length > 0
+    ? { partRows, lines: stickyPromptLines }
     : null;
   return {
     height: partRows,

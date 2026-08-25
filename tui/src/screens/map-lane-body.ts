@@ -1,11 +1,11 @@
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
-import { createLaneLayout, laneSelectable, type LaneLayout, type LaneRow } from "../lane-layout.js";
+import { createLaneLayout, laneLayoutOptions, laneSelectable, type LaneLayout, type LaneRow } from "../lane-layout.js";
 import type { HitRow } from "../hit.js";
 import type { MapState } from "../map-state.js";
 import type { StoryScreenState } from "../state.js";
 import { renderLaneMarker, renderLaneRow } from "./map-lane-row.js";
-import { formatMapWords } from "./map-row-labels.js";
-import { segment, truncate, visibleWidth, type FrameLine } from "./story/frame.js";
+import { appendMapPreview } from "./map-preview.js";
+import { type FrameLine } from "./story/frame.js";
 import type { MapScreenDerived } from "./map.js";
 
 export interface LaneMapBody {
@@ -28,10 +28,7 @@ export function renderLaneTreeBody(
 ): LaneMapBody {
   const reserve = (width >= 100 ? 2 : 0) + 2;
   const layout = createLaneLayout(state.payload, {
-    now: state.now,
-    cursorId: map.treeCursorId,
-    showSketches: map.showSketches,
-    openedColdFolds: map.openedColdFolds,
+    ...laneLayoutOptions(state, map),
     maxRows: Math.max(1, bodyHeight - reserve),
     deadlines
   });
@@ -52,8 +49,12 @@ export function renderLaneTreeBody(
     hits.push(hitForRow(row, indexById, width));
   }
   if (layout.moreRows > 0) {
-    const last = layout.rows[layout.rows.length - 1]!;
-    lines.push(renderLaneMarker(markerAlive(last), `▼ ${layout.moreRows} below`, layout, width));
+    // Symmetric with the top marker's `layout.rows[0].alive`: the alive set of
+    // the first *hidden* row, not the last visible one — a `close` row's own
+    // `alive` still names the lanes it closes (alive is "before the row's own
+    // effect"), so the last visible row would draw `│` in a lane that just ended.
+    const belowAlive = layout.allRows[layout.visibleEnd]?.alive ?? [];
+    lines.push(renderLaneMarker(belowAlive, `▼ ${layout.moreRows} below`, layout, width));
     hits.push(null);
   }
   appendLanePreview(lines, hits, layout, width);
@@ -69,17 +70,6 @@ export function renderLaneTreeBody(
     crumb: cursor === null ? "tree" : `¶ ${cursor.depth}`,
     derived: { rowIds, pathCursorId: map.pathCursorId, treeCursorId: layout.cursorId }
   };
-}
-
-/** A close row's own `lane` names a lane that is closing right there, so it
- *  must not read as still alive below the window; every other kind's own
- *  lane already belongs to `alive`, but the union is harmless and cheap. */
-function markerAlive(row: LaneRow): readonly boolean[] {
-  if (row.kind === "close" || row.lane < 0) return row.alive;
-  if (row.alive[row.lane] === true) return row.alive;
-  const alive = [...row.alive];
-  alive[row.lane] = true;
-  return alive;
 }
 
 function hitForRow(row: LaneRow, indexById: ReadonlyMap<string, number>, width: number): HitRow | null {
@@ -99,17 +89,8 @@ function appendLanePreview(
   layout: LaneLayout,
   width: number
 ): void {
-  if (width < 100) return;
-  const cursor = layout.allRows.find(isPreviewCursor);
-  if (cursor === undefined) return;
-  const detail = `¶ ${cursor.depth} · ${formatMapWords(cursor.node.words)}`;
-  const preview = truncate(
-    cursor.node.preview.replace(/\s+/g, " ").trim(),
-    Math.max(8, width - visibleWidth(detail) - 8)
-  );
-  lines.push([], [segment("  ‥ ", "summary"), segment(preview, "summary"),
-    segment(" ".repeat(Math.max(1, width - visibleWidth(preview) - visibleWidth(detail) - 5))), segment(detail, "chrome")]);
-  hits.push(null, null);
+  const cursor = layout.allRows.find(isPreviewCursor) ?? null;
+  appendMapPreview(lines, hits, cursor, width);
 }
 
 function isPreviewCursor(

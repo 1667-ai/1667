@@ -1,36 +1,17 @@
 import { createStoryIndex } from "../../shared/story-model.js";
 import { isChapterSummary } from "../../shared/story-tree.js";
 import type { Tag, NodeStub, StoryPayload } from "../../shared/types.js";
-import { ageDays, cumulativeWords, COLD_DAYS, DAY } from "./atlas-layout.js";
+import { ageDays, cumulativeWords, COLD_DAYS, DAY } from "./map-cold.js";
 import type { FrameDeadlineCollector } from "./animation-deadline.js";
-import { assignLanes, padAlive, LANE_BUDGET, type RawItem } from "./lane-layout-assign.js";
+import { assignLanes, type LaneRow, type RawItem } from "./lane-layout-assign.js";
+import { windowRows } from "./map-window.js";
 
-export { LANE_BUDGET };
+export { LANE_BUDGET } from "./lane-layout-assign.js";
+export type { LaneRow, LaneRowBase } from "./lane-layout-assign.js";
 
 /** Doc "10a": rows are reading order, each live story line owns a two-column
  *  lane, and a line that ends hands its lane back for the next fork to reuse.
  *  Depth costs nothing; only concurrency does. */
-
-interface LaneRowBase {
-  /** Story depth (¶ number) the row sits at; fork and close rows carry the depth they follow. */
-  depth: number;
-  /** Lane index; -1 when the line is parked in the overflow column. Lane 0 is the reading line. */
-  lane: number;
-  /** Lanes drawn as `│` on this row (index = lane), before this row's own effect. */
-  alive: readonly boolean[];
-  /** Parked (overflow) lines alive at this row. */
-  parked: number;
-  cursor: boolean;
-}
-export type LaneRow = LaneRowBase & (
-  | { kind: "node"; id: string; node: NodeStub; active: boolean; tag: Tag | null }
-  | { kind: "end"; id: string; node: NodeStub; tag: Tag | null; words: number }
-  | { kind: "sketch"; id: string; node: NodeStub }
-  | { kind: "sketches"; id: string; forkId: string; count: number }
-  | { kind: "cold"; id: string; node: NodeStub; lineCount: number; weeks: number }
-  | { kind: "fork"; id: string; node: NodeStub; toLanes: readonly number[]; parkedCount: number }
-  | { kind: "close"; id: string; lanes: readonly number[] }
-);
 
 export interface LaneLayout {
   rows: LaneRow[];
@@ -41,7 +22,7 @@ export interface LaneLayout {
   /** Whether any line is parked anywhere in the story (draws the overflow column on every row). */
   overflow: boolean;
   totalLines: number; totalParts: number; forkCount: number;
-  coldLines: number; coldSubtrees: number; sketchCount: number;
+  coldLines: number;
   visibleStart: number; visibleEnd: number; totalRows: number; moreRows: number;
 }
 export interface LaneLayoutOptions {
@@ -51,19 +32,16 @@ export interface LaneLayoutOptions {
 
 interface ColdEntry { node: NodeStub; lineCount: number; weeks: number }
 
-interface PendingChild {
-  kind: "line" | "cold" | "sketchLane";
-  startNode?: NodeStub;
-  coldEntry?: ColdEntry;
-  sketches?: NodeStub[];
-}
+/** What a chain starts on, once its own continuation has already been picked
+ *  out of its siblings: an ordinary line, a subtree already past the cold
+ *  threshold, or the fork's one combined sketches lane. */
+type ChainStart =
+  | { kind: "line"; node: NodeStub }
+  | { kind: "cold"; entry: ColdEntry }
+  | { kind: "sketches"; forkNodeId: string; sketches: NodeStub[]; forkDepth: number };
 
 interface ChainTask {
-  chainId: string; chainRank: number; insideOpened: boolean;
-  kind: "line" | "cold" | "sketchLane";
-  startNode?: NodeStub;
-  coldEntry?: ColdEntry;
-  forkNodeId?: string; sketches?: NodeStub[]; forkDepth?: number;
+  chainId: string; chainRank: number; insideOpened: boolean; start: ChainStart;
 }
 
 export function createLaneLayout(payload: StoryPayload, options: LaneLayoutOptions): LaneLayout {
@@ -83,12 +61,8 @@ export function createLaneLayout(payload: StoryPayload, options: LaneLayoutOptio
   const items: RawItem[] = [];
   let rankCounter = 0;
   const nextRank = (): number => (rankCounter += 1) - 1;
-  const totals = { coldLines: 0, coldSubtrees: 0 };
+  const totals = { coldLines: 0 };
   const stack: ChainTask[] = [];
-
-  function classify(node: NodeStub, open: boolean): { sketches: NodeStub[]; colds: ColdEntry[]; lines: NodeStub[] } {
-    return classifyList(childrenOf(node.id), open);
-  }
 
   /** Shared by a real node's children and the story's extra root lines, which
    *  have no parent node to hang a `childrenOf` lookup off — the virtual-root
@@ -102,7 +76,7 @@ export function createLaneLayout(payload: StoryPayload, options: LaneLayoutOptio
       // `open` is inherited from an ancestor already inside an opened fold;
       // `opened.has(child.id)` is this child's own fold having just been
       // opened. Either one means nothing below it folds (mirrors atlas-layout's
-      // `insideOpened || opened.has(anchor.id)`, checked per child here since
+      // old `insideOpened || opened.has(anchor.id)`, checked per child here since
       // a shared `open` would give every sibling the same fold state.
       const childOpen = open || opened.has(child.id);
       const days = ageDays(child.lastTouched, now);
@@ -119,53 +93,54 @@ export function createLaneLayout(payload: StoryPayload, options: LaneLayoutOptio
     return { sketches, colds, lines };
   }
 
-  function pendingChildren(lines: NodeStub[], colds: ColdEntry[], sketches: NodeStub[]): PendingChild[] {
-    const out: PendingChild[] = lines.map((startNode) => ({ kind: "line" as const, startNode }));
-    for (const coldEntry of colds) out.push({ kind: "cold", coldEntry });
-    if (sketches.length > 0) out.push({ kind: "sketchLane", sketches });
-    return out;
+  /** The `lines`/`colds`/`sketches` a fork still has left, once any of them
+   *  that continues the current chain has already been shifted out, as one
+   *  `ChainStart[]` in the order doc "10a" forks them: lines, then colds,
+   *  then one combined sketches lane. */
+  function chainStarts(
+    lines: NodeStub[], colds: ColdEntry[], sketches: NodeStub[], forkNodeId: string, forkDepth: number
+  ): ChainStart[] {
+    const starts: ChainStart[] = lines.map((node) => ({ kind: "line" as const, node }));
+    for (const entry of colds) starts.push({ kind: "cold", entry });
+    if (sketches.length > 0) starts.push({ kind: "sketches", forkNodeId, sketches, forkDepth });
+    return starts;
   }
 
   /** Opens the fork row (if there is anything to fork) and pushes each new
-   *  chain onto the work stack. Chain rank is assigned here, in fork order,
-   *  so the sort's tiebreaker matches a trunk-first depth-first walk. */
+   *  chain onto the work stack. Chain rank is assigned here, in fork order, so
+   *  the sort's tiebreaker matches a trunk-first depth-first walk — which
+   *  needs the *push* to run in reverse: the stack is LIFO, so pushing the
+   *  first sibling last is what makes it pop (and so rank its own nested
+   *  forks) first. */
   function openFork(
     node: NodeStub, depth: number, chainId: string, chainRank: number,
-    children: PendingChild[], insideOpened: boolean, forkId = `${node.id}:fork`
+    starts: ChainStart[], insideOpened: boolean, forkId = `${node.id}:fork`
   ): void {
-    if (children.length === 0) return;
+    if (starts.length === 0) return;
     const childChainIds: string[] = [];
-    for (const child of children) {
+    const tasks: ChainTask[] = [];
+    for (const start of starts) {
       const id = `${forkId}:${childChainIds.length}`;
       const rank = nextRank();
       childChainIds.push(id);
-      if (child.kind === "line") {
-        stack.push({ chainId: id, chainRank: rank, insideOpened, kind: "line", startNode: child.startNode! });
-      } else if (child.kind === "cold") {
-        stack.push({ chainId: id, chainRank: rank, insideOpened, kind: "cold", coldEntry: child.coldEntry! });
-      } else {
-        stack.push({
-          chainId: id, chainRank: rank, insideOpened, kind: "sketchLane",
-          forkNodeId: node.id, sketches: child.sketches!, forkDepth: depth
-        });
-      }
+      tasks.push({ chainId: id, chainRank: rank, insideOpened, start });
     }
-    items.push({ itemKind: "fork", depth, order: 2, chainId, chainRank, node, childChainIds, forkId });
+    for (let i = tasks.length - 1; i >= 0; i -= 1) stack.push(tasks[i]!);
+    items.push({ itemKind: "fork", depth, order: 2, chainId, chainRank, childChainIds, forkId });
   }
 
-  function pushCold(chainId: string, chainRank: number, coldEntry: ColdEntry): void {
-    const depth = depthOf(coldEntry.node);
-    totals.coldLines += coldEntry.lineCount;
-    totals.coldSubtrees += 1;
-    items.push({
+  function coldRow(chainId: string, chainRank: number, entry: ColdEntry): RawItem {
+    const depth = depthOf(entry.node);
+    totals.coldLines += entry.lineCount;
+    return {
       itemKind: "draw", depth, order: 0, chainId, chainRank,
-      build: (lane, alive, parked) => ({
-        kind: "cold", id: coldEntry.node.id, node: coldEntry.node,
-        lineCount: coldEntry.lineCount, weeks: coldEntry.weeks,
-        depth, lane, alive, parked, cursor: false
-      })
-    });
-    items.push({ itemKind: "close", depth, order: 1, chainId, chainRank });
+      row: { kind: "cold", id: entry.node.id, node: entry.node, lineCount: entry.lineCount, weeks: entry.weeks, depth }
+    };
+  }
+
+  function pushCold(chainId: string, chainRank: number, entry: ColdEntry): void {
+    items.push(coldRow(chainId, chainRank, entry));
+    items.push({ itemKind: "close", depth: depthOf(entry.node), order: 1, chainId, chainRank });
   }
 
   function pushSketches(
@@ -176,19 +151,14 @@ export function createLaneLayout(payload: StoryPayload, options: LaneLayoutOptio
       for (const sketch of sketches) {
         items.push({
           itemKind: "draw", depth, order: 0, chainId, chainRank,
-          build: (lane, alive, parked) => ({
-            kind: "sketch", id: sketch.id, node: sketch, depth, lane, alive, parked, cursor: false
-          })
+          row: { kind: "sketch", id: sketch.id, node: sketch, depth }
         });
       }
     } else {
       const count = sketches.length;
       items.push({
         itemKind: "draw", depth, order: 0, chainId, chainRank,
-        build: (lane, alive, parked) => ({
-          kind: "sketches", id: `${forkId}:sketches`, forkId, count,
-          depth, lane, alive, parked, cursor: false
-        })
+        row: { kind: "sketches", id: `${forkId}:sketches`, forkId, count, depth }
       });
     }
     return depth;
@@ -207,25 +177,25 @@ export function createLaneLayout(payload: StoryPayload, options: LaneLayoutOptio
     const otherRoots = childrenOf(null).filter((root) => root.id !== trunkRoot.id);
     if (otherRoots.length > 0) {
       const { sketches, colds, lines } = classifyList(otherRoots, false);
-      openFork(trunkRoot, 0, "trunk", 0, pendingChildren(lines, colds, sketches), false, "virtual-root:fork");
+      openFork(trunkRoot, 0, "trunk", 0, chainStarts(lines, colds, sketches, trunkRoot.id, 0), false, "virtual-root:fork");
     }
     let node = trunkRoot;
     let pathIndex = 0;
+    // Threaded exactly like an off-path chain's own `open`: once the trunk
+    // has read past a node the reader opened, nothing below it refolds — a
+    // stopped line that continues into an opened cold subtree must not
+    // re-cold its own grandchildren.
+    let open = false;
     for (;;) {
-      // A fresh binding per iteration: `build` runs later, once lanes are
-      // assigned, and must not read whatever `node` holds by then — the loop
-      // keeps reassigning it (a captured `let` would read the trunk's last node).
-      const trunkNode = node;
-      const depth = depthOf(trunkNode);
-      const active = trunkNode.id === activeLeafId;
-      const tag = tagOf(trunkNode.id);
+      const depth = depthOf(node);
+      const active = node.id === activeLeafId;
+      const tag = tagOf(node.id);
       items.push({
         itemKind: "draw", depth, order: 0, chainId: "trunk", chainRank: 0,
-        build: (lane, alive, parked) => ({
-          kind: "node", id: trunkNode.id, node: trunkNode, active, tag, depth, lane, alive, parked, cursor: false
-        })
+        row: { kind: "node", id: node.id, node, active, tag, depth }
       });
-      const { sketches, colds, lines } = classify(node, false);
+      open = open || opened.has(node.id);
+      const { sketches, colds, lines } = classifyList(childrenOf(node.id), open);
       let cont: NodeStub | null = null;
       if (pathIndex + 1 < pathNodes.length) {
         const next = pathNodes[pathIndex + 1]!;
@@ -238,20 +208,12 @@ export function createLaneLayout(payload: StoryPayload, options: LaneLayoutOptio
       const coldCont = cont === null && colds.length > 0 ? colds.shift()! : null;
       const isEnd = cont === null && coldCont === null;
       if (!isEnd) {
-        openFork(node, depth, "trunk", 0, pendingChildren(lines, colds, sketches), false);
+        openFork(node, depth, "trunk", 0, chainStarts(lines, colds, sketches, node.id, depth), open);
       }
       if (coldCont !== null) {
-        const coldDepth = depthOf(coldCont.node);
-        totals.coldLines += coldCont.lineCount;
-        totals.coldSubtrees += 1;
-        items.push({
-          itemKind: "draw", depth: coldDepth, order: 0, chainId: "trunk", chainRank: 0,
-          build: (lane, alive, parked) => ({
-            kind: "cold", id: coldCont.node.id, node: coldCont.node,
-            lineCount: coldCont.lineCount, weeks: coldCont.weeks,
-            depth: coldDepth, lane, alive, parked, cursor: false
-          })
-        });
+        // Lane 0 (the trunk) never closes, so the tail cold row has no
+        // matching close item — reuse `pushCold`'s row half only.
+        items.push(coldRow("trunk", 0, coldCont));
         return;
       }
       if (cont === null) {
@@ -267,11 +229,13 @@ export function createLaneLayout(payload: StoryPayload, options: LaneLayoutOptio
     let open = insideOpened;
     for (;;) {
       open = open || opened.has(node.id);
-      const { sketches, colds, lines } = classify(node, open);
+      const { sketches, colds, lines } = classifyList(childrenOf(node.id), open);
       const cont = lines.length > 0 ? lines.shift()! : null;
       const coldCont = cont === null && colds.length > 0 ? colds.shift()! : null;
       const isEnd = cont === null && coldCont === null;
-      if (!isEnd) openFork(node, depthOf(node), chainId, chainRank, pendingChildren(lines, colds, sketches), open);
+      if (!isEnd) {
+        openFork(node, depthOf(node), chainId, chainRank, chainStarts(lines, colds, sketches, node.id, depthOf(node)), open);
+      }
       if (coldCont !== null) { pushCold(chainId, chainRank, coldCont); return; }
       if (cont === null) {
         const depth = depthOf(node);
@@ -282,9 +246,7 @@ export function createLaneLayout(payload: StoryPayload, options: LaneLayoutOptio
         const words = rootWords.get(node.id) ?? node.words;
         items.push({
           itemKind: "draw", depth, order: 0, chainId, chainRank,
-          build: (lane, alive, parked) => ({
-            kind: "end", id: node.id, node, tag, words, depth, lane, alive, parked, cursor: false
-          })
+          row: { kind: "end", id: node.id, node, tag, words, depth }
         });
         let lastDepth = depth;
         if (sketches.length > 0) lastDepth = pushSketches(chainId, chainRank, node.id, sketches, depth);
@@ -298,10 +260,10 @@ export function createLaneLayout(payload: StoryPayload, options: LaneLayoutOptio
   walkTrunk();
   while (stack.length > 0) {
     const task = stack.pop()!;
-    if (task.kind === "line") walkLineChain(task.chainId, task.chainRank, task.startNode!, task.insideOpened);
-    else if (task.kind === "cold") pushCold(task.chainId, task.chainRank, task.coldEntry!);
+    if (task.start.kind === "line") walkLineChain(task.chainId, task.chainRank, task.start.node, task.insideOpened);
+    else if (task.start.kind === "cold") pushCold(task.chainId, task.chainRank, task.start.entry);
     else {
-      const depth = pushSketches(task.chainId, task.chainRank, task.forkNodeId!, task.sketches!, task.forkDepth! + 1);
+      const depth = pushSketches(task.chainId, task.chainRank, task.start.forkNodeId, task.start.sketches, task.start.forkDepth + 1);
       items.push({ itemKind: "close", depth, order: 1, chainId: task.chainId, chainRank: task.chainRank });
     }
   }
@@ -310,22 +272,11 @@ export function createLaneLayout(payload: StoryPayload, options: LaneLayoutOptio
     left.depth - right.depth || left.order - right.order || left.chainRank - right.chainRank);
   const { rows: allRowsRaw, laneCount, overflow } = assignLanes(sorted);
 
-  const selectable = (row: LaneRow): boolean => laneSelectable(row);
-  const wanted = options.cursorId ?? activeLeafId;
-  const cursorId = allRowsRaw.some((row) => selectable(row) && row.id === wanted)
-    ? wanted
-    : allRowsRaw.find((row) => selectable(row) && row.id === activeLeafId)?.id
-      ?? allRowsRaw.find(selectable)?.id ?? null;
-  const allRows = allRowsRaw.map((row) => ({
-    ...row, alive: padAlive(row.alive, laneCount), cursor: selectable(row) && row.id === cursorId
-  }));
-
-  const maxRows = Math.max(1, options.maxRows ?? (allRows.length || 1));
-  const cursorIndex = Math.max(0, allRows.findIndex((row) => row.cursor));
-  const visibleStart = Number.isFinite(maxRows)
-    ? Math.max(0, Math.min(cursorIndex - Math.floor(maxRows / 2), allRows.length - maxRows)) : 0;
-  const rows = allRows.slice(visibleStart, Number.isFinite(maxRows) ? visibleStart + maxRows : undefined);
-  for (const row of rows) {
+  const windowed = windowRows(allRowsRaw, {
+    wanted: options.cursorId ?? activeLeafId, home: activeLeafId,
+    selectable: laneSelectable, maxRows: options.maxRows
+  });
+  for (const row of windowed.rows) {
     if (row.kind !== "cold") continue;
     const touched = Date.parse(row.node.lastTouched);
     if (Number.isFinite(touched)) deadlines?.at(touched + (row.weeks + 1) * 7 * DAY);
@@ -334,14 +285,13 @@ export function createLaneLayout(payload: StoryPayload, options: LaneLayoutOptio
   const lineNodes = payload.nodes.filter((node) => !isChapterSummary(node));
   const roots = childrenOf(null);
   return {
-    rows, allRows, cursorId, laneCount, overflow,
+    rows: windowed.rows, allRows: windowed.allRows, cursorId: windowed.cursorId, laneCount, overflow,
     totalLines: index.mapLineCount,
     totalParts: lineNodes.length,
     forkCount: lineNodes.filter((node) => node.childCount >= 2).length + Number(roots.length > 1),
-    coldLines: totals.coldLines, coldSubtrees: totals.coldSubtrees,
-    sketchCount: index.mapSketchNodeIds.size,
-    visibleStart, visibleEnd: visibleStart + rows.length, totalRows: allRows.length,
-    moreRows: Math.max(0, allRows.length - visibleStart - rows.length)
+    coldLines: totals.coldLines,
+    visibleStart: windowed.visibleStart, visibleEnd: windowed.visibleEnd, totalRows: windowed.totalRows,
+    moreRows: windowed.moreRows
   };
 }
 
@@ -349,6 +299,23 @@ export function createLaneLayout(payload: StoryPayload, options: LaneLayoutOptio
  *  fold answers to `toggle-sketches`, never the cursor (spec §3, `map-lane-body.ts`). */
 export function laneSelectable(row: LaneRow): boolean {
   return row.kind === "node" || row.kind === "end" || row.kind === "sketch" || row.kind === "cold";
+}
+
+/** Which take a row names: `node`/`end`/`sketch` → its id; a fork, close,
+ *  folded sketches count, or cold subtree names no single take. */
+export function laneTakeId(row: LaneRow): string | null {
+  return row.kind === "node" || row.kind === "end" || row.kind === "sketch" ? row.id : null;
+}
+
+/** The `LaneLayoutOptions` every map view derives the same way from its own
+ *  interaction state — shared so `map-actions.ts`, `generation-record-actions.ts`,
+ *  and `map-lane-body.ts` (which adds `maxRows`/`deadlines` of its own) build
+ *  it identically. */
+export function laneLayoutOptions(
+  state: { now: number },
+  map: { treeCursorId: string | null; showSketches: boolean; openedColdFolds: ReadonlySet<string> }
+): Pick<LaneLayoutOptions, "now" | "cursorId" | "showSketches" | "openedColdFolds"> {
+  return { now: state.now, cursorId: map.treeCursorId, showSketches: map.showSketches, openedColdFolds: map.openedColdFolds };
 }
 
 export function moveLaneCursor(layout: LaneLayout, direction: -1 | 1): string | null {

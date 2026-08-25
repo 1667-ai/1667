@@ -13,8 +13,9 @@ import type { StoryScreenState } from "../state.js";
 import { projectStreamedPayload } from "../stream-projection.js";
 import { createMapMassScale, renderMapMassRow, renderMapSketchFold } from "./map-mass-row.js";
 import { createMapPathRow, renderMapPathRow, type MapPathRow } from "./map-path-row.js";
-import { tagGlyph, tagRole, formatMapWords } from "./map-row-labels.js";
+import { tagGlyph, tagRole } from "./map-row-labels.js";
 import { renderLaneTreeBody } from "./map-lane-body.js";
+import { appendMapPreview } from "./map-preview.js";
 import { renderSurfaceBreadcrumb } from "./surface-breadcrumb.js";
 import { lightWorkKeyword } from "./work-light.js";
 import {
@@ -158,7 +159,6 @@ function renderMassBody(
     now: state.now,
     cursorId: map.treeCursorId,
     showSketches: map.showSketches,
-    openedColdFolds: map.openedColdFolds,
     sort: map.massSort,
     maxRows: Math.max(1, bodyHeight - reserve),
     deadlines
@@ -201,8 +201,8 @@ function renderMassBody(
   };
 }
 
-function mapRowKind(kind: AtlasRow["kind"]): "node" | "sketch" | "cold" | null {
-  return kind === "node" || kind === "sketch" || kind === "cold" ? kind : null;
+function mapRowKind(kind: AtlasRow["kind"]): "node" | "sketch" | null {
+  return kind === "node" || kind === "sketch" ? kind : null;
 }
 
 function appendWindowLine(lines: FrameLine[], hits: Array<HitRow | null>, layout: AtlasLayout): void {
@@ -220,14 +220,8 @@ function appendPreview(
   layout: AtlasLayout,
   width: number
 ): void {
-  if (width < 100) return;
-  const cursor = layout.allRows.find((row) => row.cursor && row.kind !== "cold");
-  if (cursor === undefined) return;
-  const detail = `¶ ${cursor.depth} · ${formatMapWords(cursor.ownWords)}`;
-  const preview = truncate(cursor.node.preview.replace(/\s+/g, " ").trim(), Math.max(8, width - visibleWidth(detail) - 8));
-  lines.push([], [segment("  ‥ ", "summary"), segment(preview, "summary"),
-    segment(" ".repeat(Math.max(1, width - visibleWidth(preview) - visibleWidth(detail) - 5))), segment(detail, "chrome")]);
-  hits.push(null, null);
+  const cursor = layout.allRows.find((row) => row.cursor) ?? null;
+  appendMapPreview(lines, hits, cursor, width);
 }
 
 function renderTitle(view: MapView, stats: string, width: number): FrameLine {

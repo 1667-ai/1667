@@ -1,11 +1,13 @@
 import type { LaneLayout, LaneRow } from "../lane-layout.js";
-import { tagGlyph, tagRole, formatMapWordsBare, laneLineLabel } from "./map-row-labels.js";
+import { tagGlyph, tagRole, formatMapWordsBare, mapLineLabel, opening } from "./map-row-labels.js";
 import {
   padCells,
   segment,
   truncate,
   visibleWidth,
-  type FrameLine
+  type DisplayRole,
+  type FrameLine,
+  type FrameSegment
 } from "./story/frame.js";
 
 type LaneGeometry = Pick<LaneLayout, "laneCount" | "overflow">;
@@ -28,15 +30,10 @@ export function renderLaneRow(
   if (row.kind === "close") return renderCloseRow(row, layout);
   const line: FrameLine = [segment(row.cursor ? "▸ " : "  ", row.cursor ? "focus / accent" : "prose")];
   const { text: glyph, role } = ownGlyph(row, streamTargetId);
-  for (let lane = 0; lane < layout.laneCount; lane += 1) {
-    if (row.lane !== -1 && lane === row.lane) line.push(segment(glyph, role));
-    else if (row.alive[lane] === true) line.push(segment("│ ", "dimmed page"));
-    else line.push(segment("  "));
-  }
-  if (layout.overflow) {
-    if (row.lane === -1) line.push(segment(padCells("⋯", 4), "dimmed page"));
-    else line.push(segment(row.parked > 0 ? padCells(`⋯${row.parked}`, 4) : "    ", "dimmed page"));
-  }
+  const override = row.lane === -1 ? undefined : { lane: row.lane, cell: segment(glyph, role) };
+  line.push(...laneCells(row.alive, layout.laneCount, override));
+  const overflow = overflowCell(layout, row.lane === -1 ? -1 : row.parked, "dimmed page");
+  if (overflow !== null) line.push(overflow);
   appendLabel(line, row, width);
   return line;
 }
@@ -49,13 +46,37 @@ export function renderLaneMarker(
   layout: LaneGeometry,
   width: number
 ): FrameLine {
-  const line: FrameLine = [segment("  ")];
-  for (let lane = 0; lane < layout.laneCount; lane += 1) {
-    line.push(alive[lane] === true ? segment("│ ", "dimmed page") : segment("  "));
-  }
-  if (layout.overflow) line.push(segment("    "));
+  const line: FrameLine = [segment("  "), ...laneCells(alive, layout.laneCount)];
+  const overflow = overflowCell(layout, 0, "dimmed page");
+  if (overflow !== null) line.push(overflow);
   line.push(segment(truncate(text, Math.max(1, width - lineWidthOf(line))), "dimmed page"));
   return line;
+}
+
+/** Lane cells for one row: `│` where a lane is alive, blank otherwise, with at
+ *  most one lane's cell swapped for something else — the row's own glyph.
+ *  Fork and close rows draw richer, multi-lane connectors of their own and
+ *  build their cells directly instead. */
+function laneCells(
+  alive: readonly boolean[],
+  laneCount: number,
+  override?: { lane: number; cell: FrameSegment }
+): FrameSegment[] {
+  const cells: FrameSegment[] = [];
+  for (let lane = 0; lane < laneCount; lane += 1) {
+    if (override !== undefined && lane === override.lane) { cells.push(override.cell); continue; }
+    cells.push(alive[lane] === true ? segment("│ ", "dimmed page") : segment("  "));
+  }
+  return cells;
+}
+
+/** The shared 4-cell overflow column: `null` when the story never parks a
+ *  line, blank when nothing parked here, a bare `⋯` when the row's own line
+ *  is the parked one (`count < 0`), else the parked count. */
+function overflowCell(layout: LaneGeometry, count: number, role: DisplayRole): FrameSegment | null {
+  if (!layout.overflow) return null;
+  if (count < 0) return segment(padCells("⋯", 4), role);
+  return count > 0 ? segment(padCells(`⋯${count}`, 4), role) : segment("    ");
 }
 
 function lineWidthOf(line: FrameLine): number {
@@ -89,7 +110,7 @@ function appendLabel(line: FrameLine, row: LabelledRow, width: number): void {
     return;
   }
   if (row.kind === "end") {
-    const label = laneLineLabel({ tag: row.tag, node: row.node });
+    const label = mapLineLabel({ tag: row.tag, node: row.node });
     const role = row.cursor ? "prose" : tagRole(row.tag);
     const tail = row.words < 1_000 ? `${row.words}w` : formatMapWordsBare(row.words);
     const tailText = ` · ${tail}`;
@@ -113,13 +134,6 @@ function appendLabel(line: FrameLine, row: LabelledRow, width: number): void {
   line.push(segment(truncate(label, remaining()), "prose · dim"));
 }
 
-/** First six words of a preview, for a sketch's quoted opening — ported from
- *  `atlas-layout.ts` rather than exported: it is a display concern, not a
- *  layout one. */
-function opening(value: string): string {
-  return value.replace(/\s+/g, " ").trim().split(" ").slice(0, 6).join(" ");
-}
-
 function renderForkRow(row: Extract<LaneRow, { kind: "fork" }>, layout: LaneGeometry): FrameLine {
   const line: FrameLine = [segment("  ")];
   const lastChildLane = row.toLanes.length > 0 ? row.toLanes[row.toLanes.length - 1]! : row.lane;
@@ -138,11 +152,8 @@ function renderForkRow(row: Extract<LaneRow, { kind: "fork" }>, layout: LaneGeom
     const second = lane === lastChildLane ? (continuesToOverflow ? "─" : " ") : "─";
     line.push(segment(`${first}${second}`, "brass dim"));
   }
-  if (layout.overflow) {
-    line.push(row.parkedCount > 0
-      ? segment(padCells(`⋯${row.parkedCount}`, 4), "brass dim")
-      : segment("    "));
-  }
+  const overflow = overflowCell(layout, row.parkedCount, "brass dim");
+  if (overflow !== null) line.push(overflow);
   return line;
 }
 
@@ -154,8 +165,7 @@ function renderCloseRow(row: Extract<LaneRow, { kind: "close" }>, layout: LaneGe
     else if (row.alive[lane] === true) line.push(segment("│ ", "dimmed page"));
     else line.push(segment("  "));
   }
-  if (layout.overflow) {
-    line.push(row.parked > 0 ? segment(padCells(`⋯${row.parked}`, 4), "dimmed page") : segment("    "));
-  }
+  const overflow = overflowCell(layout, row.parked, "dimmed page");
+  if (overflow !== null) line.push(overflow);
   return line;
 }
