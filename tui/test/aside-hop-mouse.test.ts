@@ -247,6 +247,7 @@ describe("Aside hop mouse", () => {
       }
     };
     await handleOverlayAction({ action: "aside-delete" }, state, source, context);
+    await handleOverlayAction({ action: "aside-delete" }, state, source, context);
     expect(surface.deleteUndo).not.toBeNull();
 
     const target = asideHopEntries(ANCHORS, CURRENT).find((entry) =>

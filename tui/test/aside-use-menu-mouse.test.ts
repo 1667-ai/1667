@@ -888,6 +888,7 @@ describe("Aside use-menu mouse", () => {
     };
     const context = overlayContext(state, 80, 24);
     await handleOverlayAction({ action: "aside-delete" }, state, sourceWithDelete, context);
+    await handleOverlayAction({ action: "aside-delete" }, state, sourceWithDelete, context);
     expect(surface.deleteUndo).not.toBeNull();
     expect(openAsideUseMenu(surface, 0)).toBeTrue();
 
