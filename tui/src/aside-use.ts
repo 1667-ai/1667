@@ -123,6 +123,23 @@ export function openAsideUseMenu(
   return true;
 }
 
+/** Open a mouse-targeted menu without changing the active Aside viewport. */
+export function openAsideUseMenuFromMouse(
+  surface: AsideSurfaceState,
+  noteIndex: number,
+  selectionText?: string,
+  selectionSpans: readonly StorySelectionSpan[] = []
+): boolean {
+  const focus = surface.focus;
+  const cursor = asideCursor(surface);
+  const opened = openAsideUseMenu(
+    surface, noteIndex, 0, selectionText, selectionSpans
+  );
+  surface.focus = focus;
+  setAsideCursor(surface, cursor);
+  return opened;
+}
+
 export function closeAsideUseMenu(surface: AsideSurfaceState): void {
   surface.useMenu = null;
 }
