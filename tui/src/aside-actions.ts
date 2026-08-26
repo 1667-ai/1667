@@ -23,6 +23,7 @@ import {
 } from "./aside-surface.js";
 import {
   asideChatLayout as renderAsideV2ChatLayout,
+  hydrateAsideAnchor,
   asideSessionsFromResponse,
   asideV2HeaderLines,
   type AsideChatRowKind,
@@ -647,7 +648,7 @@ export async function openAside(
     const responseAnchor = responseRecord !== null
       && Object.prototype.hasOwnProperty.call(responseRecord, "anchor")
       ? normalizeAsideAnchor(responseRecord.anchor) : openingAnchor;
-    const selectedAnchor = responseAnchor;
+    const selectedAnchor = hydrateAsideAnchor(responseAnchor, model.anchors, openingAnchor);
     state.aside = createAsideSurface(
       requestedStoryId,
       state.payload.title,
@@ -823,7 +824,10 @@ export async function sendAsideQuestion(
         {
           storyId: surface.storyId,
           question: trimmed,
-          anchor: surface.anchor,
+          anchor: surface.anchor === null ? null : {
+            partId: surface.anchor.partId,
+            takeId: surface.anchor.takeId
+          },
           // Keep an empty persisted session addressable after `/clear`.
           // Client-created ids are also stable mutation inputs, so the first
           // ask can persist that exact id without a second local identity.

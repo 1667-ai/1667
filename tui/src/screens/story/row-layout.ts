@@ -37,10 +37,10 @@ import {
   actionHint,
   gutterFor,
   gutterRowsFor,
-  streamingGutterRows,
-  streamLivenessMark
+  streamingGutterRows
 } from "./gutter.js";
 import { asideBoundaryLabel, asidePresenceForPart } from "../../aside-presence.js";
+import { streamLivenessMark } from "../work-light.js";
 
 export interface StoryRowLayout {
   height: number;

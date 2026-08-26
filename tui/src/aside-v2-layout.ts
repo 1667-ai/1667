@@ -31,6 +31,33 @@ function dimension(value: number, fallback: number): number {
   return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : fallback;
 }
 
+function sameAnchor(left: AsideSessionAnchor, right: AsideSessionAnchor): boolean {
+  return left.partId === right.partId && left.takeId === right.takeId;
+}
+
+/** Restore display-only position fields without changing the wire address. */
+export function hydrateAsideAnchor(
+  anchor: AsideSessionAnchor | null,
+  anchors: readonly AsideAnchorView[],
+  fallback: AsideSessionAnchor | null = null
+): AsideSessionAnchor | null {
+  if (anchor === null) return null;
+  const presence = anchors.find((entry) =>
+    entry.unanchored !== true && sameAnchor(entry, anchor)
+  );
+  const fallbackMatch = fallback !== null && sameAnchor(fallback, anchor)
+    ? fallback : undefined;
+  const partNumber = presence?.partNumber ?? fallbackMatch?.partNumber ?? anchor.partNumber;
+  const takeIndex = presence?.takeIndex ?? fallbackMatch?.takeIndex ?? anchor.takeIndex;
+  const takeCount = presence?.takeCount ?? fallbackMatch?.takeCount ?? anchor.takeCount;
+  return {
+    ...anchor,
+    ...(partNumber === undefined ? {} : { partNumber }),
+    ...(takeIndex === undefined ? {} : { takeIndex }),
+    ...(takeCount === undefined ? {} : { takeCount })
+  };
+}
+
 interface WrappedAsideRow {
   text: string;
   start: number;
@@ -162,7 +189,11 @@ export function asideSessionsFromResponse(
       unanchored: true
     });
   }
-  return { sessions, anchors };
+  const hydratedSessions = sessions.map((session) => ({
+    ...session,
+    anchor: hydrateAsideAnchor(session.anchor, anchors, fallbackAnchor)
+  }));
+  return { sessions: hydratedSessions, anchors };
 }
 
 export function asideHopStrip(surface: AsideSessionSurfaceState): string {

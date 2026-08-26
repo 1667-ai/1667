@@ -52,11 +52,13 @@ import {
 } from "./frame.js";
 import { renderComposerLayout } from "./composer.js";
 import type { StoryScreenFrame } from "../story.js";
+import { lightWorkKeyword, streamLivenessMark } from "../work-light.js";
 
 function renderAsideV2Status(
   state: StoryScreenState,
   surface: AsideSessionSurfaceState,
-  width: number
+  width: number,
+  deadlines?: FrameDeadlineCollector
 ): FrameLine {
   const resetConfirmation = surface.confirmReset !== null
     && surface.confirmReset.turnIndex >= 0;
@@ -82,11 +84,18 @@ function renderAsideV2Status(
     segment(width < 100 ? `  ${position}` : `  ${surface.storyTitle} · ${position}`, "chrome")
   ];
   const rightText = surface.busy
-    ? surface.streamPhase ?? "thinking"
+    ? `${streamLivenessMark(state.now, deadlines)} ${surface.streamPhase ?? "thinking"}`
     : width < 100 ? "utility route" : `utility route · ${state.model}`;
-  const right = segment(` ${rightText} `, surface.busy ? "focus / accent" : "chrome");
+  const right: FrameLine = surface.busy
+    ? lightWorkKeyword(
+      [segment(` ${rightText} `, "focus / accent")],
+      surface.streamPhase ?? "thinking",
+      state.now,
+      deadlines
+    )
+    : [segment(` ${rightText} `, "chrome")];
   const rightWidth = visibleWidth(rightText) + 2;
-  return [...fitLine(left, Math.max(1, width - rightWidth)), right];
+  return [...fitLine(left, Math.max(1, width - rightWidth)), ...right];
 }
 
 function renderAsideV2Composer(
@@ -174,7 +183,7 @@ function renderAsideV2Screen(
   deadlines?: FrameDeadlineCollector
 ): StoryScreenFrame {
   const composerLines = renderAsideV2Composer(state, surface, width, height);
-  const status = renderAsideV2Status(state, surface, width);
+  const status = renderAsideV2Status(state, surface, width, deadlines);
   const turnsFocus = surface.focus === "turns" || surface.focus === "notes";
   const standaloneFooter = turnsFocus || surface.busy;
   const footerLines = standaloneFooter

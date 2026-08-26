@@ -16,32 +16,13 @@ import {
   asidePresenceGutterRows,
   type AsidePresence
 } from "../../aside-presence.js";
-import { lightWorkKeyword } from "../work-light.js";
+import { lightWorkKeyword, streamLivenessMark } from "../work-light.js";
 import {
   focusedFoldedThoughtLine,
   ghostThoughtMark,
   thinkingGutterLine0,
   thinkingGutterLine1
 } from "./thought-block.js";
-
-/** The complete braille cycle. The dots travel once around the cell and arrive
- *  back where they started, so the mark reads as one turn. Four of these ten
- *  marks carry the dots a quarter of the way around and then snap back to the
- *  top, which reads as a stall rather than as progress. */
-const STREAM_LIVENESS_MARKS = [
-  "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
-] as const;
-const STREAM_LIVENESS_FRAME_MS = 250;
-
-/** One indicator owns both stream labels and their next visible frame. */
-export function streamLivenessMark(
-  now: number,
-  deadlines?: FrameDeadlineCollector
-): string {
-  const frame = Math.floor(now / STREAM_LIVENESS_FRAME_MS);
-  deadlines?.at((frame + 1) * STREAM_LIVENESS_FRAME_MS);
-  return STREAM_LIVENESS_MARKS[frame % STREAM_LIVENESS_MARKS.length]!;
-}
 
 export interface GutterVerb { token: string | null; label: string; action: KeyAction }
 

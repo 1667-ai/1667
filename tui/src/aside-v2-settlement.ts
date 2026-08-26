@@ -14,7 +14,7 @@ import {
   type AsideSessionSurfaceState,
   type AsideSessionView
 } from "./aside-surface.js";
-import { asideSessionsFromResponse } from "./aside-v2-layout.js";
+import { asideSessionsFromResponse, hydrateAsideAnchor } from "./aside-v2-layout.js";
 
 type AsideSingleSessionResponse = AsideAskResponse | AsideSessionMutationResponse;
 
@@ -145,7 +145,10 @@ function applySingleSession(
 ): void {
   const normalized = normalizeAsideSession(response, surface.sessions.length);
   if (normalized === null) return;
-  const session: AsideSessionView = normalized;
+  const session: AsideSessionView = {
+    ...normalized,
+    anchor: hydrateAsideAnchor(normalized.anchor, surface.anchors, surface.anchor)
+  };
   const currentIndex = surface.sessionIndex;
   const matching = surface.sessions.findIndex((entry) => entry.id === session.id);
   const sessionIndex = matching >= 0 ? matching : surface.sessions.length;
