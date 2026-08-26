@@ -510,11 +510,12 @@ export async function asideV2KeyAction(
   if (deleteCommit !== null && deleteCommitNeedsAwait) {
     // `observe` keeps the existing toast/error behavior. Swallow the same
     // rejection here so a failed commit does not abort the follow-up action.
-    await deleteCommit.catch(() => false);
+    const deleteCommitted = await deleteCommit.catch(() => false);
     if (state.interactionVersion !== delayedInteractionVersion
       || state.aside !== surface
       || delayedMenuSessionId !== undefined
         && surface.useMenu?.sessionId !== delayedMenuSessionId) return true;
+    if (!deleteCommitted) return true;
   }
   if (surface.useMenu !== null) return false;
   if (resolved.action === "cancel" && surface.confirmReset !== null) {

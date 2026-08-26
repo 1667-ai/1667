@@ -1001,7 +1001,7 @@ describe("Aside use-menu mouse", () => {
     expect(state.placement?.answer).toBe("later answer");
   });
 
-  test("delete rollback keeps a one-click Placement target on the same answer", async () => {
+  test("delete rollback keeps its error and the next Placement target", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
     const surface = createAsideSurface(
@@ -1038,13 +1038,28 @@ describe("Aside use-menu mouse", () => {
     expect(openAsideUseMenu(surface, 0)).toBeTrue();
     const sessionId = surface.useMenu!.sessionId;
 
-    await handleOverlayAction({
-      action: "apply",
+    const action = {
+      action: "apply" as const,
       index: 1,
       rowId: asideUseRowId(sessionId, "insert-into-story")
-    }, state, sourceWithFailure, context);
+    };
+    await dispatch(
+      action, state, sourceWithFailure, context.cache, () => undefined,
+      async () => undefined, () => undefined, null,
+      () => undefined, () => undefined, context.backend
+    );
     await context.backend.settle();
 
+    expect(state.mode).toBe("ASIDE");
+    expect(state.placement).toBeNull();
+    expect(state.toast).toBe("delete failed");
+    expect(surface.useMenu?.noteIndex).toBe(1);
+
+    await dispatch(
+      action, state, sourceWithFailure, context.cache, () => undefined,
+      async () => undefined, () => undefined, null,
+      () => undefined, () => undefined, context.backend
+    );
     expect(state.mode).toBe("PLACE");
     expect(state.placement?.answer).toBe("target later answer");
     expect(state.placement?.returnAside.useMenu?.noteIndex).toBe(1);
