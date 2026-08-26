@@ -230,6 +230,63 @@ describe("Aside use-menu mouse", () => {
     expect(closedRows).toEqual(beforeRows);
   });
 
+  test("production right-click retains narrow toast footer geometry", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const turns = Array.from({ length: 5 }, (_, index) => ({
+      id: `turn-${index}`,
+      q: `Question ${index}`,
+      a: `Answer ${index} ${"answer-word ".repeat(5)}`
+    }));
+    const surface = createAsideSurface(
+      state.payload.id,
+      state.payload.title,
+      [{ id: "session-1", title: "session", anchor: null, turns }],
+      null,
+      null,
+      { v2: true }
+    );
+    if (!isAsideV2(surface)) throw new Error("expected v2 Aside surface");
+    state.aside = surface;
+    state.mode = "ASIDE";
+    surface.focus = "turns";
+    surface.turnCursor = 4;
+    state.toast = "▸ deleted 1 turn · u undoes";
+    const width = 80;
+    const height = 24;
+    const selectedKey = asideAnswerRowId(surface, 4);
+    const before = renderStoryScreen(state, { width, height });
+    state.hitRows = before.derived.hitRows;
+    const beforeRows = [...new Set(before.derived.storySelectionProjection!
+      .flatMap((cell, index) => cell?.key === selectedKey
+        ? [Math.floor(index / (width + 1))] : []))];
+    const answerRow = state.hitRows.findIndex((row) =>
+      row?.target.kind === "aside-answer" && row.target.noteIndex === 4);
+    expect(answerRow).toBeGreaterThan(-1);
+    const action = mouseToAction({
+      type: "down",
+      button: 2,
+      x: 4,
+      y: answerRow,
+      modifiers: { shift: false, alt: false, ctrl: false }
+    }, state);
+    const context = overlayContext(state, width, height);
+
+    await dispatch(
+      action!, state, source, context.cache, () => undefined,
+      async () => undefined, () => undefined, context.renderer,
+      () => undefined, () => undefined, context.backend
+    );
+
+    expect(state.toast).toBe("▸ deleted 1 turn · u undoes");
+    expect(surface.useMenu).not.toBeNull();
+    const after = renderStoryScreen(state, { width, height });
+    const afterRows = [...new Set(after.derived.storySelectionProjection!
+      .flatMap((cell, index) => cell?.key === selectedKey
+        ? [Math.floor(index / (width + 1))] : []))];
+    expect(afterRows).toEqual(beforeRows);
+  });
+
   test("every selected-text menu row applies from one mouse click", async () => {
     const answer = "complete saved answer";
     const selected = "selected answer";
