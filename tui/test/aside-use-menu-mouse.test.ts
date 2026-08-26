@@ -8,14 +8,15 @@ import {
   isAsideV2
 } from "../src/aside-surface.js";
 import { demoAppSource } from "../src/demo.js";
-import { initialState } from "../src/app.js";
+import { dispatch, initialState } from "../src/app.js";
 import { handleOverlayAction } from "../src/overlay-actions.js";
-import { ActionRuntime } from "../src/action-runtime.js";
+import { ActionRuntime, withActionAdmission } from "../src/action-runtime.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText, plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import {
   asideUseActions,
+  asideUseRowId,
   focusAsideUseMenuIndex,
   openAsideUseMenu
 } from "../src/aside-use.js";
@@ -137,6 +138,262 @@ function activateStoryStream(state: ReturnType<typeof initialState>): void {
 }
 
 describe("Aside use-menu mouse", () => {
+  test("right-click preserves a clipped V2 viewport and exact native answer range", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const turns = Array.from({ length: 8 }, (_, index) => ({
+      id: `turn-${index}`,
+      q: `Question ${index} ${"q ".repeat(3)}`,
+      a: `Answer ${index} ${"answer-word ".repeat(8)}`
+    }));
+    const surface = createAsideSurface(
+      state.payload.id,
+      state.payload.title,
+      [{ id: "session-1", title: "session", anchor: null, turns }],
+      null,
+      null,
+      { v2: true }
+    );
+    if (!isAsideV2(surface)) throw new Error("expected v2 Aside surface");
+    state.aside = surface;
+    state.mode = "ASIDE";
+    surface.focus = "composer";
+
+    const width = 80;
+    const height = 36;
+    const before = renderStoryScreen(state, { width, height });
+    state.hitRows = before.derived.hitRows;
+    const projection = before.derived.storySelectionProjection;
+    expect(projection).not.toBeNull();
+    const selectedKey = asideAnswerRowId(surface, 4);
+    const selectedCells = projection!.flatMap((cell, index) =>
+      cell?.key === selectedKey ? [{ cell, index }] : []);
+    expect(selectedCells.length).toBeGreaterThan(0);
+    // The first turn is clipped above this nonzero bottom-follow viewport.
+    expect(projection!.some((cell) => cell?.key === asideAnswerRowId(surface, 0))).toBeFalse();
+    const first = selectedCells[0]!;
+    const last = selectedCells.at(-1)!;
+    const beforeRows = [...new Set(selectedCells.map(({ index }) =>
+      Math.floor(index / (width + 1))))];
+    const answerRow = state.hitRows.findIndex((row) =>
+      row?.target.kind === "aside-answer" && row.target.noteIndex === 4);
+    expect(answerRow).toBeGreaterThan(-1);
+    const rawEvent = {
+      type: "down" as const,
+      button: 2 as const,
+      x: 4,
+      y: answerRow,
+      modifiers: { shift: false, alt: false, ctrl: false }
+    };
+    const raw = mouseToAction(rawEvent, state);
+    expect(raw).toMatchObject({ action: "open-aside-use", index: 4 });
+    const native = selectionReader("native terminal range", {
+      start: first.index,
+      end: last.index + 1
+    });
+    const decorated = selectionAwarePartMenuAction(
+      { ...native.event, x: rawEvent.x, y: rawEvent.y } as never,
+      raw,
+      native.renderer as never,
+      projection
+    );
+    expect(decorated?.selectionText).toBe(turns[4]!.a);
+    await handleOverlayAction(
+      decorated!,
+      state,
+      source,
+      overlayContext(state, width, height)
+    );
+    expect(surface.focus).toBe("composer");
+    expect(surface.useMenu?.selectionText).toBe(turns[4]!.a);
+
+    const after = renderStoryScreen(state, { width, height });
+    const afterCells = after.derived.storySelectionProjection!.flatMap((cell, index) =>
+      cell?.key === selectedKey ? [{ cell, index }] : []);
+    const afterRows = [...new Set(afterCells.map(({ index }) =>
+      Math.floor(index / (width + 1))))];
+    expect(afterRows).toEqual(beforeRows);
+    expect(surface.useMenu?.selectionSpans).toEqual(decorated?.selectionSpans);
+
+    await handleOverlayAction(
+      { action: "cancel" },
+      state,
+      source,
+      overlayContext(state, width, height)
+    );
+    expect(surface.useMenu).toBeNull();
+    expect(surface.focus).toBe("composer");
+    const closed = renderStoryScreen(state, { width, height });
+    const closedRows = [...new Set(closed.derived.storySelectionProjection!
+      .flatMap((cell, index) => cell?.key === selectedKey
+        ? [Math.floor(index / (width + 1))] : []))];
+    expect(closedRows).toEqual(beforeRows);
+  });
+
+  test("production right-click retains narrow toast footer geometry", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const turns = Array.from({ length: 5 }, (_, index) => ({
+      id: `turn-${index}`,
+      q: `Question ${index}`,
+      a: `Answer ${index} ${"answer-word ".repeat(5)}`
+    }));
+    const surface = createAsideSurface(
+      state.payload.id,
+      state.payload.title,
+      [{ id: "session-1", title: "session", anchor: null, turns }],
+      null,
+      null,
+      { v2: true }
+    );
+    if (!isAsideV2(surface)) throw new Error("expected v2 Aside surface");
+    state.aside = surface;
+    state.mode = "ASIDE";
+    surface.focus = "turns";
+    surface.turnCursor = 4;
+    state.toast = "▸ deleted 1 turn · u undoes";
+    const width = 80;
+    const height = 24;
+    const selectedKey = asideAnswerRowId(surface, 4);
+    const before = renderStoryScreen(state, { width, height });
+    state.hitRows = before.derived.hitRows;
+    const beforeRows = [...new Set(before.derived.storySelectionProjection!
+      .flatMap((cell, index) => cell?.key === selectedKey
+        ? [Math.floor(index / (width + 1))] : []))];
+    const answerRow = state.hitRows.findIndex((row) =>
+      row?.target.kind === "aside-answer" && row.target.noteIndex === 4);
+    expect(answerRow).toBeGreaterThan(-1);
+    const action = mouseToAction({
+      type: "down",
+      button: 2,
+      x: 4,
+      y: answerRow,
+      modifiers: { shift: false, alt: false, ctrl: false }
+    }, state);
+    const context = overlayContext(state, width, height);
+
+    await dispatch(
+      action!, state, source, context.cache, () => undefined,
+      async () => undefined, () => undefined, context.renderer,
+      () => undefined, () => undefined, context.backend
+    );
+
+    expect(state.toast).toBe("▸ deleted 1 turn · u undoes");
+    expect(surface.useMenu).not.toBeNull();
+    const after = renderStoryScreen(state, { width, height });
+    const afterRows = [...new Set(after.derived.storySelectionProjection!
+      .flatMap((cell, index) => cell?.key === selectedKey
+        ? [Math.floor(index / (width + 1))] : []))];
+    expect(afterRows).toEqual(beforeRows);
+  });
+
+  test("every selected-text menu row applies from one mouse click", async () => {
+    const answer = "complete saved answer";
+    const selected = "selected answer";
+    const actions = asideUseActions(selected);
+    const expectedModes = ["ASIDE", "COMPOSE", "EDITOR", "PLACE"] as const;
+    for (const [index, action] of actions.entries()) {
+      const source = demoAppSource();
+      const state = initialState(source, false);
+      const surface = installLegacyAside(state, answer);
+      expect(openAsideUseMenu(surface, 0, 0, selected)).toBeTrue();
+      const frame = renderStoryScreen(state, { width: 80, height: 24 });
+      state.hitRows = frame.derived.hitRows;
+      let click: FrozenMouseEvent | null = null;
+      for (let y = 0; y < frame.derived.hitRows.length && click === null; y += 1) {
+        for (let x = 0; x < 80; x += 1) {
+          const candidate = mouseToAction({
+            type: "down",
+            button: 0,
+            x,
+            y,
+            modifiers: { shift: false, alt: false, ctrl: false }
+          }, state);
+          if (candidate?.action === "apply"
+            && candidate.index === index
+            && candidate.rowId !== undefined) {
+            click = { type: "down", button: 0, x, y,
+              modifiers: { shift: false, alt: false, ctrl: false } };
+            expect(candidate.rowId).toContain(`:${action.id}`);
+            break;
+          }
+        }
+      }
+      expect(click).not.toBeNull();
+      const resolved = mouseToAction(click!, state);
+      expect(resolved).toMatchObject({ action: "apply", index });
+      // A native selection can still be present on the release event. The
+      // direct apply action does not enter the prose focus guard.
+      const native = selectionReader(selected, { start: 0, end: selected.length });
+      const released = selectionAwarePartMenuAction(
+        { ...click!, type: "up" } as never,
+        resolved,
+        native.renderer as never
+      );
+      expect(released).toEqual(resolved);
+      await handleOverlayAction(
+        resolved!,
+        state,
+        source,
+        overlayContext(state, 80, 24)
+      );
+      expect(state.mode).toBe(expectedModes[index]);
+    }
+  });
+
+  test("right-click keeps V2 turn focus and cursor after navigation", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const turns = Array.from({ length: 8 }, (_, index) => ({
+      id: `turn-${index}`,
+      q: `Question ${index}`,
+      a: `Answer ${index} ${"answer-word ".repeat(4)}`
+    }));
+    const surface = createAsideSurface(
+      state.payload.id,
+      state.payload.title,
+      [{ id: "session-1", title: "session", anchor: null, turns }],
+      null,
+      null,
+      { v2: true }
+    );
+    if (!isAsideV2(surface)) throw new Error("expected v2 Aside surface");
+    state.aside = surface;
+    state.mode = "ASIDE";
+    surface.focus = "turns";
+    surface.turnCursor = 6;
+    const context = overlayContext(state, 80, 36);
+    await handleOverlayAction({ action: "focus-previous" }, state, source, context);
+    await handleOverlayAction({ action: "focus-next" }, state, source, context);
+    expect(surface.turnCursor).toBe(6);
+
+    const before = renderStoryScreen(state, { width: 80, height: 36 });
+    state.hitRows = before.derived.hitRows;
+    const selectedKey = asideAnswerRowId(surface, 5);
+    const beforeRows = [...new Set(before.derived.storySelectionProjection!.flatMap((cell, index) =>
+      cell?.key === selectedKey ? [Math.floor(index / 81)] : []))];
+    expect(beforeRows.length).toBeGreaterThan(0);
+    const answerRow = state.hitRows.findIndex((row) =>
+      row?.target.kind === "aside-answer" && row.target.noteIndex === 5);
+    expect(answerRow).toBeGreaterThan(-1);
+    const click = {
+      type: "down" as const,
+      button: 2 as const,
+      x: 4,
+      y: answerRow,
+      modifiers: { shift: false, alt: false, ctrl: false }
+    };
+    const action = mouseToAction(click, state);
+    expect(action).toMatchObject({ action: "open-aside-use", index: 5 });
+    await handleOverlayAction(action!, state, source, context);
+    expect(surface.focus).toBe("turns");
+    expect(surface.turnCursor).toBe(6);
+    const after = renderStoryScreen(state, { width: 80, height: 36 });
+    const afterRows = [...new Set(after.derived.storySelectionProjection!.flatMap((cell, index) =>
+      cell?.key === selectedKey ? [Math.floor(index / 81)] : []))];
+    expect(afterRows).toEqual(beforeRows);
+  });
+
   test("keeps a selected answer visibly highlighted while its use menu is open", async () => {
     const answer = "alpha bravo charlie delta echo foxtrot golf hotel";
     const width = 80;
@@ -571,7 +828,7 @@ describe("Aside use-menu mouse", () => {
     expect(listTargets.every((target) => target.kind === "list" && target.index === 0)).toBeTrue();
   });
 
-  test("use-menu mouse click selects insert into story then opens Placement", async () => {
+  test("use-menu mouse click applies insert into story in one click", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
     const surface = createAsideSurface(
@@ -598,7 +855,7 @@ describe("Aside use-menu mouse", () => {
         y,
         modifiers: { shift: false, alt: false, ctrl: false }
       }, state);
-      if (action?.action === "focus-index"
+      if (action?.action === "apply"
         && action.rowId !== undefined
         && action.rowId.endsWith(":insert-into-story")) {
         storyY = y;
@@ -628,7 +885,7 @@ describe("Aside use-menu mouse", () => {
     expect(capturedFocus.state.aside?.useMenu?.cursor).toBe(0);
     const first = mouseToAction(click, state);
     expect(first).toEqual({
-      action: "focus-index",
+      action: "apply",
       index: 1,
       rowId: storyRowId
     });
@@ -651,50 +908,242 @@ describe("Aside use-menu mouse", () => {
       state
     });
     expect(reconciledFocus).toEqual({
-      action: "focus-index",
+      action: "apply",
       index: 1,
       rowId: storyRowId
     });
     await handleOverlayAction(reconciledFocus!, state, source, context);
-    expect(surface.useMenu?.cursor).toBe(1);
-
-    // Second click: captured before selection; presented after selection so
-    // open-selected survives via selected session+action identity.
-    const afterFocusFrame = renderStoryScreen(state, { width: 80, height: 24 });
-    state.hitRows = afterFocusFrame.derived.hitRows;
-    const capturedOpen: PresentedInteraction = {
-      version: 3,
-      frameToken: 3,
-      interactive: true,
-      storyId: state.payload.id,
-      state: captureMouseActionState(state)
-    };
-    expect(capturedOpen.state.aside?.useMenu?.cursor).toBe(1);
-    const second = mouseToAction(click, state);
-    expect(second?.action).toBe("open-selected");
-    expect(second?.rowId).toBe(storyRowId);
-    state.hitRows = renderStoryScreen(state, { width: 80, height: 24 }).derived.hitRows;
-    const presentedOpen: PresentedInteraction = {
-      version: 4,
-      frameToken: 4,
-      interactive: true,
-      storyId: state.payload.id,
-      state: captureMouseActionState(state)
-    };
-    expect(presentedOpen).not.toBe(capturedOpen);
-    const reconciledOpen = reconcilePresentedMouseAction({
-      action: second!,
-      event: click,
-      captured: capturedOpen,
-      presented: presentedOpen,
-      state
-    });
-    expect(reconciledOpen?.action).toBe("open-selected");
-    await handleOverlayAction(reconciledOpen!, state, source, context);
     expect(state.mode).toBe("PLACE");
     expect(state.aside).toBeNull();
     expect(state.placement?.answer).toBe("from mouse menu");
     expect(state.placement?.interactionId).toBe(sessionId);
+  });
+
+  test("insert-into-story mouse click waits for an undoable delete commit", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const later = { q: "later", a: "later answer" };
+    const surface = createAsideSurface(
+      state.payload.id,
+      state.payload.title,
+      [{
+        id: "session-1",
+        title: "session",
+        anchor: null,
+        turns: [{ q: "first", a: "first answer" }, later]
+      }],
+      null,
+      null,
+      { v2: true }
+    );
+    if (!isAsideV2(surface)) throw new Error("expected v2 Aside surface");
+    state.aside = surface;
+    state.mode = "ASIDE";
+    surface.focus = "turns";
+    surface.turnCursor = 0;
+    let deletes = 0;
+    const sourceWithDelete = {
+      ...source,
+      api: {
+        ...source.api,
+        deleteAsideTurn: async () => {
+          deletes += 1;
+          return {
+            schemaVersion: 2 as const,
+            id: "session-1",
+            title: "session",
+            anchor: null,
+            turns: [later]
+          };
+        }
+      }
+    };
+    const context = overlayContext(state, 80, 24);
+    await handleOverlayAction({ action: "aside-delete" }, state, sourceWithDelete, context);
+    await handleOverlayAction({ action: "aside-delete" }, state, sourceWithDelete, context);
+    expect(surface.deleteUndo).not.toBeNull();
+    expect(openAsideUseMenu(surface, 0)).toBeTrue();
+
+    const frame = renderStoryScreen(state, { width: 80, height: 24 });
+    state.hitRows = frame.derived.hitRows;
+    let click: FrozenMouseEvent | null = null;
+    for (let y = 0; y < frame.derived.hitRows.length && click === null; y += 1) {
+      for (let x = 0; x < 80; x += 1) {
+        const candidate = mouseToAction({
+          type: "down",
+          button: 0,
+          x,
+          y,
+          modifiers: { shift: false, alt: false, ctrl: false }
+        }, state);
+        if (candidate?.action === "apply"
+          && candidate.rowId?.endsWith(":insert-into-story")) {
+          click = {
+            type: "down",
+            button: 0,
+            x,
+            y,
+            modifiers: { shift: false, alt: false, ctrl: false }
+          };
+          break;
+        }
+      }
+    }
+    expect(click).not.toBeNull();
+    const action = mouseToAction(click!, state);
+    expect(action).toMatchObject({ action: "apply", index: 1 });
+    await handleOverlayAction(action!, state, sourceWithDelete, context);
+    await context.backend.settle();
+
+    expect(deletes).toBe(1);
+    expect(state.mode).toBe("PLACE");
+    expect(state.aside).toBeNull();
+    expect(state.placement?.answer).toBe("later answer");
+  });
+
+  test("delete rollback keeps its error and the next Placement target", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const surface = createAsideSurface(
+      state.payload.id,
+      state.payload.title,
+      [{
+        id: "session-1",
+        title: "session",
+        anchor: null,
+        turns: [
+          { q: "first", a: "restored first answer" },
+          { q: "later", a: "target later answer" }
+        ]
+      }],
+      null,
+      null,
+      { v2: true }
+    );
+    if (!isAsideV2(surface)) throw new Error("expected v2 Aside surface");
+    state.aside = surface;
+    state.mode = "ASIDE";
+    surface.focus = "turns";
+    surface.turnCursor = 0;
+    const sourceWithFailure = {
+      ...source,
+      api: {
+        ...source.api,
+        deleteAsideTurn: async () => { throw new Error("delete failed"); }
+      }
+    };
+    const context = overlayContext(state, 80, 24);
+    await handleOverlayAction({ action: "aside-delete" }, state, sourceWithFailure, context);
+    await handleOverlayAction({ action: "aside-delete" }, state, sourceWithFailure, context);
+    expect(openAsideUseMenu(surface, 0)).toBeTrue();
+    const sessionId = surface.useMenu!.sessionId;
+
+    const action = {
+      action: "apply" as const,
+      index: 1,
+      rowId: asideUseRowId(sessionId, "insert-into-story")
+    };
+    await dispatch(
+      action, state, sourceWithFailure, context.cache, () => undefined,
+      async () => undefined, () => undefined, null,
+      () => undefined, () => undefined, context.backend
+    );
+    await context.backend.settle();
+
+    expect(state.mode).toBe("ASIDE");
+    expect(state.placement).toBeNull();
+    expect(state.toast).toBe("delete failed");
+    expect(surface.useMenu?.noteIndex).toBe(1);
+
+    await dispatch(
+      action, state, sourceWithFailure, context.cache, () => undefined,
+      async () => undefined, () => undefined, null,
+      () => undefined, () => undefined, context.backend
+    );
+    expect(state.mode).toBe("PLACE");
+    expect(state.placement?.answer).toBe("target later answer");
+    expect(state.placement?.returnAside.useMenu?.noteIndex).toBe(1);
+  });
+
+  test("a newer Escape cancels Placement while its click waits on delete persistence", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const later = { q: "later", a: "later answer" };
+    const surface = createAsideSurface(
+      state.payload.id,
+      state.payload.title,
+      [{
+        id: "session-1",
+        title: "session",
+        anchor: null,
+        turns: [{ q: "first", a: "first answer" }, later]
+      }],
+      null,
+      null,
+      { v2: true }
+    );
+    if (!isAsideV2(surface)) throw new Error("expected v2 Aside surface");
+    state.aside = surface;
+    state.mode = "ASIDE";
+    surface.focus = "turns";
+    surface.turnCursor = 0;
+    let releaseDelete!: () => void;
+    const deleteGate = new Promise<void>((resolve) => { releaseDelete = resolve; });
+    const sourceWithDelete = {
+      ...source,
+      api: {
+        ...source.api,
+        deleteAsideTurn: async () => {
+          await deleteGate;
+          return {
+            schemaVersion: 2 as const,
+            id: "session-1",
+            title: "session",
+            anchor: null,
+            turns: [later]
+          };
+        }
+      }
+    };
+    const context = overlayContext(state, 80, 24);
+    await handleOverlayAction({ action: "aside-delete" }, state, sourceWithDelete, context);
+    await handleOverlayAction({ action: "aside-delete" }, state, sourceWithDelete, context);
+    expect(openAsideUseMenu(surface, 0)).toBeTrue();
+    const sessionId = surface.useMenu!.sessionId;
+    let admit!: () => void;
+    const admitted = new Promise<void>((resolve) => { admit = resolve; });
+    const pending = dispatch(
+      {
+        action: "apply",
+        index: 1,
+        rowId: asideUseRowId(sessionId, "insert-into-story")
+      },
+      state,
+      sourceWithDelete,
+      context.cache,
+      () => undefined,
+      async () => undefined,
+      () => undefined,
+      null,
+      () => undefined,
+      () => undefined,
+      withActionAdmission(context.backend, admit)
+    );
+    await admitted;
+
+    await dispatch(
+      { action: "cancel" }, state, sourceWithDelete, context.cache,
+      () => undefined, async () => undefined, () => undefined, null,
+      () => undefined, () => undefined, context.backend
+    );
+    expect(surface.useMenu).toBeNull();
+    releaseDelete();
+    await pending;
+    await context.backend.settle();
+
+    expect(state.mode).toBe("ASIDE");
+    expect(surface.useMenu).toBeNull();
+    expect(state.placement).toBeNull();
   });
 
   test("stale use-menu click for note A is dropped after menu reopens on note B", async () => {
@@ -730,7 +1179,7 @@ describe("Aside use-menu mouse", () => {
         y,
         modifiers: { shift: false, alt: false, ctrl: false }
       }, state);
-      if (action?.action === "focus-index"
+      if (action?.action === "apply"
         && action.rowId === `aside-use:${sessionA}:insert-into-story`) {
         storyY = y;
         break;
@@ -753,7 +1202,7 @@ describe("Aside use-menu mouse", () => {
     };
     const actionA = mouseToAction(click, state);
     expect(actionA).toEqual({
-      action: "focus-index",
+      action: "apply",
       index: 1,
       rowId: `aside-use:${sessionA}:insert-into-story`
     });

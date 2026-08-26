@@ -693,7 +693,7 @@ export async function dispatch(
     if (composer !== null) composer.cutConfirmation = null;
   }
   if (generationBusy(state) && resolved.action === "cancel" && isPlainNavigation(state)) return await cancelStream();
-  if (state.toast !== null) state.toast = null;
+  if (state.toast !== null && resolved.action !== "open-aside-use") state.toast = null;
   state.quitArmed = false;
   // The part menu carries its own per-action guard (Copy stays legal during a
   // stream), so the blanket one would wrongly refuse it here.

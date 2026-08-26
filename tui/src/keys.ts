@@ -63,7 +63,7 @@ export type KeyAction =
   | "open-aside" | "open-authors-note" | "note-depth-decrease" | "note-depth-increase"
   | "aside-retake" | "aside-delete" | "aside-reset" | "aside-new-session"
   | "aside-session-next" | "aside-session-previous" | "aside-anchor-next" | "aside-anchor-previous"
-  | "aside-go-anchor" | "aside-undo-delete"
+  | "aside-go-anchor" | "aside-hop-to" | "aside-undo-delete"
   | "filter" | "cycle" | "check" | "detect-context" | "discard-pending" | "retry" | "continue"
   | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index" | "open-aside-use"
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"

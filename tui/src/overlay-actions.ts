@@ -48,6 +48,7 @@ import {
   moveAsideNoteFocus,
   moveAsideUseMenuCursor,
   openAsideUseMenu,
+  openAsideUseMenuFromMouse,
   closeAsideUseMenu
 } from "./aside-use.js";
 import {
@@ -145,10 +146,9 @@ export async function handleOverlayAction(
   }
   if (resolved.action === "open-aside-use") {
     if (state.mode === "ASIDE" && state.aside !== null) {
-      openAsideUseMenu(
+      openAsideUseMenuFromMouse(
         state.aside,
         resolved.index ?? asideCursor(state.aside),
-        0,
         resolved.selectionText,
         resolved.selectionSpans
       );
@@ -843,7 +843,6 @@ async function asideKeyAction(
     }
     if (surface.useMenu !== null) {
       closeAsideUseMenu(surface);
-      surface.focus = "notes";
       return;
     }
     if (surface.focus === "notes" || surface.focus === "turns") {
@@ -881,6 +880,9 @@ async function asideKeyAction(
       return;
     }
     if (resolved.action === "apply" || resolved.action === "open-selected") {
+      if (resolved.index !== undefined) {
+        focusAsideUseMenuIndex(surface, resolved.index);
+      }
       await applyAsideUseMenu(state);
       return;
     }

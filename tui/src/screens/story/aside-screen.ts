@@ -27,6 +27,11 @@ import {
   asideUseMenuTitle,
   asideUseRowId
 } from "../../aside-use.js";
+import {
+  asideHopRowId,
+  asideHopStripLayout,
+  clipAsideHopStripLayout
+} from "../../aside-hop.js";
 import type { HitRows, HitTarget } from "../../hit.js";
 import {
   buildComposerSelectionProjection,
@@ -54,6 +59,7 @@ import { renderComposerLayout } from "./composer.js";
 import type { StoryScreenFrame } from "../story.js";
 import { lightWorkKeyword, streamLivenessMark } from "../work-light.js";
 import { paintStorySelection } from "./selection-highlight.js";
+import { addInlineHits } from "./hits.js";
 
 function renderAsideV2Status(
   state: StoryScreenState,
@@ -206,8 +212,11 @@ function renderAsideV2Screen(
   const history = asideHistoryWindowWithKinds(
     surface, width, historyRows, state.now, historyLayout
   );
+  const headerLines = header.map((text) =>
+    renderAsideV2HeaderLine(text, surface, width)
+  );
   const lines: FrameLine[] = [
-    ...header.map(renderAsideV2HeaderLine),
+    ...headerLines,
     ...history.lines.map((text, index) =>
       renderAsideV2HistoryLine(
         text,
@@ -235,6 +244,7 @@ function renderAsideV2Screen(
     if (row < composerStart || row >= composerStart + composerLines.length) return null;
     return { target: { kind: "composer" }, left: 0, right: width };
   });
+  addInlineHits(headerLines, hitRows);
   const storySelectionProjection = buildStorySelectionProjection(lines, width);
   let renderedLines = lines.slice(0, height);
   if (surface.useMenu?.selectionSpans !== undefined
@@ -379,8 +389,35 @@ function asideAnswerSegment(
   };
 }
 
-function renderAsideV2HeaderLine(text: string): FrameLine {
+function renderAsideV2HeaderLine(
+  text: string,
+  surface: AsideSessionSurfaceState,
+  width: number
+): FrameLine {
   if (text.startsWith("elsewhere   ")) {
+    const hopLayout = clipAsideHopStripLayout(
+      asideHopStripLayout(surface.anchors, surface.anchor, width),
+      text
+    );
+    if (hopLayout.segments.some((part) => part.entry !== undefined)) {
+      return hopLayout.segments.map((part) => {
+        if (part.entry === undefined) return segment(part.text, "chrome");
+        const hit: HitTarget = {
+          kind: "aside-hop",
+          index: part.entry.index,
+          rowId: asideHopRowId(part.entry)
+        };
+        return part.entry.current
+          ? {
+              text: part.text,
+              role: "background",
+              background: "focus / accent",
+              bold: true,
+              hit
+            }
+          : segment(part.text, "chrome", hit);
+      });
+    }
     const currentStart = text.indexOf("[ ", 12);
     const currentEnd = currentStart < 0 ? -1 : text.indexOf(" ]", currentStart + 2);
     if (currentStart >= 0 && currentEnd >= 0) {
