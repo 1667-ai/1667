@@ -3,6 +3,7 @@ import { wrapText } from "./wrap.js";
 import { truncate, truncateTail, visibleWidth } from "./screens/story/frame.js";
 import { asideHopStripText, UNANCHORED_ASIDE_ID } from "./aside-hop.js";
 import {
+  asideAnswerRowId,
   currentAsideSession,
   currentAsideTurns,
   normalizeAsideSession,
@@ -314,7 +315,7 @@ export function asideChatLayout(
         row < questionCount + thoughtCount
           ? null
           : {
-            key: `aside-answer:${turn.id ?? `${surface.sessionIndex}-${index}`}:${index}`,
+            key: asideAnswerRowId(surface, index),
             text: turn.a,
             start: answers[row - questionCount - thoughtCount]!.start
           }

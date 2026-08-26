@@ -13,6 +13,7 @@ import {
 import type { AsideChatRowKind } from "../../aside-v2-layout.js";
 import {
   ASIDE_INPUT_PLACEHOLDER,
+  asideAnswerRowId,
   asideNotes,
   currentAsideTurns,
   isAsideV2,
@@ -22,7 +23,6 @@ import {
 } from "../../aside-surface.js";
 import { resetAsideStatus } from "../../aside-v2-actions.js";
 import {
-  asideAnswerRowId,
   asideUseActions,
   asideUseMenuTitle,
   asideUseRowId
@@ -53,6 +53,7 @@ import {
 import { renderComposerLayout } from "./composer.js";
 import type { StoryScreenFrame } from "../story.js";
 import { lightWorkKeyword, streamLivenessMark } from "../work-light.js";
+import { paintStorySelection } from "./selection-highlight.js";
 
 function renderAsideV2Status(
   state: StoryScreenState,
@@ -229,6 +230,10 @@ function renderAsideV2Screen(
   });
   const storySelectionProjection = buildStorySelectionProjection(lines, width);
   let renderedLines = lines.slice(0, height);
+  if (surface.useMenu?.selectionSpans !== undefined
+    && surface.useMenu.selectionSpans.length > 0) {
+    renderedLines = paintStorySelection(renderedLines, surface.useMenu.selectionSpans);
+  }
   if (surface.useMenu !== null) {
     renderedLines = renderAsideUseMenu(renderedLines, surface, width, height, hitRows);
   }
@@ -681,6 +686,10 @@ export function renderAsideScreen(
   });
   // Menu first (owns scrim), connection banner last so its retry hit stays live.
   let renderedLines = visibleLines;
+  if (surface.useMenu?.selectionSpans !== undefined
+    && surface.useMenu.selectionSpans.length > 0) {
+    renderedLines = paintStorySelection(renderedLines, surface.useMenu.selectionSpans);
+  }
   if (surface.useMenu !== null) {
     renderedLines = renderAsideUseMenu(renderedLines, surface, width, height, hitRows);
   }

@@ -4,6 +4,7 @@ import { dispatch, initialState } from "../src/app.js";
 import {
   asideBodyHeight,
   asideComposerRows,
+  asideHistoryLayout,
   sendAsideQuestion
 } from "../src/aside-actions.js";
 import {
@@ -201,6 +202,48 @@ describe("Aside readability and navigation", () => {
     await handleOverlayAction({ action: "scroll-line-down" }, state, source, context);
     expect(surface.scrollTop).toBe(middle + page + 1);
     expect(surface.turnCursor).toBe(selectedTurn);
+  });
+
+  test("Up then Down reveals the selected question from its start", async () => {
+    const targetIndex = 6;
+    const turns = [
+      ...Array.from({ length: targetIndex }, (_, index) => ({
+        q: `short question ${index}`,
+        a: `short answer ${index}`
+      })),
+      {
+        q: "long-question-start " + "question-word ".repeat(160) + "long-question-end",
+        a: "long-answer-start " + "answer-word ".repeat(600) + "long-answer-end"
+      }
+    ];
+
+    for (const [width, height] of [[24, 8], [120, 36]] as const) {
+      const source = demoAppSource();
+      const state = initialState(source, false);
+      const surface = v2Surface(state, turns[targetIndex]!.q, turns[targetIndex]!.a);
+      const session = surface.sessions[surface.sessionIndex]!;
+      surface.sessions[surface.sessionIndex] = { ...session, turns };
+      surface.focus = "turns";
+      surface.turnCursor = targetIndex;
+      surface.scrollTop = null;
+      const context = overlayContext(state, width, height);
+
+      for (let index = targetIndex; index > 0; index -= 1) {
+        await handleOverlayAction({ action: "focus-previous" }, state, source, context);
+      }
+      for (let index = 0; index < targetIndex; index += 1) {
+        await handleOverlayAction({ action: "focus-next" }, state, source, context);
+      }
+
+      const layout = asideHistoryLayout(surface, width);
+      const bodyRows = asideBodyHeight(surface, width, height, asideComposerRows(height));
+      const max = Math.max(0, layout.body.length - bodyRows);
+      expect(surface.turnCursor).toBe(targetIndex);
+      expect(surface.scrollTop ?? max).toBe(layout.turnStarts[targetIndex]);
+      const text = frameText(renderAsideScreen(state, surface, width, height).lines);
+      expect(text).toContain("long-question-start");
+      if (height > 8) expect(text).toContain("long-answer-start");
+    }
   });
 
   test("busy v2 scrolling remains visible and survives settlement", async () => {

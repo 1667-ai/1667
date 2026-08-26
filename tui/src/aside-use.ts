@@ -12,14 +12,12 @@ import { openFactFromSelection } from "./editor-action.js";
 import {
   asideCursor,
   asideNotes,
-  currentAsideTurns,
   disarmAsideClear,
-  isAsideV2,
   setAsideCursor,
   type AsideSurfaceState
 } from "./aside-surface.js";
-import type { AsideTurnView } from "./aside-surface.js";
 import type { RuntimeState } from "./state.js";
+import type { StorySelectionSpan } from "./selection-projection.js";
 
 export type AsideUseActionId =
   | "copy"
@@ -58,21 +56,6 @@ const ASIDE_SELECTION_USE_ACTION: AsideUseAction = {
   description: "copy the highlighted text"
 };
 
-/** Protocol turns normally have no id. Keep their row identity in memory so
- * deleting an earlier turn can rebase a click without retargeting a clone. */
-const asideTurnIdentity = new WeakMap<object, string>();
-let nextAsideTurnIdentity = 0;
-
-function asideTurnRowIdentity(turn: AsideTurnView): string {
-  if (turn.id !== undefined && turn.id.length > 0) return `id:${turn.id}`;
-  const object = turn as object;
-  const existing = asideTurnIdentity.get(object);
-  if (existing !== undefined) return `ref:${existing}`;
-  const identity = `turn-${++nextAsideTurnIdentity}`;
-  asideTurnIdentity.set(object, identity);
-  return `ref:${identity}`;
-}
-
 /** The selected-text menu adds Copy before the complete-answer actions. Keep
  * the complete-answer list stable so existing keyboard and Placement paths
  * retain their row order. */
@@ -87,42 +70,6 @@ export function asideUseActions(
       ASIDE_USE_ACTIONS.find(({ id }) => id === "insert-as-new-fact")!,
       ASIDE_USE_ACTIONS.find(({ id }) => id === "insert-into-story")!
     ];
-}
-
-function asideAnswerOwner(surface: AsideSurfaceState): string {
-  if (!isAsideV2(surface)) return "legacy";
-  return surface.sessions[surface.sessionIndex]?.id ?? `session-${surface.sessionIndex}`;
-}
-
-/** Stable row identity for a saved answer in one Aside session. */
-export function asideAnswerRowId(
-  surface: AsideSurfaceState,
-  noteIndex: number
-): string {
-  if (!isAsideV2(surface)) {
-    return `aside-answer:${asideAnswerOwner(surface)}:${noteIndex}`;
-  }
-  const turn = currentAsideTurns(surface)[noteIndex];
-  if (turn === undefined) return `aside-answer:${asideAnswerOwner(surface)}:unknown`;
-  return `aside-answer:${asideAnswerOwner(surface)}:${asideTurnRowIdentity(turn)}`;
-}
-
-/** Resolve a saved-answer row identity against the current Aside session. */
-export function asideAnswerIndexFromRowId(
-  rowId: string,
-  surface: AsideSurfaceState
-): number {
-  const prefix = `aside-answer:${asideAnswerOwner(surface)}:`;
-  if (!rowId.startsWith(prefix)) return -1;
-  const identity = rowId.slice(prefix.length);
-  if (!isAsideV2(surface)) {
-    const value = Number(identity);
-    return Number.isInteger(value) && value >= 0 ? value : -1;
-  }
-  if (!identity.startsWith("id:") && !identity.startsWith("ref:")) return -1;
-  return currentAsideTurns(surface).findIndex(
-    (turn) => asideTurnRowIdentity(turn) === identity
-  );
 }
 
 /** Hit-map / selection identity for one use-menu action in one menu session. */
@@ -155,7 +102,8 @@ export function openAsideUseMenu(
   surface: AsideSurfaceState,
   noteIndex: number,
   cursor = 0,
-  selectionText?: string
+  selectionText?: string,
+  selectionSpans: readonly StorySelectionSpan[] = []
 ): boolean {
   if (surface.busy) return false;
   const notes = asideNotes(surface);
@@ -167,6 +115,7 @@ export function openAsideUseMenu(
   surface.useMenu = {
     noteIndex,
     ...(selectionText === undefined ? {} : { selectionText }),
+    ...(selectionSpans.length === 0 ? {} : { selectionSpans: selectionSpans.slice() }),
     cursor: Math.max(0, Math.min(actions.length - 1, cursor)),
     // New id every open so A→B menu clicks cannot reconcile on action alone.
     sessionId: crypto.randomUUID()
