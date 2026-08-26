@@ -8,6 +8,7 @@ This file records notable changes to 1667. Product terms use the definitions in
 - **Aside text selection works across the full chat width.** Questions and
   answers use distinct `You` and `Assistant` labels, and question rows keep a
   stronger visual treatment without adding a selection-breaking side pane.
+  Copying across both roles keeps the complete exchange.
 - **Destructive shortcuts use capital `D` consistently.** Aside turns, Facts,
   chapter breaks, tags, Sampling entries, and Generation Profiles require a
   confirmation before deletion. Lowercase `d` is non-destructive.
