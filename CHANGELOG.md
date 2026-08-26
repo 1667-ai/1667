@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.3-rc.3 - 2026-08-26
+
+- **Aside shows selected turns and status clearly.** Wrapped lines in the
+  selected question keep their highlight. The writing and thinking labels
+  animate. Anchored sessions show the correct part and take after reads and
+  updates.
+
 ## 0.10.3-rc.2 - 2026-08-26
 
 - **Aside keeps long chats readable and selectable.** Wrapped questions keep

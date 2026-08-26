@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.3-rc.3",
+    date: "2026-08-26",
+    body: "- **Aside shows selected turns and status clearly.** Wrapped lines in the\n  selected question keep their highlight. The writing and thinking labels\n  animate. Anchored sessions show the correct part and take after reads and\n  updates."
+  },
+  {
     version: "0.10.3-rc.2",
     date: "2026-08-26",
     body: "- **Aside keeps long chats readable and selectable.** Wrapped questions keep\n  their question style. Scroll history without changing the selected turn,\n  including while an answer streams. Highlight saved answer text and\n  right-click to copy it or insert it into the composer, a new Fact, or the\n  story. The full-answer menu can also create a new Fact. Large Aside\n  histories stay responsive. Existing Side Notes remain available."
