@@ -5,6 +5,8 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.3-rc.1 - 2026-08-26
+
 - **The tree map draws the whole story in lanes.** Rows are reading order. Each live story
   line owns a two-column lane. A line that ends hands its lane back and the next fork reuses
   it. Lane 0 is the reading line. Press `←` or `→` to jump to the nearest row in the next
