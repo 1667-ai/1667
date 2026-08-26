@@ -17,7 +17,8 @@ import { createWrapCache, wrapText, type ProseStyle, type WrapCache } from "../s
 import { createComposer } from "../src/composer-model.js";
 import { nextRequestEstimate } from "../src/request-projection.js";
 import { createAtlasLayout } from "../src/atlas-layout.js";
-import { renderMapTreeRow } from "../src/screens/map-tree-row.js";
+import { createLaneLayout } from "../src/lane-layout.js";
+import { renderLaneRow } from "../src/screens/map-lane-row.js";
 import {
   createStoryWrapBuild,
   storyFrameWrapPlans,
@@ -446,21 +447,21 @@ const rows: BenchRow[] = [];
   rows.push(time("loom cursor move on big tree", 4, () => movePathCursor(payload, "p100", 1, 0), 50));
 }
 
-// 4b · High-fanout atlas: topology must stay linear and paint only the window.
+// 4b · High-fanout lanes: topology must stay linear and paint only the window.
 {
   const payload = wideAtlasPayload(1_600);
-  rows.push(time("atlas layout+visible paint, 1.6k branches", 100, () => {
-    const layout = createAtlasLayout(payload, { now: Date.parse("2026-07-22T00:00:00Z"), maxRows: 30 });
-    for (const row of layout.rows) renderMapTreeRow(row, 120, null);
+  rows.push(time("lane layout+visible paint, 1.6k branches", 100, () => {
+    const layout = createLaneLayout(payload, { now: Date.parse("2026-07-22T00:00:00Z"), maxRows: 30 });
+    for (const row of layout.rows) renderLaneRow(row, layout, 120, null);
   }, 5));
 }
 
 // 4c · Deep forked atlas: traversal stays iterative at the 20k-node scale.
 {
   const payload = deepAtlasPayload(10_000);
-  rows.push(time("atlas layout, 19,999 nodes / 10k depth", 300, () => {
+  rows.push(time("atlas layout, 19,999 nodes / 10k rows", 300, () => {
     const layout = createAtlasLayout(payload, { now: Date.parse("2026-07-22T00:00:00Z"), maxRows: 30 });
-    if (layout.totalRows !== 19_999) throw new Error(`Deep atlas lost rows: ${layout.totalRows}`);
+    if (layout.totalRows !== 10_000) throw new Error(`Deep atlas lost rows: ${layout.totalRows}`);
   }, 3));
 }
 
