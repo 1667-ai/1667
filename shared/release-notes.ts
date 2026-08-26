@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.3-rc.5",
+    date: "2026-08-26",
+    body: "- **Aside text selection works across the full chat width.** Questions and\n  answers use distinct `You` and `Assistant` labels, and question rows keep a\n  stronger visual treatment without adding a selection-breaking side pane.\n  Copying across both roles keeps the complete exchange.\n- **Destructive shortcuts use capital `D` consistently.** Aside turns, Facts,\n  chapter breaks, tags, Sampling entries, and Generation Profiles require a\n  confirmation before deletion. A different action cancels the confirmation.\n  Lowercase `d` is non-destructive."
+  },
+  {
     version: "0.10.3-rc.4",
     date: "2026-08-26",
     body: "- **Aside keeps selected text and turn context visible.** Highlighted answer\n  text stays highlighted while the Use selection menu is open, including\n  during a saved turn update. Up and Down navigation shows the selected\n  question from its first line and keeps as much answer visible as the screen\n  permits."

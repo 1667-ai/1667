@@ -5,6 +5,8 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.3-rc.5 - 2026-08-26
+
 - **Aside text selection works across the full chat width.** Questions and
   answers use distinct `You` and `Assistant` labels, and question rows keep a
   stronger visual treatment without adding a selection-breaking side pane.
