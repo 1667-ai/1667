@@ -214,6 +214,20 @@ describe("Aside use-menu mouse", () => {
       Math.floor(index / (width + 1))))];
     expect(afterRows).toEqual(beforeRows);
     expect(surface.useMenu?.selectionSpans).toEqual(decorated?.selectionSpans);
+
+    await handleOverlayAction(
+      { action: "cancel" },
+      state,
+      source,
+      overlayContext(state, width, height)
+    );
+    expect(surface.useMenu).toBeNull();
+    expect(surface.focus).toBe("composer");
+    const closed = renderStoryScreen(state, { width, height });
+    const closedRows = [...new Set(closed.derived.storySelectionProjection!
+      .flatMap((cell, index) => cell?.key === selectedKey
+        ? [Math.floor(index / (width + 1))] : []))];
+    expect(closedRows).toEqual(beforeRows);
   });
 
   test("every selected-text menu row applies from one mouse click", async () => {

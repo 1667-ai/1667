@@ -854,7 +854,6 @@ async function asideKeyAction(
     }
     if (surface.useMenu !== null) {
       closeAsideUseMenu(surface);
-      surface.focus = "notes";
       return;
     }
     if (surface.focus === "notes" || surface.focus === "turns") {
