@@ -31,8 +31,17 @@ import {
   STORED_IMAGE_MEDIA_TYPES
 } from "../shared/image-attachment.js";
 import { HASH_PATTERN } from "../server/story-format-facts.js";
-import { STORY_ASIDE_SCHEMA_VERSION, STORY_SUCCESSOR_SCHEMA_VERSION } from "../server/story-format.js";
-import { STORY_SCHEMA_VERSION_V8, STORY_SCHEMA_VERSION_V10 } from "../server/story-v6-codec.js";
+import { MAX_SESSION_REFS_PER_BUCKET } from "../server/story-v11-strict.js";
+import {
+  STORY_ASIDE_SCHEMA_VERSION,
+  STORY_ASIDE_SESSION_SCHEMA_VERSION,
+  STORY_SUCCESSOR_SCHEMA_VERSION
+} from "../server/story-format.js";
+import {
+  STORY_SCHEMA_VERSION_V8,
+  STORY_SCHEMA_VERSION_V10,
+  STORY_SCHEMA_VERSION_V12
+} from "../server/story-v6-codec.js";
 import { exactStringPatternSource } from "../server/story-wire-patterns.js";
 import {
   REVISION_ONE,
@@ -145,6 +154,28 @@ export function storyManifestSchema(): Schema {
     StrictV5Payload: strictContentSchema(5, "StoredNodeV5"),
     StrictV7Payload: strictContentSchema(STORY_SUCCESSOR_SCHEMA_VERSION, "StoredNodeV7"),
     StrictV9Payload: asideContentSchema(STORY_ASIDE_SCHEMA_VERSION, "StoredNodeV7"),
+    AsideAnchor: closed({ partId: ref("Identifier"), takeId: ref("Identifier") }),
+    AsideSessionRef: closed({
+      id: { type: "string", minLength: 1, maxLength: 128 },
+      documentId: ref("Hash256"),
+      anchor: nullable(ref("AsideAnchor")),
+      sourceAsideDocumentId: ref("Hash256"),
+      originAnchor: nullable(ref("AsideAnchor")),
+      turnCount: boundedInteger(0, 100)
+    }, ["id", "documentId", "anchor", "turnCount"]),
+    AsideAnchoredSessionRef: {
+      allOf: [
+        ref("AsideSessionRef"),
+        { type: "object", properties: { anchor: ref("AsideAnchor") }, required: ["anchor"] }
+      ]
+    },
+    AsideUnanchoredSessionRef: {
+      allOf: [
+        ref("AsideSessionRef"),
+        { type: "object", properties: { anchor: { const: null } }, required: ["anchor"] }
+      ]
+    },
+    StrictV11Payload: asideSessionContentSchema(STORY_ASIDE_SESSION_SCHEMA_VERSION, "StoredNodeV7"),
     ProviderPointer: closed({ mutationId: ref("MutationId"), fingerprintHash: ref("Hash256") }),
     StartedUserTransactionPointer: closed({
       receiptKind: { const: "user" }, mutationId: ref("MutationId"), phase: { const: "started" }
@@ -169,12 +200,14 @@ export function storyManifestSchema(): Schema {
     LiveV8: liveV6Schema(STORY_SCHEMA_VERSION_V8, "StrictV7Payload"),
     DeletedV8: deletedV6Schema(STORY_SCHEMA_VERSION_V8),
     LiveV10: liveV6Schema(STORY_SCHEMA_VERSION_V10, "StrictV9Payload"),
-    DeletedV10: deletedV6Schema(STORY_SCHEMA_VERSION_V10)
+    DeletedV10: deletedV6Schema(STORY_SCHEMA_VERSION_V10),
+    LiveV12: liveV6Schema(STORY_SCHEMA_VERSION_V12, "StrictV11Payload"),
+    DeletedV12: deletedV6Schema(STORY_SCHEMA_VERSION_V12)
   };
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     $id: "https://1667.invalid/schema/story-manifest-p2.json",
-    title: "1667 strict V5, V6, V7, V8, V9, and V10 story manifests",
+    title: "1667 strict V5, V6, V7, V8, V9, V10, V11, and V12 story manifests",
     oneOf: [
       ref("StrictV5Payload"),
       ref("LiveV6"),
@@ -184,7 +217,10 @@ export function storyManifestSchema(): Schema {
       ref("DeletedV8"),
       ref("StrictV9Payload"),
       ref("LiveV10"),
-      ref("DeletedV10")
+      ref("DeletedV10"),
+      ref("StrictV11Payload"),
+      ref("LiveV12"),
+      ref("DeletedV12")
     ],
     $defs: definitions
   };
@@ -310,6 +346,34 @@ function asideContentSchema(schemaVersion: number, nodeRef: string): Schema {
       asideDocumentId: { oneOf: [{ type: "null" }, ref("Hash256")] }
     },
     required: [...base.required, "asideDocumentId"]
+  };
+}
+
+/** V11 content: V9 plus text-free session references. Session text remains
+ * in separate content-addressed Aside objects. */
+function asideSessionContentSchema(schemaVersion: number, nodeRef: string): Schema {
+  const base = asideContentSchema(schemaVersion, nodeRef) as Schema & {
+    properties: Record<string, Schema>;
+    required: string[];
+  };
+  const anchoredRefs = {
+    type: "array",
+    maxItems: MAX_SESSION_REFS_PER_BUCKET,
+    items: ref("AsideAnchoredSessionRef")
+  };
+  const unanchoredRefs = {
+    type: "array",
+    maxItems: MAX_SESSION_REFS_PER_BUCKET,
+    items: ref("AsideUnanchoredSessionRef")
+  };
+  return {
+    ...base,
+    properties: {
+      ...base.properties,
+      asideSessionRefs: anchoredRefs,
+      asideUnanchoredSessionRefs: unanchoredRefs
+    },
+    required: [...base.required, "asideSessionRefs", "asideUnanchoredSessionRefs"]
   };
 }
 

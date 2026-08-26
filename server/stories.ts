@@ -27,7 +27,8 @@ import {
   type StoredNodeV1,
   type StoryManifestV5,
   type StoryManifestV7,
-  type StoryManifestV9
+  type StoryManifestV9,
+  type StoryManifestV11
 } from "./story-format.js";
 import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
 import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../shared/generation-record.js";
@@ -136,7 +137,7 @@ export const GENERATION_RECORD_GRAPH_CACHE_CAPACITY = 64;
 
 type ResolvedStory = Extract<
   StoredStorySlot,
-  { kind: "legacy" | "v5" | "v6-live" | "v8-live" | "v10-live" }
+  { kind: "legacy" | "v5" | "v6-live" | "v8-live" | "v10-live" | "v12-live" }
 >;
 type SweepObjects = (bundleDir: string, live: LiveStoryObjectIds, signal: AbortSignal) => Promise<boolean>;
 type WriteManifest = (file: string, data: string) => Promise<CommitResult>;
@@ -441,7 +442,7 @@ export class StoryStore {
         ...buildStoryCatalogSummary(slot.manifest),
         aggregateVersion: aggregateVersionFromSlot(slot)
       };
-      if (slot.kind === "v6-live" || slot.kind === "v8-live" || slot.kind === "v10-live") return {
+      if (slot.kind === "v6-live" || slot.kind === "v8-live" || slot.kind === "v10-live" || slot.kind === "v12-live") return {
         ...storySummaryFromLiveEnvelope(slot.manifest),
         aggregateVersion: aggregateVersionFromSlot(slot)
       };
@@ -583,6 +584,21 @@ export class StoryStore {
     return await this.withIo(
       id,
       async () => await this.readAsideDocumentUnlocked(id, documentId)
+    );
+  }
+
+  /** Read one content-addressed v2 session object named by a story ref. */
+  async readAsideSessionDocument(
+    id: string,
+    documentId: string
+  ): Promise<import("../shared/aside.js").AsideSessionDocument> {
+    return await this.withIo(
+      id,
+      async () => {
+        const objects = new StoryObjectStore(this.bundlePath(id));
+        await objects.init();
+        return await objects.readAsideSessionDocument(documentId);
+      }
     );
   }
 
@@ -881,6 +897,7 @@ export class StoryStore {
       || slot.kind === "v6-deleted"
       || slot.kind === "v8-deleted"
       || slot.kind === "v10-deleted"
+      || slot.kind === "v12-deleted"
     ) {
       throw new HttpError(404, `Story not found: ${id}`);
     }
@@ -1093,7 +1110,7 @@ export class StoryStore {
   }
 
   private async hydrateManifest(
-    manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9,
+    manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11,
     bundleDir: string
   ): Promise<Story> {
     const decoded = await decodeStoryBundle(manifest, bundleDir, { activeOnly: true });
@@ -1202,7 +1219,9 @@ function aggregateVersionFromSlot(
         | "v8-live"
         | "v8-deleted"
         | "v10-live"
-        | "v10-deleted";
+        | "v10-deleted"
+        | "v12-live"
+        | "v12-deleted";
     }
   >
 ): StoryAggregateVersion {

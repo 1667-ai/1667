@@ -55,6 +55,8 @@ export interface UserConfig {
   theme: ThemeName;
   factsRail: "auto" | "off";
   composeFocus: "on" | "off";
+  /** Whether Aside thought text is visible while reading or chatting. */
+  asideThoughts: "show" | "hide";
   /** Break editor lines at word boundaries instead of clipping them. Every
    *  composer-backed surface reads this: Direct, the document editors, and the
    *  Fact body. */
@@ -76,6 +78,7 @@ const DEFAULTS: UserConfig = {
   theme: "lantern",
   factsRail: "auto",
   composeFocus: "off",
+  asideThoughts: "hide",
   wordWrap: "on",
   composeMaxHeight: null,
   quota: { date: "", words: 0 },
@@ -100,6 +103,10 @@ function normalizedComposeFocus(value: unknown): UserConfig["composeFocus"] {
   return value === true || value === "on" ? "on" : "off";
 }
 
+function normalizedAsideThoughts(value: unknown): UserConfig["asideThoughts"] {
+  return value === "show" ? "show" : "hide";
+}
+
 /** Absent means on, so an existing config file keeps wrapping the editors. */
 function normalizedWordWrap(value: unknown): UserConfig["wordWrap"] {
   return value === false || value === "off" ? "off" : "on";
@@ -122,6 +129,7 @@ export function normalizeUserConfig(value: unknown): UserConfig {
   const theme = raw.theme;
   const factsRail = configValue(raw, "factsRail", "facts_rail");
   const composeFocus = configValue(raw, "composeFocus", "compose_focus");
+  const asideThoughts = configValue(raw, "asideThoughts", "aside_thoughts");
   const wordWrap = configValue(raw, "wordWrap", "word_wrap");
   const composeMaxHeight = configValue(raw, "composeMaxHeight", "compose_max_height");
   const settingsViewMode = configValue(raw, "settingsViewMode", "settings_view_mode");
@@ -133,6 +141,7 @@ export function normalizeUserConfig(value: unknown): UserConfig {
     theme: THEME_NAMES.includes(theme as ThemeName) ? theme as ThemeName : DEFAULTS.theme,
     factsRail: factsRail === "off" ? "off" : "auto",
     composeFocus: normalizedComposeFocus(composeFocus),
+    asideThoughts: normalizedAsideThoughts(asideThoughts),
     wordWrap: normalizedWordWrap(wordWrap),
     composeMaxHeight: normalizedComposeMaxHeight(composeMaxHeight),
     settingsViewMode: settingsViewMode === "advanced" ? "advanced" : "simple",

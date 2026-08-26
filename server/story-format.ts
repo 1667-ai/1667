@@ -48,6 +48,8 @@ import {
 import { assertStrictV5Manifest, MAX_STORY_MANIFEST_BYTES } from "./story-v5-strict.js";
 import { assertStrictV7Manifest } from "./story-v7-strict.js";
 import { assertStrictV9Manifest } from "./story-v9-strict.js";
+import { assertStrictV11Manifest } from "./story-v11-strict.js";
+import type { AsideSessionRef } from "../shared/aside-session-index.js";
 
 export { HASH_PATTERN, StoryFormatError, requireHash } from "./story-format-facts.js";
 export {
@@ -72,6 +74,9 @@ export const STORY_SUCCESSOR_SCHEMA_VERSION = 7;
  * `asideDocumentId` on top of the V7 shape (including optional image
  * attachments). Written only inside the V10 envelope when Aside is active. */
 export const STORY_ASIDE_SCHEMA_VERSION = 9;
+/** The v2 Aside content payload. It keeps the V9 legacy document id and adds
+ * text-free session references. It is written only in the V12 envelope. */
+export const STORY_ASIDE_SESSION_SCHEMA_VERSION = 11;
 export const REVISION_FORMAT = "1667-text-revision";
 export const STORYTAVERN_REVISION_FORMAT = "storytavern-text-revision";
 export const REVISION_SCHEMA_VERSION = 1;
@@ -267,6 +272,14 @@ export interface StoryManifestV9 extends Omit<StoryManifestV7, "schemaVersion"> 
   asideDocumentId: ObjectHash | null;
 }
 
+/** V2 Aside content. The V9 `asideDocumentId` remains immutable and readable
+ * by predecessor releases; session refs are additive. */
+export interface StoryManifestV11 extends Omit<StoryManifestV9, "schemaVersion"> {
+  schemaVersion: typeof STORY_ASIDE_SESSION_SCHEMA_VERSION;
+  asideSessionRefs: AsideSessionRef[];
+  asideUnanchoredSessionRefs: AsideSessionRef[];
+}
+
 export interface TextRevisionV1 {
   format: typeof REVISION_FORMAT | typeof STORYTAVERN_REVISION_FORMAT;
   schemaVersion: typeof REVISION_SCHEMA_VERSION;
@@ -406,7 +419,7 @@ export function serializeManifest(manifest: StoryManifestV5): string {
  *  Every direct write to a story's manifest file goes through
  *  `serializeManifest` instead, which accepts only `StoryManifestV5`. */
 export function serializeManifestContent(
-  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9
+  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11
 ): string {
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
@@ -419,7 +432,7 @@ export function serializeManifestContent(
  *  corrupting the story it was trying to save. Mirrors `requireV6Manifest`
  *  (`server/story-v6-codec.ts`) one schema pair down. */
 export function requireV5Manifest(
-  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9,
+  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11,
   context: string
 ): StoryManifestV5 {
   if (manifest.schemaVersion !== STORY_SCHEMA_VERSION) {
@@ -456,6 +469,15 @@ export function parseManifestV9(raw: string, expectedId: string): StoryManifestV
   return parsed.manifest;
 }
 
+/** Parse the v2 Aside content payload deliberately. */
+export function parseManifestV11(raw: string, expectedId: string): StoryManifestV11 {
+  const parsed = parseManifestWithVersion(raw, expectedId);
+  if (parsed.manifest.schemaVersion !== STORY_ASIDE_SESSION_SCHEMA_VERSION) {
+    throw new StoryFormatError(`Expected a V${STORY_ASIDE_SESSION_SCHEMA_VERSION} story manifest for ${expectedId}`);
+  }
+  return parsed.manifest;
+}
+
 /** A discriminated union, not one loosely-typed pair of fields: tying
  * `manifest` to the exact `sourceSchemaVersion` that produced it is what lets
  * a caller that already checked `sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION`
@@ -472,6 +494,10 @@ export type ParsedManifestVersion =
   | {
       manifest: StoryManifestV9;
       sourceSchemaVersion: typeof STORY_ASIDE_SCHEMA_VERSION;
+    }
+  | {
+      manifest: StoryManifestV11;
+      sourceSchemaVersion: typeof STORY_ASIDE_SESSION_SCHEMA_VERSION;
     };
 
 /** Parse and normalize while retaining the on-disk version for migration-only
@@ -485,12 +511,19 @@ export function parseManifestWithVersion(raw: string, expectedId: string): Parse
 
 /** Preserve the historical unbounded V2-V4 read contract. Callers must first
  * stream-discriminate the top-level version so strict manifests stay bounded. */
-export function parseLegacyManifestWithoutSizeLimit(raw: string, expectedId: string): ParsedManifestVersion {
+export function parseLegacyManifestWithoutSizeLimit(
+  raw: string,
+  expectedId: string
+): { manifest: StoryManifestV5; sourceSchemaVersion: 2 | 3 | 4 } {
   const value = parseJsonObject(raw, `story ${expectedId} manifest`);
   if (value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4) {
     throw manifestSizeError();
   }
-  return parseManifestValueWithVersion(value, expectedId);
+  const parsed = parseManifestValueWithVersion(value, expectedId);
+  if (parsed.sourceSchemaVersion !== 2 && parsed.sourceSchemaVersion !== 3 && parsed.sourceSchemaVersion !== 4) {
+    throw new StoryFormatError("Legacy manifest parser received a successor schema");
+  }
+  return parsed as { manifest: StoryManifestV5; sourceSchemaVersion: 2 | 3 | 4 };
 }
 
 export function parseManifestValueWithVersion(input: unknown, expectedId: string): ParsedManifestVersion {
@@ -504,6 +537,7 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
       && value.schemaVersion !== STORY_SCHEMA_VERSION
       && value.schemaVersion !== STORY_SUCCESSOR_SCHEMA_VERSION
       && value.schemaVersion !== STORY_ASIDE_SCHEMA_VERSION
+      && value.schemaVersion !== STORY_ASIDE_SESSION_SCHEMA_VERSION
     )
   ) {
     throw new StoryFormatError(`Unsupported story format in ${expectedId}`);
@@ -517,13 +551,17 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
   if (value.schemaVersion === STORY_ASIDE_SCHEMA_VERSION) {
     assertStrictV9Manifest(value, expectedId, value.format);
   }
+  if (value.schemaVersion === STORY_ASIDE_SESSION_SCHEMA_VERSION) {
+    assertStrictV11Manifest(value, expectedId, value.format);
+  }
   const id = stringField(value, "id");
   if (id !== expectedId) throw new StoryFormatError(`Story id mismatch: expected ${expectedId}, found ${id}`);
   const origin = optionalOrigin(value.origin);
   const sourceSchemaVersion = value.schemaVersion;
   const isCurrentOrSuccessor = sourceSchemaVersion === STORY_SCHEMA_VERSION
     || sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION
-    || sourceSchemaVersion === STORY_ASIDE_SCHEMA_VERSION;
+    || sourceSchemaVersion === STORY_ASIDE_SCHEMA_VERSION
+    || sourceSchemaVersion === STORY_ASIDE_SESSION_SCHEMA_VERSION;
   const stored = sourceSchemaVersion === 2 || sourceSchemaVersion === 3
     ? convertV3ToV4(parseLegacyManifest(value))
     : parseV4Manifest(value);
@@ -588,6 +626,46 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
       ...common,
       schemaVersion: STORY_ASIDE_SCHEMA_VERSION,
       asideDocumentId
+    };
+    return {
+      manifest: origin === undefined ? parsed : { ...parsed, origin },
+      sourceSchemaVersion
+    };
+  }
+  if (sourceSchemaVersion === STORY_ASIDE_SESSION_SCHEMA_VERSION) {
+    const asideDocumentId = value.asideDocumentId === null
+      ? null
+      : requireHash(stringField(value, "asideDocumentId"), "asideDocumentId");
+    const asideSessionRefs = value.asideSessionRefs as AsideSessionRef[];
+    const asideUnanchoredSessionRefs = value.asideUnanchoredSessionRefs as AsideSessionRef[];
+    const parsed: StoryManifestV11 = {
+      ...common,
+      schemaVersion: STORY_ASIDE_SESSION_SCHEMA_VERSION,
+      asideDocumentId,
+      asideSessionRefs: asideSessionRefs.map((ref) => ({
+        id: ref.id,
+        documentId: ref.documentId,
+        anchor: ref.anchor === null ? null : { ...ref.anchor },
+        ...(ref.sourceAsideDocumentId === undefined
+          ? {}
+          : { sourceAsideDocumentId: ref.sourceAsideDocumentId }),
+        ...(ref.originAnchor === undefined
+          ? {}
+          : { originAnchor: ref.originAnchor === null ? null : { ...ref.originAnchor } }),
+        turnCount: ref.turnCount
+      })),
+      asideUnanchoredSessionRefs: asideUnanchoredSessionRefs.map((ref) => ({
+        id: ref.id,
+        documentId: ref.documentId,
+        anchor: null,
+        ...(ref.sourceAsideDocumentId === undefined
+          ? {}
+          : { sourceAsideDocumentId: ref.sourceAsideDocumentId }),
+        ...(ref.originAnchor === undefined
+          ? {}
+          : { originAnchor: ref.originAnchor === null ? null : { ...ref.originAnchor } }),
+        turnCount: ref.turnCount
+      }))
     };
     return {
       manifest: origin === undefined ? parsed : { ...parsed, origin },

@@ -6,6 +6,7 @@ import {
   moveComposerHorizontal,
   selectedComposerText
 } from "../src/composer-model.js";
+import { createAsideSurface } from "../src/aside-surface.js";
 import { demoAppSource } from "../src/demo.js";
 import {
   EMPTY_NATIVE_SELECTION,
@@ -196,6 +197,66 @@ describe("active selection copy", () => {
     expect(result?.text).toBe("main view words");
     expect(await result?.outcome).toBe("command");
     expect(copied).toEqual(["main view words"]);
+  });
+
+  test("Ctrl/Cmd+C copies Aside history selection while the composer has focus", async () => {
+    const state = initialState(demoAppSource(), false);
+    const answer = "history answer";
+    const surface = createAsideSurface(
+      state.payload.id,
+      state.payload.title,
+      [{
+        id: "session-1",
+        title: "Why?",
+        anchor: null,
+        turns: [{ q: "Why?", a: answer }]
+      }],
+      null,
+      null,
+      { v2: true }
+    );
+    surface.focus = "composer";
+    surface.composer.text = "draft prompt";
+    surface.composer.anchor = 0;
+    surface.composer.cursor = 5;
+    state.aside = surface;
+    state.mode = "ASIDE";
+
+    const frame = renderStoryScreen(state, { width: 80, height: 24 });
+    const row = frame.lines.findIndex((line) => plainLine(line).includes(answer));
+    expect(row).toBeGreaterThan(-1);
+    const column = plainLine(frame.lines[row]!).indexOf(answer);
+    expect(column).toBeGreaterThan(-1);
+    const stride = 81;
+    const native = {
+      getSelectedText: () => answer,
+      selectedRenderables: [{
+        getSelection: () => ({
+          start: row * stride + column,
+          end: row * stride + column + answer.length
+        })
+      }]
+    };
+    const renderer = { getSelection: () => native };
+    const copied: string[] = [];
+
+    expect(handleMainCopyShortcut(
+      renderer as never,
+      state,
+      () => undefined,
+      () => { throw new Error("history copy must not quit"); },
+      {
+        composer: frame.derived.composerSelectionProjection,
+        story: frame.derived.storySelectionProjection
+      },
+      async (text) => { copied.push(text); return "command"; }
+    )).toBeTrue();
+    await Promise.resolve();
+
+    expect(copied).toEqual([answer]);
+    expect(renderer.getSelection()).toBe(native);
+    expect(copyActiveSelection(EMPTY_NATIVE_SELECTION, state, async () => "command")?.text)
+      .toBe("draft");
   });
 
   test("Ctrl+C consumes a native selection containing only unmapped story chrome", () => {

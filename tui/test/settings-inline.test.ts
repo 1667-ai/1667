@@ -225,6 +225,23 @@ describe("inline settings menu", () => {
     expect(state.config.composeFocus).toBe("off");
   });
 
+  test("Aside Thoughts is a persisted show or hide selector", async () => {
+    const { source, state, press } = harness();
+    await openSettings(press);
+    await selectRow(press, state, "aside-thoughts");
+
+    expect(state.config.asideThoughts).toBe("hide");
+    await press(key("return"));
+    expect(state.settings?.edit).toBe(null);
+    expect(state.config.asideThoughts).toBe("show");
+    expect(source.config.asideThoughts).toBe("show");
+    expect(state.toast).toBe("aside Thoughts · show");
+
+    await press(key("right"));
+    expect(state.config.asideThoughts).toBe("hide");
+    expect(source.config.asideThoughts).toBe("hide");
+  });
+
   test("paste refuses every closed choice and still opens text rows", async () => {
     const { state, press } = harness();
     await openSettings(press);

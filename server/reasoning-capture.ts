@@ -55,8 +55,8 @@ export function reasoningCapture(
  *  commit time. Live relay is deliberately unaffected: a reader still watches
  *  the model think, the thought just does not outlive the stream.
  *
- *  Accumulation itself stops at `MAX_REASONING_BYTES`: past that point the
- *  capture keeps the prefix it already has and drops the rest, rather than
+ *  Text accumulation itself stops at `MAX_REASONING_BYTES`: past that point
+ *  the capture keeps the prefix it already has and drops the rest, rather than
  *  building an unbounded string that `createReasoningRecord` only rejects
  *  whole at commit time (server/story-node-reasoning.ts's `attachTakeReasoning`
  *  swallows that failure, so an unbounded capture stored nothing at all for
@@ -72,14 +72,29 @@ export function withReasoningCapture(
   let truncated = false;
   let rawBytes = 0;
   return async (delta: ReasoningStreamDelta) => {
-    if (keep && !truncated) {
-      rawBytes += Buffer.byteLength(delta.text, "utf8");
-      const candidate = (collector.record?.text ?? "") + delta.text;
-      if (rawBytes <= MAX_REASONING_BYTES) {
-        collector.record = { text: candidate, tokenCount: delta.tokenCount };
+    if (keep) {
+      if (truncated) {
+        if (collector.record !== null) {
+          const next = { ...collector.record, tokenCount: delta.tokenCount };
+          try {
+            createReasoningRecord(next);
+            collector.record = next;
+          } catch {
+            collector.record = {
+              text: longestStorableReasoningPrefix(collector.record.text, delta.tokenCount),
+              tokenCount: delta.tokenCount
+            };
+          }
+        }
       } else {
-        collector.record = { text: longestStorableReasoningPrefix(candidate, delta.tokenCount), tokenCount: delta.tokenCount };
-        truncated = true;
+        rawBytes += Buffer.byteLength(delta.text, "utf8");
+        const candidate = (collector.record?.text ?? "") + delta.text;
+        if (rawBytes <= MAX_REASONING_BYTES) {
+          collector.record = { text: candidate, tokenCount: delta.tokenCount };
+        } else {
+          collector.record = { text: longestStorableReasoningPrefix(candidate, delta.tokenCount), tokenCount: delta.tokenCount };
+          truncated = true;
+        }
       }
     }
     await onReasoning?.(delta);
@@ -120,9 +135,9 @@ export function reasoningSafeToStore(
 
 /** The longest prefix of `text` that `createReasoningRecord` still accepts
  *  for `tokenCount`, found by asking it — never by reimplementing its size
- *  bound. Runs at most once per stream: `withReasoningCapture` only calls
- *  this the instant raw accumulation first crosses `MAX_REASONING_BYTES`,
- *  and stops accumulating once it has. */
+ *  bound. `withReasoningCapture` calls this when raw accumulation first
+ *  crosses `MAX_REASONING_BYTES`, and again only if later token-count digits
+ *  make the already-retained prefix too large. */
 function longestStorableReasoningPrefix(text: string, tokenCount: number): string {
   let fits = 0;
   let tooLong = text.length + 1;

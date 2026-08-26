@@ -656,6 +656,7 @@ export async function handleKey(
     asideLayer: state.mode === "ASIDE"
       ? asideKeyboardLayer(state.aside)
       : undefined,
+    asideBusy: state.mode === "ASIDE" && state.aside?.busy === true,
     factEditor: state.editor?.kind === "fact",
     authorsNoteEditor: state.editor?.kind === "document" && state.editor.target.kind === "authors-note",
     mapView: state.map?.view

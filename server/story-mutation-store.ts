@@ -78,12 +78,12 @@ export type {
 };
 export type StoryMutationStoreHooks = StoryMutationHooks;
 
-/** The single source for this set is the shared protocol array; the alias
- * keeps the ledger-side name while guaranteeing both sides cannot drift. */
-export type LocalStoryMutationMethod = LocalDurabilityMutationMethod;
+/** The shared array owns manifest-only membership. Aside v2 local verbs stay
+ * outside that array because index-based deletion requires a full receipt. */
+export type LocalStoryMutationMethod = LocalDurabilityMutationMethod | "asideSessionMutation";
 
 const LOCAL_METHODS: ReadonlySet<string> = new Set(
-  LOCAL_DURABILITY_MUTATION_METHODS
+  [...LOCAL_DURABILITY_MUTATION_METHODS, "asideSessionMutation"]
 );
 
 /** The durability tier of one admitted local command. "manifest-only" holds
@@ -188,7 +188,7 @@ export class StoryMutationStore {
       session: StoryAggregateSession
     ) => Value | typeof STORY_UNCHANGED
       | Promise<Value | typeof STORY_UNCHANGED>,
-    replayValue: () => Value
+    replayValue: (session: StoryAggregateSession) => Value | PromiseLike<Value>
   ): Promise<StoryMutationCommit<Value>>;
   async runLocal(
     input: unknown,
@@ -198,7 +198,7 @@ export class StoryMutationStore {
       session: StoryAggregateSession
     ) => unknown | typeof STORY_UNCHANGED
       | Promise<unknown | typeof STORY_UNCHANGED>,
-    replayValue: () => unknown = () => undefined
+    replayValue: (session: StoryAggregateSession) => unknown | PromiseLike<unknown> = () => undefined
   ): Promise<StoryMutationCommit<unknown>> {
     if (!LOCAL_METHODS.has(method)) {
       throw new Error(`Unsupported local story method: ${method}`);
@@ -213,7 +213,7 @@ export class StoryMutationStore {
               story: await session.loadLive(),
               result: terminal,
               aggregateVersion: storyAggregateVersion(session.snapshot),
-              value: replayValue()
+              value: await replayValue(session)
             };
           }
           const story = await session.loadLive();
@@ -243,7 +243,7 @@ export class StoryMutationStore {
                   story,
                   result: prepared.result,
                   aggregateVersion: storyAggregateVersion(session.snapshot),
-                  value: replayValue()
+                  value: await replayValue(session)
                 };
               }
               if (tier === "manifest-only") {
@@ -251,7 +251,7 @@ export class StoryMutationStore {
                   story,
                   result: storyResult(session.snapshot.manifest),
                   aggregateVersion: storyAggregateVersion(session.snapshot),
-                  value: replayValue()
+                  value: await replayValue(session)
                 };
               }
               const prepared = prepareReceiptOnlyStorySuccess(
@@ -270,7 +270,7 @@ export class StoryMutationStore {
                 story,
                 result: prepared.result,
                 aggregateVersion: storyAggregateVersion(session.snapshot),
-                value: replayValue()
+                value: await replayValue(session)
               };
             }
             value = outcome;
@@ -408,6 +408,7 @@ export class StoryMutationStore {
     // exact mutation identity so predecessor recovery cannot infer ownership
     // from a null Aside slot or a stale revision.
     const tier: LocalDurabilityTier = method !== "clearAside"
+      && method !== "asideSessionMutation"
       && request.durability === "manifest-only"
       && receipt.prepared === null
       ? "manifest-only"

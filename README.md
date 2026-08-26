@@ -171,6 +171,11 @@ The keys `h`, `j`, `k`, and `l` do not move between story parts. `l` opens
 the token probability viewer instead. In the map, `l` follows or opens the
 selected story line. Press `?` for the complete key reference.
 
+Aside keeps separate sessions for story takes. Press `Left` or `Right` to
+select a session. Press `[` or `]` to select an Aside anchor. Existing Side
+Notes remain available in the unanchored bucket. Press `t` to show or hide
+stored Thoughts. Stored Thoughts do not enter later model requests.
+
 ## Privacy
 
 1667 stores stories and project settings in the project tier. Demo mode and

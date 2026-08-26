@@ -1,10 +1,12 @@
 import type { Story } from "../shared/types.js";
 import type { StoryAggregateVersion } from "../shared/story-aggregate-version.js";
+import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import type {
   MutationResult,
   ProviderMutationMethod
 } from "./mutation-ledger-types.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
+import type { StoryEnvelopeManifest } from "./story-v6-types.js";
 
 export interface ProviderStoryMutationCommit<Value> {
   readonly story: Story;
@@ -32,9 +34,11 @@ export type ProviderStoryWork<
 ) => Promise<Value>;
 
 /** Reconstruct the value returned by a provider operation whose durable
- * terminal result already exists. Replay runs after the aggregate session
- * that recovered the result has closed, so it may perform its own reads. */
-export type ProviderStoryReplay<Value> = () => Value | PromiseLike<Value>;
+ * terminal result already exists. Replay runs inside the aggregate session
+ * that recovered the result, so related reads share one snapshot. */
+export type ProviderStoryReplay<Value> = (
+  session: StoryAggregateSession
+) => Value | PromiseLike<Value>;
 
 export type ProviderStoryRun<
   Method extends ProviderMutationMethod,
@@ -49,6 +53,12 @@ export type ProviderStoryAdmission<Value> =
   | {
       kind: "replayed";
       commit: Omit<ProviderStoryMutationCommit<Value>, "value">;
-      replayValue: ProviderStoryReplay<Value>;
+      value: Value;
     }
-  | { kind: "open"; story: Story; releaseSnapshot: () => void };
+  | {
+      kind: "open";
+      story: Story;
+      /** The exact aggregate manifest admitted with this provider operation. */
+      manifest: StoryEnvelopeManifest;
+      releaseSnapshot: () => void;
+    };

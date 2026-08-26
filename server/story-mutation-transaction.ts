@@ -34,15 +34,18 @@ import { storyProjection } from "./story-aggregate-state.js";
 import {
   hashStoryV6ManifestBytes,
   hashStoryV8ManifestBytes,
-  hashStoryV10ManifestBytes
+  hashStoryV10ManifestBytes,
+  hashStoryV12ManifestBytes
 } from "./story-manifest-hash.js";
 import { canonicalJson } from "./canonical-json.js";
 import {
   formatV6,
   formatV8,
   formatV10,
+  formatV12,
   STORY_SCHEMA_VERSION_V8,
-  STORY_SCHEMA_VERSION_V10
+  STORY_SCHEMA_VERSION_V10,
+  STORY_SCHEMA_VERSION_V12
 } from "./story-v6-codec.js";
 import type { StoryEnvelopeManifest } from "./story-v6-types.js";
 import { StoryDurabilityError } from "./story-lifecycle.js";
@@ -702,6 +705,9 @@ export function storyResult(
 }
 
 export function hashStoryManifest(manifest: StoryEnvelopeManifest): string {
+  if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V12) {
+    return hashStoryV12ManifestBytes(Buffer.from(formatV12(manifest), "utf8"));
+  }
   if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V10) {
     return hashStoryV10ManifestBytes(Buffer.from(formatV10(manifest), "utf8"));
   }

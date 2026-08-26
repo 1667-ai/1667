@@ -61,6 +61,9 @@ export type KeyAction =
   | "open-selected" | "new-item" | "duplicate-item" | "rename-item" | "delete-item"
   | "move-item-up" | "move-item-down"
   | "open-aside" | "open-authors-note" | "note-depth-decrease" | "note-depth-increase"
+  | "aside-retake" | "aside-delete" | "aside-reset" | "aside-new-session"
+  | "aside-session-next" | "aside-session-previous" | "aside-anchor-next" | "aside-anchor-previous"
+  | "aside-go-anchor" | "aside-undo-delete"
   | "filter" | "cycle" | "check" | "detect-context" | "discard-pending" | "retry" | "continue"
   | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index"
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
@@ -256,7 +259,7 @@ export function pasteInto(
     pendingGenerationDraft: PendingGenerationDraft | null;
     composerClaimEpoch: number;
     stream: RuntimeState["stream"];
-    aside?: Pick<AsideSurfaceState, "composer" | "confirmClear" | "focus" | "useMenu"> | null;
+    aside?: Pick<AsideSurfaceState, "composer" | "focus" | "useMenu"> | null;
   },
   raw: string
 ): boolean {
@@ -402,6 +405,8 @@ export interface ResolveOptions {
    * cannot combine incorrectly.
    */
   asideLayer?: AsideKeyboardLayer;
+  /** Provider currently owns the Aside answer stream. */
+  asideBusy?: boolean;
   mapView?: MapView;
 }
 
@@ -450,7 +455,7 @@ export function asideKeyboardLayer(
 ): AsideKeyboardLayer {
   if (surface === null || surface === undefined) return "composer";
   if (surface.useMenu !== null) return "use-menu";
-  if (surface.focus === "notes") return "notes";
+  if (surface.focus === "notes" || surface.focus === "turns") return "notes";
   return "composer";
 }
 
@@ -460,7 +465,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     factEditor = false, authorsNoteEditor = false, settingsPicker = false,
     settingsProfileTransfer = null,
     textActionsOpen = false,
-    asideLayer = "composer",
+    asideLayer = "composer", asideBusy = false,
     libraryRenaming = false,
     mapView = "path" } = options;
   const globalReference = resolveReferenceBinding("global", key, mode, mapView);
@@ -516,9 +521,23 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
       if (name === "up") return { action: "focus-previous" };
       if (name === "down") return { action: "focus-next" };
       if (key.name === "return") return { action: "open-selected" };
+      if (name === "r") return { action: "aside-retake" };
+      if (name === "x") return { action: "aside-delete" };
+      if (name === "t") return { action: "toggle-thought" };
+      if (name === "n") return { action: "aside-new-session" };
+      if (name === "u") return { action: "aside-undo-delete" };
+      if (name === "backspace") return { action: "aside-reset" };
+      if (name === "left") return { action: "aside-session-previous" };
+      if (name === "right") return { action: "aside-session-next" };
+      if (name === "[") return { action: "aside-anchor-previous" };
+      if (name === "]") return { action: "aside-anchor-next" };
+      if (name === "g") return { action: "aside-go-anchor" };
       if ((key.ctrl || key.super) && name === "v") return { action: "none" };
       return { action: "none" };
     }
+    // `Esc` remains the stop key while the provider owns the surface; the
+    // thought toggle is still useful because it only changes rendering.
+    if (asideBusy && name === "t") return { action: "toggle-thought" };
     if (key.name === "return" && key.shift) return { action: "newline" };
     if (key.name === "return") return { action: "send" };
     if ((name === "up" || name === "down")

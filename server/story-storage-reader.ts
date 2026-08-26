@@ -9,8 +9,6 @@ import {
   liveObjectIds,
   parseLegacyStory,
   parseLegacyManifestWithoutSizeLimit,
-  STORY_ASIDE_SCHEMA_VERSION,
-  STORY_SUCCESSOR_SCHEMA_VERSION,
   type StoryManifestV5
 } from "./story-format.js";
 import type { LiveStoryObjectIds } from "./story-objects.js";
@@ -21,6 +19,7 @@ import { readUnsealedFile } from "./vault-file-read.js";
 import type { DeletedStoryManifestV6, LiveStoryManifestV6, ParsedStoryManifest } from "./story-v6-types.js";
 import type { DeletedStoryManifestV8, LiveStoryManifestV8 } from "./story-v8-types.js";
 import type { DeletedStoryManifestV10, LiveStoryManifestV10 } from "./story-v10-types.js";
+import type { DeletedStoryManifestV12, LiveStoryManifestV12 } from "./story-v12-types.js";
 import {
   classifyStoryEntry,
   isStoryId,
@@ -80,13 +79,25 @@ export type StoredStorySlot =
       manifest: DeletedStoryManifestV10;
       manifestBytes: Buffer;
       mutationBlockedByResidue?: true;
+    }
+  | {
+      kind: "v12-live";
+      manifest: LiveStoryManifestV12;
+      manifestBytes: Buffer;
+      mutationBlockedByResidue?: true;
+    }
+  | {
+      kind: "v12-deleted";
+      manifest: DeletedStoryManifestV12;
+      manifestBytes: Buffer;
+      mutationBlockedByResidue?: true;
     };
 
 export type MutableStorySlot = Extract<StoredStorySlot, { kind: "absent" | "legacy" | "v5" }>;
 export type StoryMetadata = Pick<Story, "id" | "title" | "createdAt" | "origin">;
 
 export function storyMetadataFromSlot(
-  slot: Extract<StoredStorySlot, { kind: "legacy" | "v5" | "v6-live" | "v8-live" | "v10-live" }>
+  slot: Extract<StoredStorySlot, { kind: "legacy" | "v5" | "v6-live" | "v8-live" | "v10-live" | "v12-live" }>
 ): StoryMetadata {
   const source = slot.kind === "legacy" ? slot.story : slot.kind === "v5" ? slot.manifest : slot.manifest.content;
   return {
@@ -120,6 +131,8 @@ export function requireMutableStorySlot(
     || slot.kind === "v8-deleted"
     || slot.kind === "v10-live"
     || slot.kind === "v10-deleted"
+    || slot.kind === "v12-live"
+    || slot.kind === "v12-deleted"
   ) {
     throw new ServiceError(
       409,
@@ -165,10 +178,12 @@ export function storySlotSweepLiveIds(slot: StoredStorySlot): LiveStoryObjectIds
     case "v6-live":
     case "v8-live":
     case "v10-live":
+    case "v12-live":
       return liveObjectIds(slot.manifest.content);
     case "v6-deleted":
     case "v8-deleted":
     case "v10-deleted":
+    case "v12-deleted":
       return EMPTY_LIVE_STORY_OBJECT_IDS;
     case "absent":
     case "residue":
@@ -245,6 +260,12 @@ function slotFromParsedManifest(
   if (parsed.kind === "v10-deleted") {
     return { kind: "v10-deleted", manifest: parsed.manifest, manifestBytes: parsed.manifestBytes };
   }
+  if (parsed.kind === "v12-live") {
+    return { kind: "v12-live", manifest: parsed.manifest, manifestBytes: parsed.manifestBytes };
+  }
+  if (parsed.kind === "v12-deleted") {
+    return { kind: "v12-deleted", manifest: parsed.manifest, manifestBytes: parsed.manifestBytes };
+  }
   if (parsed.kind === "v8-live") {
     return { kind: "v8-live", manifest: parsed.manifest, manifestBytes: parsed.manifestBytes };
   }
@@ -260,14 +281,6 @@ async function parseStoredManifest(file: string, storyId: string) {
     const raw = await readOversizeLegacyManifestBytes(file, `story ${storyId} manifest`);
     if (raw === null) throw error;
     const parsed = parseLegacyManifestWithoutSizeLimit(raw.toString("utf8"), storyId);
-    // parseLegacyManifestWithoutSizeLimit only ever accepts 2, 3, or 4; see
-    // the matching comment in server/story-v6-codec.ts.
-    if (
-      parsed.sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION
-      || parsed.sourceSchemaVersion === STORY_ASIDE_SCHEMA_VERSION
-    ) {
-      throw new StoryFormatError(`Story ${storyId} legacy manifest reported an impossible schema version`);
-    }
     return {
       kind: "v5" as const,
       manifest: parsed.manifest,

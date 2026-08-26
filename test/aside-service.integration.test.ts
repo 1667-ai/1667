@@ -8,7 +8,15 @@ import path from "node:path";
 import test from "node:test";
 import {
   ASIDE_EXPORT_OMISSION_NOTICE,
-  MAX_SIDE_NOTES
+  MAX_ASIDE_ANSWER_SCALARS,
+  MAX_ASIDE_DOCUMENT_BYTES,
+  MAX_ASIDE_TITLE_SCALARS,
+  MAX_SIDE_NOTES,
+  asideTitleFromQuestion,
+  migrateAsideDocumentToUnanchored,
+  serializeAsideSessionDocument,
+  serializeAsideDocument,
+  worstCaseAsideTurnUtf8Bytes
 } from "../shared/aside.js";
 import { hasUnpairedSurrogate } from "../shared/unicode.js";
 import { isSealed } from "../shared/vault-cipher.js";
@@ -17,6 +25,7 @@ import {
   ServiceError
 } from "../server/errors.js";
 import { StoryService } from "../server/story-service.js";
+import { exportNovelAiArchive } from "../server/novelai-export.js";
 import { WorkerRequestCancellation } from "../server/worker-request-cancellation.js";
 import {
   STORY_REAP_RETENTION_MS,
@@ -268,6 +277,113 @@ test("askAside returns its committed view without a post-commit document reload;
   assert.deepEqual(replayed, first);
 });
 
+test("v2 Aside creates, appends, and reloads a take-anchored session", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-aside-v2-service-"));
+  const dataDir = path.join(root, "project");
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const first = StoryService.withoutDiagnostics({ dataDir, asideActivation: true });
+  await first.init();
+  const created = await first.createStory("Aside v2 service");
+  const withRoot = await first.createNode(created.id, {
+    parentId: null,
+    instruction: "",
+    text: "The lantern burned."
+  });
+  const takeId = withRoot.path.at(-1)?.id;
+  assert.ok(takeId !== undefined);
+  const anchor = { partId: takeId, takeId };
+  const firstMutation = await mintStoryMutationRequest(
+    first.stories,
+    created.id,
+    "askAside",
+    JSON.stringify({ question: "Why did it burn?", anchor })
+  );
+
+  const firstAnswer = await first.askAsideV2(
+    created.id,
+    { question: "Why did it burn?", anchor },
+    async () => {},
+    new AbortController().signal,
+    { mutationRequest: firstMutation }
+  );
+  assert.ok(firstAnswer !== null);
+  assert.equal(firstAnswer.anchor?.takeId, takeId);
+  assert.equal(firstAnswer.turns.length, 1);
+  assert.equal(firstAnswer.id.length > 0, true);
+
+  const replayed = await first.askAsideV2(
+    created.id,
+    { question: "Why did it burn?", anchor },
+    async () => {},
+    new AbortController().signal,
+    { mutationRequest: firstMutation }
+  );
+  assert.deepEqual(replayed, firstAnswer);
+
+  const secondAnswer = await first.askAsideV2(
+    created.id,
+    { question: "What did it light?", anchor, sessionId: firstAnswer.id },
+    async () => {},
+    new AbortController().signal
+  );
+  assert.ok(secondAnswer !== null);
+  assert.equal(secondAnswer.id, firstAnswer.id);
+  assert.equal(secondAnswer.turns.length, 2);
+
+  const scoped = await first.getAsideV2(created.id, anchor);
+  assert.equal(scoped.sessions.length, 1);
+  assert.equal(scoped.sessions[0]?.id, firstAnswer.id);
+  assert.equal(scoped.sessions[0]?.turns.length, 2);
+  assert.equal(scoped.anchors[0]?.sessionCount, 1);
+  assert.equal(scoped.anchors[0]?.takeIndex, 1);
+  assert.equal(scoped.anchors[0]?.takeCount, 1);
+  await first.dispose();
+
+  const second = StoryService.withoutDiagnostics({ dataDir, asideActivation: true });
+  await second.init();
+  const reloaded = await second.getAsideV2(created.id, anchor);
+  assert.deepEqual(reloaded.sessions, scoped.sessions);
+  assert.deepEqual(reloaded.anchors, scoped.anchors);
+  await second.dispose();
+});
+
+test("v2 Aside keeps the predecessor V1 document visible as an unanchored session", async (t) => {
+  const { service } = await openService(t);
+  const created = await service.createStory("Aside v1 coexistence");
+
+  const legacy = await service.askAside(
+    created.id,
+    { question: "Legacy question?" },
+    async () => {},
+    new AbortController().signal
+  );
+  assert.ok(legacy !== null);
+
+  const before = await service.getAsideV2(created.id, null);
+  assert.equal(before.sessions.length, 1);
+  assert.equal(before.sessions[0]?.id, "legacy");
+  assert.equal(before.sessions[0]?.turns.length, 1);
+  assert.equal(before.unanchoredCount, 1);
+
+  const appended = await service.askAsideV2(
+    created.id,
+    { question: "A successor question?", anchor: null, sessionId: "legacy" },
+    async () => {},
+    new AbortController().signal
+  );
+  assert.ok(appended !== null);
+  assert.equal(appended.id, "legacy");
+  assert.equal(appended.anchor, null);
+  assert.equal(appended.turns.length, 2);
+
+  const oldRead = await service.getAside(created.id);
+  assert.deepEqual(oldRead, legacy);
+  const after = await service.getAsideV2(created.id, null);
+  assert.equal(after.sessions.length, 1);
+  assert.equal(after.sessions[0]?.turns.length, 2);
+});
+
 test("dry-run Aside keeps a scalar-safe question prefix at an emoji boundary", async (t) => {
   const { service } = await openService(t);
   const created = await service.createStory("Aside Unicode boundary");
@@ -372,6 +488,39 @@ test("export omits Side Notes with the exact notice; payload has presence only",
   assert.equal(JSON.stringify(payload).includes("Secret planning?"), false);
 });
 
+test("v2 Aside sessions report export omissions without exporting session text", async (t) => {
+  const { service } = await openService(t);
+  const created = await service.createStory("Export v2 Aside");
+  const withRoot = await service.createNode(created.id, {
+    parentId: null,
+    instruction: "",
+    text: "Prose stays."
+  });
+  const takeId = withRoot.path.at(-1)?.id;
+  assert.ok(takeId !== undefined);
+  const anchor = { partId: takeId, takeId };
+  const saved = await service.askAsideV2(
+    created.id,
+    { question: "Secret v2 planning?", anchor, sessionId: "export-v2" },
+    async () => {},
+    new AbortController().signal
+  );
+  assert.ok(saved !== null);
+
+  const markdown = await service.exportStory(created.id);
+  assert.deepEqual(markdown.fidelity, [ASIDE_EXPORT_OMISSION_NOTICE]);
+  assert.equal(markdown.markdown.includes("Secret v2 planning?"), false);
+  assert.equal(markdown.markdown.includes("Prose stays."), true);
+
+  const payload = await service.loadStory(created.id);
+  assert.equal(payload.hasAside, undefined);
+  assert.equal(payload.hasAsideSessions, true);
+  assert.equal(JSON.stringify(payload).includes("Secret v2 planning?"), false);
+  const novelAi = exportNovelAiArchive(payload, "story");
+  assert.ok(novelAi.fidelity.includes(ASIDE_EXPORT_OMISSION_NOTICE));
+  assert.equal(novelAi.text.includes("Secret v2 planning?"), false);
+});
+
 test("delete makes Side Notes unreadable; reap removes the physical bundle", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-aside-reap-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -444,6 +593,122 @@ test("service refuse capacity before provider work when notes are full", async (
   );
   assert.equal(providerEntered, false);
   assert.equal((await service.getAside(STORY_ID)).notes.length, MAX_SIDE_NOTES);
+});
+
+test("near-limit V1 Aside stays lossless in the V2 read projection", async (t) => {
+  const fixture = await setup(t, "1667-aside-v1-near-limit-", {}, undefined, { asideActivation: true });
+  await ensureRootPart(fixture.stories);
+  const firstQuestion = "😀".repeat(256);
+  const noteCount = 8;
+  const makeDocument = (answerLength: number) => ({
+    schemaVersion: 1 as const,
+    notes: Array.from({ length: noteCount }, (_, index) => ({
+      question: index === 0 ? firstQuestion : `q${index}`,
+      answer: "😀".repeat(answerLength)
+    }))
+  });
+  let low = 0;
+  let high = MAX_ASIDE_ANSWER_SCALARS;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    const bytes = Buffer.byteLength(serializeAsideDocument(makeDocument(middle)), "utf8");
+    if (bytes <= MAX_ASIDE_DOCUMENT_BYTES - 64) low = middle;
+    else high = middle - 1;
+  }
+  const legacy = makeDocument(low);
+  const legacyBytes = Buffer.byteLength(serializeAsideDocument(legacy), "utf8");
+  assert.ok(legacyBytes > MAX_ASIDE_DOCUMENT_BYTES - 10_000);
+  const displayTitle = [...firstQuestion].slice(0, MAX_ASIDE_TITLE_SCALARS).join("");
+  assert.throws(
+    () => migrateAsideDocumentToUnanchored(legacy, displayTitle),
+    /would exceed its 1048576-byte size limit/u
+  );
+
+  const version = (await fixture.stories.loadVersioned(STORY_ID)).aggregateVersion!;
+  await fixture.mutations.runProviderOperation(
+    requestFor(MUTATION_ID, FINGERPRINT, version),
+    "askAside",
+    commitAsideDocument(legacy)
+  );
+  const service = StoryService.withoutDiagnostics({
+    dataDir: fixture.dataDir,
+    asideActivation: true
+  });
+  await service.init();
+  t.after(async () => { await service.dispose(); });
+
+  const read = await service.getAsideV2(STORY_ID, null);
+  assert.equal(read.sessions.length, 1);
+  assert.equal(read.sessions[0]?.title, displayTitle);
+  assert.equal(read.sessions[0]?.turns.length, noteCount);
+  assert.deepEqual((await service.getAside(STORY_ID)).notes, legacy.notes);
+});
+
+test("near-limit migrated session reserves its first derived title before provider work", async (t) => {
+  const fixture = await setup(t, "1667-aside-v1-title-admission-", {}, undefined, { asideActivation: true });
+  await ensureRootPart(fixture.stories);
+  const question = "x".repeat(MAX_ASIDE_TITLE_SCALARS);
+  const titleDelta = Buffer.byteLength(JSON.stringify(asideTitleFromQuestion(question)), "utf8")
+    - Buffer.byteLength(JSON.stringify(""), "utf8");
+  const worstTurn = worstCaseAsideTurnUtf8Bytes(question);
+  const targetBytes = MAX_ASIDE_DOCUMENT_BYTES - worstTurn - Math.ceil(titleDelta / 2);
+  const fixedNotes = Array.from({ length: 25 }, (_, index) => ({
+    question: `fixed-${index}`,
+    answer: "a".repeat(MAX_ASIDE_ANSWER_SCALARS)
+  }));
+  const makeLegacy = (tailLength: number) => ({
+    schemaVersion: 1 as const,
+    notes: [
+      ...fixedNotes,
+      { question: "tail", answer: "a".repeat(tailLength) }
+    ]
+  });
+  const migratedBytes = (tailLength: number): number => {
+    const migrated = migrateAsideDocumentToUnanchored(makeLegacy(tailLength));
+    assert.ok(migrated !== null);
+    return Buffer.byteLength(serializeAsideSessionDocument(migrated), "utf8");
+  };
+  let low = 1;
+  let high = MAX_ASIDE_ANSWER_SCALARS;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (migratedBytes(middle) <= targetBytes) low = middle;
+    else high = middle - 1;
+  }
+  const legacy = makeLegacy(low);
+  const migrated = migrateAsideDocumentToUnanchored(legacy);
+  assert.ok(migrated !== null);
+  const currentBytes = Buffer.byteLength(serializeAsideSessionDocument(migrated), "utf8");
+  assert.ok(currentBytes + worstTurn <= MAX_ASIDE_DOCUMENT_BYTES);
+  assert.ok(currentBytes + worstTurn + titleDelta > MAX_ASIDE_DOCUMENT_BYTES);
+  assert.ok(Buffer.byteLength(serializeAsideDocument(legacy), "utf8") <= MAX_ASIDE_DOCUMENT_BYTES);
+
+  const version = (await fixture.stories.loadVersioned(STORY_ID)).aggregateVersion!;
+  await fixture.mutations.runProviderOperation(
+    requestFor(MUTATION_ID, FINGERPRINT, version),
+    "askAside",
+    commitAsideDocument(legacy)
+  );
+  const service = StoryService.withoutDiagnostics({
+    dataDir: fixture.dataDir,
+    asideActivation: true
+  });
+  await service.init();
+  t.after(async () => { await service.dispose(); });
+
+  let providerEntered = false;
+  await assert.rejects(
+    service.askAsideV2(
+      STORY_ID,
+      { question, anchor: null, sessionId: "legacy" },
+      async () => { providerEntered = true; },
+      new AbortController().signal,
+      { providerStarted: async () => { providerEntered = true; } }
+    ),
+    hasCode("content_too_large")
+  );
+  assert.equal(providerEntered, false);
+  assert.equal((await service.getAside(STORY_ID)).notes.length, 26);
 });
 
 test("encrypted vault seals Side Notes; unseal restores them", async (t) => {

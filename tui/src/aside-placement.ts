@@ -10,7 +10,7 @@ import {
   isExplicitMutationUnsent
 } from "./api-error.js";
 import type { AppSource } from "./app.js";
-import type { AsideSurfaceState } from "./aside-surface.js";
+import { asideNotes, type AsideSurfaceState } from "./aside-surface.js";
 import {
   buildPlacementStops,
   firstWords,
@@ -198,7 +198,7 @@ export function openPlacementFromAside(state: RuntimeState): boolean {
     state.toast = PLACEMENT_UNCERTAIN_TOAST;
     return false;
   }
-  const note = surface.notes[surface.useMenu.noteIndex];
+  const note = asideNotes(surface)[surface.useMenu.noteIndex];
   if (note === undefined || note.answer.trim().length === 0) {
     state.toast = "this Side Note has no answer to place";
     return false;

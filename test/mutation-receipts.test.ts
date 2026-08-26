@@ -63,7 +63,7 @@ function completedReceipt(
   };
 }
 
-test("Aside receipt result shapes are bound to askAside", () => {
+test("Aside receipt result shapes are bound to their methods", () => {
   const mutationId = currentMutationId("a");
   const pointer = {
     ...completedReceipt("askAside", { type: "aside", id: "story" }),
@@ -75,6 +75,17 @@ test("Aside receipt result shapes are bound to askAside", () => {
     mutationId
   };
   assert.doesNotThrow(() => parseMutationReceipt(canceled, mutationId));
+  for (const method of ["askAside", "retakeAside", "asideSessionMutation"] as const) {
+    const sessionPointer = {
+      ...completedReceipt(method, {
+        type: "aside-session",
+        storyId: "story",
+        sessionId: "session"
+      }),
+      mutationId
+    };
+    assert.doesNotThrow(() => parseMutationReceipt(sessionPointer, mutationId));
+  }
   for (const result of [
     { type: "value", value: { notes: [] } },
     { type: "story", id: "story" }
@@ -90,6 +101,18 @@ test("Aside receipt result shapes are bound to askAside", () => {
     mutationId
   };
   assert.throws(() => parseMutationReceipt(wrongMethod, mutationId), /corrupt/);
+  const wrongSessionPointerMethod = {
+    ...completedReceipt("deleteStory", {
+      type: "aside-session",
+      storyId: "story",
+      sessionId: "session"
+    }),
+    mutationId
+  };
+  assert.throws(
+    () => parseMutationReceipt(wrongSessionPointerMethod, mutationId),
+    /corrupt/
+  );
 });
 
 /** Receipt-mechanics tests opt into admission-neutral execution explicitly;

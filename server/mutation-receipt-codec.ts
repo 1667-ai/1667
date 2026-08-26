@@ -31,6 +31,7 @@ const CONTEXT_KEY_PATTERN = exactStringPattern("[a-z][a-z0-9-]{0,63}");
 type StoredResult =
   | { type: "story"; id: string }
   | { type: "aside"; id: string }
+  | { type: "aside-session"; storyId: string; sessionId: string }
   | { type: "chapter-break-created"; id: string; breakId: string }
   | {
       type: "chapter-break-removed";
@@ -90,11 +91,24 @@ export function encodeMutationResult(
   method?: WorkerMethod,
   input?: unknown
 ): StoredResult {
+  if (isV2AsideMutation(method, input)) {
+    if (value === null) return { type: "value", value: null };
+    const storyId = storyIdFromInput(input);
+    const sessionId = asideSessionIdOfResult(value);
+    if (storyId === null || sessionId === null) {
+      throw new ServiceError(
+        500,
+        "V2 Aside mutation receipt has no session target",
+        "internal"
+      );
+    }
+    return { type: "aside-session", storyId, sessionId };
+  }
   if (method === "askAside") {
     // Aside text is private object data. Persist only the story pointer; the
     // resolver reads the current document at replay time, so a later clear or
     // deletion cannot return the old answer from this receipt.
-    const storyId = askAsideStoryId(input);
+    const storyId = storyIdFromInput(input);
     if (storyId === null) {
       throw new ServiceError(
         500,
@@ -147,10 +161,35 @@ export function encodeMutationResult(
   return { type: "value", value };
 }
 
-function askAsideStoryId(input: unknown): string | null {
+function storyIdFromInput(input: unknown): string | null {
   if (input === null || typeof input !== "object" || Array.isArray(input)) return null;
   const storyId = (input as { readonly storyId?: unknown }).storyId;
   return typeof storyId === "string" && storyId.length > 0 ? storyId : null;
+}
+
+function isV2AsideMutation(
+  method: WorkerMethod | undefined,
+  input: unknown
+): boolean {
+  if (method === "retakeAside" || method === "asideSessionMutation") return true;
+  if (method !== "askAside"
+    || input === null
+    || typeof input !== "object"
+    || Array.isArray(input)) {
+    return false;
+  }
+  return Object.prototype.hasOwnProperty.call(input, "anchor")
+    || Object.prototype.hasOwnProperty.call(input, "sessionId");
+}
+
+function asideSessionIdOfResult(value: unknown): string | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const result = value as { readonly schemaVersion?: unknown; readonly id?: unknown };
+  return result.schemaVersion === 2
+    && typeof result.id === "string"
+    && result.id.length > 0
+    ? result.id
+    : null;
 }
 
 /** One canonical hash for an import-plan artifact value, shared by the
@@ -197,14 +236,20 @@ export function parseMutationReceipt(
     if (!isStoredResult(receipt.result) || receipt.failure !== undefined) {
       throw corruptMutationReceipt(mutationId);
     }
-    // An Aside terminal is either the story pointer or the null cancellation
-    // result. Reject older inline views and every unrelated stored shape so a
-    // hand-edited receipt cannot replay a result under the wrong method.
+    // An Aside terminal is a legacy story pointer, a v2 session pointer, or
+    // the null cancellation result. Reject older inline views and every
+    // unrelated stored shape so a hand-edited receipt cannot replay a result
+    // under the wrong method.
     if (receipt.method === "askAside") {
       const validAsideResult = receipt.result.type === "aside"
+        || receipt.result.type === "aside-session"
         || (receipt.result.type === "value" && receipt.result.value === null);
       if (!validAsideResult) throw corruptMutationReceipt(mutationId);
     } else if (receipt.result.type === "aside") {
+      throw corruptMutationReceipt(mutationId);
+    } else if (receipt.result.type === "aside-session"
+      && receipt.method !== "retakeAside"
+      && receipt.method !== "asideSessionMutation") {
       throw corruptMutationReceipt(mutationId);
     }
   }
@@ -353,6 +398,12 @@ function isStoredResult(value: unknown): value is StoredResult {
   const result = value as Record<string, unknown>;
   if (result.type === "story") return typeof result.id === "string";
   if (result.type === "aside") return typeof result.id === "string";
+  if (result.type === "aside-session") {
+    return typeof result.storyId === "string"
+      && result.storyId.length > 0
+      && typeof result.sessionId === "string"
+      && result.sessionId.length > 0;
+  }
   if (result.type === "chapter-break-created") {
     return typeof result.id === "string"
       && typeof result.breakId === "string";

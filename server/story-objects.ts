@@ -50,8 +50,11 @@ import { MAX_IMAGE_OBJECT_BYTES } from "../shared/image-attachment.js";
 import {
   MAX_ASIDE_DOCUMENT_BYTES,
   parseAsideDocument,
+  parseAsideSessionDocument,
   serializeAsideDocument,
-  type AsideDocument
+  serializeAsideSessionDocument,
+  type AsideDocument,
+  type AsideSessionDocument
 } from "../shared/aside.js";
 import {
   drainPromises,
@@ -324,6 +327,26 @@ export class StoryObjectStore {
   async readAsideDocument(hash: ObjectHash): Promise<AsideDocument> {
     const bytes = await this.readObject("aside", hash);
     return parseAsideDocument(bytes.toString("utf8"), hash);
+  }
+
+  /** Store one v2 take-anchored session in the same content-addressed Aside
+   * object family as legacy Side Notes. The manifest reference is additive;
+   * callers must not replace the predecessor `asideDocumentId` with this id.
+   */
+  async storeAsideSessionDocument(
+    document: AsideSessionDocument,
+    reuseFrom?: StoryObjectStore
+  ): Promise<ObjectHash> {
+    const bytes = Buffer.from(serializeAsideSessionDocument(document), "utf8");
+    const hash = sha256(bytes);
+    await this.putObject("aside", hash, bytes, reuseFrom);
+    return hash;
+  }
+
+  /** Read and hash-verify one v2 session object. */
+  async readAsideSessionDocument(hash: ObjectHash): Promise<AsideSessionDocument> {
+    const bytes = await this.readObject("aside", hash);
+    return parseAsideSessionDocument(bytes.toString("utf8"), hash);
   }
 
   /** One Generation Record event, content-addressed like a probabilities

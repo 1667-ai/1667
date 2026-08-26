@@ -53,6 +53,8 @@ interface MutationEntityNamespaces {
   commitPartialRewrite: "partial-rewrite-take";
   createSummaryTake: "summary-node" | "summary-cut";
   askAside: never;
+  retakeAside: never;
+  asideSessionMutation: never;
   clearAside: never;
 }
 

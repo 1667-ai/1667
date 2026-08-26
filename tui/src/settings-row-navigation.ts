@@ -21,6 +21,7 @@ export const SETTINGS_ROW_IDS = [
   "theme",
   "compose-focus",
   "word-wrap",
+  "aside-thoughts",
   "update-checks",
   ...WRITING_PROMPT_ROW_IDS,
   "provider",
@@ -112,6 +113,7 @@ export function settingsRowCycles(row: SettingsRowId): boolean {
   return row === "theme"
     || row === "compose-focus"
     || row === "word-wrap"
+    || row === "aside-thoughts"
     || row === "update-checks"
     || row === "provider"
     || row === "text-prompt-format"

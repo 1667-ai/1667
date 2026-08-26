@@ -3,7 +3,7 @@ import type { StoryPayload } from "../../shared/types.js";
 import type { StoryApi } from "../src/api.js";
 import { initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
-import { createAsideSurface } from "../src/aside-surface.js";
+import { asideConfirmClear, createAsideSurface } from "../src/aside-surface.js";
 import { openDirectComposer } from "../src/composer-ownership.js";
 import { composeAction } from "../src/story-actions.js";
 import { adoptReconciliationSnapshot } from "../src/story-adoption.js";
@@ -224,7 +224,7 @@ describe("Aside open ownership", () => {
     const clearContext = context(state);
     setComposerText(state.aside.composer, "/clear");
     await handleOverlayAction({ action: "send" }, state, { ...source, api }, clearContext);
-    expect(state.aside.confirmClear).toBeTrue();
+    expect(asideConfirmClear(state.aside!)).toBeTrue();
     await handleOverlayAction({ action: "send" }, state, { ...source, api }, clearContext);
     await Promise.resolve();
     expect(state.aside.busy).toBeTrue();

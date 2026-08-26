@@ -60,7 +60,8 @@ import { composerMotion } from "./composer-motion.js";
 import { directComposerWrapWidth } from "./composer-geometry.js";
 import { composerPageRows } from "./composer-viewport.js";
 import { composerSurfaceAction } from "./composer-surface-action.js";
-import { disarmAsideClear } from "./aside-surface.js";
+import { asideCursor, disarmAsideClear, isAsideV2 } from "./aside-surface.js";
+import { asideV2KeyAction } from "./aside-v2-actions.js";
 import { openRewriteComposer, partIdFromTextSelection, resolveRewriteTarget } from "./rewrite-action.js";
 import type { AppSource } from "./app.js";
 import { canRewriteSelection, type ProjectedStorySelection } from "./selection-projection.js";
@@ -776,23 +777,16 @@ async function asideKeyAction(
 ): Promise<void> {
   const surface = state.aside;
   if (surface === null) return;
+  if (isAsideV2(surface) && await asideV2KeyAction(resolved, state, surface, {
+      source,
+      backend: context.backend,
+      cache: context.cache,
+      repaint: context.repaint,
+      renderer: context.renderer
+  })) return;
   if (resolved.action === "cancel") {
-    if (surface.useMenu !== null) {
-      closeAsideUseMenu(surface);
-      surface.focus = "notes";
-      return;
-    }
-    if (surface.focus === "notes") {
-      surface.focus = "composer";
-      return;
-    }
-    if (surface.confirmClear) {
-      surface.confirmClear = false;
-      return;
-    }
-    // Esc stops the request. It keeps received answer text as a Side Note, or
-    // restores the question if no answer text arrived.
-    // Esc when idle returns to Write.
+    // A busy Aside owns Escape for cancellation. Check this before the
+    // turns-to-composer focus transition, or a v2 retake loses its stop path.
     if (surface.busy) {
       // Clear has no abort path. Its missing in-flight question is the
       // existing distinction from an Ask, so Esc remains a no-op while it
@@ -803,6 +797,25 @@ async function asideKeyAction(
       }
       return;
     }
+    if (surface.useMenu !== null) {
+      closeAsideUseMenu(surface);
+      surface.focus = "notes";
+      return;
+    }
+    if (surface.focus === "notes" || surface.focus === "turns") {
+      surface.focus = "composer";
+      return;
+    }
+    if (isAsideV2(surface)) {
+      if (surface.confirmReset !== null) {
+        surface.confirmReset = null;
+        return;
+      }
+    } else if (surface.confirmClear) {
+      surface.confirmClear = false;
+      return;
+    }
+    // Esc when idle returns to Write.
     closeAside(state);
     return;
   }
@@ -829,7 +842,8 @@ async function asideKeyAction(
   }
 
   if (resolved.action === "cycle") {
-    if (cycleAsideFocus(surface) && surface.focus === "notes") {
+    if (cycleAsideFocus(surface)
+      && (surface.focus === "notes" || surface.focus === "turns")) {
       const { width, bodyRows } = asideViewportBodyRows(surface, context);
       revealAsideFocusedNote(surface, width, bodyRows);
     }
@@ -847,7 +861,7 @@ async function asideKeyAction(
     scrollAside(surface, delta, width, height, composerRows);
     return;
   }
-  if (surface.focus === "notes") {
+  if (surface.focus === "notes" || surface.focus === "turns") {
     // Left-click on the visible prompt claims composer focus so paste/text
     // target it. Use menu already returned above.
     if (resolved.action === "compose") {
@@ -865,7 +879,7 @@ async function asideKeyAction(
       // prior width/header layout can hide noteCursor while Enter still uses it.
       const { width, bodyRows } = asideViewportBodyRows(surface, context);
       revealAsideFocusedNote(surface, width, bodyRows);
-      openAsideUseMenu(surface, surface.noteCursor);
+      openAsideUseMenu(surface, asideCursor(surface));
       return;
     }
     return;
@@ -883,7 +897,7 @@ async function asideKeyAction(
   }
   if (resolved.action === "send") {
     if (surface.busy) return;
-    if (surface.confirmClear) {
+    if (!isAsideV2(surface) && surface.confirmClear) {
       context.backend.observe(context.backend.run("clearing Aside", (task) =>
         clearAsideSurface(state, source.api, context.cache, { task })
       ));
@@ -892,7 +906,7 @@ async function asideKeyAction(
     const text = surface.composer.text;
     if (text.trim() === "/clear") {
       setComposerText(surface.composer, "");
-      surface.confirmClear = true;
+      if (!isAsideV2(surface)) surface.confirmClear = true;
       return;
     }
     context.backend.observe(context.backend.run("asking Aside", (task) =>

@@ -210,6 +210,64 @@ test("a committed Aside result wins a user cancellation during success flush", a
   }]);
 });
 
+test("a committed Aside retake wins a user cancellation during success flush", async () => {
+  const posted: Array<{ text: string; sequence: number }> = [];
+  const terminals: Array<{ type: string; value: unknown; state: string }> = [];
+  const deltas = new WorkerDeltaBatcher(OPERATION_ID, (message) => {
+    posted.push({ text: message.text, sequence: message.sequence });
+  });
+  const fullBatch = "x".repeat(MAX_DELTA_BATCH_BYTES);
+  for (let index = 0; index < MAX_UNACKNOWLEDGED_DELTA_BATCHES; index += 1) {
+    await deltas.push(fullBatch);
+  }
+  const tail = "accepted Aside retake output before cancellation";
+  const parked = deltas.push(tail);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const committed = {
+    schemaVersion: 2,
+    id: "session-1",
+    anchor: null,
+    title: "Why?",
+    turns: [{ q: "Why?", a: "Again." }]
+  };
+  const cancellation = new WorkerRequestCancellation(
+    true,
+    "00000000-0000-7000-8000-000000000001"
+  );
+  const responder = {
+    tracked: async () => assert.fail("A committed Aside retake must not fail")
+  } as unknown as WorkerRequestFailureResponder;
+  const execution = executeWorkerRequest(
+    { runMutation: async () => committed } as unknown as StoryService,
+    { ...request(), method: "retakeAside" },
+    cancellation,
+    deltas,
+    responder,
+    (message, state) => terminals.push({
+      type: message.type,
+      value: message.value,
+      state
+    })
+  );
+
+  await new Promise((resolve) => setImmediate(resolve));
+  cancellation.cancel("user");
+  deltas.sealUnsent();
+  await execution;
+  await parked;
+
+  assert.equal(
+    posted.map((message) => message.text).join(""),
+    fullBatch.repeat(MAX_UNACKNOWLEDGED_DELTA_BATCHES) + tail
+  );
+  assert.deepEqual(terminals, [{
+    type: "complete",
+    value: committed,
+    state: "completed"
+  }]);
+});
+
 test("shutdown overrides an earlier user cancellation before a committed Aside settles", async () => {
   const posted: string[] = [];
   const terminals: Array<{ type: string; value: unknown; state: string }> = [];

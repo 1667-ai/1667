@@ -11,7 +11,8 @@ import test from "node:test";
 import {
   WORKER_PROTOCOL_VERSION,
   type MainToWorkerMessage,
-  type WorkerOperationId
+  type WorkerOperationId,
+  type WorkerToMainMessage
 } from "../shared/worker-protocol.js";
 import { createDurableMutationId } from "../shared/durable-mutation-id.js";
 import { httpOperationPolicy } from "../shared/http-operation-policy.js";
@@ -24,6 +25,17 @@ import type { WorkerRequestFailureResponder } from "../server/worker-request-fai
 import { validateWorkerRequestSize } from "../server/worker-request-size.js";
 import { streamResponse } from "../server/stream-response.js";
 import { prepareProviderStoryEffect } from "../server/story-provider-preparation.js";
+import { askAsideSession } from "../server/aside-session-http.js";
+import { parseAsideAskRouteBody } from "../server/aside-http-route.js";
+import { parseWorkerMutation } from "../server/worker-mutations.js";
+import type { ProviderStoryRuntime } from "../server/story-mutation-runtime.js";
+import type { Story } from "../shared/types.js";
+import type { PromptCacheRuntime } from "../server/provider-cache-policy.js";
+import {
+  parseAsideAskRequest,
+  parseAsideAskResponse
+} from "../shared/aside-transport-codec.js";
+import { assertPromptReadyStoryPayload } from "../shared/types.js";
 import {
   FINGERPRINT,
   MUTATION_ID,
@@ -36,6 +48,202 @@ import {
 } from "./story-mutation-fixtures.js";
 import { ensureRootPart, hasCode } from "./aside-test-helpers.js";
 import { FakeResponse } from "./fake-http-response.js";
+
+type WorkerTerminalMessage = Extract<
+  WorkerToMainMessage,
+  { type: "complete" | "result" }
+>;
+
+test("Aside transport applies the Unicode-scalar session ID limit", () => {
+  const request = {
+    storyId: "story-1",
+    question: "Why?",
+    anchor: null
+  };
+  const atLimit = { ...request, sessionId: "😀".repeat(128) };
+  assert.equal(parseAsideAskRequest(atLimit).sessionId, atLimit.sessionId);
+
+  assert.throws(
+    () => parseAsideAskRequest({ ...request, sessionId: "😀".repeat(129) }),
+    /128 Unicode scalars/u
+  );
+});
+
+test("Aside IDs reject malformed Unicode before shared, HTTP, worker, or provider admission", async () => {
+  const base = {
+    storyId: "story-1",
+    question: "Why?",
+    anchor: null
+  };
+  for (const sessionId of ["\ud800", "e\u0301"]) {
+    assert.throws(
+      () => parseAsideAskRequest({ ...base, sessionId }),
+      /well-formed|NFC/u
+    );
+    assert.throws(
+      () => parseAsideAskRouteBody("story-1", { ...base, sessionId }),
+      /well-formed|NFC/u
+    );
+    assert.throws(
+      () => parseWorkerMutation("askAside", { ...base, sessionId }),
+      /well-formed|NFC/u
+    );
+  }
+  const invalidAnchor = { partId: "e\u0301", takeId: "take-1" };
+  assert.throws(
+    () => parseAsideAskRequest({ ...base, anchor: invalidAnchor, sessionId: "session-1" }),
+    /NFC/u
+  );
+  assert.throws(
+    () => parseAsideAskRouteBody("story-1", { ...base, anchor: invalidAnchor, sessionId: "session-1" }),
+    /NFC/u
+  );
+  assert.throws(
+    () => parseWorkerMutation("askAside", { ...base, anchor: invalidAnchor, sessionId: "session-1" }),
+    /NFC/u
+  );
+
+  const story: Story = {
+    id: "story-1",
+    title: "Story",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    nodes: [],
+    activeRootId: null,
+    tags: [],
+    recentNodeIds: [],
+    facts: [],
+    chapterBreaks: [],
+    asideSessionRefs: [],
+    asideUnanchoredSessionRefs: []
+  };
+  let loaded = 0;
+  let settingsEntered = 0;
+  const stories = {
+    loadForMutation: async () => {
+      loaded += 1;
+      return story;
+    },
+    hydratePath: async () => undefined,
+    commitProviderEffect: async () => {
+      throw new Error("provider effect must not run");
+    }
+  } as unknown as ProviderStoryRuntime<"askAside">;
+  const settings = {
+    loadGeneration: async () => {
+      settingsEntered += 1;
+      throw new Error("settings must not load");
+    }
+  } as never;
+  const hooks = {
+    entryPointsOpen: true,
+    loadSession: async () => null,
+    commitSession: async () => {}
+  };
+  for (const body of [
+    { question: "Why?", anchor: null, sessionId: "e\u0301" },
+    { question: "Why?", anchor: invalidAnchor, sessionId: "session-1" }
+  ]) {
+    await assert.rejects(
+      askAsideSession(
+        story.id,
+        body,
+        stories,
+        settings,
+        {} as PromptCacheRuntime,
+        async () => {},
+        new AbortController().signal,
+        hooks
+      ),
+      hasCode("invalid_request")
+    );
+  }
+  assert.equal(loaded, 0);
+  assert.equal(settingsEntered, 0);
+});
+
+test("embedded Aside presence is validated at the payload and transport boundaries", () => {
+  const validPresence = {
+    anchors: [{
+      partId: "part-1",
+      takeId: "take-1",
+      sessionCount: 2,
+      partNumber: 1,
+      takeIndex: 1,
+      takeCount: 2
+    }],
+    unanchoredCount: 1
+  };
+  const payload = (asidePresence: unknown): Record<string, unknown> => ({
+    id: "story-1",
+    title: "Story",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    nodes: [],
+    path: [],
+    activeRootId: null,
+    tags: [],
+    recentNodeIds: [],
+    facts: [],
+    chapterBreaks: [],
+    asidePresence
+  });
+  const response = (asidePresence: unknown) => ({
+    schemaVersion: 2,
+    id: "session-1",
+    anchor: { partId: "part-1", takeId: "take-1" },
+    title: "Why",
+    turns: [],
+    payload: payload(asidePresence)
+  });
+
+  assert.doesNotThrow(() => assertPromptReadyStoryPayload(payload(validPresence)));
+  assert.deepEqual(
+    parseAsideAskResponse(response(validPresence)).payload?.asidePresence,
+    validPresence
+  );
+
+  const maximumPresence = {
+    ...validPresence,
+    anchors: [{ ...validPresence.anchors[0], sessionCount: 20_001 }],
+    unanchoredCount: 20_001
+  };
+  assert.doesNotThrow(() => assertPromptReadyStoryPayload(payload(maximumPresence)));
+  assert.deepEqual(
+    parseAsideAskResponse(response(maximumPresence)).payload?.asidePresence,
+    maximumPresence
+  );
+
+  const maximumAnchors = Array.from({ length: 20_001 }, (_, index) => ({
+    partId: `part-${index}`,
+    takeId: `take-${index}`,
+    sessionCount: 1
+  }));
+  assert.doesNotThrow(() => assertPromptReadyStoryPayload(payload({
+    ...validPresence,
+    anchors: maximumAnchors,
+    unanchoredCount: 0
+  })));
+
+  const malformed = [
+    { ...validPresence, anchors: {} },
+    { ...validPresence, anchors: [{ ...validPresence.anchors[0], partId: "" }] },
+    { ...validPresence, anchors: [{ ...validPresence.anchors[0], sessionCount: -1 }] },
+    { ...validPresence, anchors: [{ ...validPresence.anchors[0], partNumber: 0 }] },
+    { ...validPresence, unanchoredCount: -1 },
+    { ...validPresence, unanchoredCount: 20_002 }
+  ];
+  for (const presence of malformed) {
+    assert.throws(
+      () => assertPromptReadyStoryPayload(payload(presence)),
+      /story payload\.asidePresence/u
+    );
+    assert.throws(
+      () => parseAsideAskResponse(response(presence)),
+      /Aside response\.payload/u
+    );
+  }
+});
 
 test("HTTP Aside delivers a committed answer when Stop races terminal settlement", async () => {
   const request = Readable.from([]) as unknown as IncomingMessage;
@@ -265,12 +473,109 @@ test("HTTP and worker request surfaces use the same Aside lifetimes and size gat
     httpOperationPolicy("DELETE", "/api/stories/s1/aside"),
     { method: "clearAside", lifetime: "local" }
   );
+  assert.deepEqual(
+    httpOperationPolicy("POST", "/api/stories/s1/aside/session"),
+    { method: "asideSessionMutation", lifetime: "local" }
+  );
+  assert.deepEqual(
+    httpOperationPolicy("POST", "/api/stories/s1/aside/retake"),
+    { method: "retakeAside", lifetime: "generation" }
+  );
   assert.doesNotThrow(() => validateWorkerRequestSize("getAside", { storyId: STORY_ID }));
   assert.doesNotThrow(() => validateWorkerRequestSize("clearAside", { storyId: STORY_ID }));
   assert.doesNotThrow(() => validateWorkerRequestSize("askAside", {
     storyId: STORY_ID,
     question: "Why?"
   }));
+});
+
+test("worker Aside v2 preserves anchor fields through ask and read", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-aside-worker-v2-"));
+  const service = StoryService.withoutDiagnostics({
+    dataDir,
+    asideActivation: true
+  });
+  await service.init();
+  t.after(async () => {
+    await service.dispose();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+  const story = await service.createStory("Worker Aside v2");
+  const withRoot = await service.createNode(story.id, {
+    parentId: null,
+    instruction: "",
+    text: "A lantern burned."
+  });
+  const takeId = withRoot.path.at(-1)?.id;
+  assert.ok(takeId !== undefined);
+  const anchor = { partId: takeId, takeId };
+  const operation = (sequence: bigint): WorkerOperationId => ({
+    workerInstanceId: "3".repeat(32),
+    sequence
+  });
+  const failures = {
+    tracked: async () => {}
+  } as unknown as WorkerRequestFailureResponder;
+  const askMutationId = createDurableMutationId();
+  const terminals: WorkerTerminalMessage[] = [];
+  const version = (await service.stories.loadVersioned(story.id)).aggregateVersion!;
+  await executeWorkerRequest(
+    service,
+    {
+      type: "request",
+      id: operation(1n),
+      method: "askAside",
+      input: {
+        storyId: story.id,
+        question: "Why did it burn?",
+        anchor
+      },
+      protocolVersion: WORKER_PROTOCOL_VERSION,
+      mutationId: askMutationId,
+      expectedAggregateVersion: version,
+      deadlineMs: Date.now() + 60_000
+    },
+    new WorkerRequestCancellation(true, askMutationId),
+    null,
+    failures,
+    (terminal) => terminals.push(terminal)
+  );
+  assert.equal(terminals.length, 1);
+  assert.equal(terminals[0]?.type, "complete");
+  const asked = terminals[0]?.type === "complete"
+    ? terminals[0].value as { schemaVersion: number; id: string; anchor: unknown; turns: readonly unknown[] }
+    : null;
+  assert.ok(asked !== null);
+  assert.equal(asked.schemaVersion, 2);
+  assert.deepEqual(asked.anchor, anchor);
+  assert.equal(asked.turns.length, 1);
+
+  const readTerminals: WorkerTerminalMessage[] = [];
+  await executeWorkerRequest(
+    service,
+    {
+      type: "request",
+      id: operation(2n),
+      method: "getAside",
+      input: { storyId: story.id, anchor },
+      protocolVersion: WORKER_PROTOCOL_VERSION,
+      deadlineMs: Date.now() + 60_000
+    },
+    new WorkerRequestCancellation(true, createDurableMutationId()),
+    null,
+    failures,
+    (terminal) => readTerminals.push(terminal)
+  );
+  assert.equal(readTerminals.length, 1);
+  assert.equal(readTerminals[0]?.type, "result");
+  const read = readTerminals[0]?.type === "result"
+    ? readTerminals[0].value as { schemaVersion: number; sessions: readonly { id: string; anchor: unknown; turns: readonly unknown[] }[] }
+    : null;
+  assert.ok(read !== null);
+  assert.equal(read.schemaVersion, 2);
+  assert.equal(read.sessions[0]?.id, asked.id);
+  assert.deepEqual(read.sessions[0]?.anchor, anchor);
+  assert.equal(read.sessions[0]?.turns.length, 1);
 });
 
 test("worker and service clearAside share resource_busy while provider is open", async (t) => {

@@ -45,6 +45,7 @@ export const SETTINGS_COMMAND_CATALOG = {
   theme: { name: "theme", description: "change the application colors" },
   "compose-focus": { name: "focus mode", description: "dim the story while writing" },
   "word-wrap": { name: "word wrap", description: "keep whole words together on wrapped lines" },
+  "aside-thoughts": { name: "aside Thoughts", description: "show or hide render-only Aside thoughts" },
   "update-checks": { name: "update checks", description: "choose whether to check for newer versions" },
   "default-author-brief": {
     name: "default author brief",

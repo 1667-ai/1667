@@ -7,7 +7,13 @@ import { closeAside } from "./aside-actions.js";
 import { openPlacementFromAside } from "./aside-placement.js";
 import { insertComposerText } from "./composer-model.js";
 import { openDirectComposer } from "./composer-ownership.js";
-import { disarmAsideClear, type AsideSurfaceState } from "./aside-surface.js";
+import {
+  asideCursor,
+  asideNotes,
+  disarmAsideClear,
+  setAsideCursor,
+  type AsideSurfaceState
+} from "./aside-surface.js";
 import type { RuntimeState } from "./state.js";
 
 export type AsideUseActionId = "insert-into-compose" | "insert-into-story";
@@ -63,10 +69,11 @@ export function openAsideUseMenu(
   cursor = 0
 ): boolean {
   if (surface.busy) return false;
-  if (noteIndex < 0 || noteIndex >= surface.notes.length) return false;
+  const notes = asideNotes(surface);
+  if (noteIndex < 0 || noteIndex >= notes.length) return false;
   disarmAsideClear(surface);
   surface.focus = "notes";
-  surface.noteCursor = noteIndex;
+  setAsideCursor(surface, noteIndex);
   surface.useMenu = {
     noteIndex,
     cursor: Math.max(0, Math.min(ASIDE_USE_ACTIONS.length - 1, cursor)),
@@ -108,14 +115,15 @@ export function focusAsideUseMenuIndex(
  */
 export function cycleAsideFocus(surface: AsideSurfaceState): boolean {
   if (surface.busy || surface.useMenu !== null) return false;
-  if (surface.notes.length === 0) return false;
+  const notes = asideNotes(surface);
+  if (notes.length === 0) return false;
   if (surface.focus === "composer") {
     disarmAsideClear(surface);
     surface.focus = "notes";
-    surface.noteCursor = Math.max(
+    setAsideCursor(surface, Math.max(
       0,
-      Math.min(surface.notes.length - 1, surface.noteCursor)
-    );
+      Math.min(notes.length - 1, asideCursor(surface))
+    ));
     return true;
   }
   surface.focus = "composer";
@@ -126,12 +134,13 @@ export function moveAsideNoteFocus(
   surface: AsideSurfaceState,
   delta: number
 ): void {
-  if (surface.busy || surface.notes.length === 0) return;
+  const notes = asideNotes(surface);
+  if (surface.busy || notes.length === 0) return;
   const next = Math.max(
     0,
-    Math.min(surface.notes.length - 1, surface.noteCursor + delta)
+    Math.min(notes.length - 1, asideCursor(surface) + delta)
   );
-  surface.noteCursor = next;
+  setAsideCursor(surface, next);
   surface.focus = "notes";
 }
 
@@ -146,7 +155,7 @@ export function insertAsideAnswerIntoCompose(
 ): boolean {
   const surface = state.aside;
   if (surface === null) return false;
-  const note = surface.notes[noteIndex];
+  const note = asideNotes(surface)[noteIndex];
   if (note === undefined) return false;
   if (state.stream !== null) {
     state.toast = "stream running · esc stops it first";

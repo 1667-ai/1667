@@ -208,6 +208,7 @@ export type SettingsRowId =
   | "theme"
   | "compose-focus"
   | "word-wrap"
+  | "aside-thoughts"
   | "update-checks"
   | "provider"
   | "text-prompt-format"

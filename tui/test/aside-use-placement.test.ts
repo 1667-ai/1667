@@ -3,7 +3,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
-import { createAsideSurface } from "../src/aside-surface.js";
+import { asideNotes, createAsideSurface } from "../src/aside-surface.js";
 import {
   openAside,
   sendAsideQuestion
@@ -189,7 +189,7 @@ describe("Aside use menu and Placement", () => {
     expect(state.mode).toBe("ASIDE");
     expect(state.aside!.busy).toBeFalse();
     expect(state.aside!.composer.text).toBe("In flight?");
-    expect(state.aside!.notes).toHaveLength(1);
+    expect(asideNotes(state.aside!)).toHaveLength(1);
   });
 
   test("leaving the composer for Side Notes disarms Clear confirmation", async () => {
