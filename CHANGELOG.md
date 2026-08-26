@@ -5,6 +5,8 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.3-rc.2 - 2026-08-26
+
 - **Aside keeps long chats readable and selectable.** Wrapped questions keep
   their question style. Scroll history without changing the selected turn,
   including while an answer streams. Highlight saved answer text and
