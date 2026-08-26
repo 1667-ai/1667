@@ -304,47 +304,51 @@ describe("demo action pipeline", () => {
     }).lines)).toContain(state.toast);
   });
 
-  test("double d prunes with the armed expected count", async () => {
+  test("double D prunes with the armed expected count", async () => {
     const { state, press } = harness();
-    await press("d");
+    await press("D", "D");
     expect(state.prune?.parts).toBe(2);
-    await press("d");
+    await press("D", "D");
     expect(state.prune).toBe(null);
     expect(state.payload.nodes.some((node) => node.id === "p12" || node.id === "p13")).toBe(false);
   });
 
-  test("lowercase-name shifted destructive keys cannot mutate tag, fact, or chapter owners", async () => {
-    const shifted = (name: "d" | "x") => modifiedKey(name, {
-      sequence: name.toUpperCase(), shift: true
-    });
+  test("capital D terminal encodings confirm before mutating tag, fact, or chapter owners", async () => {
+    const shiftedD = modifiedKey("d", { sequence: "D", shift: true });
 
     const tag = harness();
     focusNode(tag.state, "p13");
     await tag.press("t");
     await tag.press("return", "\r");
     expect(tag.state.tag).toMatchObject({ existing: true, choosingStatus: true });
-    await tag.pressKey(shifted("x"));
+    await tag.press("d");
     expect(tag.state.payload.tags.some(({ nodeId }) => nodeId === "p13")).toBeTrue();
+    await tag.pressKey(shiftedD);
     expect(tag.state.tag).not.toBe(null);
+    await tag.pressKey(shiftedD);
+    expect(tag.state.payload.tags.some(({ nodeId }) => nodeId === "p13")).toBeFalse();
 
     const fact = harness();
     const factId = fact.state.payload.facts[0]!.id;
     fact.state.mode = "FACTS";
     fact.state.facts = {
       cursor: 0, query: "", chip: 0, selectedTag: null,
-      filtering: false, deleteArmedId: factId
+      filtering: false, deleteArmedId: null
     };
-    await fact.pressKey(shifted("x"));
+    await fact.pressKey(shiftedD);
     expect(fact.state.payload.facts.some(({ id }) => id === factId)).toBeTrue();
     expect(fact.state.facts?.deleteArmedId).toBe(factId);
+    await fact.pressKey(shiftedD);
+    expect(fact.state.payload.facts.some(({ id }) => id === factId)).toBeFalse();
 
     const chapter = harness();
     focusNode(chapter.state, "p13");
     await chapter.press("c");
-    chapter.state.chapters!.deleteArmedId = "chapter-break-2";
-    await chapter.pressKey(shifted("d"));
+    await chapter.pressKey(shiftedD);
     expect(chapter.state.payload.chapterBreaks.some(({ id }) => id === "chapter-break-2")).toBeTrue();
     expect(chapter.state.chapters?.deleteArmedId).toBe("chapter-break-2");
+    await chapter.pressKey(shiftedD);
+    expect(chapter.state.payload.chapterBreaks.some(({ id }) => id === "chapter-break-2")).toBeFalse();
   });
 
   test("shift+up/down reorders the focused Fact in the unfiltered list only", async () => {
@@ -387,7 +391,7 @@ describe("demo action pipeline", () => {
     await press("return", "\r");
     expect(state.prune).toMatchObject({ kind: "unused-takes", takes: 5, parts: 5 });
     const activeLine = state.payload.path.map((node) => node.id);
-    await press("d");
+    await press("D", "D");
     expect(state.prune).toBe(null);
     expect(state.toast).toBe("pruned 5 unused takes · 5 parts");
     expect(state.payload.path.map((node) => node.id)).toEqual(activeLine);
@@ -409,7 +413,9 @@ describe("demo action pipeline", () => {
     expect(state.toast).toBe("~ new-line saved");
     await press("t");
     await press("return", "\r");
-    await press("d");
+    await press("D", "D");
+    expect(state.payload.tags.some((tag) => tag.nodeId === "p12-t4")).toBe(true);
+    await press("D", "D");
     expect(state.payload.tags.some((tag) => tag.nodeId === "p12-t4")).toBe(false);
   });
 

@@ -169,6 +169,8 @@ export interface AsideSessionSurfaceState extends AsideSurfaceBase {
   anchorIndex: number;
   thoughtsVisible: boolean;
   confirmReset: { turnIndex: number } | null;
+  /** Stable answer identity armed by the first destructive keypress. */
+  confirmDelete: { rowId: string } | null;
   deleteUndo: AsideDeleteUndo | null;
   anchor: AsideSessionAnchor | null;
 }
@@ -398,6 +400,7 @@ export function createAsideSurface(
       anchorIndex: asideHopAnchorIndex(anchors, anchor),
       thoughtsVisible: options.thoughtsVisible ?? false,
       confirmReset: null,
+      confirmDelete: null,
       deleteUndo: null,
       anchor
     } as AsideSessionSurfaceState;

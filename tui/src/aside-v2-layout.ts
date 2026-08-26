@@ -23,6 +23,8 @@ export interface AsideChatLayout {
   turnStarts: readonly number[];
   turnContentEnds: readonly number[];
   rowTurnIndex: readonly (number | null)[];
+  /** Exact role prefix painted on each v2 history row. */
+  rowRolePrefixes: readonly string[];
   rowAnswerSources: readonly (AsideAnswerSource | null)[];
 }
 
@@ -71,13 +73,26 @@ function wrappedRowsWithOffsets(
   prefix = "",
   continuationPrefix = " ".repeat(prefix.length)
 ): WrappedAsideRow[] {
-  const prefixWidth = prefix.length;
-  const wrapped = wrapText(text, [], Math.max(1, width - prefixWidth));
-  return wrapped.map((line, index) => ({
-    text: `${index === 0 ? prefix : continuationPrefix}${line.text}`,
-    start: line.start,
-    end: line.end
-  }));
+  const firstPass = wrapText(text, [], Math.max(1, width - prefix.length));
+  const first = firstPass[0]!;
+  const rows: WrappedAsideRow[] = [{
+    text: `${prefix}${first.text}`,
+    start: first.start,
+    end: first.end
+  }];
+  const continuationStart = firstPass[1]?.start;
+  if (continuationStart === undefined) return rows;
+  const continuation = wrapText(
+    text.slice(continuationStart),
+    [],
+    Math.max(1, width - continuationPrefix.length)
+  );
+  rows.push(...continuation.map((line) => ({
+    text: `${continuationPrefix}${line.text}`,
+    start: continuationStart + line.start,
+    end: continuationStart + line.end
+  })));
+  return rows;
 }
 
 function wrappedRows(
@@ -88,6 +103,25 @@ function wrappedRows(
 ): string[] {
   return wrappedRowsWithOffsets(text, width, prefix, continuationPrefix)
     .map((line) => line.text);
+}
+
+export interface AsideRolePrefixes {
+  first: string;
+  continuation: string;
+}
+
+/** Role labels stay aligned at ordinary widths. Narrow terminals keep the
+ * label on the first row, then reclaim the gutter for wrapped content. */
+export function asideQuestionPrefixes(width: number, focused: boolean): AsideRolePrefixes {
+  return width < 40
+    ? { first: focused ? "▸ You " : "  You ", continuation: "  " }
+    : { first: focused ? "▸ You       " : "  You       ", continuation: "            " };
+}
+
+export function asideAnswerPrefixes(width: number): AsideRolePrefixes {
+  return width < 40
+    ? { first: "  Assistant ", continuation: "  " }
+    : { first: "  Assistant ", continuation: "            " };
 }
 
 function anchorLabel(anchor: AsideSessionAnchor | null): string {
@@ -240,11 +274,9 @@ export function asideV2HeaderLines(surface: AsideSessionSurfaceState, width: num
 }
 
 function questionRows(turn: AsideTurnView, width: number, focused: boolean, now?: number): string[] {
-  const prefix = focused ? "▸ › " : "  › ";
+  const prefix = asideQuestionPrefixes(width, focused);
   const timestamp = relativeTimestamp(turn.updatedAt ?? turn.createdAt, now);
-  // Keep the four-cell question gutter on every visual row. Decoration adds
-  // the focus marker to the first visible row after scrolling.
-  const rows = wrappedRows(turn.q, width, prefix, "  › ");
+  const rows = wrappedRows(turn.q, width, prefix.first, prefix.continuation);
   if (timestamp.length === 0 || rows.length !== 1) return rows;
   const available = Math.max(0, width - rows[0]!.length - timestamp.length - 1);
   if (available > 0) rows[0] = `${rows[0]}${" ".repeat(available + 1)}${timestamp}`;
@@ -253,16 +285,22 @@ function questionRows(turn: AsideTurnView, width: number, focused: boolean, now?
 
 function answerRows(turn: AsideTurnView, width: number): WrappedAsideRow[] {
   const rows: WrappedAsideRow[] = [];
+  const prefix = asideAnswerPrefixes(width);
   let answerOffset = 0;
   for (const paragraph of turn.a.split("\n")) {
-    rows.push(...wrappedRowsWithOffsets(paragraph, width, "  ").map((row) => ({
+    rows.push(...wrappedRowsWithOffsets(
+      paragraph,
+      width,
+      rows.length === 0 ? prefix.first : prefix.continuation,
+      prefix.continuation
+    ).map((row) => ({
       ...row,
       start: answerOffset + row.start,
       end: answerOffset + row.end
     })));
     answerOffset += paragraph.length + 1;
   }
-  return rows.length > 0 ? rows : [{ text: "  ", start: 0, end: 0 }];
+  return rows.length > 0 ? rows : [{ text: prefix.first, start: 0, end: 0 }];
 }
 
 function thoughtRows(turn: AsideTurnView, width: number, visible: boolean, focused: boolean): string[] {
@@ -287,6 +325,7 @@ export function asideChatLayout(
   const turnContentEnds: number[] = [];
   const rowTurnIndex: (number | null)[] = [];
   const rowKinds: AsideChatRowKind[] = [];
+  const rowRolePrefixes: string[] = [];
   const rowAnswerSources: (AsideAnswerSource | null)[] = [];
   const turns = currentAsideTurns(surface);
   for (let index = 0; index < turns.length; index += 1) {
@@ -296,6 +335,15 @@ export function asideChatLayout(
     const questions = questionRows(turn, width, selected, now);
     const thoughts = thoughtRows(turn, width, surface.thoughtsVisible, selected);
     const answers = answerRows(turn, width);
+    const questionPrefix = asideQuestionPrefixes(width, selected);
+    const answerPrefix = asideAnswerPrefixes(width);
+    const rolePrefixes = [
+      ...questions.map((_, row) => row === 0
+        ? questionPrefix.first : questionPrefix.continuation),
+      ...thoughts.map(() => ""),
+      ...answers.map((_, row) => row === 0
+        ? answerPrefix.first : answerPrefix.continuation)
+    ];
     turnStarts.push(body.length);
     const rows = [
       ...questions,
@@ -311,6 +359,7 @@ export function asideChatLayout(
         row < questionCount ? "question"
           : row < questionCount + thoughtCount ? "thought" : "answer"
       );
+      rowRolePrefixes.push(rolePrefixes[row]!);
       rowAnswerSources.push(
         row < questionCount + thoughtCount
           ? null
@@ -325,14 +374,23 @@ export function asideChatLayout(
     body.push("");
     rowTurnIndex.push(null);
     rowKinds.push("plain");
+    rowRolePrefixes.push("");
     rowAnswerSources.push(null);
   }
   if (surface.inflightQuestion !== null || presentedText.length > 0 || surface.busy) {
-    const question = wrappedRows(surface.inflightQuestion ?? "", width, "▸ › ", "  › ");
+    const questionPrefix = asideQuestionPrefixes(width, true);
+    const question = wrappedRows(
+      surface.inflightQuestion ?? "",
+      width,
+      questionPrefix.first,
+      questionPrefix.continuation
+    );
     body.push(...question);
     for (let row = 0; row < question.length; row += 1) {
       rowTurnIndex.push(null);
       rowKinds.push("question");
+      rowRolePrefixes.push(row === 0
+        ? questionPrefix.first : questionPrefix.continuation);
       rowAnswerSources.push(null);
     }
     if (surface.busy) {
@@ -340,6 +398,7 @@ export function asideChatLayout(
       body.push(`  ⟳ ${surface.streamPhase ?? "thinking"}${tokens} · esc stops`);
       rowTurnIndex.push(null);
       rowKinds.push("status");
+      rowRolePrefixes.push("");
       rowAnswerSources.push(null);
       if (surface.thoughtsVisible && surface.streamThoughts.length > 0) {
         const thoughts = wrappedRows(surface.streamThoughts, width, "  ┊ ");
@@ -348,16 +407,25 @@ export function asideChatLayout(
         for (let row = 0; row < thoughts.length; row += 1) {
           rowTurnIndex.push(null);
           rowKinds.push("thought");
+          rowRolePrefixes.push("");
           rowAnswerSources.push(null);
         }
       }
     }
     if (presentedText.length > 0) {
-      const answer = wrappedRows(presentedText, width, "  ");
+      const answerPrefix = asideAnswerPrefixes(width);
+      const answer = wrappedRows(
+        presentedText,
+        width,
+        answerPrefix.first,
+        answerPrefix.continuation
+      );
       body.push(...answer);
       for (let row = 0; row < answer.length; row += 1) {
         rowTurnIndex.push(null);
         rowKinds.push("answer");
+        rowRolePrefixes.push(row === 0
+          ? answerPrefix.first : answerPrefix.continuation);
         rowAnswerSources.push(null);
       }
     }
@@ -366,6 +434,7 @@ export function asideChatLayout(
     body.push("(ask about this story)");
     rowTurnIndex.push(null);
     rowKinds.push("plain");
+    rowRolePrefixes.push("");
     rowAnswerSources.push(null);
   }
   return {
@@ -375,6 +444,7 @@ export function asideChatLayout(
     turnStarts,
     turnContentEnds,
     rowTurnIndex,
+    rowRolePrefixes,
     rowAnswerSources
   };
 }

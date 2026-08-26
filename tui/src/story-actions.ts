@@ -505,12 +505,28 @@ export async function tagAction(
   const prompt = state.tag;
   if (prompt === null) return;
   if (resolved.action === "cancel") {
+    if (prompt.deleteArmed) {
+      prompt.deleteArmed = false;
+      state.toast = "tag kept";
+      return;
+    }
     state.mode = prompt.returnMode;
     state.tag = null;
     return;
   }
+  if (prompt.deleteArmed && resolved.action !== "delete-tag") {
+    prompt.deleteArmed = false;
+    state.toast = null;
+  }
   if (resolved.action === "apply") return await advanceOrSaveTag(state, source, context);
-  if (resolved.action === "delete-tag") return await removeTag(state, source, context);
+  if (resolved.action === "delete-tag") {
+    if (!prompt.deleteArmed) {
+      prompt.deleteArmed = true;
+      state.toast = "delete this tag? · D confirms · esc keeps";
+      return;
+    }
+    return await removeTag(state, source, context);
+  }
   if (prompt.choosingStatus) {
     if (resolved.action === "take-next") prompt.statusIndex = (prompt.statusIndex + 1) % TAG_STATUSES.length;
     if (resolved.action === "take-previous") prompt.statusIndex = (prompt.statusIndex - 1 + TAG_STATUSES.length) % TAG_STATUSES.length;
@@ -806,6 +822,7 @@ export function openTag(state: RuntimeState, targetId?: string): void {
     statusIndex: Math.max(0, TAG_STATUSES.indexOf(existing?.status ?? "")),
     choosingStatus: false,
     existing: existing !== null,
+    deleteArmed: false,
     returnMode: origin
   };
   state.mode = "TAG";

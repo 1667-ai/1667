@@ -59,7 +59,7 @@ function deletionFixture() {
 
 async function launchDelete(app: ReturnType<typeof harness>, fixture: ReturnType<typeof deletionFixture>) {
   await app.press(key("o"));
-  await app.press(key("d"));
+  await app.press(key("D"));
   const overlay = app.state.library!;
   const prompt = overlay.prompt!;
   if (prompt.kind !== "delete") throw new Error("expected delete prompt");
@@ -172,7 +172,7 @@ describe("forced story replacement adoption", () => {
     await app.press(key("o"));
     const overlay = app.state.library!;
     overlay.cursor = 1;
-    await app.press(key("d"));
+    await app.press(key("D"));
     const submittedPrompt = overlay.prompt!;
     if (submittedPrompt.kind !== "delete") throw new Error("expected delete prompt");
     submittedPrompt.value = doomed.title;
@@ -180,7 +180,7 @@ describe("forced story replacement adoption", () => {
     await listEntered.promise;
 
     await app.press(key("escape", "\u001b"));
-    await app.press(key("d"));
+    await app.press(key("D"));
     const newerPrompt = overlay.prompt;
     expect(newerPrompt).not.toBe(submittedPrompt);
     expect(newerPrompt).toMatchObject({ kind: "delete", targetId: doomed.id });

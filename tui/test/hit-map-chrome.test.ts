@@ -84,19 +84,19 @@ interface FooterCase {
 
 const footerCases: FooterCase[] = [
   { name: "facts", mode: "FACTS", actions: FACTS_FOOTER_ACTIONS,
-    keys: [key("up"), key("down"), key("tab"), key("return"), key("/"), key("e"), key("n"), key("d"), key("escape")],
+    keys: [key("up"), key("down"), key("tab"), key("return"), key("/"), key("e"), key("n"), key("D"), key("escape")],
     setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null }; } },
   { name: "library", mode: "LIBRARY", actions: LIBRARY_FOOTER_ACTIONS,
-    keys: [key("up"), key("down"), key("return"), key("n"), key("e"), key("/"), key("d"), key("escape")],
+    keys: [key("up"), key("down"), key("return"), key("n"), key("e"), key("/"), key("D"), key("escape")],
     setup: (state, source) => { state.mode = "LIBRARY"; state.library = { stories: source.stories, cursor: 0, query: "", prompt: null }; } },
   { name: "chapters", mode: "CHAPTERS", actions: CHAPTERS_FOOTER_ACTIONS,
-    keys: [key("return"), key("s"), key("e"), key("n"), key("d"), key("escape")],
+    keys: [key("return"), key("s"), key("e"), key("n"), key("D"), key("escape")],
     setup: (state) => { state.mode = "CHAPTERS"; state.chapters = { cursor: 0, rename: null, deleteArmedId: null }; } },
   { name: "commands", mode: "COMMANDS", actions: COMMANDS_FOOTER_ACTIONS,
     keys: [key("up"), key("down"), key("return"), key("escape")],
     setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands", returnMode: "NAV" }; } },
   { name: "tag manager", mode: "COMMANDS", actions: TAGS_FOOTER_ACTIONS,
-    keys: [key("up"), key("down"), key("d"), key("escape")], options: { commandsTags: true },
+    keys: [key("up"), key("down"), key("D"), key("escape")], options: { commandsTags: true },
     setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "tags", returnMode: "NAV" }; } },
   { name: "part actions", mode: "ACTIONS", actions: ACTIONS_FOOTER_ACTIONS,
     keys: [key("up"), key("down"), key("return"), key("escape")],
@@ -1209,25 +1209,27 @@ describe("hit map clickable chrome", () => {
         ? "↑↓ scrolls · "
         : "drag selects · ctrl+c copies · esc closes",
         setup: (state) => { state.mode = "KEYS"; } },
-      { name: "library", expected: "↑↓ move · ↵ open · n new · e rename · / filter · d delete · esc",
+      { name: "library", expected: "↑↓ move · ↵ open · n new · e rename · / filter · D delete · esc",
         setup: (state, source) => { state.mode = "LIBRARY"; state.library = { stories: source.stories, cursor: 0, query: "", prompt: null }; } },
       { name: "facts", expected: (width: number) => width < 100
-        ? "↑↓ · tab · ↵ edit · / filter · e edit · n new · d delete · esc"
-        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · d delete · esc",
+        ? "↑↓ · tab · ↵ edit · / filter · e edit · n new · D delete · esc"
+        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · D delete · esc",
         setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null }; } },
       { name: "facts confirm", expected: (width) => width < 100
-        ? "↑↓ · tab · ↵ · / filter · e edit · n new · d confirms · esc keeps"
-        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · d confirms · esc keeps",
+        ? "↑↓ · tab · ↵ · / filter · e edit · n new · D confirms · esc keeps"
+        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · D confirms · esc keeps",
         setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: "fact-1" }; } },
       { name: "commands", expected: "↑↓ move · ↵ run · esc close",
         setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands", returnMode: "NAV" }; } },
-      { name: "tag manager", expected: "↑↓ move · d delete · esc commands",
+      { name: "tag manager", expected: "↑↓ move · D delete · esc commands",
         setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "tags", returnMode: "NAV" }; } },
+      { name: "tag manager confirm", expected: "D confirms · esc keeps",
+        setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "tags", returnMode: "NAV", deleteArmedTagNodeId: "tag-1" }; } },
       // Context status moved into the panel, so the footer is actions only and
       // no longer grows with `over`/`fix`.
       { name: "chapters", expected: (width) => width < 100
-        ? "↵ jump · s sum · e rename · n break · d rm · esc"
-        : "↵ jump · s summarize · e rename · n break · d remove · esc",
+        ? "↵ jump · s sum · e rename · n break · D rm · esc"
+        : "↵ jump · s summarize · e rename · n break · D remove · esc",
         setup: (state) => { state.mode = "CHAPTERS"; state.chapters = { cursor: 0, rename: null, deleteArmedId: null }; } },
       // A chapter list longer than the row budget: the panel must still show the
       // context status it moved inside to stop the footer from hiding.
@@ -1239,7 +1241,7 @@ describe("hit map clickable chrome", () => {
             id: `b${index}`, parentPartId: node.id, title: `ch ${index + 1}`, createdAt: "2022-10-25T09:00:00.000Z"
           })) };
         } },
-      { name: "chapters confirm", expected: "↵ jump · s sum · e rename · n break · d confirms · esc keeps",
+      { name: "chapters confirm", expected: "↵ jump · s sum · e rename · n break · D confirms · esc keeps",
         setup: (state) => { state.mode = "CHAPTERS"; state.chapters = { cursor: 0, rename: null, deleteArmedId: "chapter-break-1" }; } },
       { name: "settings",
         expected: "↑↓ move · ←→ choose · ↵ next · s save · c check · m simple · esc",

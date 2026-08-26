@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { CliRenderEvents, TextRenderable, type CliRenderer } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { initialState } from "../src/app.js";
+import { createAsideSurface } from "../src/aside-surface.js";
 import { createComposer } from "../src/composer-model.js";
 import { demoAppSource } from "../src/demo.js";
 import { createInteractiveFrameRuntime } from "../src/interactive-frame-runtime.js";
@@ -150,6 +151,55 @@ describe("interactive frame runtime", () => {
     runtime.flush();
 
     expect(paintOptions.at(-1)).toEqual({ singleSelectionBuffer: true });
+    runtime.dispose();
+    setup.renderer.destroy();
+  });
+
+  test("paints wide Aside through one selectable pane", async () => {
+    const setup = await createTestRenderer({ width: 160, height: 36 });
+    const source = demoAppSource(false);
+    const state = initialState(source, false);
+    state.aside = createAsideSurface(
+      state.payload.id,
+      state.payload.title,
+      [{
+        id: "session-1",
+        title: "selection",
+        anchor: null,
+        turns: [{
+          q: "Can I select this whole exchange?",
+          a: "Yes. This answer extends beyond the story page rail boundary so the native selection must keep one owner."
+        }]
+      }],
+      null,
+      null,
+      { v2: true }
+    );
+    state.mode = "ASIDE";
+    const wrapCache = createWrapCache<ProseStyle>();
+    renderStoryScreen(state, { width: 160, height: 36, wrapCache });
+    const layouts: Parameters<StorySurface["paint"]>[2][] = [];
+    const surface: StorySurface = {
+      paint(_frame, _palette, layout) { layouts.push(layout); },
+      setPageSelectable() {},
+      setBackground() {},
+      onMouse() {}
+    };
+    const runtime = createInteractiveFrameRuntime({
+      state,
+      renderer: setup.renderer,
+      surface,
+      palette: () => createPalette("lantern", "256"),
+      wrapCache,
+      onBuilt: () => undefined,
+      onError: (error) => { throw error; }
+    });
+
+    runtime.invalidate();
+    runtime.flush();
+
+    expect(layouts.at(-1)?.railStart).toBeNull();
+    expect(layouts.at(-1)?.pageWidth).toBe(160);
     runtime.dispose();
     setup.renderer.destroy();
   });

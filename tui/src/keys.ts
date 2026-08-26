@@ -158,6 +158,11 @@ function shiftedLetter(key: KeyEvent, letter: string): boolean {
   return key.name === upper || key.sequence === upper || (key.name === letter && key.shift);
 }
 
+function plainShiftedLetter(key: KeyEvent, letter: string): boolean {
+  return !key.ctrl && !key.meta && !key.option && !key.super
+    && shiftedLetter(key, letter);
+}
+
 function shiftedAsciiLetter(key: KeyEvent): boolean {
   const nameIsLetter = /^[a-z]$/i.test(key.name);
   const sequenceIsLetter = /^[a-z]$/i.test(key.sequence);
@@ -500,7 +505,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     return { action: "none" };
   }
   if (confirmingPrune) {
-    return { action: key.name === "d" && !key.ctrl && !key.meta && !key.shift ? "prune" : "none" };
+    return { action: plainShiftedLetter(key, "d") ? "prune" : "none" };
   }
   if (mode === "REQUEST") return resolveRequestViewerKey(key);
   if (mode === "PROBS") return resolveTokenProbabilitiesKey(key);
@@ -522,7 +527,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
       if (name === "down") return { action: "focus-next" };
       if (key.name === "return") return { action: "open-selected" };
       if (name === "r") return { action: "aside-retake" };
-      if (name === "x") return { action: "aside-delete" };
+      if (plainShiftedLetter(key, "d")) return { action: "aside-delete" };
       if (name === "t") return { action: "toggle-thought" };
       if (name === "n") return { action: "aside-new-session" };
       if (name === "u") return { action: "aside-undo-delete" };
@@ -549,11 +554,16 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   }
   const shiftedReference = resolveReferenceBinding("nav-shifted", key, mode, mapView);
   if (shiftedReference !== null) return { action: shiftedReference.action };
+  const destructiveCapitalD = plainShiftedLetter(key, "d")
+    && (mode === "MAP" || mode === "SETTINGS" || mode === "CHAPTERS"
+      || mode === "LIBRARY" || mode === "FACTS" || mode === "COMMANDS"
+      || mode === "TAG");
   // Capital letters are distinct terminal commands. Declared reference routes
   // resolve above; reject every other shifted spelling so lowercase-name
   // terminal events cannot silently trigger lowercase hotkeys.
   if (!ownsText && shiftedAsciiLetter(key)
-    && !(mode === "SETTINGS" && shiftedLetter(key, "n"))) return { action: "none" };
+    && !(mode === "SETTINGS" && shiftedLetter(key, "n"))
+    && !destructiveCapitalD) return { action: "none" };
   const navChord = resolveReferenceBinding("nav-chord", key, mode, mapView);
   if (navChord !== null) return { action: navChord.action };
   if (mode === "COMPOSE") {
@@ -676,7 +686,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "left") return { action: "take-previous" };
     if (key.name === "right") return { action: "take-next" };
     if (key.name === "n") return { action: "new-item" };
-    if (key.name === "d") return { action: "delete-item" };
+    if (plainShiftedLetter(key, "d")) return { action: "delete-item" };
     return { action: "none" };
   }
   if (mode === "SEARCH") {
@@ -733,7 +743,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "e") return { action: "edit" };
     if (shiftedLetter(key, "n")) return { action: "duplicate-item" };
     if (key.name === "n") return { action: "new-item" };
-    if (key.name === "d") return { action: "delete-item" };
+    if (plainShiftedLetter(key, "d")) return { action: "delete-item" };
     if (key.name === "x") return { action: "discard-pending" };
     if (key.name === "i") return { action: "import-profile" };
     // C-08 stepping: `←→` by one, `⇧←→` by ten, home/end to the ends. A cycler
@@ -758,7 +768,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "return") return { action: "open-selected" };
     if (key.name === "s") return { action: "summarize-chapter" };
     if (key.name === "e") return { action: "rename-item" };
-    if (key.name === "d") return { action: "delete-item" };
+    if (plainShiftedLetter(key, "d")) return { action: "delete-item" };
     if (key.name === "n") return { action: "new-item" };
     return { action: "none" };
   }
@@ -786,12 +796,11 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (!overlayTyping) {
       if (mode !== "COMMANDS" && key.name === "/") return { action: "filter" };
       if (mode !== "COMMANDS" && key.name === "n") return { action: "new-item" };
-      // One verb per gesture across every list: `e` opens the selected row,
-      // `d` deletes it. Facts and the tag manager used to delete on `x`
-      // while the library and chapters deleted on `d`.
+      // One destructive gesture across every list: capital `D` starts the
+      // selected row's confirmation. Lowercase `d` is never destructive.
       if (mode === "LIBRARY" && key.name === "e") return { action: "rename-item" };
       if (mode === "FACTS" && key.name === "e") return { action: "edit" };
-      if (key.name === "d" && (mode === "LIBRARY" || mode === "FACTS"
+      if (plainShiftedLetter(key, "d") && (mode === "LIBRARY" || mode === "FACTS"
         || mode === "COMMANDS" && commandsTags)) return { action: "delete-item" };
     }
     if (mode === "FACTS" && key.name === "tab") return { action: "cycle" };
@@ -802,7 +811,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (tagChoosingStatus && key.name === "left") return { action: "take-previous" };
     if (tagChoosingStatus && key.name === "right") return { action: "take-next" };
     if (key.name === "backspace") return { action: "backspace" };
-    if (tagChoosingStatus && key.name === "d") return { action: "delete-tag" };
+    if (tagChoosingStatus && plainShiftedLetter(key, "d")) return { action: "delete-tag" };
     return textInput(key) ?? { action: "none" };
   }
   if (mode === "MAP") {

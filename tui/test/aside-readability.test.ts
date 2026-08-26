@@ -94,12 +94,15 @@ describe("Aside readability and navigation", () => {
 
     expect(questionRows.length).toBeGreaterThan(1);
     expect(answerRows.length).toBeGreaterThan(1);
-    expect(questionRows.every((line) => plainLine(line).includes("›"))).toBeTrue();
-    expect(questionRows.every((line) => line.some((part) =>
-      part.role === "accent · deep" || part.role === "focus / accent"
+    expect(plainLine(questionRows[0]!)).toContain("You");
+    expect(questionRows.every((line) => line.every((part) =>
+      part.background === "raised"
     ))).toBeTrue();
-    expect(answerRows.every((line) => line.every((part) =>
-      part.role !== "accent · deep" && part.role !== "focus / accent"
+    expect(questionRows.every((line) => line.some((part) =>
+      part.role === "human edit"
+    ))).toBeTrue();
+    expect(answerRows.every((line) => line.some((part) =>
+      part.role === "prose" && part.background !== "raised"
     ))).toBeTrue();
     expect(frame.lines.every((line) => visibleWidth(plainLine(line)) <= 32)).toBeTrue();
   });
@@ -117,7 +120,10 @@ describe("Aside readability and navigation", () => {
     const continuationRows = questionRows.slice(1);
     expect(continuationRows.length).toBeGreaterThan(0);
     expect(continuationRows.every((line) => line.some((part) =>
-      part.text.includes("selected-question") && part.role === "prose"
+      part.text.includes("selected-question") && part.role === "human edit"
+    ))).toBeTrue();
+    expect(continuationRows.every((line) => line.every((part) =>
+      part.background === "raised"
     ))).toBeTrue();
   });
 
@@ -212,7 +218,7 @@ describe("Aside readability and navigation", () => {
         a: `short answer ${index}`
       })),
       {
-        q: "long-question-start " + "question-word ".repeat(160) + "long-question-end",
+        q: "question-start " + "question-word ".repeat(160) + "long-question-end",
         a: "long-answer-start " + "answer-word ".repeat(600) + "long-answer-end"
       }
     ];
@@ -241,7 +247,7 @@ describe("Aside readability and navigation", () => {
       expect(surface.turnCursor).toBe(targetIndex);
       expect(surface.scrollTop ?? max).toBe(layout.turnStarts[targetIndex]);
       const text = frameText(renderAsideScreen(state, surface, width, height).lines);
-      expect(text).toContain("long-question-start");
+      expect(text).toContain("question-start");
       if (height > 8) expect(text).toContain("long-answer-start");
     }
   });

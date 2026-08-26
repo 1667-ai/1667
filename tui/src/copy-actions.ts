@@ -218,9 +218,15 @@ export function copyActiveSelection(
   const draft = displayComposer === null
     ? null
     : selectedComposerText(displayComposer);
-  const story = composer === null
-    ? storyTextFromRendererSelection(native ?? EMPTY_NATIVE_SELECTION, projections.story)
+  const storySelection = composer === null
+    ? storySelectionFromRendererSelection(
+      native ?? EMPTY_NATIVE_SELECTION,
+      projections.story
+    )
     : null;
+  const story = storySelection?.hasNativeContent === true && state.mode === "ASIDE"
+    ? rendered
+    : storySelection?.text ?? null;
   const text = composer !== null
     ? draft ?? ""
     : story ?? rendered;

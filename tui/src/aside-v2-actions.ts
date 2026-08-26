@@ -8,6 +8,7 @@ import {
   revealAsideFocusedNote
 } from "./aside-actions.js";
 import {
+  asideAnswerRowId,
   currentAsideSession,
   currentAsideTurns,
   isAsideV2,
@@ -152,6 +153,7 @@ export function cycleAsideSession(surface: AsideSessionSurfaceState, delta: numb
   surface.focus = session?.turns.length === 0 ? "composer" : "turns";
   surface.useMenu = null;
   surface.confirmReset = null;
+  surface.confirmDelete = null;
   surface.scrollTop = null;
   return true;
 }
@@ -171,6 +173,7 @@ export function newAsideSession(surface: AsideSessionSurfaceState): boolean {
   surface.focus = "composer";
   surface.useMenu = null;
   surface.confirmReset = null;
+  surface.confirmDelete = null;
   surface.scrollTop = null;
   return true;
 }
@@ -178,6 +181,7 @@ export function newAsideSession(surface: AsideSessionSurfaceState): boolean {
 export function toggleAsideThoughts(surface: AsideSessionSurfaceState): boolean {
   surface.thoughtsVisible = !surface.thoughtsVisible;
   surface.confirmReset = null;
+  surface.confirmDelete = null;
   return true;
 }
 
@@ -200,6 +204,7 @@ function removeTurn(surface: AsideSessionSurfaceState): boolean {
     Math.max(0, currentAsideTurns(surface).length - 1), surface.turnCursor
   ));
   surface.confirmReset = null;
+  surface.confirmDelete = null;
   return true;
 }
 
@@ -242,6 +247,11 @@ export function resetAsideStatus(surface: AsideSessionSurfaceState): string {
   const after = turns.slice(surface.turnCursor + 1);
   const words = after.reduce((sum, turn) => sum + turnWords(turn), 0);
   return ` RESET  everything after this answer dies · ${after.length} turns · ${words} words`;
+}
+
+export function deleteAsideStatus(surface: AsideSessionSurfaceState): string {
+  const turn = currentAsideTurns(surface)[surface.turnCursor];
+  return ` DELETE  this turn dies · ${turn === undefined ? 0 : turnWords(turn)} words`;
 }
 
 async function resetAside(
@@ -397,6 +407,13 @@ export async function asideV2KeyAction(
   context: AsideContext
 ): Promise<boolean> {
   if (!isAsideV2(surface)) return false;
+  if (resolved.action === "cancel" && surface.confirmDelete !== null) {
+    surface.confirmDelete = null;
+    return true;
+  }
+  if (surface.confirmDelete !== null && resolved.action !== "aside-delete") {
+    surface.confirmDelete = null;
+  }
   if (resolved.action === "aside-undo-delete") {
     if (undoAsideDelete(surface)) state.toast = "turn restored";
     return true;
@@ -473,6 +490,7 @@ export async function asideV2KeyAction(
     ));
     revealFocusedTurn(surface, context);
     surface.confirmReset = null;
+    surface.confirmDelete = null;
     return true;
   }
   if (resolved.action === "open-selected" || resolved.action === "apply") {
@@ -481,12 +499,20 @@ export async function asideV2KeyAction(
   }
   if (resolved.action === "aside-delete") {
     if (state.backendTask !== null) return true;
+    const rowId = asideAnswerRowId(surface, surface.turnCursor);
+    if (surface.confirmDelete?.rowId !== rowId) {
+      surface.confirmReset = null;
+      surface.confirmDelete = { rowId };
+      return true;
+    }
+    surface.confirmDelete = null;
     if (removeTurn(surface)) state.toast = "▸ deleted 1 turn · u undoes";
     return true;
   }
   if (resolved.action === "aside-reset") {
     if (surface.turnCursor >= currentAsideTurns(surface).length - 1) return true;
     if (surface.confirmReset?.turnIndex !== surface.turnCursor) {
+      surface.confirmDelete = null;
       surface.confirmReset = { turnIndex: surface.turnCursor };
       return true;
     }

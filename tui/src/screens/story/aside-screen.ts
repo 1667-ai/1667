@@ -21,7 +21,7 @@ import {
   type AsideSessionSurfaceState,
   type AsideSurfaceState
 } from "../../aside-surface.js";
-import { resetAsideStatus } from "../../aside-v2-actions.js";
+import { deleteAsideStatus, resetAsideStatus } from "../../aside-v2-actions.js";
 import {
   asideUseActions,
   asideUseMenuTitle,
@@ -61,6 +61,14 @@ function renderAsideV2Status(
   width: number,
   deadlines?: FrameDeadlineCollector
 ): FrameLine {
+  if (surface.confirmDelete !== null) {
+    return fitLine([{
+      text: deleteAsideStatus(surface),
+      role: "danger text",
+      background: "danger",
+      bold: true
+    }], width);
+  }
   const resetConfirmation = surface.confirmReset !== null
     && surface.confirmReset.turnIndex >= 0;
   if (resetConfirmation) {
@@ -138,6 +146,7 @@ function renderAsideV2Composer(
 }
 
 function asideV2FooterHint(surface: AsideSessionSurfaceState, width: number): string {
+  if (surface.confirmDelete !== null) return "D confirms · esc keeps";
   if (surface.confirmReset !== null) {
     return surface.confirmReset.turnIndex < 0
       ? "↵ confirms · esc keeps"
@@ -150,7 +159,7 @@ function asideV2FooterHint(surface: AsideSessionSurfaceState, width: number): st
     const turns = currentAsideTurns(surface);
     const history = surface.turnCursor < Math.max(0, turns.length - 1)
       ? "⌫ reset" : "r retake";
-    return `↑↓ turn · ←→ session · n new · ↵ use · ${history} · x delete · t Thoughts · tab ask · [ ] hop · g go · esc exit`;
+    return `↑↓ turn · ←→ session · n new · ↵ use · ${history} · D delete · t Thoughts · tab ask · [ ] hop · g go · esc exit`;
   }
   return "↵ ask · ⇧↵ newline · tab turns · esc exit";
 }
@@ -171,7 +180,7 @@ function asideV2StandaloneFooterLines(
   const history = surface.turnCursor < Math.max(0, turns.length - 1)
     ? "⌫ reset" : "r retake";
   return [
-    `↑↓ turn · ←→ session · n new · ↵ use · ${history} · x delete`,
+    `↑↓ turn · ←→ session · n new · ↵ use · ${history} · D delete`,
     "t Thoughts · tab ask · [ ] hop · g go · esc exit"
   ];
 }
@@ -204,10 +213,8 @@ function renderAsideV2Screen(
         text,
         history.rowKinds[index] ?? "plain",
         historyLayout.rowAnswerSources[history.start + index],
-        turnsFocus
-          && !surface.busy
-          && historyLayout.rowKinds[history.start + index] === "question"
-          && historyLayout.rowTurnIndex[history.start + index] === surface.turnCursor
+        historyLayout.rowRolePrefixes[history.start + index] ?? "",
+        width
       )),
     ...composerLines,
     ...footerLines.map((line) => [segment(line, "chrome")]),
@@ -265,48 +272,42 @@ function renderAsideV2Screen(
 function renderQuestionHistoryLine(
   text: string,
   prefix: string,
-  prefixRole: "focus / accent" | "accent · deep",
-  bodyRole: "prose" | "prose · dim"
+  width: number
 ): FrameLine {
   const content = text.slice(prefix.length);
   const timestamp = content.match(/^(.*?)( {2,})((?:just now|yesterday|\d+[mhd] ago))$/u);
-  if (timestamp === null) {
-    return [segment(prefix, prefixRole), segment(content, bodyRole)];
-  }
-  return [
-    segment(prefix, prefixRole),
-    segment(timestamp[1]!, bodyRole),
-    segment(timestamp[2]!, "background"),
-    segment(timestamp[3]!, "dimmed page")
-  ];
+  const line: FrameLine = timestamp === null
+    ? [
+        raisedSegment(prefix, "human edit"),
+        { ...raisedSegment(content, "human edit"), nativeSelectionContent: true }
+      ]
+    : [
+        raisedSegment(prefix, "human edit"),
+        { ...raisedSegment(timestamp[1]!, "human edit"), nativeSelectionContent: true },
+        raisedSegment(timestamp[2]!, "background"),
+        raisedSegment(timestamp[3]!, "dimmed page")
+      ];
+  const remainder = Math.max(0, width - visibleWidth(line.map((part) => part.text).join("")));
+  if (remainder > 0) line.push(raisedSegment(" ".repeat(remainder), "background"));
+  return line;
+}
+
+function focusedHistoryPrefix(prefix: string): string {
+  return prefix.startsWith(" ") ? `▸${prefix.slice(1)}` : prefix;
 }
 
 function renderAsideV2HistoryLine(
   text: string,
   kind: AsideChatRowKind,
   answerSource?: AsideAnswerSource | null,
-  focusedQuestion = false
+  rolePrefix = "",
+  width = 80
 ): FrameLine {
+  const prefix = text.startsWith("▸")
+    ? focusedHistoryPrefix(rolePrefix)
+    : rolePrefix;
   if (kind === "question") {
-    if (text.startsWith("▸ › ")) {
-      return renderQuestionHistoryLine(text, "▸ › ", "focus / accent", "prose");
-    }
-    if (text.startsWith("  › ")) {
-      return renderQuestionHistoryLine(
-        text,
-        "  › ",
-        "accent · deep",
-        focusedQuestion ? "prose" : "prose · dim"
-      );
-    }
-    // Older layouts can leave a decorated continuation without the repeated
-    // marker. Keep its body role aligned with the labelled question row.
-    if (text.startsWith("▸ ")) {
-      return [segment("▸ ", "focus / accent"), segment(text.slice(2), "prose")];
-    }
-    if (text.startsWith("    ")) {
-      return [segment(text.slice(0, 4), "accent · deep"), segment(text.slice(4), "prose · dim")];
-    }
+    return renderQuestionHistoryLine(text, prefix, width);
   }
   if (kind === "thought" && text.startsWith("  ┊ ")) {
     return [segment("  ┊ ", "dimmed page"), segment(text.slice(4), "dimmed page")];
@@ -316,11 +317,10 @@ function renderAsideV2HistoryLine(
     return [segment(prefix, "dimmed page"), segment(text.slice(prefix.length), "dimmed page")];
   }
   if (kind === "answer") {
-    const prefix = text.startsWith("▸ ") ? "▸ " : text.startsWith("  ") ? "  " : "";
     if (prefix.length > 0) {
       return [
         segment(prefix, "prose · dim"),
-        asideAnswerSegment(text.slice(prefix.length), "prose · dim", answerSource)
+        asideAnswerSegment(text.slice(prefix.length), "prose", answerSource)
       ];
     }
   }

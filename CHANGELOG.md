@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Aside text selection works across the full chat width.** Questions and
+  answers use distinct `You` and `Assistant` labels, and question rows keep a
+  stronger visual treatment without adding a selection-breaking side pane.
+- **Destructive shortcuts use capital `D` consistently.** Aside turns, Facts,
+  chapter breaks, tags, Sampling entries, and Generation Profiles require a
+  confirmation before deletion. Lowercase `d` is non-destructive.
+
 ## 0.10.3-rc.4 - 2026-08-26
 
 - **Aside keeps selected text and turn context visible.** Highlighted answer
@@ -849,7 +856,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   reversed a take switch, and it said so on each take switch. Two keys did one
   job: `←` and `→` already walk the takes of one part. Worse, a key named undo
   that answers a navigation key implies that it can answer a destructive one. It
-  cannot: `d` prunes takes and their children, and nothing brings them back. `u`
+  cannot: prune removes takes and their children, and nothing brings them back. `u`
   now reaches an added or removed chapter break, which includes the summary of a
   removed break. It does not reach a chapter rename, a summary edit, or any
   prose. The take-switch message no longer names it.

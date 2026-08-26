@@ -173,10 +173,10 @@ describe("deterministic demo frames", () => {
   });
 
   test("MAP path exposes prune confirmation in its bottom breadcrumb", async () => {
-    const frame = await renderOnce(demoSource(), 120, 36, "\u001bmd");
+    const frame = await renderOnce(demoSource(), 120, 36, "\u001bmD");
     expect(frame.startsWith("━━ map ·  path   tree   mass")).toBeTrue();
     expect(frame).toContain("PRUNE   ⚑ canon-storm · ¶ 12 take 3/5 → 2 parts on 1 line die");
-    expect(frame).toContain("d confirms · esc keeps");
+    expect(frame).toContain("D confirms · esc keeps");
   });
 
   test("? explains every key it shows, in sections rather than a keyboard", async () => {

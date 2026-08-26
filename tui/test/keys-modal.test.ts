@@ -184,7 +184,7 @@ describe("keys reference", () => {
   });
 
   test("a map key that only works in some views names them", () => {
-    // `d` prunes in path and does nothing in tree or mass. A section headed
+    // `D` prunes in path and does nothing in tree or mass. A section headed
     // "while the map is open" would otherwise promise all three.
     const map = KEYS_MODAL_MODEL.sections.find((section) => section.title === "MAP")!;
     for (const item of map.entries) {
@@ -198,7 +198,7 @@ describe("keys reference", () => {
 
   test("it says where a chapter row's own keys are named", () => {
     // `directChapterRowAction` runs before NAV, so `e` renames a chapter and
-    // `d` removes its break. The reference points at the story's hint line
+    // `D` removes its break. The reference points at the story's hint line
     // rather than claiming one meaning for both.
     for (const [width, height] of [[80, 60], [120, 60]] as const) {
       expect(text(width, height)).toContain("chapter rows differ · the line under the story says how");

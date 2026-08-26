@@ -49,6 +49,12 @@ export async function chaptersAction(
   const estimate = nextRequestEstimate(state.payload, nextRequestContext(state));
   const model = chapterListModel(state.payload, state.contextWindow, estimate);
   const selected = model.rows[Math.max(0, Math.min(model.rows.length - 1, overlay.cursor))]?.chapter ?? null;
+  if (overlay.deleteArmedId !== null
+    && resolved.action !== "delete-item"
+    && resolved.action !== "cancel") {
+    overlay.deleteArmedId = null;
+    state.toast = null;
+  }
   if (resolved.action === "cancel") {
     if (overlay.rename !== null) overlay.rename = null;
     else if (overlay.deleteArmedId !== null) overlay.deleteArmedId = null;
@@ -97,7 +103,7 @@ export async function chaptersAction(
     if (breakId === null) state.toast = "Chapter One has no opening break to remove";
     else if (overlay.deleteArmedId !== breakId) {
       overlay.deleteArmedId = breakId;
-      state.toast = "remove this break? · d confirms · esc keeps";
+      state.toast = "remove this break? · D confirms · esc keeps";
     } else {
       await removeBreak(state, source, breakId, context);
     }
@@ -178,6 +184,12 @@ async function dividerRowAction(
   source: AppSource,
   context: ChapterActionContext
 ): Promise<boolean> {
+  if (state.chapterDeleteArmedId !== null
+    && resolved.action !== "prune"
+    && resolved.action !== "cancel") {
+    state.chapterDeleteArmedId = null;
+    state.toast = null;
+  }
   if (resolved.action === "edit") {
     openChapters(state, row.openingChapter.number);
     beginRename(state, row.openingChapter);
@@ -190,7 +202,7 @@ async function dividerRowAction(
   if (resolved.action === "prune") {
     if (state.chapterDeleteArmedId !== row.break.id) {
       state.chapterDeleteArmedId = row.break.id;
-      state.toast = "remove this chapter break? · d confirms · esc keeps";
+      state.toast = "remove this chapter break? · D confirms · esc keeps";
     } else {
       await removeBreak(state, source, row.break.id, context);
     }

@@ -29,14 +29,15 @@ export function selectionAwarePartMenuAction(
     || event.type !== "down" || event.button !== 2) return resolved;
   const rendered = renderer.getSelection()?.getSelectedText() ?? "";
   const selection = storySelectionFromRendererSelection(renderer, projection);
-  const selectionText = selection?.text ?? rendered;
+  const useNative = selection?.hasNativeContent === true;
+  const selectionText = useNative ? rendered : selection?.text ?? rendered;
   if (selectionText.length === 0) return resolved;
   event.preventDefault();
   renderer.clearSelection();
   return {
     ...resolved,
     selectionText,
-    ...(selection === null ? {} : { selectionSpans: selection.spans })
+    ...(selection === null || useNative ? {} : { selectionSpans: selection.spans })
   };
 }
 

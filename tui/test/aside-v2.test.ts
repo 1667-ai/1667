@@ -20,14 +20,14 @@ import {
   sendAsideQuestion,
   stopAsideAsk
 } from "../src/aside-actions.js";
-import { asideSessionsFromResponse } from "../src/aside-v2-layout.js";
+import { asideChatLayout, asideSessionsFromResponse } from "../src/aside-v2-layout.js";
 import { asideHopEntries, asideHopStripText } from "../src/aside-hop.js";
 import { asideV2KeyAction, cycleAsideSession } from "../src/aside-v2-actions.js";
 import { recordHumanWords } from "../src/config.js";
 import { ActionRuntime } from "../src/action-runtime.js";
 import { cycleAsideFocus, openAsideUseMenu } from "../src/aside-use.js";
 import { renderAsideScreen } from "../src/screens/story/aside-screen.js";
-import { frameText } from "../src/screens/story/frame.js";
+import { frameText, plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import type { StoryApi } from "../src/api.js";
@@ -301,8 +301,78 @@ describe("Aside v2 surface", () => {
         candidate.some((part) => part.text.includes(prefix))
       );
       expect(line).toBeDefined();
-      expect(line?.find((part) => part.text.includes(prefix))?.role).toBe("prose · dim");
+      expect(line?.find((part) => part.text.includes(prefix))?.role).toBe("prose");
     }
+  });
+
+  test("labels both chat roles and gives questions a full-row treatment at wide and narrow widths", () => {
+    const { state, surface } = surfaceWithTurns([{
+      q: "Why does the lantern answer the traveler with such a long warning?",
+      a: "Because the warning belongs to the road, not to the person carrying it."
+    }]);
+    for (const width of [80, 20]) {
+      const frame = renderAsideScreen(state, surface, width, 24);
+      const question = frame.lines.find((line) => plainLine(line).includes("You"));
+      const answer = frame.lines.find((line) => plainLine(line).includes("Assistant"));
+      expect(question).toBeDefined();
+      expect(answer).toBeDefined();
+      expect(question!.every((part) => part.background === "raised")).toBeTrue();
+      expect(question!.some((part) => part.role === "human edit")).toBeTrue();
+      expect(answer!.some((part) => part.role === "prose")).toBeTrue();
+      expect(frame.lines.every((line) => visibleWidth(plainLine(line)) <= width)).toBeTrue();
+      expect(frameText(frame.lines)).not.toContain("│");
+    }
+  });
+
+  test("narrow wrapped answers reclaim the role-label gutter", () => {
+    const { surface } = surfaceWithTurns([{
+      q: "Why?",
+      a: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    }]);
+    const layout = asideChatLayout(surface, 20, "");
+    const answers = layout.body.filter((_, index) => layout.rowKinds[index] === "answer");
+
+    expect(answers[0]).toBe("  Assistant abcdefgh");
+    expect(answers[1]?.startsWith("  ")).toBeTrue();
+    expect(answers[1]?.slice(2)).toHaveLength(18);
+  });
+
+  test("narrow answer content cannot be mistaken for its role label", () => {
+    const answer = "abcdefghAssistant continues here";
+    const { state, surface } = surfaceWithTurns([{ q: "Why?", a: answer }]);
+    const width = 20;
+    const layout = asideChatLayout(surface, width, "");
+    const answerRows = layout.rowKinds.flatMap((kind, index) =>
+      kind === "answer" ? [index] : []);
+    expect(layout.body[answerRows[1]!]!.startsWith("  Assistant")).toBeTrue();
+    expect(layout.rowRolePrefixes[answerRows[1]!]).toBe("  ");
+
+    const frame = renderAsideScreen(state, surface, width, 24);
+    const display = frame.derived.storySelectionProjection?.findIndex((cell) =>
+      cell?.text === answer && cell.start === 8) ?? -1;
+    expect(display).toBeGreaterThan(-1);
+    expect(display % (width + 1)).toBe(2);
+  });
+
+  test("a scrolled answer keeps semantic selection ownership after focus decoration", () => {
+    const { state, surface } = surfaceWithTurns([{
+      q: "Why?",
+      a: "answer-source-".repeat(30)
+    }]);
+    const layout = asideChatLayout(surface, 20, "");
+    const firstAnswer = layout.rowKinds.indexOf("answer");
+    const starts: number[] = [];
+
+    for (const scrollTop of [firstAnswer, firstAnswer + 1]) {
+      surface.scrollTop = scrollTop;
+      const frame = renderAsideScreen(state, surface, 20, 10);
+      const focused = frame.lines.find((line) => plainLine(line).startsWith("▸"));
+      const owned = focused?.find((part) => part.storySource !== undefined);
+      expect(owned).toBeDefined();
+      expect(owned?.storySource?.text).toBe(currentAsideTurns(surface)[0]!.a);
+      starts.push(owned!.storySource!.start);
+    }
+    expect(starts[1]!).toBeGreaterThan(starts[0]!);
   });
 
   test("deletes optimistically and restores without an API call", async () => {
@@ -316,6 +386,13 @@ describe("Aside v2 surface", () => {
     } as unknown as StoryApi;
     const backend = new ActionRuntime(state, () => undefined);
     const context = { source: { api, config: state.config }, backend, repaint: () => undefined };
+    await asideV2KeyAction({ action: "aside-delete" }, state, surface, context);
+    expect(currentAsideTurns(surface)).toHaveLength(1);
+    expect(surface.confirmDelete).not.toBeNull();
+    await asideV2KeyAction({ action: "cancel" }, state, surface, context);
+    expect(currentAsideTurns(surface)).toHaveLength(1);
+    expect(surface.confirmDelete).toBeNull();
+    await asideV2KeyAction({ action: "aside-delete" }, state, surface, context);
     await asideV2KeyAction({ action: "aside-delete" }, state, surface, context);
     expect(currentAsideTurns(surface)).toHaveLength(0);
     expect(deletes).toBe(0);
@@ -361,7 +438,8 @@ describe("Aside v2 surface", () => {
       async () => undefined, () => undefined, null, () => undefined, () => undefined, backend
     );
 
-    await press("x");
+    await press("D");
+    await press("D");
     expect(surface.deleteUndo).not.toBeNull();
     await press("down");
     await Promise.resolve();
@@ -405,7 +483,8 @@ describe("Aside v2 surface", () => {
       async () => undefined, () => undefined, null, () => undefined, () => undefined, backend
     );
 
-    await press("x");
+    await press("D");
+    await press("D");
     await press("down");
     await backend.settle();
     expect(surface.deleteUndo).toBeNull();
@@ -456,14 +535,15 @@ describe("Aside v2 surface", () => {
       async () => undefined, () => undefined, null, () => undefined, () => undefined, backend
     );
 
-    await press("x");
+    await press("D");
+    await press("D");
     await press("down");
     await Promise.resolve();
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({ sessionId: "s1", turnIndex: 2 });
     expect(surface.deleteUndo).toBeNull();
 
-    await press("x");
+    await press("D");
     expect(currentAsideTurns(surface)).toEqual([
       { q: "A?", a: "A." },
       { q: "B?", a: "B." }
@@ -479,7 +559,8 @@ describe("Aside v2 surface", () => {
     ]);
 
     await press("up");
-    await press("x");
+    await press("D");
+    await press("D");
     await press("down");
     await backend.settle();
     expect(requests[1]).toMatchObject({ sessionId: "s1", turnIndex: 1 });
@@ -543,7 +624,8 @@ describe("Aside v2 surface", () => {
       backend
     );
 
-    await press("x");
+    await press("D");
+    await press("D");
     expect(currentAsideTurns(surface)).toEqual([{ q: "A?", a: "A." }]);
     await press("right");
     await Promise.resolve();
@@ -610,7 +692,8 @@ describe("Aside v2 surface", () => {
       backend
     );
 
-    await press("x");
+    await press("D");
+    await press("D");
     expect(currentAsideTurns(surface)).toEqual([{ q: "A?", a: "A." }]);
     await press("escape");
     expect(state.aside).toBeNull();
@@ -1662,7 +1745,8 @@ describe("Aside v2 surface", () => {
       backend
     );
 
-    await press("x");
+    await press("D");
+    await press("D");
     const commit = press("up");
     const completed = await Promise.race([
       commit.then(() => true),
@@ -1928,13 +2012,13 @@ describe("Aside v2 surface", () => {
 
     expect(surface.turnCursor).toBe(2);
     const text = frameText(renderAsideScreen(state, surface, 80, 24).lines);
-    expect(text).toContain("▸ › Question 3?");
+    expect(text).toContain("▸ You       Question 3?");
   });
 
   test("labels every narrow turn-focus key across two rows", () => {
     const { state, surface } = surfaceWithTurns([{ q: "Why?", a: "Because." }]);
     const text = frameText(renderAsideScreen(state, surface, 80, 24).lines);
-    expect(text).toContain("↑↓ turn · ←→ session · n new · ↵ use · r retake · x delete");
+    expect(text).toContain("↑↓ turn · ←→ session · n new · ↵ use · r retake · D delete");
     expect(text).toContain("t Thoughts · tab ask · [ ] hop · g go · esc exit");
   });
 

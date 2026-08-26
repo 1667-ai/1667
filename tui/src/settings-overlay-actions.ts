@@ -173,6 +173,7 @@ export async function settingsOverlayAction(
     && resolved.action !== "delete-item"
     && resolved.action !== "cancel") {
     overlay.deleteArmedProfileId = null;
+    state.toast = null;
   }
   if (settingsSubscriptionPreset(overlay) !== null
     && (resolved.action === "check" || resolved.action === "detect-context")) {
@@ -354,7 +355,7 @@ function manageSettingsProfile(
       return;
     }
     overlay.deleteArmedProfileId = profileId;
-    state.toast = `delete ${document.profiles[profileId]!.name} · d again confirms`;
+    state.toast = `delete ${document.profiles[profileId]!.name} · D again confirms`;
     return;
   }
   const deleted = deleteSettingsProfile(document, profileId);

@@ -221,7 +221,7 @@ export const SETTINGS_MODEL_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s save · m mode · esc",
+    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · D delete · s save · m mode · esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -231,14 +231,14 @@ export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "⇧n copy", action: "duplicate-item" },
       { token: "i import", action: "import-profile" },
       { token: "e rename", action: "edit" },
-      { token: "d delete", action: "delete-item" },
+      { token: "D delete", action: "delete-item" },
       { token: "s save", action: "save-edit" },
       VIEW_MODE_TOGGLE,
       CANCEL_SHORT
     ]
   },
   {
-    text: "↑↓ · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s · esc",
+    text: "↑↓ · ←→ profile · n new · ⇧n copy · i import · e rename · D delete · s · esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -248,13 +248,13 @@ export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "⇧n copy", action: "duplicate-item" },
       { token: "i import", action: "import-profile" },
       { token: "e rename", action: "edit" },
-      { token: "d delete", action: "delete-item" },
+      { token: "D delete", action: "delete-item" },
       { token: "s", action: "save-edit" },
       { token: "esc", action: "cancel" }
     ]
   },
   {
-    text: "↑↓ ←→ n N i e d s esc",
+    text: "↑↓ ←→ n N i e D s esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -264,18 +264,26 @@ export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "N", action: "duplicate-item" },
       { token: "i", action: "import-profile" },
       { token: "e", action: "edit" },
-      { token: "d", action: "delete-item" },
+      { token: "D", action: "delete-item" },
       { token: "s", action: "save-edit" },
       { token: "esc", action: "cancel" }
     ]
   }
 ];
 
+const SETTINGS_DELETE_CONFIRM_FOOTERS: ReadonlyArray<SettingsFooter> = [{
+  text: "D confirms · esc keeps",
+  actions: [
+    { token: "D confirms", action: "delete-item" },
+    { token: "esc keeps", action: "cancel" }
+  ]
+}];
+
 /** A pending candidate does not remove profile management. Keep its discard
  * command visible with the profile verbs, because both affect the same draft. */
 export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s save · x discard · m mode · esc",
+    text: "↑↓ move · ←→ profile · n new · ⇧n copy · i import · e rename · D delete · s save · x discard · m mode · esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -285,7 +293,7 @@ export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "⇧n copy", action: "duplicate-item" },
       { token: "i import", action: "import-profile" },
       { token: "e rename", action: "edit" },
-      { token: "d delete", action: "delete-item" },
+      { token: "D delete", action: "delete-item" },
       { token: "s save", action: "save-edit" },
       { token: "x discard", action: "discard-pending" },
       VIEW_MODE_TOGGLE,
@@ -293,7 +301,7 @@ export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
     ]
   },
   {
-    text: "↑↓ · ←→ profile · n new · ⇧n copy · i import · e rename · d delete · s · x · esc",
+    text: "↑↓ · ←→ profile · n new · ⇧n copy · i import · e rename · D delete · s · x · esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -303,14 +311,14 @@ export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "⇧n copy", action: "duplicate-item" },
       { token: "i import", action: "import-profile" },
       { token: "e rename", action: "edit" },
-      { token: "d delete", action: "delete-item" },
+      { token: "D delete", action: "delete-item" },
       { token: "s", action: "save-edit" },
       { token: "x", action: "discard-pending" },
       { token: "esc", action: "cancel" }
     ]
   },
   {
-    text: "↑↓ ←→ n N i e d s x esc",
+    text: "↑↓ ←→ n N i e D s x esc",
     actions: [
       { token: "↑", action: "focus-previous" },
       { token: "↓", action: "focus-next" },
@@ -320,7 +328,7 @@ export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
       { token: "N", action: "duplicate-item" },
       { token: "i", action: "import-profile" },
       { token: "e", action: "edit" },
-      { token: "d", action: "delete-item" },
+      { token: "D", action: "delete-item" },
       { token: "s", action: "save-edit" },
       { token: "x", action: "discard-pending" },
       { token: "esc", action: "cancel" }
@@ -536,6 +544,7 @@ export function settingsFooterVariants(
 ): ReadonlyArray<SettingsFooter> {
   if (pickerOpen) return SETTINGS_PICKER_FOOTERS;
   if (overlay.edit !== null) return SETTINGS_EDIT_FOOTERS;
+  if (overlay.deleteArmedProfileId !== null) return SETTINGS_DELETE_CONFIRM_FOOTERS;
   const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
   const pending = overlay.view.editable && overlay.view.pendingRevision !== null;
   let variants: ReadonlyArray<SettingsFooter>;

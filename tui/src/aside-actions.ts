@@ -21,6 +21,7 @@ import {
   type AsideAnswerSource,
   type AsideSurfaceState
 } from "./aside-surface.js";
+import { asideFooterHint, asideV2FooterHeight } from "./aside-footer.js";
 import {
   asideChatLayout as renderAsideV2ChatLayout,
   hydrateAsideAnchor,
@@ -62,6 +63,8 @@ export interface AsideHistoryLayout {
   rowTurnIndex: readonly (number | null)[];
   /** Semantic v2 row ownership; prevents answer text from being parsed as chrome. */
   rowKinds: readonly AsideChatRowKind[];
+  /** Exact v2 question/answer prefix; empty for predecessor rows and chrome. */
+  rowRolePrefixes: readonly string[];
   /** Source ranges for saved answer rows; null for every other row. */
   rowAnswerSources: readonly (AsideAnswerSource | null)[];
 }
@@ -230,6 +233,7 @@ export function asideHistoryLayout(surface: AsideSurfaceState, cols: number, now
   const noteContentEnds: number[] = [];
   const rowNoteIndex: (number | null)[] = [];
   const rowKinds: AsideChatRowKind[] = [];
+  const rowRolePrefixes: string[] = [];
   const rowAnswerSources: (AsideAnswerSource | null)[] = [];
   const notes = asideNotes(surface);
   if (notes.length === 0
@@ -238,6 +242,7 @@ export function asideHistoryLayout(surface: AsideSurfaceState, cols: number, now
     body.push("(no Side Notes yet)");
     rowNoteIndex.push(null);
     rowKinds.push("plain");
+    rowRolePrefixes.push("");
     rowAnswerSources.push(null);
   }
   // Focus-neutral prefixes: wrap never depends on which note is selected.
@@ -252,6 +257,7 @@ export function asideHistoryLayout(surface: AsideSurfaceState, cols: number, now
     for (let row = 0; row < questionRows.length; row += 1) {
       rowNoteIndex.push(index);
       rowKinds.push("question");
+      rowRolePrefixes.push("");
       rowAnswerSources.push(null);
     }
     let answerOffset = 0;
@@ -261,6 +267,7 @@ export function asideHistoryLayout(surface: AsideSurfaceState, cols: number, now
       for (const row of answerRows) {
         rowNoteIndex.push(index);
         rowKinds.push("answer");
+        rowRolePrefixes.push("");
         rowAnswerSources.push({
           key: `aside-answer:legacy:${index}`,
           text: note.answer,
@@ -274,6 +281,7 @@ export function asideHistoryLayout(surface: AsideSurfaceState, cols: number, now
     body.push("");
     rowNoteIndex.push(null);
     rowKinds.push("plain");
+    rowRolePrefixes.push("");
     rowAnswerSources.push(null);
   }
   const streamText = presentedAsideText(surface);
@@ -285,11 +293,13 @@ export function asideHistoryLayout(surface: AsideSurfaceState, cols: number, now
     for (let row = 0; row < inflightQ.length; row += 1) {
       rowNoteIndex.push(null);
       rowKinds.push("question");
+      rowRolePrefixes.push("");
       rowAnswerSources.push(null);
     }
     for (let row = 0; row < inflightA.length; row += 1) {
       rowNoteIndex.push(null);
       rowKinds.push("answer");
+      rowRolePrefixes.push("");
       rowAnswerSources.push(null);
     }
   }
@@ -303,6 +313,7 @@ export function asideHistoryLayout(surface: AsideSurfaceState, cols: number, now
     turnContentEnds: [],
     rowTurnIndex: [],
     rowKinds,
+    rowRolePrefixes,
     rowAnswerSources
   };
 }
@@ -367,51 +378,7 @@ function revealAsideFocusedNoteWithLayout(
   surface.scrollTop = next === max ? null : next;
 }
 
-export function asideFooterHint(surface: AsideSurfaceState): string {
-  if (isAsideV2(surface)) {
-    if (surface.confirmReset !== null) {
-      if (surface.confirmReset.turnIndex < 0) {
-        return "↵ confirms · esc keeps";
-      }
-      return "⌫ confirms · esc keeps";
-    }
-    if (surface.busy) return "t Thoughts · esc stops · the composer waits";
-    if (surface.useMenu !== null) return "↑↓ · Enter · Esc turns";
-    if (surface.focus === "turns" || surface.focus === "notes") {
-      const turns = currentAsideTurns(surface);
-      const reset = surface.turnCursor < Math.max(0, turns.length - 1)
-        ? "⌫ reset here" : "r retake";
-      const hops = surface.anchors.length > 1
-        ? " · [ ] hop asides · g go to this take" : "";
-      return `↑↓ turn · ←→ session · n new · ↵ use · ${reset} · x delete · t Thoughts · tab ask · esc exit${hops}`;
-    }
-    return "↵ ask · ⇧↵ newline · tab turns · esc exit";
-  }
-  if (surface.confirmClear) return "Clear all Side Notes? Enter confirms · Esc cancels";
-  if (surface.busy && surface.inflightQuestion === null) return "Clearing…";
-  if (surface.busy) return "Esc stop · PageUp/PageDown scroll · Shift+Up/Down line scroll";
-  if (surface.useMenu !== null) {
-    return "↑↓ · Enter · Esc notes";
-  }
-  if (surface.focus === "notes") {
-    return "Esc ask · Enter use · ↑↓ notes · Tab ask · PageUp/PageDown scroll";
-  }
-  // Keep both escape and Clear visible before optional navigation hints.
-  const notesHint = asideNotes(surface).length > 0 ? " · Tab notes" : "";
-  return `Esc write · /clear clear · Enter ask · Shift+Enter newline${notesHint} · PageUp/PageDown scroll`;
-}
-
-/** Number of standalone v2 footer rows painted below the history. */
-export function asideV2FooterHeight(
-  surface: AsideSessionSurfaceState,
-  cols: number,
-  toast?: string | null
-): number {
-  const turnsFocus = surface.focus === "turns" || surface.focus === "notes";
-  if (!turnsFocus && !surface.busy) return 0;
-  if (turnsFocus && toast !== undefined && toast !== null && toast.length > 0) return 1;
-  return cols >= 100 || surface.busy || surface.confirmReset !== null ? 1 : 2;
-}
+export { asideFooterHint, asideV2FooterHeight };
 
 function asideFooterRows(surface: AsideSurfaceState, cols: number): string[] {
   const width = dimension(cols, 80);

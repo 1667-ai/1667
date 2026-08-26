@@ -52,7 +52,12 @@ export function renderSamplingPanel(
   const content = nested.panel === "sampling"
     ? renderSamplingLayer(settings, contentWidth, height, status)
     : renderSamplingListLayer(settings, contentWidth, height, status, nested.panel);
-  const footer = samplingFooter(nested.panel, nested.edit !== null, horizontal.footerWidth);
+  const footer = samplingFooter(
+    nested.panel,
+    nested.edit !== null,
+    nested.deleteArmedRowId != null,
+    horizontal.footerWidth
+  );
   return placePanel(
     dimPage(base),
     nested.panel === "sampling" ? "sampling" : SAMPLING_LIST_RENDER_SPECS[nested.panel].title,
@@ -462,6 +467,7 @@ interface SamplingFooter {
 function samplingFooter(
   panel: "sampling" | SamplingListPanel,
   editing: boolean,
+  confirmingDelete: boolean,
   width: number
 ): SamplingFooter {
   if (editing) return footerFit([
@@ -487,13 +493,20 @@ function samplingFooter(
       { token: "↵", action: "open-selected" }, { token: "esc", action: "cancel" }
     ] }
   ], width);
+  if (confirmingDelete) return {
+    text: "D confirms · esc keeps",
+    actions: [
+      { token: "D confirms", action: "delete-item" },
+      { token: "esc keeps", action: "cancel" }
+    ]
+  };
   const reorderable = samplingListPanelSpec(panel).reorderable;
   const actions = [
     { token: "↑", action: "focus-previous" as const },
     { token: "↓", action: "focus-next" as const },
     { token: "↵ edit", action: "open-selected" as const },
     { token: "n add", action: "new-item" as const },
-    { token: "d delete", action: "delete-item" as const },
+    { token: "D delete", action: "delete-item" as const },
     ...(reorderable
       ? [
           { token: "←", action: "take-previous" as const },
@@ -507,7 +520,7 @@ function samplingFooter(
     { token: "↓", action: "focus-next" as const },
     { token: "↵", action: "open-selected" as const },
     { token: "n", action: "new-item" as const },
-    { token: "d", action: "delete-item" as const },
+    { token: "D", action: "delete-item" as const },
     ...(reorderable
       ? [
           { token: "←", action: "take-previous" as const },
@@ -519,12 +532,12 @@ function samplingFooter(
   return footerFit([
     {
       text: reorderable
-        ? "↑↓ move · ↵ edit · n add · d delete · ←→ reorder · esc back"
-        : "↑↓ move · ↵ edit · n add · d delete · esc back",
+        ? "↑↓ move · ↵ edit · n add · D delete · ←→ reorder · esc back"
+        : "↑↓ move · ↵ edit · n add · D delete · esc back",
       actions
     },
     {
-      text: reorderable ? "↑↓ ↵ n d ←→ esc" : "↑↓ ↵ n d esc",
+      text: reorderable ? "↑↓ ↵ n D ←→ esc" : "↑↓ ↵ n D esc",
       actions: compactActions
     }
   ], width);

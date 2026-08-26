@@ -308,7 +308,7 @@ function renderMapNotice(text: string, width: number): FrameLine {
 
 function renderPruneBreadcrumb(text: string, width: number): FrameLine {
   const block = { text: " PRUNE ", role: "background" as const, background: "danger" as const, bold: true };
-  const suffix = " · d confirms · esc keeps";
+  const suffix = " · D confirms · esc keeps";
   const available = Math.max(0, width - visibleWidth(block.text) - 2);
   if (visibleWidth(text) <= available || !text.endsWith(suffix)) {
     return fitLine([block, segment(`  ${text}`, "danger text")], width);

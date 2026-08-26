@@ -205,11 +205,12 @@ describe("arrow-first key routing", () => {
     expect(resolveKey(key("escape"), "KEYS").action).toBe("cancel");
   });
 
-  test("prune confirmation accepts only d or escape", () => {
-    expect(resolveKey(key("d"), "MAP", { confirmingPrune: true }).action).toBe("prune");
+  test("prune confirmation accepts only capital D or escape", () => {
+    expect(resolveKey(key("d"), "MAP", { confirmingPrune: true }).action).toBe("none");
+    expect(resolveKey(key("D"), "MAP", { confirmingPrune: true }).action).toBe("prune");
+    expect(resolveKey(key("d", { sequence: "D", shift: true }), "MAP", { confirmingPrune: true }).action).toBe("prune");
     expect(resolveKey(key("d", { ctrl: true }), "MAP", { confirmingPrune: true }).action).toBe("none");
     expect(resolveKey(key("d", { meta: true }), "MAP", { confirmingPrune: true }).action).toBe("none");
-    expect(resolveKey(key("d", { shift: true }), "MAP", { confirmingPrune: true }).action).toBe("none");
     expect(resolveKey(key("down"), "MAP", { confirmingPrune: true }).action).toBe("none");
     expect(resolveKey(key("escape"), "MAP", { confirmingPrune: true }).action).toBe("cancel");
   });
@@ -378,7 +379,8 @@ describe("text surfaces and palette", () => {
     }
 
     expect(resolveKey(key("n"), "SETTINGS", sampling).action).toBe("new-item");
-    expect(resolveKey(key("d"), "SETTINGS", sampling).action).toBe("delete-item");
+    expect(resolveKey(key("d"), "SETTINGS", sampling).action).toBe("none");
+    expect(resolveKey(key("D"), "SETTINGS", sampling).action).toBe("delete-item");
     expect(resolveKey(key("up"), "SETTINGS", sampling).action).toBe("focus-previous");
     expect(resolveKey(key("down"), "SETTINGS", sampling).action).toBe("focus-next");
     expect(resolveKey(key("left"), "SETTINGS", sampling).action).toBe("take-previous");
@@ -473,6 +475,7 @@ describe("text surfaces and palette", () => {
     };
     const declared = new Map([
       ["c", "create-chapter"],
+      ["d", "prune"],
       ["f", "toggle-rail"],
       ["g", "leaf"],
       ["r", "retake-with-prompt"],
@@ -489,21 +492,23 @@ describe("text surfaces and palette", () => {
       resolveKey(shifted("d")[0]!, "MAP", { mapView: "path" }),
       resolveKey(shifted("d")[0]!, "CHAPTERS"),
       resolveKey(shifted("d")[0]!, "LIBRARY"),
-      resolveKey(shifted("x")[0]!, "FACTS"),
-      resolveKey(shifted("x")[0]!, "COMMANDS", { commandsTags: true }),
-      resolveKey(shifted("x")[0]!, "TAG", { tagChoosingStatus: true })
+      resolveKey(shifted("d")[0]!, "FACTS"),
+      resolveKey(shifted("d")[0]!, "COMMANDS", { commandsTags: true }),
+      resolveKey(shifted("d")[0]!, "TAG", { tagChoosingStatus: true })
     ];
     expect(destructiveRoutes.map(({ action }) => action)).toEqual(
-      Array.from({ length: destructiveRoutes.length }, () => "none")
+      ["prune", "delete-item", "delete-item", "delete-item", "delete-item", "delete-tag"]
     );
-    for (const event of shifted("x")) {
-      expect(resolveKey(event, "TAG")).toEqual({ action: "input", text: "X" });
+    for (const event of shifted("d")) {
+      expect(resolveKey(event, "TAG")).toEqual({ action: "input", text: "D" });
     }
   });
 
-  test("d is a name character while typing, delete only during status choice", () => {
+  test("D is a name character while typing, delete only during status choice", () => {
     expect(resolveKey(key("d"), "TAG")).toEqual({ action: "input", text: "d" });
-    expect(resolveKey(key("d"), "TAG", { tagChoosingStatus: true }).action).toBe("delete-tag");
+    expect(resolveKey(key("D"), "TAG")).toEqual({ action: "input", text: "D" });
+    expect(resolveKey(key("d"), "TAG", { tagChoosingStatus: true }).action).toBe("input");
+    expect(resolveKey(key("D"), "TAG", { tagChoosingStatus: true }).action).toBe("delete-tag");
   });
 
   test("NAV Enter directs, Space continues, a opens Aside, and n opens the Author's Note", () => {
@@ -526,7 +531,8 @@ describe("text surfaces and palette", () => {
   test("chapters owns TOC actions and rename text", () => {
     expect(resolveKey(key("s"), "CHAPTERS").action).toBe("summarize-chapter");
     expect(resolveKey(key("e"), "CHAPTERS").action).toBe("rename-item");
-    expect(resolveKey(key("d"), "CHAPTERS").action).toBe("delete-item");
+    expect(resolveKey(key("d"), "CHAPTERS").action).toBe("none");
+    expect(resolveKey(key("D"), "CHAPTERS").action).toBe("delete-item");
     expect(resolveKey(key("n"), "CHAPTERS").action).toBe("new-item");
     expect(resolveKey(key("e"), "CHAPTERS", { overlayTyping: true })).toEqual({ action: "input", text: "e" });
     expect(resolveKey(key("left", { ctrl: true }), "CHAPTERS", { overlayTyping: true }).action)
@@ -540,7 +546,8 @@ describe("text surfaces and palette", () => {
       expect(resolveKey(key(letter), "LIBRARY", typing)).toEqual({ action: "input", text: letter });
     }
     expect(resolveKey(key("down"), "LIBRARY", typing).action).toBe("focus-next");
-    expect(resolveKey(key("d"), "LIBRARY").action).toBe("delete-item");
+    expect(resolveKey(key("d"), "LIBRARY")).toEqual({ action: "input", text: "d" });
+    expect(resolveKey(key("D"), "LIBRARY").action).toBe("delete-item");
   });
 
   test("offline retry never steals capital R from a text owner", () => {
@@ -567,9 +574,10 @@ describe("text surfaces and palette", () => {
     }).action).toBe("retry");
   });
 
-  test("palette query accepts d and e; d deletes only in tags", () => {
+  test("palette query accepts d and e; D deletes only in tags", () => {
     expect(resolveKey(key("d"), "COMMANDS")).toEqual({ action: "input", text: "d" });
     expect(resolveKey(key("e"), "COMMANDS")).toEqual({ action: "input", text: "e" });
-    expect(resolveKey(key("d"), "COMMANDS", { commandsTags: true }).action).toBe("delete-item");
+    expect(resolveKey(key("d"), "COMMANDS", { commandsTags: true })).toEqual({ action: "input", text: "d" });
+    expect(resolveKey(key("D"), "COMMANDS", { commandsTags: true }).action).toBe("delete-item");
   });
 });

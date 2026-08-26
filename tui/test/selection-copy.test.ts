@@ -259,6 +259,58 @@ describe("active selection copy", () => {
       .toBe("draft");
   });
 
+  test("Aside copy keeps both roles in a question-and-answer selection", () => {
+    const state = initialState(demoAppSource(), false);
+    const question = "Why did this happen?";
+    const answer = "Because the whole exchange matters.";
+    const surface = createAsideSurface(
+      state.payload.id,
+      state.payload.title,
+      [{
+        id: "session-1",
+        title: question,
+        anchor: null,
+        turns: [{ q: question, a: answer }]
+      }],
+      null,
+      null,
+      { v2: true }
+    );
+    surface.focus = "composer";
+    state.aside = surface;
+    state.mode = "ASIDE";
+
+    const width = 80;
+    const frame = renderStoryScreen(state, { width, height: 24 });
+    const questionRow = frame.lines.findIndex((line) =>
+      plainLine(line).includes("You") && plainLine(line).includes(question));
+    const answerRow = frame.lines.findIndex((line) => plainLine(line).includes(answer));
+    const questionColumn = plainLine(frame.lines[questionRow]!).indexOf(question);
+    const answerColumn = plainLine(frame.lines[answerRow]!).indexOf(answer);
+    expect(questionRow).toBeGreaterThan(-1);
+    expect(answerRow).toBeGreaterThan(questionRow);
+    expect(questionColumn).toBeGreaterThan(-1);
+    expect(answerColumn).toBeGreaterThan(-1);
+    const stride = width + 1;
+    const rendered = `${question}\n  Assistant ${answer}`;
+    const renderer = {
+      getSelection: () => ({
+        getSelectedText: () => rendered,
+        selectedRenderables: [{
+          getSelection: () => ({
+            start: questionRow * stride + questionColumn,
+            end: answerRow * stride + answerColumn + answer.length
+          })
+        }]
+      })
+    } as never;
+
+    expect(copyActiveSelection(renderer, state, async () => "command", {
+      composer: frame.derived.composerSelectionProjection,
+      story: frame.derived.storySelectionProjection
+    })?.text).toBe(rendered);
+  });
+
   test("Ctrl+C consumes a native selection containing only unmapped story chrome", () => {
     const state = initialState(demoAppSource(), false);
     state.storySelectionProjection = [null, null, null];
