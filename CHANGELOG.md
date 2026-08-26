@@ -5,6 +5,14 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.3-rc.4 - 2026-08-26
+
+- **Aside keeps selected text and turn context visible.** Highlighted answer
+  text stays highlighted while the Use selection menu is open, including
+  during a saved turn update. Up and Down navigation shows the selected
+  question from its first line and keeps as much answer visible as the screen
+  permits.
+
 ## 0.10.3-rc.3 - 2026-08-26
 
 - **Aside shows selected turns and status clearly.** Wrapped lines in the
