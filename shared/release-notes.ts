@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.3",
+    date: "2026-08-26",
+    body: "- **This release has no additional product changes.** It contains the same\n  behavior as 0.10.3-rc.6."
+  },
+  {
     version: "0.10.3-rc.6",
     date: "2026-08-26",
     body: "- **Aside mouse actions keep their exact target.** Right-clicking selected\n  text preserves the selection, active turn, focus, and scroll position. Each\n  Use Selection, Use Answer, and visible session hop item works with one\n  click, including in narrow or clipped layouts. A failed delete preserves\n  its target and error for retry. Existing legacy Side Notes remain available."
