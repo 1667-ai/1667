@@ -15,6 +15,13 @@ export interface AsideNoteView {
   readonly answer: string;
 }
 
+/** Source range for one painted row of a saved Aside answer. */
+export interface AsideAnswerSource {
+  readonly key: string;
+  readonly text: string;
+  readonly start: number;
+}
+
 /** A linear v2 exchange. The wire names are deliberately short and stable. */
 export interface AsideTurnView {
   readonly id?: string;
@@ -56,6 +63,9 @@ export type AsideFocus = "composer" | "turns" | "notes";
 /** Use menu for one complete saved Side Note answer. */
 export interface AsideUseMenuState {
   noteIndex: number;
+  /** Exact terminal selection, when the menu came from a highlighted answer.
+   *  Undefined means the complete saved answer is the target. */
+  selectionText?: string;
   /** Index into the stage's use-menu action list. */
   cursor: number;
   /**

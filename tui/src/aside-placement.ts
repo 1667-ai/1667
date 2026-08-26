@@ -212,7 +212,7 @@ export function openPlacementFromAside(state: RuntimeState): boolean {
   // Uncertain state is derived from the singular guard — no copy onto Placement.
   const sameStoryGuard = guard !== null && guard.storyId === state.payload.id;
   const placement: PlacementState = {
-    answer: note.answer,
+    answer: surface.useMenu.selectionText ?? note.answer,
     stops,
     cursor: initialPlacementCursor(stops, surface.openingPartId),
     returnAside: surface,

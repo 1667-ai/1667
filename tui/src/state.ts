@@ -702,7 +702,8 @@ export interface StoryScreenState extends OverlayState {
         controller: AbortController;
         /** Latest Stop interaction that can focus the settled take. */
         stopInteractionVersion: number | null;
-        /** Interaction epoch captured when an Aside ask started. */
+        /** Interaction epoch captured when an Aside ask started; display-only
+         *  Aside scrolling may advance this restoration/Stop fence. */
         askInteractionVersion?: number;
       }
     | { kind: "summary"; controller: AbortController }

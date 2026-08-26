@@ -36,6 +36,7 @@ import {
   closeAside,
   openAside,
   revealAsideFocusedNote,
+  noteAsideDisplayScroll,
   scrollAside,
   sendAsideQuestion,
   stopAsideAsk
@@ -139,6 +140,17 @@ export async function handleOverlayAction(
       } else {
         openRequestViewer(state);
       }
+    }
+    return true;
+  }
+  if (resolved.action === "open-aside-use") {
+    if (state.mode === "ASIDE" && state.aside !== null) {
+      openAsideUseMenu(
+        state.aside,
+        resolved.index ?? asideCursor(state.aside),
+        0,
+        resolved.selectionText
+      );
     }
     return true;
   }
@@ -732,14 +744,15 @@ async function reconnect(state: RuntimeState, source: AppSource, context: Overla
 
 function asideViewportBodyRows(
   surface: NonNullable<RuntimeState["aside"]>,
-  context: OverlayActionContext
+  context: OverlayActionContext,
+  toast?: string | null
 ): { width: number; bodyRows: number } {
   const width = context.renderer?.width ?? 80;
   const height = context.renderer?.height ?? 24;
   const composerRows = asideComposerRows(height);
   return {
     width,
-    bodyRows: asideBodyHeight(surface, width, height, composerRows)
+    bodyRows: asideBodyHeight(surface, width, height, composerRows, toast)
   };
 }
 
@@ -782,7 +795,8 @@ async function asideKeyAction(
       backend: context.backend,
       cache: context.cache,
       repaint: context.repaint,
-      renderer: context.renderer
+      renderer: context.renderer,
+      toast: state.toast
   })) return;
   if (resolved.action === "cancel") {
     // A busy Aside owns Escape for cancellation. Check this before the
@@ -803,6 +817,10 @@ async function asideKeyAction(
       return;
     }
     if (surface.focus === "notes" || surface.focus === "turns") {
+      if (isAsideV2(surface)) {
+        closeAside(state);
+        return;
+      }
       surface.focus = "composer";
       return;
     }
@@ -833,7 +851,7 @@ async function asideKeyAction(
       return;
     }
     if (resolved.action === "apply" || resolved.action === "open-selected") {
-      applyAsideUseMenu(state);
+      await applyAsideUseMenu(state);
       return;
     }
     // Use menu owns the surface: scrim/cancel stay authoritative; compose does
@@ -844,7 +862,7 @@ async function asideKeyAction(
   if (resolved.action === "cycle") {
     if (cycleAsideFocus(surface)
       && (surface.focus === "notes" || surface.focus === "turns")) {
-      const { width, bodyRows } = asideViewportBodyRows(surface, context);
+      const { width, bodyRows } = asideViewportBodyRows(surface, context, state.toast);
       revealAsideFocusedNote(surface, width, bodyRows);
     }
     return;
@@ -854,11 +872,12 @@ async function asideKeyAction(
     const width = context.renderer?.width ?? 80;
     const height = context.renderer?.height ?? 24;
     const composerRows = asideComposerRows(height);
-    const page = asideBodyHeight(surface, width, height, composerRows);
+    const page = asideBodyHeight(surface, width, height, composerRows, state.toast);
     const delta = resolved.action === "scroll-line-down" || resolved.action === "scroll-down"
       ? resolved.action === "scroll-down" ? page : 1
       : resolved.action === "scroll-up" ? -page : -1;
-    scrollAside(surface, delta, width, height, composerRows);
+    scrollAside(surface, delta, width, height, composerRows, state.toast);
+    if (surface.busy) noteAsideDisplayScroll(state);
     return;
   }
   if (surface.focus === "notes" || surface.focus === "turns") {
@@ -870,14 +889,14 @@ async function asideKeyAction(
     }
     if (resolved.action === "focus-next" || resolved.action === "focus-previous") {
       moveAsideNoteFocus(surface, resolved.action === "focus-next" ? 1 : -1);
-      const { width, bodyRows } = asideViewportBodyRows(surface, context);
+      const { width, bodyRows } = asideViewportBodyRows(surface, context, state.toast);
       revealAsideFocusedNote(surface, width, bodyRows);
       return;
     }
     if (resolved.action === "open-selected" || resolved.action === "apply") {
       // Re-anchor under the current terminal size: a stale scrollTop from a
       // prior width/header layout can hide noteCursor while Enter still uses it.
-      const { width, bodyRows } = asideViewportBodyRows(surface, context);
+      const { width, bodyRows } = asideViewportBodyRows(surface, context, state.toast);
       revealAsideFocusedNote(surface, width, bodyRows);
       openAsideUseMenu(surface, asideCursor(surface));
       return;
