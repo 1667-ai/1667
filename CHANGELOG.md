@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.3 - 2026-08-26
+
+- **This release has no additional product changes.** It contains the same
+  behavior as 0.10.3-rc.6.
+
 ## 0.10.3-rc.6 - 2026-08-26
 
 - **Aside mouse actions keep their exact target.** Right-clicking selected
