@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.3-rc.1",
+    date: "2026-08-26",
+    body: "- **The tree map draws the whole story in lanes.** Rows are reading order. Each live story\n  line owns a two-column lane. A line that ends hands its lane back and the next fork reuses\n  it. Lane 0 is the reading line. Press `←` or `→` to jump to the nearest row in the next\n  lane. Press `tab` to hide the lanes and open the path view on the same part.\n\n- **The streaming gutter pair stays visible while a long take scrolls.** The\n  `writing · esc stops` and `thinking · esc stops · T peeks` lines stick to\n  the top of the visible part, the same way the focused verb menu does.\n\n- **Aside now keeps separate chats for story takes.** Use the session and\n  anchor controls to review each chat. Existing Side Notes remain available\n  in the unanchored bucket. Optional Thoughts stay visible only in Aside and\n  do not enter a later model request."
+  },
+  {
     version: "0.10.2",
     date: "2026-08-23",
     body: "- **This release has no additional product changes.** It contains the same\n  behavior as 0.10.2-rc.2."
