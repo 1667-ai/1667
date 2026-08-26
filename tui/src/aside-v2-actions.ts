@@ -14,6 +14,7 @@ import {
   isAsideV2,
   setAsideSessionTurns,
   type AsideDeleteUndo,
+  type AsideAnchorView,
   type AsideSessionSurfaceState,
   type AsideSessionView,
   type AsideSurfaceState,
@@ -21,6 +22,7 @@ import {
 } from "./aside-surface.js";
 import type { ResolvedKey } from "./keys.js";
 import type { RuntimeState } from "./state.js";
+import { asideUseActions } from "./aside-use.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import { recordNotice } from "./notice-log.js";
 import { saveConfig } from "./config.js";
@@ -93,6 +95,76 @@ function applySessionResponse(
 function currentAnchor(surface: AsideSessionSurfaceState): AsideAnchor | null {
   const anchor = surface.anchor;
   return anchor === null ? null : { partId: anchor.partId, takeId: anchor.takeId };
+}
+
+function asideAnchorIsCurrent(
+  surface: AsideSessionSurfaceState,
+  anchor: AsideAnchorView
+): boolean {
+  return anchor.unanchored === true
+    ? surface.anchor === null
+    : surface.anchor !== null
+      && surface.anchor.partId === anchor.partId
+      && surface.anchor.takeId === anchor.takeId;
+}
+
+/** Delete is optimistic. Start its durable commit for every next action, but
+ * wait for it only when that action must claim the exclusive backend slot. */
+function resolvedActionNeedsBackend(
+  resolved: ResolvedKey,
+  surface: AsideSessionSurfaceState
+): boolean {
+  if (resolved.action === "aside-hop-to") {
+    const anchor = asideHopTarget(
+      surface.anchors,
+      resolved.index ?? surface.anchorIndex
+    );
+    return anchor !== null && !asideAnchorIsCurrent(surface, anchor);
+  }
+  if (surface.useMenu === null
+    || (resolved.action !== "apply" && resolved.action !== "open-selected")) {
+    return false;
+  }
+  const index = resolved.index ?? surface.useMenu.cursor;
+  return asideUseActions(surface.useMenu.selectionText)[index]?.id === "insert-into-story";
+}
+
+function hopToAsideAnchor(
+  state: RuntimeState,
+  surface: AsideSessionSurfaceState,
+  anchor: AsideAnchorView,
+  context: AsideContext
+): boolean {
+  const requestedAnchor = anchor.unanchored === true
+    ? null : { partId: anchor.partId, takeId: anchor.takeId };
+  // Clicking the selected hop is a safe no-op. It must not clear or reload the
+  // current session.
+  if (asideAnchorIsCurrent(surface, anchor)) return true;
+  const getAsideV2 = context.source.api.getAsideV2;
+  if (getAsideV2 === undefined) {
+    throw new Error("This transport cannot hop Aside sessions.");
+  }
+  context.backend.observe(context.backend.run("hopping Aside sessions", async (task) => {
+    const response = await getAsideV2({
+      storyId: surface.storyId,
+      anchor: requestedAnchor
+    });
+    if (response === null || !taskInteractionCurrent(state, surface, task)) return;
+    const model = asideSessionsFromResponse(response, requestedAnchor);
+    surface.sessions = model.sessions;
+    surface.anchor = requestedAnchor;
+    surface.sessionIndex = Math.max(0, model.sessions.length - 1);
+    surface.turnCursor = Math.max(0, currentAsideTurns(surface).length - 1);
+    surface.anchors = model.anchors.length > 0
+      ? model.anchors : surface.anchors;
+    surface.anchorIndex = asideHopAnchorIndex(
+      surface.anchors,
+      surface.anchor
+    );
+    surface.focus = currentAsideTurns(surface).length > 0 ? "turns" : "composer";
+    surface.scrollTop = null;
+  }));
+  return true;
 }
 
 function taskCurrent(
@@ -418,14 +490,22 @@ export async function asideV2KeyAction(
     if (undoAsideDelete(surface)) state.toast = "turn restored";
     return true;
   }
+  const deleteCommitNeedsAwait = resolvedActionNeedsBackend(resolved, surface);
+  let deleteCommit: Promise<boolean> | null = null;
   if (surface.deleteUndo !== null && state.backendTask === null) {
     const undo = surface.deleteUndo;
     // The undo is a pre-commit affordance. Remove it before `run` repaints
     // and keep the captured turn private until the request settles.
     surface.deleteUndo = null;
-    context.backend.observe(context.backend.run("deleting Aside turn", (task) =>
+    deleteCommit = context.backend.run("deleting Aside turn", (task) =>
       commitAsideDelete(state, surface, context.source.api, context.cache, task, undo)
-    ));
+    );
+    context.backend.observe(deleteCommit);
+  }
+  if (deleteCommit !== null && deleteCommitNeedsAwait) {
+    // `observe` keeps the existing toast/error behavior. Swallow the same
+    // rejection here so a failed commit does not abort the follow-up action.
+    await deleteCommit.catch(() => false);
   }
   if (surface.useMenu !== null) return false;
   if (resolved.action === "cancel" && surface.confirmReset !== null) {
@@ -537,6 +617,13 @@ export async function asideV2KeyAction(
         && orderedAnchors[0]!.partId === surface.anchor.partId
         && orderedAnchors[0]!.takeId === surface.anchor.takeId
   );
+  if (resolved.action === "aside-hop-to") {
+    const anchor = asideHopTarget(
+      surface.anchors,
+      resolved.index ?? surface.anchorIndex
+    );
+    return anchor === null ? true : hopToAsideAnchor(state, surface, anchor, context);
+  }
   const bracketHopAction = resolved.action === "input"
     && surface.composer.text.length === 0
     && emptyCurrentBucket
@@ -567,33 +654,7 @@ export async function asideV2KeyAction(
     const nextAnchorIndex = (baseIndex + delta + orderedAnchors.length)
       % orderedAnchors.length;
     const anchor = orderedAnchors[nextAnchorIndex]!;
-    const getAsideV2 = context.source.api.getAsideV2;
-    if (getAsideV2 === undefined) {
-      throw new Error("This transport cannot hop Aside sessions.");
-    }
-    const requestedAnchor = anchor.unanchored === true
-      ? null : { partId: anchor.partId, takeId: anchor.takeId };
-    context.backend.observe(context.backend.run("hopping Aside sessions", async (task) => {
-      const response = await getAsideV2({
-        storyId: surface.storyId,
-        anchor: requestedAnchor
-      });
-      if (response === null || !taskInteractionCurrent(state, surface, task)) return;
-      const model = asideSessionsFromResponse(response, requestedAnchor);
-      surface.sessions = model.sessions;
-      surface.anchor = requestedAnchor;
-      surface.sessionIndex = Math.max(0, model.sessions.length - 1);
-      surface.turnCursor = Math.max(0, currentAsideTurns(surface).length - 1);
-      surface.anchors = model.anchors.length > 0
-        ? model.anchors : surface.anchors;
-      surface.anchorIndex = asideHopAnchorIndex(
-        surface.anchors,
-        surface.anchor
-      );
-      surface.focus = currentAsideTurns(surface).length > 0 ? "turns" : "composer";
-      surface.scrollTop = null;
-    }));
-    return true;
+    return hopToAsideAnchor(state, surface, anchor, context);
   }
   if (resolved.action === "aside-go-anchor") {
     const anchor = asideHopTarget(

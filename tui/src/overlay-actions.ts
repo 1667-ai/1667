@@ -61,7 +61,12 @@ import { composerMotion } from "./composer-motion.js";
 import { directComposerWrapWidth } from "./composer-geometry.js";
 import { composerPageRows } from "./composer-viewport.js";
 import { composerSurfaceAction } from "./composer-surface-action.js";
-import { asideCursor, disarmAsideClear, isAsideV2 } from "./aside-surface.js";
+import {
+  asideCursor,
+  disarmAsideClear,
+  isAsideV2,
+  setAsideCursor
+} from "./aside-surface.js";
 import { asideV2KeyAction } from "./aside-v2-actions.js";
 import { openRewriteComposer, partIdFromTextSelection, resolveRewriteTarget } from "./rewrite-action.js";
 import type { AppSource } from "./app.js";
@@ -145,6 +150,8 @@ export async function handleOverlayAction(
   }
   if (resolved.action === "open-aside-use") {
     if (state.mode === "ASIDE" && state.aside !== null) {
+      const focus = state.aside.focus;
+      const cursor = asideCursor(state.aside);
       openAsideUseMenu(
         state.aside,
         resolved.index ?? asideCursor(state.aside),
@@ -152,6 +159,10 @@ export async function handleOverlayAction(
         resolved.selectionText,
         resolved.selectionSpans
       );
+      // Opening from a mouse selection must not reflow the V2 history or move
+      // the active turn. Keyboard Enter still uses openAsideUseMenu directly.
+      state.aside.focus = focus;
+      setAsideCursor(state.aside, cursor);
     }
     return true;
   }
@@ -881,6 +892,9 @@ async function asideKeyAction(
       return;
     }
     if (resolved.action === "apply" || resolved.action === "open-selected") {
+      if (resolved.index !== undefined) {
+        focusAsideUseMenuIndex(surface, resolved.index);
+      }
       await applyAsideUseMenu(state);
       return;
     }

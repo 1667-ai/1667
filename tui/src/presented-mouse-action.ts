@@ -30,6 +30,7 @@ import {
   asideUseRowId
 } from "./aside-use.js";
 import { asideAnswerIndexFromRowId } from "./aside-surface.js";
+import { asideHopEntries, asideHopRowId } from "./aside-hop.js";
 import { availableTextActions } from "./text-actions.js";
 
 export interface PresentedInteraction {
@@ -154,9 +155,26 @@ function rebaseByStableIdentity(
       .findIndex((row) => row.id === action.rowId);
     return index < 0 ? null : { ...action, index };
   }
+  if (action.action === "apply" && action.rowId !== undefined
+    && state.mode === "ASIDE" && state.aside?.useMenu !== null
+    && state.aside?.useMenu !== undefined) {
+    const index = asideUseActionIndexFromRowId(
+      action.rowId,
+      state.aside.useMenu.sessionId,
+      state.aside.useMenu.selectionText
+    );
+    return index < 0 ? null : { ...action, index };
+  }
   if (action.action === "open-aside-use" && action.rowId !== undefined
     && state.mode === "ASIDE" && state.aside !== null) {
     const index = asideAnswerIndexFromRowId(action.rowId, state.aside);
+    return index < 0 ? null : { ...action, index };
+  }
+  if (action.action === "aside-hop-to" && action.rowId !== undefined
+    && state.mode === "ASIDE" && state.aside !== null
+    && state.aside.modelVersion === 2) {
+    const index = asideHopEntries(state.aside.anchors, state.aside.anchor)
+      .findIndex((entry) => asideHopRowId(entry) === action.rowId);
     return index < 0 ? null : { ...action, index };
   }
   return relativeMouseAction(action) ? action : null;
