@@ -193,7 +193,11 @@ function renderAsideV2Screen(
       renderAsideV2HistoryLine(
         text,
         history.rowKinds[index] ?? "plain",
-        historyLayout.rowAnswerSources[history.start + index]
+        historyLayout.rowAnswerSources[history.start + index],
+        turnsFocus
+          && !surface.busy
+          && historyLayout.rowKinds[history.start + index] === "question"
+          && historyLayout.rowTurnIndex[history.start + index] === surface.turnCursor
       )),
     ...composerLines,
     ...footerLines.map((line) => [segment(line, "chrome")]),
@@ -266,14 +270,20 @@ function renderQuestionHistoryLine(
 function renderAsideV2HistoryLine(
   text: string,
   kind: AsideChatRowKind,
-  answerSource?: AsideAnswerSource | null
+  answerSource?: AsideAnswerSource | null,
+  focusedQuestion = false
 ): FrameLine {
   if (kind === "question") {
     if (text.startsWith("▸ › ")) {
       return renderQuestionHistoryLine(text, "▸ › ", "focus / accent", "prose");
     }
     if (text.startsWith("  › ")) {
-      return renderQuestionHistoryLine(text, "  › ", "accent · deep", "prose · dim");
+      return renderQuestionHistoryLine(
+        text,
+        "  › ",
+        "accent · deep",
+        focusedQuestion ? "prose" : "prose · dim"
+      );
     }
     // Older layouts can leave a decorated continuation without the repeated
     // marker. Keep its body role aligned with the labelled question row.
