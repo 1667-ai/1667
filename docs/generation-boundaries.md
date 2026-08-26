@@ -310,3 +310,9 @@ story phrase bias, or banned strings.
 Side Notes never enter Write prompts. Only the Aside prompt builder may read
 Side Note text. Continue, Direct, Retake, Rewrite, title, and summary
 builders cannot read Side Notes.
+
+An Aside session uses the story line through its anchored take. An unanchored
+session uses the active story line. The Aside prompt includes the questions
+and answers from the current session. It does not include a stored Thought.
+1667 can show a stored Thought in Aside, but it cannot send that Thought in a
+later request.

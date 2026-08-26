@@ -18,6 +18,7 @@ import { activePath } from "../shared/story-tree.js";
 import { countWords } from "../shared/story-text.js";
 import {
   STORY_ASIDE_SCHEMA_VERSION,
+  STORY_ASIDE_SESSION_SCHEMA_VERSION,
   STORY_FORMAT,
   STORY_SCHEMA_VERSION,
   STORY_SUCCESSOR_SCHEMA_VERSION,
@@ -27,6 +28,7 @@ import {
   parseManifest,
   parseManifestV7,
   parseManifestV9,
+  parseManifestV11,
   serializeManifestContent,
   validateNodeAttribution,
   validateNodeImageAttachments,
@@ -37,6 +39,7 @@ import {
   type StoryManifestV5,
   type StoryManifestV7,
   type StoryManifestV9,
+  type StoryManifestV11,
   type TextRevisionV1
 } from "./story-format.js";
 import { resolveAsideActivation } from "../shared/aside-release.js";
@@ -44,6 +47,15 @@ import {
   clearPendingAsideDocument,
   peekPendingAsideDocument
 } from "./story-aside-pending.js";
+import {
+  clearPendingAsideSessionDocument,
+  peekPendingAsideSessions
+} from "./story-aside-pending.js";
+import type { AsideSessionRef } from "../shared/aside-session-index.js";
+import {
+  effectiveAsideSessionAnchor,
+  retainAsideSessionBucket
+} from "./aside-session-store.js";
 import { cloneAttribution, cloneGenerationRecordIds, cloneRewrittenSpans } from "./story-format-nodes.js";
 import { createStoryReadCache, StoryObjectStore } from "./story-objects.js";
 import {
@@ -65,6 +77,7 @@ import { reusableRevisionId, type StoryRevisionSnapshot } from "./story-snapshot
 import { setStoryAutonameId, storyAutonameId } from "./story-metadata.js";
 import { boundedString } from "./story-wire-validation.js";
 import { resolveImageInputActivation } from "../shared/image-input-release.js";
+import { MAX_SESSION_REFS_PER_BUCKET } from "./story-v11-strict.js";
 
 export interface DecodedStoryBundle {
   story: Story;
@@ -105,15 +118,26 @@ function storyHasAsideField(story: Story): boolean {
   return story.asideDocumentId !== undefined;
 }
 
+function storyHasAsideSessions(story: Story): boolean {
+  return (story.asideSessionRefs?.length ?? 0) > 0
+    || (story.asideUnanchoredSessionRefs?.length ?? 0) > 0
+    || peekPendingAsideSessions(story).size > 0;
+}
+
 export async function encodeStoryBundle(
   story: Story,
   objects: StoryObjectStore,
   reuseFrom?: StoryObjectStore,
   snapshot?: StoryRevisionSnapshot,
   options: EncodeStoryBundleOptions = {}
-): Promise<StoryManifestV5 | StoryManifestV7 | StoryManifestV9> {
+): Promise<StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11> {
   const imageActivation = resolveImageInputActivation(options.activation) && storyHasImageAttachments(story);
-  const asideActivation = resolveAsideActivation(options.asideActivation) && storyHasAsideField(story);
+  const hadAsideSessions = storyHasAsideSessions(story);
+  const asideActivation = resolveAsideActivation(options.asideActivation)
+    && (storyHasAsideField(story) || hadAsideSessions);
+  if (hadAsideSessions && !asideActivation) {
+    throw new StoryFormatError("Aside session content requires the active Aside schema");
+  }
   // Aside content is a superset of image content. Prefer V9 when needed.
   const useAside = asideActivation;
   const useImages = imageActivation || useAside;
@@ -241,6 +265,126 @@ export async function encodeStoryBundle(
     asideDocumentId = storedAsideDocumentId;
   }
 
+  // Provider effects stage each v2 ref with its document. Consume that pair
+  // as one unit so the successor manifest cannot point at unrelated bytes.
+  const pendingAsideSessions = peekPendingAsideSessions(story);
+  const liveTakeIds = new Set(story.nodes.map((node) => node.id));
+  let unanchoredRefCount = story.asideUnanchoredSessionRefs?.length ?? 0;
+  const asideSessionRefs: AsideSessionRef[] = [
+    ...(story.asideSessionRefs ?? []).map((ref) => {
+      const pruned = ref.anchor !== null && !liveTakeIds.has(ref.anchor.takeId);
+      const keepInAnchoredBucket = pruned
+        && unanchoredRefCount >= MAX_SESSION_REFS_PER_BUCKET;
+      if (pruned && !keepInAnchoredBucket) unanchoredRefCount += 1;
+      return {
+        id: ref.id,
+        documentId: ref.documentId,
+        anchor: pruned && !keepInAnchoredBucket
+          ? null
+          : ref.anchor === null ? null : { ...ref.anchor },
+        ...(ref.sourceAsideDocumentId === undefined
+          ? {}
+          : { sourceAsideDocumentId: ref.sourceAsideDocumentId }),
+        ...(ref.originAnchor !== undefined
+          ? { originAnchor: ref.originAnchor === null ? null : { ...ref.originAnchor } }
+          : pruned && !keepInAnchoredBucket
+            ? { originAnchor: { ...ref.anchor } }
+            : {}),
+        turnCount: ref.turnCount
+      };
+    }),
+    ...(story.asideUnanchoredSessionRefs ?? []).map((ref) => ({
+      id: ref.id,
+      documentId: ref.documentId,
+      anchor: null,
+      ...(ref.sourceAsideDocumentId === undefined
+        ? {}
+        : { sourceAsideDocumentId: ref.sourceAsideDocumentId }),
+      ...(ref.originAnchor === undefined
+        ? {}
+        : { originAnchor: ref.originAnchor === null ? null : { ...ref.originAnchor } }),
+      turnCount: ref.turnCount
+    }))
+  ];
+  let anchoredRefCount = asideSessionRefs.filter((ref) => ref.anchor !== null).length;
+  unanchoredRefCount = asideSessionRefs.length - anchoredRefCount;
+  const storedAsideSessionIds: string[] = [];
+  if (pendingAsideSessions.size > 0) {
+    const byId = new Map(asideSessionRefs.map((ref) => [ref.id, ref] as const));
+    for (const [sessionId, pending] of pendingAsideSessions) {
+      const { ref, document } = pending;
+      if (ref.id !== sessionId) {
+        throw new StoryFormatError("Pending Aside session id does not match its ref");
+      }
+      const documentId = await objects.storeAsideSessionDocument(document, reuseFrom);
+      if (documentId !== ref.documentId) {
+        throw new StoryFormatError("Pending Aside session ref does not match its content");
+      }
+      const old = byId.get(sessionId);
+      const requestedAnchor = ref.anchor === null ? null : { ...ref.anchor };
+      const oldAnchor = old === undefined
+        ? undefined
+        : effectiveAsideSessionAnchor(story, old);
+      const canAnchor = requestedAnchor !== null
+        && liveTakeIds.has(requestedAnchor.takeId)
+        && (old === undefined || oldAnchor !== null);
+      const nextAnchor = canAnchor ? requestedAnchor : null;
+      const originAnchor = nextAnchor === null
+        ? ref.originAnchor !== undefined
+          ? ref.originAnchor
+          : old?.originAnchor !== undefined
+            ? old.originAnchor
+            : old === undefined && requestedAnchor !== null
+              ? requestedAnchor
+              : old?.anchor !== null && old?.anchor !== undefined && requestedAnchor !== null
+                ? requestedAnchor
+                : undefined
+        : undefined;
+      const next: AsideSessionRef = {
+        id: ref.id,
+        documentId: ref.documentId,
+        anchor: nextAnchor,
+        ...(ref.sourceAsideDocumentId === undefined
+          ? old?.sourceAsideDocumentId === undefined
+            ? {}
+            : { sourceAsideDocumentId: old.sourceAsideDocumentId }
+          : { sourceAsideDocumentId: ref.sourceAsideDocumentId }),
+        ...(originAnchor === undefined
+          ? {}
+          : { originAnchor: originAnchor === null ? null : { ...originAnchor } }),
+        turnCount: ref.turnCount
+      };
+      const placed = retainAsideSessionBucket(
+        next,
+        old,
+        old === undefined ? undefined : old.anchor === null ? "unanchored" : "anchored",
+        anchoredRefCount,
+        unanchoredRefCount
+      );
+      if (old === undefined) {
+        asideSessionRefs.push(placed);
+        if (placed.anchor === null) unanchoredRefCount += 1;
+        else anchoredRefCount += 1;
+      } else {
+        const index = asideSessionRefs.indexOf(old);
+        asideSessionRefs[index] = placed;
+        if ((old.anchor === null) !== (placed.anchor === null)) {
+          if (placed.anchor === null) {
+            anchoredRefCount -= 1;
+            unanchoredRefCount += 1;
+          } else {
+            anchoredRefCount += 1;
+            unanchoredRefCount -= 1;
+          }
+        }
+      }
+      storedAsideSessionIds.push(sessionId);
+      byId.set(sessionId, placed);
+    }
+  }
+  const anchoredAsideSessionRefs = asideSessionRefs.filter((ref) => ref.anchor !== null);
+  const unanchoredAsideSessionRefs = asideSessionRefs.filter((ref) => ref.anchor === null);
+
   const factRevisionIds = await objects.storeTexts(story.facts.map((fact) => fact.text), reuseFrom);
   const facts: StoredFactV1[] = story.facts.map((fact, index) => ({
     id: fact.id,
@@ -298,6 +442,18 @@ export async function encodeStoryBundle(
     chapterBreaks: story.chapterBreaks.map((chapterBreak) => ({ ...chapterBreak }))
   };
   if (useAside) {
+    if (hadAsideSessions) {
+      const manifest: StoryManifestV11 = {
+        ...manifestCommon,
+        schemaVersion: STORY_ASIDE_SESSION_SCHEMA_VERSION,
+        asideDocumentId,
+        asideSessionRefs: anchoredAsideSessionRefs,
+        asideUnanchoredSessionRefs: unanchoredAsideSessionRefs
+      };
+      const parsed = parseManifestV11(serializeManifestContent(manifest), story.id);
+      for (const sessionId of storedAsideSessionIds) clearPendingAsideSessionDocument(story, sessionId);
+      return parsed;
+    }
     const manifest: StoryManifestV9 = {
       ...manifestCommon,
       schemaVersion: STORY_ASIDE_SCHEMA_VERSION,
@@ -314,7 +470,7 @@ export async function encodeStoryBundle(
 }
 
 export async function decodeStoryBundle(
-  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9,
+  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11,
   bundleDir: string,
   options: { activeOnly?: boolean } = {}
 ): Promise<DecodedStoryBundle> {
@@ -430,6 +586,34 @@ export async function decodeStoryBundle(
       : { factsBudgetTokens: manifest.factsBudgetTokens }),
     ...("asideDocumentId" in manifest
       ? { asideDocumentId: manifest.asideDocumentId }
+      : {}),
+    ...( "asideSessionRefs" in manifest
+      ? {
+          asideSessionRefs: manifest.asideSessionRefs.map((ref) => ({
+            id: ref.id,
+            documentId: ref.documentId,
+            anchor: ref.anchor === null ? null : { ...ref.anchor },
+            ...(ref.sourceAsideDocumentId === undefined
+              ? {}
+              : { sourceAsideDocumentId: ref.sourceAsideDocumentId }),
+            ...(ref.originAnchor === undefined
+              ? {}
+              : { originAnchor: ref.originAnchor === null ? null : { ...ref.originAnchor } }),
+            turnCount: ref.turnCount
+          })),
+          asideUnanchoredSessionRefs: manifest.asideUnanchoredSessionRefs.map((ref) => ({
+            id: ref.id,
+            documentId: ref.documentId,
+            anchor: null,
+            ...(ref.sourceAsideDocumentId === undefined
+              ? {}
+              : { sourceAsideDocumentId: ref.sourceAsideDocumentId }),
+            ...(ref.originAnchor === undefined
+              ? {}
+              : { originAnchor: ref.originAnchor === null ? null : { ...ref.originAnchor } }),
+            turnCount: ref.turnCount
+          }))
+        }
       : {}),
     nodes,
     activeRootId: manifest.activeRootId,

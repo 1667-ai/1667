@@ -80,6 +80,12 @@ export async function cycleSettingsRow(
         "word-wrap",
         state.config.wordWrap === "on" ? "off" : "on"
       );
+    } else if (row === "aside-thoughts") {
+      applySettingsAsideThoughts(
+        state,
+        source,
+        state.config.asideThoughts === "show" ? "hide" : "show"
+      );
     } else if (row === "update-checks") {
       applyUpdateChecksToggle(
         state,
@@ -173,6 +179,18 @@ export function applySettingsLocalToggle(
     ? "compose focus"
     : "word wrap";
   state.toast = `${label} · ${value}`;
+}
+
+/** Persist the render-only Aside thought visibility preference. */
+export function applySettingsAsideThoughts(
+  state: RuntimeState,
+  source: AppSource,
+  value: "show" | "hide"
+): void {
+  state.config = { ...state.config, asideThoughts: value };
+  source.config = state.config;
+  if (!state.demo) saveConfig(state.config);
+  state.toast = `aside Thoughts · ${value}`;
 }
 
 /** Persist and immediately apply the update-check preference. */

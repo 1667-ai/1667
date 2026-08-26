@@ -170,6 +170,7 @@ export function settingsRowEditValue(
   if (row === "theme") return config.theme;
   if (row === "compose-focus") return config.composeFocus;
   if (row === "word-wrap") return config.wordWrap;
+  if (row === "aside-thoughts") return config.asideThoughts;
   if (row === "update-checks") return config.updates.mode === "notify" ? "on" : "off";
   if (row === "allow-insecure-http") {
     return overlay.draft.generation.allowInsecureHttp === true ? "on" : "off";
@@ -245,6 +246,7 @@ export function applySettingsRowEdit(
   config: UserConfig
 ): { kind: "theme"; value: ThemeName }
   | { kind: "local"; row: "compose-focus" | "word-wrap"; value: "on" | "off" }
+  | { kind: "aside-thoughts"; value: "show" | "hide" }
   | { kind: "draft" }
   | { kind: "error"; message: string } {
   const edit = overlay.edit;
@@ -271,6 +273,13 @@ export function applySettingsRowEdit(
     }
     overlay.edit = null;
     return { kind: "local", row: edit.row, value };
+  }
+  if (edit.row === "aside-thoughts") {
+    if (value !== "show" && value !== "hide") {
+      return { kind: "error", message: "aside Thoughts must be show or hide" };
+    }
+    overlay.edit = null;
+    return { kind: "aside-thoughts", value };
   }
   if (edit.row === "api-key") {
     const result = applyStoredApiKeyEdit(overlay, rawValue);

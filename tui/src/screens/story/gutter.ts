@@ -11,6 +11,11 @@ import {
   type FrameSegment
 } from "./frame.js";
 import type { FrameDeadlineCollector } from "../../animation-deadline.js";
+import {
+  asideGhostGutterLine,
+  asidePresenceGutterRows,
+  type AsidePresence
+} from "../../aside-presence.js";
 import { lightWorkKeyword } from "../work-light.js";
 import {
   focusedFoldedThoughtLine,
@@ -130,7 +135,8 @@ function stripSegments(strip: ReturnType<typeof takeStrip>, currentTake: number)
  *  summary, so a summary part never reaches the thought-row check below. */
 export function gutterRowsFor(
   part: StoryPart,
-  thought: ThoughtGutterContext
+  thought: ThoughtGutterContext,
+  asidePresence: AsidePresence | null = null
 ): FrameLine[] {
   const rows: FrameLine[] = [];
   if (part.siblingCount > 1) {
@@ -145,6 +151,9 @@ export function gutterRowsFor(
     rows.push(pad > 0 ? [...segments, segment(" ".repeat(pad))] : segments);
   } else {
     rows.push([segment(`¶ ${part.number}`, "chrome")]);
+  }
+  if (asidePresence !== null) {
+    rows.push(...asidePresenceGutterRows(part, asidePresence));
   }
   if (thought.kind === "shown" && thought.folded) rows.push(focusedFoldedThoughtLine(thought.hit));
   for (const verbs of GUTTER_VERBS) rows.push(gutterVerbSegments(verbs));
@@ -187,7 +196,8 @@ export function gutterFor(
   thought: ThoughtGutterContext,
   rows: readonly FrameLine[] | null,
   now = 0,
-  deadlines?: FrameDeadlineCollector
+  deadlines?: FrameDeadlineCollector,
+  asidePresence: AsidePresence | null = null
 ): FrameLine {
   if (streaming) {
     return streamingGutterRows(part, thought, now, deadlines)[lineIndex] ?? [];
@@ -198,6 +208,9 @@ export function gutterFor(
   if (rows !== null) return rows[lineIndex] ?? [];
   if (lineIndex === 0) {
     if (part.isSummary) return [segment("◈", "summary")];
+    if (asidePresence !== null && asidePresence.currentCount > 0) {
+      return asideGhostGutterLine(asidePresence, part.siblingCount);
+    }
     if (part.siblingCount > 1) return [segment(`×${part.siblingCount}`, "chrome")];
     // No fork tick or summary diamond claims this row's one unfocused gutter
     // cell: give the ghost thought word the cell instead. A part that has

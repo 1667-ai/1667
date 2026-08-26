@@ -201,7 +201,12 @@ export function copyActiveSelection(
     if (synced === "uneditable") {
       return { text: rendered, outcome: copy(rendered) };
     }
-    composer = activeComposer(state);
+    // Aside history has no composer projection. A native range that does not
+    // map to the prompt therefore belongs to the visible chat, even while
+    // the prompt owns keyboard focus.
+    composer = synced === "none" && state.mode === "ASIDE"
+      ? null
+      : activeComposer(state);
   }
   const settingsEdit = state.mode === "SETTINGS"
     && state.settings?.edit?.kind === "inline"

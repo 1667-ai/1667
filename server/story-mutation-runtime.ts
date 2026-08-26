@@ -1,5 +1,7 @@
 import { pathTo } from "../shared/story-tree.js";
 import type { Story } from "../shared/types.js";
+import type { AsideAnchor } from "../shared/aside-session.js";
+import type { StoryEnvelopeManifest } from "./story-v6-types.js";
 import { hydrateStoryNodes } from "./story-codec.js";
 import {
   applyProviderStoryEffect,
@@ -36,6 +38,16 @@ export interface ProviderStoryRuntime<
    *  Optional: only `continueStory` ever has images to declare, and a
    *  caller with none simply never calls this. */
   declareImageResolution?(objectIds: readonly string[], leaseIds: readonly string[]): void;
+  /** Declare the v2 session identity before provider bytes are sent. */
+  declareAsideSessionResolution?(
+    sessionId: string,
+    documentId: string | null,
+    anchor: AsideAnchor | null
+  ): void;
+  /** The admitted manifest, available to v2 pre-provider size checks. */
+  readonly asideManifest?: StoryEnvelopeManifest;
+  /** Mutation id used by the terminal prepared pointer in that projection. */
+  readonly asideMutationId?: string;
 }
 
 /** Typed provider view used outside a story claim. The outer receipt
@@ -44,11 +56,20 @@ export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
   private preparedEffect: PreparedProviderStoryEffect | null = null;
   private declaredImageObjectIds: readonly string[] = [];
   private declaredDraftLeaseIds: readonly string[] = [];
+  private declaredAsideSessionResolution: {
+    readonly sessionId: string;
+    readonly documentId: string | null;
+    readonly anchor: AsideAnchor | null;
+  } | null = null;
 
   /** Node text hydrates from the bundle the story itself carries, so this
    * runtime outlives the aggregate session that decoded it. That lets the
    * provider round-trip run without holding story I/O against readers. */
-  constructor(private readonly story: Story) {}
+  constructor(
+    private readonly story: Story,
+    readonly asideManifest?: StoryEnvelopeManifest,
+    readonly asideMutationId?: string
+  ) {}
 
   get effect(): PreparedProviderStoryEffect | null {
     return this.preparedEffect;
@@ -64,9 +85,33 @@ export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
     return this.declaredDraftLeaseIds;
   }
 
+  get asideSessionResolution(): {
+    readonly sessionId: string;
+    readonly documentId: string | null;
+    readonly anchor: AsideAnchor | null;
+  } | null {
+    return this.declaredAsideSessionResolution;
+  }
+
   declareImageResolution(objectIds: readonly string[], leaseIds: readonly string[]): void {
     this.declaredImageObjectIds = objectIds;
     this.declaredDraftLeaseIds = leaseIds;
+  }
+
+  declareAsideSessionResolution(
+    sessionId: string,
+    documentId: string | null,
+    anchor: AsideAnchor | null
+  ): void {
+    if (this.declaredAsideSessionResolution !== null
+      && this.declaredAsideSessionResolution.sessionId !== sessionId) {
+      throw new Error("Provider runtime prepared more than one Aside session");
+    }
+    this.declaredAsideSessionResolution = {
+      sessionId,
+      documentId,
+      anchor: anchor === null ? null : { ...anchor }
+    };
   }
 
   async loadForMutation(id: string): Promise<Story> {

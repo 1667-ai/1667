@@ -57,3 +57,9 @@ test("config replacement publishes one complete new document", async () => {
   expect(loadConfig({ file })).toEqual(config);
   expect((await readdir(root)).sort()).toEqual(["config.json"]);
 });
+
+test("aside Thoughts defaults to hide and accepts the snake-case setting", () => {
+  expect(normalizeUserConfig({}).asideThoughts).toBe("hide");
+  expect(normalizeUserConfig({ aside_thoughts: "show" }).asideThoughts).toBe("show");
+  expect(normalizeUserConfig({ asideThoughts: "invalid" }).asideThoughts).toBe("hide");
+});

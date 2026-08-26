@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent, MouseEvent } from "@opentui/core";
 import {
+  asideConfirmClear,
+  asideNotes,
   createAsideSurface,
   ASIDE_INPUT_PLACEHOLDER,
   ASIDE_SAVED_NOTICE,
@@ -423,14 +425,14 @@ describe("Aside TUI contract", () => {
 
     await sendAsideQuestion(state, api, "Why the lantern?");
     expect(state.aside!.composer.text).toBe("Why the lantern?");
-    expect(state.aside!.notes).toHaveLength(0);
+    expect(asideNotes(state.aside!)).toHaveLength(0);
     expect(state.aside!.busy).toBeFalse();
 
     fail = false;
     await sendAsideQuestion(state, api, "Why the lantern?");
-    expect(state.aside!.notes).toHaveLength(1);
+    expect(asideNotes(state.aside!)).toHaveLength(1);
     expect(state.aside!.composer.text).toBe("");
-    expect(state.aside!.notes[0]!.answer).toBe("Answer text.");
+    expect(asideNotes(state.aside!)[0]!.answer).toBe("Answer text.");
   });
 
   test("stopped ask restores the question and saves nothing", async () => {
@@ -444,7 +446,7 @@ describe("Aside TUI contract", () => {
     };
     await openAside(state, api, { entryPointsOpen: true });
     await sendAsideQuestion(state, api, "Should not save");
-    expect(state.aside!.notes).toHaveLength(0);
+    expect(asideNotes(state.aside!)).toHaveLength(0);
     expect(state.aside!.composer.text).toBe("Should not save");
   });
 
@@ -464,14 +466,14 @@ describe("Aside TUI contract", () => {
       }
     };
     await openAside(state, api, { entryPointsOpen: true });
-    expect(state.aside!.notes).toHaveLength(1);
+    expect(asideNotes(state.aside!)).toHaveLength(1);
     await clearAsideSurface(state, api);
     expect(cleared).toBeFalse();
-    expect(state.aside!.confirmClear).toBeTrue();
+    expect(asideConfirmClear(state.aside!)).toBeTrue();
     await clearAsideSurface(state, api);
     expect(cleared).toBeTrue();
-    expect(state.aside!.notes).toHaveLength(0);
-    expect(state.aside!.confirmClear).toBeFalse();
+    expect(asideNotes(state.aside!)).toHaveLength(0);
+    expect(asideConfirmClear(state.aside!)).toBeFalse();
   });
 
   test("Clear replay reloads a concurrent newer Side Note", async () => {
@@ -497,7 +499,7 @@ describe("Aside TUI contract", () => {
     await openAside(state, api, { entryPointsOpen: true });
     await clearAsideSurface(state, api);
     await clearAsideSurface(state, api);
-    expect(state.aside!.notes).toEqual([oldNote]);
+    expect(asideNotes(state.aside!)).toEqual([oldNote]);
 
     // Another client adds a note before the original Clear is replayed.
     durableNotes = [newerNote];
@@ -505,7 +507,7 @@ describe("Aside TUI contract", () => {
     await clearAsideSurface(state, api);
 
     expect(clearAttempts).toBe(2);
-    expect(state.aside!.notes).toEqual([newerNote]);
+    expect(asideNotes(state.aside!)).toEqual([newerNote]);
   });
 
   test("confirmed Clear is non-cancellable while its request is pending", async () => {
@@ -524,12 +526,12 @@ describe("Aside TUI contract", () => {
     setComposerText(state.aside!.composer, "/clear");
 
     await handleOverlayAction({ action: "send" }, state, sourceWithApi, context);
-    expect(state.aside!.confirmClear).toBeTrue();
+    expect(asideConfirmClear(state.aside!)).toBeTrue();
     await handleOverlayAction({ action: "send" }, state, sourceWithApi, context);
     await Promise.resolve();
 
     expect(state.aside!.busy).toBeTrue();
-    expect(state.aside!.confirmClear).toBeFalse();
+    expect(asideConfirmClear(state.aside!)).toBeFalse();
     expect(asideFooterHint(state.aside!)).toBe("Clearing…");
     const frame = renderAsideFrame(state.aside!, 80, 24).join("\n");
     expect(frame).toContain("Clearing…");
@@ -566,17 +568,17 @@ describe("Aside TUI contract", () => {
 
     await handleOverlayAction({ action: "input", text: "/clear" }, state, sourceWithApi, context);
     await handleOverlayAction({ action: "send" }, state, sourceWithApi, context);
-    expect(state.aside!.confirmClear).toBeTrue();
+    expect(asideConfirmClear(state.aside!)).toBeTrue();
     expect(state.aside!.composer.text).toBe("");
 
     await handleOverlayAction({ action: "input", text: "new question" }, state, sourceWithApi, context);
-    expect(state.aside!.confirmClear).toBeFalse();
+    expect(asideConfirmClear(state.aside!)).toBeFalse();
     expect(state.aside!.composer.text).toBe("new question");
     await handleOverlayAction({ action: "send" }, state, sourceWithApi, context);
     await context.backend.whenIdle();
 
     expect(cleared).toBeFalse();
-    expect(state.aside!.notes[0]!.question).toBe("new question");
+    expect(asideNotes(state.aside!)[0]!.question).toBe("new question");
   });
 
   test("bracketed paste after Clear confirmation becomes a question", async () => {
@@ -600,16 +602,16 @@ describe("Aside TUI contract", () => {
 
     await handleOverlayAction({ action: "input", text: "/clear" }, state, sourceWithApi, context);
     await handleOverlayAction({ action: "send" }, state, sourceWithApi, context);
-    expect(state.aside!.confirmClear).toBeTrue();
+    expect(asideConfirmClear(state.aside!)).toBeTrue();
 
     expect(pasteInto(state, "pasted question")).toBeTrue();
-    expect(state.aside!.confirmClear).toBeFalse();
+    expect(asideConfirmClear(state.aside!)).toBeFalse();
     expect(state.aside!.composer.text).toBe("pasted question");
     await handleOverlayAction({ action: "send" }, state, sourceWithApi, context);
     await context.backend.whenIdle();
 
     expect(cleared).toBeFalse();
-    expect(state.aside!.notes[0]!.question).toBe("pasted question");
+    expect(asideNotes(state.aside!)[0]!.question).toBe("pasted question");
   });
 
   test("Esc while busy aborts via overlay path; idle Esc leaves Aside", async () => {
@@ -651,7 +653,7 @@ describe("Aside TUI contract", () => {
     await pending;
     expect(aborted).toBeTrue();
     expect(state.aside!.composer.text).toBe("In flight?");
-    expect(state.aside!.notes).toHaveLength(0);
+    expect(asideNotes(state.aside!)).toHaveLength(0);
     expect(state.mode).toBe("ASIDE");
     expect(state.aside).not.toBeNull();
     expect(state.abort).toBeNull();

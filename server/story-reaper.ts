@@ -164,6 +164,7 @@ export class StoryReaper {
       parsed.kind !== "v6-deleted"
       && parsed.kind !== "v8-deleted"
       && parsed.kind !== "v10-deleted"
+      && parsed.kind !== "v12-deleted"
     ) {
       throw new ServiceError(
         409,

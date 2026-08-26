@@ -1,4 +1,13 @@
 import { resolveRewriteDestination, type StoryPayload } from "../shared/types.js";
+import type { AsideAnchor } from "../shared/aside-session.js";
+import type {
+  AsideAskInput,
+  AsideAskResponse,
+  AsideReadResponse,
+  AsideRetakeInput,
+  AsideSessionMutationInput,
+  AsideSessionMutationResponse
+} from "../shared/aside-transport.js";
 import type { FactBudgetDrop } from "../shared/fact-budget.js";
 import { summarizeChapter } from "./chapter-summary.js";
 import {
@@ -26,6 +35,7 @@ import {
   viewAsideDocument,
   type AsideDocumentView
 } from "./aside-http.js";
+import { StoryServiceAside } from "./story-service-aside.js";
 import { asideEntryPointsOpen } from "../shared/aside-release.js";
 import { ServiceError } from "./errors.js";
 import {
@@ -60,9 +70,13 @@ export interface StoryServiceGenerationDependencies {
 
 /** Provider-backed story commands and their durable Q fence transitions. */
 export class StoryServiceGeneration {
+  private readonly aside: StoryServiceAside;
+
   constructor(
     private readonly dependencies: StoryServiceGenerationDependencies
-  ) {}
+  ) {
+    this.aside = new StoryServiceAside(dependencies);
+  }
 
   async autonameStory(
     id: string,
@@ -383,6 +397,14 @@ export class StoryServiceGeneration {
     return viewAsideDocument(document);
   }
 
+  /** Read v2 sessions without placing session text on StoryPayload. */
+  async getAsideV2(
+    id: string,
+    anchor?: AsideAnchor | null
+  ): Promise<AsideReadResponse> {
+    return await this.aside.getAsideV2(id, anchor);
+  }
+
   async askAside(
     id: string,
     body: Record<string, unknown>,
@@ -438,13 +460,54 @@ export class StoryServiceGeneration {
                 }
               }
             ),
-          replayValue: async () => viewAsideDocument(
-            await this.dependencies.stories.loadAsideDocument(id)
-          )
+          replayValue: async (session) => {
+            const story = await session.loadLive();
+            const documentId = story.asideDocumentId;
+            return viewAsideDocument(
+              documentId === undefined || documentId === null
+                ? null
+                : await session.readAsideDocument(documentId)
+            );
+          }
         }
       );
       return committed.value;
     });
+  }
+
+  /** Stream one take-anchored v2 session turn through the existing ask ledger. */
+  async askAsideV2(
+    id: string,
+    body: AsideAskInput,
+    onDelta: DeltaConsumer,
+    signal: AbortSignal,
+    hooks: GenerationMutationHooks = {}
+  ): Promise<AsideAskResponse | null> {
+    return await this.aside.askAsideV2(id, body, onDelta, signal, hooks);
+  }
+
+  /** Apply one durable delete, reset, or clear to the selected v2 session.
+   * The predecessor V1 Aside object is never used as a write target. A first
+   * mutation of the virtual legacy session materializes a v2 `legacy` ref and
+   * leaves `asideDocumentId` unchanged. */
+  async asideSessionMutation(
+    id: string,
+    body: AsideSessionMutationInput,
+    mutationRequest?: unknown
+  ): Promise<AsideSessionMutationResponse> {
+    return await this.aside.asideSessionMutation(id, body, mutationRequest);
+  }
+
+  /** Stream a fresh answer for the selected session's last turn and replace
+   * that turn through the provider receipt/CAS path. */
+  async retakeAside(
+    id: string,
+    body: AsideRetakeInput,
+    onDelta: DeltaConsumer,
+    signal: AbortSignal,
+    hooks: GenerationMutationHooks = {}
+  ): Promise<AsideAskResponse | null> {
+    return await this.aside.retakeAside(id, body, onDelta, signal, hooks);
   }
 
   async summarizeChapter(

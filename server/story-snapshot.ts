@@ -11,6 +11,7 @@ import {
   type StoryManifestV5,
   type StoryManifestV7,
   type StoryManifestV9,
+  type StoryManifestV11,
   type TextRevisionV1
 } from "./story-format.js";
 
@@ -44,7 +45,7 @@ export interface StoryRevisionSnapshot {
 
 export function captureStorySnapshot(
   story: Story,
-  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9,
+  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11,
   revisions: ReadonlyMap<ObjectHash, TextRevisionV1>
 ): StoryRevisionSnapshot {
   if (story.nodes.length !== manifest.nodes.length) throw new StoryFormatError("Snapshot node count mismatch");
@@ -73,7 +74,7 @@ export function captureStorySnapshot(
 
 export function isCurrentSnapshot(
   snapshot: StoryRevisionSnapshot,
-  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9
+  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11
 ): boolean {
   return snapshot.manifestFingerprint === manifestFingerprint(manifest);
 }
@@ -88,7 +89,7 @@ export function reusableRevisionId(
 }
 
 function manifestFingerprint(
-  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9
+  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11
 ): ObjectHash {
   return sha256(Buffer.from(serializeManifestContent(manifest), "utf8"));
 }

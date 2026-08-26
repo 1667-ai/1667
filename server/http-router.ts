@@ -23,7 +23,12 @@ import {
 import type { StoryService } from "./story-service.js";
 import type { ReasoningStreamDelta } from "./providers.js";
 import { streamResponse } from "./stream-response.js";
-import { optionalString, requireNumberValue, requireString, requireStringValue } from "./validation.js";
+import {
+  optionalString,
+  requireNumberValue,
+  requireString,
+  requireStringValue
+} from "./validation.js";
 import {
   requireAnyHttpCapability,
   requireHttpCapability
@@ -72,6 +77,9 @@ import {
   type SourceImageMediaType
 } from "../shared/image-attachment.js";
 import { parseWorkerContinueImages } from "./worker-continue-target.js";
+import {
+  maybeHandleAsideApi
+} from "./aside-http-route.js";
 export interface HttpRouterContext {
   readonly authRecord: HttpAuthRecord;
   readonly dataDirectoryIdentity: HttpDataDirectoryIdentity | null;
@@ -130,7 +138,13 @@ export async function handleHttpRequest(
     return;
   }
   if (url.pathname.startsWith("/api/")) {
-    return await handleApi(context, request, response, url.pathname);
+    return await handleApi(
+      context,
+      request,
+      response,
+      url.pathname,
+      url.searchParams
+    );
   }
   throw new ServiceError(404, `No route: ${method} ${url.pathname}`);
 }
@@ -139,7 +153,8 @@ async function handleApi(
   context: HttpRouterContext,
   request: IncomingMessage,
   response: ServerResponse,
-  pathname: string
+  pathname: string,
+  searchParams: URLSearchParams
 ): Promise<void> {
   const method = request.method ?? "GET";
   const segments = parseCanonicalApiPath(pathname);
@@ -270,6 +285,24 @@ async function handleApi(
       canCommitStoppedAside
     );
   };
+  if (head === "stories" && id !== undefined
+    && await maybeHandleAsideApi({
+      storyId: id,
+      sub,
+      subId,
+      action,
+      method,
+      searchParams,
+      request,
+      response,
+      service,
+      jsonBody,
+      mutate,
+      operation,
+      errorReporter: context.errorReporter
+    })) {
+    return;
+  }
   if (head === "settings" && id === undefined) {
     if (method === "GET") return sendJson(response, 200, await service.getSettings());
     if (method === "PUT") {
@@ -704,39 +737,6 @@ async function handleApi(
       200,
       await service.getReasoning(id, subId)
     );
-  }
-  if (head === "stories" && id !== undefined && sub === "aside" && subId === undefined && action === undefined) {
-    if (method === "GET") {
-      return sendJson(response, 200, await service.getAside(id));
-    }
-    if (method === "DELETE") {
-      return sendJson(response, 200, await mutate("clearAside", { storyId: id }));
-    }
-  }
-  if (head === "stories" && id !== undefined && sub === "aside" && subId === "ask" && method === "POST") {
-    const body = await jsonBody();
-    return await streamResponse(request, response,
-      (onDelta, signal, _onReasoning, transportConnected) => mutate(
-        "askAside",
-        {
-          storyId: id,
-          question: requireString(body.question, "question")
-        },
-        onDelta,
-        signal,
-        undefined,
-        () => operation.isUserCancellationAuthoritative()
-          && transportConnected()
-      ),
-      (result) => ({ type: "done", aside: result }),
-      operation.signal,
-      context.errorReporter,
-      "askAside",
-      (failure) => operation.finish({ state: "failed", failure }),
-      {
-        preserveDoneAfterOperationAbort: () =>
-          operation.isUserCancellationAuthoritative()
-      });
   }
   if (head === "stories" && id !== undefined && sub === "prune-unused-takes" && method === "POST") {
     return sendJson(response, 200, await mutate("pruneUnusedTakes", {

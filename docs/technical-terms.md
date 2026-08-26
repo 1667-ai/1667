@@ -121,7 +121,9 @@ read_when:
 | Transaction Record | The durable file that records an incomplete install, upgrade, or rollback |
 | Aside | The full-screen mode where the writer discusses the story without changing it |
 | Side Note | One saved question-and-answer pair from Aside |
-| Aside document | The one bounded, content-addressed document that holds every Side Note for one story |
+| Aside turn | One saved question, answer, and optional Thought in an Aside session |
+| Aside session | One bounded chat that belongs to one story take or to the unanchored bucket |
+| Aside document | A content-addressed object that stores a legacy Side Note list or one Aside session |
 | Placement mode | The mode where the writer selects a story position for Side Note text |
 
 Add a term to this table before you use it in another document.

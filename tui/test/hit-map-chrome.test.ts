@@ -713,7 +713,7 @@ describe("hit map clickable chrome", () => {
     const state = initialState(source, false);
     state.stream = null;
     footerCases.at(-1)!.setup(state, source);
-    const frame = render(state, 80, 24);
+    let frame = render(state, 80, 24);
     const panelRows = state.hitRows.map((row, index) => ({ row, index,
       panel: row?.overrides?.find((region) => region.target.kind === "panel") }))
       .filter((entry) => entry.panel !== undefined);
@@ -731,6 +731,8 @@ describe("hit map clickable chrome", () => {
       SETTINGS_ROW_IDS.indexOf("theme"),
       SETTINGS_ROW_IDS.indexOf("provider")
     ]) {
+      state.settings!.cursor = index;
+      frame = render(state, 80, 24);
       const selectorRow = state.hitRows.findIndex((row) =>
         row?.overrides?.some((region) => isArrow(region, index)) === true);
       const arrows = state.hitRows[selectorRow]!.overrides!.filter((region) =>

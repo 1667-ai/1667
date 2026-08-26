@@ -46,10 +46,12 @@ import {
   formatV6,
   formatV8,
   formatV10,
+  formatV12,
   MAX_DELETED_STORY_MANIFEST_BYTES,
   parseStoryManifestBytes,
   STORY_SCHEMA_VERSION_V8,
   STORY_SCHEMA_VERSION_V10,
+  STORY_SCHEMA_VERSION_V12,
   storySummaryV6FromContent
 } from "./story-v6-codec.js";
 import type {
@@ -58,7 +60,12 @@ import type {
   StorySummaryV6
 } from "./story-v6-types.js";
 import { MAX_STORY_MANIFEST_BYTES } from "./story-v5-strict.js";
-import { LEAF_OBJECT_KINDS, StoryObjectStore, type LeafObjectKind } from "./story-objects.js";
+import {
+  LEAF_OBJECT_KINDS,
+  StoryObjectStore,
+  type LeafObjectKind
+} from "./story-objects.js";
+import type { AsideDocument, AsideSessionDocument } from "../shared/aside.js";
 
 const MANIFEST_FILE = "manifest.json";
 const NEXT_MANIFEST_FILE = `${MANIFEST_FILE}.next`;
@@ -112,7 +119,9 @@ type PresentStorySlot = Extract<
       | "v8-live"
       | "v8-deleted"
       | "v10-live"
-      | "v10-deleted";
+      | "v10-deleted"
+      | "v12-live"
+      | "v12-deleted";
   }
 >;
 
@@ -238,6 +247,20 @@ export class StoryAggregateSession {
 
   async hydrateNodes(story: Story, nodeIds: readonly string[]): Promise<void> {
     await hydrateStoryNodes(story, nodeIds);
+  }
+
+  /** Read an Aside object while this aggregate already owns its I/O claim. */
+  async readAsideSessionDocument(documentId: string): Promise<AsideSessionDocument> {
+    const objects = new StoryObjectStore(this.bundleDir);
+    await objects.init();
+    return await objects.readAsideSessionDocument(documentId);
+  }
+
+  /** Read the predecessor V1 Aside object while this aggregate owns I/O. */
+  async readAsideDocument(documentId: string): Promise<AsideDocument> {
+    const objects = new StoryObjectStore(this.bundleDir);
+    await objects.init();
+    return await objects.readAsideDocument(documentId);
   }
 
   async prepareContent(
@@ -471,7 +494,8 @@ export function requirePresentStorySlot(
   }
   if (
     !resolveAsideActivation(asideActivation)
-    && (slot.kind === "v10-live" || slot.kind === "v10-deleted")
+    && (slot.kind === "v10-live" || slot.kind === "v10-deleted"
+      || slot.kind === "v12-live" || slot.kind === "v12-deleted")
     && !options.allowRecovery
   ) {
     throw new ServiceError(
@@ -485,6 +509,7 @@ export function requirePresentStorySlot(
 /** Pick the envelope serializer by the schema version the content already
  *  carries (`server/story-v6-reducer.ts` decides that version). */
 function formatManifestEnvelope(manifest: StoryEnvelopeManifest): string {
+  if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V12) return formatV12(manifest);
   if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V10) return formatV10(manifest);
   return manifest.schemaVersion === STORY_SCHEMA_VERSION_V8 ? formatV8(manifest) : formatV6(manifest);
 }
@@ -497,8 +522,13 @@ function persistedSlotFromManifest(
   manifestBytes: Buffer
 ): Extract<
   StoredStorySlot,
-  { kind: "v6-live" | "v6-deleted" | "v8-live" | "v8-deleted" | "v10-live" | "v10-deleted" }
+  { kind: "v6-live" | "v6-deleted" | "v8-live" | "v8-deleted" | "v10-live" | "v10-deleted" | "v12-live" | "v12-deleted" }
 > {
+  if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V12) {
+    return manifest.kind === "live"
+      ? { kind: "v12-live", manifest, manifestBytes }
+      : { kind: "v12-deleted", manifest, manifestBytes };
+  }
   if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V10) {
     return manifest.kind === "live"
       ? { kind: "v10-live", manifest, manifestBytes }

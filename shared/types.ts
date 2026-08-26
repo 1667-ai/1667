@@ -13,6 +13,7 @@ import {
   validateSamplingPhraseBias
 } from "./sampling-validation-policy.js";
 import type { SamplingPhraseBiasEntryV2 } from "./settings-v2-types.js";
+import type { AsideSessionRef } from "./aside-session.js";
 
 export interface TextRange {
   /** UTF-16 offsets, matching String.slice and textarea selection offsets. */
@@ -42,6 +43,12 @@ export const MAX_REWRITTEN_SPANS = 256;
  *  in-place rewrite — not per story part, so this is generous relative to
  *  MAX_REWRITTEN_SPANS while still refusing a pathological append loop. */
 export const MAX_GENERATION_RECORD_IDS = 4_096;
+
+/** The v2 presence projection can expose both 10,000-ref buckets plus one
+ * virtual V1 session. This transport bound does not change either persisted
+ * bucket's cap. */
+const MAX_ASIDE_PRESENCE_ITEMS = 20_001;
+const MAX_ASIDE_PRESENCE_IDENTIFIER_SCALARS = 1_024;
 
 export const MAX_FACTS = 128;
 // Raised from 4,000 (issue-driven): the character ceiling is no longer meant
@@ -322,6 +329,29 @@ export interface StoryPayload {
    * is never on the payload; load it through getAside.
    */
   hasAside?: true;
+  /** Presence only for the additive v2 session store. */
+  hasAsideSessions?: true;
+  /**
+   * Take-scoped Aside session counts for READ. The anchor ids are immutable
+   * story node ids; the ordinal fields are display projections only.
+   */
+  asidePresence?: StoryAsidePresence;
+}
+
+/** One take in the READ Aside presence summary. */
+export interface StoryAsidePresenceAnchor {
+  readonly partId: string;
+  readonly takeId: string;
+  readonly sessionCount: number;
+  readonly partNumber?: number;
+  readonly takeIndex?: number;
+  readonly takeCount?: number;
+}
+
+/** Additive v2 summary. Legacy payloads omit this field. */
+export interface StoryAsidePresence {
+  readonly anchors: readonly StoryAsidePresenceAnchor[];
+  readonly unanchoredCount: number;
 }
 
 /** Markdown hand-off plus exact notices for content the export omits. */
@@ -379,11 +409,72 @@ export function assertPromptReadyStoryPayload(value: unknown): asserts value is 
   assertAuthorBrief(candidate.authorBrief);
   assertStoryPhraseBias(candidate.phraseBias);
   assertStoryBannedStrings(candidate.bannedStrings);
+  if (candidate.asidePresence !== undefined) {
+    assertStoryAsidePresence(candidate.asidePresence);
+  }
   if (candidate.aggregateVersion !== undefined) {
     assertStoryAggregateVersion(
       candidate.aggregateVersion,
       "story payload.aggregateVersion"
     );
+  }
+}
+
+function assertStoryAsidePresence(value: unknown): asserts value is StoryAsidePresence {
+  const presence = requireRecord(
+    value,
+    "The server returned an invalid story payload.asidePresence."
+  );
+  const anchors = requireArray(presence, "anchors", "story payload.asidePresence");
+  if (anchors.length > MAX_ASIDE_PRESENCE_ITEMS) {
+    throw new Error(
+      `The server returned an invalid story payload.asidePresence.anchors: must contain at most ${MAX_ASIDE_PRESENCE_ITEMS.toLocaleString()} items.`
+    );
+  }
+  anchors.forEach((value, index) => {
+    const label = `story payload.asidePresence.anchors[${index}]`;
+    const anchor = requireRecord(
+      value,
+      `The server returned an invalid ${label}.`
+    );
+    assertStoryAsidePresenceIdentifier(anchor.partId, label, "partId");
+    assertStoryAsidePresenceIdentifier(anchor.takeId, label, "takeId");
+    if (
+      typeof anchor.sessionCount !== "number"
+      || !Number.isSafeInteger(anchor.sessionCount)
+      || anchor.sessionCount < 0
+      || anchor.sessionCount > MAX_ASIDE_PRESENCE_ITEMS
+    ) {
+      invalidField(label, "sessionCount");
+    }
+    for (const field of ["partNumber", "takeIndex", "takeCount"] as const) {
+      if (anchor[field] === undefined) continue;
+      requirePositiveInteger(anchor[field], label, field);
+    }
+  });
+  if (
+    typeof presence.unanchoredCount !== "number"
+    || !Number.isSafeInteger(presence.unanchoredCount)
+    || presence.unanchoredCount < 0
+    || presence.unanchoredCount > MAX_ASIDE_PRESENCE_ITEMS
+  ) {
+    invalidField("story payload.asidePresence", "unanchoredCount");
+  }
+}
+
+function assertStoryAsidePresenceIdentifier(
+  value: unknown,
+  label: string,
+  field: string
+): asserts value is string {
+  if (
+    typeof value !== "string"
+    || value.length === 0
+    || hasUnpairedSurrogate(value)
+    || unicodeScalarLength(value, MAX_ASIDE_PRESENCE_IDENTIFIER_SCALARS + 1)
+      > MAX_ASIDE_PRESENCE_IDENTIFIER_SCALARS
+  ) {
+    invalidField(label, field);
   }
 }
 
@@ -632,6 +723,11 @@ export interface Story {
    * Side Note text itself is never on this object; load it through getAside.
    */
   asideDocumentId?: string | null;
+  /** Text-free refs for anchored v2 sessions. The refs are additive to the
+   * V9 `asideDocumentId` slot, which remains the legacy v1 object. */
+  asideSessionRefs?: readonly AsideSessionRef[];
+  /** Text-free refs for pruned or migrated unanchored sessions. */
+  asideUnanchoredSessionRefs?: readonly AsideSessionRef[];
 }
 
 function assertAuthorsNote(value: unknown): void {

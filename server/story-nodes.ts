@@ -33,6 +33,7 @@ import { setNodeRewriteId } from "./story-node-text.js";
 import { appendPendingGenerationRecord } from "./story-node-generation-records.js";
 import { attachTakeTokenProbabilities } from "./story-node-token-probabilities.js";
 import { attachTakeReasoning } from "./story-node-reasoning.js";
+import { reanchorPrunedAsideSessions } from "./aside-session-store.js";
 
 export interface NewNodeOptions {
   id?: string;
@@ -579,6 +580,7 @@ function deleteNodeSet(story: Story, deadIds: Set<string>): void {
   story.recentNodeIds = story.recentNodeIds.filter((recentId) => !deadIds.has(recentId));
   story.chapterBreaks = story.chapterBreaks.filter((chapterBreak) => !removedBreakIds.has(chapterBreak.id));
   for (const fact of story.facts) if (fact.sourcePartId !== undefined && deadIds.has(fact.sourcePartId)) delete fact.sourcePartId;
+  reanchorPrunedAsideSessions(story);
 }
 
 export function switchLine(

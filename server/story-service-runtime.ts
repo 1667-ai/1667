@@ -26,7 +26,17 @@ import { StorySearch } from "./story-search.js";
 import { StoryCreationMutationStore } from "./story-creation-mutation.js";
 import { StoryMutationStore } from "./story-mutation-store.js";
 import { assertNoProjectTierSecrets } from "./project-secret-fence.js";
+import {
+  migrateAsideDocumentToUnanchored
+} from "../shared/aside.js";
 import { viewAsideDocument } from "./aside-http.js";
+import { viewAsideSessionDocument } from "./aside-session-http.js";
+import {
+  asideSessionRefById,
+  effectiveAsideSessionAnchor,
+  legacyAsideDocumentIdForSession
+} from "./aside-session-store.js";
+import { storyAggregateVersion } from "./story-aggregate-state.js";
 import { buildStoryPayload } from "./story-payload.js";
 import { StoryReaper } from "./story-reaper.js";
 import { StoryServiceChapters } from "./story-service-chapters.js";
@@ -456,6 +466,35 @@ export abstract class StoryServiceRuntime {
       ),
       async (storyId) => viewAsideDocument(
         await this.stories.loadAsideDocument(storyId)
+      ),
+      async (storyId, sessionId) => await this.stories.withAggregateSession(
+        storyId,
+        async (session) => {
+          const story = await session.loadLive();
+          const ref = asideSessionRefById(story, sessionId);
+          let document = ref === null
+            ? null
+            : await session.readAsideSessionDocument(ref.documentId);
+          const legacyDocumentId = ref === null
+            ? legacyAsideDocumentIdForSession(story, sessionId)
+            : null;
+          if (document === null && legacyDocumentId !== null) {
+            document = migrateAsideDocumentToUnanchored(
+              await session.readAsideDocument(legacyDocumentId)
+            );
+          }
+          if (document === null) return null;
+          const anchor = ref === null
+            ? null
+            : effectiveAsideSessionAnchor(story, ref, document.anchor);
+          const view = viewAsideSessionDocument(document, sessionId);
+          if (view === null) return null;
+          return {
+            ...view,
+            anchor,
+            payload: buildStoryPayload(story, storyAggregateVersion(session.snapshot))
+          };
+        }
       )
     );
   }

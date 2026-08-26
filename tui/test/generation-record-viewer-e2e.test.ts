@@ -88,6 +88,7 @@ function appSource(
       theme: "lantern",
       factsRail: "auto",
       composeFocus: "off",
+      asideThoughts: "hide",
       wordWrap: "on",
       composeMaxHeight: null,
       quota: { date: "", words: 0 },

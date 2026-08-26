@@ -90,6 +90,8 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   getAside: "transfer",
   askAside: "generation",
   clearAside: "local",
+  asideSessionMutation: "local",
+  retakeAside: "generation",
   // No lifetime class is exactly the 60-second stage deadline. "transfer"
   // (120 s) is the smallest class at or above it; the client requests
   // exactly 60,000 ms, which `resolveHttpOperationReservation` clamps to
@@ -233,6 +235,12 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     }
     if (subId === "ask" && parts.length === 6 && httpMethod === "POST") {
       return "askAside";
+    }
+    if (subId === "session" && parts.length === 6 && httpMethod === "POST") {
+      return "asideSessionMutation";
+    }
+    if (subId === "retake" && parts.length === 6 && httpMethod === "POST") {
+      return "retakeAside";
     }
   }
   if (sub === "autoname" && parts.length === 5

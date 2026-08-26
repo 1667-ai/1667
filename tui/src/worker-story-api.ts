@@ -15,6 +15,22 @@ import { explicitMutationUnsentFromCause } from "./api-error.js";
 import type { StoryPayload, StorySummary } from "../../shared/types.js";
 import { normalizeMarkdownDefaultTitle } from "../../shared/import-markdown-wire.js";
 import type { SaveSettingsCommand } from "../../shared/settings-v2-types.js";
+import type {
+  AsideAskRequest,
+  AsideAskResponse,
+  AsideReadRequest,
+  AsideReadResponse,
+  AsideLegacyReadResponse,
+  AsideSessionMutationRequest,
+  AsideSessionMutationResponse
+} from "../../shared/aside-transport.js";
+import {
+  parseAsideAskResponse,
+  parseAsideLegacyReadResponse,
+  parseAsideReadResponse,
+  parseAsideSessionMutationResponse
+} from "../../shared/aside-transport-codec.js";
+import type { ReasoningDelta } from "./worker-pending.js";
 
 export interface StoryWorkerTransport {
   call<M extends WorkerMethod>(
@@ -23,11 +39,60 @@ export interface StoryWorkerTransport {
     options?: {
       onDelta?: (text: string) => void;
       onStopped?: (text: string) => void;
+      onReasoning?: (delta: ReasoningDelta) => void;
+      onReasoningStopped?: (text: string) => void;
       signal?: AbortSignal;
       expectedAggregateVersion?: StoryAggregateVersion;
     }
   ): Promise<WorkerOutput<M>>;
   dismissArchivedMutation?(mutationId: string): Promise<void>;
+}
+
+function legacyAside(value: unknown): AsideLegacyReadResponse | null {
+  if (value === null) return null;
+  try {
+    return parseAsideLegacyReadResponse(value);
+  } catch {
+    return null;
+  }
+}
+
+function v2Aside(value: unknown): AsideAskResponse | null {
+  if (value === null) return null;
+  try {
+    return parseAsideAskResponse(value);
+  } catch {
+    return null;
+  }
+}
+
+function v2Read(value: unknown): AsideReadResponse | null {
+  if (value === null) return null;
+  try {
+    return parseAsideReadResponse(value);
+  } catch {
+    return null;
+  }
+}
+
+function legacyNotes(
+  value: AsideLegacyReadResponse | AsideAskResponse | AsideReadResponse
+): AsideLegacyReadResponse {
+  if ("notes" in value) return value;
+  const sessions = "sessions" in value ? value.sessions : [value];
+  return {
+    notes: sessions.flatMap((session) =>
+      session.turns.map((turn) => ({ question: turn.q, answer: turn.a })))
+  };
+}
+
+function asideMutationSession(value: unknown): AsideSessionMutationResponse | null {
+  if (value === null) return null;
+  try {
+    return parseAsideSessionMutationResponse(value);
+  } catch {
+    return null;
+  }
 }
 
 /** Materialize the JSON settings command before the Worker boundary. A draft
@@ -79,6 +144,28 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       throw new Error("This story was loaded without successor-Q version metadata.");
     }
     return loaded.aggregateVersion;
+  };
+  const refreshAsideMutation = async (
+    storyId: string,
+    value: unknown
+  ): Promise<AsideSessionMutationResponse> => {
+    const response = asideMutationSession(value);
+    if (response === null) {
+      throw new Error("The worker returned an invalid Aside session mutation.");
+    }
+    if (response.payload !== undefined) {
+      rememberPayload(response.payload);
+      return response;
+    }
+    let payload: StoryPayload | undefined;
+    try {
+      payload = rememberPayload(await transport.call("loadStory", { id: storyId }));
+    } catch {
+      // The local verb is already committed. Keep its canonical session id,
+      // and force the next story mutation to refresh its version lazily.
+      versions.delete(storyId);
+    }
+    return payload === undefined ? response : { ...response, payload };
   };
   const runProviderMutation = async <T>(
     storyId: string,
@@ -361,8 +448,37 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       await transport.call("getGenerationRecord", { storyId, nodeId, recordId }),
     getReasoning: async (storyId, nodeId) =>
       await transport.call("getReasoning", { storyId, nodeId }),
-    getAside: async (storyId) =>
-      await transport.call("getAside", { storyId }),
+    getAside: async (storyId) => {
+      const result = await transport.call("getAside", { storyId });
+      const legacy = legacyAside(result);
+      if (legacy !== null) return legacy;
+      const read = v2Read(result);
+      if (read !== null) return legacyNotes(read);
+      const session = v2Aside(result);
+      if (session === null) {
+        throw new Error("The worker returned an invalid Aside document.");
+      }
+      return legacyNotes(session);
+    },
+    getAsideV2: async (asideRequest) => {
+      const result = await transport.call("getAside", asideRequest);
+      const legacy = legacyAside(result);
+      if (legacy !== null) return null;
+      const read = v2Read(result);
+      if (read !== null) return read;
+      const session = v2Aside(result);
+      if (session === null) {
+        throw new Error("The worker returned an invalid Aside v2 read.");
+      }
+      return {
+        schemaVersion: 2,
+        anchor: session.anchor,
+        sessions: [session],
+        anchors: session.anchor === null
+          ? [] : [{ ...session.anchor, sessionCount: 1 }],
+        unanchoredCount: session.anchor === null ? 1 : 0
+      } satisfies AsideReadResponse;
+    },
     askAside: async (storyId, question, onDelta, signal) => {
       return await runProviderMutation(storyId, async () => {
         const result = await transport.call(
@@ -375,6 +491,13 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
           }
         );
         if (result !== null) {
+          const legacy = legacyAside(result);
+          const session = v2Aside(result);
+          const read = v2Read(result);
+          if (legacy === null && session === null && read === null) {
+            throw new Error("The worker returned an invalid Aside document.");
+          }
+          const normalized = legacyNotes(legacy ?? session ?? read!);
           // askAside returns a document view rather than a StoryPayload, so
           // load the new aggregate version before the next mutation. The
           // terminal result is already committed. A transient refresh failure
@@ -386,11 +509,139 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
           } catch {
             versions.delete(storyId);
           }
-          if (payload !== undefined) return { ...result, payload };
+          if (payload !== undefined) return { ...normalized, payload };
+          return normalized;
         }
-        return result;
+        return null;
       });
     },
+    askAsideV2: async (asideRequest, onDelta, callbacks, signal) => {
+      return await runProviderMutation(asideRequest.storyId, async () => {
+        const result = await transport.call(
+          "askAside",
+          asideRequest,
+          {
+            onDelta: (text) => {
+              callbacks?.onPhase?.("writing");
+              onDelta(text);
+            },
+            onStopped: callbacks?.onStopped,
+            onReasoning: (delta) => {
+              callbacks?.onPhase?.("thinking");
+              callbacks?.onReasoning?.(delta);
+            },
+            onReasoningStopped: callbacks?.onReasoningStopped,
+            expectedAggregateVersion: await expectedVersion(asideRequest.storyId, signal),
+            signal
+          }
+        );
+        if (result === null) return null;
+        const session = v2Aside(result);
+        if (session === null) {
+          throw new Error("The worker returned an invalid Aside v2 result.");
+        }
+        if (session.payload !== undefined) {
+          rememberPayload(session.payload);
+          return session;
+        }
+        let payload: StoryPayload | undefined;
+        try {
+          payload = rememberPayload(await transport.call("loadStory", { id: asideRequest.storyId }));
+        } catch {
+          versions.delete(asideRequest.storyId);
+        }
+        return payload === undefined ? session : { ...session, payload };
+      });
+    },
+    deleteAsideTurn: async (mutation) => await runProviderMutation(
+      mutation.storyId,
+      async () => await refreshAsideMutation(
+        mutation.storyId,
+        await transport.call(
+          "asideSessionMutation",
+          {
+            operation: "delete-turn",
+            storyId: mutation.storyId,
+            sessionId: mutation.sessionId,
+            turnIndex: mutation.turnIndex,
+            anchor: mutation.anchor
+          } satisfies AsideSessionMutationRequest,
+          { expectedAggregateVersion: await expectedVersion(mutation.storyId) }
+        )
+      )
+    ),
+    resetAside: async (mutation) => await runProviderMutation(
+      mutation.storyId,
+      async () => await refreshAsideMutation(
+        mutation.storyId,
+        await transport.call(
+          "asideSessionMutation",
+          {
+            operation: "reset",
+            storyId: mutation.storyId,
+            sessionId: mutation.sessionId,
+            turnIndex: mutation.turnIndex,
+            anchor: mutation.anchor
+          } satisfies AsideSessionMutationRequest,
+          { expectedAggregateVersion: await expectedVersion(mutation.storyId) }
+        )
+      )
+    ),
+    clearAsideSession: async (mutation) => await runProviderMutation(
+      mutation.storyId,
+      async () => await refreshAsideMutation(
+        mutation.storyId,
+        await transport.call(
+          "asideSessionMutation",
+          {
+            operation: "clear",
+            storyId: mutation.storyId,
+            sessionId: mutation.sessionId,
+            anchor: mutation.anchor
+          } satisfies AsideSessionMutationRequest,
+          { expectedAggregateVersion: await expectedVersion(mutation.storyId) }
+        )
+      )
+    ),
+    retakeAside: async (mutation, onDelta, callbacks, signal) => await runProviderMutation(
+      mutation.storyId,
+      async () => {
+        const result = await transport.call(
+          "retakeAside",
+          mutation,
+          {
+            onDelta: (text) => {
+              callbacks?.onPhase?.("writing");
+              onDelta(text);
+            },
+            onStopped: callbacks?.onStopped,
+            onReasoning: (delta) => {
+              callbacks?.onPhase?.("thinking");
+              callbacks?.onReasoning?.(delta);
+            },
+            onReasoningStopped: callbacks?.onReasoningStopped,
+            expectedAggregateVersion: await expectedVersion(mutation.storyId, signal),
+            signal
+          }
+        );
+        if (result === null) return null;
+        const session = v2Aside(result);
+        if (session === null) {
+          throw new Error("The worker returned an invalid Aside retake result.");
+        }
+        if (session.payload !== undefined) {
+          rememberPayload(session.payload);
+          return session;
+        }
+        let payload: StoryPayload | undefined;
+        try {
+          payload = rememberPayload(await transport.call("loadStory", { id: mutation.storyId }));
+        } catch {
+          versions.delete(mutation.storyId);
+        }
+        return payload === undefined ? session : { ...session, payload };
+      }
+    ),
     clearAside: async (storyId) => rememberPayload(await transport.call(
       "clearAside",
       { storyId },

@@ -14,6 +14,11 @@ This file records notable changes to 1667. Product terms use the definitions in
   `writing · esc stops` and `thinking · esc stops · T peeks` lines stick to
   the top of the visible part, the same way the focused verb menu does.
 
+- **Aside now keeps separate chats for story takes.** Use the session and
+  anchor controls to review each chat. Existing Side Notes remain available
+  in the unanchored bucket. Optional Thoughts stay visible only in Aside and
+  do not enter a later model request.
+
 ## 0.10.2 - 2026-08-23
 
 - **This release has no additional product changes.** It contains the same

@@ -77,6 +77,45 @@ test("protocol-v10 mutation inputs survive the Aside protocol bump", () => {
   );
 });
 
+test("worker message parser admits the v2 Aside mutation methods", () => {
+  const id = {
+    workerInstanceId: "e".repeat(32),
+    sequence: 1n
+  };
+  for (const [method, input, mutationId] of [
+    [
+      "asideSessionMutation",
+      {
+        storyId: "story",
+        operation: "clear",
+        sessionId: "session",
+        anchor: null
+      },
+      "m1.1767225600000.3123456789abcdef0123456789abcdef"
+    ],
+    [
+      "retakeAside",
+      {
+        storyId: "story",
+        sessionId: "session",
+        turnIndex: 0,
+        anchor: null
+      },
+      "m1.1767225600000.4123456789abcdef0123456789abcdef"
+    ]
+  ] as const) {
+    const parsed = parseWorkerRequest({
+      method,
+      input,
+      protocolVersion: WORKER_PROTOCOL_VERSION,
+      mutationId,
+      deadlineMs: Date.now() + 60_000
+    }, id);
+    assert.equal(parsed.method, method);
+    assert.deepEqual(parsed.input, input);
+  }
+});
+
 test("worker import measures raw JSONL bytes rather than escaped protocol bytes", () => {
   const escapedCharacters = 150_000;
   const empty = JSON.stringify({ is_user: false, mes: "" });
@@ -149,6 +188,43 @@ test("worker JSON methods measure their HTTP-equivalent body", () => {
   assert.doesNotThrow(() => validateWorkerRequestSize("createNode", input));
   assert.throws(
     () => validateWorkerRequestSize("createNode", { ...input, body: { text: `${text}x` } }),
+    (error: unknown) => error instanceof ServiceError && error.status === 413
+  );
+});
+
+test("Aside v2 worker methods measure their logical HTTP bodies", () => {
+  const routeOnlyStoryId = "route fields are not an HTTP body";
+  const oversizedSessionId = "x".repeat(MAX_JSON_BODY_BYTES);
+
+  assert.doesNotThrow(() => validateWorkerRequestSize("asideSessionMutation", {
+    storyId: routeOnlyStoryId,
+    operation: "clear",
+    sessionId: "session",
+    anchor: null
+  }));
+  assert.throws(
+    () => validateWorkerRequestSize("asideSessionMutation", {
+      storyId: "story",
+      operation: "clear",
+      sessionId: oversizedSessionId,
+      anchor: null
+    }),
+    (error: unknown) => error instanceof ServiceError && error.status === 413
+  );
+
+  assert.doesNotThrow(() => validateWorkerRequestSize("retakeAside", {
+    storyId: routeOnlyStoryId,
+    sessionId: "session",
+    turnIndex: 0,
+    anchor: null
+  }));
+  assert.throws(
+    () => validateWorkerRequestSize("retakeAside", {
+      storyId: "story",
+      sessionId: oversizedSessionId,
+      turnIndex: 0,
+      anchor: null
+    }),
     (error: unknown) => error instanceof ServiceError && error.status === 413
   );
 });

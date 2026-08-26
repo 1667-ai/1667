@@ -155,6 +155,11 @@ export function settingsRows(
       hint: "Keeps whole words together when editor lines wrap."
     },
     {
+      id: "aside-thoughts", section: "app", label: "aside Thoughts",
+      value: `[ ${config.asideThoughts} ]`,
+      hint: "Shows or hides render-only thoughts in Aside chats."
+    },
+    {
       id: "update-checks", section: "app", label: "update checks",
       value: `[ ${config.updates.mode === "notify" ? "on" : "off"} ]`,
       hint: "Checks for a newer version. Sends no story or account data."

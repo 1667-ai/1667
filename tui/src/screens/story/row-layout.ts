@@ -40,6 +40,7 @@ import {
   streamingGutterRows,
   streamLivenessMark
 } from "./gutter.js";
+import { asideBoundaryLabel, asidePresenceForPart } from "../../aside-presence.js";
 
 export interface StoryRowLayout {
   height: number;
@@ -96,6 +97,7 @@ export function layoutStoryRow(
   const stream = streamForPart(state.stream, row.id);
   const streaming = stream !== null;
   const thought = thoughtGutterContext(row, rowIndex, state, streaming, stream);
+  const asidePresence = asidePresenceForPart(state.payload, row);
   const prefixFlags: PartPrefixFlags = {
     boundary: narrow,
     prompt: state.showInstructions,
@@ -129,13 +131,14 @@ export function layoutStoryRow(
   // gutter's fixed 2-line pair (`gutterFor`, gutter.ts) takes priority over
   // this whenever both are true.
   const gutterRows = focused && !narrow && !streaming && !row.isSummary
-    ? gutterRowsFor(row, thought)
+    ? gutterRowsFor(row, thought, asidePresence)
     : null;
   const streamingRows = streaming && !narrow ? streamingGutterRows(row, thought, state.now, deadlines) : null;
   const gutterRowCount = streamingRows?.length ?? gutterRows?.length ?? 0;
   let prefix: FrameLine[] | null = null;
   const preparePrefix = () => prefix ??= partPrefix(
-    row, rowIndex, allParts, state, measure, narrow, focused, streaming, prefixFlags, thought, deadlines
+    row, rowIndex, allParts, state, measure, narrow, focused, streaming, prefixFlags, thought,
+    asidePresence, deadlines
   );
   const expandedPrompt = prefixFlags.prompt && state.expandedPromptIds.has(row.id);
   // An unfolded thought block's height is as variable as an expanded
@@ -176,7 +179,10 @@ export function layoutStoryRow(
     stickyPrompt,
     render: () => [
       ...preparePrefix(),
-      ...renderPartBody(row, state, focused, narrow, prepare(), gutterRowCount, gutterRows, thought, deadlines)
+      ...renderPartBody(
+        row, state, focused, narrow, prepare(), gutterRowCount, gutterRows,
+        thought, asidePresence, deadlines
+      )
     ]
   };
 }
@@ -256,10 +262,13 @@ function partPrefix(
   streaming: boolean,
   prefix: PartPrefixFlags,
   thought: ThoughtGutterContext,
+  asidePresence: ReturnType<typeof asidePresenceForPart>,
   deadlines?: FrameDeadlineCollector
 ): FrameLine[] {
   const lines: FrameLine[] = [];
-  if (prefix.boundary) lines.push(renderBoundary(part, measure, focused, streaming, state.now, deadlines));
+  if (prefix.boundary) {
+    lines.push(renderBoundary(part, measure, focused, streaming, asidePresence, state.now, deadlines));
+  }
   if (prefix.prompt) {
     lines.push(...renderPrompt(part, rowIndex, state.expandedPromptIds.has(part.id), measure, narrow));
   }
@@ -355,6 +364,7 @@ function renderPartBody(
   gutterRowCount: number,
   gutterRows: readonly FrameLine[] | null,
   thought: ThoughtGutterContext,
+  asidePresence: ReturnType<typeof asidePresenceForPart>,
   deadlines?: FrameDeadlineCollector
 ): FrameLine[] {
   const { stream, appending, wrapped, sourceStart, compactLogo } = prepared;
@@ -366,7 +376,7 @@ function renderPartBody(
   const lines: FrameLine[] = [];
   const gutterAt = (lineIndex: number): FrameLine => narrow
     ? []
-    : gutterFor(part, streaming, lineIndex, thought, gutterRows, state.now, deadlines);
+    : gutterFor(part, streaming, lineIndex, thought, gutterRows, state.now, deadlines, asidePresence);
   if (compactLogo) {
     lines.push(prefixLine(
       narrow,
@@ -428,6 +438,7 @@ function renderBoundary(
   measure: number,
   focused: boolean,
   streaming: boolean,
+  asidePresence: ReturnType<typeof asidePresenceForPart>,
   now = 0,
   deadlines?: FrameDeadlineCollector
 ): FrameLine {
@@ -443,9 +454,11 @@ function renderBoundary(
       : part.siblingCount > 1
         ? `¶ ${part.number} · ×${part.siblingCount}`
       : `¶ ${part.number}${part.isSummary ? " · ◈" : ""}`;
-  const prefix = `── ${marker} `;
-  return [segment("  "), segment(prefix, "chrome"),
-    segment("─".repeat(Math.max(0, measure - visibleWidth(prefix))), "chrome")];
+  const aside = asideBoundaryLabel(asidePresence);
+  const prefix = `── ${marker}${aside === null ? "" : ` · ${aside}`} `;
+  const fitted = truncate(prefix, Math.max(0, measure));
+  return [segment("  "), segment(fitted, "chrome"),
+    segment("─".repeat(Math.max(0, measure - visibleWidth(fitted))), "chrome")];
 }
 
 function prefixLine(narrow: boolean, gutter: FrameLine, prose: FrameLine): FrameLine {

@@ -304,8 +304,14 @@ function exportFidelity(
     `${summaries} summary ${countNoun(summaries, "part")} omitted.`,
     `${story.chapterBreaks.length} chapter ${countNoun(story.chapterBreaks.length, "break")} omitted.`,
     // Exact notice when Side Notes exist. StoryPayload never carries Side Note
-    // text; hasAside is presence only.
-    ...(story.hasAside === true ? ["Side Notes were not exported."] : [])
+    // text; these fields are presence only.
+    ...(
+      story.hasAside === true
+        || story.hasAsideSessions === true
+        || story.asidePresence !== undefined
+        ? ["Side Notes were not exported."]
+        : []
+    )
   ];
   const history = "NovelAI history omitted.";
   // Memory is a free-form block in NovelAI, so a Fact that becomes Memory loses

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { ActionRuntime } from "../src/action-runtime.js";
 import { sendAsideQuestion, clearAsideSurface } from "../src/aside-actions.js";
-import { createAsideSurface } from "../src/aside-surface.js";
+import { asideNotes, createAsideSurface } from "../src/aside-surface.js";
 import { demoAppSource } from "../src/demo.js";
 import { initialState } from "../src/app.js";
 import type { StoryApi } from "../src/api.js";
@@ -46,7 +46,7 @@ test("Aside adopts mutation payloads before the next optimistic Prune", async ()
 
   await sendAsideQuestion(state, api, "Why?", { cache });
   expect(state.payload.updatedAt).toBe(askedAt);
-  expect(state.aside!.notes).toEqual([{ question: "Why?", answer: "Answer." }]);
+  expect(asideNotes(state.aside!)).toEqual([{ question: "Why?", answer: "Answer." }]);
 
   await clearAsideSurface(state, api, cache);
   await clearAsideSurface(state, api, cache);
@@ -77,7 +77,7 @@ test("Aside keeps a committed note when its payload refresh fails", async () => 
   await sendAsideQuestion(state, api, "Why?", {
     cache: createWrapCache<ProseStyle>()
   });
-  expect(state.aside!.notes).toEqual([{ question: "Why?", answer: "Committed." }]);
+  expect(asideNotes(state.aside!)).toEqual([{ question: "Why?", answer: "Committed." }]);
   expect(state.aside!.busy).toBeFalse();
 });
 
@@ -104,7 +104,7 @@ test("Clear replay adopts its payload when the current Aside refresh fails", asy
   await clearAsideSurface(state, api);
 
   expect(state.payload.updatedAt).toBe(refreshedAt);
-  expect(state.aside!.notes).toEqual([note]);
+  expect(asideNotes(state.aside!)).toEqual([note]);
   expect(state.aside!.busy).toBeFalse();
   expect(state.toast).toBe("transient Aside refresh failure");
 });

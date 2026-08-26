@@ -67,6 +67,15 @@ import { parseWorkerContinueImages, parseWorkerContinueTarget } from "./worker-c
 import { partsFromNovelAiStory } from "./import-nai.js";
 import { partsFromNovelAiScenario } from "./import-scenario.js";
 import { partsFromSillyTavernJsonl, sillyTavernFidelity } from "./import-st.js";
+import type { AsideAnchor } from "../shared/aside-session.js";
+import type { AsideAskInput } from "../shared/aside-transport.js";
+import {
+  AsideTransportError,
+  parseAsideAnchor,
+  parseAsideAskRequestValue,
+  parseAsideRetakeRequest,
+  parseAsideSessionMutationRequest
+} from "../shared/aside-transport-codec.js";
 
 interface ParsedPreQChapterRemoval {
   readonly lane: "pre-q";
@@ -993,26 +1002,96 @@ const MUTATIONS: MutationRegistry = {
     }
   }),
   askAside: define<"askAside">({
-    parse: (value) => {
-      const input = requireRecord(value, "askAside input");
-      return {
-        storyId: requireString(input.storyId, "storyId"),
-        question: requireString(input.question, "question")
-      };
-    },
+    parse: (value) => parseTransportInput(
+      () => parseAsideAskRequestValue(value),
+      "askAside input"
+    ),
     storyId: (input) => input.storyId,
-    execute: async (service, input, plan, context) =>
-      await service.askAside(
+    execute: async (service, input, plan, context) => {
+      const hooks = generationHooks(
+        plan,
+        {},
+        context.storyMutationRequest,
+        context.canCommitStoppedAside
+      );
+      const v2 = input.anchor !== undefined || input.sessionId !== undefined;
+      if (v2) {
+        if (input.anchor === undefined) {
+          throw badInput("askAside v2 input must contain anchor");
+        }
+        const asideInput: AsideAskInput = {
+          question: input.question,
+          anchor: input.anchor,
+          ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId })
+        };
+        return await service.askAsideV2(
+          input.storyId,
+          asideInput,
+          context.onDelta,
+          context.signal,
+          { ...hooks, onReasoning: context.onReasoning }
+        );
+      }
+      return await service.askAside(
         input.storyId,
         { question: input.question },
         context.onDelta,
         context.signal,
-        generationHooks(
-          plan,
-          {},
-          context.storyMutationRequest,
-          context.canCommitStoppedAside
-        )
+        hooks
+      );
+    }
+  }),
+  asideSessionMutation: define<"asideSessionMutation">({
+    parse: (value) => parseTransportInput(
+      () => parseAsideSessionMutationRequest(value),
+      "asideSessionMutation input"
+    ),
+    storyId: (input) => input.storyId,
+    execute: async (service, input, _plan, context) => {
+      const body = input.operation === "clear"
+        ? {
+            operation: input.operation,
+            sessionId: input.sessionId,
+            anchor: input.anchor
+          }
+        : {
+            operation: input.operation,
+            sessionId: input.sessionId,
+            anchor: input.anchor,
+            turnIndex: input.turnIndex
+          };
+      return await service.asideSessionMutation(
+        input.storyId,
+        body,
+        context.storyMutationRequest
+      );
+    }
+  }),
+  retakeAside: define<"retakeAside">({
+    parse: (value) => parseTransportInput(
+      () => parseAsideRetakeRequest(value),
+      "retakeAside input"
+    ),
+    storyId: (input) => input.storyId,
+    execute: async (service, input, plan, context) =>
+      await service.retakeAside(
+        input.storyId,
+        {
+          sessionId: input.sessionId,
+          anchor: input.anchor,
+          turnIndex: input.turnIndex
+        },
+        context.onDelta,
+        context.signal,
+        {
+          ...generationHooks(
+            plan,
+            {},
+            context.storyMutationRequest,
+            context.canCommitStoppedAside
+          ),
+          onReasoning: context.onReasoning
+        }
       )
   }),
   clearAside: define<"clearAside">({
@@ -1075,7 +1154,8 @@ async function loadMutationPayload(service: StoryService, storyId: string) {
 }
 
 function generationHooks<M extends
-  "autonameStory" | "continueStory" | "rewriteNode" | "createSummaryTake" | "summarizeChapter" | "askAside">(
+  "autonameStory" | "continueStory" | "rewriteNode" | "createSummaryTake"
+  | "summarizeChapter" | "askAside" | "retakeAside">(
   plan: MutationPlan<M>,
   options: Record<string, string> = {},
   mutationRequest?: unknown,
@@ -1096,7 +1176,8 @@ type ProviderWorkerMethod =
   | "continueStory"
   | "rewriteNode"
   | "createSummaryTake"
-  | "askAside";
+  | "askAside"
+  | "retakeAside";
 
 function needsCompatibilityGenerationRecovery<M extends ProviderWorkerMethod>(
   plan: MutationPlan<M>,
@@ -1147,6 +1228,29 @@ function requireAuthorsNoteDepth(value: unknown): number {
 
 function badInput(message: string): ServiceError {
   return new ServiceError(400, message);
+}
+
+function parseTransportInput<T>(
+  work: () => T,
+  label: string
+): T {
+  try {
+    return work();
+  } catch (error) {
+    if (error instanceof AsideTransportError) {
+      throw badInput(`${label}: ${error.message}`);
+    }
+    throw error;
+  }
+}
+
+export function parseAsideAnchorInput(value: unknown): AsideAnchor | null {
+  try {
+    return parseAsideAnchor(value);
+  } catch (error) {
+    if (error instanceof AsideTransportError) throw badInput(error.message);
+    throw error;
+  }
 }
 
 function parseFactsBudgetTokensInput(value: unknown): number | null {

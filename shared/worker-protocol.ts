@@ -53,6 +53,15 @@ import {
   type BuildIdentity
 } from "./build-identity.js";
 import type { FailureEnvelope } from "./failure-envelope.js";
+import type {
+  AsideAskResponse,
+  AsideLegacyReadResponse,
+  AsideReadResponse,
+  AsideRetakeRequest,
+  AsideSessionMutationRequest,
+  AsideSessionMutationResponse
+} from "./aside-transport.js";
+import type { AsideAnchor } from "./aside-session.js";
 export {
   isDiagnosticReference,
   type DiagnosticReference
@@ -317,18 +326,35 @@ export interface WorkerMethodContract {
   };
   /** Read the complete bounded Aside document for one story. */
   getAside: {
-    input: { storyId: string };
-    output: { notes: readonly { question: string; answer: string }[] };
+    input: { storyId: string; anchor?: AsideAnchor | null };
+    output: AsideLegacyReadResponse | AsideReadResponse;
   };
   /** Stream one Aside question. Null means no answer text was saved. */
   askAside: {
-    input: { storyId: string; question: string };
-    output: { notes: readonly { question: string; answer: string }[] } | null;
+    input: {
+      storyId: string;
+      question: string;
+      /** Absent keeps the v1 story-wide document path. */
+      anchor?: AsideAnchor | null;
+      /** Present selects an existing v2 session for the ask. */
+      sessionId?: string;
+    };
+    output: AsideLegacyReadResponse | AsideAskResponse | null;
   };
   /** Clear every Side Note for one story. */
   clearAside: {
     input: { storyId: string };
     output: StoryPayload;
+  };
+  /** Delete, reset, or clear one selected v2 Aside session. */
+  asideSessionMutation: {
+    input: AsideSessionMutationRequest;
+    output: AsideSessionMutationResponse;
+  };
+  /** Stream a replacement for the selected v2 session's last answer. */
+  retakeAside: {
+    input: AsideRetakeRequest;
+    output: AsideAskResponse | null;
   };
   /** Stage one Source Image as a Draft Image: normalize it, store the
    *  result as a content-addressed Image Object, and publish a Draft Lease
@@ -366,10 +392,10 @@ export type MutatingWorkerMethod =
   | "putBookmark" | "deleteBookmark" | "createFact" | "patchFact" | "deleteFact" | "reorderFact"
   | "createChapterBreak" | "renameChapterBreak" | "removeChapterBreak" | "restoreChapterBreak" | "summarizeChapter"
   | "importSillyTavern" | "importMarkdown" | "importNovelAI" | "importScenario" | "importLorebook" | "importCard" | "continueStory" | "rewriteNode" | "commitPartialRewrite" | "createSummaryTake"
-  | "askAside" | "clearAside";
+  | "askAside" | "clearAside" | "asideSessionMutation" | "retakeAside";
 
 export const STREAM_METHODS: ReadonlySet<WorkerMethod> = new Set([
-  "continueStory", "rewriteNode", "createSummaryTake", "askAside"
+  "continueStory", "rewriteNode", "createSummaryTake", "askAside", "retakeAside"
 ]);
 
 /** Provider-backed calls share the long generation deadline even when their
@@ -399,7 +425,7 @@ export const MUTATING_METHODS: ReadonlySet<MutatingWorkerMethod> = new Set([
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "importCard", "continueStory", "rewriteNode", "commitPartialRewrite", "createSummaryTake",
-  "askAside", "clearAside"
+  "askAside", "clearAside", "asideSessionMutation", "retakeAside"
 ]);
 
 export function isMutatingWorkerMethod(method: WorkerMethod): method is MutatingWorkerMethod {
@@ -658,7 +684,7 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
 
   "rewriteNode", "commitPartialRewrite", "createSummaryTake",
   "stageStoryImage", "releaseStoryImage",
-  "getAside", "askAside", "clearAside"
+  "getAside", "askAside", "clearAside", "asideSessionMutation", "retakeAside"
 ]);
 
 export function isWorkerMethod(value: unknown): value is WorkerMethod {

@@ -4,7 +4,12 @@
  * Write prompt builders (continue, rewrite, title, summary) must not import
  * Side Note text. They may import limits or types, never document notes.
  */
-import type { AsideDocument, SideNote } from "./aside.js";
+import {
+  asideHistoryFromSession,
+  type AsideDocument,
+  type AsideSessionDocument,
+  type SideNote
+} from "./aside.js";
 import { renderPromptPlan, type PromptPlan, type PromptTurn } from "./prompt-plan.js";
 import type { StoryNode, ChapterBreak } from "./types.js";
 import { assembleChapterContext } from "./chapters.js";
@@ -68,7 +73,10 @@ export function asidePlan(options: {
   parts: readonly StoryNode[];
   chapterBreaks: readonly ChapterBreak[];
   nodes: readonly StoryNode[];
-  history: readonly SideNote[];
+  /** Legacy v1 history projection. Prefer `session` for v2 callers. */
+  history?: readonly SideNote[];
+  /** The current v2 session. Thoughts are not sent. */
+  session?: AsideSessionDocument | null;
   question: string;
   /**
    * Usable context tokens (`contextWindow - maxTokens`), or null when the
@@ -79,7 +87,16 @@ export function asidePlan(options: {
   /** Optional Aside guidance. Empty adds no request block. */
   guidance?: string;
 }): PromptPlan {
-  const { facts, parts, chapterBreaks, nodes, history, question, usableTokens } = options;
+  const {
+    facts,
+    parts,
+    chapterBreaks,
+    nodes,
+    question,
+    usableTokens
+  } = options;
+  const history = options.history
+    ?? asideHistoryFromSession(options.session ?? null);
   const sourceContext = assembleChapterContext(parts, chapterBreaks, nodes)
     .filter((part) => part.text.trim().length > 0);
   const sourceBody = sourceContext.map((part) => part.text).join("\n\n");
@@ -215,6 +232,11 @@ export function fitAsideHistory(
 }
 
 /** Read history from a loaded document. Returns empty when null. */
-export function asideHistoryFromDocument(document: AsideDocument | null): readonly SideNote[] {
-  return document?.notes ?? [];
+export function asideHistoryFromDocument(
+  document: AsideDocument | AsideSessionDocument | null
+): readonly SideNote[] {
+  if (document === null) return [];
+  return document.schemaVersion === 2
+    ? asideHistoryFromSession(document)
+    : document.notes;
 }
