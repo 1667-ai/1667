@@ -9,6 +9,7 @@ import type { ComposerState } from "./composer-model.js";
 import { createComposer } from "./composer-model.js";
 import type { TextPresentation } from "./text-presentation.js";
 import { asideHopAnchorIndex } from "./aside-hop.js";
+import type { StorySelectionSpan } from "./selection-projection.js";
 
 export interface AsideNoteView {
   readonly question: string;
@@ -31,6 +32,37 @@ export interface AsideTurnView {
   readonly thoughtTokens?: number;
   readonly createdAt?: string;
   readonly updatedAt?: string;
+}
+
+/** Protocol turns normally have no id. Keep their display identity in memory
+ * so queued input and semantic selection survive an earlier turn's removal. */
+const asideTurnIdentity = new WeakMap<object, string>();
+let nextAsideTurnIdentity = 0;
+
+export function asideTurnRowIdentity(turn: AsideTurnView): string {
+  if (turn.id !== undefined && turn.id.length > 0) return `id:${turn.id}`;
+  const object = turn as object;
+  const existing = asideTurnIdentity.get(object);
+  if (existing !== undefined) return `ref:${existing}`;
+  const identity = `turn-${++nextAsideTurnIdentity}`;
+  asideTurnIdentity.set(object, identity);
+  return `ref:${identity}`;
+}
+
+/** A single-session mutation keeps turn order. Carry an allocated identity to
+ * the fresh protocol objects returned by its settlement. */
+export function inheritAsideTurnRowIdentities(
+  previous: readonly AsideTurnView[],
+  next: readonly AsideTurnView[]
+): void {
+  const length = Math.min(previous.length, next.length);
+  for (let index = 0; index < length; index += 1) {
+    const before = previous[index]!;
+    const after = next[index]!;
+    if (before.id !== undefined || after.id !== undefined) continue;
+    const identity = asideTurnIdentity.get(before as object);
+    if (identity !== undefined) asideTurnIdentity.set(after as object, identity);
+  }
 }
 
 export interface AsideSessionAnchor {
@@ -66,6 +98,8 @@ export interface AsideUseMenuState {
   /** Exact terminal selection, when the menu came from a highlighted answer.
    *  Undefined means the complete saved answer is the target. */
   selectionText?: string;
+  /** Semantic answer spans to repaint after the native selection is cleared. */
+  selectionSpans?: readonly StorySelectionSpan[];
   /** Index into the stage's use-menu action list. */
   cursor: number;
   /**
@@ -394,6 +428,42 @@ export function currentAsideSession(surface: AsideSurfaceState): AsideSessionVie
 
 export function currentAsideTurns(surface: AsideSurfaceState): readonly AsideTurnView[] {
   return currentAsideSession(surface)?.turns ?? [];
+}
+
+function asideAnswerOwner(surface: AsideSurfaceState): string {
+  if (!isAsideV2(surface)) return "legacy";
+  return surface.sessions[surface.sessionIndex]?.id ?? `session-${surface.sessionIndex}`;
+}
+
+/** Stable row and selection identity for a saved answer in one Aside session. */
+export function asideAnswerRowId(
+  surface: AsideSurfaceState,
+  noteIndex: number
+): string {
+  if (!isAsideV2(surface)) {
+    return `aside-answer:${asideAnswerOwner(surface)}:${noteIndex}`;
+  }
+  const turn = currentAsideTurns(surface)[noteIndex];
+  if (turn === undefined) return `aside-answer:${asideAnswerOwner(surface)}:unknown`;
+  return `aside-answer:${asideAnswerOwner(surface)}:${asideTurnRowIdentity(turn)}`;
+}
+
+/** Resolve a saved-answer identity against the current Aside session. */
+export function asideAnswerIndexFromRowId(
+  rowId: string,
+  surface: AsideSurfaceState
+): number {
+  const prefix = `aside-answer:${asideAnswerOwner(surface)}:`;
+  if (!rowId.startsWith(prefix)) return -1;
+  const identity = rowId.slice(prefix.length);
+  if (!isAsideV2(surface)) {
+    const value = Number(identity);
+    return Number.isInteger(value) && value >= 0 ? value : -1;
+  }
+  if (!identity.startsWith("id:") && !identity.startsWith("ref:")) return -1;
+  return currentAsideTurns(surface).findIndex(
+    (turn) => asideTurnRowIdentity(turn) === identity
+  );
 }
 
 export function setAsideSessionTurns(

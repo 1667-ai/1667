@@ -149,7 +149,8 @@ export async function handleOverlayAction(
         state.aside,
         resolved.index ?? asideCursor(state.aside),
         0,
-        resolved.selectionText
+        resolved.selectionText,
+        resolved.selectionSpans
       );
     }
     return true;

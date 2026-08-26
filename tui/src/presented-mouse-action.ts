@@ -25,11 +25,11 @@ import {
 } from "./mouse-actions.js";
 import type { RuntimeState } from "./state.js";
 import {
-  asideAnswerIndexFromRowId,
   asideUseActions,
   asideUseActionIndexFromRowId,
   asideUseRowId
 } from "./aside-use.js";
+import { asideAnswerIndexFromRowId } from "./aside-surface.js";
 import { availableTextActions } from "./text-actions.js";
 
 export interface PresentedInteraction {

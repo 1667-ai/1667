@@ -334,15 +334,19 @@ function revealAsideFocusedNoteWithLayout(
     if (surface.focus !== "turns" && surface.focus !== "notes") return;
     const height = Math.max(0, Math.floor(bodyRows));
     if (height === 0) return;
-    const noteStart = layout.turnStarts[surface.turnCursor];
-    if (noteStart === undefined) return;
+    const turnStart = layout.turnStarts[surface.turnCursor];
+    if (turnStart === undefined) return;
+    const turnEnd = layout.turnContentEnds[surface.turnCursor] ?? turnStart;
     const max = Math.max(0, layout.body.length - height);
     const current = surface.scrollTop === null
       ? max
       : Math.max(0, Math.min(max, surface.scrollTop));
     let next = current;
-    if (noteStart < current) next = noteStart;
-    else if (noteStart >= current + height) next = noteStart - height + 1;
+    // Keep the selected turn's useful context together. The prior bottom-edge
+    // anchor showed only the first wrapped question row when the next turn was
+    // below the viewport. A turn that does not fit must start at its question;
+    // a short turn stays put only when its complete content is already visible.
+    if (turnStart < current || turnEnd > current + height) next = turnStart;
     next = Math.max(0, Math.min(max, next));
     surface.scrollTop = next === max ? null : next;
     return;

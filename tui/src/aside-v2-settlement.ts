@@ -8,6 +8,7 @@ import type { StoryAsidePresenceAnchor, StoryPayload } from "../../shared/types.
 import { asideHopAnchorIndex, UNANCHORED_ASIDE_ID } from "./aside-hop.js";
 import {
   currentAsideSession,
+  inheritAsideTurnRowIdentities,
   normalizeAsideSession,
   type AsideAnchorView,
   type AsideSessionAnchor,
@@ -145,12 +146,15 @@ function applySingleSession(
 ): void {
   const normalized = normalizeAsideSession(response, surface.sessions.length);
   if (normalized === null) return;
+  const matching = surface.sessions.findIndex((entry) => entry.id === normalized.id);
+  if (matching >= 0) {
+    inheritAsideTurnRowIdentities(surface.sessions[matching]!.turns, normalized.turns);
+  }
   const session: AsideSessionView = {
     ...normalized,
     anchor: hydrateAsideAnchor(normalized.anchor, surface.anchors, surface.anchor)
   };
   const currentIndex = surface.sessionIndex;
-  const matching = surface.sessions.findIndex((entry) => entry.id === session.id);
   const sessionIndex = matching >= 0 ? matching : surface.sessions.length;
   if (matching >= 0) surface.sessions[matching] = session;
   else surface.sessions = [...surface.sessions, session];

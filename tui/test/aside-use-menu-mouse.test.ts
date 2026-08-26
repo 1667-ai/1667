@@ -2,8 +2,11 @@
  * Aside use-menu mouse hits and presented-frame reconciliation.
  */
 import { describe, expect, test } from "bun:test";
-import { createAsideSurface } from "../src/aside-surface.js";
-import { isAsideV2 } from "../src/aside-surface.js";
+import {
+  asideAnswerRowId,
+  createAsideSurface,
+  isAsideV2
+} from "../src/aside-surface.js";
 import { demoAppSource } from "../src/demo.js";
 import { initialState } from "../src/app.js";
 import { handleOverlayAction } from "../src/overlay-actions.js";
@@ -12,7 +15,6 @@ import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText, plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import {
-  asideAnswerRowId,
   asideUseActions,
   focusAsideUseMenuIndex,
   openAsideUseMenu
@@ -135,6 +137,67 @@ function activateStoryStream(state: ReturnType<typeof initialState>): void {
 }
 
 describe("Aside use-menu mouse", () => {
+  test("keeps a selected answer visibly highlighted while its use menu is open", async () => {
+    const answer = "alpha bravo charlie delta echo foxtrot golf hotel";
+    const width = 80;
+    const height = 36;
+    for (const variant of ["legacy", "v2"] as const) {
+      const source = demoAppSource();
+      const state = initialState(source, false);
+      const surface = variant === "legacy"
+        ? installLegacyAside(state, answer)
+        : installV2Aside(state, answer);
+      const initialFrame = renderStoryScreen(state, { width, height });
+      state.hitRows = initialFrame.derived.hitRows;
+      const projection = initialFrame.derived.storySelectionProjection;
+      expect(projection).not.toBeNull();
+      const answerCells = projection!.flatMap((cell, index) => cell === null
+        ? [] : [{ cell, index }]).filter(({ cell }) => cell.key.startsWith("aside-answer:"));
+      const first = answerCells[0]!;
+      const last = answerCells[15]!;
+      const expected = answer.slice(first.cell.start, last.cell.end);
+      const answerRow = state.hitRows.findIndex((row) => row?.target.kind === "aside-answer");
+      expect(answerRow).toBeGreaterThan(-1);
+      const raw = mouseToAction({
+        type: "down",
+        button: 2,
+        x: 4,
+        y: answerRow,
+        modifiers: { shift: false, alt: false, ctrl: false }
+      }, state);
+      expect(raw?.action).toBe("open-aside-use");
+
+      const native = selectionReader(`  ${expected}`, {
+        start: first.index,
+        end: last.index + 1
+      });
+      const decorated = selectionAwarePartMenuAction(
+        native.event as never,
+        raw,
+        native.renderer as never,
+        projection
+      );
+      expect(decorated?.selectionText).toBe(expected);
+      expect(decorated?.selectionSpans).toEqual([{
+        key: first.cell.key,
+        text: answer,
+        start: first.cell.start,
+        end: last.cell.end
+      }]);
+
+      await handleOverlayAction(decorated!, state, source, overlayContext(state, width, height));
+      const menuFrame = renderStoryScreen(state, { width, height });
+      const highlightedText = menuFrame.lines.flatMap((line) => line)
+        .filter((part) => part.role === "background" && part.background === "focus / accent")
+        .map((part) => part.text)
+        .join("");
+      expect(highlightedText).toContain(expected);
+      expect(surface.useMenu?.selectionText).toBe(expected);
+      expect(surface.useMenu?.selectionSpans).toEqual(decorated?.selectionSpans);
+      expect(surface.useMenu?.selectionSpans?.[0]?.text).toBe(answer);
+    }
+  });
+
   test("right-clicking a wrapped answer uses exact source text in legacy and v2", async () => {
     const answer = "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima";
     const width = 36;
@@ -267,6 +330,21 @@ describe("Aside use-menu mouse", () => {
     const action = mouseToAction(capturedEvent, state);
     expect(action).toMatchObject({ action: "open-aside-use", index: 1 });
     expect(action?.rowId).toContain(":ref:");
+    const laterCells = initialFrame.derived.storySelectionProjection!
+      .flatMap((cell, index) => cell?.text === "later answer" ? [{ cell, index }] : []);
+    const first = laterCells[0]!;
+    const last = laterCells[4]!;
+    const native = selectionReader("later", {
+      start: first.index,
+      end: last.index + 1
+    });
+    const selectedAction = selectionAwarePartMenuAction(
+      native.event as never,
+      action,
+      native.renderer as never,
+      initialFrame.derived.storySelectionProjection
+    );
+    expect(selectedAction?.selectionText).toBe("later");
 
     const captured: PresentedInteraction = {
       version: 1,
@@ -276,6 +354,11 @@ describe("Aside use-menu mouse", () => {
       state: captureMouseActionState(state)
     };
     const session = surface.sessions[surface.sessionIndex]!;
+    surface.deleteUndo = {
+      sessionId: session.id,
+      turnIndex: 0,
+      turn: session.turns[0]!
+    };
     const laterTurn = session.turns[1]!;
     surface.sessions[surface.sessionIndex] = { ...session, turns: [laterTurn] };
     state.hitRows = renderStoryScreen(state, { width, height }).derived.hitRows;
@@ -287,7 +370,7 @@ describe("Aside use-menu mouse", () => {
       state: captureMouseActionState(state)
     };
     const rebased = reconcilePresentedMouseAction({
-      action: action!,
+      action: selectedAction!,
       event: capturedEvent,
       captured,
       presented,
@@ -298,10 +381,40 @@ describe("Aside use-menu mouse", () => {
       index: 0,
       rowId: action?.rowId
     });
-    await handleOverlayAction(rebased!, state, source, overlayContext(state, width, height));
+    const sourceWithDelete = {
+      ...source,
+      api: {
+        ...source.api,
+        deleteAsideTurn: async () => ({
+          schemaVersion: 2 as const,
+          id: "session-1",
+          title: "session",
+          anchor: null,
+          turns: [{ q: "later", a: "later answer" }]
+        })
+      }
+    };
+    const context = overlayContext(state, width, height);
+    await handleOverlayAction(rebased!, state, sourceWithDelete, context);
     expect(surface.useMenu?.noteIndex).toBe(0);
-    expect(surface.useMenu?.selectionText).toBe(undefined);
+    expect(surface.useMenu?.selectionText).toBe("later");
     expect(surface.sessions[surface.sessionIndex]?.turns[0]?.a).toBe("later answer");
+    const menuFrame = renderStoryScreen(state, { width, height });
+    const highlightedText = menuFrame.lines.flatMap((line) => line)
+      .filter((part) => part.role === "background" && part.background === "focus / accent")
+      .map((part) => part.text)
+      .join("");
+    expect(highlightedText).toContain("later");
+
+    await handleOverlayAction({ action: "focus-index", index: 0 }, state, sourceWithDelete, context);
+    await context.backend.settle();
+    expect(surface.sessions[surface.sessionIndex]?.turns[0]).not.toBe(laterTurn);
+    const settledFrame = renderStoryScreen(state, { width, height });
+    const settledHighlight = settledFrame.lines.flatMap((line) => line)
+      .filter((part) => part.role === "background" && part.background === "focus / accent")
+      .map((part) => part.text)
+      .join("");
+    expect(settledHighlight).toContain("later");
   });
 
   test("v2 id-less answer click drops when its turn object is replaced", () => {
