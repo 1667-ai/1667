@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.3-rc.6",
+    date: "2026-08-26",
+    body: "- **Aside mouse actions keep their exact target.** Right-clicking selected\n  text preserves the selection, active turn, focus, and scroll position. Each\n  Use Selection, Use Answer, and visible session hop item works with one\n  click, including in narrow or clipped layouts. A failed delete preserves\n  its target and error for retry. Existing legacy Side Notes remain available."
+  },
+  {
     version: "0.10.3-rc.5",
     date: "2026-08-26",
     body: "- **Aside text selection works across the full chat width.** Questions and\n  answers use distinct `You` and `Assistant` labels, and question rows keep a\n  stronger visual treatment without adding a selection-breaking side pane.\n  Copying across both roles keeps the complete exchange.\n- **Destructive shortcuts use capital `D` consistently.** Aside turns, Facts,\n  chapter breaks, tags, Sampling entries, and Generation Profiles require a\n  confirmation before deletion. A different action cancels the confirmation.\n  Lowercase `d` is non-destructive."

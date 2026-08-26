@@ -5,6 +5,14 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.3-rc.6 - 2026-08-26
+
+- **Aside mouse actions keep their exact target.** Right-clicking selected
+  text preserves the selection, active turn, focus, and scroll position. Each
+  Use Selection, Use Answer, and visible session hop item works with one
+  click, including in narrow or clipped layouts. A failed delete preserves
+  its target and error for retry. Existing legacy Side Notes remain available.
+
 ## 0.10.3-rc.5 - 2026-08-26
 
 - **Aside text selection works across the full chat width.** Questions and
