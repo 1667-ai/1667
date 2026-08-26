@@ -210,8 +210,8 @@ function renderChapterDivider(
   const gutter = focused ? [segment("▸ chapter", "focus / accent")] : [];
   const lines: FrameLine[] = [prefixLine(narrow, gutter, [segment(centeredRule(label, measure), "chrome")])];
   if (focused) lines.push(prefixLine(narrow, [], armed
-    ? [actionHint("d confirms remove", "prune", "danger text"), segment(" · ", "danger text"), actionHint("esc keeps", "cancel", "danger text")]
-    : [actionHint("e rename", "edit"), segment(" · ", "chrome"), actionHint("d remove", "prune"),
+    ? [actionHint("D confirms remove", "prune", "danger text"), segment(" · ", "danger text"), actionHint("esc keeps", "cancel", "danger text")]
+    : [actionHint("e rename", "edit"), segment(" · ", "chrome"), actionHint("D remove", "prune"),
       segment(" · ", "chrome"), actionHint("r summarize chapter above", "regenerate")]));
   return lines;
 }

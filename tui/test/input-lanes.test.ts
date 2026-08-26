@@ -358,9 +358,9 @@ describe("responsive input lanes", () => {
     const { state, press } = harness(source);
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");
 
-    await press(key("d"));
+    await press(key("D"));
     const plan = state.prune;
-    const pending = press(key("d"));
+    const pending = press(key("D"));
     await entered.promise;
     await press(key("x"));
     expect(state.prune).toBe(plan);
@@ -412,8 +412,8 @@ describe("responsive input lanes", () => {
     const { state, press } = harness(source);
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p13");
 
-    await press(key("d"));
-    const pending = press(key("d"));
+    await press(key("D"));
+    const pending = press(key("D"));
     await entered.promise;
     await press(key("escape", "\u001b"));
     await press(key("t"));
@@ -445,7 +445,8 @@ describe("responsive input lanes", () => {
     expect(prompt.existing).toBeTrue();
     expect(prompt.choosingStatus).toBeTrue();
 
-    const pending = press(key("d"));
+    await press(key("D"));
+    const pending = press(key("D"));
     await entered.promise;
     const submittedStatusIndex = prompt.statusIndex;
     await press(key("right"));

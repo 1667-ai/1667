@@ -541,7 +541,7 @@ function renderMapTag(
     raisedSegment(`‹ ${selected} ›`, prompt.choosingStatus ? "focus / accent" : "prose · dim")
   ]];
   const footer = prompt.choosingStatus
-    ? `←→ status · enter save · esc cancel${prompt.existing ? " · d delete" : ""}`
+    ? `←→ status · enter save · esc cancel${prompt.existing ? prompt.deleteArmed ? " · D confirms · esc keeps" : " · D delete" : ""}`
     : "enter choose status · esc cancel";
   return placePanel(dimPage(base), "tag line", content, footer, width, height, 64, {
     rows: hitRows,
@@ -559,7 +559,7 @@ function renderPageComposer(state: StoryScreenState, view: StoryViewModel, width
     const promptHint = state.toast !== null
       ? state.toast
       : state.tag.choosingStatus
-        ? `status ‹ ${selected} › · ←→ picks · enter saves · esc cancels${state.tag.existing ? " · d deletes" : ""}`
+        ? `status ‹ ${selected} › · ←→ picks · enter saves · esc cancels${state.tag.existing ? state.tag.deleteArmed ? " · D confirms · esc keeps" : " · D deletes" : ""}`
         : "enter chooses status · esc cancels";
     return { lines: [
       rule,
@@ -684,7 +684,7 @@ function navHintItems(state: StoryScreenState, view: StoryViewModel): HintItem[]
   if (row?.kind === "chapter-divider") {
     return [
       hintItem([actionHint("e renames", "edit")]),
-      hintItem([actionHint("d removes", "prune")]),
+      hintItem([actionHint("D removes", "prune")]),
       hintItem([actionHint("r summarizes above", "regenerate")], 1),
       hintItem([actionHint("c chapters", "open-chapters")], 2)
     ];

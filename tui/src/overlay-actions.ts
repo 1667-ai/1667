@@ -213,6 +213,7 @@ export async function handleOverlayAction(
     state.commands = {
       query: "",
       view: "commands",
+      deleteArmedTagNodeId: null,
       returnMode: state.mode === "COMPOSE" ? "COMPOSE" : "NAV",
       selection,
       ...retainCommandSelection(liveCommandMatches(
@@ -405,6 +406,12 @@ async function factsAction(
     ? boundedFactCursor(resolved.index, rows.length)
     : overlay.cursor;
   const selected = rows[selectedIndex];
+  if (overlay.deleteArmedId !== null
+    && resolved.action !== "delete-item"
+    && resolved.action !== "cancel") {
+    overlay.deleteArmedId = null;
+    state.toast = null;
+  }
   if (resolved.action === "cancel") {
     if (overlay.deleteArmedId !== null) overlay.deleteArmedId = null;
     else if (overlay.filtering) overlay.filtering = false;
@@ -426,7 +433,7 @@ async function factsAction(
   }
   else if (resolved.action === "open-selected" && overlay.filtering) overlay.filtering = false;
   else if (resolved.action === "delete-item" && selected !== undefined) {
-    if (overlay.deleteArmedId !== selected.id) { overlay.deleteArmedId = selected.id; state.toast = "delete this fact? · d confirms · esc keeps"; }
+    if (overlay.deleteArmedId !== selected.id) { overlay.deleteArmedId = selected.id; state.toast = "delete this fact? · D confirms · esc keeps"; }
     else {
       await context.backend.run("deleting fact", async (task) => {
         const payload = await source.api.deleteFact(task.storyId, selected.id);
@@ -487,29 +494,51 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
   const overlay = state.commands!;
   if (overlay.view === "tags") {
     if (resolved.action === "cancel") {
+      if (overlay.deleteArmedTagNodeId != null) {
+        overlay.deleteArmedTagNodeId = null;
+        state.toast = "tag kept";
+        return true;
+      }
       overlay.view = "commands";
       Object.assign(overlay, retainCommandSelection(
         liveCommandMatches(
           state, overlay.query, undefined, context.asideEntryPointsOpen
         ), overlay.selectedId, overlay.cursor
       ));
+      return true;
     }
-    else if (resolved.action === "focus-next") overlay.cursor = Math.max(0,
-      Math.min(state.payload.tags.length - 1, overlay.cursor + 1));
-    else if (resolved.action === "focus-index") overlay.cursor = Math.max(0, Math.min(state.payload.tags.length - 1, resolved.index ?? overlay.cursor));
-    else if (resolved.action === "focus-previous") overlay.cursor = Math.max(0, overlay.cursor - 1);
-    else if (resolved.action === "delete-item") {
+    if (resolved.action !== "delete-item" && overlay.deleteArmedTagNodeId != null) {
+      overlay.deleteArmedTagNodeId = null;
+      state.toast = null;
+    }
+    if (resolved.action === "focus-next") overlay.cursor = Math.max(
+      0,
+      Math.min(state.payload.tags.length - 1, overlay.cursor + 1)
+    );
+    else if (resolved.action === "focus-index") {
+      overlay.cursor = Math.max(
+        0,
+        Math.min(state.payload.tags.length - 1, resolved.index ?? overlay.cursor)
+      );
+    } else if (resolved.action === "focus-previous") {
+      overlay.cursor = Math.max(0, overlay.cursor - 1);
+    } else if (resolved.action === "delete-item") {
       const tag = state.payload.tags[overlay.cursor];
-      if (tag !== undefined) {
-        await context.backend.run("deleting tag", async (task) => {
-          const payload = await source.api.deleteBookmark(task.storyId, tag.nodeId);
-          if (!task.storyCurrent()) return;
-          adoptSameStoryPayload(state, payload, context.cache);
-          if (state.commands === overlay && overlay.view === "tags") {
-            state.toast = "tag deleted";
-          }
-        });
+      if (tag === undefined) return true;
+      if (overlay.deleteArmedTagNodeId !== tag.nodeId) {
+        overlay.deleteArmedTagNodeId = tag.nodeId;
+        state.toast = "delete this tag? · D confirms · esc keeps";
+        return true;
       }
+      await context.backend.run("deleting tag", async (task) => {
+        const payload = await source.api.deleteBookmark(task.storyId, tag.nodeId);
+        if (!task.storyCurrent()) return;
+        adoptSameStoryPayload(state, payload, context.cache);
+        if (state.commands === overlay && overlay.view === "tags") {
+          overlay.deleteArmedTagNodeId = null;
+          state.toast = "tag deleted";
+        }
+      });
     }
     return true;
   }

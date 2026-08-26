@@ -1268,15 +1268,15 @@ describe("honest next-request context meter", () => {
       ]
     };
     const expected = new Map([
-      [80, " PRUNE   ⚑ canon-storm, ~ a-very-long-tag-name · ¶ 13 … · d confirms · esc keeps"],
-      [100, " PRUNE   ⚑ canon-storm, ~ a-very-long-tag-name · ¶ 13 take 3/5 → 123 parts… · d confirms · esc keeps"]
+      [80, " PRUNE   ⚑ canon-storm, ~ a-very-long-tag-name · ¶ 13 … · D confirms · esc keeps"],
+      [100, " PRUNE   ⚑ canon-storm, ~ a-very-long-tag-name · ¶ 13 take 3/5 → 123 parts… · D confirms · esc keeps"]
     ]);
 
     for (const [width, text] of expected) {
       const status = plainLine(renderStoryScreen(state, { width, height: 24 }).lines.at(-1)!);
       expect(visibleWidth(status)).toBe(width);
       expect(status.trimEnd()).toBe(text);
-      expect(status.trimEnd().endsWith("d confirms · esc keeps")).toBeTrue();
+      expect(status.trimEnd().endsWith("D confirms · esc keeps")).toBeTrue();
     }
   });
 

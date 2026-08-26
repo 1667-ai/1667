@@ -38,7 +38,7 @@ export const FACTS_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
   { token: "tab", action: "cycle" }, { token: "↵", action: "edit" },
   { token: "/ filter", action: "filter" }, { token: "e edit", action: "edit" },
-  { token: "n new", action: "new-item" }, { token: "d", action: "delete-item" },
+  { token: "n new", action: "new-item" }, { token: "D", action: "delete-item" },
   { token: "esc", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 
@@ -148,11 +148,11 @@ export function renderFactsPanel(
     ? "↵ done · esc done"
     : overlay.deleteArmedId === null
       ? width < 100
-        ? "↑↓ · tab · ↵ edit · / filter · e edit · n new · d delete · esc"
-        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · d delete · esc"
+        ? "↑↓ · tab · ↵ edit · / filter · e edit · n new · D delete · esc"
+        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · D delete · esc"
       : width < 100
-        ? "↑↓ · tab · ↵ · / filter · e edit · n new · d confirms · esc keeps"
-        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · d confirms · esc keeps";
+        ? "↑↓ · tab · ↵ · / filter · e edit · n new · D confirms · esc keeps"
+        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · D confirms · esc keeps";
   const activationCount = keyedFacts.length === 0
     ? ""
     : ` · ${activeKeyedCount}/${keyedFacts.length} keyed`;

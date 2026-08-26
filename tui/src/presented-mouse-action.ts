@@ -377,7 +377,7 @@ function selectedListIdentity(state: MouseActionState): string | null {
   }
   if (state.commands !== null) {
     // The tags view keeps the id of the command that opened it, so it
-    // says nothing about which tag the cursor is on — and `d` deletes
+    // says nothing about which tag the cursor is on — and `D` deletes
     // whichever that is.
     if (state.commands.view === "tags") {
       const tag = state.payload.tags[state.commands.cursor];

@@ -245,7 +245,9 @@ describe("Sampling Settings user flow", () => {
     await press(key("return"));
     setSamplingEdit(state, "START");
     await press(key("return"));
-    await press(key("d"));
+    await press(key("D"));
+    expect(state.settings?.draft.sampling.stop).toEqual(["START", "END"]);
+    await press(key("D"));
     expect(state.settings?.draft.sampling.stop).toEqual(["END"]);
   });
 
@@ -973,7 +975,9 @@ describe("Sampling Settings user flow", () => {
     await press(key("return"));
     expect(state.settings?.draft.sampling.dryBreakers).toEqual([":", "\n"]);
 
-    await press(key("d"));
+    await press(key("D"));
+    expect(state.settings?.draft.sampling.dryBreakers).toEqual([":", "\n"]);
+    await press(key("D"));
     expect(state.settings?.draft.sampling.dryBreakers).toEqual(["\n"]);
   });
 

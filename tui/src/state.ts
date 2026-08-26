@@ -131,6 +131,8 @@ export interface TagPrompt {
   statusIndex: number;
   choosingStatus: boolean;
   existing: boolean;
+  /** Omitted predecessor/test states are unarmed. */
+  deleteArmed?: boolean;
   returnMode: "NAV" | "MAP";
 }
 
@@ -193,6 +195,8 @@ export interface CommandsOverlayState {
   /** Stable identity across live Suggested-section reordering. */
   selectedId: CommandSelectionId | null;
   view: "commands" | "tags";
+  /** Omitted predecessor/test states are unarmed. */
+  deleteArmedTagNodeId?: string | null;
   /** Surface that owns the composer while the palette is open. */
   returnMode: "NAV" | "COMPOSE";
   /** Story selection captured at open time — the NAV projection it reads
@@ -294,6 +298,8 @@ export interface SamplingOverlayState {
   logitBiasOrder: string[];
   edit: SamplingInlineEditState | null;
   result: string | null;
+  /** Omitted predecessor/test states are unarmed. */
+  deleteArmedRowId?: string | null;
   biasResolution: SamplingBiasResolutionState;
   /** Bumped by every resolveSamplingBias call (tui/src/sampling-bias-
    * resolution.ts) and captured by the request it starts — `pending` is set

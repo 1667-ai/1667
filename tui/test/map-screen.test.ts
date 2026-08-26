@@ -545,7 +545,7 @@ describe("full-bleed map screen", () => {
       const status = frame.lines.at(-1)!;
       expect(status[0]).toMatchObject({ text: " PRUNE ", background: "danger", bold: true });
       expect(plainLine(status)).toContain("¶ 13 take 3/5");
-      expect(plainLine(status)).toContain("d confirms · esc keeps");
+      expect(plainLine(status)).toContain("D confirms · esc keeps");
       expect(plainLine(status)).not.toContain("m tree");
     }
   });

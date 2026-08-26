@@ -45,6 +45,37 @@ test("a part menu captures and preserves the active OpenTUI selection", () => {
   expect(clearCount).toBe(1);
 });
 
+test("a mixed native-and-semantic selection keeps its complete native text", () => {
+  const event = rightClick();
+  const source = "answer";
+  const projection = Object.assign<StorySelectionProjection, {
+    nativeContent: ReadonlySet<number>;
+  }>([
+    null,
+    ...[...source].map((_, index) => ({
+      key: "aside-answer:1", text: source, start: index, end: index + 1
+    }))
+  ], { nativeContent: new Set([0]) });
+  const resolved = selectionAwarePartMenuAction(
+    event,
+    { action: "open-aside-use", index: 0 },
+    {
+      getSelection: () => ({
+        getSelectedText: () => "question\nAssistant answer",
+        selectedRenderables: [{ getSelection: () => ({ start: 0, end: source.length + 1 }) }]
+      }) as never,
+      clearSelection: () => undefined
+    },
+    projection
+  );
+
+  expect(resolved).toEqual({
+    action: "open-aside-use",
+    index: 0,
+    selectionText: "question\nAssistant answer"
+  });
+});
+
 test("ordinary part menus keep their whole-part copy fallback", () => {
   const event = rightClick();
   const resolved = selectionAwarePartMenuAction(

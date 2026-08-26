@@ -12,6 +12,7 @@ import {
   SAMPLING_SCALAR_PRESENTATION,
   samplingListRows,
   samplingScalarRows,
+  samplingSelectedRowIdentity,
   setSamplingScalar
 } from "./sampling-model.js";
 import { samplingListPanelSpec } from "./sampling-panel-spec.js";
@@ -32,7 +33,10 @@ export async function samplingOverlayAction(
   const nested = settings.sampling;
 
   if (resolved.action === "cancel") {
-    if (nested.edit !== null) {
+    if (nested.deleteArmedRowId != null) {
+      nested.deleteArmedRowId = null;
+      nested.result = "list item kept";
+    } else if (nested.edit !== null) {
       nested.edit = null;
       nested.cursor = boundedSamplingCursor(settings, nested.panel, nested.cursor);
       nested.result = "edit cancelled · draft kept";
@@ -45,6 +49,10 @@ export async function samplingOverlayAction(
       state.toast = "sampling closed · draft kept";
     }
     return;
+  }
+  if (nested.deleteArmedRowId != null && resolved.action !== "delete-item") {
+    nested.deleteArmedRowId = null;
+    nested.result = null;
   }
   if (resolved.action === "paste-clipboard") {
     await pasteSamplingEdit(state);
@@ -74,6 +82,17 @@ export async function samplingOverlayAction(
   }
   if (resolved.action === "delete-item") {
     if (nested.panel === "sampling") return;
+    const rowId = samplingSelectedRowIdentity(settings);
+    if (rowId === null) {
+      nested.result = "no list item is selected";
+      return;
+    }
+    if (nested.deleteArmedRowId !== rowId) {
+      nested.deleteArmedRowId = rowId;
+      nested.result = "delete this list item? · D confirms · esc keeps";
+      return;
+    }
+    nested.deleteArmedRowId = null;
     if (!samplingListPanelSpec(nested.panel).remove(settings, nested.cursor)) {
       nested.result = "no list item is selected";
     } else {
