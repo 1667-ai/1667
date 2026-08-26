@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.3-rc.4",
+    date: "2026-08-26",
+    body: "- **Aside keeps selected text and turn context visible.** Highlighted answer\n  text stays highlighted while the Use selection menu is open, including\n  during a saved turn update. Up and Down navigation shows the selected\n  question from its first line and keeps as much answer visible as the screen\n  permits."
+  },
+  {
     version: "0.10.3-rc.3",
     date: "2026-08-26",
     body: "- **Aside shows selected turns and status clearly.** Wrapped lines in the\n  selected question keep their highlight. The writing and thinking labels\n  animate. Anchored sessions show the correct part and take after reads and\n  updates."
