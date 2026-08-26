@@ -45,6 +45,7 @@ type AsideContext = {
   readonly cache?: WrapCache<ProseStyle>;
   readonly repaint?: () => void;
   readonly renderer?: { readonly width: number; readonly height: number } | null;
+  readonly toast?: string | null;
 };
 
 function revealFocusedTurn(
@@ -57,7 +58,7 @@ function revealFocusedTurn(
   revealAsideFocusedNote(
     surface,
     width,
-    asideBodyHeight(surface, width, height, composerRows)
+    asideBodyHeight(surface, width, height, composerRows, context.toast)
   );
 }
 
@@ -446,7 +447,13 @@ export async function asideV2KeyAction(
     }
     return changed;
   }
-  if (surface.busy && resolved.action !== "cancel") return true;
+  const displayScroll = resolved.action === "scroll-line-down"
+    || resolved.action === "scroll-line-up"
+    || resolved.action === "scroll-down"
+    || resolved.action === "scroll-up";
+  // Streaming owns editing and navigation, but scrolling only changes the
+  // displayed history window and remains safe while the answer grows.
+  if (surface.busy && resolved.action !== "cancel" && !displayScroll) return true;
   if (resolved.action === "aside-session-next") return cycleAsideSession(surface, 1);
   if (resolved.action === "aside-session-previous") return cycleAsideSession(surface, -1);
   if (resolved.action === "aside-new-session") return newAsideSession(surface);

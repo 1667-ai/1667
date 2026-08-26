@@ -542,8 +542,6 @@ describe("Aside v2 surface", () => {
     await press("x");
     expect(currentAsideTurns(surface)).toEqual([{ q: "A?", a: "A." }]);
     await press("escape");
-    expect(surface.focus).toBe("composer");
-    await press("escape");
     expect(state.aside).toBeNull();
     await Promise.resolve();
     rejectDelete(new Error("delete failed"));
@@ -885,7 +883,7 @@ describe("Aside v2 surface", () => {
     expect(currentAsideTurns(surface)).toEqual([]);
   });
 
-  test("Esc returns from turns to the composer before closing and keeps its draft", async () => {
+  test("Esc exits Aside from turns while Tab returns to the composer", async () => {
     const { source, state, surface } = surfaceWithTurns([{ q: "Why?", a: "Because." }]);
     surface.focus = "composer";
     surface.composer.text = "unsent draft";
@@ -904,9 +902,11 @@ describe("Aside v2 surface", () => {
 
     await press("tab");
     expect(surface.focus).toBe("notes");
-    await press("escape");
+    await press("tab");
     expect(surface.focus).toBe("composer");
     expect(surface.composer.text).toBe("unsent draft");
+    await press("tab");
+    expect(surface.focus).toBe("notes");
     await press("escape");
     expect(state.mode).toBe("NAV");
     expect(state.aside).toBeNull();
@@ -1860,7 +1860,7 @@ describe("Aside v2 surface", () => {
     const { state, surface } = surfaceWithTurns([{ q: "Why?", a: "Because." }]);
     const text = frameText(renderAsideScreen(state, surface, 80, 24).lines);
     expect(text).toContain("↑↓ turn · ←→ session · n new · ↵ use · r retake · x delete");
-    expect(text).toContain("t Thoughts · tab ask · [ ] hop · g go · esc read");
+    expect(text).toContain("t Thoughts · tab ask · [ ] hop · g go · esc exit");
   });
 
   test("composer keyline does not advertise hop keys", () => {

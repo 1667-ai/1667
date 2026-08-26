@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Aside keeps long chats readable and selectable.** Wrapped questions keep
+  their question style. Scroll history without changing the selected turn,
+  including while an answer streams. Highlight saved answer text and
+  right-click to copy it or insert it into the composer, a new Fact, or the
+  story. The full-answer menu can also create a new Fact. Large Aside
+  histories stay responsive. Existing Side Notes remain available.
+
 ## 0.10.3-rc.1 - 2026-08-26
 
 - **The tree map draws the whole story in lanes.** Rows are reading order. Each live story

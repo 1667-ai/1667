@@ -45,6 +45,10 @@ export type HitTarget =
       composerEditable?: boolean;
     }
   /** Page behind an open panel: a click there dismisses the panel. */
+  /** A saved Aside answer row. Right-click uses the terminal selection when
+   * one exists, while the row identity supplies the answer's Placement
+   * anchor. */
+  | { kind: "aside-answer"; noteIndex: number; rowId: string }
   | { kind: "scrim" }
   /** Panel chrome — titles, headers, rules: visible but not actionable. */
   | { kind: "panel" };

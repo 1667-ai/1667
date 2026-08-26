@@ -117,9 +117,10 @@ describe("Aside use menu and Placement", () => {
     expect(menuFrame).toContain("use answer ·");
     expect(menuFrame).toContain("insert into compose");
     expect(menuFrame).toContain("insert into story…");
-    expect(menuFrame).toContain("insert at the composer cur");
+    expect(menuFrame).toContain("insert at the composer");
+    expect(menuFrame).toContain("cursor");
     expect(menuFrame).toContain("select a position");
-    expect(menuFrame).not.toContain("new fact");
+    expect(menuFrame).toContain("insert as new Fact");
     expect(menuFrame).not.toContain("delete note");
     expect(menuFrame).not.toContain("author's note");
 

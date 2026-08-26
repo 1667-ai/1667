@@ -343,6 +343,14 @@ export function mouseToAction(
   if (state.mode === "COMPOSE" && event.button === 2) return null;
 
   if (target.kind === "scrim") return { action: "cancel" };
+  if (target.kind === "aside-answer" && state.mode === "ASIDE" && event.button === 2
+    && state.aside?.useMenu === null) {
+    return {
+      action: "open-aside-use",
+      index: target.noteIndex,
+      rowId: target.rowId
+    };
+  }
   if (target.kind === "settings-row" && event.button === 0) {
     return {
       action: "open-settings",

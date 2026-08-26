@@ -65,7 +65,7 @@ export type KeyAction =
   | "aside-session-next" | "aside-session-previous" | "aside-anchor-next" | "aside-anchor-previous"
   | "aside-go-anchor" | "aside-undo-delete"
   | "filter" | "cycle" | "check" | "detect-context" | "discard-pending" | "retry" | "continue"
-  | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index"
+  | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index" | "open-aside-use"
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
   | "toggle-context-meter" | "open-search" | "toggle-search-case" | "open-request"
   | "complete" | "open-log" | "clear-log" | "row-action"

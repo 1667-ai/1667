@@ -17,6 +17,8 @@ import {
   normalizeAsideAnchor,
   createAsideSurface,
   type AsideSessionAnchor,
+  type AsideSessionSurfaceState,
+  type AsideAnswerSource,
   type AsideSurfaceState
 } from "./aside-surface.js";
 import {
@@ -59,6 +61,8 @@ export interface AsideHistoryLayout {
   rowTurnIndex: readonly (number | null)[];
   /** Semantic v2 row ownership; prevents answer text from being parsed as chrome. */
   rowKinds: readonly AsideChatRowKind[];
+  /** Source ranges for saved answer rows; null for every other row. */
+  rowAnswerSources: readonly (AsideAnswerSource | null)[];
 }
 
 type AsideWrapCache = WrapCache<ProseStyle>;
@@ -84,10 +88,24 @@ function dimension(value: number, fallback: number): number {
   return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : fallback;
 }
 
-function wrappedRows(text: string, width: number, prefix = ""): string[] {
+interface WrappedAsideRow {
+  text: string;
+  start: number;
+  end: number;
+}
+
+function wrappedRowsWithOffsets(text: string, width: number, prefix = ""): WrappedAsideRow[] {
   const prefixWidth = prefix.length;
   const wrapped = wrapText(text, [], Math.max(1, width - prefixWidth));
-  return wrapped.map((line, index) => `${index === 0 ? prefix : " ".repeat(prefixWidth)}${line.text}`);
+  return wrapped.map((line, index) => ({
+    text: `${index === 0 ? prefix : " ".repeat(prefixWidth)}${line.text}`,
+    start: line.start,
+    end: line.end
+  }));
+}
+
+function wrappedRows(text: string, width: number, prefix = ""): string[] {
+  return wrappedRowsWithOffsets(text, width, prefix).map((line) => line.text);
 }
 
 function legacyAsideNotes(value: unknown): { question: string; answer: string }[] {
@@ -210,12 +228,16 @@ export function asideHistoryLayout(surface: AsideSurfaceState, cols: number, now
   const noteStarts: number[] = [];
   const noteContentEnds: number[] = [];
   const rowNoteIndex: (number | null)[] = [];
+  const rowKinds: AsideChatRowKind[] = [];
+  const rowAnswerSources: (AsideAnswerSource | null)[] = [];
   const notes = asideNotes(surface);
   if (notes.length === 0
     && presentedAsideText(surface).length === 0
     && surface.inflightQuestion === null) {
     body.push("(no Side Notes yet)");
     rowNoteIndex.push(null);
+    rowKinds.push("plain");
+    rowAnswerSources.push(null);
   }
   // Focus-neutral prefixes: wrap never depends on which note is selected.
   // The visible window decorates the first on-screen row of the focused note.
@@ -226,16 +248,32 @@ export function asideHistoryLayout(surface: AsideSurfaceState, cols: number, now
     noteStarts.push(body.length);
     const questionRows = wrappedRows(note.question, width, questionPrefix);
     body.push(...questionRows);
-    for (let row = 0; row < questionRows.length; row += 1) rowNoteIndex.push(index);
+    for (let row = 0; row < questionRows.length; row += 1) {
+      rowNoteIndex.push(index);
+      rowKinds.push("question");
+      rowAnswerSources.push(null);
+    }
+    let answerOffset = 0;
     for (const paragraph of note.answer.split("\n")) {
-      const answerRows = wrappedRows(paragraph, width, answerPrefix);
-      body.push(...answerRows);
-      for (let row = 0; row < answerRows.length; row += 1) rowNoteIndex.push(index);
+      const answerRows = wrappedRowsWithOffsets(paragraph, width, answerPrefix);
+      body.push(...answerRows.map((row) => row.text));
+      for (const row of answerRows) {
+        rowNoteIndex.push(index);
+        rowKinds.push("answer");
+        rowAnswerSources.push({
+          key: `aside-answer:legacy:${index}`,
+          text: note.answer,
+          start: answerOffset + row.start
+        });
+      }
+      answerOffset += paragraph.length + 1;
     }
     noteContentEnds.push(body.length);
     // Separator blank is not note content for visibility / focus.
     body.push("");
     rowNoteIndex.push(null);
+    rowKinds.push("plain");
+    rowAnswerSources.push(null);
   }
   const streamText = presentedAsideText(surface);
   if (surface.inflightQuestion !== null || streamText.length > 0) {
@@ -243,8 +281,15 @@ export function asideHistoryLayout(surface: AsideSurfaceState, cols: number, now
     const inflightQ = wrappedRows(surface.inflightQuestion ?? "", width, questionPrefix);
     const inflightA = wrappedRows(streamText, width, answerPrefix);
     body.push(...inflightQ, ...inflightA);
-    for (let row = 0; row < inflightQ.length + inflightA.length; row += 1) {
+    for (let row = 0; row < inflightQ.length; row += 1) {
       rowNoteIndex.push(null);
+      rowKinds.push("question");
+      rowAnswerSources.push(null);
+    }
+    for (let row = 0; row < inflightA.length; row += 1) {
+      rowNoteIndex.push(null);
+      rowKinds.push("answer");
+      rowAnswerSources.push(null);
     }
   }
   return {
@@ -256,7 +301,8 @@ export function asideHistoryLayout(surface: AsideSurfaceState, cols: number, now
     turnStarts: [],
     turnContentEnds: [],
     rowTurnIndex: [],
-    rowKinds: body.map(() => "plain")
+    rowKinds,
+    rowAnswerSources
   };
 }
 
@@ -332,9 +378,9 @@ export function asideFooterHint(surface: AsideSurfaceState): string {
         ? "⌫ reset here" : "r retake";
       const hops = surface.anchors.length > 1
         ? " · [ ] hop asides · g go to this take" : "";
-      return `↑↓ turn · ←→ session · n new · ↵ use · ${reset} · x delete · t Thoughts · tab ask · esc read${hops}`;
+      return `↑↓ turn · ←→ session · n new · ↵ use · ${reset} · x delete · t Thoughts · tab ask · esc exit${hops}`;
     }
-    return "↵ ask · ⇧↵ newline · tab turns · esc read";
+    return "↵ ask · ⇧↵ newline · tab turns · esc exit";
   }
   if (surface.confirmClear) return "Clear all Side Notes? Enter confirms · Esc cancels";
   if (surface.busy && surface.inflightQuestion === null) return "Clearing…";
@@ -348,6 +394,18 @@ export function asideFooterHint(surface: AsideSurfaceState): string {
   // Keep both escape and Clear visible before optional navigation hints.
   const notesHint = asideNotes(surface).length > 0 ? " · Tab notes" : "";
   return `Esc write · /clear clear · Enter ask · Shift+Enter newline${notesHint} · PageUp/PageDown scroll`;
+}
+
+/** Number of standalone v2 footer rows painted below the history. */
+export function asideV2FooterHeight(
+  surface: AsideSessionSurfaceState,
+  cols: number,
+  toast?: string | null
+): number {
+  const turnsFocus = surface.focus === "turns" || surface.focus === "notes";
+  if (!turnsFocus && !surface.busy) return 0;
+  if (turnsFocus && toast !== undefined && toast !== null && toast.length > 0) return 1;
+  return cols >= 100 || surface.busy || surface.confirmReset !== null ? 1 : 2;
 }
 
 function asideFooterRows(surface: AsideSurfaceState, cols: number): string[] {
@@ -380,17 +438,20 @@ export function asideHistoryWindow(
 export interface AsideHistoryWindowWithKinds {
   lines: string[];
   rowKinds: readonly AsideChatRowKind[];
+  /** First layout-body row shown in `lines`. */
+  start: number;
 }
 
 export function asideHistoryWindowWithKinds(
   surface: AsideSurfaceState,
   cols: number,
   bodyRows: number,
-  now?: number
+  now?: number,
+  suppliedLayout?: AsideHistoryLayout
 ): AsideHistoryWindowWithKinds {
-  const layout = asideHistoryLayout(surface, cols, now);
+  const layout = suppliedLayout ?? asideHistoryLayout(surface, cols, now);
   const height = Math.max(0, Math.floor(bodyRows));
-  if (height === 0) return { lines: [], rowKinds: [] };
+  if (height === 0) return { lines: [], rowKinds: [], start: 0 };
   const max = Math.max(0, layout.body.length - height);
   const start = surface.scrollTop === null
     ? max
@@ -427,13 +488,14 @@ export function asideHistoryWindowWithKinds(
     rowKinds: [
       ...visibleKinds,
       ...Array.from({ length: padding }, () => "plain" as const)
-    ]
+    ],
+    start
   };
 }
 
 /**
  * Swap one pad space for ▸ without reflowing wrap. Labelled rows keep Q:/A:;
- * wrap continuations keep the remaining indent (prefix-width spaces).
+ * question continuations keep their four-cell gutter.
  */
 function decorateFocusedHistoryRow(line: string): string {
   if (line.startsWith(" ")) return `▸${line.slice(1)}`;
@@ -444,12 +506,21 @@ export function asideBodyHeight(
   surface: AsideSurfaceState,
   cols: number,
   rows: number,
-  composerRows?: number
+  composerRows?: number,
+  toast?: string | null
 ): number {
   const height = dimension(rows, 24);
-  const footerHeight = composerRows === undefined
+  const defaultFooterHeight = composerRows === undefined
     ? asideFooterRows(surface, cols).length
     : Math.max(1, Math.floor(composerRows));
+  // V2 turns use a compact one-row composer, one status row, and a standalone
+  // keyline. The predecessor-sized composer budget otherwise leaves several
+  // phantom rows in the history viewport, so the first scroll keys appear to
+  // do nothing until they absorb that gap.
+  const footerHeight = isAsideV2(surface)
+    && (surface.focus === "turns" || surface.focus === "notes" || surface.busy)
+    ? 1 + asideV2FooterHeight(surface, cols, toast) + 1
+    : defaultFooterHeight;
   const headerHeight = asideHeaderWindow(surface, cols, height - footerHeight).length;
   return Math.max(1, height - headerHeight - footerHeight);
 }
@@ -460,29 +531,19 @@ export function scrollAside(
   delta: number,
   cols: number,
   rows: number,
-  composerRows?: number
+  composerRows?: number,
+  toast?: string | null
 ): void {
-  // One layout + bodyRows for this action: max scroll, cursor follow, reveal.
+  // One layout + bodyRows for this action: clamp the display-only offset.
   const layout = asideHistoryLayout(surface, cols);
-  const bodyRows = asideBodyHeight(surface, cols, rows, composerRows);
+  const bodyRows = asideBodyHeight(surface, cols, rows, composerRows, toast);
   const max = Math.max(0, layout.body.length - bodyRows);
-  const current = surface.scrollTop ?? max;
+  const current = Math.max(0, Math.min(max, surface.scrollTop ?? max));
   const next = Math.max(0, Math.min(max, current + delta));
   surface.scrollTop = next === max ? null : next;
   // Notes focus: keep the selected Side Note visible, or move selection to a
   // note that is in the new viewport for this scroll direction.
-  if (isAsideV2(surface)
-    && (surface.focus === "turns" || surface.focus === "notes")
-    && currentAsideTurns(surface).length > 0 && delta !== 0) {
-    const turns = currentAsideTurns(surface);
-    const currentTurn = surface.turnCursor;
-    const direction = delta > 0 ? 1 : -1;
-    surface.turnCursor = Math.max(0, Math.min(
-      turns.length - 1,
-      currentTurn + direction * Math.max(1, Math.abs(delta))
-    ));
-    revealAsideFocusedNoteWithLayout(surface, layout, bodyRows);
-  } else if (!isAsideV2(surface)
+  if (!isAsideV2(surface)
     && surface.focus === "notes" && surface.notes.length > 0 && delta !== 0) {
     const notes = surface.notes;
     const nextCursor = noteCursorAfterHistoryScroll(
@@ -503,6 +564,18 @@ export function scrollAside(
     }
   }
 }
+
+/** Keep an in-flight Aside ask's restore fence behind display-only scrolling.
+ *  A real editor interaction still advances the shared epoch without calling
+ *  this helper, so it remains newer than the submitted question. */
+export function noteAsideDisplayScroll(state: RuntimeState): void {
+  const active = state.abort?.kind === "generation" ? state.abort : null;
+  if (active?.askInteractionVersion !== undefined
+    && state.interactionVersion === active.askInteractionVersion + 1) {
+    active.askInteractionVersion = state.interactionVersion;
+  }
+}
+
 export async function openAside(
   state: RuntimeState,
   api: StoryApi,
@@ -708,6 +781,8 @@ export async function sendAsideQuestion(
     interactionCurrent()
     || active.stopInteractionVersion !== null
       && state.interactionVersion === active.stopInteractionVersion
+    || active.askInteractionVersion !== undefined
+      && state.interactionVersion === active.askInteractionVersion
   );
   try {
     const onDelta = (text: string) => {
@@ -772,12 +847,14 @@ export async function sendAsideQuestion(
     if (result === null) {
       // Cancelled or stopped: return the question to the input.
       const restore = mayRestore();
+      const preserveScroll = isAsideV2(surface) && surface.scrollTop !== null;
       if (restore) setComposerText(surface.composer, trimmed);
       clearAsideStream(surface);
-      if (restore) surface.scrollTop = null;
+      if (restore && !preserveScroll) surface.scrollTop = null;
       surface.busy = false;
       return;
     }
+    const preserveScroll = isAsideV2(surface) && surface.scrollTop !== null;
     applyAsideResult(surface, result);
     if (isAsideV2(surface)) {
       const turns = currentAsideTurns(surface);
@@ -787,7 +864,7 @@ export async function sendAsideQuestion(
     }
     clampAsideNoteCursor(surface);
     clearAsideStream(surface);
-    surface.scrollTop = null;
+    if (!preserveScroll) surface.scrollTop = null;
     surface.busy = false;
     // The Aside result is committed before this refresh. Keep the result
     // visible if the refresh fails; transports invalidate their optimistic
@@ -810,9 +887,10 @@ export async function sendAsideQuestion(
   } catch (error) {
     if (!current()) return;
     const restore = mayRestore();
+    const preserveScroll = isAsideV2(surface) && surface.scrollTop !== null;
     if (restore) setComposerText(surface.composer, trimmed);
     clearAsideStream(surface);
-    if (restore) surface.scrollTop = null;
+    if (restore && !preserveScroll) surface.scrollTop = null;
     surface.busy = false;
     state.toast = error instanceof Error ? error.message : String(error);
   } finally {
