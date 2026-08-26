@@ -198,6 +198,9 @@ function restoreDelete(
   turns.splice(Math.min(undo.turnIndex, turns.length), 0, undo.turn);
   setAsideSessionTurns(surface, sessionIndex, turns);
   if (owningSessionSelected) {
+    if (surface.useMenu !== null && surface.useMenu.noteIndex >= undo.turnIndex) {
+      surface.useMenu.noteIndex += 1;
+    }
     surface.sessionIndex = sessionIndex;
     surface.turnCursor = undo.turnIndex;
     surface.scrollTop = null;

@@ -16,6 +16,7 @@ import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText, plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import {
   asideUseActions,
+  asideUseRowId,
   focusAsideUseMenuIndex,
   openAsideUseMenu
 } from "../src/aside-use.js";
@@ -927,6 +928,55 @@ describe("Aside use-menu mouse", () => {
     expect(state.mode).toBe("PLACE");
     expect(state.aside).toBeNull();
     expect(state.placement?.answer).toBe("later answer");
+  });
+
+  test("delete rollback keeps a one-click Placement target on the same answer", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const surface = createAsideSurface(
+      state.payload.id,
+      state.payload.title,
+      [{
+        id: "session-1",
+        title: "session",
+        anchor: null,
+        turns: [
+          { q: "first", a: "restored first answer" },
+          { q: "later", a: "target later answer" }
+        ]
+      }],
+      null,
+      null,
+      { v2: true }
+    );
+    if (!isAsideV2(surface)) throw new Error("expected v2 Aside surface");
+    state.aside = surface;
+    state.mode = "ASIDE";
+    surface.focus = "turns";
+    surface.turnCursor = 0;
+    const sourceWithFailure = {
+      ...source,
+      api: {
+        ...source.api,
+        deleteAsideTurn: async () => { throw new Error("delete failed"); }
+      }
+    };
+    const context = overlayContext(state, 80, 24);
+    await handleOverlayAction({ action: "aside-delete" }, state, sourceWithFailure, context);
+    await handleOverlayAction({ action: "aside-delete" }, state, sourceWithFailure, context);
+    expect(openAsideUseMenu(surface, 0)).toBeTrue();
+    const sessionId = surface.useMenu!.sessionId;
+
+    await handleOverlayAction({
+      action: "apply",
+      index: 1,
+      rowId: asideUseRowId(sessionId, "insert-into-story")
+    }, state, sourceWithFailure, context);
+    await context.backend.settle();
+
+    expect(state.mode).toBe("PLACE");
+    expect(state.placement?.answer).toBe("target later answer");
+    expect(state.placement?.returnAside.useMenu?.noteIndex).toBe(1);
   });
 
   test("stale use-menu click for note A is dropped after menu reopens on note B", async () => {
