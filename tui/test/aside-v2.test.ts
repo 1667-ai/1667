@@ -149,6 +149,77 @@ describe("Aside v2 surface", () => {
     });
   });
 
+  test("hydrates the opening take position for the Aside status and header", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const view = createStoryViewModel(state.payload);
+    const openingPart = view.parts.at(-1)!;
+    state.focusIndex = rowIndexForNode(view, openingPart.id);
+    let askRequest: unknown;
+    const api = {
+      ...source.api,
+      getAsideV2: async (request: { anchor: { partId: string; takeId: string } }) => ({
+        schemaVersion: 2 as const,
+        anchor: request.anchor,
+        sessions: [{
+          id: "s1",
+          anchor: request.anchor,
+          title: "why the lantern",
+          turns: [{ q: "Why?", a: "Because." }]
+        }],
+        anchors: [{
+          ...request.anchor,
+          partNumber: openingPart.number,
+          takeIndex: openingPart.takeIndex,
+          takeCount: openingPart.siblingCount,
+          sessionCount: 1
+        }],
+        unanchoredCount: 0
+      }),
+      askAsideV2: async (request: unknown) => {
+        askRequest = request;
+        return {
+          schemaVersion: 2 as const,
+          id: "s1",
+          anchor: { partId: openingPart.id, takeId: openingPart.id },
+          title: "why the lantern",
+          turns: [
+            { q: "Why?", a: "Because." },
+            { q: "Next?", a: "Next answer." }
+          ]
+        };
+      }
+    } as unknown as StoryApi;
+
+    await openAside(state, api);
+
+    const aside = state.aside;
+    if (aside === null || !isAsideV2(aside)) {
+      throw new Error("expected an Aside session surface");
+    }
+    expect(aside.anchor).toEqual({
+      partId: openingPart.id,
+      takeId: openingPart.id,
+      partNumber: openingPart.number,
+      takeIndex: openingPart.takeIndex,
+      takeCount: openingPart.siblingCount
+    });
+    const text = frameText(renderAsideScreen(state, aside, 120, 24).lines);
+    expect(text).toContain(
+      `¶ ${openingPart.number} · take ${openingPart.takeIndex}/${openingPart.siblingCount}`
+    );
+    expect(text).not.toContain("take ?/?");
+
+    await sendAsideQuestion(state, api, "Next?");
+    expect(askRequest).toEqual({
+      storyId: state.payload.id,
+      question: "Next?",
+      anchor: { partId: openingPart.id, takeId: openingPart.id },
+      sessionId: "s1"
+    });
+    expect(frameText(renderAsideScreen(state, aside, 120, 24).lines)).not.toContain("take ?/?");
+  });
+
   test("keeps an empty unanchored canonical session in the v2 renderer", () => {
     const model = asideSessionsFromResponse({
       schemaVersion: 2,
@@ -676,15 +747,14 @@ describe("Aside v2 surface", () => {
     expect(request).toEqual({
       storyId: state.payload.id,
       question: "First?",
-      anchor: openingAnchor
+      anchor: { partId: openingAnchor.partId, takeId: openingAnchor.takeId }
     });
     expect(surface.anchors).toEqual([{
       ...openingAnchor,
       sessionCount: 1
     }]);
     expect(surface.anchor).toEqual({
-      partId: openingAnchor.partId,
-      takeId: openingAnchor.takeId
+      ...openingAnchor
     });
     expect(surface.anchorIndex).toBe(0);
   });
@@ -740,7 +810,12 @@ describe("Aside v2 surface", () => {
     expect(surface.anchors).toHaveLength(3);
     expect(surface.anchors.map((entry) => [entry.partId, entry.takeId, entry.sessionCount]))
       .toEqual(anchors.map((entry) => [entry.partId, entry.takeId, entry.sessionCount]));
-    expect(surface.anchor).toEqual(currentAnchor);
+    expect(surface.anchor).toEqual({
+      ...currentAnchor,
+      partNumber: 1,
+      takeIndex: 1,
+      takeCount: 3
+    });
 
     surface.sessions[1] = {
       ...surface.sessions[1]!,

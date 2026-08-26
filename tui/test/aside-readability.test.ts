@@ -103,6 +103,23 @@ describe("Aside readability and navigation", () => {
     expect(frame.lines.every((line) => visibleWidth(plainLine(line)) <= 32)).toBeTrue();
   });
 
+  test("fully highlights every wrapped row of the selected question", () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const question = "selected-question ".repeat(40).trim();
+    const surface = v2Surface(state, question, "answer");
+    const frame = renderAsideScreen(state, surface, 32, 80);
+    const questionRows = frame.lines.filter((line) =>
+      plainLine(line).includes("selected-question")
+    );
+
+    const continuationRows = questionRows.slice(1);
+    expect(continuationRows.length).toBeGreaterThan(0);
+    expect(continuationRows.every((line) => line.some((part) =>
+      part.text.includes("selected-question") && part.role === "prose"
+    ))).toBeTrue();
+  });
+
   test("labels the turns exit action as esc exit", () => {
     const source = demoAppSource();
     const state = initialState(source, false);
