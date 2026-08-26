@@ -9,8 +9,8 @@ import {
 } from "../src/aside-surface.js";
 import { asideHopEntries, asideHopRowId } from "../src/aside-hop.js";
 import { demoAppSource } from "../src/demo.js";
-import { initialState } from "../src/app.js";
-import { ActionRuntime } from "../src/action-runtime.js";
+import { dispatch, initialState } from "../src/app.js";
+import { ActionRuntime, withActionAdmission } from "../src/action-runtime.js";
 import { handleOverlayAction } from "../src/overlay-actions.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { mouseToAction, captureMouseActionState } from "../src/mouse-actions.js";
@@ -265,5 +265,56 @@ describe("Aside hop mouse", () => {
     expect(reads).toEqual([{ partId: "part-1", takeId: "take-1" }]);
     expect(state.mode).toBe("ASIDE");
     expect(surface.anchor).toEqual({ partId: "part-1", takeId: "take-1" });
+  });
+
+  test("a newer Escape cancels a hop waiting on delete persistence", async () => {
+    const { app, state, surface, reads, context } = setup();
+    let releaseDelete!: () => void;
+    const deleteGate = new Promise<void>((resolve) => { releaseDelete = resolve; });
+    const source = {
+      ...app,
+      api: {
+        ...app.api,
+        deleteAsideTurn: async () => {
+          await deleteGate;
+          return {
+            schemaVersion: 2 as const,
+            id: "session-current",
+            title: "current",
+            anchor: CURRENT,
+            turns: []
+          };
+        }
+      }
+    };
+    await handleOverlayAction({ action: "aside-delete" }, state, source, context);
+    await handleOverlayAction({ action: "aside-delete" }, state, source, context);
+    const target = asideHopEntries(ANCHORS, CURRENT).find((entry) =>
+      entry.anchor.partId === "part-1");
+    if (target === undefined) throw new Error("missing target hop");
+    const action = mouseToAction(clickForHop(state, asideHopRowId(target)), state);
+    let admit!: () => void;
+    const admitted = new Promise<void>((resolve) => { admit = resolve; });
+    const pending = dispatch(
+      action!, state, source, context.cache, () => undefined,
+      async () => undefined, () => undefined, null,
+      () => undefined, () => undefined,
+      withActionAdmission(context.backend, admit)
+    );
+    await admitted;
+
+    await dispatch(
+      { action: "cancel" }, state, source, context.cache, () => undefined,
+      async () => undefined, () => undefined, null,
+      () => undefined, () => undefined, context.backend
+    );
+    expect(state.mode).toBe("NAV");
+    releaseDelete();
+    await pending;
+    await context.backend.settle();
+
+    expect(state.aside).toBeNull();
+    expect(reads).toEqual([]);
+    expect(surface.anchor).toEqual(CURRENT);
   });
 });

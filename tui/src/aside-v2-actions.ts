@@ -494,6 +494,8 @@ export async function asideV2KeyAction(
     return true;
   }
   const deleteCommitNeedsAwait = resolvedActionNeedsBackend(resolved, surface);
+  const delayedInteractionVersion = state.interactionVersion;
+  const delayedMenuSessionId = surface.useMenu?.sessionId;
   let deleteCommit: Promise<boolean> | null = null;
   if (surface.deleteUndo !== null && state.backendTask === null) {
     const undo = surface.deleteUndo;
@@ -509,6 +511,10 @@ export async function asideV2KeyAction(
     // `observe` keeps the existing toast/error behavior. Swallow the same
     // rejection here so a failed commit does not abort the follow-up action.
     await deleteCommit.catch(() => false);
+    if (state.interactionVersion !== delayedInteractionVersion
+      || state.aside !== surface
+      || delayedMenuSessionId !== undefined
+        && surface.useMenu?.sessionId !== delayedMenuSessionId) return true;
   }
   if (surface.useMenu !== null) return false;
   if (resolved.action === "cancel" && surface.confirmReset !== null) {

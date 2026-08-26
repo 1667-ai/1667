@@ -8,9 +8,9 @@ import {
   isAsideV2
 } from "../src/aside-surface.js";
 import { demoAppSource } from "../src/demo.js";
-import { initialState } from "../src/app.js";
+import { dispatch, initialState } from "../src/app.js";
 import { handleOverlayAction } from "../src/overlay-actions.js";
-import { ActionRuntime } from "../src/action-runtime.js";
+import { ActionRuntime, withActionAdmission } from "../src/action-runtime.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText, plainLine, visibleWidth } from "../src/screens/story/frame.js";
@@ -991,6 +991,87 @@ describe("Aside use-menu mouse", () => {
     expect(state.mode).toBe("PLACE");
     expect(state.placement?.answer).toBe("target later answer");
     expect(state.placement?.returnAside.useMenu?.noteIndex).toBe(1);
+  });
+
+  test("a newer Escape cancels Placement while its click waits on delete persistence", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const later = { q: "later", a: "later answer" };
+    const surface = createAsideSurface(
+      state.payload.id,
+      state.payload.title,
+      [{
+        id: "session-1",
+        title: "session",
+        anchor: null,
+        turns: [{ q: "first", a: "first answer" }, later]
+      }],
+      null,
+      null,
+      { v2: true }
+    );
+    if (!isAsideV2(surface)) throw new Error("expected v2 Aside surface");
+    state.aside = surface;
+    state.mode = "ASIDE";
+    surface.focus = "turns";
+    surface.turnCursor = 0;
+    let releaseDelete!: () => void;
+    const deleteGate = new Promise<void>((resolve) => { releaseDelete = resolve; });
+    const sourceWithDelete = {
+      ...source,
+      api: {
+        ...source.api,
+        deleteAsideTurn: async () => {
+          await deleteGate;
+          return {
+            schemaVersion: 2 as const,
+            id: "session-1",
+            title: "session",
+            anchor: null,
+            turns: [later]
+          };
+        }
+      }
+    };
+    const context = overlayContext(state, 80, 24);
+    await handleOverlayAction({ action: "aside-delete" }, state, sourceWithDelete, context);
+    await handleOverlayAction({ action: "aside-delete" }, state, sourceWithDelete, context);
+    expect(openAsideUseMenu(surface, 0)).toBeTrue();
+    const sessionId = surface.useMenu!.sessionId;
+    let admit!: () => void;
+    const admitted = new Promise<void>((resolve) => { admit = resolve; });
+    const pending = dispatch(
+      {
+        action: "apply",
+        index: 1,
+        rowId: asideUseRowId(sessionId, "insert-into-story")
+      },
+      state,
+      sourceWithDelete,
+      context.cache,
+      () => undefined,
+      async () => undefined,
+      () => undefined,
+      null,
+      () => undefined,
+      () => undefined,
+      withActionAdmission(context.backend, admit)
+    );
+    await admitted;
+
+    await dispatch(
+      { action: "cancel" }, state, sourceWithDelete, context.cache,
+      () => undefined, async () => undefined, () => undefined, null,
+      () => undefined, () => undefined, context.backend
+    );
+    expect(surface.useMenu).toBeNull();
+    releaseDelete();
+    await pending;
+    await context.backend.settle();
+
+    expect(state.mode).toBe("ASIDE");
+    expect(surface.useMenu).toBeNull();
+    expect(state.placement).toBeNull();
   });
 
   test("stale use-menu click for note A is dropped after menu reopens on note B", async () => {
