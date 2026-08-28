@@ -3,10 +3,11 @@ export interface FailedTest {
   readonly name: string;
 }
 
+type DetailedFailedTest = FailedTest & { readonly file: string };
+
 export function parseFailures(stderr: string): readonly FailedTest[] | null {
-  const detailedFailures: FailedTest[] = [];
-  const recapFailures: FailedTest[] = [];
-  const filesByName = new Map<string, string | null>();
+  const detailedFailures: DetailedFailedTest[] = [];
+  const recapNames: string[] = [];
   let file: string | null = null;
   let reportedCount: number | null = null;
   for (const line of stderr.split("\n")) {
@@ -22,8 +23,7 @@ export function parseFailures(stderr: string): readonly FailedTest[] | null {
     const match = trimmed.match(/^\(fail\) (.*?)(?: \[[\d.]+(?:ms|s)\])?$/u);
     if (reportedCount !== null) {
       if (match !== null) {
-        const name = match[1]!;
-        recapFailures.push({ file: filesByName.get(name) ?? null, name });
+        recapNames.push(match[1]!);
       }
       continue;
     }
@@ -39,13 +39,28 @@ export function parseFailures(stderr: string): readonly FailedTest[] | null {
     if (file === null || match === null) continue;
     const name = match[1]!;
     detailedFailures.push({ file, name });
-    const knownFile = filesByName.get(name);
-    filesByName.set(name, knownFile === undefined || knownFile === file
-      ? file
-      : null);
   }
-  if (reportedCount === recapFailures.length) return recapFailures;
+  if (reportedCount === recapNames.length) {
+    return recapNames.map((name) => ({
+      file: detailedFile(name, detailedFailures, recapNames),
+      name
+    }));
+  }
   return reportedCount === detailedFailures.length ? detailedFailures : null;
+}
+
+function detailedFile(
+  name: string,
+  detailed: readonly DetailedFailedTest[],
+  recapNames: readonly string[]
+): string | null {
+  const candidates = detailed.filter((failure) => failure.name === name);
+  const recapCount = recapNames.filter((candidate) => candidate === name).length;
+  const file = candidates[0]?.file;
+  return file !== undefined && candidates.length === recapCount
+      && candidates.every((failure) => failure.file === file)
+    ? file
+    : null;
 }
 
 function stripAnsi(value: string): string {

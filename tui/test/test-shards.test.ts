@@ -79,6 +79,24 @@ test("TUI test retries ignore terminal formatting in Bun headings", () => {
   ]);
 });
 
+test("TUI test retries keep duplicate recap names file-ambiguous", () => {
+  const failures = parseFailures(`test/known.test.ts:
+(fail) duplicate failure [1.00ms]
+
+future-test-format:
+(fail) duplicate failure [2.00ms]
+
+2 tests failed:
+(fail) duplicate failure [1.00ms]
+(fail) duplicate failure [2.00ms]
+`);
+
+  expect(failures).toEqual([
+    { file: null, name: "duplicate failure" },
+    { file: null, name: "duplicate failure" }
+  ]);
+});
+
 test("TUI test retries fail closed when Bun also reports an unhandled error", () => {
   const failures = parseFailures(`test/known.test.ts:
 (fail) transient failure [1.00ms]
