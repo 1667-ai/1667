@@ -18,7 +18,7 @@ repository contains the terminal user interface (TUI) and its backend runtime.
 
 ## Features
 
-- Write in a full-screen terminal interface with six themes.
+- Write in a full-screen terminal interface with eight themes.
 - Add sibling takes to any story part.
 - Select a take for each story part.
 - Read a story as a story line, a tree, or a mass map.

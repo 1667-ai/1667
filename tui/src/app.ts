@@ -2,6 +2,7 @@ import {
   CliRenderEvents,
   TextRenderable,
   createCliRenderer,
+  type CapturedFrame,
   type KeyEvent
 } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
@@ -140,8 +141,13 @@ type InteractivePresentedInteraction = PresentedInteraction & {
   storySelectionProjection: RuntimeState["storySelectionProjection"];
 };
 
-export async function renderOnce(source: AppSource, width: number, height: number, keys = ""): Promise<string> {
-  const palette = createPalette(source.config.theme);
+async function captureRenderOnce(
+  source: AppSource,
+  width: number,
+  height: number,
+  keys = ""
+): Promise<{ readonly text: string; readonly frame: CapturedFrame }> {
+  let palette = createPalette(source.config.theme);
   const setup = await createTestRenderer({ width, height, backgroundColor: palette.color("background") });
   const state = initialState(source, true);
   const cache = createWrapCache<ProseStyle>();
@@ -154,6 +160,7 @@ export async function renderOnce(source: AppSource, width: number, height: numbe
   const applyThemeInFrame = (theme: ThemeName) => {
     source.config = { ...source.config, theme };
     state.config = source.config;
+    palette = createPalette(theme);
   };
   for (const character of [...keys]) {
     // The render-once demo paints a synthetic empty stream without a runtime
@@ -186,6 +193,7 @@ export async function renderOnce(source: AppSource, width: number, height: numbe
   setup.renderer.root.add(text);
   await setup.renderOnce();
   const captured = setup.captureCharFrame();
+  const capturedFrame = setup.captureSpans();
   state.abort?.controller.abort();
   // A frame is captured the moment the keys land, so a scan still waiting out
   // a pause has nothing left to draw to. This path is not demo-only — an
@@ -193,7 +201,25 @@ export async function renderOnce(source: AppSource, width: number, height: numbe
   if (state.search !== null) abortPendingSearch(state.search);
   backend.dispose();
   setup.renderer.destroy();
-  return captured;
+  return { text: captured, frame: capturedFrame };
+}
+
+export async function renderOnce(
+  source: AppSource,
+  width: number,
+  height: number,
+  keys = ""
+): Promise<string> {
+  return (await captureRenderOnce(source, width, height, keys)).text;
+}
+
+export async function renderOnceSpans(
+  source: AppSource,
+  width: number,
+  height: number,
+  keys = ""
+): Promise<CapturedFrame> {
+  return (await captureRenderOnce(source, width, height, keys)).frame;
 }
 
 export async function runInteractive(source: AppSource): Promise<void> {

@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.4-rc.1 - 2026-08-28
+
+- **Graphite and bone themes use the 1667 website colors.** Select either
+  theme in Settings or from the command palette. Both themes include truecolor
+  and 256-color palettes.
+
 ## 0.10.3 - 2026-08-26
 
 - **This release has no additional product changes.** It contains the same
