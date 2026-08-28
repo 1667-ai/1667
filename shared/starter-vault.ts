@@ -120,9 +120,8 @@ const TOUR: StarterStory = {
           instruction: "Movement: focus versus viewport.",
           keys: ["focusNext", "focusPrevious", "scrollLineDown", "scrollLineUp", "top", "leaf"],
           text: "[↓] and [↑] move between parts.\n\n"
-            + "The focused part is highlighted. It's the one every other key acts on. "
-            + "Tagging, retaking, editing, deleting — they "
-            + "all aim at whatever is focused right now.\n\n"
+            + "The focused part is highlighted. Tagging, retaking, editing, and deleting "
+            + "all act on it.\n\n"
             + "Reading is a separate motion. Hold shift and the view slides without dragging "
             + "focus along: [⇧↓] and [⇧↑] nudge it one line. To travel further, [g] jumps to "
             + "the top of the story and [G] runs to the end of the story line you are on.\n\n"
@@ -253,8 +252,7 @@ const TOUR: StarterStory = {
           instruction: "A shorter goodbye, kept as a second take so the last beat also has a row.",
           tag: { name: "Short goodbye", status: "Draft" },
           keys: ["keys"],
-          text: "Or, the short version:\n\n"
-            + "Arrows move. Space continues. Everything else is on [?].\n\n"
+          text: "Arrows move. Space continues. Everything else is on [?].\n\n"
             + "Delete this story whenever you like."
         }
       ]
