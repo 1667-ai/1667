@@ -339,21 +339,8 @@ describe("run C overlay frames", () => {
     expect(keyedShedLine).not.toContain("✓ keyed");
   });
 
-  test("settings overlay shows theme switcher and editable fields", async () => {
-    // "m" switches to advanced mode, which is what shows the theme switcher,
-    // and keeps the cursor on update checks. Seven downs skip the writing
-    // rows and reach provider, a cycler, for the choice-footer keyline.
-    const frame = await renderWithKeys(demoAppSource(), 120, 36, [
-      key(","),
-      key("m"),
-      key("down"),
-      key("down"),
-      key("down"),
-      key("down"),
-      key("down"),
-      key("down"),
-      key("down")
-    ]);
+  test("simple settings shows the theme switcher and editable fields", async () => {
+    const frame = await renderWithKeys(demoAppSource(), 120, 36, [key(",")]);
     expect(frame).toContain("┏━ settings ━");
     expect(frame).toContain("‹ lantern ›");
     expect(frame).toContain("provider");
@@ -365,15 +352,9 @@ describe("run C overlay frames", () => {
     const clean = await renderOnce(demoAppSource(), 120, 36, ",");
     expect(clean).not.toContain("revision");
 
-    // "m" switches to advanced mode and keeps the cursor on update checks.
-    // Seven downs reach provider, which can cycle and dirty the draft with
-    // Right.
+    // Four downs reach provider in Simple view. Right changes its value.
     const dirty = await renderWithKeys(demoAppSource(), 120, 36, [
       key(","),
-      key("m"),
-      key("down"),
-      key("down"),
-      key("down"),
       key("down"),
       key("down"),
       key("down"),
@@ -392,8 +373,7 @@ describe("run C overlay frames", () => {
       const view = { ...source.settingsView, pendingRevision, activeRevision: 3 };
       source.settingsView = view as typeof source.settingsView;
       source.api.getSettings = async () => view as typeof source.settingsView;
-      // "m" switches to advanced mode, which is what shows the theme row.
-      const lines = (await renderOnce(source, 120, 48, ",m")).split("\n");
+      const lines = (await renderOnce(source, 120, 48, ",")).split("\n");
       const rowOf = (text: string): number => lines.findIndex((line) => line.includes(text));
       return { theme: rowOf("theme"), provider: rowOf("provider"), prompt: rowOf("author brief") };
     };

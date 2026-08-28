@@ -86,12 +86,27 @@ test("simple mode shows only the intended rows, and advanced mode shows every ro
   // Default demo settings use dry-run, so base-url/api-key stay visible in
   // simple mode too — they are hidden only by the fixed-subscription rule.
   expect(settingsRowIds(overlay)).toEqual([
-    "update-checks", "default-author-brief", "default-continue-direction", "provider", "base-url", "api-key", "model", "context-window"
+    "theme", "update-checks", "default-author-brief", "default-continue-direction",
+    "provider", "base-url", "api-key", "model", "context-window"
   ]);
 
   await press(key("m"));
 
   expect(settingsRowIds(overlay)).toEqual([...SETTINGS_ROW_IDS]);
+});
+
+test("simple mode can change the theme", async () => {
+  const { source, state, press } = settingsHarness(
+    undefined,
+    { settingsViewMode: "simple" }
+  );
+  await openSettings(press);
+
+  expect(settingsRowIds(state.settings!)[state.settings!.cursor]).toBe("theme");
+  await press(key("right"));
+
+  expect(state.config.theme).toBe("iron gall");
+  expect(source.config.theme).toBe("iron gall");
 });
 
 test("base-url and api-key stay visible in simple mode until a fixed subscription connection hides them", async () => {
@@ -125,12 +140,12 @@ test("toggling the view mode preserves the cursor by row identity and never park
   expect(settingsCursorRowIdentity(overlay)).toBe("model");
   expect(settingsRowIds(overlay)[overlay.cursor]).toBe("model");
 
-  // "theme" only exists in advanced mode. Flipping back to simple must not
+  // "compose-focus" only exists in advanced mode. Flipping back to simple must not
   // leave the cursor pointing at a row that just vanished.
-  await selectRow(press, state, "theme");
+  await selectRow(press, state, "compose-focus");
   await press(key("m"));
   const rows = settingsRowIds(overlay);
-  expect(rows.includes("theme")).toBeFalse();
+  expect(rows.includes("compose-focus")).toBeFalse();
   expect(overlay.cursor).toBeGreaterThan(-1);
   expect(overlay.cursor).toBeLessThan(rows.length);
 });
