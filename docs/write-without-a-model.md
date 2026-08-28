@@ -26,12 +26,20 @@ The manual workflow includes these tasks:
 Write your draft in a Markdown file. Use a `#` heading for the story title. Use
 `##` headings for chapters. Separate story parts with blank lines.
 
-Import the file:
+On macOS or Linux, import the file with these commands:
 
 ```sh
 1667 init
 1667 import draft.md
 1667
+```
+
+On Windows, use these commands in PowerShell:
+
+```powershell
+1667.exe init
+1667.exe import draft.md
+1667.exe
 ```
 
 1667 creates a new story. The source file stays unchanged.
@@ -75,10 +83,16 @@ titles, chapter summaries, and Facts yourself.
 
 ## Export the selected story line
 
-Run this command in the project:
+On macOS or Linux, run this command in the project:
 
 ```sh
 1667 export
+```
+
+On Windows, run this command in PowerShell:
+
+```powershell
+1667.exe export
 ```
 
 1667 writes a Markdown file to the project root. The file contains the selected
