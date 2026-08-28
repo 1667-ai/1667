@@ -13,6 +13,7 @@ import {
   type ClickGestureController,
   type MouseGesture
 } from "./mouse-actions.js";
+import { createStoryPartDoubleClickGate } from "./story-part-double-click.js";
 import type { PresentedInputQueue } from "./presented-input-queue.js";
 import {
   canCapturePresentedMouseAction,
@@ -64,7 +65,8 @@ export function createInteractiveInputAdmission(
 ): InteractiveInputAdmission {
   const selectionGate = createSelectionSafeMouseGate();
   const factGate = createFactDoubleClickGate(options.now);
-  const clickGestures = createClickGestureController([selectionGate, factGate]);
+  const storyPartGate = createStoryPartDoubleClickGate(options.now);
+  const clickGestures = createClickGestureController([selectionGate, factGate, storyPartGate]);
   return {
     clickGestures,
     reset() {
@@ -88,6 +90,7 @@ export function createInteractiveInputAdmission(
         mouseToAction(event, presented.state, event.type === "up")
       );
       resolved = factGate.resolve(event, resolved, presented.state);
+      resolved = storyPartGate.resolve(event, resolved, presented.state);
       if (options.decorate !== undefined) {
         resolved = options.decorate(resolved, event, presented);
       }

@@ -1,6 +1,7 @@
 import type { CreateNodeRequest, StoryNode, StoryPayload } from "../../shared/types.js";
 import { isTimeoutClassFailure } from "../../shared/failure-envelope.js";
 import type { ActionTask } from "./action-runtime.js";
+import { blockUncertainRootCreation } from "./first-take-guard.js";
 import { ApiFailureError } from "./api-error.js";
 import { textHash } from "./api.js";
 import type { AppSource } from "./app.js";
@@ -135,6 +136,10 @@ export async function generate(
   pendingDraft: PendingGenerationDraft | null,
   task: ActionTask
 ): Promise<void> {
+  if (regenerateNode === null && blockUncertainRootCreation(state)) {
+    restorePendingGenerationDraft(state, pendingDraft);
+    return;
+  }
   if (state.abort !== null) return;
   const controller = new AbortController();
   const active = {

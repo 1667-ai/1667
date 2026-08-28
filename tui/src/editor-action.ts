@@ -6,6 +6,7 @@ import {
 import { unicodeScalarLength } from "../../shared/unicode.js";
 import type { StoryPayload } from "../../shared/types.js";
 import type { AppSource } from "./app.js";
+import { isDefinitePlacementFailure } from "./aside-placement.js";
 import { handleAuthorsNoteCommand } from "./authors-note-editor-policy.js";
 import { recordHumanWords } from "./config.js";
 import { parsePartFile, stripGuidance } from "./editor.js";
@@ -14,6 +15,7 @@ import { composerPageRows } from "./composer-viewport.js";
 import { composerMotion } from "./composer-motion.js";
 import { editorInsertionPolicy } from "./editor-text-insertion.js";
 import { factEditorChanged, factEditorSavePayload } from "./fact-editor-draft.js";
+import { blockUncertainFirstTakeRetry } from "./first-take-guard.js";
 import {
   factEditorBuffer,
   factEditorComposerForSource,
@@ -236,7 +238,10 @@ async function saveInlineEditor(
 
   if (target.kind === "part") {
     const patch = parsePartFile(submitted);
-    if (patch === null) return void (state.toast = "keep one --- line between direction and prose");
+    if (patch === null) {
+      state.toast = "direction marker needs a --- line";
+      return;
+    }
     const text = patch.text.trim();
     // ctrl+s always forks; ctrl+shift+s always overwrites the opened part.
     // Keys keep fixed meaning for the whole session (no sticky save identity).
@@ -290,32 +295,58 @@ async function saveInlineEditor(
     return void (state.toast = "same-take save only updates a story part");
   }
 
-  if (target.kind === "human-take") {
-    const text = stripGuidance(submitted);
-    if (text.trim().length === 0) return void (state.toast = "write some prose before saving");
-    await context.backend.run("saving human take", async (task) => {
-      const previous = target.savedNode;
-      const payload = previous === null
-        ? await source.api.createNode(task.storyId, { parentId: target.node.parentId, text })
-        : await source.api.editNode(task.storyId, previous, { text });
-      if (!task.storyCurrent()) return;
-      adoptSameStoryPayload(state, payload, context.cache);
-      const landedNode = payload.path[target.pathIndex]
-        ?? (previous === null ? undefined : payload.path.find(({ id }) => id === previous.id));
-      if (landedNode !== undefined) target.savedNode = landedNode;
-      const landedId = landedNode?.id ?? previous?.id ?? target.node.id;
-      if (state.editor === editor) {
-        state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(payload), landedId));
-        rememberFocus(state, source);
+  if (target.kind === "human-take" || target.kind === "new-part") {
+    const text = stripGuidance(submitted).trim();
+    if (text.length === 0) return void (state.toast = "write some prose before saving");
+    const firstTake = target.kind === "new-part";
+    if (firstTake && target.savedNode === null && blockUncertainFirstTakeRetry(state)) return;
+    const firstTakeStoryId = firstTake ? state.payload.id : null;
+    try {
+      await context.backend.run(firstTake ? "saving first take" : "saving human take", async (task) => {
+        const previous = target.savedNode;
+        const payload = previous === null
+          ? await source.api.createNode(task.storyId, firstTake
+            ? { parentId: null, instruction: "", text }
+            : { parentId: target.node.parentId, text })
+          : await source.api.editNode(task.storyId, previous, { text });
+        if (!task.storyCurrent()) return;
+        if (firstTake) state.uncertainFirstTakeStoryId = null;
+        adoptSameStoryPayload(state, payload, context.cache);
+        const landedNode = firstTake
+          ? previous === null
+            ? payload.path[0]
+            : payload.path.find(({ id }) => id === previous.id) ?? { ...previous, text }
+          : payload.path[target.pathIndex]
+            ?? (previous === null ? undefined : payload.path.find(({ id }) => id === previous.id));
+        if (landedNode !== undefined) target.savedNode = landedNode;
+        const landedId = landedNode?.id ?? previous?.id
+          ?? (firstTake ? undefined : target.node.id);
+        if (state.editor === editor && landedId !== undefined) {
+          state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(payload), landedId));
+          rememberFocus(state, source);
+        }
+        if (landedId !== undefined) {
+          state.freshLandedAt = new Map(state.freshLandedAt).set(landedId, Date.now());
+        }
+        if (!state.demo) {
+          const previousWords = previous === null ? 0 : countWords(previous.text);
+          source.config = recordHumanWords(source.config, Math.max(0, countWords(text) - previousWords));
+          state.config = source.config;
+        }
+        settleInlineSave(state, editor, submitted, firstTake ? "first take saved" : "human take saved", true);
+      });
+    } catch (error) {
+      if (firstTake && target.savedNode === null) {
+        if (isDefinitePlacementFailure(error)) {
+          if (state.uncertainFirstTakeStoryId === firstTakeStoryId) {
+            state.uncertainFirstTakeStoryId = null;
+          }
+        } else {
+          state.uncertainFirstTakeStoryId = firstTakeStoryId;
+        }
       }
-      state.freshLandedAt = new Map(state.freshLandedAt).set(landedId, Date.now());
-      if (!state.demo) {
-        const previousWords = previous === null ? 0 : countWords(previous.text);
-        source.config = recordHumanWords(source.config, Math.max(0, countWords(text) - previousWords));
-        state.config = source.config;
-      }
-      settleInlineSave(state, editor, submitted, "human take saved", true);
-    });
+      throw error;
+    }
     return;
   }
 

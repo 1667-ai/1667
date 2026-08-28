@@ -45,6 +45,7 @@ import { createBreakAtFocus, jumpAdjacentChapter } from "./chapter-actions.js";
 import { partHasThought } from "./reasoning-model.js";
 import { ensureThoughtLoaded } from "./reasoning-actions.js";
 import { generate, generationBusy } from "./generation-action.js";
+import { blockUncertainRootCreation } from "./first-take-guard.js";
 import {
   partActionRequiresPersistedTarget,
   partActions,
@@ -181,6 +182,7 @@ export async function navAction(
   else if (resolved.action === "continue") {
     if (generationBusy(state)) state.toast = "stream running · esc stops it first";
     else if (state.connection.down) state.toast = "offline · reading still works";
+    else if (blockUncertainRootCreation(state)) return;
     else await context.backend.run("generating prose", (task) =>
       generate(state, source, context.cache, context.repaint, "", null, null, task));
   }
@@ -215,7 +217,12 @@ export async function navAction(
   // never drift apart on what is allowed.
   else if (resolved.action === "prune") await runPartAction("prune", state, source, context);
   else if (resolved.action === "tag") await runPartAction("tag", state, source, context);
-  else if (resolved.action === "edit") await runPartAction("edit", state, source, context);
+  else if (resolved.action === "edit") {
+    if (resolved.index !== undefined) {
+      state.focusIndex = Math.max(0, Math.min(count - 1, resolved.index));
+    }
+    await runPartAction("edit", state, source, context);
+  }
   else if (resolved.action === "write") await runPartAction("write", state, source, context);
   else if (resolved.action === "regenerate") await runPartAction("retake", state, source, context);
   else if (resolved.action === "retake-with-prompt") {
@@ -321,7 +328,13 @@ export async function runPartAction(
   const selectionText = state.actions?.selectionText ?? null;
   const selectionSpans = state.actions?.selectionSpans ?? [];
   closeActions(state);
-  const index = partId === null ? -1 : rowIndexForNode(view, partId);
+  if (partId === null) {
+    if (id === "write" && state.payload.path.length === 0) {
+      openPartEditor(state, true);
+    }
+    return;
+  }
+  const index = rowIndexForNode(view, partId);
   if (index < 0) return;
   state.focusIndex = index;
   const part = rowPart(view, state.focusIndex);
@@ -681,6 +694,7 @@ export async function composeAction(
       state.toast = "that part is no longer available to retake · draft kept";
       return;
     }
+    if (retakeNode === null && blockUncertainRootCreation(state)) return;
     await context.backend.run(retakeNode === null ? "generating prose" : "retaking prose", async (task) => {
       if (instruction.trim().length > 0) {
         state.history.push(instruction);

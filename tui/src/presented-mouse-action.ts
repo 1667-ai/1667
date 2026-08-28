@@ -140,6 +140,11 @@ function rebaseByStableIdentity(
     ).findIndex((fact) => fact.id === action.rowId);
     return index < 0 ? null : { ...action, index };
   }
+  if (action.action === "edit" && action.rowId !== undefined && state.mode === "NAV") {
+    const index = createStoryViewModel(state.payload, state.stream).rows
+      .findIndex((row) => row.id === action.rowId);
+    return index < 0 ? null : { ...action, index };
+  }
   if (action.action === "focus-index" && action.rowId !== undefined && state.mode !== "REQUEST") {
     if (state.mode === "ASIDE" && state.aside?.useMenu !== null
       && state.aside?.useMenu !== undefined) {

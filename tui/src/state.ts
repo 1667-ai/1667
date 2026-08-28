@@ -536,6 +536,10 @@ export interface PromptTokenCountRecord {
 
 export type InlineEditorTarget =
   | { kind: "part"; node: StoryNode; pathIndex: number; savedNode: StoryNode | null }
+  | {
+      kind: "new-part";
+      savedNode: StoryNode | null;
+    }
   | { kind: "human-take"; node: StoryNode; pathIndex: number; savedNode: StoryNode | null }
   | { kind: "chapter-summary"; summaryId: string; expected: string }
   | {
@@ -868,4 +872,7 @@ export interface RuntimeState extends StoryScreenState {
   /** Changes once per user reducer; async completions use it to avoid
    * restoring launch-time focus, mode, or overlays after later input. */
   interactionVersion: number;
+  /** Story whose first manual create has an unknown outcome. A full story
+   *  reopen is required before another root create can start. */
+  uncertainFirstTakeStoryId: string | null;
 }
