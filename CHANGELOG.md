@@ -5,6 +5,8 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.4-rc.2 - 2026-08-28
+
 - **Windows upgrades show the correct next command.** Stable update checks do
   not show beta releases. A PowerShell Installation now gives the PowerShell
   Installer command for a stable release. For beta, 1667 gives commands to

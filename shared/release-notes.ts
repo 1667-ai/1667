@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.4-rc.2",
+    date: "2026-08-28",
+    body: "- **Windows upgrades show the correct next command.** Stable update checks do\n  not show beta releases. A PowerShell Installation now gives the PowerShell\n  Installer command for a stable release. For beta, 1667 gives commands to\n  download and verify the release Installer before it runs. An exact\n  prerelease no longer names an Installer file that does not exist.\n- **New users start with the Graphite theme.** Existing users keep their saved\n  theme. An older config without a theme keeps the Lantern theme. The Theme row\n  now appears in Simple Settings.\n- **The starter tour ends with setup instructions.** It tells the user how to\n  delete the onboarding stories and select a model provider."
+  },
+  {
     version: "0.10.4-rc.1",
     date: "2026-08-28",
     body: "- **Graphite and bone themes use the 1667 website colors.** Select either\n  theme in Settings or from the command palette. Both themes include truecolor\n  and 256-color palettes."
