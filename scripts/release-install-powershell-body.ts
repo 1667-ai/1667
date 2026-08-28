@@ -454,9 +454,12 @@ function Main {
     if ($null -ne $lock) { $lock.Dispose() }
   }
   Write-Output "Installed 1667 $ProductVersion ($InstallChannel) for $ArtifactTarget to $active"
-  Write-Output 'PowerShell treats 1667 as a number.'
+  Write-Output ''
   Write-Output 'Open a new PowerShell window.'
-  Write-Output 'Then run: 1667.exe'
+  Write-Output 'Start 1667 with this command:'
+  Write-Output '  1667.exe'
+  Write-Output 'IMPORTANT: Include .exe when you start 1667.'
+  Write-Output '1667 without .exe does not start the app because PowerShell treats it as a number.'
 }
 
 Main

@@ -71,6 +71,15 @@ On Windows x64, use the PowerShell Installer:
 powershell -ExecutionPolicy Bypass -c "irm https://1667.ai/install.ps1 | iex"
 ```
 
+After installation, open a new PowerShell window. Start 1667 with this command:
+
+```powershell
+1667.exe
+```
+
+Include `.exe` when you start 1667. The command `1667` does not start the app
+because PowerShell treats it as a number.
+
 Each Installer verifies the downloaded Release Archive checksum. The Shell
 Installer supports macOS and Linux. The PowerShell Installer supports Windows
 x64.

@@ -5,6 +5,10 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Windows installation shows the exact start command.** The PowerShell
+  Installer tells the user to open a new PowerShell window and run `1667.exe`.
+  It warns that `1667` without `.exe` does not start the app.
+
 ## 0.10.4-rc.2 - 2026-08-28
 
 - **Windows upgrades show the correct next command.** Stable update checks do
