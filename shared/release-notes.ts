@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.4-rc.1",
+    date: "2026-08-28",
+    body: "- **Graphite and bone themes use the 1667 website colors.** Select either\n  theme in Settings or from the command palette. Both themes include truecolor\n  and 256-color palettes."
+  },
+  {
     version: "0.10.3",
     date: "2026-08-26",
     body: "- **This release has no additional product changes.** It contains the same\n  behavior as 0.10.3-rc.6."
