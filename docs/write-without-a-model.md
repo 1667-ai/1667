@@ -46,14 +46,17 @@ On Windows, use these commands in PowerShell:
 
 ## Write and edit takes
 
+Press `w` in an empty story to write the first take.
+
 Press `w` on a story part to write a sibling take. A sibling take is another
 version of the same story part.
 
 Press `e` to edit the focused story part. A normal save keeps the earlier text
 as another take. The editor also has an action to update the current take.
 
-A direction is optional in the editor. Put it above the first `---` line. To
-write only prose, put `---` on the first line and write the prose below it.
+A direction is optional in the editor. Keep the `≻ direction` marker to edit a
+direction. The first `---` line after that marker ends the direction. Remove the
+marker to save all remaining text as prose. Prose does not need a `---` line.
 
 Use these keys to move and choose text:
 

@@ -690,6 +690,13 @@ function navHintItems(state: StoryScreenState, view: StoryViewModel): HintItem[]
     ];
   }
   const focused = rowPart(view, state.focusIndex);
+  if (focused === null && state.payload.path.length === 0) {
+    return [
+      hintItem([actionHint("w writes first take", "write")]),
+      hintItem([actionHint("i directs", "compose")]),
+      hintItem([actionHint("? keys", "open-keys")], 1)
+    ];
+  }
   // The one keyline affordance for a thought — present only when the
   // focused part actually has one to fold or unfold, live or stored (see
   // `partHasThought`). At 80 columns the gutter waymark disappears entirely

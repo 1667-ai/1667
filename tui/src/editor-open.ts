@@ -5,6 +5,7 @@ import { createComposer } from "./composer-model.js";
 import { formatFactBudget, formatFactKeys, formatFactScanDepth } from "./fact-editor-draft.js";
 import { initializeFactEditorHistory } from "./fact-editor-policy.js";
 import { serializePart, stripGuidance } from "./editor.js";
+import { blockUncertainRootCreation } from "./first-take-guard.js";
 import { createStoryViewModel, rowPart } from "./model.js";
 import { storyScalarFieldSpec, type StoryScalarField } from "./story-scalar-fields.js";
 import type {
@@ -21,7 +22,23 @@ export {
 
 export function openPartEditor(state: RuntimeState, humanSibling: boolean): void {
   const part = rowPart(createStoryViewModel(state.payload), state.focusIndex);
-  if (part === null) return;
+  if (part === null) {
+    if (!humanSibling || state.payload.path.length !== 0) return;
+    if (blockUncertainRootCreation(state)) return;
+    openInlineEditor(state, {
+      target: {
+        kind: "new-part",
+        savedNode: null
+      },
+      composer: createComposer(""),
+      initial: "",
+      title: "write first take",
+      placeholder: "write prose…",
+      returnMode: "NAV",
+      conflict: null
+    });
+    return;
+  }
   const initial = humanSibling
     ? ""
     : stripGuidance(serializePart(part.node.instruction, part.node.text));
@@ -33,8 +50,8 @@ export function openPartEditor(state: RuntimeState, humanSibling: boolean): void
     initial,
     title: humanSibling
       ? `write human take · sibling of ¶ ${part.number}`
-      : `edit ¶ ${part.number} · direction above --- · prose below`,
-    placeholder: humanSibling ? "write the sibling take…" : "direction\n---\nprose",
+      : `edit ¶ ${part.number} · optional ≻ direction block`,
+    placeholder: humanSibling ? "write the sibling take…" : "write prose…",
     returnMode: "NAV",
     conflict: null
   });

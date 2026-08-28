@@ -513,10 +513,10 @@ describe("demo action pipeline", () => {
     await handleKey(key("return", "\r"), state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(created).toBeTrue();
     expect(state.payload.id).toBe("fresh-story");
-    expect(state.mode).toBe("COMPOSE");
+    expect(state.mode).toBe("NAV");
   });
 
-  test("creating a zero-part story opens its Direct composer immediately", async () => {
+  test("creating a zero-part story opens its writing choices", async () => {
     const source = demoAppSource();
     const fresh = {
       ...source.payload,
@@ -545,7 +545,7 @@ describe("demo action pipeline", () => {
     await handleKey(key("n"), state, source, createWrapCache(), () => { repaints += 1; }, async () => {}, () => {});
 
     expect(state.payload.id).toBe(fresh.id);
-    expect(state.mode).toBe("COMPOSE");
+    expect(state.mode).toBe("NAV");
     expect(state.composer.text).toBe("");
     expect(state.retakePrompt).toBe(null);
     expect(repaints).toBeGreaterThan(1);
@@ -562,7 +562,7 @@ describe("demo action pipeline", () => {
     expect(state.payload.path).toHaveLength(pathLength);
   });
 
-  test("a zero-part story starts in direction entry", () => {
+  test("a zero-part story starts in navigation", () => {
     const source = demoAppSource();
     source.payload = {
       ...source.payload,
@@ -576,7 +576,7 @@ describe("demo action pipeline", () => {
     };
     const state = initialState(source, false);
 
-    expect(state.mode).toBe("COMPOSE");
+    expect(state.mode).toBe("NAV");
     expect(state.composer.text).toBe("");
   });
 

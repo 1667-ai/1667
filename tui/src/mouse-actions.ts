@@ -48,7 +48,7 @@ export interface FactDoubleClickGate {
 }
 
 /**
- * Multi-event click gestures (selection-safe release, Fact double-click).
+ * Multi-event click gestures (selection-safe release and double-clicks).
  * Keyboard/paste interrupt at enqueue time so a later mouse-down cannot finish
  * a pair text already broke. Already-captured mouse actions stay in the queue
  * and run FIFO — only incomplete gate state is cleared.

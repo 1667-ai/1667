@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { handleKey } from "../src/app.js";
+import { markExplicitMutationUnsent } from "../src/api.js";
 import { createComposer, setComposerText } from "../src/composer-model.js";
-import { parsePartFile, serializePart } from "../src/editor.js";
+import { parsePartFile, serializePart, stripGuidance } from "../src/editor.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { adoptSameStoryPayload } from "../src/story-adoption.js";
@@ -16,6 +17,19 @@ function documentEditor(state: RuntimeState): InlineEditorSession {
   const editor = state.editor;
   if (editor?.kind !== "document") throw new Error("expected a document editor");
   return editor;
+}
+
+function partDocument(instruction: string, text: string): string {
+  return stripGuidance(serializePart(instruction, text));
+}
+
+async function rejection(promise: Promise<unknown>): Promise<Error> {
+  try {
+    await promise;
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+  throw new Error("expected promise to reject");
 }
 
 /** Author Brief has no NAV shortcut; open it the way a writer would, through
@@ -61,15 +75,275 @@ describe("inline editor", () => {
     const file = serializePart("make it rain", "First line.\n\nSecond line.");
     expect(file.startsWith("≻")).toBe(true);
     expect(parsePartFile(file)).toEqual({ instruction: "make it rain", text: "First line.\n\nSecond line." });
+
+    const proseOnly = "First scene.\n---\nSecond scene.";
+    expect(parsePartFile(serializePart("", proseOnly))).toEqual({
+      instruction: "",
+      text: proseOnly
+    });
+    expect(stripGuidance(serializePart("", "Plain prose."))).toBe("Plain prose.");
   });
 
   test("parses a bare inline part document and keeps later scene breaks", () => {
-    expect(parsePartFile("make it rain\n---\nprose")).toEqual({ instruction: "make it rain", text: "prose" });
-    expect(parsePartFile("go\n---\nbefore\n---\nafter")).toEqual({
+    expect(parsePartFile("make it rain\n---\nprose")).toEqual({
+      instruction: "", text: "make it rain\n---\nprose"
+    });
+    expect(parsePartFile(partDocument("go", "before\n---\nafter"))).toEqual({
       instruction: "go", text: "before\n---\nafter"
     });
-    expect(parsePartFile("---\njust prose")).toEqual({ instruction: "", text: "just prose" });
-    expect(parsePartFile("prose only")).toBe(null);
+    expect(parsePartFile(partDocument("direction", ""))).toEqual({ instruction: "direction", text: "" });
+    expect(parsePartFile("≻ direction\ndirection without a separator")).toBe(null);
+    expect(parsePartFile("---")).toEqual({ instruction: "", text: "---" });
+    expect(parsePartFile("prose only")).toEqual({ instruction: "", text: "prose only" });
+    expect(parsePartFile("First scene, edited.\n---\nSecond scene.")).toEqual({
+      instruction: "",
+      text: "First scene, edited.\n---\nSecond scene."
+    });
+    expect(parsePartFile(partDocument(
+      "raise the lantern",
+      "First scene.\n---\nSecond scene."
+    ))).toEqual({
+      instruction: "raise the lantern",
+      text: "First scene.\n---\nSecond scene."
+    });
+  });
+
+  test("removing the instruction and delimiter saves an empty instruction", async () => {
+    const { state, press } = editorHarness();
+    const source = state.payload.path.find(({ id }) => id === "p12")!;
+    source.text = "First scene.\n---\nSecond scene.";
+    state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), source.id);
+
+    await press(key("e"));
+    expect(state.editor?.composer.text).toContain("\n---\n");
+    setComposerText(state.editor!.composer, "First scene, edited.\n---\nSecond scene.");
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+
+    expect(state.payload.path.at(-1)).toMatchObject({
+      instruction: "",
+      text: "First scene, edited.\n---\nSecond scene."
+    });
+  });
+
+  test("a direction marker without a separator stays open for correction", async () => {
+    const { state, press } = editorHarness();
+    const source = state.payload.path.find(({ id }) => id === "p12")!;
+    state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), source.id);
+
+    await press(key("e"));
+    setComposerText(state.editor!.composer, "≻ direction\nnew direction without a separator");
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+
+    expect(state.mode).toBe("EDITOR");
+    expect(state.payload.path.find(({ id }) => id === source.id)?.instruction).toBe(source.instruction);
+    expect(state.toast).toBe("direction marker needs a --- line");
+  });
+
+  test("an instructionless edit keeps a newly added scene break in the prose", async () => {
+    const { state, press } = editorHarness();
+    const source = state.payload.path.find(({ id }) => id === "p12")!;
+    source.instruction = "";
+    source.text = "First scene.";
+    state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), source.id);
+
+    await press(key("e"));
+    expect(state.editor?.composer.text).toBe("First scene.");
+    setComposerText(state.editor!.composer, "First scene.\n---\nSecond scene.");
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+
+    expect(state.payload.path.at(-1)).toMatchObject({
+      instruction: "",
+      text: "First scene.\n---\nSecond scene."
+    });
+  });
+
+  test("w creates the first manual take in an empty story", async () => {
+    const { source, state, press } = editorHarness();
+    source.payload = {
+      ...source.payload,
+      path: [],
+      nodes: [],
+      activeRootId: null,
+      tags: [],
+      recentNodeIds: [],
+      chapterBreaks: []
+    };
+    state.payload = source.payload;
+    state.mode = "NAV";
+    const createNode = source.api.createNode;
+    let request: Parameters<typeof createNode>[1] | null = null;
+    source.api.createNode = async (storyId, body) => {
+      request = body;
+      return await createNode(storyId, body);
+    };
+
+    await press(key("e"));
+    expect(state.mode).toBe("NAV");
+    expect(state.editor).toBe(null);
+    await press(key("w"));
+    expect(state.mode).toBe("EDITOR");
+    expect(documentEditor(state).target.kind).toBe("new-part");
+    setComposerText(
+      state.editor!.composer,
+      "The first manually written paragraph.\n---\nThe second scene."
+    );
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+
+    expect(request).toEqual({
+      parentId: null,
+      instruction: "",
+      text: "The first manually written paragraph.\n---\nThe second scene."
+    });
+    expect(state.mode).toBe("NAV");
+    expect(state.payload.path.at(-1)).toMatchObject({
+      instruction: "",
+      text: "The first manually written paragraph.\n---\nThe second scene."
+    });
+    expect(state.toast).toBe("first take saved");
+  });
+
+  test("a created first take stays bound when newer input remains", async () => {
+    const { source, state, press } = editorHarness();
+    source.payload = await source.api.createStory();
+    state.payload = source.payload;
+    state.mode = "NAV";
+    const createNode = source.api.createNode;
+    const editNode = source.api.editNode;
+    let creates = 0;
+    const editedIds: string[] = [];
+    let release!: () => void;
+    const createGate = new Promise<void>((resolve) => { release = resolve; });
+    source.api.createNode = async (...args) => {
+      creates += 1;
+      await createGate;
+      return await createNode(...args);
+    };
+    source.api.editNode = async (...args) => {
+      editedIds.push(args[1].id);
+      return await editNode(...args);
+    };
+
+    await press(key("w"));
+    setComposerText(state.editor!.composer, "First take.");
+    const saving = press(key("s", { sequence: "\u0013", ctrl: true }));
+    await Promise.resolve();
+    await press(key("x"));
+    release();
+    await saving;
+    const target = documentEditor(state).target;
+    if (target.kind !== "new-part" || target.savedNode === null) throw new Error("first take did not bind");
+    expect(target.savedNode.text).toBe("First take.");
+    const committedId = target.savedNode.id;
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+
+    expect(creates).toBe(1);
+    expect(editedIds).toEqual([committedId]);
+  });
+
+  test("an unknown first-take outcome survives closing the editor", async () => {
+    const { source, state, press } = editorHarness();
+    source.payload = await source.api.createStory();
+    state.payload = source.payload;
+    state.mode = "NAV";
+    const createNode = source.api.createNode;
+    let attempts = 0;
+    source.api.createNode = async (...args) => {
+      attempts += 1;
+      await createNode(...args);
+      throw new Error("response lost");
+    };
+
+    await press(key("w"));
+    setComposerText(state.editor!.composer, "Same first take.");
+    expect((await rejection(press(key("s", { sequence: "\u0013", ctrl: true })))).message)
+      .toBe("response lost");
+    expect(state.uncertainFirstTakeStoryId).toBe(state.payload.id);
+    await press(key("escape", { sequence: "\u001b" }));
+    await press(key("w"));
+
+    expect(attempts).toBe(1);
+    expect(state.mode).toBe("NAV");
+    expect(state.editor).toBe(null);
+    expect(state.toast).toBe("first take save is uncertain · reopen the story before retrying");
+    await press(key("space"));
+    expect(state.abort).toBe(null);
+    await press(key("i"));
+    setComposerText(state.composer, "Do not send this stale direction.");
+    await press(key("return", { sequence: "\r" }));
+    expect(state.mode).toBe("COMPOSE");
+    expect(state.composer.text).toBe("Do not send this stale direction.");
+    expect(state.abort).toBe(null);
+  });
+
+  test("a reconciled first take keeps its uncertain editor retry blocked", async () => {
+    const { source, state, cache, press } = editorHarness();
+    source.payload = await source.api.createStory();
+    state.payload = source.payload;
+    state.mode = "NAV";
+    const createNode = source.api.createNode;
+    let attempts = 0;
+    let committed: Awaited<ReturnType<typeof createNode>> | null = null;
+    source.api.createNode = async (...args) => {
+      attempts += 1;
+      committed = await createNode(...args);
+      throw new Error("response lost");
+    };
+
+    await press(key("w"));
+    setComposerText(state.editor!.composer, "Committed first take.");
+    expect((await rejection(press(key("s", { sequence: "\u0013", ctrl: true })))).message)
+      .toBe("response lost");
+    if (committed === null) throw new Error("first take did not commit");
+    adoptSameStoryPayload(state, committed, cache);
+    expect(state.payload.path).toHaveLength(1);
+    const reconciledTarget = documentEditor(state).target;
+    expect(reconciledTarget.kind).toBe("new-part");
+    if (reconciledTarget.kind !== "new-part") throw new Error("first take editor changed target");
+    expect(reconciledTarget.savedNode).toBeNull();
+
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+
+    expect(attempts).toBe(1);
+    expect(state.mode).toBe("EDITOR");
+    expect(state.toast).toBe("first take save is uncertain · reopen the story before retrying");
+  });
+
+  test("an unsent create does not adopt an identical root from another writer", async () => {
+    const { source, state, cache, press } = editorHarness();
+    source.payload = await source.api.createStory();
+    state.payload = source.payload;
+    state.mode = "NAV";
+    const createNode = source.api.createNode;
+    let attempts = 0;
+    source.api.createNode = async () => {
+      attempts += 1;
+      throw markExplicitMutationUnsent(new Error("createNode was not sent"));
+    };
+
+    await press(key("w"));
+    setComposerText(state.editor!.composer, "My first take.");
+    expect((await rejection(press(key("s", { sequence: "\u0013", ctrl: true })))).message)
+      .toBe("createNode was not sent");
+    const external = await createNode(state.payload.id, {
+      parentId: null,
+      instruction: "",
+      text: "My first take."
+    });
+    adoptSameStoryPayload(state, external, cache);
+    const unsentTarget = documentEditor(state).target;
+    expect(unsentTarget.kind).toBe("new-part");
+    if (unsentTarget.kind !== "new-part") throw new Error("first take editor changed target");
+    expect(unsentTarget.savedNode).toBeNull();
+    expect(state.uncertainFirstTakeStoryId).toBe(null);
+
+    source.api.createNode = async (...args) => {
+      attempts += 1;
+      return await createNode(...args);
+    };
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+
+    expect(attempts).toBe(2);
+    expect(state.payload.path[0]?.id).not.toBe(external.path[0]?.id);
   });
 
   test("e preserves the original part and saves the edit as a new sibling take", async () => {
@@ -81,7 +355,7 @@ describe("inline editor", () => {
     expect(state.mode).toBe("EDITOR");
     expect(documentEditor(state).target.kind).toBe("part");
     expect(state.editor?.composer.text).toContain("\n---\n");
-    setComposerText(state.editor!.composer, "new direction\n---\nnew prose");
+    setComposerText(state.editor!.composer, partDocument("new direction", "new prose"));
     await press(key("s", { sequence: "\u0013", ctrl: true }));
 
     expect(state.mode).toBe("NAV");
@@ -102,7 +376,7 @@ describe("inline editor", () => {
     const originalId = "p12";
 
     await press(key("e"));
-    setComposerText(state.editor!.composer, "rewritten direction\n---\nrewritten prose");
+    setComposerText(state.editor!.composer, partDocument("rewritten direction", "rewritten prose"));
     // Raw control-O (0x0f) is the portable same-take chord on classic terminals.
     await press(key("o", { sequence: "\u000f", ctrl: true }));
 
@@ -140,7 +414,7 @@ describe("inline editor", () => {
     const parentId = state.payload.nodes.find(({ id }) => id === "p12")!.parentId;
     const beforeIds = new Set(state.payload.nodes.map(({ id }) => id));
     await press(key("e"));
-    setComposerText(state.editor!.composer, "first fork\n---\nfirst prose");
+    setComposerText(state.editor!.composer, partDocument("first fork", "first prose"));
 
     const originalCreate = source.api.createNode;
     const originalEdit = source.api.editNode;
@@ -178,7 +452,7 @@ describe("inline editor", () => {
     const { source, state, press } = editorHarness();
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");
     await press(key("e"));
-    setComposerText(state.editor!.composer, "saved direction\n---\nsaved prose");
+    setComposerText(state.editor!.composer, partDocument("saved direction", "saved prose"));
     const originalCreate = source.api.createNode;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
@@ -210,7 +484,7 @@ describe("inline editor", () => {
     await press(key("e"));
     setComposerText(
       state.editor!.composer,
-      serializePart(source.instruction, changedText)
+      partDocument(source.instruction, changedText)
     );
     await press(key("s", { sequence: "\u0013", ctrl: true }));
 
@@ -587,7 +861,7 @@ describe("inline editor", () => {
     const { source, state, press } = editorHarness();
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");
     await press(key("e"));
-    const submitted = "saved direction\n---\nsaved prose";
+    const submitted = partDocument("saved direction", "saved prose");
     setComposerText(state.editor!.composer, submitted);
 
     const originalCreate = source.api.createNode;
@@ -628,7 +902,7 @@ describe("inline editor", () => {
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");
     await press(key("e"));
     const savedProse = `${"a".repeat(99)}💡 tail`;
-    setComposerText(state.editor!.composer, `   \n---\n${savedProse}`);
+    setComposerText(state.editor!.composer, savedProse);
 
     const originalEdit = source.api.editNode;
     let editedId = "";
@@ -700,7 +974,7 @@ describe("inline editor", () => {
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");
     const original = structuredClone(state.payload.nodes.find(({ id }) => id === "p12")!);
     await press(key("e"));
-    setComposerText(state.editor!.composer, "saved direction\n---\nsaved prose");
+    setComposerText(state.editor!.composer, partDocument("saved direction", "saved prose"));
 
     const originalCreate = source.api.createNode;
     let release!: () => void;

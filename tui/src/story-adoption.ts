@@ -368,6 +368,8 @@ function reconcileStoryBoundIntent(
         || state.payload.facts.some(({ id }) => id === target.factId)))
       || (target.kind === "part"
         && state.payload.nodes.some(({ id }) => id === target.node.id))
+      || (target.kind === "new-part" && (target.savedNode === null
+        || state.payload.nodes.some(({ id }) => id === target.savedNode?.id)))
       || (target.kind === "human-take"
         && state.payload.nodes.some(({ id }) =>
         id === (target.savedNode ?? target.node).id))
@@ -399,8 +401,9 @@ export function adoptStoryState(state: RuntimeState, payload: StoryPayload, cach
   flushReadingPositionPersist();
   reconcileWrapCache(cache, state.payload, payload);
   state.payload = payload;
+  state.uncertainFirstTakeStoryId = null;
   state.focusIndex = applyOpeningFocus(payload, state.readingPositions);
-  state.mode = payload.path.length === 0 ? "COMPOSE" : "NAV";
+  state.mode = "NAV";
   state.composer = createComposer();
   state.editor = null;
   state.retakePrompt = null;
