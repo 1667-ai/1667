@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Windows upgrades show the correct next command.** Stable update checks do
+  not show beta releases. A PowerShell Installation now gives the PowerShell
+  Installer command for a stable release. For beta, 1667 gives commands to
+  download and verify the release Installer before it runs. An exact
+  prerelease no longer names an Installer file that does not exist.
 - **New users start with the Graphite theme.** Existing users keep their saved
   theme. An older config without a theme keeps the Lantern theme. The Theme row
   now appears in Simple Settings.

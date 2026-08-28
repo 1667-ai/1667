@@ -1,4 +1,4 @@
-import { compareSemVer, isSemVer } from "../../shared/semver.js";
+import { compareSemVer, isSemVer, parseSemVer } from "../../shared/semver.js";
 import { AI_1667_PRODUCT_VERSION } from "../../shared/build-identity.js";
 import {
   heldTargetRefusal,
@@ -76,7 +76,7 @@ ${DOWNGRADE_WARNING.trimEnd()}
 
 If you installed 1667 with npm, or you built it from source, update it the same
 way you installed it.
-On Windows, exit 1667 and run the PowerShell Installer again.`;
+On Windows, a PowerShell installation updates through the PowerShell Installer.`;
 
 export function windowsInstallCommand(
   installRoot: string,
@@ -87,11 +87,17 @@ export function windowsInstallCommand(
     throw new TypeError("Windows Installer target version must be SemVer");
   }
   const root = installRoot.replaceAll("'", "''");
+  const installerChannel = targetVersion === undefined
+    ? channel
+    : windowsInstallerChannel(targetVersion, channel);
+  if (installerChannel !== "stable") {
+    throw new TypeError("Automatic Windows Installer commands require the stable channel");
+  }
   const installerUrl = targetVersion === undefined
     ? "https://1667.ai/install.ps1"
     : `https://github.com/1667-ai/1667/releases/download/v${
       encodeURIComponent(targetVersion)
-    }/install-${channel}.ps1`;
+    }/install-${installerChannel}.ps1`;
   const script = `& ([scriptblock]::Create((irm ${installerUrl}))) `
     + "-InstallRoot '" + root + "'";
   return "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -EncodedCommand "
@@ -100,6 +106,8 @@ export function windowsInstallCommand(
 
 const INSTRUCTIONS_ORIGIN =
   `https://www.npmjs.com/package/${RELEASE_LAUNCHER_PACKAGE}/v`;
+const NPM_RELEASE_SIGNER = "1667-ai/1667/.github/workflows/release-npm.yml";
+const LEGACY_RELEASE_SIGNER = "1667-ai/1667/.github/workflows/release-github.yml";
 
 export interface UpgradeCliDependencies {
   readonly observation?: UpgradeObservation;
@@ -251,10 +259,18 @@ async function dispatchUpgradeCommand(
       throw new UpgradeFailure("internal_error", "The release list was not handled.");
     case "rollback": {
       if (authority.kind === "powershell") {
-        requireServableWindowsChannel(authority.channel);
+        if (authority.channel === "beta") {
+          throw new UpgradeFailure(
+            "unsupported_target",
+            "Windows rollback is unavailable.\n"
+              + betaInstallerGuidance(observation.currentVersion, authority.installRoot)
+          );
+        }
         throw new UpgradeFailure(
           "unsupported_target",
-          "Windows rollback is unavailable. Exit 1667, then run: "
+          "Windows rollback is unavailable. "
+          + "A Windows PowerShell installation updates through the PowerShell Installer. "
+          + "To install it, run:\n"
           + windowsInstallCommand(authority.installRoot)
         );
       }
@@ -278,10 +294,7 @@ async function dispatchUpgradeCommand(
         registry,
         dependencies.signal
       );
-      if (method === "powershell" && plan.status !== "up-to-date") {
-        requireServableWindowsChannel(plan.channel);
-      }
-      return publicEnvelopeFromPlan(plan, authority);
+      return publicEnvelopeFromPlan(plan, authority, false, plan.channel === "stable");
     }
     case "apply": {
       if (authority.kind === "shell") {
@@ -307,12 +320,33 @@ async function dispatchUpgradeCommand(
         && authority.kind === "powershell"
         && command.channel !== authority.channel;
       warnIfDowngrade(plan, onDowngradeWarning);
-      if (method === "powershell"
+      if (authority.kind === "powershell"
         && command.version === null
-        && (plan.status !== "up-to-date" || channelSwitch)) {
-        requireServableWindowsChannel(plan.channel);
+        && (plan.status !== "up-to-date" || channelSwitch)
+      ) {
+        requireServableWindowsChannel(
+          plan.channel,
+          plan.status === "up-to-date" ? plan.latest : plan.target,
+          authority.installRoot
+        );
       }
-      return publicEnvelopeFromPlan(plan, authority, channelSwitch);
+      if (method === "powershell"
+        && command.version !== null
+        && plan.status !== "up-to-date"
+        && authority.kind === "powershell"
+        && windowsInstallerChannel(plan.target, authority.channel) === "beta"
+      ) {
+        throwBetaWindowsGuidance(plan.target, authority.installRoot);
+      }
+      return publicEnvelopeFromPlan(
+        plan,
+        authority,
+        channelSwitch,
+        true,
+        command.version !== null && authority.kind === "powershell"
+          ? authority.channel
+          : plan.channel
+      );
     }
   }
 }
@@ -334,7 +368,9 @@ function warnIfDowngrade(
 export function publicEnvelopeFromPlan(
   plan: UpgradeCorePlan,
   authority: InstallationAuthority,
-  forcePowerShellInstall = false
+  forcePowerShellInstall = false,
+  includePowerShellCommand = true,
+  powerShellInstallerChannel: UpgradeChannel = plan.channel
 ): UpgradeSuccessEnvelope {
   const method = authorityMethod(authority);
   if (forcePowerShellInstall
@@ -360,13 +396,14 @@ export function publicEnvelopeFromPlan(
       method
     });
   }
-  if (method === "shell") {
+  if (method === "shell" || (method === "powershell" && !includePowerShellCommand)) {
     return upgradeEnvelope({
       status: "available",
       current: plan.current,
       latest: plan.latest,
       target: plan.target,
-      channel: plan.channel
+      channel: plan.channel,
+      ...(method === "powershell" ? { method: "powershell" as const } : {})
     });
   }
   if (authority.kind === "powershell") {
@@ -377,7 +414,11 @@ export function publicEnvelopeFromPlan(
       target: plan.target,
       channel: plan.channel,
       method: "powershell",
-      command: windowsInstallCommand(authority.installRoot, plan.target, plan.channel)
+      command: windowsInstallCommand(
+        authority.installRoot,
+        plan.target,
+        powerShellInstallerChannel
+      )
     });
   }
   return upgradeEnvelope({
@@ -391,20 +432,57 @@ export function publicEnvelopeFromPlan(
 }
 
 /**
- * `https://1667.ai/install.ps1` serves the one promoted release, which is the
- * stable channel. A beta PowerShell Installation therefore cannot be pointed at
- * it: the plan would verify a beta version and the command would install the
- * stable one, then rewrite the Ownership Record to `stable`. Refuse instead, and
- * name the attested asset that does carry the requested channel.
+ * `https://1667.ai/install.ps1` serves the promoted stable release. A beta
+ * Installer must come from its immutable release and pass attestation before a
+ * user runs it.
  */
-function requireServableWindowsChannel(channel: UpgradeChannel): void {
+function requireServableWindowsChannel(
+  channel: UpgradeChannel,
+  targetVersion?: string | null,
+  installRoot?: string
+): void {
   if (channel === "stable") return;
+  const guidance = targetVersion === undefined || targetVersion === null
+    ? "Select a beta version, then download and attest its release Installer before you run it."
+    : betaInstallerGuidance(targetVersion, installRoot);
   throw new UpgradeFailure(
     "unsupported_target",
-    `The Windows Installer route serves the stable channel only. `
-    + `Download and attest install-${channel}.ps1 from the GitHub release, `
-    + "then run it."
+    "The standard Windows Installer URL supports stable releases only.\n" + guidance
   );
+}
+
+function throwBetaWindowsGuidance(
+  targetVersion: string,
+  installRoot: string
+): never {
+  throw new UpgradeFailure(
+    "unsupported_target",
+    `1667 ${targetVersion} requires the beta PowerShell Installer.\n`
+      + betaInstallerGuidance(targetVersion, installRoot)
+  );
+}
+
+function betaInstallerGuidance(targetVersion: string, installRoot?: string): string {
+  const installCommand = installRoot === undefined
+    ? "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\\install-beta.ps1"
+    : "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\\install-beta.ps1"
+      + ` -InstallRoot '${installRoot.replaceAll("'", "''")}'`;
+  return `To install 1667 ${targetVersion}, download this release Installer:\n`
+    + `${windowsInstallerUrl(targetVersion, "beta")}\n`
+    + `gh release download v${targetVersion} --repo 1667-ai/1667 `
+    + "--pattern install-beta.ps1 --output .\\install-beta.ps1\n"
+    + "Verify it with the current release workflow:\n"
+    + betaAttestationCommand(NPM_RELEASE_SIGNER) + "\n"
+    + "For an older beta release, use this command if the first command cannot find an attestation:\n"
+    + betaAttestationCommand(LEGACY_RELEASE_SIGNER) + "\n"
+    + "The beta Installer sets the saved channel to beta.\n"
+    + "Run the verified Installer:\n"
+    + installCommand;
+}
+
+function betaAttestationCommand(signerWorkflow: string): string {
+  return "gh attestation verify .\\install-beta.ps1 --repo 1667-ai/1667 "
+    + `--signer-workflow ${signerWorkflow} --deny-self-hosted-runners`;
 }
 
 export async function runProcessUpgrade(
@@ -478,24 +556,23 @@ function renderUpgrade(
       );
       break;
   }
-  // A Managed Installation says nothing about itself: the update it can do is
-  // the command the reader just ran. Only an installation 1667 cannot update
-  // has to say so, because that fact is why the instructions below differ.
-  if (envelope.method !== "shell") {
-    lines.push("1667 did not install this copy, so it cannot update it.");
-  }
   if (envelope.restartRequired) {
     lines.push("Restart 1667 to run the new version.");
   }
   if (command.kind === "check") {
     if (envelope.status === "manual") {
       if (envelope.method === "powershell") {
-        lines.push("Exit 1667, then run:", envelope.command);
+        appendPowerShellGuidance(lines, envelope, command);
       } else {
         lines.push("Run '1667 upgrade' to see how to update.");
       }
     } else if (envelope.status === "available") {
-      lines.push("Run '1667 upgrade' to install it.");
+      lines.push(
+        envelope.method === "powershell"
+          ? "A Windows PowerShell installation updates through the PowerShell Installer."
+            + ` Run '1667 upgrade --channel ${envelope.channel}' for installation instructions.`
+          : "Run '1667 upgrade' to install it."
+      );
     }
     return `${lines.join("\n")}\n`;
   }
@@ -504,14 +581,45 @@ function renderUpgrade(
   }
   if (envelope.status === "manual") {
     if (envelope.method === "powershell") {
-      lines.push("Exit 1667, then run:");
-      lines.push(envelope.command);
+      appendPowerShellGuidance(lines, envelope, command);
       return `${lines.join("\n")}\n`;
     }
     lines.push(`Instructions: ${instructionsUrl(envelope.target)}`);
     lines.push("Start 1667 again after you update it.");
   }
   return `${lines.join("\n")}\n`;
+}
+
+function appendPowerShellGuidance(
+  lines: string[],
+  envelope: Extract<UpgradeSuccessEnvelope, { method: "powershell" }>,
+  command: UpgradeCommand
+): void {
+  lines.push("A Windows PowerShell installation updates through the PowerShell Installer.");
+  if (command.kind === "apply" && command.version !== null) {
+    lines.push("Selecting an exact version does not change your saved channel.");
+  }
+  if (envelope.command === null) {
+    lines.push("Run '1667 upgrade --channel beta' for installation instructions.");
+    return;
+  }
+  lines.push("To install it, run:");
+  lines.push(envelope.command);
+}
+
+function windowsInstallerChannel(
+  targetVersion: string,
+  channel: UpgradeChannel
+): UpgradeChannel {
+  const parsed = parseSemVer(targetVersion);
+  if (parsed === null) throw new TypeError("Windows Installer target version must be SemVer");
+  return parsed.prerelease.length > 0 ? "beta" : channel;
+}
+
+function windowsInstallerUrl(targetVersion: string, channel: UpgradeChannel): string {
+  return `https://github.com/1667-ai/1667/releases/download/v${
+    encodeURIComponent(targetVersion)
+  }/install-${windowsInstallerChannel(targetVersion, channel)}.ps1`;
 }
 
 function authorityMethod(authority: InstallationAuthority): UpgradeMethod {

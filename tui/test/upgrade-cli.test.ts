@@ -293,6 +293,12 @@ test("manual current releases do not recommend a redundant reinstall", async () 
 });
 
 const POWERSHELL_ROOT = "C:\\Users\\writer\\AppData\\Local\\Programs\\1667\\bin";
+const NPM_BETA_ATTESTATION = "gh attestation verify .\\install-beta.ps1 --repo 1667-ai/1667 "
+  + "--signer-workflow 1667-ai/1667/.github/workflows/release-npm.yml "
+  + "--deny-self-hosted-runners";
+const LEGACY_BETA_ATTESTATION = "gh attestation verify .\\install-beta.ps1 --repo 1667-ai/1667 "
+  + "--signer-workflow 1667-ai/1667/.github/workflows/release-github.yml "
+  + "--deny-self-hosted-runners";
 
 function powershellAuthority(channel: "stable" | "beta") {
   return {
@@ -302,6 +308,18 @@ function powershellAuthority(channel: "stable" | "beta") {
     executable: `${POWERSHELL_ROOT}\\1667.exe`
   };
 }
+
+test("an up-to-date stable PowerShell install prints only its stable state", async () => {
+  const result = await executeUpgradeCli([], {
+    observation,
+    authority: powershellAuthority("stable"),
+    registry: fakeRegistry(observation.currentVersion)
+  });
+  expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+  expect(result.stdout).toBe(
+    `1667 ${observation.currentVersion} is up to date on stable.\n`
+  );
+});
 
 test("PowerShell installs return the rerunnable Windows Installer command", async () => {
   const authority = powershellAuthority("stable");
@@ -323,8 +341,12 @@ test("PowerShell installs return the rerunnable Windows Installer command", asyn
     authority,
     registry: fakeRegistry("2.0.0")
   });
-  expect(applied.stdout).toContain("Exit 1667, then run:");
+  expect(applied.stdout).toContain("1667 2.0.0 is available on stable.");
+  expect(applied.stdout).toContain("A Windows PowerShell installation updates through the PowerShell Installer.");
+  expect(applied.stdout).toContain("To install it, run:");
   expect(applied.stdout).toContain(managedCommand);
+  expect(applied.stdout).not.toContain("1667 did not install this copy");
+  expect(applied.stdout).not.toContain("Exit 1667");
   expect(applied.stdout).not.toContain("npmjs.com");
 
   const rollback = await executeUpgradeCli(["--rollback"], {
@@ -334,6 +356,21 @@ test("PowerShell installs return the rerunnable Windows Installer command", asyn
   });
   expect(rollback.exitCode).toBe(1);
   expect(rollback.stderr).toContain(windowsInstallCommand(POWERSHELL_ROOT));
+});
+
+test("an exact stable PowerShell version explains that the saved channel stays stable", async () => {
+  const applied = await executeUpgradeCli(["--version", "2.0.0"], {
+    observation,
+    authority: powershellAuthority("stable"),
+    registry: fakeRegistry("2.0.0")
+  });
+  expect(applied.exitCode).toBe(0);
+  expect(applied.stdout).toContain("1667 2.0.0 is available.");
+  expect(applied.stdout).toContain("Selecting an exact version does not change your saved channel.");
+  expect(applied.stdout).toContain("To install it, run:");
+  expect(applied.stdout).toContain(windowsInstallCommand(POWERSHELL_ROOT, "2.0.0"));
+  expect(applied.stdout).not.toContain("1667 did not install this copy");
+  expect(applied.stdout).not.toContain("Exit 1667");
 });
 
 test("PowerShell plans bind the command to the exact immutable stable Installer", async () => {
@@ -358,28 +395,37 @@ test("PowerShell plans bind the command to the exact immutable stable Installer"
   expect(script).not.toContain("https://1667.ai/install.ps1");
 });
 
-test("an exact PowerShell downgrade keeps the selected channel", async () => {
-  const applied = await executeUpgradeCli(["--version", "1.0.0", "--json"], {
+test("an exact version on beta requires an attested beta Installer", async () => {
+  const applied = await executeUpgradeCli([
+    "--version",
+    "1.0.0",
+    "--channel",
+    "stable",
+    "--json"
+  ], {
     observation,
     authority: powershellAuthority("beta"),
-    registry: fakeRegistry("2.0.0-beta.1")
+    registry: fakeRegistry("2.0.0")
   });
-  expect(applied.exitCode).toBe(0);
+  expect(applied.exitCode).toBe(1);
   expect(applied.stderr).toContain("make the Vault unreadable or damage Vault data");
   const envelope = JSON.parse(applied.stdout);
   expect(envelope).toMatchObject({
-    status: "manual",
+    status: "error",
     current: "1.2.3",
-    latest: "2.0.0-beta.1",
-    target: "1.0.0",
-    channel: "beta",
-    method: "powershell"
+    latest: null,
+    target: null,
+    channel: "stable",
+    method: "powershell",
+    command: null,
+    error: { code: "unsupported_target" }
   });
-  const encoded = (envelope.command as string).split(" ").at(-1)!;
-  const script = Buffer.from(encoded, "base64").toString("utf16le");
-  expect(script).toContain(
-    "irm https://github.com/1667-ai/1667/releases/download/v1.0.0/install-beta.ps1"
+  expect(envelope.error.message).toContain(
+    "https://github.com/1667-ai/1667/releases/download/v1.0.0/install-beta.ps1"
   );
+  expect(envelope.error.message).toContain(NPM_BETA_ATTESTATION);
+  expect(envelope.error.message).toContain(LEGACY_BETA_ATTESTATION);
+  expect(envelope.error.message).not.toContain("EncodedCommand");
 });
 
 test("an exact current PowerShell version does not install the channel head", async () => {
@@ -428,35 +474,113 @@ test("PowerShell reruns preserve custom roots and explicit channel switches", as
   });
 });
 
-// https://1667.ai/install.ps1 serves the one promoted release. Handing it to a
-// beta Installation would verify a beta version and then install the stable
-// one, rewriting the Ownership Record to the wrong channel.
-test("a channel the Windows Installer route cannot serve is refused", async () => {
-  const authority = powershellAuthority("beta");
-  const checked = await executeUpgradeCli(["--check", "--json"], {
+test("checking beta on PowerShell reports the newer beta without an executable command", async () => {
+  const checked = await executeUpgradeCli(["--check", "--channel", "beta", "--json"], {
     observation,
-    authority,
-    registry: fakeRegistry("2.0.0")
+    authority: powershellAuthority("stable"),
+    registry: fakeRegistry("2.0.0-beta.1")
   });
-  expect(checked.exitCode).toBe(1);
+  expect(checked.exitCode).toBe(0);
+  expect(checked.stderr).toBe("");
   const envelope = JSON.parse(checked.stdout);
-  expect(envelope.status).toBe("error");
-  expect(envelope.error.code).toBe("unsupported_target");
-  expect(envelope.error.message).toContain("install-beta.ps1");
-  expect(checked.stdout).not.toContain("https://1667.ai/install.ps1");
+  expect(envelope).toMatchObject({
+    status: "available",
+    current: observation.currentVersion,
+    latest: "2.0.0-beta.1",
+    target: "2.0.0-beta.1",
+    channel: "beta",
+    method: "powershell",
+    command: null
+  });
+  expect(checked.stdout).not.toContain("powershell -NoLogo");
 
+  const human = await executeUpgradeCli(["--check", "--channel", "beta"], {
+    observation,
+    authority: powershellAuthority("stable"),
+    registry: fakeRegistry("2.0.0-beta.1")
+  });
+  expect(human.exitCode).toBe(0);
+  expect(human.stderr).toBe("");
+  expect(human.stdout).toContain("1667 2.0.0-beta.1 is available on beta.");
+  expect(human.stdout).toContain("Run '1667 upgrade --channel beta'");
+});
+
+test("selecting beta without an exact version stays safe and gives release guidance", async () => {
   const requested = await executeUpgradeCli(["--channel", "beta"], {
+    observation,
+    authority: powershellAuthority("stable"),
+    registry: fakeRegistry("2.0.0-beta.1")
+  });
+  expect(requested.exitCode).toBe(1);
+  expect(requested.stdout).toBe("");
+  expect(requested.stderr).toMatch(/Windows .*Installer.*stable.*only/i);
+  expect(requested.stderr).toContain("2.0.0-beta.1");
+  expect(requested.stderr).toMatch(/download .*Installer/i);
+  expect(requested.stderr).toContain(
+    "https://github.com/1667-ai/1667/releases/download/v2.0.0-beta.1/install-beta.ps1"
+  );
+  expect(requested.stderr).toContain(NPM_BETA_ATTESTATION);
+  expect(requested.stderr).toContain(LEGACY_BETA_ATTESTATION);
+  expect(requested.stderr).toContain(
+    "gh release download v2.0.0-beta.1 --repo 1667-ai/1667 "
+      + "--pattern install-beta.ps1 --output .\\install-beta.ps1"
+  );
+  expect(requested.stderr).toMatch(/saved channel.*beta/i);
+  expect(requested.stderr).toMatch(/powershell\b.*-File\b.*install-beta\.ps1/i);
+  expect(requested.stderr).not.toContain("install-stable.ps1");
+  expect(requested.stderr).not.toContain("https://1667.ai/install.ps1");
+  expect(requested.stderr).toContain("powershell -NoLogo -NoProfile -ExecutionPolicy Bypass");
+  expect(requested.stderr).not.toContain("EncodedCommand");
+  expect(/\birm\b.*install-beta\.ps1/i.test(requested.stderr)).toBe(false);
+});
+
+test("an exact PowerShell prerelease gives attested beta release guidance", async () => {
+  const version = "2.0.0-rc.1";
+  const applied = await executeUpgradeCli(["--version", version], {
     observation,
     authority: powershellAuthority("stable"),
     registry: fakeRegistry("2.0.0")
   });
-  expect(requested.exitCode).toBe(1);
-  expect(requested.stderr).toContain("install-beta.ps1");
-  expect(requested.stderr).not.toContain("https://1667.ai/install.ps1");
+  const output = applied.stdout + applied.stderr;
+  expect(applied.exitCode).toBe(1);
+  expect(applied.stdout).toBe("");
+  expect(output).toContain(version);
+  expect(output).toMatch(/download .*Installer/i);
+  expect(output).toContain(
+    "https://github.com/1667-ai/1667/releases/download/v2.0.0-rc.1/install-beta.ps1"
+  );
+  expect(output).toContain(NPM_BETA_ATTESTATION);
+  expect(output).toContain(LEGACY_BETA_ATTESTATION);
+  expect(output).toContain(
+    "gh release download v2.0.0-rc.1 --repo 1667-ai/1667 "
+      + "--pattern install-beta.ps1 --output .\\install-beta.ps1"
+  );
+  expect(output).toMatch(/saved channel.*beta/i);
+  expect(output).toMatch(/powershell\b.*-File\b.*install-beta\.ps1/i);
+  expect(output).toContain("powershell -NoLogo -NoProfile -ExecutionPolicy Bypass");
+  expect(output).not.toContain("EncodedCommand");
+  expect(/\birm\b.*install-beta\.ps1/i.test(output)).toBe(false);
+  expect(output).not.toContain("install-stable.ps1");
+  expect(() => windowsInstallCommand(POWERSHELL_ROOT, version)).toThrow(
+    /stable channel/
+  );
 });
 
-// The refusal is about the command the route cannot serve. A beta Installation
-// that is already current is offered no command, so there is nothing to refuse.
+test("beta PowerShell rollback states the refusal before reinstall guidance", async () => {
+  const rollback = await executeUpgradeCli(["--rollback"], {
+    observation,
+    authority: powershellAuthority("beta"),
+    registry: fakeRegistry("2.0.0-beta.1")
+  });
+  expect(rollback.exitCode).toBe(1);
+  expect(rollback.stdout).toBe("");
+  expect(rollback.stderr).toContain("Windows rollback is unavailable.");
+  expect(rollback.stderr).toContain(NPM_BETA_ATTESTATION);
+  expect(rollback.stderr).toContain("install-beta.ps1");
+});
+
+// A beta Installation that is already current is offered no command, so there
+// is no installer route to reject.
 test("an up-to-date beta PowerShell install still reports its state", async () => {
   const current = await executeUpgradeCli(["--check", "--json"], {
     observation,
