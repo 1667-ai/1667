@@ -109,7 +109,9 @@ export function closeAndFsync(fd: number, path: string): void {
 }
 
 export function fsyncPath(path: string): void {
-  const fd = openSync(path, "r");
+  // Bun on Windows rejects fsync for a read-only handle. These paths are
+  // owned writable staging or destination files.
+  const fd = openSync(path, process.platform === "win32" ? "r+" : "r");
   try {
     fsyncSync(fd);
   } finally {

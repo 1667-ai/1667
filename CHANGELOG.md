@@ -5,6 +5,14 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Windows beta upgrades now use one command.** Run
+  `1667.exe upgrade --channel beta`. 1667 verifies the release and starts a
+  local update process. Windows installs the release after the command exits.
+  The user does not download or attest an Installer.
+- **Windows installation shows the exact start command.** The PowerShell
+  Installer tells the user to open a new PowerShell window and run `1667.exe`.
+  It warns that `1667` without `.exe` does not start the app.
+
 ## 0.10.4-rc.2 - 2026-08-28
 
 - **Windows upgrades show the correct next command.** Stable update checks do

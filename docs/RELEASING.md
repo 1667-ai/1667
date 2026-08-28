@@ -573,14 +573,20 @@ Package.
 
 `1667 upgrade --rollback` works offline.
 
-Windows does not replace the running `1667.exe` file. On Windows, `1667 upgrade`
-verifies the available release and shows the applicable PowerShell Installer
-command. The command downloads `install-<channel>.ps1` from the exact, immutable
-`v<version>` GitHub release that the plan selected; it does not re-resolve the
-moving homepage route. Exit 1667 before you run that command. Run the same
-command again for an upgrade. The PowerShell Installer keeps the Installation
-ID. The PowerShell Installer shows archive download progress. Windows does not
-support `1667 upgrade --rollback`.
+Windows does not replace the running `1667.exe` file. A beta upgrade downloads
+the Platform Package from the canonical npm registry. 1667 verifies the
+SHA-512 integrity value and the Candidate build identity. It starts a local
+PowerShell update process. The process waits for the running executable to
+exit. It verifies the Candidate again and replaces `1667.exe`. A channel switch
+updates the Ownership Record. The user does not download or attest an
+Installer.
+
+A stable Windows upgrade shows the applicable PowerShell Installer command.
+The command downloads `install-stable.ps1` from the exact, immutable
+`v<version>` GitHub release that the plan selected. It does not re-resolve the
+moving homepage route. Exit 1667 before you run that command. The PowerShell
+Installer keeps the Installation ID. The PowerShell Installer shows archive
+download progress. Windows does not support `1667 upgrade --rollback`.
 
 Background update checks are on by default. A user can turn them off in
 Settings. The check reads public package metadata from the npm registry. It

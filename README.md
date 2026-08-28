@@ -16,7 +16,7 @@ model when you want generated prose, or write every take yourself.
 
 This repository contains the terminal user interface (TUI) and the backend.
 
-[![1667 in a terminal: a direction is composed, the model streams the next part, two sibling takes are compared, and the path map opens](https://1667.ai/demo-3.gif)](https://1667.ai)
+[![1667 in a terminal: a direction is composed, the model streams the next part, two sibling takes are compared, and the path map opens](https://1667.ai/demo-4.gif)](https://1667.ai)
 
 ## What you can do
 
@@ -57,6 +57,15 @@ On Windows x64, use the PowerShell Installer:
 powershell -ExecutionPolicy Bypass -c "irm https://1667.ai/install.ps1 | iex"
 ```
 
+After installation, open a new PowerShell window. Start 1667 with this command:
+
+```powershell
+1667.exe
+```
+
+Include `.exe` when you start 1667. The command `1667` does not start the app
+because PowerShell treats it as a number.
+
 Each Installer verifies the downloaded Release Archive checksum. The Shell
 Installer supports macOS and Linux. The PowerShell Installer supports Windows
 x64.
@@ -73,8 +82,26 @@ cd my-story
 `1667 init` creates a `.1667/` directory in the project. Run `1667` from the
 project or one of its subdirectories.
 
-Run `1667 upgrade` to update an installation from the Shell Installer. On
-Windows, exit 1667 and run the PowerShell Installer again.
+Run `1667 upgrade` to update a Managed Installation that the Shell Installer
+created. The command shows download progress in a terminal.
+
+On Windows, run this command to switch to the beta channel and install its
+current release:
+
+```powershell
+1667.exe upgrade --channel beta
+```
+
+1667 downloads and verifies the beta release. It starts a local update
+process. Windows replaces the locked `1667.exe` file after the command exits.
+Wait for the update to finish. Then start `1667.exe` again. You do not need a
+separate Installer download or attestation command.
+
+If the saved channel is stable, run `1667.exe upgrade` for a stable Windows
+update. To switch from beta to stable, run
+`1667.exe upgrade --channel stable`. 1667 shows the applicable PowerShell
+Installer command. Exit 1667 before you run that command. The Installer shows
+download progress.
 
 Install with npm:
 

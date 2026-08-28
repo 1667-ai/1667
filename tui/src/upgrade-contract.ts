@@ -73,11 +73,20 @@ export interface UpgradeAppliedEnvelope extends UpgradeSuccessEnvelopeBase {
   restartRequired: true;
 }
 
+/** A verified Windows candidate that the local helper applies after process exit. */
+export interface UpgradeStagedEnvelope extends UpgradeSuccessEnvelopeBase {
+  status: "staged";
+  method: "powershell";
+  target: string;
+  restartRequired: true;
+}
+
 export type UpgradeSuccessEnvelope =
   | UpgradeUpToDateEnvelope
   | UpgradeManualEnvelope
   | UpgradeAvailableEnvelope
-  | UpgradeAppliedEnvelope;
+  | UpgradeAppliedEnvelope
+  | UpgradeStagedEnvelope;
 
 export interface UpgradeErrorEnvelope extends UpgradeEnvelopeBase {
   status: "error";
@@ -143,7 +152,27 @@ export function upgradeEnvelope(
         target: string;
         channel: UpgradeChannel;
       }
+    | {
+        status: "staged";
+        current: string;
+        latest: string;
+        target: string;
+        channel: UpgradeChannel;
+      }
 ): UpgradeSuccessEnvelope {
+  if (values.status === "staged") {
+    return {
+      status: "staged",
+      current: values.current,
+      latest: values.latest,
+      target: values.target,
+      channel: values.channel,
+      method: "powershell",
+      restartRequired: true,
+      command: null,
+      error: null
+    };
+  }
   if (values.status === "applied") {
     return {
       status: "applied",

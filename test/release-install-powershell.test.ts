@@ -78,7 +78,7 @@ test("PowerShell Installer handles install, repeat, and upgrade cases", async (t
   assert.match(fresh.stdout, /Installed 1667 1\.2\.3 \(stable\)/u);
   assert.match(
     fresh.stdout,
-    /PowerShell treats 1667 as a number\.\r?\nOpen a new PowerShell window\.\r?\nThen run: 1667\.exe/u
+    /\r?\n\r?\nOpen a new PowerShell window\.\r?\nStart 1667 with this command:\r?\n  1667\.exe\r?\nIMPORTANT: Include \.exe when you start 1667\.\r?\n1667 without \.exe does not start the app because PowerShell treats it as a number\./u
   );
   assert.equal(await installedVersion(installRoot), "1.2.3");
   assert.equal(await accessRulesAreProtected(installRoot), false);

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { RGBA, type KeyEvent } from "@opentui/core";
 import { handleKey, initialState, renderOnce, renderOnceSpans } from "../src/app.js";
+import { NEW_INSTALL_THEME } from "../src/config.js";
 import { createDemoController, demoAppSource, demoStoryApi, DEMO_SETTINGS_DOCUMENT } from "../src/demo.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { createPalette } from "../src/palette.js";
@@ -238,7 +239,7 @@ describe("run C overlay frames", () => {
     expect(grouped).toContain("direct take");
     expect(grouped).toContain("generation settings");
     expect(grouped).not.toContain("acknowledge unknown");
-    expect(grouped).toContain("theme: lantern");
+    expect(grouped).toContain(`theme: ${NEW_INSTALL_THEME}`);
     expect(grouped).toContain("↑↓ move · ↵ run · esc close");
 
     const filtered = await renderOnce(demoAppSource(), 120, 36, ":sum");
@@ -342,7 +343,7 @@ describe("run C overlay frames", () => {
   test("simple settings shows the theme switcher and editable fields", async () => {
     const frame = await renderWithKeys(demoAppSource(), 120, 36, [key(",")]);
     expect(frame).toContain("┏━ settings ━");
-    expect(frame).toContain("‹ lantern ›");
+    expect(frame).toContain(`‹ ${NEW_INSTALL_THEME} ›`);
     expect(frame).toContain("provider");
     expect(frame).toContain("↑↓ move · ←→ choose · ↵ next · s save");
     expect(frame).toContain("SETTINGS");

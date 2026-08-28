@@ -90,6 +90,7 @@ export function buildCanonicalPlatformPackage(input: {
   readonly packageName: PublishedPlatformPackage;
   readonly version: string;
   readonly target: BuiltArtifactTarget;
+  readonly executableBody?: Buffer | string;
   readonly omit?: string;
   readonly badMode?: string;
   readonly noticeBody?: Buffer | string;
@@ -132,7 +133,8 @@ export function buildCanonicalPlatformPackage(input: {
       input.target
     )
   );
-  const executable = stubExecutableSource(input.version, input.target);
+  const executable = input.executableBody
+    ?? stubExecutableSource(input.version, input.target);
   const packageJson = JSON.stringify({
     name: input.packageName,
     version: input.version,
@@ -166,7 +168,11 @@ export function buildCanonicalPlatformPackage(input: {
     { path: "package/bin", body: "", mode: 0o755 },
     { path: "package/package.json", body: packageJson, mode: 0o644 },
     { path: "package/build-manifest.json", body: packageBuildManifest, mode: 0o644 },
-    { path: `package/${descriptor.executable}`, body: executable, mode: 0o755 },
+    {
+      path: `package/${descriptor.executable}`,
+      body: executable,
+      mode: descriptor.executable.endsWith(".exe") ? 0o644 : 0o755
+    },
     { path: "package/sbom.spdx.json", body: sbom, mode: 0o644 },
     { path: "package/LICENSE", body: license, mode: 0o644 },
     { path: "package/NOTICE", body: notice, mode: 0o644 }
