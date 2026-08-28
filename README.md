@@ -85,9 +85,25 @@ Installer supports macOS and Linux. The PowerShell Installer supports Windows
 x64.
 
 Run `1667 upgrade` to update a Managed Installation that the Shell Installer
-created. The command shows download progress in a terminal. On Windows, exit
-1667 and run the PowerShell Installer again. The Installer shows download
-progress. `1667 upgrade` shows the required command.
+created. The command shows download progress in a terminal.
+
+On Windows, run this command to switch to the beta channel and install its
+current release:
+
+```powershell
+1667.exe upgrade --channel beta
+```
+
+1667 downloads and verifies the beta release. It starts a local update
+process. Windows replaces the locked `1667.exe` file after the command exits.
+Wait for the update to finish. Then start `1667.exe` again. You do not need a
+separate Installer download or attestation command.
+
+If the saved channel is stable, run `1667.exe upgrade` for a stable Windows
+update. To switch from beta to stable, run
+`1667.exe upgrade --channel stable`. 1667 shows the applicable PowerShell
+Installer command. Exit 1667 before you run that command. The Installer shows
+download progress.
 
 Run the Shell Installer again to update a valid Shell Managed Installation. It
 preserves the `installationId`, keeps the previous executable for rollback,
