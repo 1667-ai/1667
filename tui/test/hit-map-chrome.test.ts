@@ -115,9 +115,8 @@ const footerCases: FooterCase[] = [
     ],
     setup: (state, source) => {
       state.mode = "SETTINGS";
-      // Row 0 is "theme" (a cycler, matching this case's CHOICE footer) only
-      // in advanced mode; simple mode's row 0 is "update-checks", a plain
-      // toggle with a different footer.
+      // Advanced mode selects the `m simple` footer. Row 0 is "theme", a
+      // cycler that selects the choice footer.
       state.config = { ...state.config, settingsViewMode: "advanced" };
       state.settings = initialSettingsOverlay(source.settingsView, state.config);
     } }
@@ -1247,7 +1246,7 @@ describe("hit map clickable chrome", () => {
         expected: "↑↓ move · ←→ choose · ↵ next · s save · c check · m simple · esc",
         setup: (state, source) => {
           state.mode = "SETTINGS";
-          // Row 0 is "theme" (a cycler) only in advanced mode.
+          // Advanced mode selects the `m simple` footer. Row 0 is "theme".
           state.config = { ...state.config, settingsViewMode: "advanced" };
           state.settings = initialSettingsOverlay(source.settingsView, state.config);
         } },

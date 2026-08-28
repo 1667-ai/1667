@@ -16,7 +16,7 @@ export interface StarterKey {
   readonly name: string;
   /** How the prose spells the key, wrapped in square brackets. */
   readonly token: string;
-  readonly mode: "NAV" | "MAP";
+  readonly mode: "NAV" | "MAP" | "LIBRARY";
   readonly shift?: true;
   readonly ctrl?: true;
   /** Map bindings that only exist in a particular view. */
@@ -44,6 +44,7 @@ export const STARTER_KEYS = {
   prune: { name: "d", token: "D", mode: "NAV", shift: true },
   openMap: { name: "m", token: "m", mode: "NAV" },
   openLibrary: { name: "o", token: "o", mode: "NAV" },
+  deleteStory: { name: "d", token: "D", mode: "LIBRARY", shift: true },
   openFacts: { name: "f", token: "f", mode: "NAV" },
   openChapters: { name: "c", token: "c", mode: "NAV" },
   createChapter: { name: "c", token: "C", mode: "NAV", shift: true },

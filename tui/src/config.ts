@@ -79,6 +79,8 @@ export interface UserConfig {
 
 const DEFAULTS: UserConfig = {
   schemaVersion: 1,
+  // Keep this legacy fallback for an existing config without a theme. A new
+  // install gets Graphite only when `loadConfigWithStatus` finds no file.
   theme: "lantern",
   factsRail: "auto",
   composeFocus: "off",
@@ -201,7 +203,11 @@ export function loadConfigWithStatus(
     raw = readFileSync(file, "utf8");
   } catch (error) {
     const status = isEnoent(error) ? "absent" : "unreadable";
-    return { status, config: normalizeUserConfig(null) };
+    const config = normalizeUserConfig(null);
+    return {
+      status,
+      config: status === "absent" ? { ...config, theme: "graphite" } : config
+    };
   }
   try {
     return { status: "loaded", config: normalizeUserConfig(JSON.parse(raw)) };

@@ -10,6 +10,7 @@ import type { RuntimeState, SettingsOverlayState, SettingsRowId } from "./state.
  *  rule instead of two that could drift apart. Writing rows come from the
  *  field-definition table so simple/advanced visibility cannot drift. */
 const SETTINGS_SIMPLE_ROW_IDS: ReadonlySet<SettingsRowId> = new Set([
+  "theme",
   "update-checks",
   ...WRITING_PROMPT_FIELD_DEFINITIONS
     .filter((entry) => entry.view === "simple")
