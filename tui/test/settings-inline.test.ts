@@ -20,6 +20,7 @@ import {
   selectedComposerText,
   setComposerText
 } from "../src/composer-model.js";
+import { THEME_NAMES } from "../src/config.js";
 import { pasteInto } from "../src/keys.js";
 import {
   beginSettingsPasteEdit,
@@ -190,15 +191,18 @@ describe("inline settings menu", () => {
     const { source, state, press } = harness();
     await openSettings(press);
     await selectRow(press, state, "theme");
+    const expectedTheme = THEME_NAMES[
+      (THEME_NAMES.indexOf(state.config.theme) + 3) % THEME_NAMES.length
+    ]!;
 
     await press(key("right"));
     await press(key("right"));
     await press(key("right"));
-    expect(state.config.theme).toBe("bond");
-    expect(source.config.theme).toBe("bond");
+    expect(state.config.theme).toBe(expectedTheme);
+    expect(source.config.theme).toBe(expectedTheme);
     await selectRow(press, state, "model");
     await press(key("left"));
-    expect(state.config.theme).toBe("bond");
+    expect(state.config.theme).toBe(expectedTheme);
     await selectRow(press, state, "compose-focus");
     expect(state.config.composeFocus).toBe("off");
     await press(key("return"));
@@ -282,11 +286,14 @@ describe("inline settings menu", () => {
     source.api.getSettings = async () => legacy;
     await openSettings(press);
     await selectRow(press, state, "theme");
+    const expectedTheme = THEME_NAMES[
+      (THEME_NAMES.indexOf(state.config.theme) + 3) % THEME_NAMES.length
+    ]!;
 
     await press(key("right"));
     await press(key("right"));
     await press(key("right"));
-    expect(state.config.theme).toBe("bond");
+    expect(state.config.theme).toBe(expectedTheme);
     await selectRow(press, state, "provider");
     await press(key("return"));
     expect(state.settings?.edit).toBe(null);

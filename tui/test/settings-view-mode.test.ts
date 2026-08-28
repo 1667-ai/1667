@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { THEME_NAMES } from "../src/config.js";
 import { SETTINGS_ROW_IDS, settingsRowIds } from "../src/settings-row-navigation.js";
 import { settingsCursorRowIdentity } from "../src/settings-row-navigation.js";
 import { settingsDraftChanged } from "../src/settings-overlay-model.js";
@@ -103,10 +104,13 @@ test("simple mode can change the theme", async () => {
   await openSettings(press);
 
   expect(settingsRowIds(state.settings!)[state.settings!.cursor]).toBe("theme");
+  const expectedTheme = THEME_NAMES[
+    (THEME_NAMES.indexOf(state.config.theme) + 1) % THEME_NAMES.length
+  ]!;
   await press(key("right"));
 
-  expect(state.config.theme).toBe("iron gall");
-  expect(source.config.theme).toBe("iron gall");
+  expect(state.config.theme).toBe(expectedTheme);
+  expect(source.config.theme).toBe(expectedTheme);
 });
 
 test("base-url and api-key stay visible in simple mode until a fixed subscription connection hides them", async () => {
