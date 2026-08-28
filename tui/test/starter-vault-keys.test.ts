@@ -73,7 +73,7 @@ describe("starter vault key contract", () => {
     // that confidently describes a removed screen is the same failure as
     // teaching a rebound key.
     const prose = starterProse().map((entry) => entry.text).join("\n");
-    expect(prose).toContain("[?] is the key reference");
+    expect(prose).toContain("Press [?] to open the complete key reference.");
     expect(prose).not.toContain("keyboard");
   });
 
