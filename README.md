@@ -16,7 +16,7 @@ model when you want generated prose, or write every take yourself.
 
 This repository contains the terminal user interface (TUI) and the backend.
 
-[![1667 in a terminal: a direction is composed, the model streams the next part, two sibling takes are compared, and the path map opens](https://1667.ai/demo-3.gif)](https://1667.ai)
+[![1667 in a terminal: a direction is composed, the model streams the next part, two sibling takes are compared, and the path map opens](https://1667.ai/demo-4.gif)](https://1667.ai)
 
 ## What you can do
 
