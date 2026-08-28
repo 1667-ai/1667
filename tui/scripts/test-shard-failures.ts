@@ -18,7 +18,10 @@ export function parseFailures(stderr: string): readonly FailedTest[] | null {
       continue;
     }
     if (reportedCount !== null) continue;
-    const heading = trimmed.match(/^(.+\.(?:[cm]?[jt]sx?)):$/u);
+    const headingText = trimmed.startsWith("::group::")
+      ? trimmed.slice("::group::".length)
+      : trimmed;
+    const heading = headingText.match(/^(.+\.(?:[cm]?[jt]sx?)):$/u);
     if (heading !== null) {
       file = heading[1]!;
       continue;

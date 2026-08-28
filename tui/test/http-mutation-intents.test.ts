@@ -302,6 +302,7 @@ test("HTTP intent store retries a version-1 identity at its origin", async () =>
 
   const next = await store.claim(operation, input);
   expect(next.mutationId).not.toBe(retry.mutationId);
+  await next.retain();
 });
 
 test("HTTP intent store rejects simultaneous version-1 and version-2 identities", async () => {

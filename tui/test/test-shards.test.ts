@@ -27,8 +27,9 @@ test("TUI test command runs every shard in a fresh Bun process", () => {
 });
 
 test("TUI test retries keep each supported Bun test filename", () => {
-  const failures = parseFailures(`test/known.test.ts:
+  const failures = parseFailures(`::group::test/known.test.ts:
 (fail) known failure [1.00ms]
+::endgroup::
 
 test/other.spec.ts:
 (fail) other failure [2.00ms]
