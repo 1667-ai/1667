@@ -56,6 +56,29 @@ future-test-format:
   expect(failures).toBeNull();
 });
 
+test("TUI test retries use the shard when Bun omits a failure file", () => {
+  const failures = parseFailures(`(fail) known failure [1.00ms]
+
+1 test failed:
+(fail) known failure [1.00ms]
+`);
+
+  expect(failures).toEqual([{ file: null, name: "known failure" }]);
+});
+
+test("TUI test retries ignore terminal formatting in Bun headings", () => {
+  const failures = parseFailures(`\u001B[31m::group::test/known.test.ts:\u001B[0m
+(fail) known failure [1.00ms]
+
+1 test failed:
+(fail) known failure [1.00ms]
+`);
+
+  expect(failures).toEqual([
+    { file: "test/known.test.ts", name: "known failure" }
+  ]);
+});
+
 test("TUI test retries fail closed when Bun also reports an unhandled error", () => {
   const failures = parseFailures(`test/known.test.ts:
 (fail) transient failure [1.00ms]

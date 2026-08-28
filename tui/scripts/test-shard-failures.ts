@@ -1,14 +1,16 @@
 export interface FailedTest {
-  readonly file: string;
+  readonly file: string | null;
   readonly name: string;
 }
 
 export function parseFailures(stderr: string): readonly FailedTest[] | null {
-  const failures: FailedTest[] = [];
+  const detailedFailures: FailedTest[] = [];
+  const recapFailures: FailedTest[] = [];
+  const filesByName = new Map<string, string | null>();
   let file: string | null = null;
   let reportedCount: number | null = null;
   for (const line of stderr.split("\n")) {
-    const trimmed = line.trim();
+    const trimmed = stripAnsi(line).trim();
     if (/^# Unhandled error\b/u.test(trimmed)
       || /^\d+ errors?$/u.test(trimmed)) return null;
     const summary = trimmed.match(/^(\d+) tests? failed:$/u);
@@ -17,7 +19,14 @@ export function parseFailures(stderr: string): readonly FailedTest[] | null {
       file = null;
       continue;
     }
-    if (reportedCount !== null) continue;
+    const match = trimmed.match(/^\(fail\) (.*?)(?: \[[\d.]+(?:ms|s)\])?$/u);
+    if (reportedCount !== null) {
+      if (match !== null) {
+        const name = match[1]!;
+        recapFailures.push({ file: filesByName.get(name) ?? null, name });
+      }
+      continue;
+    }
     const headingText = trimmed.startsWith("::group::")
       ? trimmed.slice("::group::".length)
       : trimmed;
@@ -27,10 +36,18 @@ export function parseFailures(stderr: string): readonly FailedTest[] | null {
       continue;
     }
     if (trimmed.endsWith(":")) file = null;
-    if (file === null) continue;
-    const match = trimmed.match(/^\(fail\) (.*?)(?: \[[\d.]+(?:ms|s)\])?$/u);
-    if (match === null) continue;
-    failures.push({ file, name: match[1]! });
+    if (file === null || match === null) continue;
+    const name = match[1]!;
+    detailedFailures.push({ file, name });
+    const knownFile = filesByName.get(name);
+    filesByName.set(name, knownFile === undefined || knownFile === file
+      ? file
+      : null);
   }
-  return reportedCount === failures.length ? failures : null;
+  if (reportedCount === recapFailures.length) return recapFailures;
+  return reportedCount === detailedFailures.length ? detailedFailures : null;
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001B\[[0-?]*[ -/]*[@-~]/gu, "");
 }

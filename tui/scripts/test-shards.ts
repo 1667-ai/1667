@@ -55,13 +55,16 @@ async function main(): Promise<void> {
     let isolatedFailure = false;
     for (const failure of failures) {
       const testName = failure.name.split(" > ").at(-1)!;
+      const testTarget = failure.file ?? `shard ${shard}/${SHARD_COUNT}`;
       let passed = false;
       for (let attempt = 1; attempt <= ISOLATED_ATTEMPTS; attempt += 1) {
         process.stdout.write(
-          `\n==> Isolated retry ${attempt}/${ISOLATED_ATTEMPTS}: ${failure.file}: ${failure.name}\n`
+          `\n==> Isolated retry ${attempt}/${ISOLATED_ATTEMPTS}: ${testTarget}: ${failure.name}\n`
         );
         const isolated = await runTestProcess([
-          failure.file,
+          ...(failure.file === null
+            ? [`--shard=${shard}/${SHARD_COUNT}`]
+            : [failure.file]),
           `--test-name-pattern=${escapeRegex(testName)}`,
           ...withoutNamePattern(testArgs)
         ]);
