@@ -373,7 +373,7 @@ npm test
 npm run prompt:check
 cd tui
 bun run typecheck
-bun test
+bun run test
 bun bench/perf.ts
 bun run build:standalone
 ```

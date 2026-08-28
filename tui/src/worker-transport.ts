@@ -16,6 +16,7 @@ import {
   isManifestOnlyDurabilityEligible,
   isServiceOwnedSettingsMutation,
   isWorkerMutationMethod,
+  type MainToWorkerMessage,
   type WorkerInput,
   type WorkerMethod,
   type WorkerOperationId,
@@ -64,6 +65,7 @@ export class WorkerTransport {
   private readonly lifecycle: WorkerLifecycle;
   private readonly recoveryCoordinator: OutboxRecoveryCoordinator<WorkerApiError>;
   private readonly worker: WorkerLike;
+  private bootstrapMessage: Extract<MainToWorkerMessage, { type: "bootstrap" }> | null;
   private readonly outbox: SerializedWorkerOutbox;
   private readonly archivedMutationCleanup =
     new LifecycleRetry<string>();
@@ -103,6 +105,17 @@ export class WorkerTransport {
   ) {
     this.outbox = new SerializedWorkerOutbox(outbox);
     this.worker = options.worker ?? createDefaultWorker();
+    this.bootstrapMessage = options.worker === undefined
+      ? {
+          type: "bootstrap",
+          dataDir: resolveDataDirectory(options.dataDir),
+          externalDataLock: true,
+          ...(options.machineDir === undefined ? {} : { machineDir: options.machineDir }),
+          ...(options.vaultKey === undefined ? {} : { vaultKey: options.vaultKey }),
+          ...(options.printLogs === true ? { printLogs: true } as const : {}),
+          ...(options.freshDataDirectory === true ? { freshDataDirectory: true } as const : {})
+        }
+      : null;
     this.lifecycle = new WorkerLifecycle(this.worker, options, (error) => this.fail(error, false));
     this.recoveryCoordinator = new OutboxRecoveryCoordinator(
       (record) => this.replayMutation(record),
@@ -111,17 +124,6 @@ export class WorkerTransport {
     this.worker.addEventListener("message", this.onMessage);
     this.worker.addEventListener("error", this.onError);
     this.worker.addEventListener("close", this.onClose);
-    if (options.worker === undefined) {
-      this.worker.postMessage({
-        type: "bootstrap",
-        dataDir: resolveDataDirectory(options.dataDir),
-        externalDataLock: true,
-        ...(options.machineDir === undefined ? {} : { machineDir: options.machineDir }),
-        ...(options.vaultKey === undefined ? {} : { vaultKey: options.vaultKey }),
-        ...(options.printLogs === true ? { printLogs: true } as const : {}),
-        ...(options.freshDataDirectory === true ? { freshDataDirectory: true } as const : {})
-      });
-    }
   }
 
   async start(): Promise<void> {
@@ -471,6 +473,20 @@ export class WorkerTransport {
         if (!this.lifecycle.reportStarting()) {
           return this.fail(new Error("Embedded backend regressed to starting after ready"), false);
         }
+        // Bun 1.4 can discard a message before a large embedded worker starts.
+        // Send the bootstrap message after the worker reports its identity.
+        const bootstrap = this.bootstrapMessage;
+        this.bootstrapMessage = null;
+        if (bootstrap !== null) {
+          try {
+            this.worker.postMessage(bootstrap);
+          } catch (error) {
+            return this.fail(
+              error instanceof Error ? error : new Error(String(error)),
+              false
+            );
+          }
+        }
       } else {
         if (!this.lifecycle.reportReady()) return this.fail(new Error("Embedded backend sent duplicate readiness"), false);
       }
@@ -709,17 +725,18 @@ export class WorkerTransport {
 
 function createDefaultWorker(): Worker {
   if (typeof __AI_1667_EMBEDDED_WORKER_SOURCE__ === "string") {
-    const workerFile = new File(
+    const workerBlob = new Blob(
       [__AI_1667_EMBEDDED_WORKER_SOURCE__],
-      "1667-worker.js",
       { type: "application/javascript" }
     );
-    return new Worker(URL.createObjectURL(workerFile), { type: "module" });
+    return new Worker(URL.createObjectURL(workerBlob), { type: "module" });
   }
-  return new Worker(
-    new URL("../../server/worker.js", import.meta.url),
-    { type: "module" }
-  );
+  // A compiled entrypoint needs the absolute virtual path because Bun 1.4
+  // drops that root from a relative Worker URL.
+  const workerPath = WORKER_BUILD_IDENTITY.artifactTarget === "source"
+    ? new URL("../../server/worker.js", import.meta.url)
+    : new URL("/$bunfs/root/server/worker.js", import.meta.url);
+  return new Worker(workerPath, { type: "module" });
 }
 function isAborted(signal: AbortSignal | undefined): boolean { return signal?.aborted === true; }
 

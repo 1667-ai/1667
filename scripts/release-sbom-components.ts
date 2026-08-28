@@ -59,24 +59,31 @@ export interface ReleaseComponentSources {
  */
 export const RELEASE_BUN_RUNTIME: ReleaseRuntimeComponent = Object.freeze({
   name: "bun",
-  version: "1.3.14",
+  version: "1.4.0",
   license: "MIT",
-  downloadLocation: "https://github.com/oven-sh/bun/releases/tag/bun-v1.3.14",
-  purl: "pkg:github/oven-sh/bun@bun-v1.3.14"
+  downloadLocation: "https://github.com/oven-sh/bun/releases/tag/bun-v1.4.0",
+  purl: "pkg:github/oven-sh/bun@bun-v1.4.0"
 });
 
 /** Root-lockfile packages whose code the bundler pulls into the executable. */
 const NPM_BUNDLED_PACKAGES = Object.freeze([
   ...PI_AI_BUNDLED_PACKAGE_NAMES,
   "@silvia-odwyer/photon-node",
+  "detect-libc",
   "fs-ext-extra-prebuilt",
   "msgpackr",
+  "msgpackr-extract",
+  "node-gyp-build-optional-packages",
   "tiktoken"
 ] as const);
 
 const NPM_BUNDLED_REQUIRED_BY: Readonly<Record<string, string>> = Object.freeze({
   "@anthropic-ai/sdk": "@earendil-works/pi-ai",
-  "partial-json": "@earendil-works/pi-ai"
+  "detect-libc": "node-gyp-build-optional-packages",
+  "msgpackr-extract": "msgpackr",
+  "node-gyp-build-optional-packages": "msgpackr-extract",
+  "partial-json": "@earendil-works/pi-ai",
+  "typebox": "@earendil-works/pi-ai"
 });
 
 export interface ExcludedReleasePackage {
@@ -130,11 +137,6 @@ export const RELEASE_SBOM_EXCLUDED_PACKAGES: readonly ExcludedReleasePackage[] =
     reason: "Optional native payload for source-only Node HTTP mode. The "
       + "compiled Bun executable uses Bun FFI and keeps Koffi external."
   })),
-  Object.freeze({
-    name: "msgpackr-extract",
-    reason: "Optional native acceleration package for msgpackr. Shipped code imports "
-      + "pure JS msgpackr/unpack so standalone contains no native binary extension."
-  }),
   ...[
     "@msgpackr-extract/msgpackr-extract-darwin-arm64",
     "@msgpackr-extract/msgpackr-extract-darwin-x64",
@@ -147,16 +149,6 @@ export const RELEASE_SBOM_EXCLUDED_PACKAGES: readonly ExcludedReleasePackage[] =
     reason: "Optional native acceleration payload for msgpackr. Shipped code imports "
       + "pure JS msgpackr/unpack so standalone contains no native binary extension."
   })),
-  Object.freeze({
-    name: "node-gyp-build-optional-packages",
-    reason: "Install-only helper script declared by msgpackr-extract. It is "
-      + "never imported by shipped code and contributes no bytes."
-  }),
-  Object.freeze({
-    name: "detect-libc",
-    reason: "Dependency of node-gyp-build-optional-packages. It is never "
-      + "imported by shipped code and contributes no bytes."
-  }),
   Object.freeze({
     name: "nan",
     reason: "C++ headers that node-gyp consumes while installing "
@@ -404,7 +396,7 @@ function npmLockComponent(
   requiredByName: string | null
 ): UnresolvedComponent {
   const entry = npmLockEntry(lockfile, `node_modules/${name}`);
-  if (entry.dev === true || entry.optional === true) {
+  if (entry.dev === true) {
     throw new Error(`${name} is not an installed runtime dependency`);
   }
   const version = lockString(entry.version, `${name} version`);

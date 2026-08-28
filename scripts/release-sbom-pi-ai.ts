@@ -3,14 +3,15 @@
  *
  * `@earendil-works/pi-ai` declares a broad provider set. The release imports
  * only its Anthropic and OpenAI Codex providers plus its Bun OAuth registry.
- * A Bun 1.3.14 metafile for that exact entry graph contains the three packages
- * below. The remaining lockfile packages do not contribute a module to the
- * compiled executable.
+ * A Bun 1.4.0 metafile for that exact entry graph contains the four packages
+ * below. Other Pi provider packages do not contribute modules to the compiled
+ * executable.
  */
 export const PI_AI_BUNDLED_PACKAGE_NAMES = Object.freeze([
   "@anthropic-ai/sdk",
   "@earendil-works/pi-ai",
-  "partial-json"
+  "partial-json",
+  "typebox"
 ] as const);
 
 /** Packages installed for Pi providers that the standalone does not import. */
@@ -95,7 +96,6 @@ export const PI_AI_TREE_SHAKEN_PACKAGE_NAMES = Object.freeze([
   "safe-buffer",
   "ts-algebra",
   "tslib",
-  "typebox",
   "undici-types",
   "web-streams-polyfill",
   "ws"

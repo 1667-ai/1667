@@ -20,6 +20,7 @@ import {
 import { API_PROTOCOL_HEADERS, fetchWithApiProtocol } from "./http-test-client.js";
 import { testApp } from "./story-server-fixture.js";
 import { parseWorkerMutation } from "../server/worker-mutations.js";
+import { runBunCli } from "./bun-cli-test-process.js";
 
 const execFileAsync = promisify(execFile);
 const linuxTest = process.platform === "linux" ? test : test.skip;
@@ -472,10 +473,8 @@ test("E2E integration: 1667 import routes to a project and returns a failure exi
   const sampleMd = path.join(root, "sample.md");
   await writeFile(sampleMd, "\uFEFF# TUI Imported Story\n\nFirst paragraph.", "utf8");
 
-  const bun = process.execPath.includes("bun") ? process.execPath : "bun";
   const entrypoint = path.resolve("tui/src/standalone.ts");
-  const imported = await execFileAsync(
-    bun,
+  const imported = await runBunCli(
     [entrypoint, "import", "--data", project.root, sampleMd],
     { env: { ...process.env, AI_1667_STATE: path.join(root, "machine") } }
   );
@@ -487,8 +486,7 @@ test("E2E integration: 1667 import routes to a project and returns a failure exi
   assert.ok(list.some(({ title }) => title === "TUI Imported Story"));
   await service.dispose();
 
-  const failure = await execFileAsync(
-    bun,
+  const failure = await runBunCli(
     [entrypoint, "import", "--data", project.root, path.join(root, "missing.md")],
     { env: { ...process.env, AI_1667_STATE: path.join(root, "machine") } }
   ).catch((error: unknown) => error);
@@ -498,15 +496,14 @@ test("E2E integration: 1667 import routes to a project and returns a failure exi
   if (process.platform !== "win32") {
     const fifo = path.join(root, "blocked.md");
     await execFileAsync("mkfifo", [fifo]);
-    const fifoFailure = await execFileAsync(
-      bun,
+    const fifoFailure = await runBunCli(
       [entrypoint, "import", "--data", project.root, fifo],
       {
       env: { ...process.env, AI_1667_STATE: path.join(root, "machine") },
       // A cold CLI start on a contended runner can take several seconds
       // before it reads the fifo and refuses it; only a real hang should
       // reach this bound.
-      timeout: 30_000
+      timeout: 75_000
       }
     ).catch((error: unknown) => error);
     assert.ok(fifoFailure instanceof Error && "code" in fifoFailure && fifoFailure.code === 1);

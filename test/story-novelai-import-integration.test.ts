@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { promisify } from "node:util";
 import { initializeProject } from "../server/project-discovery.js";
 import { stripInheritedAcl } from "./state-root-fixture.js";
 import { StoryService } from "../server/story-service.js";
@@ -17,8 +15,8 @@ import {
   legacyNovelAiScenario
 } from "./novelai-legacy-fixture.js";
 import { testApp } from "./story-server-fixture.js";
+import { runBunCli } from "./bun-cli-test-process.js";
 
-const execFileAsync = promisify(execFile);
 const linuxTest = process.platform === "linux" ? test : test.skip;
 
 test("StoryService.importNovelAI creates and persists one story", async () => {
@@ -204,9 +202,7 @@ test("1667 import routes a .story file to a project", async (t) => {
     sampleStory
   );
 
-  const bun = process.execPath.includes("bun") ? process.execPath : "bun";
-  const imported = await execFileAsync(
-    bun,
+  const imported = await runBunCli(
     [path.resolve("tui/src/standalone.ts"), "import", "--data", project.root, sampleStory],
     { env: { ...process.env, AI_1667_STATE: path.join(root, "machine") } }
   );
@@ -234,9 +230,7 @@ test("1667 import routes a real-shaped legacy .scenario through the service", as
   const scenarioFile = path.join(root, "legacy.scenario");
   await writeFile(scenarioFile, JSON.stringify(legacyNovelAiScenario(0)), "utf8");
 
-  const bun = process.execPath.includes("bun") ? process.execPath : "bun";
-  const imported = await execFileAsync(
-    bun,
+  const imported = await runBunCli(
     [path.resolve("tui/src/standalone.ts"), "import", "--data", project.root, scenarioFile],
     { env: { ...process.env, AI_1667_STATE: path.join(root, "machine") } }
   );
@@ -271,9 +265,7 @@ test("1667 import-lorebook routes a real-shaped legacy Lorebook through the serv
 
   const lorebookFile = path.join(root, "legacy-v4.lorebook");
   await writeFile(lorebookFile, JSON.stringify(legacyNovelAiLorebook(4)), "utf8");
-  const bun = process.execPath.includes("bun") ? process.execPath : "bun";
-  const imported = await execFileAsync(
-    bun,
+  const imported = await runBunCli(
     [
       path.resolve("tui/src/standalone.ts"),
       "import-lorebook",

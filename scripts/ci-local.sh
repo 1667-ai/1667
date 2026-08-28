@@ -76,7 +76,7 @@ run_darwin_arm64() {
     cd tui
     bun install --frozen-lockfile
     bun run typecheck
-    bun test
+    bun run test
     bun run build:standalone
   )
   local code=$?
@@ -105,7 +105,7 @@ ensure_container() {
     tar -C /src --exclude=node_modules --exclude=.git -cf - . | tar -C /app -xf -
     cd /app
     npm ci --no-audit --no-fund
-    npm i -g bun@1.3.14
+    npm i -g bun@1.4.0
     (cd tui && bun install --frozen-lockfile)
     useradd -m runner
     chown -R runner /app
@@ -141,7 +141,7 @@ run_linux() {
     timeout ${TARGET_TIMEOUT_S} ${runtime_test}
     cd tui
     bun run typecheck
-    timeout ${TARGET_TIMEOUT_S} bun test
+    timeout ${TARGET_TIMEOUT_S} bun run test
   "
   local code=$?
   local elapsed=$(( $(date +%s) - start ))

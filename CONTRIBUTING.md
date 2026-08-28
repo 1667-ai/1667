@@ -27,7 +27,7 @@ order matters less than the trail existing.
 
 ## Requirements
 
-- Bun 1.3.14 or newer
+- Bun 1.4.0 or newer
 - Node.js 22
 - Docker, to run the Linux gates
 
@@ -41,9 +41,9 @@ cd tui && bun install
 
 ## Run the gates before you push
 
-Pull request CI runs the gates on macOS arm64, Linux arm64, and Linux x64. A
-pull request is not mergeable until those gates pass. A push to `main` also
-runs the gates on macOS x64. CI does not test Windows x64.
+Pull request CI runs the full Linux gate and packaged gates on macOS arm64,
+macOS x64, Linux arm64, Linux x64, and Windows x64. The repository permits a
+merge only after those gates pass.
 
 Running the same gates locally first is faster than waiting on a round trip, and
 it is the only way to see the Linux-only suites before you push:
@@ -54,8 +54,7 @@ scripts/ci-local.sh
 
 On macOS arm64, this script runs `darwin-arm64` natively. It runs `linux-x64`
 and `linux-arm64` in Docker. It does not run `darwin-x64` or `windows-x64`.
-GitHub CI runs `darwin-x64` after a push to `main`. GitHub CI does not run
-`windows-x64`.
+GitHub CI runs `darwin-x64` and `windows-x64` on every pull request.
 
 On Windows x64, run the root gates and the TUI gates directly. Run
 `bun run build:standalone` to test the Windows package candidate.

@@ -326,7 +326,10 @@ export function linuxLoopbackServerUid(
   for (const table of tables) {
     for (const line of table.split("\n").slice(1)) {
       const columns = line.trim().split(/\s+/u);
-      if (columns.length < 8 || columns[3] !== "01") continue;
+      // Bun 1.4 can report the client as connected while the exact server
+      // tuple is still SYN_RECV. Both states carry the listener owner's UID.
+      if (columns.length < 8
+        || (columns[3] !== "01" && columns[3] !== "03")) continue;
       const server = parseProcEndpoint(columns[1]!);
       const client = parseProcEndpoint(columns[2]!);
       if (server === null || client === null) continue;
