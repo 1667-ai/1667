@@ -1,9 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdtemp, readdir, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   loadConfig,
+  loadConfigWithStatus,
   normalizeUserConfig,
   saveConfig
 } from "../src/config.js";
@@ -56,6 +57,29 @@ test("config replacement publishes one complete new document", async () => {
 
   expect(loadConfig({ file })).toEqual(config);
   expect((await readdir(root)).sort()).toEqual(["config.json"]);
+});
+
+test("a new install uses graphite while existing configs keep the old fallback", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-config-"));
+  roots.push(root);
+  const file = path.join(root, "config.json");
+
+  expect(loadConfigWithStatus({ file })).toMatchObject({
+    status: "absent",
+    config: { theme: "graphite" }
+  });
+
+  await writeFile(file, "{}\n", "utf8");
+  expect(loadConfigWithStatus({ file })).toMatchObject({
+    status: "loaded",
+    config: { theme: "lantern" }
+  });
+
+  await writeFile(file, '{"theme":"bone"}\n', "utf8");
+  expect(loadConfigWithStatus({ file })).toMatchObject({
+    status: "loaded",
+    config: { theme: "bone" }
+  });
 });
 
 test("aside Thoughts defaults to hide and accepts the snake-case setting", () => {

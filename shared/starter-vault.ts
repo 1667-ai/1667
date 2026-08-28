@@ -242,16 +242,11 @@ const TOUR: StarterStory = {
           slug: "ending",
           instruction: "Close the tour. Give explicit permission to delete it.",
           tag: { name: "End of the tour", status: "Canon" },
-          keys: ["openLibrary", "newStory", "quit"],
-          text: "That is the whole instrument.\n\n"
-            + "Next door is \"A Door in the Hedge\" — one paragraph, no takes, nothing "
-            + "explained. Press [o] and open it if you want somewhere already warm to start. "
-            + "Press [n] for a story of your own if you would rather begin cold.\n\n"
-            + "When this tour has taught you what it can, delete it. Open the library with "
-            + "[o] and remove it there. A starter story that outstays its welcome is just "
-            + "clutter with sentimental value.\n\n"
-            + "[q] quits, and everything is already saved.\n\n"
-            + "Go and write something."
+          keys: ["openLibrary", "deleteStory", "settings"],
+          text: "This is the end of the tour. You can now delete the onboarding stories by "
+            + "pressing [o] and [D].\n\n"
+            + "Then set up your own model connection in the settings [,] under the "
+            + "\"connection\" -> \"provider\"."
         },
         {
           slug: "ending-alt",
