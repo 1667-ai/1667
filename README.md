@@ -2,7 +2,7 @@
 
 <img src="docs/assets/1667-rainbow.svg" alt="1667" width="420">
 
-**A full-screen terminal environment for fiction writing with language models.**
+**Write and revise branching fiction from your terminal.**
 
 [![npm](https://img.shields.io/npm/v/%401667-ai%2Fcli/latest?label=npm)](https://www.npmjs.com/package/@1667-ai/cli)
 [![CI and standalone builds](https://github.com/1667-ai/1667/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/1667-ai/1667/actions/workflows/ci.yml?query=branch%3Amain)
@@ -10,52 +10,38 @@
 
 </div>
 
-1667 provides a keyboard interface and a story model with alternative takes.
-1667 also provides a direct connection to a selected model provider. This
-repository contains the terminal user interface (TUI) and its backend runtime.
+1667 is a full-screen terminal app for fiction writing. Write story parts, keep
+alternative takes, and select the story line that you want to read. Connect a
+model when you want generated prose, or write every take yourself.
+
+This repository contains the terminal user interface (TUI) and the backend.
 
 [![1667 in a terminal: a direction is composed, the model streams the next part, two sibling takes are compared, and the path map opens](https://1667.ai/demo-3.gif)](https://1667.ai)
 
-## Features
+## What you can do
 
-- Write in a full-screen terminal interface with eight themes.
-- Add sibling takes to any story part.
-- Select a take for each story part.
-- Read a story as a story line, a tree, or a mass map.
-- View Facts and estimated request context in the side rail.
-- Keep one Author's Note for the next continuation or prompted retake.
-- Override the Default Author Brief for one story.
-- Set the Default Author Brief and the Default Continue direction in Settings.
-- Set Rewrite, Title, Summary, and Aside guidance in Advanced view.
-- Open each Settings row and Sampling control from the command palette.
-- Use keys to include a Fact only when the request context matches it.
-- Order, rank, and budget Facts so a full context window drops low-value ones first.
-- Inspect the next provider request in the request viewer.
-- Inspect the alternative tokens the model weighed in the token probability viewer.
-- Manage chapter boundaries and chapter summaries in the Chapters view.
-- Edit story parts, facts, and chapter summaries in the full-screen editor.
-- Use the embedded backend worker without a network port.
-- Seal project files at rest with a Vault Password.
-- Stop a generation and save model text that already arrived.
-- Use a ChatGPT Plus or Pro plan, or a Claude Pro or Max plan, without an API key.
-- Connect to OpenAI-compatible endpoints or Anthropic Messages endpoints.
+- Write and edit story parts in a full-screen terminal.
+- Keep several takes for one story part without replacing earlier text.
+- Select one take at each point to form a story line.
+- View the selected line, the full tree, or a compact map.
+- Organize long stories with chapters, summaries, Facts, and notes.
+- Import an existing manuscript and export the selected story line as Markdown.
+- Seal project files with a Vault Password.
+- Choose from eight themes.
 
-## Writing prompts
+## Write with or without a model
 
-The system prompt in Settings is the Default Author Brief. 1667 uses this
-value. Set the Default Continue direction in Simple view. Set Rewrite, Title,
-Summary, and Aside guidance in Advanced view.
+You do not need a model provider to edit prose, create takes, select a story
+line, manage chapters and Facts, or import and export Markdown. See
+[Write without a model](docs/write-without-a-model.md).
 
-These fields add guidance. They do not replace fixed operation contracts.
-Title, summary, and Aside still use the Utility Generation Profile. Each of
-those operations has its own guidance row.
+When you want generated prose, connect a provider in Settings. 1667 supports
+ChatGPT and Claude plan connections. It also supports OpenAI-compatible and
+Anthropic Messages endpoints.
 
-Writing prompts are machine-wide Settings values. A Profile Export does not
-include them.
-
-The first successful Settings save publishes Settings schema 5. An older
-release refuses a schema 5 Settings document. Back up Settings before you try
-`0.10.2-rc.1`. An older release cannot open schema 5.
+You can inspect the next provider request before you send it. You can also set
+an Author Brief, directions, Facts, and sampling controls. See
+[Facts, context, and model providers](docs/model-providers.md).
 
 ## Install
 
@@ -75,24 +61,20 @@ Each Installer verifies the downloaded Release Archive checksum. The Shell
 Installer supports macOS and Linux. The PowerShell Installer supports Windows
 x64.
 
-Run `1667 upgrade` to update a Managed Installation that the Shell Installer
-created. The command shows download progress in a terminal. On Windows, exit
-1667 and run the PowerShell Installer again. The Installer shows download
-progress. `1667 upgrade` shows the required command.
+Create a project, then start 1667:
 
-Run the Shell Installer again to update a valid Shell Managed Installation. It
-preserves the `installationId`, keeps the previous executable for rollback,
-and sets the selected Installer channel. It refuses an unmanaged executable or
-invalid installation state.
+```sh
+mkdir my-story
+cd my-story
+1667 init
+1667
+```
 
-`1667 upgrade --version <version>` selects an exact published release. The
-version can be older than the current version. Before a downgrade, 1667 warns
-that the downgrade can make the Vault unreadable or damage Vault data. Back up
-the Vault before you continue.
+`1667 init` creates a `.1667/` directory in the project. Run `1667` from the
+project or one of its subdirectories.
 
-Run `1667 upgrade --list` to show the published launcher releases. 1667 checks
-platform support when `--version` selects a release. An exact version reuses
-the previous executable when that executable has the selected version.
+Run `1667 upgrade` to update an installation from the Shell Installer. On
+Windows, exit 1667 and run the PowerShell Installer again.
 
 Install with npm:
 
@@ -100,19 +82,17 @@ Install with npm:
 npm install --global @1667-ai/cli@latest
 ```
 
-npm manages this installation. Use npm to install a later release.
+npm manages this installation. Use npm to update it.
 
-1667 checks for a new release by default. The check reads public package
-metadata from the npm registry. It does not send story, prompt, account, or
-configuration data. Turn **update checks** off in Settings to disable the
-check. A Managed Installation notice shows `1667 upgrade`. Other notices show
-only the new version.
+1667 checks the public npm registry for updates. The check does not send your
+story, prompts, account data, or settings. You can turn off **update checks**
+in Settings.
 
 Install from source with the
 [source installation procedure](docs/run-from-source.md).
 Git manages this installation.
 
-## Subscription plans
+## Connect a subscription plan
 
 1667 can use a ChatGPT Plus or Pro plan, or a Claude Pro or Max plan. These
 connections do not need a separate API key.
@@ -131,7 +111,7 @@ Sign in to Claude:
 
 Then select **ChatGPT plan** or **Claude plan** in Settings.
 
-These plan connections are experimental community integrations. The provider
+These connections are experimental community integrations. Your provider
 applies its subscription limits, terms, and data controls.
 
 ## Keyboard orientation
@@ -144,15 +124,6 @@ applies its subscription limits, terms, and data controls.
 | Go to the previous or next chapter | `[` and `]` |
 | Continue the story | `Space` |
 | Open the composer | `Enter` or `i` |
-| Copy selected editor text | `Ctrl+C` or `Command+C` |
-| Cut selected editor text | `Ctrl+X` or `Command+X` |
-| Paste text into an editor | `Ctrl+V` or `Command+V` |
-| Select all text in an editor | `Ctrl+A` or `Command+A` |
-| Undo or redo an editor change | `Ctrl+Z` and `Ctrl+Shift+Z`, or `Command+Z` and `Command+Shift+Z` |
-| Go to the start or end of an editor line or buffer | `Command+Arrow` |
-| Delete to the start of an editor line | `Command+Backspace` |
-| Move by one editor page | `Page Up` or `Page Down` |
-| Open the editor action menu | Right-click an editor |
 | Add a manual take | `w` |
 | Edit the selected story part | `e` |
 | Open Aside | `a` |
@@ -171,38 +142,31 @@ The keys `h`, `j`, `k`, and `l` do not move between story parts. `l` opens
 the token probability viewer instead. In the map, `l` follows or opens the
 selected story line. Press `?` for the complete key reference.
 
-Aside keeps separate sessions for story takes. Press `Left` or `Right` to
-select a session. Press `[` or `]` to select an Aside anchor. Existing Side
-Notes remain available in the unanchored bucket. Press `t` to show or hide
-stored Thoughts. Stored Thoughts do not enter later model requests.
-
 ## Privacy
 
-1667 stores stories and project settings in the project tier. Demo mode and
-dry-run mode send no data to a model provider.
+1667 stores stories and project settings in the project's `.1667/` directory.
+Provider credentials stay on your machine. Demo mode and dry-run mode do not
+contact a model provider.
 
 During generation, 1667 sends request context to the selected provider. This
 context can contain:
 
-- Story prose
-- Facts
-- Chapter summaries
-- Author's Note
-- Author Brief
-- Default Continue direction
-- Rewrite, Title, Summary, or Aside guidance
-- User instructions
+- story prose,
+- Facts,
+- chapter summaries,
+- the Author's Note and Author Brief,
+- directions and other guidance, and
+- your current instruction.
 
-1667 sends the selected credential in the authentication header when a
-connection requires a credential. Select a provider with an acceptable data
-policy.
+Choose a provider whose data policy meets your needs.
 
 Press `Ctrl+R` to open the request viewer. The request viewer shows the next
-request plan. It does not show the authentication header or its credential.
+provider request without showing the credential.
 
 ## Documentation
 
 - [Run 1667 from source](docs/run-from-source.md)
+- [Write without a model](docs/write-without-a-model.md)
 - [Story storage](docs/story-storage.md)
 - [Facts, context, and model providers](docs/model-providers.md)
 - [Move from SillyTavern](https://1667.ai/docs/move-from-sillytavern)

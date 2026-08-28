@@ -76,40 +76,34 @@ const TOUR: StarterStory = {
       takes: [
         {
           slug: "open-1",
-          instruction: "Open the tour. Teach take flipping by making the reader do it.",
+          instruction: "Show how to move between takes.",
           keys: ["takeNext", "takePrevious"],
           text: STARTER_LOGO_TEXT + "\n\n"
-            + "Welcome to 1667. This story is also the manual, which means you can "
-            + "ruin it freely, and you can delete both starter "
-            + "stories the moment they stop being useful.\n\n"
-            + "Start with the thing that makes this editor different. This paragraph exists in "
-            + "three versions. They are called takes. Press [→] to read the next one, and [←] "
-            + "to come back.\n\n"
-            + "Flipping costs nothing. Every take stays exactly where it is, and the one left "
-            + "on screen is simply the one the story reads as its own."
+            + "Welcome to 1667. This story is a short tour. You can edit or delete both "
+            + "starter stories at any time.\n\n"
+            + "This story part has three takes. A take is an alternative version of one "
+            + "story part. Press [→] to read the next take. Press [←] to return.\n\n"
+            + "1667 keeps every take. The take on screen is part of the selected story line."
         },
         {
           slug: "open-2",
-          instruction: "Second take. Same beat, plainer voice, so the difference is felt.",
+          instruction: "Show that a take changes only one story part.",
           keys: ["takeNext", "takePrevious"],
-          text: "Take two of three.\n\n"
-            + "Same moment in the story, different words for it. That is all a take is: an "
-            + "alternative for one beat, not a fork of the whole book. You will accumulate "
-            + "them without meaning to. Every retake lands here, beside its siblings, "
-            + "rather than on top of them.\n\n"
-            + "Nothing you have read so far was overwritten to show you this. Press [→] for "
-            + "the last one, or [←] to go back."
+          text: "Take two of three covers the same point in different words.\n\n"
+            + "A take changes one story part, "
+            + "not the rest of the story. New retakes appear beside the current take. They "
+            + "do not replace it.\n\n"
+            + "Press [→] for the last take. Press [←] to return."
         },
         {
           slug: "open-3",
-          instruction: "Third take. Close the row and hand the reader downward.",
+          instruction: "Show the end of a take row and introduce tags.",
           tag: { name: "The long way round", status: "Alt" },
           keys: ["takeNext", "takePrevious", "focusNext"],
-          text: "Take three, and the end of the row — [→] stops here, and [←] walks back.\n\n"
-            + "This one has a tag on it, named \"The long way round\". You will see it "
-            + "again in the map later: a tag is how you make one take "
-            + "findable months later, when you have forgotten it existed.\n\n"
-            + "Now go back to the first take with [←]. And then press [↓]."
+          text: "Take three is the last take in this row. [→] stops here, and [←] moves back.\n\n"
+            + "The story line that ends here has the tag \"The long way round\". Tags help "
+            + "you find a story line in the map.\n\n"
+            + "Press [←] until you return to the first take. Then press [↓]."
         }
       ]
     },
@@ -117,15 +111,15 @@ const TOUR: StarterStory = {
       takes: [
         {
           slug: "moving",
-          instruction: "Movement: focus versus viewport.",
+          instruction: "Show how focus and scrolling work.",
           keys: ["focusNext", "focusPrevious", "scrollLineDown", "scrollLineUp", "top", "leaf"],
-          text: "[↓] and [↑] move between parts.\n\n"
-            + "The focused part is highlighted. Tagging, retaking, editing, and deleting "
-            + "all act on it.\n\n"
-            + "Reading is a separate motion. Hold shift and the view slides without dragging "
-            + "focus along: [⇧↓] and [⇧↑] nudge it one line. To travel further, [g] jumps to "
-            + "the top of the story and [G] runs to the end of the story line you are on.\n\n"
-            + "Keep going down."
+          text: "Press [↓] or [↑] to move between story parts.\n\n"
+            + "The focused part is highlighted. Edit, retake, tag, and delete actions apply "
+            + "to that part.\n\n"
+            + "Use [⇧↓] or [⇧↑] to scroll one line without moving the focus. [g] goes to "
+            + "the first story part. [G] goes to the last part of the selected "
+            + "story line.\n\n"
+            + "Press [↓] to continue."
         }
       ]
     },
@@ -133,19 +127,15 @@ const TOUR: StarterStory = {
       takes: [
         {
           slug: "writing",
-          instruction: "Introduce the two ways prose arrives.",
+          instruction: "Show manual writing and model generation.",
           keys: ["continue", "compose", "write", "regenerate", "reprompt"],
-          text: "Prose arrives two ways, and both are one keystroke.\n\n"
-            + "Press [space] to continue from here. No instruction, no ceremony, just carry "
-            + "on. Press [enter] instead when you want to say something first: describe the "
-            + "next beat, then send it.\n\n"
-            + "This install is wired to a dry-run model, so anything you generate comes back "
-            + "as obvious placeholder text rather than a bill. Connect a "
-            + "real model whenever you like. The tour tells you where, further down.\n\n"
-            + "When a result disappoints, [r] retakes it as a new take beside the old "
-            + "one, and [R] retakes it with a fresh instruction. The disappointing version "
-            + "does not vanish; it just stops being the one on screen.\n\n"
-            + "To write in your own hand rather than the model's, press [w]."
+          text: "You can write a take yourself or ask a model to write one.\n\n"
+            + "[w] opens an editor for your own take. [space] asks the selected provider to "
+            + "continue the story. [enter] lets you give a direction before the request.\n\n"
+            + "The tour starts with a dry-run provider. It returns placeholder text and does "
+            + "not contact an external service. You can select a provider later in Settings.\n\n"
+            + "Press [r] to request another take with the same direction. Press [R] to change "
+            + "the direction first. 1667 keeps the earlier take."
         }
       ]
     },
@@ -153,18 +143,15 @@ const TOUR: StarterStory = {
       takes: [
         {
           slug: "revising",
-          instruction: "Editing, undo, and pruning — the destructive end of the keyboard.",
+          instruction: "Show editing, chapter undo, pruning, and saved directions.",
           keys: ["edit", "takePrevious", "undo", "prune", "instructions"],
-          text: "Press [e] to edit the focused part in place. Your changes become a take, so "
-            + "the model's original stays reachable behind [←].\n\n"
-            + "[u] takes back a chapter break you made or removed, and only that. There is no "
-            + "undo for prose, so read the next sentence twice. [D] prunes — it deletes takes "
-            + "and their children, which is how a story that sprawled during a long session "
-            + "gets its shape back. Pruning asks first if you are sure, and [u] will not bring "
-            + "back what it takes.\n\n"
-            + "One more: [p] toggles the instructions that produced each part. Try it here. "
-            + "Every part in this tour carries the note it was written against, which is "
-            + "usually the fastest way to remember what you were trying to do."
+          text: "Press [e] to edit the focused part. By default, 1667 saves the edit as a new "
+            + "take. Press [←] to return to the earlier take.\n\n"
+            + "Press [u] to restore the last chapter break that you added or removed. It does "
+            + "not undo prose changes. Press [D] to delete the focused take and its children. "
+            + "1667 asks for confirmation because the deletion is permanent.\n\n"
+            + "Press [p] to show or hide the saved direction for each story part. The tour "
+            + "includes a direction for every part."
         }
       ]
     },
@@ -173,21 +160,15 @@ const TOUR: StarterStory = {
       takes: [
         {
           slug: "map",
-          instruction: "The map, and why it exists.",
+          instruction: "Show the map views and story-line tags.",
           keys: ["openMap", "mapCycleView", "mapClose", "mapDetail", "mapJump", "mapTag"],
           text: "Press [m] to open the map.\n\n"
-            + "A story with takes is a tree, not a page, and past a few thousand words the "
-            + "tree is the real picture of it. The map draws that tree: the line you "
-            + "are reading, the takes hanging off it, the tags you left behind.\n\n"
-            + "Inside the map, [m] cycles between its views, [esc] closes it, [a] turns "
-            + "detail up or down, and [t] tags whatever row you are on. Press [enter] "
-            + "to jump the story to that row and land back in the text exactly there.\n\n"
-            + "Tags go on the end of a story line, never in the middle: you are naming "
-            + "where a storyline arrived, not annotating a paragraph. Two of them are already out "
-            + "there — one on the take you skipped at the start, one at the end of this tour. "
-            + "Each tag carries a status: Canon, Alt, Draft, Discarded, Summary. Use them "
-            + "loosely — they sort the map, they do not police anything. Name a second line "
-            + "Canon and the first one steps down to Alt, keeping its name."
+            + "The map shows the selected story line, the other takes, and the tags. [m] "
+            + "changes the map view. [a] changes the detail level. [enter] opens the selected "
+            + "story part. [esc] closes the map.\n\n"
+            + "Press [t] to tag the selected story line. A tag has a name and one status: "
+            + "Canon, Alt, Draft, Discarded, or Summary. A story can have only one Canon line. "
+            + "If you set a second line to Canon, the first line becomes Alt."
         }
       ]
     },
@@ -195,16 +176,13 @@ const TOUR: StarterStory = {
       takes: [
         {
           slug: "chapters",
-          instruction: "Chapters as context boundaries, not decoration.",
+          instruction: "Show chapter navigation and chapter context.",
           keys: ["openChapters", "createChapter"],
-          text: "You crossed a chapter break a moment ago: the part about the map opens a "
-            + "chapter called \"The Map\", and you are inside it now.\n\n"
-            + "Press [c] to see the chapters in this story, and [C] to start a new one at the "
-            + "focused part. Chapters are not decoration. They bound what gets sent to the "
-            + "model, so a long book stays affordable: earlier chapters can be summarised "
-            + "once and then travel as a summary rather than as forty thousand words.\n\n"
-            + "For a story this short you will never need them. For the one you are about to "
-            + "write, you will."
+          text: "The previous story part starts a chapter named \"The Map\".\n\n"
+            + "Press [c] to open the Chapters view. Press [C] to start a chapter at the "
+            + "focused part.\n\n"
+            + "Chapters also organize provider context. 1667 can use a summary for an earlier "
+            + "chapter instead of sending all of its prose. Add chapters as your story grows."
         }
       ]
     },
@@ -212,26 +190,17 @@ const TOUR: StarterStory = {
       takes: [
         {
           slug: "elsewhere",
-          instruction: "The remaining overlays, briefly, without drowning the reader.",
+          instruction: "Show the main panels and references.",
           keys: ["openLibrary", "openFacts", "actions", "commands", "settings", "keys"],
-          text: "The rest of the surface, quickly.\n\n"
-            + "[o] opens the library — every story you have, including the second starter "
-            + "story sitting next to this one. That is how you switch.\n\n"
-            + "[f] holds facts: the names, places, and rules you want kept straight, sent "
-            + "with every request that writes prose so the model stops renaming your "
-            + "characters. A fact can "
-            + "carry a tag of its own: a short word for sorting your facts, which is a "
-            + "different thing from tagging a story line back in the map. There are a few "
-            + "in here already, and the hedge story next door keeps the kind you will "
-            + "actually write.\n\n"
-            + "[x] opens a menu of whatever applies to the focused part, for the days you "
-            + "would rather point than recall. [:] is the command palette, which can reach "
-            + "things no key is bound to.\n\n"
-            + "[,] opens settings — that is where you connect a real model in place of the "
-            + "dry-run one.\n\n"
-            + "And [?] is the key reference: the keys grouped by what they are for, each "
-            + "beside a line saying what it does. If you remember one key from this tour, "
-            + "remember that one."
+          text: "Press [o] to open the Library and select another story. The Library includes "
+            + "the second starter story.\n\n"
+            + "Press [f] to open Facts. Use Facts for names, places, items, and rules that a "
+            + "provider can use when it writes prose. A Fact tag sorts Facts. It is separate "
+            + "from a story-line tag. Both starter stories include examples.\n\n"
+            + "Press [x] to show actions for the focused story part. Press [:] to open the "
+            + "command palette.\n\n"
+            + "Press [,] to open Settings and select a provider.\n\n"
+            + "Press [?] to open the complete key reference."
         }
       ]
     },
@@ -239,67 +208,63 @@ const TOUR: StarterStory = {
       takes: [
         {
           slug: "ending",
-          instruction: "Close the tour. Give explicit permission to delete it.",
+          instruction: "Explain how to remove the tour and select a provider.",
           tag: { name: "End of the tour", status: "Canon" },
           keys: ["openLibrary", "deleteStory", "settings"],
-          text: "This is the end of the tour. You can now delete the onboarding stories by "
-            + "pressing [o] and [D].\n\n"
-            + "Then set up your own model connection in the settings [,] under the "
-            + "\"connection\" -> \"provider\"."
+          text: "The tour is complete.\n\n"
+            + "To delete a starter story, press [o]. Select the story, then press [D].\n\n"
+            + "To connect a model, press [,]. Open Connection, then select a Provider. You do "
+            + "not need a provider to write or edit your own takes."
         },
         {
           slug: "ending-alt",
-          instruction: "A shorter goodbye, kept as a second take so the last beat also has a row.",
+          instruction: "End with a short key reminder.",
           tag: { name: "Short goodbye", status: "Draft" },
           keys: ["keys"],
-          text: "Arrows move. Space continues. Everything else is on [?].\n\n"
-            + "Delete this story whenever you like."
+          text: "Use the arrow keys to move. Press Space to request a continuation. Press [?] "
+            + "to see every key.\n\nDelete this story when you no longer need it."
         }
       ]
     }
   ],
-  // The tour's facts describe the instrument, because the tour is the manual and
-  // a fact must be true of the story that carries it. The hedge story next door
-  // carries the other kind, which is the kind the reader will write.
+  // The tour's facts explain Facts. The second starter story shows Facts for
+  // fictional people, places, and rules.
   facts: [
     {
       slug: "fixed-context",
       tag: "how facts work",
-      text: "Facts are fixed context\n"
-        + "Every fact in this list travels with every request that writes prose, whole and "
-        + "unsummarised. That is what keeps a name spelled the same way in chapter nine as in "
-        + "chapter one. Chapter summaries are the exception: they are written from the prose "
-        + "alone, so nothing you record here can bend a recap of what already happened."
+      text: "Facts can enter provider context\n"
+        + "An always-active Fact enters each continuation and rewrite request. A keyed Fact "
+        + "enters a request only when the context matches one of its keys. 1667 sends each "
+        + "included Fact as one complete block."
     },
     {
       slug: "fact-shape",
       tag: "how facts work",
       text: "The first line is the name\n"
-        + "A fact is one block of text. Its first line names it in this list, and the lines "
-        + "under it are the body. Short name, specific body."
+        + "A Fact is one block of text. The first line names the Fact in this list. The other "
+        + "lines contain its details."
     },
     {
       slug: "fact-tag",
       tag: "how facts work",
-      text: "A tag sorts this list, and the model reads it\n"
-        + "The tag on a fact fills the chips at the top of this overlay, and it travels beside "
-        + "the fact in every request. A tag like \"rules\" tells the model what kind of thing it "
-        + "is holding, so write tags you would be content to have read back to you. It is a "
-        + "different thing from the tag you leave on a story line in the map."
+      text: "A Fact tag sorts the list\n"
+        + "A Fact tag creates a filter at the top of the Facts panel. It can also enter a "
+        + "provider request with the Fact. A Fact tag is separate from a story-line tag."
     },
     {
       slug: "fact-cost",
       tag: "upkeep",
-      text: "A fact you never need is one you pay for every time\n"
-        + "Facts are the one part of the prompt that never gets shorter as the book grows. "
-        + "Prune this list the way you prune takes."
+      text: "Remove Facts that you no longer need\n"
+        + "Each included Fact uses part of the provider context. Use activation keys, "
+        + "priorities, and budgets to control which Facts 1667 includes."
     },
     {
       slug: "fact-examples",
       tag: "upkeep",
-      text: "These are examples\n"
-        + "Delete them once the shape is obvious. Facts belong to one story, so removing these "
-        + "leaves the hedge story's own facts where they are."
+      text: "Delete these example Facts when you are ready\n"
+        + "Facts belong to one story. Deleting these Facts does not change the Facts in the "
+        + "second starter story."
     }
   ]
 };
@@ -313,48 +278,46 @@ const SEED: StarterStory = {
         {
           slug: "hedge",
           instruction: "Continue the story.",
-          text: "The hedge had been there longer than the house, and the door had been in the "
-            + "hedge longer than either — a low green door, latched, with hinges that nobody "
-            + "living remembered oiling.\n\n"
-            + "Every gardener since the war had trimmed around it. None of them had opened "
-            + "it. This was not superstition exactly. It was more that opening it had never "
-            + "once been the most pressing thing to do that afternoon, and afternoons, as "
-            + "everyone knows, are how a life gets spent.\n\n"
-            + "This morning the latch was on the wrong side."
+          text: "The hedge was older than the house. A low green door sat inside it, latched "
+            + "and half-covered by leaves. No one alive remembered oiling its hinges.\n\n"
+            + "Every gardener since the war had trimmed around the door. None had opened it. "
+            + "There was always work to finish before sunset, and the door could wait until "
+            + "tomorrow.\n\n"
+            + "This morning, the latch was on the wrong side."
         }
       ]
     }
   ],
-  // Written the way a reader's own facts should read: what the model must not
-  // get wrong about a story that is one paragraph old.
+  // These Facts show the form that writers can use for fictional reference
+  // material.
   facts: [
     {
       slug: "hedge",
       tag: "places",
       text: "The hedge\n"
-        + "Older than the house. Every gardener since the war has trimmed around it, and none "
-        + "has cut it back far enough to find where it ends."
+        + "The hedge is older than the house. Every gardener since the war has trimmed around "
+        + "it. No one has cut it back far enough to find where it ends."
     },
     {
       slug: "door",
       tag: "places",
       text: "The green door\n"
-        + "Low, latched, set into the hedge. The hinges have not been oiled in living memory. "
-        + "The latch was on the garden side until this morning."
+        + "The door is low, latched, and half-covered by leaves. Its hinges have not been "
+        + "oiled in living memory. The latch was on the garden side until this morning."
     },
     {
       slug: "gardener",
       tag: "people",
       text: "The gardener\n"
-        + "The latest of a line of them. Trims around the door twice a year. Has never opened it, "
-        + "and does not think of this as a decision."
+        + "The current gardener trims around the door twice each year. The gardener has never "
+        + "opened it and does not think of this as a decision."
     },
     {
       slug: "house-habit",
       tag: "rules",
-      text: "Nobody in the house discusses the door\n"
-        + "This is habit, not fear. Opening it has never once been the most pressing thing to do "
-        + "that afternoon. Write it that way: no one warns anybody."
+      text: "No one in the house discusses the door\n"
+        + "The people in the house are busy, not afraid. No one warns the gardener about the "
+        + "door."
     }
   ]
 };
