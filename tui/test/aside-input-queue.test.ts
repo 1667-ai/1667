@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
-import { createAsideSurface } from "../src/aside-surface.js";
+import { asideNotes, createAsideSurface } from "../src/aside-surface.js";
 import { demoAppSource } from "../src/demo.js";
 import { ActionRuntime, beginInteraction, withActionAdmission } from "../src/action-runtime.js";
 import { handleKey, initialState } from "../src/app.js";
@@ -88,7 +88,7 @@ describe("Aside presented input", () => {
     expect(state.aside.busy).toBeFalse();
     expect(state.aside.streamText).toBe("");
     expect(state.aside.composer.text).toBe("");
-    expect(state.aside.notes).toEqual([{
+    expect(asideNotes(state.aside!)).toEqual([{
       question: "Why did it change?",
       answer: "partial answer"
     }]);

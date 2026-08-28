@@ -43,6 +43,10 @@ export interface FrameSegment {
     text: string;
     start: number;
   };
+  /** Visible content without a semantic story source. If one selection also
+   * reaches mapped prose, copy the complete native text instead of dropping
+   * this segment. */
+  nativeSelectionContent?: true;
 }
 
 export type FrameLine = FrameSegment[];

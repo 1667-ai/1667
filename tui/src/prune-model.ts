@@ -58,12 +58,12 @@ export function pruneConfirmText(plan: PrunePlan): string {
   if (plan.kind === "unused-takes") {
     const takeWord = plan.takes === 1 ? "take" : "takes";
     const partWord = plan.parts === 1 ? "part" : "parts";
-    return `${plan.takes} unused ${takeWord} → ${plan.parts} ${partWord} die · keeps continuations, named lines + one leaf/fork · d confirms · esc keeps`;
+    return `${plan.takes} unused ${takeWord} → ${plan.parts} ${partWord} die · keeps continuations, named lines + one leaf/fork · D confirms · esc keeps`;
   }
   const tags = plan.tags.length === 0
     ? ""
     : `${plan.tags.map((tag) => `${tagGlyph(tag.status)} ${tag.name}`).join(", ")} · `;
   const partWord = plan.parts === 1 ? "part" : "parts";
   const lineWord = plan.lines === 1 ? "line" : "lines";
-  return `${tags}¶ ${plan.part} take ${plan.take}/${plan.takeCount} → ${plan.parts} ${partWord} on ${plan.lines} ${lineWord} die · d confirms · esc keeps`;
+  return `${tags}¶ ${plan.part} take ${plan.take}/${plan.takeCount} → ${plan.parts} ${partWord} on ${plan.lines} ${lineWord} die · D confirms · esc keeps`;
 }

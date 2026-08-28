@@ -18,6 +18,7 @@ import {
 } from "./settings-overlay-model.js";
 import {
   applySettingsLocalToggle,
+  applySettingsAsideThoughts,
   applySettingsTheme
 } from "./settings-selector-actions.js";
 import type { RuntimeState, SettingsOverlayState } from "./state.js";
@@ -144,6 +145,10 @@ export async function settingsInlineEditAction(
     }
     if (applied.kind === "local") {
       applySettingsLocalToggle(state, source, applied.row, applied.value);
+      return;
+    }
+    if (applied.kind === "aside-thoughts") {
+      applySettingsAsideThoughts(state, source, applied.value);
       return;
     }
     disarmSettingsConflict(overlay);

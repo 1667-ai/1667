@@ -143,7 +143,7 @@ const COMMANDS: readonly PaletteCommand[] = [
     description: "regenerate the highlighted text", mutating: true,
     requires: (context) => context.canRewriteSelection
   },
-  { id: "prune", section: "take", name: "prune drafts & discarded", description: "review unused leaf takes before removal", shortcut: "d", mutating: true },
+  { id: "prune", section: "take", name: "prune drafts & discarded", description: "review unused leaf takes before removal", shortcut: "D", mutating: true },
 
   { id: "tags", section: "view", name: "tag manager", description: "inspect or delete remembered leaves" },
   { id: "chapters", section: "view", name: "chapters", description: "open the chapter table and context meter", shortcut: "c" },

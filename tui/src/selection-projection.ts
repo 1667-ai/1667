@@ -18,7 +18,9 @@ export interface StorySelectionCell extends SelectionCell {
   text: string;
 }
 
-export type StorySelectionProjection = ReadonlyArray<StorySelectionCell | null>;
+export type StorySelectionProjection = ReadonlyArray<StorySelectionCell | null> & {
+  readonly nativeContent?: ReadonlySet<number>;
+};
 
 export interface StorySelectionSpan {
   key: string;
@@ -30,6 +32,8 @@ export interface StorySelectionSpan {
 export interface ProjectedStorySelection {
   text: string;
   spans: StorySelectionSpan[];
+  /** The native range also contains visible content with no semantic source. */
+  hasNativeContent?: true;
 }
 
 /** True only for a selection a rewrite could actually target: exactly one
@@ -123,6 +127,7 @@ export function buildStorySelectionProjection(
   const cells: Array<StorySelectionCell | null> = Array(
     Math.max(0, lines.length * stride - 1)
   ).fill(null);
+  const nativeContent = new Set<number>();
   let mapped = false;
   for (const [row, line] of lines.entries()) {
     let column = 0;
@@ -141,6 +146,10 @@ export function buildStorySelectionProjection(
             };
           }
           mapped ||= length > 0;
+        } else if (part.nativeSelectionContent === true) {
+          for (let offset = 0; offset < length; offset += 1) {
+            nativeContent.add(row * stride + column + offset);
+          }
         }
         column += length;
         if (column >= width) break;
@@ -154,6 +163,10 @@ export function buildStorySelectionProjection(
             cells[row * stride + column + inside] = range;
             mapped = true;
           }
+        } else if (part.nativeSelectionContent === true) {
+          for (let inside = 0; inside < cell.width && column + inside < width; inside += 1) {
+            nativeContent.add(row * stride + column + inside);
+          }
         }
         column += cell.width;
         if (column >= width) break;
@@ -161,7 +174,11 @@ export function buildStorySelectionProjection(
       if (column >= width) break;
     }
   }
-  return mapped ? cells : null;
+  if (!mapped) return null;
+  if (nativeContent.size > 0) {
+    Object.defineProperty(cells, "nativeContent", { value: nativeContent });
+  }
+  return cells;
 }
 
 export function composerRangeFromProjection(
@@ -225,7 +242,9 @@ export function storySelectionFromProjection(
   const from = Math.max(0, Math.min(projection.length, displayStart));
   const to = Math.max(from, Math.min(projection.length, displayEnd));
   const spans: StorySelectionSpan[] = [];
+  let hasNativeContent = false;
   for (let index = from; index < to; index += 1) {
+    hasNativeContent ||= projection.nativeContent?.has(index) === true;
     const cell = projection[index];
     if (cell === null || cell === undefined) continue;
     const previous = spans.at(-1);
@@ -241,5 +260,9 @@ export function storySelectionFromProjection(
     .map(({ text, start, end }) => text.slice(start, end))
     .filter((text) => text.length > 0)
     .join("\n\n");
-  return text.length === 0 ? null : { text, spans };
+  return text.length === 0 ? null : {
+    text,
+    spans,
+    ...(hasNativeContent ? { hasNativeContent: true as const } : {})
+  };
 }

@@ -68,6 +68,7 @@ export function initializeSamplingOverlay(
     logitBiasOrder: Object.keys(overlay.draft.sampling.logitBias),
     edit: null,
     result: null,
+    deleteArmedRowId: null,
     biasResolution: { kind: "idle" },
     resolutionGeneration: 0
   };

@@ -44,6 +44,13 @@ export function resolveStoryScreenRoute(state: StoryScreenState): StoryScreenRou
   return { kind: "page" };
 }
 
+/** Full-screen routes own every visible cell. Keep them in one native text
+ * buffer so mouse selection can cross the width where the page rail normally
+ * begins. Only the story page needs the prose/rail split. */
+export function routeUsesSinglePane(route: StoryScreenRoute): boolean {
+  return route.kind !== "page";
+}
+
 /** Report whether the selected renderer draws state.toast. */
 export function routeShowsToast(route: StoryScreenRoute): boolean {
   switch (route.kind) {

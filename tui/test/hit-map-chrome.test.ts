@@ -84,19 +84,19 @@ interface FooterCase {
 
 const footerCases: FooterCase[] = [
   { name: "facts", mode: "FACTS", actions: FACTS_FOOTER_ACTIONS,
-    keys: [key("up"), key("down"), key("tab"), key("return"), key("/"), key("e"), key("n"), key("d"), key("escape")],
+    keys: [key("up"), key("down"), key("tab"), key("return"), key("/"), key("e"), key("n"), key("D"), key("escape")],
     setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null }; } },
   { name: "library", mode: "LIBRARY", actions: LIBRARY_FOOTER_ACTIONS,
-    keys: [key("up"), key("down"), key("return"), key("n"), key("e"), key("/"), key("d"), key("escape")],
+    keys: [key("up"), key("down"), key("return"), key("n"), key("e"), key("/"), key("D"), key("escape")],
     setup: (state, source) => { state.mode = "LIBRARY"; state.library = { stories: source.stories, cursor: 0, query: "", prompt: null }; } },
   { name: "chapters", mode: "CHAPTERS", actions: CHAPTERS_FOOTER_ACTIONS,
-    keys: [key("return"), key("s"), key("e"), key("n"), key("d"), key("escape")],
+    keys: [key("return"), key("s"), key("e"), key("n"), key("D"), key("escape")],
     setup: (state) => { state.mode = "CHAPTERS"; state.chapters = { cursor: 0, rename: null, deleteArmedId: null }; } },
   { name: "commands", mode: "COMMANDS", actions: COMMANDS_FOOTER_ACTIONS,
     keys: [key("up"), key("down"), key("return"), key("escape")],
     setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands", returnMode: "NAV" }; } },
   { name: "tag manager", mode: "COMMANDS", actions: TAGS_FOOTER_ACTIONS,
-    keys: [key("up"), key("down"), key("d"), key("escape")], options: { commandsTags: true },
+    keys: [key("up"), key("down"), key("D"), key("escape")], options: { commandsTags: true },
     setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "tags", returnMode: "NAV" }; } },
   { name: "part actions", mode: "ACTIONS", actions: ACTIONS_FOOTER_ACTIONS,
     keys: [key("up"), key("down"), key("return"), key("escape")],
@@ -176,7 +176,8 @@ describe("hit map clickable chrome", () => {
   test("map views advertise only their live arrow navigation", () => {
     const expected = {
       path: { up: "focus-previous", down: "focus-next", left: "take-previous", right: "take-next", l: "none" },
-      tree: { up: "focus-previous", down: "focus-next", left: "none", right: "none", l: "map-follow" },
+      // `←→` jump lanes in the tree now (doc "10a"), same as path's takes.
+      tree: { up: "focus-previous", down: "focus-next", left: "take-previous", right: "take-next", l: "map-follow" },
       mass: { up: "focus-previous", down: "focus-next", left: "none", right: "none", l: "map-follow" }
     } as const;
     for (const view of ["path", "tree", "mass"] as const) {
@@ -277,7 +278,8 @@ describe("hit map clickable chrome", () => {
       path: [["m tree", "cycle-map-view"], ["a branches", "toggle-path-takes"],
         ["enter reroute", "apply"], ["esc writes", "cancel"]],
       tree: [["m mass", "cycle-map-view"], ["a sketches", "toggle-sketches"],
-        ["l follow", "map-follow"], ["enter reroute", "apply"], ["esc writes", "cancel"]],
+        ["l follow", "map-follow"], ["tab path", "map-hide-lanes"],
+        ["enter reroute", "apply"], ["esc writes", "cancel"]],
       mass: [["m path", "cycle-map-view"], ["s sort", "map-cycle-sort"],
         ["a sketches", "toggle-sketches"],
         ["l open line", "map-follow"], ["enter reroute", "apply"], ["esc writes", "cancel"]]
@@ -301,6 +303,12 @@ describe("hit map clickable chrome", () => {
       const arrows = visibleWidth(line.slice(0, line.indexOf("↑↓")));
       expect(hitAt(state.hitRows, arrows, footer)).toEqual({ kind: "action", action: "focus-previous" });
       expect(hitAt(state.hitRows, arrows + 1, footer)).toEqual({ kind: "action", action: "focus-next" });
+      if (view === "tree") {
+        // `←→` jumps lanes: its own glyph pair, split the same way `↑↓` is.
+        const lanes = visibleWidth(line.slice(0, line.indexOf("←→")));
+        expect(hitAt(state.hitRows, lanes, footer)).toEqual({ kind: "action", action: "take-previous" });
+        expect(hitAt(state.hitRows, lanes + 1, footer)).toEqual({ kind: "action", action: "take-next" });
+      }
     }
   });
 
@@ -705,7 +713,7 @@ describe("hit map clickable chrome", () => {
     const state = initialState(source, false);
     state.stream = null;
     footerCases.at(-1)!.setup(state, source);
-    const frame = render(state, 80, 24);
+    let frame = render(state, 80, 24);
     const panelRows = state.hitRows.map((row, index) => ({ row, index,
       panel: row?.overrides?.find((region) => region.target.kind === "panel") }))
       .filter((entry) => entry.panel !== undefined);
@@ -723,6 +731,8 @@ describe("hit map clickable chrome", () => {
       SETTINGS_ROW_IDS.indexOf("theme"),
       SETTINGS_ROW_IDS.indexOf("provider")
     ]) {
+      state.settings!.cursor = index;
+      frame = render(state, 80, 24);
       const selectorRow = state.hitRows.findIndex((row) =>
         row?.overrides?.some((region) => isArrow(region, index)) === true);
       const arrows = state.hitRows[selectorRow]!.overrides!.filter((region) =>
@@ -1182,10 +1192,10 @@ describe("hit map clickable chrome", () => {
           : "m tree · a branches · ↑↓ depth · ←→ take · enter reroute · esc writes",
         setup: (state) => { showMap(state, "path", "p12"); } },
       { name: "map tree", expected: (width) => width < 100
-        ? "m mass · ↑↓ row · l follow · esc"
+        ? "m mass · ↑↓ row · ←→ lane · tab path · esc"
         : width < 136
-          ? "m mass · ↑↓ row · a sketches · l follow · enter · esc writes"
-          : "m mass · ↑↓ row · a sketches · l follow · enter reroute · esc writes",
+          ? "m mass · ↑↓ row · ←→ lane · a sketches · tab path · enter · esc writes"
+          : "m mass · ↑↓ row · ←→ lane · a sketches · l follow · tab path · enter reroute · esc writes",
         setup: (state) => { showMap(state, "tree", state.payload.path.at(-1)!.id); } },
       { name: "map mass", expected: (width) => width < 100
         ? "m path · ↑↓ row · s sort · l open · esc"
@@ -1199,25 +1209,27 @@ describe("hit map clickable chrome", () => {
         ? "↑↓ scrolls · "
         : "drag selects · ctrl+c copies · esc closes",
         setup: (state) => { state.mode = "KEYS"; } },
-      { name: "library", expected: "↑↓ move · ↵ open · n new · e rename · / filter · d delete · esc",
+      { name: "library", expected: "↑↓ move · ↵ open · n new · e rename · / filter · D delete · esc",
         setup: (state, source) => { state.mode = "LIBRARY"; state.library = { stories: source.stories, cursor: 0, query: "", prompt: null }; } },
       { name: "facts", expected: (width: number) => width < 100
-        ? "↑↓ · tab · ↵ edit · / filter · e edit · n new · d delete · esc"
-        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · d delete · esc",
+        ? "↑↓ · tab · ↵ edit · / filter · e edit · n new · D delete · esc"
+        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · D delete · esc",
         setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null }; } },
       { name: "facts confirm", expected: (width) => width < 100
-        ? "↑↓ · tab · ↵ · / filter · e edit · n new · d confirms · esc keeps"
-        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · d confirms · esc keeps",
+        ? "↑↓ · tab · ↵ · / filter · e edit · n new · D confirms · esc keeps"
+        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · D confirms · esc keeps",
         setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: "fact-1" }; } },
       { name: "commands", expected: "↑↓ move · ↵ run · esc close",
         setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands", returnMode: "NAV" }; } },
-      { name: "tag manager", expected: "↑↓ move · d delete · esc commands",
+      { name: "tag manager", expected: "↑↓ move · D delete · esc commands",
         setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "tags", returnMode: "NAV" }; } },
+      { name: "tag manager confirm", expected: "D confirms · esc keeps",
+        setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "tags", returnMode: "NAV", deleteArmedTagNodeId: "tag-1" }; } },
       // Context status moved into the panel, so the footer is actions only and
       // no longer grows with `over`/`fix`.
       { name: "chapters", expected: (width) => width < 100
-        ? "↵ jump · s sum · e rename · n break · d rm · esc"
-        : "↵ jump · s summarize · e rename · n break · d remove · esc",
+        ? "↵ jump · s sum · e rename · n break · D rm · esc"
+        : "↵ jump · s summarize · e rename · n break · D remove · esc",
         setup: (state) => { state.mode = "CHAPTERS"; state.chapters = { cursor: 0, rename: null, deleteArmedId: null }; } },
       // A chapter list longer than the row budget: the panel must still show the
       // context status it moved inside to stop the footer from hiding.
@@ -1229,7 +1241,7 @@ describe("hit map clickable chrome", () => {
             id: `b${index}`, parentPartId: node.id, title: `ch ${index + 1}`, createdAt: "2022-10-25T09:00:00.000Z"
           })) };
         } },
-      { name: "chapters confirm", expected: "↵ jump · s sum · e rename · n break · d confirms · esc keeps",
+      { name: "chapters confirm", expected: "↵ jump · s sum · e rename · n break · D confirms · esc keeps",
         setup: (state) => { state.mode = "CHAPTERS"; state.chapters = { cursor: 0, rename: null, deleteArmedId: "chapter-break-1" }; } },
       { name: "settings",
         expected: "↑↓ move · ←→ choose · ↵ next · s save · c check · m simple · esc",

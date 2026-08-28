@@ -184,7 +184,24 @@ function logicalRequestBody(
         : { instruction: input.instruction, genId: input.genId, ...target };
     }
     case "askAside":
-      return { question: input.question };
+      return {
+        question: input.question,
+        anchor: input.anchor,
+        sessionId: input.sessionId
+      };
+    case "asideSessionMutation":
+      return {
+        operation: input.operation,
+        sessionId: input.sessionId,
+        turnIndex: input.turnIndex,
+        anchor: input.anchor
+      };
+    case "retakeAside":
+      return {
+        sessionId: input.sessionId,
+        turnIndex: input.turnIndex,
+        anchor: input.anchor
+      };
     case "listStories":
     case "listStoriesPage":
     case "loadStory":
@@ -205,12 +222,21 @@ function logicalRequestBody(
     case "importScenario":
     case "importLorebook":
     case "importCard":
+    case "getTokenProbabilities":
+    case "getGenerationRecords":
+    case "getGenerationRecord":
+    case "getReasoning":
+    case "pasteStoryLine":
+    case "stageStoryImage":
       return undefined;
     // storyId and leaseId are both tiny, grammar-checked strings; releasing
     // carries no body worth bounding here.
     case "releaseStoryImage":
       return undefined;
-
+    default: {
+      const exhaustive: never = method;
+      return exhaustive;
+    }
   }
 }
 

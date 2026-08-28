@@ -490,7 +490,7 @@ describe("Generation Profile settings", () => {
     await openSettings(press);
     await selectRow(press, state, "profile");
     expect(frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines))
-      .toContain("↑↓ ←→ n N i e d s esc");
+      .toContain("↑↓ ←→ n N i e D s esc");
     await press(key("e"));
     expect(state.settings?.edit?.row).toBe("profile");
   });
@@ -505,7 +505,7 @@ describe("Generation Profile settings", () => {
       state,
       { width: 120, height: 30, wrapCache: cache }
     ).lines);
-    expect(frame).toContain("n new · ⇧n copy · i import · e rename · d delete · s · x · esc");
+    expect(frame).toContain("n new · ⇧n copy · i import · e rename · D delete · s · x · esc");
   });
 
   test("requires two uninterrupted delete commands for a profile", async () => {
@@ -515,14 +515,14 @@ describe("Generation Profile settings", () => {
     await selectRow(press, state, "profile");
     await press(key("n"));
 
-    await press(key("d"));
+    await press(key("D"));
     expect(state.settings?.deleteArmedProfileId).toBe("profile.1");
     await press(key("e"));
     setComposerText(state.settings!.edit!.composer, "Renamed");
     await press(key("return"));
     expect(state.settings?.deleteArmedProfileId).toBe(null);
 
-    await press(key("d"));
+    await press(key("D"));
     expect(state.settings?.draft.document?.profiles["profile.1"]?.name).toBe("Renamed");
     expect(state.settings?.deleteArmedProfileId).toBe("profile.1");
   });
@@ -566,14 +566,14 @@ describe("Generation Profile settings", () => {
     });
 
     await selectRow(press, state, "profile");
-    await press(key("d"));
-    await press(key("d"));
+    await press(key("D"));
+    await press(key("D"));
     document = state.settings?.draft.document;
     expect(document?.profiles.default !== undefined).toBeTrue();
     expect(document?.profiles["profile.1"]).toBe(undefined);
     expect(document?.routing).toEqual({ default: "default" });
 
-    await press(key("d"));
+    await press(key("D"));
     expect(state.settings?.deleteArmedProfileId).toBe(null);
     expect(state.toast).toBe("profile kept · the last profile cannot be removed");
   });
@@ -592,8 +592,8 @@ describe("Generation Profile settings", () => {
     expect(Object.keys(document?.connections ?? {})).toHaveLength(2);
 
     await selectRow(press, state, "profile");
-    await press(key("d"));
-    await press(key("d"));
+    await press(key("D"));
+    await press(key("D"));
 
     document = state.settings?.draft.document;
     expect(Object.keys(document?.profiles ?? {})).toHaveLength(1);

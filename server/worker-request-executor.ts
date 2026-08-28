@@ -32,6 +32,7 @@ import { requireRecord, requireString } from "./validation.js";
 import { WorkerDeltaBatcher } from "./worker-delta-batcher.js";
 import {
   executeWorkerMutation,
+  parseAsideAnchorInput,
   parseWorkerMutation,
   preflightWorkerMutation,
   storyIdForWorkerMutation
@@ -47,6 +48,11 @@ type WorkerTerminalMessage = Extract<
   WorkerToMainMessage,
   { type: "result" | "complete" }
 >;
+type CommittedAsideMethod = "askAside" | "retakeAside";
+
+function isCommittedAsideMethod(method: WorkerMethod): method is CommittedAsideMethod {
+  return method === "askAside" || method === "retakeAside";
+}
 
 const PARTIAL_SETTLEMENT_RETRY_MS = 25;
 
@@ -100,11 +106,11 @@ export async function executeWorkerRequest(
         cancellation
       );
     }
-    // Ask commits its Side Note before it returns a non-null view. A late user
-    // cancellation can therefore race only terminal transport settlement;
-    // never turn that durable result into the null cancellation sentinel.
+    // Ask and retake commit their Side Note before returning a non-null view.
+    // A late user cancellation can therefore race only terminal transport
+    // settlement; never turn that durable result into the null sentinel.
     // Deadline and shutdown cancellation keep their existing authority.
-    const committedAside = message.method === "askAside" && value !== null;
+    const committedAside = isCommittedAsideMethod(message.method) && value !== null;
     cancellation.throwIfDeadlineExpired();
     if (
       stream
@@ -439,8 +445,14 @@ async function invokeReadOnly(
         requireString(input.storyId, "storyId"),
         requireString(input.nodeId, "nodeId")
       );
-    case "getAside":
-      return await service.getAside(requireString(input.storyId, "storyId"));
+    case "getAside": {
+      const storyId = requireString(input.storyId, "storyId");
+      if (input.anchor === undefined) return await service.getAside(storyId);
+      return await service.getAsideV2(
+        storyId,
+        parseAsideAnchorInput(input.anchor)
+      );
+    }
     case "getSettings": return await service.getSettings();
     case "checkModelServer":
       return await service.checkModelServer(

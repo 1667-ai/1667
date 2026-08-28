@@ -74,19 +74,19 @@ interface FooterCase {
 
 const footerCases: FooterCase[] = [
   { name: "facts", mode: "FACTS", actions: FACTS_FOOTER_ACTIONS,
-    keys: [key("up"), key("down"), key("tab"), key("return"), key("/"), key("e"), key("n"), key("x"), key("escape")],
+    keys: [key("up"), key("down"), key("tab"), key("return"), key("/"), key("e"), key("n"), key("D"), key("escape")],
     setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null }; } },
   { name: "library", mode: "LIBRARY", actions: LIBRARY_FOOTER_ACTIONS,
-    keys: [key("up"), key("down"), key("return"), key("n"), key("r"), key("/"), key("d"), key("escape")],
+    keys: [key("up"), key("down"), key("return"), key("n"), key("r"), key("/"), key("D"), key("escape")],
     setup: (state, source) => { state.mode = "LIBRARY"; state.library = { stories: source.stories, cursor: 0, query: "", prompt: null }; } },
   { name: "chapters", mode: "CHAPTERS", actions: CHAPTERS_FOOTER_ACTIONS,
-    keys: [key("return"), key("s"), key("e"), key("n"), key("d"), key("escape")],
+    keys: [key("return"), key("s"), key("e"), key("n"), key("D"), key("escape")],
     setup: (state) => { state.mode = "CHAPTERS"; state.chapters = { cursor: 0, rename: null, deleteArmedId: null }; } },
   { name: "commands", mode: "COMMANDS", actions: COMMANDS_FOOTER_ACTIONS,
     keys: [key("return"), key("up"), key("down"), key("escape")],
     setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands", returnMode: "NAV" }; } },
   { name: "tag manager", mode: "COMMANDS", actions: TAGS_FOOTER_ACTIONS,
-    keys: [key("up"), key("down"), key("x"), key("escape")], options: { commandsTags: true },
+    keys: [key("up"), key("down"), key("D"), key("escape")], options: { commandsTags: true },
     setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "tags", returnMode: "NAV" }; } },
   { name: "settings", mode: "SETTINGS", actions: SETTINGS_FOOTER_ACTIONS,
     keys: [
@@ -603,7 +603,7 @@ describe("hit map from rendered frames", () => {
     state.focusIndex = dividerIndex;
     frame = render(state);
     expect(clickText(frame, state, "e rename")).toEqual({ action: "edit" });
-    expect(clickText(frame, state, "d remove")).toEqual({ action: "prune" });
+    expect(clickText(frame, state, "D remove")).toEqual({ action: "prune" });
     expect(clickText(frame, state, "r summarize chapter above")).toEqual({ action: "regenerate" });
   });
 

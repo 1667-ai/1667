@@ -3,6 +3,20 @@ import type { DisplayRole, FrameLine, FrameSegment } from "./story/frame.js";
 
 const WORK_LIGHT_FRAME_MS = 120;
 const WORK_LIGHT_EDGE_FRAMES = 2;
+const STREAM_LIVENESS_MARKS = [
+  "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
+] as const;
+const STREAM_LIVENESS_FRAME_MS = 250;
+
+/** Move the liveness dots once around their cell before the cycle repeats. */
+export function streamLivenessMark(
+  now: number,
+  deadlines?: FrameDeadlineCollector
+): string {
+  const frame = Math.floor(now / STREAM_LIVENESS_FRAME_MS);
+  deadlines?.at((frame + 1) * STREAM_LIVENESS_FRAME_MS);
+  return STREAM_LIVENESS_MARKS[frame % STREAM_LIVENESS_MARKS.length]!;
+}
 
 /** Move one light band through a visible work-state keyword. */
 export function lightWorkKeyword(

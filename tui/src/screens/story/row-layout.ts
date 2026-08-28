@@ -37,8 +37,10 @@ import {
   actionHint,
   gutterFor,
   gutterRowsFor,
-  streamLivenessMark
+  streamingGutterRows
 } from "./gutter.js";
+import { asideBoundaryLabel, asidePresenceForPart } from "../../aside-presence.js";
+import { streamLivenessMark } from "../work-light.js";
 
 export interface StoryRowLayout {
   height: number;
@@ -54,12 +56,14 @@ export interface StickyStoryGutter {
 }
 
 export interface StickyStoryPrompt {
-  /** Natural row of the prompt inside this part's block. */
-  start: number;
   /** Rows this part paints, excluding the blank that separates it from the next. */
   partRows: number;
-  /** Rendered lazily: blocks the viewport never paints must not be prepared. */
-  line: () => FrameLine;
+  /** Sticky prefix lines stacked from the viewport's own top row down. Every
+   *  case but one is the compact prompt alone; a narrow, streaming take stacks
+   *  the boundary row above it too (item D — the side gutter is off, so the
+   *  boundary is the only place `writing`/`esc stops` lives). Rendered lazily:
+   *  blocks the viewport never paints must not be prepared. */
+  lines: Array<{ start: number; line: () => FrameLine }>;
 }
 
 /** One row plan owns measurement and visible rendering. Fixed rows are real
@@ -93,6 +97,7 @@ export function layoutStoryRow(
   const stream = streamForPart(state.stream, row.id);
   const streaming = stream !== null;
   const thought = thoughtGutterContext(row, rowIndex, state, streaming, stream);
+  const asidePresence = asidePresenceForPart(state.payload, row);
   const prefixFlags: PartPrefixFlags = {
     boundary: narrow,
     prompt: state.showInstructions,
@@ -126,12 +131,14 @@ export function layoutStoryRow(
   // gutter's fixed 2-line pair (`gutterFor`, gutter.ts) takes priority over
   // this whenever both are true.
   const gutterRows = focused && !narrow && !streaming && !row.isSummary
-    ? gutterRowsFor(row, thought)
+    ? gutterRowsFor(row, thought, asidePresence)
     : null;
-  const gutterRowCount = streaming && !narrow ? 2 : gutterRows?.length ?? 0;
+  const streamingRows = streaming && !narrow ? streamingGutterRows(row, thought, state.now, deadlines) : null;
+  const gutterRowCount = streamingRows?.length ?? gutterRows?.length ?? 0;
   let prefix: FrameLine[] | null = null;
   const preparePrefix = () => prefix ??= partPrefix(
-    row, rowIndex, allParts, state, measure, narrow, focused, streaming, prefixFlags, thought, deadlines
+    row, rowIndex, allParts, state, measure, narrow, focused, streaming, prefixFlags, thought,
+    asidePresence, deadlines
   );
   const expandedPrompt = prefixFlags.prompt && state.expandedPromptIds.has(row.id);
   // An unfolded thought block's height is as variable as an expanded
@@ -139,17 +146,32 @@ export function layoutStoryRow(
   // both fall back to measuring the real, fully-built prefix once.
   const needsMeasuredPrefix = expandedPrompt || prefixFlags.thought;
   const prefixRows = needsMeasuredPrefix ? preparePrefix().length : prefixHeight(prefixFlags);
-  const stickyGutter = focused && !narrow && !row.isSummary && !streaming
-    ? { start: prefixRows, lines: gutterRows ?? [] }
-    : null;
+  // Both gutters that can outlive their own rows stick: the focused menu,
+  // and the streaming pair (`writing`/`esc stops`, or `thinking`/`T peeks`),
+  // which otherwise scrolls off the top with the head of a take that has
+  // grown taller than the viewport — the viewport follows the tail while
+  // text lands, so that is exactly when the stop affordance is needed.
+  // `gutterRows` is already null in every case but its own
+  // `focused && !narrow && !row.isSummary` guard above — the streaming and
+  // summary conditions there already exclude it — so it needs no extra guard
+  // to serve as the non-streaming sticky source below.
+  const stickyGutterLines = streaming && !narrow ? streamingRows : gutterRows;
+  const stickyGutter: StickyStoryGutter | null = stickyGutterLines === null
+    ? null
+    : { start: prefixRows, lines: stickyGutterLines };
   const promptRowIndex = narrow ? 1 : 0;
   const partRows = prefixRows + Math.max(wrapped, gutterRowCount);
-  const stickyPrompt: StickyStoryPrompt | null = prefixFlags.prompt && !expandedPrompt
-    ? {
-        start: promptRowIndex,
-        partRows,
-        line: () => preparePrefix()[promptRowIndex] ?? []
-      }
+  // A narrow, streaming take has no side gutter to carry `writing`/`esc
+  // stops` (`gutterAt` returns `[]` when narrow) — the boundary row is the
+  // only place that text lives, so it sticks first; the compact prompt, if
+  // shown, stacks under it on the next frame row.
+  const stickyPromptLines: StickyStoryPrompt["lines"] = [];
+  if (narrow && streaming) stickyPromptLines.push({ start: 0, line: () => preparePrefix()[0] ?? [] });
+  if (prefixFlags.prompt && !expandedPrompt) {
+    stickyPromptLines.push({ start: promptRowIndex, line: () => preparePrefix()[promptRowIndex] ?? [] });
+  }
+  const stickyPrompt: StickyStoryPrompt | null = stickyPromptLines.length > 0
+    ? { partRows, lines: stickyPromptLines }
     : null;
   return {
     height: partRows,
@@ -157,7 +179,10 @@ export function layoutStoryRow(
     stickyPrompt,
     render: () => [
       ...preparePrefix(),
-      ...renderPartBody(row, state, focused, narrow, prepare(), gutterRowCount, gutterRows, thought, deadlines)
+      ...renderPartBody(
+        row, state, focused, narrow, prepare(), gutterRowCount, gutterRows,
+        thought, asidePresence, deadlines
+      )
     ]
   };
 }
@@ -185,8 +210,8 @@ function renderChapterDivider(
   const gutter = focused ? [segment("▸ chapter", "focus / accent")] : [];
   const lines: FrameLine[] = [prefixLine(narrow, gutter, [segment(centeredRule(label, measure), "chrome")])];
   if (focused) lines.push(prefixLine(narrow, [], armed
-    ? [actionHint("d confirms remove", "prune", "danger text"), segment(" · ", "danger text"), actionHint("esc keeps", "cancel", "danger text")]
-    : [actionHint("e rename", "edit"), segment(" · ", "chrome"), actionHint("d remove", "prune"),
+    ? [actionHint("D confirms remove", "prune", "danger text"), segment(" · ", "danger text"), actionHint("esc keeps", "cancel", "danger text")]
+    : [actionHint("e rename", "edit"), segment(" · ", "chrome"), actionHint("D remove", "prune"),
       segment(" · ", "chrome"), actionHint("r summarize chapter above", "regenerate")]));
   return lines;
 }
@@ -237,10 +262,13 @@ function partPrefix(
   streaming: boolean,
   prefix: PartPrefixFlags,
   thought: ThoughtGutterContext,
+  asidePresence: ReturnType<typeof asidePresenceForPart>,
   deadlines?: FrameDeadlineCollector
 ): FrameLine[] {
   const lines: FrameLine[] = [];
-  if (prefix.boundary) lines.push(renderBoundary(part, measure, focused, streaming, state.now, deadlines));
+  if (prefix.boundary) {
+    lines.push(renderBoundary(part, measure, focused, streaming, asidePresence, state.now, deadlines));
+  }
   if (prefix.prompt) {
     lines.push(...renderPrompt(part, rowIndex, state.expandedPromptIds.has(part.id), measure, narrow));
   }
@@ -336,6 +364,7 @@ function renderPartBody(
   gutterRowCount: number,
   gutterRows: readonly FrameLine[] | null,
   thought: ThoughtGutterContext,
+  asidePresence: ReturnType<typeof asidePresenceForPart>,
   deadlines?: FrameDeadlineCollector
 ): FrameLine[] {
   const { stream, appending, wrapped, sourceStart, compactLogo } = prepared;
@@ -347,7 +376,7 @@ function renderPartBody(
   const lines: FrameLine[] = [];
   const gutterAt = (lineIndex: number): FrameLine => narrow
     ? []
-    : gutterFor(part, streaming, lineIndex, thought, gutterRows, state.now, deadlines);
+    : gutterFor(part, streaming, lineIndex, thought, gutterRows, state.now, deadlines, asidePresence);
   if (compactLogo) {
     lines.push(prefixLine(
       narrow,
@@ -409,6 +438,7 @@ function renderBoundary(
   measure: number,
   focused: boolean,
   streaming: boolean,
+  asidePresence: ReturnType<typeof asidePresenceForPart>,
   now = 0,
   deadlines?: FrameDeadlineCollector
 ): FrameLine {
@@ -424,9 +454,11 @@ function renderBoundary(
       : part.siblingCount > 1
         ? `¶ ${part.number} · ×${part.siblingCount}`
       : `¶ ${part.number}${part.isSummary ? " · ◈" : ""}`;
-  const prefix = `── ${marker} `;
-  return [segment("  "), segment(prefix, "chrome"),
-    segment("─".repeat(Math.max(0, measure - visibleWidth(prefix))), "chrome")];
+  const aside = asideBoundaryLabel(asidePresence);
+  const prefix = `── ${marker}${aside === null ? "" : ` · ${aside}`} `;
+  const fitted = truncate(prefix, Math.max(0, measure));
+  return [segment("  "), segment(fitted, "chrome"),
+    segment("─".repeat(Math.max(0, measure - visibleWidth(fitted))), "chrome")];
 }
 
 function prefixLine(narrow: boolean, gutter: FrameLine, prose: FrameLine): FrameLine {

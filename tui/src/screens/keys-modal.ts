@@ -226,6 +226,11 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("mapTreeFollow"),
         binding("mapMassFollow")
       ]),
+      entry("tree · jump to next lane", [
+        binding("mapTreeLanePrevious"),
+        binding("mapTreeLaneNext")
+      ]),
+      entry("hide tree lanes · path", [binding("mapTreePath")]),
       entry("sort the mass view", [binding("mapMassSort")]),
       entry("prune · tag · path", [
         binding("mapPathPrune"),
@@ -368,7 +373,7 @@ function columnCount(interior: number): number {
  *  heading with its keys; the scroll offset then applies to every column at
  *  once, so a clipped panel reads as one table rather than five. */
 /** Chapter dividers and summaries answer to their own verbs — `e` renames a
- *  chapter, `d` removes its break — because `directChapterRowAction` runs
+ *  chapter, `D` removes its break — because `directChapterRowAction` runs
  *  before NAV. No static list can hold both meanings of a key, and the story
  *  already names the focused row's keys in the line beneath it, so the
  *  reference says where to look rather than guessing which row you are on. */

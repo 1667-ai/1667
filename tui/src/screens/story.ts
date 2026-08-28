@@ -71,7 +71,7 @@ import { addInlineHits } from "./story/hits.js";
 import { partHasThought } from "../reasoning-model.js";
 import { layoutStoryRow, renderChapterOneHeading, type StickyStoryPrompt } from "./story/row-layout.js";
 import { paintStorySelection } from "./story/selection-highlight.js";
-import { stickFocusedGutter, type FocusedStickyGutter } from "./story/sticky-gutter.js";
+import { stickStoryGutters, type OwnedStickyGutter } from "./story/sticky-gutter.js";
 import { stickStoryPrompt } from "./story/sticky-prompt.js";
 import {
   applyComposePageMode,
@@ -205,7 +205,7 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   const parts = view.parts;
   const rows = view.rows;
   const blocks: ViewportBlock[] = [];
-  let focusedGutter: FocusedStickyGutter | null = null;
+  const stickyGutters: OwnedStickyGutter[] = [];
   const stickyPrompts = new Map<number, StickyStoryPrompt>();
   if (view.chapters.length > 1) {
     blocks.push({
@@ -217,11 +217,11 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   for (const [rowIndex, row] of rows.entries()) {
     const layout = layoutStoryRow(row, rowIndex, parts, state, measure, narrow, cache, options.deadlines);
     if (layout.stickyGutter !== null) {
-      focusedGutter = {
+      stickyGutters.push({
         rowIndex,
         partHeight: layout.height,
         gutter: layout.stickyGutter
-      };
+      });
     }
     if (layout.stickyPrompt !== null) {
       stickyPrompts.set(rowIndex, layout.stickyPrompt);
@@ -274,11 +274,11 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
     focusAtStarterIntro
   );
   const visibleBody = stickStoryPrompt(
-    stickFocusedGutter(
+    stickStoryGutters(
       viewport.lines,
       viewport.owners,
       viewport.blockRows,
-      focusedGutter,
+      stickyGutters,
       width
     ),
     viewport.owners,
@@ -541,7 +541,7 @@ function renderMapTag(
     raisedSegment(`‹ ${selected} ›`, prompt.choosingStatus ? "focus / accent" : "prose · dim")
   ]];
   const footer = prompt.choosingStatus
-    ? `←→ status · enter save · esc cancel${prompt.existing ? " · d delete" : ""}`
+    ? `←→ status · enter save · esc cancel${prompt.existing ? prompt.deleteArmed ? " · D confirms · esc keeps" : " · D delete" : ""}`
     : "enter choose status · esc cancel";
   return placePanel(dimPage(base), "tag line", content, footer, width, height, 64, {
     rows: hitRows,
@@ -559,7 +559,7 @@ function renderPageComposer(state: StoryScreenState, view: StoryViewModel, width
     const promptHint = state.toast !== null
       ? state.toast
       : state.tag.choosingStatus
-        ? `status ‹ ${selected} › · ←→ picks · enter saves · esc cancels${state.tag.existing ? " · d deletes" : ""}`
+        ? `status ‹ ${selected} › · ←→ picks · enter saves · esc cancels${state.tag.existing ? state.tag.deleteArmed ? " · D confirms · esc keeps" : " · D deletes" : ""}`
         : "enter chooses status · esc cancels";
     return { lines: [
       rule,
@@ -684,7 +684,7 @@ function navHintItems(state: StoryScreenState, view: StoryViewModel): HintItem[]
   if (row?.kind === "chapter-divider") {
     return [
       hintItem([actionHint("e renames", "edit")]),
-      hintItem([actionHint("d removes", "prune")]),
+      hintItem([actionHint("D removes", "prune")]),
       hintItem([actionHint("r summarizes above", "regenerate")], 1),
       hintItem([actionHint("c chapters", "open-chapters")], 2)
     ];

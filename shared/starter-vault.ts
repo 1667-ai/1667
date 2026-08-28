@@ -159,7 +159,7 @@ const TOUR: StarterStory = {
           text: "Press [e] to edit the focused part in place. Your changes become a take, so "
             + "the model's original stays reachable behind [←].\n\n"
             + "[u] takes back a chapter break you made or removed, and only that. There is no "
-            + "undo for prose, so read the next sentence twice. [d] prunes — it deletes takes "
+            + "undo for prose, so read the next sentence twice. [D] prunes — it deletes takes "
             + "and their children, which is how a story that sprawled during a long session "
             + "gets its shape back. Pruning asks first if you are sure, and [u] will not bring "
             + "back what it takes.\n\n"

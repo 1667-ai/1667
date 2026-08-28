@@ -55,6 +55,11 @@ import { countPromptTokens } from "./tokenize-probe.js";
 import { ServiceError } from "./errors.js";
 import { requireRecord, requireStringValue } from "./validation.js";
 import type { DeltaConsumer } from "./generation-stream.js";
+import type {
+  AsideAskInput,
+  AsideRetakeInput,
+  AsideSessionMutationInput
+} from "../shared/aside-transport.js";
 import {
   MAX_IMPORT_BYTES,
   storyFromImport,
@@ -302,6 +307,13 @@ export class StoryService extends StoryServiceRuntime {
     return await this.storyGeneration.getAside(id);
   }
 
+  async getAsideV2(
+    id: string,
+    anchor?: import("../shared/aside-session.js").AsideAnchor | null
+  ): Promise<import("../shared/aside-transport.js").AsideReadResponse> {
+    return await this.storyGeneration.getAsideV2(id, anchor);
+  }
+
   async askAside(
     id: string,
     body: Record<string, unknown>,
@@ -310,6 +322,34 @@ export class StoryService extends StoryServiceRuntime {
     hooks: GenerationMutationHooks = {}
   ): Promise<import("./aside-http.js").AsideDocumentView | null> {
     return await this.storyGeneration.askAside(id, body, onDelta, signal, hooks);
+  }
+
+  async askAsideV2(
+    id: string,
+    body: AsideAskInput,
+    onDelta: import("./generation-stream.js").DeltaConsumer,
+    signal: AbortSignal,
+    hooks: GenerationMutationHooks = {}
+  ): Promise<import("../shared/aside-transport.js").AsideAskResponse | null> {
+    return await this.storyGeneration.askAsideV2(id, body, onDelta, signal, hooks);
+  }
+
+  async asideSessionMutation(
+    id: string,
+    body: AsideSessionMutationInput,
+    mutationRequest?: unknown
+  ): Promise<import("../shared/aside-transport.js").AsideSessionMutationResponse> {
+    return await this.storyGeneration.asideSessionMutation(id, body, mutationRequest);
+  }
+
+  async retakeAside(
+    id: string,
+    body: AsideRetakeInput,
+    onDelta: import("./generation-stream.js").DeltaConsumer,
+    signal: AbortSignal,
+    hooks: GenerationMutationHooks = {}
+  ): Promise<import("../shared/aside-transport.js").AsideAskResponse | null> {
+    return await this.storyGeneration.retakeAside(id, body, onDelta, signal, hooks);
   }
 
   async clearAside(id: string, mutationRequest?: unknown): Promise<StoryPayload> {
@@ -514,7 +554,10 @@ export class StoryService extends StoryServiceRuntime {
   }> {
     this.ensureOpen();
     const story = await this.stories.load(id);
-    const fidelity = story.asideDocumentId !== undefined && story.asideDocumentId !== null
+    const hasAsideSessions = (story.asideSessionRefs?.length ?? 0) > 0
+      || (story.asideUnanchoredSessionRefs?.length ?? 0) > 0;
+    const fidelity = (story.asideDocumentId !== undefined && story.asideDocumentId !== null)
+      || hasAsideSessions
       ? ["Side Notes were not exported."] as const
       : [];
     const comment = (value: string) => value

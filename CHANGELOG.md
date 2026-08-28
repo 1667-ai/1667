@@ -5,6 +5,70 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.3 - 2026-08-26
+
+- **This release has no additional product changes.** It contains the same
+  behavior as 0.10.3-rc.6.
+
+## 0.10.3-rc.6 - 2026-08-26
+
+- **Aside mouse actions keep their exact target.** Right-clicking selected
+  text preserves the selection, active turn, focus, and scroll position. Each
+  Use Selection, Use Answer, and visible session hop item works with one
+  click, including in narrow or clipped layouts. A failed delete preserves
+  its target and error for retry. Existing legacy Side Notes remain available.
+
+## 0.10.3-rc.5 - 2026-08-26
+
+- **Aside text selection works across the full chat width.** Questions and
+  answers use distinct `You` and `Assistant` labels, and question rows keep a
+  stronger visual treatment without adding a selection-breaking side pane.
+  Copying across both roles keeps the complete exchange.
+- **Destructive shortcuts use capital `D` consistently.** Aside turns, Facts,
+  chapter breaks, tags, Sampling entries, and Generation Profiles require a
+  confirmation before deletion. A different action cancels the confirmation.
+  Lowercase `d` is non-destructive.
+
+## 0.10.3-rc.4 - 2026-08-26
+
+- **Aside keeps selected text and turn context visible.** Highlighted answer
+  text stays highlighted while the Use selection menu is open, including
+  during a saved turn update. Up and Down navigation shows the selected
+  question from its first line and keeps as much answer visible as the screen
+  permits.
+
+## 0.10.3-rc.3 - 2026-08-26
+
+- **Aside shows selected turns and status clearly.** Wrapped lines in the
+  selected question keep their highlight. The writing and thinking labels
+  animate. Anchored sessions show the correct part and take after reads and
+  updates.
+
+## 0.10.3-rc.2 - 2026-08-26
+
+- **Aside keeps long chats readable and selectable.** Wrapped questions keep
+  their question style. Scroll history without changing the selected turn,
+  including while an answer streams. Highlight saved answer text and
+  right-click to copy it or insert it into the composer, a new Fact, or the
+  story. The full-answer menu can also create a new Fact. Large Aside
+  histories stay responsive. Existing Side Notes remain available.
+
+## 0.10.3-rc.1 - 2026-08-26
+
+- **The tree map draws the whole story in lanes.** Rows are reading order. Each live story
+  line owns a two-column lane. A line that ends hands its lane back and the next fork reuses
+  it. Lane 0 is the reading line. Press `←` or `→` to jump to the nearest row in the next
+  lane. Press `tab` to hide the lanes and open the path view on the same part.
+
+- **The streaming gutter pair stays visible while a long take scrolls.** The
+  `writing · esc stops` and `thinking · esc stops · T peeks` lines stick to
+  the top of the visible part, the same way the focused verb menu does.
+
+- **Aside now keeps separate chats for story takes.** Use the session and
+  anchor controls to review each chat. Existing Side Notes remain available
+  in the unanchored bucket. Optional Thoughts stay visible only in Aside and
+  do not enter a later model request.
+
 ## 0.10.2 - 2026-08-23
 
 - **This release has no additional product changes.** It contains the same
@@ -809,7 +873,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   reversed a take switch, and it said so on each take switch. Two keys did one
   job: `←` and `→` already walk the takes of one part. Worse, a key named undo
   that answers a navigation key implies that it can answer a destructive one. It
-  cannot: `d` prunes takes and their children, and nothing brings them back. `u`
+  cannot: prune removes takes and their children, and nothing brings them back. `u`
   now reaches an added or removed chapter break, which includes the summary of a
   removed break. It does not reach a chapter rename, a summary edit, or any
   prose. The take-switch message no longer names it.

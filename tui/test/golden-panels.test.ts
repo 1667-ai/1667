@@ -80,7 +80,7 @@ describe("run C overlay frames", () => {
     const frame = await renderOnce(demoAppSource(), 120, 36, "f");
     expect(frame).toContain("┏━ facts · 5 notes");
     expect(frame).toContain("[ all ]");
-    expect(frame).toContain("d delete");
+    expect(frame).toContain("D delete");
     expect(frame).toContain("FACTS");
 
     const compact = await renderOnce(demoAppSource(), 80, 24, "f");
@@ -567,7 +567,7 @@ describe("run C overlay frames", () => {
     expect(frame).toContain("72 ✓ summary");
     expect(frame).toContain("208 raw — no summary");
     expect(frame).toContain("total 884 / 32.8k");
-    expect(frame).toContain("s summarize · e rename · n break · d remove");
+    expect(frame).toContain("s summarize · e rename · n break · D remove");
   });
 
   test("80x24 library and chapters compact without clipping useful fields", async () => {

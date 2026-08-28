@@ -62,7 +62,7 @@ export { FACTS_FOOTER_ACTIONS } from "./facts-panel.js";
 export const CHAPTERS_FOOTER_ACTIONS = [
   { token: "↵", action: "open-selected" }, { token: "s sum", action: "summarize-chapter" },
   { token: "e rename", action: "rename-item" }, { token: "n break", action: "new-item" },
-  { token: "d", action: "delete-item" }, { token: "esc", action: "cancel" }
+  { token: "D", action: "delete-item" }, { token: "esc", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 export const RENAME_FOOTER_ACTIONS = [
   { token: "↵", action: "open-selected" }, { token: "esc", action: "cancel" }
@@ -74,7 +74,7 @@ export const LIBRARY_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
   { token: "↵", action: "open-selected" }, { token: "n new", action: "new-item" },
   { token: "e rename", action: "rename-item" }, { token: "/ filter", action: "filter" },
-  { token: "d delete", action: "delete-item" }, { token: "esc", action: "cancel" }
+  { token: "D delete", action: "delete-item" }, { token: "esc", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 export const COMMANDS_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
@@ -92,7 +92,11 @@ const TEXT_ACTIONS_FOOTER_ACTIONS = [
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 export const TAGS_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
-  { token: "d delete", action: "delete-item" }, { token: "esc commands", action: "cancel" }
+  { token: "D delete", action: "delete-item" }, { token: "esc commands", action: "cancel" }
+] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
+const TAG_DELETE_CONFIRM_FOOTER_ACTIONS = [
+  { token: "D confirms", action: "delete-item" },
+  { token: "esc keeps", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 export const CARD_IMPORT_FOOTER_ACTIONS = [
   { token: "tab", action: "complete" }, { token: "↵", action: "apply" },
@@ -309,10 +313,10 @@ function renderChapters(
     : overlay.rename !== null
     ? "↵ saves the title · esc keeps the old one"
     : overlay.deleteArmedId !== null
-    ? "↵ jump · s sum · e rename · n break · d confirms · esc keeps"
+    ? "↵ jump · s sum · e rename · n break · D confirms · esc keeps"
     : width < 100
-      ? "↵ jump · s sum · e rename · n break · d rm · esc"
-      : "↵ jump · s summarize · e rename · n break · d remove · esc";
+      ? "↵ jump · s sum · e rename · n break · D rm · esc"
+      : "↵ jump · s summarize · e rename · n break · D remove · esc";
   return placePanel(base, `chapters · ${model.rows.length} on this storyline`, boundedContent(content, contentWidth),
     footer, width, height, 106, { rows: state.hitRows, targets,
       // Renaming accepts only save, cancel and text: advertising the other verbs
@@ -382,7 +386,7 @@ function renderLibrary(
   }
   const title = `library${folder} · ${totals.stories} stories · ${totals.words.toLocaleString("en-US")} words${panelRange(rows.length, window)}`;
   const prompting = overlay.prompt !== null;
-  const footer = prompting ? "↵ apply · esc cancel" : "↑↓ move · ↵ open · n new · e rename · / filter · d delete · esc";
+  const footer = prompting ? "↵ apply · esc cancel" : "↑↓ move · ↵ open · n new · e rename · / filter · D delete · esc";
   return placePanel(base, title, boundedContent(content, contentWidth), footer, width, height, 106,
     { rows: state.hitRows, targets, footerActions: prompting ? RENAME_FOOTER_ACTIONS : LIBRARY_FOOTER_ACTIONS });
 }
@@ -463,9 +467,18 @@ function renderCommands(
       content.push([raisedSegment("  no tags yet · esc, then t names a line", "prose · dim")]);
       targets.push(null);
     }
+    const footer = overlay.deleteArmedTagNodeId == null
+      ? "↑↓ move · D delete · esc commands"
+      : "D confirms · esc keeps";
     return placePanel(base, `tag manager${panelRange(tags.length, window)}`, content,
-      "↑↓ move · d delete · esc commands", width, height, 72,
-      { rows: state.hitRows, targets, footerActions: TAGS_FOOTER_ACTIONS });
+      footer, width, height, 72,
+      {
+        rows: state.hitRows,
+        targets,
+        footerActions: overlay.deleteArmedTagNodeId == null
+          ? TAGS_FOOTER_ACTIONS
+          : TAG_DELETE_CONFIRM_FOOTER_ACTIONS
+      });
   }
   const model = commandPaletteModel(
     overlay.query,

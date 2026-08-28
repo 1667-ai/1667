@@ -17,7 +17,16 @@ import { prepareProviderStoryEffect } from "../server/story-provider-preparation
 import { createGenerationRecord, type GenerationRecord, type GenerationRecordKind } from "../shared/generation-record.js";
 import type { PromptOperation } from "../shared/prompt-plan.js";
 import { takePendingGenerationRecords } from "../server/story-node-generation-records.js";
-import { serializeAsideDocument } from "../shared/aside.js";
+import {
+  appendAsideTurn,
+  emptyAsideSessionDocument,
+  hashAsideSessionDocument,
+  serializeAsideDocument
+} from "../shared/aside.js";
+import {
+  clearPendingAsideSessionDocument,
+  peekPendingAsideSessions
+} from "../server/story-aside-pending.js";
 
 const AT = "2026-07-25T12:00:00.000Z";
 const LATER = "2026-07-25T12:01:00.000Z";
@@ -152,6 +161,59 @@ test("aside assigns its content id before serialization", async () => {
   );
 
   assert.equal(current.asideDocumentId, sha256(serializeAsideDocument(document)));
+});
+
+test("v2 aside effect stages its ref and document as one pair", async () => {
+  const current = story([node("take-1", null, "Opening.")]);
+  current.asideDocumentId = "unrelated-v1-document";
+  const anchor = { partId: "part-1", takeId: "take-1" };
+  const document = appendAsideTurn(
+    emptyAsideSessionDocument(anchor),
+    "Why?",
+    "Because.",
+    "private thought",
+    7
+  );
+  const ref = {
+    id: "session-1",
+    documentId: hashAsideSessionDocument(document),
+    anchor,
+    turnCount: document.turns.length
+  } as const;
+
+  await applyProviderStoryEffect(current, {
+    kind: "aside",
+    expectedAsideSessionDocumentId: null,
+    expectedAsideSessionAnchor: anchor,
+    sessionId: ref.id,
+    sessionDocument: document
+  }, hydrate);
+
+  const pending = peekPendingAsideSessions(current).get(ref.id);
+  assert.deepEqual(pending, { ref, document });
+  assert.deepEqual(current.asideSessionRefs, [ref]);
+  clearPendingAsideSessionDocument(current);
+});
+
+test("v1-to-v2 Aside materialization keeps the legacy CAS", async () => {
+  const current = story([node("root", null, "Opening.")]);
+  current.asideDocumentId = "current-v1-document";
+  const document = emptyAsideSessionDocument(null);
+
+  await assert.rejects(
+    applyProviderStoryEffect(current, {
+      kind: "aside",
+      expectedAsideDocumentId: "stale-v1-document",
+      materializesLegacy: true,
+      expectedAsideSessionDocumentId: null,
+      expectedAsideSessionAnchor: null,
+      sessionId: "legacy",
+      sessionDocument: document
+    }, hydrate),
+    (error: unknown) => error instanceof GenerationResultError
+      && error.code === "conflict"
+  );
+  assert.equal(current.asideDocumentId, "current-v1-document");
 });
 
 test("aside rejects a stale answer without changing the current document", async () => {

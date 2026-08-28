@@ -86,7 +86,11 @@ export class MutationReceiptStore {
     private readonly dir: string,
     private readonly resolveStory: (id: string) => Promise<StoryPayload>,
     reportFailure?: MutationReceiptFailureReporter,
-    private readonly resolveAsideDocument?: (storyId: string) => Promise<unknown>
+    private readonly resolveAsideDocument?: (storyId: string) => Promise<unknown>,
+    private readonly resolveAsideSession?: (
+      storyId: string,
+      sessionId: string
+    ) => Promise<unknown>
   ) {
     this.failureTerminalizer = new MutationReceiptFailureTerminalizer(
       reportFailure
@@ -352,6 +356,12 @@ export class MutationReceiptStore {
           throw corruptMutationReceipt(receipt.mutationId);
         }
         return await this.resolveAsideDocument(result.id);
+      }
+      case "aside-session": {
+        if (this.resolveAsideSession === undefined) {
+          throw corruptMutationReceipt(receipt.mutationId);
+        }
+        return await this.resolveAsideSession(result.storyId, result.sessionId);
       }
       case "chapter-break-created": return {
         payload: await this.resolveStory(result.id),

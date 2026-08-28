@@ -1,4 +1,4 @@
-import type { StoryManifestV5, StoryManifestV7, StoryManifestV9 } from "./story-format.js";
+import type { StoryManifestV5, StoryManifestV7, StoryManifestV9, StoryManifestV11 } from "./story-format.js";
 import type {
   DeletedStoryManifestV8,
   LiveStoryManifestV8,
@@ -9,6 +9,11 @@ import type {
   LiveStoryManifestV10,
   StoryManifestV10
 } from "./story-v10-types.js";
+import type {
+  DeletedStoryManifestV12,
+  LiveStoryManifestV12,
+  StoryManifestV12
+} from "./story-v12-types.js";
 
 export type StoryId = string;
 export type Hash256 = string;
@@ -50,7 +55,7 @@ export interface StorySummaryV6 {
  * them. `server/story-v6-codec.ts` has one parser for this shape,
  * `parseLiveEnvelope`, instead of one copy per version.
  */
-export interface LiveStoryEnvelope<V extends 6 | 8 | 10, C> {
+export interface LiveStoryEnvelope<V extends 6 | 8 | 10 | 12, C> {
   format: "1667-story";
   schemaVersion: V;
   kind: "live";
@@ -65,7 +70,7 @@ export interface LiveStoryEnvelope<V extends 6 | 8 | 10, C> {
 
 /** The deleted envelope, generalized the same way as `LiveStoryEnvelope`. It
  *  carries no content, so only `schemaVersion` varies between versions. */
-export interface DeletedStoryEnvelope<V extends 6 | 8 | 10> {
+export interface DeletedStoryEnvelope<V extends 6 | 8 | 10 | 12> {
   format: "1667-story";
   schemaVersion: V;
   kind: "deleted";
@@ -92,7 +97,7 @@ export type StoryManifestV6 = LiveStoryManifestV6 | DeletedStoryManifestV6;
  * already-persisted document keeps using the plain `StoryManifestV6` or
  * `StoryManifestV8` type instead.
  */
-export type StoryEnvelopeManifest = StoryManifestV6 | StoryManifestV8 | StoryManifestV10;
+export type StoryEnvelopeManifest = StoryManifestV6 | StoryManifestV8 | StoryManifestV10 | StoryManifestV12;
 
 /** The `kind: "live"` half of `StoryEnvelopeManifest`, for the write-path code
  *  that only ever replaces a live story (never a deleted one) with fresh
@@ -100,7 +105,8 @@ export type StoryEnvelopeManifest = StoryManifestV6 | StoryManifestV8 | StoryMan
 export type LiveStoryEnvelopeManifest =
   | LiveStoryManifestV6
   | LiveStoryManifestV8
-  | LiveStoryManifestV10;
+  | LiveStoryManifestV10
+  | LiveStoryManifestV12;
 
 /** The `kind: "deleted"` half of `StoryEnvelopeManifest`. The reaper and every
  *  other deletion path accept either envelope version: a story that reached
@@ -108,11 +114,12 @@ export type LiveStoryEnvelopeManifest =
 export type DeletedStoryEnvelopeManifest =
   | DeletedStoryManifestV6
   | DeletedStoryManifestV8
-  | DeletedStoryManifestV10;
+  | DeletedStoryManifestV10
+  | DeletedStoryManifestV12;
 
 /** The content payload half of `StoryEnvelopeManifest`: whichever content
  *  version one write produced, before it picks the matching envelope. */
-export type StoryEnvelopeContent = StoryManifestV5 | StoryManifestV7 | StoryManifestV9;
+export type StoryEnvelopeContent = StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11;
 
 export type ParsedStoryManifest =
   | {
@@ -125,4 +132,6 @@ export type ParsedStoryManifest =
   | { kind: "v8-live"; manifest: LiveStoryManifestV8 }
   | { kind: "v8-deleted"; manifest: DeletedStoryManifestV8 }
   | { kind: "v10-live"; manifest: LiveStoryManifestV10 }
-  | { kind: "v10-deleted"; manifest: DeletedStoryManifestV10 };
+  | { kind: "v10-deleted"; manifest: DeletedStoryManifestV10 }
+  | { kind: "v12-live"; manifest: LiveStoryManifestV12 }
+  | { kind: "v12-deleted"; manifest: DeletedStoryManifestV12 };

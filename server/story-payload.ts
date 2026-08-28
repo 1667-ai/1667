@@ -6,6 +6,8 @@ import { humanEditIsMeaningful } from "../shared/human-edit.js";
 import type { StoryAggregateVersion } from "../shared/story-aggregate-version.js";
 import { nodeStubPreview, nodeStubTokens, nodeStubWords } from "./story-node-text.js";
 import { boundedString } from "./story-wire-validation.js";
+import { asidePresenceFromIndex } from "../shared/aside.js";
+import { allAsideSessionRefs, visibleLegacyAsideSessionId } from "./aside-session-store.js";
 
 export function buildStoryPayload(
   story: Story,
@@ -20,6 +22,25 @@ export function buildStoryPayload(
   const authorBrief = canonicalBrief === undefined
     ? undefined
     : boundedString(canonicalBrief, "story.authorBrief", MAX_AUTHOR_BRIEF_CHARS);
+  // Project the text-free refs against the current tree. A restored take can
+  // reattach a pruned session from its immutable origin anchor without any
+  // session-object read.
+  const asideRefs = allAsideSessionRefs(story);
+  const asideSessionRefs = asideRefs.filter((ref) => ref.anchor !== null);
+  const asideUnanchoredSessionRefs = asideRefs.filter((ref) => ref.anchor === null);
+  const virtualLegacySessionId = visibleLegacyAsideSessionId(story, asideRefs);
+  const indexedAsidePresence = asidePresenceFromIndex({
+    schemaVersion: 2,
+    sessions: asideSessionRefs,
+    unanchored: asideUnanchoredSessionRefs
+  });
+  const asidePresence = asideRefs.length === 0 && virtualLegacySessionId === null
+    ? undefined
+    : {
+        ...indexedAsidePresence,
+        unanchoredCount: indexedAsidePresence.unanchoredCount
+          + (virtualLegacySessionId === null ? 0 : 1)
+      };
   return {
     id: story.id,
     title: story.title,
@@ -42,6 +63,10 @@ export function buildStoryPayload(
     ...(story.asideDocumentId !== undefined && story.asideDocumentId !== null
       ? { hasAside: true as const }
       : {}),
+    ...(asideRefs.length > 0 || virtualLegacySessionId !== null
+      ? { hasAsideSessions: true as const }
+      : {}),
+    ...(asidePresence === undefined ? {} : { asidePresence }),
     nodes: story.nodes.map((node): NodeStub => {
       const rollup = rollups.get(node.id);
       if (rollup === undefined) throw new Error(`Missing rollup for node: ${node.id}`);

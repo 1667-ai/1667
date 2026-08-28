@@ -88,7 +88,8 @@ export async function askAside(
     bindIntent,
     canCommitStoppedAside,
     providerStarted = () => {},
-    loadDocument
+    loadDocument,
+    onReasoning
   } = hooks;
   if (!asideEntryPointsOpen(hooks.entryPointsOpen)) {
     throw new HttpError(400, "Aside is not available in this release.", "aside_not_supported");
@@ -181,6 +182,7 @@ export async function askAside(
   try {
     for await (const delta of streamCompletion(settings, plan, signal, {
       providerStarted,
+      onReasoning,
       promptCache: createPromptCacheRequest(
         promptCacheRuntime,
         promptCache,
@@ -242,3 +244,14 @@ export async function askAside(
   // invite a duplicate Side Note.
   return viewAsideDocument(nextDocument);
 }
+
+// Stable v2 transport re-exports. V2 orchestration lives in its focused module.
+export {
+  askAsideSession,
+  viewAsideSessionDocument
+} from "./aside-session-http.js";
+export type {
+  AskAsideSessionHooks,
+  AsideSessionCommitHooks,
+  AsideSessionView
+} from "./aside-session-http.js";

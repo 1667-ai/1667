@@ -98,6 +98,25 @@ import type { ProviderRecoveryContext } from "../../shared/provider-recovery.js"
 import type { StoryCatalogPage } from "../../shared/story-catalog.js";
 import type { SearchRequest, SearchResponse } from "../../shared/story-search.js";
 import { createFailureEnvelope } from "../../shared/failure-envelope.js";
+import type {
+  AsideAskRequest,
+  AsideAskResponse,
+  AsideRetakeRequest,
+  AsideLegacyReadResponse,
+  AsideReadRequest,
+  AsideReadResponse,
+  AsideSessionMutationResponse,
+  AsideSessionTargetRequest,
+  AsideTurnMutationRequest
+} from "../../shared/aside-transport.js";
+import {
+  parseAsideAskResponse,
+  parseAsideLegacyReadResponse,
+  parseAsideReadResponse,
+  parseAsideResponse,
+  parseAsideSessionMutationResponse,
+  parseAsideSessionResponse
+} from "../../shared/aside-transport-codec.js";
 import { HttpStoryVersions } from "./http-story-versions.js";
 import {
   MemoryHttpMutationIntentStore,
@@ -180,6 +199,12 @@ export interface StreamCallbacks {
   onReasoningStopped?: (text: string) => void;
 }
 
+/** Aside streams add a phase hint for the chat surface. Their signal stays
+ * the final positional parameter. */
+export interface AsideStreamCallbacks extends StreamCallbacks {
+  onPhase?: (phase: "thinking" | "writing") => void;
+}
+
 /** `createSummaryTake`'s own callback bag. See `StreamCallbacks`'s doc for
  *  why `onStopped`/`onReasoningStopped` are missing here, not merely
  *  unused. */
@@ -236,6 +261,8 @@ export interface StoryApi {
   getReasoning(storyId: string, nodeId: string): Promise<ReasoningRecord>;
   /** Complete bounded Aside document. Empty when none exists. */
   getAside(storyId: string): Promise<{ notes: readonly { question: string; answer: string }[] }>;
+  /** Read v2 sessions for an anchor. Optional so v1 embedders remain valid. */
+  getAsideV2?(request: AsideReadRequest): Promise<AsideReadResponse | null>;
   /** Stream one Aside question. Null means cancelled before save. */
   askAside(
     storyId: string,
@@ -243,6 +270,26 @@ export interface StoryApi {
     onDelta: (text: string) => void,
     signal: AbortSignal
   ): Promise<AsideAskResult | null>;
+  /** Stream one v2 session question. `signal` must remain last. */
+  askAsideV2?(
+    request: AsideAskRequest,
+    onDelta: (text: string) => void,
+    callbacks: AsideStreamCallbacks | undefined,
+    signal: AbortSignal
+  ): Promise<AsideAskResponse | null>;
+  /** Delete one turn from a v2 session. */
+  deleteAsideTurn?(request: AsideTurnMutationRequest): Promise<AsideSessionMutationResponse>;
+  /** Keep the focused turn and all earlier turns. */
+  resetAside?(request: AsideTurnMutationRequest): Promise<AsideSessionMutationResponse>;
+  /** Clear the current v2 session only. */
+  clearAsideSession?(request: AsideSessionTargetRequest): Promise<AsideSessionMutationResponse>;
+  /** Stream a replacement for the selected session's last answer. */
+  retakeAside?(
+    request: AsideRetakeRequest,
+    onDelta: (text: string) => void,
+    callbacks: AsideStreamCallbacks | undefined,
+    signal: AbortSignal
+  ): Promise<AsideAskResponse | null>;
   /** Clear every Side Note for one story. */
   clearAside(storyId: string): Promise<StoryPayload>;
   switchLine(storyId: string, nodeId: string, options?: Omit<SwitchRequest, "nodeId">): Promise<StoryPayload>;
@@ -423,7 +470,10 @@ export function createApi(
      *  otherwise sends — a Draft Image upload needs its real media type so
      *  the server's Content-Type check can tell PNG from JPEG from WebP.
      *  Ignored for a string or absent body. */
-    binaryContentType?: string
+    binaryContentType?: string,
+    /** Optional query-bearing path sent on the wire. The operation reservation
+     * stays on `path`, because its canonical protocol path has no query. */
+    wirePath = path
   ): Promise<T> => {
     // A unary request retains the one backend-action owner until settlement,
     // so plain requests get a hard timeout. Local/control input remains live;
@@ -454,7 +504,7 @@ export function createApi(
           }
         },
         execute: async (lease) => {
-          const response = await lease.fetch(url(path), {
+          const response = await lease.fetch(url(wirePath), {
             method,
             headers: {
               ...lease.headers,
@@ -513,6 +563,24 @@ export function createApi(
     storyId,
     () => loadVersionedStory(storyId, callerSignal)
   );
+  const refreshAsideMutation = async (
+    storyId: string,
+    response: AsideSessionMutationResponse
+  ): Promise<AsideSessionMutationResponse> => {
+    if (response.payload !== undefined) {
+      versions.rememberPayload(response.payload);
+      return response;
+    }
+    let payload: StoryPayload | undefined;
+    try {
+      payload = await loadVersionedStory(storyId);
+    } catch {
+      // The session mutation is already committed. Keep its canonical id and
+      // forget the stale story token so the next mutation refreshes lazily.
+      versions.forget(storyId);
+    }
+    return payload === undefined ? response : { ...response, payload };
+  };
   const runProviderMutation = async <T>(
     storyId: string,
     work: () => Promise<T>
@@ -873,13 +941,24 @@ export function createApi(
     getAside: (storyId) => request(
       "GET",
       `/api/stories/${storyId}/aside`,
-      (value) => {
-        if (value === null || typeof value !== "object" || !Array.isArray((value as { notes?: unknown }).notes)) {
-          throw new Error("The server did not return an Aside document.");
-        }
-        return value as { notes: readonly { question: string; answer: string }[] };
-      }
+      decodeAsideLegacyReadResponse
     ),
+    getAsideV2: async (asideRequest) => {
+      const path = `/api/stories/${asideRequest.storyId}/aside`;
+      const wirePath = asideReadWirePath(path, asideRequest.anchor);
+      return await request(
+        "GET",
+        path,
+        decodeAsideReadResponseOrNull,
+        undefined,
+        HTTP_REQUEST_TIMEOUT_MS,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        wirePath
+      );
+    },
     askAside: async (storyId, question, onDelta, signal) => {
       const done = await stream(
         storyId,
@@ -905,6 +984,141 @@ export function createApi(
         payload = await loadVersionedStory(storyId);
       } catch {
         versions.forget(storyId);
+      }
+      return payload === undefined ? aside : { ...aside, payload };
+    },
+    askAsideV2: async (asideRequest, onDelta, callbacks, signal) => {
+      const streamCallbacks = callbacks === undefined
+        ? undefined
+        : {
+            ...callbacks,
+            onReasoning: (delta: ReasoningDelta) => {
+              callbacks.onPhase?.("thinking");
+              callbacks.onReasoning?.(delta);
+            }
+          } satisfies StreamCallbacks;
+      const done = await stream(
+        asideRequest.storyId,
+        `/api/stories/${asideRequest.storyId}/aside/ask`,
+        {
+          question: asideRequest.question,
+          anchor: asideRequest.anchor,
+          ...(asideRequest.sessionId === undefined
+            ? {} : { sessionId: asideRequest.sessionId })
+        },
+        (text) => {
+          callbacks?.onPhase?.("writing");
+          onDelta(text);
+        },
+        signal,
+        streamCallbacks
+      );
+      if (done === null || done.aside === null) return null;
+      if (done.aside === undefined || typeof done.aside !== "object") {
+        throw new Error("The server did not return an Aside session result.");
+      }
+      const aside = decodeAsideAskResponse(done.aside);
+      if (aside.payload !== undefined) {
+        versions.rememberPayload(aside.payload);
+        return aside;
+      }
+      let payload: StoryPayload | undefined;
+      try {
+        payload = await loadVersionedStory(asideRequest.storyId);
+      } catch {
+        versions.forget(asideRequest.storyId);
+      }
+      return payload === undefined ? aside : { ...aside, payload };
+    },
+    deleteAsideTurn: async (mutation) => {
+      const path = `/api/stories/${mutation.storyId}/aside/session`;
+      const response = await request(
+        "POST",
+        path,
+        decodeAsideSessionMutationResponse,
+        {
+          operation: "delete-turn",
+          sessionId: mutation.sessionId,
+          turnIndex: mutation.turnIndex,
+          anchor: mutation.anchor
+        },
+        HTTP_REQUEST_TIMEOUT_MS,
+        await expectedVersion(mutation.storyId)
+      );
+      return await refreshAsideMutation(mutation.storyId, response);
+    },
+    resetAside: async (mutation) => {
+      const path = `/api/stories/${mutation.storyId}/aside/session`;
+      const response = await request(
+        "POST",
+        path,
+        decodeAsideSessionMutationResponse,
+        {
+          operation: "reset",
+          sessionId: mutation.sessionId,
+          turnIndex: mutation.turnIndex,
+          anchor: mutation.anchor
+        },
+        HTTP_REQUEST_TIMEOUT_MS,
+        await expectedVersion(mutation.storyId)
+      );
+      return await refreshAsideMutation(mutation.storyId, response);
+    },
+    clearAsideSession: async (mutation) => {
+      const path = `/api/stories/${mutation.storyId}/aside/session`;
+      const response = await request(
+        "POST",
+        path,
+        decodeAsideSessionMutationResponse,
+        {
+          operation: "clear",
+          sessionId: mutation.sessionId,
+          anchor: mutation.anchor
+        },
+        HTTP_REQUEST_TIMEOUT_MS,
+        await expectedVersion(mutation.storyId)
+      );
+      return await refreshAsideMutation(mutation.storyId, response);
+    },
+    retakeAside: async (mutation, onDelta, callbacks, signal) => {
+      const streamCallbacks = callbacks === undefined
+        ? undefined
+        : {
+            ...callbacks,
+            onReasoning: (delta: ReasoningDelta) => {
+              callbacks.onPhase?.("thinking");
+              callbacks.onReasoning?.(delta);
+            }
+          } satisfies StreamCallbacks;
+      const done = await stream(
+        mutation.storyId,
+        `/api/stories/${mutation.storyId}/aside/retake`,
+        {
+          sessionId: mutation.sessionId,
+          turnIndex: mutation.turnIndex,
+          anchor: mutation.anchor
+        },
+        (text) => {
+          callbacks?.onPhase?.("writing");
+          onDelta(text);
+        },
+        signal,
+        streamCallbacks
+      );
+      if (done === null || done.aside === null) return null;
+      if (done.aside === undefined || typeof done.aside !== "object") {
+        throw new Error("The server did not return an Aside session result.");
+      }
+      const aside = decodeAsideAskResponse(done.aside);
+      if (aside.payload !== undefined) {
+        versions.rememberPayload(aside.payload);
+        return aside;
+      }
+      let payload: StoryPayload | undefined;
+      try {
+        payload = await loadVersionedStory(mutation.storyId);
+      } catch {
+        versions.forget(mutation.storyId);
       }
       return payload === undefined ? aside : { ...aside, payload };
     },
@@ -1259,6 +1473,79 @@ function summaryIsNewer(
 
 function parseJson(value: string): unknown {
   try { return JSON.parse(value); } catch { return null; }
+}
+
+function asideReadWirePath(
+  path: string,
+  anchor: AsideReadRequest["anchor"]
+): string {
+  if (anchor === undefined) return path;
+  const query = new URLSearchParams();
+  if (anchor === null) {
+    query.set("unanchored", "true");
+  } else {
+    query.set("partId", anchor.partId);
+    query.set("takeId", anchor.takeId);
+  }
+  return `${path}?${query.toString()}`;
+}
+
+function decodeAsideSessionResponse(value: unknown): AsideAskResponse {
+  try {
+    return parseAsideSessionResponse(value);
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : "The server returned an invalid Aside session.");
+  }
+}
+
+function decodeAsideLegacyReadResponse(value: unknown): AsideLegacyReadResponse {
+  try {
+    return parseAsideLegacyReadResponse(value);
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : "The server returned an invalid Aside document.");
+  }
+}
+
+function decodeAsideReadResponse(value: unknown): AsideReadResponse {
+  try {
+    return parseAsideReadResponse(value);
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : "The server returned an invalid Aside v2 read.");
+  }
+}
+
+function decodeAsideReadResponseOrNull(value: unknown): AsideReadResponse | null {
+  const parsed = parseAsideResponse(value);
+  if ("notes" in parsed) {
+    // A v1 server has no anchored-session read. Let the surface fall back to
+    // its unchanged legacy path instead of changing how old notes render.
+    return null;
+  }
+  if ("sessions" in parsed) return parsed;
+  return {
+    schemaVersion: 2,
+    anchor: parsed.anchor,
+    sessions: [parsed],
+    anchors: parsed.anchor === null
+      ? [] : [{ ...parsed.anchor, sessionCount: 1 }],
+    unanchoredCount: parsed.anchor === null ? 1 : 0
+  };
+}
+
+function decodeAsideAskResponse(value: unknown): AsideAskResponse {
+  try {
+    return parseAsideAskResponse(value);
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : "The server returned an invalid Aside response.");
+  }
+}
+
+function decodeAsideSessionMutationResponse(value: unknown): AsideSessionMutationResponse {
+  try {
+    return parseAsideSessionMutationResponse(value);
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : "The server returned an invalid Aside response.");
+  }
 }
 
 export async function textHash(text: string): Promise<string> {

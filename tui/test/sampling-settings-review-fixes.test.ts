@@ -108,7 +108,9 @@ describe("Sampling Settings review regressions", () => {
     await press(key("n"));
     await press(key("escape"));
     expect(render(state, 80, 24)).toContain("▸ 01");
-    await press(key("d"));
+    await press(key("D"));
+    expect(render(state, 80, 24)).toContain("D confirms · esc keeps");
+    await press(key("D"));
     expect(state.settings?.draft.sampling.stop).toEqual([]);
 
     await press(key("escape"));
@@ -122,7 +124,9 @@ describe("Sampling Settings review regressions", () => {
     expect(render(state, 80, 24).split("\n").some((line) =>
       line.includes("▸") && line.includes("42")
     )).toBeTrue();
-    await press(key("d"));
+    await press(key("D"));
+    expect(render(state, 80, 24)).toContain("D confirms · esc keeps");
+    await press(key("D"));
     expect(state.settings?.draft.sampling.logitBias).toEqual({});
   });
 
@@ -141,7 +145,7 @@ describe("Sampling Settings review regressions", () => {
     await press(key("return"));
     const logitFrame = render(state, 120, 24);
     expect(logitFrame).not.toContain("reorder");
-    expect(logitFrame).toContain("n add · d delete · esc back");
+    expect(logitFrame).toContain("n add · D delete · esc back");
   });
 
   test("retains sampling when a profile control changes before save", async () => {

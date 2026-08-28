@@ -43,6 +43,7 @@ export type KeyAction =
   | "save-edit" | "save-edit-inplace" | "commit-field"
   | "history-next" | "backspace" | "input" | "none" | "open-map"
   | "cycle-map-view" | "toggle-path-takes" | "toggle-sketches" | "map-follow" | "map-cycle-sort"
+  | "map-hide-lanes"
   | "set-map-view"
   | "cursor-left" | "cursor-right" | "cursor-up" | "cursor-down" | "toggle-compose-fullscreen"
   | "cursor-word-left" | "cursor-word-right"
@@ -60,8 +61,11 @@ export type KeyAction =
   | "open-selected" | "new-item" | "duplicate-item" | "rename-item" | "delete-item"
   | "move-item-up" | "move-item-down"
   | "open-aside" | "open-authors-note" | "note-depth-decrease" | "note-depth-increase"
+  | "aside-retake" | "aside-delete" | "aside-reset" | "aside-new-session"
+  | "aside-session-next" | "aside-session-previous" | "aside-anchor-next" | "aside-anchor-previous"
+  | "aside-go-anchor" | "aside-hop-to" | "aside-undo-delete"
   | "filter" | "cycle" | "check" | "detect-context" | "discard-pending" | "retry" | "continue"
-  | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index"
+  | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index" | "open-aside-use"
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
   | "toggle-context-meter" | "open-search" | "toggle-search-case" | "open-request"
   | "complete" | "open-log" | "clear-log" | "row-action"
@@ -152,6 +156,11 @@ export function actionConflictsWithGeneration(
 function shiftedLetter(key: KeyEvent, letter: string): boolean {
   const upper = letter.toUpperCase();
   return key.name === upper || key.sequence === upper || (key.name === letter && key.shift);
+}
+
+function plainShiftedLetter(key: KeyEvent, letter: string): boolean {
+  return !key.ctrl && !key.meta && !key.option && !key.super
+    && shiftedLetter(key, letter);
 }
 
 function shiftedAsciiLetter(key: KeyEvent): boolean {
@@ -255,7 +264,7 @@ export function pasteInto(
     pendingGenerationDraft: PendingGenerationDraft | null;
     composerClaimEpoch: number;
     stream: RuntimeState["stream"];
-    aside?: Pick<AsideSurfaceState, "composer" | "confirmClear" | "focus" | "useMenu"> | null;
+    aside?: Pick<AsideSurfaceState, "composer" | "focus" | "useMenu"> | null;
   },
   raw: string
 ): boolean {
@@ -401,6 +410,8 @@ export interface ResolveOptions {
    * cannot combine incorrectly.
    */
   asideLayer?: AsideKeyboardLayer;
+  /** Provider currently owns the Aside answer stream. */
+  asideBusy?: boolean;
   mapView?: MapView;
 }
 
@@ -449,7 +460,7 @@ export function asideKeyboardLayer(
 ): AsideKeyboardLayer {
   if (surface === null || surface === undefined) return "composer";
   if (surface.useMenu !== null) return "use-menu";
-  if (surface.focus === "notes") return "notes";
+  if (surface.focus === "notes" || surface.focus === "turns") return "notes";
   return "composer";
 }
 
@@ -459,7 +470,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     factEditor = false, authorsNoteEditor = false, settingsPicker = false,
     settingsProfileTransfer = null,
     textActionsOpen = false,
-    asideLayer = "composer",
+    asideLayer = "composer", asideBusy = false,
     libraryRenaming = false,
     mapView = "path" } = options;
   const globalReference = resolveReferenceBinding("global", key, mode, mapView);
@@ -494,7 +505,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     return { action: "none" };
   }
   if (confirmingPrune) {
-    return { action: key.name === "d" && !key.ctrl && !key.meta && !key.shift ? "prune" : "none" };
+    return { action: plainShiftedLetter(key, "d") ? "prune" : "none" };
   }
   if (mode === "REQUEST") return resolveRequestViewerKey(key);
   if (mode === "PROBS") return resolveTokenProbabilitiesKey(key);
@@ -515,9 +526,23 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
       if (name === "up") return { action: "focus-previous" };
       if (name === "down") return { action: "focus-next" };
       if (key.name === "return") return { action: "open-selected" };
+      if (name === "r") return { action: "aside-retake" };
+      if (plainShiftedLetter(key, "d")) return { action: "aside-delete" };
+      if (name === "t") return { action: "toggle-thought" };
+      if (name === "n") return { action: "aside-new-session" };
+      if (name === "u") return { action: "aside-undo-delete" };
+      if (name === "backspace") return { action: "aside-reset" };
+      if (name === "left") return { action: "aside-session-previous" };
+      if (name === "right") return { action: "aside-session-next" };
+      if (name === "[") return { action: "aside-anchor-previous" };
+      if (name === "]") return { action: "aside-anchor-next" };
+      if (name === "g") return { action: "aside-go-anchor" };
       if ((key.ctrl || key.super) && name === "v") return { action: "none" };
       return { action: "none" };
     }
+    // `Esc` remains the stop key while the provider owns the surface; the
+    // thought toggle is still useful because it only changes rendering.
+    if (asideBusy && name === "t") return { action: "toggle-thought" };
     if (key.name === "return" && key.shift) return { action: "newline" };
     if (key.name === "return") return { action: "send" };
     if ((name === "up" || name === "down")
@@ -529,11 +554,16 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   }
   const shiftedReference = resolveReferenceBinding("nav-shifted", key, mode, mapView);
   if (shiftedReference !== null) return { action: shiftedReference.action };
+  const destructiveCapitalD = plainShiftedLetter(key, "d")
+    && (mode === "MAP" || mode === "SETTINGS" || mode === "CHAPTERS"
+      || mode === "LIBRARY" || mode === "FACTS" || mode === "COMMANDS"
+      || mode === "TAG");
   // Capital letters are distinct terminal commands. Declared reference routes
   // resolve above; reject every other shifted spelling so lowercase-name
   // terminal events cannot silently trigger lowercase hotkeys.
   if (!ownsText && shiftedAsciiLetter(key)
-    && !(mode === "SETTINGS" && shiftedLetter(key, "n"))) return { action: "none" };
+    && !(mode === "SETTINGS" && shiftedLetter(key, "n"))
+    && !destructiveCapitalD) return { action: "none" };
   const navChord = resolveReferenceBinding("nav-chord", key, mode, mapView);
   if (navChord !== null) return { action: navChord.action };
   if (mode === "COMPOSE") {
@@ -656,7 +686,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "left") return { action: "take-previous" };
     if (key.name === "right") return { action: "take-next" };
     if (key.name === "n") return { action: "new-item" };
-    if (key.name === "d") return { action: "delete-item" };
+    if (plainShiftedLetter(key, "d")) return { action: "delete-item" };
     return { action: "none" };
   }
   if (mode === "SEARCH") {
@@ -713,7 +743,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "e") return { action: "edit" };
     if (shiftedLetter(key, "n")) return { action: "duplicate-item" };
     if (key.name === "n") return { action: "new-item" };
-    if (key.name === "d") return { action: "delete-item" };
+    if (plainShiftedLetter(key, "d")) return { action: "delete-item" };
     if (key.name === "x") return { action: "discard-pending" };
     if (key.name === "i") return { action: "import-profile" };
     // C-08 stepping: `←→` by one, `⇧←→` by ten, home/end to the ends. A cycler
@@ -738,7 +768,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "return") return { action: "open-selected" };
     if (key.name === "s") return { action: "summarize-chapter" };
     if (key.name === "e") return { action: "rename-item" };
-    if (key.name === "d") return { action: "delete-item" };
+    if (plainShiftedLetter(key, "d")) return { action: "delete-item" };
     if (key.name === "n") return { action: "new-item" };
     return { action: "none" };
   }
@@ -766,12 +796,11 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (!overlayTyping) {
       if (mode !== "COMMANDS" && key.name === "/") return { action: "filter" };
       if (mode !== "COMMANDS" && key.name === "n") return { action: "new-item" };
-      // One verb per gesture across every list: `e` opens the selected row,
-      // `d` deletes it. Facts and the tag manager used to delete on `x`
-      // while the library and chapters deleted on `d`.
+      // One destructive gesture across every list: capital `D` starts the
+      // selected row's confirmation. Lowercase `d` is never destructive.
       if (mode === "LIBRARY" && key.name === "e") return { action: "rename-item" };
       if (mode === "FACTS" && key.name === "e") return { action: "edit" };
-      if (key.name === "d" && (mode === "LIBRARY" || mode === "FACTS"
+      if (plainShiftedLetter(key, "d") && (mode === "LIBRARY" || mode === "FACTS"
         || mode === "COMMANDS" && commandsTags)) return { action: "delete-item" };
     }
     if (mode === "FACTS" && key.name === "tab") return { action: "cycle" };
@@ -782,7 +811,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (tagChoosingStatus && key.name === "left") return { action: "take-previous" };
     if (tagChoosingStatus && key.name === "right") return { action: "take-next" };
     if (key.name === "backspace") return { action: "backspace" };
-    if (tagChoosingStatus && key.name === "d") return { action: "delete-tag" };
+    if (tagChoosingStatus && plainShiftedLetter(key, "d")) return { action: "delete-tag" };
     return textInput(key) ?? { action: "none" };
   }
   if (mode === "MAP") {

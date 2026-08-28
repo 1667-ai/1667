@@ -433,7 +433,7 @@ an alternative count, and an optional continuation prompt layout.
 Select the **profile** row to see a Generation Profile. Use `Left Arrow` or
 `Right Arrow` to select a different Generation Profile. Press `n` to create a
 Generation Profile. Press `Shift+N` to duplicate the selected Generation
-Profile. Press `e` to rename the selected Generation Profile. Press `d` two
+Profile. Press `e` to rename the selected Generation Profile. Press `D` two
 times to delete the selected Generation Profile. Press `s` to save the changes.
 See [Generation Profile transfer](generation-profile-transfer.md) to import,
 export, or start a Generation Profile.
@@ -497,7 +497,8 @@ or `Right Arrow` to step through these three states.
 "Mirostat is off." while Mirostat is off.
 
 Select `stop sequences` or `dry breakers`. Press `n` to add a string. Press
-`Enter` to edit the selected string. Press `d` to delete the selected string.
+`Enter` to edit the selected string. Press `D` two times to delete the selected
+string.
 Press `Left Arrow` or `Right Arrow` to reorder the strings.
 
 1667 sends the DRY breakers only when the list holds one or more strings. An
@@ -507,16 +508,16 @@ to use no breakers.
 A DRY breaker can hold a maximum of 40 UTF-8 bytes.
 
 Select `logit bias`. Press `n` to add a token-ID and integer-bias row. Press
-`Enter` to edit a row. Press `d` to delete a row.
+`Enter` to edit a row. Press `D` two times to delete a row.
 
 Select `phrase bias`. Press `n` to add a phrase and an integer weight. Press
-`Enter` to edit a row. Press `d` to delete a row. 1667 tokenizes the phrase
+`Enter` to edit a row. Press `D` two times to delete a row. 1667 tokenizes the phrase
 four ways: as typed, with a leading space, with a capital letter, and with
 both. 1667 accepts the phrase only when every one of the four forms is one
 token. 1667 shows the token IDs for each form.
 
 Select `banned strings`. Press `n` to add a text phrase. Press `Enter` to
-edit a phrase. Press `d` to delete a phrase.
+edit a phrase. Press `D` two times to delete a phrase.
 
 On most presets, 1667 tokenizes a banned string the same way as a phrase
 bias entry, and gives it a strong negative weight. A banned string makes the

@@ -36,8 +36,23 @@ import {
   type SummaryCommitIds,
   type SummaryPoint
 } from "./summary-take.js";
-import { serializeAsideDocument, type AsideDocument } from "../shared/aside.js";
-import { setPendingAsideDocument } from "./story-aside-pending.js";
+import {
+  hashAsideSessionDocument,
+  serializeAsideDocument,
+  type AsideDocument,
+  type AsideAnchor,
+  type AsideSessionDocument
+} from "../shared/aside.js";
+import type { AsideSessionRef } from "../shared/aside-session-index.js";
+import {
+  setPendingAsideDocument,
+  setPendingAsideSession
+} from "./story-aside-pending.js";
+import {
+  asideSessionRefById,
+  sameAsideAnchor,
+  setAsideSessionRef
+} from "./aside-session-store.js";
 
 export interface AutonameStoryEffect {
   readonly kind: "autoname";
@@ -146,15 +161,57 @@ export interface ChapterSummaryEffect {
   readonly generationRecord: GenerationRecord;
 }
 
-export interface AsideStoryEffect {
+interface AsideStoryEffectBase {
   readonly kind: "aside";
-  /** Aside object ID observed before provider dispatch. */
-  readonly expectedAsideDocumentId: Story["asideDocumentId"];
-  readonly document: AsideDocument;
   readonly cancelled?: AbortSignal;
   /** True only while user Stop remains the authoritative cancellation source. */
   readonly canCommitStoppedAside?: () => boolean;
 }
+
+/** Replacement of the predecessor story-wide V1 Side Note document. */
+export interface LegacyAsideStoryEffect extends AsideStoryEffectBase {
+  /** V1 object ID observed before provider dispatch. */
+  readonly expectedAsideDocumentId: Story["asideDocumentId"];
+  readonly document: AsideDocument;
+  readonly sessionDocument?: never;
+  readonly sessionId?: never;
+  readonly expectedAsideSessionDocumentId?: never;
+  readonly expectedAsideSessionAnchor?: never;
+}
+
+/** Atomic replacement of one V2 session ref and its content-addressed object. */
+export interface AsideSessionStoryEffect extends AsideStoryEffectBase {
+  readonly document?: never;
+  readonly sessionDocument: AsideSessionDocument;
+  readonly sessionId: string;
+  /** Content object id observed before provider dispatch. Null means new. */
+  readonly expectedAsideSessionDocumentId: string | null;
+  /** Effective manifest bucket observed before provider dispatch. */
+  readonly expectedAsideSessionAnchor: AsideAnchor | null;
+  readonly materializesLegacy?: never;
+  readonly expectedAsideDocumentId?: never;
+}
+
+/** Materialization of the predecessor V1 document into the virtual `legacy`
+ * V2 session. This branch keeps the V1 object CAS in addition to the session
+ * CAS used by ordinary V2 sessions. */
+export interface LegacyMaterializationAsideStoryEffect extends AsideStoryEffectBase {
+  readonly document?: never;
+  readonly sessionDocument: AsideSessionDocument;
+  /** `legacy` or a hash-qualified virtual V1 target. */
+  readonly sessionId: string;
+  readonly expectedAsideSessionDocumentId: string | null;
+  readonly expectedAsideSessionAnchor: AsideAnchor | null;
+  readonly materializesLegacy: true;
+  /** V1 object ID observed before materialization. */
+  readonly expectedAsideDocumentId: Story["asideDocumentId"];
+}
+
+/** Aside replacements are intentionally disjoint: V1 cannot carry V2 fields. */
+export type AsideStoryEffect =
+  | LegacyAsideStoryEffect
+  | AsideSessionStoryEffect
+  | LegacyMaterializationAsideStoryEffect;
 
 /** A user Stop can save the Side Note text that already streamed. Other
  * cancellation sources keep authority and must prevent the commit. */
@@ -180,6 +237,7 @@ export interface ProviderStoryEffectByMethod {
   readonly rewriteNode: RewriteNodeEffect;
   readonly createSummaryTake: SummaryTakeEffect;
   readonly askAside: AsideStoryEffect;
+  readonly retakeAside: AsideStoryEffect;
 }
 
 type ProviderStoryEffectValueForKind<
@@ -250,6 +308,9 @@ function applyAside(
     && !asideCanCommitStoppedAnswer(effect)) {
     throw new GenerationStoppedError("Aside was cancelled before it could be saved.");
   }
+  if (isAsideSessionStoryEffect(effect)) {
+    return applyAsideSession(story, effect);
+  }
   if (story.asideDocumentId !== effect.expectedAsideDocumentId) {
     throw new GenerationResultError(
       409,
@@ -258,6 +319,93 @@ function applyAside(
   }
   story.asideDocumentId = sha256(serializeAsideDocument(effect.document));
   setPendingAsideDocument(story, effect.document);
+  return { changed: true, value: story };
+}
+
+function isAsideSessionStoryEffect(
+  effect: AsideStoryEffect
+): effect is AsideSessionStoryEffect | LegacyMaterializationAsideStoryEffect {
+  return effect.sessionId !== undefined;
+}
+
+function isLegacyMaterializationAsideStoryEffect(
+  effect: AsideSessionStoryEffect | LegacyMaterializationAsideStoryEffect
+): effect is LegacyMaterializationAsideStoryEffect {
+  return effect.materializesLegacy === true;
+}
+
+function applyAsideSession(
+  story: Story,
+  effect: AsideSessionStoryEffect | LegacyMaterializationAsideStoryEffect
+): AppliedProviderStoryEffect<Story> {
+  const sessionId = effect.sessionId;
+  if (sessionId === undefined || sessionId.length === 0) {
+    throw new GenerationResultError(422, "Aside session id is missing.");
+  }
+  if (isLegacyMaterializationAsideStoryEffect(effect)
+    && story.asideDocumentId !== effect.expectedAsideDocumentId) {
+    throw new GenerationResultError(
+      409,
+      "Side Notes changed while the session was being materialized; nothing was saved. Try again."
+    );
+  }
+  const current = asideSessionRefById(story, sessionId);
+  const expectedDocumentId = effect.expectedAsideSessionDocumentId ?? null;
+  if ((current?.documentId ?? null) !== expectedDocumentId) {
+    throw new GenerationResultError(
+      409,
+      "This Aside session changed while the answer was being written; nothing was saved."
+    );
+  }
+  const expectedAnchor = effect.expectedAsideSessionAnchor;
+  const expectedAnchorNode = expectedAnchor === null
+    ? undefined
+    : story.nodes.find((node) => node.id === expectedAnchor.takeId);
+  if (current === null
+    && expectedDocumentId === null
+    && expectedAnchor !== null
+    && (expectedAnchorNode === undefined || isChapterSummary(expectedAnchorNode))) {
+    throw new GenerationResultError(
+      409,
+      "This Aside anchor changed while the answer was being written; nothing was saved."
+    );
+  }
+  if (current !== null
+    && effect.expectedAsideSessionAnchor !== undefined
+    && !sameAsideAnchor(current?.anchor ?? null, effect.expectedAsideSessionAnchor)) {
+    throw new GenerationResultError(
+      409,
+      "This Aside session moved while the answer was being written; nothing was saved."
+    );
+  }
+  const document = effect.sessionDocument;
+  const documentId = hashAsideSessionDocument(document);
+  const refAnchor = effect.expectedAsideSessionAnchor;
+  const originAnchor = refAnchor === null
+    ? current?.originAnchor
+      ?? (current?.anchor === null ? undefined : current?.anchor)
+    : undefined;
+  const sourceAsideDocumentId = isLegacyMaterializationAsideStoryEffect(effect)
+    && effect.expectedAsideDocumentId !== undefined
+    && effect.expectedAsideDocumentId !== null
+    ? effect.expectedAsideDocumentId
+    : current?.sourceAsideDocumentId;
+  const ref: AsideSessionRef = {
+    id: sessionId,
+    documentId,
+    anchor: refAnchor === null ? null : { ...refAnchor },
+    ...(sourceAsideDocumentId === undefined
+      ? {}
+      : { sourceAsideDocumentId }),
+    ...(originAnchor === undefined
+      ? {}
+      : { originAnchor: { ...originAnchor } }),
+    turnCount: document.turns.length
+  };
+  // Keep the ref and its object bytes together until the aggregate encoder
+  // publishes one successor manifest. The V9 asideDocumentId is untouched.
+  setPendingAsideSession(story, ref, document);
+  setAsideSessionRef(story, ref);
   return { changed: true, value: story };
 }
 

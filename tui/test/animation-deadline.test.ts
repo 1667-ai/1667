@@ -8,6 +8,7 @@ import {
 } from "../src/animation-deadline.js";
 import { initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
+import { createAsideSurface } from "../src/aside-surface.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { renderConnectionBanner } from "../src/screens/connection-banner.js";
 import { renderStoryScreen } from "../src/screens/story.js";
@@ -176,6 +177,46 @@ describe("animation deadlines", () => {
       "streaming", "focus / accent", "brass dim"
     ]);
     expect(thinkingDeadlines.next()).toBe(360);
+  });
+
+  test("Aside v2 writing status animates and schedules its next frame", () => {
+    const state = initialState(demoAppSource(false), false);
+    const surface = createAsideSurface(
+      state.payload.id,
+      state.payload.title,
+      [],
+      null,
+      null,
+      { v2: true }
+    );
+    state.aside = surface;
+    state.mode = "ASIDE";
+    surface.busy = true;
+    surface.streamPhase = "writing";
+    state.now = 0;
+    const first = renderStoryScreen(state, {
+      width: 120,
+      height: 36
+    });
+    expect(plainLine(first.lines.at(-1)!)).toContain("⠋ writing");
+
+    state.now = 250;
+    const deadlines = createFrameDeadlineCollector(state.now);
+
+    const frame = renderStoryScreen(state, {
+      width: 120,
+      height: 36,
+      deadlines
+    });
+    const status = frame.lines.at(-1)!;
+    const writing = keywordSegments(status, "writing");
+
+    expect(plainLine(status)).toContain("⠙ writing");
+    expect(writing.map((part) => part.text).join("")).toBe("writing");
+    expect(writing.slice(0, 3).map((part) => part.role)).toEqual([
+      "streaming", "focus / accent", "brass dim"
+    ]);
+    expect(deadlines.next()).toBe(360);
   });
 
   test("the liveness mark travels a whole turn before it repeats", () => {

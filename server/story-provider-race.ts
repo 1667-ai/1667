@@ -130,7 +130,7 @@ export class StoryProviderRaceResolver {
     method: ProviderMutationMethod,
     replayValue: ProviderStoryReplay<Value>
   ): Promise<ProviderStoryMutationCommit<Value>> {
-    const committed = await runTerminalStoryPhase(this.coordinator, request, async () =>
+    return await runTerminalStoryPhase(this.coordinator, request, async () =>
       await this.stories.withAggregateSession(storyId, async (session) => {
         await this.recovery.finalizeAggregateTransaction(
           session,
@@ -149,13 +149,14 @@ export class StoryProviderRaceResolver {
         if (terminal === null) {
           throw providerOutcomeUnknown(request.mutationId);
         }
+        const story = await session.loadLive();
         return {
-          story: await session.loadLive(),
+          story,
           result: terminal,
-          aggregateVersion: storyAggregateVersion(session.snapshot)
+          aggregateVersion: storyAggregateVersion(session.snapshot),
+          value: await replayValue(session)
         };
       })
     );
-    return { ...committed, value: await replayValue() };
   }
 }

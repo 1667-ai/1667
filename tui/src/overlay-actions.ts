@@ -36,6 +36,7 @@ import {
   closeAside,
   openAside,
   revealAsideFocusedNote,
+  noteAsideDisplayScroll,
   scrollAside,
   sendAsideQuestion,
   stopAsideAsk
@@ -47,6 +48,7 @@ import {
   moveAsideNoteFocus,
   moveAsideUseMenuCursor,
   openAsideUseMenu,
+  openAsideUseMenuFromMouse,
   closeAsideUseMenu
 } from "./aside-use.js";
 import {
@@ -60,7 +62,8 @@ import { composerMotion } from "./composer-motion.js";
 import { directComposerWrapWidth } from "./composer-geometry.js";
 import { composerPageRows } from "./composer-viewport.js";
 import { composerSurfaceAction } from "./composer-surface-action.js";
-import { disarmAsideClear } from "./aside-surface.js";
+import { asideCursor, disarmAsideClear, isAsideV2 } from "./aside-surface.js";
+import { asideV2KeyAction } from "./aside-v2-actions.js";
 import { openRewriteComposer, partIdFromTextSelection, resolveRewriteTarget } from "./rewrite-action.js";
 import type { AppSource } from "./app.js";
 import { canRewriteSelection, type ProjectedStorySelection } from "./selection-projection.js";
@@ -141,6 +144,17 @@ export async function handleOverlayAction(
     }
     return true;
   }
+  if (resolved.action === "open-aside-use") {
+    if (state.mode === "ASIDE" && state.aside !== null) {
+      openAsideUseMenuFromMouse(
+        state.aside,
+        resolved.index ?? asideCursor(state.aside),
+        resolved.selectionText,
+        resolved.selectionSpans
+      );
+    }
+    return true;
+  }
   if (resolved.action === "open-probs") {
     if (state.mode === "NAV") await openTokenProbabilities(state, source, context);
     return true;
@@ -199,6 +213,7 @@ export async function handleOverlayAction(
     state.commands = {
       query: "",
       view: "commands",
+      deleteArmedTagNodeId: null,
       returnMode: state.mode === "COMPOSE" ? "COMPOSE" : "NAV",
       selection,
       ...retainCommandSelection(liveCommandMatches(
@@ -391,6 +406,12 @@ async function factsAction(
     ? boundedFactCursor(resolved.index, rows.length)
     : overlay.cursor;
   const selected = rows[selectedIndex];
+  if (overlay.deleteArmedId !== null
+    && resolved.action !== "delete-item"
+    && resolved.action !== "cancel") {
+    overlay.deleteArmedId = null;
+    state.toast = null;
+  }
   if (resolved.action === "cancel") {
     if (overlay.deleteArmedId !== null) overlay.deleteArmedId = null;
     else if (overlay.filtering) overlay.filtering = false;
@@ -412,7 +433,7 @@ async function factsAction(
   }
   else if (resolved.action === "open-selected" && overlay.filtering) overlay.filtering = false;
   else if (resolved.action === "delete-item" && selected !== undefined) {
-    if (overlay.deleteArmedId !== selected.id) { overlay.deleteArmedId = selected.id; state.toast = "delete this fact? · d confirms · esc keeps"; }
+    if (overlay.deleteArmedId !== selected.id) { overlay.deleteArmedId = selected.id; state.toast = "delete this fact? · D confirms · esc keeps"; }
     else {
       await context.backend.run("deleting fact", async (task) => {
         const payload = await source.api.deleteFact(task.storyId, selected.id);
@@ -473,29 +494,51 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
   const overlay = state.commands!;
   if (overlay.view === "tags") {
     if (resolved.action === "cancel") {
+      if (overlay.deleteArmedTagNodeId != null) {
+        overlay.deleteArmedTagNodeId = null;
+        state.toast = "tag kept";
+        return true;
+      }
       overlay.view = "commands";
       Object.assign(overlay, retainCommandSelection(
         liveCommandMatches(
           state, overlay.query, undefined, context.asideEntryPointsOpen
         ), overlay.selectedId, overlay.cursor
       ));
+      return true;
     }
-    else if (resolved.action === "focus-next") overlay.cursor = Math.max(0,
-      Math.min(state.payload.tags.length - 1, overlay.cursor + 1));
-    else if (resolved.action === "focus-index") overlay.cursor = Math.max(0, Math.min(state.payload.tags.length - 1, resolved.index ?? overlay.cursor));
-    else if (resolved.action === "focus-previous") overlay.cursor = Math.max(0, overlay.cursor - 1);
-    else if (resolved.action === "delete-item") {
+    if (resolved.action !== "delete-item" && overlay.deleteArmedTagNodeId != null) {
+      overlay.deleteArmedTagNodeId = null;
+      state.toast = null;
+    }
+    if (resolved.action === "focus-next") overlay.cursor = Math.max(
+      0,
+      Math.min(state.payload.tags.length - 1, overlay.cursor + 1)
+    );
+    else if (resolved.action === "focus-index") {
+      overlay.cursor = Math.max(
+        0,
+        Math.min(state.payload.tags.length - 1, resolved.index ?? overlay.cursor)
+      );
+    } else if (resolved.action === "focus-previous") {
+      overlay.cursor = Math.max(0, overlay.cursor - 1);
+    } else if (resolved.action === "delete-item") {
       const tag = state.payload.tags[overlay.cursor];
-      if (tag !== undefined) {
-        await context.backend.run("deleting tag", async (task) => {
-          const payload = await source.api.deleteBookmark(task.storyId, tag.nodeId);
-          if (!task.storyCurrent()) return;
-          adoptSameStoryPayload(state, payload, context.cache);
-          if (state.commands === overlay && overlay.view === "tags") {
-            state.toast = "tag deleted";
-          }
-        });
+      if (tag === undefined) return true;
+      if (overlay.deleteArmedTagNodeId !== tag.nodeId) {
+        overlay.deleteArmedTagNodeId = tag.nodeId;
+        state.toast = "delete this tag? · D confirms · esc keeps";
+        return true;
       }
+      await context.backend.run("deleting tag", async (task) => {
+        const payload = await source.api.deleteBookmark(task.storyId, tag.nodeId);
+        if (!task.storyCurrent()) return;
+        adoptSameStoryPayload(state, payload, context.cache);
+        if (state.commands === overlay && overlay.view === "tags") {
+          overlay.deleteArmedTagNodeId = null;
+          state.toast = "tag deleted";
+        }
+      });
     }
     return true;
   }
@@ -731,14 +774,15 @@ async function reconnect(state: RuntimeState, source: AppSource, context: Overla
 
 function asideViewportBodyRows(
   surface: NonNullable<RuntimeState["aside"]>,
-  context: OverlayActionContext
+  context: OverlayActionContext,
+  toast?: string | null
 ): { width: number; bodyRows: number } {
   const width = context.renderer?.width ?? 80;
   const height = context.renderer?.height ?? 24;
   const composerRows = asideComposerRows(height);
   return {
     width,
-    bodyRows: asideBodyHeight(surface, width, height, composerRows)
+    bodyRows: asideBodyHeight(surface, width, height, composerRows, toast)
   };
 }
 
@@ -776,23 +820,17 @@ async function asideKeyAction(
 ): Promise<void> {
   const surface = state.aside;
   if (surface === null) return;
+  if (isAsideV2(surface) && await asideV2KeyAction(resolved, state, surface, {
+      source,
+      backend: context.backend,
+      cache: context.cache,
+      repaint: context.repaint,
+      renderer: context.renderer,
+      toast: state.toast
+  })) return;
   if (resolved.action === "cancel") {
-    if (surface.useMenu !== null) {
-      closeAsideUseMenu(surface);
-      surface.focus = "notes";
-      return;
-    }
-    if (surface.focus === "notes") {
-      surface.focus = "composer";
-      return;
-    }
-    if (surface.confirmClear) {
-      surface.confirmClear = false;
-      return;
-    }
-    // Esc stops the request. It keeps received answer text as a Side Note, or
-    // restores the question if no answer text arrived.
-    // Esc when idle returns to Write.
+    // A busy Aside owns Escape for cancellation. Check this before the
+    // turns-to-composer focus transition, or a v2 retake loses its stop path.
     if (surface.busy) {
       // Clear has no abort path. Its missing in-flight question is the
       // existing distinction from an Ask, so Esc remains a no-op while it
@@ -803,6 +841,28 @@ async function asideKeyAction(
       }
       return;
     }
+    if (surface.useMenu !== null) {
+      closeAsideUseMenu(surface);
+      return;
+    }
+    if (surface.focus === "notes" || surface.focus === "turns") {
+      if (isAsideV2(surface)) {
+        closeAside(state);
+        return;
+      }
+      surface.focus = "composer";
+      return;
+    }
+    if (isAsideV2(surface)) {
+      if (surface.confirmReset !== null) {
+        surface.confirmReset = null;
+        return;
+      }
+    } else if (surface.confirmClear) {
+      surface.confirmClear = false;
+      return;
+    }
+    // Esc when idle returns to Write.
     closeAside(state);
     return;
   }
@@ -820,7 +880,10 @@ async function asideKeyAction(
       return;
     }
     if (resolved.action === "apply" || resolved.action === "open-selected") {
-      applyAsideUseMenu(state);
+      if (resolved.index !== undefined) {
+        focusAsideUseMenuIndex(surface, resolved.index);
+      }
+      await applyAsideUseMenu(state);
       return;
     }
     // Use menu owns the surface: scrim/cancel stay authoritative; compose does
@@ -829,8 +892,9 @@ async function asideKeyAction(
   }
 
   if (resolved.action === "cycle") {
-    if (cycleAsideFocus(surface) && surface.focus === "notes") {
-      const { width, bodyRows } = asideViewportBodyRows(surface, context);
+    if (cycleAsideFocus(surface)
+      && (surface.focus === "notes" || surface.focus === "turns")) {
+      const { width, bodyRows } = asideViewportBodyRows(surface, context, state.toast);
       revealAsideFocusedNote(surface, width, bodyRows);
     }
     return;
@@ -840,14 +904,15 @@ async function asideKeyAction(
     const width = context.renderer?.width ?? 80;
     const height = context.renderer?.height ?? 24;
     const composerRows = asideComposerRows(height);
-    const page = asideBodyHeight(surface, width, height, composerRows);
+    const page = asideBodyHeight(surface, width, height, composerRows, state.toast);
     const delta = resolved.action === "scroll-line-down" || resolved.action === "scroll-down"
       ? resolved.action === "scroll-down" ? page : 1
       : resolved.action === "scroll-up" ? -page : -1;
-    scrollAside(surface, delta, width, height, composerRows);
+    scrollAside(surface, delta, width, height, composerRows, state.toast);
+    if (surface.busy) noteAsideDisplayScroll(state);
     return;
   }
-  if (surface.focus === "notes") {
+  if (surface.focus === "notes" || surface.focus === "turns") {
     // Left-click on the visible prompt claims composer focus so paste/text
     // target it. Use menu already returned above.
     if (resolved.action === "compose") {
@@ -856,16 +921,16 @@ async function asideKeyAction(
     }
     if (resolved.action === "focus-next" || resolved.action === "focus-previous") {
       moveAsideNoteFocus(surface, resolved.action === "focus-next" ? 1 : -1);
-      const { width, bodyRows } = asideViewportBodyRows(surface, context);
+      const { width, bodyRows } = asideViewportBodyRows(surface, context, state.toast);
       revealAsideFocusedNote(surface, width, bodyRows);
       return;
     }
     if (resolved.action === "open-selected" || resolved.action === "apply") {
       // Re-anchor under the current terminal size: a stale scrollTop from a
       // prior width/header layout can hide noteCursor while Enter still uses it.
-      const { width, bodyRows } = asideViewportBodyRows(surface, context);
+      const { width, bodyRows } = asideViewportBodyRows(surface, context, state.toast);
       revealAsideFocusedNote(surface, width, bodyRows);
-      openAsideUseMenu(surface, surface.noteCursor);
+      openAsideUseMenu(surface, asideCursor(surface));
       return;
     }
     return;
@@ -883,7 +948,7 @@ async function asideKeyAction(
   }
   if (resolved.action === "send") {
     if (surface.busy) return;
-    if (surface.confirmClear) {
+    if (!isAsideV2(surface) && surface.confirmClear) {
       context.backend.observe(context.backend.run("clearing Aside", (task) =>
         clearAsideSurface(state, source.api, context.cache, { task })
       ));
@@ -892,7 +957,7 @@ async function asideKeyAction(
     const text = surface.composer.text;
     if (text.trim() === "/clear") {
       setComposerText(surface.composer, "");
-      surface.confirmClear = true;
+      if (!isAsideV2(surface)) surface.confirmClear = true;
       return;
     }
     context.backend.observe(context.backend.run("asking Aside", (task) =>

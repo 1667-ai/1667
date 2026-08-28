@@ -15,19 +15,26 @@ export function stickStoryPrompt(
   narrow: boolean,
   width: number
 ): FrameLine[] {
-  const topLine = lines[0];
   const owner = owners[0];
-  const blockRow = blockRows[0];
-  if (topLine === undefined || owner === undefined || owner < 0 || blockRow === undefined) {
-    return lines;
-  }
+  if (owner === undefined || owner < 0) return lines;
   const prompt = stickyPrompts.get(owner);
   if (prompt === undefined) return lines;
-  // Above its natural row the prompt is already on screen; at `partRows` only
-  // the blank spacer is left, and a finished part must let its prompt go.
-  if (blockRow <= prompt.start || blockRow >= prompt.partRows) return lines;
-  const result = [...lines];
-  result[0] = replaceStoryProse(topLine, prompt.line(), narrow, width);
-  return result;
+  let result: FrameLine[] | null = null;
+  // One entry paints frame row `index`: today's lone prompt at row 0, or (item
+  // D) a narrow streaming take's boundary row at 0 with the prompt stacked at
+  // row 1 beneath it — both painted only while the viewport is still inside
+  // this part (`blockRows[index]` between the entry's natural row and where
+  // the part ends).
+  for (const [index, entry] of prompt.lines.entries()) {
+    const topLine = lines[index];
+    const blockRow = blockRows[index];
+    if (topLine === undefined || owners[index] !== owner || blockRow === undefined) continue;
+    // Above its natural row the entry is already on screen; at `partRows`
+    // only the blank spacer is left, and a finished part must let it go.
+    if (blockRow <= entry.start || blockRow >= prompt.partRows) continue;
+    result ??= [...lines];
+    result[index] = replaceStoryProse(topLine, entry.line(), narrow, width);
+  }
+  return result ?? lines;
 }
 

@@ -41,7 +41,7 @@ export const STARTER_KEYS = {
   leaf: { name: "g", token: "G", mode: "NAV", shift: true },
   instructions: { name: "p", token: "p", mode: "NAV" },
   tag: { name: "t", token: "t", mode: "NAV" },
-  prune: { name: "d", token: "d", mode: "NAV" },
+  prune: { name: "d", token: "D", mode: "NAV", shift: true },
   openMap: { name: "m", token: "m", mode: "NAV" },
   openLibrary: { name: "o", token: "o", mode: "NAV" },
   openFacts: { name: "f", token: "f", mode: "NAV" },

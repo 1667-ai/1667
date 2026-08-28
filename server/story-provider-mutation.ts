@@ -65,6 +65,13 @@ import {
 import { reduceStoryV6 } from "./story-v6-reducer.js";
 import type { StoryStore } from "./stories.js";
 import { storyRecoveryAdmission } from "./story-aside-recovery.js";
+import type { AsideAnchor } from "../shared/aside-session.js";
+import { isChapterSummary } from "../shared/story-tree.js";
+import {
+  isLegacyAsideVirtualSessionId,
+  LEGACY_ASIDE_SESSION_ID,
+  sameAsideAnchor
+} from "./aside-session-store.js";
 
 export class StoryProviderMutationStore {
   private readonly races: StoryProviderRaceResolver;
@@ -110,7 +117,8 @@ export class StoryProviderMutationStore {
         request,
         receipt
       );
-      if (method === "askAside" && !recoveryAdmission.allowed) {
+      if ((method === "askAside" || method === "retakeAside")
+        && !recoveryAdmission.allowed) {
         throw new ServiceError(
           400,
           "Aside is not available in this release.",
@@ -131,19 +139,17 @@ export class StoryProviderMutationStore {
     if (admitted.opened.kind === "replayed") {
       return {
         ...admitted.opened.commit,
-        value: await admitted.opened.replayValue()
+        value: admitted.opened.value
       };
     }
 
     const { request, storyId } = admitted;
-    const { story, releaseSnapshot } = admitted.opened;
-    // Aside admission captures the exact object identity that the prompt
-    // loaded. Recheck that identity in the short provider-start phase, after
-    // local mutations had a chance to run, so a Clear cannot disclose the old
-    // Side Note history to the provider.
-    const asideStartGuard = method === "askAside"
-      ? { expectedAsideDocumentId: story.asideDocumentId }
-      : undefined;
+    const { story, manifest, releaseSnapshot } = admitted.opened;
+    const asideDocumentIdAtAdmission = story.asideDocumentId;
+    // Legacy V1 admission captures the exact object identity that the prompt
+    // loaded. V2 sessions use their own document/anchor identity and must not
+    // inherit this unrelated story-wide guard. Materializing the virtual V1
+    // session keeps the V1 check.
     // Pinned once `startProvider` learns the active prompt's Image Object
     // ids, released here on every exit path: success, provider failure, or
     // an admission error thrown before the provider ever started. Pinning
@@ -155,7 +161,7 @@ export class StoryProviderMutationStore {
     let pinnedImageObjectIds: readonly string[] = [];
     try {
       try {
-        const runtime = new ScopedProviderStoryRuntime(story);
+        const runtime = new ScopedProviderStoryRuntime(story, manifest, request.mutationId);
         let started: StartedMutationRecord | null = null;
         let startedPromise: Promise<StartedMutationRecord> | null = null;
         const startProvider = async (): Promise<void> => {
@@ -170,13 +176,28 @@ export class StoryProviderMutationStore {
           }
           startedPromise ??= this.coordinator.runStoryPhase(
             request,
-            async () => await this.publishStarted(
-              storyId,
-              request,
-              method,
-              imageObjectIds,
-              asideStartGuard
-            )
+            async () => {
+              const sessionResolution = runtime.asideSessionResolution;
+              const needsLegacyAsideGuard = method === "askAside"
+                || method === "retakeAside"
+                  ? sessionResolution === null
+                    || ((sessionResolution.sessionId === LEGACY_ASIDE_SESSION_ID
+                      || isLegacyAsideVirtualSessionId(sessionResolution.sessionId))
+                      && sessionResolution.documentId === null
+                      && asideDocumentIdAtAdmission !== undefined
+                      && asideDocumentIdAtAdmission !== null)
+                  : false;
+              return await this.publishStarted(
+                storyId,
+                request,
+                method,
+                imageObjectIds,
+                needsLegacyAsideGuard
+                  ? { expectedAsideDocumentId: asideDocumentIdAtAdmission }
+                  : undefined,
+                sessionResolution
+              );
+            }
           );
           started = await startedPromise;
         };
@@ -296,14 +317,15 @@ export class StoryProviderMutationStore {
           terminal = await this.recovery.recover(session, request, receipt);
         }
         if (terminal !== null) {
+          const story = await session.loadLive();
           return {
             kind: "replayed",
             commit: {
-              story: await session.loadLive(),
+              story,
               result: terminal,
               aggregateVersion: storyAggregateVersion(session.snapshot)
             },
-            replayValue
+            value: await replayValue(session)
           };
         }
         const current = await this.ledger.loadStoryReceipt(
@@ -331,6 +353,7 @@ export class StoryProviderMutationStore {
         return {
           kind: "open",
           story,
+          manifest: session.snapshot.manifest,
           releaseSnapshot: pin.release
         };
       }, {
@@ -351,7 +374,12 @@ export class StoryProviderMutationStore {
     imageObjectIds: readonly string[] = [],
     asideStartGuard?: {
       readonly expectedAsideDocumentId: Story["asideDocumentId"];
-    }
+    },
+    asideSessionStartGuard?: {
+      readonly sessionId: string;
+      readonly documentId: string | null;
+      readonly anchor: AsideAnchor | null;
+    } | null
   ): Promise<StartedMutationRecord> {
     return await this.stories.withAggregateSession(storyId, async (session) => {
       await this.recovery.finalizeAggregateTransaction(
@@ -386,6 +414,32 @@ export class StoryProviderMutationStore {
           409,
           "Side Notes changed before the answer was sent; nothing was saved. Try again."
         );
+      }
+      if (asideSessionStartGuard !== undefined && asideSessionStartGuard !== null) {
+        const content = session.snapshot.manifest.content;
+        const refs = "asideSessionRefs" in content
+          ? [...content.asideSessionRefs, ...content.asideUnanchoredSessionRefs]
+          : [];
+        const ref = refs.find((candidate) => candidate.id === asideSessionStartGuard.sessionId);
+        const candidateAnchor = ref === undefined
+          ? asideSessionStartGuard.anchor
+          : ref.anchor !== null
+            ? ref.anchor
+            : ref.originAnchor ?? null;
+        const candidateNode = candidateAnchor === null
+          ? undefined
+          : content.nodes.find((node) => node.id === candidateAnchor.takeId);
+        const currentAnchor = candidateNode !== undefined
+          && !isChapterSummary(candidateNode)
+          ? candidateAnchor
+          : null;
+        if ((ref?.documentId ?? null) !== asideSessionStartGuard.documentId
+          || !sameAsideAnchor(currentAnchor, asideSessionStartGuard.anchor)) {
+          throw new GenerationResultError(
+            409,
+            "This Aside session changed before the answer was sent; nothing was saved. Try again."
+          );
+        }
       }
       this.activeStarts.remember(
         storyId,

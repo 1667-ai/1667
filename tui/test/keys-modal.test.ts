@@ -150,7 +150,7 @@ describe("keys reference", () => {
     expect(top.scrollTop).toBe(0);
     expect(frame).toContain("● MOVE");
     // The range reads the way every other windowed panel's title does.
-    expect(frame).toContain("keys · and what they do · 1–16/33");
+    expect(frame).toContain("keys · and what they do · 1–16/35");
     expect(frame).toContain("↑↓ scrolls · esc closes");
 
     const scrolled = render(80, 24, 8);
@@ -177,14 +177,14 @@ describe("keys reference", () => {
       // The final reference row is reachable: reaching it proves the bound.
       const shown = `${height}:${frameText(bottom.composition.lines).includes("chapter rows differ")}`;
       expect(shown).toBe(`${height}:true`);
-      expect(`${height}:${bottom.scrollTop + painted}`).toBe(`${height}:33`);
+      expect(`${height}:${bottom.scrollTop + painted}`).toBe(`${height}:35`);
       expect(frameText(bottom.composition.lines))
-        .toContain(`${bottom.scrollTop + 1}–${bottom.scrollTop + painted}/33`);
+        .toContain(`${bottom.scrollTop + 1}–${bottom.scrollTop + painted}/35`);
     }
   });
 
   test("a map key that only works in some views names them", () => {
-    // `d` prunes in path and does nothing in tree or mass. A section headed
+    // `D` prunes in path and does nothing in tree or mass. A section headed
     // "while the map is open" would otherwise promise all three.
     const map = KEYS_MODAL_MODEL.sections.find((section) => section.title === "MAP")!;
     for (const item of map.entries) {
@@ -198,7 +198,7 @@ describe("keys reference", () => {
 
   test("it says where a chapter row's own keys are named", () => {
     // `directChapterRowAction` runs before NAV, so `e` renames a chapter and
-    // `d` removes its break. The reference points at the story's hint line
+    // `D` removes its break. The reference points at the story's hint line
     // rather than claiming one meaning for both.
     for (const [width, height] of [[80, 60], [120, 60]] as const) {
       expect(text(width, height)).toContain("chapter rows differ · the line under the story says how");

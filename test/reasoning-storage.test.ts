@@ -6,6 +6,7 @@ import test from "node:test";
 import { continueStory } from "../server/generation-http.js";
 import { GenerationAdmissionRegistry } from "../server/generation-admission.js";
 import { reasoningCapture } from "../server/reasoning-capture.js";
+import { createReasoningRelay } from "../server/provider-reasoning-relay.js";
 import { LEGACY_PROMPT_CACHE_CONTEXT, PromptCacheRuntime } from "../server/provider-cache-policy.js";
 import { attachProviderRuntime } from "../server/provider-runtime.js";
 import { parseManifest, serializeManifest, sha256 } from "../server/story-format.js";
@@ -32,6 +33,23 @@ import { testApp } from "./story-server-fixture.js";
 
 const NOW = "2026-01-01T00:00:00.000Z";
 const HASH = "a".repeat(64);
+
+test("a fully buffered reasoning relay keeps the count of every delta", async () => {
+  const deltas: Array<{ text: string; tokenCount: number }> = [];
+  const relay = createReasoningRelay(
+    dryRunSettings(),
+    ["provider-secret-that-is-longer-than-the-test-deltas"],
+    (delta) => { deltas.push(delta); }
+  );
+  await relay.push("first thought");
+  await relay.push(" second thought");
+  await relay.finish();
+
+  assert.deepEqual(deltas, [{
+    text: "first thought second thought",
+    tokenCount: 2
+  }]);
+});
 
 test("a dry-run continuation stores its thought, and a reload reads the same record back", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-reasoning-store-"));
@@ -228,6 +246,7 @@ test("a thought longer than the storage bound keeps its prefix, not nothing", as
   const wholeStream = chunk.repeat(deltaCount);
   assert.ok(captured.text.length < wholeStream.length, "the capture actually truncated");
   assert.equal(wholeStream.startsWith(captured.text), true, "the kept text is a genuine prefix");
+  assert.equal(captured.tokenCount, deltaCount, "the capture keeps counting after text truncation");
   // The one place the bound is defined still accepts what capture kept —
   // capture never disagrees with storage about where the line is.
   const record = createReasoningRecord(captured);

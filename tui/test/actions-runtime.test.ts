@@ -129,7 +129,7 @@ describe("demo action runtime and input", () => {
       dispose: () => undefined
     };
     state.connection = { down: true, attempt: 1, nextRetryAt: null, error: "offline" };
-    await press("d");
+    await press("D", "D");
     const plan = state.prune;
     expect(plan).not.toBe(null);
 
@@ -540,8 +540,8 @@ describe("demo action runtime and input", () => {
 
     const nodesBefore = state.payload.nodes.length;
     await press("m");
-    await press("d");
-    await press("d");
+    await press("D", "D");
+    await press("D", "D");
     expect(state.payload.nodes.length).toBe(nodesBefore);
     state.abort = null;
   });
@@ -564,7 +564,7 @@ describe("demo action runtime and input", () => {
     focusNode(state, "p12");
     state.stream = { targetId: "p13", parentId: "p12", append: true,
       startedAt: STREAM_STARTED_AT, instruction: "", text: "" };
-    await press("d");
+    await press("D", "D");
     expect(state.prune).toBe(null);
     expect(state.toast).toBe("stream running · esc stops it first");
     await press("t");
@@ -881,9 +881,9 @@ test("a chapter rename records nothing to undo", async () => {
     const { state, press } = harness();
     const view = createStoryViewModel(state.payload);
     state.focusIndex = view.rows.findIndex((row) => row.kind === "chapter-divider" && row.break.id === "chapter-break-1");
-    await press("d");
+    await press("D", "D");
     expect(state.chapterDeleteArmedId).toBe("chapter-break-1");
-    await press("d");
+    await press("D", "D");
     expect(state.payload.chapterBreaks.some((chapterBreak) => chapterBreak.id === "chapter-break-1")).toBeFalse();
     expect(state.payload.nodes.some((node) => node.chapterBreakId === "chapter-break-1")).toBeFalse();
     await press("u");

@@ -52,8 +52,8 @@ test("deleted profile model provenance does not reach a reused profile ID", asyn
   await selectRow(press, state, "model");
   await draftRow(press, state, "model", "");
   await selectRow(press, state, "profile");
-  await press(key("d"));
-  await press(key("d"));
+  await press(key("D"));
+  await press(key("D"));
   await press(key("n"));
   await draftRow(press, state, "model", "model-alpha");
 

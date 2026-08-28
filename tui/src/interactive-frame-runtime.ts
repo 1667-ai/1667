@@ -15,6 +15,10 @@ import {
 } from "./frame-profile.js";
 import type { Palette } from "./palette.js";
 import { renderStoryScreen } from "./screens/story.js";
+import {
+  resolveStoryScreenRoute,
+  routeUsesSinglePane
+} from "./screens/story-route.js";
 import { storyProseMeasure } from "./composer-geometry.js";
 import { fitLine, segment, type FrameLine } from "./screens/story/frame.js";
 import type { RuntimeState } from "./state.js";
@@ -170,8 +174,7 @@ export function createInteractiveFrameRuntime(
     resizePending = false;
     const totalStartedAt = performance.now();
     const now = Date.now();
-    const fullscreen = state.mode === "MAP" || state.mode === "EDITOR"
-      || (state.mode === "COMPOSE" && state.composer.fullscreen);
+    const singlePane = routeUsesSinglePane(resolveStoryScreenRoute(state));
     const storyLayout = deriveStoryFrameLayout(renderer.width, state.config);
     const proseMeasure = storyProseMeasure(storyLayout.pageWidth);
     if (preparedProseMeasure !== null && preparedProseMeasure !== proseMeasure) {
@@ -180,7 +183,7 @@ export function createInteractiveFrameRuntime(
       wrapCache.invalidate();
     }
     preparedProseMeasure = proseMeasure;
-    const layout = fullscreen
+    const layout = singlePane
       ? singlePaneStoryFrameLayout(renderer.width)
       : storyLayout;
     const prepareStartedAt = performance.now();

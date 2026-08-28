@@ -181,6 +181,16 @@ test("NovelAI lorebook export maps fact tags to categories", () => {
   assert.ok(!result.text.includes("Keep the unresolved door closed."));
 });
 
+test("NovelAI export reports v2 Aside presence without exporting its text", () => {
+  const story = fixtureStory();
+  story.hasAsideSessions = true;
+
+  const result = exportNovelAiArchive(story, "story");
+
+  assert.ok(result.fidelity.includes("Side Notes were not exported."));
+  assert.equal(result.text.includes("Side Notes were not exported."), false);
+});
+
 function fixtureStory(): StoryPayload {
   const first = node("part-1", null, "First selected part.", "selected direction", "part-2");
   const second = node("part-2", "part-1", "Second selected part.", "another direction", null);

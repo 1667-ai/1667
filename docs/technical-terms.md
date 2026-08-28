@@ -95,6 +95,7 @@ read_when:
 | Mirostat | A sampling algorithm that holds output perplexity near a target value |
 | provider adjustment | A change 1667 made before or during a provider request |
 | mass map | A map that shows all takes |
+| lane | One two-column track in the tree map that one story line owns while the line is alive |
 | provider | A local or hosted service that supplies a language model |
 | Text Completions | The provider protocol that sends one text prompt and receives one text continuation |
 | prompt format | The rule that converts a provider-neutral request into one text prompt |
@@ -120,7 +121,9 @@ read_when:
 | Transaction Record | The durable file that records an incomplete install, upgrade, or rollback |
 | Aside | The full-screen mode where the writer discusses the story without changing it |
 | Side Note | One saved question-and-answer pair from Aside |
-| Aside document | The one bounded, content-addressed document that holds every Side Note for one story |
+| Aside turn | One saved question, answer, and optional Thought in an Aside session |
+| Aside session | One bounded chat that belongs to one story take or to the unanchored bucket |
+| Aside document | A content-addressed object that stores a legacy Side Note list or one Aside session |
 | Placement mode | The mode where the writer selects a story position for Side Note text |
 
 Add a term to this table before you use it in another document.

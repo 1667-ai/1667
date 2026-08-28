@@ -123,10 +123,21 @@ when you open it. A Generation Record never contains a credential, a custom
 header value, a base URL, or provider response text. See [Generation
 Record](model-providers.md#generation-record).
 
-A story can also hold one Aside document: the bounded, content-addressed
-list of Side Notes for that story. 1667 loads the Aside document only when
-you open Aside. Side Notes never enter Write prompts or story payloads. See
-[Technical terms](technical-terms.md).
+A story can hold one legacy Aside document and multiple Aside sessions. Each
+Aside session has a stable ID. Its content stays in a bounded,
+content-addressed object. An anchored Aside session stores the IDs of its story
+part and take. If that take is not in the story, 1667 shows the session in the
+unanchored bucket. 1667 does not remove the session.
+
+1667 keeps the legacy Aside document unchanged. It shows that document as one
+unanchored session. A new session write does not replace or remove the legacy
+document.
+
+The story payload contains only Aside presence data. It contains anchors and
+session counts. It does not contain session IDs, questions, answers, or Thoughts.
+1667 loads session text only when you open the applicable Aside anchor. Side
+Notes and Aside turns never enter Write prompts. See [Technical
+terms](technical-terms.md).
 
 ## Project lock
 

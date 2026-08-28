@@ -595,6 +595,72 @@ describe("review regressions", () => {
     expect(rendered).toContain("▏");
   });
 
+  test("the writing gutter pair stays in view while a long take scrolls past the viewport", () => {
+    const leaf = baseState.payload.path.at(-1)!;
+    const stream: StreamView = {
+      targetId: "pending-long-take",
+      parentId: leaf.id,
+      append: false,
+      startedAt: STREAM_STARTED_AT,
+      instruction: "continue",
+      text: Array.from({ length: 60 }, (_, index) => `Streamed line ${index + 1} lands.`).join("\n")
+    };
+    const view = createStoryViewModel(baseState.payload, stream);
+    const state: RuntimeState = {
+      ...baseState,
+      stream,
+      focusIndex: rowIndexForNode(view, stream.targetId)
+    };
+
+    const lines = renderStoryScreen(state, { width: 120, height: 24 }).lines.map(plainLine);
+    const rendered = lines.join("\n");
+
+    // The viewport follows the tail, so the take's head is off screen …
+    expect(rendered).toContain("Streamed line 60 lands.");
+    expect(rendered).not.toContain("Streamed line 1 lands.");
+    // … yet the gutter pair still shows, pinned to the top of the visible part.
+    const writingRow = lines.findIndex((line) => line.includes("writing"));
+    expect(writingRow).toBeGreaterThan(-1);
+    expect(lines[writingRow + 1]).toContain("esc stops");
+    expect(rendered.match(/esc stops/g)).toHaveLength(1);
+  });
+
+  test("the writing/esc-stops boundary row stays in view under 100 columns too, where there is no side gutter to carry it", () => {
+    const leaf = baseState.payload.path.at(-1)!;
+    const stream: StreamView = {
+      targetId: "pending-long-take",
+      parentId: leaf.id,
+      append: false,
+      startedAt: STREAM_STARTED_AT,
+      instruction: "continue",
+      text: Array.from({ length: 60 }, (_, index) => `Streamed line ${index + 1} lands.`).join("\n")
+    };
+    const view = createStoryViewModel(baseState.payload, stream);
+    const narrowState: RuntimeState = {
+      ...baseState,
+      stream,
+      focusIndex: rowIndexForNode(view, stream.targetId)
+    };
+
+    const lines = renderStoryScreen(narrowState, { width: 80, height: 24 }).lines.map(plainLine);
+    const rendered = lines.join("\n");
+
+    // The viewport follows the tail, so the take's head is off screen …
+    expect(rendered).toContain("Streamed line 60 lands.");
+    expect(rendered).not.toContain("Streamed line 1 lands.");
+    // … yet the boundary row still shows, pinned to the very top of the
+    // viewport — under 100 columns `gutterAt` returns `[]`, so the boundary
+    // row is the only place `writing`/`esc stops` ever lives.
+    expect(lines[0]).toContain("writing");
+    expect(lines[0]).toContain("esc stops");
+    expect(rendered.match(/esc stops/g)).toHaveLength(1);
+
+    const promptState: RuntimeState = { ...narrowState, showInstructions: true };
+    const promptLines = renderStoryScreen(promptState, { width: 80, height: 24 }).lines.map(plainLine);
+    expect(promptLines[0]).toContain("writing");
+    expect(promptLines[1]).toContain("»");
+  });
+
   test("resolves shifted G terminal variants to the leaf", () => {
     expect(resolveKey(key("g", "G", true), "NAV").action).toBe("leaf");
     expect(resolveKey(key("G", "G"), "NAV").action).toBe("leaf");

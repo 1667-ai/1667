@@ -11,32 +11,18 @@ import {
   type FrameSegment
 } from "./frame.js";
 import type { FrameDeadlineCollector } from "../../animation-deadline.js";
-import { lightWorkKeyword } from "../work-light.js";
+import {
+  asideGhostGutterLine,
+  asidePresenceGutterRows,
+  type AsidePresence
+} from "../../aside-presence.js";
+import { lightWorkKeyword, streamLivenessMark } from "../work-light.js";
 import {
   focusedFoldedThoughtLine,
   ghostThoughtMark,
   thinkingGutterLine0,
   thinkingGutterLine1
 } from "./thought-block.js";
-
-/** The complete braille cycle. The dots travel once around the cell and arrive
- *  back where they started, so the mark reads as one turn. Four of these ten
- *  marks carry the dots a quarter of the way around and then snap back to the
- *  top, which reads as a stall rather than as progress. */
-const STREAM_LIVENESS_MARKS = [
-  "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
-] as const;
-const STREAM_LIVENESS_FRAME_MS = 250;
-
-/** One indicator owns both stream labels and their next visible frame. */
-export function streamLivenessMark(
-  now: number,
-  deadlines?: FrameDeadlineCollector
-): string {
-  const frame = Math.floor(now / STREAM_LIVENESS_FRAME_MS);
-  deadlines?.at((frame + 1) * STREAM_LIVENESS_FRAME_MS);
-  return STREAM_LIVENESS_MARKS[frame % STREAM_LIVENESS_MARKS.length]!;
-}
 
 export interface GutterVerb { token: string | null; label: string; action: KeyAction }
 
@@ -130,7 +116,8 @@ function stripSegments(strip: ReturnType<typeof takeStrip>, currentTake: number)
  *  summary, so a summary part never reaches the thought-row check below. */
 export function gutterRowsFor(
   part: StoryPart,
-  thought: ThoughtGutterContext
+  thought: ThoughtGutterContext,
+  asidePresence: AsidePresence | null = null
 ): FrameLine[] {
   const rows: FrameLine[] = [];
   if (part.siblingCount > 1) {
@@ -146,9 +133,41 @@ export function gutterRowsFor(
   } else {
     rows.push([segment(`¶ ${part.number}`, "chrome")]);
   }
+  if (asidePresence !== null) {
+    rows.push(...asidePresenceGutterRows(part, asidePresence));
+  }
   if (thought.kind === "shown" && thought.folded) rows.push(focusedFoldedThoughtLine(thought.hit));
   for (const verbs of GUTTER_VERBS) rows.push(gutterVerbSegments(verbs));
   return rows;
+}
+
+/** The streaming gutter's two fixed lines: `writing`/`esc stops`, or, while
+ *  reasoning arrives with no prose yet, `thinking`/`esc peeks`. Built once so
+ *  `gutterFor`'s per-line lookup and `row-layout.ts`'s sticky-gutter length
+ *  can never drift apart the way two hand-derived formulas could. */
+export function streamingGutterRows(
+  part: StoryPart,
+  thought: ThoughtGutterContext,
+  now: number,
+  deadlines?: FrameDeadlineCollector
+): FrameLine[] {
+  // Reasoning is arriving and no prose has started: swap the usual
+  // writing/esc-stops pair for thinking/esc-peeks. Once prose starts, or once
+  // `reasoning` is off, this falls through to the ordinary pair —
+  // `thought.thinking` is already false in both cases (see
+  // `thoughtGutterContext`).
+  if (thought.kind === "shown" && thought.thinking) {
+    return [thinkingGutterLine0(thought.resolved.tokenCount, now, deadlines), thinkingGutterLine1(thought.hit)];
+  }
+  return [
+    lightWorkKeyword(
+      [segment(`${streamLivenessMark(now, deadlines)} writing`, "focus / accent")],
+      "writing",
+      now,
+      deadlines
+    ),
+    [actionHint("esc stops", "cancel")]
+  ];
 }
 
 export function gutterFor(
@@ -158,29 +177,11 @@ export function gutterFor(
   thought: ThoughtGutterContext,
   rows: readonly FrameLine[] | null,
   now = 0,
-  deadlines?: FrameDeadlineCollector
+  deadlines?: FrameDeadlineCollector,
+  asidePresence: AsidePresence | null = null
 ): FrameLine {
   if (streaming) {
-    // Reasoning is arriving and no prose has started: swap the usual
-    // writing/esc-stops pair for thinking/esc-peeks. Once prose starts, or
-    // once `reasoning` is off, this falls through to the ordinary pair —
-    // `thought.thinking` is already false in both cases (see
-    // `thoughtGutterContext`).
-    if (thought.kind === "shown" && thought.thinking) {
-      if (lineIndex === 0) return thinkingGutterLine0(thought.resolved.tokenCount, now, deadlines);
-      if (lineIndex === 1) return thinkingGutterLine1(thought.hit);
-      return [];
-    }
-    if (lineIndex === 0) {
-      return lightWorkKeyword(
-        [segment(`${streamLivenessMark(now, deadlines)} writing`, "focus / accent")],
-        "writing",
-        now,
-        deadlines
-      );
-    }
-    if (lineIndex === 1) return [actionHint("esc stops", "cancel")];
-    return [];
+    return streamingGutterRows(part, thought, now, deadlines)[lineIndex] ?? [];
   }
   // Focused, not narrow, not streaming, not a summary: `rows` was built once
   // by `gutterRowsFor` in `layoutStoryRow` and carries this line's content —
@@ -188,6 +189,9 @@ export function gutterFor(
   if (rows !== null) return rows[lineIndex] ?? [];
   if (lineIndex === 0) {
     if (part.isSummary) return [segment("◈", "summary")];
+    if (asidePresence !== null && asidePresence.currentCount > 0) {
+      return asideGhostGutterLine(asidePresence, part.siblingCount);
+    }
     if (part.siblingCount > 1) return [segment(`×${part.siblingCount}`, "chrome")];
     // No fork tick or summary diamond claims this row's one unfocused gutter
     // cell: give the ghost thought word the cell instead. A part that has

@@ -1,11 +1,11 @@
 import type { KeyEvent } from "@opentui/core";
 import { ApiFailureError } from "./api-error.js";
-import { createAtlasLayout } from "./atlas-layout.js";
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
 import { createGenerationRecordDetailCache } from "./generation-record-detail-cache.js";
 import { visibleEntryCount } from "./generation-record-pipeline.js";
 import type { ResolvedKey } from "./keys.js";
+import { mapCursorNodeId } from "./map-actions.js";
 import { createStoryViewModel, rowPart } from "./model.js";
 import type {
   GenerationRecordDetailError,
@@ -14,7 +14,6 @@ import type {
   GenerationRecordViewerState,
   RuntimeState
 } from "./state.js";
-import { projectStreamedPayload } from "./stream-projection.js";
 
 /** Lane `runWhenIdle` (action-runtime.ts) collapses detail-fetch retries
  *  onto. The viewer shows one selection's detail at a time (`selectsRecord`
@@ -59,29 +58,12 @@ export function closeGenerationRecordViewer(state: RuntimeState): void {
   state.record = null;
 }
 
-/** The node id `h` targets: NAV's own focused part, or MAP's — the path
- *  cursor in Path view, or the cursor row's node in Tree/Mass. A folded
- *  "cold" row names a whole subtree, not one take, so it names nothing. */
+/** The node id `h` targets: NAV's own focused part, or MAP's — resolved by
+ *  `mapCursorNodeId` (`map-actions.ts`), since it is map logic. */
 export function focusedGenerationRecordNodeId(state: RuntimeState): string | null {
-  if (state.mode === "MAP") return focusedMapNodeId(state);
+  if (state.mode === "MAP") return mapCursorNodeId(state);
   const view = createStoryViewModel(state.payload, state.stream);
   return rowPart(view, state.focusIndex)?.node.id ?? null;
-}
-
-function focusedMapNodeId(state: RuntimeState): string | null {
-  const map = state.map;
-  if (map === null) return null;
-  if (map.view === "path") return map.pathCursorId;
-  const payload = projectStreamedPayload(state.payload, state.stream, { includePendingTake: true });
-  const layout = createAtlasLayout(payload, {
-    now: state.now,
-    cursorId: map.treeCursorId,
-    showSketches: map.showSketches,
-    openedColdFolds: map.openedColdFolds,
-    sort: map.view === "tree" ? "graph" : map.massSort
-  });
-  const row = layout.allRows.find((candidate) => candidate.cursor) ?? null;
-  return row !== null && (row.kind === "node" || row.kind === "sketch") ? row.id : null;
 }
 
 export function resolveGenerationRecordKey(key: KeyEvent): ResolvedKey {

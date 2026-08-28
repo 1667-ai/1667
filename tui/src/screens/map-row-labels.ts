@@ -1,4 +1,5 @@
-import { shortDate, type AtlasRow } from "../atlas-layout.js";
+import type { NodeStub, Tag } from "../../../shared/types.js";
+import { shortDate } from "../atlas-layout.js";
 import { tagGlyph, tagRole } from "../tag-presentation.js";
 
 export { tagGlyph, tagRole };
@@ -22,17 +23,28 @@ export function formatMapWords(words: number): string {
   return words < 1_000 ? `${formatMapWordsBare(words)} w` : formatMapWordsBare(words);
 }
 
+/** What a line is called, from just the tag and the node it names — the
+ * shape both `AtlasRow` and a lane-layout `end` row carry structurally. */
+export interface TaggableRow {
+  tag: Tag | null;
+  node: Pick<NodeStub, "lastTouched">;
+}
+
 /** What a line is called. Doc 26a moves the tag glyph out to the state
  * column, so the name column holds nothing but the name. */
-export function mapLineName(row: AtlasRow): string {
+export function mapLineName(row: TaggableRow): string {
   return row.tag === null
     ? `unnamed · ${shortDate(row.node.lastTouched)}`
     : row.tag.name;
 }
 
 /** The name with its tag glyph, for views with no column to move it to. */
-export function mapLineLabel(row: AtlasRow): string {
-  return row.tag === null
-    ? mapLineName(row)
-    : `${tagGlyph(row.tag.status)} ${mapLineName(row)}`;
+export function mapLineLabel(row: TaggableRow): string {
+  return row.tag === null ? mapLineName(row) : `${tagGlyph(row.tag.status)} ${mapLineName(row)}`;
+}
+
+/** First six words of a preview, for a sketch's quoted opening. Shared by the
+ * lane tree and the mass graph — a display concern, not a layout one. */
+export function opening(value: string): string {
+  return value.replace(/\s+/g, " ").trim().split(" ").slice(0, 6).join(" ");
 }

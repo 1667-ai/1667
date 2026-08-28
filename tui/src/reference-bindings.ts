@@ -53,6 +53,9 @@ const DEFINITIONS = {
   navTakeNext: route("nav", "right", "NAV", "take-next"),
   mapPathTakePrevious: route("map", "left", "MAP", "take-previous", { mapView: "path" }),
   mapPathTakeNext: route("map", "right", "MAP", "take-next", { mapView: "path" }),
+  mapTreeLanePrevious: route("map", "left", "MAP", "take-previous", { mapView: "tree" }),
+  mapTreeLaneNext: route("map", "right", "MAP", "take-next", { mapView: "tree" }),
+  mapTreePath: route("map", "tab", "MAP", "map-hide-lanes", { mapView: "tree" }),
   navScrollLineUp: route("nav-shifted", "up", "NAV", "scroll-line-up", { shift: true }),
   navScrollLineDown: route("nav-shifted", "down", "NAV", "scroll-line-down", { shift: true }),
   navPageUp: route("nav", "pageup", "NAV", "scroll-up"),
@@ -77,7 +80,7 @@ const DEFINITIONS = {
   navCopyLine: route("nav-shifted", "Y", "NAV", "copy-line", { shift: true }),
   composeHistoryPrevious: route("compose-chord", "up", "COMPOSE", "history-previous", { ctrl: true }),
   composeHistoryNext: route("compose-chord", "down", "COMPOSE", "history-next", { ctrl: true }),
-  navPrune: route("nav", "d", "NAV", "prune"),
+  navPrune: route("nav-shifted", "D", "NAV", "prune", { shift: true }),
   navTag: route("nav", "t", "NAV", "tag"),
   navOpenChapters: route("nav", "c", "NAV", "open-chapters"),
   navCreateChapter: route("nav-shifted", "C", "NAV", "create-chapter", { shift: true }),
@@ -140,7 +143,7 @@ const DEFINITIONS = {
   // for `s` to reorder there; it used to teleport to mass under a `s sort`
   // label, which advertised a verb the view does not have (C-06).
   mapMassSort: route("map", "s", "MAP", "map-cycle-sort", { mapView: "mass" }),
-  mapPathPrune: route("map", "d", "MAP", "prune", { mapView: "path" }),
+  mapPathPrune: route("map", "D", "MAP", "prune", { mapView: "path", shift: true }),
   mapPathTag: route("map", "t", "MAP", "tag", { mapView: "path" }),
   searchClose: route("global", "escape", "SEARCH", "cancel"),
   cardClose: route("global", "escape", "CARD", "cancel"),

@@ -193,6 +193,7 @@ export class StoryCatalog {
         slot.kind === "v6-deleted"
         || slot.kind === "v8-deleted"
         || slot.kind === "v10-deleted"
+        || slot.kind === "v12-deleted"
       ) {
         await this.reapDeleted?.(entry.storyId);
         continue;
@@ -365,7 +366,8 @@ function bytesRead(slot: StoredStorySlot): number {
   if (slot.kind === "legacy") return slot.raw.byteLength;
   if (slot.kind === "v5" || slot.kind === "v6-live" || slot.kind === "v6-deleted"
     || slot.kind === "v8-live" || slot.kind === "v8-deleted"
-    || slot.kind === "v10-live" || slot.kind === "v10-deleted") {
+    || slot.kind === "v10-live" || slot.kind === "v10-deleted"
+    || slot.kind === "v12-live" || slot.kind === "v12-deleted") {
     return slot.manifestBytes.byteLength;
   }
   return 0;
@@ -387,7 +389,7 @@ function summaryFromSlot(slot: StoredStorySlot): StorySummary | null {
   // one (see the matching comment on `aggregateVersionFromSlot` in
   // server/stories.ts). `storySummaryFromLiveEnvelope` already accepts
   // either envelope.
-  if (slot.kind === "v6-live" || slot.kind === "v8-live" || slot.kind === "v10-live") {
+  if (slot.kind === "v6-live" || slot.kind === "v8-live" || slot.kind === "v10-live" || slot.kind === "v12-live") {
     return {
       ...storySummaryFromLiveEnvelope(slot.manifest),
       aggregateVersion: {

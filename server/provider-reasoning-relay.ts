@@ -66,9 +66,9 @@ export function createReasoningRelay(
     async push(text, reportedCount) {
       if (text.length === 0) return;
       decodedBytes = requireProviderOutputWithinLimit(settings, decodedBytes, text);
+      tokenCount = reportedCount ?? tokenCount + 1;
       const safe = redactor.push(text);
       if (safe.length > 0 && onReasoning !== undefined) {
-        tokenCount = reportedCount ?? tokenCount + 1;
         await onReasoning({ text: safe, tokenCount });
       }
     },
