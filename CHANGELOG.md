@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Windows upgrades show the correct next command.** Stable update checks do
+  not show beta releases. A PowerShell Installation now gives the PowerShell
+  Installer command for a stable release. For beta, 1667 gives commands to
+  download and verify the release Installer before it runs. An exact
+  prerelease no longer names an Installer file that does not exist.
+
 ## 0.10.4-rc.1 - 2026-08-28
 
 - **Graphite and bone themes use the 1667 website colors.** Select either

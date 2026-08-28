@@ -21,7 +21,7 @@ export interface UpgradeError {
 interface UpgradeEnvelopeBase {
   method: UpgradeMethod;
   restartRequired: boolean;
-  /** Only a PowerShell Installation reports a command. See UpgradeManualEnvelope. */
+  /** Only a PowerShell Installation can report a command. See UpgradeManualEnvelope. */
   command: string | null;
 }
 
@@ -39,9 +39,9 @@ export interface UpgradeUpToDateEnvelope extends UpgradeSuccessEnvelopeBase {
 }
 
 /**
- * A read-only plan. A PowerShell Installation always carries the command that
- * applies it; every other manual Installation never does. The two cases are
- * separate members so the pairing cannot be built wrong.
+ * A read-only plan. A PowerShell Installation carries the command that applies
+ * it. Every other manual Installation has no command. Beta checks use an
+ * UpgradeAvailableEnvelope until the user requests installation instructions.
  */
 export type UpgradeManualEnvelope =
   | (UpgradeSuccessEnvelopeBase & {
@@ -61,7 +61,7 @@ export type UpgradeManualEnvelope =
 
 export interface UpgradeAvailableEnvelope extends UpgradeSuccessEnvelopeBase {
   status: "available";
-  method: "shell";
+  method: "shell" | "powershell";
   target: string;
   restartRequired: false;
 }
@@ -134,6 +134,7 @@ export function upgradeEnvelope(
         latest: string;
         target: string;
         channel: UpgradeChannel;
+        method?: "shell" | "powershell";
       }
     | {
         status: "applied";
@@ -163,7 +164,7 @@ export function upgradeEnvelope(
       latest: values.latest,
       target: values.target,
       channel: values.channel,
-      method: "shell",
+      method: values.method ?? "shell",
       restartRequired: false,
       command: null,
       error: null
