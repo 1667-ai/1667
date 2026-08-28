@@ -141,7 +141,18 @@ function Clear-MatchingFailureRecord([string]$Installation) {
 
 function Assert-Candidate([string]$PathValue) {
   Assert-NoReparsePoint $PathValue
-  $actual = (Get-FileHash -LiteralPath $PathValue -Algorithm SHA256).Hash.ToLowerInvariant()
+  $stream = $null
+  $sha256 = $null
+  try {
+    $stream = [IO.File]::Open($PathValue, [IO.FileMode]::Open,
+      [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    $digest = $sha256.ComputeHash($stream)
+    $actual = [BitConverter]::ToString($digest).Replace('-', '').ToLowerInvariant()
+  } finally {
+    if ($null -ne $sha256) { $sha256.Dispose() }
+    if ($null -ne $stream) { $stream.Dispose() }
+  }
   if ($actual -cne $CandidateSha256) { Fail 'Candidate SHA-256 digest changed before handoff.' }
   Assert-ReleaseIdentity $PathValue $TargetVersion 'Candidate'
 }

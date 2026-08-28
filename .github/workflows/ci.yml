@@ -257,6 +257,7 @@ jobs:
           test/upgrade-cli.test.ts
           test/windows-powershell-upgrade.test.ts
           test/windows-powershell-upgrade-recovery.test.ts
+          test/windows-powershell-upgrade-compat.test.ts
           test/install-ownership-authority.test.ts
           test/clipboard-command-runner.test.ts
           test/clipboard-windows.test.ts
