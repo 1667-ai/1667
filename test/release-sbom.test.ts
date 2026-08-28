@@ -268,10 +268,14 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
     "@opentui/core-linux-x64-musl",
     "@silvia-odwyer/photon-node",
     "bun",
+    "detect-libc",
     "fs-ext-extra-prebuilt",
     "msgpackr",
+    "msgpackr-extract",
+    "node-gyp-build-optional-packages",
     "partial-json",
     "tiktoken",
+    "typebox",
     "web-tree-sitter"
   ]);
 
@@ -282,7 +286,7 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
   assert.deepEqual(document.documentDescribes, [product.SPDXID]);
 
   const runtime = packageNamed(document, "bun");
-  assert.equal(runtime.versionInfo, "1.3.14");
+  assert.equal(runtime.versionInfo, "1.4.0");
   assert.equal(runtime.licenseDeclared, "MIT");
 
   const expected = new Map([
@@ -292,9 +296,21 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
     ["@earendil-works/pi-ai", ["0.84.2", "MIT",
       "e8ccecad8218355944ed27e96cbdb261bebb428e7ca7fed0fb1586d5166fa17d"
       + "4ff346910874a8776ff5dda169c64a30d653ced8b121ddce3de49d06c26ca38a"]],
+    ["detect-libc", ["2.1.2", "Apache-2.0",
+      "06d8f604e38ef37a375b21f9f5ef0c817b3111055c6ab9143a9118aee6c1d2e"
+      + "af09cdd74c90dfae2bb22072535d67665a966199b4e62fe87fb8a8e26ce2841b5"]],
+    ["msgpackr-extract", ["3.0.4", "MIT",
+      "e2498efcc77250890b22f4cfafc5472e297802da0a2289e258f204939f820f2d"
+      + "319d60bce1ace14859ae27b3f165db18b623f9904790b0e44054878c8314fe1f"]],
+    ["node-gyp-build-optional-packages", ["5.2.2", "MIT",
+      "b3ec3eac15a7a533304856da134517b11960ee15381637a4294e1ec808a1e53f"
+      + "2726e3594f59cdb2c917a7199ea922bd53390197a5204659ca73c873f0812a3b"]],
     ["partial-json", ["0.1.7", "MIT",
       "363bffe7d8476a891bfe14548dc7b71ddbf5db077ad0cb4cf59e4e9669fe9de8"
       + "5ed100c0b11b516c93ef27467dd53bac1744ae65122f9ccf92e25e8420ff2578"]],
+    ["typebox", ["1.3.7", "MIT",
+      "99e2ae89f737dcf71cc743ba3dd23360cab73a0f33bcfe13222fdaf81c370043"
+      + "19331383d3e447190be982511ee99772df067c9ea9ff8fde61f0b5192e4ffa1e"]],
     ["tiktoken", ["1.0.22", "MIT",
       "3cabf2d6b545d5189b7c5dc99570523f426b730daeab7c977607045ed293627d"
       + "d027f7014411c39eb2798c7932f8c10d67a0c83f0354196a64571fbb8e80a934"]],
@@ -354,7 +370,7 @@ test("every component carries a canonical package URL", () => {
   );
   assert.equal(purlOf(platform, "tiktoken"), "pkg:npm/tiktoken@1.0.22");
   assert.equal(purlOf(platform, "web-tree-sitter"), "pkg:npm/web-tree-sitter@0.25.10");
-  assert.equal(purlOf(platform, "bun"), "pkg:github/oven-sh/bun@bun-v1.3.14");
+  assert.equal(purlOf(platform, "bun"), "pkg:github/oven-sh/bun@bun-v1.4.0");
 
   const launcher = releaseSbomForPackage(set, RELEASE_LAUNCHER_PACKAGE).document;
   assert.equal(purlOf(launcher, "@1667-ai/linux-x64"), "pkg:npm/%401667-ai/linux-x64@3.0.0");
@@ -406,9 +422,13 @@ test("a platform SBOM relates the product to the runtime and to what pulls each 
   }));
   for (const name of [
     "bun",
+    "typebox",
+    "detect-libc",
     "tiktoken",
     "fs-ext-extra-prebuilt",
     "msgpackr",
+    "msgpackr-extract",
+    "node-gyp-build-optional-packages",
     "@opentui/core",
     "@opentui/core-linux-x64",
     "@opentui/core-linux-x64-musl",
@@ -422,6 +442,24 @@ test("a platform SBOM relates the product to the runtime and to what pulls each 
   for (const name of ["tiktoken", "fs-ext-extra-prebuilt", "msgpackr", "@opentui/core"]) {
     assert.ok(relationshipExists(document, "1667", "DEPENDS_ON", name));
   }
+  assert.ok(relationshipExists(document, "@earendil-works/pi-ai", "DEPENDS_ON", "typebox"));
+  assert.ok(relationshipExists(document, "msgpackr", "DEPENDS_ON", "msgpackr-extract"));
+  assert.ok(
+    relationshipExists(
+      document,
+      "msgpackr-extract",
+      "DEPENDS_ON",
+      "node-gyp-build-optional-packages"
+    )
+  );
+  assert.ok(
+    relationshipExists(
+      document,
+      "node-gyp-build-optional-packages",
+      "DEPENDS_ON",
+      "detect-libc"
+    )
+  );
   for (const name of [
     "@opentui/core-linux-x64",
     "@opentui/core-linux-x64-musl",

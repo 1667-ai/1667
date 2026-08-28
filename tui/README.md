@@ -34,7 +34,7 @@ HTTP server mode is available only on Linux. See
 
 ## Build a standalone executable
 
-Use Bun 1.3.14 or newer:
+Use Bun 1.4.0 or newer:
 
 ```sh
 bun run build:standalone
@@ -79,7 +79,7 @@ one. See [Model providers](../docs/model-providers.md#generation-record).
 
 ```sh
 bun run typecheck
-bun test
+bun run test
 bun bench/perf.ts
 bun run build:standalone
 ```

@@ -716,10 +716,12 @@ function createDefaultWorker(): Worker {
     );
     return new Worker(URL.createObjectURL(workerFile), { type: "module" });
   }
-  return new Worker(
-    new URL("../../server/worker.js", import.meta.url),
-    { type: "module" }
-  );
+  // Compiled Bun entrypoints use a virtual filesystem. Resolve the worker
+  // from its packaged path because Bun 1.4 otherwise drops the virtual root.
+  const workerPath = import.meta.url.includes("/$bunfs/")
+    ? new URL("/$bunfs/root/server/worker.js", import.meta.url)
+    : new URL("../../server/worker.ts", import.meta.url);
+  return new Worker(workerPath, { type: "module" });
 }
 function isAborted(signal: AbortSignal | undefined): boolean { return signal?.aborted === true; }
 

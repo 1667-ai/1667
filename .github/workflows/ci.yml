@@ -39,7 +39,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.3.14
+          bun-version: 1.4.0
 
       - name: Install runtime dependencies
         run: npm ci
@@ -97,7 +97,7 @@ jobs:
 
       - name: Test TUI
         working-directory: tui
-        run: bun test --timeout 30000
+        run: bun run test
 
       - name: Build and smoke-test native standalone
         working-directory: tui
@@ -187,27 +187,18 @@ jobs:
             node --import tsx --test \
               test/http-non-btrfs-claim-integration.test.ts
 
-  # darwin-x64 builds on every push to main and on demand, but not on pull
-  # requests, so a regression surfaces on the commit that caused it rather than
-  # at release time. It is published, and it is the target most of this tool's
-  # users are on: a writer's machine is far more often an older Intel Mac than a
-  # developer's is. It stays off the pull-request gate because it is the slowest
-  # target here by roughly ten times (6m13s against 2m14s for its arm64 sibling
-  # on the same commit) on macos-15-intel, a retiring runner class that is slower
-  # per core and contended enough to report wall-clock times well above its own
-  # CPU time. test/performance-budget.ts holds the measured figures. Gating every
-  # merge on it bought latency and flakes, not signal.
-  #
-  # Windows runs native contracts and the packaged product. The full runtime
-  # and TUI suites have POSIX-only fixtures, so the Linux gate runs them.
+  # The packaged-platform matrix covers all five release targets on pull
+  # requests, pushes to main, and manual runs. darwin-x64 is the slowest target
+  # here by roughly ten times (6m13s against 2m14s for its arm64 sibling on the
+  # same commit) on macos-15-intel, so it has a 25-minute timeout. Windows runs
+  # native contracts and the packaged product. The full runtime and TUI suites
+  # have POSIX-only fixtures, so the Linux gate runs them.
   packaged-platform:
     name: packaged-${{ matrix.target }}
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJSON(github.event_name == 'pull_request'
-          && '["darwin-arm64","linux-arm64","linux-x64","windows-x64"]'
-          || '["darwin-arm64","darwin-x64","linux-arm64","linux-x64","windows-x64"]') }}
+        target: ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64", "windows-x64"]
     runs-on: ${{ fromJSON('{"darwin-arm64":"macos-15","darwin-x64":"macos-15-intel","linux-arm64":"ubuntu-24.04-arm","linux-x64":"ubuntu-24.04","windows-x64":"windows-2025"}')[matrix.target] }}
     timeout-minutes: ${{ matrix.target == 'darwin-x64' && 25 || 15 }}
     steps:
@@ -226,7 +217,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.3.14
+          bun-version: 1.4.0
 
       - name: Install runtime dependencies
         run: npm ci
@@ -253,10 +244,10 @@ jobs:
         if: matrix.target == 'darwin-x64'
         run: npm test -- --test-concurrency=1
 
-      - name: Run native TUI tests
+      - name: Run sharded TUI tests
         if: matrix.target != 'darwin-x64' && matrix.target != 'windows-x64'
         working-directory: tui
-        run: bun test --timeout 30000
+        run: bun run test
 
       - name: Run Windows upgrade, ownership, and clipboard tests
         if: matrix.target == 'windows-x64'
@@ -271,7 +262,7 @@ jobs:
       - name: Run Intel macOS TUI tests without filesystem contention
         if: matrix.target == 'darwin-x64'
         working-directory: tui
-        run: bun test --timeout 30000 --max-concurrency=1
+        run: bun run test -- --max-concurrency=1
 
       - name: Build and execute packaged candidate
         working-directory: tui

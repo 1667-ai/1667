@@ -56,7 +56,7 @@ Run the TUI gates from `tui/`:
 
 ```sh
 bun run typecheck
-bun test
+bun run test
 ```
 
 Run the frame performance gate separately:
@@ -65,11 +65,11 @@ Run the frame performance gate separately:
 bun bench/perf.ts
 ```
 
-GitHub CI runs the complete gates on Linux x64. Pull request CI also tests
-macOS arm64, Linux arm64, and Windows x64 packages. A push to `main` also tests
-the macOS x64 package. Windows CI runs the native platform contracts, the
-PowerShell Installer tests, the upgrade command tests, and the standalone
-package smoke. CI does not run the frame performance gate.
+GitHub CI runs the complete gates on Linux x64. Pull request CI also tests the
+macOS arm64, macOS x64, Linux arm64, Linux x64, and Windows x64 packages.
+Windows CI runs the native platform contracts, the PowerShell Installer tests,
+the upgrade command tests, and the standalone package smoke. CI does not run
+the frame performance gate.
 
 On native macOS arm64, the local CI script runs the root build, root tests, TUI
 type check, TUI tests, and standalone build. The script runs the root tests and

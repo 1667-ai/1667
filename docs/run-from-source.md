@@ -10,7 +10,7 @@ read_when:
 
 ## Requirements
 
-- Bun 1.3.14 or a later compatible version
+- Bun 1.4.0 or a later compatible version
 - Node.js 22
 - A terminal with support for 256 colors
 - Optional mouse support

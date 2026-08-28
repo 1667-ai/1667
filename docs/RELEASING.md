@@ -444,7 +444,7 @@ Run the TUI gates from `tui/`:
 
 ```sh
 bun run typecheck
-bun test
+bun run test
 bun bench/perf.ts
 bun run build:standalone
 ```
