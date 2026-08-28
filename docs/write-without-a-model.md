@@ -44,6 +44,9 @@ version of the same story part.
 Press `e` to edit the focused story part. A normal save keeps the earlier text
 as another take. The editor also has an action to update the current take.
 
+A direction is optional in the editor. Put it above the first `---` line. To
+write only prose, put `---` on the first line and write the prose below it.
+
 Use these keys to move and choose text:
 
 | Task | Keys |
@@ -96,8 +99,9 @@ The following actions request model output:
 - Generate a chapter summary.
 - Send a question in Aside.
 
-Do not use these actions during a manual session. Editing, take selection,
-chapters, Facts, maps, import, and export remain available.
+If you do not use these actions, the workflow in this guide stays manual.
+Editing, take selection, chapters, Facts, maps, import, and export remain
+available.
 
 ## Find your files
 

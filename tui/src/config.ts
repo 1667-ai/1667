@@ -24,6 +24,8 @@ export type ThemeName =
   | "hi-contrast dark"
   | "hi-contrast light";
 
+export const NEW_INSTALL_THEME: ThemeName = "graphite";
+
 export const THEME_NAMES: readonly ThemeName[] = [
   "lantern",
   "iron gall",
@@ -80,7 +82,7 @@ export interface UserConfig {
 const DEFAULTS: UserConfig = {
   schemaVersion: 1,
   // Keep this legacy fallback for an existing config without a theme. A new
-  // install gets Graphite only when `loadConfigWithStatus` finds no file.
+  // install gets `NEW_INSTALL_THEME` when `loadConfigWithStatus` finds no file.
   theme: "lantern",
   factsRail: "auto",
   composeFocus: "off",
@@ -206,7 +208,7 @@ export function loadConfigWithStatus(
     const config = normalizeUserConfig(null);
     return {
       status,
-      config: status === "absent" ? { ...config, theme: "graphite" } : config
+      config: status === "absent" ? { ...config, theme: NEW_INSTALL_THEME } : config
     };
   }
   try {

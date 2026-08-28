@@ -45,7 +45,7 @@ import {
 } from "../../shared/story-search.js";
 import type { RemovedChapterBreak, StoryApi } from "./api.js";
 import type { AppSource } from "./app.js";
-import { normalizeUserConfig } from "./config.js";
+import { NEW_INSTALL_THEME, normalizeUserConfig } from "./config.js";
 import { demoResolveSamplingBias } from "./demo-token-ids.js";
 import { discoverDemoModels } from "./demo-model-discovery.js";
 import { streamFake } from "./fake-stream.js";
@@ -889,7 +889,10 @@ export function demoAppSource(dense = false): AppSource {
     // had not started yet would be captured for ever as `searching…`.
     searchDebounceMs: 0,
     contextProbeDebounceMs: 0,
-    config: normalizeUserConfig({ updates: { mode: "notify" } }),
+    config: normalizeUserConfig({
+      theme: NEW_INSTALL_THEME,
+      updates: { mode: "notify" }
+    }),
     readingPositions: {}
   };
 }

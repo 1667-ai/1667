@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
+import { NEW_INSTALL_THEME } from "../src/config.js";
 import { demoAppSource, DEMO_SETTINGS_DOCUMENT } from "../src/demo.js";
 import { providerProbeRouteFromV5Route } from "../../shared/provider-probe-route-v1.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
@@ -7,6 +8,10 @@ import {
   discoverDemoModels,
   type DemoSubscriptionCatalogs
 } from "../src/demo-model-discovery.js";
+
+test("demo recordings use the new-install theme", () => {
+  expect(demoAppSource().config.theme).toBe(NEW_INSTALL_THEME);
+});
 
 test("demo discovery resolves one non-default route for provider and source", async () => {
   const document = {
