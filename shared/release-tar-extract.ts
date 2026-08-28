@@ -27,7 +27,10 @@ import {
   validatePlatformPackageInspection,
   type ValidatedPlatformPackage
 } from "./platform-package-policy.js";
-import type { PublishedPlatformPackage } from "./release-targets.js";
+import {
+  releaseTargetForPackage,
+  type PublishedPlatformPackage
+} from "./release-targets.js";
 import type { TarballEntry } from "./release-package-layout.js";
 import {
   UstarStreamParser,
@@ -81,7 +84,18 @@ export async function extractPlatformPackageExecutable(
   const gzipSha256 = createHash("sha256");
   const gzipSha512 = createHash("sha512");
   let gzipBytes = 0;
-  const sinkState = createExtractSink(stagingPath, maximumExecutableBytes);
+  const target = releaseTargetForPackage(options.packageName);
+  if (target === null || target.heldFromPublication !== null) {
+    throw tarError("Release package target is not published");
+  }
+  const packageExecutablePath = `package/${target.executable}`;
+  const packageExecutableMode = target.executable.endsWith(".exe") ? 0o644 : 0o755;
+  const sinkState = createExtractSink(
+    stagingPath,
+    maximumExecutableBytes,
+    packageExecutablePath,
+    packageExecutableMode
+  );
   const parser = new UstarStreamParser({
     maximumExpandedBytes: MAX_RELEASE_ARTIFACT_TAR_BYTES,
     maximumEntries: MAX_RELEASE_ARTIFACT_ENTRIES,
@@ -180,7 +194,9 @@ export function integrityMatches(integrity: string, sha512Hex: string): boolean 
 
 function createExtractSink(
   destinationPath: string,
-  maximumExecutableBytes: number
+  maximumExecutableBytes: number,
+  expectedExecutablePath: string,
+  expectedExecutableMode: 0o644 | 0o755
 ): {
   onEntryStart(entry: UstarEntry): void;
   onBody(entry: UstarEntry, chunk: Uint8Array): void;
@@ -215,8 +231,8 @@ function createExtractSink(
         throw tarError(`Tarball ${entry.path} is outside the size bound`);
       }
       if (entry.type === "file"
-        && entry.path.startsWith("package/bin/")
-        && entry.mode === 0o755) {
+        && entry.path === expectedExecutablePath
+        && entry.mode === expectedExecutableMode) {
         if (packageExecutablePath !== null) {
           throw tarError("Package contains more than one executable");
         }

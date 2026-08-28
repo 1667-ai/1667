@@ -88,7 +88,7 @@ export function assertEnvelope(
       `${label} envelope command is ${JSON.stringify(env.command)}, expected null.`
     );
   }
-  const restartRequired = env.status === "applied";
+  const restartRequired = env.status === "applied" || env.status === "staged";
   if (env.restartRequired !== restartRequired) {
     throw new StepError(
       stepNum,
