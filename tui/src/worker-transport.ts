@@ -58,6 +58,8 @@ import { prepareWorkerMutationIntent } from "./worker-mutation-publication.js";
 import type { WorkerRecoveryWarning, WorkerStoryApiOptions } from "./worker-api-contract.js";
 import { embeddedWorkerHostCause } from "./worker-host-diagnostics.js";
 
+declare const __AI_1667_EMBEDDED_WORKER_SOURCE__: string | undefined;
+
 export class WorkerTransport {
   private readonly lifecycle: WorkerLifecycle;
   private readonly recoveryCoordinator: OutboxRecoveryCoordinator<WorkerApiError>;
@@ -706,14 +708,18 @@ export class WorkerTransport {
 }
 
 function createDefaultWorker(): Worker {
-  const packagedWorkerPath = process.platform === "win32"
-    ? "/~BUN/root/server/worker.js"
-    : "/$bunfs/root/server/worker.js";
+  if (typeof __AI_1667_EMBEDDED_WORKER_SOURCE__ === "string") {
+    const workerBlob = new Blob(
+      [__AI_1667_EMBEDDED_WORKER_SOURCE__],
+      { type: "application/javascript" }
+    );
+    return new Worker(URL.createObjectURL(workerBlob), { type: "module" });
+  }
   // A compiled entrypoint needs the absolute virtual path because Bun 1.4
   // drops that root from a relative Worker URL.
   const workerPath = WORKER_BUILD_IDENTITY.artifactTarget === "source"
     ? new URL("../../server/worker.js", import.meta.url)
-    : new URL(packagedWorkerPath, import.meta.url);
+    : new URL("/$bunfs/root/server/worker.js", import.meta.url);
   return new Worker(workerPath, { type: "module" });
 }
 function isAborted(signal: AbortSignal | undefined): boolean { return signal?.aborted === true; }
