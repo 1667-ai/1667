@@ -23,6 +23,15 @@ function partDocument(instruction: string, text: string): string {
   return stripGuidance(serializePart(instruction, text));
 }
 
+async function rejection(promise: Promise<unknown>): Promise<Error> {
+  try {
+    await promise;
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+  throw new Error("expected promise to reject");
+}
+
 /** Author Brief has no NAV shortcut; open it the way a writer would, through
  *  the story palette. */
 async function openAuthorBriefFromPalette(
@@ -222,11 +231,8 @@ describe("inline editor", () => {
     release();
     await saving;
     const target = documentEditor(state).target;
-    expect(documentEditor(state).target).toMatchObject({
-      kind: "new-part",
-      savedNode: { text: "First take." }
-    });
     if (target.kind !== "new-part" || target.savedNode === null) throw new Error("first take did not bind");
+    expect(target.savedNode.text).toBe("First take.");
     const committedId = target.savedNode.id;
     await press(key("s", { sequence: "\u0013", ctrl: true }));
 
@@ -249,7 +255,8 @@ describe("inline editor", () => {
 
     await press(key("w"));
     setComposerText(state.editor!.composer, "Same first take.");
-    await expect(press(key("s", { sequence: "\u0013", ctrl: true }))).rejects.toThrow("response lost");
+    expect((await rejection(press(key("s", { sequence: "\u0013", ctrl: true })))).message)
+      .toBe("response lost");
     expect(state.uncertainFirstTakeStoryId).toBe(state.payload.id);
     await press(key("escape", { sequence: "\u001b" }));
     await press(key("w"));
@@ -275,7 +282,7 @@ describe("inline editor", () => {
     state.mode = "NAV";
     const createNode = source.api.createNode;
     let attempts = 0;
-    let committed: StoryPayload | null = null;
+    let committed: Awaited<ReturnType<typeof createNode>> | null = null;
     source.api.createNode = async (...args) => {
       attempts += 1;
       committed = await createNode(...args);
@@ -284,11 +291,15 @@ describe("inline editor", () => {
 
     await press(key("w"));
     setComposerText(state.editor!.composer, "Committed first take.");
-    await expect(press(key("s", { sequence: "\u0013", ctrl: true }))).rejects.toThrow("response lost");
+    expect((await rejection(press(key("s", { sequence: "\u0013", ctrl: true })))).message)
+      .toBe("response lost");
     if (committed === null) throw new Error("first take did not commit");
     adoptSameStoryPayload(state, committed, cache);
     expect(state.payload.path).toHaveLength(1);
-    expect(documentEditor(state).target).toMatchObject({ kind: "new-part", savedNode: null });
+    const reconciledTarget = documentEditor(state).target;
+    expect(reconciledTarget.kind).toBe("new-part");
+    if (reconciledTarget.kind !== "new-part") throw new Error("first take editor changed target");
+    expect(reconciledTarget.savedNode).toBeNull();
 
     await press(key("s", { sequence: "\u0013", ctrl: true }));
 
@@ -311,18 +322,18 @@ describe("inline editor", () => {
 
     await press(key("w"));
     setComposerText(state.editor!.composer, "My first take.");
-    await expect(press(key("s", { sequence: "\u0013", ctrl: true })))
-      .rejects.toThrow("createNode was not sent");
+    expect((await rejection(press(key("s", { sequence: "\u0013", ctrl: true })))).message)
+      .toBe("createNode was not sent");
     const external = await createNode(state.payload.id, {
       parentId: null,
       instruction: "",
       text: "My first take."
     });
     adoptSameStoryPayload(state, external, cache);
-    expect(documentEditor(state).target).toMatchObject({
-      kind: "new-part",
-      savedNode: null
-    });
+    const unsentTarget = documentEditor(state).target;
+    expect(unsentTarget.kind).toBe("new-part");
+    if (unsentTarget.kind !== "new-part") throw new Error("first take editor changed target");
+    expect(unsentTarget.savedNode).toBeNull();
     expect(state.uncertainFirstTakeStoryId).toBe(null);
 
     source.api.createNode = async (...args) => {

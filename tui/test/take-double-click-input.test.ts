@@ -99,7 +99,10 @@ describe("take double-click through interactive input admission", () => {
       height: 12,
       wrapCache
     }).derived);
-    expect(state.hitRows[located.y]?.target).not.toMatchObject({ rowId: target.rowId });
+    const shiftedTarget = state.hitRows[located.y]?.target;
+    expect(shiftedTarget === undefined
+      || !("rowId" in shiftedTarget)
+      || shiftedTarget.rowId !== target.rowId).toBe(true);
     now += 120;
     await enqueue("down");
     expect(runs).toBe(1);
@@ -109,7 +112,9 @@ describe("take double-click through interactive input admission", () => {
     expect(state.mode).toBe("EDITOR");
     expect(state.editor?.kind).toBe("document");
     if (state.editor?.kind !== "document") throw new Error("manual editor did not open");
-    expect(state.editor.target).toMatchObject({ kind: "part", node: { id: target.rowId } });
+    expect(state.editor.target.kind).toBe("part");
+    if (state.editor.target.kind !== "part") throw new Error("manual editor opened the wrong target");
+    expect(state.editor.target.node.id).toBe(target.rowId);
   });
 
   test("does not open manual edit for a chapter row", async () => {
