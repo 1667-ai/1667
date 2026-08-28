@@ -10,6 +10,11 @@ This file records notable changes to 1667. Product terms use the definitions in
   Installer command for a stable release. For beta, 1667 gives commands to
   download and verify the release Installer before it runs. An exact
   prerelease no longer names an Installer file that does not exist.
+- **New users start with the Graphite theme.** Existing users keep their saved
+  theme. An older config without a theme keeps the Lantern theme. The Theme row
+  now appears in Simple Settings.
+- **The starter tour ends with setup instructions.** It tells the user how to
+  delete the onboarding stories and select a model provider.
 
 ## 0.10.4-rc.1 - 2026-08-28
 

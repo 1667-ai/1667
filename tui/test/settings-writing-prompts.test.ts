@@ -109,6 +109,7 @@ describe("table-driven Settings writing prompts", () => {
     const { state, press } = settingsHarness(undefined, { settingsViewMode: "simple" });
     await openSettings(press);
     const simple = settingsRowIds(state.settings!);
+    expect(simple).toContain("theme");
     expect(simple).toContain("default-author-brief");
     expect(simple).toContain("default-continue-direction");
     for (const definition of WRITING_PROMPT_FIELD_DEFINITIONS) {

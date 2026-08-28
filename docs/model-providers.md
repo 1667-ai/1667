@@ -312,11 +312,11 @@ release refuses a schema 5 Settings document. Back up Settings before you try
 ## Settings views
 
 Settings has two views: **Simple view** and **Advanced view**. Simple view
-is the default. Simple view shows the Default Author Brief row, the Default
-Continue direction row, the provider row, the model row, the context size
-row, the base URL row, and the API key row. Advanced view shows every row.
-Every row this document names that is not in that list appears only in
-Advanced view.
+is the default. Simple view shows the Theme row, the Default Author Brief row,
+the Default Continue direction row, the provider row, the model row, the
+context size row, the base URL row, and the API key row. Advanced view shows
+every row. Every row this document names that is not in that list appears only
+in Advanced view.
 
 Press `,` to open Settings. Press `m` to switch between Simple view and
 Advanced view. 1667 remembers your choice for your next session.
