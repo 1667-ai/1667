@@ -19,6 +19,8 @@ export type ThemeName =
   | "iron gall"
   | "parchment"
   | "bond"
+  | "graphite"
+  | "bone"
   | "hi-contrast dark"
   | "hi-contrast light";
 
@@ -27,6 +29,8 @@ export const THEME_NAMES: readonly ThemeName[] = [
   "iron gall",
   "parchment",
   "bond",
+  "graphite",
+  "bone",
   "hi-contrast dark",
   "hi-contrast light"
 ];

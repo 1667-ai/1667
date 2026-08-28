@@ -101,6 +101,34 @@ const THEMES: Record<ThemeName, ThemeTable> = {
     logoOrange: "#A84D18", logoGreen: "#257A48", logoCyan: "#156B74", logoBlue: "#235A8C",
     freshIntermediate: ["#1A1C1E", "#212426"], freshBold: true
   },
+  "graphite": {
+    background: "#121215", raised: "#1B1B1F", chrome: "#85858D",
+    prose: "#E6E4DE", "prose · dim": "#A9A9B0",
+    "focus / accent": "#D8F55A", "accent · deep": "#A5BC45",
+    "compose accent": "#8FB8D9",
+    streaming: "#F4F3ED", "human edit": "#8FB8D9", summary: "#8F8F96",
+    "tag · canon": "#E4C65A", "tag · alt": "#C59BEF",
+    "tag · draft": "#82CED2", "tag · discarded": "#6A6A72",
+    danger: "#F06755", "dimmed page": "#55555C",
+    brassDim: "#A5BC45", humanEditDim: "#6D91B8", dangerText: "#FF8A78", contextWarning: "#F2B84B",
+    matchWash: "#26262B", matchInk: "#D8F55A",
+    logoOrange: "#FF9E4A", logoGreen: "#79D88F", logoCyan: "#57D2D5", logoBlue: "#75A9FF",
+    freshIntermediate: ["#F0EFE9", "#EBEAE4"], freshBold: false
+  },
+  "bone": {
+    background: "#EDEBE3", raised: "#E9E6DD", chrome: "#6B675C",
+    prose: "#1C1B18", "prose · dim": "#4A473F",
+    "focus / accent": "#B52D14", "accent · deep": "#7A2416",
+    "compose accent": "#245F8E",
+    streaming: "#141310", "human edit": "#245F8E", summary: "#5B554B",
+    "tag · canon": "#8C6500", "tag · alt": "#714A79",
+    "tag · draft": "#2F6D79", "tag · discarded": "#85806F",
+    danger: "#760000", "dimmed page": "#8A867A",
+    brassDim: "#7A641F", humanEditDim: "#3C6994", dangerText: "#760000", contextWarning: "#8A5200",
+    matchWash: "#E7D8D1", matchInk: "#7F2E1C",
+    logoOrange: "#B95D1E", logoGreen: "#2F7A4A", logoCyan: "#1F7880", logoBlue: "#245F8E",
+    freshIntermediate: ["#171613", "#1A1916"], freshBold: true
+  },
   "hi-contrast dark": {
     background: "#000000", raised: "#0D0D0D", chrome: "#9A9A9A",
     prose: "#FFFFFF", "prose · dim": "#C4C4C4",
@@ -193,6 +221,34 @@ const THEMES_256: Record<ThemeName, ThemeTable256> = {
     matchWash: 188, matchInk: 88,
     logoOrange: 130, logoGreen: 29, logoCyan: 30, logoBlue: 24,
     freshIntermediate: [234, 235]
+  },
+  graphite: {
+    background: 233, raised: 234, chrome: 245,
+    prose: 253, "prose · dim": 248,
+    "focus / accent": 191, "accent · deep": 149,
+    "compose accent": 110,
+    streaming: 231, "human edit": 110, summary: 246,
+    "tag · canon": 185, "tag · alt": 183,
+    "tag · draft": 116, "tag · discarded": 243,
+    danger: 203, "dimmed page": 240,
+    brassDim: 149, humanEditDim: 67, dangerText: 216, contextWarning: 221,
+    matchWash: 235, matchInk: 191,
+    logoOrange: 215, logoGreen: 114, logoCyan: 80, logoBlue: 111,
+    freshIntermediate: [255, 254]
+  },
+  bone: {
+    background: 255, raised: 254, chrome: 241,
+    prose: 234, "prose · dim": 238,
+    "focus / accent": 124, "accent · deep": 88,
+    "compose accent": 24,
+    streaming: 16, "human edit": 24, summary: 95,
+    "tag · canon": 94, "tag · alt": 96,
+    "tag · draft": 23, "tag · discarded": 244,
+    danger: 52, "dimmed page": 245,
+    brassDim: 100, humanEditDim: 61, dangerText: 52, contextWarning: 94,
+    matchWash: 253, matchInk: 88,
+    logoOrange: 130, logoGreen: 29, logoCyan: 30, logoBlue: 24,
+    freshIntermediate: [232, 233]
   },
   "hi-contrast dark": {
     background: 16, raised: 233, chrome: 247,
