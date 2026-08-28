@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { KeyEvent } from "@opentui/core";
-import { handleKey, initialState, renderOnce } from "../src/app.js";
+import { RGBA, type KeyEvent } from "@opentui/core";
+import { handleKey, initialState, renderOnce, renderOnceSpans } from "../src/app.js";
 import { createDemoController, demoAppSource, demoStoryApi, DEMO_SETTINGS_DOCUMENT } from "../src/demo.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
+import { createPalette } from "../src/palette.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { cellWidth } from "../src/cell-width.js";
@@ -529,9 +530,15 @@ describe("run C overlay frames", () => {
   });
 
   test("theme command switches the palette for the frame", async () => {
-    const source = demoAppSource();
-    await renderOnce(source, 120, 36, ":parchment\r");
-    expect(source.config.theme).toBe("parchment");
+    for (const theme of ["graphite", "bone"] as const) {
+      const source = demoAppSource();
+      const frame = await renderOnceSpans(source, 120, 36, `:${theme}\r`);
+      expect(source.config.theme).toBe(theme);
+      const accent = createPalette(theme).color("focus / accent");
+      const expected = typeof accent === "string" ? RGBA.fromHex(accent) : accent;
+      expect(frame.lines.some((line) => line.spans.some((span) =>
+        span.fg.equals(expected)))).toBeTrue();
+    }
   });
 
   test("summary command opens the modal with stretch and lock copy", async () => {
