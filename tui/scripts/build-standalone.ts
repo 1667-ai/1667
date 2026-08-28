@@ -66,24 +66,12 @@ const photonWasmBase64 = await readFile(
   ),
   "base64"
 );
-const embeddedWorkerSource = process.platform === "win32"
-  ? await buildEmbeddedWorker(
-      workerEntry,
-      buildIdentity,
-      tiktokenWasmBase64,
-      photonWasmBase64
-    )
-  : undefined;
-
 const result = await buildStandaloneProduct(standaloneCompiler, {
-  entrypoints: process.platform === "win32"
-    ? [path.join(tuiRoot, "src", "standalone.ts")]
-    : [path.join(tuiRoot, "src", "standalone.ts"), workerEntry],
+  entrypoints: [path.join(tuiRoot, "src", "standalone.ts"), workerEntry],
   outputFile,
   buildIdentity,
   tiktokenWasmBase64,
-  photonWasmBase64,
-  embeddedWorkerSource
+  photonWasmBase64
 });
 
 if (!result.success) {
@@ -92,42 +80,6 @@ if (!result.success) {
 } else {
   await smokeStandalone(outputFile, buildIdentity);
   console.log(outputFile);
-}
-
-async function buildEmbeddedWorker(
-  entrypoint: string,
-  identity: BuildIdentity,
-  tiktokenWasmBase64: string,
-  photonWasmBase64: string
-): Promise<string> {
-  const result = await Bun.build({
-    entrypoints: [entrypoint],
-    target: "bun",
-    define: {
-      __AI_1667_BUILD_IDENTITY__: JSON.stringify(identity),
-      __AI_1667_TIKTOKEN_WASM_BASE64__: JSON.stringify(
-        tiktokenWasmBase64
-      ),
-      __AI_1667_PHOTON_WASM_BASE64__: JSON.stringify(
-        photonWasmBase64
-      )
-    },
-    external: ["koffi"],
-    minify: true
-  });
-  if (!result.success || result.outputs.length !== 1) {
-    throw new Error(
-      `Embedded Windows worker build failed: ${result.logs.join("\n")}`
-    );
-  }
-  const source = await result.outputs[0]!.text();
-  if (!source.includes(tiktokenWasmBase64)) {
-    throw new Error("Embedded Windows worker omitted the tokenizer WASM");
-  }
-  if (!source.includes(photonWasmBase64)) {
-    throw new Error("Embedded Windows worker omitted the photon WASM");
-  }
-  return source;
 }
 
 async function deriveBuildIdentity(): Promise<PackagedBuildIdentity> {

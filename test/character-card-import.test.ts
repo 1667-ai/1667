@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { promisify } from "node:util";
 import { initializeProject } from "../server/project-discovery.js";
 import { StoryService } from "../server/story-service.js";
 import { stripInheritedAcl } from "./state-root-fixture.js";
@@ -12,8 +10,8 @@ import { toPublicServiceError } from "../server/service-error-policy.js";
 import { planCardImport } from "../shared/card-import.js";
 import { MAX_FACT_TEXT_CHARS } from "../shared/types.js";
 import { unicodeScalarLength } from "../shared/unicode.js";
+import { runBunCli } from "./bun-cli-test-process.js";
 
-const execFileAsync = promisify(execFile);
 const PNG_SIGNATURE = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const encoder = new TextEncoder();
 
@@ -209,10 +207,8 @@ async function runCardImport(
   storyId: string,
   file: string
 ): Promise<{ readonly stdout: string; readonly stderr: string }> {
-  const bun = process.execPath.includes("bun") ? process.execPath : "bun";
   const entrypoint = path.resolve("tui/src/standalone.ts");
-  return await execFileAsync(
-    bun,
+  return await runBunCli(
     [entrypoint, "import-card", "--data", root, "--story", storyId, file],
     { env: { ...process.env, AI_1667_STATE: path.join(root, "machine") } }
   );

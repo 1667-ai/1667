@@ -9,7 +9,6 @@ export interface StandaloneProductBuildOptions {
   readonly buildIdentity: BuildIdentity;
   readonly tiktokenWasmBase64: string;
   readonly photonWasmBase64: string;
-  readonly embeddedWorkerSource: string | undefined;
 }
 
 export interface PromptTokenizerBuildOptions {
@@ -38,11 +37,7 @@ export function buildStandaloneProduct<Result>(
       ),
       __AI_1667_PHOTON_WASM_BASE64__: JSON.stringify(
         options.photonWasmBase64
-      ),
-      __AI_1667_EMBEDDED_WORKER_SOURCE__:
-        options.embeddedWorkerSource === undefined
-          ? "undefined"
-          : JSON.stringify(options.embeddedWorkerSource)
+      )
     },
     external: ["koffi"],
     minify: true

@@ -1,15 +1,13 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { promisify } from "node:util";
 import { initializeProject } from "../server/project-discovery.js";
 import { isSealed } from "../shared/vault-cipher.js";
 import { stripInheritedAcl } from "./state-root-fixture.js";
+import { runBunCli } from "./bun-cli-test-process.js";
 
-const execFileAsync = promisify(execFile);
 const PASSPHRASE = "correct horse battery staple";
 
 /**
@@ -31,12 +29,10 @@ test("E2E integration: the Bun runtime seals and unseals a project vault", async
   const passphraseFile = path.join(root, "passphrase.txt");
   await writeFile(passphraseFile, `${PASSPHRASE}\n`);
 
-  const bun = process.execPath.includes("bun") ? process.execPath : "bun";
   const entrypoint = path.resolve("tui/src/standalone.ts");
   const env = { ...process.env, AI_1667_STATE: path.join(root, "machine") };
   const vaultCommand = async (command: "encrypt" | "decrypt"): Promise<void> => {
-    await execFileAsync(
-      bun,
+    await runBunCli(
       [entrypoint, command, "--data", project.root, "--passphrase-file", passphraseFile],
       { env }
     );
