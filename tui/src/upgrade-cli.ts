@@ -320,7 +320,7 @@ async function dispatchUpgradeCommand(
         && authority.kind === "powershell"
         && command.channel !== authority.channel;
       warnIfDowngrade(plan, onDowngradeWarning);
-      if (method === "powershell"
+      if (authority.kind === "powershell"
         && command.version === null
         && (plan.status !== "up-to-date" || channelSwitch)
       ) {

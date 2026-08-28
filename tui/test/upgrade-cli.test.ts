@@ -531,7 +531,7 @@ test("selecting beta without an exact version stays safe and gives release guida
   expect(requested.stderr).not.toContain("https://1667.ai/install.ps1");
   expect(requested.stderr).toContain("powershell -NoLogo -NoProfile -ExecutionPolicy Bypass");
   expect(requested.stderr).not.toContain("EncodedCommand");
-  expect(requested.stderr).not.toMatch(/\birm\b.*install-beta\.ps1/i);
+  expect(/\birm\b.*install-beta\.ps1/i.test(requested.stderr)).toBe(false);
 });
 
 test("an exact PowerShell prerelease gives attested beta release guidance", async () => {
@@ -559,7 +559,7 @@ test("an exact PowerShell prerelease gives attested beta release guidance", asyn
   expect(output).toMatch(/powershell\b.*-File\b.*install-beta\.ps1/i);
   expect(output).toContain("powershell -NoLogo -NoProfile -ExecutionPolicy Bypass");
   expect(output).not.toContain("EncodedCommand");
-  expect(output).not.toMatch(/\birm\b.*install-beta\.ps1/i);
+  expect(/\birm\b.*install-beta\.ps1/i.test(output)).toBe(false);
   expect(output).not.toContain("install-stable.ps1");
   expect(() => windowsInstallCommand(POWERSHELL_ROOT, version)).toThrow(
     /stable channel/
