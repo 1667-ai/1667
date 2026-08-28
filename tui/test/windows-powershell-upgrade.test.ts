@@ -348,6 +348,7 @@ process.stdout.write(String(process.pid));
     expect((await readReleaseExecutableIdentity(activePath)).productVersion).toBe(NEXT);
     expect(JSON.parse(readFileSync(ownershipPath, "utf8"))).toMatchObject({
       channel: "beta",
+      installRoot,
       executable: activePath
     });
   } finally {

@@ -259,6 +259,7 @@ test("post-commit cleanup failure preserves the successful Windows upgrade", asy
     expect((await readReleaseExecutableIdentity(activePath)).productVersion).toBe(NEXT);
     expect(JSON.parse(readFileSync(ownershipPath, "utf8"))).toMatchObject({
       channel: "beta",
+      installRoot,
       executable: activePath
     });
 
@@ -369,6 +370,7 @@ for (const scenario of [
       expect((await readReleaseExecutableIdentity(activePath)).productVersion).toBe(NEXT);
       expect(JSON.parse(readFileSync(ownershipPath, "utf8"))).toMatchObject({
         channel: scenario.savedChannel,
+        installRoot,
         executable: activePath
       });
       expect(workRoots.some((workRoot) => existsSync(workRoot))).toBe(false);

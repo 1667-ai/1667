@@ -305,8 +305,8 @@ function Main {
         installationId = [string]$record.installationId
         method = 'powershell'
         channel = $savedChannel
-        installRoot = $root
-        executable = $active
+        installRoot = [string]$record.installRoot
+        executable = [string]$record.executable
         artifactTarget = $ArtifactTarget
       }
       Write-TextAtomic $recordPath (($next | ConvertTo-Json -Compress) + [Environment]::NewLine) ([IO.Path]::Combine($work, $OwnershipName))
