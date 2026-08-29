@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.4-rc.3 - 2026-08-29
+
+- **Manual writing no longer needs a model direction.** Double-click take prose
+  to edit it. A manual edit does not need a direction or a separator. Press
+  `w` in an empty story to write the first take.
+- **The demo now matches the new-project Graphite theme.** Starting 1667
+  without a project uses the same theme as a new project.
 - **Windows beta upgrades now use one command.** Run
   `1667.exe upgrade --channel beta`. 1667 verifies the release and starts a
   local update process. Windows installs the release after the command exits.
