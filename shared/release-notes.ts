@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.4",
+    date: "2026-08-29",
+    body: "- **This release has no additional product changes.** It contains the same\n  behavior as 0.10.4-rc.3."
+  },
+  {
     version: "0.10.4-rc.3",
     date: "2026-08-29",
     body: "- **Manual writing no longer needs a model direction.** Double-click take prose\n  to edit it. A manual edit does not need a direction or a separator. Press\n  `w` in an empty story to write the first take.\n- **The demo now matches the new-project Graphite theme.** Starting 1667\n  without a project uses the same theme as a new project.\n- **Windows beta upgrades now use one command.** Run\n  `1667.exe upgrade --channel beta`. 1667 verifies the release and starts a\n  local update process. Windows installs the release after the command exits.\n  The user does not download or attest an Installer.\n- **Windows installation shows the exact start command.** The PowerShell\n  Installer tells the user to open a new PowerShell window and run `1667.exe`.\n  It warns that `1667` without `.exe` does not start the app."
