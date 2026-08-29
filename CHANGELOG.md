@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.4 - 2026-08-29
+
+- **This release has no additional product changes.** It contains the same
+  behavior as 0.10.4-rc.3.
+
 ## 0.10.4-rc.3 - 2026-08-29
 
 - **Manual writing no longer needs a model direction.** Double-click take prose
