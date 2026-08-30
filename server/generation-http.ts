@@ -150,7 +150,14 @@ export async function autonameStory(
   // The guard then covers facts plus the builder-owned fixed texts, so a long
   // story with a small fact is shortened rather than refused. Factless stories
   // keep the pre-facts 24k excerpt byte-for-byte when title guidance is empty.
-  const titleBudgeted = activeBudgetedFacts(snapshot);
+  // Autoname has no request scan context. Resolve state anchors against the
+  // active line, but do not let keyed activation match the prose excerpt.
+  const titleBudgeted = activeBudgetedFacts(snapshot, {
+    contextParts: [],
+    requestPath: line,
+    chapterBreaks: [],
+    nodes: []
+  });
   const titleFacts = formatFactsMessage(titleBudgeted.kept);
   const authorBrief = resolveAuthorBrief(snapshot.authorBrief, settings.systemPrompt);
   const briefChars = Math.min(authorBrief.trim().length, 2_000);

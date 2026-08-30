@@ -4,12 +4,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { StoryService } from "../server/story-service.js";
+import { autonameStory } from "../server/generation-http.js";
+import { PromptCacheRuntime } from "../server/provider-cache-policy.js";
+import type { ProviderStoryRuntime } from "../server/story-mutation-runtime.js";
 import {
   activeBudgetedFacts,
   activeBudgetedFactsForRewrite
 } from "../shared/fact-selection.js";
 import { firstFactText, resolveFactState } from "../shared/fact-state.js";
 import type { StoryNode } from "../shared/types.js";
+import { dryRunSettings, stubSettingsStore } from "./configurable-prompt-test-helpers.js";
 
 test("fact activation metadata round-trips through create, patch, and reload", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-fact-activation-"));
@@ -398,6 +402,65 @@ test("branch-scoped states resolve at the request path and preserve miss reasons
     await service.deleteFactState(story.id, baseId, "state-end");
     const restoredSelection = activeBudgetedFacts(await service.loadStory(story.id));
     assert.deepEqual(restoredSelection.kept.map((fact) => fact.text), ["base"]);
+  } finally {
+    await service.dispose();
+  }
+});
+
+test("autoname resolves active-line Fact states without scanning prose", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-fact-autoname-selection-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    const story = await service.createStory("Fact autoname selection");
+    const root = (await service.createNode(story.id, {
+      parentId: null,
+      instruction: "Write.",
+      text: "A quiet hall waited."
+    })).path.at(-1)!;
+    const base = await service.createFact(story.id, { text: "The base fact." });
+    const baseId = base.facts[0]!.id;
+    await service.createFactState(story.id, baseId, {
+      text: "The active anchored fact.",
+      anchorPartId: root.id
+    }, "autoname-anchor");
+    await service.createFact(story.id, {
+      text: "The keyed fact.",
+      activation: "keyed",
+      keys: ["hall"]
+    });
+
+    const loaded = (await service.stories.loadVersioned(story.id)).story;
+    const stories = {
+      loadForMutation: async () => loaded
+    } as unknown as ProviderStoryRuntime<"autonameStory">;
+    const stop = new Error("stop after capturing the autoname prompt");
+    let prompt = "";
+    let providerStarted = false;
+    await assert.rejects(
+      autonameStory(
+        story.id,
+        stories,
+        stubSettingsStore(dryRunSettings()),
+        new PromptCacheRuntime(),
+        new AbortController().signal,
+        () => { providerStarted = true; },
+        undefined,
+        loaded.title,
+        async (_settings, context) => {
+          const captured = context as {
+            readonly messages: readonly { readonly content: string }[];
+          };
+          prompt = captured.messages.map((message) => message.content).join("\n");
+          throw stop;
+        }
+      ),
+      (error: unknown) => error === stop
+    );
+    assert.match(prompt, /The active anchored fact\./);
+    assert.doesNotMatch(prompt, /The keyed fact\./);
+    assert.equal(providerStarted, false);
   } finally {
     await service.dispose();
   }
