@@ -537,6 +537,41 @@ describe("Fact editor", () => {
     expect(editor.conflict).toBeNull();
   });
 
+  test("state chrome exposes a re-anchor shortcut and hides for legacy Facts", async () => {
+    const { state, press } = editorHarness();
+    const fact = state.payload.facts[0]!;
+    const initialAnchorPartId = state.payload.path[0]!.id;
+    const stateTwo = {
+      id: "fact-state-reanchor",
+      anchorPartId: initialAnchorPartId,
+      text: "anchored state",
+      createdAt: fact.updatedAt,
+      updatedAt: fact.updatedAt
+    };
+    state.payload = {
+      ...state.payload,
+      facts: [{ ...fact, states: [...fact.states, stateTwo] }, ...state.payload.facts.slice(1)]
+    };
+    openFactEditor(state, state.payload.facts[0]!, { stateId: stateTwo.id });
+    const editor = activeFactEditor(state);
+    editor.chromeFocus = "state";
+
+    expect(editor.stateAnchorPartId).toBe(initialAnchorPartId);
+    expect(editor.stateCursorAnchorId).not.toBeNull();
+    const cursorAnchorPartId = editor.stateCursorAnchorId!;
+    expect(cursorAnchorPartId).not.toBe(initialAnchorPartId);
+    expect(frameText(renderStoryScreen(state, { width: 100, height: 24 }).lines))
+      .toContain("a re-anchor ◆ cursor");
+    await press(key("A"));
+    expect(editor.stateAnchorPartId).toBe(initialAnchorPartId);
+    await press(key("a"));
+    expect(editor.stateAnchorPartId).toBe(cursorAnchorPartId);
+
+    openFactEditor(state, fact);
+    expect(frameText(renderStoryScreen(state, { width: 100, height: 24 }).lines))
+      .not.toContain("states");
+  });
+
   test("stateful recovery detects a dirty selected-state conflict and keeps remote text", async () => {
     const { source, state, press } = editorHarness();
     const fact = state.payload.facts[0]!;

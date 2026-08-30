@@ -496,12 +496,30 @@ export function setAsideSessionTurns(
   }
 }
 
-/** Any composer edit makes an earlier Clear confirmation stale. */
-export function disarmAsideClear(
-  surface: object
-): void {
-  const value = surface as { readonly modelVersion?: 1 | 2; confirmClear?: boolean };
-  if (value.modelVersion !== 2 && "confirmClear" in value) value.confirmClear = false;
+/** Any prompt edit makes an earlier destructive confirmation stale. */
+export function disarmAsideConfirmation(surface: AsideSurfaceState): void {
+  if (isAsideV2(surface)) {
+    surface.confirmReset = null;
+    surface.confirmDelete = null;
+  } else {
+    surface.confirmClear = false;
+  }
+}
+
+/** True when an explicit prompt action can take Aside composer focus. */
+export function canClaimAsideComposer(
+  surface: Pick<AsideSurfaceState, "busy" | "useMenu"> | null | undefined
+): boolean {
+  return surface != null && !surface.busy && surface.useMenu === null;
+}
+
+/** Claim the Aside composer only while its prompt is available. */
+export function claimAsideComposer(
+  surface: Pick<AsideSurfaceState, "busy" | "focus" | "useMenu"> | null | undefined
+): boolean {
+  if (surface == null || !canClaimAsideComposer(surface)) return false;
+  surface.focus = "composer";
+  return true;
 }
 
 export function asideHeaderLine(storyTitle: string): string {

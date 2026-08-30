@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import { asideNotes, createAsideSurface } from "../src/aside-surface.js";
 import { demoAppSource } from "../src/demo.js";
-import { ActionRuntime, beginInteraction, withActionAdmission } from "../src/action-runtime.js";
+import { ActionRuntime, withActionAdmission } from "../src/action-runtime.js";
 import { handleKey, initialState } from "../src/app.js";
 import {
   createPresentedInputQueue,
@@ -10,12 +10,17 @@ import {
 } from "../src/presented-input-queue.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { setComposerText } from "../src/composer-model.js";
-import { pasteInto } from "../src/keys.js";
 import { renderAsideScreen } from "../src/screens/story/aside-screen.js";
 import { frameText } from "../src/screens/story/frame.js";
 
-function key(name: string): KeyEvent {
-  return { name, sequence: name, shift: false, ctrl: false, meta: false } as KeyEvent;
+function key(name: string, options: { ctrl?: boolean } = {}): KeyEvent {
+  return {
+    name,
+    sequence: name,
+    shift: false,
+    ctrl: options.ctrl ?? false,
+    meta: false
+  } as KeyEvent;
 }
 
 async function drainMicrotasks(): Promise<void> {
@@ -157,7 +162,7 @@ describe("Aside presented input", () => {
     backend.dispose();
   });
 
-  test("settles a failed ask after scroll and paste without overwriting the newer draft", async () => {
+  test("settles a failed ask after scroll and refuses Ctrl+V while busy", async () => {
     const source = demoAppSource();
     let rejectAsk!: (error: Error) => void;
     const gate = new Promise<never>((_, reject) => { rejectAsk = reject; });
@@ -198,19 +203,10 @@ describe("Aside presented input", () => {
         withActionAdmission(backend, admit)
       ), (work) => backend.observe(work)));
     };
-    const enqueuePaste = (text: string) => {
-      queue.enqueue(() => {
-        if (pasteInto(state, text)) {
-          beginInteraction(state);
-          repaint();
-        }
-      });
-    };
-
     enqueue(key("return"));
     expect(state.aside.busy).toBeTrue();
     enqueue(key("pageup"));
-    enqueuePaste("newer draft");
+    enqueue(key("v", { ctrl: true }));
     await drainMicrotasks();
     expect(state.aside.scrollTop).not.toBeNull();
     rejectAsk(new Error("provider failed"));
@@ -220,7 +216,7 @@ describe("Aside presented input", () => {
     expect(state.aside.busy).toBeFalse();
     expect(state.aside.streamText).toBe("");
     expect(state.aside.inflightQuestion).toBeNull();
-    expect(state.aside.composer.text).toBe("newer draft");
+    expect(state.aside.composer.text).toBe("Submitted question");
     expect(state.abort).toBeNull();
     expect(state.toast).toBe("provider failed");
     backend.dispose();
@@ -324,7 +320,7 @@ describe("Aside presented input", () => {
     backend.dispose();
   });
 
-  test("settles a cancelled ask after later input without restoring the old question", async () => {
+  test("settles a cancelled ask after scroll and refuses Ctrl+V while busy", async () => {
     const source = demoAppSource();
     let resolveAsk!: () => void;
     const gate = new Promise<void>((resolve) => { resolveAsk = resolve; });
@@ -367,9 +363,7 @@ describe("Aside presented input", () => {
 
     enqueue(key("return"));
     enqueue(key("pageup"));
-    queue.enqueue(() => {
-      if (pasteInto(state, "newer draft")) beginInteraction(state);
-    });
+    enqueue(key("v", { ctrl: true }));
     await drainMicrotasks();
     expect(state.aside.scrollTop).not.toBeNull();
     resolveAsk();
@@ -379,7 +373,7 @@ describe("Aside presented input", () => {
     expect(state.aside.busy).toBeFalse();
     expect(state.aside.streamText).toBe("");
     expect(state.aside.inflightQuestion).toBeNull();
-    expect(state.aside.composer.text).toBe("newer draft");
+    expect(state.aside.composer.text).toBe("Submitted question");
     expect(state.abort).toBeNull();
     expect(state.toast).toBeNull();
     backend.dispose();

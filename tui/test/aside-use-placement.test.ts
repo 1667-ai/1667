@@ -3,7 +3,10 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
-import { asideNotes, createAsideSurface } from "../src/aside-surface.js";
+import {
+  asideNotes,
+  createAsideSurface
+} from "../src/aside-surface.js";
 import {
   openAside,
   sendAsideQuestion
@@ -15,9 +18,9 @@ import {
   PLACEMENT_STATUS_TEXT
 } from "../src/aside-placement.js";
 import { noteCursorAfterHistoryScroll } from "../src/aside-note-scroll.js";
-import { pasteInto, resolveKey } from "../src/keys.js";
+import { resolveKey } from "../src/keys.js";
 import { demoAppSource } from "../src/demo.js";
-import { initialState } from "../src/app.js";
+import { handleKey, initialState } from "../src/app.js";
 import { handleOverlayAction } from "../src/overlay-actions.js";
 import type { StoryApi } from "../src/api.js";
 import { ActionRuntime } from "../src/action-runtime.js";
@@ -26,6 +29,7 @@ import { openDirectComposer } from "../src/composer-ownership.js";
 import { moveComposerTo, setComposerText } from "../src/composer-model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { createStoryViewModel, rowIndexForNode, rowPart } from "../src/model.js";
+import { applyTerminalPaste } from "../src/terminal-paste.js";
 
 function key(
   name: string,
@@ -74,6 +78,8 @@ describe("Aside use menu and Placement", () => {
       .toBe("apply");
     expect(resolveKey(key("up"), "ASIDE", { asideLayer: "use-menu" }).action)
       .toBe("focus-previous");
+    expect(resolveKey(key("v", { ctrl: true }), "ASIDE", { asideLayer: "use-menu" }).action)
+      .toBe("paste-clipboard");
     expect(resolveKey(key("down"), "PLACE").action).toBe("focus-next");
     expect(resolveKey(key("return"), "PLACE").action).toBe("apply");
     expect(resolveKey(key("escape"), "PLACE").action).toBe("cancel");
@@ -104,9 +110,12 @@ describe("Aside use menu and Placement", () => {
     expect(notesFrame).toContain("▸ Q: Why the lantern?");
     expect(notesFrame).toContain("Tab ask");
     expect(notesFrame).toContain("Enter use");
-    expect(pasteInto(state, "hidden paste")).toBeFalse();
-    expect(surface.composer.text).toBe("");
+    expect(await applyTerminalPaste("visible paste", state, source, context)).toBeTrue();
+    expect(surface.focus).toBe("composer");
+    expect(surface.composer.text).toBe("visible paste");
     expect(state.composer.text).toBe("draft replace right");
+    await handleOverlayAction({ action: "cycle" }, state, source, context);
+    expect(surface.focus).toBe("notes");
 
     await handleOverlayAction({ action: "focus-previous" }, state, source, context);
     expect(surface.noteCursor).toBe(0);
@@ -127,6 +136,12 @@ describe("Aside use menu and Placement", () => {
     expect(menuFrame).toContain("insert as new Fact");
     expect(menuFrame).not.toContain("delete note");
     expect(menuFrame).not.toContain("author's note");
+
+    const interactionVersion = state.interactionVersion;
+    await handleKey(key("v", { ctrl: true }), state, source, context.cache,
+      () => undefined, async () => undefined, () => undefined);
+    expect(state.interactionVersion).toBe(interactionVersion);
+    expect(surface.useMenu).not.toBeNull();
 
     await handleOverlayAction({ action: "cancel" }, state, source, context);
     expect(surface.useMenu).toBeNull();

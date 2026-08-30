@@ -237,7 +237,7 @@ function factEditorStateLine(
       }));
     }
     if (editor.stateCursorAnchorId !== undefined && editor.stateCursorAnchorId !== null) {
-      controls.push(segment(" · re-anchor ◆ cursor", "chrome", {
+      controls.push(segment(" · a re-anchor ◆ cursor", "chrome", {
         kind: "action", action: "reanchor-state", rowId: editor.stateCursorAnchorId
       }));
     }

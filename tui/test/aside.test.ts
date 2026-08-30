@@ -19,9 +19,9 @@ import {
 } from "../src/aside-actions.js";
 import { parseAsideComposerInput } from "../src/aside-parse.js";
 import { commandPaletteModel } from "../src/command-model.js";
-import { pasteInto, resolveKey } from "../src/keys.js";
+import { resolveKey } from "../src/keys.js";
 import { demoAppSource } from "../src/demo.js";
-import { handleKey, initialState } from "../src/app.js";
+import { dispatch, handleKey, initialState } from "../src/app.js";
 import { handleOverlayAction } from "../src/overlay-actions.js";
 import type { StoryApi } from "../src/api.js";
 import { ActionRuntime } from "../src/action-runtime.js";
@@ -34,6 +34,7 @@ import { renderStoryScreen } from "../src/screens/story.js";
 import { activeTextComposer, openTextActions } from "../src/text-actions.js";
 import { mouseToAction } from "../src/mouse-actions.js";
 import { openAsideUseMenu } from "../src/aside-use.js";
+import { applyTerminalPaste } from "../src/terminal-paste.js";
 
 function key(
   name: string,
@@ -256,7 +257,7 @@ describe("Aside TUI contract", () => {
     expect(surface.composer.text).toBe("first\nsecond");
   });
 
-  test("bracketed paste sanitizes controls and keeps Aside newlines", () => {
+  test("bracketed paste sanitizes controls and keeps Aside newlines", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
     const surface = createAsideSurface("s1", "Lantern Story");
@@ -264,8 +265,53 @@ describe("Aside TUI contract", () => {
     state.mode = "ASIDE";
     setComposerText(surface.composer, "before");
 
-    expect(pasteInto(state, "first\r\nsecond\u0000\u001bthird")).toBeTrue();
+    expect(await applyTerminalPaste(
+      "first\r\nsecond\u0000\u001bthird",
+      state,
+      source,
+      overlayContext(state)
+    )).toBeTrue();
     expect(surface.composer.text).toBe("beforefirst\nsecondthird");
+  });
+
+  test("busy Aside refuses clipboard, bracketed paste, and the mouse paste menu", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const surface = createAsideSurface("s1", "Lantern Story", [
+      { question: "Why?", answer: "Because." }
+    ]);
+    surface.focus = "notes";
+    surface.busy = true;
+    state.aside = surface;
+    state.mode = "ASIDE";
+    setComposerText(surface.composer, "waiting");
+
+    await handleKey(
+      key("v", { ctrl: true }), state, source, createWrapCache(),
+      () => undefined, async () => undefined, () => undefined
+    );
+
+    expect(surface.focus).toBe("notes");
+    expect(surface.composer.text).toBe("waiting");
+    expect(await applyTerminalPaste(
+      "hidden paste", state, source, overlayContext(state)
+    )).toBeFalse();
+    expect(surface.composer.text).toBe("waiting");
+
+    surface.focus = "composer";
+    const frame = renderStoryScreen(state, { width: 80, height: 24 });
+    state.hitRows = frame.derived.hitRows;
+    const composerRow = state.hitRows.findIndex((row) => row?.target.kind === "composer");
+    expect(composerRow).toBeGreaterThan(-1);
+    const version = state.interactionVersion;
+    expect(mouseToAction({
+      type: "down",
+      button: 2,
+      x: 40,
+      y: composerRow,
+      modifiers: { shift: false, alt: false, ctrl: false }
+    }, state)).toBeNull();
+    expect(state.interactionVersion).toBe(version);
   });
 
   test("Command Palette keeps Aside closed in the predecessor release", () => {
@@ -390,7 +436,8 @@ describe("Aside TUI contract", () => {
     state.mode = "ASIDE";
     const context = overlayContext(state, 80, 24);
 
-    // Before the prompt click, text ownership is null and right-click refuses.
+    // Before the prompt click, text ownership is null, but the visible prompt
+    // itself can claim the composer for the standard text-actions menu.
     expect(activeTextComposer(state)).toBeNull();
     const notesFrame = renderStoryScreen(state, { width: 80, height: 24 });
     state.hitRows = notesFrame.derived.hitRows;
@@ -409,9 +456,14 @@ describe("Aside TUI contract", () => {
       y: composerHit!.y,
       modifiers: { shift: false, alt: false, ctrl: false }
     }, state);
-    expect(rightClick).toBeNull();
-    openTextActions(state);
-    expect(state.textActions).toBeNull();
+    expect(rightClick).toEqual({ action: "open-text-actions" });
+    await dispatch(rightClick!, state, source, createWrapCache(), () => undefined,
+      async () => undefined, () => undefined);
+    expect(surface.focus).toBe("composer");
+    expect(activeTextComposer(state)).toBe(surface.composer);
+    expect(state.textActions?.owner).toBe(surface.composer);
+    await dispatch({ action: "cancel" }, state, source, createWrapCache(), () => undefined,
+      async () => undefined, () => undefined);
 
     // Left-click on the visible prompt claims composer focus.
     const compose = mouseToAction({
@@ -429,7 +481,7 @@ describe("Aside TUI contract", () => {
     // Subsequent text and paste target the Aside composer.
     await handleOverlayAction({ action: "input", text: "typed " }, state, source, context);
     expect(surface.composer.text).toBe("typed ");
-    expect(pasteInto(state, "paste")).toBeTrue();
+    expect(await applyTerminalPaste("paste", state, source, context)).toBeTrue();
     expect(surface.composer.text).toBe("typed paste");
 
     // Esc/Tab ladder still moves notes → composer → leave.
@@ -650,7 +702,9 @@ describe("Aside TUI contract", () => {
     await handleOverlayAction({ action: "send" }, state, sourceWithApi, context);
     expect(asideConfirmClear(state.aside!)).toBeTrue();
 
-    expect(pasteInto(state, "pasted question")).toBeTrue();
+    expect(await applyTerminalPaste(
+      "pasted question", state, sourceWithApi, context
+    )).toBeTrue();
     expect(asideConfirmClear(state.aside!)).toBeFalse();
     expect(state.aside!.composer.text).toBe("pasted question");
     await handleOverlayAction({ action: "send" }, state, sourceWithApi, context);

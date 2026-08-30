@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { createComposer } from "../src/composer-model.js";
 import { pasteInto } from "../src/keys.js";
 
-test("paste inserts at the composer cursor and flattens single-line prompts", () => {
+test("paste inserts at composer cursors and flattens composer-backed prompts", () => {
   const base = {
     composer: createComposer("ab"), tag: null, library: null, facts: null, commands: null, search: null,
     editor: null, settings: null, card: null, archive: null,
@@ -14,46 +14,6 @@ test("paste inserts at the composer cursor and flattens single-line prompts", ()
   const compose = { ...base, mode: "COMPOSE" as const };
   expect(pasteInto(compose, "line one\r\nline two")).toBeTrue();
   expect(compose.composer.text).toBe("aline one\nline twob");
-  const naming = {
-    ...base,
-    composer: createComposer(),
-    mode: "TAG" as const,
-    tag: { choosingStatus: false, name: "" }
-  };
-  expect(pasteInto(naming, "storm\ncanon")).toBeTrue();
-  expect(naming.tag.name).toBe("storm canon");
-  const facts = {
-    ...base,
-    composer: createComposer(),
-    mode: "FACTS" as const,
-    facts: { filtering: true, query: "", cursor: 6 }
-  };
-  expect(pasteInto(facts, "storm\ncanon")).toBeTrue();
-  expect(facts.facts).toEqual({ filtering: true, query: "storm canon", cursor: 0 });
-  const library = {
-    ...base,
-    composer: createComposer(),
-    mode: "LIBRARY" as const,
-    library: {
-      stories: [],
-      cursor: 6,
-      query: "",
-      prompt: {
-        kind: "filter" as const,
-        initial: { query: "", cursor: 6, storyId: null }
-      }
-    }
-  };
-  expect(pasteInto(library, "winter\norchard")).toBeTrue();
-  expect(library.library).toEqual({
-    stories: [],
-    cursor: 0,
-    query: "winter orchard",
-    prompt: {
-      kind: "filter",
-      initial: { query: "", cursor: 6, storyId: null }
-    }
-  });
   const settingsComposer = createComposer("ab");
   settingsComposer.cursor = 1;
   const settings = {

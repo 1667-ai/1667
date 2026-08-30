@@ -91,7 +91,6 @@ import {
 import { modelPickerRequired } from "./settings-model-picker.js";
 import { openProfileTransfer, profileTransferAction } from "./profile-transfer-actions.js";
 import {
-  pasteIntoModelPicker,
   settingsInlineEditAction,
   settingsModelPickerAction
 } from "./settings-field-actions.js";
@@ -208,10 +207,6 @@ export async function settingsOverlayAction(
       state.settings = null;
       state.mode = "NAV";
     }
-  } else if (resolved.action === "paste-clipboard" && overlay.modelPicker !== null) {
-    // The column is what the writer can see, so paste narrows it rather than
-    // filling a row editor hidden behind it.
-    await pasteIntoModelPicker(state, overlay);
   } else if (resolved.action === "paste-clipboard") {
     const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
     const target = openSettingsPasteTarget(state);

@@ -209,7 +209,7 @@ export function handleFactEditorCommand(
   }
   if (resolved.action === "reanchor-state") {
     editor.chromeFocus = "state";
-    const rowId = resolved.rowId;
+    const rowId = resolved.rowId ?? editor.stateCursorAnchorId ?? undefined;
     const validCursorPart = rowId !== undefined
       && state.payload.nodes.some(({ id, role }) => id === rowId && role !== "summary");
     if (editor.stateId !== undefined && editor.stateId !== null && validCursorPart) {

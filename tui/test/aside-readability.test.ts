@@ -13,7 +13,7 @@ import {
   type AsideSessionSurfaceState
 } from "../src/aside-surface.js";
 import { handleOverlayAction } from "../src/overlay-actions.js";
-import { ActionRuntime, beginInteraction } from "../src/action-runtime.js";
+import { ActionRuntime } from "../src/action-runtime.js";
 import type { StoryApi } from "../src/api.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { setComposerText } from "../src/composer-model.js";
@@ -385,7 +385,7 @@ describe("Aside readability and navigation", () => {
     expect(surface.scrollTop).toBe(selectedTop);
   });
 
-  test("newer draft survives API failure after a busy scroll", async () => {
+  test("busy paste is refused before API failure restores the question", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
     const surface = v2Surface(
@@ -411,8 +411,7 @@ describe("Aside readability and navigation", () => {
     await dispatchAsideAction({ action: "send" }, state, source, context);
     await Promise.resolve();
     expect(surface.busy).toBeTrue();
-    expect(pasteInto(state, "newer draft")).toBeTrue();
-    beginInteraction(state);
+    expect(pasteInto(state, "newer draft")).toBeFalse();
     await dispatchAsideAction({ action: "scroll-line-up" }, state, source, context);
     const selectedTop = surface.scrollTop;
     expect(selectedTop).not.toBeNull();
@@ -420,11 +419,11 @@ describe("Aside readability and navigation", () => {
     rejectAsk(new Error("provider failed"));
     await context.backend.whenIdle();
     expect(surface.busy).toBeFalse();
-    expect(surface.composer.text).toBe("newer draft");
+    expect(surface.composer.text).toBe("failed question");
     expect(surface.scrollTop).toBe(selectedTop);
   });
 
-  test("newer draft survives Stop after a busy scroll", async () => {
+  test("busy paste is refused before Stop restores the question", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
     const surface = v2Surface(
@@ -454,8 +453,7 @@ describe("Aside readability and navigation", () => {
     await dispatchAsideAction({ action: "send" }, state, source, context);
     await Promise.resolve();
     expect(surface.busy).toBeTrue();
-    expect(pasteInto(state, "newer draft")).toBeTrue();
-    beginInteraction(state);
+    expect(pasteInto(state, "newer draft")).toBeFalse();
     await dispatchAsideAction({ action: "scroll-line-up" }, state, source, context);
     const selectedTop = surface.scrollTop;
     expect(selectedTop).not.toBeNull();
@@ -464,7 +462,7 @@ describe("Aside readability and navigation", () => {
     expect(requestSignal.aborted).toBeTrue();
     await context.backend.whenIdle();
     expect(surface.busy).toBeFalse();
-    expect(surface.composer.text).toBe("newer draft");
+    expect(surface.composer.text).toBe("stopped question");
     expect(surface.scrollTop).toBe(selectedTop);
   });
 });
