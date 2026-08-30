@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.5-rc.1",
+    date: "2026-08-30",
+    body: "- **Aside retakes now work like story retakes.** Stop keeps generated text.\n  Press `r` to repeat the newest question. Press `Shift+R` to edit it. Escape\n  closes the active prompt layer before it exits Aside. Tab switches between\n  the composer and saved turns."
+  },
+  {
     version: "0.10.4",
     date: "2026-08-29",
     body: "- **This release has no additional product changes.** It contains the same\n  behavior as 0.10.4-rc.3."
