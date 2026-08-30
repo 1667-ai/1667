@@ -5,6 +5,7 @@ import type { ResolvedKey } from "./keys.js";
 import { generationBusy } from "./story-actions.js";
 import type { RuntimeState } from "./state.js";
 import { activeTextComposer } from "./text-actions.js";
+import { canClaimAsideComposer } from "./aside-surface.js";
 
 export type MouseGesture = Pick<
   MouseEvent,
@@ -333,11 +334,18 @@ export function mouseToAction(
 
   const selectedList = target.kind === "list"
     && (target.selected ?? listCursor(state) === target.index);
+  const activeComposer = activeTextComposer(state);
+  const asideComposerClaimable = state.mode === "ASIDE"
+    && target.kind === "composer"
+    && canClaimAsideComposer(state.aside);
+  const composerActionsAvailable = target.kind === "composer"
+    && (state.mode === "ASIDE"
+      ? asideComposerClaimable
+      : target.composerSourceId !== undefined || activeComposer !== null);
   if (state.textActions === null
     && event.button === 2
-    && (target.kind === "composer"
-      && (target.composerSourceId !== undefined || activeTextComposer(state) !== null)
-      || state.mode === "SETTINGS" && selectedList && activeTextComposer(state) !== null)) {
+    && (composerActionsAvailable
+      || state.mode === "SETTINGS" && selectedList && activeComposer !== null)) {
     return {
       action: "open-text-actions",
       ...(target.kind === "composer" && target.composerSourceId !== undefined

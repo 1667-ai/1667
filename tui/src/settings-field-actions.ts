@@ -32,33 +32,6 @@ import type { ActionContext } from "./action-context.js";
 /** C-15's own keys. Typing narrows the column live; `↵` takes the focused
  *  option, or the text itself when nothing matches, so a model the provider
  *  never listed is still reachable from here. */
-/** Paste narrows the visible column. */
-export async function pasteIntoModelPicker(
-  state: RuntimeState,
-  overlay: SettingsOverlayState
-): Promise<void> {
-  const picker = overlay.modelPicker;
-  if (picker === null) return;
-  const claim = { interactionVersion: state.interactionVersion, query: picker.query };
-  const text = await readFromClipboard();
-  if (state.settings !== overlay || overlay.modelPicker !== picker) return;
-  if (state.interactionVersion !== claim.interactionVersion
-    || picker.query !== claim.query) {
-    return;
-  }
-  if (text === null) {
-    state.toast = "clipboard unreadable · paste with ⌘V or ctrl+shift+v";
-    return;
-  }
-  const clean = sanitizePastedText(text).replace(/\s+/gu, " ").trim();
-  if (clean.length === 0) {
-    state.toast = "clipboard has no insertable text";
-    return;
-  }
-  picker.query += clean;
-  picker.cursor = 0;
-}
-
 export function settingsModelPickerAction(
   resolved: ResolvedKey,
   state: RuntimeState,

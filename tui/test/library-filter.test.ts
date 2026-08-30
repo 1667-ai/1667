@@ -133,7 +133,7 @@ describe("live Library filter", () => {
     expect(state.payload.id).toBe(match.id);
   });
 
-  test("preserves the selected matching story after paste", async () => {
+  test("preserves the selected matching story after filter input", async () => {
     const { source, state, press } = harness();
     await press("o");
     const selected = state.library!.stories.find(
@@ -144,7 +144,7 @@ describe("live Library filter", () => {
     );
     await press("/");
 
-    expect(pasteInto(state, "the")).toBeTrue();
+    for (const character of "the") await press(character);
     await press("return", "\r");
     source.api.loadStory = async (id) => ({
       ...source.payload,

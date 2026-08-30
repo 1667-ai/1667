@@ -20,9 +20,7 @@ import {
   asideKeyboardLayer,
   isPlainNavigation,
   overlayTextInputActive,
-  pasteInto,
   resolveKey,
-  sanitizePastedText,
   type ResolvedKey
 } from "./keys.js";
 import { captureMouseActionState } from "./mouse-actions.js";
@@ -43,7 +41,6 @@ import {
   type ConfiguredUpdateStarter,
   type UpdateCheckSession
 } from "./update-runtime.js";
-import { openSettingsPasteTarget } from "./editor-open.js";
 import { createPalette } from "./palette.js";
 import {
   createPresentedInputQueue,
@@ -102,6 +99,9 @@ import {
   textActionsMenuAction
 } from "./text-actions.js";
 import { composerRangeFromProjection } from "./selection-projection.js";
+import { canClaimAsideComposer, claimAsideComposer } from "./aside-surface.js";
+import { pastePlainTextFromClipboard } from "./plain-text-paste.js";
+import { applyTerminalPaste } from "./terminal-paste.js";
 
 export { recoveryNotice } from "./recovery-orchestration.js";
 
@@ -514,7 +514,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
     const text = new TextDecoder().decode(event.bytes);
     const queuedSelection = captureQueuedSelection();
     // Paste admission clears pending mouse click gestures at the same site.
-    inputAdmission.enqueueText(inputs, () => {
+    inputAdmission.enqueueText(inputs, async () => {
       const selection = reconcilePresentedSelection(queuedSelection, frames.version, state);
       if (selection.kind === "stale") {
         retirePresentedSelection(renderer, queuedSelection);
@@ -544,33 +544,9 @@ export async function runInteractive(source: AppSource): Promise<void> {
         clearNativeSelectionIfMatches(renderer, selection.native);
       }
       consumePresentedSelection(queuedSelection);
-      if (sanitizePastedText(text).length > 0
-        && state.mode === "SETTINGS"
-        && state.settings !== null) {
-        openSettingsPasteTarget(state);
-      }
-      if (state.mode === "SEARCH" && state.search !== null) {
-        const clean = sanitizePastedText(text);
-        if (clean.length > 0) {
-          const line = clean.replace(/\n+/g, " ");
-          void dispatch(
-            { action: "input", text: line },
-            state,
-            source,
-            wrapCache,
-            repaint,
-            cancelStream,
-            requestQuit,
-            renderer,
-            applyTheme,
-            previewTheme,
-            backend
-          );
-        }
-      } else if (pasteInto(state, text)) {
-        beginInteraction(state);
-        repaint();
-      }
+      await applyTerminalPaste(text, state, source, {
+        cache: wrapCache, repaint, backend, renderer, applyTheme, previewTheme
+      });
     }, () => retirePresentedSelection(renderer, queuedSelection));
   });
   surface.onMouse((event) => {
@@ -721,6 +697,12 @@ export async function dispatch(
     cancelChapterSummary(state, repaint);
     return;
   }
+  // A refused Aside paste is not an editor interaction. Keep the ask's
+  // restore fence intact so a failed or stopped question can return to the
+  // visible composer exactly as it does for bracketed paste.
+  if (resolved.action === "paste-clipboard"
+    && state.mode === "ASIDE"
+    && !canClaimAsideComposer(state.aside)) return;
   beginInteraction(state);
   // Aside keeps its top-level quit gesture even while a text-actions menu is
   // open; that menu must not turn `q` into a no-op.
@@ -758,6 +740,7 @@ export async function dispatch(
   }
   else if (resolved.action === "open-text-actions") {
     if (resolved.nativeSelection === undefined && resolved.composerEditable === false) return;
+    if (state.mode === "ASIDE" && !claimAsideComposer(state.aside)) return;
     let sync: ReturnType<typeof syncMouseComposerSelection> = "none";
     const projectedSelection = resolved.nativeSelection?.range === null
       || resolved.nativeSelection?.range === undefined
@@ -821,6 +804,8 @@ export async function dispatch(
   }
   else if (state.prune !== null) await pruneAction(resolved, state, source, context);
   else if (state.actions !== null) await actionsMenuAction(resolved, state, source, context);
+  else if (resolved.action === "paste-clipboard"
+    && await pastePlainTextFromClipboard(state, source, context)) { /* handled */ }
   else if (await handleOverlayAction(resolved, state, source, context)) { /* handled */ }
   else if (resolved.action === "toggle-context-meter" && (state.mode === "NAV" || state.mode === "COMPOSE")) {
     state.contextMeterExpanded = !state.contextMeterExpanded;

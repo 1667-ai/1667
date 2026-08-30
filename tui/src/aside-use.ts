@@ -12,7 +12,7 @@ import { openFactFromSelection } from "./editor-action.js";
 import {
   asideCursor,
   asideNotes,
-  disarmAsideClear,
+  disarmAsideConfirmation,
   isAsideV2,
   setAsideCursor,
   type AsideSurfaceState
@@ -113,7 +113,7 @@ export function openAsideUseMenu(
   const notes = asideNotes(surface);
   if (noteIndex < 0 || noteIndex >= notes.length) return false;
   const actions = asideUseActions(selectionText);
-  disarmAsideClear(surface);
+  disarmAsideConfirmation(surface);
   surface.focus = "notes";
   setAsideCursor(surface, noteIndex);
   surface.useMenu = {
@@ -181,7 +181,7 @@ export function cycleAsideFocus(surface: AsideSurfaceState): boolean {
   const notes = asideNotes(surface);
   if (notes.length === 0) return false;
   if (surface.focus === "composer") {
-    disarmAsideClear(surface);
+    disarmAsideConfirmation(surface);
     surface.focus = "notes";
     setAsideCursor(surface, Math.max(
       0,

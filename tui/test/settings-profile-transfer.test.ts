@@ -17,7 +17,7 @@ import {
   selectRow,
   settingsHarness
 } from "./settings-test-harness.js";
-import { pasteInto, resolveKey } from "../src/keys.js";
+import { applyTerminalPaste } from "../src/terminal-paste.js";
 
 describe("Generation Profile transfer", () => {
   test("imports a Starter Profile into the draft and saves only on s", async () => {
@@ -116,7 +116,7 @@ describe("Generation Profile transfer", () => {
   });
 
   test("native Settings paste belongs to the transfer prompt and leaves no edit", async () => {
-    const { source, state, press } = settingsHarness();
+    const { source, state, press, cache, backend } = settingsHarness();
     const commands: SaveSettingsCommand[] = [];
     installSave(source, commands);
     const prompt = await openFilePrompt(state, press);
@@ -124,7 +124,19 @@ describe("Generation Profile transfer", () => {
     if (overlay === null) throw new Error("settings overlay missing");
 
     expect(openSettingsPasteTarget(state)).toBe(null);
-    expect(pasteInto(state, "/tmp/native.preset")).toBeTrue();
+    expect(await applyTerminalPaste(
+      "/tmp/native.preset",
+      state,
+      source,
+      {
+        cache,
+        backend,
+        repaint: () => undefined,
+        renderer: null,
+        applyTheme: () => undefined,
+        previewTheme: () => undefined
+      }
+    )).toBeTrue();
     expect(prompt.path).toBe("/tmp/native.preset");
     expect(overlay.edit).toBe(null);
 
@@ -138,37 +150,6 @@ describe("Generation Profile transfer", () => {
     expect(overlay.edit).toBe(null);
     await press(key("s"));
     expect(commands).toHaveLength(1);
-  });
-
-  test("Generation Profile file prompt routes Ctrl and Cmd V through the clipboard", async () => {
-    const { state, press } = settingsHarness();
-    const prompt = await openFilePrompt(state, press);
-    const overlay = state.settings;
-    if (overlay === null) throw new Error("settings overlay missing");
-    prompt.error = "stale error";
-    prompt.candidates = ["/tmp/stale.preset"];
-    const clipboard = ["/tmp/ctrl\u0007\nprofile.preset", "/cmd.profile.json"];
-    const readClipboard = async () => clipboard.shift() ?? null;
-
-    const ctrlPaste = resolveKey(
-      key("v", { ctrl: true }),
-      "SETTINGS",
-      { settingsProfileTransfer: "file" }
-    );
-    expect(ctrlPaste).toEqual({ action: "paste-clipboard" });
-    await profileTransferAction(ctrlPaste, state, overlay, { readClipboard });
-    expect(prompt.path).toBe("/tmp/ctrl profile.preset");
-    expect(prompt.error).toBe(null);
-    expect(prompt.candidates).toEqual([]);
-
-    const cmdPaste = resolveKey(
-      key("v", { super: true }),
-      "SETTINGS",
-      { settingsProfileTransfer: "file" }
-    );
-    expect(cmdPaste).toEqual({ action: "paste-clipboard" });
-    await profileTransferAction(cmdPaste, state, overlay, { readClipboard });
-    expect(prompt.path).toBe("/tmp/ctrl profile.preset/cmd.profile.json");
   });
 
   test("transfer applies a draft-only Starter Profile while generation is active", async () => {

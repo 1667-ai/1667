@@ -66,7 +66,7 @@ export function openSettingsPasteTarget(
 ): "editor" | "inline" | null {
   const overlay = state.settings;
   if (overlay === null) return null;
-  if (overlay.profileTransfer !== null) return null;
+  if (overlay.profileTransfer !== null || overlay.modelPicker !== null) return null;
   if (overlay.sampling !== null) {
     return overlay.sampling.edit === null ? null : "inline";
   }

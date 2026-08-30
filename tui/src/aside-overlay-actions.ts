@@ -30,8 +30,9 @@ import { applyTextKey, type ResolvedKey } from "./keys.js";
 import type { RuntimeState } from "./state.js";
 import {
   asideCursor,
+  claimAsideComposer,
   currentAsideTurns,
-  disarmAsideClear,
+  disarmAsideConfirmation,
   isAsideV2,
   type AsideSurfaceState
 } from "./aside-surface.js";
@@ -70,6 +71,9 @@ export async function asideKeyAction(
       renderer: context.renderer,
       toast: state.toast
   })) return;
+  if (resolved.action === "paste-clipboard") {
+    if (!claimAsideComposer(surface)) return;
+  }
   if (resolved.action === "cancel") {
     // A busy Aside owns Escape for cancellation. Check this before the
     // turns-to-composer focus transition, or a v2 retake loses its stop path.
@@ -164,7 +168,7 @@ export async function asideKeyAction(
     // Left-click on the visible prompt claims composer focus so paste/text
     // target it. Use menu already returned above.
     if (resolved.action === "compose") {
-      surface.focus = "composer";
+      claimAsideComposer(surface);
       return;
     }
     if (resolved.action === "focus-next" || resolved.action === "focus-previous") {
@@ -218,12 +222,12 @@ export async function asideKeyAction(
     return;
   }
   if (resolved.action === "newline") {
-    disarmAsideClear(surface);
+    disarmAsideConfirmation(surface);
     insertComposerText(surface.composer, "\n");
     return;
   }
   if (resolved.action === "input" && resolved.text !== undefined) {
-    disarmAsideClear(surface);
+    disarmAsideConfirmation(surface);
     insertComposerText(surface.composer, resolved.text);
     return;
   }
@@ -232,14 +236,14 @@ export async function asideKeyAction(
     pageRows: composerPageRows(height, true),
     motion,
     onEdit: (kind) => {
-      if (kind !== "move") disarmAsideClear(surface);
+      if (kind !== "move") disarmAsideConfirmation(surface);
     }
   })) return;
   // Keep the fallback for plain text actions that do not belong to the shared
   // composer reducer. All structural edits above preserve cursor state.
   const next = applyTextKey(surface.composer.text, resolved);
   if (next !== null) {
-    disarmAsideClear(surface);
+    disarmAsideConfirmation(surface);
     setComposerText(surface.composer, next);
   }
 }

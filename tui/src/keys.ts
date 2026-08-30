@@ -1,6 +1,5 @@
 import type { KeyEvent } from "@opentui/core";
 import type { SettingsRoutePurpose } from "../../shared/settings-v2-types.js";
-import type { StorySummary } from "../../shared/types.js";
 import { insertComposerText, type ComposerState } from "./composer-model.js";
 import {
   editorInsertionPolicy,
@@ -23,18 +22,15 @@ import type {
   PendingGenerationDraft,
   RetakePromptSession,
   RuntimeState,
-  CardImportPrompt,
-  ArchiveImportPrompt,
   ImageAttachPrompt,
   SettingsInlineEditState,
   SettingsRowId
 } from "./state.js";
-import { setLibraryQuery } from "./library-model.js";
 import { resolveRequestViewerKey } from "./request-viewer-actions.js";
 import { resolveTokenProbabilitiesKey } from "./token-probabilities-actions.js";
 import { resolveGenerationRecordKey } from "./generation-record-actions.js";
 import { resolveLogKey } from "./notice-log.js";
-import { disarmAsideClear, type AsideSurfaceState } from "./aside-surface.js";
+import type { AsideSurfaceState } from "./aside-surface.js";
 
 export type KeyAction =
   | "focus-next" | "focus-previous" | "take-next" | "take-previous" | "take-at"
@@ -222,38 +218,19 @@ export function pasteInto(
     composer: ComposerState;
     editor: DocumentEditorSession | null;
     toast?: string | null;
-    tag: { choosingStatus: boolean; name: string } | null;
     library: {
-      stories: StorySummary[];
-      cursor: number;
-      query: string;
       prompt:
         | { kind: "filter" }
         | { kind: "rename"; composer: ComposerState }
         | { kind: "delete"; value: string }
         | null;
     } | null;
-    facts: { filtering: boolean; query: string; cursor: number } | null;
-    commands: { view: string; query: string } | null;
-    search: { query: string } | null;
     chapters?: { rename: { composer: ComposerState } | null } | null;
     settings: {
       edit: SettingsInlineEditState | null;
       sampling?: { edit: { composer: ComposerState } | null } | null;
-      profileTransfer?: {
-        phase: "source";
-        error: string | null;
-      } | {
-        phase: "file";
-        path: string;
-        candidates: string[];
-        error: string | null;
-      } | null;
       conflict: { armed: boolean } | null;
     } | null;
-    card: CardImportPrompt | null;
-    archive: ArchiveImportPrompt | null;
-    image?: ImageAttachPrompt | null;
     prune: unknown | null;
     chapterDeleteArmedId: string | null;
     actions: unknown | null;
@@ -265,7 +242,6 @@ export function pasteInto(
     pendingGenerationDraft: PendingGenerationDraft | null;
     composerClaimEpoch: number;
     stream: RuntimeState["stream"];
-    aside?: Pick<AsideSurfaceState, "composer" | "focus" | "useMenu"> | null;
   },
   raw: string
 ): boolean {
@@ -285,65 +261,12 @@ export function pasteInto(
     );
     return true;
   }
-  if (state.mode === "ASIDE" && state.aside !== null && state.aside !== undefined) {
-    if (asideKeyboardLayer(state.aside) !== "composer") return false;
-    disarmAsideClear(state.aside);
-    insertComposerText(state.aside.composer, clean);
-    return true;
-  }
   if (state.mode === "COMPOSE") { insertComposerText(state.composer, clean); return true; }
-  if (state.mode === "TAG" && state.tag !== null && !state.tag.choosingStatus) {
-    state.tag.name += line;
-    return true;
-  }
-  if (state.mode === "CARD" && state.card !== null) {
-    state.card.path += line;
-    state.card.error = null;
-    state.card.candidates = [];
-    return true;
-  }
-  if (state.mode === "ARCHIVE" && state.archive !== null) {
-    state.archive.path += line;
-    state.archive.error = null;
-    state.archive.candidates = [];
-    return true;
-  }
-  if (state.mode === "IMAGE" && state.image != null) {
-    state.image.path += line;
-    state.image.error = null;
-    state.image.candidates = [];
-    return true;
-  }
-  const profileTransfer = state.settings?.profileTransfer;
-  if (state.mode === "SETTINGS" && profileTransfer?.phase === "file") {
-    profileTransfer.path += line;
-    profileTransfer.error = null;
-    profileTransfer.candidates = [];
-    return true;
-  }
   if (state.mode === "LIBRARY" && state.library?.prompt != null) {
-    if (state.library.prompt.kind === "filter") {
-      setLibraryQuery(state.library, state.library.query + line);
-    } else if (state.library.prompt.kind === "rename") {
+    if (state.library.prompt.kind === "rename") {
       insertComposerText(state.library.prompt.composer, line);
-    } else {
-      state.library.prompt.value += line;
+      return true;
     }
-    return true;
-  }
-  if (state.mode === "FACTS" && state.facts?.filtering === true) {
-    state.facts.query += line;
-    // A paste can narrow the list without passing through the facts reducer;
-    // keep its stored cursor aligned with the newly painted result set.
-    state.facts.cursor = 0;
-    return true;
-  }
-  if (state.mode === "COMMANDS" && state.commands?.view === "commands") {
-    state.commands.query += line;
-    return true;
-  }
-  if (state.mode === "SEARCH" && state.search !== null) {
-    return false;
   }
   const chapterRename = state.mode === "CHAPTERS" ? state.chapters?.rename : null;
   if (chapterRename != null) {
@@ -499,6 +422,8 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "return") return { action: "apply" };
     return { action: "none" };
   }
+  if (mode === "ASIDE" && (key.ctrl || key.super)
+    && key.name.toLowerCase() === "v") return { action: "paste-clipboard" };
   const ownsText = textOwnsKeyboard(mode, {
     overlayTyping, commandsTags, tagChoosingStatus, asideLayer
   });
@@ -555,7 +480,6 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
       if (name === "[") return { action: "aside-anchor-previous" };
       if (name === "]") return { action: "aside-anchor-next" };
       if (name === "g") return { action: "aside-go-anchor" };
-      if ((key.ctrl || key.super) && name === "v") return { action: "none" };
       return { action: "none" };
     }
     // `Esc` remains the stop key while the provider owns the surface; the
@@ -567,8 +491,12 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
       && !key.ctrl && !key.meta && !key.option && !key.super) {
       return { action: name === "up" ? "cursor-up" : "cursor-down" };
     }
-    if ((key.ctrl || key.super) && name === "v") return { action: "paste-clipboard" };
     return textSurfaceKey(key) ?? textInput(key) ?? { action: "none" };
+  }
+  // Every other visible text field shares the same clipboard chord. Keep this
+  // after Aside's use-menu branch so a modal still owns Ctrl/Cmd+V.
+  if ((key.ctrl || key.super) && key.name.toLowerCase() === "v" && ownsText) {
+    return { action: "paste-clipboard" };
   }
   const shiftedReference = resolveReferenceBinding("nav-shifted", key, mode, mapView);
   if (shiftedReference !== null) return { action: shiftedReference.action };
@@ -595,7 +523,6 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     }
     const composeChord = resolveReferenceBinding("compose-chord", key, mode, mapView);
     if (composeChord !== null) return { action: composeChord.action };
-    if ((key.ctrl || key.super) && name === "v") return { action: "paste-clipboard" };
     if (key.ctrl && name === "f") return { action: "toggle-compose-fullscreen" };
     // The rewrite composer's second fixed destination (issue #319, and
     // docs/generation-boundaries.md): plain `enter` always replaces in
@@ -625,6 +552,10 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
       && (name === "-" || name === "=")) {
       return { action: name === "-" ? "note-depth-decrease" : "note-depth-increase" };
     }
+    if (factEditor && !key.ctrl && !key.meta && !key.option && !key.super && !key.shift
+      && key.name === "a" && factEditorChromeFocus === "state") {
+      return { action: "reanchor-state" };
+    }
     if (factEditor && !key.ctrl && !key.meta && !key.option && !key.super
       && name === "m" && factEditorChromeFocus === "view") {
       return { action: "toggle-view-mode" };
@@ -652,7 +583,6 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.ctrl && key.shift && name === "s") return { action: "save-edit-inplace" };
     if (key.ctrl && name === "s") return { action: "save-edit" };
     if ((key.ctrl || key.super) && name === "c") return { action: "copy-selection" };
-    if ((key.ctrl || key.super) && name === "v") return { action: "paste-clipboard" };
     if (key.super && name === "a") return { action: "select-all" };
     if (key.ctrl && key.shift && name === "d") return { action: "delete-line" };
     // The editor's own chords: emacs character motion, and ctrl+d forward
@@ -704,7 +634,6 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   if (mode === "SETTINGS" && overlayTyping) {
     const name = key.name.toLowerCase();
     if (key.name === "return" || key.ctrl && name === "s") return { action: "commit-field" };
-    if ((key.ctrl || key.super) && name === "v") return { action: "paste-clipboard" };
     if (key.super && name === "a") return { action: "select-all" };
     // A settings field holds a base URL. It edits like every other surface.
     return composerBackedInput(key);
@@ -737,12 +666,10 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     // motion of its own to give them instead.
     if (key.name === "down") return { action: "focus-next" };
     if (key.name === "up") return { action: "focus-previous" };
-    if ((key.ctrl || key.super) && key.name.toLowerCase() === "v") return { action: "paste-clipboard" };
     return composerBackedInput(key);
   }
   if (mode === "CHAPTERS" && overlayTyping) {
     if (key.name === "return") return { action: "open-selected" };
-    if ((key.ctrl || key.super) && key.name.toLowerCase() === "v") return { action: "paste-clipboard" };
     return composerBackedInput(key);
   }
   // A modified letter is a chord, never a plain hotkey. Keep unknown
