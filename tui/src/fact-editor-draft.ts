@@ -6,6 +6,7 @@ import { MAX_FACT_BUDGET_TOKENS } from "../../shared/fact-budget.js";
 import { factTextWithinLimit } from "../../shared/fact-limits.js";
 import { MAX_FACT_TEXT_CHARS } from "../../shared/types.js";
 import { FACT_DRAFT_FIELDS, type FactDraft } from "../../shared/fact-draft.js";
+import type { FactMetadataPatch, FactPatch } from "../../shared/types.js";
 import type { FactEditorSession } from "./state.js";
 
 /**
@@ -26,8 +27,39 @@ export function factEditorTagLabel(editor: FactEditorSession): string {
   return factEditorTag(editor)?.replace(/[\r\n\u2028\u2029]+/gu, "↵") ?? "none";
 }
 
+export function factEditorName(editor: FactEditorSession): string | undefined {
+  const name = editor.name?.text.trim() ?? editor.initialName ?? "";
+  return name.length === 0 ? undefined : name;
+}
+
+export function factEditorNameLabel(editor: FactEditorSession): string {
+  return factEditorName(editor)?.replace(/[\r\n\u2028\u2029]+/gu, "↵") ?? "none";
+}
+
 export function factEditorChanged(editor: FactEditorSession): boolean {
-  return factEditorTagChanged(editor)
+  return factEditorStateChanged(editor)
+    || factEditorMetadataChanged(editor);
+}
+
+export function factEditorStateBodyChanged(editor: FactEditorSession): boolean {
+  return editor.stateCreating === true
+    || editor.stateIsEnd !== editor.stateInitialEnds
+    || (editor.stateIsEnd !== true
+      && editor.composer.text !== (editor.stateId !== undefined && editor.stateInitialText !== undefined
+        ? editor.stateInitialText
+        : editor.initialFact.text));
+}
+
+/** Changes that belong only to the selected state. Metadata stays live while
+ *  the writer walks between states, but these fields would be overwritten. */
+export function factEditorStateChanged(editor: FactEditorSession): boolean {
+  return factEditorStateBodyChanged(editor)
+    || editor.stateAnchorPartId !== editor.stateInitialAnchorPartId
+}
+
+export function factEditorMetadataChanged(editor: FactEditorSession): boolean {
+  return factEditorNameChanged(editor)
+    || factEditorTagChanged(editor)
     || editor.activation !== editor.initialFact.activation
     || factEditorKeysChanged(editor)
     || editor.secondary.text !== formatFactKeys(editor.initialFact.secondaryKeys)
@@ -35,8 +67,7 @@ export function factEditorChanged(editor: FactEditorSession): boolean {
     || editor.scan.text !== formatFactScanDepth(editor.initialFact.scanDepth)
     || editor.recursion !== editor.initialFact.recursion
     || editor.priority !== editor.initialFact.priority
-    || editor.budget.text !== formatFactBudget(editor.initialFact.budgetTokens)
-    || editor.composer.text !== editor.initialFact.text;
+    || editor.budget.text !== formatFactBudget(editor.initialFact.budgetTokens);
 }
 
 /** Preserve the stored tag until the writer changes the tag field. */
@@ -46,13 +77,19 @@ export function factEditorPersistedTag(editor: FactEditorSession): string | null
     : editor.initialFact.tag;
 }
 
+/** An explicit null is required on PATCH to clear an existing Name. */
+export function factEditorPersistedName(editor: FactEditorSession): string | undefined {
+  if (!factEditorNameChanged(editor)) return editor.initialName ?? undefined;
+  return factEditorName(editor);
+}
+
 /** The editor's current draft-of-editor projection: total in the FP sense —
  *  always returns, never throws — but validation can still fail, so the
  *  result carries either the draft or the toast that explains why not. */
 export function factEditorSavePayload(
   editor: FactEditorSession
 ): { ok: true; draft: FactDraft } | { ok: false; toast: string } {
-  if (editor.composer.text.trim().length === 0) {
+  if (editor.stateIsEnd !== true && editor.composer.text.trim().length === 0) {
     return { ok: false, toast: "fact text cannot be empty" };
   }
   if (!factTextWithinLimit(editor.composer.text)) {
@@ -72,6 +109,7 @@ export function factEditorSavePayload(
   return {
     ok: true,
     draft: {
+      name: factEditorPersistedName(editor),
       tag: factEditorPersistedTag(editor),
       activation: editor.activation,
       keys: factEditorKeysChanged(editor) ? parsedKeys.keys : [...editor.initialFact.keys],
@@ -84,6 +122,54 @@ export function factEditorSavePayload(
       text: editor.composer.text
     }
   };
+}
+
+/** One wire value per editable FactDraft field. The mapped table keeps the
+ * ordinary Fact PATCH and the state-mutation metadata PATCH on one projection
+ * of the draft; array fields are copied before they cross the editor boundary.
+ */
+const FACT_DRAFT_PATCH_FIELDS: {
+  [K in keyof FactDraft]: (draft: FactDraft) => FactPatch[K]
+} = {
+  name: (draft) => draft.name ?? null,
+  tag: (draft) => draft.tag,
+  activation: (draft) => draft.activation,
+  keys: (draft) => [...draft.keys],
+  secondaryKeys: (draft) => [...draft.secondaryKeys],
+  secondaryMode: (draft) => draft.secondaryMode,
+  scanDepth: (draft) => draft.scanDepth ?? null,
+  recursion: (draft) => draft.recursion,
+  priority: (draft) => draft.priority,
+  budgetTokens: (draft) => draft.budgetTokens ?? null,
+  text: (draft) => draft.text
+};
+
+export interface FactDraftWireOptions {
+  /** Include `name`, including `null` when the writer cleared it. */
+  readonly includeName?: boolean;
+}
+
+/** Convert a validated draft to the complete ordinary Fact PATCH shape. Name
+ * is omitted when unchanged because null has explicit clear semantics. */
+export function factDraftToFactPatch(
+  draft: FactDraft,
+  options: FactDraftWireOptions = {}
+): FactPatch {
+  const patch = Object.fromEntries(
+    FACT_DRAFT_FIELDS.map((field) => [field, FACT_DRAFT_PATCH_FIELDS[field](draft)])
+  ) as FactPatch;
+  if (options.includeName !== true) delete patch.name;
+  return patch;
+}
+
+/** Convert the same draft to metadata for an atomic Fact State mutation. */
+export function factDraftToFactMetadataPatch(
+  draft: FactDraft,
+  options: FactDraftWireOptions = {}
+): FactMetadataPatch {
+  const patch = factDraftToFactPatch(draft, options);
+  delete patch.text;
+  return patch;
 }
 
 /** The `FactDraft` the editor's live buffers currently parse to, or `null`
@@ -108,6 +194,10 @@ export function factDraftFromEditor(editor: FactEditorSession): FactDraft | null
 const FACT_DRAFT_WRITERS: {
   [K in keyof FactDraft]: (editor: FactEditorSession, value: FactDraft[K]) => void
 } = {
+  name: (editor, value) => {
+    if (editor.name !== undefined) setComposerText(editor.name, value ?? "");
+    else editor.initialName = value ?? null;
+  },
   tag: (editor, value) => setComposerText(editor.tag, value ?? ""),
   activation: (editor, value) => {
     editor.activation = value;
@@ -161,6 +251,11 @@ export function formatFactBudget(budgetTokens: number | undefined): string {
 
 function factEditorTagChanged(editor: FactEditorSession): boolean {
   return editor.tag.text !== (editor.initialFact.tag ?? "");
+}
+
+function factEditorNameChanged(editor: FactEditorSession): boolean {
+  if (editor.name === undefined) return false;
+  return editor.name.text !== (editor.initialName ?? "");
 }
 
 function factEditorKeysChanged(editor: FactEditorSession): boolean {

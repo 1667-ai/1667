@@ -46,23 +46,25 @@ export interface FactColumns {
   lead: number;
   name: number;
   tag: number;
+  scope: number;
   note: number;
   status: number;
 }
 
 export function factColumns(width: number): FactColumns {
   const values = fitColumnWidths(
-    [4, 31, 14, 32, 10],
-    [4, 7, 6, 1, 8],
+    [4, 29, 13, 14, 24, 10],
+    [4, 7, 6, 8, 1, 8],
     width,
-    [3, 1, 2, 0, 4]
+    [4, 3, 1, 2, 0, 5]
   );
   return {
     lead: values[0]!,
     name: values[1]!,
     tag: values[2]!,
-    note: values[3]!,
-    status: values[4]!
+    scope: values[3]!,
+    note: values[4]!,
+    status: values[5]!
   };
 }
 

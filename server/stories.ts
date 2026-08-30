@@ -28,7 +28,8 @@ import {
   type StoryManifestV5,
   type StoryManifestV7,
   type StoryManifestV9,
-  type StoryManifestV11
+  type StoryManifestV11,
+  type StoryManifestV13
 } from "./story-format.js";
 import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
 import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../shared/generation-record.js";
@@ -137,7 +138,7 @@ export const GENERATION_RECORD_GRAPH_CACHE_CAPACITY = 64;
 
 type ResolvedStory = Extract<
   StoredStorySlot,
-  { kind: "legacy" | "v5" | "v6-live" | "v8-live" | "v10-live" | "v12-live" }
+  { kind: "legacy" | "v5" | "v6-live" | "v8-live" | "v10-live" | "v12-live" | "v14-live" }
 >;
 type SweepObjects = (bundleDir: string, live: LiveStoryObjectIds, signal: AbortSignal) => Promise<boolean>;
 type WriteManifest = (file: string, data: string) => Promise<CommitResult>;
@@ -442,7 +443,7 @@ export class StoryStore {
         ...buildStoryCatalogSummary(slot.manifest),
         aggregateVersion: aggregateVersionFromSlot(slot)
       };
-      if (slot.kind === "v6-live" || slot.kind === "v8-live" || slot.kind === "v10-live" || slot.kind === "v12-live") return {
+      if (slot.kind === "v6-live" || slot.kind === "v8-live" || slot.kind === "v10-live" || slot.kind === "v12-live" || slot.kind === "v14-live") return {
         ...storySummaryFromLiveEnvelope(slot.manifest),
         aggregateVersion: aggregateVersionFromSlot(slot)
       };
@@ -522,7 +523,7 @@ export class StoryStore {
   }
 
   async deleteNode(id: string, nodeId: string, expectedSubtreeCount: number): Promise<Story> {
-    return await this.mutate(id, (story) => deleteSubtree(story, nodeId, expectedSubtreeCount));
+    return await this.mutate(id, (story) => { deleteSubtree(story, nodeId, expectedSubtreeCount); });
   }
 
   async pruneUnusedTakes(id: string, expected: PruneUnusedTakesRequest): Promise<Story> {
@@ -898,6 +899,7 @@ export class StoryStore {
       || slot.kind === "v8-deleted"
       || slot.kind === "v10-deleted"
       || slot.kind === "v12-deleted"
+      || slot.kind === "v14-deleted"
     ) {
       throw new HttpError(404, `Story not found: ${id}`);
     }
@@ -1110,7 +1112,7 @@ export class StoryStore {
   }
 
   private async hydrateManifest(
-    manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11,
+    manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13,
     bundleDir: string
   ): Promise<Story> {
     const decoded = await decodeStoryBundle(manifest, bundleDir, { activeOnly: true });
@@ -1221,7 +1223,9 @@ function aggregateVersionFromSlot(
         | "v10-live"
         | "v10-deleted"
         | "v12-live"
-        | "v12-deleted";
+        | "v12-deleted"
+        | "v14-live"
+        | "v14-deleted";
     }
   >
 ): StoryAggregateVersion {

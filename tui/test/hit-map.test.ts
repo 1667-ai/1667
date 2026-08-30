@@ -25,6 +25,7 @@ import {
 import { renderStoryScreen } from "../src/screens/story.js";
 import { plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import { createWrapCache } from "../src/wrap.js";
+import { factText, factWithText } from "./fact-fixture.js";
 import { openTextActions } from "../src/text-actions.js";
 
 const STREAM_STARTED_AT = "2026-07-22T00:00:00.000Z";
@@ -719,11 +720,10 @@ describe("hit map from rendered frames", () => {
     const state = initialState(source, false);
     const fact = state.payload.facts[0]!;
     state.payload.facts = [
-      { ...fact, id: "match-1", text: "Match 01\nfirst" },
-      { ...fact, id: "match-2", text: "Match 02\nsecond" },
-      ...Array.from({ length: 6 }, (_, index) => ({
-        ...fact, id: `other-${index}`, text: `Other ${index}\nbody`
-      }))
+      factWithText(fact, "Match 01\nfirst", { id: "match-1" }),
+      factWithText(fact, "Match 02\nsecond", { id: "match-2" }),
+      ...Array.from({ length: 6 }, (_, index) =>
+        factWithText(fact, `Other ${index}\nbody`, { id: `other-${index}` }))
     ];
     state.mode = "FACTS";
     state.facts = {
@@ -763,14 +763,16 @@ describe("hit map from rendered frames", () => {
     const template = state.payload.facts[0]!;
     state.payload = {
       ...state.payload,
-      facts: ["Alpha", "Bravo", "Charlie"].map((name, index) => ({
-        ...template, id: `world-${index}`, tag: "world", text: `${name}\nbody`
-      }))
+      facts: ["Alpha", "Bravo", "Charlie"].map((name, index) =>
+        factWithText(template, `${name}\nbody`, {
+          id: `world-${index}`,
+          tag: "world"
+        }))
     };
     source.api.patchFact = async (_storyId, factId, patch) => ({
       ...state.payload,
       facts: state.payload.facts.map((fact) => fact.id === factId
-        ? { ...fact, tag: patch.tag ?? null, text: patch.text ?? fact.text }
+        ? factWithText(fact, patch.text ?? factText(fact), { tag: patch.tag ?? null })
         : fact)
     });
     state.mode = "FACTS";

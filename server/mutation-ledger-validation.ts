@@ -36,7 +36,10 @@ import { storyIdForMutation } from "./story-identity.js";
 import { REVISION_ONE } from "./story-v6-scalars.js";
 import { settingsFormatMigrationV1Identity } from "./settings-format-migration-identity.js";
 
-const STORY_RESULT = closedShape(["kind", "storyId", "storyRevision", "summary"]);
+const STORY_RESULT = closedShape(
+  ["kind", "storyId", "storyRevision", "summary"],
+  ["factStatesRemoved"]
+);
 const SETTINGS_RESULT = closedShape([
   "kind", "settingsStateGeneration", "activeSettingsRevision", "pendingSettingsRevision"
 ]);
@@ -170,6 +173,12 @@ function parseStoryResult(value: unknown): Extract<MutationResult, { kind: "stor
   literal(result.kind, "story", "result.kind");
   const storyId = requireLedgerStoryId(result.storyId, "result.storyId");
   const summary = result.summary === null ? null : parseStorySummary(result.summary);
+  const factStatesRemoved = result.factStatesRemoved === undefined
+    ? undefined
+    : requireUInt53(result.factStatesRemoved, "result.factStatesRemoved");
+  if (factStatesRemoved !== undefined && factStatesRemoved < 1) {
+    throw new MutationLedgerFormatError("Removed Fact State count must be positive");
+  }
   if (summary !== null && summary.id !== storyId) {
     throw new MutationLedgerFormatError("Story result and summary IDs must match");
   }
@@ -177,7 +186,8 @@ function parseStoryResult(value: unknown): Extract<MutationResult, { kind: "stor
     kind: "story",
     storyId,
     storyRevision: requireRevision20(result.storyRevision, "result.storyRevision"),
-    summary
+    summary,
+    ...(factStatesRemoved === undefined ? {} : { factStatesRemoved })
   };
 }
 
@@ -286,6 +296,10 @@ function validateStoryResult(result: MutationResult, aggregateKey: LogicalAggreg
   }
   if (method !== "deleteStory" && method !== "acknowledgeUnknownOutcomes" && result.summary === null) {
     throw new MutationLedgerFormatError("Live story result must contain its exact V6 summary");
+  }
+  if (result.kind === "story" && result.factStatesRemoved !== undefined
+    && method !== "deleteNode" && method !== "pruneUnusedTakes") {
+    throw new MutationLedgerFormatError("Removed Fact State count requires a branch deletion method");
   }
 }
 

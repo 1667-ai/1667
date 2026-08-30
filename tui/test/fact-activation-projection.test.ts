@@ -8,36 +8,17 @@ import { renderFactsPanel } from "../src/screens/facts-panel.js";
 import { renderFactsRail } from "../src/screens/story/facts-rail.js";
 import { frameText, segment, sliceFrame } from "../src/screens/story/frame.js";
 import { deriveStoryFrameLayout } from "../src/story-frame-layout.js";
+import { factWithText } from "./fact-fixture.js";
+import { effectiveFactAtPath } from "../../shared/fact-state.js";
 
 describe("Fact activation projections", () => {
   test("the Facts panel and side rail distinguish regex, chained, and unevaluated Facts", () => {
     const state = initialState(demoAppSource(), false);
     const template = state.payload.facts[0]!;
     const facts = [
-      {
-        ...template,
-        id: "regex",
-        tag: "Regex",
-        text: "Regex Fact",
-        activation: "keyed" as const,
-        keys: ["/Maren/"]
-      },
-      {
-        ...template,
-        id: "chain",
-        tag: "Chain",
-        text: "Chain Fact",
-        activation: "keyed" as const,
-        keys: ["chain source"]
-      },
-      {
-        ...template,
-        id: "unchecked",
-        tag: "Unchecked",
-        text: "Unchecked Fact",
-        activation: "keyed" as const,
-        keys: ["/never/"]
-      }
+      factWithText(template, "Regex Fact", { id: "regex", tag: "Regex", activation: "keyed", keys: ["/Maren/"] }),
+      factWithText(template, "Chain Fact", { id: "chain", tag: "Chain", activation: "keyed", keys: ["chain source"] }),
+      factWithText(template, "Unchecked Fact", { id: "unchecked", tag: "Unchecked", activation: "keyed", keys: ["/never/"] })
     ];
     state.payload = { ...state.payload, facts };
     const estimate = projectedEstimate(state.payload, facts);
@@ -111,12 +92,15 @@ function projectedEstimate(
       [unchecked!.id, { kind: "unevaluated" as const }]
     ]),
     activation: {
-      facts: [regex!, chain!],
+      facts: [regex!, chain!].map((fact) => effectiveFactAtPath(fact, payload.path)!).filter((fact) => fact !== null),
       traces: new Map([
         [regex!.id, { kind: "regex" as const, key: "/Maren/", round: 0, gate: null }],
         [chain!.id, { kind: "literal" as const, key: "chain source", round: 1, gate: null }]
       ]),
-      unevaluated: [unchecked!.id]
+      unevaluated: [unchecked!.id],
+      outOfScope: [],
+      ended: [],
+      keyedMiss: []
     }
   };
 }

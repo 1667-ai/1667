@@ -5,7 +5,7 @@ import { partsFromNovelAiStory } from "../server/import-nai.js";
 import {
   exportNovelAiArchive
 } from "../server/novelai-export.js";
-import type { StoryNode, StoryPayload } from "../shared/types.js";
+import type { StoryFact, StoryNode, StoryPayload } from "../shared/types.js";
 
 test("NovelAI story export re-imports the selected prose line in order", () => {
   const result = exportNovelAiArchive(fixtureStory(), "story");
@@ -181,6 +181,19 @@ test("NovelAI lorebook export maps fact tags to categories", () => {
   assert.ok(!result.text.includes("Keep the unresolved door closed."));
 });
 
+test("NovelAI export reports Fact Name loss without changing tag or body mapping", () => {
+  const story = fixtureStory();
+  story.facts[0] = { ...story.facts[0]!, name: "The People" };
+
+  const result = exportNovelAiArchive(story, "story");
+  const archive = JSON.parse(result.text);
+  assert.equal(archive.content.lorebook.entries[0].text, "A clear fact.");
+  assert.equal(archive.content.lorebook.entries[0].displayName, "People");
+  assert.ok(result.fidelity.includes(
+    "1 Fact Name omitted; NovelAI Lorebook has no Fact Name field."
+  ));
+});
+
 test("NovelAI export reports v2 Aside presence without exporting its text", () => {
   const story = fixtureStory();
   story.hasAsideSessions = true;
@@ -189,6 +202,53 @@ test("NovelAI export reports v2 Aside presence without exporting its text", () =
 
   assert.ok(result.fidelity.includes("Side Notes were not exported."));
   assert.equal(result.text.includes("Side Notes were not exported."), false);
+});
+
+test("NovelAI export reports history for one anchored state", () => {
+  const story = fixtureStory();
+  const fact = story.facts[0]!;
+  story.facts[0] = {
+    ...fact,
+    states: [{
+      ...fact.states[0]!,
+      id: "fact-1-anchored",
+      anchorPartId: "part-1"
+    }]
+  };
+
+  const result = exportNovelAiArchive(story, "story");
+  const archive = JSON.parse(result.text);
+  assert.equal(archive.content.lorebook.entries[0].text, "A clear fact.");
+  assert.deepEqual(
+    result.fidelity.filter((line) => line.includes("state history") || line.includes("out of scope")),
+    ["1 fact state history omitted."]
+  );
+});
+
+test("NovelAI export reports state history and scope loss for one ended state", () => {
+  const story = fixtureStory();
+  const fact = story.facts[0]!;
+  story.facts = [{
+    ...fact,
+    states: [{
+      id: "fact-1-ended",
+      anchorPartId: "part-1",
+      ends: true,
+      createdAt: fact.createdAt,
+      updatedAt: fact.updatedAt
+    }]
+  }];
+
+  const result = exportNovelAiArchive(story, "story");
+  const archive = JSON.parse(result.text);
+  assert.deepEqual(archive.content.lorebook.entries, []);
+  assert.deepEqual(
+    result.fidelity.filter((line) => line.includes("state history") || line.includes("out of scope")),
+    [
+      "1 fact state history omitted.",
+      "1 fact out of scope or ended on the exported path."
+    ]
+  );
 });
 
 function fixtureStory(): StoryPayload {
@@ -214,7 +274,7 @@ function fixtureStory(): StoryPayload {
     }],
     recentNodeIds: [],
     facts: [
-      {
+      fact({
         id: "fact-1",
         tag: "People",
         text: "A clear fact.",
@@ -222,8 +282,8 @@ function fixtureStory(): StoryPayload {
         keys: ["clear fact"],
         createdAt: "2025-01-01T00:00:00.000Z",
         updatedAt: "2025-01-01T00:00:00.000Z"
-      },
-      {
+      }),
+      fact({
         id: "fact-2",
         tag: null,
         text: "An uncategorized fact.",
@@ -231,7 +291,7 @@ function fixtureStory(): StoryPayload {
         keys: ["uncategorized"],
         createdAt: "2025-01-02T00:00:00.000Z",
         updatedAt: "2025-01-02T00:00:00.000Z"
-      }
+      })
     ],
     chapterBreaks: [{
       id: "break-1",
@@ -279,7 +339,7 @@ function stub(node: StoryNode) {
 test("a Memory fact travels as Memory and does not also arrive as a lorebook entry", () => {
   const story = fixtureStory();
   story.facts = [
-    {
+    fact({
       id: "fact-memory",
       tag: "memory",
       text: "Winter. The keeper is Maren.",
@@ -287,7 +347,7 @@ test("a Memory fact travels as Memory and does not also arrive as a lorebook ent
       keys: [],
       createdAt: "2025-01-01T00:00:00.000Z",
       updatedAt: "2025-01-01T00:00:00.000Z"
-    },
+    }),
     ...story.facts
   ];
 
@@ -313,7 +373,7 @@ test("a Memory fact travels as Memory and does not also arrive as a lorebook ent
 
 test("a keyed Memory fact says that its keys do not survive the trip", () => {
   const story = fixtureStory();
-  story.facts = [{
+  story.facts = [fact({
     id: "fact-memory",
     tag: "memory",
     text: "Only when the storm is named.",
@@ -321,7 +381,7 @@ test("a keyed Memory fact says that its keys do not survive the trip", () => {
     keys: ["storm"],
     createdAt: "2025-01-01T00:00:00.000Z",
     updatedAt: "2025-01-01T00:00:00.000Z"
-  }];
+  })];
 
   const fidelity = exportNovelAiArchive(story, "story").fidelity;
 
@@ -334,7 +394,7 @@ test("an always-on Memory fact still reports the keys it leaves behind", () => {
   // Activation and keys are stored separately, so an always-on Fact can hold
   // keys for a later switch to keyed. Becoming Memory drops them either way.
   const story = fixtureStory();
-  story.facts = [{
+  story.facts = [fact({
     id: "fact-memory",
     tag: "memory",
     text: "Winter. The keeper is Maren.",
@@ -342,7 +402,7 @@ test("an always-on Memory fact still reports the keys it leaves behind", () => {
     keys: ["storm", "lantern"],
     createdAt: "2025-01-01T00:00:00.000Z",
     updatedAt: "2025-01-01T00:00:00.000Z"
-  }];
+  })];
 
   const fidelity = exportNovelAiArchive(story, "story").fidelity;
 
@@ -373,7 +433,7 @@ test("a Memory fact that was not first says what its move costs", () => {
   // Facts reach the model in order, and an archive has one Memory slot at the
   // front, so a Memory Fact from the middle arrives first on the way back.
   const story = fixtureStory();
-  const memoryFact = {
+  const memoryFact = fact({
     id: "fact-memory",
     tag: "memory",
     text: "Winter. The keeper is Maren.",
@@ -381,7 +441,7 @@ test("a Memory fact that was not first says what its move costs", () => {
     keys: [],
     createdAt: "2025-01-01T00:00:00.000Z",
     updatedAt: "2025-01-01T00:00:00.000Z"
-  };
+  });
   story.facts = [story.facts[0]!, memoryFact, story.facts[1]!];
 
   const result = exportNovelAiArchive(story, "story");
@@ -393,7 +453,7 @@ test("a Memory fact that was not first says what its move costs", () => {
 
 test("a Memory fact that was already first reports no move", () => {
   const story = fixtureStory();
-  story.facts = [{
+  story.facts = [fact({
     id: "fact-memory",
     tag: "memory",
     text: "Winter. The keeper is Maren.",
@@ -401,9 +461,27 @@ test("a Memory fact that was already first reports no move", () => {
     keys: [],
     createdAt: "2025-01-01T00:00:00.000Z",
     updatedAt: "2025-01-01T00:00:00.000Z"
-  }, ...story.facts];
+  }), ...story.facts];
 
   const fidelity = exportNovelAiArchive(story, "story").fidelity;
 
   assert.ok(!fidelity.some((line) => line.includes("Memory moved ahead")));
 });
+
+function fact(
+  overrides: Omit<Partial<StoryFact>, "states"> & { id: string; text: string }
+): StoryFact {
+  const { id, text, ...metadata } = overrides;
+  const createdAt = metadata.createdAt ?? "2025-01-01T00:00:00.000Z";
+  const updatedAt = metadata.updatedAt ?? createdAt;
+  return {
+    id,
+    tag: null,
+    activation: "always",
+    keys: [],
+    createdAt,
+    updatedAt,
+    ...metadata,
+    states: [{ id, text, createdAt, updatedAt }]
+  };
+}

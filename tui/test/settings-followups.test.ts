@@ -18,6 +18,7 @@ describe("a focused row says so on every surface", () => {
     const source = demoAppSource();
     const state = initialState(source, false);
     state.stream = null;
+    state.config = { ...state.config, factsViewMode: "advanced" };
     openFactEditor(state, state.payload.facts[0]!);
     const editor = state.editor;
     if (editor?.kind !== "fact") throw new Error("the fact editor did not open");

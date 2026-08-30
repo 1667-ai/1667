@@ -11,6 +11,7 @@ import {
 } from "../server/story-format.js";
 import {
   formatV6,
+  formatV14,
   formatV8,
   MAX_DELETED_STORY_MANIFEST_BYTES,
   parseStoryManifestBytes,
@@ -56,6 +57,7 @@ for (const fixture of corpus.cases) {
       if (fixture.name === "v6-deleted") assert.equal(parsed.kind, "v6-deleted");
       if (fixture.name.startsWith("v5-")) assert.equal(parsed.kind, "v5");
       if (fixture.name.startsWith("v8-live")) assert.equal(parsed.kind, "v8-live");
+      if (fixture.name.startsWith("v14-live")) assert.equal(parsed.kind, "v14-live");
     } else {
       assert.throws(() => parseStoryManifestText(fixture.text, fixture.expectedId));
     }
@@ -120,6 +122,16 @@ test("story V8: a successor manifest is refused unless wrapped in its own envelo
     () => parseStoryManifestText(bare.text, bare.expectedId),
     /successor|V8/
   );
+});
+
+test("story V14: Fact State content is paired with its exact envelope", () => {
+  const fixture = corpus.cases.find((entry) => entry.name === "v14-live-fact-state");
+  assert.ok(fixture);
+  const parsed = parseStoryManifestText(fixture.text, fixture.expectedId);
+  if (parsed.kind !== "v14-live") assert.fail("Expected the V14 fixture to parse as live");
+  assert.equal(parsed.manifest.content.schemaVersion, 13);
+  assert.equal(parsed.manifest.content.facts[0]?.states[0]?.revisionId, "a".repeat(64));
+  assert.equal(formatV14(parsed.manifest), fixture.text);
 });
 
 test("story V6: StoryTavern identities normalize without changing story state", () => {

@@ -150,6 +150,8 @@ function logicalRequestBody(
     case "takeFromCut":
     case "createFact":
     case "patchFact":
+    case "createFactState":
+    case "patchFactState":
     case "reorderFact":
     case "rewriteNode":
     case "createSummaryTake":
@@ -225,6 +227,7 @@ function logicalRequestBody(
     case "exportMarkdown":
     case "deleteBookmark":
     case "deleteFact":
+    case "deleteFactState":
     case "summarizeChapter":
     case "getSettings":
     case "getAside":

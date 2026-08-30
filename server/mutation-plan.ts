@@ -34,6 +34,9 @@ interface MutationEntityNamespaces {
   createFact: "fact";
   patchFact: never;
   deleteFact: never;
+  createFactState: "fact-state";
+  patchFactState: never;
+  deleteFactState: never;
   reorderFact: never;
   createChapterBreak: "chapter-break";
   renameChapterBreak: never;
@@ -170,7 +173,12 @@ export function createMutationPlan<M extends MutatingWorkerMethod>(
     },
     reconcileStory: async (stories, storyId, matches) => {
       if (recoveryMode === "new") return null;
-      const story = await stories.loadForMutation(storyId);
+      // Recovery is a read of an already-admitted exact receipt. Successor
+      // manifests (including Fact State V14) are readable here even though a
+      // predecessor cannot start a new direct-write mutation against them.
+      // Keep that successor fence in `loadForMutation`; only this bounded
+      // reconciliation path may inspect the current aggregate.
+      const story = await stories.loadHydrated(storyId);
       if (await matches(story)) return buildStoryPayload(story);
       throw mutationOutcomeUnknown();
     },

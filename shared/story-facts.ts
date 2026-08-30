@@ -1,17 +1,21 @@
-import type { StoryFact } from "./types.js";
+import type { EffectiveStoryFact } from "./fact-state.js";
 
-export function formatFactsMessage(source: readonly StoryFact[]): string | null {
+/** Format only path-resolved Facts. A persisted StoryFact can hold several
+ * states and must be projected before it enters a prompt. */
+export function formatFactsMessage(source: readonly EffectiveStoryFact[]): string | null {
   if (source.length === 0) return null;
   const facts = source.map((fact, index) => {
     const number = index + 1;
+    const text = fact.text;
     const metadata = [
       `--- STORY FACT ${number} BEGIN ---`,
       `id-json: ${JSON.stringify(fact.id)}`,
+      ...(fact.name === undefined ? [] : [`name-json: ${JSON.stringify(fact.name)}`]),
       ...(fact.tag === null ? [] : [`tag-json: ${JSON.stringify(fact.tag)}`]),
-      `text-utf16-length: ${fact.text.length}`,
+      `text-utf16-length: ${text.length}`,
       "text-begins-after-this-line:"
     ].join("\n");
-    return `${metadata}\n${fact.text}\n--- STORY FACT ${number} END ---`;
+    return `${metadata}\n${text}\n--- STORY FACT ${number} END ---`;
   });
   return [
     "CANONICAL STORY FACTS",

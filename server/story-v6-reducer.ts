@@ -3,6 +3,7 @@ import { storyIdForMutation } from "./story-identity.js";
 import {
   STORY_ASIDE_SCHEMA_VERSION,
   STORY_ASIDE_SESSION_SCHEMA_VERSION,
+  STORY_FACT_STATE_SCHEMA_VERSION,
   STORY_SUCCESSOR_SCHEMA_VERSION
 } from "./story-format.js";
 import { isStoryId } from "./story-v5-strict.js";
@@ -11,6 +12,7 @@ import {
   STORY_SCHEMA_VERSION_V8,
   STORY_SCHEMA_VERSION_V10,
   STORY_SCHEMA_VERSION_V12
+  , STORY_SCHEMA_VERSION_V14
 } from "./story-v6-codec.js";
 import {
   DECIMAL_20_PATTERN,
@@ -157,6 +159,9 @@ export function reduceStoryV6(
       if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V12) {
         return { ...deleted, schemaVersion: STORY_SCHEMA_VERSION_V12 };
       }
+      if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V14) {
+        return { ...deleted, schemaVersion: STORY_SCHEMA_VERSION_V14 };
+      }
       return manifest.schemaVersion === STORY_SCHEMA_VERSION_V8
         ? { ...deleted, schemaVersion: STORY_SCHEMA_VERSION_V8 }
         : { ...deleted, schemaVersion: STORY_SCHEMA_VERSION_V6 };
@@ -191,6 +196,9 @@ interface LiveEnvelopeFields {
  *  V8 for image-successor content, V6 otherwise. The encode path's activation
  *  decision is the only thing that steers content version; this only reacts. */
 function liveEnvelope(fields: LiveEnvelopeFields, content: StoryEnvelopeContent): LiveStoryEnvelopeManifest {
+  if (content.schemaVersion === STORY_FACT_STATE_SCHEMA_VERSION) {
+    return { format: "1667-story", kind: "live", schemaVersion: STORY_SCHEMA_VERSION_V14, content, ...fields };
+  }
   if (content.schemaVersion === STORY_ASIDE_SESSION_SCHEMA_VERSION) {
     return { format: "1667-story", kind: "live", schemaVersion: STORY_SCHEMA_VERSION_V12, content, ...fields };
   }

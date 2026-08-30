@@ -2,6 +2,7 @@ import {
   MUTATION_INPUT_PROTOCOL_VERSION,
   PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION,
   PRE_ASIDE_WORKER_PROTOCOL_VERSION,
+  PRE_FACT_STATES_WORKER_PROTOCOL_VERSION,
   PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION,
   type MutatingWorkerMethod,
   type WorkerOutput
@@ -87,8 +88,8 @@ export async function runHttpOperationMutation<
 
 /** Keep an exact HTTP retry on the retained protocol that created its
  * fingerprint and parsed its input. Protocol 10 predates Aside. Protocol 11
- * predates Settings schema 5. Protocol 12 predates edited Aside retakes. New
- * mutations use the current protocol. */
+ * predates Settings schema 5. Protocol 12 predates edited Aside retakes.
+ * Protocol 13 predates Fact States. New mutations use the current protocol. */
 async function acceptedHttpMutationProtocolVersion(
   service: StoryService,
   mutationId: string,
@@ -105,7 +106,8 @@ async function acceptedHttpMutationProtocolVersion(
     && receipt.method === method
     && (retainedPreAside
       || retainedProtocol === PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION
-      || retainedProtocol === PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION)
+      || retainedProtocol === PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION
+      || retainedProtocol === PRE_FACT_STATES_WORKER_PROTOCOL_VERSION)
     ? retainedProtocol
     : MUTATION_INPUT_PROTOCOL_VERSION;
 }

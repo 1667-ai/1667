@@ -78,10 +78,14 @@ export const AI_1667_PRODUCT = "1667" as const;
  * `ProviderProbeRouteV1`, and publishes Settings schema 5. Mixed 0.10.1 and
  * 0.10.2 HTTP processes refuse during negotiation. v27 adds an optional
  * edited question to Aside retake requests. A v27 client against a v26
- * server would have that question ignored and repeat the old prompt. */
-export const HTTP_API_PROTOCOL_VERSION = 27;
-export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 27;
-export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 27;
+ * server would have that question ignored and repeat the old prompt. v28
+ * carries branch-scoped Fact States, including the required `states` field,
+ * state mutation routes, and effective-path projections. A v28 client against
+ * a v27 server would otherwise receive a Fact with no state history and could
+ * write a state mutation that the older server cannot apply. */
+export const HTTP_API_PROTOCOL_VERSION = 28;
+export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 28;
+export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 28;
 
 export type ArtifactTarget = "source" | BuiltArtifactTarget;
 

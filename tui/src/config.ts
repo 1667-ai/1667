@@ -74,9 +74,11 @@ export interface UserConfig {
   /** The product version of the last interactive run. Null before the first run. */
   lastRunVersion: string | null;
   /** Which rows the Settings panel shows. `m` flips it for the rest of the
-   *  session and persists the choice here, the same way compose focus and
-   *  word wrap persist (settings-selector-actions.ts). */
+   *  session and persists the choice here. */
   settingsViewMode: SettingsViewMode;
+  /** Which rows a Fact editor shows. Kept separate from Settings so opening
+   *  one surface never changes the other. */
+  factsViewMode?: SettingsViewMode;
 }
 
 const DEFAULTS: UserConfig = {
@@ -92,7 +94,8 @@ const DEFAULTS: UserConfig = {
   quota: { date: "", words: 0 },
   updates: { mode: "notify", channel: "stable", skippedVersion: null },
   lastRunVersion: null,
-  settingsViewMode: "simple"
+  settingsViewMode: "simple",
+  factsViewMode: "simple"
 };
 
 type ConfigRecord = Record<string, unknown>;
@@ -141,6 +144,7 @@ export function normalizeUserConfig(value: unknown): UserConfig {
   const wordWrap = configValue(raw, "wordWrap", "word_wrap");
   const composeMaxHeight = configValue(raw, "composeMaxHeight", "compose_max_height");
   const settingsViewMode = configValue(raw, "settingsViewMode", "settings_view_mode");
+  const factsViewMode = configValue(raw, "factsViewMode", "facts_view_mode");
   const quotaValid = typeof rawQuota.date === "string"
     && typeof rawQuota.words === "number"
     && Number.isFinite(rawQuota.words);
@@ -153,6 +157,7 @@ export function normalizeUserConfig(value: unknown): UserConfig {
     wordWrap: normalizedWordWrap(wordWrap),
     composeMaxHeight: normalizedComposeMaxHeight(composeMaxHeight),
     settingsViewMode: settingsViewMode === "advanced" ? "advanced" : "simple",
+    factsViewMode: factsViewMode === "advanced" ? "advanced" : "simple",
     quota: quotaValid
       ? { date: rawQuota.date as string, words: rawQuota.words as number }
       : { ...DEFAULTS.quota },

@@ -18,7 +18,7 @@ import {
   imageInputAuthorized,
   type ImageInputCapabilityResolution
 } from "../shared/image-input-capabilities.js";
-import type { StoryFact } from "../shared/types.js";
+import type { FactSelectionCandidate } from "../shared/fact-budget.js";
 import { DEFAULT_INSTRUCTION } from "../shared/continuation-plan.js";
 import { ServiceError } from "./errors.js";
 import {
@@ -53,7 +53,7 @@ export function generatedTakeInstruction(
  */
 export function assertFixedContextFits(
   settings: FixedContextSettings,
-  candidateFacts: readonly StoryFact[],
+  candidateFacts: readonly FactSelectionCandidate[],
   authorsNote: string | null,
   otherFixed: readonly string[],
   /** Visual tokens for the active prompt's images. See
@@ -109,7 +109,7 @@ export function assertFixedContextFits(
  *  itself depends on. */
 export function admitFactsIntoPrompt<P extends { prompt: PromptPlan }>(
   settings: FixedContextSettings,
-  candidateFacts: readonly StoryFact[],
+  candidateFacts: readonly FactSelectionCandidate[],
   authorsNote: string | null,
   build: (factsMessage: string | null) => P,
   /** Visual tokens for the active prompt's images. See

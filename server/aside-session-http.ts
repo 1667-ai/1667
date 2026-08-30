@@ -47,14 +47,19 @@ import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js"
 import { MAX_SESSION_REFS_PER_BUCKET } from "./story-v11-strict.js";
 import {
   parseManifestV11,
+  parseManifestV13,
   serializeManifestContent,
-  type StoryManifestV11
+  type StoryManifestV11,
+  type StoryManifestV13
 } from "./story-format.js";
 import {
-  formatV12
+  formatV12,
+  formatV14,
+  STORY_SCHEMA_VERSION_V14
 } from "./story-v6-codec.js";
 import type { StoryEnvelopeManifest } from "./story-v6-types.js";
 import type { LiveStoryManifestV12 } from "./story-v12-types.js";
+import type { LiveStoryManifestV14 } from "./story-v14-types.js";
 import { MAX_STORY_MANIFEST_BYTES } from "./story-v5-strict.js";
 import {
   asideSessionRefById,
@@ -272,7 +277,7 @@ async function runAsideSession(
       "conflict"
     );
   }
-  const document = loaded ?? emptyAsideSessionDocument(anchor);
+  const document = loaded ?? emptyAsideSessionDocument(expectedAnchor);
   // A retake is an in-place replacement. Do not feed the answer being
   // replaced (or its stored Thoughts) back to the provider; it is retained
   // only as the CAS predecessor and replacement source below.
@@ -303,10 +308,14 @@ async function runAsideSession(
     throw new HttpError(422, message, "content_too_large");
   }
 
-  const anchorNode = anchor === null
+  // The stored ref is the compare-and-swap authority. For an existing session
+  // its effective anchor can be restored from originAnchor after pruning, so
+  // use that resolved value for prompt context and liveness checks as well as
+  // for the commit. The equality check above still rejects a stale request.
+  const anchorNode = expectedAnchor === null
     ? undefined
-    : story.nodes.find((node) => node.id === anchor.takeId);
-  if (anchor !== null && (anchorNode === undefined || isChapterSummary(anchorNode))) {
+    : story.nodes.find((node) => node.id === expectedAnchor.takeId);
+  if (expectedAnchor !== null && (anchorNode === undefined || isChapterSummary(anchorNode))) {
     throw new HttpError(409, "This Aside anchor no longer exists.", "conflict");
   }
   if (ref === null) {
@@ -492,6 +501,18 @@ function assertAsideSessionManifestFits(
   projectedRef?: AsideSessionRef
 ): void {
   if (manifest === undefined || manifest.kind !== "live") return;
+  if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V14) {
+    assertV14AsideSessionManifestFits(
+      manifest,
+      mutationId,
+      sessionId,
+      anchor,
+      sourceAsideDocumentId,
+      turnCount,
+      projectedRef
+    );
+    return;
+  }
   const source = manifest.content;
   const anchoredRefs = "asideSessionRefs" in source ? source.asideSessionRefs : [];
   const unanchoredRefs = "asideUnanchoredSessionRefs" in source
@@ -566,6 +587,87 @@ function assertAsideSessionManifestFits(
   // admission calculation aligned with the bare content size gate as well as
   // the canonical V12 envelope gate above.
   parseManifestV11(contentText, manifest.id);
+}
+
+/** V14 carries the same Aside reference buckets in its V13 content, but the
+ * predecessor V11/V12 projection cannot represent its Fact State fields. */
+function assertV14AsideSessionManifestFits(
+  manifest: LiveStoryManifestV14,
+  mutationId: string | undefined,
+  sessionId: string,
+  anchor: AsideAnchor | null,
+  sourceAsideDocumentId?: string,
+  turnCount = 1,
+  projectedRef?: AsideSessionRef
+): void {
+  const source = manifest.content;
+  const anchoredRefs = source.asideSessionRefs;
+  const unanchoredRefs = source.asideUnanchoredSessionRefs;
+  const placeholder = projectedRef ?? {
+    id: sessionId,
+    documentId: "0".repeat(64),
+    anchor: anchor === null ? null : { ...anchor },
+    ...(sourceAsideDocumentId === undefined ? {} : { sourceAsideDocumentId }),
+    turnCount
+  };
+  const nextAnchoredRefs = anchoredRefs.filter((ref) => ref.id !== sessionId);
+  const nextUnanchoredRefs = unanchoredRefs.filter((ref) => ref.id !== sessionId);
+  if (placeholder.anchor === null) nextUnanchoredRefs.push(placeholder);
+  else nextAnchoredRefs.push(placeholder);
+  const content: StoryManifestV13 = {
+    ...source,
+    schemaVersion: 13,
+    asideSessionRefs: nextAnchoredRefs,
+    asideUnanchoredSessionRefs: nextUnanchoredRefs
+  };
+  const contentText = serializeManifestContent(content);
+  if (Buffer.byteLength(contentText, "utf8") > MAX_STORY_MANIFEST_BYTES) {
+    throw new HttpError(
+      422,
+      "This story manifest cannot hold another Aside session.",
+      "content_too_large"
+    );
+  }
+  const terminalEnvelope = mutationId === undefined
+    ? {
+        ...manifest,
+        schemaVersion: STORY_SCHEMA_VERSION_V14,
+        content
+      } as LiveStoryManifestV14
+    : {
+        ...manifest,
+        schemaVersion: STORY_SCHEMA_VERSION_V14,
+        revision: nextRevision(manifest.revision),
+        previousManifestHash: "0".repeat(64),
+        unresolvedProvider: null,
+        lastTransaction: {
+          receiptKind: "user" as const,
+          mutationId,
+          phase: "prepared" as const
+        },
+        content
+      } as LiveStoryManifestV14;
+  let envelopeText: string;
+  try {
+    envelopeText = formatV14(terminalEnvelope);
+  } catch (error) {
+    if (error instanceof Error && /manifest exceeds.*size limit|manifest replacement exceeds/u.test(error.message)) {
+      throw new HttpError(
+        422,
+        "This story manifest cannot hold another Aside session.",
+        "content_too_large"
+      );
+    }
+    throw error;
+  }
+  if (Buffer.byteLength(envelopeText, "utf8") > MAX_STORY_MANIFEST_BYTES) {
+    throw new HttpError(
+      422,
+      "This story manifest cannot hold another Aside session.",
+      "content_too_large"
+    );
+  }
+  parseManifestV13(contentText, manifest.id);
 }
 
 function projectExistingAsideSessionRef(

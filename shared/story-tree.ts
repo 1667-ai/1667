@@ -28,6 +28,8 @@ export interface LineState<Node extends TreeNode = StoryNode> extends TreeState<
 
 export interface NamedLineState<Node extends TreeNode = StoryNode> extends TreeState<Node> {
   tags: readonly { nodeId: string }[];
+  /** Optional canonical Facts used by automatic prune protection. */
+  facts?: readonly { states: readonly { anchorPartId?: string }[] }[];
 }
 
 export interface UnusedTakePruneSelection {
@@ -164,6 +166,18 @@ export function unusedTakePruneSelection<Node extends TreeNode>(
     while (node !== undefined && !namedLineIds.has(node.id)) {
       namedLineIds.add(node.id);
       node = node.parentId === null ? undefined : index.nodesById.get(node.parentId);
+    }
+  }
+  // An anchored Fact is authored structure in the same way as a tagged line.
+  // Protect the anchor and its ancestors, but let explicit deletion remove it.
+  for (const fact of state.facts ?? []) {
+    for (const factState of fact.states) {
+      if (factState.anchorPartId === undefined) continue;
+      let node = index.nodesById.get(factState.anchorPartId);
+      while (node !== undefined && !namedLineIds.has(node.id)) {
+        namedLineIds.add(node.id);
+        node = node.parentId === null ? undefined : index.nodesById.get(node.parentId);
+      }
     }
   }
 

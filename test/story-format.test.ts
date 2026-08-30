@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,8 +13,10 @@ import {
   chunkText,
   createRevision,
   hasUnpairedSurrogate,
+  liveObjectIds,
   parseLegacyStory,
   parseManifest,
+  parseManifestV13,
   parseRevision,
   requireV5Manifest,
   STORY_FORMAT,
@@ -22,17 +24,20 @@ import {
   STORYTAVERN_STORY_FORMAT,
   revisionId,
   serializeManifest,
+  serializeManifestContent,
   serializeRevision,
   sha256,
   type StoryManifestV2,
   type StoryManifestV5,
-  type StoryManifestV4
+  type StoryManifestV4,
+  type StoryManifestV13
 } from "../server/story-format.js";
 import { StoryObjectStore } from "../server/story-objects.js";
 import {
   MAX_STORY_INSTRUCTION_CHARS,
   MAX_STORY_MANIFEST_BYTES
 } from "../server/story-v5-strict.js";
+import { MAX_FACT_TEXT_CHARS } from "../shared/types.js";
 import type { Story, StoryNode } from "../shared/types.js";
 
 const NOW = "2026-01-01T00:00:00.000Z";
@@ -155,7 +160,11 @@ test("story format: V5 bundle round-trips nodes, attribution, tags, recents, and
     activeRootId: "root",
     tags: [{ nodeId: "child", name: "Canon line", status: "Canon", color: "#4b45c9", createdAt: NOW }],
     recentNodeIds: ["summary"],
-    facts: [{ id: "fact", tag: null, text: "Exact fact.", activation: "always", keys: [], createdAt: NOW, updatedAt: NOW }],
+    facts: [{
+      id: "fact", tag: null, activation: "always", keys: [],
+      states: [{ id: "fact", text: "Exact fact.", createdAt: NOW, updatedAt: NOW }],
+      createdAt: NOW, updatedAt: NOW
+    }],
     chapterBreaks: []
   };
   const manifest = await encodeStoryBundle(story, new StoryObjectStore(dir));
@@ -194,6 +203,258 @@ test("story format: V5 bundle round-trips nodes, attribution, tags, recents, and
     "Recap",
     "early V4 without stubs safely hydrates the full tree"
   );
+});
+
+test("story format: legacy flat Facts lift and lower without changing their bytes", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-legacy-fact-lift-lower-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const objects = new StoryObjectStore(dir);
+  await objects.init();
+  const revisionId = await objects.storeText("Legacy fact text.");
+  const manifest: StoryManifestV5 = {
+    format: "1667-story",
+    schemaVersion: 5,
+    id: "legacy-flat-fact",
+    title: "Legacy",
+    createdAt: NOW,
+    updatedAt: NOW,
+    activeWordCount: 0,
+    nodes: [],
+    facts: [{
+      id: "fact",
+      tag: null,
+      revisionId,
+      createdAt: NOW,
+      updatedAt: NOW
+    }],
+    activeRootId: null,
+    bookmarks: [],
+    recentNodeIds: [],
+    chapterBreaks: []
+  };
+
+  const decoded = await decodeStoryBundle(manifest, dir);
+  assert.deepEqual(decoded.story.facts[0]!.states, [{
+    id: "fact",
+    text: "Legacy fact text.",
+    createdAt: NOW,
+    updatedAt: NOW
+  }]);
+
+  const lowered = await encodeStoryBundle(decoded.story, objects);
+  assert.equal(lowered.schemaVersion, 5);
+  assert.deepEqual(lowered.facts[0], manifest.facts[0]);
+  assert.equal(serializeManifest(lowered as StoryManifestV5), serializeManifest(manifest));
+});
+
+test("story format: V13 stores every Fact State revision and omits End State objects", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-v13-fact-states-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const story: Story = {
+    id: "story-v13-fact-states",
+    title: "Fact States",
+    createdAt: NOW,
+    updatedAt: NOW,
+    nodes: [
+      node("root", null, "Opening", "branch"),
+      node("branch", "root", "Branch text"),
+      { ...node("other", null, "Other branch"), activeChildId: null },
+      { ...node("summary", "root", "Summary"), role: "summary" }
+    ],
+    activeRootId: "root",
+    tags: [],
+    recentNodeIds: [],
+    asideDocumentId: null,
+    asideSessionRefs: [],
+    asideUnanchoredSessionRefs: [],
+    facts: [{
+      id: "fact",
+      name: "World lore",
+      tag: null,
+      activation: "always",
+      keys: [],
+      states: [
+        { id: "fact", text: "The door is open.", createdAt: NOW, updatedAt: NOW },
+        {
+          id: "fact-branch",
+          anchorPartId: "branch",
+          text: "The door is locked.",
+          createdAt: NOW,
+          updatedAt: NOW
+        },
+        { id: "fact-end", anchorPartId: "other", ends: true, createdAt: NOW, updatedAt: NOW }
+      ],
+      createdAt: NOW,
+      updatedAt: NOW
+    }],
+    chapterBreaks: []
+  };
+  const objects = new StoryObjectStore(dir);
+  const manifest = await encodeStoryBundle(story, objects);
+  assert.equal(manifest.schemaVersion, 13);
+  assert.equal(manifest.facts[0]!.states.length, 3);
+  const decoded = await decodeStoryBundle(manifest, dir);
+  assert.deepEqual(decoded.story, story);
+
+  const storedStates = manifest.facts[0]!.states;
+  const stateRevisions = storedStates.flatMap((state) =>
+    state.revisionId === undefined ? [] : [state.revisionId]
+  );
+  const live = liveObjectIds(manifest);
+  assert.deepEqual(live.revisions.slice(-stateRevisions.length), stateRevisions);
+  for (const revision of stateRevisions) {
+    await readFile(objects.objectPath("revisions", revision));
+  }
+});
+
+test("story format: V13 rejects duplicate, unknown, and summary Fact State anchors", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-v13-fact-state-validation-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const story: Story = {
+    id: "story-v13-fact-state-validation",
+    title: "Fact State validation",
+    createdAt: NOW,
+    updatedAt: NOW,
+    nodes: [node("root", null, "Opening"), { ...node("summary", "root", "Summary"), role: "summary" }],
+    activeRootId: "root",
+    tags: [],
+    recentNodeIds: [],
+    facts: [{
+      id: "fact",
+      tag: null,
+      activation: "always",
+      keys: [],
+      states: [{ id: "fact", text: "A fact.", createdAt: NOW, updatedAt: NOW }],
+      createdAt: NOW,
+      updatedAt: NOW
+    }],
+    chapterBreaks: []
+  };
+  const objects = new StoryObjectStore(dir);
+  const manifest = await encodeStoryBundle(story, objects);
+  assert.equal(manifest.schemaVersion, 5);
+
+  const v13 = {
+    ...manifest,
+    schemaVersion: 13 as const,
+    asideDocumentId: null,
+    asideSessionRefs: [],
+    asideUnanchoredSessionRefs: [],
+    facts: [{
+      id: "fact",
+      tag: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+      states: [
+        { id: "fact", revisionId: HASH, createdAt: NOW, updatedAt: NOW },
+        { id: "later", revisionId: HASH, anchorPartId: "root", createdAt: NOW, updatedAt: NOW }
+      ]
+    }]
+  };
+  const expectReject = (states: Array<Record<string, unknown>>, pattern: RegExp) => {
+    const candidate = {
+      ...v13,
+      facts: [{
+        id: "fact",
+        tag: null,
+        createdAt: NOW,
+        updatedAt: NOW,
+        states
+      }]
+    } as unknown as StoryManifestV13;
+    assert.throws(
+      () => parseManifestV13(serializeManifestContent(candidate), story.id),
+      pattern
+    );
+  };
+  expectReject([
+    { id: "fact", revisionId: HASH, createdAt: NOW, updatedAt: NOW },
+    { id: "later", revisionId: HASH, anchorPartId: "missing", createdAt: NOW, updatedAt: NOW }
+  ], /unknown part/);
+  expectReject([
+    { id: "fact", revisionId: HASH, createdAt: NOW, updatedAt: NOW },
+    { id: "later", revisionId: HASH, anchorPartId: "summary", createdAt: NOW, updatedAt: NOW }
+  ], /unknown part/);
+  expectReject([
+    { id: "fact", revisionId: HASH, createdAt: NOW, updatedAt: NOW },
+    { id: "fact", revisionId: HASH, anchorPartId: "root", createdAt: NOW, updatedAt: NOW }
+  ], /Duplicate fact state id/);
+  expectReject([
+    { id: "fact", revisionId: HASH, createdAt: NOW, updatedAt: NOW },
+    { id: "later", revisionId: HASH, anchorPartId: "root", createdAt: NOW, updatedAt: NOW },
+    { id: "third", revisionId: HASH, anchorPartId: "root", createdAt: NOW, updatedAt: NOW }
+  ], /duplicate state anchors/);
+
+  const legacySource = parseManifestV13(
+    serializeManifestContent({
+      ...v13,
+      facts: [{
+        id: "fact",
+        sourcePartId: "summary",
+        tag: null,
+        createdAt: NOW,
+        updatedAt: NOW,
+        states: [{ id: "fact", revisionId: HASH, createdAt: NOW, updatedAt: NOW }]
+      }]
+    } as unknown as StoryManifestV13),
+    story.id
+  );
+  assert.equal(legacySource.facts[0]!.sourcePartId, "summary");
+});
+
+test("story format: Fact State count and aggregate text limits fail before object publication", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-v13-fact-state-limits-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const objects = new StoryObjectStore(dir);
+  const tooManyStates: Story = {
+    id: "story-v13-too-many-states",
+    title: "Too many states",
+    createdAt: NOW,
+    updatedAt: NOW,
+    nodes: Array.from({ length: 33 }, (_, index) => node(`part-${index}`, null, "Part")),
+    activeRootId: "part-0",
+    tags: [],
+    recentNodeIds: [],
+    facts: [{
+      id: "fact",
+      tag: null,
+      activation: "always",
+      keys: [],
+      states: Array.from({ length: 33 }, (_, index) => ({
+        id: `state-${index}`,
+        anchorPartId: `part-${index}`,
+        text: "Fact",
+        createdAt: NOW,
+        updatedAt: NOW
+      })),
+      createdAt: NOW,
+      updatedAt: NOW
+    }],
+    chapterBreaks: []
+  };
+  await assert.rejects(encodeStoryBundle(tooManyStates, objects), /32-state limit/);
+  const objectDir = path.join(dir, "revisions");
+  await assert.rejects(readdir(objectDir), /ENOENT/);
+
+  const aggregate: Story = {
+    ...tooManyStates,
+    id: "story-v13-aggregate-limit",
+    nodes: [node("root", null, "Part"), node("branch", "root", "Part")],
+    activeRootId: "root",
+    facts: [{
+      id: "fact",
+      tag: null,
+      activation: "always",
+      keys: [],
+      states: [
+        { id: "fact", text: "x".repeat(MAX_FACT_TEXT_CHARS), createdAt: NOW, updatedAt: NOW },
+        { id: "branch", anchorPartId: "branch", text: "x", createdAt: NOW, updatedAt: NOW }
+      ],
+      createdAt: NOW,
+      updatedAt: NOW
+    }]
+  };
+  await assert.rejects(encodeStoryBundle(aggregate, objects), /aggregate .*limit/);
 });
 
 test("story format: encoded V5 size validation measures exact persisted bytes", async () => {
@@ -418,9 +679,9 @@ test("story format: default Fact metadata stays omitted and keys do not change i
   const fact = {
     id: "fact",
     tag: null,
-    text: "The red door is locked.",
     activation: "always" as const,
     keys: [] as string[],
+    states: [{ id: "fact", text: "The red door is locked.", createdAt: NOW, updatedAt: NOW }],
     createdAt: NOW,
     updatedAt: NOW
   };
@@ -437,7 +698,12 @@ test("story format: default Fact metadata stays omitted and keys do not change i
   const keyedManifest = await encodeStoryBundle(keyed, objects);
   assert.equal(keyedManifest.facts[0]!.activation, "keyed");
   assert.deepEqual(keyedManifest.facts[0]!.keys, ["red door"]);
-  assert.equal(keyedManifest.facts[0]!.revisionId, plain.facts[0]!.revisionId);
+  assert.equal(
+    "revisionId" in keyedManifest.facts[0]! && "revisionId" in plain.facts[0]!
+      ? keyedManifest.facts[0]!.revisionId
+      : undefined,
+    "revisionId" in plain.facts[0]! ? plain.facts[0]!.revisionId : undefined
+  );
   assert.deepEqual((await decodeStoryBundle(keyedManifest, dir)).story, keyed);
 });
 
@@ -448,9 +714,9 @@ test("story format: Fact metadata defaults omit and non-default settings round-t
   const fact = {
     id: "fact",
     tag: null,
-    text: "The red door is locked.",
     activation: "always" as const,
     keys: [] as string[],
+    states: [{ id: "fact", text: "The red door is locked.", createdAt: NOW, updatedAt: NOW }],
     createdAt: NOW,
     updatedAt: NOW
   };

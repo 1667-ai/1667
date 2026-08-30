@@ -54,6 +54,11 @@ export function mutationLedgerCorpus(): MutationLedgerCorpusCase[] {
     valid("started-provider-story", started),
     valid("started-provider-story-with-images", startedWithImages),
     valid("prepared-story-local", storyPrepared),
+    valid("prepared-story-with-fact-state-deletion", {
+      ...storyPrepared,
+      method: "deleteNode",
+      result: { ...storyPrepared.result, factStatesRemoved: 2 }
+    }),
     valid("prepared-story-provider-terminal", providerPrepared),
     valid("prepared-receipt-only-error", receiptOnly),
     valid("prepared-create-deterministic", createPrepared),

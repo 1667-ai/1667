@@ -43,7 +43,7 @@ export type KeyAction =
   | "save-edit" | "save-edit-inplace" | "commit-field"
   | "history-next" | "backspace" | "input" | "none" | "open-map"
   | "cycle-map-view" | "toggle-path-takes" | "toggle-sketches" | "map-follow" | "map-cycle-sort"
-  | "map-hide-lanes"
+  | "map-hide-lanes" | "open-fact-lens" | "cycle-fact-lens" | "open-fact-lens-anchor" | "edit-fact-lens"
   | "set-map-view"
   | "cursor-left" | "cursor-right" | "cursor-up" | "cursor-down" | "toggle-compose-fullscreen"
   | "cursor-word-left" | "cursor-word-right"
@@ -70,7 +70,8 @@ export type KeyAction =
   | "toggle-context-meter" | "open-search" | "toggle-search-case" | "open-request"
   | "complete" | "open-log" | "clear-log" | "row-action"
   | "open-probs" | "next-part" | "open-text-actions" | "import-profile" | "open-records"
-  | "toggle-view-mode";
+  | "toggle-view-mode" | "cycle-state" | "cycle-fact-scope" | "convert-state" | "reanchor-state"
+  | "delete-state" | "open-state-anchor" | "new-state" | "end-state" | "toggle-fact-diff";
 
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
@@ -400,6 +401,10 @@ export interface ResolveOptions {
   settingsProfileTransfer?: "source" | "file" | null;
   /** The full-screen editor owns a Fact tag slider above its text body. */
   factEditor?: boolean;
+  /** The Facts overlay is showing one Fact's in-place state dossier. */
+  factDossier?: boolean;
+  /** Non-text Fact editor chrome currently owns focus. */
+  factEditorChromeFocus?: "view" | "state" | "scope";
   /** The open document editor targets the Author's Note, so its depth chord
    *  applies. No other editor target binds `⌥-`/`⌥=`. */
   authorsNoteEditor?: boolean;
@@ -413,6 +418,8 @@ export interface ResolveOptions {
   /** Provider currently owns the Aside answer stream. */
   asideBusy?: boolean;
   mapView?: MapView;
+  /** The tree map is currently showing the selected Fact's reach lens. */
+  mapFactLens?: boolean;
 }
 
 /** Mutually exclusive Aside keyboard ownership while mode is ASIDE. */
@@ -467,15 +474,24 @@ export function asideKeyboardLayer(
 export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions = {}): ResolvedKey {
   const { confirmingPrune = false, tagChoosingStatus = false, connectionDown = false,
     overlayTyping = false, settingsSampling = false, commandsTags = false,
-    factEditor = false, authorsNoteEditor = false, settingsPicker = false,
+    factEditor = false, factEditorChromeFocus,
+    factDossier = false,
+    authorsNoteEditor = false, settingsPicker = false,
     settingsProfileTransfer = null,
     textActionsOpen = false,
     asideLayer = "composer", asideBusy = false,
     libraryRenaming = false,
-    mapView = "path" } = options;
+    mapView = "path", mapFactLens = false } = options;
   const globalReference = resolveReferenceBinding("global", key, mode, mapView);
   if (globalReference !== null || key.name === "escape") {
     return { action: "cancel" };
+  }
+  if (mode === "ASIDE"
+    && !key.ctrl && !key.meta && !key.option && !key.super
+    && key.name === "q") {
+    // Aside keeps the top-level quit gesture even while its text-actions menu
+    // is open. The menu is an interaction aid, not a separate application.
+    return { action: "quit" };
   }
   if (textActionsOpen) {
     if (key.name === "down") return { action: "focus-next" };
@@ -492,6 +508,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   if (!key.ctrl && !key.meta && connectionDown && !ownsText && shiftedLetter(key, "r")) {
     return { action: "retry" };
   }
+
   if (mode === "ASIDE" && asideLayer === "use-menu") {
     if (key.name === "down") return { action: "focus-next" };
     if (key.name === "up") return { action: "focus-previous" };
@@ -607,6 +624,21 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (authorsNoteEditor && (key.meta || key.option)
       && (name === "-" || name === "=")) {
       return { action: name === "-" ? "note-depth-decrease" : "note-depth-increase" };
+    }
+    if (factEditor && !key.ctrl && !key.meta && !key.option && !key.super
+      && name === "m" && factEditorChromeFocus === "view") {
+      return { action: "toggle-view-mode" };
+    }
+    if (factEditor && !key.ctrl && !key.meta && !key.option && !key.super
+      && name === "[" && factEditorChromeFocus === "state") {
+      return { action: "cycle-state", index: -1 };
+    }
+    if (factEditor && !key.ctrl && !key.meta && !key.option && !key.super
+      && name === "]" && factEditorChromeFocus === "state") {
+      return { action: "cycle-state", index: 1 };
+    }
+    if (factEditor && factEditorChromeFocus === "state" && key.name === "return") {
+      return { action: "open-state-anchor" };
     }
     if (factEditor && key.name === "tab") {
       return { action: "cycle", index: key.shift ? -1 : 1 };
@@ -780,8 +812,20 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     return textInput(key) ?? { action: "none" };
   }
   if (mode === "LIBRARY" || mode === "FACTS" || mode === "COMMANDS") {
+    if (mode === "FACTS" && factDossier && !overlayTyping) {
+      if (key.name === "return") return { action: "open-selected" };
+      if (key.name === "down") return { action: "focus-next" };
+      if (key.name === "up") return { action: "focus-previous" };
+      if (key.name === "[") return { action: "cycle-state", index: -1 };
+      if (key.name === "]") return { action: "cycle-state", index: 1 };
+      if (key.name === "n") return { action: "new-state" };
+      if (key.name === "x") return { action: "end-state" };
+      if (key.name === "d") return { action: "toggle-fact-diff" };
+      if (key.name === "escape") return { action: "cancel" };
+      return { action: "none" };
+    }
     if (key.name === "return") {
-      return { action: mode === "FACTS" && !overlayTyping ? "edit" : "open-selected" };
+      return { action: "open-selected" };
     }
     if (key.name === "backspace") return { action: "backspace" };
     // `⇧↑`/`⇧↓` reposition the focused row instead of moving focus — Facts
@@ -797,8 +841,11 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (!overlayTyping) {
       if (mode !== "COMMANDS" && key.name === "/") return { action: "filter" };
       if (mode !== "COMMANDS" && key.name === "n") return { action: "new-item" };
-      // One destructive gesture across every list: capital `D` starts the
-      // selected row's confirmation. Lowercase `d` is never destructive.
+      // Facts use the canonical lowercase `x` overlay delete gesture. Keep
+      // capital `D` as a compatibility alias for older muscle memory; other
+      // list surfaces retain their original capital-D binding.
+      if (mode === "FACTS" && key.name === "x") return { action: "delete-item" };
+      if (mode === "FACTS" && key.name === "s") return { action: "new-state" };
       if (mode === "LIBRARY" && key.name === "e") return { action: "rename-item" };
       if (mode === "FACTS" && key.name === "e") return { action: "edit" };
       if (plainShiftedLetter(key, "d") && (mode === "LIBRARY" || mode === "FACTS"
@@ -816,6 +863,11 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     return textInput(key) ?? { action: "none" };
   }
   if (mode === "MAP") {
+    if (mapFactLens) {
+      if (key.name === "tab") return { action: "cycle-fact-lens" };
+      if (key.name === "return") return { action: "open-fact-lens-anchor" };
+      if (key.name === "e") return { action: "edit-fact-lens" };
+    }
     const mapReference = resolveReferenceBinding("map", key, mode, mapView);
     return { action: mapReference?.action ?? "none" };
   }

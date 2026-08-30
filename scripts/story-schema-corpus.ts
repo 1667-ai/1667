@@ -1,4 +1,5 @@
 import { canonicalJson } from "../server/canonical-json.js";
+import { MAX_FACT_NAME_CHARS } from "../shared/fact-name.js";
 
 export interface StoryManifestCorpusCase {
   name: string;
@@ -84,6 +85,19 @@ interface Live8Fixture extends Omit<LiveFixture, "schemaVersion" | "content"> {
   content: V7Fixture;
 }
 
+interface V13Fixture extends Omit<V5Fixture, "schemaVersion" | "facts"> {
+  schemaVersion: 13;
+  facts: Array<Record<string, unknown>>;
+  asideDocumentId: string | null;
+  asideSessionRefs: Array<Record<string, unknown>>;
+  asideUnanchoredSessionRefs: Array<Record<string, unknown>>;
+}
+
+interface Live14Fixture extends Omit<LiveFixture, "schemaVersion" | "content"> {
+  schemaVersion: 14;
+  content: V13Fixture;
+}
+
 function imageAttachment(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     objectId: IMAGE_HASH,
@@ -132,6 +146,51 @@ function live8Manifest(content: V7Fixture): Live8Fixture {
   };
 }
 
+function v13Manifest(): V13Fixture {
+  return {
+    ...v5Manifest(),
+    schemaVersion: 13,
+    facts: [{
+      id: "fact-one",
+      tag: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+      states: [{
+        id: "fact-state-one",
+        revisionId: HASH,
+        createdAt: NOW,
+        updatedAt: NOW
+      }]
+    }],
+    asideDocumentId: null,
+    asideSessionRefs: [],
+    asideUnanchoredSessionRefs: []
+  };
+}
+
+function live14Manifest(content: V13Fixture): Live14Fixture {
+  return {
+    format: "1667-story",
+    schemaVersion: 14,
+    kind: "live",
+    id: content.id,
+    revision: ONE,
+    previousManifestHash: null,
+    content,
+    summary: {
+      id: content.id,
+      title: content.title,
+      updatedAt: content.updatedAt,
+      partCount: content.nodes.length,
+      words: ZERO,
+      forked: false,
+      lineCount: content.nodes.length === 0 ? ZERO : ONE
+    },
+    unresolvedProvider: null,
+    lastTransaction: null
+  };
+}
+
 export function storyManifestCorpus(): StoryManifestCorpusCase[] {
   const v5 = v5Manifest();
   const live = liveManifest(v5);
@@ -152,6 +211,10 @@ export function storyManifestCorpus(): StoryManifestCorpusCase[] {
   const v7WithImages = v7ManifestWithImages();
   const live8Empty = live8Manifest(v7);
   const live8Images = live8Manifest(v7WithImages);
+  const v13 = v13Manifest();
+  const namedV13 = structuredClone(v13);
+  namedV13.facts[0]!.name = "World lore";
+  const live14 = live14Manifest(v13);
 
   return [
     valid("v5-minimal", v5.id, `${JSON.stringify(v5, null, 2)}\n`),
@@ -339,6 +402,9 @@ export function storyManifestCorpus(): StoryManifestCorpusCase[] {
     })),
     valid("v8-live-with-images", live8Images.id, canonicalJson(live8Images)),
     valid("v8-live-without-images", live8Empty.id, canonicalJson(live8Empty)),
+    invalid("v13-fact-state-content", v13.id, canonicalJson(v13), true),
+    invalid("v13-fact-name", namedV13.id, canonicalJson(namedV13), true),
+    valid("v14-live-fact-state", live14.id, canonicalJson(live14)),
     invalid("v7-bare-payload-without-envelope", v7.id, JSON.stringify(v7), true),
     invalid("v7-unknown-node-key", v7WithImages.id, JSON.stringify({
       ...v7WithImages,
@@ -356,7 +422,45 @@ export function storyManifestCorpus(): StoryManifestCorpusCase[] {
     }, true),
     invalidNestedV7("v7-token-probability-hash-final-newline", v7WithImages, (copy) => {
       copy.nodes[0]!.tokenProbabilityId = `${HASH}\n`;
-    })
+    }),
+    invalid("v13-unknown-fact-key", v13.id, canonicalJson({
+      ...v13,
+      facts: [{ ...v13.facts[0], surprise: true }]
+    })),
+    invalid("v13-fact-name-over-bound", v13.id, canonicalJson({
+      ...namedV13,
+      facts: [{ ...namedV13.facts[0], name: "x".repeat(MAX_FACT_NAME_CHARS + 1) }]
+    })),
+    invalid("v13-state-both-revision-and-end", v13.id, canonicalJson({
+      ...v13,
+      facts: [{
+        ...v13.facts[0],
+        states: [{
+          ...(v13.facts[0]!.states as Array<Record<string, unknown>>)[0]!,
+          ends: true
+        }]
+      }]
+    })),
+    invalid("v13-duplicate-state-id", v13.id, canonicalJson({
+      ...v13,
+      facts: [{
+        ...v13.facts[0],
+        states: [
+          ...(v13.facts[0]!.states as Array<Record<string, unknown>>),
+          { ...(v13.facts[0]!.states as Array<Record<string, unknown>>)[0] }
+        ]
+      }]
+    }), true),
+    invalid("v13-unknown-state-anchor", v13.id, canonicalJson({
+      ...v13,
+      facts: [{
+        ...v13.facts[0],
+        states: [{
+          ...(v13.facts[0]!.states as Array<Record<string, unknown>>)[0],
+          anchorPartId: "missing-part"
+        }]
+      }]
+    }), true)
   ];
 }
 

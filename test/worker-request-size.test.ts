@@ -7,6 +7,7 @@ import {
 } from "../shared/types.js";
 import {
   PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION,
+  PRE_FACT_STATES_WORKER_PROTOCOL_VERSION,
   PRE_ASIDE_WORKER_PROTOCOL_VERSION,
   PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION,
   PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION,
@@ -73,13 +74,10 @@ test("protocol-v10 mutation inputs survive the Aside protocol bump", () => {
   }, id);
 
   assert.equal(parsed.protocolVersion, PRE_ASIDE_WORKER_PROTOCOL_VERSION);
-  assert.equal(
-    WORKER_PROTOCOL_VERSION,
-    PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION + 1
-  );
+  assert.equal(WORKER_PROTOCOL_VERSION, PRE_FACT_STATES_WORKER_PROTOCOL_VERSION + 1);
 });
 
-test("pre-v13 Aside retakes retain the prior request shape", () => {
+test("pre-v14 Aside retakes retain the prior request shape", () => {
   const input = {
     storyId: "story",
     sessionId: "session",

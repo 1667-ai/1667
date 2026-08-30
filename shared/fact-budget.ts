@@ -1,6 +1,10 @@
 import type { FactPriority } from "./fact-metadata.js";
 import { estimateTokens } from "./tokens.js";
-import type { StoryFact } from "./types.js";
+import type { EffectiveStoryFact } from "./fact-state.js";
+
+/** A budget pass accepts only a path-resolved Fact. Persisted StoryFacts carry
+ * several possible states and must not reach a request budget by accident. */
+export type FactSelectionCandidate = EffectiveStoryFact;
 
 /** A single Fact's own cap is a believable token count, not an arbitrary
  * integer — generous enough that only a deliberately extreme value hits it. */
@@ -72,15 +76,15 @@ export interface FactBudgetDrop {
   readonly reason: FactDropReason;
 }
 
-export interface FactBudgetSelection {
+export interface FactBudgetSelection<Fact extends FactSelectionCandidate = FactSelectionCandidate> {
   /** Survivors, in the same order they arrived — array order is emit order. */
-  readonly kept: readonly StoryFact[];
+  readonly kept: readonly Fact[];
   readonly dropped: readonly FactBudgetDrop[];
 }
 
 const PRIORITY_RANK: Record<FactPriority, number> = { low: 0, normal: 1, high: 2 };
 
-function effectivePriority(fact: StoryFact): FactPriority {
+function effectivePriority(fact: FactSelectionCandidate): FactPriority {
   return fact.priority ?? "normal";
 }
 
@@ -92,7 +96,7 @@ function effectivePriority(fact: StoryFact): FactPriority {
  * loses the exemption. A `keyed` Fact carries no such promise and stays
  * droppable at every priority.
  */
-function isDroppable(fact: StoryFact): boolean {
+function isDroppable(fact: FactSelectionCandidate): boolean {
   return fact.activation !== "always" || effectivePriority(fact) === "low";
 }
 
@@ -102,12 +106,12 @@ function isDroppable(fact: StoryFact): boolean {
  * high), then within a priority `keyed` before `always`, then — as the
  * final tiebreak — later emit position before earlier. */
 function sheddingOrder(
-  a: { fact: StoryFact; position: number },
-  b: { fact: StoryFact; position: number }
+  a: { fact: FactSelectionCandidate; position: number },
+  b: { fact: FactSelectionCandidate; position: number }
 ): number {
   const rankDiff = PRIORITY_RANK[effectivePriority(a.fact)] - PRIORITY_RANK[effectivePriority(b.fact)];
   if (rankDiff !== 0) return rankDiff;
-  const keyedRank = (fact: StoryFact): number => (fact.activation === "keyed" ? 0 : 1);
+  const keyedRank = (fact: FactSelectionCandidate): number => (fact.activation === "keyed" ? 0 : 1);
   const keyedDiff = keyedRank(a.fact) - keyedRank(b.fact);
   if (keyedDiff !== 0) return keyedDiff;
   return b.position - a.position;
@@ -121,7 +125,7 @@ function sheddingOrder(
  *  shed in this order without re-deriving it — priority, keyed-before-always,
  *  and the position tiebreak would otherwise have to stay in sync by hand in
  *  a second place. */
-export function factsInSheddingOrder(facts: readonly StoryFact[]): readonly StoryFact[] {
+export function factsInSheddingOrder<Fact extends FactSelectionCandidate>(facts: readonly Fact[]): readonly Fact[] {
   return facts
     .map((fact, position) => ({ fact, position }))
     .filter(({ fact }) => isDroppable(fact))
@@ -144,18 +148,18 @@ export function factsInSheddingOrder(facts: readonly StoryFact[]): readonly Stor
  * `availableTokens: null` means no budget applies: every Fact under its own
  * cap survives.
  */
-export function selectFactsWithinBudget(
-  facts: readonly StoryFact[],
+export function selectFactsWithinBudget<Fact extends FactSelectionCandidate>(
+  facts: readonly Fact[],
   availableTokens: number | null,
   options: {
     spaceDropReason?: "priority" | "total-budget";
-    estimateFactTokens?: (fact: StoryFact) => number;
+    estimateFactTokens?: (fact: Fact) => number;
   } = {}
-): FactBudgetSelection {
+): FactBudgetSelection<Fact> {
   const spaceDropReason = options.spaceDropReason ?? "total-budget";
-  const estimate = options.estimateFactTokens ?? ((fact: StoryFact) => estimateTokens(fact.text));
+  const estimate = options.estimateFactTokens ?? ((fact: Fact) => estimateTokens(fact.text));
   const dropped: FactBudgetDrop[] = [];
-  const survivors: StoryFact[] = [];
+  const survivors: Fact[] = [];
   for (const fact of facts) {
     // A Fact's own budgetTokens is the writer's declared cap, stated in the
     // same estimated-token unit every other surface shows (rail, meter,

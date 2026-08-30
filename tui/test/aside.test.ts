@@ -21,7 +21,7 @@ import { parseAsideComposerInput } from "../src/aside-parse.js";
 import { commandPaletteModel } from "../src/command-model.js";
 import { pasteInto, resolveKey } from "../src/keys.js";
 import { demoAppSource } from "../src/demo.js";
-import { initialState } from "../src/app.js";
+import { handleKey, initialState } from "../src/app.js";
 import { handleOverlayAction } from "../src/overlay-actions.js";
 import type { StoryApi } from "../src/api.js";
 import { ActionRuntime } from "../src/action-runtime.js";
@@ -33,6 +33,7 @@ import { visibleWidth } from "../src/screens/story/frame.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { activeTextComposer, openTextActions } from "../src/text-actions.js";
 import { mouseToAction } from "../src/mouse-actions.js";
+import { openAsideUseMenu } from "../src/aside-use.js";
 
 function key(
   name: string,
@@ -67,6 +68,51 @@ function overlayContext(
 }
 
 describe("Aside TUI contract", () => {
+  test("q closes the app from every Aside layer, including nested menus", async () => {
+    const source = demoAppSource();
+    const quit = async (state: ReturnType<typeof initialState>): Promise<void> => {
+      state.stream = null;
+      state.mode = "ASIDE";
+      let quitRequests = 0;
+      await handleKey(
+        key("q"), state, source, createWrapCache(), () => undefined,
+        async () => undefined, () => { quitRequests += 1; }
+      );
+      expect(quitRequests).toBe(1);
+    };
+
+    const composer = initialState(source, false);
+    composer.aside = createAsideSurface(composer.payload.id, composer.payload.title);
+    await quit(composer);
+
+    const notes = initialState(source, false);
+    notes.aside = createAsideSurface(notes.payload.id, notes.payload.title, [
+      { question: "What happened?", answer: "The lantern went out." }
+    ]);
+    notes.aside!.focus = "notes";
+    await quit(notes);
+
+    const useMenu = initialState(source, false);
+    useMenu.aside = createAsideSurface(useMenu.payload.id, useMenu.payload.title, [
+      { question: "What happened?", answer: "The lantern went out." }
+    ]);
+    expect(openAsideUseMenu(useMenu.aside!, 0)).toBeTrue();
+    await quit(useMenu);
+
+    const textActions = initialState(source, false);
+    textActions.mode = "ASIDE";
+    textActions.aside = createAsideSurface(textActions.payload.id, textActions.payload.title);
+    openTextActions(textActions);
+    expect(textActions.textActions).not.toBeNull();
+    await quit(textActions);
+
+    expect(resolveKey(key("q"), "ASIDE", { asideLayer: "composer" }).action).toBe("quit");
+    expect(resolveKey(key("q"), "ASIDE", { asideLayer: "notes" }).action).toBe("quit");
+    expect(resolveKey(key("q"), "ASIDE", { asideLayer: "use-menu" }).action).toBe("quit");
+    expect(resolveKey(key("q"), "ASIDE", { asideLayer: "composer", textActionsOpen: true }).action)
+      .toBe("quit");
+  });
+
   test("header, notice, and input placeholder match the product strings", () => {
     expect(asideHeaderLine("Lantern Story")).toBe("ASIDE · Lantern Story · non-canon");
     expect(ASIDE_SAVED_NOTICE).toBe(

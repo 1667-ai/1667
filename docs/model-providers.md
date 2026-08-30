@@ -13,11 +13,66 @@ read_when:
 
 ## Use Facts and the context meter
 
-Press `Enter` to edit the selected Fact. Double-click a Fact to edit it.
+Press `e` to edit the selected Fact. Double-click a Fact to edit it. For an
+unscoped Fact with one state, `Enter` also opens the editor. For a scoped Fact
+or a Fact with multiple states, `Enter` opens the Fact dossier.
+
+You can give a Fact an optional Fact Name. The Facts panel and the side rail
+show the Fact Name. If the Fact Name is empty, they show the first nonempty
+line of the Fact body.
 
 The Fact editor shows the Fact tag in a choice row. Press `Tab` or `Shift+Tab`
 to select a Fact tag. Press `Ctrl+T` to type a custom Fact tag. When you save
 the Fact, 1667 adds the custom Fact tag to the choice row.
+
+The basic Fact view shows the Fact Name, the tag, and the Fact body. Select the
+Advanced row, and press `m` to show or hide the advanced rows. You can also
+click the Advanced row. The advanced view shows activation, keys, scan, chain,
+priority, and budget rows. If an advanced value is not its default value, the
+editor keeps the advanced rows visible. You can click each visible row and
+control.
+
+### Scope a Fact to a story line
+
+A Fact contains one or more Fact States. A Fact State can have an Anchor. The
+Anchor is the story part where that state starts. The state applies to the
+Anchor part and to its descendants on that story line. It does not apply to a
+sibling story line.
+
+An unscoped Fact has one state with no Anchor. It applies from the start of
+each story line. This is the behavior of a Fact from an older store.
+
+Create a Fact from the Facts panel to make an unscoped Fact. Its Scope row lets
+you change this choice before you save. Open the actions menu on a story part
+to create a scoped Fact from that part. The same Scope row lets you make it
+unscoped. The actions menu can also add a state to a Fact or end a Fact from
+that part.
+
+Select the state row, and press `[` or `]` to select the previous or next
+state. You can also click a state in the state row. An End State stops the Fact
+at its Anchor and below it. The Facts panel uses `⊘` when no state applies to
+the selected story line. It uses `✕` when an End State applies.
+
+The Facts panel has scope filters for all Facts, the current story line, other
+story lines, and ended Facts. Press `Tab` to change the tag filter. Click a
+scope filter to apply it. Fact search checks the Fact Name, the tag, and all
+states. It includes states on other story lines.
+
+The Fact dossier shows one Fact along the selected story line. Press `[` or
+`]` to select a state. Press `Enter` to open its Anchor. Press `n` to add a
+state at the current story part. Press `x` to add an End State there. Press
+`d` to show a derived diff. You can click each state and footer action.
+
+In the tree view of the map, press `f` to show the Fact lens. The Fact lens
+shows the reach of one Fact on all story lines. Press `Tab` to select another
+Fact. Press `Enter` to open a visible Anchor. Press `e` to edit the selected
+state. Press `Escape` to return to the normal tree. You can click each visible
+Fact lens action.
+
+When you delete a story branch, 1667 also deletes each Fact State that has an
+Anchor in that branch. The confirmation shows the number of affected states.
+1667 deletes the Fact if no state remains. It does not move an Anchor to a
+different part.
 
 Each Fact has an activation mode. The default mode is `always`. An `always`
 Fact is in each continuation request and rewrite request. The `keyed` mode puts
@@ -72,10 +127,12 @@ Use `Up Arrow` or `Down Arrow` to reach them. See
 The Facts panel shows `always`, `✓ keyed`, `✓ regex`, `✓ chain`, or `· keyed`
 for each Fact. The `✓ keyed` status means that the next request includes the
 Fact. The side rail uses `✓` for an active keyed Fact. It uses `·` for an
-inactive keyed Fact.
+inactive keyed Fact. Both surfaces use `⊘` for a Fact from another story line.
+They use `✕` for a Fact that ended on the selected story line.
 
 In Library or Facts, press `/` to start a filter. The list changes when you
-type. Press `Enter` to close the filter.
+type. A Fact search checks its Fact Name, tag, and all text states. Press
+`Enter` to close the filter.
 
 ### Arrange Facts
 

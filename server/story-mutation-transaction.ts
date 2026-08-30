@@ -35,7 +35,8 @@ import {
   hashStoryV6ManifestBytes,
   hashStoryV8ManifestBytes,
   hashStoryV10ManifestBytes,
-  hashStoryV12ManifestBytes
+  hashStoryV12ManifestBytes,
+  hashStoryV14ManifestBytes
 } from "./story-manifest-hash.js";
 import { canonicalJson } from "./canonical-json.js";
 import {
@@ -43,9 +44,11 @@ import {
   formatV8,
   formatV10,
   formatV12,
+  formatV14,
   STORY_SCHEMA_VERSION_V8,
   STORY_SCHEMA_VERSION_V10,
-  STORY_SCHEMA_VERSION_V12
+  STORY_SCHEMA_VERSION_V12,
+  STORY_SCHEMA_VERSION_V14
 } from "./story-v6-codec.js";
 import type { StoryEnvelopeManifest } from "./story-v6-types.js";
 import { StoryDurabilityError } from "./story-lifecycle.js";
@@ -694,17 +697,24 @@ export function completedRecord(
 }
 
 export function storyResult(
-  manifest: StoryEnvelopeManifest
+  manifest: StoryEnvelopeManifest,
+  factStatesRemoved?: number
 ): Extract<MutationResult, { kind: "story" }> {
   return {
     kind: "story",
     storyId: manifest.id,
     storyRevision: manifest.revision,
-    summary: manifest.kind === "live" ? manifest.summary : null
+    summary: manifest.kind === "live" ? manifest.summary : null,
+    ...(factStatesRemoved === undefined || factStatesRemoved === 0
+      ? {}
+      : { factStatesRemoved })
   };
 }
 
 export function hashStoryManifest(manifest: StoryEnvelopeManifest): string {
+  if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V14) {
+    return hashStoryV14ManifestBytes(Buffer.from(formatV14(manifest), "utf8"));
+  }
   if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V12) {
     return hashStoryV12ManifestBytes(Buffer.from(formatV12(manifest), "utf8"));
   }

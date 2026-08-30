@@ -8,6 +8,10 @@ import type { ChapterBreak, StoryNode } from "./types.js";
 
 export interface FactScanContext {
   readonly contextParts: readonly StoryNode[];
+  /** Ordered request path used for Fact State resolution. When omitted,
+   * `contextParts` is the request path. Keep this separate because a caller
+   * can assemble a scan context from a path plus summary nodes. */
+  readonly requestPath?: readonly { readonly id: string }[];
   readonly chapterBreaks: readonly ChapterBreak[];
   readonly nodes: readonly ChapterPartLike[];
   readonly instruction?: string;

@@ -18,10 +18,10 @@ import {
 } from "../shared/settings-v5-limits.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 
-test("HTTP protocol 27 refuses servers that ignore Aside reprompts", () => {
-  assert.equal(HTTP_API_PROTOCOL_VERSION, 27);
-  assert.equal(HTTP_MIN_CLIENT_PROTOCOL_VERSION, 27);
-  assert.equal(HTTP_MAX_CLIENT_PROTOCOL_VERSION, 27);
+test("HTTP protocol 28 refuses servers that ignore Fact States", () => {
+  assert.equal(HTTP_API_PROTOCOL_VERSION, 28);
+  assert.equal(HTTP_MIN_CLIENT_PROTOCOL_VERSION, 28);
+  assert.equal(HTTP_MAX_CLIENT_PROTOCOL_VERSION, 28);
 });
 
 test("protocol-11 saveSettings refuses before document decode", () => {

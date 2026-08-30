@@ -18,6 +18,26 @@ export interface AsideSessionRef {
   readonly turnCount: number;
 }
 
+/** Clone a text-free session reference before exposing it to mutable state. */
+export function cloneAsideSessionRef(ref: AsideSessionRef): AsideSessionRef {
+  return {
+    id: ref.id,
+    documentId: ref.documentId,
+    anchor: ref.anchor === null ? null : { partId: ref.anchor.partId, takeId: ref.anchor.takeId },
+    ...(ref.sourceAsideDocumentId === undefined
+      ? {}
+      : { sourceAsideDocumentId: ref.sourceAsideDocumentId }),
+    ...(ref.originAnchor === undefined
+      ? {}
+      : {
+          originAnchor: ref.originAnchor === null
+            ? null
+            : { partId: ref.originAnchor.partId, takeId: ref.originAnchor.takeId }
+        }),
+    turnCount: ref.turnCount
+  };
+}
+
 /** Story-level session grouping. Session text remains in per-session objects. */
 export interface AsideSessionIndex {
   readonly schemaVersion: 2;

@@ -19,6 +19,11 @@ export function key(
 export function editorHarness(rendererWidth?: number) {
   const source = demoAppSource();
   const state = initialState(source, false);
+  // Existing editor interaction tests exercise the complete field set. The
+  // product default remains Simple; focused Simple-mode coverage sets the
+  // preference explicitly.
+  state.config = { ...state.config, factsViewMode: "advanced" };
+  source.config = state.config;
   const cache = createWrapCache<ProseStyle>();
   const press = (event: KeyEvent) => handleKey(
     event,

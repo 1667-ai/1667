@@ -8,6 +8,7 @@ import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { editorHarness } from "./editor-harness.js";
 import { createWrapCache } from "../src/wrap.js";
+import { factWithText } from "./fact-fixture.js";
 
 const TERMINAL_WIDTH = 100;
 const BODY_LINES = 60;
@@ -25,7 +26,7 @@ function openLongFact(height: number): string[] {
     { length: BODY_LINES },
     (_, index) => `line ${index + 1} of the long fact body`
   ).join("\n");
-  openFactEditor(state, { ...fact, text });
+  openFactEditor(state, factWithText(fact, text));
   return frameText(
     renderStoryScreen(state, { width: TERMINAL_WIDTH, height }).lines
   ).split("\n");
@@ -59,7 +60,7 @@ describe("Fact editor scrolling", () => {
       { length: BODY_LINES },
       (_, index) => `line ${index + 1} of the long fact body`
     ).join("\n");
-    openFactEditor(state, { ...fact, text });
+    openFactEditor(state, factWithText(fact, text));
     const width = TERMINAL_WIDTH;
     const height = 24;
     const render = () => {

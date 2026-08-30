@@ -27,6 +27,7 @@ import {
 import { StoryService } from "../server/story-service.js";
 import { exportNovelAiArchive } from "../server/novelai-export.js";
 import { WorkerRequestCancellation } from "../server/worker-request-cancellation.js";
+import { firstFactText } from "../shared/fact-state.js";
 import {
   STORY_REAP_RETENTION_MS,
   StoryReaper
@@ -199,7 +200,7 @@ test("activated direct local and provider mutations keep V10 writable", async (t
   const renamed = await writer.renameStory(created.id, "Renamed after Aside");
   assert.equal(renamed.title, "Renamed after Aside");
   const withFact = await writer.createFact(created.id, { text: "A durable fact." });
-  assert.equal(withFact.facts.at(-1)?.text, "A durable fact.");
+  assert.equal(firstFactText(withFact.facts.at(-1)!), "A durable fact.");
   const rootNodeId = withFact.path[0]!.id;
   const createdChapter = await writer.createChapterBreak(
     created.id,

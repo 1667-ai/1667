@@ -1,4 +1,10 @@
 import { MAX_FACT_TEXT_CHARS } from "../../../../shared/types.js";
+import {
+  canonicalFactStates,
+  isFactEndState,
+  isFactStateful,
+  type FactState
+} from "../../../../shared/fact-state.js";
 import { unicodeScalarLength } from "../../../../shared/unicode.js";
 import { composerPosition } from "../../composer-model.js";
 import { factEditorTagLabel } from "../../fact-editor-draft.js";
@@ -12,10 +18,12 @@ import {
   FACT_MATCH_COMPOSER_SOURCE,
   FACT_SCAN_COMPOSER_SOURCE,
   FACT_CHAIN_COMPOSER_SOURCE,
+  FACT_NAME_COMPOSER_SOURCE,
+  FACT_SCOPE_COMPOSER_SOURCE,
   FACT_PRIORITY_COMPOSER_SOURCE,
   FACT_TAG_COMPOSER_SOURCE
 } from "../../fact-editor-policy.js";
-import { FACT_EDITOR_ROWS } from "../../fact-editor-rows.js";
+import { factEditorAdvancedPinned, factEditorVisibleRows } from "../../fact-editor-rows.js";
 import type { ComposerState } from "../../composer-model.js";
 import type { FactEditorSession } from "../../state.js";
 import {
@@ -28,7 +36,7 @@ import {
   type ComposerStatus
 } from "./composer-chrome.js";
 import { renderComposerChoiceRow } from "./composer-choice.js";
-import { segment, visibleWidth, type FrameLine } from "./frame.js";
+import { hintItem, segment, visibleWidth, type FrameLine } from "./frame.js";
 
 interface FactEditorLayoutOptions {
   width: number;
@@ -38,6 +46,7 @@ interface FactEditorLayoutOptions {
   narrow: boolean;
   softWrap: boolean;
   followCursor: boolean;
+  viewMode?: "simple" | "advanced";
 }
 
 /** Render the typed tag field as a sibling of the Fact body composer. */
@@ -45,7 +54,20 @@ export function renderFactEditorLayout(
   editor: FactEditorSession,
   options: FactEditorLayoutOptions
 ): ComposerLayout {
-  const headerRows = FACT_EDITOR_ROWS.length - 1;
+  const hasName = editor.name !== undefined;
+  const viewMode = options.viewMode ?? "advanced";
+  const creatingFact = editor.target.factId === null && editor.stateCreating !== true;
+  const visibleRows = factEditorVisibleRows(editor, viewMode, creatingFact)
+    .filter((row) => row !== "name" || hasName);
+  const scopeLine = creatingFact ? factEditorScopeLine(editor, options.width) : null;
+  const showAdvanced = visibleRows.includes("activation");
+  const states = editor.target.base === null
+    ? []
+    : [...canonicalFactStates(editor.target.base)];
+  const stateLine = factEditorStateLine(editor, states);
+  const advancedPinned = viewMode === "simple" && factEditorAdvancedPinned(editor);
+  const headerRows = 1 + (hasName ? 1 : 0) + (scopeLine === null ? 0 : 1) + (showAdvanced ? 8 : 0)
+    + (stateLine === null ? 0 : 1);
   const body = renderComposerLayout({
     composer: editor.composer,
     fullscreen: true,
@@ -58,6 +80,7 @@ export function renderFactEditorLayout(
     measure: options.width,
     title: editor.title,
     footerHints: FACT_EDITOR_FOOTER,
+    footerActions: factEditorFooterActions(viewMode),
     placeholder: editor.placeholder,
     footerNotice: options.footerNotice,
     scrollTop: options.scrollTop,
@@ -67,7 +90,16 @@ export function renderFactEditorLayout(
     caret: editor.focus === "body" ? "focused" : "none",
     status: factTextCounterStatus(editor.composer.text)
   });
+  const name = hasName
+    ? renderTextInput(editor.name!, editor.focus === "name", "name", "optional", body.fieldWidth, FACT_NAME_COMPOSER_SOURCE)
+    : null;
+  const scope = scopeLine;
   const tagLabel = factEditorTagLabel(editor);
+  const viewHeader: FrameLine = [segment(
+    `┃   ${showAdvanced ? "▾ advanced" : "▸ advanced"}${advancedPinned ? " ·" : ""}`,
+    editor.chromeFocus === "view" ? "focus / accent" : "chrome",
+    { kind: "action", action: "toggle-view-mode" }
+  )];
   const tag = editor.focus === "tag"
     ? renderTextInput(editor.tag, true, "tag", "none", body.fieldWidth,
         FACT_TAG_COMPOSER_SOURCE)
@@ -118,19 +150,21 @@ export function renderFactEditorLayout(
     body.fieldWidth,
     FACT_BUDGET_COMPOSER_SOURCE
   );
+  const header: FrameLine[] = [
+    viewHeader,
+    ...(name === null ? [] : [name]),
+    tag,
+    ...(scope === null ? [] : [scope]),
+    ...(showAdvanced
+      ? [activation, keys, secondary, match, scan, chain, priority, budget]
+      : []),
+    ...(stateLine === null ? [] : [stateLine])
+  ];
   return {
     ...body,
     lines: [
       body.lines[0]!,
-      tag,
-      activation,
-      keys,
-      secondary,
-      match,
-      scan,
-      chain,
-      priority,
-      budget,
+      ...header,
       ...body.lines.slice(1).map((line, index) => {
         const sourced = composerSource(line, FACT_BODY_COMPOSER_SOURCE);
         return index < body.bodyRows
@@ -143,10 +177,91 @@ export function renderFactEditorLayout(
     // Every row but the body sits at its FACT_EDITOR_ROWS index, in the
     // header lines inserted above; the body's own viewport row shifts down
     // same number of inserted header rows.
-    cursorViewportRow: editor.focus === "body"
-      ? body.cursorViewportRow + headerRows
-      : FACT_EDITOR_ROWS.indexOf(editor.focus)
+    cursorViewportRow: editor.chromeFocus === "view"
+      ? 0
+      : editor.chromeFocus === "state" && stateLine !== null
+        ? 1 + (hasName ? 1 : 0) + (scopeLine === null ? 0 : 1) + (showAdvanced ? 8 : 0)
+        : editor.focus === "body"
+          ? body.cursorViewportRow + headerRows
+          : Math.max(0, visibleRows.indexOf(editor.focus)) + 1
   };
+}
+
+function factEditorScopeLine(editor: FactEditorSession, fieldWidth: number): FrameLine {
+  const scoped = editor.factAnchorPartId !== null && editor.factAnchorPartId !== undefined;
+  const line = composerHitSource(renderComposerChoiceRow({
+    indent: "",
+    fieldWidth,
+    label: "scope",
+    value: scoped ? "from here on ◆" : "the whole story",
+    sourceId: FACT_SCOPE_COMPOSER_SOURCE,
+    sourceStart: null,
+    focused: editor.chromeFocus === "scope"
+  }), FACT_SCOPE_COMPOSER_SOURCE, false);
+  return line.map((part) => ({
+    ...part,
+    hit: { kind: "action", action: "cycle-fact-scope" }
+  }));
+}
+
+function factEditorStateLine(
+  editor: FactEditorSession,
+  states: readonly FactState[]
+): FrameLine | null {
+  const stateful = editor.stateCreating === true
+    || editor.target.base !== null && isFactStateful(editor.target.base);
+  if (!stateful) return null;
+  const selected = editor.stateIndex ?? 0;
+  const controls: FrameLine = [segment(
+    "┃   states ",
+    editor.chromeFocus === "state" ? "focus / accent" : "chrome"
+  )];
+  if (editor.stateCreating) {
+    controls.push(segment("[new]", "focus / accent"));
+  } else {
+    states.forEach((state, index) => {
+      const marker = isFactEndState(state) ? " ✕" : state.anchorPartId === undefined ? "" : " ◆";
+      controls.push(segment(
+        `${index === selected ? "▸" : ""}[${index + 1}${marker}]`,
+        index === selected ? "focus / accent" : "chrome",
+        { kind: "action", action: "cycle-state", index, rowId: state.id }
+      ));
+      if (index < states.length - 1) controls.push(segment(" ", "chrome"));
+    });
+  }
+  if (editor.stateId !== undefined && editor.stateId !== null) {
+    const anchor = editor.stateAnchorPartId;
+    if (anchor !== null && anchor !== undefined) {
+      controls.push(segment(" · ↵ anchor", "chrome", {
+        kind: "action", action: "open-state-anchor", rowId: anchor
+      }));
+    }
+    if (editor.stateCursorAnchorId !== undefined && editor.stateCursorAnchorId !== null) {
+      controls.push(segment(" · re-anchor ◆ cursor", "chrome", {
+        kind: "action", action: "reanchor-state", rowId: editor.stateCursorAnchorId
+      }));
+    }
+    controls.push(segment(` · ${editor.stateIsEnd === true ? "convert text" : "convert ✕"}`, "chrome", {
+      kind: "action", action: "convert-state", rowId: editor.stateId
+    }));
+    controls.push(segment(" · delete", editor.stateDeleteArmedId === editor.stateId ? "danger text" : "chrome", {
+      kind: "action", action: "delete-state", rowId: editor.stateId
+    }));
+  }
+  return controls;
+}
+
+function factEditorFooterActions(viewMode: "simple" | "advanced") {
+  return [
+    hintItem([segment("tab choose", "chrome", { kind: "action", action: "cycle" })]),
+    hintItem([segment("ctrl+t tag", "chrome", { kind: "action", action: "edit-tag" })], 1),
+    hintItem([segment(`m ${viewMode === "simple" ? "advanced" : "simple"}`, "chrome", {
+      kind: "action",
+      action: "toggle-view-mode"
+    })], 1),
+    hintItem([segment("ctrl+s save", "chrome", { kind: "action", action: "save-edit" })], 1),
+    hintItem([segment("esc cancel", "chrome", { kind: "action", action: "cancel" })])
+  ];
 }
 
 /** Only the "context warning" (≥80%) and "danger text" (at/over the limit)

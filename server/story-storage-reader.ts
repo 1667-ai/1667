@@ -20,6 +20,7 @@ import type { DeletedStoryManifestV6, LiveStoryManifestV6, ParsedStoryManifest }
 import type { DeletedStoryManifestV8, LiveStoryManifestV8 } from "./story-v8-types.js";
 import type { DeletedStoryManifestV10, LiveStoryManifestV10 } from "./story-v10-types.js";
 import type { DeletedStoryManifestV12, LiveStoryManifestV12 } from "./story-v12-types.js";
+import type { DeletedStoryManifestV14, LiveStoryManifestV14 } from "./story-v14-types.js";
 import {
   classifyStoryEntry,
   isStoryId,
@@ -91,13 +92,25 @@ export type StoredStorySlot =
       manifest: DeletedStoryManifestV12;
       manifestBytes: Buffer;
       mutationBlockedByResidue?: true;
+    }
+  | {
+      kind: "v14-live";
+      manifest: LiveStoryManifestV14;
+      manifestBytes: Buffer;
+      mutationBlockedByResidue?: true;
+    }
+  | {
+      kind: "v14-deleted";
+      manifest: DeletedStoryManifestV14;
+      manifestBytes: Buffer;
+      mutationBlockedByResidue?: true;
     };
 
 export type MutableStorySlot = Extract<StoredStorySlot, { kind: "absent" | "legacy" | "v5" }>;
 export type StoryMetadata = Pick<Story, "id" | "title" | "createdAt" | "origin">;
 
 export function storyMetadataFromSlot(
-  slot: Extract<StoredStorySlot, { kind: "legacy" | "v5" | "v6-live" | "v8-live" | "v10-live" | "v12-live" }>
+  slot: Extract<StoredStorySlot, { kind: "legacy" | "v5" | "v6-live" | "v8-live" | "v10-live" | "v12-live" | "v14-live" }>
 ): StoryMetadata {
   const source = slot.kind === "legacy" ? slot.story : slot.kind === "v5" ? slot.manifest : slot.manifest.content;
   return {
@@ -133,6 +146,8 @@ export function requireMutableStorySlot(
     || slot.kind === "v10-deleted"
     || slot.kind === "v12-live"
     || slot.kind === "v12-deleted"
+    || slot.kind === "v14-live"
+    || slot.kind === "v14-deleted"
   ) {
     throw new ServiceError(
       409,
@@ -179,11 +194,13 @@ export function storySlotSweepLiveIds(slot: StoredStorySlot): LiveStoryObjectIds
     case "v8-live":
     case "v10-live":
     case "v12-live":
+    case "v14-live":
       return liveObjectIds(slot.manifest.content);
     case "v6-deleted":
     case "v8-deleted":
     case "v10-deleted":
     case "v12-deleted":
+    case "v14-deleted":
       return EMPTY_LIVE_STORY_OBJECT_IDS;
     case "absent":
     case "residue":
@@ -265,6 +282,12 @@ function slotFromParsedManifest(
   }
   if (parsed.kind === "v12-deleted") {
     return { kind: "v12-deleted", manifest: parsed.manifest, manifestBytes: parsed.manifestBytes };
+  }
+  if (parsed.kind === "v14-live") {
+    return { kind: "v14-live", manifest: parsed.manifest, manifestBytes: parsed.manifestBytes };
+  }
+  if (parsed.kind === "v14-deleted") {
+    return { kind: "v14-deleted", manifest: parsed.manifest, manifestBytes: parsed.manifestBytes };
   }
   if (parsed.kind === "v8-live") {
     return { kind: "v8-live", manifest: parsed.manifest, manifestBytes: parsed.manifestBytes };

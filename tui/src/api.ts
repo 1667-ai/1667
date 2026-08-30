@@ -49,6 +49,8 @@ import type {
   CreateNodeRequest,
   DeleteNodeRequest,
   FactPatch,
+  FactStateInput,
+  FactStatePatch,
   GenerationSettings,
   ModelServerCheckResult,
   PasteStoryLineRequest,
@@ -305,6 +307,10 @@ export interface StoryApi {
   createFact(storyId: string, body: CreateFactsRequest): Promise<StoryPayload>;
   patchFact(storyId: string, factId: string, body: FactPatch): Promise<StoryPayload>;
   deleteFact(storyId: string, factId: string): Promise<StoryPayload>;
+  /** Branch-scoped Fact State mutations. Optional for v1 embedders. */
+  createFactState?(storyId: string, factId: string, body: FactStateInput): Promise<StoryPayload>;
+  patchFactState?(storyId: string, factId: string, stateId: string, body: FactStatePatch): Promise<StoryPayload>;
+  deleteFactState?(storyId: string, factId: string, stateId: string): Promise<StoryPayload>;
   /** Move a Fact to a new position among the story's Facts — array order is
    *  emit order, so this is the Facts surface's "arrange" control. */
   reorderFact(storyId: string, factId: string, toIndex: number): Promise<StoryPayload>;
@@ -1223,6 +1229,23 @@ export function createApi(
       storyId,
       "DELETE",
       `/api/stories/${storyId}/facts/${factId}`
+    ),
+    createFactState: (storyId, factId, body) => mutateStoryPayload(
+      storyId,
+      "POST",
+      `/api/stories/${storyId}/facts/${factId}/states`,
+      body
+    ),
+    patchFactState: (storyId, factId, stateId, body) => mutateStoryPayload(
+      storyId,
+      "PATCH",
+      `/api/stories/${storyId}/facts/${factId}/states/${stateId}`,
+      body
+    ),
+    deleteFactState: (storyId, factId, stateId) => mutateStoryPayload(
+      storyId,
+      "DELETE",
+      `/api/stories/${storyId}/facts/${factId}/states/${stateId}`
     ),
     reorderFact: (storyId, factId, toIndex) => mutateStoryPayload(
       storyId,

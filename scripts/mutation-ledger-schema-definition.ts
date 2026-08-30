@@ -42,11 +42,13 @@ export function mutationLedgerSchema(): Schema {
       forked: { type: "boolean" },
       lineCount: ref("UInt64String")
     }),
-    StoryResult: closed({
+    StoryResult: closedWithOptional({
       kind: { const: "story" },
       storyId: ref("StoryId"),
       storyRevision: ref("Revision20"),
       summary: nullable(ref("StorySummary"))
+    }, {
+      factStatesRemoved: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER }
     }),
     SettingsResult: closed({
       kind: { const: "settings" },

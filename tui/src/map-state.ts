@@ -15,6 +15,8 @@ export interface MapState {
   showSketches: boolean;
   openedColdFolds: Set<string>;
   massSort: MapMassSort;
+  /** Fact lens selection; transient and only meaningful in the tree view. */
+  factLensFactId?: string | null;
 }
 
 export function nextMapView(view: MapView): MapView {

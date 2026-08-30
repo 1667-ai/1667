@@ -11,7 +11,10 @@ import type { GenerationRecordHandoff } from "../server/generation-record-handof
 import { sha256 } from "../server/story-format.js";
 import { parseWorkerMutation } from "../server/worker-mutations.js";
 import { continuationPlan } from "../shared/continuation-plan.js";
-import type { GenerationSettings, StoryFact, StoryNode } from "../shared/types.js";
+import type { EffectiveStoryFact } from "../shared/fact-state.js";
+import type { GenerationSettings, StoryNode } from "../shared/types.js";
+
+const NOW = "2026-01-01T00:00:00.000Z";
 
 test("generation admission rejects one in-flight story/gen tuple without invoking it", async () => {
   const registry = new GenerationAdmissionRegistry();
@@ -400,14 +403,22 @@ function node(id: string, instruction: string, text: string): StoryNode {
   };
 }
 
-function fact(overrides: Partial<StoryFact> & Pick<StoryFact, "id" | "text">): StoryFact {
+function fact(
+  overrides: Omit<Partial<EffectiveStoryFact>, "text" | "stateId" | "state"> & { id: string; text: string }
+): EffectiveStoryFact {
+  const { id, text, ...metadata } = overrides;
+  const state = { id: `${id}-state`, text, createdAt: NOW, updatedAt: NOW };
   return {
+    id,
     tag: null,
     activation: "always",
     keys: [],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
-    ...overrides
+    ...metadata,
+    text,
+    stateId: state.id,
+    state
   };
 }
 

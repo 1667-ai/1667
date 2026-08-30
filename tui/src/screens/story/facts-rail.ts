@@ -29,13 +29,16 @@ export function renderFactsRail(
   if (layout.factLeft === null) throw new Error("facts rail requires split frame layout");
   const factLeft = layout.factLeft;
   const railRight = layout.railRight ?? layout.fullWidth;
-  const rows: FrameLine[] = [railHeader(model), []];
+  const rows: FrameLine[] = [railHeader(model), railLineHeader(model)];
   const targets: Array<number | null> = [null, null];
   for (const fact of model.facts) {
     const tag = truncate(fact.tag, Math.max(0, RAIL_CONTENT_WIDTH - 3));
     const tagWidth = visibleWidth(tag);
-    const tagGap = tagWidth > 0 ? 1 : 0;
-    const name = truncate(fact.name, Math.max(0, RAIL_CONTENT_WIDTH - 2 - tagGap - tagWidth));
+    const state = truncate(fact.stateWhisper, Math.max(0, RAIL_CONTENT_WIDTH - 3 - tagWidth));
+    const stateWidth = visibleWidth(state);
+    const stateGap = stateWidth > 0 ? 1 : 0;
+    const suffixWidth = stateWidth + stateGap + tagWidth;
+    const name = truncate(fact.name, Math.max(0, RAIL_CONTENT_WIDTH - 2 - suffixWidth));
     // Two one-cell glyphs share the marker's fixed two-cell budget: request
     // status first, then priority — blank for the common cases (an `always`
     // Fact riding whole, a "normal" priority), so a state worth noticing is
@@ -53,9 +56,10 @@ export function renderFactsRail(
       priorityGlyph,
       segment(name, fact.status.kind === "sent" ? "prose" : "prose · dim")
     ];
-    const gap = Math.max(tagGap, RAIL_CONTENT_WIDTH - 2 - visibleWidth(name) - tagWidth);
+    const gap = Math.max(0, RAIL_CONTENT_WIDTH - 2 - visibleWidth(name) - suffixWidth);
     rows.push([...namePart,
       segment(" ".repeat(gap)),
+      ...(stateWidth > 0 ? [segment(state, fact.stateWhisperRole), segment(" ".repeat(stateGap))] : []),
       segment(tag, "brass dim")]);
     targets.push(fact.index);
     if (fact.activation === "keyed" && fact.status.kind === "sent" && fact.body.length > 0) {
@@ -63,6 +67,23 @@ export function renderFactsRail(
         rows.push([segment("    "), { ...segment(line.text, "prose · dim"), prose: true }]);
         targets.push(fact.index);
       }
+    }
+    if (model.focusedContext?.factIndex === fact.index) {
+      const context = model.focusedContext;
+      rows.push([segment(`┌ ${context.name} · ${context.stateWhisper}`, "brass dim")]);
+      targets.push(context.factIndex);
+      for (const line of wrapText(context.body, [], RAIL_CONTENT_WIDTH - 3).slice(0, 2)) {
+        rows.push([segment("│ ", "brass dim"), { ...segment(line.text, "prose"), prose: true }]);
+        targets.push(context.factIndex);
+      }
+      rows.push([segment(`│ since ${context.anchor}`, "brass dim")]);
+      targets.push(context.factIndex);
+      if (context.sibling !== null) {
+        rows.push([segment(`│ ${context.sibling}`, "chrome")]);
+        targets.push(context.factIndex);
+      }
+      rows.push([segment("└ focused context", "brass dim")]);
+      targets.push(context.factIndex);
     }
     rows.push([]);
     targets.push(null);
@@ -138,4 +159,9 @@ function railHeader(model: RailModel): FrameLine {
     segment(label, "chrome"),
     segment("─".repeat(fill), "dimmed page")
   ];
+}
+
+function railLineHeader(model: RailModel): FrameLine {
+  const riding = model.facts.filter(({ status }) => status.kind === "sent").length;
+  return [segment(truncate(`  line ${model.lineName} · ${riding} ride`, RAIL_CONTENT_WIDTH), "chrome")];
 }

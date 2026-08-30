@@ -31,6 +31,7 @@ import {
   type StoryManifestV4
 } from "../server/story-format.js";
 import { STORY_LIST_IO_CONCURRENCY, StoryStore } from "../server/stories.js";
+import { firstFactText } from "../shared/fact-state.js";
 import {
   pasteStoryLine as pasteStoryLineNodes,
   pruneUnusedTakes as pruneUnusedStoryTakes
@@ -783,7 +784,7 @@ test("story store: V2 bundles and legacy JSON load, then save as V5", async (t) 
   }));
   const old = await store.load("old-v2");
   assert.equal(old.nodes[0]!.text, "Old prose");
-  assert.equal(old.facts[0]!.text, "Selected temporal fact");
+  assert.equal(firstFactText(old.facts[0]!), "Selected temporal fact");
   assert.equal(old.facts[0]!.activation, "always");
   assert.deepEqual(old.facts[0]!.keys, []);
   await store.mutate("old-v2", (story) => { story.title = "Migrated"; });

@@ -126,12 +126,29 @@ describe("embedded backend worker", () => {
         budgetTokens: 500
       });
       expect(story.facts[0]).toMatchObject({
-        text: "The door is midnight blue.",
+        states: [{ text: "The door is midnight blue." }],
         activation: "always",
         keys: ["midnight door", "blue door"],
         priority: "high",
         budgetTokens: 500
       });
+      if (api.createFactState === undefined
+        || api.patchFactState === undefined
+        || api.deleteFactState === undefined) {
+        throw new Error("embedded worker must implement Fact State mutations");
+      }
+      story = await api.createFactState(story.id, factId, {
+        anchorPartId: root.id,
+        text: "The door is brass."
+      });
+      const stateId = story.facts[0]!.states.find(({ id }) => id !== factId)!.id;
+      story = await api.patchFactState(story.id, factId, stateId, {
+        text: "The door is iron."
+      });
+      expect(story.facts[0]!.states.find(({ id }) => id === stateId))
+        .toMatchObject({ anchorPartId: root.id, text: "The door is iron." });
+      story = await api.deleteFactState(story.id, factId, stateId);
+      expect(story.facts[0]!.states).toHaveLength(1);
       story = await api.createFact(story.id, { text: "Second fact." });
       const secondFactId = story.facts[1]!.id;
       story = await api.reorderFact(story.id, secondFactId, 0);
@@ -430,7 +447,7 @@ describe("embedded backend worker", () => {
 
       story = await backend.api.createFact(story.id, { tag: "Place", text: "Old" });
       story = await backend.api.patchFact(story.id, story.facts[0]!.id, { tag: undefined, text: "New" });
-      expect(story.facts[0]).toMatchObject({ tag: "Place", text: "New" });
+      expect(story.facts[0]).toMatchObject({ tag: "Place", states: [{ text: "New" }] });
     } finally {
       await backend.dispose();
       await rm(dataDir, { recursive: true, force: true });

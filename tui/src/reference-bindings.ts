@@ -133,6 +133,9 @@ const DEFINITIONS = {
   logClose: route("global", "escape", "LOG", "cancel"),
   navQuit: route("nav", "q", "NAV", "quit"),
   mapCycleView: route("map", "m", "MAP", "cycle-map-view"),
+  // `f` is contextual to the tree map: NAV keeps its existing `f` Facts
+  // opener, while the tree uses this otherwise-free key to lens one Fact.
+  mapOpenFactLens: route("map", "f", "MAP", "open-fact-lens", { mapView: "tree" }),
   mapPathAllTakes: route("map", "a", "MAP", "toggle-path-takes", { mapView: "path" }),
   mapTreeSketches: route("map", "a", "MAP", "toggle-sketches", { mapView: "tree" }),
   mapMassSketches: route("map", "a", "MAP", "toggle-sketches", { mapView: "mass" }),

@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { selectFactsWithinBudget } from "../shared/fact-budget.js";
+import { effectiveFactAtPath, firstFactText, type EffectiveStoryFact } from "../shared/fact-state.js";
 import { StoryService } from "../server/story-service.js";
+import type { StoryPayload } from "../shared/types.js";
 
 test("fact order, priority, and budget round-trip through create, patch, reorder, and reload", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-fact-order-priority-budget-"));
@@ -16,7 +18,7 @@ test("fact order, priority, and budget round-trip through create, patch, reorder
   await service.createFact(created.id, { text: "First fact." });
   await service.createFact(created.id, { text: "Second fact.", priority: "high", budgetTokens: 500 });
   const third = await service.createFact(created.id, { text: "Third fact." });
-  assert.deepEqual(third.facts.map((fact) => fact.text), ["First fact.", "Second fact.", "Third fact."]);
+  assert.deepEqual(third.facts.map((fact) => firstFactText(fact)), ["First fact.", "Second fact.", "Third fact."]);
   // Default priority never appears on the wire; an explicit non-default one does.
   assert.equal("priority" in third.facts[0]!, false);
   assert.equal(third.facts[1]!.priority, "high");
@@ -92,9 +94,10 @@ test("setFactsBudget round-trips and, once set, sheds the story's low-priority F
     priority: "low"
   });
   const [keptId, shedId] = withLow.facts.map((fact) => fact.id) as [string, string];
+  const withLowEffective = effectiveFacts(withLow);
 
   // No budget yet: both Facts stand, regardless of priority.
-  const unbudgeted = selectFactsWithinBudget(withLow.facts, null);
+  const unbudgeted = selectFactsWithinBudget(withLowEffective, null);
   assert.deepEqual(unbudgeted.kept.map((fact) => fact.id), [keptId, shedId]);
 
   // Setting the budget is rejected outside its bounds...
@@ -102,11 +105,11 @@ test("setFactsBudget round-trips and, once set, sheds the story's low-priority F
 
   // ...and takes effect once valid: tight enough to force the low-priority
   // Fact out but not the other one.
-  const budget = Math.ceil(withLow.facts[0]!.text.length / 4) + 1;
+  const budget = Math.ceil(withLowEffective[0]!.text.length / 4) + 1;
   const budgeted = await service.setFactsBudget(created.id, budget);
   assert.equal(budgeted.factsBudgetTokens, budget);
 
-  const selection = selectFactsWithinBudget(budgeted.facts, budgeted.factsBudgetTokens ?? null, {
+  const selection = selectFactsWithinBudget(effectiveFacts(budgeted), budgeted.factsBudgetTokens ?? null, {
     spaceDropReason: "total-budget"
   });
   assert.deepEqual(selection.kept.map((fact) => fact.id), [keptId]);
@@ -126,6 +129,13 @@ test("setFactsBudget round-trips and, once set, sheds the story's low-priority F
     await service.dispose();
   }
 });
+
+function effectiveFacts(payload: Pick<StoryPayload, "facts" | "path">): EffectiveStoryFact[] {
+  return payload.facts.flatMap((fact) => {
+    const effective = effectiveFactAtPath(fact, payload.path);
+    return effective === null ? [] : [effective];
+  });
+}
 
 test("fact mutation rejects an out-of-range priority and budget", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-fact-priority-budget-validation-"));

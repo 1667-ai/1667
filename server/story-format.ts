@@ -33,6 +33,7 @@ import {
   integerField,
   integerValue,
   optionalString,
+  parseStoredFactsV13,
   parseVersionAttributions,
   recordValue,
   requireHash,
@@ -43,13 +44,15 @@ import {
   convertV3ToV4,
   optionalRole,
   parseLegacyManifest,
-  parseV4Manifest
+  parseV4Manifest,
+  parseV4ManifestWithFacts
 } from "./story-format-nodes.js";
 import { assertStrictV5Manifest, MAX_STORY_MANIFEST_BYTES } from "./story-v5-strict.js";
 import { assertStrictV7Manifest } from "./story-v7-strict.js";
 import { assertStrictV9Manifest } from "./story-v9-strict.js";
 import { assertStrictV11Manifest } from "./story-v11-strict.js";
-import type { AsideSessionRef } from "../shared/aside-session-index.js";
+import { assertStrictV13Manifest } from "./story-v13-strict.js";
+import { cloneAsideSessionRef, type AsideSessionRef } from "../shared/aside-session-index.js";
 
 export { HASH_PATTERN, StoryFormatError, requireHash } from "./story-format-facts.js";
 export {
@@ -77,6 +80,11 @@ export const STORY_ASIDE_SCHEMA_VERSION = 9;
 /** The v2 Aside content payload. It keeps the V9 legacy document id and adds
  * text-free session references. It is written only in the V12 envelope. */
 export const STORY_ASIDE_SESSION_SCHEMA_VERSION = 11;
+/** The branch-scoped Fact States content payload. It keeps the V11 root and
+ * node shape, and replaces each flat Fact revision with bounded states. */
+export const STORY_FACT_STATE_SCHEMA_VERSION = 13;
+/** Alias kept for callers that name content versions by their number. */
+export const STORY_SCHEMA_VERSION_V13 = STORY_FACT_STATE_SCHEMA_VERSION;
 export const REVISION_FORMAT = "1667-text-revision";
 export const STORYTAVERN_REVISION_FORMAT = "storytavern-text-revision";
 export const REVISION_SCHEMA_VERSION = 1;
@@ -114,6 +122,39 @@ export interface StoredFactV1 {
   createdAt: string;
   updatedAt: string;
   sourcePartId?: string;
+}
+
+/** One state in a V13 Fact. A text state names a revision; an End State has no
+ * revision and carries `ends: true` instead. The no-Anchor form is omitted,
+ * rather than serialized as null, so old and new shapes have one canonical
+ * representation. */
+export interface StoredFactStateV1 {
+  id: string;
+  anchorPartId?: string;
+  revisionId?: ObjectHash;
+  ends?: true;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** V13's Fact shape. Metadata remains per Fact; state bodies are separate,
+ * content-addressed revisions. */
+export interface StoredFactV13 {
+  id: string;
+  name?: string;
+  tag: string | null;
+  activation?: FactActivation;
+  keys?: string[];
+  secondaryKeys?: string[];
+  secondaryMode?: FactSecondaryMode;
+  scanDepth?: number;
+  recursion?: FactRecursion;
+  priority?: FactPriority;
+  budgetTokens?: number;
+  createdAt: string;
+  updatedAt: string;
+  sourcePartId?: string;
+  states: StoredFactStateV1[];
 }
 
 export interface StoryManifestV2 {
@@ -280,6 +321,13 @@ export interface StoryManifestV11 extends Omit<StoryManifestV9, "schemaVersion">
   asideUnanchoredSessionRefs: AsideSessionRef[];
 }
 
+/** V13 content: V11's root, node, Aside, and session fields with the
+ * branch-scoped Fact State shape. */
+export interface StoryManifestV13 extends Omit<StoryManifestV11, "schemaVersion" | "facts"> {
+  schemaVersion: typeof STORY_FACT_STATE_SCHEMA_VERSION;
+  facts: StoredFactV13[];
+}
+
 export interface TextRevisionV1 {
   format: typeof REVISION_FORMAT | typeof STORYTAVERN_REVISION_FORMAT;
   schemaVersion: typeof REVISION_SCHEMA_VERSION;
@@ -419,7 +467,7 @@ export function serializeManifest(manifest: StoryManifestV5): string {
  *  Every direct write to a story's manifest file goes through
  *  `serializeManifest` instead, which accepts only `StoryManifestV5`. */
 export function serializeManifestContent(
-  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11
+  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13
 ): string {
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
@@ -432,7 +480,7 @@ export function serializeManifestContent(
  *  corrupting the story it was trying to save. Mirrors `requireV6Manifest`
  *  (`server/story-v6-codec.ts`) one schema pair down. */
 export function requireV5Manifest(
-  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11,
+  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13,
   context: string
 ): StoryManifestV5 {
   if (manifest.schemaVersion !== STORY_SCHEMA_VERSION) {
@@ -478,6 +526,15 @@ export function parseManifestV11(raw: string, expectedId: string): StoryManifest
   return parsed.manifest;
 }
 
+/** Parse the branch-scoped Fact State content payload deliberately. */
+export function parseManifestV13(raw: string, expectedId: string): StoryManifestV13 {
+  const parsed = parseManifestWithVersion(raw, expectedId);
+  if (parsed.manifest.schemaVersion !== STORY_FACT_STATE_SCHEMA_VERSION) {
+    throw new StoryFormatError(`Expected a V${STORY_FACT_STATE_SCHEMA_VERSION} story manifest for ${expectedId}`);
+  }
+  return parsed.manifest;
+}
+
 /** A discriminated union, not one loosely-typed pair of fields: tying
  * `manifest` to the exact `sourceSchemaVersion` that produced it is what lets
  * a caller that already checked `sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION`
@@ -498,6 +555,10 @@ export type ParsedManifestVersion =
   | {
       manifest: StoryManifestV11;
       sourceSchemaVersion: typeof STORY_ASIDE_SESSION_SCHEMA_VERSION;
+    }
+  | {
+      manifest: StoryManifestV13;
+      sourceSchemaVersion: typeof STORY_FACT_STATE_SCHEMA_VERSION;
     };
 
 /** Parse and normalize while retaining the on-disk version for migration-only
@@ -526,6 +587,18 @@ export function parseLegacyManifestWithoutSizeLimit(
   return parsed as { manifest: StoryManifestV5; sourceSchemaVersion: 2 | 3 | 4 };
 }
 
+/** Clone the two persisted Aside ref buckets with their explicit anchor
+ * semantics. The unanchored bucket is normalized to a null anchor. */
+function cloneAsideSessionRefs(
+  refs: readonly AsideSessionRef[],
+  forceUnanchored = false
+): AsideSessionRef[] {
+  return refs.map((ref) => {
+    const cloned = cloneAsideSessionRef(ref);
+    return forceUnanchored ? { ...cloned, anchor: null } : cloned;
+  });
+}
+
 export function parseManifestValueWithVersion(input: unknown, expectedId: string): ParsedManifestVersion {
   const value = recordValue(input, `story ${expectedId} manifest`);
   if (
@@ -538,6 +611,7 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
       && value.schemaVersion !== STORY_SUCCESSOR_SCHEMA_VERSION
       && value.schemaVersion !== STORY_ASIDE_SCHEMA_VERSION
       && value.schemaVersion !== STORY_ASIDE_SESSION_SCHEMA_VERSION
+      && value.schemaVersion !== STORY_FACT_STATE_SCHEMA_VERSION
     )
   ) {
     throw new StoryFormatError(`Unsupported story format in ${expectedId}`);
@@ -554,6 +628,9 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
   if (value.schemaVersion === STORY_ASIDE_SESSION_SCHEMA_VERSION) {
     assertStrictV11Manifest(value, expectedId, value.format);
   }
+  if (value.schemaVersion === STORY_FACT_STATE_SCHEMA_VERSION) {
+    assertStrictV13Manifest(value, expectedId, value.format);
+  }
   const id = stringField(value, "id");
   if (id !== expectedId) throw new StoryFormatError(`Story id mismatch: expected ${expectedId}, found ${id}`);
   const origin = optionalOrigin(value.origin);
@@ -561,10 +638,25 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
   const isCurrentOrSuccessor = sourceSchemaVersion === STORY_SCHEMA_VERSION
     || sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION
     || sourceSchemaVersion === STORY_ASIDE_SCHEMA_VERSION
-    || sourceSchemaVersion === STORY_ASIDE_SESSION_SCHEMA_VERSION;
-  const stored = sourceSchemaVersion === 2 || sourceSchemaVersion === 3
-    ? convertV3ToV4(parseLegacyManifest(value))
-    : parseV4Manifest(value);
+    || sourceSchemaVersion === STORY_ASIDE_SESSION_SCHEMA_VERSION
+    || sourceSchemaVersion === STORY_FACT_STATE_SCHEMA_VERSION;
+  const parsedStored = sourceSchemaVersion === STORY_FACT_STATE_SCHEMA_VERSION
+    ? {
+        kind: "fact-state" as const,
+        value: parseV4ManifestWithFacts(
+          value,
+          parseStoredFactsV13,
+          (nodes) => nodes.map((node) => node.id),
+          (nodes) => nodes.filter((node) => node.role !== "summary").map((node) => node.id)
+        )
+      }
+    : {
+        kind: "predecessor" as const,
+        value: sourceSchemaVersion === 2 || sourceSchemaVersion === 3
+          ? convertV3ToV4(parseLegacyManifest(value))
+          : parseV4Manifest(value)
+      };
+  const stored = parsedStored.value;
   const chapterBreaks = isCurrentOrSuccessor
     ? parseChapterBreaks(value.chapterBreaks)
     : [];
@@ -596,8 +688,8 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
     ? optionalFactsBudgetTokens(value.factsBudgetTokens)
     : undefined;
   validateChapterRecords(chapterBreaks, stored.nodes);
-  const common = {
-    ...stored,
+  const { facts: _storedFacts, ...storedWithoutFacts } = stored;
+  const commonSuffix = {
     ...(autonameId === undefined ? {} : { autonameId }),
     ...(firstChapterTitle === undefined || firstChapterTitle === ""
       ? {}
@@ -614,16 +706,52 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
     ...(factsBudgetTokens === undefined ? {} : { factsBudgetTokens }),
     chapterBreaks
   };
+  const commonWithoutFacts = {
+    ...storedWithoutFacts,
+    ...commonSuffix
+  };
   // Built as separate returns, not one shared object with a
   // union-typed `manifest`, so each branch keeps `manifest` tied to the
   // exact `sourceSchemaVersion` that produced it. See the comment on
   // `ParsedManifestVersion`.
+  if (parsedStored.kind === "fact-state") {
+    if (sourceSchemaVersion !== STORY_FACT_STATE_SCHEMA_VERSION) {
+      throw new StoryFormatError("Fact State payload has an incompatible source schema");
+    }
+    const asideDocumentId = value.asideDocumentId === null
+      ? null
+      : requireHash(stringField(value, "asideDocumentId"), "asideDocumentId");
+    const asideSessionRefs = value.asideSessionRefs as AsideSessionRef[];
+    const asideUnanchoredSessionRefs = value.asideUnanchoredSessionRefs as AsideSessionRef[];
+    const parsed: StoryManifestV13 = {
+      ...commonWithoutFacts,
+      schemaVersion: STORY_FACT_STATE_SCHEMA_VERSION,
+      facts: parsedStored.value.facts,
+      asideDocumentId,
+      asideSessionRefs: cloneAsideSessionRefs(asideSessionRefs),
+      asideUnanchoredSessionRefs: cloneAsideSessionRefs(asideUnanchoredSessionRefs, true)
+    };
+    return {
+      manifest: origin === undefined ? parsed : { ...parsed, origin },
+      sourceSchemaVersion
+    };
+  }
+  if (sourceSchemaVersion === STORY_FACT_STATE_SCHEMA_VERSION) {
+    throw new StoryFormatError("Fact State source schema has a predecessor payload");
+  }
+  const predecessorStored = parsedStored.value;
+  // Keep predecessor manifest key order byte-stable. Their flat `facts` field
+  // belongs beside `nodes`, not after the newer common suffix.
+  const predecessorCommon = {
+    ...predecessorStored,
+    ...commonSuffix
+  };
   if (sourceSchemaVersion === STORY_ASIDE_SCHEMA_VERSION) {
     const asideDocumentId = value.asideDocumentId === null
       ? null
       : requireHash(stringField(value, "asideDocumentId"), "asideDocumentId");
     const parsed: StoryManifestV9 = {
-      ...common,
+      ...predecessorCommon,
       schemaVersion: STORY_ASIDE_SCHEMA_VERSION,
       asideDocumentId
     };
@@ -639,33 +767,11 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
     const asideSessionRefs = value.asideSessionRefs as AsideSessionRef[];
     const asideUnanchoredSessionRefs = value.asideUnanchoredSessionRefs as AsideSessionRef[];
     const parsed: StoryManifestV11 = {
-      ...common,
+      ...predecessorCommon,
       schemaVersion: STORY_ASIDE_SESSION_SCHEMA_VERSION,
       asideDocumentId,
-      asideSessionRefs: asideSessionRefs.map((ref) => ({
-        id: ref.id,
-        documentId: ref.documentId,
-        anchor: ref.anchor === null ? null : { ...ref.anchor },
-        ...(ref.sourceAsideDocumentId === undefined
-          ? {}
-          : { sourceAsideDocumentId: ref.sourceAsideDocumentId }),
-        ...(ref.originAnchor === undefined
-          ? {}
-          : { originAnchor: ref.originAnchor === null ? null : { ...ref.originAnchor } }),
-        turnCount: ref.turnCount
-      })),
-      asideUnanchoredSessionRefs: asideUnanchoredSessionRefs.map((ref) => ({
-        id: ref.id,
-        documentId: ref.documentId,
-        anchor: null,
-        ...(ref.sourceAsideDocumentId === undefined
-          ? {}
-          : { sourceAsideDocumentId: ref.sourceAsideDocumentId }),
-        ...(ref.originAnchor === undefined
-          ? {}
-          : { originAnchor: ref.originAnchor === null ? null : { ...ref.originAnchor } }),
-        turnCount: ref.turnCount
-      }))
+      asideSessionRefs: cloneAsideSessionRefs(asideSessionRefs),
+      asideUnanchoredSessionRefs: cloneAsideSessionRefs(asideUnanchoredSessionRefs, true)
     };
     return {
       manifest: origin === undefined ? parsed : { ...parsed, origin },
@@ -673,13 +779,19 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
     };
   }
   if (sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION) {
-    const parsed: StoryManifestV7 = { ...common, schemaVersion: STORY_SUCCESSOR_SCHEMA_VERSION };
+    const parsed: StoryManifestV7 = {
+      ...predecessorCommon,
+      schemaVersion: STORY_SUCCESSOR_SCHEMA_VERSION
+    };
     return {
       manifest: origin === undefined ? parsed : { ...parsed, origin },
       sourceSchemaVersion
     };
   }
-  const parsed: StoryManifestV5 = { ...common, schemaVersion: STORY_SCHEMA_VERSION };
+  const parsed: StoryManifestV5 = {
+    ...predecessorCommon,
+    schemaVersion: STORY_SCHEMA_VERSION
+  };
   return {
     manifest: origin === undefined ? parsed : { ...parsed, origin },
     sourceSchemaVersion

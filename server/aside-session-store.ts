@@ -5,7 +5,7 @@
  * reference lists and builds text-bearing views after an explicit object read.
  */
 import type { AsideAnchor, AsideSessionDocument } from "../shared/aside-session.js";
-import type { AsideSessionRef } from "../shared/aside-session-index.js";
+import { cloneAsideSessionRef, type AsideSessionRef } from "../shared/aside-session-index.js";
 import { isChapterSummary } from "../shared/story-tree.js";
 import type { Story } from "../shared/types.js";
 import { MAX_SESSION_REFS_PER_BUCKET } from "./story-v11-strict.js";
@@ -294,20 +294,7 @@ export function cloneAnchor(anchor: AsideAnchor | null): AsideAnchor | null {
   return anchor === null ? null : { partId: anchor.partId, takeId: anchor.takeId };
 }
 
-export function cloneAsideSessionRef(ref: AsideSessionRef): AsideSessionRef {
-  return {
-    id: ref.id,
-    documentId: ref.documentId,
-    anchor: cloneAnchor(ref.anchor),
-    ...(ref.sourceAsideDocumentId === undefined
-      ? {}
-      : { sourceAsideDocumentId: ref.sourceAsideDocumentId }),
-    ...(ref.originAnchor === undefined
-      ? {}
-      : { originAnchor: cloneAnchor(ref.originAnchor) }),
-    turnCount: ref.turnCount
-  };
-}
+export { cloneAsideSessionRef };
 
 export function cloneAsideSessionDocument(
   document: AsideSessionDocument,

@@ -31,7 +31,7 @@ export interface PanelHits {
   overrides?: Array<HitRegion[] | undefined>;
   /** Footer keys that run on click. Structurally requires hits, which is why
    *  it lives here rather than as its own parameter. */
-  footerActions?: ReadonlyArray<{ token: string; action: KeyAction }>;
+  footerActions?: ReadonlyArray<{ token: string; action: KeyAction; index?: number; rowId?: string }>;
   /** Keep the panel top stable while its content grows or shrinks. */
   anchorTop?: boolean;
 }
@@ -225,7 +225,16 @@ export function placePanel(
       if (index === -1) throw new Error(`footer token not found: ${item.token}`);
       offset = index + item.token.length;
       const regionLeft = horizontal.footerLeft + visibleWidth(shownFooter.slice(0, index));
-      return { target: { kind: "action", action: item.action }, left: regionLeft, right: regionLeft + visibleWidth(item.token) };
+      return {
+        target: {
+          kind: "action",
+          action: item.action,
+          ...(item.index === undefined ? {} : { index: item.index }),
+          ...(item.rowId === undefined ? {} : { rowId: item.rowId })
+        },
+        left: regionLeft,
+        right: regionLeft + visibleWidth(item.token)
+      };
     });
     // Guard on the paint bound below, not the buffer: a row the panel never
     // draws must not answer a click, however much room the hit map has.

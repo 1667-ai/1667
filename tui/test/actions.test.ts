@@ -11,6 +11,7 @@ import { currentPartActions, openActions, restorePendingGenerationDraft } from "
 import { createWrapCache } from "../src/wrap.js";
 import { openRetakeComposer, suspendRetakeComposer } from "../src/composer-ownership.js";
 import type { PendingGenerationDraft } from "../src/state.js";
+import { factText } from "./fact-fixture.js";
 
 const key = (name: string, sequence = name): KeyEvent => ({ name, sequence, shift: false, ctrl: false, meta: false }) as KeyEvent;
 const STREAM_STARTED_AT = "2026-07-22T00:00:00.000Z";
@@ -991,7 +992,7 @@ describe("demo action pipeline", () => {
     expect(state.editor.composer.text).toBe("The lantern remembers.");
     expect(state.editor.returnMode).toBe("NAV");
     await pressKey(modifiedKey("s", { sequence: "\u0013", ctrl: true }));
-    expect(state.payload.facts.some(({ text }) => text === "The lantern remembers.")).toBeTrue();
+    expect(state.payload.facts.some((fact) => factText(fact) === "The lantern remembers.")).toBeTrue();
     expect(state.toast).toBe("fact created");
   });
 

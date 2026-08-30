@@ -749,6 +749,35 @@ export class StoryService extends StoryServiceRuntime {
     return await this.storyLocal.patchFact(id, factId, body, mutationRequest);
   }
 
+  async createFactState(
+    id: string,
+    factId: string,
+    body: unknown,
+    stateId?: string,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return await this.storyLocal.createFactState(id, factId, body, stateId, mutationRequest);
+  }
+
+  async patchFactState(
+    id: string,
+    factId: string,
+    stateId: string,
+    body: unknown,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return await this.storyLocal.patchFactState(id, factId, stateId, body, mutationRequest);
+  }
+
+  async deleteFactState(
+    id: string,
+    factId: string,
+    stateId: string,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return await this.storyLocal.deleteFactState(id, factId, stateId, mutationRequest);
+  }
+
   async deleteFact(
     id: string,
     factId: string,

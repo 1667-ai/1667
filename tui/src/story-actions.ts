@@ -1,7 +1,7 @@
 import { continuationStats, createStoryIndex, rememberedLeafId } from "../../shared/story-model.js";
 import { TAG_STATUSES, type StoryNode } from "../../shared/types.js";
 import type { AppSource } from "./app.js";
-import { openFactFromSelection, openPartEditor } from "./editor-action.js";
+import { openFactEditor, openFactFromSelection, openPartEditor } from "./editor-action.js";
 import { applyTextKey, type ResolvedKey } from "./keys.js";
 import { copyToClipboard } from "./clipboard.js";
 import { pasteClipboardIntoComposer } from "./compose-clipboard.js";
@@ -390,6 +390,36 @@ export async function runPartAction(
     if (selectionText === null) state.toast = "highlight story text before creating a fact";
     else openFactFromSelection(state, selectionText);
   }
+  else if (id === "fact-from-here") {
+    openFactEditor(state, null, { anchorPartId: node.id });
+  }
+  else if (id === "fact-new-state") {
+    state.facts = {
+      cursor: 0,
+      query: "",
+      chip: 0,
+      selectedTag: null,
+      filtering: false,
+      deleteArmedId: null,
+      pendingFactAction: { kind: "new-state", anchorPartId: node.id }
+    };
+    state.mode = "FACTS";
+    state.toast = "select a Fact · enter opens a new state";
+  }
+  else if (id === "fact-end-here") {
+    state.facts = {
+      cursor: 0,
+      query: "",
+      chip: 0,
+      selectedTag: null,
+      filtering: false,
+      deleteArmedId: null,
+      pendingFactAction: { kind: "end", anchorPartId: node.id }
+    };
+    state.mode = "FACTS";
+    state.toast = "select a Fact · enter opens an end state";
+  }
+  else if (id === "fact-new") openFactEditor(state, null);
   else if (id === "rewrite-selection") {
     const resolved = resolveRewriteTarget(state.payload, node.id, selectionSpans);
     if ("error" in resolved) state.toast = resolved.error;

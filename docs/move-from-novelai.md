@@ -255,9 +255,10 @@ These Archives are transfer files, not complete backups:
 - The exports can omit alternate takes, directions, summaries, chapter breaks,
   the first chapter title, tags, and Side Notes. The Fidelity Report counts
   chapter breaks but does not name a lost first chapter title.
-- The exports omit Fact secondary keys, secondary-key mode, scan depth,
+- The exports omit Fact names. The Fidelity Report states this loss. The
+  exports also omit Fact secondary keys, secondary-key mode, scan depth,
   recursion, priority, per-Fact token budgets, creation times, and source story
-  part links. The Fidelity Report does not list these losses.
+  part links. The Fidelity Report does not list these other losses.
 - The exports omit the Facts budget, Author's Note depth, story phrase bias,
   and banned strings. Both `.story` and `.scenario` omit the Author Brief. Only
   the `.scenario` Fidelity Report names that loss. The exports also omit Image

@@ -41,6 +41,10 @@ read_when:
 | story line | The selected path through story parts |
 | tag | A name and a status on the end of one story line |
 | Fact | One note that 1667 sends with a provider request |
+| Fact Name | The optional display name of one Fact |
+| Fact State | One version of a Fact body that starts at an optional story-part Anchor |
+| End State | A Fact State that stops a Fact on one story line |
+| Anchor | The story part where a Fact State starts |
 | Fact priority | The rank 1667 uses to choose which Fact to drop first |
 | Fact budget | The token limit on one Fact |
 | Facts budget | The token limit on the total of a story's Facts |

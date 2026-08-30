@@ -141,6 +141,9 @@ function decodeSearchHit(value: unknown): SearchHit {
     storyTitle: stringField(hit, "storyTitle", "search hit"),
     kind,
     targetId: stringField(hit, "targetId", "search hit"),
+    ...(hit.stateId === undefined
+      ? {}
+      : { stateId: stringField(hit, "stateId", "search hit") }),
     depth: nonNegativeIntegerField(hit, "depth", "search hit"),
     snippet,
     snippetMatch,

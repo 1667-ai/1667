@@ -14,6 +14,8 @@ import {
 } from "./sampling-validation-policy.js";
 import type { SamplingPhraseBiasEntryV2 } from "./settings-v2-types.js";
 import type { AsideSessionRef } from "./aside-session.js";
+import type { FactState } from "./fact-state.js";
+import { normalizeFactName } from "./fact-name.js";
 
 export interface TextRange {
   /** UTF-16 offsets, matching String.slice and textarea selection offsets. */
@@ -51,6 +53,8 @@ const MAX_ASIDE_PRESENCE_ITEMS = 20_001;
 const MAX_ASIDE_PRESENCE_IDENTIFIER_SCALARS = 1_024;
 
 export const MAX_FACTS = 128;
+/** Maximum number of states one Fact can carry. */
+export const MAX_FACT_STATES = 32;
 // Raised from 4,000 (issue-driven): the character ceiling is no longer meant
 // to be the writer-visible constraint on Fact size. NovelAI and SillyTavern
 // World Info both govern entry size by token budget, not a character cap, and
@@ -66,8 +70,12 @@ export const MAX_FACT_TAG_CHARS = 48;
 export type { FactActivation, FactPriority, FactRecursion, FactSecondaryMode };
 
 export interface FactInput {
+  /** Optional display metadata. Empty or null clears the name. */
+  name?: string | null;
   tag?: string | null;
   text: string;
+  /** Anchor for the first state. Absent means story-wide. */
+  anchorPartId?: string | null;
   activation?: FactActivation;
   keys?: string[];
   secondaryKeys?: string[];
@@ -82,6 +90,8 @@ export interface FactInput {
 }
 
 export interface FactPatch {
+  /** Empty or null clears the display name. */
+  name?: string | null;
   tag?: string | null;
   text?: string;
   activation?: FactActivation;
@@ -95,6 +105,28 @@ export interface FactPatch {
   budgetTokens?: number | null;
 }
 
+export type FactMetadataPatch = Omit<FactPatch, "text">;
+
+/** Wire body of POST /api/stories/:id/facts/:factId/states. Exactly one of
+ * `text` and `ends` is required. */
+export interface FactStateInput {
+  text?: string;
+  ends?: true;
+  anchorPartId?: string | null;
+  /** Fact metadata saved atomically with this state. */
+  metadata?: FactMetadataPatch;
+}
+
+/** Wire body of PATCH /api/stories/:id/facts/:factId/states/:stateId. A
+ * value is optional only when the Anchor is being changed. */
+export interface FactStatePatch {
+  text?: string;
+  ends?: true;
+  anchorPartId?: string | null;
+  /** Fact metadata saved atomically with this state. */
+  metadata?: FactMetadataPatch;
+}
+
 /** Wire body of POST /api/stories/:id/facts. */
 export type CreateFactsRequest = FactInput | { facts: FactInput[] };
 
@@ -106,8 +138,11 @@ export interface ReorderFactRequest {
 
 export interface StoryFact {
   id: string;
+  /** Optional display metadata; it does not affect activation or identity. */
+  name?: string;
   tag: string | null;
-  text: string;
+  /** Canonical branch-scoped state list. Every Fact has at least one state. */
+  states: FactState[];
   activation: FactActivation;
   keys: string[];
   /** Gate keys. Empty or absent means no gate. */
@@ -322,6 +357,9 @@ export interface StoryPayload {
   /** Estimated-token cap across every emitted Fact; absent means uncapped. */
   factsBudgetTokens?: number;
   chapterBreaks: ChapterBreak[];
+  /** Present only on a part-deletion response. Counts Fact States removed
+   * with the deleted subtree; states are never re-anchored. */
+  factStatesRemoved?: number;
   /** Successor-Q optimistic-concurrency token. Predecessor responses omit it. */
   aggregateVersion?: import("./story-aggregate-version.js").StoryAggregateVersion;
   /**
@@ -395,6 +433,13 @@ export function assertPromptReadyStoryPayload(value: unknown): asserts value is 
   facts.forEach(assertStoryFact);
   if (candidate.factsBudgetTokens !== undefined) {
     requirePositiveInteger(candidate.factsBudgetTokens, "story payload", "factsBudgetTokens");
+  }
+  if (candidate.factStatesRemoved !== undefined) {
+    if (typeof candidate.factStatesRemoved !== "number"
+      || !Number.isSafeInteger(candidate.factStatesRemoved)
+      || candidate.factStatesRemoved < 0) {
+      invalidField("story payload", "factStatesRemoved");
+    }
   }
   chapterBreaks.forEach(assertChapterBreak);
   if (candidate.origin !== undefined) assertStoryOrigin(candidate.origin);
@@ -598,10 +643,23 @@ function assertTag(value: unknown): void {
 
 function assertStoryFact(value: unknown): void {
   const fact = requireRecord(value, "The server returned an invalid fact.");
-  requireStrings(fact, "fact", "id", "text", "activation", "createdAt", "updatedAt");
+  requireStrings(fact, "fact", "id", "activation", "createdAt", "updatedAt");
+  if (Object.hasOwn(fact, "text")) {
+    throw new Error("The server returned an invalid fact: top-level text is not allowed; use states.");
+  }
+  if (fact.name !== undefined) {
+    try {
+      if (normalizeFactName(fact.name, "Fact name") !== fact.name) {
+        throw new Error("Fact name must be trimmed and non-empty when present");
+      }
+    } catch (error) {
+      throw new Error(`The server returned an invalid fact: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   if (fact.tag !== null && typeof fact.tag !== "string") invalidField("fact", "tag");
   if (fact.activation !== "always" && fact.activation !== "keyed") invalidField("fact", "activation");
   if (!Array.isArray(fact.keys)) invalidField("fact", "keys");
+  assertFactStates(fact.states, "fact states");
   try {
     parseFactMetadata(fact, "fact");
   } catch (error) {
@@ -610,6 +668,35 @@ function assertStoryFact(value: unknown): void {
   }
   if (fact.budgetTokens !== undefined) requirePositiveInteger(fact.budgetTokens, "fact", "budgetTokens");
   optionalString(fact, "sourcePartId", "fact");
+}
+
+function assertFactStates(value: unknown, label: string): asserts value is FactState[] {
+  if (!Array.isArray(value) || value.length === 0) invalidField("fact", "states");
+  if (value.length > MAX_FACT_STATES) throw new Error(`The server returned invalid ${label}: too many states.`);
+  const ids = new Set<string>();
+  const anchors = new Set<string | undefined>();
+  let textScalars = 0;
+  for (const item of value) {
+    const state = requireRecord(item, `The server returned an invalid ${label} entry.`);
+    requireStrings(state, label, "id", "createdAt", "updatedAt");
+    if (ids.has(state.id as string)) throw new Error(`The server returned invalid ${label}: duplicate state id.`);
+    ids.add(state.id as string);
+    if (state.anchorPartId !== undefined) {
+      if (typeof state.anchorPartId !== "string") invalidField(label, "anchorPartId");
+    }
+    const anchor = state.anchorPartId as string | undefined;
+    if (anchors.has(anchor)) throw new Error(`The server returned invalid ${label}: duplicate state anchor.`);
+    anchors.add(anchor);
+    if (state.ends === true) {
+      if (Object.hasOwn(state, "text")) invalidField(label, "text");
+      continue;
+    }
+    if (Object.hasOwn(state, "ends")) invalidField(label, "ends");
+    if (typeof state.text !== "string" || state.text.trim().length === 0) invalidField(label, "text");
+    if (hasUnpairedSurrogate(state.text)) invalidField(label, "text");
+    textScalars += unicodeScalarLength(state.text, MAX_FACT_TEXT_CHARS + 1);
+    if (textScalars > MAX_FACT_TEXT_CHARS) throw new Error(`The server returned invalid ${label}: aggregate text is too large.`);
+  }
 }
 
 function requirePositiveInteger(value: unknown, label: string, field: string): void {

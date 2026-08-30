@@ -552,7 +552,7 @@ describe("active selection copy", () => {
       budget: createComposer(""),
       focus: "tag",
       initialFact: {
-        tag: null, activation: "always", keys: [], secondaryKeys: [], secondaryMode: "and", scanDepth: undefined, recursion: "on", priority: "normal", budgetTokens: undefined, text: composer.text
+        name: undefined, tag: null, activation: "always", keys: [], secondaryKeys: [], secondaryMode: "and", scanDepth: undefined, recursion: "on", priority: "normal", budgetTokens: undefined, text: composer.text
       },
       title: "edit fact",
       placeholder: "fact text…",
@@ -605,7 +605,7 @@ describe("active selection copy", () => {
       budget: createComposer(""),
       focus: "tag",
       initialFact: {
-        tag: "people", activation: "always", keys: [], secondaryKeys: [], secondaryMode: "and", scanDepth: undefined, recursion: "on", priority: "normal", budgetTokens: undefined, text: composer.text
+        name: undefined, tag: "people", activation: "always", keys: [], secondaryKeys: [], secondaryMode: "and", scanDepth: undefined, recursion: "on", priority: "normal", budgetTokens: undefined, text: composer.text
       },
       title: "edit fact",
       placeholder: "fact text…",
@@ -653,7 +653,7 @@ describe("active selection copy", () => {
       budget: createComposer(""),
       focus: "body",
       initialFact: {
-        tag: "people", activation: "always", keys: [], secondaryKeys: [], secondaryMode: "and", scanDepth: undefined, recursion: "on", priority: "normal", budgetTokens: undefined, text: composer.text
+        name: undefined, tag: "people", activation: "always", keys: [], secondaryKeys: [], secondaryMode: "and", scanDepth: undefined, recursion: "on", priority: "normal", budgetTokens: undefined, text: composer.text
       },
       title: "edit fact",
       placeholder: "fact text…",
@@ -703,7 +703,7 @@ describe("active selection copy", () => {
       budget: createComposer(""),
       focus: "tag",
       initialFact: {
-        tag: "people", activation: "always", keys: [], secondaryKeys: [], secondaryMode: "and", scanDepth: undefined, recursion: "on", priority: "normal", budgetTokens: undefined, text: composer.text
+        name: undefined, tag: "people", activation: "always", keys: [], secondaryKeys: [], secondaryMode: "and", scanDepth: undefined, recursion: "on", priority: "normal", budgetTokens: undefined, text: composer.text
       },
       title: "edit fact",
       placeholder: "fact text…",
@@ -757,7 +757,7 @@ describe("active selection copy", () => {
       budget: createComposer(""),
       focus: "body",
       initialFact: {
-        tag: "people", activation: "always", keys: [], secondaryKeys: [], secondaryMode: "and", scanDepth: undefined, recursion: "on", priority: "normal", budgetTokens: undefined, text: composer.text
+        name: undefined, tag: "people", activation: "always", keys: [], secondaryKeys: [], secondaryMode: "and", scanDepth: undefined, recursion: "on", priority: "normal", budgetTokens: undefined, text: composer.text
       },
       title: "edit fact",
       placeholder: "fact text…",
@@ -785,7 +785,7 @@ describe("active selection copy", () => {
     });
 
     expect(result).toBe(null);
-    expect(state.toast).toBe("select the Fact tag, keys, or text");
+    expect(state.toast).toBe("select the Fact name, tag, keys, or text");
     expect(state.editor.focus).toBe("body");
     expect(selectedComposerText(composer)).toBe("Body");
     expect(selectedComposerText(tag)).toBe(null);
@@ -807,7 +807,7 @@ describe("active selection copy", () => {
       budget: createComposer(""),
       focus: "body",
       initialFact: {
-        tag: "weather\nurgent", activation: "always", keys: [], secondaryKeys: [], secondaryMode: "and", scanDepth: undefined, recursion: "on",
+        name: undefined, tag: "weather\nurgent", activation: "always", keys: [], secondaryKeys: [], secondaryMode: "and", scanDepth: undefined, recursion: "on",
         priority: "normal", budgetTokens: undefined, text: composer.text
       },
       title: "edit fact",
@@ -881,7 +881,7 @@ describe("active selection copy", () => {
       budget: createComposer(""),
       focus: "body",
       initialFact: {
-        tag: null, activation: "always", keys: [], secondaryKeys: [], secondaryMode: "and", scanDepth: undefined, recursion: "on", priority: "normal", budgetTokens: undefined, text: composer.text
+        name: undefined, tag: null, activation: "always", keys: [], secondaryKeys: [], secondaryMode: "and", scanDepth: undefined, recursion: "on", priority: "normal", budgetTokens: undefined, text: composer.text
       },
       title: "edit fact",
       placeholder: "fact text…",

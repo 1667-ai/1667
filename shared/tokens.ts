@@ -1,5 +1,6 @@
 import { formatFactsMessage } from "./story-facts.js";
-import type { StoryFact, StoryNode } from "./types.js";
+import type { EffectiveStoryFact } from "./fact-state.js";
+import type { StoryNode } from "./types.js";
 
 /**
  * Rough token estimate. Deliberately approximate — the point is to warn you before
@@ -19,7 +20,7 @@ export function estimatePromptTokens(
   systemPrompt: string,
   parts: readonly StoryNode[],
   instruction: string,
-  facts: readonly StoryFact[]
+  facts: readonly EffectiveStoryFact[]
 ): number {
   const body = parts.reduce((sum, part) => sum + estimateTokens(part.instruction) + estimateTokens(part.text), 0);
   const factsMessage = formatFactsMessage(facts);

@@ -186,7 +186,7 @@ describe("arrow-first key routing", () => {
       expect(resolveKey(key("j"), mode).action).not.toBe("focus-next");
       expect(resolveKey(key("k"), mode).action).not.toBe("focus-previous");
     }
-    expect(resolveKey(key("return"), "FACTS").action).toBe("edit");
+    expect(resolveKey(key("return"), "FACTS").action).toBe("open-selected");
     expect(resolveKey(key("return"), "FACTS", { overlayTyping: true }).action)
       .toBe("open-selected");
   });

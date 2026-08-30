@@ -22,6 +22,7 @@ import { frameText, plainLine, visibleWidth } from "../src/screens/story/frame.j
 import { adoptReconciliationSnapshot } from "../src/story-adoption.js";
 import { createWrapCache } from "../src/wrap.js";
 import type { PromptTokenCount } from "../../shared/tokenize-source.js";
+import { factWithText } from "./fact-fixture.js";
 
 const ctrlR: KeyEvent = {
   name: "r", sequence: "\u0012", ctrl: true, shift: false, meta: false,
@@ -67,23 +68,19 @@ describe("next request viewer", () => {
     const base = state.payload.facts[0]!;
     state.payload.facts = [
       ...state.payload.facts,
-      {
-        ...base,
+      factWithText(base, "chain token", {
         id: "regex-gated",
         tag: "Regex gate",
-        text: "chain token",
         activation: "keyed",
         keys: ["/Maren/"],
         secondaryKeys: ["lantern"]
-      },
-      {
-        ...base,
+      }),
+      factWithText(base, "A chained Fact.", {
         id: "chained",
         tag: "Chained",
-        text: "A chained Fact.",
         activation: "keyed",
         keys: ["chain"]
-      }
+      })
     ];
     state.mode = "REQUEST";
     state.request = { cursor: 0, scrollTop: 0, returnMode: "NAV" };

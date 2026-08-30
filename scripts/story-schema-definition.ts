@@ -10,6 +10,7 @@ import {
 } from "../server/story-v5-strict.js";
 import {
   MAX_FACTS,
+  MAX_FACT_STATES,
   MAX_FACT_TAG_CHARS,
   MAX_GENERATION_RECORD_IDS,
   MAX_HUMAN_EDIT_RANGES,
@@ -18,6 +19,7 @@ import {
 } from "../shared/types.js";
 import { MAX_AUTHORS_NOTE_CHARS, MAX_AUTHORS_NOTE_DEPTH } from "../shared/authors-note.js";
 import { MAX_AUTHOR_BRIEF_CHARS } from "../shared/author-brief.js";
+import { MAX_FACT_NAME_CHARS } from "../shared/fact-name.js";
 import { FACT_PRIORITIES, MAX_FACT_KEY_SCALARS, MAX_FACT_KEYS } from "../shared/fact-metadata.js";
 import { MAX_FACT_BUDGET_TOKENS, MAX_STORY_FACTS_BUDGET_TOKENS } from "../shared/fact-budget.js";
 import {
@@ -134,6 +136,40 @@ export function storyManifestSchema(): Schema {
       priority: ref("FactPriority"),
       budgetTokens: boundedInteger(1, MAX_FACT_BUDGET_TOKENS)
     }, ["id", "tag", "revisionId", "createdAt", "updatedAt"]),
+    FactTextStateV13: closed({
+      id: ref("Identifier"),
+      anchorPartId: ref("Identifier"),
+      revisionId: ref("Hash256"),
+      createdAt: ref("V5Timestamp"),
+      updatedAt: ref("V5Timestamp")
+    }, ["id", "revisionId", "createdAt", "updatedAt"]),
+    FactEndStateV13: closed({
+      id: ref("Identifier"),
+      anchorPartId: ref("Identifier"),
+      ends: { const: true },
+      createdAt: ref("V5Timestamp"),
+      updatedAt: ref("V5Timestamp")
+    }, ["id", "ends", "createdAt", "updatedAt"]),
+    FactStateV13: {
+      oneOf: [ref("FactTextStateV13"), ref("FactEndStateV13")]
+    },
+    StoredFactV13: closed({
+      id: ref("Identifier"),
+      name: { type: "string", minLength: 1, maxLength: MAX_FACT_NAME_CHARS },
+      tag: { oneOf: [{ type: "null" }, boundedString(MAX_FACT_TAG_CHARS)] },
+      createdAt: ref("V5Timestamp"),
+      updatedAt: ref("V5Timestamp"),
+      sourcePartId: ref("Identifier"),
+      activation: ref("FactActivation"),
+      keys: { type: "array", maxItems: MAX_FACT_KEYS, items: ref("FactKey") },
+      secondaryKeys: { type: "array", maxItems: MAX_FACT_KEYS, items: ref("FactKey") },
+      secondaryMode: ref("FactSecondaryMode"),
+      scanDepth: boundedInteger(1, 20),
+      recursion: ref("FactRecursion"),
+      priority: ref("FactPriority"),
+      budgetTokens: boundedInteger(1, MAX_FACT_BUDGET_TOKENS),
+      states: { type: "array", minItems: 1, maxItems: MAX_FACT_STATES, items: ref("FactStateV13") }
+    }, ["id", "tag", "createdAt", "updatedAt", "states"]),
     StoredTagV5: closed({
       nodeId: ref("Identifier"),
       name: { type: "string", minLength: 1, maxLength: 80 },
@@ -176,6 +212,7 @@ export function storyManifestSchema(): Schema {
       ]
     },
     StrictV11Payload: asideSessionContentSchema(STORY_ASIDE_SESSION_SCHEMA_VERSION, "StoredNodeV7"),
+    StrictV13Payload: asideSessionContentSchema(13, "StoredNodeV7", "StoredFactV13"),
     ProviderPointer: closed({ mutationId: ref("MutationId"), fingerprintHash: ref("Hash256") }),
     StartedUserTransactionPointer: closed({
       receiptKind: { const: "user" }, mutationId: ref("MutationId"), phase: { const: "started" }
@@ -202,12 +239,14 @@ export function storyManifestSchema(): Schema {
     LiveV10: liveV6Schema(STORY_SCHEMA_VERSION_V10, "StrictV9Payload"),
     DeletedV10: deletedV6Schema(STORY_SCHEMA_VERSION_V10),
     LiveV12: liveV6Schema(STORY_SCHEMA_VERSION_V12, "StrictV11Payload"),
-    DeletedV12: deletedV6Schema(STORY_SCHEMA_VERSION_V12)
+    DeletedV12: deletedV6Schema(STORY_SCHEMA_VERSION_V12),
+    LiveV14: liveV6Schema(14, "StrictV13Payload"),
+    DeletedV14: deletedV6Schema(14)
   };
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     $id: "https://1667.invalid/schema/story-manifest-p2.json",
-    title: "1667 strict V5, V6, V7, V8, V9, V10, V11, and V12 story manifests",
+    title: "1667 strict V5, V6, V7, V8, V9, V10, V11, V12, V13, and V14 story manifests",
     oneOf: [
       ref("StrictV5Payload"),
       ref("LiveV6"),
@@ -220,7 +259,10 @@ export function storyManifestSchema(): Schema {
       ref("DeletedV10"),
       ref("StrictV11Payload"),
       ref("LiveV12"),
-      ref("DeletedV12")
+      ref("DeletedV12"),
+      ref("StrictV13Payload"),
+      ref("LiveV14"),
+      ref("DeletedV14")
     ],
     $defs: definitions
   };
@@ -283,7 +325,7 @@ function nodeSchema(extraProperties: Record<string, Schema> = {}): Schema {
  * the successor only widens which node shape `nodes[]` may hold. Mirrors
  * `assertManifestCommonFields` in `server/story-v5-strict.ts`, which the
  * runtime parser shares the same way. */
-function strictContentSchema(schemaVersion: number, nodeRef: string): Schema {
+function strictContentSchema(schemaVersion: number, nodeRef: string, factRef = "StoredFactV5"): Schema {
   return closed({
     format: { const: "1667-story" },
     schemaVersion: { const: schemaVersion },
@@ -322,7 +364,7 @@ function strictContentSchema(schemaVersion: number, nodeRef: string): Schema {
     factsBudgetTokens: boundedInteger(1, MAX_STORY_FACTS_BUDGET_TOKENS),
     activeWordCount: unsignedInteger(),
     nodes: { type: "array", maxItems: MAX_STORY_COLLECTION_ITEMS, items: ref(nodeRef) },
-    facts: { type: "array", maxItems: MAX_FACTS, items: ref("StoredFactV5") },
+    facts: { type: "array", maxItems: MAX_FACTS, items: ref(factRef) },
     activeRootId: nullable(ref("Identifier")),
     bookmarks: { type: "array", maxItems: MAX_STORY_COLLECTION_ITEMS, items: ref("StoredTagV5") },
     recentNodeIds: { type: "array", maxItems: MAX_RECENT_LINES, items: ref("Identifier") },
@@ -334,8 +376,8 @@ function strictContentSchema(schemaVersion: number, nodeRef: string): Schema {
 }
 
 /** V9 content: every V7 field plus required nullable asideDocumentId. */
-function asideContentSchema(schemaVersion: number, nodeRef: string): Schema {
-  const base = strictContentSchema(schemaVersion, nodeRef) as Schema & {
+function asideContentSchema(schemaVersion: number, nodeRef: string, factRef = "StoredFactV5"): Schema {
+  const base = strictContentSchema(schemaVersion, nodeRef, factRef) as Schema & {
     properties: Record<string, Schema>;
     required: string[];
   };
@@ -351,8 +393,8 @@ function asideContentSchema(schemaVersion: number, nodeRef: string): Schema {
 
 /** V11 content: V9 plus text-free session references. Session text remains
  * in separate content-addressed Aside objects. */
-function asideSessionContentSchema(schemaVersion: number, nodeRef: string): Schema {
-  const base = asideContentSchema(schemaVersion, nodeRef) as Schema & {
+function asideSessionContentSchema(schemaVersion: number, nodeRef: string, factRef = "StoredFactV5"): Schema {
+  const base = asideContentSchema(schemaVersion, nodeRef, factRef) as Schema & {
     properties: Record<string, Schema>;
     required: string[];
   };

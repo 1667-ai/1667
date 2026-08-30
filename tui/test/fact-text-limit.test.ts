@@ -11,6 +11,7 @@ import type { FactEditorSession, RuntimeState } from "../src/state.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { MAX_FACT_TEXT_CHARS } from "../../shared/types.js";
 import { editorHarness, key } from "./editor-harness.js";
+import { factText } from "./fact-fixture.js";
 
 /** Ctrl+S's raw terminal sequence (0x13), built at runtime so the literal
  *  control byte never has to live in this file's source text — matches
@@ -59,7 +60,7 @@ describe("Fact text limit — synchronous rejection (issue: a fact over the limi
     await press(SAVE);
 
     expect(state.mode).toBe("FACTS");
-    expect(state.payload.facts.some((fact) => fact.text.length === MAX_FACT_TEXT_CHARS)).toBeTrue();
+    expect(state.payload.facts.some((fact) => factText(fact).length === MAX_FACT_TEXT_CHARS)).toBeTrue();
   });
 });
 

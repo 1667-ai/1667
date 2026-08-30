@@ -111,6 +111,66 @@ test("the corpus carries prompts and facts beside the prose", async () => {
   }
 });
 
+test("Fact State search hits preserve the state ID and exact state text", async () => {
+  const { service, close } = await openService();
+  try {
+    const seeded = await seedForkedStory(service);
+    const created = await service.createFact(seeded.storyId, { text: "The base state." });
+    const factId = created.facts[0]!.id;
+    const withState = await service.createFactState(seeded.storyId, factId, {
+      text: "Branch-state-token is searchable.",
+      anchorPartId: seeded.onLineId
+    });
+    const fact = withState.facts.find((candidate) => candidate.id === factId)!;
+    const state = fact.states.find((candidate) => candidate.anchorPartId === seeded.onLineId)!;
+    assert.equal("text" in state ? state.text : undefined, "Branch-state-token is searchable.");
+
+    const query = "Branch-state-token";
+    const response = await service.searchStories({
+      query,
+      scope: "tree",
+      storyId: seeded.storyId,
+      caseSensitive: true
+    });
+    const hits = response.hits.filter((hit) => hit.kind === "fact");
+    assert.equal(hits.length, 1);
+    const hit = hits[0]!;
+    assert.equal(hit.targetId, factId);
+    assert.equal(hit.stateId, state.id);
+    assert.equal(hit.snippet.slice(hit.snippetMatch, hit.snippetMatch + hit.matchLength), query);
+    assert.equal(hit.context.slice(hit.contextMatch, hit.contextMatch + hit.matchLength), query);
+  } finally {
+    await close();
+  }
+});
+
+test("Fact Name stays searchable when the Fact has only an End state", async () => {
+  const { service, close } = await openService();
+  try {
+    const seeded = await seedForkedStory(service);
+    const created = await service.createFact(seeded.storyId, {
+      name: "Lantern witness",
+      tag: "people",
+      text: "This body will become an End state."
+    });
+    const fact = created.facts[0]!;
+    await service.patchFactState(seeded.storyId, fact.id, fact.states[0]!.id, { ends: true });
+
+    const response = await service.searchStories({
+      query: "Lantern witness",
+      scope: "tree",
+      storyId: seeded.storyId,
+      caseSensitive: true
+    });
+    const hits = response.hits.filter((hit) => hit.kind === "fact");
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0]!.targetId, fact.id);
+    assert.equal(hits[0]!.stateId, undefined);
+  } finally {
+    await close();
+  }
+});
+
 test("case sensitivity narrows the result set", async () => {
   const { service, close } = await openService();
   try {
@@ -555,4 +615,3 @@ test("oversized corpus is returned without being cached in index", async () => {
   });
   assert.equal(buildCalled, true);
 });
-

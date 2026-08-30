@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { encodeStoryBundle } from "../server/story-codec.js";
 import { StoryObjectStore } from "../server/story-objects.js";
@@ -7,12 +9,17 @@ import {
   formatV6,
   parseStoryManifestBytes,
   STORY_SCHEMA_VERSION_V6,
-  STORY_SCHEMA_VERSION_V8
+  STORY_SCHEMA_VERSION_V8,
+  STORY_SCHEMA_VERSION_V14
 } from "../server/story-v6-codec.js";
-import { hashStoryV6ManifestBytes } from "../server/story-manifest-hash.js";
+import { hashStoryV5ManifestBytes, hashStoryV6ManifestBytes } from "../server/story-manifest-hash.js";
+import { MutationLedgerStore } from "../server/mutation-ledger-store.js";
+import { createMutationCoordinator } from "../server/mutation-coordinator.js";
+import { StoryMutationStore } from "../server/story-mutation-store.js";
 import { StoryStore } from "../server/stories.js";
 import type { StoryManifestV6 } from "../server/story-v6-types.js";
 import type { StoryImageAttachment } from "../shared/image-attachment.js";
+import type { Story } from "../shared/types.js";
 import { createGenerationRecord } from "../shared/generation-record.js";
 import {
   DELETE_MUTATION_ID,
@@ -26,6 +33,87 @@ import {
   STORY_ID,
   storyFixture
 } from "./story-mutation-fixtures.js";
+
+test("Q Fact State upgrade preserves a legacy source on a role-only summary", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-q-fact-summary-source-"));
+  const storiesDir = path.join(dataDir, "stories");
+  const stories = new StoryStore(storiesDir);
+  t.after(async () => {
+    await stories.waitForMaintenance();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+  await stories.init();
+  const story: Story = {
+    id: STORY_ID,
+    title: "Legacy summary source",
+    createdAt: FIXED_NOW.toISOString(),
+    updatedAt: FIXED_NOW.toISOString(),
+    nodes: [
+      {
+        id: "prose",
+        parentId: null,
+        instruction: "Continue",
+        text: "Opening prose.",
+        model: "test",
+        createdAt: FIXED_NOW.toISOString(),
+        activeChildId: null
+      },
+      {
+        id: "legacy-summary",
+        parentId: "prose",
+        instruction: "Continue",
+        text: "Legacy summary.",
+        model: "test",
+        createdAt: FIXED_NOW.toISOString(),
+        role: "summary",
+        activeChildId: null
+      }
+    ],
+    activeRootId: "prose",
+    tags: [],
+    recentNodeIds: [],
+    facts: [{
+      id: "fact",
+      tag: null,
+      sourcePartId: "legacy-summary",
+      activation: "always",
+      keys: [],
+      states: [{
+        id: "fact",
+        text: "A legacy fact.",
+        createdAt: FIXED_NOW.toISOString(),
+        updatedAt: FIXED_NOW.toISOString()
+      }],
+      createdAt: FIXED_NOW.toISOString(),
+      updatedAt: FIXED_NOW.toISOString()
+    }],
+    chapterBreaks: []
+  };
+  await stories.save(story);
+  const manifestFile = path.join(storiesDir, STORY_ID, "manifest.json");
+  const v5Hash = hashStoryV5ManifestBytes(await readFile(manifestFile));
+  const ledger = new MutationLedgerStore(dataDir);
+  const mutations = new StoryMutationStore(
+    stories,
+    createMutationCoordinator(),
+    dataDir,
+    { ledger, now: () => FIXED_NOW }
+  );
+  await mutations.init();
+
+  const commit = await mutations.runLocal(
+    request(v5Hash),
+    "patchFact",
+    (current) => { current.facts[0]!.name = "Named fact"; }
+  );
+  assert.equal(commit.story.facts[0]!.sourcePartId, "legacy-summary");
+  const parsed = parseStoryManifestBytes(await readFile(manifestFile), STORY_ID);
+  assert.equal(parsed.kind, "v14-live");
+  if (parsed.kind !== "v14-live") return;
+  assert.equal(parsed.manifest.schemaVersion, STORY_SCHEMA_VERSION_V14);
+  assert.equal(parsed.manifest.content.schemaVersion, 13);
+  assert.equal(parsed.manifest.content.facts[0]!.sourcePartId, "legacy-summary");
+});
 
 /**
  * G12: the production commit path (`StoryAggregateSession`, `reduceStoryV6`)

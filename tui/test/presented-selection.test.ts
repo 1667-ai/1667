@@ -268,7 +268,7 @@ test("copying an uneditable selection clears before the next key capture", () =>
     budget: createComposer(""),
     focus: "body",
     initialFact: {
-      tag: "weather", activation: "always", keys: [], secondaryKeys: [], secondaryMode: "and", scanDepth: undefined, recursion: "on", priority: "normal", budgetTokens: undefined, text: body.text
+      name: undefined, tag: "weather", activation: "always", keys: [], secondaryKeys: [], secondaryMode: "and", scanDepth: undefined, recursion: "on", priority: "normal", budgetTokens: undefined, text: body.text
     },
     title: "edit fact",
     placeholder: "fact text…",

@@ -7,6 +7,7 @@ import {
   MUTATION_INPUT_PROTOCOL_VERSION,
   PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION,
   PRE_ASIDE_WORKER_PROTOCOL_VERSION,
+  PRE_FACT_STATES_WORKER_PROTOCOL_VERSION,
   PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION
 } from "../shared/worker-protocol.js";
 import { createDurableMutationId } from "../shared/durable-mutation-id.js";
@@ -36,7 +37,8 @@ test("HTTP retries receipts retained across worker protocol bumps", async (t) =>
   for (const [legacyProtocol, title] of [
     [PRE_ASIDE_WORKER_PROTOCOL_VERSION, "Retained before Aside"],
     [PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION, "Retained before Settings schema 5"],
-    [PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION, "Retained before Reprompt"]
+    [PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION, "Retained before Reprompt"],
+    [PRE_FACT_STATES_WORKER_PROTOCOL_VERSION, "Retained before Fact States"]
   ] as const) {
     const mutationId = createDurableMutationId();
     const input = { title };
@@ -88,7 +90,7 @@ test("HTTP retries receipts retained across worker protocol bumps", async (t) =>
     );
     assert.equal(replayed.id, storyIdForMutation(mutationId));
   }
-  assert.equal((await service.listStories()).length, 3);
+  assert.equal((await service.listStories()).length, 4);
 
   const freshMutationId = createDurableMutationId();
   const fresh = await runHttpOperationMutation(

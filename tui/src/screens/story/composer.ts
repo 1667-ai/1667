@@ -30,6 +30,7 @@ import {
   segment,
   splitFrame,
   visibleWidth,
+  type HintItem,
   type DisplayRole,
   type FrameLine
 } from "./frame.js";
@@ -80,6 +81,9 @@ export interface ComposerLayoutOptions {
   /** Optional top-rule status. The normal inline line counter remains the default. */
   status?: ComposerStatus;
   footerHints?: string;
+  /** Semantic footer controls for surfaces that replace the default composer
+   *  keyline. Each segment remains a mouse target after layout. */
+  footerActions?: readonly HintItem[];
   placeholder?: string;
   /** Break long source lines into visual rows instead of horizontally clipping. */
   softWrap?: boolean;
@@ -136,7 +140,8 @@ export function renderComposerLayout(options: ComposerLayoutOptions): ComposerLa
     options.narrow === true,
     options.footerNotice ?? null,
     options.footerHints,
-    options.promptKind ?? null
+    options.promptKind ?? null,
+    options.footerActions
   ).slice(0, footerCapacity);
   // Inline always leaves one row of story visible plus the status row.
   const bodyCapacity = footer.length === 1

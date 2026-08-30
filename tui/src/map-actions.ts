@@ -1,9 +1,12 @@
 import { createStoryIndex, rememberedLeafId } from "../../shared/story-model.js";
+import { openFactEditor } from "./editor-action.js";
+import { factLensAnchorForRows, factLensStateAtNode } from "./map-fact-lens.js";
 import type { AppSource } from "./app.js";
 import { createAtlasLayout, moveAtlasCursor } from "./atlas-layout.js";
 import {
   createLaneLayout,
   followLane,
+  laneSelectable,
   laneLayoutOptions,
   laneTakeId,
   moveLaneCursor,
@@ -14,7 +17,7 @@ import type { ResolvedKey } from "./keys.js";
 import { initialPathCursor, movePathCursor, visiblePathSiblings } from "./path-layout.js";
 import type { MapState } from "./map-state.js";
 import { nextMapView, nextMassSort } from "./map-state.js";
-import { createStoryViewModel, rowPart } from "./model.js";
+import { createStoryViewModel, rowIndexForNode, rowPart } from "./model.js";
 import type { RuntimeState } from "./state.js";
 import { projectStreamedPayload } from "./stream-projection.js";
 import type { ActionContext } from "./action-context.js";
@@ -59,18 +62,75 @@ export async function mapAction(
 ): Promise<void> {
   const map = state.map;
   if (map === null) return;
+  const lensPayload = mapPayload(state);
   if (resolved.action === "cancel") {
+    if (map.factLensFactId !== undefined && map.factLensFactId !== null) {
+      map.factLensFactId = null;
+      return;
+    }
     state.map = null;
     state.mode = "NAV";
     return;
   }
   if (resolved.action === "cycle-map-view") {
     map.view = nextMapView(map.view);
+    if (map.view !== "tree") map.factLensFactId = null;
     return;
   }
   if (resolved.action === "set-map-view" && resolved.view !== undefined) {
     map.view = resolved.view;
+    if (map.view !== "tree") map.factLensFactId = null;
     return;
+  }
+  if (resolved.action === "open-fact-lens") {
+    if (map.view !== "tree") return;
+    const firstFact = lensPayload.facts[0];
+    if (firstFact === undefined) {
+      state.toast = "no Facts to lens";
+      return;
+    }
+    map.factLensFactId = firstFact.id;
+    return;
+  }
+  if (map.view === "tree" && map.factLensFactId !== undefined && map.factLensFactId !== null) {
+    const fact = lensPayload.facts.find(({ id }) => id === map.factLensFactId) ?? null;
+    if (fact === null) {
+      map.factLensFactId = null;
+      return;
+    }
+    if (resolved.action === "cycle-fact-lens") {
+      const index = lensPayload.facts.findIndex(({ id }) => id === fact.id);
+      map.factLensFactId = lensPayload.facts[(index + 1) % lensPayload.facts.length]?.id ?? null;
+      return;
+    }
+    const layout = createLaneLayout(lensPayload, laneLayoutOptions(state, map));
+    const rows = layout.rows.filter(laneSelectable);
+    const anchor = factLensAnchorForRows(fact, rows, map.treeCursorId);
+    if (resolved.action === "open-fact-lens-anchor" || resolved.action === "open-selected") {
+      if (anchor === null) {
+        state.toast = "this Fact has no visible anchor";
+        return;
+      }
+      map.factLensFactId = null;
+      state.map = null;
+      state.mode = "NAV";
+      const view = createStoryViewModel(lensPayload);
+      const row = rowIndexForNode(view, anchor.nodeId);
+      if (row >= 0) state.focusIndex = row;
+      return;
+    }
+    if (resolved.action === "edit-fact-lens") {
+      const selected = factLensStateAtNode(fact, lensPayload, map.treeCursorId);
+      if (selected === null) {
+        state.toast = "this Fact has no state here";
+        return;
+      }
+      openFactEditor(state, fact, {
+        stateId: selected.id,
+        returnMode: "MAP"
+      });
+      return;
+    }
   }
   if (resolved.action === "toggle-sketches") {
     map.showSketches = !map.showSketches;

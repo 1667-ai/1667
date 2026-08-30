@@ -1,5 +1,6 @@
 import type { SearchHit } from "../../shared/story-search.js";
 import type { StoryPayload } from "../../shared/types.js";
+import { canonicalFactStates } from "../../shared/fact-state.js";
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
 import { factRows } from "./facts-model.js";
@@ -145,6 +146,14 @@ async function openSearchHit(
     const adopted = await openHitStory(hit, state, search, source, context);
     if (!adopted) return;
   }
+  if (!hitSurvivesIn(hit, state.payload)) {
+    const factStillExists = hit.kind === "fact"
+      && state.payload.facts.some(({ id }) => id === hit.targetId);
+    state.toast = factStillExists
+      ? "that Fact State is no longer in this story"
+      : "that part is no longer in this story";
+    return;
+  }
   if (hit.kind === "fact") {
     openHitFact(hit, state, search);
     return;
@@ -202,9 +211,10 @@ async function openHitStory(
  *  whose story has moved would make a vault result set useless after any edit
  *  anywhere in the vault. */
 function hitSurvivesIn(hit: SearchHit, payload: StoryPayload): boolean {
-  return hit.kind === "fact"
-    ? payload.facts.some((fact) => fact.id === hit.targetId)
-    : payload.nodes.some((node) => node.id === hit.targetId);
+  if (hit.kind !== "fact") return payload.nodes.some((node) => node.id === hit.targetId);
+  const fact = payload.facts.find(({ id }) => id === hit.targetId);
+  return fact !== undefined
+    && (hit.stateId === undefined || canonicalFactStates(fact).some(({ id }) => id === hit.stateId));
 }
 
 /** A part already on the story's own line needs no reroute — landing on it is
@@ -238,7 +248,10 @@ function openHitFact(hit: SearchHit, state: RuntimeState, search: SearchState): 
     chip: 0,
     selectedTag: null,
     filtering: false,
-    deleteArmedId: null
+    deleteArmedId: null,
+    scopeFilter: "everywhere",
+    dossier: null,
+    ...(hit.stateId === undefined ? {} : { selectedStateId: hit.stateId })
   };
   state.mode = "FACTS";
 }

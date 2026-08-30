@@ -44,15 +44,23 @@ export function demoFacts(): Story["facts"] {
     ["rules", "Night road\nNo traveler walks the cliff road at night without a light and returns."],
     ["items", "Five lanterns\nCorrespond to the inn's occupied rooms."]
   ];
-  return rows.map(([tag, text], index) => ({
-    id: `fact-${index + 1}`,
-    tag,
-    text,
-    activation: "always" as const,
-    keys: [],
-    createdAt: DEMO_CREATED_AT,
-    updatedAt: DEMO_CREATED_AT
-  }));
+  return rows.map(([tag, text], index) => {
+    const id = `fact-${index + 1}`;
+    return {
+      id,
+      tag,
+      states: [{
+        id,
+        text,
+        createdAt: DEMO_CREATED_AT,
+        updatedAt: DEMO_CREATED_AT
+      }],
+      activation: "always" as const,
+      keys: [],
+      createdAt: DEMO_CREATED_AT,
+      updatedAt: DEMO_CREATED_AT
+    };
+  });
 }
 
 export function demoTags(): Tag[] {

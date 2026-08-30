@@ -678,14 +678,22 @@ export async function handleKey(
     settingsProfileTransfer: state.settings?.profileTransfer?.phase ?? null,
     commandsTags: state.commands?.view === "tags",
     settingsPicker: state.settings?.modelPicker != null,
+    factEditorChromeFocus: state.editor?.kind === "fact"
+      ? state.editor.chromeFocus
+      : undefined,
     textActionsOpen: state.textActions !== null,
     asideLayer: state.mode === "ASIDE"
       ? asideKeyboardLayer(state.aside)
       : undefined,
     asideBusy: state.mode === "ASIDE" && state.aside?.busy === true,
     factEditor: state.editor?.kind === "fact",
+    factDossier: state.mode === "FACTS" && state.facts?.dossier != null,
     authorsNoteEditor: state.editor?.kind === "document" && state.editor.target.kind === "authors-note",
-    mapView: state.map?.view
+    mapView: state.map?.view,
+    mapFactLens: state.mode === "MAP"
+      && state.map?.view === "tree"
+      && state.map.factLensFactId !== undefined
+      && state.map.factLensFactId !== null
   });
   return await dispatch(resolved, state, source, wrapCache, repaint, cancelStream, requestQuit,
     renderer, applyTheme, previewTheme, backend);
@@ -714,6 +722,12 @@ export async function dispatch(
     return;
   }
   beginInteraction(state);
+  // Aside keeps its top-level quit gesture even while a text-actions menu is
+  // open; that menu must not turn `q` into a no-op.
+  if (resolved.action === "quit" && state.mode === "ASIDE") {
+    requestQuit();
+    return;
+  }
   if (resolved.action !== "cut-selection") {
     const composer = activeTextComposer(state);
     if (composer !== null) composer.cutConfirmation = null;

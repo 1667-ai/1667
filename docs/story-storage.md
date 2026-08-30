@@ -105,6 +105,7 @@ machine tier.
 1667 stores story prose in the project tier as text revisions and chunks. A
 story can also hold these other kinds of stored object:
 
+- The text of each Fact State.
 - The alternative tokens the model weighed for one take, when that take
   requested them.
 - The thought a model wrote before its prose, when the take keeps one.
@@ -112,6 +113,11 @@ story can also hold these other kinds of stored object:
 
 1667 names each stored object with the SHA-256 of its exact bytes. Each time
 1667 saves the project, it removes a stored object that no take refers to.
+
+Each Fact has a list of Fact States. Each text state refers to one text
+revision. An End State has no text revision. A Fact Name is optional metadata.
+1667 reads an older Fact as one unscoped state. It keeps the older storage
+format until a Fact Name or a state feature needs the new format.
 
 1667 also keeps one Draft Lease for each attached image that no take refers to
 yet. A Draft Lease protects its image from removal. The lease expires after 24
@@ -200,6 +206,11 @@ Facts, the Memory, and the Author's Note. It does not contain directions,
 unselected takes, summary parts, chapter boundaries, retry history,
 Generation Records, or Side Notes. When Side Notes exist, the fidelity
 report includes `Side Notes were not exported.`
+
+An Archive can hold only one body for each Fact. The export uses the Fact State
+that applies to the selected story line. It omits a Fact that is out of scope
+or ended on that line. The fidelity report states when the export omits Fact
+State history.
 
 A `.scenario` Archive contains the selected prose in one prompt. It contains
 the same Facts, Memory, and Author's Note as a `.story` Archive. It does not

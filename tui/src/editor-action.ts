@@ -3,6 +3,11 @@ import {
   MAX_AUTHORS_NOTE_CHARS,
   resolveAuthorsNoteDepth
 } from "../../shared/authors-note.js";
+import {
+  FACT_DRAFT_FIELDS,
+  factDraftOf,
+  type FactDraft
+} from "../../shared/fact-draft.js";
 import { unicodeScalarLength } from "../../shared/unicode.js";
 import type { StoryPayload } from "../../shared/types.js";
 import type { AppSource } from "./app.js";
@@ -14,7 +19,14 @@ import { editorBufferAction } from "./editor-buffer-action.js";
 import { composerPageRows } from "./composer-viewport.js";
 import { composerMotion } from "./composer-motion.js";
 import { editorInsertionPolicy } from "./editor-text-insertion.js";
-import { factEditorChanged, factEditorSavePayload } from "./fact-editor-draft.js";
+import {
+  factEditorChanged,
+  factDraftToFactMetadataPatch,
+  factDraftToFactPatch,
+  factEditorMetadataChanged,
+  factEditorSavePayload,
+  factEditorStateBodyChanged
+} from "./fact-editor-draft.js";
 import { blockUncertainFirstTakeRetry } from "./first-take-guard.js";
 import {
   factEditorBuffer,
@@ -25,22 +37,32 @@ import {
 } from "./fact-editor-policy.js";
 import type { ResolvedKey } from "./keys.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
+import { rebaseSelectedState } from "./editor-reconciliation.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import { storyScalarFieldSpec } from "./story-scalar-fields.js";
-import type { DocumentEditorSession, InlineEditorTarget, RuntimeState } from "./state.js";
+import type {
+  DocumentEditorSession,
+  FactEditorSession,
+  InlineEditorTarget,
+  RuntimeState
+} from "./state.js";
 import type { ActionContext } from "./action-context.js";
 import { textHash } from "./api.js";
 import { findCreatedTake } from "./created-take.js";
 import { rememberFocus } from "./reading-position-persist.js";
+import { setComposerText } from "./composer-model.js";
 import {
   applyWritingPromptDraft,
   settingsDraftChanged
 } from "./settings-overlay-model.js";
 import { writingPromptFieldDefinitionForRow } from "../../shared/settings-v5-writing.js";
+import { toggleFactEditorViewMode } from "./settings-view-mode.js";
+import { canonicalFactStates, firstFactText, isFactEndState } from "../../shared/fact-state.js";
 
 export {
   openChapterSummaryEditor,
   openFactEditor,
+  openFactStateEditor,
   openFactFromSelection,
   openAuthorsNoteEditor,
   openAuthorBriefEditor,
@@ -76,6 +98,49 @@ export async function inlineEditorAction(
   // header owns its own commands below.
   if (handleAuthorsNoteCommand(resolved, editor)) return;
 
+  if (editor.kind === "fact" && resolved.action === "toggle-view-mode") {
+    editor.chromeFocus = "view";
+    const next = toggleFactEditorViewMode(state, source);
+    state.toast = `${next} Fact fields`;
+    return;
+  }
+
+  if (editor.kind === "fact" && resolved.action === "open-state-anchor") {
+    if (factEditorChanged(editor)) {
+      state.toast = "save or cancel this Fact before opening its anchor";
+      return;
+    }
+    const anchor = resolved.rowId ?? editor.stateAnchorPartId ?? undefined;
+    if (anchor !== undefined) {
+      const view = createStoryViewModel(state.payload);
+      const row = rowIndexForNode(view, anchor);
+      if (row >= 0) state.focusIndex = row;
+      closeInlineEditor(state, editor, "opened Fact state anchor");
+    }
+    return;
+  }
+  if (editor.kind === "fact" && resolved.action === "delete-state"
+    && editor.stateId !== undefined && editor.stateId !== null
+    && editor.stateDeleteArmedId === editor.stateId) {
+    if (factEditorChanged(editor)) {
+      editor.stateDeleteArmedId = null;
+      state.toast = "save or cancel this Fact before deleting its state";
+      return;
+    }
+    if (source.api.deleteFactState === undefined) {
+      state.toast = "state deletion requires a newer backend";
+      return;
+    }
+    const stateId = editor.stateId;
+    await context.backend.run("deleting Fact state", async (task) => {
+      const payload = await source.api.deleteFactState!(task.storyId, editor.target.factId!, stateId);
+      if (!task.storyCurrent()) return;
+      adoptSameStoryPayload(state, payload, context.cache);
+      closeInlineEditor(state, editor, "Fact state deleted · receipt saved");
+    });
+    return;
+  }
+
   // Fact header grammar owns its commands; the generic path stays target-agnostic.
   if (editor.kind === "fact" && handleFactEditorCommand(resolved, state, editor)) {
     return;
@@ -101,7 +166,12 @@ export async function inlineEditorAction(
     return;
   }
   if (editor.kind === "fact"
-    && handleFactEditorVerticalMove(resolved, editor, motion)) {
+    && handleFactEditorVerticalMove(
+      resolved,
+      editor,
+      motion,
+      state.config.factsViewMode ?? "simple"
+    )) {
     return;
   }
   const buffer = editor.kind === "fact" ? factEditorBuffer(editor) : editor;
@@ -134,6 +204,8 @@ function closeInlineEditor(
   state.editorScrollDetached = false;
   if (editor.returnMode === "FACTS" && state.facts !== null) {
     state.mode = "FACTS";
+  } else if (editor.returnMode === "MAP" && state.map !== null) {
+    state.mode = "MAP";
   } else if (editor.returnMode === "SETTINGS"
     && editor.kind === "document"
     && editor.target.kind === "settings-prompt"
@@ -374,6 +446,15 @@ async function saveFactEditor(
   context: ActionContext,
   editor: Extract<DocumentEditorSession, { kind: "fact" }>
 ): Promise<void> {
+  const stateMutationAvailable = editor.target.factId !== null
+    && (editor.stateCreating === true
+      ? source.api.createFactState !== undefined
+      : editor.stateId !== undefined && editor.stateId !== null
+        && source.api.patchFactState !== undefined);
+  if (stateMutationAvailable) {
+    await saveFactStateEditor(state, source, context, editor);
+    return;
+  }
   if (!factEditorChanged(editor) && editor.conflict === null) {
     closeInlineEditor(state, editor);
     return;
@@ -386,17 +467,17 @@ async function saveFactEditor(
   const validated = factEditorSavePayload(editor);
   if (!validated.ok) return void (state.toast = validated.toast);
   if (!confirmOverwrite(state, editor)) return;
-  // Spread the draft rather than listing its fields here: FactInput and
-  // FactPatch are all-optional, so a hand-listed literal could silently
-  // omit a FactDraft field. That is all the spread buys, though: `submitted`
-  // is an un-annotated const, so no excess-property check fires before it
-  // reaches createFact / patchFact, and the server accepts unknown keys too
-  // (createFacts / patchFact in server/story-facts.ts read a fixed key
-  // list) — a forgotten field still compiles clean and the wire projection
-  // stays unchecked (issue #316). budgetTokens' `?? null` fixup below is its
-  // own per-field rule that no table covers: a future FactDraft field with
-  // "clear" semantics would need the same fixup to actually clear.
+  // Keep a FactInput-shaped draft for creation. Ordinary PATCH conversion is
+  // centralized with the state-mutation metadata conversion below.
   const submitted = { ...validated.draft, keys: [...validated.draft.keys], secondaryKeys: [...(validated.draft.secondaryKeys ?? [])] };
+  const submittedNameText = editor.name?.text ?? "";
+  const submittedNameChanged = submittedNameText !== (editor.initialName ?? "");
+  const submittedPatch = factDraftToFactPatch(validated.draft, {
+    includeName: submittedNameChanged
+  });
+  const createBody = editor.factAnchorPartId === null || editor.factAnchorPartId === undefined
+    ? submitted
+    : { ...submitted, anchorPartId: editor.factAnchorPartId };
   const submittedTagText = editor.tag.text;
   const submittedActivation = editor.activation;
   const submittedKeysText = editor.keys.text;
@@ -408,20 +489,23 @@ async function saveFactEditor(
   await context.backend.run(creating ? "creating fact" : "saving fact", async (task) => {
     const previousIds = new Set(state.payload.facts.map(({ id }) => id));
     const payload = creating
-      ? await source.api.createFact(task.storyId, submitted)
+      ? await source.api.createFact(task.storyId, createBody)
       // budgetTokens must travel as an explicit null to clear a previously
       // set cap — an omitted (undefined) field means "leave it alone".
-      : await source.api.patchFact(task.storyId, factId, { ...submitted, budgetTokens: submitted.budgetTokens ?? null, scanDepth: submitted.scanDepth ?? null });
+      : await source.api.patchFact(task.storyId, factId, submittedPatch);
     if (!task.storyCurrent()) return;
     adoptSameStoryPayload(state, payload, context.cache);
     if (creating) {
-      const created = payload.facts.find(({ id, tag, activation, keys, text }) =>
-        !previousIds.has(id)
-        && tag === submitted.tag
-        && activation === submitted.activation
-        && keys.length === submitted.keys.length
-        && keys.every((key, index) => key === submitted.keys[index])
-        && text === submitted.text)
+      const created = payload.facts.find((candidate) => {
+        const { id, tag, activation, keys, name } = candidate;
+        return !previousIds.has(id)
+          && (name ?? "") === (submitted.name ?? "")
+          && tag === submitted.tag
+          && activation === submitted.activation
+          && keys.length === submitted.keys.length
+          && keys.every((key, index) => key === submitted.keys[index])
+          && firstFactText(candidate) === submitted.text;
+      })
         ?? payload.facts.find(({ id }) => !previousIds.has(id));
       if (created !== undefined) {
         target.factId = created.id;
@@ -433,6 +517,7 @@ async function saveFactEditor(
     editor.conflict = null;
     if (state.editor !== editor) return;
     const unchanged = editor.tag.text === submittedTagText
+      && submittedNameText === (submitted.name ?? "")
       && editor.activation === submittedActivation
       && editor.keys.text === submittedKeysText
       && editor.priority === submittedPriority
@@ -443,8 +528,214 @@ async function saveFactEditor(
       return;
     }
     editor.initialFact = submitted;
+    editor.initialName = submitted.name ?? null;
     state.toast = `${creating ? "fact created" : "fact saved"} · newer edits kept`;
   });
+}
+
+/** Save a branch-scoped state and its Fact metadata through their separate
+ * mutation contracts. A multi-state Fact must never send its selected body
+ * through `patchFact`, because that endpoint intentionally rejects ambiguous
+ * flat text edits. */
+async function saveFactStateEditor(
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext,
+  editor: Extract<DocumentEditorSession, { kind: "fact" }>
+): Promise<void> {
+  if (!factEditorChanged(editor)) {
+    closeInlineEditor(state, editor);
+    return;
+  }
+  if (state.connection.down) {
+    disarmEditorConfirmations(editor);
+    state.toast = "offline · draft kept until the connection returns";
+    return;
+  }
+  const validated = factEditorSavePayload(editor);
+  if (!validated.ok) {
+    state.toast = validated.toast;
+    return;
+  }
+  if (!confirmOverwrite(state, editor)) return;
+  const target = editor.target;
+  const factId = target.factId;
+  if (factId === null) return;
+  const stateIdBefore = editor.stateId;
+  const submittedSnapshot = captureFactEditorSaveSnapshot(editor);
+  const submittedStateCreating = submittedSnapshot.stateCreating;
+  const bodyChanged = factEditorStateBodyChanged(editor);
+  const anchorChanged = editor.stateAnchorPartId !== editor.stateInitialAnchorPartId;
+  const metadataChanged = factEditorMetadataChanged(editor);
+  const submittedNameChanged = editor.name?.text !== (editor.initialName ?? "");
+  await context.backend.run(editor.stateCreating ? "creating Fact state" : "saving Fact state", async (task) => {
+    const metadataPatch = metadataChanged
+      ? factDraftToFactMetadataPatch(validated.draft, { includeName: submittedNameChanged })
+      : undefined;
+    const anchorPartId = editor.stateAnchorPartId ?? null;
+    let payload = state.payload;
+    if (editor.stateCreating) {
+      payload = await source.api.createFactState!(task.storyId, factId, editor.stateIsEnd === true
+        ? { ends: true, anchorPartId, ...(metadataPatch === undefined ? {} : { metadata: metadataPatch }) }
+        : { text: validated.draft.text, anchorPartId, ...(metadataPatch === undefined ? {} : { metadata: metadataPatch }) });
+    } else if (bodyChanged || anchorChanged) {
+      if (stateIdBefore === undefined || stateIdBefore === null) return;
+      payload = await source.api.patchFactState!(task.storyId, factId, stateIdBefore, {
+        ...(editor.stateIsEnd === true
+          ? bodyChanged ? { ends: true } : {}
+          : bodyChanged ? { text: validated.draft.text } : {}),
+        ...(anchorChanged ? { anchorPartId } : {}),
+        ...(metadataPatch === undefined ? {} : { metadata: metadataPatch })
+      });
+    } else if (metadataPatch !== undefined) {
+      // A state editor that changed only Fact metadata still uses the ordinary
+      // Fact PATCH. The state endpoint requires a text, End State, or anchor
+      // field; metadata plus a state field stays in the atomic branch above.
+      payload = await source.api.patchFact(task.storyId, factId, metadataPatch);
+    }
+    if (!task.storyCurrent()) return;
+    const liveSnapshot = captureFactEditorSaveSnapshot(editor);
+    adoptSameStoryPayload(state, payload, context.cache);
+    if (!task.storyCurrent()) return;
+    if (state.editor !== editor) return;
+    // Recovery may rebase an anchor-only or End-state edit while adopting the
+    // response because those values are not part of FactDraft equality. Put
+    // the live snapshot back before settling, then compare it to what this
+    // request submitted.
+    if (liveSnapshot.text !== submittedSnapshot.text
+      && editor.composer.text !== liveSnapshot.text) {
+      setComposerText(editor.composer, liveSnapshot.text);
+    }
+    if (liveSnapshot.name !== submittedSnapshot.name
+      && editor.name !== undefined
+      && editor.name.text !== liveSnapshot.name) {
+      setComposerText(editor.name, liveSnapshot.name);
+    }
+    if (liveSnapshot.stateAnchorPartId !== submittedSnapshot.stateAnchorPartId) {
+      editor.stateAnchorPartId = liveSnapshot.stateAnchorPartId;
+    }
+    if (liveSnapshot.stateIsEnd !== submittedSnapshot.stateIsEnd) {
+      editor.stateIsEnd = liveSnapshot.stateIsEnd;
+    }
+    const newerEdits = !factEditorSaveSnapshotsMatch(liveSnapshot, submittedSnapshot);
+    const liveStateOverrides = {
+      ...(liveSnapshot.stateAnchorPartId === submittedSnapshot.stateAnchorPartId
+        ? {} : { anchorPartId: liveSnapshot.stateAnchorPartId }),
+      ...(liveSnapshot.stateIsEnd === submittedSnapshot.stateIsEnd
+        ? {} : { stateIsEnd: liveSnapshot.stateIsEnd })
+    };
+    const finalFact = state.payload.facts.find(({ id }) => id === factId);
+    if (finalFact !== undefined) {
+      editor.target.base = finalFact;
+      const finalStates = [...canonicalFactStates(finalFact)];
+      const finalState = submittedStateCreating
+        ? finalStates.find((candidate) =>
+            (candidate.anchorPartId ?? null) === submittedSnapshot.stateAnchorPartId
+            && (submittedSnapshot.stateIsEnd
+              ? isFactEndState(candidate)
+              : !isFactEndState(candidate) && candidate.text === validated.draft.text))
+          ?? finalStates[finalStates.length - 1]
+        : finalStates.find(({ id }) => id === stateIdBefore);
+      const stateSelectionChanged = !submittedStateCreating
+        && liveSnapshot.stateId !== submittedSnapshot.stateId;
+      const liveSelectedState = stateSelectionChanged
+        ? finalStates.find(({ id }) => id === liveSnapshot.stateId)
+        : undefined;
+      const baselineState = liveSelectedState ?? finalState;
+      if (finalState !== undefined && !stateSelectionChanged) {
+        rebaseSelectedState(editor, finalFact, finalState, liveStateOverrides);
+      } else if (liveSelectedState !== undefined) {
+        // A state walk during the request is a newer interaction. Keep that
+        // selection, but rebase its baseline onto the authoritative response.
+        rebaseSelectedState(editor, finalFact, liveSelectedState, liveStateOverrides);
+      }
+      const authoritativeDraft = factDraftOf(finalFact);
+      editor.initialFact = {
+        ...authoritativeDraft,
+        text: baselineState === undefined || isFactEndState(baselineState)
+          ? ""
+          : baselineState.text
+      };
+      editor.initialName = finalFact.name ?? null;
+    }
+    editor.stateCreating = false;
+    editor.stateDeleteArmedId = null;
+    editor.conflict = null;
+    if (!newerEdits) {
+      closeInlineEditor(state, editor, "Fact state saved");
+      return;
+    }
+    state.toast = "Fact state saved · newer edits kept";
+  });
+}
+
+type FactEditorRawDraftField<K extends keyof FactDraft> =
+  K extends "name" | "tag" | "keys" | "secondaryKeys" | "scanDepth" | "budgetTokens" | "text"
+    ? string
+    : FactDraft[K];
+
+type FactEditorRawDraftSnapshot = {
+  [K in keyof FactDraft]: FactEditorRawDraftField<K>;
+};
+
+/** Read every FactDraft field from its live editor buffer. The string-valued
+ * rows stay raw so an in-flight edit is detected even when it is not valid. */
+const FACT_EDITOR_RAW_FIELDS: {
+  [K in keyof FactDraft]: (editor: FactEditorSession) => FactEditorRawDraftField<K>
+} = {
+  name: (editor) => editor.name?.text ?? "",
+  tag: (editor) => editor.tag.text,
+  activation: (editor) => editor.activation,
+  keys: (editor) => editor.keys.text,
+  secondaryKeys: (editor) => editor.secondary.text,
+  secondaryMode: (editor) => editor.secondaryMode,
+  scanDepth: (editor) => editor.scan.text,
+  recursion: (editor) => editor.recursion,
+  priority: (editor) => editor.priority,
+  budgetTokens: (editor) => editor.budget.text,
+  text: (editor) => editor.composer.text
+};
+
+interface FactEditorStateSnapshot {
+  readonly stateId: string | null;
+  readonly stateCreating: boolean;
+  readonly stateAnchorPartId: string | null;
+  readonly stateIsEnd: boolean;
+}
+
+/** State identity and controls are separate from FactDraft because they are
+ * editor routing, not Fact metadata. Keep their capture exhaustive too. */
+const FACT_EDITOR_STATE_FIELDS: {
+  [K in keyof FactEditorStateSnapshot]: (editor: FactEditorSession) => FactEditorStateSnapshot[K]
+} = {
+  stateId: (editor) => editor.stateId ?? null,
+  stateCreating: (editor) => editor.stateCreating === true,
+  stateAnchorPartId: (editor) => editor.stateAnchorPartId ?? null,
+  stateIsEnd: (editor) => editor.stateIsEnd === true
+};
+
+const FACT_EDITOR_STATE_KEYS = Object.keys(
+  FACT_EDITOR_STATE_FIELDS
+) as Array<keyof FactEditorStateSnapshot>;
+
+type FactEditorSaveSnapshot = FactEditorRawDraftSnapshot & FactEditorStateSnapshot;
+
+function captureFactEditorSaveSnapshot(editor: FactEditorSession): FactEditorSaveSnapshot {
+  const draft = Object.fromEntries(
+    FACT_DRAFT_FIELDS.map((field) => [field, FACT_EDITOR_RAW_FIELDS[field](editor)])
+  ) as FactEditorRawDraftSnapshot;
+  const state = Object.fromEntries(
+    FACT_EDITOR_STATE_KEYS.map((field) => [field, FACT_EDITOR_STATE_FIELDS[field](editor)])
+  ) as unknown as FactEditorStateSnapshot;
+  return { ...draft, ...state };
+}
+
+function factEditorSaveSnapshotsMatch(
+  left: FactEditorSaveSnapshot,
+  right: FactEditorSaveSnapshot
+): boolean {
+  return FACT_DRAFT_FIELDS.every((field) => left[field] === right[field])
+    && FACT_EDITOR_STATE_KEYS.every((field) => left[field] === right[field]);
 }
 
 /** Every field in STORY_SCALAR_FIELDS (see story-scalar-fields.ts) is saved
@@ -489,6 +780,7 @@ function disarmEditorConfirmations(
   if (editor.conflict !== null) editor.conflict.armed = false;
   editor.composer.cutConfirmation = null;
   if (editor.kind === "fact") {
+    if (editor.name !== undefined) editor.name.cutConfirmation = null;
     editor.tag.cutConfirmation = null;
     editor.keys.cutConfirmation = null;
     editor.budget.cutConfirmation = null;

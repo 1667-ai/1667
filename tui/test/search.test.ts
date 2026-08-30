@@ -566,4 +566,62 @@ describe("global search screen and model", () => {
     expect(state.mode).toBe("SEARCH");
     expect(state.search).not.toBe(null);
   });
+
+  test("a Fact State search hit selects that exact state before opening its dossier", async () => {
+    const { state, press } = setupSearchHarness();
+    const fact = state.payload.facts[0]!;
+    const anchorPartId = state.payload.path.at(-1)!.id;
+    const stateId = `${fact.id}-branch`;
+    state.payload = {
+      ...state.payload,
+      facts: [{
+        ...fact,
+        states: [
+          ...fact.states,
+          {
+            id: stateId,
+            anchorPartId,
+            text: "branch-only lantern state",
+            createdAt: fact.updatedAt,
+            updatedAt: fact.updatedAt
+          }
+        ]
+      }, ...state.payload.facts.slice(1)]
+    };
+    await press("/");
+    const search = state.search;
+    if (search === null) throw new Error("search did not open");
+    search.query = "branch-only";
+    search.response = {
+      query: "branch-only",
+      scope: "tree",
+      caseSensitive: false,
+      hits: [{
+        storyId: state.payload.id,
+        storyTitle: state.payload.title,
+        kind: "fact",
+        targetId: fact.id,
+        stateId,
+        depth: 0,
+        snippet: "branch-only lantern state",
+        snippetMatch: 0,
+        matchLength: 11,
+        context: "branch-only lantern state",
+        contextMatch: 0
+      }],
+      capped: false,
+      storiesSearched: 1
+    };
+    const hitRow = searchRows(search, state.payload).rows.find(
+      (row): row is SearchHitRow & { select: number } => row.kind === "hit"
+    );
+    expect(hitRow).toBeDefined();
+    search.cursor = hitRow!.select;
+    await press("return", "\r");
+    expect(state.mode).toBe("FACTS");
+    expect(state.facts?.selectedStateId).toBe(stateId);
+    await press("return", "\r");
+    expect(state.facts?.dossier?.factId).toBe(fact.id);
+    expect(state.facts?.dossier?.stateIndex).toBe(1);
+  });
 });

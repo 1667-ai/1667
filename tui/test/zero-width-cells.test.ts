@@ -5,6 +5,7 @@ import { demoAppSource } from "../src/demo.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
+import { factWithText } from "./fact-fixture.js";
 
 // Standalone zero-width format characters the projection keeps and the
 // terminal draws in zero cells: ZWSP, ZWJ, LRM, the word joiner, and the
@@ -57,14 +58,12 @@ test("zero-width format characters move no column in the facts panel or the fact
     // Keyed with no keys: the fact never joins the request, so the context
     // meter's token estimate cannot differ with the extra stored characters.
     // The panel and the rail still draw the tag and the text.
-    state.payload.facts = [{
-      ...fact,
+    state.payload.facts = [factWithText(fact, lace ? laced(factText) : factText, {
       id: "fact-zw",
       tag: lace ? "ca\u200Bnon" : "canon",
-      text: lace ? laced(factText) : factText,
       activation: "keyed",
       keys: []
-    }];
+    })];
     state.mode = "FACTS";
     state.facts = {
       cursor: 0,

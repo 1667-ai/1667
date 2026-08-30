@@ -98,6 +98,9 @@ export function createFactDoubleClickGate(
       const target = event.button === 0 && state.facts !== null
         ? hitAt(state.hitRows, event.x, event.y)
         : null;
+      if (state.facts?.dossier !== null && state.facts?.dossier !== undefined) {
+        return resolved;
+      }
       if (target?.kind !== "list") {
         previous = null;
         return resolved;
@@ -105,7 +108,9 @@ export function createFactDoubleClickGate(
       const fact = factRows(
         state.payload.facts,
         state.facts!.selectedTag,
-        state.facts!.query
+        state.facts!.query,
+        state.payload.path.map(({ id }) => id),
+        state.facts!.scopeFilter ?? "everywhere"
       )[target.index];
       if (fact === undefined) {
         previous = null;
@@ -218,7 +223,12 @@ export function captureMouseActionState(state: RuntimeState): MouseActionState {
             ? { ...state.library.prompt, composer: { ...state.library.prompt.composer } }
             : { ...state.library.prompt }
     },
-    facts: state.facts === null ? null : { ...state.facts },
+    facts: state.facts === null ? null : {
+      ...state.facts,
+      dossier: state.facts.dossier === null || state.facts.dossier === undefined
+        ? state.facts.dossier
+        : { ...state.facts.dossier }
+    },
     commands: state.commands === null ? null : { ...state.commands },
     chapters: state.chapters === null ? null : {
       ...state.chapters,
@@ -370,7 +380,8 @@ export function mouseToAction(
   if (target.kind === "action" && event.button === 0) {
     return {
       action: target.action,
-      ...(target.index === undefined ? {} : { index: target.index })
+      ...(target.index === undefined ? {} : { index: target.index }),
+      ...(target.rowId === undefined ? {} : { rowId: target.rowId })
     };
   }
   if (target.kind === "inline-action" && event.button === 0) {
@@ -428,7 +439,12 @@ export function mouseToAction(
     // dragging to select text start a generation — reported and removed.
     return { action: "focus-index", index: target.index, rowId: target.rowId };
   }
-  if (target.kind === "chip" && event.button === 0) return { action: "cycle", index: target.index };
+  if (target.kind === "chip" && event.button === 0) {
+    return {
+      action: target.group === "scope" ? "cycle-fact-scope" : "cycle",
+      index: target.index
+    };
+  }
   if (target.kind === "take" && event.button === 0) return { action: "apply", index: target.row, take: target.take };
   if (target.kind === "map-view" && event.button === 0) return { action: "set-map-view", view: target.view };
   if (target.kind === "story-take" && event.button === 0 && state.mode === "NAV") {
@@ -453,7 +469,9 @@ function listCursor(state: MouseActionState): number | null {
   if (state.request !== null) return state.request.cursor;
   if (state.actions !== null) return state.actions.cursor;
   if (state.library !== null) return state.library.cursor;
-  if (state.facts !== null) return state.facts.cursor;
+  if (state.facts !== null) {
+    return state.facts.dossier?.stateIndex ?? state.facts.cursor;
+  }
   if (state.commands !== null) return state.commands.cursor;
   if (state.chapters !== null) return state.chapters.cursor;
   if (state.settings !== null) return state.settings.cursor;

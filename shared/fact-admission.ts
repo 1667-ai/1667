@@ -1,7 +1,12 @@
-import { factsInSheddingOrder, selectFactsWithinBudget, type FactBudgetDrop } from "./fact-budget.js";
+import {
+  factsInSheddingOrder,
+  selectFactsWithinBudget,
+  type FactBudgetDrop,
+  type FactSelectionCandidate
+} from "./fact-budget.js";
 import { fixedPromptTexts, type PromptPlan } from "./prompt-plan.js";
 import { formatFactsMessage } from "./story-facts.js";
-import type { GenerationSettings, StoryFact } from "./types.js";
+import type { GenerationSettings } from "./types.js";
 
 /**
  * Which Facts fit fixed prompt context under model-context-window pressure —
@@ -46,10 +51,10 @@ function fixedContextTokens(
   return fixedTexts.reduce((sum, text) => sum + upperBoundTokens(text), framing) + fixedImageTokens;
 }
 
-export interface FixedContextAdmission {
+export interface FixedContextAdmission<Fact extends FactSelectionCandidate = FactSelectionCandidate> {
   /** The admitted Facts, in emit order — pass to formatFactsMessage/the
    *  prompt builder in place of the candidate list that was checked. */
-  readonly facts: readonly StoryFact[];
+  readonly facts: readonly Fact[];
   readonly factsMessage: string | null;
   /** Facts shed to make the fixed prompt fit; empty when nothing had to give. */
   readonly dropped: readonly FactBudgetDrop[];
@@ -60,7 +65,8 @@ export interface FixedContextAdmission {
  *  supplies just these two rather than a full `GenerationSettings`. */
 export type FixedContextSettings = Pick<GenerationSettings, "contextWindow" | "maxTokens">;
 
-export interface FixedContextSelection extends FixedContextAdmission {
+export interface FixedContextSelection<Fact extends FactSelectionCandidate = FactSelectionCandidate>
+  extends FixedContextAdmission<Fact> {
   /** False only once every droppable Fact is already gone and the fixed
    *  prompt still does not fit. A throwing caller (see `assertFixedContextFits`
    *  in server/generation-admission.ts) turns that into an error; a previewing
@@ -106,15 +112,15 @@ export interface FixedContextSelection extends FixedContextAdmission {
  * estimator (shared/fact-budget.ts), so a Fact judged under its cap anywhere
  * else in the app is judged the same way here.
  */
-export function selectFactsForFixedContext(
+export function selectFactsForFixedContext<Fact extends FactSelectionCandidate>(
   settings: FixedContextSettings,
-  candidateFacts: readonly StoryFact[],
+  candidateFacts: readonly Fact[],
   authorsNote: string | null,
   otherFixed: readonly string[],
   /** See `fixedContextTokens`. Defaults to 0, so a caller that never passes
    *  images gets the exact same selection as before image support existed. */
   fixedImageTokens = 0
-): FixedContextSelection {
+): FixedContextSelection<Fact> {
   const notePresent = authorsNote !== null && authorsNote.trim().length > 0;
   // A Fact over its own declared cap is dropped outright, independent of
   // window pressure — already exact, since shared/fact-budget.ts judges it by
@@ -157,9 +163,9 @@ export function selectFactsForFixedContext(
   // real, re-measured prompt fits or nothing droppable is left. This can
   // never drift from what the request actually sends, because it never
   // estimates that cost — it always measures it.
-  const fits = (facts: readonly StoryFact[]): boolean =>
+  const fits = (facts: readonly Fact[]): boolean =>
     fixedContextTokens(formatFactsMessage(facts), authorsNote, otherFixed, fixedImageTokens) <= usable;
-  const keptAfterShedding = (shedCount: number): readonly StoryFact[] => {
+  const keptAfterShedding = (shedCount: number): readonly Fact[] => {
     const shedIds = new Set(sheddable.slice(0, shedCount).map((fact) => fact.id));
     return ownCapSurvivors.filter((candidate) => !shedIds.has(candidate.id));
   };
@@ -222,20 +228,20 @@ export function selectFactsForFixedContext(
  * hundred KB in the one case — nothing shed — this check runs on every
  * request (issue #281 review finding K).
  */
-export function admitFactsWith<P extends { prompt: PromptPlan }>(
+export function admitFactsWith<Fact extends FactSelectionCandidate, P extends { prompt: PromptPlan }>(
   select: (
-    candidateFacts: readonly StoryFact[],
+    candidateFacts: readonly Fact[],
     authorsNote: string | null,
     otherFixed: readonly string[],
     fixedImageTokens: number
-  ) => FixedContextAdmission,
-  candidateFacts: readonly StoryFact[],
+  ) => FixedContextAdmission<Fact>,
+  candidateFacts: readonly Fact[],
   authorsNote: string | null,
   build: (factsMessage: string | null) => P,
   /** See `fixedContextTokens`. Defaults to 0, unchanged from before image
    *  support existed. */
   fixedImageTokens = 0
-): { plan: P; admission: FixedContextAdmission } {
+): { plan: P; admission: FixedContextAdmission<Fact> } {
   const initialFactsMessage = formatFactsMessage(candidateFacts);
   const initial = build(initialFactsMessage);
   const admission = select(candidateFacts, authorsNote, fixedPromptTexts(initial.prompt), fixedImageTokens);
@@ -243,7 +249,7 @@ export function admitFactsWith<P extends { prompt: PromptPlan }>(
   return { plan, admission };
 }
 
-function sameFactSequence(left: readonly StoryFact[], right: readonly StoryFact[]): boolean {
+function sameFactSequence<Fact extends FactSelectionCandidate>(left: readonly Fact[], right: readonly Fact[]): boolean {
   return left.length === right.length && left.every((fact, index) => fact.id === right[index]?.id);
 }
 
@@ -258,15 +264,15 @@ function sameFactSequence(left: readonly StoryFact[], right: readonly StoryFact[
  * request runs over the window (see tui/src/rail.ts), so it does not need
  * this function's verdict, only its Facts.
  */
-export function previewFixedContextAdmission<P extends { prompt: PromptPlan }>(
+export function previewFixedContextAdmission<Fact extends FactSelectionCandidate, P extends { prompt: PromptPlan }>(
   settings: FixedContextSettings,
-  candidateFacts: readonly StoryFact[],
+  candidateFacts: readonly Fact[],
   authorsNote: string | null,
   build: (factsMessage: string | null) => P,
   /** See `fixedContextTokens`. Defaults to 0, unchanged from before image
    *  support existed. */
   fixedImageTokens = 0
-): { plan: P; admission: FixedContextAdmission } {
+): { plan: P; admission: FixedContextAdmission<Fact> } {
   return admitFactsWith(
     (facts, note, otherFixed, images) => selectFactsForFixedContext(settings, facts, note, otherFixed, images),
     candidateFacts,

@@ -45,13 +45,10 @@ export function assertStrictV11Manifest(
     && (typeof manifest.asideDocumentId !== "string" || !HASH_PATTERN.test(manifest.asideDocumentId))) {
     throw new StoryFormatError("manifest.asideDocumentId must be a SHA-256 hex digest or null");
   }
-  const anchored = parseRefs(manifest.asideSessionRefs, "manifest.asideSessionRefs", false);
-  const unanchored = parseRefs(manifest.asideUnanchoredSessionRefs, "manifest.asideUnanchoredSessionRefs", true);
+  const anchored = assertAsideSessionRefs(manifest.asideSessionRefs, "manifest.asideSessionRefs", false);
+  const unanchored = assertAsideSessionRefs(manifest.asideUnanchoredSessionRefs, "manifest.asideUnanchoredSessionRefs", true);
   const ids = new Set<string>();
-  for (const ref of [...anchored, ...unanchored]) {
-    if (ids.has(ref.id as string)) throw new StoryFormatError(`Duplicate Aside session id: ${ref.id}`);
-    ids.add(ref.id as string);
-  }
+  assertUniqueAsideSessionIds([...anchored, ...unanchored]);
 }
 
 function assertNodeV11(value: unknown, label: string): void {
@@ -67,7 +64,13 @@ function assertNodeV11(value: unknown, label: string): void {
   }
 }
 
-function parseRefs(value: unknown, label: string, unanchored: boolean): Array<Record<string, unknown>> {
+/** Validate one persisted Aside session bucket. V13 composes this same
+ * grammar so session refs cannot drift between content versions. */
+export function assertAsideSessionRefs(
+  value: unknown,
+  label: string,
+  unanchored: boolean
+): Array<Record<string, unknown>> {
   if (!Array.isArray(value)) throw new StoryFormatError(`${label} must be an array`);
   if (value.length > MAX_SESSION_REFS_PER_BUCKET) {
     throw new StoryFormatError(`${label} exceeds ${MAX_SESSION_REFS_PER_BUCKET}`);
@@ -99,6 +102,15 @@ function parseRefs(value: unknown, label: string, unanchored: boolean): Array<Re
     }
     return { ...ref, turnCount };
   });
+}
+
+/** Reject a session id that appears in both persisted buckets. */
+export function assertUniqueAsideSessionIds(refs: readonly Record<string, unknown>[]): void {
+  const ids = new Set<string>();
+  for (const ref of refs) {
+    if (ids.has(ref.id as string)) throw new StoryFormatError(`Duplicate Aside session id: ${ref.id}`);
+    ids.add(ref.id as string);
+  }
 }
 
 function assertAnchor(value: unknown, label: string): void {

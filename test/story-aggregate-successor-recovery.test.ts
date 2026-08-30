@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
+import path from "node:path";
 import test from "node:test";
 import { createMutationCoordinator } from "../server/mutation-coordinator.js";
 import {
@@ -11,7 +12,8 @@ import { StoryObjectStore } from "../server/story-objects.js";
 import {
   parseStoryManifestBytes,
   STORY_SCHEMA_VERSION_V6,
-  STORY_SCHEMA_VERSION_V8
+  STORY_SCHEMA_VERSION_V8,
+  STORY_SCHEMA_VERSION_V14
 } from "../server/story-v6-codec.js";
 import { StoryStore } from "../server/stories.js";
 import type { StoryImageAttachment } from "../shared/image-attachment.js";
@@ -225,4 +227,46 @@ test("Q activation off: a V8 document still refuses every mutation and still rea
   const reopened = new StoryStore(`${fixture.dataDir}/stories`);
   const reloaded = await reopened.loadVersioned(STORY_ID);
   assert.deepEqual(reloaded.story.nodes[0]?.imageAttachments, [image]);
+});
+
+test("Q activation off: a V14 Fact State document refuses mutation and still reads", async (t) => {
+  const fixture = await setup(t, "1667-q-successor-refusal-v14-");
+  await fixture.mutations.runLocal(
+    request(fixture.v5Hash),
+    "createFact",
+    (story) => {
+      story.facts.push({
+        id: "named-fact",
+        name: "Named fact",
+        tag: null,
+        states: [{
+          id: "named-fact",
+          text: "A named canonical fact.",
+          createdAt: FIXED_NOW.toISOString(),
+          updatedAt: FIXED_NOW.toISOString()
+        }],
+        activation: "always",
+        keys: [],
+        createdAt: FIXED_NOW.toISOString(),
+        updatedAt: FIXED_NOW.toISOString()
+      });
+    }
+  );
+  const beforeBytes = await readFile(fixture.manifestFile);
+  const before = parseStoryManifestBytes(beforeBytes, STORY_ID);
+  assert.equal(before.kind, "v14-live");
+  if (before.kind !== "v14-live") return;
+  assert.equal(before.manifest.schemaVersion, STORY_SCHEMA_VERSION_V14);
+
+  const predecessor = new StoryStore(
+    path.join(fixture.dataDir, "stories"),
+    { asideActivation: false }
+  );
+  await predecessor.init();
+  await assert.rejects(
+    predecessor.withAggregateSession(STORY_ID, async () => {}),
+    hasServiceError("story_manifest_requires_successor")
+  );
+  const readable = await predecessor.load(STORY_ID);
+  assert.equal(readable.facts[0]?.name, "Named fact");
 });

@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { StoryService } from "../server/story-service.js";
 import { MAX_FACT_TEXT_CHARS } from "../shared/types.js";
+import { firstFactText } from "../shared/fact-state.js";
 
 // Fact text is content-addressed (scripts/story-schema-definition.ts
 // `StoredFactV5` carries only `revisionId`, not the text itself), so raising
@@ -31,7 +32,7 @@ test("a Fact at the new character ceiling round-trips through create, save, and 
 
   const created = await service.createFact(story.id, { text: nearLimitText, tag: "ceiling" });
   const factId = created.facts[0]!.id;
-  assert.equal(created.facts[0]!.text, nearLimitText);
+  assert.equal(firstFactText(created.facts[0]!), nearLimitText);
 
   await service.dispose();
   service = StoryService.withoutDiagnostics({ dataDir });
@@ -39,8 +40,8 @@ test("a Fact at the new character ceiling round-trips through create, save, and 
   try {
     const reloaded = await service.loadStory(story.id);
     const fact = reloaded.facts.find(({ id }) => id === factId);
-    assert.equal(fact?.text, nearLimitText);
-    assert.equal(fact?.text.length, nearLimitText.length);
+    assert.equal(fact === undefined ? undefined : firstFactText(fact), nearLimitText);
+    assert.equal(fact === undefined ? undefined : firstFactText(fact).length, nearLimitText.length);
   } finally {
     await service.dispose();
   }

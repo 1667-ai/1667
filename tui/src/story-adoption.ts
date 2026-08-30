@@ -10,6 +10,7 @@ import {
 } from "./editor-reconciliation.js";
 import { globalEditor } from "./editor-scope.js";
 import { boundedFactSelection, factRows } from "./facts-model.js";
+import { canonicalFactStates } from "../../shared/fact-state.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import { createPrunePlan, createUnusedTakesPrunePlan } from "./prune-model.js";
 import { applyOpeningFocus } from "./reading-position.js";
@@ -59,12 +60,33 @@ export function adoptSameStoryPayload(
 ): ReturnType<typeof createStoryViewModel> {
   const focus = captureStoryFocus(state);
   const facts = state.facts;
+  const oldPathIds = state.payload.path.map(({ id }) => id);
+  const dossierStateId = facts?.dossier === null || facts?.dossier === undefined
+    ? null
+    : (() => {
+        const fact = state.payload.facts.find(({ id }) => id === facts.dossier?.factId);
+        return fact === undefined
+          ? null
+          : canonicalFactStates(fact)[facts.dossier.stateIndex]?.id ?? null;
+      })();
   const factSelection = facts === null
     ? null
-    : boundedFactSelection(state.payload.facts, facts, facts.query);
+    : boundedFactSelection(
+        state.payload.facts,
+        facts,
+        facts.query,
+        oldPathIds,
+        facts.scopeFilter ?? "everywhere"
+      );
   const factId = facts === null || factSelection === null
     ? null
-    : factRows(state.payload.facts, factSelection.selectedTag, facts.query)[factSelection.cursor]?.id ?? null;
+    : factRows(
+        state.payload.facts,
+        factSelection.selectedTag,
+        facts.query,
+        oldPathIds,
+        facts.scopeFilter ?? "everywhere"
+      )[factSelection.cursor]?.id ?? null;
   const commands = state.commands?.view === "tags" ? state.commands : null;
   const tagNodeId = commands === null ? null : state.payload.tags[commands.cursor]?.nodeId ?? null;
   const chapters = state.chapters;
@@ -88,10 +110,35 @@ export function adoptSameStoryPayload(
   reconcilePlacementStops(state, view);
 
   if (facts !== null && state.facts === facts) {
-    Object.assign(facts, boundedFactSelection(payload.facts, facts, facts.query));
-    const rows = factRows(payload.facts, facts.selectedTag, facts.query);
+    const pathIds = payload.path.map(({ id }) => id);
+    Object.assign(
+      facts,
+      boundedFactSelection(payload.facts, facts, facts.query, pathIds, facts.scopeFilter ?? "everywhere")
+    );
+    const rows = factRows(
+      payload.facts,
+      facts.selectedTag,
+      facts.query,
+      pathIds,
+      facts.scopeFilter ?? "everywhere"
+    );
     const preservedIndex = factId === null ? -1 : rows.findIndex((fact) => fact.id === factId);
     if (preservedIndex >= 0) facts.cursor = preservedIndex;
+    if (facts.dossier !== null && facts.dossier !== undefined) {
+      const dossierFact = payload.facts.find(({ id }) => id === facts.dossier?.factId);
+      if (dossierFact === undefined) {
+        facts.dossier = null;
+      } else {
+        const nextStates = canonicalFactStates(dossierFact);
+        const stateIndex = dossierStateId === null
+          ? facts.dossier.stateIndex
+          : nextStates.findIndex(({ id }) => id === dossierStateId);
+        facts.dossier.stateIndex = Math.max(
+          0,
+          Math.min(nextStates.length - 1, stateIndex < 0 ? 0 : stateIndex)
+        );
+      }
+    }
   }
   if (commands !== null && state.commands === commands && commands.view === "tags") {
     const preservedIndex = tagNodeId === null
@@ -385,7 +432,7 @@ function reconcileStoryBoundIntent(
       if (state.mode === "EDITOR") {
         state.mode = editor.returnMode === "FACTS" && state.facts !== null
           ? "FACTS"
-          : "NAV";
+          : editor.returnMode === "MAP" && state.map !== null ? "MAP" : "NAV";
       }
     }
   }

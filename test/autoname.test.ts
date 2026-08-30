@@ -112,7 +112,7 @@ function fact(id: string, text: string): StoryFact {
   return {
     id,
     tag: null,
-    text,
+    states: [{ id: `${id}-state`, text, createdAt: "2025-01-01T00:00:00.000Z", updatedAt: "2025-01-01T00:00:00.000Z" }],
     activation: "always",
     keys: [],
     createdAt: "2025-01-01T00:00:00.000Z",

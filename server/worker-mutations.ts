@@ -56,7 +56,14 @@ import { authorsNoteApplied } from "./story-authors-note.js";
 import { bannedStringsApplied, phraseBiasApplied } from "./story-sampling.js";
 import { parseBannedStringsField, parsePhraseBiasField } from "./sampling-phrase-bias.js";
 import { HASH_PATTERN } from "./story-format.js";
-import { patchFact, reorderFact } from "./story-facts.js";
+import {
+  createFactState,
+  deleteFactState,
+  patchFact,
+  patchFactState,
+  reorderFact
+} from "./story-facts.js";
+import { canonicalFactStates, sameFactStateValue } from "../shared/fact-state.js";
 import { nodeRewriteId } from "./story-node-text.js";
 import { storyAutonameId } from "./story-metadata.js";
 import { hasCommittedGeneration } from "./story-nodes.js";
@@ -437,7 +444,7 @@ const MUTATIONS: MutationRegistry = {
     },
     storyId: (input) => input.storyId,
     execute: async (service, input, plan, context) => {
-      if (plan.recoveryMode !== "new") {
+      if (plan.recoveryMode !== "new" && context.storyMutationRequest === undefined) {
         const story = await loadMutationPayload(service, input.storyId);
         if (!story.nodes.some((node) => node.id === input.nodeId)) return story;
       }
@@ -454,7 +461,7 @@ const MUTATIONS: MutationRegistry = {
     storyId: (input) => input.storyId,
     execute: async (service, input, plan, context) => {
       const expected = parsePruneUnusedTakes(input.body);
-      if (plan.recoveryMode !== "new") {
+      if (plan.recoveryMode !== "new" && context.storyMutationRequest === undefined) {
         const story = await loadMutationPayload(service, input.storyId);
         if (story.updatedAt !== expected.expectedStoryRevision) {
           if (unusedTakePruneSelection(story).takeIds.length === 0) return story;
@@ -581,6 +588,76 @@ const MUTATIONS: MutationRegistry = {
       return await service.deleteFact(
         input.storyId,
         input.factId,
+        context.storyMutationRequest
+      );
+    }
+  }),
+  createFactState: define<"createFactState">({
+    parse: (value) => bodyInputWithId<"createFactState">(value, "createFactState", "factId"),
+    storyId: (input) => input.storyId,
+    execute: async (service, input, plan, context) => {
+      const stateId = plan.entityId("fact-state");
+      const recovered = await plan.reconcileStory(service.stories, input.storyId, (story) => {
+        // The deterministic state ID is the durable commit marker. A later
+        // edit, re-anchor, or metadata patch may change the state value, but
+        // cannot change its ID. Do not replay the original value or reject
+        // the exact retry as a duplicate.
+        return findFactState(story, input.factId, stateId) !== null;
+      });
+      return recovered ?? await service.createFactState(
+        input.storyId,
+        input.factId,
+        input.body,
+        stateId,
+        context.storyMutationRequest
+      );
+    }
+  }),
+  patchFactState: define<"patchFactState">({
+    parse: (value) => bodyInputWithStateId<"patchFactState">(value, "patchFactState"),
+    storyId: (input) => input.storyId,
+    execute: async (service, input, plan, context) => {
+      const recovered = await plan.reconcileStory(service.stories, input.storyId, (story) => {
+        const current = findFactState(story, input.factId, input.stateId);
+        if (current === null) return false;
+        const candidate = structuredClone(story);
+        const changed = patchFactState(candidate, input.factId, input.stateId, input.body);
+        if (changed) return false;
+        const after = findFactState(candidate, input.factId, input.stateId);
+        return after !== null && sameFactStateValue(current, after);
+      });
+      return recovered ?? await service.patchFactState(
+        input.storyId,
+        input.factId,
+        input.stateId,
+        input.body,
+        context.storyMutationRequest
+      );
+    }
+  }),
+  deleteFactState: define<"deleteFactState">({
+    parse: (value) => requiredStrings<"deleteFactState">(
+      value,
+      "deleteFactState",
+      "storyId",
+      "factId",
+      "stateId"
+    ),
+    storyId: (input) => input.storyId,
+    execute: async (service, input, plan, context) => {
+      if (plan.recoveryMode !== "new") {
+        // An exact retry may target a successor manifest. Read it through the
+        // recovery-only hydrated path; `loadForMutation` remains fenced for
+        // new predecessor writes.
+        const story = await service.stories.loadHydrated(input.storyId);
+        if (findFactState(story, input.factId, input.stateId) === null) {
+          return buildStoryPayload(story);
+        }
+      }
+      return await service.deleteFactState(
+        input.storyId,
+        input.factId,
+        input.stateId,
         context.storyMutationRequest
       );
     }
@@ -1224,6 +1301,30 @@ function bodyInputWithId<M extends MutatingWorkerMethod>(
     [key]: requireString(input[key], key),
     body: input.body
   } as unknown as WorkerInput<M>;
+}
+
+function bodyInputWithStateId<M extends "patchFactState">(
+  value: unknown,
+  method: string
+): WorkerInput<M> {
+  const input = requireRecord(value, `${method} input`);
+  return {
+    storyId: requireString(input.storyId, "storyId"),
+    factId: requireString(input.factId, "factId"),
+    stateId: requireString(input.stateId, "stateId"),
+    body: input.body
+  } as WorkerInput<M>;
+}
+
+function findFactState(
+  story: { readonly facts: readonly import("../shared/types.js").StoryFact[] },
+  factId: string,
+  stateId: string
+) {
+  const fact = story.facts.find((candidate) => candidate.id === factId);
+  return fact === undefined
+    ? null
+    : canonicalFactStates(fact).find((state) => state.id === stateId) ?? null;
 }
 
 function requireStringValue(value: unknown, label: string): string {

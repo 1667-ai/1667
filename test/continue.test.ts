@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { sha256 } from "../server/story-format.js";
+import { firstFactText } from "../shared/fact-state.js";
 import type { StoryPayload } from "../shared/types.js";
 import { API_PROTOCOL_HEADERS, fetchWithApiProtocol } from "./http-test-client.js";
 import { json, testApp } from "./story-server-fixture.js";
@@ -261,7 +262,7 @@ linuxTest("tag, switch, facts, and import mutations all return story payloads", 
   assert.equal(payload.path[0]!.id, left.id);
   assert.deepEqual(payload.recentNodeIds, [right.id, left.id]);
   payload = await json<StoryPayload>(`${base}/api/stories/${created.id}/facts`, post({ tag: "Hero", text: "Level: 1" }));
-  assert.equal(payload.facts[0]!.text, "Level: 1");
+  assert.equal(firstFactText(payload.facts[0]!), "Level: 1");
 
   const imported = await json<{ payload: StoryPayload; fidelity: readonly string[] }>(
     `${base}/api/import/sillytavern`,

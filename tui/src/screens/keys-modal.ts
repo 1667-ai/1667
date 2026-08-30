@@ -214,6 +214,7 @@ const SECTIONS: readonly KeysModalSection[] = [
     role: "compose accent",
     entries: [
       entry("cycle path · tree · mass", [binding("mapCycleView")]),
+      entry("lens one Fact in tree", [binding("mapOpenFactLens")]),
       entry("all takes · sketches", [
         binding("mapPathAllTakes"),
         binding("mapTreeSketches"),

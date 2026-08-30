@@ -121,8 +121,8 @@ test("regex quantifiers and character classes have bounded NFA semantics", () =>
 
 test("always Facts seed recursion without an external context", () => {
   const facts: StoryFact[] = [
-    { ...alwaysFact("seed"), id: "seed", text: "chain" },
-    { ...fact("chain"), id: "chain", text: "leaf" },
+    withText({ ...alwaysFact("seed"), id: "seed" }, "chain"),
+    withText({ ...fact("chain"), id: "chain" }, "leaf"),
     { ...fact("leaf"), id: "leaf" }
   ];
   const selected = selectActiveFactsWithTrace(facts);
@@ -175,8 +175,8 @@ test("secondary gates, scan depth, and recursion select Facts in stored order", 
     { ...fact("hero"), id: "not", secondaryKeys: ["enemy"], secondaryMode: "not" },
     { ...fact("old"), id: "deep", recursion: "off" },
     { ...fact("old"), id: "shallow", scanDepth: 1 },
-    { ...alwaysFact("seed"), id: "seed", text: "chain" },
-    { ...fact("chain"), id: "chain", text: "leaf" },
+    withText({ ...alwaysFact("seed"), id: "seed" }, "chain"),
+    withText({ ...fact("chain"), id: "chain" }, "leaf"),
     { ...fact("leaf"), id: "leaf" }
   ];
   const selected = selectActiveFactsWithTrace(facts, {
@@ -194,8 +194,8 @@ test("secondary gates, scan depth, and recursion select Facts in stored order", 
 // chain exactly as before.
 test("recursion chain activation is unchanged when active Facts' text already fits the window", () => {
   const facts: StoryFact[] = [
-    { ...alwaysFact("first"), id: "first", text: "The lantern keeper lit the wick." },
-    { ...alwaysFact("second"), id: "second", text: "A storm gathered over the bay." },
+    withText({ ...alwaysFact("first"), id: "first" }, "The lantern keeper lit the wick."),
+    withText({ ...alwaysFact("second"), id: "second" }, "A storm gathered over the bay."),
     { ...fact("wick"), id: "chain-wick" },
     { ...fact("storm"), id: "chain-storm" }
   ];
@@ -215,8 +215,8 @@ test("recursion chain activation is unchanged when active Facts' text already fi
 // listed ahead of it. This pins the fix: the small Fact's "teapot" survives
 // and the chain Fact it feeds still activates.
 test("a huge recursion-enabled Fact no longer crowds a small one out of the chain-activation window", () => {
-  const small: StoryFact = { ...alwaysFact("small"), id: "small", text: "the small porcelain teapot sits here" };
-  const big: StoryFact = { ...alwaysFact("big"), id: "big", text: "b".repeat(MAX_FACT_RECURSION_UTF16 * 2) };
+  const small: StoryFact = withText({ ...alwaysFact("small"), id: "small" }, "the small porcelain teapot sits here");
+  const big: StoryFact = withText({ ...alwaysFact("big"), id: "big" }, "b".repeat(MAX_FACT_RECURSION_UTF16 * 2));
   const chain: StoryFact = { ...fact("teapot"), id: "chain" };
 
   const selected = selectActiveFactsWithTrace([small, big, chain]);
@@ -246,7 +246,7 @@ test("a fair-share cut never fabricates a word boundary the real text does not h
   assert.equal(afterCut.length, MAX_FACT_RECURSION_UTF16, "fixture must sit exactly at the share");
   const bigText = `${"z".repeat(100)}x${afterCut}`;
 
-  const big: StoryFact = { ...alwaysFact("big"), id: "big", text: bigText };
+  const big: StoryFact = withText({ ...alwaysFact("big"), id: "big" }, bigText);
   const chain: StoryFact = { ...fact(embedded), id: "chain" };
 
   const selected = selectActiveFactsWithTrace([big, chain]);
@@ -262,12 +262,18 @@ function fact(key: string): StoryFact {
   return {
     id: `fact-${key}`,
     tag: null,
-    text: `Fact for ${key}`,
+    states: [{ id: `fact-${key}`, text: `Fact for ${key}`, createdAt: NOW, updatedAt: NOW }],
     activation: "keyed",
     keys: [key],
     createdAt: NOW,
     updatedAt: NOW
   };
+}
+
+function withText(fact: StoryFact, text: string): StoryFact {
+  const [state, ...rest] = fact.states;
+  if (state === undefined || "ends" in state) throw new Error("Fixture requires a text state");
+  return { ...fact, states: [{ ...state, text }, ...rest] };
 }
 
 function alwaysFact(key: string): StoryFact {

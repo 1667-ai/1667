@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { selectFactsWithinBudget } from "../shared/fact-budget.js";
-import type { StoryFact } from "../shared/types.js";
+import type { EffectiveStoryFact } from "../shared/fact-state.js";
 
 const NOW = "2026-01-01T00:00:00.000Z";
 
@@ -95,7 +95,7 @@ test("fact budget judges a Fact's own cap by the canonical estimator, never the 
   // non-ASCII text — the two must not disagree about which one applies to
   // the Fact's own cap.
   const cjk = fact({ id: "cjk", text: "玲".repeat(100), budgetTokens: 50 });
-  const conservativeNonAsciiDoubling = (candidate: StoryFact): number => {
+  const conservativeNonAsciiDoubling = (candidate: EffectiveStoryFact): number => {
     let ascii = 0;
     let wide = 0;
     for (const char of candidate.text) {
@@ -111,13 +111,26 @@ test("fact budget judges a Fact's own cap by the canonical estimator, never the 
   assert.deepEqual(selection.kept, [cjk]);
 });
 
-function fact(overrides: Partial<StoryFact> & Pick<StoryFact, "id" | "text">): StoryFact {
+function fact(
+  overrides: Omit<Partial<EffectiveStoryFact>, "text" | "stateId" | "state"> & Pick<StoryFactFixture, "id" | "text">
+): EffectiveStoryFact {
+  const { id, text, ...metadata } = overrides;
+  const state = { id: `${id}-state`, text, createdAt: NOW, updatedAt: NOW };
   return {
+    id,
     tag: null,
     activation: "always",
     keys: [],
     createdAt: NOW,
     updatedAt: NOW,
-    ...overrides
+    ...metadata,
+    text,
+    stateId: state.id,
+    state
   };
+}
+
+interface StoryFactFixture {
+  readonly id: string;
+  readonly text: string;
 }

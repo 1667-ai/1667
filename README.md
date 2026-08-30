@@ -165,6 +165,8 @@ applies its subscription limits, terms, and data controls.
 | Open settings or the key reference | `,` or `?` |
 | Quit | `q` |
 
+The `q` key also quits when Aside is open.
+
 The keys `h`, `j`, `k`, and `l` do not move between story parts. `l` opens
 the token probability viewer instead. In the map, `l` follows or opens the
 selected story line. Press `?` for the complete key reference.

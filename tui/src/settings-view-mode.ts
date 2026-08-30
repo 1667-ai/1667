@@ -41,8 +41,29 @@ export function toggleSettingsViewMode(
 ): SettingsViewMode {
   const next: SettingsViewMode = overlay.viewMode === "simple" ? "advanced" : "simple";
   overlay.viewMode = next;
-  state.config = { ...state.config, settingsViewMode: next };
+  persistViewMode(state, source, "settingsViewMode", next);
+  return next;
+}
+
+/** Flip the Fact editor's own session preference. Settings and Facts use the
+ * same `m` gesture, but keep independent preferences. */
+export function toggleFactEditorViewMode(
+  state: RuntimeState,
+  source: AppSource,
+  current: SettingsViewMode = state.config.factsViewMode ?? "simple"
+): SettingsViewMode {
+  const next: SettingsViewMode = current === "simple" ? "advanced" : "simple";
+  persistViewMode(state, source, "factsViewMode", next);
+  return next;
+}
+
+function persistViewMode(
+  state: RuntimeState,
+  source: AppSource,
+  preference: "settingsViewMode" | "factsViewMode",
+  next: SettingsViewMode
+): void {
+  state.config = { ...state.config, [preference]: next };
   source.config = state.config;
   if (!state.demo) saveConfig(state.config);
-  return next;
 }

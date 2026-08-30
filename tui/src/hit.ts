@@ -18,14 +18,14 @@ export type HitTarget =
       mapRow?: { id: string; kind: "node" | "sketch" | "cold" };
     }
   | { kind: "fact"; index: number }
-  | { kind: "chip"; index: number }
+  | { kind: "chip"; index: number; group?: "tag" | "scope" }
   | { kind: "take"; row: number; take: number }
   | { kind: "map-view"; view: MapView }
   /** Exact sibling control in the focused story-part gutter. */
   | { kind: "story-take"; take: number }
   /** Shortcut from story chrome into one exact Settings row. */
   | { kind: "settings-row"; row: SettingsRowId; profilePurpose?: SettingsRoutePurpose }
-  | { kind: "action"; action: KeyAction; index?: number }
+  | { kind: "action"; action: KeyAction; index?: number; rowId?: string }
   /** Row control whose non-left clicks deliberately fall through to its row. */
   | {
       kind: "inline-action";

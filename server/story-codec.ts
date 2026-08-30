@@ -5,6 +5,15 @@ import {
   type StoryFact,
   type StoryNode
 } from "../shared/types.js";
+import {
+  canonicalFactStates,
+  factStatesTextWithinLimit,
+  isFactEndState,
+  isLegacyFactStateShape,
+  validateFactStates
+} from "../shared/fact-state.js";
+import { MAX_FACT_NAME_CHARS, normalizeFactName } from "../shared/fact-name.js";
+import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
 import { MAX_AUTHORS_NOTE_CHARS, storedAuthorsNoteDepth } from "../shared/authors-note.js";
 import { MAX_AUTHOR_BRIEF_CHARS, storedAuthorBrief } from "../shared/author-brief.js";
 import {
@@ -19,6 +28,7 @@ import { countWords } from "../shared/story-text.js";
 import {
   STORY_ASIDE_SCHEMA_VERSION,
   STORY_ASIDE_SESSION_SCHEMA_VERSION,
+  STORY_FACT_STATE_SCHEMA_VERSION,
   STORY_FORMAT,
   STORY_SCHEMA_VERSION,
   STORY_SUCCESSOR_SCHEMA_VERSION,
@@ -29,17 +39,21 @@ import {
   parseManifestV7,
   parseManifestV9,
   parseManifestV11,
+  parseManifestV13,
   serializeManifestContent,
   validateNodeAttribution,
   validateNodeImageAttachments,
   validateNodeRewrittenSpans,
   type ObjectHash,
   type StoredFactV1,
+  type StoredFactV13,
+  type StoredFactStateV1,
   type StoredNodeV1,
   type StoryManifestV5,
   type StoryManifestV7,
   type StoryManifestV9,
   type StoryManifestV11,
+  type StoryManifestV13,
   type TextRevisionV1
 } from "./story-format.js";
 import { resolveAsideActivation } from "../shared/aside-release.js";
@@ -124,15 +138,33 @@ function storyHasAsideSessions(story: Story): boolean {
     || peekPendingAsideSessions(story).size > 0;
 }
 
+/** A Fact can stay in the flat predecessor shape only for the exact lifted
+ * legacy state: one text state, Fact-id identity, no Anchor or End marker,
+ * and clocks copied from the Fact. Names are V13 metadata, so a set name also
+ * requires the V13/V14 pair to prevent silent loss. */
+function storyHasFactStateFeatures(story: Story): boolean {
+  return story.facts.some((fact) => {
+    let name: string | undefined;
+    try {
+      name = normalizeFactName(fact.name, `Fact ${fact.id} name`);
+    } catch (error) {
+      throw new StoryFormatError(error instanceof Error ? error.message : String(error));
+    }
+    if (name !== undefined) return true;
+    return !isLegacyFactStateShape(fact);
+  });
+}
+
 export async function encodeStoryBundle(
   story: Story,
   objects: StoryObjectStore,
   reuseFrom?: StoryObjectStore,
   snapshot?: StoryRevisionSnapshot,
   options: EncodeStoryBundleOptions = {}
-): Promise<StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11> {
+): Promise<StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13> {
   const imageActivation = resolveImageInputActivation(options.activation) && storyHasImageAttachments(story);
   const hadAsideSessions = storyHasAsideSessions(story);
+  const factStateActivation = storyHasFactStateFeatures(story);
   const asideActivation = resolveAsideActivation(options.asideActivation)
     && (storyHasAsideField(story) || hadAsideSessions);
   if (hadAsideSessions && !asideActivation) {
@@ -152,7 +184,7 @@ export async function encodeStoryBundle(
     : boundedString(canonicalBrief, "story.authorBrief", MAX_AUTHOR_BRIEF_CHARS);
   const phraseBias = optionalPhraseBias(story.phraseBias);
   const bannedStrings = optionalBannedStrings(story.bannedStrings);
-  validateFactBodies(story.facts);
+  validateFactBodies(story.facts, story.nodes);
   for (const node of story.nodes) if (isNodeTextHydrated(node)) {
     validateNodeAttribution(node);
     validateNodeRewrittenSpans(node);
@@ -385,32 +417,55 @@ export async function encodeStoryBundle(
   const anchoredAsideSessionRefs = asideSessionRefs.filter((ref) => ref.anchor !== null);
   const unanchoredAsideSessionRefs = asideSessionRefs.filter((ref) => ref.anchor === null);
 
-  const factRevisionIds = await objects.storeTexts(story.facts.map((fact) => fact.text), reuseFrom);
-  const facts: StoredFactV1[] = story.facts.map((fact, index) => ({
-    id: fact.id,
-    tag: fact.tag,
-    ...(fact.activation === "always" ? {} : { activation: fact.activation }),
-    ...(fact.keys.length === 0 ? {} : { keys: [...fact.keys] }),
-    ...factMetadataOverrides({
-      secondaryKeys: fact.secondaryKeys ?? [],
-      secondaryMode: fact.secondaryMode ?? "and",
-      scanDepth: fact.scanDepth ?? DEFAULT_FACT_SCAN_PARTS,
-      recursion: fact.recursion ?? "on",
-      priority: fact.priority ?? "normal"
-    }),
-    ...(fact.budgetTokens === undefined ? {} : { budgetTokens: fact.budgetTokens }),
-    revisionId: factRevisionIds[index]!,
-    createdAt: fact.createdAt,
-    updatedAt: fact.updatedAt,
-    ...(fact.sourcePartId === undefined ? {} : { sourcePartId: fact.sourcePartId })
-  }));
+  const factStates = story.facts.map((fact) => canonicalFactStates(fact));
+  const factTexts = factStates.flatMap((states) => states.flatMap((state) =>
+    isFactEndState(state) ? [] : [state.text]
+  ));
+  const factRevisionIds = await objects.storeTexts(factTexts, reuseFrom);
+  let factRevisionCursor = 0;
+  const nextFactRevision = (label: string): ObjectHash => {
+    const revisionId = factRevisionIds[factRevisionCursor++];
+    if (revisionId === undefined) throw new StoryFormatError(`Missing encoded revision for ${label}`);
+    return revisionId;
+  };
+  const encodeLegacyFacts = (): StoredFactV1[] => story.facts.map((fact) =>
+    storedLegacyFact(fact, nextFactRevision(`Fact: ${fact.id}`))
+  );
+  const encodeFactStateFacts = (): StoredFactV13[] => story.facts.map((fact, factIndex) => {
+    const states = factStates[factIndex]!;
+    const metadata = storedFactMetadata(fact);
+    const storedStates: StoredFactStateV1[] = states.map((state) => {
+      if (isFactEndState(state)) {
+        return {
+          id: state.id,
+          ...(state.anchorPartId === undefined ? {} : { anchorPartId: state.anchorPartId }),
+          ends: true,
+          createdAt: state.createdAt,
+          updatedAt: state.updatedAt
+        };
+      }
+      return {
+        id: state.id,
+        ...(state.anchorPartId === undefined ? {} : { anchorPartId: state.anchorPartId }),
+        revisionId: nextFactRevision(`Fact State: ${state.id}`),
+        createdAt: state.createdAt,
+        updatedAt: state.updatedAt
+      };
+    });
+    const name = normalizeFactName(fact.name, `Fact ${fact.id} name`);
+    return {
+      ...metadata,
+      ...(name === undefined ? {} : { name }),
+      states: storedStates
+    };
+  });
   // Typed explicitly (schemaVersion omitted, since only the two branches
   // below know which literal to stamp): a bare object literal here would let
   // TypeScript widen `format` to `string`, and the two returns below would
   // then reject it as "not `1667-story`" even though the runtime value is
   // exactly right.
-  const manifestCommon: Omit<StoryManifestV5, "schemaVersion"> = {
-    format: STORY_FORMAT,
+  const manifestPrefix = {
+    format: STORY_FORMAT as typeof STORY_FORMAT,
     id: story.id,
     title: story.title,
     createdAt: story.createdAt,
@@ -427,8 +482,9 @@ export async function encodeStoryBundle(
       : { firstChapterTitle: story.firstChapterTitle }),
     ...(story.factsBudgetTokens === undefined ? {} : { factsBudgetTokens: story.factsBudgetTokens }),
     activeWordCount: activePath(story).reduce((sum, node) => sum + nodeStubWords(node), 0),
-    nodes,
-    facts,
+    nodes
+  };
+  const manifestTail = {
     activeRootId: story.activeRootId,
     // In memory a tag has `status`; on disk the key is `label`. See StoredTagV1.
     bookmarks: story.tags.map((tag) => ({
@@ -440,6 +496,30 @@ export async function encodeStoryBundle(
     })),
     recentNodeIds: [...story.recentNodeIds],
     chapterBreaks: story.chapterBreaks.map((chapterBreak) => ({ ...chapterBreak }))
+  };
+  if (factStateActivation) {
+    const facts = encodeFactStateFacts();
+    const manifest: StoryManifestV13 = {
+      ...manifestPrefix,
+      facts,
+      ...manifestTail,
+      schemaVersion: STORY_FACT_STATE_SCHEMA_VERSION,
+      // V13 extends the V11 content envelope. Null and empty buckets preserve
+      // the exact meaning of a story that never used Aside. The state feature
+      // itself is what upgrades the content/envelope pair.
+      asideDocumentId,
+      asideSessionRefs: anchoredAsideSessionRefs,
+      asideUnanchoredSessionRefs: unanchoredAsideSessionRefs
+    };
+    const parsed = parseManifestV13(serializeManifestContent(manifest), story.id);
+    for (const sessionId of storedAsideSessionIds) clearPendingAsideSessionDocument(story, sessionId);
+    return parsed;
+  }
+  const facts = encodeLegacyFacts();
+  const manifestCommon = {
+    ...manifestPrefix,
+    facts,
+    ...manifestTail
   };
   if (useAside) {
     if (hadAsideSessions) {
@@ -462,15 +542,21 @@ export async function encodeStoryBundle(
     return parseManifestV9(serializeManifestContent(manifest), story.id);
   }
   if (activation) {
-    const manifest: StoryManifestV7 = { ...manifestCommon, schemaVersion: STORY_SUCCESSOR_SCHEMA_VERSION };
+    const manifest: StoryManifestV7 = {
+      ...manifestCommon,
+      schemaVersion: STORY_SUCCESSOR_SCHEMA_VERSION
+    };
     return parseManifestV7(serializeManifestContent(manifest), story.id);
   }
-  const manifest: StoryManifestV5 = { ...manifestCommon, schemaVersion: STORY_SCHEMA_VERSION };
+  const manifest: StoryManifestV5 = {
+    ...manifestCommon,
+    schemaVersion: STORY_SCHEMA_VERSION
+  };
   return parseManifest(serializeManifestContent(manifest), story.id);
 }
 
 export async function decodeStoryBundle(
-  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11,
+  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13,
   bundleDir: string,
   options: { activeOnly?: boolean } = {}
 ): Promise<DecodedStoryBundle> {
@@ -487,9 +573,12 @@ export async function decodeStoryBundle(
     : new Set(manifest.nodes.map((node) => node.id));
   const storedToRead = manifest.nodes.filter((node) => wanted.has(node.id));
   const revisionNodes = storedToRead.filter((node) => node.syntheticEmpty !== true);
+  const factRevisionIds = manifest.facts.flatMap((fact) => "states" in fact
+    ? fact.states.flatMap((state) => state.revisionId === undefined ? [] : [state.revisionId])
+    : [fact.revisionId]);
   const texts = await objects.readTexts([
     ...revisionNodes.map((node) => node.revisionId),
-    ...manifest.facts.map((fact) => fact.revisionId)
+    ...factRevisionIds
   ], cache);
   const textById = new Map(revisionNodes.map((stored, index) => [stored.id, texts[index]!] as const));
   const nodes: StoryNode[] = manifest.nodes.map((stored) => {
@@ -538,25 +627,52 @@ export async function decodeStoryBundle(
     return node;
   });
   let cursor = revisionNodes.length;
-  const facts: StoryFact[] = manifest.facts.map((stored) => ({
-    id: stored.id,
-    tag: stored.tag,
-    activation: stored.activation ?? "always",
-    keys: stored.keys === undefined ? [] : [...stored.keys],
-    ...factMetadataOverrides({
-      secondaryKeys: stored.secondaryKeys ?? [],
-      secondaryMode: stored.secondaryMode ?? "and",
-      scanDepth: stored.scanDepth ?? DEFAULT_FACT_SCAN_PARTS,
-      recursion: stored.recursion ?? "on",
-      priority: stored.priority ?? "normal"
-    }),
-    ...(stored.budgetTokens === undefined ? {} : { budgetTokens: stored.budgetTokens }),
-    text: texts[cursor++]!,
-    createdAt: stored.createdAt,
-    updatedAt: stored.updatedAt,
-    ...(stored.sourcePartId === undefined ? {} : { sourcePartId: stored.sourcePartId })
-  }));
-  validateFactBodies(facts);
+  const facts: StoryFact[] = manifest.facts.map((stored) => {
+    const metadata = {
+      id: stored.id,
+      ...( "name" in stored && stored.name !== undefined ? { name: stored.name } : {}),
+      tag: stored.tag,
+      activation: stored.activation ?? "always",
+      keys: stored.keys === undefined ? [] : [...stored.keys],
+      ...factMetadataOverrides({
+        secondaryKeys: stored.secondaryKeys ?? [],
+        secondaryMode: stored.secondaryMode ?? "and",
+        scanDepth: stored.scanDepth ?? DEFAULT_FACT_SCAN_PARTS,
+        recursion: stored.recursion ?? "on",
+        priority: stored.priority ?? "normal"
+      }),
+      ...(stored.budgetTokens === undefined ? {} : { budgetTokens: stored.budgetTokens }),
+      createdAt: stored.createdAt,
+      updatedAt: stored.updatedAt,
+      ...(stored.sourcePartId === undefined ? {} : { sourcePartId: stored.sourcePartId })
+    };
+    if (!("states" in stored)) {
+      const text = texts[cursor++]!;
+      const state = { id: stored.id, text, createdAt: stored.createdAt, updatedAt: stored.updatedAt };
+      return { ...metadata, states: [state] };
+    }
+    const states = stored.states.map((state) => {
+      if (state.ends === true) {
+        return {
+          id: state.id,
+          ...(state.anchorPartId === undefined ? {} : { anchorPartId: state.anchorPartId }),
+          ends: true as const,
+          createdAt: state.createdAt,
+          updatedAt: state.updatedAt
+        };
+      }
+      const text = texts[cursor++]!;
+      return {
+        id: state.id,
+        ...(state.anchorPartId === undefined ? {} : { anchorPartId: state.anchorPartId }),
+        text,
+        createdAt: state.createdAt,
+        updatedAt: state.updatedAt
+      };
+    });
+    return { ...metadata, states };
+  });
+  validateFactBodies(facts, nodes);
   const story: Story = {
     id: manifest.id,
     title: manifest.title,
@@ -660,12 +776,61 @@ export async function hydrateStoryNodes(story: Story, nodeIds: readonly string[]
 
 export { countWords } from "../shared/story-text.js";
 
+function storedFactMetadata(fact: StoryFact): Omit<StoredFactV1, "revisionId"> {
+  return {
+    id: fact.id,
+    tag: fact.tag,
+    ...(fact.activation === "always" ? {} : { activation: fact.activation }),
+    ...(fact.keys.length === 0 ? {} : { keys: [...fact.keys] }),
+    ...factMetadataOverrides({
+      secondaryKeys: fact.secondaryKeys ?? [],
+      secondaryMode: fact.secondaryMode ?? "and",
+      scanDepth: fact.scanDepth ?? DEFAULT_FACT_SCAN_PARTS,
+      recursion: fact.recursion ?? "on",
+      priority: fact.priority ?? "normal"
+    }),
+    ...(fact.budgetTokens === undefined ? {} : { budgetTokens: fact.budgetTokens }),
+    createdAt: fact.createdAt,
+    updatedAt: fact.updatedAt,
+    ...(fact.sourcePartId === undefined ? {} : { sourcePartId: fact.sourcePartId })
+  };
+}
+
+/** Keep the predecessor Fact key order and shape byte-stable. This mirrors the
+ * historical flat encoder; only an exact legacy-lowerable state may use it. */
+function storedLegacyFact(fact: StoryFact, revisionId: ObjectHash): StoredFactV1 {
+  return {
+    id: fact.id,
+    tag: fact.tag,
+    ...(fact.activation === "always" ? {} : { activation: fact.activation }),
+    ...(fact.keys.length === 0 ? {} : { keys: [...fact.keys] }),
+    ...factMetadataOverrides({
+      secondaryKeys: fact.secondaryKeys ?? [],
+      secondaryMode: fact.secondaryMode ?? "and",
+      scanDepth: fact.scanDepth ?? DEFAULT_FACT_SCAN_PARTS,
+      recursion: fact.recursion ?? "on",
+      priority: fact.priority ?? "normal"
+    }),
+    ...(fact.budgetTokens === undefined ? {} : { budgetTokens: fact.budgetTokens }),
+    revisionId,
+    createdAt: fact.createdAt,
+    updatedAt: fact.updatedAt,
+    ...(fact.sourcePartId === undefined ? {} : { sourcePartId: fact.sourcePartId })
+  };
+}
+
 function requireEncodedRevision(value: ObjectHash | undefined, nodeId: string): ObjectHash {
   if (value === undefined) throw new StoryFormatError(`Missing encoded revision for node: ${nodeId}`);
   return value;
 }
 
-function validateFactBodies(facts: readonly StoryFact[]): void {
+function validateFactBodies(facts: readonly StoryFact[], nodes: readonly StoryNode[]): void {
+  const anchors = new Set(
+    nodes
+      .filter((node) => node.role !== "summary" && node.chapterBreakId === undefined)
+      .map((node) => node.id)
+  );
+  const stateIds = new Set<string>();
   for (const fact of facts) {
     try {
       parseFactMetadata(fact, `Fact ${fact.id}`);
@@ -673,9 +838,45 @@ function validateFactBodies(facts: readonly StoryFact[]): void {
       if (error instanceof FactActivationError) throw new StoryFormatError(error.message);
       throw error;
     }
-    if (fact.text.trim().length === 0) throw new StoryFormatError(`Fact ${fact.id} text must not be empty`);
-    if (!factTextWithinLimit(fact.text)) {
-      throw new StoryFormatError(`Fact ${fact.id} exceeds the ${MAX_FACT_TEXT_CHARS.toLocaleString()}-character limit`);
+    const states = canonicalFactStates(fact);
+    if (states.length === 0) throw new StoryFormatError(`Fact ${fact.id} must contain at least one state`);
+    try {
+      validateFactStates(states, `Fact ${fact.id} states`);
+    } catch (error) {
+      throw new StoryFormatError(error instanceof Error ? error.message : String(error));
+    }
+    for (const state of states) {
+      if (stateIds.has(state.id)) {
+        throw new StoryFormatError(`Duplicate fact state id: ${state.id}`);
+      }
+      stateIds.add(state.id);
+      if (state.anchorPartId !== undefined && !anchors.has(state.anchorPartId)) {
+        throw new StoryFormatError(`Fact state anchor references unknown or summary part: ${state.anchorPartId}`);
+      }
+      if (isFactEndState(state)) continue;
+      if (typeof state.text !== "string") {
+        throw new StoryFormatError(`Fact State ${state.id} text must be a string`);
+      }
+      if (hasUnpairedSurrogate(state.text)) {
+        throw new StoryFormatError(`Fact State ${state.id} text contains an unpaired Unicode surrogate`);
+      }
+      if (state.text.trim().length === 0) {
+        throw new StoryFormatError(`Fact State ${state.id} text must not be empty`);
+      }
+      if (!factTextWithinLimit(state.text)) {
+        throw new StoryFormatError(
+          `Fact State ${state.id} exceeds the ${MAX_FACT_TEXT_CHARS.toLocaleString()}-character limit`
+        );
+      }
+    }
+    if (!factStatesTextWithinLimit(states)) {
+      throw new StoryFormatError(
+        `Fact ${fact.id} exceeds the aggregate ${MAX_FACT_TEXT_CHARS.toLocaleString()}-character limit`
+      );
+    }
+    const normalizedName = normalizeFactName(fact.name, `Fact ${fact.id} name`);
+    if (normalizedName !== undefined && unicodeScalarLength(normalizedName, MAX_FACT_NAME_CHARS + 1) > MAX_FACT_NAME_CHARS) {
+      throw new StoryFormatError(`Fact ${fact.id} name exceeds the ${MAX_FACT_NAME_CHARS.toLocaleString()}-character limit`);
     }
   }
 }

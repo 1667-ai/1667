@@ -551,7 +551,7 @@ test("a mixed Fact selection does not open an editor menu", async () => {
   );
 
   expect(state.textActions).toBe(null);
-  expect(state.toast).toBe("select the Fact tag, keys, or text");
+  expect(state.toast).toBe("select the Fact name, tag, keys, or text");
 });
 
 async function openSamplingEdit(requestQuit: () => void = () => undefined) {
