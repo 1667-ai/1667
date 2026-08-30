@@ -402,6 +402,21 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       { storyId, factId },
       { expectedAggregateVersion: await expectedVersion(storyId) }
     )),
+    createFactState: async (storyId, factId, body) => rememberPayload(await transport.call(
+      "createFactState",
+      { storyId, factId, body },
+      { expectedAggregateVersion: await expectedVersion(storyId) }
+    )),
+    patchFactState: async (storyId, factId, stateId, body) => rememberPayload(await transport.call(
+      "patchFactState",
+      { storyId, factId, stateId, body },
+      { expectedAggregateVersion: await expectedVersion(storyId) }
+    )),
+    deleteFactState: async (storyId, factId, stateId) => rememberPayload(await transport.call(
+      "deleteFactState",
+      { storyId, factId, stateId },
+      { expectedAggregateVersion: await expectedVersion(storyId) }
+    )),
     reorderFact: async (storyId, factId, toIndex) => rememberPayload(await transport.call(
       "reorderFact",
       { storyId, factId, body: { toIndex } },

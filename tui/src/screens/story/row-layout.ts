@@ -1,4 +1,5 @@
 import { chapterWord, extentLabel } from "../../chapter-model.js";
+import type { StoryFact } from "../../../../shared/types.js";
 import type {
   ChapterDividerRow,
   ChapterSummaryRow,
@@ -131,9 +132,11 @@ export function layoutStoryRow(
   // gutter's fixed 2-line pair (`gutterFor`, gutter.ts) takes priority over
   // this whenever both are true.
   const gutterRows = focused && !narrow && !streaming && !row.isSummary
-    ? gutterRowsFor(row, thought, asidePresence)
+    ? gutterRowsFor(row, thought, asidePresence, state.payload.facts)
     : null;
-  const streamingRows = streaming && !narrow ? streamingGutterRows(row, thought, state.now, deadlines) : null;
+  const streamingRows = streaming && !narrow
+    ? streamingGutterRows(row, thought, state.now, deadlines, state.payload.facts)
+    : null;
   const gutterRowCount = streamingRows?.length ?? gutterRows?.length ?? 0;
   let prefix: FrameLine[] | null = null;
   const preparePrefix = () => prefix ??= partPrefix(
@@ -181,7 +184,7 @@ export function layoutStoryRow(
       ...preparePrefix(),
       ...renderPartBody(
         row, state, focused, narrow, prepare(), gutterRowCount, gutterRows,
-        thought, asidePresence, deadlines
+        thought, asidePresence, deadlines, state.payload.facts
       )
     ]
   };
@@ -365,7 +368,8 @@ function renderPartBody(
   gutterRows: readonly FrameLine[] | null,
   thought: ThoughtGutterContext,
   asidePresence: ReturnType<typeof asidePresenceForPart>,
-  deadlines?: FrameDeadlineCollector
+  deadlines?: FrameDeadlineCollector,
+  facts: readonly StoryFact[] = []
 ): FrameLine[] {
   const { stream, appending, wrapped, sourceStart, compactLogo } = prepared;
   if (part.isSummary) {
@@ -376,7 +380,7 @@ function renderPartBody(
   const lines: FrameLine[] = [];
   const gutterAt = (lineIndex: number): FrameLine => narrow
     ? []
-    : gutterFor(part, streaming, lineIndex, thought, gutterRows, state.now, deadlines, asidePresence);
+    : gutterFor(part, streaming, lineIndex, thought, gutterRows, state.now, deadlines, asidePresence, facts);
   if (compactLogo) {
     lines.push(prefixLine(
       narrow,

@@ -1,6 +1,7 @@
 import { Packr } from "msgpackr";
-import type { StoryFact, StoryNode, StoryPayload } from "../shared/types.js";
+import type { StoryNode, StoryPayload } from "../shared/types.js";
 import { countNoun } from "../shared/fidelity.js";
+import { effectiveFactAtPath, isLegacyFactStateShape, type EffectiveStoryFact } from "../shared/fact-state.js";
 
 export type NovelAiExportFormat = "story" | "scenario" | "lorebook";
 
@@ -23,25 +24,28 @@ export function exportNovelAiArchive(
   format: NovelAiExportFormat
 ): NovelAiArchiveExport {
   const prose = selectedProse(story);
-  const fidelity = exportFidelity(story, prose, format);
+  const effectiveFacts = story.facts
+    .map((fact) => effectiveFactAtPath(fact, story.path))
+    .filter((fact): fact is EffectiveStoryFact => fact !== null);
+  const fidelity = exportFidelity(story, prose, format, effectiveFacts);
 
   switch (format) {
     case "story":
       return {
         extension: ".story",
-        text: `${JSON.stringify(storyArchive(story, prose))}\n`,
+        text: `${JSON.stringify(storyArchive(story, prose, effectiveFacts))}\n`,
         fidelity
       };
     case "scenario":
       return {
         extension: ".scenario",
-        text: `${JSON.stringify(scenarioArchive(story, prose))}\n`,
+        text: `${JSON.stringify(scenarioArchive(story, prose, effectiveFacts))}\n`,
         fidelity
       };
     case "lorebook":
       return {
         extension: ".lorebook",
-        text: `${JSON.stringify(lorebookArchive(story.facts))}\n`,
+        text: `${JSON.stringify(lorebookArchive(effectiveFacts))}\n`,
         fidelity
       };
   }
@@ -57,9 +61,9 @@ function selectedProse(story: StoryPayload): StoryNode[] {
  *
  * Only the first one moves. A writer with several keeps the rest as ordinary
  * Facts, and they round-trip through the Lorebook with their tag intact. */
-function splitMemoryFact(facts: readonly StoryFact[]): {
-  readonly memory: StoryFact | null;
-  readonly lorebook: readonly StoryFact[];
+function splitMemoryFact(facts: readonly EffectiveStoryFact[]): {
+  readonly memory: EffectiveStoryFact | null;
+  readonly lorebook: readonly EffectiveStoryFact[];
   /** How many Facts the Memory Fact moves ahead of. */
   readonly movedAhead: number;
 } {
@@ -72,7 +76,11 @@ function splitMemoryFact(facts: readonly StoryFact[]): {
   };
 }
 
-function storyArchive(story: StoryPayload, prose: readonly StoryNode[]): Record<string, unknown> {
+function storyArchive(
+  story: StoryPayload,
+  prose: readonly StoryNode[],
+  facts: readonly EffectiveStoryFact[]
+): Record<string, unknown> {
   const sections = new Map<number, MessagePackValue>();
   const order: number[] = [];
   for (const [index, part] of prose.entries()) {
@@ -117,8 +125,8 @@ function storyArchive(story: StoryPayload, prose: readonly StoryNode[]): Record<
       storyContentVersion: 6,
       settings: {},
       document: encodeNovelAiDocument(document).toString("base64"),
-      context: steeringContext(story),
-      lorebook: lorebookArchive(splitMemoryFact(story.facts).lorebook),
+      context: steeringContext(story, facts),
+      lorebook: lorebookArchive(splitMemoryFact(facts).lorebook),
       storyContextConfig: storyContextConfig(),
       ephemeralContext: [],
       contextDefaults: {
@@ -138,7 +146,8 @@ function storyArchive(story: StoryPayload, prose: readonly StoryNode[]): Record<
 
 function scenarioArchive(
   story: StoryPayload,
-  prose: readonly StoryNode[]
+  prose: readonly StoryNode[],
+  facts: readonly EffectiveStoryFact[]
 ): Record<string, unknown> {
   return {
     scenarioVersion: 3,
@@ -146,10 +155,10 @@ function scenarioArchive(
     description: "",
     prompt: prose.map((part) => part.text).join("\n\n"),
     tags: [],
-    context: steeringContext(story),
+    context: steeringContext(story, facts),
     ephemeralContext: [],
     placeholders: [],
-    lorebook: lorebookArchive(splitMemoryFact(story.facts).lorebook),
+    lorebook: lorebookArchive(splitMemoryFact(facts).lorebook),
     author: "",
     storyContextConfig: storyContextConfig(),
     settings: {},
@@ -166,9 +175,9 @@ function scenarioArchive(
 
 /** NovelAI writes Memory at context[0] and the Author's Note at context[1].
  * The importer reads those positions, so the exporter writes them. */
-function steeringContext(story: StoryPayload): Record<string, unknown>[] {
+function steeringContext(story: StoryPayload, facts: readonly EffectiveStoryFact[]): Record<string, unknown>[] {
   return [
-    scenarioContext(splitMemoryFact(story.facts).memory?.text ?? "", 800, 0, 0),
+    scenarioContext(splitMemoryFact(facts).memory?.text ?? "", 800, 0, 0),
     scenarioContext(story.authorsNote ?? "", -400, 1, -4)
   ];
 }
@@ -210,7 +219,7 @@ function scenarioContext(
   };
 }
 
-function lorebookArchive(facts: readonly StoryFact[]): Record<string, unknown> {
+function lorebookArchive(facts: readonly EffectiveStoryFact[]): Record<string, unknown> {
   const categories = categoriesForFacts(facts);
   const categoryIds = new Map(categories.map((category) => [category.name, category.id]));
   return {
@@ -232,7 +241,7 @@ interface LorebookCategory {
   readonly open: true;
 }
 
-function categoriesForFacts(facts: readonly StoryFact[]): LorebookCategory[] {
+function categoriesForFacts(facts: readonly EffectiveStoryFact[]): LorebookCategory[] {
   const categories = new Map<string, LorebookCategory>();
   for (const fact of facts) {
     if (fact.tag === null || fact.tag === "" || categories.has(fact.tag)) continue;
@@ -249,7 +258,7 @@ function categoriesForFacts(facts: readonly StoryFact[]): LorebookCategory[] {
   return [...categories.values()];
 }
 
-function lorebookEntry(fact: StoryFact, category: string): Record<string, unknown> {
+function lorebookEntry(fact: EffectiveStoryFact, category: string): Record<string, unknown> {
   return {
     text: fact.text,
     contextConfig: {
@@ -286,7 +295,8 @@ function timestamp(value: string): number {
 function exportFidelity(
   story: StoryPayload,
   prose: readonly StoryNode[],
-  format: NovelAiExportFormat
+  format: NovelAiExportFormat,
+  effectiveFacts: readonly EffectiveStoryFact[]
 ): readonly string[] {
   const selectedIds = new Set(prose.map((part) => part.id));
   const alternateTakes = story.nodes.filter(
@@ -296,13 +306,26 @@ function exportFidelity(
     (part) => part.role !== "summary" && part.hasInstruction
   ).length;
   const summaries = story.nodes.filter((part) => part.role === "summary").length;
-  const { memory, lorebook, movedAhead } = splitMemoryFact(story.facts);
+  const { memory, lorebook, movedAhead } = splitMemoryFact(effectiveFacts);
+  const activeIds = new Set(effectiveFacts.map((fact) => fact.id));
+  const namedFacts = story.facts.filter((fact) => fact.name !== undefined).length;
+  const omittedStateFacts = story.facts.filter((fact) => !isLegacyFactStateShape(fact));
+  const omittedScopeFacts = story.facts.filter((fact) => !activeIds.has(fact.id));
   const omissions = [
     `${alternateTakes} alternate ${countNoun(alternateTakes, "take")} omitted.`,
     `${story.tags.length} story line ${countNoun(story.tags.length, "tag")} omitted.`,
     `${directions} ${countNoun(directions, "direction")} omitted.`,
     `${summaries} summary ${countNoun(summaries, "part")} omitted.`,
     `${story.chapterBreaks.length} chapter ${countNoun(story.chapterBreaks.length, "break")} omitted.`,
+    ...(namedFacts === 0
+      ? []
+      : [`${namedFacts} ${countNoun(namedFacts, "Fact Name")} omitted; NovelAI Lorebook has no Fact Name field.`]),
+    ...(omittedStateFacts.length === 0
+      ? []
+      : [`${omittedStateFacts.length} ${countNoun(omittedStateFacts.length, "fact")} state history omitted.`]),
+    ...(omittedScopeFacts.length === 0
+      ? []
+      : [`${omittedScopeFacts.length} ${countNoun(omittedScopeFacts.length, "fact")} out of scope or ended on the exported path.`]),
     // Exact notice when Side Notes exist. StoryPayload never carries Side Note
     // text; these fields are presence only.
     ...(
@@ -359,7 +382,7 @@ function exportFidelity(
       ];
     case "lorebook":
       return [
-        `${story.facts.length} ${countNoun(story.facts.length, "fact")} exported with activation modes and keys.`,
+        `${effectiveFacts.length} ${countNoun(effectiveFacts.length, "fact")} exported with activation modes and keys.`,
         `${prose.length} active prose ${countNoun(prose.length, "part")} omitted from the lorebook.`,
         ...omissions,
         `${story.authorsNote === undefined ? 0 : 1} ${countNoun(story.authorsNote === undefined ? 0 : 1, "Author's Note")} omitted.`,

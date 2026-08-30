@@ -180,6 +180,14 @@ export type TextPrompt =
       targetId: string;
     };
 export interface LibraryOverlayState { stories: StorySummary[]; cursor: number; query: string; prompt: TextPrompt | null }
+export interface FactsDossierState {
+  /** Fact id stays stable while its state list is refreshed after a save. */
+  factId: string;
+  /** Cursor over canonicalFactStates(fact), not over the rendered Fact list. */
+  stateIndex: number;
+  /** Derived apparatus is a transient view toggle. */
+  diff: boolean;
+}
 export interface FactsOverlayState {
   cursor: number;
   query: string;
@@ -188,6 +196,17 @@ export interface FactsOverlayState {
   selectedTag: string | null;
   filtering: boolean;
   deleteArmedId: string | null;
+  /** Search can land on one exact Fact State before the overlay is opened. */
+  selectedStateId?: string | null;
+  /** Scope filter for the second chip group. Omitted means inclusive view. */
+  scopeFilter?: "everywhere" | "this-line" | "elsewhere" | "ended";
+  /** One Fact's history, rendered inside this overlay. */
+  dossier?: FactsDossierState | null;
+  /** Pending action from the NAV `x` menu; the next Enter chooses its Fact. */
+  pendingFactAction?: {
+    kind: "new-state" | "end";
+    anchorPartId: string;
+  } | null;
 }
 export interface CommandsOverlayState {
   query: string;
@@ -591,8 +610,34 @@ export interface InlineEditorSession extends EditorSessionBase {
 export interface FactEditorSession extends EditorSessionBase {
   kind: "fact";
   target: FactEditorTarget;
-  returnMode: "NAV" | "FACTS";
+  returnMode: "NAV" | "FACTS" | "MAP";
   conflict: InlineEditorSession["conflict"];
+  /** Optional display identity. Empty text clears the stored name. */
+  name?: ComposerState;
+  initialName?: string | null;
+  /** Selected branch-scoped state. Legacy flat Facts leave this unset. */
+  stateId?: string | null;
+  stateIndex?: number;
+  stateCreating?: boolean;
+  /** Anchor sent when a brand-new Fact is created from a story part. */
+  factAnchorPartId?: string | null;
+  /** Candidate part for the new-Fact scope cycler. Kept separate from the
+   *  selected anchor so `n` can start story-wide and still offer the cursor
+   *  part as the second choice. */
+  factScopeAnchorPartId?: string | null;
+  stateDeleteArmedId?: string | null;
+  stateAnchorPartId?: string | null;
+  /** Current story cursor used by the state strip's re-anchor action. */
+  stateCursorAnchorId?: string | null;
+  /** Selected state identity when this editor opened or last rebased. */
+  stateInitialId?: string | null;
+  stateInitialAnchorPartId?: string | null;
+  stateInitialText?: string;
+  stateInitialEnds?: boolean;
+  stateIsEnd?: boolean;
+  /** Focus owned by the non-text editor chrome. Text rows keep every plain
+   * character, including `m` and brackets, for the active composer. */
+  chromeFocus?: "view" | "state" | "scope";
   tag: ComposerState;
   activation: StoryFact["activation"];
   keys: ComposerState;

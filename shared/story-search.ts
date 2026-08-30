@@ -2,6 +2,7 @@ import { indexTree, isChapterSummary } from "./story-tree.js";
 import type { Story, StoryFact, StoryNode } from "./types.js";
 import { alignUtf16Boundary } from "./unicode.js";
 import { escapeRegExp } from "./regex.js";
+import { canonicalFactStates, isFactEndState } from "./fact-state.js";
 
 /** Which corpus a hit came from. Prose is a part's text, a prompt is the
  * instruction that made it, and a fact is one canon note. */
@@ -16,6 +17,8 @@ export interface SearchHit {
   kind: SearchHitKind;
   /** The part that holds a prose or prompt hit; the fact id for a fact hit. */
   targetId: string;
+  /** State id for a Fact hit. Prose and prompt hits omit it. */
+  stateId?: string;
   /** 1-based depth of the part in its tree. 0 for a fact. */
   depth: number;
   /** One whitespace-normalized line around the match. */
@@ -69,6 +72,7 @@ const CONTEXT_LENGTH = 420;
 export interface SearchCorpusEntry {
   kind: SearchHitKind;
   targetId: string;
+  stateId?: string;
   depth: number;
   text: string;
 }
@@ -111,7 +115,20 @@ export function buildSearchCorpus(story: Story): SearchCorpus {
     }
   }
   for (const fact of story.facts) {
-    entries.push({ kind: "fact", targetId: fact.id, depth: 0, text: factText(fact) });
+    const metadata = factMetadata(fact);
+    if (metadata.length > 0) {
+      entries.push({ kind: "fact", targetId: fact.id, depth: 0, text: metadata });
+    }
+    for (const state of canonicalFactStates(fact)) {
+      if (isFactEndState(state)) continue;
+      entries.push({
+        kind: "fact",
+        targetId: fact.id,
+        stateId: state.id,
+        depth: 0,
+        text: state.text
+      });
+    }
   }
   return { storyId: story.id, storyTitle: story.title, updatedAt: story.updatedAt, entries };
 }
@@ -132,6 +149,7 @@ export function searchCorpus(
       storyTitle: corpus.storyTitle,
       kind: entry.kind,
       targetId: entry.targetId,
+      ...(entry.stateId === undefined ? {} : { stateId: entry.stateId }),
       depth: entry.depth,
       ...snippet,
       ...context
@@ -154,11 +172,11 @@ function matcher(query: string, caseSensitive: boolean): RegExp {
   return new RegExp(escapeRegExp(query), caseSensitive ? "gu" : "giu");
 }
 
-/** A fact reads as one row, so its tag travels with its body. */
-function factText(fact: StoryFact): string {
-  return fact.tag === null || fact.tag.trim().length === 0
-    ? fact.text
-    : `${fact.tag} · ${fact.text}`;
+/** Index Fact metadata once. State bodies keep their exact state identity. */
+function factMetadata(fact: StoryFact): string {
+  return [fact.name, fact.tag]
+    .filter((value): value is string => value !== undefined && value !== null && value.trim().length > 0)
+    .join(" · ");
 }
 
 /** One vault scan in progress, so the cap contract lives in one place.

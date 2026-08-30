@@ -1,5 +1,8 @@
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
 import { createLaneLayout, laneLayoutOptions, laneSelectable, type LaneLayout, type LaneRow } from "../lane-layout.js";
+import { factLensNode } from "../map-fact-lens.js";
+import { factName } from "../facts-model.js";
+import { createStoryIndex } from "../../../shared/story-model.js";
 import type { HitRow } from "../hit.js";
 import type { MapState } from "../map-state.js";
 import type { StoryScreenState } from "../state.js";
@@ -39,13 +42,20 @@ export function renderLaneTreeBody(
   const lines: FrameLine[] = [];
   const hits: Array<HitRow | null> = [];
   const streamTargetId = state.stream?.targetId ?? null;
+  const lensFact = map.factLensFactId === undefined || map.factLensFactId === null
+    ? null
+    : state.payload.facts.find(({ id }) => id === map.factLensFactId) ?? null;
+  const lensIndex = lensFact === null ? null : createStoryIndex(state.payload);
 
   if (layout.visibleStart > 0) {
     lines.push(renderLaneMarker(layout.rows[0]!.alive, `▲ ${layout.visibleStart} above`, layout, width));
     hits.push(null);
   }
   for (const row of layout.rows) {
-    lines.push(renderLaneRow(row, layout, width, streamTargetId));
+    const lens = lensFact === null || lensIndex === null || !laneSelectable(row) || row.kind === "sketches"
+      ? null
+      : factLensNode(lensFact, lensIndex, row.id);
+    lines.push(renderLaneRow(row, layout, width, streamTargetId, lens));
     hits.push(hitForRow(row, indexById, width));
   }
   if (layout.moreRows > 0) {
@@ -64,9 +74,13 @@ export function renderLaneTreeBody(
   const cold = layout.coldLines > 0 ? ` ━ ${hot} hot · ${layout.coldLines} folded cold` : "";
   const windowSuffix = layout.totalRows > layout.rows.length
     ? ` ━ rows ${layout.visibleStart + 1}–${layout.visibleEnd} of ${layout.totalRows}` : "";
+  const lensTitle = lensFact === null ? null : factName(
+    lensFact,
+    state.payload.path.map(({ id }) => id)
+  );
   return {
     lines, hits,
-    stats: `${state.payload.title} ━ ${layout.totalLines} lines · ${layout.totalParts} parts · ${layout.forkCount} forks${cold}${windowSuffix}`,
+    stats: `${lensTitle === null ? state.payload.title : `fact lens: ${lensTitle}`} ━ ${layout.totalLines} lines · ${layout.totalParts} parts · ${layout.forkCount} forks${cold}${windowSuffix}`,
     crumb: cursor === null ? "tree" : `¶ ${cursor.depth}`,
     derived: { rowIds, pathCursorId: map.pathCursorId, treeCursorId: layout.cursorId }
   };

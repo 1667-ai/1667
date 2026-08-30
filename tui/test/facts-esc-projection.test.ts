@@ -4,6 +4,7 @@ import { demoAppSource } from "../src/demo.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
+import { factWithText } from "./fact-fixture.js";
 
 const ESC = "";
 
@@ -30,12 +31,11 @@ test("the reading column draws an escape sequence in story prose as a control ma
 test("the facts panel draws an escape sequence in a fact tag and text as a control mark", () => {
   const state = initialState(demoAppSource(), true);
   const fact = state.payload.facts[0]!;
-  state.payload.facts = [{
-    ...fact,
-    id: "fact-esc",
-    tag: `tag${ESC}[31m`,
-    text: `A lighthouse${ESC}[2J on the north cape\nWinter. The keeper is Maren.`
-  }];
+  state.payload.facts = [factWithText(fact,
+    `A lighthouse${ESC}[2J on the north cape\nWinter. The keeper is Maren.`, {
+      id: "fact-esc",
+      tag: `tag${ESC}[31m`
+    })];
   state.mode = "FACTS";
   state.facts = {
     cursor: 0,
@@ -55,12 +55,11 @@ test("the facts panel draws an escape sequence in a fact tag and text as a contr
 test("the facts rail draws an escape sequence in a fact name and tag as a control mark", () => {
   const state = initialState(demoAppSource(), true);
   const fact = state.payload.facts[0]!;
-  state.payload.facts = [{
-    ...fact,
-    id: "fact-esc",
-    tag: `tag${ESC}[31m`,
-    text: `A lighthouse${ESC}[2J on the north cape\nWinter. The keeper is Maren.`
-  }];
+  state.payload.facts = [factWithText(fact,
+    `A lighthouse${ESC}[2J on the north cape\nWinter. The keeper is Maren.`, {
+      id: "fact-esc",
+      tag: `tag${ESC}[31m`
+    })];
 
   // The rail needs RAIL_MIN_COLUMNS (138) before it is drawn at all.
   const frame = render(state, 140);

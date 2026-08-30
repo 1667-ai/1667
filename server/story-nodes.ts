@@ -34,6 +34,7 @@ import { appendPendingGenerationRecord } from "./story-node-generation-records.j
 import { attachTakeTokenProbabilities } from "./story-node-token-probabilities.js";
 import { attachTakeReasoning } from "./story-node-reasoning.js";
 import { reanchorPrunedAsideSessions } from "./aside-session-store.js";
+import { canonicalFactStates } from "../shared/fact-state.js";
 
 export interface NewNodeOptions {
   id?: string;
@@ -524,7 +525,7 @@ export function applyHumanEdit(story: Story, nodeId: string, request: EditNodeRe
   return node;
 }
 
-export function deleteSubtree(story: Story, nodeId: string, expectedSubtreeCount: number): void {
+export function deleteSubtree(story: Story, nodeId: string, expectedSubtreeCount: number): number {
   requireNode(story, nodeId);
   if (!Number.isSafeInteger(expectedSubtreeCount) || expectedSubtreeCount < 1) {
     throw new HttpError(400, "expectedSubtreeCount must be a positive integer");
@@ -533,7 +534,7 @@ export function deleteSubtree(story: Story, nodeId: string, expectedSubtreeCount
   if (deadIds.size !== expectedSubtreeCount) {
     throw new HttpError(409, "The subtree changed before deletion — reload the story.");
   }
-  deleteNodeSet(story, deadIds);
+  return deleteNodeSet(story, deadIds);
 }
 
 export function pruneUnusedTakes(story: Story, expected: PruneUnusedTakesRequest): number {
@@ -549,7 +550,14 @@ export function pruneUnusedTakes(story: Story, expected: PruneUnusedTakesRequest
   return selection.takeIds.length;
 }
 
-function deleteNodeSet(story: Story, deadIds: Set<string>): void {
+/** Count anchored states in a deletion set before applying it. Used only for
+ * the deletion receipt; it does not change the tree or Fact collection. */
+export function countFactStatesAnchoredTo(story: Story, nodeIds: ReadonlySet<string>): number {
+  return story.facts.reduce((total, fact) => total + canonicalFactStates(fact)
+    .filter((state) => state.anchorPartId !== undefined && nodeIds.has(state.anchorPartId)).length, 0);
+}
+
+function deleteNodeSet(story: Story, deadIds: Set<string>): number {
   const removedBreakIds = new Set(story.chapterBreaks
     .filter((chapterBreak) => deadIds.has(chapterBreak.parentPartId))
     .map((chapterBreak) => chapterBreak.id));
@@ -579,8 +587,24 @@ function deleteNodeSet(story: Story, deadIds: Set<string>): void {
   story.tags = story.tags.filter((tag) => !deadIds.has(tag.nodeId));
   story.recentNodeIds = story.recentNodeIds.filter((recentId) => !deadIds.has(recentId));
   story.chapterBreaks = story.chapterBreaks.filter((chapterBreak) => !removedBreakIds.has(chapterBreak.id));
-  for (const fact of story.facts) if (fact.sourcePartId !== undefined && deadIds.has(fact.sourcePartId)) delete fact.sourcePartId;
+  const now = new Date().toISOString();
+  let factStatesRemoved = 0;
+  story.facts = story.facts.flatMap((fact) => {
+    const states = canonicalFactStates(fact);
+    const survivingStates = states.filter(
+      (state) => state.anchorPartId === undefined || !deadIds.has(state.anchorPartId)
+    );
+    factStatesRemoved += states.length - survivingStates.length;
+    if (survivingStates.length === 0 && states.length > 0) return [];
+    if (survivingStates.length !== states.length) {
+      fact.states = survivingStates;
+      fact.updatedAt = now;
+    }
+    if (fact.sourcePartId !== undefined && deadIds.has(fact.sourcePartId)) delete fact.sourcePartId;
+    return [fact];
+  });
   reanchorPrunedAsideSessions(story);
+  return factStatesRemoved;
 }
 
 export function switchLine(

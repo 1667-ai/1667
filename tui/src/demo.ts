@@ -10,10 +10,12 @@ import {
 import { estimateTokens } from "../../shared/tokens.js";
 import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
-import { activePath, computeRollups, isChapterSummary, pathTo, subtreeIds, switchToNode, unusedTakePruneSelection } from "../../shared/story-tree.js";
+import { activePath, computeRollups, isChapterSummary, switchToNode, unusedTakePruneSelection } from "../../shared/story-tree.js";
 import type {
   FactInput,
   FactPatch,
+  FactStateInput,
+  FactStatePatch,
   GenerationSettings,
   NodeStub,
   PruneUnusedTakesRequest,
@@ -24,6 +26,7 @@ import type {
   TagStatus
 } from "../../shared/types.js";
 import { MAX_FACTS, resolveRewriteDestination } from "../../shared/types.js";
+import { normalizeFactName } from "../../shared/fact-name.js";
 import { planCardImport } from "../../shared/card-import.js";
 import { DEFAULT_FACT_SCAN_PARTS, factMetadataOverrides } from "../../shared/fact-metadata.js";
 import type {
@@ -35,6 +38,12 @@ import type {
 } from "../../shared/settings-v2-types.js";
 import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
 import { convertSettingsDocumentV2ToV5 } from "../../server/settings-v5-conversion.js";
+import {
+  createFactState as applyCreateFactState,
+  deleteFactState as applyDeleteFactState,
+  patchFactState as applyPatchFactState
+} from "../../server/story-facts.js";
+import { deleteSubtree } from "../../server/story-nodes.js";
 import {
   buildSearchCorpus,
   createSearchScan,
@@ -123,6 +132,9 @@ export interface DemoController {
   createFact(input: FactInput): StoryPayload;
   patchFact(id: string, input: FactPatch): StoryPayload;
   deleteFact(id: string): StoryPayload;
+  createFactState(id: string, input: FactStateInput): StoryPayload;
+  patchFactState(id: string, stateId: string, input: FactStatePatch): StoryPayload;
+  deleteFactState(id: string, stateId: string): StoryPayload;
   reorderFact(id: string, toIndex: number): StoryPayload;
   createChapterBreak(parentPartId: string, title?: string): { payload: StoryPayload; breakId: string };
   renameChapterBreak(breakId: string | null, title: string): StoryPayload;
@@ -153,23 +165,10 @@ export function createDemoController(dense = false): DemoController {
     ]
   };
   const deleteDemoNode = (nodeId: string, expectedSubtreeCount: number): StoryPayload => {
-    const ids = subtreeIds(story, nodeId);
-    if (ids.length !== expectedSubtreeCount) throw new Error(`Prune changed: expected ${expectedSubtreeCount}, found ${ids.length}`);
     const node = story.nodes.find((candidate) => candidate.id === nodeId);
     if (node === undefined) throw new Error(`Unknown demo node: ${nodeId}`);
-    const activeIds = new Set(activePath(story).map((candidate) => candidate.id));
-    if (activeIds.has(nodeId)) {
-      if (node.parentId === null) {
-        story.activeRootId = story.nodes.find((candidate) => candidate.parentId === null && !ids.includes(candidate.id))?.id ?? null;
-      } else {
-        const parent = pathTo(story, nodeId).at(-2)!;
-        parent.activeChildId = null;
-      }
-    }
-    const removed = new Set(ids);
-    story.nodes = story.nodes.filter((candidate) => !removed.has(candidate.id));
-    story.chapterBreaks = story.chapterBreaks.filter((chapterBreak) => !removed.has(chapterBreak.parentPartId));
-    story.tags = story.tags.filter((tag) => !removed.has(tag.nodeId));
+    deleteSubtree(story, nodeId, expectedSubtreeCount);
+    normalizeDemoFactClocks(story);
     return payloadFrom(story);
   };
   function listDemoStories(): StorySummary[] {
@@ -275,7 +274,7 @@ export function createDemoController(dense = false): DemoController {
         || selection.nodeIds.length !== expected.expectedPartCount) {
         throw new Error("The prune selection changed — reload the story and review it again.");
       }
-      for (const takeId of selection.takeIds) deleteDemoNode(takeId, subtreeIds(story, takeId).length);
+      for (const takeId of selection.takeIds) deleteDemoNode(takeId, 1);
       return payloadFrom(story);
     },
     putBookmark(nodeId, name, status) {
@@ -361,10 +360,20 @@ export function createDemoController(dense = false): DemoController {
     },
     autonameStory() { story.title = "the compass at sorrow cliff"; return payloadFrom(story); },
     createFact(input) {
+      const factId = `fact-${story.facts.length + 1}`;
+      const name = normalizeFactName(input.name);
       story.facts.push({
-        id: `fact-${story.facts.length + 1}`,
+        id: factId,
+        ...(name === undefined || name.length === 0 ? {} : { name }),
         tag: input.tag ?? null,
-        text: input.text,
+        states: [{
+          id: factId,
+          ...(input.anchorPartId === undefined || input.anchorPartId === null
+            ? {} : { anchorPartId: input.anchorPartId }),
+          text: input.text,
+          createdAt: CREATED,
+          updatedAt: CREATED
+        }],
         activation: input.activation ?? "always",
         keys: input.keys === undefined ? [] : [...input.keys],
         createdAt: CREATED,
@@ -383,8 +392,21 @@ export function createDemoController(dense = false): DemoController {
     patchFact(id, input) {
       const fact = story.facts.find((candidate) => candidate.id === id);
       if (fact === undefined) throw new Error(`Unknown demo fact: ${id}`);
+      if (input.name !== undefined) {
+        const name = normalizeFactName(input.name);
+        if (name === undefined || name.length === 0) delete fact.name;
+        else fact.name = name;
+      }
       if (input.tag !== undefined) fact.tag = input.tag;
-      if (input.text !== undefined) fact.text = input.text;
+      if (input.text !== undefined) {
+        const state = fact.states.find((candidate) => !("ends" in candidate));
+        if (fact.states.length !== 1 || state === undefined) {
+          throw new Error("A Fact with several states must edit a state by id.");
+        }
+        fact.states = fact.states.map((candidate) => candidate.id === state.id
+          ? { ...candidate, text: input.text!, updatedAt: CREATED }
+          : candidate);
+      }
       if (input.activation !== undefined) fact.activation = input.activation;
       if (input.keys !== undefined) fact.keys = [...input.keys];
       if (input.secondaryKeys !== undefined) {
@@ -423,6 +445,38 @@ export function createDemoController(dense = false): DemoController {
       }
       normalizeDemoFactMetadata(fact);
       fact.updatedAt = CREATED;
+      return payloadFrom(story);
+    },
+    createFactState(id, input) {
+      const fact = story.facts.find((candidate) => candidate.id === id);
+      if (fact === undefined) throw new Error(`Unknown demo fact: ${id}`);
+      const stateIds = new Set(story.facts.flatMap((candidate) => candidate.states.map((state) => state.id)));
+      let stateNumber = fact.states.length + 1;
+      while (stateIds.has(`${id}-state-${stateNumber}`)) stateNumber += 1;
+      const stateId = `${id}-state-${stateNumber}`;
+      applyCreateFactState(story, id, input, stateId);
+      normalizeDemoFactClocks(story, id);
+      return payloadFrom(story);
+    },
+    patchFactState(id, stateId, input) {
+      const fact = story.facts.find((candidate) => candidate.id === id);
+      if (fact === undefined) throw new Error(`Unknown demo fact: ${id}`);
+      if (!fact.states.some((candidate) => candidate.id === stateId)) {
+        throw new Error(`Unknown demo fact state: ${stateId}`);
+      }
+      applyPatchFactState(story, id, stateId, input);
+      normalizeDemoFactClocks(story, id);
+      return payloadFrom(story);
+    },
+    deleteFactState(id, stateId) {
+      const factIndex = story.facts.findIndex((candidate) => candidate.id === id);
+      if (factIndex < 0) throw new Error(`Unknown demo fact: ${id}`);
+      const fact = story.facts[factIndex]!;
+      if (!fact.states.some((state) => state.id === stateId)) {
+        throw new Error(`Unknown demo fact state: ${stateId}`);
+      }
+      applyDeleteFactState(story, id, stateId);
+      normalizeDemoFactClocks(story, id);
       return payloadFrom(story);
     },
     deleteFact(id) { story.facts = story.facts.filter((fact) => fact.id !== id); return payloadFrom(story); },
@@ -514,6 +568,23 @@ function normalizeDemoFactMetadata(fact: Story["facts"][number]): void {
   delete fact.recursion;
   delete fact.priority;
   Object.assign(fact, metadata);
+}
+
+/** The demo keeps fixed clocks so payloads and rendered frames stay
+ * deterministic. The shared mutation rules own all value validation; this
+ * only restores the demo's existing clock convention after those rules run. */
+function normalizeDemoFactClocks(story: Story, factId?: string): void {
+  const facts = factId === undefined
+    ? story.facts
+    : story.facts.filter((candidate) => candidate.id === factId);
+  for (const fact of facts) {
+    fact.updatedAt = CREATED;
+    fact.states = fact.states.map((state) => ({
+      ...state,
+      createdAt: CREATED,
+      updatedAt: CREATED
+    }));
+  }
 }
 
 function storySummary(story: Story): StorySummary {
@@ -740,6 +811,9 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     },
     patchFact: async (_storyId, factId, body) => demo.patchFact(factId, body),
     deleteFact: async (_storyId, factId) => demo.deleteFact(factId),
+    createFactState: async (_storyId, factId, body) => demo.createFactState(factId, body),
+    patchFactState: async (_storyId, factId, stateId, body) => demo.patchFactState(factId, stateId, body),
+    deleteFactState: async (_storyId, factId, stateId) => demo.deleteFactState(factId, stateId),
     reorderFact: async (_storyId, factId, toIndex) => demo.reorderFact(factId, toIndex),
     createChapterBreak: async (_storyId, parentPartId, title = "") => demo.createChapterBreak(parentPartId, title),
     renameChapterBreak: async (_storyId, breakId, title) => demo.renameChapterBreak(breakId, title),

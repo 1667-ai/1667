@@ -2,6 +2,7 @@ import type { MouseEvent } from "@opentui/core";
 import { hitAt } from "./hit.js";
 import type { ResolvedKey } from "./keys.js";
 import { factRows } from "./facts-model.js";
+import { canonicalFactStates } from "../../shared/fact-state.js";
 import { commandContext, commandMatches, commandSelectionId } from "./command-model.js";
 import { libraryRows } from "./library-model.js";
 import { searchRows, selectedSearchRow } from "./search-model.js";
@@ -132,11 +133,23 @@ function rebaseByStableIdentity(
   action: ResolvedKey,
   state: RuntimeState
 ): ResolvedKey | null {
+  if ((action.action === "open-selected" || action.action === "focus-index")
+    && action.rowId !== undefined
+    && state.facts?.dossier !== null
+    && state.facts?.dossier !== undefined) {
+    const fact = state.payload.facts.find(({ id }) => id === state.facts?.dossier?.factId);
+    const index = fact === undefined
+      ? -1
+      : canonicalFactStates(fact).findIndex(({ id }) => id === action.rowId);
+    return index < 0 ? null : { ...action, index };
+  }
   if (action.action === "edit" && action.rowId !== undefined && state.facts !== null) {
     const index = factRows(
       state.payload.facts,
       state.facts.selectedTag,
-      state.facts.query
+      state.facts.query,
+      state.payload.path.map(({ id }) => id),
+      state.facts.scopeFilter ?? "everywhere"
     ).findIndex((fact) => fact.id === action.rowId);
     return index < 0 ? null : { ...action, index };
   }
@@ -313,7 +326,19 @@ function listRowIdentity(state: MouseActionState, index: number | undefined): st
     return match === undefined ? null : commandSelectionId(match.command);
   }
   if (state.facts !== null) {
-    return factRows(state.payload.facts, state.facts.selectedTag, state.facts.query)[index]?.id
+    if (state.facts.dossier !== null && state.facts.dossier !== undefined) {
+      const fact = state.payload.facts.find(({ id }) => id === state.facts?.dossier?.factId);
+      return fact === undefined
+        ? null
+        : canonicalFactStates(fact)[index]?.id ?? null;
+    }
+    return factRows(
+      state.payload.facts,
+      state.facts.selectedTag,
+      state.facts.query,
+      state.payload.path.map(({ id }) => id),
+      state.facts.scopeFilter ?? "everywhere"
+    )[index]?.id
       ?? null;
   }
   if (state.chapters !== null) {
@@ -409,7 +434,22 @@ function selectedListIdentity(state: MouseActionState): string | null {
     return `commands:${state.commands.view}:${state.commands.selectedId ?? state.commands.cursor}`;
   }
   if (state.facts !== null) {
-    const fact = factRows(state.payload.facts, state.facts.selectedTag, state.facts.query)[
+    if (state.facts.dossier !== null && state.facts.dossier !== undefined) {
+      const fact = state.payload.facts.find(({ id }) => id === state.facts?.dossier?.factId);
+      const selected = fact === undefined
+        ? undefined
+        : canonicalFactStates(fact)[state.facts.dossier.stateIndex];
+      return fact === undefined || selected === undefined
+        ? null
+        : `facts:${fact.id}:state:${selected.id}`;
+    }
+    const fact = factRows(
+      state.payload.facts,
+      state.facts.selectedTag,
+      state.facts.query,
+      state.payload.path.map(({ id }) => id),
+      state.facts.scopeFilter ?? "everywhere"
+    )[
       state.facts.cursor
     ];
     return fact === undefined ? null : `facts:${fact.id}`;

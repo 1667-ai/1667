@@ -1,4 +1,4 @@
-import { activePath, descendantLine } from "../shared/story-tree.js";
+import { activePath, descendantLine, unusedTakePruneSelection } from "../shared/story-tree.js";
 import { activeLineFingerprintSource } from "../shared/story-text.js";
 import type { Story, StoryPayload } from "../shared/types.js";
 import { ServiceError } from "./errors.js";
@@ -25,7 +25,15 @@ import { applyProviderStoryEffect } from "./story-provider-effect.js";
 import type { SettingsStore } from "./settings.js";
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import { putStoryTag, removeStoryTag } from "./story-tags.js";
-import { createFacts, deleteFact, patchFact, reorderFact } from "./story-facts.js";
+import {
+  createFactState,
+  createFacts,
+  deleteFact,
+  deleteFactState,
+  patchFact,
+  patchFactState,
+  reorderFact
+} from "./story-facts.js";
 import { authorsNoteApplied, setAuthorsNote } from "./story-authors-note.js";
 import { authorBriefApplied, setAuthorBrief } from "./story-author-brief.js";
 import { setFactsBudget } from "./story-facts-budget.js";
@@ -33,6 +41,7 @@ import { bannedStringsApplied, phraseBiasApplied, setBannedStrings, setPhraseBia
 import type { SamplingPhraseBiasEntryV2 } from "../shared/settings-v2-types.js";
 import { HASH_PATTERN, sha256 } from "./story-format.js";
 import type {
+  FactStateDeletionMethod,
   LocalStoryMutationMethod,
   StoryMutationStore
 } from "./story-mutation-store.js";
@@ -43,6 +52,7 @@ import {
   commitTake,
   createEditedTake,
   createTakeFromCut,
+  countFactStatesAnchoredTo,
   deleteSubtree,
   pasteStoryLine as pasteStoryLineNodes,
   type PasteStoryLineIds,
@@ -69,6 +79,10 @@ export interface StoryServiceLocalDependencies {
 }
 
 const PARTIAL_REWRITE_UNAVAILABLE = Symbol("partial rewrite unavailable");
+
+function withFactStateDeletionCount(payload: StoryPayload, count: number): StoryPayload {
+  return count === 0 ? payload : { ...payload, factStatesRemoved: count };
+}
 
 /** Direct-author story commands, including their successor-Q adapters. */
 export class StoryServiceLocal {
@@ -569,17 +583,18 @@ export class StoryServiceLocal {
       throw new ServiceError(400, "expectedSubtreeCount must be an integer");
     }
     if (mutationRequest !== undefined) {
-      return await this.localStoryPayload(
+      return await this.localFactStateDeletionPayload(
         mutationRequest,
         "deleteNode",
-        (story) => { deleteSubtree(story, nodeId, expectedSubtreeCount); }
+        (story) => deleteSubtree(story, nodeId, expectedSubtreeCount)
       );
     }
-    return buildStoryPayload(await this.dependencies.stories.deleteNode(
+    let factStatesRemoved = 0;
+    const story = await this.dependencies.stories.mutate(
       id,
-      nodeId,
-      expectedSubtreeCount
-    ));
+      (current) => { factStatesRemoved = deleteSubtree(current, nodeId, expectedSubtreeCount); }
+    );
+    return withFactStateDeletionCount(buildStoryPayload(story), factStatesRemoved);
   }
 
   async pruneUnusedTakes(
@@ -593,17 +608,23 @@ export class StoryServiceLocal {
     }
     const expected = parsePruneUnusedTakes(value);
     if (mutationRequest !== undefined) {
-      return await this.localStoryPayload(
+      return await this.localFactStateDeletionPayload(
         mutationRequest,
         "pruneUnusedTakes",
-        (story) => pruneUnusedStoryTakes(story, expected) === 0
-          ? STORY_UNCHANGED
-          : undefined
+        (story) => {
+          const selection = unusedTakePruneSelection(story);
+          const factStatesRemoved = countFactStatesAnchoredTo(story, new Set(selection.nodeIds));
+          return pruneUnusedStoryTakes(story, expected) === 0 ? STORY_UNCHANGED : factStatesRemoved;
+        }
       );
     }
-    return buildStoryPayload(
-      await this.dependencies.stories.pruneUnusedTakes(id, expected)
-    );
+    let factStatesRemoved = 0;
+    const story = await this.dependencies.stories.mutate(id, (current) => {
+      const selection = unusedTakePruneSelection(current);
+      factStatesRemoved = countFactStatesAnchoredTo(current, new Set(selection.nodeIds));
+      pruneUnusedStoryTakes(current, expected);
+    });
+    return withFactStateDeletionCount(buildStoryPayload(story), factStatesRemoved);
   }
 
   async takeFromCut(
@@ -849,12 +870,106 @@ export class StoryServiceLocal {
       return await this.localStoryPayload(
         mutationRequest,
         "patchFact",
-        (story) => { patchFact(story, factId, body); }
+        (story) => patchFact(story, factId, body) ? undefined : STORY_UNCHANGED
       );
     }
     return buildStoryPayload(await this.dependencies.stories.mutate(
       id,
-      (story) => patchFact(story, factId, body)
+      (story) => patchFact(story, factId, body) ? undefined : STORY_UNCHANGED
+    ));
+  }
+
+  async createFactState(
+    id: string,
+    factId: string,
+    body: unknown,
+    stateId?: string,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(
+        this.dependencies.stories,
+        id,
+        "createFactState",
+        `${factId}:${JSON.stringify(body)}`
+      );
+    }
+    if (mutationRequest !== undefined) {
+      return await this.localStoryPayload(
+        mutationRequest,
+        "createFactState",
+        (story) => createFactState(story, factId, body, stateId)
+          ? undefined
+          : STORY_UNCHANGED
+      );
+    }
+    return buildStoryPayload(await this.dependencies.stories.mutate(
+      id,
+      (story) => createFactState(story, factId, body, stateId)
+        ? undefined
+        : STORY_UNCHANGED
+    ));
+  }
+
+  async patchFactState(
+    id: string,
+    factId: string,
+    stateId: string,
+    body: unknown,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(
+        this.dependencies.stories,
+        id,
+        "patchFactState",
+        `${factId}:${stateId}`
+      );
+    }
+    if (mutationRequest !== undefined) {
+      return await this.localStoryPayload(
+        mutationRequest,
+        "patchFactState",
+        (story) => patchFactState(story, factId, stateId, body)
+          ? undefined
+          : STORY_UNCHANGED
+      );
+    }
+    return buildStoryPayload(await this.dependencies.stories.mutate(
+      id,
+      (story) => patchFactState(story, factId, stateId, body)
+        ? undefined
+        : STORY_UNCHANGED
+    ));
+  }
+
+  async deleteFactState(
+    id: string,
+    factId: string,
+    stateId: string,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(
+        this.dependencies.stories,
+        id,
+        "deleteFactState",
+        `${factId}:${stateId}`
+      );
+    }
+    if (mutationRequest !== undefined) {
+      return await this.localStoryPayload(
+        mutationRequest,
+        "deleteFactState",
+        (story) => { deleteFactState(story, factId, stateId); }
+      );
+    }
+    return buildStoryPayload(await this.dependencies.stories.mutate(
+      id,
+      (story) => { deleteFactState(story, factId, stateId); }
     ));
   }
 
@@ -959,17 +1074,39 @@ export class StoryServiceLocal {
     mutate: (
       story: Story,
       session: StoryAggregateSession
-    ) => void | typeof STORY_UNCHANGED
-      | Promise<void | typeof STORY_UNCHANGED>
+    ) => unknown | typeof STORY_UNCHANGED
+      | Promise<unknown | typeof STORY_UNCHANGED>
   ): Promise<StoryPayload> {
-    const committed = await this.dependencies.storyMutations.runLocal(
+    const committed = await this.dependencies.storyMutations.runLocal<unknown>(
       mutationRequest,
       method,
-      mutate
+      mutate,
+      () => undefined
     );
     return buildStoryPayload(committed.story, {
       ...committed.aggregateVersion
     });
+  }
+
+  private async localFactStateDeletionPayload(
+    mutationRequest: unknown,
+    method: FactStateDeletionMethod,
+    mutate: (
+      story: Story,
+      session: StoryAggregateSession
+    ) => number | typeof STORY_UNCHANGED
+      | Promise<number | typeof STORY_UNCHANGED>
+  ): Promise<StoryPayload> {
+    const committed = await this.dependencies.storyMutations.runLocal(
+      mutationRequest,
+      method,
+      mutate,
+      () => 0,
+      (count) => count === 0 ? undefined : count
+    );
+    return withFactStateDeletionCount(buildStoryPayload(committed.story, {
+      ...committed.aggregateVersion
+    }), committed.result.factStatesRemoved ?? 0);
   }
 }
 

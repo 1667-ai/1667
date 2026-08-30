@@ -2,7 +2,8 @@ import type { StoryNode } from "../../shared/types.js";
 
 export type PartActionId =
   | "direct" | "continue" | "retake" | "retake-with-prompt" | "write" | "edit"
-  | "copy" | "fact-from-selection" | "rewrite-selection" | "tag" | "prune"
+  | "copy" | "fact-from-selection" | "fact-from-here" | "fact-new-state" | "fact-end-here" | "fact-new"
+  | "rewrite-selection" | "tag" | "prune"
   | "copy-line" | "paste-line";
 
 export interface PartAction {
@@ -15,7 +16,8 @@ export interface PartAction {
  * as their eventual mutation target. */
 export function partActionRequiresPersistedTarget(id: PartActionId): boolean {
   return id === "tag" || id === "prune" || id === "retake-with-prompt" || id === "rewrite-selection"
-    || id === "copy-line" || id === "paste-line";
+    || id === "copy-line" || id === "paste-line"
+    || id === "fact-from-here" || id === "fact-new-state" || id === "fact-end-here";
 }
 
 /** "none": no selection. "text": a selection exists but is not one
@@ -53,6 +55,14 @@ export function partActions(
     name: "New fact from selection",
     description: "edit the text and optional tag"
   });
+  // Chapter summaries are derived prose, not valid Fact State anchors. Keep
+  // the story-wide door available; it does not attach metadata to this node.
+  if (!summary) actions.push(
+    { id: "fact-from-here", name: "Fact from here", description: "create a Fact scoped to this part" },
+    { id: "fact-new-state", name: "New Fact state", description: "add a state at this part" },
+    { id: "fact-end-here", name: "End Fact here", description: "end the effective Fact at this part" }
+  );
+  actions.push({ id: "fact-new", name: "New unscoped Fact", description: "create a story-wide Fact" });
   if (selection === "rewritable") actions.push({
     id: "rewrite-selection",
     name: "Rewrite selection",

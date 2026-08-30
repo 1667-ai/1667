@@ -7,6 +7,8 @@ import {
   type FactSecondaryMode
 } from "./fact-metadata.js";
 import { compileFactPattern, factPatternMatches, type FactPatternBudget } from "./fact-pattern.js";
+import { effectiveFactFromState, resolveFactState } from "./fact-state.js";
+import type { EffectiveStoryFact } from "./fact-state.js";
 import {
   literalFactKeyMatches,
   recursionScanSegment,
@@ -26,12 +28,22 @@ export interface FactActivationTrace {
   readonly key?: string;
   readonly round: number;
   readonly gate: FactSecondaryMode | null;
+  readonly stateId?: string;
+  readonly anchorPartId?: string;
 }
 
 export interface FactActivationResult {
-  readonly facts: readonly StoryFact[];
+  /** Facts after path resolution. Each entry carries only the effective
+   * state text; the persisted state list stays on StoryFact. */
+  readonly facts: readonly EffectiveStoryFact[];
   readonly traces: ReadonlyMap<string, FactActivationTrace>;
   readonly unevaluated: readonly string[];
+  /** Fact ids whose effective state has no anchor on the request path. */
+  readonly outOfScope: readonly string[];
+  /** Fact ids whose deepest effective state is an End State. */
+  readonly ended: readonly string[];
+  /** Keyed Fact ids that had an in-scope state but no matching key. */
+  readonly keyedMiss: readonly string[];
 }
 
 type FactKeyMatch =
@@ -45,22 +57,35 @@ export function selectActiveFactsWithTrace(
   facts: readonly StoryFact[],
   context?: FactScanContext
 ): FactActivationResult {
+  const scoped = scopeFacts(facts, context === undefined
+    ? undefined
+    : context.requestPath ?? context.contextParts);
   return selectActiveFactsForSource(
-    facts,
-    context === undefined ? factScanSourceFromTexts([]) : factScanSource(context)
+    scoped.facts,
+    context === undefined ? factScanSourceFromTexts([]) : factScanSource(context),
+    scoped.outOfScope,
+    scoped.ended
   );
 }
 function selectActiveFactsForSource(
-  facts: readonly StoryFact[],
-  source: FactScanSource
+  facts: readonly EffectiveStoryFact[],
+  source: FactScanSource,
+  outOfScope: readonly string[] = [],
+  ended: readonly string[] = []
 ): FactActivationResult {
   const traces = new Map<string, FactActivationTrace>();
   const active = new Set<string>();
   const unevaluated = new Set<string>();
+  const keyedMiss = new Set<string>();
   for (const fact of facts) {
     if (fact.activation !== "always") continue;
     active.add(fact.id);
-    traces.set(fact.id, { kind: "always", round: 0, gate: null });
+    traces.set(fact.id, {
+      kind: "always",
+      round: 0,
+      gate: null,
+      ...traceState(fact)
+    });
   }
   const budget: FactPatternBudget = { steps: MAX_FACT_PATTERN_STEPS, exhausted: false };
   const windows = new Map<number, FactScanSegment | null>();
@@ -70,7 +95,7 @@ function selectActiveFactsForSource(
   };
   let recursion: FactScanSegment | null = null;
   for (let round = 0; round <= MAX_FACT_RECURSION_ROUNDS; round += 1) {
-    const fresh: StoryFact[] = [];
+    const fresh: EffectiveStoryFact[] = [];
     for (const fact of facts) {
       if (fact.activation !== "keyed" || active.has(fact.id)) continue;
       const scans = [
@@ -80,6 +105,7 @@ function selectActiveFactsForSource(
       const primary = matchAny(fact.keys, scans, budget);
       if (primary.state !== "matched") {
         if (primary.state === "unevaluated") unevaluated.add(fact.id);
+        else keyedMiss.add(fact.id);
         continue;
       }
       const secondary = fact.secondaryKeys ?? [];
@@ -91,15 +117,21 @@ function selectActiveFactsForSource(
           continue;
         }
         const gateMatched = gate.state === "matched";
-        if (gateMatched !== (mode === "and")) continue;
+        if (gateMatched !== (mode === "and")) {
+          keyedMiss.add(fact.id);
+          continue;
+        }
       }
       fresh.push(fact);
       active.add(fact.id);
+      keyedMiss.delete(fact.id);
+      unevaluated.delete(fact.id);
       traces.set(fact.id, {
         kind: primary.kind,
         key: primary.key,
         round,
-        gate: secondary.length === 0 ? null : mode
+        gate: secondary.length === 0 ? null : mode,
+        ...traceState(fact)
       });
     }
     recursion = recursionScanSegment(
@@ -113,7 +145,44 @@ function selectActiveFactsForSource(
     if (fresh.length === 0 && recursion === null) break;
     if (fresh.length === 0 && round > 0) break;
   }
-  return { facts: facts.filter((fact) => active.has(fact.id)), traces, unevaluated: [...unevaluated] };
+  return {
+    facts: facts.filter((fact) => active.has(fact.id)),
+    traces,
+    unevaluated: [...unevaluated],
+    outOfScope: [...outOfScope],
+    ended: [...ended],
+    keyedMiss: [...keyedMiss]
+  };
+}
+
+function traceState(fact: StoryFact | EffectiveStoryFact): Pick<FactActivationTrace, "stateId" | "anchorPartId"> {
+  return "state" in fact
+    ? { stateId: fact.state.id, ...(fact.state.anchorPartId === undefined ? {} : { anchorPartId: fact.state.anchorPartId }) }
+    : {
+        stateId: fact.states[0]?.id,
+        ...(fact.states[0]?.anchorPartId === undefined ? {} : { anchorPartId: fact.states[0].anchorPartId })
+      };
+}
+
+function scopeFacts(
+  facts: readonly StoryFact[],
+  requestPath: readonly { readonly id: string }[] | undefined
+): { facts: readonly EffectiveStoryFact[]; outOfScope: readonly string[]; ended: readonly string[] } {
+  const path = requestPath ?? [];
+  const inScope: EffectiveStoryFact[] = [];
+  const outOfScope: string[] = [];
+  const ended: string[] = [];
+  for (const fact of facts) {
+    const resolution = resolveFactState(fact, path);
+    if (resolution.kind === "active") {
+      inScope.push(effectiveFactFromState(fact, resolution.state));
+    } else if (resolution.kind === "ended") {
+      ended.push(fact.id);
+    } else {
+      outOfScope.push(fact.id);
+    }
+  }
+  return { facts: inScope, outOfScope, ended };
 }
 function matchAny(
   keys: readonly string[],
@@ -180,9 +249,11 @@ export function selectActiveFactsForRewriteWithTrace<Node extends ChapterPartLik
   selectedText: string
 ): FactActivationResult {
   const assembled = assembleRewriteContext(path, partId, chapterBreaks, nodes);
-  return selectActiveFactsForSource(facts, factScanSourceFromTexts(
+  const requestPath = path.slice(0, path.findIndex((part) => part.id === partId) + 1);
+  const scoped = scopeFacts(facts, requestPath);
+  return selectActiveFactsForSource(scoped.facts, factScanSourceFromTexts(
     assembled.map((part) => part.text ?? ""),
     instruction,
     selectedText
-  ));
+  ), scoped.outOfScope, scoped.ended);
 }

@@ -7,25 +7,41 @@ import {
   type PaletteCommand
 } from "./command-model.js";
 import { connectionFailed, connectionSucceeded } from "./connection.js";
-import { createComposer } from "./composer-model.js";
+import { createComposer, setComposerText } from "./composer-model.js";
 import { writeExportFile, writeStoryExport } from "./export-file.js";
 import { exportGenerationProfile } from "../../server/import-profile-export.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
-import { boundedFactCursor, boundedFactSelection, factRows, factTags } from "./facts-model.js";
+import {
+  boundedFactCursor,
+  boundedFactSelection,
+  FACT_SCOPE_FILTERS,
+  factRows,
+  factTags,
+  isSingleUnscopedTextFact
+} from "./facts-model.js";
+import { canonicalFactStates } from "../../shared/fact-state.js";
 import { applyTextKey, type ResolvedKey } from "./keys.js";
 import {
   openAuthorBriefEditor,
   openAuthorsNoteEditor,
   openBannedStringsEditor,
   openFactEditor,
+  openFactStateEditor,
   openFactsBudgetEditor,
   openPhraseBiasEditor
 } from "./editor-action.js";
-import { generationBusy, openTag, runPartAction, streamLive } from "./story-actions.js";
+import {
+  generationBusy,
+  landOnNode,
+  openTag,
+  rerouteToNode,
+  runPartAction,
+  streamLive
+} from "./story-actions.js";
 import { openDirectComposer } from "./composer-ownership.js";
 import { createUnusedTakesPrunePlan } from "./prune-model.js";
 import { chaptersAction, createBreakAtFocus, openChapters } from "./chapter-actions.js";
-import { createStoryViewModel, lastPartRowIndex } from "./model.js";
+import { createStoryViewModel, lastPartRowIndex, rowPart } from "./model.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import { cancelSummary, startSummary } from "./summary-action.js";
@@ -101,6 +117,9 @@ export async function handleOverlayAction(
   source: AppSource,
   context: OverlayActionContext
 ): Promise<boolean> {
+  // Top-level navigation owns quit even while an overlay is open. Let the
+  // dispatch tail call `navAction`, which invokes the app's quit callback.
+  if (resolved.action === "quit") return false;
   if (resolved.action === "retry") { await reconnect(state, source, context); return true; }
   if (resolved.action === "open-aside") {
     await openAside(state, source.api, {
@@ -368,7 +387,26 @@ function scrollKeysReference(
 }
 
 function initialFacts() {
-  return { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null };
+  return {
+    cursor: 0,
+    query: "",
+    chip: 0,
+    selectedTag: null,
+    filtering: false,
+    deleteArmedId: null,
+    scopeFilter: "everywhere" as const,
+    dossier: null
+  };
+}
+
+/** Facts stays over the story row that opened it. The focus index is not
+ * changed by the overlay, so dossier state creation can use that persisted
+ * part instead of silently falling back to the active path leaf. */
+function factsOpeningPartId(state: RuntimeState): string | null {
+  const part = rowPart(createStoryViewModel(state.payload), state.focusIndex);
+  return part?.node.role === "summary"
+    ? null
+    : part?.node.id ?? state.payload.path.at(-1)?.id ?? null;
 }
 
 async function factsAction(
@@ -378,9 +416,17 @@ async function factsAction(
   context: OverlayActionContext
 ): Promise<boolean> {
   const overlay = state.facts!;
-  Object.assign(overlay, boundedFactSelection(state.payload.facts, overlay, overlay.query));
+  if (overlay.dossier !== null && overlay.dossier !== undefined) {
+    return factsDossierAction(resolved, state, source, context);
+  }
+  const pathIds = state.payload.path.map(({ id }) => id);
+  const scopeFilter = overlay.scopeFilter ?? "everywhere";
+  Object.assign(
+    overlay,
+    boundedFactSelection(state.payload.facts, overlay, overlay.query, pathIds, scopeFilter)
+  );
   const tags = factTags(state.payload.facts);
-  const rows = factRows(state.payload.facts, overlay.selectedTag, overlay.query);
+  const rows = factRows(state.payload.facts, overlay.selectedTag, overlay.query, pathIds, scopeFilter);
   const selectedIndex = resolved.action === "edit" && resolved.index !== undefined
     ? boundedFactCursor(resolved.index, rows.length)
     : overlay.cursor;
@@ -406,13 +452,68 @@ async function factsAction(
     overlay.selectedTag = tags[overlay.chip] ?? null;
     overlay.cursor = 0;
   }
+  else if (resolved.action === "cycle-fact-scope") {
+    const index = resolved.index === undefined
+      ? (FACT_SCOPE_FILTERS.indexOf(scopeFilter) + 1) % FACT_SCOPE_FILTERS.length
+      : Math.max(0, Math.min(FACT_SCOPE_FILTERS.length - 1, resolved.index));
+    overlay.scopeFilter = FACT_SCOPE_FILTERS[index]!;
+    overlay.cursor = 0;
+    Object.assign(
+      overlay,
+      boundedFactSelection(state.payload.facts, overlay, overlay.query, pathIds, overlay.scopeFilter)
+    );
+  }
   else if ((resolved.action === "backspace" || resolved.action === "input") && overlay.filtering) {
     overlay.query = applyTextKey(overlay.query, resolved) ?? overlay.query;
-    Object.assign(overlay, boundedFactSelection(state.payload.facts, overlay, overlay.query));
+    Object.assign(
+      overlay,
+      boundedFactSelection(
+        state.payload.facts,
+        overlay,
+        overlay.query,
+        pathIds,
+        overlay.scopeFilter ?? "everywhere"
+      )
+    );
+  }
+  else if ((resolved.action === "new-state"
+    || resolved.action === "open-selected" && overlay.pendingFactAction !== null
+      && overlay.pendingFactAction !== undefined)
+    && !overlay.filtering && selected !== undefined) {
+    const pending = overlay.pendingFactAction;
+    const anchorPartId = pending?.anchorPartId
+      ?? state.payload.path.at(-1)?.id
+      ?? null;
+    openFactStateEditor(state, selected, anchorPartId);
+    if (pending?.kind === "end" && state.editor?.kind === "fact") {
+      state.editor.stateIsEnd = true;
+      setComposerText(state.editor.composer, "");
+    }
+    overlay.pendingFactAction = null;
   }
   else if (resolved.action === "open-selected" && overlay.filtering) overlay.filtering = false;
+  else if (resolved.action === "open-selected" && !overlay.filtering && selected !== undefined) {
+    const states = canonicalFactStates(selected);
+    const selectedStateIndex = overlay.selectedStateId === undefined || overlay.selectedStateId === null
+      ? 0
+      : Math.max(0, states.findIndex(({ id }) => id === overlay.selectedStateId));
+    const stateIndex = selectedStateIndex < 0 ? 0 : selectedStateIndex;
+    const selectedState = states[stateIndex];
+    if (isSingleUnscopedTextFact(selected)) {
+      openFactEditor(state, selected, selectedState?.id === selected.id
+        ? { stateId: selectedState.id }
+        : {});
+    } else {
+      overlay.dossier = {
+        factId: selected.id,
+        stateIndex,
+        diff: false
+      };
+    }
+    overlay.selectedStateId = undefined;
+  }
   else if (resolved.action === "delete-item" && selected !== undefined) {
-    if (overlay.deleteArmedId !== selected.id) { overlay.deleteArmedId = selected.id; state.toast = "delete this fact? · D confirms · esc keeps"; }
+    if (overlay.deleteArmedId !== selected.id) { overlay.deleteArmedId = selected.id; state.toast = "delete this fact? · x confirms · esc keeps"; }
     else {
       await context.backend.run("deleting fact", async (task) => {
         const payload = await source.api.deleteFact(task.storyId, selected.id);
@@ -420,22 +521,116 @@ async function factsAction(
         adoptSameStoryPayload(state, payload, context.cache);
         if (state.facts === overlay) {
           if (overlay.deleteArmedId === selected.id) overlay.deleteArmedId = null;
-          Object.assign(overlay, boundedFactSelection(payload.facts, overlay, overlay.query));
+          Object.assign(
+            overlay,
+            boundedFactSelection(
+              payload.facts,
+              overlay,
+              overlay.query,
+              payload.path.map(({ id }) => id),
+              overlay.scopeFilter ?? "everywhere"
+            )
+          );
           state.toast = "fact deleted";
         }
       });
     }
   } else if ((resolved.action === "edit" && selected !== undefined) || resolved.action === "new-item") {
     if (resolved.action === "edit") overlay.cursor = selectedIndex;
-    openFactEditor(state, resolved.action === "new-item" ? null : selected!);
+    const selectedStateId = resolved.action === "edit"
+      && selected !== undefined
+      && overlay.selectedStateId !== undefined
+      && selected.states.some(({ id }) => id === overlay.selectedStateId)
+      ? overlay.selectedStateId
+      : undefined;
+    openFactEditor(
+      state,
+      resolved.action === "new-item" ? null : selected!,
+      selectedStateId === undefined ? {} : { stateId: selectedStateId }
+    );
+    overlay.selectedStateId = undefined;
     if (state.facts === overlay) {
-      Object.assign(overlay, boundedFactSelection(state.payload.facts, overlay, overlay.query));
+      Object.assign(
+        overlay,
+        boundedFactSelection(
+          state.payload.facts,
+          overlay,
+          overlay.query,
+          state.payload.path.map(({ id }) => id),
+          overlay.scopeFilter ?? "everywhere"
+        )
+      );
     }
   } else if (
     (resolved.action === "move-item-up" || resolved.action === "move-item-down")
     && selected !== undefined
   ) {
     await moveFact(resolved, state, overlay, selected.id, source, context);
+  }
+  return true;
+}
+
+async function factsDossierAction(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  source: AppSource,
+  context: OverlayActionContext
+): Promise<boolean> {
+  const overlay = state.facts!;
+  const dossier = overlay.dossier;
+  if (dossier === null || dossier === undefined) return true;
+  const fact = state.payload.facts.find(({ id }) => id === dossier.factId);
+  if (fact === undefined) {
+    overlay.dossier = null;
+    return true;
+  }
+  const states = [...canonicalFactStates(fact)];
+  if (states.length === 0) {
+    overlay.dossier = null;
+    return true;
+  }
+  const current = Math.max(0, Math.min(states.length - 1, dossier.stateIndex));
+  if (resolved.action === "cancel") {
+    overlay.dossier = null;
+    overlay.selectedStateId = undefined;
+  } else if (resolved.action === "focus-next") {
+    dossier.stateIndex = Math.min(states.length - 1, current + 1);
+  } else if (resolved.action === "focus-previous") {
+    dossier.stateIndex = Math.max(0, current - 1);
+  } else if (resolved.action === "focus-index") {
+    dossier.stateIndex = Math.max(0, Math.min(states.length - 1, resolved.index ?? current));
+  } else if (resolved.action === "cycle-state") {
+    dossier.stateIndex = Math.max(
+      0,
+      Math.min(states.length - 1, current + (resolved.index === -1 ? -1 : 1))
+    );
+  } else if (resolved.action === "toggle-fact-diff") {
+    dossier.diff = !dossier.diff;
+  } else if (resolved.action === "open-selected") {
+    const targetId = states[current]!.anchorPartId ?? state.payload.path[0]?.id ?? null;
+    if (targetId === null || !state.payload.nodes.some(({ id }) => id === targetId)) {
+      state.toast = "that Fact State Anchor is no longer in this story";
+      return true;
+    }
+    if (state.payload.path.some(({ id }) => id === targetId)) {
+      state.facts = null;
+      landOnNode(state, source, targetId);
+      return true;
+    }
+    await rerouteToNode(state, source, context, targetId, {
+      owns: (currentState) => currentState.mode === "FACTS"
+        && currentState.facts === overlay
+        && currentState.facts.dossier === dossier,
+      release: (currentState) => { currentState.facts = null; }
+    });
+  } else if (resolved.action === "edit") {
+    openFactEditor(state, fact, { stateId: states[current]!.id });
+  } else if (resolved.action === "new-state" || resolved.action === "end-state") {
+    openFactStateEditor(state, fact, factsOpeningPartId(state));
+    if (resolved.action === "end-state" && state.editor?.kind === "fact") {
+      state.editor.stateIsEnd = true;
+      setComposerText(state.editor.composer, "");
+    }
   }
   return true;
 }

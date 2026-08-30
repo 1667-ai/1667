@@ -44,12 +44,13 @@ test("source identity is explicit and cannot masquerade as a packaged build", ()
   // adds machine-tier subscription sign-in state to Settings. v24 adds the
   // closed `pi-catalog` model-discovery source. v25 adds the Settings
   // read-only reason. v26 adds required activeWriting, ProviderProbeRouteV1,
-  // and Settings schema 5. v27 adds edited questions to Aside retakes. An
-  // older peer must fail at preflight.
+  // and Settings schema 5. v27 adds edited questions to Aside retakes. v28
+  // adds branch-scoped Fact States and the state mutation routes. An older
+  // peer must fail at preflight.
   assert.equal(
     HTTP_API_PROTOCOL_VERSION,
-    27,
-    "Aside reprompts require HTTP API v27"
+    28,
+    "Fact States require HTTP API v28"
   );
   const source = createSourceBuildIdentity("1.2.3");
   assert.deepEqual(source, {

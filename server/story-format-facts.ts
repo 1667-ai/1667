@@ -1,5 +1,6 @@
 import {
   MAX_FACTS,
+  MAX_FACT_STATES,
   MAX_FACT_TAG_CHARS,
   MAX_HUMAN_EDIT_RANGES,
   MAX_REWRITTEN_SPANS,
@@ -15,8 +16,9 @@ import {
 } from "../shared/fact-metadata.js";
 import { parseFactMetadata } from "../shared/fact-validation.js";
 import { FactBudgetError, parseFactBudgetTokens } from "../shared/fact-budget.js";
-import type { ObjectHash, StoredFactV1 } from "./story-format.js";
+import type { ObjectHash, StoredFactV1, StoredFactV13, StoredFactStateV1 } from "./story-format.js";
 import { unicodeScalarLength } from "../shared/unicode.js";
+import { normalizeFactName } from "../shared/fact-name.js";
 import { exactStringPattern } from "./story-wire-patterns.js";
 
 export const HASH_PATTERN = exactStringPattern("[a-f0-9]{64}");
@@ -120,6 +122,139 @@ export function parseStoredFacts(value: unknown, partIds: readonly string[]): St
       createdAt,
       updatedAt: latest.updatedAt,
       ...(sourcePartId === undefined ? {} : { sourcePartId })
+    };
+  });
+}
+
+/** Parse V13 branch-scoped states. Unlike `parseStoredFacts`, this function
+ * never collapses state history: every state remains in manifest order and
+ * each text state's revision remains independently addressable. */
+export function parseStoredFactsV13(
+  value: unknown,
+  sourcePartIds: readonly string[],
+  anchorPartIds: readonly string[] = sourcePartIds
+): StoredFactV13[] {
+  const values = value === undefined ? [] : arrayValue(value, "facts");
+  if (values.length > MAX_FACTS) throw new StoryFormatError(`facts exceeds the ${MAX_FACTS}-fact limit`);
+  const factIds = new Set<string>();
+  const stateIds = new Set<string>();
+  const sourcePartIdsSet = new Set<string>();
+  for (const partId of sourcePartIds) {
+    if (sourcePartIdsSet.has(partId)) throw new StoryFormatError(`Duplicate story part id: ${partId}`);
+    sourcePartIdsSet.add(partId);
+  }
+  const anchorPartIdsSet = new Set<string>();
+  for (const partId of anchorPartIds) {
+    if (anchorPartIdsSet.has(partId)) throw new StoryFormatError(`Duplicate story part id: ${partId}`);
+    anchorPartIdsSet.add(partId);
+  }
+  return values.map((value, factIndex) => {
+    const fact = recordValue(value, `facts[${factIndex}]`);
+    const id = stringField(fact, "id");
+    if (factIds.has(id)) throw new StoryFormatError(`Duplicate fact id: ${id}`);
+    factIds.add(id);
+    const rawName = optionalString(fact.name, `facts[${factIndex}].name`);
+    let name: string | undefined;
+    if (rawName !== undefined) {
+      try {
+        name = normalizeFactName(rawName, `facts[${factIndex}].name`);
+      } catch (error) {
+        throw new StoryFormatError(error instanceof Error ? error.message : String(error));
+      }
+      // V13 is canonical on disk. A name that normalizes to absent, or that
+      // changes under trimming, must not survive as a second representation.
+      if (name === undefined || name !== rawName) {
+        throw new StoryFormatError(`facts[${factIndex}].name must be non-empty and trimmed`);
+      }
+    }
+    const tag = fact.tag;
+    if (tag !== null && typeof tag !== "string") {
+      throw new StoryFormatError(`facts[${factIndex}].tag must be a string or null`);
+    }
+    if (tag !== null && unicodeScalarLength(tag, MAX_FACT_TAG_CHARS) > MAX_FACT_TAG_CHARS) {
+      throw new StoryFormatError(`facts[${factIndex}].tag exceeds the ${MAX_FACT_TAG_CHARS}-character limit`);
+    }
+    const createdAt = timestampField(fact, "createdAt", `facts[${factIndex}]`);
+    const updatedAt = timestampField(fact, "updatedAt", `facts[${factIndex}]`);
+    const metadata = parseStoredFactMetadata(fact, factIndex);
+    const budgetTokens = optionalFactBudgetTokens(fact.budgetTokens, `facts[${factIndex}].budgetTokens`);
+    const sourcePartId = optionalString(fact.sourcePartId, `facts[${factIndex}].sourcePartId`);
+    if (sourcePartId !== undefined && !sourcePartIdsSet.has(sourcePartId)) {
+      throw new StoryFormatError(`facts[${factIndex}].sourcePartId references an unknown part`);
+    }
+    const states = arrayField(fact, "states");
+    if (states.length === 0) throw new StoryFormatError(`facts[${factIndex}].states must not be empty`);
+    if (states.length > MAX_FACT_STATES) {
+      throw new StoryFormatError(`facts[${factIndex}].states exceeds the ${MAX_FACT_STATES}-state limit`);
+    }
+    const anchors = new Set<string | null>();
+    const parsedStates: StoredFactStateV1[] = states.map((value, stateIndex) => {
+      const state = recordValue(value, `facts[${factIndex}].states[${stateIndex}]`);
+      const stateId = stringField(state, "id");
+      if (stateIds.has(stateId)) throw new StoryFormatError(`Duplicate fact state id: ${stateId}`);
+      stateIds.add(stateId);
+      const anchor = optionalString(
+        state.anchorPartId,
+        `facts[${factIndex}].states[${stateIndex}].anchorPartId`
+      );
+      if (anchor !== undefined && !anchorPartIdsSet.has(anchor)) {
+        throw new StoryFormatError(`Fact state anchor references unknown part: ${anchor}`);
+      }
+      const anchorKey = anchor ?? null;
+      if (anchors.has(anchorKey)) {
+        throw new StoryFormatError(`Fact ${id} has duplicate state anchors`);
+      }
+      anchors.add(anchorKey);
+      const stateCreatedAt = timestampField(
+        state,
+        "createdAt",
+        `facts[${factIndex}].states[${stateIndex}]`
+      );
+      const stateUpdatedAt = timestampField(
+        state,
+        "updatedAt",
+        `facts[${factIndex}].states[${stateIndex}]`
+      );
+      const hasRevision = state.revisionId !== undefined;
+      const hasEnds = state.ends !== undefined;
+      if (hasRevision === hasEnds) {
+        throw new StoryFormatError(
+          `facts[${factIndex}].states[${stateIndex}] must contain exactly one of revisionId or ends`
+        );
+      }
+      if (hasRevision) {
+        return {
+          id: stateId,
+          ...(anchor === undefined ? {} : { anchorPartId: anchor }),
+          revisionId: requireHash(
+            state.revisionId,
+            `facts[${factIndex}].states[${stateIndex}].revisionId`
+          ),
+          createdAt: stateCreatedAt,
+          updatedAt: stateUpdatedAt
+        };
+      }
+      if (state.ends !== true) {
+        throw new StoryFormatError(`facts[${factIndex}].states[${stateIndex}].ends must be true`);
+      }
+      return {
+        id: stateId,
+        ...(anchor === undefined ? {} : { anchorPartId: anchor }),
+        ends: true,
+        createdAt: stateCreatedAt,
+        updatedAt: stateUpdatedAt
+      };
+    });
+    return {
+      id,
+      ...(name === undefined ? {} : { name }),
+      tag,
+      ...metadata,
+      ...(budgetTokens === undefined ? {} : { budgetTokens }),
+      createdAt,
+      updatedAt,
+      ...(sourcePartId === undefined ? {} : { sourcePartId }),
+      states: parsedStates
     };
   });
 }

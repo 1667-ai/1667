@@ -68,9 +68,13 @@ export function renderMapScreen(
     : map.view === "tree"
       ? renderLaneTreeBody(visualState, map, width, bodyHeight, deadlines)
       : renderMassBody(visualState, map, width, bodyHeight, deadlines);
+  const lensFact = map.view === "tree" && map.factLensFactId !== undefined && map.factLensFactId !== null
+    ? payload.facts.find(({ id }) => id === map.factLensFactId) ?? null
+    : null;
+  const lensActive = lensFact !== null;
   const shown = body.lines.slice(0, bodyHeight);
   const lines = [
-    renderTitle(map.view, body.stats, width),
+    renderTitle(map.view, body.stats, width, lensActive),
     [],
     ...shown,
     ...Array.from({ length: Math.max(0, bodyHeight - shown.length) }, (): FrameLine => []),
@@ -80,7 +84,7 @@ export function renderMapScreen(
 
   hitRows.length = height;
   hitRows.fill(null);
-  for (const hit of mapTitleHits()) addHit(hitRows, 0, hit);
+  for (const hit of mapTitleHits(lensActive)) addHit(hitRows, 0, hit);
   for (let row = 0; row < Math.min(shown.length, body.hits.length); row += 1) {
     hitRows[row + 2] = body.hits[row] ?? null;
   }
@@ -224,8 +228,12 @@ function appendPreview(
   appendMapPreview(lines, hits, cursor, width);
 }
 
-function renderTitle(view: MapView, stats: string, width: number): FrameLine {
-  const line: FrameLine = [segment("━━ ", "brass dim"), segment("map", "focus / accent"), segment(" · ", "brass dim")];
+function renderTitle(view: MapView, stats: string, width: number, lensActive = false): FrameLine {
+  const line: FrameLine = [
+    segment("━━ ", "brass dim"),
+    segment(lensActive ? "loom" : "map", "focus / accent"),
+    segment(" · ", "brass dim")
+  ];
   for (const [index, tab] of MAP_VIEWS.entries()) {
     if (index > 0) line.push(segment(" ", "brass dim"));
     line.push(tab === view
@@ -239,8 +247,8 @@ function renderTitle(view: MapView, stats: string, width: number): FrameLine {
   return fitLine(line, width);
 }
 
-function mapTitleHits(): HitRegion[] {
-  let left = visibleWidth("━━ map · ");
+function mapTitleHits(lensActive = false): HitRegion[] {
+  let left = visibleWidth(`━━ ${lensActive ? "loom" : "map"} · `);
   return MAP_VIEWS.map((view, index) => {
     if (index > 0) left += 1;
     const right = left + visibleWidth(` ${view} `);
@@ -270,7 +278,10 @@ function renderBreadcrumb(
   const payload = state.payload;
   const view = map.view;
   const density = mapHintDensity(width);
-  const hintSegments = mapHintSegments(map, density);
+  const lensActive = map.view === "tree"
+    && map.factLensFactId !== undefined
+    && map.factLensFactId !== null;
+  const hintSegments = mapHintSegments(map, density, lensActive);
   const hintWidth = lineWidth(hintSegments);
   const available = Math.max(0, width - hintWidth - 1);
   const shownCrumb = density === "narrow" ? compactCrumb(crumb) : crumb;
@@ -289,7 +300,7 @@ function renderBreadcrumb(
     : view;
   return renderSurfaceBreadcrumb({
     mode: "MAP",
-    scope: viewLabel,
+    scope: lensActive ? "tree/lens" : viewLabel,
     title: payload.title,
     identity: lineIdentity,
     identityRole: tagRole(tag),
@@ -328,7 +339,7 @@ type MapHintDensity = "narrow" | "medium" | "wide";
 /** A footer key and what it runs. The map is full-bleed, so its footer is the
  * only chrome advertising these keys — every one of them is a click target,
  * exactly as a floating panel's footer is. */
-function mapHintSegments(map: MapState, density: MapHintDensity): FrameLine {
+function mapHintSegments(map: MapState, density: MapHintDensity, lensActive = false): FrameLine {
   const line: FrameLine = [];
   const appendToken = (segments: FrameLine) => {
     if (line.length > 0) line.push(segment(" · ", "chrome"));
@@ -363,6 +374,22 @@ function mapHintSegments(map: MapState, density: MapHintDensity): FrameLine {
   const sketches: FrameLine = [
     segment("a sketches", "chrome", { kind: "action", action: "toggle-sketches" })
   ];
+  const openLens: FrameLine = [segment("f lens", "chrome", { kind: "action", action: "open-fact-lens" })];
+  const lensNext: FrameLine = [segment(
+    density === "narrow" ? "tab next" : "tab next fact",
+    "chrome",
+    { kind: "action", action: "cycle-fact-lens" }
+  )];
+  const lensAnchor: FrameLine = [segment(
+    density === "narrow" ? "enter ◆" : "enter go to ◆",
+    "chrome",
+    { kind: "action", action: "open-fact-lens-anchor" }
+  )];
+  const lensEdit: FrameLine = [segment(
+    density === "narrow" ? "e edit" : "e edit state",
+    "chrome",
+    { kind: "action", action: "edit-fact-lens" }
+  )];
 
   if (map.view === "path") {
     const wideToggle = map.pathShowAllTakes ? "a branches" : "a all";
@@ -377,12 +404,19 @@ function mapHintSegments(map: MapState, density: MapHintDensity): FrameLine {
       appendToken(cycle("m tree")); appendToken(toggle); appendToken(rows("depth")); appendToken(takes); appendToken(reroute("enter reroute")); appendToken(escape("esc writes"));
     }
   } else if (map.view === "tree") {
+    if (lensActive) {
+      appendToken(lensNext);
+      appendToken(lensAnchor);
+      appendToken(lensEdit);
+      appendToken(escape(density === "narrow" ? "esc loom" : "esc loom"));
+      return line;
+    }
     if (density === "narrow") {
       appendToken(cycle("m mass")); appendToken(rows("row")); appendToken(lanes); appendToken(hideLanes); appendToken(escape("esc"));
     } else if (density === "medium") {
-      appendToken(cycle("m mass")); appendToken(rows("row")); appendToken(lanes); appendToken(sketches); appendToken(hideLanes); appendToken(reroute("enter")); appendToken(escape("esc writes"));
+      appendToken(cycle("m mass")); appendToken(openLens); appendToken(rows("row")); appendToken(lanes); appendToken(sketches); appendToken(hideLanes); appendToken(reroute("enter")); appendToken(escape("esc writes"));
     } else {
-      appendToken(cycle("m mass")); appendToken(rows("row")); appendToken(lanes); appendToken(sketches); appendToken(follow("l follow")); appendToken(hideLanes); appendToken(reroute("enter reroute")); appendToken(escape("esc writes"));
+      appendToken(cycle("m mass")); appendToken(openLens); appendToken(rows("row")); appendToken(lanes); appendToken(sketches); appendToken(follow("l follow")); appendToken(hideLanes); appendToken(reroute("enter reroute")); appendToken(escape("esc writes"));
     }
   } else {
     if (density === "narrow") {

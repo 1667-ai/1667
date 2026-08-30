@@ -39,6 +39,9 @@ export const STORY_MUTATION_METHODS = [
   "createFact",
   "patchFact",
   "deleteFact",
+  "createFactState",
+  "patchFactState",
+  "deleteFactState",
   "reorderFact",
   "createChapterBreak",
   "renameChapterBreak",
@@ -146,6 +149,8 @@ export type MutationResult =
       readonly storyId: StoryId;
       readonly storyRevision: Revision20;
       readonly summary: StoryReceiptSummary | null;
+      /** Named destructive-mutation result. Absent means no Fact State was removed. */
+      readonly factStatesRemoved?: number;
     }
   | {
       readonly kind: "settings";

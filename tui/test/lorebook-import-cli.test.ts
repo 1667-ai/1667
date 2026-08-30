@@ -5,6 +5,7 @@ import path from "node:path";
 import { initializeProject } from "../../server/project-discovery.js";
 import { StoryService } from "../../server/story-service.js";
 import { runLorebookImport } from "../src/lorebook-import-cli.js";
+import { firstFactText } from "../../shared/fact-state.js";
 import { runStoryImport } from "../src/import-cli.js";
 import { runStoryExport } from "../src/export-cli.js";
 import { createWorkerStoryApi } from "../src/worker-api.js";
@@ -70,11 +71,11 @@ test("lorebook import round-trip from 1667 export --format lorebook", async () =
 
   expect(fact1).toBeDefined();
   expect(fact1?.tag).toBe("Character");
-  expect(fact1?.text).toBe("Maren is a scholar.");
+  expect(fact1 === undefined ? undefined : firstFactText(fact1)).toBe("Maren is a scholar.");
   expect(fact1?.keys).toEqual(["Maren", "scholar"]);
 
   expect(fact2).toBeDefined();
-  expect(fact2?.text).toBe("The compass points north.");
+  expect(fact2 === undefined ? undefined : firstFactText(fact2)).toBe("The compass points north.");
 });
 
 test("lorebook import from a PNG-embedded Lorebook", async () => {
@@ -108,7 +109,7 @@ test("lorebook import from a PNG-embedded Lorebook", async () => {
 
   expect(targetStory.facts).toHaveLength(1);
   expect(targetStory.facts[0]?.tag).toBe("PNG Tag");
-  expect(targetStory.facts[0]?.text).toBe("PNG Fact text");
+  expect(targetStory.facts[0] === undefined ? undefined : firstFactText(targetStory.facts[0]!)).toBe("PNG Fact text");
 });
 
 test("200-entry Lorebook imports 128 Facts and reports remainder", async () => {

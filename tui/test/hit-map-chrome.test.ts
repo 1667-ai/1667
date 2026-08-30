@@ -33,6 +33,7 @@ import { renderStoryScreen } from "../src/screens/story.js";
 import { plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import type { FactEditorSession } from "../src/state.js";
 import { createWrapCache } from "../src/wrap.js";
+import { factWithText } from "./fact-fixture.js";
 
 /** The hit map is rebuilt by rendering, so it has to be tested through a real
  *  frame — hand-built rows would not catch drift between the two. */
@@ -84,7 +85,7 @@ interface FooterCase {
 
 const footerCases: FooterCase[] = [
   { name: "facts", mode: "FACTS", actions: FACTS_FOOTER_ACTIONS,
-    keys: [key("up"), key("down"), key("tab"), key("return"), key("/"), key("e"), key("n"), key("D"), key("escape")],
+    keys: [key("up"), key("down"), key("tab"), key("return"), key("/"), key("e"), key("n"), key("s"), key("x"), key("escape")],
     setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null }; } },
   { name: "library", mode: "LIBRARY", actions: LIBRARY_FOOTER_ACTIONS,
     keys: [key("up"), key("down"), key("return"), key("n"), key("e"), key("/"), key("D"), key("escape")],
@@ -501,11 +502,15 @@ describe("hit map clickable chrome", () => {
     const state = initialState(demoAppSource(), false);
     state.stream = null;
     state.mode = "FACTS";
-    state.payload = { ...state.payload, facts: Array.from({ length: 12 }, (_, index) => ({
-      id: `f${index}`, tag: `a-very-long-tag-name-${index}`, text: `fact ${index}`,
-      activation: "always" as const, keys: [],
-      createdAt: "2022-10-25T09:00:00.000Z", updatedAt: "2022-10-25T09:00:00.000Z"
-    })) };
+    const template = state.payload.facts[0]!;
+    state.payload = { ...state.payload, facts: Array.from({ length: 12 }, (_, index) =>
+      factWithText(template, `fact ${index}`, {
+        id: `f${index}`, tag: `a-very-long-tag-name-${index}`,
+        activation: "always",
+        keys: [],
+        createdAt: "2022-10-25T09:00:00.000Z",
+        updatedAt: "2022-10-25T09:00:00.000Z"
+      })) };
     state.facts = { cursor: 0, chip: 0, selectedTag: null, query: "", filtering: false, deleteArmedId: null, prompt: null } as never;
     const frame = render(state, 80, 24);
     const chipRows = state.hitRows
@@ -1017,6 +1022,7 @@ describe("hit map clickable chrome", () => {
       { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}
     );
 
+    state.config = { ...state.config, factsViewMode: "advanced" };
     openFactEditor(state, null);
     expect(currentFactEditor(state).tag.text).toBe("");
     render(state);
@@ -1136,6 +1142,7 @@ describe("hit map clickable chrome", () => {
     const source = demoAppSource();
     const state = initialState(source, false);
     state.stream = null;
+    state.config = { ...state.config, factsViewMode: "advanced" };
     openFactEditor(state, null);
 
     const sourceRow = (sourceId: string): number => {
@@ -1193,8 +1200,8 @@ describe("hit map clickable chrome", () => {
       { name: "map tree", expected: (width) => width < 100
         ? "m mass · ↑↓ row · ←→ lane · tab path · esc"
         : width < 136
-          ? "m mass · ↑↓ row · ←→ lane · a sketches · tab path · enter · esc writes"
-          : "m mass · ↑↓ row · ←→ lane · a sketches · l follow · tab path · enter reroute · esc writes",
+          ? "m mass · f lens · ↑↓ row · ←→ lane · a sketches · tab path · enter · esc writes"
+          : "m mass · f lens · ↑↓ row · ←→ lane · a sketches · l follow · tab path · enter reroute · esc writes",
         setup: (state) => { showMap(state, "tree", state.payload.path.at(-1)!.id); } },
       { name: "map mass", expected: (width) => width < 100
         ? "m path · ↑↓ row · s sort · l open · esc"
@@ -1211,12 +1218,12 @@ describe("hit map clickable chrome", () => {
       { name: "library", expected: "↑↓ move · ↵ open · n new · e rename · / filter · D delete · esc",
         setup: (state, source) => { state.mode = "LIBRARY"; state.library = { stories: source.stories, cursor: 0, query: "", prompt: null }; } },
       { name: "facts", expected: (width: number) => width < 100
-        ? "↑↓ · tab · ↵ edit · / filter · e edit · n new · D delete · esc"
-        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · D delete · esc",
+        ? "↑·↓·tab·↵·/·e·n·s state·x·esc"
+        : "↑↓ · tab · ↵ open · / filter · e edit · n new · s state · x delete · esc",
         setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null }; } },
       { name: "facts confirm", expected: (width) => width < 100
-        ? "↑↓ · tab · ↵ · / filter · e edit · n new · D confirms · esc keeps"
-        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · D confirms · esc keeps",
+        ? "↑·↓·tab·↵·/·e·n·s state·x confirms·esc keeps"
+        : "↑↓ · tab · ↵ open · / filter · e edit · n new · s state · x confirms · esc keeps",
         setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: "fact-1" }; } },
       { name: "commands", expected: "↑↓ move · ↵ run · esc close",
         setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands", returnMode: "NAV" }; } },

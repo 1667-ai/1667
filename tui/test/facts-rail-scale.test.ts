@@ -9,6 +9,7 @@ import { renderFactsRail } from "../src/screens/story/facts-rail.js";
 import { panelRowWindow } from "../src/screens/panel-table-layout.js";
 import { frameText, plainLine, segment, sliceFrame, visibleWidth } from "../src/screens/story/frame.js";
 import { deriveStoryFrameLayout } from "../src/story-frame-layout.js";
+import { factWithText } from "./fact-fixture.js";
 
 /** A vault after a lorebook import: far more facts than any pane can show. */
 function manyFactsState(
@@ -20,14 +21,16 @@ function manyFactsState(
   const keyedByIndex = new Map(keyed.map((entry) => [entry.index, entry.key]));
   state.payload = {
     ...state.payload,
-    facts: Array.from({ length: count }, (_, index) => ({
-      ...template,
-      id: `fact-${index}`,
-      text: `Fact ${String(index).padStart(3, "0")}\nBody line for fact ${index}.`,
-      ...(keyedByIndex.has(index)
-        ? { activation: "keyed" as const, keys: [keyedByIndex.get(index)!] }
-        : { activation: "always" as const, keys: [] })
-    }))
+    facts: Array.from({ length: count }, (_, index) => factWithText(
+      {
+        ...template,
+        id: `fact-${index}`,
+        ...(keyedByIndex.has(index)
+          ? { activation: "keyed" as const, keys: [keyedByIndex.get(index)!] }
+          : { activation: "always" as const, keys: [] })
+      },
+      `Fact ${String(index).padStart(3, "0")}\nBody line for fact ${index}.`
+    ))
   };
   return state;
 }

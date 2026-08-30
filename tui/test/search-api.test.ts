@@ -87,6 +87,22 @@ test("the HTTP client posts the query to the search route and decodes the answer
   }
 });
 
+test("the HTTP client preserves an optional Fact State landing id", async () => {
+  const restore = stubServer(body({
+    hits: [hit({ kind: "fact", targetId: "fact-1", stateId: "state-2", depth: 0 })]
+  }));
+  try {
+    const response = await createApi(BASE).searchStories(REQUEST);
+    expect(response.hits[0]).toMatchObject({
+      kind: "fact",
+      targetId: "fact-1",
+      stateId: "state-2"
+    });
+  } finally {
+    restore();
+  }
+});
+
 test("the client refuses a response whose offsets do not index its own strings", async () => {
   // These offsets travel beside the strings they cut, and the renderer slices
   // highlights with them. A server that got them wrong must not paint.

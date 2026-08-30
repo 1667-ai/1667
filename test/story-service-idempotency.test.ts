@@ -17,6 +17,7 @@ import {
   preflightWorkerMutation
 } from "../server/worker-mutations.js";
 import { MAX_FACTS } from "../shared/types.js";
+import { firstFactText } from "../shared/fact-state.js";
 import { unusedTakePruneSelection } from "../shared/story-tree.js";
 import { createDurableMutationId } from "../shared/durable-mutation-id.js";
 import { rewriteStreamDigest } from "../shared/rewrite-partial-contract.js";
@@ -175,6 +176,228 @@ test("deterministic fact recovery wins before the capacity guard", async (t) => 
 
     const recovered = await runWorkerMutation(service, mutationIdValue, "createFact", input);
     assert.equal(recovered.facts.length, MAX_FACTS);
+  } finally {
+    await service.dispose();
+  }
+});
+
+test("Fact State worker mutations replay create, patch, and delete after lost replies", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-fact-state-replay-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir, asideActivation: true });
+  await service.init();
+  try {
+    let story = await service.createStory("Fact State replay");
+    story = await service.createNode(story.id, { parentId: null, text: "The anchored root." });
+    const anchorPartId = story.path.at(-1)!.id;
+    story = await service.createFact(story.id, { text: "The base Fact text." });
+    const factId = story.facts[0]!.id;
+    const baseState = story.facts[0]!.states[0]!;
+
+    const createInput = {
+      storyId: story.id,
+      factId,
+      body: { text: "The branch Fact text.", anchorPartId }
+    };
+    const createVersion = (await service.stories.loadVersioned(story.id)).aggregateVersion!;
+    const createMutationId = createDurableMutationId();
+    const created = await leavePendingAfterCommit(
+      service,
+      createMutationId,
+      "createFactState",
+      createInput,
+      createVersion
+    );
+    const createdFact = created.facts.find((fact) => fact.id === factId)!;
+    const branchState = createdFact.states.find((state) => state.anchorPartId === anchorPartId)!;
+    assert.equal("text" in branchState ? branchState.text : undefined, "The branch Fact text.");
+
+    const createReplay = await runWorkerMutation(
+      service,
+      createMutationId,
+      "createFactState",
+      createInput,
+      () => {},
+      new AbortController().signal,
+      createVersion
+    );
+    assert.deepEqual(
+      createReplay.facts.find((fact) => fact.id === factId)!.states,
+      createdFact.states
+    );
+
+    const patchInput = {
+      storyId: story.id,
+      factId,
+      stateId: branchState.id,
+      body: { text: "The edited branch Fact text." }
+    };
+    const patchVersion = (await service.stories.loadVersioned(story.id)).aggregateVersion!;
+    const patchMutationId = createDurableMutationId();
+    const patched = await leavePendingAfterCommit(
+      service,
+      patchMutationId,
+      "patchFactState",
+      patchInput,
+      patchVersion
+    );
+    const patchedFact = patched.facts.find((fact) => fact.id === factId)!;
+    assert.deepEqual(
+      patchedFact.states.find((state) => state.id === branchState.id),
+      {
+        ...branchState,
+        text: "The edited branch Fact text.",
+        updatedAt: patchedFact.states.find((state) => state.id === branchState.id)!.updatedAt
+      }
+    );
+
+    const patchReplay = await runWorkerMutation(
+      service,
+      patchMutationId,
+      "patchFactState",
+      patchInput,
+      () => {},
+      new AbortController().signal,
+      patchVersion
+    );
+    assert.deepEqual(
+      patchReplay.facts.find((fact) => fact.id === factId)!.states,
+      patchedFact.states
+    );
+
+    const deleteInput = { storyId: story.id, factId, stateId: branchState.id };
+    const deleteVersion = (await service.stories.loadVersioned(story.id)).aggregateVersion!;
+    const deleteMutationId = createDurableMutationId();
+    const deleted = await leavePendingAfterCommit(
+      service,
+      deleteMutationId,
+      "deleteFactState",
+      deleteInput,
+      deleteVersion
+    );
+    const deletedFact = deleted.facts.find((fact) => fact.id === factId)!;
+    assert.deepEqual(deletedFact.states, [baseState]);
+
+    const deleteReplay = await runWorkerMutation(
+      service,
+      deleteMutationId,
+      "deleteFactState",
+      deleteInput,
+      () => {},
+      new AbortController().signal,
+      deleteVersion
+    );
+    assert.deepEqual(
+      deleteReplay.facts.find((fact) => fact.id === factId)!.states,
+      [baseState]
+    );
+  } finally {
+    await service.dispose();
+  }
+});
+
+test("a Fact State create retry uses its deterministic ID after a later state edit", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-fact-state-create-retry-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    let story = await service.createStory("Fact State create retry");
+    story = await service.createNode(story.id, { parentId: null, text: "The first branch." });
+    const firstAnchor = story.path.at(-1)!.id;
+    story = await service.createNode(story.id, { parentId: null, text: "The second branch." });
+    const secondAnchor = story.path.at(-1)!.id;
+    story = await service.createFact(story.id, { text: "The story-wide Fact." });
+    const factId = story.facts[0]!.id;
+    const createInput = {
+      storyId: story.id,
+      factId,
+      body: { text: "The first branch Fact.", anchorPartId: firstAnchor }
+    };
+    const expectedAggregateVersion = (await service.stories.loadVersioned(story.id)).aggregateVersion!;
+    const mutationIdValue = createDurableMutationId();
+    const created = await leavePendingAfterCommit(
+      service,
+      mutationIdValue,
+      "createFactState",
+      createInput,
+      expectedAggregateVersion
+    );
+
+    // The original receipt remains pending while a later mutation changes the
+    // state value and anchor. Its deterministic ID is the only stable marker.
+    const createdStateId = created.facts
+      .find((fact) => fact.id === factId)!.states
+      .find((state) => state.anchorPartId === firstAnchor)!.id;
+    await service.patchFactState(story.id, factId, createdStateId, {
+      text: "The second branch Fact.",
+      anchorPartId: secondAnchor
+    });
+    const current = await service.loadStory(story.id);
+    const currentFact = current.facts.find((fact) => fact.id === factId)!;
+    assert.deepEqual(
+      currentFact.states[1],
+      {
+        ...currentFact.states[1],
+        text: "The second branch Fact.",
+        anchorPartId: secondAnchor
+      }
+    );
+
+    const replayed = await runWorkerMutation(
+      service,
+      mutationIdValue,
+      "createFactState",
+      createInput,
+      () => {},
+      new AbortController().signal,
+      expectedAggregateVersion
+    );
+    const { aggregateVersion: _aggregateVersion, ...currentPayload } = current;
+    assert.deepEqual(replayed, currentPayload);
+    assert.equal(replayed.facts.find((fact) => fact.id === factId)!.states.length, 2);
+  } finally {
+    await service.dispose();
+  }
+});
+
+test("a no-op patchFact keeps its aggregate version available for the next retry", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-fact-no-op-version-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir, asideActivation: true });
+  await service.init();
+  try {
+    let story = await service.createStory("Fact no-op version");
+    story = await service.createFact(story.id, { text: "Stable Fact text." });
+    const factId = story.facts[0]!.id;
+    const input = { storyId: story.id, factId, body: { text: "Stable Fact text." } };
+    const expectedAggregateVersion = (await service.stories.loadVersioned(story.id)).aggregateVersion!;
+
+    const noOp = await runWorkerMutation(
+      service,
+      createDurableMutationId(),
+      "patchFact",
+      input,
+      () => {},
+      new AbortController().signal,
+      expectedAggregateVersion
+    );
+    assert.deepEqual(noOp.aggregateVersion, expectedAggregateVersion);
+    assert.deepEqual(
+      (await service.stories.loadVersioned(story.id)).aggregateVersion,
+      expectedAggregateVersion
+    );
+
+    const changed = await runWorkerMutation(
+      service,
+      createDurableMutationId(),
+      "patchFact",
+      { storyId: story.id, factId, body: { text: "Changed after no-op." } },
+      () => {},
+      new AbortController().signal,
+      expectedAggregateVersion
+    );
+    assert.equal(firstFactText(changed.facts[0]!), "Changed after no-op.");
   } finally {
     await service.dispose();
   }
@@ -343,6 +566,55 @@ test("pending destructive mutations converge and clear without repeat writes", a
     assert.deepEqual(await runWorkerMutation(service, deleteId, "deleteStory", deleteInput), { ok: true });
     assert.deepEqual(await runWorkerMutation(service, deleteId, "deleteStory", deleteInput), { ok: true });
     await assert.rejects(service.loadStory(doomed.id), hasCode("not_found"));
+  } finally {
+    await service.dispose();
+  }
+});
+
+test("a replayed branch deletion keeps its removed Fact State count", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-fact-state-delete-replay-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    let story = await service.createStory("Fact State deletion replay");
+    story = await service.createNode(story.id, { parentId: null, text: "Root" });
+    const rootId = story.path.at(-1)!.id;
+    story = await service.createNode(story.id, { parentId: rootId, text: "Inactive branch" });
+    const inactiveId = story.path.at(-1)!.id;
+    story = await service.createNode(story.id, { parentId: rootId, text: "Active branch" });
+    story = await service.createFact(story.id, { text: "Story-wide state" });
+    const factId = story.facts[0]!.id;
+    story = await service.createFactState(story.id, factId, {
+      text: "Inactive branch state",
+      anchorPartId: inactiveId
+    });
+    const expectedAggregateVersion = (
+      await service.stories.loadVersioned(story.id)
+    ).aggregateVersion!;
+    const input = { storyId: story.id, nodeId: inactiveId, expectedSubtreeCount: 1 };
+    const mutationIdValue = createDurableMutationId();
+
+    const first = await leavePendingAfterCommit(
+      service,
+      mutationIdValue,
+      "deleteNode",
+      input,
+      expectedAggregateVersion
+    );
+    const replay = await runWorkerMutation(
+      service,
+      mutationIdValue,
+      "deleteNode",
+      input,
+      () => {},
+      new AbortController().signal,
+      expectedAggregateVersion
+    );
+
+    assert.equal(first.factStatesRemoved, 1);
+    assert.equal(replay.factStatesRemoved, 1);
+    assert.equal(replay.updatedAt, first.updatedAt);
   } finally {
     await service.dispose();
   }
@@ -1044,9 +1316,18 @@ async function leavePendingAfterCommit<M extends MutatingWorkerMethod>(
   service: StoryService,
   mutationIdValue: string,
   method: M,
-  input: WorkerInput<M>
+  input: WorkerInput<M>,
+  expectedAggregateVersion?: StoryAggregateVersion
 ): Promise<WorkerOutput<M>> {
-  const value = await runWorkerMutation(service, mutationIdValue, method, input);
+  const value = await runWorkerMutation(
+    service,
+    mutationIdValue,
+    method,
+    input,
+    () => {},
+    new AbortController().signal,
+    expectedAggregateVersion
+  );
   const file = path.join(service.dataDir, "mutation-receipts", `${mutationIdValue}.json`);
   const receipt = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   receipt.state = "pending";

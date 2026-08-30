@@ -130,7 +130,11 @@ export function buildStoryPayload(
     activeRootId: story.activeRootId,
     tags: story.tags.map((tag) => ({ ...tag })),
     recentNodeIds: [...story.recentNodeIds],
-    facts: story.facts.map((fact) => ({ ...fact, keys: [...fact.keys] })),
+    facts: story.facts.map((fact) => ({
+      ...fact,
+      keys: [...fact.keys],
+      states: fact.states.map((state) => ({ ...state }))
+    })),
     chapterBreaks: story.chapterBreaks.map((chapterBreak) => ({ ...chapterBreak })),
     ...(aggregateVersion === undefined ? {} : {
       aggregateVersion: structuredClone(aggregateVersion)

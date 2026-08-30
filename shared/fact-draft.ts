@@ -1,5 +1,6 @@
 import type { FactActivation, FactPriority, FactRecursion, FactSecondaryMode } from "./fact-metadata.js";
 import type { StoryFact } from "./types.js";
+import { firstFactText } from "./fact-state.js";
 
 /**
  * Every field a writer can change on a Fact through the editor or a
@@ -10,6 +11,7 @@ import type { StoryFact } from "./types.js";
  * the compiler to account for it.
  */
 export interface FactDraft {
+  readonly name: string | undefined;
   readonly tag: string | null;
   readonly activation: FactActivation;
   readonly keys: readonly string[];
@@ -24,6 +26,7 @@ export interface FactDraft {
 
 /** The draft a brand-new, unsaved Fact starts from. */
 export const EMPTY_FACT_DRAFT: FactDraft = {
+  name: undefined,
   tag: null,
   activation: "always",
   keys: [],
@@ -49,7 +52,8 @@ export function factDraftOf(fact: StoryFact): FactDraft {
     recursion: fact.recursion ?? "on",
     priority: fact.priority ?? "normal",
     budgetTokens: fact.budgetTokens,
-    text: fact.text
+    text: firstFactText(fact),
+    name: fact.name
   };
 }
 
@@ -65,6 +69,7 @@ function sameFactKeys(left: readonly string[], right: readonly string[]): boolea
  *  it as always equal (issue #281 review finding A). This is the table
  *  `sameFactDraft` folds over below; nothing reads it directly. */
 const FACT_DRAFT_EQUALITY: { [K in keyof FactDraft]: FieldEquality<FactDraft[K]> } = {
+  name: (left, right) => left === right,
   tag: (left, right) => left === right,
   activation: (left, right) => left === right,
   keys: sameFactKeys,

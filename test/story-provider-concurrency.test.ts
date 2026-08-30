@@ -5,6 +5,7 @@ import test from "node:test";
 import { ServiceError } from "../server/errors.js";
 import { parseStoryManifestBytes } from "../server/story-v6-codec.js";
 import { StoryStore } from "../server/stories.js";
+import { firstFactText } from "../shared/fact-state.js";
 import {
   ACK_MUTATION_ID,
   DELETE_MUTATION_ID,
@@ -108,7 +109,7 @@ for (const cachedKind of ["v5", "v6"] as const) {
         story.facts.push({
           id: "fact-1",
           tag: null,
-          text: "Written while the provider streamed",
+          states: [{ id: "fact-1-state", text: "Written while the provider streamed", createdAt: FIXED_NOW.toISOString(), updatedAt: FIXED_NOW.toISOString() }],
           activation: "always",
           keys: [],
           createdAt: FIXED_NOW.toISOString(),
@@ -141,7 +142,7 @@ for (const cachedKind of ["v5", "v6"] as const) {
     assert.deepEqual(committed.story, reloaded.story);
     assert.equal(committed.story.title, "Generated title");
     assert.equal(
-      committed.story.facts[0]?.text,
+      firstFactText(committed.story.facts[0]!),
       "Written while the provider streamed"
     );
     assert.deepEqual(reloaded.aggregateVersion, {
@@ -482,7 +483,7 @@ test("Q a duplicate loser cannot revoke the active provider predecessor", async 
         story.facts.push({
           id: "fact-after-duplicate",
           tag: null,
-          text: "The winner still owns its predecessor proof",
+          states: [{ id: "fact-after-duplicate-state", text: "The winner still owns its predecessor proof", createdAt: FIXED_NOW.toISOString(), updatedAt: FIXED_NOW.toISOString() }],
           activation: "always",
           keys: [],
           createdAt: FIXED_NOW.toISOString(),

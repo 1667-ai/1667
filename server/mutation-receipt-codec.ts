@@ -29,7 +29,7 @@ const FINGERPRINT_PATTERN = exactStringPattern("[0-9a-f]{64}");
 const CONTEXT_KEY_PATTERN = exactStringPattern("[a-z][a-z0-9-]{0,63}");
 
 type StoredResult =
-  | { type: "story"; id: string }
+  | { type: "story"; id: string; factStatesRemoved?: number }
   | { type: "aside"; id: string }
   | { type: "aside-session"; storyId: string; sessionId: string }
   | { type: "chapter-break-created"; id: string; breakId: string }
@@ -119,7 +119,15 @@ export function encodeMutationResult(
     if (value === null) return { type: "value", value: null };
     return { type: "aside", id: storyId };
   }
-  if (isStoryPayload(value)) return { type: "story", id: value.id };
+  if (isStoryPayload(value)) {
+    return {
+      type: "story",
+      id: value.id,
+      ...(value.factStatesRemoved === undefined
+        ? {}
+        : { factStatesRemoved: value.factStatesRemoved })
+    };
+  }
   if (isChapterBreakCreatedResult(value)) {
     return {
       type: "chapter-break-created",
@@ -396,7 +404,13 @@ function isPartialRewriteResult(
 function isStoredResult(value: unknown): value is StoredResult {
   if (value === null || typeof value !== "object") return false;
   const result = value as Record<string, unknown>;
-  if (result.type === "story") return typeof result.id === "string";
+  if (result.type === "story") {
+    return typeof result.id === "string"
+      && (result.factStatesRemoved === undefined
+        || (typeof result.factStatesRemoved === "number"
+          && Number.isSafeInteger(result.factStatesRemoved)
+          && result.factStatesRemoved >= 0));
+  }
   if (result.type === "aside") return typeof result.id === "string";
   if (result.type === "aside-session") {
     return typeof result.storyId === "string"

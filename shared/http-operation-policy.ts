@@ -56,6 +56,9 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   createFact: "local",
   patchFact: "local",
   deleteFact: "local",
+  createFactState: "local",
+  patchFactState: "local",
+  deleteFactState: "local",
   reorderFact: "local",
   createChapterBreak: "local",
   renameChapterBreak: "local",
@@ -202,7 +205,8 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
   // ignoring a segment that follows it.
   if (parts.length > 8
     || (extra !== undefined
-      && !(sub === "nodes" && action === "generation-records" && httpMethod === "GET"))) {
+      && !(sub === "nodes" && action === "generation-records" && httpMethod === "GET")
+      && !(sub === "facts" && action === "states" && (httpMethod === "PATCH" || httpMethod === "DELETE")))) {
     throw new Error(`No HTTP operation policy for ${httpMethod} ${path}`);
   }
   if (sub === undefined && parts.length === 4) {
@@ -314,6 +318,11 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
       && httpMethod === "PATCH") return "patchFact";
     if (subId !== undefined && parts.length === 6
       && httpMethod === "DELETE") return "deleteFact";
+  }
+  if (sub === "facts" && subId !== undefined && action === "states") {
+    if (parts.length === 7 && httpMethod === "POST") return "createFactState";
+    if (parts.length === 8 && extra !== undefined && httpMethod === "PATCH") return "patchFactState";
+    if (parts.length === 8 && extra !== undefined && httpMethod === "DELETE") return "deleteFactState";
   }
   if (sub === "facts" && subId !== undefined && action === "reorder"
     && parts.length === 7 && httpMethod === "POST") return "reorderFact";

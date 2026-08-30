@@ -20,6 +20,22 @@ describe("prune rollups", () => {
     }
   });
 
+  test("deleting a subtree removes an anchored Fact state and its empty Fact", () => {
+    const demo = createDemoController();
+    const before = demo.createFact({
+      name: "branch keeper",
+      tag: "people",
+      text: "Only true on this branch.",
+      anchorPartId: "p12"
+    });
+    expect(before.facts.some((fact) => fact.name === "branch keeper")).toBeTrue();
+
+    const removed = subtreeIds(before, "p12");
+    const after = demo.deleteNode("p12", removed.length);
+
+    expect(after.facts.some((fact) => fact.name === "branch keeper")).toBeFalse();
+  });
+
   test("matches shared subtree part/line rollups and names every tag", () => {
     const payload = createDemoController().payload();
     const plan = createPrunePlan(payload, "p7")!;
@@ -46,13 +62,64 @@ describe("prune rollups", () => {
     });
   });
 
+  test("deletion receipt names dying states and Facts that lose their last state", () => {
+    const payload = createDemoController().payload();
+    const source = payload.facts[0]!;
+    const stamp = "2026-01-01T00:00:00.000Z";
+    payload.facts = [
+      {
+        ...source,
+        id: "signaler",
+        name: "the-signaler",
+        states: [{ id: "signaler-state", anchorPartId: "p12", text: "Only here.", createdAt: stamp, updatedAt: stamp }]
+      },
+      {
+        ...source,
+        id: "ama-evolving",
+        name: "ama",
+        states: [
+          { id: "ama-old", anchorPartId: "p11", text: "Old.", createdAt: stamp, updatedAt: stamp },
+          { id: "ama-new", anchorPartId: "p12", text: "New.", createdAt: stamp, updatedAt: stamp }
+        ]
+      },
+      {
+        ...source,
+        id: "branch-only",
+        name: "branch-only",
+        states: [
+          { id: "branch-old", anchorPartId: "p12", text: "Old branch.", createdAt: stamp, updatedAt: stamp },
+          { id: "branch-new", anchorPartId: "p13", text: "New branch.", createdAt: stamp, updatedAt: stamp }
+        ]
+      }
+    ];
+
+    const plan = createPrunePlan(payload, "p12")!;
+    const text = pruneConfirmText(plan);
+
+    expect(plan.dyingStates).toEqual([
+      { factName: "the-signaler", stateOrdinal: 1, stateCount: 1 },
+      { factName: "ama", stateOrdinal: 2, stateCount: 2 },
+      { factName: "branch-only", stateOrdinal: 1, stateCount: 2 },
+      { factName: "branch-only", stateOrdinal: 2, stateCount: 2 }
+    ]);
+    expect(plan.factsLosingLastStateNames).toEqual(["the-signaler", "branch-only"]);
+    expect(text).toContain("the-signaler st.1/1");
+    expect(text).toContain("ama st.2/2");
+    expect(text).toContain("branch-only st.1/2");
+    expect(text).toContain("branch-only st.2/2");
+    expect(text).toContain("lose their last state (the-signaler, branch-only)");
+    expect(text).toContain("never re-anchored · scope never widens silently");
+  });
+
   test("unused-take cleanup keeps continuations, named lines, and one leaf at each fork", () => {
     const plan = createUnusedTakesPrunePlan(createDemoController().payload())!;
     expect(plan).toEqual({
       kind: "unused-takes",
       storyRevision: createDemoController().payload().updatedAt,
       takes: 5,
-      parts: 5
+      parts: 5,
+      states: 0,
+      factsLosingLastState: 0
     });
     expect(pruneConfirmText(plan)).toContain("keeps continuations, named lines + one leaf/fork");
   });

@@ -2,6 +2,8 @@ import type {
   TagStatus,
   ChapterBreak,
   CreateFactsRequest,
+  FactStateInput,
+  FactStatePatch,
   CreateNodeRequest,
   EditNodeRequest,
   FactPatch,
@@ -76,7 +78,8 @@ export const PRE_FACT_ORDER_PRIORITY_BUDGET_WORKER_PROTOCOL_VERSION = 9;
 export const PRE_ASIDE_WORKER_PROTOCOL_VERSION = 10;
 export const PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION = 11;
 export const PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION = 12;
-export const WORKER_PROTOCOL_VERSION = 13;
+export const PRE_FACT_STATES_WORKER_PROTOCOL_VERSION = 13;
+export const WORKER_PROTOCOL_VERSION = 14;
 /** Exact provider recovery changes the status and acknowledgement inputs. */
 export const MUTATION_INPUT_PROTOCOL_VERSION = WORKER_PROTOCOL_VERSION;
 export const WORKER_BUILD_IDENTITY = AI_1667_BUILD_IDENTITY;
@@ -118,6 +121,7 @@ export function isCurrentWorkerInputProtocolVersion(
     || value === PRE_ASIDE_WORKER_PROTOCOL_VERSION
     || value === PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION
     || value === PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION
+    || value === PRE_FACT_STATES_WORKER_PROTOCOL_VERSION
     || value === WORKER_PROTOCOL_VERSION;
 }
 
@@ -222,6 +226,18 @@ export interface WorkerMethodContract {
   createFact: { input: { storyId: string; body: CreateFactsRequest }; output: StoryPayload };
   patchFact: { input: { storyId: string; factId: string; body: FactPatch }; output: StoryPayload };
   deleteFact: { input: { storyId: string; factId: string }; output: StoryPayload };
+  createFactState: {
+    input: { storyId: string; factId: string; body: FactStateInput };
+    output: StoryPayload;
+  };
+  patchFactState: {
+    input: { storyId: string; factId: string; stateId: string; body: FactStatePatch };
+    output: StoryPayload;
+  };
+  deleteFactState: {
+    input: { storyId: string; factId: string; stateId: string };
+    output: StoryPayload;
+  };
   reorderFact: {
     input: { storyId: string; factId: string; body: ReorderFactRequest };
     output: StoryPayload;
@@ -391,7 +407,7 @@ export type MutatingWorkerMethod =
   | "createStory" | "renameStory" | "setAuthorsNote" | "setAuthorBrief" | "setFactsBudget" | "setPhraseBias" | "setBannedStrings" | "autonameStory" | "acknowledgeUnknownOutcomes"
   | "deleteStory" | "switchLine"
   | "createNode" | "editNode" | "deleteNode" | "pruneUnusedTakes" | "takeFromCut" | "pasteStoryLine"
-  | "putBookmark" | "deleteBookmark" | "createFact" | "patchFact" | "deleteFact" | "reorderFact"
+  | "putBookmark" | "deleteBookmark" | "createFact" | "patchFact" | "deleteFact" | "createFactState" | "patchFactState" | "deleteFactState" | "reorderFact"
   | "createChapterBreak" | "renameChapterBreak" | "removeChapterBreak" | "restoreChapterBreak" | "summarizeChapter"
   | "importSillyTavern" | "importMarkdown" | "importNovelAI" | "importScenario" | "importLorebook" | "importCard" | "continueStory" | "rewriteNode" | "commitPartialRewrite" | "createSummaryTake"
   | "askAside" | "clearAside" | "asideSessionMutation" | "retakeAside";
@@ -424,7 +440,7 @@ export const MUTATING_METHODS: ReadonlySet<MutatingWorkerMethod> = new Set([
   "createStory", "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "setPhraseBias", "setBannedStrings", "autonameStory", "acknowledgeUnknownOutcomes",
   "deleteStory", "switchLine",
   "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut", "pasteStoryLine",
-  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact",
+  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "createFactState", "patchFactState", "deleteFactState", "reorderFact",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "importCard", "continueStory", "rewriteNode", "commitPartialRewrite", "createSummaryTake",
   "askAside", "clearAside", "asideSessionMutation", "retakeAside"
@@ -448,7 +464,7 @@ export function isMutatingWorkerMethod(method: WorkerMethod): method is Mutating
 export const LOCAL_DURABILITY_MUTATION_METHODS = [
   "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "setPhraseBias", "setBannedStrings", "switchLine",
   "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut", "pasteStoryLine", "commitPartialRewrite",
-  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact",
+  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "createFactState", "patchFactState", "deleteFactState", "reorderFact",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "importLorebook", "importCard",
   "clearAside"
 ] as const satisfies readonly MutatingWorkerMethod[];
@@ -678,7 +694,7 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "acknowledgeUnknownOutcomes", "deleteStory",
   "exportMarkdown", "getTokenProbabilities", "getGenerationRecords", "getGenerationRecord", "getReasoning",
   "switchLine", "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut", "pasteStoryLine",
-  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact", "getSettings",
+  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "createFactState", "patchFactState", "deleteFactState", "reorderFact", "getSettings",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "saveSettings", "discardPendingSettings", "checkModelServer", "probeContextWindow",
   "discoverModels", "resolveSamplingBias", "countPromptTokens",

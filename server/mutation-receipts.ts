@@ -350,7 +350,12 @@ export class MutationReceiptStore {
     const result = receipt.result;
     if (result === undefined) throw new ServiceError(500, "Mutation receipt is missing its result", "internal");
     switch (result.type) {
-      case "story": return await this.resolveStory(result.id);
+      case "story": {
+        const payload = await this.resolveStory(result.id);
+        return result.factStatesRemoved === undefined
+          ? payload
+          : { ...payload, factStatesRemoved: result.factStatesRemoved };
+      }
       case "aside": {
         if (this.resolveAsideDocument === undefined) {
           throw corruptMutationReceipt(receipt.mutationId);

@@ -1,4 +1,5 @@
 import {
+  setComposerText,
   composerPosition,
   redoComposerEditOwner,
   replaceComposerTextRange,
@@ -7,18 +8,25 @@ import {
   undoComposerEditOwner,
   type ComposerState
 } from "./composer-model.js";
+import { canonicalFactStates, isFactEndState, isFactStateful } from "../../shared/fact-state.js";
 import { FACT_PRIORITIES, FACT_RECURSIONS, FACT_SECONDARY_MODES } from "../../shared/fact-metadata.js";
 import { graphemeCells } from "./cell-width.js";
 import type { ComposerVerticalMotion } from "./composer-motion.js";
-import { factEditorTag } from "./fact-editor-draft.js";
-import { nextFactEditorRow, type FactEditorRow } from "./fact-editor-rows.js";
+import { factEditorChanged, factEditorStateChanged, factEditorTag } from "./fact-editor-draft.js";
+import {
+  factEditorVisibleRows,
+  nextFactEditorRow,
+  type FactEditorRow
+} from "./fact-editor-rows.js";
 import { factTagPresets } from "./facts-model.js";
 import type { ResolvedKey } from "./keys.js";
 import type { FactEditorSession, RuntimeState } from "./state.js";
 
 export const FACT_EDITOR_FOOTER =
-  "tab/shift+tab choose · ctrl+t custom · ctrl+s save · esc cancel";
+  "tab/shift+tab choose · ctrl+t tag · ctrl+s save · esc cancel";
+export const FACT_NAME_COMPOSER_SOURCE = "fact-name";
 export const FACT_TAG_COMPOSER_SOURCE = "fact-tag";
+export const FACT_SCOPE_COMPOSER_SOURCE = "fact-scope";
 export const FACT_ACTIVATION_COMPOSER_SOURCE = "fact-activation";
 export const FACT_KEYS_COMPOSER_SOURCE = "fact-keys";
 export const FACT_SECONDARY_COMPOSER_SOURCE = "fact-secondary-keys";
@@ -51,9 +59,17 @@ interface FactEditorRowSpec {
  *  see setFactEditorFocus and handleFactEditorHistory below, which used to
  *  re-encode this same mapping by hand. */
 const FACT_EDITOR_ROW_TABLE: Record<FactEditorRow, FactEditorRowSpec> = {
+  name: {
+    row: "name", sourceId: FACT_NAME_COMPOSER_SOURCE, kind: "text",
+    composer: (editor) => editor.name ?? editor.tag
+  },
   tag: {
     row: "tag", sourceId: FACT_TAG_COMPOSER_SOURCE, kind: "text",
     composer: (editor) => editor.tag
+  },
+  scope: {
+    row: "scope", sourceId: FACT_SCOPE_COMPOSER_SOURCE, kind: "choice",
+    composer: (editor) => editor.name ?? editor.tag
   },
   activation: {
     row: "activation", sourceId: FACT_ACTIVATION_COMPOSER_SOURCE, kind: "choice",
@@ -107,7 +123,46 @@ export function handleFactEditorCommand(
   state: RuntimeState,
   editor: FactEditorSession
 ): boolean {
+  if (resolved.action === "cycle-fact-scope" && isNewFactEditor(editor)) {
+    setFactEditorFocus(editor, "scope");
+    cycleFactEditorScope(editor);
+    return true;
+  }
+  if (editor.chromeFocus === "scope") {
+    if (resolved.action === "cycle-fact-scope") {
+      cycleFactEditorScope(editor);
+      return true;
+    }
+    if (resolved.action === "cursor-left") {
+      cycleFactEditorScope(editor, -1);
+      return true;
+    }
+    if (resolved.action === "cursor-right" || resolved.action === "newline") {
+      cycleFactEditorScope(editor, 1);
+      return true;
+    }
+    if (resolved.action === "cycle") {
+      setFactEditorFocus(editor, "body");
+      return true;
+    }
+    if (ACTIVATION_TEXT_ACTIONS.has(resolved.action)) {
+      state.toast = "use left or right to select Fact scope";
+      return true;
+    }
+  }
+  if (editor.chromeFocus === "view" && resolved.action === "cycle") {
+    setFactEditorFocus(editor, factEditorVisibleRows(editor, state.config.factsViewMode ?? "simple", isNewFactEditor(editor))[0] ?? "body");
+    return true;
+  }
+  if (editor.chromeFocus === "state" && resolved.action === "cycle") {
+    setFactEditorFocus(editor, "body");
+    return true;
+  }
   if (resolved.action === "cycle") {
+    if (editor.focus === "name") {
+      setFactEditorFocus(editor, "tag");
+      return true;
+    }
     if (editor.focus === "activation") {
       cycleFactEditorActivation(editor);
       return true;
@@ -128,10 +183,53 @@ export function handleFactEditorCommand(
     // instead skips them to their neighbor, in the same row order the
     // vertical-move handler below navigates by.
     if (["keys", "secondary", "scan", "budget"].includes(editor.focus)) {
-      setFactEditorFocus(editor, nextFactEditorRow(editor.focus, resolved.index === -1 ? -1 : 1));
+      setFactEditorFocus(editor, nextFactEditorRow(
+        editor.focus,
+        resolved.index === -1 ? -1 : 1,
+        factEditorVisibleRows(editor, state.config.factsViewMode ?? "simple", isNewFactEditor(editor))
+      ));
       return true;
     }
     cycleFactEditorTag(state, editor, resolved.index === -1 ? -1 : 1);
+    return true;
+  }
+  if (resolved.action === "cycle-state") {
+    editor.chromeFocus = "state";
+    cycleFactEditorState(state, editor, resolved.index, resolved.rowId !== undefined);
+    return true;
+  }
+  if (resolved.action === "convert-state") {
+    editor.chromeFocus = "state";
+    if (editor.stateId === undefined || editor.stateId === null) return true;
+    editor.stateIsEnd = editor.stateIsEnd !== true;
+    if (editor.stateIsEnd) setComposerText(editor.composer, "");
+    else if (editor.composer.text.length === 0) setComposerText(editor.composer, editor.stateInitialText ?? editor.initialFact.text);
+    disarmFactEditor(editor);
+    return true;
+  }
+  if (resolved.action === "reanchor-state") {
+    editor.chromeFocus = "state";
+    const rowId = resolved.rowId;
+    const validCursorPart = rowId !== undefined
+      && state.payload.nodes.some(({ id, role }) => id === rowId && role !== "summary");
+    if (editor.stateId !== undefined && editor.stateId !== null && validCursorPart) {
+      editor.stateAnchorPartId = rowId;
+      disarmFactEditor(editor);
+    }
+    return true;
+  }
+  if (resolved.action === "delete-state") {
+    editor.chromeFocus = "state";
+    if (factEditorChanged(editor)) {
+      editor.stateDeleteArmedId = null;
+      state.toast = "save or cancel this Fact before deleting its state";
+      return true;
+    }
+    if (editor.stateId !== undefined && editor.stateId !== null) {
+      editor.stateDeleteArmedId = editor.stateDeleteArmedId === editor.stateId
+        ? null
+        : editor.stateId;
+    }
     return true;
   }
   if (editor.focus === "activation"
@@ -226,6 +324,7 @@ export function setFactEditorFocus(
   focus: FactEditorSession["focus"]
 ): void {
   editor.focus = focus;
+  editor.chromeFocus = focus === "scope" ? "scope" : undefined;
   const focusSpec = factEditorRowSpec(focus);
   const focusedComposer = focusSpec.composer(editor);
   for (const spec of Object.values(FACT_EDITOR_ROW_TABLE)) {
@@ -242,6 +341,7 @@ export function factEditorInsert(
   raw: string,
   source: "paste" | "input" | "newline"
 ): { text: string } | { blocked: string } {
+  if (editor.focus === "scope") return { blocked: "use left or right to select Fact scope" };
   if (editor.focus === "body") return { text: raw };
   if (editor.focus === "activation") return choiceRowBlocked("activation");
   if (editor.focus === "match") return choiceRowBlocked("secondary match");
@@ -259,7 +359,9 @@ export function factEditorInsert(
 }
 
 function factEditorSingleLineLabel(focus: FactEditorSession["focus"]): string {
+  if (focus === "name") return "fact names";
   if (focus === "tag") return "fact tags";
+  if (focus === "scope") return "Fact scope";
   if (focus === "keys") return "fact keys";
   if (focus === "secondary") return "fact secondary keys";
   if (focus === "scan") return "fact scan depth";
@@ -270,10 +372,61 @@ function choiceRowBlocked(label: string): { blocked: string } {
   return { blocked: `use left or right to select Fact ${label}` };
 }
 
+function isNewFactEditor(editor: FactEditorSession): boolean {
+  return editor.target.factId === null && editor.stateCreating !== true;
+}
+
+/** The only creation-time choice. The selected anchor is metadata for the
+ *  new Fact itself; states acquire their own anchors later. */
+function cycleFactEditorScope(editor: FactEditorSession, direction: -1 | 1 = 1): void {
+  if (!isNewFactEditor(editor) || editor.factScopeAnchorPartId == null) return;
+  const scoped = editor.factAnchorPartId !== null && editor.factAnchorPartId !== undefined;
+  editor.factAnchorPartId = direction > 0
+    ? scoped ? null : editor.factScopeAnchorPartId
+    : scoped ? null : editor.factScopeAnchorPartId;
+}
+
 export function factEditorActiveComposer(
   editor: FactEditorSession
 ): ComposerState {
   return factEditorRowSpec(editor.focus).composer(editor);
+}
+
+/** Walk the persisted state strip without changing metadata focus. The body
+ * composer follows the selected text state, so `[ ]` always shows what the
+ * request path would use after the walk. */
+function cycleFactEditorState(
+  state: RuntimeState,
+  editor: FactEditorSession,
+  requestedIndex: number | undefined,
+  exact: boolean
+): void {
+  const fact = editor.target.base;
+  if (fact === null) return;
+  const states = [...canonicalFactStates(fact)];
+  if (states.length === 0) return;
+  const current = editor.stateIndex ?? 0;
+  const index = !exact
+    ? Math.max(0, Math.min(states.length - 1, current + (requestedIndex === -1 ? -1 : 1)))
+    : requestedIndex === undefined
+      ? current
+      : Math.max(0, Math.min(states.length - 1, requestedIndex));
+  if (index === current) return;
+  if (factEditorStateChanged(editor)) {
+    state.toast = "save or cancel this state before opening another";
+    return;
+  }
+  const selected = states[index]!;
+  editor.stateIndex = index;
+  editor.stateId = selected.id;
+  editor.stateInitialId = selected.id;
+  editor.stateAnchorPartId = selected.anchorPartId ?? null;
+  editor.stateInitialAnchorPartId = selected.anchorPartId ?? null;
+  editor.stateIsEnd = isFactEndState(selected);
+  editor.stateInitialEnds = editor.stateIsEnd;
+  editor.stateInitialText = isFactEndState(selected) ? "" : selected.text;
+  setComposerText(editor.composer, editor.stateInitialText);
+  disarmFactEditor(editor);
 }
 
 /** Resolve generic projected source identity at the Fact editor boundary. */
@@ -306,7 +459,7 @@ export function factEditorSelectionMessage(
   kind: "mixed" | "uneditable"
 ): string {
   return kind === "mixed"
-    ? "select the Fact tag, keys, or text"
+    ? "select the Fact name, tag, keys, or text"
     : "Fact choices use their row controls";
 }
 
@@ -344,13 +497,15 @@ function factEditorRowForComposer(editor: FactEditorSession, owner: ComposerStat
 
 /** Link the editable Fact fields to one bounded delta journal. */
 export function initializeFactEditorHistory(
-  editor: Pick<FactEditorSession, "tag" | "keys" | "secondary" | "scan" | "budget" | "composer">
+  editor: Pick<FactEditorSession, "name" | "tag" | "keys" | "secondary" | "scan" | "budget" | "composer">
 ): void {
-  shareComposerEditHistory([editor.tag, editor.keys, editor.secondary, editor.scan, editor.budget, editor.composer]);
+  shareComposerEditHistory([editor.name, editor.tag, editor.keys, editor.secondary, editor.scan, editor.budget, editor.composer]
+    .filter((composer): composer is ComposerState => composer !== undefined));
 }
 
 /** Reset the composite journal after an authoritative buffer replacement. */
 export function resetFactEditorHistory(editor: FactEditorSession): void {
+  if (editor.name !== undefined) resetComposerEditHistory(editor.name);
   resetComposerEditHistory(editor.tag);
   resetComposerEditHistory(editor.keys);
   resetComposerEditHistory(editor.secondary);
@@ -372,21 +527,51 @@ export function factEditorBuffer(editor: FactEditorSession): { composer: Compose
 export function handleFactEditorVerticalMove(
   resolved: ResolvedKey,
   editor: FactEditorSession,
-  motion: ComposerVerticalMotion
+  motion: ComposerVerticalMotion,
+  viewMode: "simple" | "advanced" = "advanced"
 ): boolean {
   if (resolved.action !== "cursor-up" && resolved.action !== "cursor-down") {
     return false;
   }
   const direction = resolved.action === "cursor-up" ? -1 : 1;
+  const rows = factEditorVisibleRows(editor, viewMode, isNewFactEditor(editor));
+  const stateful = editor.stateCreating === true
+    || editor.target.base !== null && isFactStateful(editor.target.base);
+  if (editor.chromeFocus === "view") {
+    if (direction > 0) {
+      setFactEditorFocus(editor, rows[0] ?? "body");
+    }
+    return true;
+  }
+  if (editor.chromeFocus === "state") {
+    if (direction > 0) setFactEditorFocus(editor, "body");
+    else setFactEditorFocus(editor, rows[rows.length - 2] ?? "tag");
+    return true;
+  }
   if (editor.focus !== "body") {
-    setFactEditorFocus(editor, nextFactEditorRow(editor.focus, direction));
+    const index = rows.indexOf(editor.focus);
+    if (direction < 0 && index === 0) {
+      editor.chromeFocus = "view";
+      return true;
+    }
+    if (direction > 0 && stateful && index === rows.length - 2) {
+      editor.chromeFocus = "state";
+      return true;
+    }
+    setFactEditorFocus(editor, nextFactEditorRow(editor.focus, direction, rows));
     return true;
   }
   if (resolved.action === "cursor-up" && motion.atFirstRow(editor.composer)) {
-    setFactEditorFocus(editor, "budget");
-    editor.budget.anchor = null;
-    editor.budget.cursor = Math.min(
-      tagLength(editor.budget.text),
+    if (stateful) {
+      editor.chromeFocus = "state";
+      return true;
+    }
+    const previous = rows[rows.length - 2] ?? "tag";
+    setFactEditorFocus(editor, previous);
+    const previousComposer = factEditorRowSpec(previous).composer(editor);
+    previousComposer.anchor = null;
+    previousComposer.cursor = Math.min(
+      tagLength(previousComposer.text),
       composerPosition(editor.composer).column
     );
     return true;

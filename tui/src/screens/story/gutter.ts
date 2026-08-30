@@ -1,6 +1,8 @@
 import type { KeyAction } from "../../keys.js";
 import type { StoryPart } from "../../model.js";
 import type { ThoughtGutterContext } from "../../reasoning-model.js";
+import { canonicalFactStates } from "../../../../shared/fact-state.js";
+import type { StoryFact } from "../../../../shared/types.js";
 import { takeStrip } from "./density.js";
 import {
   fitLine,
@@ -54,6 +56,18 @@ const GUTTER_VERB_WIDTH = GUTTER_VERB_COLUMNS.reduce(
   (total, column, index) => total + column + (index === 0 ? 0 : GUTTER_VERB_COLUMN_GAP),
   0
 );
+
+function hasFactStateAnchor(part: StoryPart, facts: readonly StoryFact[]): boolean {
+  return facts.some((fact) => canonicalFactStates(fact).some((state) => state.anchorPartId === part.id));
+}
+
+function anchorMark(): FrameSegment {
+  return segment("◆", "focus / accent");
+}
+
+function markGutterLine(line: FrameLine, part: StoryPart, facts: readonly StoryFact[]): FrameLine {
+  return hasFactStateAnchor(part, facts) ? [anchorMark(), segment(" "), ...line] : line;
+}
 
 export function actionHint(text: string, action: KeyAction, role: DisplayRole = "chrome"): FrameSegment {
   return segment(text, role, { kind: "inline-action", action });
@@ -117,7 +131,8 @@ function stripSegments(strip: ReturnType<typeof takeStrip>, currentTake: number)
 export function gutterRowsFor(
   part: StoryPart,
   thought: ThoughtGutterContext,
-  asidePresence: AsidePresence | null = null
+  asidePresence: AsidePresence | null = null,
+  facts: readonly StoryFact[] = []
 ): FrameLine[] {
   const rows: FrameLine[] = [];
   if (part.siblingCount > 1) {
@@ -138,6 +153,7 @@ export function gutterRowsFor(
   }
   if (thought.kind === "shown" && thought.folded) rows.push(focusedFoldedThoughtLine(thought.hit));
   for (const verbs of GUTTER_VERBS) rows.push(gutterVerbSegments(verbs));
+  if (rows.length > 0) rows[0] = markGutterLine(rows[0]!, part, facts);
   return rows;
 }
 
@@ -149,7 +165,8 @@ export function streamingGutterRows(
   part: StoryPart,
   thought: ThoughtGutterContext,
   now: number,
-  deadlines?: FrameDeadlineCollector
+  deadlines?: FrameDeadlineCollector,
+  facts: readonly StoryFact[] = []
 ): FrameLine[] {
   // Reasoning is arriving and no prose has started: swap the usual
   // writing/esc-stops pair for thinking/esc-peeks. Once prose starts, or once
@@ -157,9 +174,11 @@ export function streamingGutterRows(
   // `thought.thinking` is already false in both cases (see
   // `thoughtGutterContext`).
   if (thought.kind === "shown" && thought.thinking) {
-    return [thinkingGutterLine0(thought.resolved.tokenCount, now, deadlines), thinkingGutterLine1(thought.hit)];
+    const rows = [thinkingGutterLine0(thought.resolved.tokenCount, now, deadlines), thinkingGutterLine1(thought.hit)];
+    rows[0] = markGutterLine(rows[0]!, part, facts);
+    return rows;
   }
-  return [
+  const rows = [
     lightWorkKeyword(
       [segment(`${streamLivenessMark(now, deadlines)} writing`, "focus / accent")],
       "writing",
@@ -168,6 +187,8 @@ export function streamingGutterRows(
     ),
     [actionHint("esc stops", "cancel")]
   ];
+  rows[0] = markGutterLine(rows[0]!, part, facts);
+  return rows;
 }
 
 export function gutterFor(
@@ -178,27 +199,29 @@ export function gutterFor(
   rows: readonly FrameLine[] | null,
   now = 0,
   deadlines?: FrameDeadlineCollector,
-  asidePresence: AsidePresence | null = null
+  asidePresence: AsidePresence | null = null,
+  facts: readonly StoryFact[] = []
 ): FrameLine {
   if (streaming) {
-    return streamingGutterRows(part, thought, now, deadlines)[lineIndex] ?? [];
+    return streamingGutterRows(part, thought, now, deadlines, facts)[lineIndex] ?? [];
   }
   // Focused, not narrow, not streaming, not a summary: `rows` was built once
   // by `gutterRowsFor` in `layoutStoryRow` and carries this line's content —
   // the row's own height (`rows.length`) already came from the same list.
   if (rows !== null) return rows[lineIndex] ?? [];
   if (lineIndex === 0) {
-    if (part.isSummary) return [segment("◈", "summary")];
+    if (part.isSummary) return markGutterLine([segment("◈", "summary")], part, facts);
     if (asidePresence !== null && asidePresence.currentCount > 0) {
-      return asideGhostGutterLine(asidePresence, part.siblingCount);
+      return markGutterLine(asideGhostGutterLine(asidePresence, part.siblingCount), part, facts);
     }
-    if (part.siblingCount > 1) return [segment(`×${part.siblingCount}`, "chrome")];
+    if (part.siblingCount > 1) return markGutterLine([segment(`×${part.siblingCount}`, "chrome")], part, facts);
     // No fork tick or summary diamond claims this row's one unfocused gutter
     // cell: give the ghost thought word the cell instead. A part that has
     // both a fork count and a thought keeps the fork count — the reader's
     // place in the tree outranks a decorative margin word, and focusing the
     // part still reveals `thought · T shows` a moment later.
-    if (thought.kind === "shown" && thought.folded) return ghostThoughtMark(thought.hit);
+    if (thought.kind === "shown" && thought.folded) return markGutterLine(ghostThoughtMark(thought.hit), part, facts);
+    if (hasFactStateAnchor(part, facts)) return [anchorMark()];
   }
   return [];
 }

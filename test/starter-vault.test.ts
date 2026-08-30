@@ -11,6 +11,7 @@ import {
   starterProse
 } from "../shared/starter-vault.js";
 import { StoryService } from "../server/story-service.js";
+import { firstFactText } from "../shared/fact-state.js";
 
 async function withService<T>(
   options: { seed?: boolean },
@@ -105,14 +106,14 @@ test("both starter stories open with facts of their own", async () => {
     for (const story of STARTER_STORIES) {
       const payload = await service.loadStory(story.id);
       assert.deepEqual(
-        payload.facts.map((fact) => ({ tag: fact.tag, text: fact.text })),
+        payload.facts.map((fact) => ({ tag: fact.tag, text: firstFactText(fact) })),
         story.facts.map((fact) => ({ tag: fact.tag, text: fact.text })),
         `${story.title} seeded the wrong facts`
       );
       // The overlay titles a fact by its first line and sorts it by its tag, so
       // a fact with neither is a blank row in a list the tour points at.
       for (const fact of payload.facts) {
-        assert.ok(fact.text.split("\n")[0]?.trim(), "a fact needs a first line to be named by");
+        assert.ok(firstFactText(fact).split("\n")[0]?.trim(), "a fact needs a first line to be named by");
         assert.ok(fact.tag !== null && fact.tag.length > 0, "a fact needs a tag to sort under");
       }
     }

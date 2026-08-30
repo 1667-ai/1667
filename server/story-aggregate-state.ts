@@ -4,7 +4,8 @@ import {
   hashStoryV6ManifestBytes,
   hashStoryV8ManifestBytes,
   hashStoryV10ManifestBytes,
-  hashStoryV12ManifestBytes
+  hashStoryV12ManifestBytes,
+  hashStoryV14ManifestBytes
 } from "./story-manifest-hash.js";
 import type {
   StoryAggregateVersion
@@ -45,7 +46,9 @@ type PersistedStorySlot = Extract<
       | "v10-live"
       | "v10-deleted"
       | "v12-live"
-      | "v12-deleted";
+      | "v12-deleted"
+      | "v14-live"
+      | "v14-deleted";
   }
 >;
 
@@ -86,8 +89,10 @@ export function storyAggregateSnapshot(
       source: slot
     };
   }
-  const manifestHash = slot.kind === "v12-live" || slot.kind === "v12-deleted"
-    ? hashStoryV12ManifestBytes(slot.manifestBytes)
+  const manifestHash = slot.kind === "v14-live" || slot.kind === "v14-deleted"
+    ? hashStoryV14ManifestBytes(slot.manifestBytes)
+    : slot.kind === "v12-live" || slot.kind === "v12-deleted"
+      ? hashStoryV12ManifestBytes(slot.manifestBytes)
     : slot.kind === "v10-live" || slot.kind === "v10-deleted"
       ? hashStoryV10ManifestBytes(slot.manifestBytes)
     : slot.kind === "v8-live" || slot.kind === "v8-deleted"

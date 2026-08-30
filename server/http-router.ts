@@ -164,7 +164,8 @@ async function handleApi(
   // before any branch below can match a shared prefix (e.g. "rewrite")
   // while ignoring a trailing segment that follows it.
   if (extra !== undefined
-    && !(sub === "nodes" && action === "generation-records" && method === "GET")) {
+    && !(sub === "nodes" && action === "generation-records" && method === "GET")
+    && !(sub === "facts" && action === "states" && (method === "PATCH" || method === "DELETE"))) {
     throw new ServiceError(404, `No route: ${method} ${pathname}`);
   }
   response.setHeader(
@@ -814,6 +815,31 @@ async function handleApi(
       factId: subId,
       body: await jsonBody()
     }));
+  }
+  if (head === "stories" && id !== undefined && sub === "facts"
+    && subId !== undefined && action === "states") {
+    if (extra === undefined && method === "POST") {
+      return sendJson(response, 201, await mutate("createFactState", {
+        storyId: id,
+        factId: subId,
+        body: await jsonBody()
+      }));
+    }
+    if (extra !== undefined && method === "PATCH") {
+      return sendJson(response, 200, await mutate("patchFactState", {
+        storyId: id,
+        factId: subId,
+        stateId: extra,
+        body: await jsonBody()
+      }));
+    }
+    if (extra !== undefined && method === "DELETE") {
+      return sendJson(response, 200, await mutate("deleteFactState", {
+        storyId: id,
+        factId: subId,
+        stateId: extra
+      }));
+    }
   }
   if (head === "stories" && id !== undefined && sub === "import-lorebook" && method === "POST") {
     const rawBuffer = await readBufferBody(request, MAX_IMPORT_BYTES, operation.signal);

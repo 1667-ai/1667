@@ -349,7 +349,8 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
     lines = renderFactsRail(lines,
       buildRailModel(
         state.payload, focusedText, state.contextWindow, estimate, growthTokens, state.maxTokens,
-        promptTokenCount
+        promptTokenCount,
+        rowPart(view, state.focusIndex)?.id ?? null
       ),
       hitRows, surfaceRows, frameLayout, state.contextMeterExpanded, state.now, options.deadlines,
       growthPulse);
@@ -842,7 +843,8 @@ function renderInlineEditor(
         scrollTop: state.editorScrollTop,
         followCursor: state.editorScrollDetached !== true,
         narrow: width < 100,
-        softWrap: state.config.wordWrap === "on"
+        softWrap: state.config.wordWrap === "on",
+        viewMode: state.config.factsViewMode ?? "simple"
       })
     : renderComposerLayout({
         composer: host.composer,
@@ -919,6 +921,10 @@ function renderEditorLayoutFrame(
   const hitRows: HitRows = Array.from({ length: height }, (_, row): HitRow | null => row < height - 1
     ? { target: composerHitTarget(base[row]), left: 0, right: width }
     : null);
+  // Fact editor headers and the semantic footer carry explicit controls. Add
+  // their narrow targets over the broad composer rows so mouse and keyboard
+  // actions share the same reducer.
+  addInlineHits(base, hitRows, (target) => target.kind !== "settings-row");
   const composition = state.textActions === null
     ? { lines: base, selectable: null }
     : renderTextActionsPanel(dimPage(base), { ...state, hitRows }, width, height);

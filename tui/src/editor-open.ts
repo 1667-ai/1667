@@ -1,5 +1,12 @@
 import type { StoryFact } from "../../shared/types.js";
 import { EMPTY_FACT_DRAFT, factDraftOf } from "../../shared/fact-draft.js";
+import {
+  canonicalFactStates,
+  firstFactText,
+  isFactEndState,
+  isFactStateful,
+  resolveFactState
+} from "../../shared/fact-state.js";
 import { resolveAuthorsNoteDepth } from "../../shared/authors-note.js";
 import { createComposer } from "./composer-model.js";
 import { formatFactBudget, formatFactKeys, formatFactScanDepth } from "./fact-editor-draft.js";
@@ -57,12 +64,91 @@ export function openPartEditor(state: RuntimeState, humanSibling: boolean): void
   });
 }
 
-export function openFactEditor(state: RuntimeState, fact: StoryFact | null): void {
-  const text = fact?.text ?? "";
+export interface FactEditorOpenOptions {
+  stateId?: string | null;
+  anchorPartId?: string | null;
+  stateCreating?: boolean;
+  returnMode?: "NAV" | "FACTS" | "MAP";
+}
+
+/** Re-anchor actions use the visible cursor that opened the editor. NAV and
+ * Facts keep that story-row focus while their overlay is open; the Map lens
+ * owns its own selected tree node. Pending and summary rows are not valid
+ * Fact anchors, so they fail closed instead of leaking a non-persisted id. */
+function factEditorCursorAnchorId(
+  state: RuntimeState,
+  returnMode: FactEditorOpenOptions["returnMode"]
+): string | null {
+  const persistedPartId = (candidateId: string | null | undefined): string | null => {
+    if (candidateId === null || candidateId === undefined) return null;
+    const node = state.payload.nodes.find(({ id }) => id === candidateId);
+    return node === undefined || node.role === "summary" ? null : node.id;
+  };
+  if (returnMode === "MAP") {
+    return persistedPartId(state.map?.treeCursorId);
+  }
+  const view = createStoryViewModel(state.payload, state.stream);
+  const focusedRow = view.rows[state.focusIndex];
+  if (focusedRow !== undefined) {
+    const part = rowPart(view, state.focusIndex);
+    return persistedPartId(part?.node.id);
+  }
+  return persistedPartId(state.payload.path.at(-1)?.id);
+}
+
+export function openFactEditor(
+  state: RuntimeState,
+  fact: StoryFact | null,
+  options: FactEditorOpenOptions = {}
+): void {
+  const states = fact === null ? [] : [...canonicalFactStates(fact)];
+  const resolved = fact === null ? null : resolveFactState(fact, state.payload.path);
+  const resolvedState = resolved?.kind === "active" || resolved?.kind === "ended"
+    ? resolved.state
+    : states[0];
+  const selectedState = options.stateId === undefined
+    ? resolvedState
+    : states.find(({ id }) => id === options.stateId);
+  const stateCreating = options.stateCreating === true;
+  const returnMode = options.returnMode ?? "FACTS";
+  // A single story-wide text state is the canonical lift of a legacy flat
+  // Fact. Keep that case on the original editor surface; state chrome appears
+  // only once scope or multiplicity makes it user-visible.
+  const stateful = fact !== null && isFactStateful(fact);
+  const text = stateCreating
+    ? ""
+    : selectedState === undefined || isFactEndState(selectedState)
+      ? fact === null ? "" : firstFactText(fact)
+      : selectedState.text;
   const composer = createComposer(text);
+  const name = fact?.name ?? "";
   const editor: Omit<FactEditorSession, "kind"> = {
     target: { kind: "fact", factId: fact?.id ?? null, base: fact },
+    factAnchorPartId: options.anchorPartId ?? null,
+    ...(fact === null && !stateCreating
+      ? { factScopeAnchorPartId: options.anchorPartId ?? state.payload.path.at(-1)?.id ?? null }
+      : {}),
     composer,
+    name: createComposer(name),
+    initialName: fact?.name ?? null,
+    ...(stateful || stateCreating ? {
+      stateId: stateCreating ? null : selectedState?.id ?? null,
+      stateIndex: selectedState === undefined ? 0 : Math.max(0, states.indexOf(selectedState)),
+      stateCreating,
+      stateAnchorPartId: stateCreating
+        ? options.anchorPartId ?? null
+        : selectedState?.anchorPartId ?? null,
+      stateCursorAnchorId: factEditorCursorAnchorId(state, returnMode),
+      stateInitialId: stateCreating ? null : selectedState?.id ?? null,
+      stateInitialAnchorPartId: stateCreating
+        ? options.anchorPartId ?? null
+        : selectedState?.anchorPartId ?? null,
+      stateInitialText: stateCreating || selectedState === undefined || isFactEndState(selectedState)
+        ? ""
+        : selectedState.text,
+      stateInitialEnds: !stateCreating && selectedState !== undefined && isFactEndState(selectedState),
+      stateIsEnd: !stateCreating && selectedState !== undefined && isFactEndState(selectedState)
+    } : {}),
     tag: createComposer(fact?.tag ?? ""),
     activation: fact?.activation ?? "always",
     keys: createComposer(formatFactKeys(fact?.keys ?? [])),
@@ -73,14 +159,34 @@ export function openFactEditor(state: RuntimeState, fact: StoryFact | null): voi
     priority: fact?.priority ?? "normal",
     budget: createComposer(formatFactBudget(fact?.budgetTokens)),
     focus: "body",
-    initialFact: fact === null ? EMPTY_FACT_DRAFT : factDraftOf(fact),
+    initialFact: fact === null
+      ? EMPTY_FACT_DRAFT
+      : {
+          ...factDraftOf(fact),
+          ...(stateful && selectedState !== undefined && !isFactEndState(selectedState)
+            ? { text: selectedState.text }
+            : {})
+        },
     title: `${fact === null ? "new" : "edit"} fact`,
     placeholder: "fact text…",
-    returnMode: "FACTS",
+    returnMode,
     conflict: null
   };
   initializeFactEditorHistory(editor);
   openFactSession(state, editor);
+}
+
+/** Open the existing Fact on a fresh state draft. The draft uses the current
+ * path's leaf as its default anchor; the editor can re-anchor before save. */
+export function openFactStateEditor(
+  state: RuntimeState,
+  fact: StoryFact,
+  anchorPartId: string | null = null
+): void {
+  openFactEditor(state, fact, {
+    stateCreating: true,
+    anchorPartId
+  });
 }
 
 export function openFactFromSelection(state: RuntimeState, text: string): void {
@@ -88,7 +194,11 @@ export function openFactFromSelection(state: RuntimeState, text: string): void {
   if (text.length > 0) composer.anchor = 0;
   const editor: Omit<FactEditorSession, "kind"> = {
     target: { kind: "fact", factId: null, base: null },
+    factAnchorPartId: null,
+    factScopeAnchorPartId: state.payload.path.at(-1)?.id ?? null,
     composer,
+    name: createComposer(""),
+    initialName: null,
     tag: createComposer(""),
     activation: "always",
     keys: createComposer(""),

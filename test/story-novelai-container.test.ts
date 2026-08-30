@@ -9,6 +9,7 @@ import { partsFromNovelAiStory } from "../server/import-nai.js";
 import { StoryService } from "../server/story-service.js";
 import { MAX_AUTHORS_NOTE_CHARS } from "../shared/authors-note.js";
 import { fidelityReport } from "../shared/fidelity.js";
+import { firstFactText } from "../shared/fact-state.js";
 import { MAX_FACTS, MAX_FACT_TEXT_CHARS } from "../shared/types.js";
 import {
   novelAiLorebook,
@@ -62,8 +63,8 @@ test("A long Memory is cut on a paragraph boundary and reported", async (t) => {
     context: { memory: `${firstParagraph}\n\n${secondParagraph}` }
   }));
 
-  assert.equal(result.payload.facts[0]?.text, firstParagraph);
-  assert.ok(result.payload.facts[0]!.text.length <= MAX_FACT_TEXT_CHARS);
+  assert.equal(result.payload.facts[0] === undefined ? undefined : firstFactText(result.payload.facts[0]), firstParagraph);
+  assert.ok(firstFactText(result.payload.facts[0]!).length <= MAX_FACT_TEXT_CHARS);
   assert.match(
     fidelityReport(result.fidelity),
     new RegExp(`memory truncated to ${MAX_FACT_TEXT_CHARS.toLocaleString()} characters`, "u")
@@ -91,10 +92,10 @@ test("Memory takes the first Fact slot before 130 Lorebook Entries", async (t) =
   }));
 
   assert.equal(result.payload.facts.length, MAX_FACTS);
+  assert.equal(firstFactText(result.payload.facts[0]!), "Persistent memory.");
   assert.deepEqual(result.payload.facts[0], {
     ...result.payload.facts[0],
     tag: "memory",
-    text: "Persistent memory.",
     activation: "always",
     keys: []
   });
@@ -156,6 +157,6 @@ test("Memory that carried carriage returns says its line endings changed", async
     context: { memory: "a memory\r\nwith carriage returns" }
   }));
 
-  assert.equal(result.payload.facts[0]?.text, "a memory\nwith carriage returns");
+  assert.equal(result.payload.facts[0] === undefined ? undefined : firstFactText(result.payload.facts[0]), "a memory\nwith carriage returns");
   assert.match(fidelityReport(result.fidelity), /memory changed to line feeds/u);
 });

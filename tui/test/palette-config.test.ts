@@ -434,7 +434,8 @@ describe("user config normalization", () => {
       quota: { date: "2026-07-21", words: 42 },
       updates: { mode: "notify", channel: "stable", skippedVersion: null },
       lastRunVersion: null,
-      settingsViewMode: "simple"
+      settingsViewMode: "simple",
+      factsViewMode: "simple"
     });
   });
 
@@ -500,7 +501,8 @@ describe("user config normalization", () => {
       quota: { date: "", words: 0 },
       updates: { mode: "notify", channel: "stable", skippedVersion: null },
       lastRunVersion: null,
-      settingsViewMode: "simple"
+      settingsViewMode: "simple",
+      factsViewMode: "simple"
     });
     expect(normalizeUserConfig(null)).toEqual(normalizeUserConfig([]));
   });

@@ -99,7 +99,8 @@ export function assertStrictV5Manifest(
 export function assertManifestCommonFields(
   manifest: Record<string, unknown>,
   expectedId: string,
-  assertManifestNode: (value: unknown, label: string) => void
+  assertManifestNode: (value: unknown, label: string) => void,
+  assertManifestFact: (value: unknown, label: string) => void = assertFact
 ): void {
   const id = requireStoryId(manifest.id, "manifest.id");
   if (id !== expectedId) throw new StoryFormatError(`Story id mismatch: expected ${expectedId}, found ${id}`);
@@ -132,7 +133,7 @@ export function assertManifestCommonFields(
   boundedArray(manifest.nodes, "manifest.nodes", MAX_STORY_COLLECTION_ITEMS)
     .forEach((entry, index) => assertManifestNode(entry, `manifest.nodes[${index}]`));
   boundedArray(manifest.facts, "manifest.facts", MAX_FACTS)
-    .forEach((entry, index) => assertFact(entry, `manifest.facts[${index}]`));
+    .forEach((entry, index) => assertManifestFact(entry, `manifest.facts[${index}]`));
   nullableIdentifier(manifest.activeRootId, "manifest.activeRootId");
   boundedArray(manifest.bookmarks, "manifest.bookmarks", MAX_STORY_COLLECTION_ITEMS)
     .forEach((entry, index) => assertTag(entry, `manifest.bookmarks[${index}]`));

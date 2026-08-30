@@ -13,6 +13,7 @@ import { createTokenProbabilities } from "../../shared/token-probabilities.js";
 import type { SettingsPresetV2, SettingsProtocolV2, SettingsView } from "../../shared/settings-v2-types.js";
 import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
 import { dryRunProbabilityStep } from "../../server/token-probability-capture.js";
+import { factWithText } from "./fact-fixture.js";
 
 function key(name: string, sequence = name): KeyEvent {
   return { name, sequence, shift: false, ctrl: false, meta: false } as KeyEvent;
@@ -82,14 +83,14 @@ describe("run C overlay frames", () => {
     const frame = await renderOnce(demoAppSource(), 120, 36, "f");
     expect(frame).toContain("┏━ facts · 5 notes");
     expect(frame).toContain("[ all ]");
-    expect(frame).toContain("D delete");
+    expect(frame).toContain("x delete");
     expect(frame).toContain("FACTS");
 
     const compact = await renderOnce(demoAppSource(), 80, 24, "f");
     const maren = lineContaining(compact, "▸ Maren");
-    // The closed frame spends two cells on its right edge and margin, so the
-    // note column ends two characters earlier than it did open-sided.
-    expect(maren).toContain("Keeps th…always");
+    expect(maren).toContain("people");
+    expect(maren).toContain("—");
+    expect(maren).toContain("…always");
     expect(maren.match(/Maren/g)).toHaveLength(1);
 
     const activated = demoAppSource();
@@ -104,7 +105,7 @@ describe("run C overlay frames", () => {
         : fact)
     };
     const activationFrame = await renderWithKeys(activated, 120, 36, [key("f")]);
-    expect(activationFrame).toContain("facts · 5 notes · 1/2 keyed");
+    expect(activationFrame).toContain("facts · 5 notes · line canon-storm · 1/2 keyed");
     expect(lineContaining(activationFrame, "▸ Maren")).toContain("✓ keyed");
     expect(lineContaining(activationFrame, "· keyed")).toContain("Ashe");
   });
@@ -194,13 +195,14 @@ describe("run C overlay frames", () => {
 
     const factsState = initialState(demoAppSource(), true);
     const fact = factsState.payload.facts[0]!;
-    factsState.payload.facts = Array.from({ length: 25 }, (_, index) => ({
-      ...fact, id: `fact-${index + 1}`, text: `Fact ${String(index + 1).padStart(2, "0")}\nbody`, tag: "test"
-    }));
+    factsState.payload.facts = Array.from({ length: 25 }, (_, index) => factWithText(
+      { ...fact, id: `fact-${index + 1}`, tag: "test" },
+      `Fact ${String(index + 1).padStart(2, "0")}\nbody`
+    ));
     factsState.mode = "FACTS";
     factsState.facts = { cursor: selected, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null };
     const facts = render(factsState);
-    expect(facts.text).toContain("8–21/25");
+    expect(facts.text).toContain("9–21/25");
     expect(facts.text).toContain("▸ Fact 21");
     expect(hasSelectedHit(facts.hits)).toBeTrue();
 
@@ -271,9 +273,10 @@ describe("run C overlay frames", () => {
   test("facts filtering clamps a stale cursor to the selected visible row", () => {
     const state = initialState(demoAppSource(), true);
     const fact = state.payload.facts[0]!;
-    state.payload.facts = Array.from({ length: 25 }, (_, index) => ({
-      ...fact, id: `fact-${index + 1}`, text: `Fact ${String(index + 1).padStart(2, "0")}\nbody`, tag: "test"
-    }));
+    state.payload.facts = Array.from({ length: 25 }, (_, index) => factWithText(
+      { ...fact, id: `fact-${index + 1}`, tag: "test" },
+      `Fact ${String(index + 1).padStart(2, "0")}\nbody`
+    ));
     state.mode = "FACTS";
     state.facts = {
       cursor: 20, query: "Fact 03", chip: 0, selectedTag: null, filtering: true, deleteArmedId: null
@@ -295,22 +298,11 @@ describe("run C overlay frames", () => {
     // identically to one actually being sent. Both are reproduced here.
     const state = initialState(demoAppSource(), true);
     const now = state.payload.facts[0]!.createdAt;
-    const alwaysSent = {
-      id: "always-sent", tag: null, text: "Always sent fact.",
-      activation: "always" as const, keys: [], createdAt: now, updatedAt: now
-    };
-    const alwaysShed = {
-      id: "always-shed", tag: null, text: "Always fact ranked low, shed by the tight budget.",
-      activation: "always" as const, keys: [], priority: "low" as const, createdAt: now, updatedAt: now
-    };
-    const keyedDormant = {
-      id: "keyed-dormant", tag: null, text: "Keyed fact whose key never appears.",
-      activation: "keyed" as const, keys: ["zzz-never-matches-zzz"], createdAt: now, updatedAt: now
-    };
-    const keyedShed = {
-      id: "keyed-shed", tag: null, text: "Keyed fact whose key matches, shed by the tight budget.",
-      activation: "keyed" as const, keys: ["Maren"], priority: "low" as const, createdAt: now, updatedAt: now
-    };
+    const template = state.payload.facts[0]!;
+    const alwaysSent = factWithText(template, "Always sent fact.", { id: "always-sent", name: "Always sent", tag: null, activation: "always", keys: [], createdAt: now, updatedAt: now });
+    const alwaysShed = factWithText(template, "Always fact ranked low, shed by the tight budget.", { id: "always-shed", name: "Always shed", tag: null, activation: "always", keys: [], priority: "low", createdAt: now, updatedAt: now });
+    const keyedDormant = factWithText(template, "Keyed fact whose key never appears.", { id: "keyed-dormant", name: "Keyed dormant", tag: null, activation: "keyed", keys: ["zzz-never-matches-zzz"], createdAt: now, updatedAt: now });
+    const keyedShed = factWithText(template, "Keyed fact whose key matches, shed by the tight budget.", { id: "keyed-shed", name: "Keyed shed", tag: null, activation: "keyed", keys: ["Maren"], priority: "low", createdAt: now, updatedAt: now });
     state.payload.facts = [alwaysSent, alwaysShed, keyedDormant, keyedShed];
     // Room for exactly the one Fact that must stay: alwaysSent is exempt from
     // shedding, so the budget alone decides the other three.
@@ -320,10 +312,10 @@ describe("run C overlay frames", () => {
     const text = frameText(renderStoryScreen(state, { width: 100, height: 30, wrapCache: createWrapCache() }).lines);
     const lineFor = (name: string) => lineContaining(text, name);
 
-    const alwaysSentLine = lineFor("Always sent fact");
-    const alwaysShedLine = lineFor("Always fact ranked low");
-    const keyedDormantLine = lineFor("Keyed fact whose key never");
-    const keyedShedLine = lineFor("Keyed fact whose key matches");
+    const alwaysSentLine = lineFor("Always sent");
+    const alwaysShedLine = lineFor("Always shed");
+    const keyedDormantLine = lineFor("Keyed dormant");
+    const keyedShedLine = lineFor("Keyed shed");
 
     // An always Fact that is actually sent reads plain "always"; the shed
     // always Fact must not read the same way — it reads "✕ always".
@@ -611,18 +603,15 @@ describe("run C overlay frames", () => {
     expectNarrowPanelRowsBounded(chapters);
 
     const factSource = demoAppSource();
-    factSource.payload.facts[0] = {
-      ...factSource.payload.facts[0]!,
-      tag: "分類".repeat(12),
-      text: "灯台守".repeat(16) + "\n海辺の記録"
-    };
+    factSource.payload.facts[0] = factWithText(factSource.payload.facts[0]!,
+      "灯台守".repeat(16) + "\n海辺の記録", { tag: "分類".repeat(12) });
     const facts = await renderOnce(factSource, 80, 24, "f");
     const cjkFact = lineContaining(facts, "▸ 灯台守");
     const asciiFact = lineContaining(facts, "Ashe");
     const cjkTag = cjkFact.indexOf("分類");
     const asciiTag = asciiFact.indexOf("people");
     expect(cellColumn(cjkFact, "分類")).toBe(cellColumn(asciiFact, "people"));
-    expect(cellColumn(cjkFact, "海", cjkTag)).toBe(cellColumn(asciiFact, "Carries", asciiTag));
+    expect(cellColumn(cjkFact, "—", cjkTag)).toBe(cellColumn(asciiFact, "—", asciiTag));
     expectNarrowPanelRowsBounded(facts);
   });
 

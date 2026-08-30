@@ -15,6 +15,7 @@ import {
 } from "../server/story-provider-effect.js";
 import { prepareProviderStoryEffect } from "../server/story-provider-preparation.js";
 import { createGenerationRecord, type GenerationRecord, type GenerationRecordKind } from "../shared/generation-record.js";
+import { firstFactText } from "../shared/fact-state.js";
 import type { PromptOperation } from "../shared/prompt-plan.js";
 import { takePendingGenerationRecords } from "../server/story-node-generation-records.js";
 import {
@@ -317,7 +318,7 @@ test("autoname changes only title metadata and rejects a concurrent rename", asy
   current.facts = [{
     id: "fact",
     tag: null,
-    text: "Keep",
+    states: [{ id: "fact-state", text: "Keep", createdAt: AT, updatedAt: AT }],
     activation: "always",
     keys: [],
     createdAt: AT,
@@ -332,7 +333,7 @@ test("autoname changes only title metadata and rejects a concurrent rename", asy
   assert.equal(current.title, "Model title");
   assert.equal(storyAutonameId(current), "auto-1");
   assert.equal(current.origin?.storyId, "origin-story");
-  assert.equal(current.facts[0]?.text, "Keep");
+  assert.equal(firstFactText(current.facts[0]!), "Keep");
 
   await assert.rejects(
     applyProviderStoryEffect({ ...current, title: "Writer title" }, {

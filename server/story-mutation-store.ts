@@ -81,6 +81,13 @@ export type StoryMutationStoreHooks = StoryMutationHooks;
 /** The shared array owns manifest-only membership. Aside v2 local verbs stay
  * outside that array because index-based deletion requires a full receipt. */
 export type LocalStoryMutationMethod = LocalDurabilityMutationMethod | "asideSessionMutation";
+export type FactStateDeletionMethod = "deleteNode" | "pruneUnusedTakes";
+
+type FactStateDeletionMutation = (
+  story: Story,
+  session: StoryAggregateSession
+) => number | typeof STORY_UNCHANGED
+  | Promise<number | typeof STORY_UNCHANGED>;
 
 const LOCAL_METHODS: ReadonlySet<string> = new Set(
   [...LOCAL_DURABILITY_MUTATION_METHODS, "asideSessionMutation"]
@@ -173,6 +180,13 @@ export class StoryMutationStore {
 
   async runLocal(
     input: unknown,
+    method: FactStateDeletionMethod,
+    mutate: FactStateDeletionMutation,
+    replayValue: (session: StoryAggregateSession) => number | PromiseLike<number>,
+    projectFactStateCount: (value: number) => number | undefined
+  ): Promise<StoryMutationCommit<number>>;
+  async runLocal(
+    input: unknown,
     method: LocalStoryMutationMethod,
     mutate: (
       story: Story,
@@ -190,16 +204,17 @@ export class StoryMutationStore {
       | Promise<Value | typeof STORY_UNCHANGED>,
     replayValue: (session: StoryAggregateSession) => Value | PromiseLike<Value>
   ): Promise<StoryMutationCommit<Value>>;
-  async runLocal(
+  async runLocal<Value>(
     input: unknown,
     method: LocalStoryMutationMethod,
     mutate: (
       story: Story,
       session: StoryAggregateSession
-    ) => unknown | typeof STORY_UNCHANGED
-      | Promise<unknown | typeof STORY_UNCHANGED>,
-    replayValue: (session: StoryAggregateSession) => unknown | PromiseLike<unknown> = () => undefined
-  ): Promise<StoryMutationCommit<unknown>> {
+    ) => Value | typeof STORY_UNCHANGED
+      | Promise<Value | typeof STORY_UNCHANGED>,
+    replayValue: (session: StoryAggregateSession) => Value | PromiseLike<Value> = () => undefined as Value,
+    projectFactStateCount?: (value: Value) => number | undefined
+  ): Promise<StoryMutationCommit<Value>> {
     if (!LOCAL_METHODS.has(method)) {
       throw new Error(`Unsupported local story method: ${method}`);
     }
@@ -217,7 +232,8 @@ export class StoryMutationStore {
             };
           }
           const story = await session.loadLive();
-          let value: unknown;
+          let value: Value;
+          let factStatesRemoved: number | undefined;
           let replacement;
           try {
             const outcome = await mutate(story, session);
@@ -274,6 +290,7 @@ export class StoryMutationStore {
               };
             }
             value = outcome;
+            factStatesRemoved = projectFactStateCount?.(value);
             // Read straight off `this.stories`, the `StoryStore` this
             // mutation store was built with, rather than taking a second,
             // independently settable activation option: the store already
@@ -349,6 +366,7 @@ export class StoryMutationStore {
                 request,
                 session,
                 manifest,
+                factStatesRemoved,
                 timestamp(this.now)
               ),
               // Clear recovery must retain the exact mutation identity before
@@ -362,7 +380,7 @@ export class StoryMutationStore {
           }
           return {
             story: replacement.story,
-            result: storyResult(manifest),
+            result: storyResult(manifest, factStatesRemoved),
             aggregateVersion: storyAggregateVersion(session.snapshot),
             value
           };
@@ -618,6 +636,7 @@ function prepareLocalRecord(
   request: MutationCoordinatorRequest<StoryMutationTarget>,
   session: StoryAggregateSession,
   manifest: StoryEnvelopeManifest,
+  factStatesRemoved: number | undefined,
   preparedAt: string
 ): PreparedUserMutationRecord {
   return {
@@ -631,7 +650,7 @@ function prepareLocalRecord(
     oldStateHash: session.snapshot.manifestHash,
     newStateHash: hashStoryManifest(manifest),
     startedRecordHash: null,
-    result: storyResult(manifest),
+    result: storyResult(manifest, factStatesRemoved),
     preparedAt
   };
 }

@@ -7,6 +7,7 @@ import { initializeProject } from "../server/project-discovery.js";
 import { stripInheritedAcl } from "./state-root-fixture.js";
 import { StoryService } from "../server/story-service.js";
 import { parseWorkerMutation } from "../server/worker-mutations.js";
+import { firstFactText } from "../shared/fact-state.js";
 import type { StoryPayload } from "../shared/types.js";
 import { API_PROTOCOL_HEADERS, fetchWithApiProtocol } from "./http-test-client.js";
 import { makeSyntheticNovelAiV2Base64 } from "./novelai-fixture.js";
@@ -246,7 +247,7 @@ test("1667 import routes a real-shaped legacy .scenario through the service", as
     "Opening prompt.",
     "Continuation prompt."
   ]);
-  assert.deepEqual(loaded.facts.map(({ tag, text }) => ({ tag, text })), [
+  assert.deepEqual(loaded.facts.map((fact) => ({ tag: fact.tag, text: firstFactText(fact) })), [
     { tag: "memory", text: "Persistent legacy memory." },
     { tag: "Legacy Entry", text: "A legacy entry keeps its core prose." }
   ]);
@@ -282,7 +283,7 @@ test("1667 import-lorebook routes a real-shaped legacy Lorebook through the serv
   await verification.init();
   const payload = await verification.loadStory(story.id);
   await verification.dispose();
-  assert.deepEqual(payload.facts.map(({ tag, text }) => ({ tag, text })), [
+  assert.deepEqual(payload.facts.map((fact) => ({ tag: fact.tag, text: firstFactText(fact) })), [
     { tag: "Legacy Entry", text: "A legacy entry keeps its core prose." }
   ]);
 });

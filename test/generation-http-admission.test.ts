@@ -6,7 +6,7 @@ import { LEGACY_PROMPT_CACHE_CONTEXT, PromptCacheRuntime } from "../server/provi
 import type { SettingsStore } from "../server/settings.js";
 import type { ProviderStoryRuntime } from "../server/story-mutation-runtime.js";
 import type { FactBudgetDrop } from "../shared/fact-budget.js";
-import type { GenerationSettings, Story } from "../shared/types.js";
+import type { GenerationSettings, Story, StoryFact } from "../shared/types.js";
 
 const NOW = "2026-01-01T00:00:00.000Z";
 
@@ -30,7 +30,7 @@ test("rewrite admission reserves the rewrite's own output budget, not the global
     systemPrompt: "Write.",
     contextWindow: 4_096
   };
-  const bigFact = {
+  const bigFact = fact({
     id: "big-fact",
     tag: null,
     text: "x".repeat(8_000),
@@ -39,7 +39,7 @@ test("rewrite admission reserves the rewrite's own output budget, not the global
     keys: [],
     createdAt: NOW,
     updatedAt: NOW
-  };
+  });
   const story: Story = {
     id: "story",
     title: "Story",
@@ -105,7 +105,7 @@ test("rewrite admission reserves the rewrite's own output budget, not the global
 // never reached the callback, so the writer's post-generation report said
 // nothing was dropped even though a Fact was silently absent from the prompt.
 test("continueStory reports own-cap and story-budget drops, not only window-pressure ones", async () => {
-  const overCapFact = {
+  const overCapFact = fact({
     id: "over-cap",
     tag: null,
     text: "This fact's text is far longer than its own five-token budget cap allows.",
@@ -114,7 +114,7 @@ test("continueStory reports own-cap and story-budget drops, not only window-pres
     keys: [],
     createdAt: NOW,
     updatedAt: NOW
-  };
+  });
   const story: Story = {
     id: "story",
     title: "Story",
@@ -174,3 +174,19 @@ test("continueStory reports own-cap and story-budget drops, not only window-pres
 
   assert.deepEqual(reported, [{ factId: "over-cap", reason: "fact-budget" }]);
 });
+
+function fact(
+  overrides: Omit<Partial<StoryFact>, "states"> & { id: string; text: string }
+): StoryFact {
+  const { id, text, ...metadata } = overrides;
+  return {
+    id,
+    tag: null,
+    activation: "always",
+    keys: [],
+    createdAt: NOW,
+    updatedAt: NOW,
+    ...metadata,
+    states: [{ id: `${id}-state`, text, createdAt: NOW, updatedAt: NOW }]
+  };
+}

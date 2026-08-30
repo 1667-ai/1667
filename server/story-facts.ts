@@ -14,11 +14,19 @@ import {
 import { parseFactKeys } from "../shared/fact-keys.js";
 import { parseFactMetadata } from "../shared/fact-validation.js";
 import { FactBudgetError, parseFactBudgetTokens } from "../shared/fact-budget.js";
-import { isChapterSummary } from "../shared/story-tree.js";
+import {
+  canonicalFactStates,
+  factStatesTextWithinLimit,
+  isLegacyFactStateShape,
+  type FactState,
+  type FactTextState
+} from "../shared/fact-state.js";
+import { normalizeFactName } from "../shared/fact-name.js";
 import { hasUnpairedSurrogate } from "./story-format.js";
 import { hasDefinedProperty, requireRecord } from "./validation.js";
 import {
   MAX_FACTS,
+  MAX_FACT_STATES,
   MAX_FACT_TEXT_CHARS,
   MAX_FACT_TAG_CHARS,
   type Story,
@@ -40,8 +48,10 @@ export function createFacts(
   // Validate the complete batch before touching the story. A bad later entry must
   // never leave an earlier imported fact behind.
   const parsed = inputs.map((input) => ({
+    name: parseName(input.name),
     tag: parseTag(input.tag),
     text: parseText(input.text),
+    anchorPartId: parseAnchorPartId(story, input.anchorPartId),
     sourcePartId: parseSourcePartId(story, input.sourcePartId),
     budgetTokens: parseCreateBudgetTokens(input.budgetTokens),
     ...parseMetadata({
@@ -70,8 +80,15 @@ export function createFacts(
   const now = new Date().toISOString();
   story.facts.push(...parsed.map((input, index) => ({
     id: ids[index]!,
+    ...(input.name === undefined ? {} : { name: input.name }),
     tag: input.tag,
-    text: input.text,
+    states: [{
+      id: ids[index]!,
+      ...(input.anchorPartId === undefined ? {} : { anchorPartId: input.anchorPartId }),
+      text: input.text,
+      createdAt: now,
+      updatedAt: now
+    }],
     activation: input.activation,
     keys: input.keys,
     createdAt: now,
@@ -87,8 +104,10 @@ function factInputs(body: Body): Body[] {
   const hasBatch = hasDefinedProperty(body, "facts");
   const hasSingle = [
     "tag",
+    "name",
     "text",
     "sourcePartId",
+    "anchorPartId",
     "activation",
     "keys",
     "secondaryKeys",
@@ -113,10 +132,12 @@ function factInputs(body: Body): Body[] {
   });
 }
 
-export function patchFact(story: Story, factId: string, value: unknown): void {
+export function patchFact(story: Story, factId: string, value: unknown): boolean {
   const body = requireRecord(value, "fact patch");
   const fact = findFact(story, factId);
+  const candidate = cloneFact(fact);
   const hasTag = hasDefinedProperty(body, "tag");
+  const hasName = hasDefinedProperty(body, "name");
   const hasText = hasDefinedProperty(body, "text");
   const hasActivation = hasDefinedProperty(body, "activation");
   const hasKeys = hasDefinedProperty(body, "keys");
@@ -126,59 +147,238 @@ export function patchFact(story: Story, factId: string, value: unknown): void {
   const hasRecursion = hasDefinedProperty(body, "recursion");
   const hasPriority = hasDefinedProperty(body, "priority");
   const hasBudgetTokens = hasDefinedProperty(body, "budgetTokens");
-  const hasPatch = hasTag || hasText || hasActivation || hasKeys
+  let textStateChanged = false;
+  const hasPatch = hasName || hasTag || hasText || hasActivation || hasKeys
     || hasSecondaryKeys || hasSecondaryMode || hasScanDepth || hasRecursion
     || hasPriority || hasBudgetTokens;
   if (!hasPatch) {
     throw new HttpError(400, "Provide fact fields to update the fact.");
   }
-  if (hasTag) fact.tag = parseTag(body.tag);
-  if (hasText) fact.text = parseText(body.text);
-  if (hasActivation) fact.activation = parseActivation(body.activation);
-  if (hasKeys) fact.keys = parseKeys(body.keys);
+  if (hasName) {
+    const name = parseName(body.name);
+    if (name === undefined) delete candidate.name;
+    else candidate.name = name;
+  }
+  if (hasTag) candidate.tag = parseTag(body.tag);
+  if (hasText) {
+    const states = canonicalFactStates(candidate);
+    if (states.length > 1) {
+      throw new HttpError(400, "A Fact with several states must edit a state by id.");
+    }
+    const text = parseText(body.text);
+    const state = states[0];
+    if (state === undefined || !("text" in state)) {
+      throw new HttpError(400, "A Fact must have one text state to edit its text.");
+    }
+    textStateChanged = state.text !== text;
+    candidate.states = [{ ...state, text }];
+  }
+  if (hasActivation) candidate.activation = parseActivation(body.activation);
+  if (hasKeys) candidate.keys = parseKeys(body.keys);
   if (hasSecondaryKeys) {
-    if (body.secondaryKeys === null) delete fact.secondaryKeys;
+    if (body.secondaryKeys === null) delete candidate.secondaryKeys;
     else {
       const secondaryKeys = parseKeys(body.secondaryKeys);
-      if (secondaryKeys.length === 0) delete fact.secondaryKeys;
-      else fact.secondaryKeys = secondaryKeys;
+      if (secondaryKeys.length === 0) delete candidate.secondaryKeys;
+      else candidate.secondaryKeys = secondaryKeys;
     }
   }
   if (hasSecondaryMode) {
-    if (body.secondaryMode === null) delete fact.secondaryMode;
+    if (body.secondaryMode === null) delete candidate.secondaryMode;
     else {
       const mode = parseSecondaryMode(body.secondaryMode);
-      if (mode === "and") delete fact.secondaryMode;
-      else fact.secondaryMode = mode;
+      if (mode === "and") delete candidate.secondaryMode;
+      else candidate.secondaryMode = mode;
     }
   }
   if (hasScanDepth) {
-    if (body.scanDepth === null) delete fact.scanDepth;
+    if (body.scanDepth === null) delete candidate.scanDepth;
     else {
       const depth = parseScanDepth(body.scanDepth);
-      if (depth === DEFAULT_FACT_SCAN_PARTS) delete fact.scanDepth;
-      else fact.scanDepth = depth;
+      if (depth === DEFAULT_FACT_SCAN_PARTS) delete candidate.scanDepth;
+      else candidate.scanDepth = depth;
     }
   }
   if (hasRecursion) {
-    if (body.recursion === null) delete fact.recursion;
+    if (body.recursion === null) delete candidate.recursion;
     else {
       const recursion = parseRecursion(body.recursion);
-      if (recursion === "on") delete fact.recursion;
-      else fact.recursion = recursion;
+      if (recursion === "on") delete candidate.recursion;
+      else candidate.recursion = recursion;
     }
   }
   if (hasPriority) {
     const priority = parsePriority(body.priority);
-    if (priority === "normal") delete fact.priority;
-    else fact.priority = priority;
+    if (priority === "normal") delete candidate.priority;
+    else candidate.priority = priority;
   }
   if (hasBudgetTokens) {
-    if (body.budgetTokens === null) delete fact.budgetTokens;
-    else fact.budgetTokens = parseCreateBudgetTokens(body.budgetTokens);
+    if (body.budgetTokens === null) delete candidate.budgetTokens;
+    else candidate.budgetTokens = parseCreateBudgetTokens(body.budgetTokens);
   }
-  normalizeFactMetadata(fact);
-  fact.updatedAt = new Date().toISOString();
+  normalizeFactMetadata(candidate);
+  validateAggregateText(candidate);
+  if (sameFactIgnoringClocks(fact, candidate)) return false;
+  const now = new Date().toISOString();
+  // A text edit changes the canonical state's own revision clock even when
+  // other metadata already forced the Fact into the successor shape.
+  if (textStateChanged) {
+    candidate.states = candidate.states.map((state) => ({ ...state, updatedAt: now }));
+  }
+  if (isLegacyLowerableFact(candidate)) {
+    const state = canonicalFactStates(candidate)[0]!;
+    candidate.states = [{ ...state, updatedAt: now }];
+  }
+  candidate.updatedAt = now;
+  replaceFact(fact, candidate);
+  return true;
+}
+
+/** Add one state to a Fact. The caller supplies the deterministic state id
+ * when the mutation is replayed by the worker; direct calls use a UUID. */
+export function createFactState(
+  story: Story,
+  factId: string,
+  value: unknown,
+  stateId: string = randomUUID()
+): boolean {
+  const body = requireRecord(value, "fact state");
+  const sourceFact = findFact(story, factId);
+  const staged = stageStateMetadata(story, factId, body);
+  const parsed = parseStateValue(body, staged.story, "fact state");
+  const anchorPartId = parseAnchorPartId(staged.story, body.anchorPartId);
+  const states = [...canonicalFactStates(staged.fact)];
+  const existing = states.find((state) => state.id === stateId);
+  if (existing !== undefined) {
+    if (sameStateInput(existing, parsed, anchorPartId)) {
+      if (staged.metadataChanged) replaceFact(sourceFact, staged.fact);
+      return staged.metadataChanged;
+    }
+    throw new HttpError(409, `Fact state id already exists: ${stateId}`);
+  }
+  if (staged.story.facts.some((candidate) => canonicalFactStates(candidate).some((state) => state.id === stateId))) {
+    throw new HttpError(409, `Fact state id already exists: ${stateId}`);
+  }
+  if (states.length >= MAX_FACT_STATES) {
+    throw new HttpError(409, `This Fact already has the maximum of ${MAX_FACT_STATES} states.`);
+  }
+  if (states.some((state) => state.anchorPartId === anchorPartId)) {
+    throw new HttpError(409, "A Fact cannot have two states at the same Anchor.");
+  }
+  const now = new Date().toISOString();
+  const state: FactState = {
+    id: stateId,
+    ...(anchorPartId === undefined ? {} : { anchorPartId }),
+    ...parsed,
+    createdAt: now,
+    updatedAt: now
+  } as FactState;
+  const candidate = staged.fact;
+  candidate.states = [...states, state];
+  validateAggregateText(candidate);
+  candidate.updatedAt = now;
+  replaceFact(sourceFact, candidate);
+  return true;
+}
+
+/** Edit one state. A patch with only `anchorPartId` is valid and keeps the
+ * state text or End State unchanged. */
+export function patchFactState(
+  story: Story,
+  factId: string,
+  stateId: string,
+  value: unknown
+): boolean {
+  const body = requireRecord(value, "fact state patch");
+  const sourceFact = findFact(story, factId);
+  const sourceStates = [...canonicalFactStates(sourceFact)];
+  const index = sourceStates.findIndex((state) => state.id === stateId);
+  if (index < 0) throw new HttpError(404, `Fact state not found: ${stateId}`);
+  const hasAnchor = hasDefinedProperty(body, "anchorPartId");
+  const hasText = hasDefinedProperty(body, "text");
+  const hasEnds = hasDefinedProperty(body, "ends");
+  if (!hasAnchor && !hasText && !hasEnds) {
+    throw new HttpError(400, "Provide text, ends, or anchorPartId to update the fact state.");
+  }
+  // Apply metadata only after the state mutation shape is valid. A metadata-
+  // only body belongs to patchFact, and must never be accepted here.
+  const staged = stageStateMetadata(story, factId, body);
+  const states = [...canonicalFactStates(staged.fact)];
+  if (hasText && hasEnds) {
+    throw new HttpError(400, "A fact state must contain text or ends, not both.");
+  }
+  const current = states[index]!;
+  const anchorPartId = hasAnchor
+    ? parseAnchorPartId(staged.story, body.anchorPartId)
+    : current.anchorPartId;
+  if (states.some((state, candidateIndex) => candidateIndex !== index && state.anchorPartId === anchorPartId)) {
+    throw new HttpError(409, "A Fact cannot have two states at the same Anchor.");
+  }
+  const valuePatch = hasText || hasEnds ? parseStateValue(body, staged.story, "fact state patch") : null;
+  const nextValue = {
+    id: current.id,
+    ...(anchorPartId === undefined ? {} : { anchorPartId }),
+    ...(valuePatch ?? ("ends" in current ? { ends: true } : { text: current.text })),
+  };
+  if (sameStateInput(current, nextValue, anchorPartId)) {
+    if (staged.metadataChanged) replaceFact(sourceFact, staged.fact);
+    return staged.metadataChanged;
+  }
+  const now = new Date().toISOString();
+  const next: FactState = { ...nextValue, createdAt: current.createdAt, updatedAt: now } as FactState;
+  states[index] = next;
+  staged.fact.states = states;
+  validateAggregateText(staged.fact);
+  staged.fact.updatedAt = next.updatedAt;
+  replaceFact(sourceFact, staged.fact);
+  return true;
+}
+
+function stageStateMetadata(
+  story: Story,
+  factId: string,
+  body: Record<string, unknown>
+): { readonly story: Story; readonly fact: StoryFact; readonly metadataChanged: boolean } {
+  const sourceFact = findFact(story, factId);
+  const candidateFact = cloneFact(sourceFact);
+  const candidateStory: Story = {
+    ...story,
+    facts: story.facts.map((fact) => fact === sourceFact ? candidateFact : fact)
+  };
+  const metadataChanged = applyStateMetadata(candidateStory, factId, body);
+  return {
+    story: candidateStory,
+    fact: findFact(candidateStory, factId),
+    metadataChanged
+  };
+}
+
+function applyStateMetadata(story: Story, factId: string, body: Record<string, unknown>): boolean {
+  if (!hasDefinedProperty(body, "metadata")) return false;
+  const metadata = requireRecord(body.metadata, "fact state metadata");
+  if (hasDefinedProperty(metadata, "text")) {
+    throw new HttpError(400, "Fact state metadata cannot edit state text.");
+  }
+  return patchFact(story, factId, metadata);
+}
+
+/** Remove one state. Removing the final state removes its Fact. */
+export function deleteFactState(story: Story, factId: string, stateId: string): boolean {
+  const factIndex = story.facts.findIndex((candidate) => candidate.id === factId);
+  if (factIndex < 0) throw new HttpError(404, `Fact not found: ${factId}`);
+  const fact = story.facts[factIndex]!;
+  const states = [...canonicalFactStates(fact)];
+  const stateIndex = states.findIndex((state) => state.id === stateId);
+  if (stateIndex < 0) throw new HttpError(404, `Fact state not found: ${stateId}`);
+  if (states.length === 1) story.facts.splice(factIndex, 1);
+  else {
+    const candidate = cloneFact(fact);
+    states.splice(stateIndex, 1);
+    candidate.states = states;
+    candidate.updatedAt = new Date().toISOString();
+    replaceFact(fact, candidate);
+  }
+  return true;
 }
 
 export function deleteFact(story: Story, factId: string): void {
@@ -229,6 +429,14 @@ function parseTag(value: unknown): string | null {
   return tag.length === 0 ? null : tag;
 }
 
+function parseName(value: unknown): string | undefined {
+  try {
+    return normalizeFactName(value);
+  } catch (error) {
+    throw new HttpError(400, error instanceof Error ? error.message : "Invalid Fact name");
+  }
+}
+
 function parseText(value: unknown): string {
   if (typeof value !== "string") throw new HttpError(400, "Missing fact text");
   if (value.trim().length === 0) throw new HttpError(400, "Fact text cannot be empty.");
@@ -242,10 +450,99 @@ function parseText(value: unknown): string {
 function parseSourcePartId(story: Story, value: unknown): string | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "string") throw new HttpError(400, "sourcePartId must be a string when provided");
-  if (!story.nodes.some((node) => node.id === value && !isChapterSummary(node))) {
+  if (!story.nodes.some((node) => node.id === value)) {
     throw new HttpError(400, `Unknown source part: ${value}`);
   }
   return value;
+}
+
+function parseAnchorPartId(story: Story, value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") throw new HttpError(400, "anchorPartId must be a string or null");
+  if (!story.nodes.some((node) => node.id === value && node.role !== "summary")) {
+    throw new HttpError(400, `Unknown anchor part: ${value}`);
+  }
+  return value;
+}
+
+type ParsedStateValue = { readonly text: string } | { readonly ends: true };
+
+function parseStateValue(body: Body, _story: Story, label: string): ParsedStateValue {
+  const hasText = hasDefinedProperty(body, "text");
+  const hasEnds = hasDefinedProperty(body, "ends");
+  if (hasText === hasEnds) {
+    throw new HttpError(400, `${label} must contain exactly one of text or ends: true.`);
+  }
+  if (hasEnds) {
+    if (body.ends !== true) throw new HttpError(400, `${label}.ends must be true.`);
+    return { ends: true };
+  }
+  return { text: parseText(body.text) };
+}
+
+function sameStateInput(
+  current: FactState,
+  value: ParsedStateValue | { readonly text?: string; readonly ends?: true },
+  anchorPartId: string | undefined
+): boolean {
+  if (current.anchorPartId !== anchorPartId) return false;
+  if ("ends" in value) return "ends" in current && current.ends === true;
+  return "text" in current && current.text === value.text;
+}
+
+function cloneFact(fact: StoryFact): StoryFact {
+  return {
+    ...fact,
+    keys: [...fact.keys],
+    states: canonicalFactStates(fact).map((state) => ({ ...state }))
+  };
+}
+
+/** Apply a normalized candidate without leaving cleared optional metadata on
+ * the live Fact. `Object.assign` alone keeps an old `name`, `priority`, or
+ * other defaulted field when a patch deletes it. */
+function replaceFact(target: StoryFact, candidate: StoryFact): void {
+  for (const field of [
+    "name",
+    "secondaryKeys",
+    "secondaryMode",
+    "scanDepth",
+    "recursion",
+    "priority",
+    "budgetTokens",
+    "sourcePartId"
+  ] as const) {
+    if (!(field in candidate)) delete target[field];
+  }
+  Object.assign(target, candidate);
+}
+
+function isLegacyLowerableFact(fact: StoryFact): boolean {
+  if (fact.name !== undefined) return false;
+  // A Fact that left the legacy shape must keep its independent state clock.
+  // Re-clearing metadata must not silently collapse that history back into
+  // the legacy encoding.
+  return isLegacyFactStateShape(fact);
+}
+
+function sameFactIgnoringClocks(left: StoryFact, right: StoryFact): boolean {
+  return JSON.stringify(stripFactClocks(left)) === JSON.stringify(stripFactClocks(right));
+}
+
+function stripFactClocks(fact: StoryFact): unknown {
+  const states = canonicalFactStates(fact).map((state) => {
+    const { createdAt: _createdAt, updatedAt: _updatedAt, ...value } = state;
+    return value;
+  });
+  const { createdAt: _createdAt, updatedAt: _updatedAt, states: _states, ...metadata } = fact;
+  return { ...metadata, states };
+}
+
+function validateAggregateText(fact: StoryFact): void {
+  const states = canonicalFactStates(fact);
+  if (!factStatesTextWithinLimit(states)) {
+    throw new HttpError(400, `Fact states exceed the ${MAX_FACT_TEXT_CHARS}-character aggregate limit.`);
+  }
 }
 
 function assertWellFormed(value: string, label: string): void {

@@ -47,11 +47,13 @@ import {
   formatV8,
   formatV10,
   formatV12,
+  formatV14,
   MAX_DELETED_STORY_MANIFEST_BYTES,
   parseStoryManifestBytes,
   STORY_SCHEMA_VERSION_V8,
   STORY_SCHEMA_VERSION_V10,
   STORY_SCHEMA_VERSION_V12,
+  STORY_SCHEMA_VERSION_V14,
   storySummaryV6FromContent
 } from "./story-v6-codec.js";
 import type {
@@ -121,7 +123,9 @@ type PresentStorySlot = Extract<
       | "v10-live"
       | "v10-deleted"
       | "v12-live"
-      | "v12-deleted";
+      | "v12-deleted"
+      | "v14-live"
+      | "v14-deleted";
   }
 >;
 
@@ -495,7 +499,8 @@ export function requirePresentStorySlot(
   if (
     !resolveAsideActivation(asideActivation)
     && (slot.kind === "v10-live" || slot.kind === "v10-deleted"
-      || slot.kind === "v12-live" || slot.kind === "v12-deleted")
+      || slot.kind === "v12-live" || slot.kind === "v12-deleted"
+      || slot.kind === "v14-live" || slot.kind === "v14-deleted")
     && !options.allowRecovery
   ) {
     throw new ServiceError(
@@ -509,6 +514,7 @@ export function requirePresentStorySlot(
 /** Pick the envelope serializer by the schema version the content already
  *  carries (`server/story-v6-reducer.ts` decides that version). */
 function formatManifestEnvelope(manifest: StoryEnvelopeManifest): string {
+  if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V14) return formatV14(manifest);
   if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V12) return formatV12(manifest);
   if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V10) return formatV10(manifest);
   return manifest.schemaVersion === STORY_SCHEMA_VERSION_V8 ? formatV8(manifest) : formatV6(manifest);
@@ -522,8 +528,13 @@ function persistedSlotFromManifest(
   manifestBytes: Buffer
 ): Extract<
   StoredStorySlot,
-  { kind: "v6-live" | "v6-deleted" | "v8-live" | "v8-deleted" | "v10-live" | "v10-deleted" | "v12-live" | "v12-deleted" }
+  { kind: "v6-live" | "v6-deleted" | "v8-live" | "v8-deleted" | "v10-live" | "v10-deleted" | "v12-live" | "v12-deleted" | "v14-live" | "v14-deleted" }
 > {
+  if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V14) {
+    return manifest.kind === "live"
+      ? { kind: "v14-live", manifest, manifestBytes }
+      : { kind: "v14-deleted", manifest, manifestBytes };
+  }
   if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V12) {
     return manifest.kind === "live"
       ? { kind: "v12-live", manifest, manifestBytes }

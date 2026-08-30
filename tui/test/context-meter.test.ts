@@ -30,11 +30,13 @@ import { summaryNodeInstruction } from "../../shared/chapters.js";
 import { formatFactsMessage } from "../../shared/story-facts.js";
 import { continuationPlan, DEFAULT_INSTRUCTION } from "../../shared/continuation-plan.js";
 import { renderPromptPlan } from "../../shared/prompt-plan.js";
-import { assertPromptReadyStoryPayload } from "../../shared/types.js";
+import { effectiveFactAtPath, type EffectiveStoryFact } from "../../shared/fact-state.js";
+import { assertPromptReadyStoryPayload, type StoryPayload } from "../../shared/types.js";
 import { continuationIntent } from "../src/continuation-intent.js";
 import { createFrameDeadlineCollector } from "../src/animation-deadline.js";
 import { estimateResponseGrowthTokens } from "../src/response-growth-estimate.js";
 import type { PromptTokenCount } from "../../shared/tokenize-source.js";
+import { factWithText } from "./fact-fixture.js";
 
 function request(
   systemPrompt: string,
@@ -52,6 +54,13 @@ function request(
   return retakeNodeId === null
     ? { ...base, operation: "continue", targetId }
     : { ...base, operation: "retake", targetId: retakeNodeId };
+}
+
+function projectedFacts(payload: Pick<StoryPayload, "facts" | "path">): EffectiveStoryFact[] {
+  return payload.facts.flatMap((fact) => {
+    const effective = effectiveFactAtPath(fact, payload.path);
+    return effective === null ? [] : [effective];
+  });
 }
 
 /** The meter as the rail actually paints it, at the real split geometry. */
@@ -404,7 +413,7 @@ describe("honest next-request context meter", () => {
   test("matches the server plan for append, focused-seam, and prompted-retake drafts", () => {
     const payload = createDemoController().payload();
     const systemPrompt = "Keep voice close, concrete, and restrained.";
-    const facts = formatFactsMessage(payload.facts);
+    const facts = formatFactsMessage(projectedFacts(payload));
     const retake = payload.path.at(-1)!;
     const retakeParentIndex = payload.path.findIndex((part) => part.id === retake.parentId);
     const cases = [
@@ -459,21 +468,22 @@ describe("honest next-request context meter", () => {
     const payload = structuredClone(createDemoController().payload());
     const [always, keyed, inactive] = payload.facts;
     payload.facts = [
-      { ...always!, id: "always-fact", text: "Always fact.", activation: "always", keys: [] },
-      { ...keyed!, id: "green-door-fact", text: "Green door fact.", activation: "keyed", keys: ["green door"] },
-      { ...inactive!, id: "moon-fact", text: "Moon fact.", activation: "keyed", keys: ["moon"] }
+      factWithText(always!, "Always fact.", { id: "always-fact", activation: "always", keys: [] }),
+      factWithText(keyed!, "Green door fact.", { id: "green-door-fact", activation: "keyed", keys: ["green door"] }),
+      factWithText(inactive!, "Moon fact.", { id: "moon-fact", activation: "keyed", keys: ["moon"] })
     ];
     const estimate = nextRequestEstimate(
       payload,
       request("Keep the voice restrained.", payload.path.at(-1)!.id, "Mention the green door.")
     );
-    const selected = formatFactsMessage(payload.facts.slice(0, 2))!;
+    const selected = formatFactsMessage(projectedFacts({ ...payload, facts: payload.facts.slice(0, 2) }))!;
+    const allFacts = formatFactsMessage(projectedFacts(payload))!;
 
     expect(estimate.factStatuses.get("always-fact")).toEqual({ kind: "sent" });
     expect(estimate.factStatuses.get("green-door-fact")).toEqual({ kind: "sent" });
     expect(estimate.factStatuses.get("moon-fact")).toEqual({ kind: "not-matched" });
     expect(estimate.breakdown.facts).toBe(estimateTokens(selected) + 4);
-    expect(estimate.breakdown.facts).not.toBe(estimateTokens(formatFactsMessage(payload.facts)!)+4);
+    expect(estimate.breakdown.facts).not.toBe(estimateTokens(allFacts) + 4);
   });
 
   test("models a chapter-boundary Continue as a new child with full prior context", () => {
@@ -1010,15 +1020,15 @@ describe("honest next-request context meter", () => {
   test("active keyed CJK facts keep their cell-aligned tag at the rail edge", () => {
     const source = demoAppSource();
     const payload = structuredClone(source.payload);
-    payload.facts = [{
-      id: "fact-cjk",
-      tag: "人物界",
-      text: "玲珑守望者守望者守望者守望者\nShe waits beside the eastern gate.",
-      activation: "keyed",
-      keys: ["玲珑"],
-      createdAt: "1667-07-19T16:09:00.000Z",
-      updatedAt: "1667-07-19T16:09:00.000Z"
-    }];
+    payload.facts = [factWithText(payload.facts[0]!,
+      "玲珑守望者守望者守望者守望者\nShe waits beside the eastern gate.", {
+        id: "fact-cjk",
+        tag: "人物界",
+        activation: "keyed",
+        keys: ["玲珑"],
+        createdAt: "1667-07-19T16:09:00.000Z",
+        updatedAt: "1667-07-19T16:09:00.000Z"
+      })];
     const next = request(
       "Write vivid prose.",
       payload.path.at(-1)!.id,

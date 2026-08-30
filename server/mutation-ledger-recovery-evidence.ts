@@ -242,13 +242,21 @@ function validatePreparedResultState(
 ): void {
   const result = prepared.result;
   if (result.kind === "story" || result.kind === "settings") {
+    // Destructive mutation counts belong to the durable receipt. They do not
+    // describe aggregate state, so compare only the result's state projection.
+    const resultState = result.kind === "story" ? {
+      kind: result.kind,
+      storyId: result.storyId,
+      storyRevision: result.storyRevision,
+      summary: result.summary
+    } : result;
     const stateResult = state.kind === "story" ? {
       kind: state.kind,
       storyId: state.storyId,
       storyRevision: state.storyRevision,
       summary: state.summary
     } : state;
-    if (result.kind !== state.kind || canonicalJson(result) !== canonicalJson(stateResult)) {
+    if (result.kind !== state.kind || canonicalJson(resultState) !== canonicalJson(stateResult)) {
       throw recoveryError(`Prepared result does not match the exact ${label} projection`);
     }
     return;

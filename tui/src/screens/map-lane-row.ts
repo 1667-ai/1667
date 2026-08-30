@@ -1,4 +1,5 @@
 import type { LaneLayout, LaneRow } from "../lane-layout.js";
+import type { FactLensNode } from "../map-fact-lens.js";
 import { tagGlyph, tagRole, formatMapWordsBare, mapLineLabel, opening } from "./map-row-labels.js";
 import {
   padCells,
@@ -24,17 +25,18 @@ export function renderLaneRow(
   row: LaneRow,
   layout: LaneGeometry,
   width: number,
-  streamTargetId: string | null
+  streamTargetId: string | null,
+  lens: FactLensNode | null = null
 ): FrameLine {
   if (row.kind === "fork") return renderForkRow(row, layout);
   if (row.kind === "close") return renderCloseRow(row, layout);
   const line: FrameLine = [segment(row.cursor ? "▸ " : "  ", row.cursor ? "focus / accent" : "prose")];
-  const { text: glyph, role } = ownGlyph(row, streamTargetId);
+  const { text: glyph, role } = ownGlyph(row, streamTargetId, lens);
   const override = row.lane === -1 ? undefined : { lane: row.lane, cell: segment(glyph, role) };
-  line.push(...laneCells(row.alive, layout.laneCount, override));
+  line.push(...laneCells(row.alive, layout.laneCount, override, lens));
   const overflow = overflowCell(layout, row.lane === -1 ? -1 : row.parked, "dimmed page");
   if (overflow !== null) line.push(overflow);
-  appendLabel(line, row, width);
+  appendLabel(line, row, width, lens);
   return line;
 }
 
@@ -60,12 +62,16 @@ export function renderLaneMarker(
 function laneCells(
   alive: readonly boolean[],
   laneCount: number,
-  override?: { lane: number; cell: FrameSegment }
+  override?: { lane: number; cell: FrameSegment },
+  lens: FactLensNode | null = null
 ): FrameSegment[] {
   const cells: FrameSegment[] = [];
+  const role = lens?.kind === "off-path" || lens?.kind === "dead"
+    ? "dimmed page"
+    : lens?.kind === "later" ? lensInkRole(lens) : "dimmed page";
   for (let lane = 0; lane < laneCount; lane += 1) {
     if (override !== undefined && lane === override.lane) { cells.push(override.cell); continue; }
-    cells.push(alive[lane] === true ? segment("│ ", "dimmed page") : segment("  "));
+    cells.push(alive[lane] === true ? segment("│ ", role) : segment("  "));
   }
   return cells;
 }
@@ -83,9 +89,25 @@ function lineWidthOf(line: FrameLine): number {
   return line.reduce((sum, part) => sum + visibleWidth(part.text), 0);
 }
 
-function ownGlyph(row: LaneRow, streamTargetId: string | null): { text: string; role: "focus / accent" | "accent · deep" | "prose · dim" | "dimmed page" } {
+function ownGlyph(
+  row: LaneRow,
+  streamTargetId: string | null,
+  lens: FactLensNode | null = null
+): { text: string; role: "focus / accent" | "accent · deep" | "prose · dim" | "dimmed page" | "fresh 1" | "fresh 2" } {
   const streaming = row.kind === "node" || row.kind === "end" ? row.node.id === streamTargetId : false;
   const pad = streaming ? "⟳" : " ";
+  if (lens !== null) {
+    if (lens.end) return { text: `✕${pad}`, role: "prose · dim" };
+    if (lens.kind === "dead") return { text: "╌ ", role: "dimmed page" };
+    if (lens.anchor) {
+      return { text: `◆${pad}`, role: lens.kind === "later" ? lensInkRole(lens) : "focus / accent" };
+    }
+    if (lens.kind === "off-path") return { text: `·${pad}`, role: "dimmed page" };
+    return {
+      text: row.kind === "node" && row.active ? `◉${pad}` : `●${pad}`,
+      role: lens.kind === "later" ? lensInkRole(lens) : "accent · deep"
+    };
+  }
   if (row.kind === "node") {
     return row.active ? { text: `◉${pad}`, role: "focus / accent" } : { text: `●${pad}`, role: "accent · deep" };
   }
@@ -94,11 +116,11 @@ function ownGlyph(row: LaneRow, streamTargetId: string | null): { text: string; 
   return { text: "● ", role: "dimmed page" };
 }
 
-function appendLabel(line: FrameLine, row: LabelledRow, width: number): void {
+function appendLabel(line: FrameLine, row: LabelledRow, width: number, lens: FactLensNode | null = null): void {
   const remaining = () => Math.max(1, width - lineWidthOf(line));
   if (row.kind === "node") {
     const collapsed = row.node.preview.replace(/\s+/g, " ").trim();
-    const role = row.cursor ? "prose" : "prose · dim";
+    const role = lensRole(lens, row.cursor ? "prose" : "prose · dim");
     if (row.tag === null) {
       line.push(segment(truncate(collapsed, remaining()), role));
       return;
@@ -111,7 +133,7 @@ function appendLabel(line: FrameLine, row: LabelledRow, width: number): void {
   }
   if (row.kind === "end") {
     const label = mapLineLabel({ tag: row.tag, node: row.node });
-    const role = row.cursor ? "prose" : tagRole(row.tag);
+    const role = lensRole(lens, row.cursor ? "prose" : tagRole(row.tag));
     const tail = row.words < 1_000 ? `${row.words}w` : formatMapWordsBare(row.words);
     const tailText = ` · ${tail}`;
     const labelBudget = Math.max(1, width - lineWidthOf(line) - visibleWidth(tailText));
@@ -122,7 +144,7 @@ function appendLabel(line: FrameLine, row: LabelledRow, width: number): void {
   }
   if (row.kind === "sketch") {
     const label = `“${opening(row.node.preview)}‥”`;
-    line.push(segment(truncate(label, remaining()), row.cursor ? "prose" : "prose · dim"));
+    line.push(segment(truncate(label, remaining()), lensRole(lens, row.cursor ? "prose" : "prose · dim")));
     return;
   }
   if (row.kind === "sketches") {
@@ -131,7 +153,19 @@ function appendLabel(line: FrameLine, row: LabelledRow, width: number): void {
     return;
   }
   const label = `⋯ ×${row.lineCount} ${row.lineCount === 1 ? "line" : "lines"} · cold ${row.weeks} wks`;
-  line.push(segment(truncate(label, remaining()), "prose · dim"));
+  line.push(segment(truncate(label, remaining()), lensRole(lens, "prose · dim")));
+}
+
+function lensRole(lens: FactLensNode | null, fallback: DisplayRole): DisplayRole {
+  if (lens === null) return fallback;
+  if (lens.kind === "off-path" || lens.kind === "dead") return "dimmed page";
+  if (lens.kind === "later") return lensInkRole(lens);
+  if (lens.kind === "ended") return "prose · dim";
+  return "accent · deep";
+}
+
+function lensInkRole(lens: FactLensNode): "fresh 1" | "fresh 2" {
+  return (lens.stateIndex ?? 0) > 1 ? "fresh 2" : "fresh 1";
 }
 
 function renderForkRow(row: Extract<LaneRow, { kind: "fork" }>, layout: LaneGeometry): FrameLine {

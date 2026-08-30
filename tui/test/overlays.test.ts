@@ -29,6 +29,7 @@ import type {
 } from "../../shared/settings-v2-types.js";
 import { EMPTY_SAMPLING_V2 } from "../../shared/settings-v2-types.js";
 import { writingPromptSettingsFromAuthorBrief } from "../../shared/settings-v5-writing.js";
+import { makeFact } from "./fact-fixture.js";
 
 describe("fuzzy matching", () => {
   test("orders contiguous early matches first", () => {
@@ -58,9 +59,9 @@ describe("library model", () => {
 describe("facts model", () => {
   const stamp = { createdAt: "2026-07-18T10:00:00Z", updatedAt: "2026-07-18T10:00:00Z" };
   const facts = [
-    { id: "1", tag: "Character", text: "Maren\nKeeper of the lantern-house.", activation: "always" as const, keys: [], ...stamp },
-    { id: "2", tag: "Item", text: "Brass compass\nPoints at want, not north.", activation: "always" as const, keys: [], ...stamp },
-    { id: "3", tag: null, text: "The pass closes for three days in any real storm.", activation: "always" as const, keys: [], ...stamp }
+    makeFact("1", "Maren\nKeeper of the lantern-house.", "Character", stamp),
+    makeFact("2", "Brass compass\nPoints at want, not north.", "Item", stamp),
+    makeFact("3", "The pass closes for three days in any real storm.", null, stamp)
   ];
   test("tags start with the all chip and sort", () => {
     expect(factTags(facts)).toEqual([null, "Character", "Item"]);
@@ -77,7 +78,7 @@ describe("facts model", () => {
   });
   test("retains a tag identity when sorted chips shift and falls back to all when it disappears", () => {
     const selected = { chip: 2, cursor: 0, selectedTag: "Item" };
-    const inserted = [{ id: "4", tag: "Artifact", text: "Map", activation: "always" as const, keys: [], ...stamp }, ...facts];
+    const inserted = [makeFact("4", "Map", "Artifact", stamp), ...facts];
     expect(boundedFactSelection(inserted, selected, "")).toMatchObject({ chip: 3, selectedTag: "Item" });
     expect(boundedFactSelection(facts.filter((fact) => fact.tag !== "Item"), selected, ""))
       .toEqual({ chip: 0, cursor: 0, selectedTag: null });
@@ -85,7 +86,7 @@ describe("facts model", () => {
   test("multiline persisted Fact tags stay outside the reusable slider", () => {
     for (const separator of ["\n", "\r", "\u2028", "\u2029"]) {
       const tag = `weather${separator}urgent`;
-      const fact = { id: "multiline", tag, text: "Body stays whole.", activation: "always" as const, keys: [], ...stamp };
+      const fact = makeFact("multiline", "Body stays whole.", tag, stamp);
 
       expect(factTagPresets([fact])).not.toContain(tag);
     }

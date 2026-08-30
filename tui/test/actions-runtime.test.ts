@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
-import { handleKey, initialState, type AppSource } from "../src/app.js";
-import { demoAppSource } from "../src/demo.js";
+import { dispatch, handleKey, initialState, type AppSource } from "../src/app.js";
+import { createDemoController, demoAppSource } from "../src/demo.js";
 import { moveComposerTo, createComposer } from "../src/composer-model.js";
 import { capturePendingDirectDraft } from "../src/composer-ownership.js";
 import { commandContext, commandMatches } from "../src/command-model.js";
-import { createSelectionSafeMouseGate, mouseToAction } from "../src/mouse-actions.js";
+import { captureMouseActionState, createSelectionSafeMouseGate, mouseToAction } from "../src/mouse-actions.js";
 import {
   composeAction,
   currentPartActions,
@@ -19,7 +19,7 @@ import { ActionRuntime, beginInteraction } from "../src/action-runtime.js";
 import { requestGenerationStop } from "../src/generation-action.js";
 import { adoptSameStoryPayload } from "../src/story-adoption.js";
 import { renderStoryScreen } from "../src/screens/story.js";
-import { frameText } from "../src/screens/story/frame.js";
+import { frameText, plainLine, visibleWidth } from "../src/screens/story/frame.js";
 
 const key = (name: string, sequence = name): KeyEvent => ({ name, sequence, shift: false, ctrl: false, meta: false }) as KeyEvent;
 const STREAM_STARTED_AT = "2026-07-22T00:00:00.000Z";
@@ -152,6 +152,66 @@ describe("demo action runtime and input", () => {
     // The menu carries the row it was opened on, so a part landing above it
     // cannot slide the menu onto a different one.
     expect(click(2)).toEqual({ action: "open-actions", index: 3, rowId: "p3" });
+  });
+
+  test("chapter summary Fact actions keep only the unscoped door by keyboard and mouse", async () => {
+    const { source, state, press } = harness();
+    // Legacy summary rows still travel through the part-action menu. Mark one
+    // active-path part as a summary, as the chapter model does for old stories.
+    state.payload = structuredClone(createDemoController().payload());
+    const legacySummary = state.payload.path[7]!;
+    legacySummary.role = "summary";
+    state.payload.nodes.find(({ id }) => id === legacySummary.id)!.role = "summary";
+    const view = createStoryViewModel(state.payload);
+    const summaryIndex = view.rows.findIndex((row) => row.kind === "part" && row.node.role === "summary");
+    expect(summaryIndex).toBeGreaterThan(-1);
+    state.focusIndex = summaryIndex;
+
+    await press("x");
+    const actions = currentPartActions(state);
+    expect(actions.map(({ id }) => id)).not.toContain("fact-from-here");
+    expect(actions.map(({ id }) => id)).not.toContain("fact-new-state");
+    expect(actions.map(({ id }) => id)).not.toContain("fact-end-here");
+    const unscopedIndex = actions.findIndex(({ id }) => id === "fact-new");
+    expect(unscopedIndex).toBeGreaterThan(-1);
+
+    // The filtered menu is the keyboard-visible action list too.
+    state.actions!.cursor = unscopedIndex;
+    await press("return", "\r");
+    expect(state.mode).toBe("EDITOR");
+    expect(state.editor?.kind).toBe("fact");
+    expect(state.editor?.target).toMatchObject({ factId: null });
+
+    // Reopen the summary menu and prove the surviving action has a mouse row.
+    state.mode = "NAV";
+    state.editor = null;
+    state.focusIndex = summaryIndex;
+    await press("x");
+    const frame = renderStoryScreen(state, { width: 120, height: 30, wrapCache: createWrapCache() });
+    Object.assign(state, frame.derived);
+    const row = frame.lines.findIndex((line) => plainLine(line).includes("New unscoped Fact"));
+    expect(row).toBeGreaterThan(-1);
+    const text = plainLine(frame.lines[row]!);
+    const label = "New unscoped Fact";
+    const left = visibleWidth(text.slice(0, text.indexOf(label)));
+    const mouse = mouseToAction(
+      { type: "down", button: 0, x: left + 1, y: row,
+        modifiers: { shift: false, alt: false, ctrl: false } } as never,
+      captureMouseActionState(state)
+    );
+    expect(mouse).toMatchObject({ action: "focus-index", index: unscopedIndex });
+    await dispatch(mouse!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    expect(state.actions?.cursor).toBe(unscopedIndex);
+
+    const run = mouseToAction(
+      { type: "down", button: 0, x: left + 1, y: row,
+        modifiers: { shift: false, alt: false, ctrl: false } } as never,
+      captureMouseActionState(state)
+    );
+    expect(run).toMatchObject({ action: "open-selected" });
+    await dispatch(run!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    expect(state.mode).toBe("EDITOR");
+    expect(state.editor).toMatchObject({ kind: "fact" });
   });
 
   test("same-story adoption keeps an action menu anchored across chapter rows", async () => {

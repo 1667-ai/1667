@@ -5,6 +5,17 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Facts can change with the story line.** Add Fact States at story-part
+  Anchors. The nearest Fact State on the selected story line supplies the Fact
+  body. An End State stops the Fact on that line. Existing Facts keep their
+  current behavior.
+- **Facts can have an optional name.** The Facts overview shows the Fact Name
+  when it is set. Basic view keeps the common options concise. Advanced view
+  shows state and activation controls. The new controls work with the keyboard
+  and mouse.
+- **`q` now closes 1667 from Aside.** This works from the main Aside view and
+  from its nested menus and text fields.
+
 ## 0.10.5-rc.1 - 2026-08-30
 
 - **Aside retakes now work like story retakes.** Stop keeps generated text.

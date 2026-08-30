@@ -122,7 +122,7 @@ describe("chapter view models", () => {
       breakdown: { voice: 0, facts: 0, recent: 0, summary: 0, note: 0, visual: 0 },
       chapters: [],
       factStatuses: new Map(),
-      activation: { facts: [], traces: new Map(), unevaluated: [] },
+      activation: { facts: [], traces: new Map(), unevaluated: [], outOfScope: [], ended: [], keyedMiss: [] },
       droppedFacts: [],
       imageTokens: new Map()
     };

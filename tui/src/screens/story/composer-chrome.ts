@@ -61,7 +61,8 @@ export function renderComposerFooter(
   narrow: boolean,
   notice: string | null,
   override?: string,
-  promptKind: ComposerPromptKind = null
+  promptKind: ComposerPromptKind = null,
+  footerActions?: readonly HintItem[]
 ): FrameLine[] {
   const lead = segment("┗━ ", "compose accent");
   const budget = Math.max(0, width - visibleWidth("┗━ "));
@@ -86,6 +87,12 @@ export function renderComposerFooter(
   }
   if (override !== undefined) {
     return [composerFieldLine(indent, width, [lead, segment(override, "chrome")])];
+  }
+  if (footerActions !== undefined) {
+    return [composerFieldLine(indent, width, [
+      lead,
+      ...joinHints(footerActions, budget)
+    ])];
   }
   return [composerFieldLine(indent, width, [
     lead,

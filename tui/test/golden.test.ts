@@ -114,7 +114,7 @@ describe("deterministic demo frames", () => {
     expect(frame).toContain(`⚑ ${tag.name}`);
     expect(frame).toContain("‥ Outside, the storm leaned on the shutters");
     expect(frame).toContain("MAP  tree");
-    expect(frame).toContain("m mass · ↑↓ row · ←→ lane · a sketches · tab path · enter · esc writes");
+    expect(frame).toContain("m mass · f lens · ↑↓ row · ←→ lane · a sketches · tab path · enter · esc writes");
     expect(frame).not.toContain("┏━");
   });
 

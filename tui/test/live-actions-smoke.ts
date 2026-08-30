@@ -1,5 +1,6 @@
 import { createApi } from "../src/api.js";
 import { attachHttpServer } from "../src/http-attach.js";
+import { firstFactText } from "../../shared/fact-state.js";
 
 const [baseUrl] = process.argv.slice(2);
 if (baseUrl === undefined) throw new Error("usage: bun test/live-actions-smoke.ts <url>");
@@ -48,7 +49,7 @@ let withFact = await api.createFact(created.id, { tag: "Item", text: "Brass comp
 const factId = withFact.facts.at(-1)?.id;
 if (factId === undefined) throw new Error("fact was not created");
 withFact = await api.patchFact(created.id, factId, { tag: "Item", text: "Brass compass\nPoints at want, not north." });
-if (!withFact.facts.some((fact) => fact.text.includes("not north"))) throw new Error("fact patch not applied");
+if (!withFact.facts.some((fact) => firstFactText(fact).includes("not north"))) throw new Error("fact patch not applied");
 withFact = await api.createFact(created.id, { tag: "Item", text: "Second item." });
 withFact = await api.reorderFact(created.id, factId, 0);
 if (withFact.facts[0]?.id !== factId) throw new Error("fact reorder not applied");
