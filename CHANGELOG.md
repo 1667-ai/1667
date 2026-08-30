@@ -5,6 +5,16 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.5-rc.3 - 2026-08-31
+
+- **Paste now works consistently in text inputs.** Press `Ctrl+V` or `Cmd+V`
+  in Aside, search, filters, Settings prompts, and other text fields. Multiline
+  editors keep line breaks. Single-line fields flatten them. Direct keeps image
+  paste. Right-click paste works in Aside when its prompt is available.
+- **The Fact State re-anchor control is now visible.** Focus the state controls,
+  then press `a` or click `re-anchor` to move the state to the current story
+  cursor. The control stays hidden when the Fact has no eligible state.
+
 ## 0.10.5-rc.2 - 2026-08-30
 
 - **Facts can change with the story line.** Add Fact States at story-part
