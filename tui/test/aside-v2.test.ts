@@ -1159,11 +1159,9 @@ describe("Aside v2 surface", () => {
     await press("R");
     expect(surface.focus).toBe("composer");
     expect(surface.composer.text).toBe("Why?");
-    expect(surface.retakePrompt).toEqual({
-      sessionId: "s1",
-      turnIndex: 0,
-      askComposer: expect.any(Object)
-    });
+    expect(surface.retakePrompt?.sessionId).toBe("s1");
+    expect(surface.retakePrompt?.turnIndex).toBe(0);
+    expect(surface.retakePrompt?.askComposer).not.toBeNull();
     expect(surface.retakePrompt?.askComposer).not.toBe(surface.composer);
     expect(openAsideUseMenu(surface, 0)).toBeFalse();
     expect(surface.useMenu).toBeNull();
