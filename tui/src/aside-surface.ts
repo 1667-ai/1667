@@ -5,8 +5,7 @@
  * calls the same exchange a turn and groups turns in an anchored session.
  * Variant state is canonical; selectors adapt v2 turns for old consumers.
  */
-import type { ComposerState } from "./composer-model.js";
-import { createComposer } from "./composer-model.js";
+import { createComposer, type ComposerState } from "./composer-model.js";
 import type { TextPresentation } from "./text-presentation.js";
 import { asideHopAnchorIndex } from "./aside-hop.js";
 import type { StorySelectionSpan } from "./selection-projection.js";
@@ -117,6 +116,14 @@ export interface AsideDeleteUndo {
   readonly turn: AsideTurnView;
 }
 
+/** The saved turn and original Ask composer held during Reprompt. */
+export interface AsideRetakePromptState {
+  readonly sessionId: string;
+  readonly turnIndex: number;
+  /** Keep the object so its cursor, selection, cut state, and edit history survive. */
+  readonly askComposer: ComposerState;
+}
+
 export type AsideStreamPhase = "thinking" | "writing" | null;
 
 interface AsideSurfaceBase {
@@ -127,7 +134,7 @@ interface AsideSurfaceBase {
   streamText: string;
   /** Visible prefix controller; `streamText` remains authoritative. */
   presentation?: TextPresentation;
-  /** Stop hides the live answer before the backend confirms its result. */
+  /** Stop freezes the visible answer prefix until the backend settles. */
   streamHidden?: boolean;
   /** Reasoning channel streamed separately from the answer channel. */
   streamThoughts: string;
@@ -172,6 +179,8 @@ export interface AsideSessionSurfaceState extends AsideSurfaceBase {
   /** Stable answer identity armed by the first destructive keypress. */
   confirmDelete: { rowId: string } | null;
   deleteUndo: AsideDeleteUndo | null;
+  /** Capital-R Reprompt target. Null means the composer will add a turn. */
+  retakePrompt: AsideRetakePromptState | null;
   anchor: AsideSessionAnchor | null;
 }
 
@@ -402,6 +411,7 @@ export function createAsideSurface(
       confirmReset: null,
       confirmDelete: null,
       deleteUndo: null,
+      retakePrompt: null,
       anchor
     } as AsideSessionSurfaceState;
   }

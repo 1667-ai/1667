@@ -140,7 +140,7 @@ function renderAsideV2Composer(
     terminalWidth: width,
     terminalHeight: Math.max(4, Math.min(asideComposerRows(height), height - 3)),
     measure: width,
-    title: "aside · prompt",
+    title: surface.retakePrompt === null ? "aside · prompt" : "aside · reprompt",
     caret: surface.busy ? "streaming" : "focused",
     footerNotice: surface.busy ? null : state.toast,
     footerHints: asideV2FooterHint(surface, width),
@@ -159,15 +159,20 @@ function asideV2FooterHint(surface: AsideSessionSurfaceState, width: number): st
       : "⌫ confirms · esc keeps";
   }
   if (surface.busy) return "t Thoughts · esc stops";
+  if (surface.retakePrompt !== null) {
+    return "↵ retake with this prompt · ⇧↵ newline · esc keeps answer";
+  }
   const full = asideFooterHint(surface);
   if (visibleWidth(full) <= width) return full;
   if (surface.focus === "turns" || surface.focus === "notes") {
     const turns = currentAsideTurns(surface);
     const history = surface.turnCursor < Math.max(0, turns.length - 1)
-      ? "⌫ reset" : "r retake";
+      ? "⌫ reset" : "r retake · R reprompt";
     return `↑↓ turn · ←→ session · n new · ↵ use · ${history} · D delete · t Thoughts · tab ask · [ ] hop · g go · esc exit`;
   }
-  return "↵ ask · ⇧↵ newline · tab turns · esc exit";
+  return currentAsideTurns(surface).length > 0
+    ? "↵ ask · ⇧↵ newline · tab turns · esc turns"
+    : "↵ ask · ⇧↵ newline · esc exit";
 }
 
 function asideV2StandaloneFooterLines(
@@ -184,7 +189,7 @@ function asideV2StandaloneFooterLines(
   }
   const turns = currentAsideTurns(surface);
   const history = surface.turnCursor < Math.max(0, turns.length - 1)
-    ? "⌫ reset" : "r retake";
+    ? "⌫ reset" : "r retake · R reprompt";
   return [
     `↑↓ turn · ←→ session · n new · ↵ use · ${history} · D delete`,
     "t Thoughts · tab ask · [ ] hop · g go · esc exit"

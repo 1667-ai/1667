@@ -28,6 +28,8 @@ import { recordNotice } from "./notice-log.js";
 import { saveConfig } from "./config.js";
 import type { ReasoningDelta } from "./worker-pending.js";
 import type { ProseStyle, WrapCache } from "./wrap.js";
+import { createComposer } from "./composer-model.js";
+import { createTextPresentation, drainTextPresentation } from "./text-presentation.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import { followStoryViewport } from "./viewport-intent.js";
 import type { AsideAnchor } from "../../shared/aside-session.js";
@@ -97,6 +99,14 @@ function currentAnchor(surface: AsideSessionSurfaceState): AsideAnchor | null {
   return anchor === null ? null : { partId: anchor.partId, takeId: anchor.takeId };
 }
 
+function closeAsideRetakePrompt(surface: AsideSessionSurfaceState): boolean {
+  const prompt = surface.retakePrompt;
+  if (prompt === null) return false;
+  surface.retakePrompt = null;
+  surface.composer = prompt.askComposer;
+  return true;
+}
+
 function asideAnchorIsCurrent(
   surface: AsideSessionSurfaceState,
   anchor: AsideAnchorView
@@ -140,6 +150,7 @@ function hopToAsideAnchor(
   // Clicking the selected hop is a safe no-op. It must not clear or reload the
   // current session.
   if (asideAnchorIsCurrent(surface, anchor)) return true;
+  closeAsideRetakePrompt(surface);
   const getAsideV2 = context.source.api.getAsideV2;
   if (getAsideV2 === undefined) {
     throw new Error("This transport cannot hop Aside sessions.");
@@ -229,6 +240,7 @@ export function cycleAsideSession(surface: AsideSessionSurfaceState, delta: numb
   surface.useMenu = null;
   surface.confirmReset = null;
   surface.confirmDelete = null;
+  closeAsideRetakePrompt(surface);
   surface.scrollTop = null;
   return true;
 }
@@ -249,6 +261,7 @@ export function newAsideSession(surface: AsideSessionSurfaceState): boolean {
   surface.useMenu = null;
   surface.confirmReset = null;
   surface.confirmDelete = null;
+  closeAsideRetakePrompt(surface);
   surface.scrollTop = null;
   return true;
 }
@@ -397,14 +410,17 @@ async function retakeAside(
   state: RuntimeState,
   surface: AsideSessionSurfaceState,
   context: AsideContext,
-  task: ActionTask
+  task: ActionTask,
+  question?: string
 ): Promise<void> {
   const session = currentAsideSession(surface);
   const turn = currentAsideTurns(surface)[surface.turnCursor];
   if (session === null || turn === undefined
     || surface.turnCursor !== session.turns.length - 1) return;
+  const prompted = question !== undefined;
   const method = context.source.api.retakeAside;
   if (method === undefined) {
+    if (prompted) closeAsideRetakePrompt(surface);
     throw new Error("This transport cannot retake an Aside answer.");
   }
   if (state.abort !== null) return;
@@ -412,13 +428,24 @@ async function retakeAside(
     && state.payload.id === surface.storyId
     && task.owns()
     && task.storyCurrent();
+  const effectiveQuestion = question?.trim() ?? turn.q;
+  if (effectiveQuestion.length === 0) {
+    if (prompted) closeAsideRetakePrompt(surface);
+    return;
+  }
   surface.busy = true;
-  surface.inflightQuestion = turn.q;
+  surface.inflightQuestion = effectiveQuestion;
   surface.streamText = "";
   surface.streamThoughts = "";
   surface.streamThoughtTokens = 0;
   surface.streamPhase = "thinking";
   surface.streamHidden = false;
+  surface.presentation?.dispose();
+  surface.presentation = createTextPresentation({
+    onPresented: () => {
+      if (current()) context.repaint?.();
+    }
+  });
   const controller = new AbortController();
   const active = {
     kind: "generation" as const,
@@ -432,12 +459,14 @@ async function retakeAside(
       storyId: surface.storyId,
       sessionId: session.id,
       turnIndex: surface.turnCursor,
-      anchor: currentAnchor(surface)
+      anchor: currentAnchor(surface),
+      ...(prompted ? { question: effectiveQuestion } : {})
     }, (text) => {
       if (!current()) return;
       surface.streamPhase = "writing";
       surface.streamText += text;
-      context.repaint?.();
+      surface.presentation?.receive(text);
+      if (surface.presentation === undefined) context.repaint?.();
     }, {
       onReasoning: (delta) => {
         if (!current()) return;
@@ -456,6 +485,10 @@ async function retakeAside(
     // Thoughts visibility is display-only and may advance interactionVersion
     // after Stop, so do not use that version to discard a committed retake.
     if (result === null) return;
+    if (surface.presentation !== undefined && !surface.presentation.suspended) {
+      await drainTextPresentation(surface.presentation);
+      if (!current()) return;
+    }
     recordNotice(
       state.notices,
       "toast",
@@ -464,9 +497,14 @@ async function retakeAside(
       state.now
     );
     applySessionResponse(state, surface, result, context.cache);
+    if (prompted) {
+      closeAsideRetakePrompt(surface);
+      surface.focus = "turns";
+    }
   } finally {
     if (state.abort === active) state.abort = null;
     if (current()) {
+      if (prompted) closeAsideRetakePrompt(surface);
       clearAsideStream(surface);
       surface.busy = false;
       context.repaint?.();
@@ -482,6 +520,16 @@ export async function asideV2KeyAction(
   context: AsideContext
 ): Promise<boolean> {
   if (!isAsideV2(surface)) return false;
+  if (!surface.busy && resolved.action === "cancel" && surface.retakePrompt !== null) {
+    closeAsideRetakePrompt(surface);
+    surface.focus = currentAsideTurns(surface).length > 0 ? "turns" : "composer";
+    return true;
+  }
+  if (!surface.busy && resolved.action === "cycle" && surface.retakePrompt !== null) {
+    closeAsideRetakePrompt(surface);
+    surface.focus = currentAsideTurns(surface).length > 0 ? "turns" : "composer";
+    return true;
+  }
   if (resolved.action === "cancel" && surface.confirmDelete !== null) {
     surface.confirmDelete = null;
     return true;
@@ -561,6 +609,23 @@ export async function asideV2KeyAction(
   // Streaming owns editing and navigation, but scrolling only changes the
   // displayed history window and remains safe while the answer grows.
   if (surface.busy && resolved.action !== "cancel" && !displayScroll) return true;
+  if (resolved.action === "send" && surface.retakePrompt !== null) {
+    const target = surface.retakePrompt;
+    const session = currentAsideSession(surface);
+    const question = surface.composer.text.trim();
+    if (question.length === 0) return true;
+    if (session === null || session.id !== target.sessionId
+      || target.turnIndex !== session.turns.length - 1
+      || surface.turnCursor !== target.turnIndex) {
+      closeAsideRetakePrompt(surface);
+      state.toast = "that Aside turn is no longer available to retake · ask draft restored";
+      return true;
+    }
+    context.backend.observe(context.backend.run("retaking Aside answer", (task) =>
+      retakeAside(state, surface, context, task, question)
+    ));
+    return true;
+  }
   if (resolved.action === "aside-session-next") return cycleAsideSession(surface, 1);
   if (resolved.action === "aside-session-previous") return cycleAsideSession(surface, -1);
   if (resolved.action === "aside-new-session") return newAsideSession(surface);
@@ -615,6 +680,23 @@ export async function asideV2KeyAction(
     context.backend.observe(context.backend.run("retaking Aside answer", (task) =>
       retakeAside(state, surface, context, task)
     ));
+    return true;
+  }
+  if (resolved.action === "aside-retake-with-prompt") {
+    const session = currentAsideSession(surface);
+    const turn = currentAsideTurns(surface)[surface.turnCursor];
+    if (session === null || turn === undefined
+      || surface.turnCursor !== session.turns.length - 1) return true;
+    surface.retakePrompt = {
+      sessionId: session.id,
+      turnIndex: surface.turnCursor,
+      askComposer: surface.composer
+    };
+    surface.composer = createComposer(turn.q);
+    surface.focus = "composer";
+    surface.confirmReset = null;
+    surface.confirmDelete = null;
+    surface.scrollTop = null;
     return true;
   }
   const currentSession = currentAsideSession(surface);

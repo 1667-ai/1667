@@ -127,7 +127,7 @@ describe("Aside readability and navigation", () => {
     ))).toBeTrue();
   });
 
-  test("labels the turns exit action as esc exit", () => {
+  test("labels the turns exit action and composer layer as esc turns", () => {
     const source = demoAppSource();
     const state = initialState(source, false);
     const surface = v2Surface(state, "Why?", "Because.");
@@ -137,7 +137,8 @@ describe("Aside readability and navigation", () => {
 
     surface.focus = "composer";
     const composerText = frameText(renderAsideScreen(state, surface, 120, 24).lines);
-    expect(composerText).toContain("esc exit");
+    expect(composerText).toContain("esc turns");
+    expect(composerText).not.toContain("esc exit");
     expect(composerText).not.toContain("esc read");
   });
 

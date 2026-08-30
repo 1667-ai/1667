@@ -114,8 +114,11 @@ export interface AsideSessionMutationResponse extends AsideSessionResponse {
   readonly payload?: StoryPayload;
 }
 
-/** Retake the selected session's last answer. */
-export interface AsideRetakeRequest extends AsideTurnMutationRequest {}
+/** Retake the selected session's last answer. A question replaces the saved
+ * question for a prompted retake; absence keeps the saved question. */
+export interface AsideRetakeRequest extends AsideTurnMutationRequest {
+  readonly question?: string;
+}
 
 /** Service projection after the story id has been selected by the route. */
 export type AsideRetakeInput = Omit<AsideRetakeRequest, "storyId">;

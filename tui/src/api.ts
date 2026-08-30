@@ -1096,7 +1096,8 @@ export function createApi(
         {
           sessionId: mutation.sessionId,
           turnIndex: mutation.turnIndex,
-          anchor: mutation.anchor
+          anchor: mutation.anchor,
+          ...(mutation.question === undefined ? {} : { question: mutation.question })
         },
         (text) => {
           callbacks?.onPhase?.("writing");

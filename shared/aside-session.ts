@@ -303,30 +303,45 @@ export function appendAsideTurn(
   return next;
 }
 
-/** Replace one turn's answer and optional thoughts, preserving its question. */
+export interface AsideTurnReplacement {
+  readonly answer: string;
+  readonly thoughts?: string;
+  readonly thoughtTokens?: number;
+  /** A supplied question also replaces the saved question. */
+  readonly question?: string;
+}
+
+/** Replace one turn from one explicit replacement value. */
 export function replaceAsideTurn(
   document: AsideSessionDocument,
   index: number,
-  answer: string,
-  thoughts?: string,
-  thoughtTokens?: number
+  replacement: AsideTurnReplacement
 ): AsideSessionDocument {
   assertAsideSessionDocument(document);
   assertAsideIndex(document, index);
-  assertAsideAnswer(answer);
-  if (thoughts !== undefined) assertAsideThoughts(thoughts);
-  assertAsideThoughtTokens(thoughtTokens, thoughts);
+  assertAsideAnswer(replacement.answer);
+  if (replacement.thoughts !== undefined) {
+    assertAsideThoughts(replacement.thoughts);
+  }
+  assertAsideThoughtTokens(replacement.thoughtTokens, replacement.thoughts);
   const prior = document.turns[index]!;
+  const nextQuestion = replacement.question ?? prior.q;
+  assertAsideQuestion(nextQuestion);
   const turn: AsideTurn = {
-    q: prior.q,
-    a: answer,
-    ...(thoughts === undefined ? {} : { thoughts }),
-    ...(thoughtTokens === undefined ? {} : { thoughtTokens })
+    q: nextQuestion,
+    a: replacement.answer,
+    ...(replacement.thoughts === undefined ? {} : {
+      thoughts: replacement.thoughts
+    }),
+    ...(replacement.thoughtTokens === undefined ? {} : {
+      thoughtTokens: replacement.thoughtTokens
+    })
   };
   const next = {
     schemaVersion: ASIDE_SESSION_SCHEMA_VERSION,
     anchor: document.anchor === null ? null : { ...document.anchor },
-    title: document.title,
+    title: index === 0 && replacement.question !== undefined
+      ? asideTitleFromQuestion(nextQuestion) : document.title,
     turns: document.turns.map((candidate, position) => position === index ? turn : candidate)
   } satisfies AsideSessionDocument;
   assertAsideSessionDocument(next);
@@ -372,7 +387,11 @@ export function retakeAsideSession(
   if (document.turns.length === 0) {
     throw new AsideDocumentError("Aside session has no turn to retake");
   }
-  return replaceAsideTurn(document, document.turns.length - 1, answer, thoughts, thoughtTokens);
+  return replaceAsideTurn(document, document.turns.length - 1, {
+    answer,
+    ...(thoughts === undefined ? {} : { thoughts }),
+    ...(thoughtTokens === undefined ? {} : { thoughtTokens })
+  });
 }
 
 function assertAsideIndex(document: AsideSessionDocument, index: number): void {

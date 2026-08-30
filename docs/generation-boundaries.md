@@ -43,7 +43,9 @@ presentation interval.
 The received text remains authoritative for Stop, deadline handling, partial
 commit, and the final provider payload. Stop hides a Continue presentation at
 once. A stopped Rewrite keeps its partial replacement visible until its
-partial-save settlement. The TUI keeps the received text for settlement.
+partial-save settlement. Aside also keeps the visible answer prefix until the
+stopped answer becomes a saved turn. The TUI keeps the received text for
+settlement.
 Before a successful result replaces the live view, the TUI starts a bounded
 catch-up interval. The TUI stops the catch-up work at its deadline. The final
 payload then replaces presentation text that remains.
@@ -183,7 +185,7 @@ generation ID. Stop closes the provider record. If model text arrived before
 Stop, the TUI waits for terminal settlement. It then saves that text with the
 same generation ID. If Keep thought is on, it also saves the thought that the
 model sent before Stop. A clean timeout uses the same save behavior.
-Stop hides the stream immediately. The main process gives local durable
+Stop ends live stream updates immediately. The main process gives local durable
 cancellation work 2 seconds to finish. It then gives the embedded backend 10
 seconds to close the provider stream and publish its terminal state. If the
 operation is still active, the main process checks its status every 10 seconds.
@@ -316,3 +318,8 @@ session uses the active story line. The Aside prompt includes the questions
 and answers from the current session. It does not include a stored Thought.
 1667 can show a stored Thought in Aside, but it cannot send that Thought in a
 later request.
+
+The newest Aside turn uses the same Retake keys as a story part. Press `r` to
+use the saved question again. Press `R` to edit the saved question before the
+Retake. Press `Esc` in the Aside prompt to return to the turns. Press `Esc`
+again to exit Aside.

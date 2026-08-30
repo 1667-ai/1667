@@ -66,6 +66,10 @@ describe("Aside use menu and Placement", () => {
       .toBe("open-selected");
     expect(resolveKey(key("up"), "ASIDE", { asideLayer: "notes" }).action)
       .toBe("focus-previous");
+    expect(resolveKey(key("r"), "ASIDE", { asideLayer: "notes" }).action)
+      .toBe("aside-retake");
+    expect(resolveKey(key("R"), "ASIDE", { asideLayer: "notes" }).action)
+      .toBe("aside-retake-with-prompt");
     expect(resolveKey(key("return"), "ASIDE", { asideLayer: "use-menu" }).action)
       .toBe("apply");
     expect(resolveKey(key("up"), "ASIDE", { asideLayer: "use-menu" }).action)

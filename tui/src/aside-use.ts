@@ -13,6 +13,7 @@ import {
   asideCursor,
   asideNotes,
   disarmAsideClear,
+  isAsideV2,
   setAsideCursor,
   type AsideSurfaceState
 } from "./aside-surface.js";
@@ -106,6 +107,9 @@ export function openAsideUseMenu(
   selectionSpans: readonly StorySelectionSpan[] = []
 ): boolean {
   if (surface.busy) return false;
+  // Reprompt owns the composer. A mouse menu would create a second modal
+  // layer with no unambiguous Escape target, so keep the two modes exclusive.
+  if (isAsideV2(surface) && surface.retakePrompt !== null) return false;
   const notes = asideNotes(surface);
   if (noteIndex < 0 || noteIndex >= notes.length) return false;
   const actions = asideUseActions(selectionText);

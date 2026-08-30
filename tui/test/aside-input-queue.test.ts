@@ -11,6 +11,8 @@ import {
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { setComposerText } from "../src/composer-model.js";
 import { pasteInto } from "../src/keys.js";
+import { renderAsideScreen } from "../src/screens/story/aside-screen.js";
+import { frameText } from "../src/screens/story/frame.js";
 
 function key(name: string): KeyEvent {
   return { name, sequence: name, shift: false, ctrl: false, meta: false } as KeyEvent;
@@ -36,7 +38,7 @@ describe("Aside presented input", () => {
         requestSignal.addEventListener("abort", () => { aborted.push(true); }, { once: true });
         await gate;
         return requestSignal.aborted
-          ? { notes: [{ question: "Why did it change?", answer: "partial answer" }] }
+          ? { notes: [{ question: "Why did it change?", answer: "partial answer." }] }
           : { notes: [] };
       }
     };
@@ -73,14 +75,17 @@ describe("Aside presented input", () => {
     expect(signal).not.toBeNull();
     expect(repaintEvents.length).toBeGreaterThan(1);
 
-    emitDelta!("partial answer");
-    expect(state.aside.streamText).toBe("partial answer");
-    expect(repaintEvents.at(-1)).toBe("busy:partial answer");
+    emitDelta!("partial answer.");
+    expect(state.aside.streamText).toBe("partial answer.");
+    expect(repaintEvents.at(-1)).toBe("busy:partial answer.");
 
     enqueue(key("escape"));
     await drainMicrotasks();
     expect(signal!.aborted).toBeTrue();
     expect(aborted).toHaveLength(1);
+    expect(state.aside!.streamHidden).toBeFalse();
+    expect(frameText(renderAsideScreen(state, state.aside!, 80, 24).lines))
+      .toContain("partial answer");
 
     release();
     await backend.whenIdle();
@@ -90,7 +95,7 @@ describe("Aside presented input", () => {
     expect(state.aside.composer.text).toBe("");
     expect(asideNotes(state.aside!)).toEqual([{
       question: "Why did it change?",
-      answer: "partial answer"
+      answer: "partial answer."
     }]);
     expect(state.toast).toBe("Aside stopped · answer kept");
     expect(state.abort).toBeNull();
