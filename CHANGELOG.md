@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.5-rc.1 - 2026-08-30
+
+- **Aside retakes now work like story retakes.** Stop keeps generated text.
+  Press `r` to repeat the newest question. Press `Shift+R` to edit it. Escape
+  closes the active prompt layer before it exits Aside. Tab switches between
+  the composer and saved turns.
+
 ## 0.10.4 - 2026-08-29
 
 - **This release has no additional product changes.** It contains the same
