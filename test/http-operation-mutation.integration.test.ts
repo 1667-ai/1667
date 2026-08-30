@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import test from "node:test";
 import {
   MUTATION_INPUT_PROTOCOL_VERSION,
-  PRE_ASIDE_WORKER_PROTOCOL_VERSION
+  PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION,
+  PRE_ASIDE_WORKER_PROTOCOL_VERSION,
+  PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION
 } from "../shared/worker-protocol.js";
 import { createDurableMutationId } from "../shared/durable-mutation-id.js";
 import { StoryService } from "../server/story-service.js";
@@ -17,7 +19,7 @@ import {
 import { runHttpOperationMutation } from "../server/http-operation-mutation.js";
 import { storyIdForMutation } from "../server/story-identity.js";
 
-test("HTTP retries a retained pre-Aside receipt on protocol 10", async (t) => {
+test("HTTP retries receipts retained across worker protocol bumps", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-http-protocol-replay-"));
   const dataDir = path.join(root, "project");
   const service = StoryService.withoutDiagnostics({
@@ -30,58 +32,63 @@ test("HTTP retries a retained pre-Aside receipt on protocol 10", async (t) => {
     await rm(root, { recursive: true, force: true });
   });
 
-  const mutationId = createDurableMutationId();
-  const input = { title: "Retained before Aside" };
-  const legacyProtocol = PRE_ASIDE_WORKER_PROTOCOL_VERSION;
-  const parsed = parseWorkerMutation("createStory", input, legacyProtocol);
   const signal = new AbortController().signal;
-  await service.runMutation(
-    mutationId,
-    "createStory",
-    input,
-    async (plan) => {
-      const storyId = storyIdForMutation(mutationId);
-      return await executeWorkerMutation(
-        service,
-        parsed,
-        plan,
-        {
-          onDelta: () => {},
-          onReasoning: () => {},
-          signal,
-          storyMutationRequest: {
-            transportOperationId: "retained-http-request",
-            mutationId,
-            fingerprint: mutationFingerprint("createStory", input, legacyProtocol),
-            scope: `story:${storyId}`,
-            expectedAggregateVersion: { kind: "absent" }
+  for (const [legacyProtocol, title] of [
+    [PRE_ASIDE_WORKER_PROTOCOL_VERSION, "Retained before Aside"],
+    [PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION, "Retained before Settings schema 5"],
+    [PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION, "Retained before Reprompt"]
+  ] as const) {
+    const mutationId = createDurableMutationId();
+    const input = { title };
+    const parsed = parseWorkerMutation("createStory", input, legacyProtocol);
+    await service.runMutation(
+      mutationId,
+      "createStory",
+      input,
+      async (plan) => {
+        const storyId = storyIdForMutation(mutationId);
+        return await executeWorkerMutation(
+          service,
+          parsed,
+          plan,
+          {
+            onDelta: () => {},
+            onReasoning: () => {},
+            signal,
+            storyMutationRequest: {
+              transportOperationId: "retained-http-request",
+              mutationId,
+              fingerprint: mutationFingerprint("createStory", input, legacyProtocol),
+              scope: `story:${storyId}`,
+              expectedAggregateVersion: { kind: "absent" }
+            }
           }
-        }
-      );
-    },
-    legacyProtocol,
-    () => undefined
-  );
+        );
+      },
+      legacyProtocol,
+      () => undefined
+    );
 
-  const retained = await service.inspectMutationReceipt(mutationId, "createStory");
-  assert.equal(
-    retained !== null && "protocolVersion" in retained
-      ? retained.protocolVersion
-      : null,
-    legacyProtocol
-  );
+    const retained = await service.inspectMutationReceipt(mutationId, "createStory");
+    assert.equal(
+      retained !== null && "protocolVersion" in retained
+        ? retained.protocolVersion
+        : null,
+      legacyProtocol
+    );
 
-  const replayed = await runHttpOperationMutation(
-    service,
-    mutationId,
-    "createStory",
-    input,
-    signal,
-    "current-http-retry",
-    { kind: "absent" }
-  );
-  assert.equal(replayed.id, storyIdForMutation(mutationId));
-  assert.equal((await service.listStories()).length, 1);
+    const replayed = await runHttpOperationMutation(
+      service,
+      mutationId,
+      "createStory",
+      input,
+      signal,
+      "current-http-retry",
+      { kind: "absent" }
+    );
+    assert.equal(replayed.id, storyIdForMutation(mutationId));
+  }
+  assert.equal((await service.listStories()).length, 3);
 
   const freshMutationId = createDurableMutationId();
   const fresh = await runHttpOperationMutation(

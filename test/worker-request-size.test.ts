@@ -6,6 +6,7 @@ import {
   MAX_STORED_TITLE_CHARS
 } from "../shared/types.js";
 import {
+  PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION,
   PRE_ASIDE_WORKER_PROTOCOL_VERSION,
   PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION,
   PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION,
@@ -14,6 +15,7 @@ import {
   WORKER_PROTOCOL_VERSION
 } from "../shared/worker-protocol.js";
 import { ServiceError } from "../server/errors.js";
+import { parseWorkerMutation } from "../server/worker-mutations.js";
 import { validateWorkerRequestSize } from "../server/worker-request-size.js";
 import { parseWorkerRequest } from "../server/worker-message.js";
 
@@ -73,7 +75,59 @@ test("protocol-v10 mutation inputs survive the Aside protocol bump", () => {
   assert.equal(parsed.protocolVersion, PRE_ASIDE_WORKER_PROTOCOL_VERSION);
   assert.equal(
     WORKER_PROTOCOL_VERSION,
-    PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION + 1
+    PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION + 1
+  );
+});
+
+test("pre-v13 Aside retakes retain the prior request shape", () => {
+  const input = {
+    storyId: "story",
+    sessionId: "session",
+    turnIndex: 0,
+    anchor: null
+  };
+
+  assert.doesNotThrow(() => validateWorkerRequestSize(
+    "retakeAside",
+    input,
+    PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION
+  ));
+  assert.deepEqual(
+    parseWorkerMutation(
+      "retakeAside",
+      input,
+      PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION
+    ),
+    input
+  );
+  for (const protocolVersion of [
+    PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION,
+    PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION
+  ]) {
+    assert.throws(
+      () => validateWorkerRequestSize(
+        "retakeAside",
+        { ...input, question: "New prompt" },
+        protocolVersion
+      ),
+      (error: unknown) => error instanceof ServiceError && error.status === 400
+    );
+    assert.throws(
+      () => parseWorkerMutation(
+        "retakeAside",
+        { ...input, question: "New prompt" },
+        protocolVersion
+      ),
+      (error: unknown) => error instanceof ServiceError && error.status === 400
+    );
+  }
+  assert.deepEqual(
+    parseWorkerMutation(
+      "retakeAside",
+      { ...input, question: "New prompt" },
+      WORKER_PROTOCOL_VERSION
+    ),
+    { ...input, question: "New prompt" }
   );
 });
 
@@ -224,6 +278,31 @@ test("Aside v2 worker methods measure their logical HTTP bodies", () => {
       sessionId: oversizedSessionId,
       turnIndex: 0,
       anchor: null
+    }),
+    (error: unknown) => error instanceof ServiceError && error.status === 413
+  );
+
+  const retakeBodyBytes = bytes(JSON.stringify({
+    sessionId: "session",
+    turnIndex: 0,
+    anchor: null,
+    question: ""
+  }));
+  const question = "x".repeat(MAX_JSON_BODY_BYTES - retakeBodyBytes);
+  assert.doesNotThrow(() => validateWorkerRequestSize("retakeAside", {
+    storyId: routeOnlyStoryId,
+    sessionId: "session",
+    turnIndex: 0,
+    anchor: null,
+    question
+  }));
+  assert.throws(
+    () => validateWorkerRequestSize("retakeAside", {
+      storyId: routeOnlyStoryId,
+      sessionId: "session",
+      turnIndex: 0,
+      anchor: null,
+      question: `${question}x`
     }),
     (error: unknown) => error instanceof ServiceError && error.status === 413
   );

@@ -13,6 +13,7 @@ import {
 import {
   LEGACY_WORKER_PROTOCOL_VERSION,
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
+  WORKER_PROTOCOL_VERSION,
   isCurrentWorkerInputProtocolVersion,
   type MutatingWorkerMethod,
   type WorkerInput,
@@ -1068,10 +1069,20 @@ const MUTATIONS: MutationRegistry = {
     }
   }),
   retakeAside: define<"retakeAside">({
-    parse: (value) => parseTransportInput(
-      () => parseAsideRetakeRequest(value),
-      "retakeAside input"
-    ),
+    parse: (value, protocolVersion) => {
+      const parsed = parseTransportInput(
+        () => parseAsideRetakeRequest(value),
+        "retakeAside input"
+      );
+      if (
+        protocolVersion !== undefined
+        && protocolVersion < WORKER_PROTOCOL_VERSION
+        && parsed.question !== undefined
+      ) {
+        throw badInput("Edited Aside retakes require worker protocol 13");
+      }
+      return parsed;
+    },
     storyId: (input) => input.storyId,
     execute: async (service, input, plan, context) =>
       await service.retakeAside(
@@ -1079,7 +1090,8 @@ const MUTATIONS: MutationRegistry = {
         {
           sessionId: input.sessionId,
           anchor: input.anchor,
-          turnIndex: input.turnIndex
+          turnIndex: input.turnIndex,
+          ...(input.question === undefined ? {} : { question: input.question })
         },
         context.onDelta,
         context.signal,

@@ -26,6 +26,12 @@ import { asideV2KeyAction, cycleAsideSession } from "../src/aside-v2-actions.js"
 import { recordHumanWords } from "../src/config.js";
 import { ActionRuntime } from "../src/action-runtime.js";
 import { cycleAsideFocus, openAsideUseMenu } from "../src/aside-use.js";
+import {
+  insertComposerText,
+  redoComposerEdit,
+  setComposerText,
+  undoComposerEdit
+} from "../src/composer-model.js";
 import { renderAsideScreen } from "../src/screens/story/aside-screen.js";
 import { frameText, plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
@@ -399,6 +405,44 @@ describe("Aside v2 surface", () => {
     await asideV2KeyAction({ action: "aside-undo-delete" }, state, surface, context);
     expect(currentAsideTurns(surface)).toHaveLength(1);
     expect(deletes).toBe(0);
+  });
+
+  test("use-menu ownership still flushes an optimistic delete", async () => {
+    const { source, state, surface } = surfaceWithTurns([
+      { q: "First?", a: "One." },
+      { q: "Second?", a: "Two." }
+    ]);
+    surface.focus = "turns";
+    surface.turnCursor = 1;
+    let deletes = 0;
+    const api = {
+      ...source.api,
+      deleteAsideTurn: async () => {
+        deletes += 1;
+        return {
+          schemaVersion: 2 as const,
+          id: "s1",
+          anchor: null,
+          title: "why the lantern",
+          turns: [{ q: "First?", a: "One." }]
+        };
+      }
+    } as unknown as StoryApi;
+    const backend = new ActionRuntime(state, () => undefined);
+    const context = { source: { api, config: state.config }, backend };
+
+    await asideV2KeyAction({ action: "aside-delete" }, state, surface, context);
+    await asideV2KeyAction({ action: "aside-delete" }, state, surface, context);
+    expect(surface.deleteUndo).not.toBeNull();
+    expect(openAsideUseMenu(surface, 0)).toBeTrue();
+
+    expect(await asideV2KeyAction(
+      { action: "aside-retake-with-prompt" }, state, surface, context
+    )).toBeFalse();
+    expect(surface.retakePrompt).toBeNull();
+    await backend.settle();
+    expect(deletes).toBe(1);
+    expect(surface.deleteUndo).toBeNull();
   });
 
   test("u during a durable delete does not restore the submitted turn", async () => {
@@ -1041,7 +1085,7 @@ describe("Aside v2 surface", () => {
     expect(currentAsideTurns(surface)).toEqual([]);
   });
 
-  test("Esc exits Aside from turns while Tab returns to the composer", async () => {
+  test("Esc closes the composer before a second Esc exits Aside", async () => {
     const { source, state, surface } = surfaceWithTurns([{ q: "Why?", a: "Because." }]);
     surface.focus = "composer";
     surface.composer.text = "unsent draft";
@@ -1058,16 +1102,151 @@ describe("Aside v2 surface", () => {
       async () => undefined, () => undefined, null, () => undefined, () => undefined, backend
     );
 
-    await press("tab");
-    expect(surface.focus).toBe("notes");
-    await press("tab");
-    expect(surface.focus).toBe("composer");
+    await press("escape");
+    expect(surface.focus).toBe("turns");
+    expect(state.mode).toBe("ASIDE");
     expect(surface.composer.text).toBe("unsent draft");
     await press("tab");
-    expect(surface.focus).toBe("notes");
+    expect(surface.focus).toBe("composer");
+    await press("escape");
+    expect(surface.focus).toBe("turns");
+    expect(surface.composer.text).toBe("unsent draft");
     await press("escape");
     expect(state.mode).toBe("NAV");
     expect(state.aside).toBeNull();
+  });
+
+  test("capital R edits the newest question and restores the ask draft", async () => {
+    const { source, state, surface } = surfaceWithTurns([{ q: "Why?", a: "Because." }]);
+    surface.focus = "turns";
+    surface.composer.text = "Follow-up draft";
+    surface.composer.cursor = surface.composer.text.length;
+    let request: unknown;
+    const api = {
+      ...source.api,
+      retakeAside: async (next: unknown) => {
+        request = next;
+        return {
+          schemaVersion: 2 as const,
+          id: "s1",
+          anchor: null,
+          title: "What changed?",
+          turns: [{ q: "What changed?", a: "A better answer." }]
+        };
+      }
+    } as unknown as StoryApi;
+    const sourceWithApi = { ...source, api };
+    const backend = new ActionRuntime(state, () => undefined);
+    const key = (name: string) => ({
+      name,
+      sequence: name,
+      shift: name === "R",
+      ctrl: false,
+      meta: false
+    }) as Parameters<typeof handleKey>[0];
+    const press = (name: string) => handleKey(
+      key(name), state, sourceWithApi, createWrapCache(), () => undefined,
+      async () => undefined, () => undefined, null, () => undefined, () => undefined, backend
+    );
+
+    expect(openAsideUseMenu(surface, 0)).toBeTrue();
+    await press("R");
+    expect(surface.useMenu).not.toBeNull();
+    expect(surface.retakePrompt).toBeNull();
+    await press("escape");
+    expect(surface.useMenu).toBeNull();
+
+    await press("R");
+    expect(surface.focus).toBe("composer");
+    expect(surface.composer.text).toBe("Why?");
+    expect(surface.retakePrompt?.sessionId).toBe("s1");
+    expect(surface.retakePrompt?.turnIndex).toBe(0);
+    expect(surface.retakePrompt?.askComposer).not.toBeNull();
+    expect(surface.retakePrompt?.askComposer).not.toBe(surface.composer);
+    expect(openAsideUseMenu(surface, 0)).toBeFalse();
+    expect(surface.useMenu).toBeNull();
+
+    await press("escape");
+    expect(surface.focus).toBe("turns");
+    expect(surface.retakePrompt).toBeNull();
+    expect(surface.composer.text).toBe("Follow-up draft");
+
+    await press("R");
+
+    surface.composer.text = "What changed?";
+    surface.composer.cursor = surface.composer.text.length;
+    await press("return");
+    await backend.settle();
+
+    expect(request).toMatchObject({
+      storyId: state.payload.id,
+      sessionId: "s1",
+      turnIndex: 0,
+      anchor: null,
+      question: "What changed?"
+    });
+    expect(currentAsideTurns(surface)).toEqual([
+      { q: "What changed?", a: "A better answer." }
+    ]);
+    expect(surface.focus).toBe("turns");
+    expect(surface.retakePrompt).toBeNull();
+    expect(surface.composer.text).toBe("Follow-up draft");
+  });
+
+  test("reprompt restores the complete Ask composer, including edit history", async () => {
+    const { source, state, surface } = surfaceWithTurns([{ q: "Why?", a: "Because." }]);
+    const askComposer = surface.composer;
+    setComposerText(askComposer, "Follow-up draft");
+    insertComposerText(askComposer, "!");
+    insertComposerText(askComposer, "?");
+    expect(undoComposerEdit(askComposer)).toBeTrue();
+    askComposer.cursor = 3;
+    askComposer.anchor = 1;
+    askComposer.fullscreen = true;
+    askComposer.cutConfirmation = { start: 1, end: 3, text: "ol" };
+    const before = {
+      text: askComposer.text,
+      cursor: askComposer.cursor,
+      anchor: askComposer.anchor,
+      fullscreen: askComposer.fullscreen,
+      cutConfirmation: { ...askComposer.cutConfirmation }
+    };
+    surface.focus = "turns";
+    const api = {
+      ...source.api,
+      retakeAside: async () => ({
+        schemaVersion: 2 as const,
+        id: "s1",
+        anchor: null,
+        title: "Why?",
+        turns: [{ q: "Why?", a: "A new answer." }]
+      })
+    } as unknown as StoryApi;
+    const backend = new ActionRuntime(state, () => undefined);
+    const press = (name: string) => asideV2KeyAction(
+      { action: name === "R" ? "aside-retake-with-prompt" : "cancel" },
+      state,
+      surface,
+      { source: { api, config: state.config }, backend }
+    );
+
+    await press("R");
+    expect(surface.composer).not.toBe(askComposer);
+    expect(surface.composer.text).toBe("Why?");
+    await press("escape");
+
+    expect(surface.composer).toBe(askComposer);
+    expect({
+      text: askComposer.text,
+      cursor: askComposer.cursor,
+      anchor: askComposer.anchor,
+      fullscreen: askComposer.fullscreen,
+      cutConfirmation: askComposer.cutConfirmation
+    }).toEqual(before);
+    expect(undoComposerEdit(askComposer)).toBeTrue();
+    expect(askComposer.text).toBe("Follow-up draft");
+    expect(redoComposerEdit(askComposer)).toBeTrue();
+    expect(askComposer.text).toBe("Follow-up draft!");
   });
 
   test("empty current buckets use brackets for anchor hops", async () => {
@@ -1267,6 +1446,55 @@ describe("Aside v2 surface", () => {
     expect(surface.busy).toBeFalse();
     expect(surface.streamThoughts).toBe("");
     expect(surface.streamThoughtTokens).toBe(0);
+  });
+
+  test("stopping a retake freezes its visible answer prefix", async () => {
+    const { source, state, surface } = surfaceWithTurns([
+      { q: "Why?", a: "Because." }
+    ]);
+    let emitDelta!: (text: string) => void;
+    let finish!: (value: unknown) => void;
+    const api = {
+      ...source.api,
+      retakeAside: async (
+        _request: unknown,
+        onDelta: (text: string) => void
+      ) => {
+        emitDelta = onDelta;
+        return await new Promise<unknown>((resolve) => { finish = resolve; });
+      }
+    } as unknown as StoryApi;
+    const backend = new ActionRuntime(state, () => undefined);
+    const pending = asideV2KeyAction(
+      { action: "aside-retake" },
+      state,
+      surface,
+      { source: { api, config: state.config }, backend }
+    );
+    await Promise.resolve();
+    emitDelta("VISIBLE prefix");
+    expect(frameText(renderAsideScreen(state, surface, 80, 24).lines))
+      .toContain("VISIBLE");
+
+    expect(stopAsideAsk(state)).toBeTrue();
+    emitDelta(" TAIL");
+    const stopped = frameText(renderAsideScreen(state, surface, 80, 24).lines);
+    expect(stopped).toContain("VISIBLE");
+    expect(stopped).not.toContain("TAIL");
+
+    finish({
+      schemaVersion: 2 as const,
+      id: "s1",
+      anchor: null,
+      title: "Why?",
+      turns: [{ q: "Why?", a: "Committed replacement." }]
+    });
+    await pending;
+    await backend.settle();
+    expect(currentAsideTurns(surface)).toEqual([
+      { q: "Why?", a: "Committed replacement." }
+    ]);
+    expect(surface.streamText).toBe("");
   });
 
   test("dispatched Esc stops a busy retake before moving focus to the composer", async () => {
@@ -2018,7 +2246,7 @@ describe("Aside v2 surface", () => {
   test("labels every narrow turn-focus key across two rows", () => {
     const { state, surface } = surfaceWithTurns([{ q: "Why?", a: "Because." }]);
     const text = frameText(renderAsideScreen(state, surface, 80, 24).lines);
-    expect(text).toContain("↑↓ turn · ←→ session · n new · ↵ use · r retake · D delete");
+    expect(text).toContain("↑↓ turn · ←→ session · n new · ↵ use · r retake · R reprompt · D delete");
     expect(text).toContain("t Thoughts · tab ask · [ ] hop · g go · esc exit");
   });
 

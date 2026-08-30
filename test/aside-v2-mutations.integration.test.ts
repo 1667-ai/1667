@@ -1167,6 +1167,17 @@ test("retake streams reasoning and replaces the same last turn", async (t) => {
   assert.ok(prose.join("").length > 0);
   assert.ok(thoughts.join("").length > 0);
   assert.equal((await service.getAsideV2(created.id, anchor)).sessions[0]!.turns.length, 1);
+
+  const reprompted = await service.retakeAside(
+    created.id,
+    { sessionId: answer.id, turnIndex: 0, anchor, question: "What rang?" },
+    async () => {},
+    new AbortController().signal
+  );
+  assert.ok(reprompted !== null);
+  assert.equal(reprompted.turns.length, 1);
+  assert.equal(reprompted.turns[0]!.q, "What rang?");
+  assert.equal(reprompted.title, "What rang?");
 });
 
 test("retake prompt excludes the replaced turn and its stored thoughts", async (t) => {
@@ -1194,6 +1205,26 @@ test("retake prompt excludes the replaced turn and its stored thoughts", async (
   assert.ok(earlier !== null && existing !== null);
   const oldThought = existing.turns.at(-1)?.thoughts;
   assert.ok(oldThought !== undefined);
+
+  let invalidProviderStarted = false;
+  await assert.rejects(
+    service.retakeAside(
+      created.id,
+      {
+        sessionId: "prompt-test",
+        turnIndex: 0,
+        anchor,
+        question: "INVALID_EARLIER_REPROMPT"
+      },
+      async () => {},
+      new AbortController().signal,
+      {
+        providerStarted: async () => { invalidProviderStarted = true; }
+      }
+    ),
+    hasCode("conflict")
+  );
+  assert.equal(invalidProviderStarted, false);
 
   let prompt = "";
   const retaken = await service.retakeAside(

@@ -894,8 +894,10 @@ export function stopAsideAsk(state: RuntimeState): boolean {
     active.stopInteractionVersion = state.interactionVersion;
   }
   active.controller.abort();
-  surface.streamHidden = true;
-  surface.presentation?.dispose();
+  // Keep the visible prefix in place while the stopped answer settles into a
+  // saved turn. Provider text that arrives after Stop remains transport-only.
+  surface.streamHidden = false;
+  surface.presentation?.suspend();
   return true;
 }
 

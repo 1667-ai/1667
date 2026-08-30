@@ -61,7 +61,7 @@ export type KeyAction =
   | "open-selected" | "new-item" | "duplicate-item" | "rename-item" | "delete-item"
   | "move-item-up" | "move-item-down"
   | "open-aside" | "open-authors-note" | "note-depth-decrease" | "note-depth-increase"
-  | "aside-retake" | "aside-delete" | "aside-reset" | "aside-new-session"
+  | "aside-retake" | "aside-retake-with-prompt" | "aside-delete" | "aside-reset" | "aside-new-session"
   | "aside-session-next" | "aside-session-previous" | "aside-anchor-next" | "aside-anchor-previous"
   | "aside-go-anchor" | "aside-hop-to" | "aside-undo-delete"
   | "filter" | "cycle" | "check" | "detect-context" | "discard-pending" | "retry" | "continue"
@@ -526,6 +526,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
       if (name === "up") return { action: "focus-previous" };
       if (name === "down") return { action: "focus-next" };
       if (key.name === "return") return { action: "open-selected" };
+      if (plainShiftedLetter(key, "r")) return { action: "aside-retake-with-prompt" };
       if (name === "r") return { action: "aside-retake" };
       if (plainShiftedLetter(key, "d")) return { action: "aside-delete" };
       if (name === "t") return { action: "toggle-thought" };

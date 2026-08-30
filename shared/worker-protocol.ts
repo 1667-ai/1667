@@ -75,7 +75,8 @@ export const PRE_FACT_ACTIVATION_WORKER_PROTOCOL_VERSION = 8;
 export const PRE_FACT_ORDER_PRIORITY_BUDGET_WORKER_PROTOCOL_VERSION = 9;
 export const PRE_ASIDE_WORKER_PROTOCOL_VERSION = 10;
 export const PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION = 11;
-export const WORKER_PROTOCOL_VERSION = 12;
+export const PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION = 12;
+export const WORKER_PROTOCOL_VERSION = 13;
 /** Exact provider recovery changes the status and acknowledgement inputs. */
 export const MUTATION_INPUT_PROTOCOL_VERSION = WORKER_PROTOCOL_VERSION;
 export const WORKER_BUILD_IDENTITY = AI_1667_BUILD_IDENTITY;
@@ -93,9 +94,9 @@ export const WORKER_TERMINATION_CONFIRM_MS = 2_000;
 export const WORKER_SHUTDOWN_GRACE_MS = 5_000;
 /** Bound local durable work that must finish before cancellation delivery. */
 export const WORKER_CANCEL_PERSISTENCE_TIMEOUT_MS = 2_000;
-/** Stop hides the stream immediately. Give the provider, retained stream
- *  tail, and durable terminal settlement time to unwind before the main
- *  process treats the worker as unsafe. */
+/** Stop ends live stream updates immediately. Give the provider, retained
+ *  stream tail, and durable terminal settlement time to unwind before the
+ *  main process treats the worker as unsafe. */
 export const WORKER_CANCEL_GRACE_MS = 10_000;
 export const WORKER_OPERATION_CAPACITY = 1_024;
 export const WORKER_TERMINAL_RETENTION_MS = 5 * 60_000;
@@ -116,6 +117,7 @@ export function isCurrentWorkerInputProtocolVersion(
     || value === PRE_FACT_ORDER_PRIORITY_BUDGET_WORKER_PROTOCOL_VERSION
     || value === PRE_ASIDE_WORKER_PROTOCOL_VERSION
     || value === PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION
+    || value === PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION
     || value === WORKER_PROTOCOL_VERSION;
 }
 

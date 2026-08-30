@@ -1,6 +1,8 @@
 import {
   MUTATION_INPUT_PROTOCOL_VERSION,
+  PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION,
   PRE_ASIDE_WORKER_PROTOCOL_VERSION,
+  PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION,
   type MutatingWorkerMethod,
   type WorkerOutput
 } from "../shared/worker-protocol.js";
@@ -83,20 +85,27 @@ export async function runHttpOperationMutation<
   );
 }
 
-/** A protocol bump added Aside methods in v11. Keep an exact HTTP retry of a
- * retained v10 receipt on the protocol that created its fingerprint and
- * parsed its input. New mutations and all Aside methods stay on v11. */
+/** Keep an exact HTTP retry on the retained protocol that created its
+ * fingerprint and parsed its input. Protocol 10 predates Aside. Protocol 11
+ * predates Settings schema 5. Protocol 12 predates edited Aside retakes. New
+ * mutations use the current protocol. */
 async function acceptedHttpMutationProtocolVersion(
   service: StoryService,
   mutationId: string,
   method: MutatingWorkerMethod
 ): Promise<number> {
   const receipt = await service.inspectMutationReceipt(mutationId, method);
+  const retainedProtocol = receipt !== null && "protocolVersion" in receipt
+    ? receipt.protocolVersion
+    : null;
+  const retainedPreAside = retainedProtocol === PRE_ASIDE_WORKER_PROTOCOL_VERSION
+    && method !== "askAside"
+    && method !== "clearAside";
   return receipt !== null
     && receipt.method === method
-    && receipt.protocolVersion === PRE_ASIDE_WORKER_PROTOCOL_VERSION
-    && method !== "askAside"
-    && method !== "clearAside"
-    ? PRE_ASIDE_WORKER_PROTOCOL_VERSION
+    && (retainedPreAside
+      || retainedProtocol === PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION
+      || retainedProtocol === PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION)
+    ? retainedProtocol
     : MUTATION_INPUT_PROTOCOL_VERSION;
 }

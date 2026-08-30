@@ -12,6 +12,7 @@ import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js"
 import {
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
   PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION,
+  WORKER_PROTOCOL_VERSION,
   isCurrentWorkerInputProtocolVersion,
   messageByteLength,
   type WorkerMethod
@@ -197,10 +198,22 @@ function logicalRequestBody(
         anchor: input.anchor
       };
     case "retakeAside":
+      if (
+        protocolVersion !== undefined
+        && protocolVersion < WORKER_PROTOCOL_VERSION
+        && input.question !== undefined
+      ) {
+        throw new ServiceError(
+          400,
+          "Edited Aside retakes require worker protocol 13",
+          "invalid_request"
+        );
+      }
       return {
         sessionId: input.sessionId,
         turnIndex: input.turnIndex,
-        anchor: input.anchor
+        anchor: input.anchor,
+        question: input.question
       };
     case "listStories":
     case "listStoriesPage":

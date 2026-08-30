@@ -150,7 +150,7 @@ export async function askAsideSession(
     onDelta,
     signal,
     hooks,
-    { retakeTurnIndex: null }
+    { kind: "ask" }
   );
 }
 
@@ -176,13 +176,23 @@ export async function retakeAsideSession(
     onDelta,
     signal,
     hooks,
-    { retakeTurnIndex: requireTurnIndex(body.turnIndex) }
+    {
+      kind: "retake",
+      turnIndex: requireTurnIndex(body.turnIndex),
+      ...(body.question === undefined ? {} : {
+        questionOverride: requireAsideQuestion(body.question)
+      })
+    }
   );
 }
 
-interface AsideGenerationMode {
-  readonly retakeTurnIndex: number | null;
-}
+type AsideGenerationMode =
+  | { readonly kind: "ask" }
+  | {
+      readonly kind: "retake";
+      readonly turnIndex: number;
+      readonly questionOverride?: string;
+    };
 
 async function runAsideSession(
   id: string,
@@ -211,7 +221,7 @@ async function runAsideSession(
   const anchor = asideAnchorFromBody(body);
   const requestedSessionId = body.sessionId;
   const sessionId = requestedSessionId === undefined
-    ? mode.retakeTurnIndex === null
+    ? mode.kind === "ask"
       ? `session-${randomUUID()}`
       : requireAsideSessionId(requestedSessionId)
     : requireAsideSessionId(requestedSessionId);
@@ -245,9 +255,13 @@ async function runAsideSession(
   }
   const loaded = await loadSession(story, sessionId);
   if (signal.aborted) return null;
-  const question = mode.retakeTurnIndex === null
-    ? requireAsideQuestion("question" in body ? body.question : undefined)
-    : requireRetakeQuestion(loaded, mode.retakeTurnIndex);
+  let question: string;
+  if (mode.kind === "ask") {
+    question = requireAsideQuestion(body.question);
+  } else {
+    const savedQuestion = requireRetakeQuestion(loaded, mode.turnIndex);
+    question = mode.questionOverride ?? savedQuestion;
+  }
   const expectedAnchor = ref === null
     ? anchor
     : effectiveAsideSessionAnchor(story, ref, loaded?.anchor);
@@ -262,15 +276,17 @@ async function runAsideSession(
   // A retake is an in-place replacement. Do not feed the answer being
   // replaced (or its stored Thoughts) back to the provider; it is retained
   // only as the CAS predecessor and replacement source below.
-  const promptDocument = mode.retakeTurnIndex === null
+  const promptDocument = mode.kind === "ask"
     ? document
     : {
         ...document,
-        turns: document.turns.slice(0, mode.retakeTurnIndex)
+        title: mode.turnIndex === 0 && mode.questionOverride !== undefined
+          ? asideTitleFromQuestion(question) : document.title,
+        turns: document.turns.slice(0, mode.turnIndex)
       };
   const replacementTurnCount = loaded === null
     ? 1
-    : loaded.turns.length + (mode.retakeTurnIndex === null ? 1 : 0);
+    : loaded.turns.length + (mode.kind === "ask" ? 1 : 0);
   stories.declareAsideSessionResolution?.(
     sessionId,
     ref?.documentId ?? null,
@@ -433,7 +449,7 @@ async function runAsideSession(
       safeThoughts,
       safeThoughtTokens
     );
-    replacement = mode.retakeTurnIndex === null
+    replacement = mode.kind === "ask"
       ? appendAsideTurn(
           document,
           question,
@@ -443,10 +459,17 @@ async function runAsideSession(
         )
       : replaceAsideTurn(
           document,
-          mode.retakeTurnIndex,
-          answer,
-          fittedThoughts,
-          fittedThoughts === undefined ? undefined : safeThoughtTokens
+          mode.turnIndex,
+          {
+            answer,
+            ...(fittedThoughts === undefined ? {} : {
+              thoughts: fittedThoughts,
+              thoughtTokens: safeThoughtTokens,
+            }),
+            ...(mode.questionOverride === undefined ? {} : {
+              question: mode.questionOverride
+            })
+          }
         );
   } catch (error) {
     if (error instanceof AsideDocumentError) throw new GenerationResultError(422, error.message);

@@ -15,16 +15,21 @@ export function asideFooterHint(surface: AsideSurfaceState): string {
       return "⌫ confirms · esc keeps";
     }
     if (surface.busy) return "t Thoughts · esc stops · the composer waits";
+    if (surface.retakePrompt !== null) {
+      return "↵ retake with this prompt · ⇧↵ newline · esc keeps answer";
+    }
     if (surface.useMenu !== null) return "↑↓ · Enter · Esc turns";
     if (surface.focus === "turns" || surface.focus === "notes") {
       const turns = currentAsideTurns(surface);
       const reset = surface.turnCursor < Math.max(0, turns.length - 1)
-        ? "⌫ reset here" : "r retake";
+        ? "⌫ reset here" : "r retake · R reprompt";
       const hops = surface.anchors.length > 1
         ? " · [ ] hop asides · g go to this take" : "";
       return `↑↓ turn · ←→ session · n new · ↵ use · ${reset} · D delete · t Thoughts · tab ask · esc exit${hops}`;
     }
-    return "↵ ask · ⇧↵ newline · tab turns · esc exit";
+    return currentAsideTurns(surface).length > 0
+      ? "↵ ask · ⇧↵ newline · tab turns · esc turns"
+      : "↵ ask · ⇧↵ newline · esc exit";
   }
   if (surface.confirmClear) return "Clear all Side Notes? Enter confirms · Esc cancels";
   if (surface.busy && surface.inflightQuestion === null) return "Clearing…";

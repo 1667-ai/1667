@@ -344,11 +344,15 @@ export function parseAsideRetakeRequest(value: unknown): AsideRetakeRequest {
   const storyId = parseStoryId(entry, "Aside retake request");
   const sessionId = parseSessionId(entry.sessionId);
   const anchor = parseRequiredAnchor(entry, "Aside retake request");
+  const question = has(entry, "question")
+    ? nonEmptyString(entry.question, "Aside retake request.question")
+    : undefined;
   return {
     storyId,
     sessionId,
     anchor,
-    turnIndex: parseTurnIndex(entry.turnIndex)
+    turnIndex: parseTurnIndex(entry.turnIndex),
+    ...(question === undefined ? {} : { question })
   };
 }
 

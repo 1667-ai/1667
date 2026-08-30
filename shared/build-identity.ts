@@ -76,10 +76,12 @@ export const AI_1667_PRODUCT = "1667" as const;
  * use the rest of Settings. v26 adds the required closed `activeWriting`
  * projection, replaces full-document provider probes with
  * `ProviderProbeRouteV1`, and publishes Settings schema 5. Mixed 0.10.1 and
- * 0.10.2 HTTP processes refuse during negotiation. */
-export const HTTP_API_PROTOCOL_VERSION = 26;
-export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 26;
-export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 26;
+ * 0.10.2 HTTP processes refuse during negotiation. v27 adds an optional
+ * edited question to Aside retake requests. A v27 client against a v26
+ * server would have that question ignored and repeat the old prompt. */
+export const HTTP_API_PROTOCOL_VERSION = 27;
+export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 27;
+export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 27;
 
 export type ArtifactTarget = "source" | BuiltArtifactTarget;
 
