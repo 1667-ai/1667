@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.5-rc.2",
+    date: "2026-08-30",
+    body: "- **Facts can change with the story line.** Add Fact States at story-part\n  Anchors. The nearest Fact State on the selected story line supplies the Fact\n  body. An End State stops the Fact on that line. Existing Facts keep their\n  current behavior.\n- **Facts can have an optional name.** The Facts overview shows the Fact Name\n  when it is set. Basic view keeps the common options concise. Advanced view\n  shows state and activation controls. The new controls work with the keyboard\n  and mouse.\n- **`q` now closes 1667 from Aside.** This works from the main Aside view and\n  from its nested menus and text fields."
+  },
+  {
     version: "0.10.5-rc.1",
     date: "2026-08-30",
     body: "- **Aside retakes now work like story retakes.** Stop keeps generated text.\n  Press `r` to repeat the newest question. Press `Shift+R` to edit it. Escape\n  closes the active prompt layer before it exits Aside. Tab switches between\n  the composer and saved turns."

@@ -5,6 +5,8 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.5-rc.2 - 2026-08-30
+
 - **Facts can change with the story line.** Add Fact States at story-part
   Anchors. The nearest Fact State on the selected story line supplies the Fact
   body. An End State stops the Fact on that line. Existing Facts keep their
