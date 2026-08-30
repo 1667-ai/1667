@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.5-rc.3",
+    date: "2026-08-31",
+    body: "- **Paste now works consistently in text inputs.** Press `Ctrl+V` or `Cmd+V`\n  in Aside, search, filters, Settings prompts, and other text fields. Multiline\n  editors keep line breaks. Single-line fields flatten them. Direct keeps image\n  paste. Right-click paste works in Aside when its prompt is available.\n- **The Fact State re-anchor control is now visible.** Focus the state controls,\n  then press `a` or click `re-anchor` to move the state to the current story\n  cursor. The control stays hidden when the Fact has no eligible state."
+  },
+  {
     version: "0.10.5-rc.2",
     date: "2026-08-30",
     body: "- **Facts can change with the story line.** Add Fact States at story-part\n  Anchors. The nearest Fact State on the selected story line supplies the Fact\n  body. An End State stops the Fact on that line. Existing Facts keep their\n  current behavior.\n- **Facts can have an optional name.** The Facts overview shows the Fact Name\n  when it is set. Basic view keeps the common options concise. Advanced view\n  shows state and activation controls. The new controls work with the keyboard\n  and mouse.\n- **`q` now closes 1667 from Aside.** This works from the main Aside view and\n  from its nested menus and text fields."
