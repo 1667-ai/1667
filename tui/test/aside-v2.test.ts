@@ -24,7 +24,7 @@ import { asideChatLayout, asideSessionsFromResponse } from "../src/aside-v2-layo
 import { asideHopEntries, asideHopStripText } from "../src/aside-hop.js";
 import { asideV2KeyAction, cycleAsideSession } from "../src/aside-v2-actions.js";
 import { recordHumanWords } from "../src/config.js";
-import { ActionRuntime } from "../src/action-runtime.js";
+import { ActionRuntime, beginInteraction } from "../src/action-runtime.js";
 import { cycleAsideFocus, openAsideUseMenu } from "../src/aside-use.js";
 import {
   insertComposerText,
@@ -63,6 +63,73 @@ function surfaceWithTurns(turns: AsideSessionView["turns"]) {
   state.aside = surface;
   state.mode = "ASIDE";
   return { source, state, surface: surface as AsideSessionSurfaceState };
+}
+
+async function startStoppedAsk(question: string, terminalAnswer: string | null = null) {
+  const { source, state, surface } = surfaceWithTurns([]);
+  let release!: () => void;
+  let requestSignal!: AbortSignal;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const api = {
+    ...source.api,
+    askAsideV2: async (
+      _request: unknown,
+      _onDelta: (text: string) => void,
+      _callbacks: unknown,
+      signal: AbortSignal
+    ) => {
+      requestSignal = signal;
+      await gate;
+      if (terminalAnswer === null) return null;
+      return {
+        schemaVersion: 2 as const,
+        id: "s1",
+        anchor: null,
+        title: "why the lantern",
+        turns: [{ q: question, a: terminalAnswer }],
+        payload: state.payload
+      };
+    }
+  } as unknown as StoryApi;
+  const backend = new ActionRuntime(state, () => undefined);
+  const key = (name: string) => ({
+    name,
+    sequence: name,
+    shift: false,
+    ctrl: false,
+    meta: false
+  }) as Parameters<typeof handleKey>[0];
+  const press = (name: string) => handleKey(
+    key(name),
+    state,
+    { ...source, api },
+    createWrapCache(),
+    () => undefined,
+    async () => undefined,
+    () => undefined,
+    null,
+    () => undefined,
+    () => undefined,
+    backend
+  );
+
+  setComposerText(surface.composer, question);
+  const pending = press("return");
+  await Promise.resolve();
+  const busyBeforeStop = surface.busy;
+  await press("escape");
+  return {
+    state,
+    surface,
+    requestSignal,
+    busyBeforeStop,
+    settle: async () => {
+      release();
+      await pending;
+      await backend.settle();
+      backend.dispose();
+    }
+  };
 }
 
 describe("Aside v2 surface", () => {
@@ -823,6 +890,55 @@ describe("Aside v2 surface", () => {
       sessionId: "s1"
     });
     expect(currentAsideTurns(surface)).toHaveLength(1);
+  });
+
+  test("restores a stopped ask before an unresolved provider settles", async () => {
+    const question = "What changed?";
+    const ask = await startStoppedAsk(question);
+    const { state, surface, requestSignal } = ask;
+
+    expect(ask.busyBeforeStop).toBeTrue();
+    expect(requestSignal.aborted).toBeTrue();
+    expect(surface.composer.text).toBe(question);
+    expect(surface.busy).toBeFalse();
+    expect(surface.inflightQuestion).toBeNull();
+    const stoppedFrame = frameText(renderAsideScreen(state, surface, 80, 24).lines);
+    expect(stoppedFrame).toContain(question);
+    expect(stoppedFrame).not.toContain("composer waits");
+
+    setComposerText(surface.composer, "newer draft");
+    beginInteraction(state);
+    await ask.settle();
+
+    expect(surface.busy).toBeFalse();
+    expect(surface.composer.text).toBe("newer draft");
+    expect(surface.inflightQuestion).toBeNull();
+  });
+
+  test("clears a synchronously restored ask when a stopped provider commits it", async () => {
+    const question = "Keep this answer?";
+    const ask = await startStoppedAsk(question, "Saved answer.");
+    expect(ask.requestSignal.aborted).toBeTrue();
+    expect(ask.surface.composer.text).toBe(question);
+
+    await ask.settle();
+
+    expect(ask.surface.composer.text).toBe("");
+    expect(currentAsideTurns(ask.surface)).toEqual([{ q: question, a: "Saved answer." }]);
+  });
+
+  test("keeps a retyped stopped ask when a late result has the same text", async () => {
+    const question = "Keep this draft?";
+    const ask = await startStoppedAsk(question, "Saved answer.");
+    expect(ask.requestSignal.aborted).toBeTrue();
+    expect(ask.surface.composer.text).toBe(question);
+
+    setComposerText(ask.surface.composer, question);
+    beginInteraction(ask.state);
+    await ask.settle();
+
+    expect(ask.surface.composer.text).toBe(question);
+    expect(currentAsideTurns(ask.surface)).toEqual([{ q: question, a: "Saved answer." }]);
   });
 
   test("reconciles first ask presence and keeps the opening take projection", async () => {
@@ -1745,7 +1861,7 @@ describe("Aside v2 surface", () => {
     expect(surface.busy).toBeFalse();
   });
 
-  test("Esc then Thought toggle restores an uncommitted ask", async () => {
+  test("Esc returns an uncommitted ask to editing before settlement", async () => {
     const { source, state, surface } = surfaceWithTurns([]);
     surface.composer.text = "Why?";
     surface.composer.cursor = surface.composer.text.length;
@@ -1798,12 +1914,12 @@ describe("Aside v2 surface", () => {
     await press("escape");
     expect(aborted).toBeTrue();
     await press("t");
-    expect(surface.thoughtsVisible).toBeTrue();
+    expect(surface.composer.text).toBe("Why?t");
     finish(null);
     await ask;
     await backend.settle();
 
-    expect(surface.composer.text).toBe("Why?");
+    expect(surface.composer.text).toBe("Why?t");
     expect(surface.busy).toBeFalse();
   });
 

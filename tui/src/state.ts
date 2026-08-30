@@ -715,6 +715,12 @@ export interface StoryScreenState extends OverlayState {
         /** Interaction epoch captured when an Aside ask started; display-only
          *  Aside scrolling may advance this restoration/Stop fence. */
         askInteractionVersion?: number;
+        /** Local Ask draft ownership while an Aside request settles. */
+        asideAsk?: {
+          composer: ComposerState;
+          question: string;
+          restored: boolean;
+        };
       }
     | { kind: "summary"; controller: AbortController }
     /** `committed` becomes true once the API call has minted a durable take,

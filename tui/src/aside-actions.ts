@@ -542,6 +542,10 @@ export function scrollAside(
  *  this helper, so it remains newer than the submitted question. */
 export function noteAsideDisplayScroll(state: RuntimeState): void {
   const active = state.abort?.kind === "generation" ? state.abort : null;
+  if (active !== null && active.stopInteractionVersion !== null) {
+    active.stopInteractionVersion = state.interactionVersion;
+    return;
+  }
   if (active?.askInteractionVersion !== undefined
     && state.interactionVersion === active.askInteractionVersion + 1) {
     active.askInteractionVersion = state.interactionVersion;
@@ -705,6 +709,28 @@ export function clearAsideStream(surface: AsideSurfaceState): void {
   surface.inflightQuestion = null;
 }
 
+/** Remove a synchronous Stop restore when the provider committed the ask.
+ * Preserve any newer composer text written while the request was settling. */
+function clearAsideStopRestore(
+  active: {
+    stopInteractionVersion: number | null;
+    asideAsk?: {
+      composer: AsideSurfaceState["composer"];
+      question: string;
+      restored: boolean;
+    };
+  },
+  state: RuntimeState,
+  surface: AsideSurfaceState
+): void {
+  const ask = active.asideAsk;
+  if (ask?.restored !== true
+    || active.stopInteractionVersion !== state.interactionVersion
+    || surface.composer !== ask.composer
+    || surface.composer.text !== ask.question) return;
+  setComposerText(surface.composer, "");
+}
+
 export async function sendAsideQuestion(
   state: RuntimeState,
   api: StoryApi,
@@ -745,7 +771,12 @@ export async function sendAsideQuestion(
     kind: "generation" as const,
     controller,
     stopInteractionVersion: null as number | null,
-    askInteractionVersion: state.interactionVersion
+    askInteractionVersion: state.interactionVersion,
+    asideAsk: {
+      composer: surface.composer,
+      question: trimmed,
+      restored: false
+    }
   };
   state.abort = active;
   repaint();
@@ -823,7 +854,7 @@ export async function sendAsideQuestion(
       // Cancelled or stopped: return the question to the input.
       const restore = mayRestore();
       const preserveScroll = isAsideV2(surface) && surface.scrollTop !== null;
-      if (restore) setComposerText(surface.composer, trimmed);
+      if (restore && !active.asideAsk.restored) setComposerText(surface.composer, trimmed);
       clearAsideStream(surface);
       if (restore && !preserveScroll) surface.scrollTop = null;
       surface.busy = false;
@@ -831,6 +862,7 @@ export async function sendAsideQuestion(
     }
     const preserveScroll = isAsideV2(surface) && surface.scrollTop !== null;
     applyAsideResult(surface, result);
+    clearAsideStopRestore(active, state, surface);
     if (isAsideV2(surface)) {
       const turns = currentAsideTurns(surface);
       surface.turnCursor = Math.max(0, turns.length - 1);
@@ -863,7 +895,7 @@ export async function sendAsideQuestion(
     if (!current()) return;
     const restore = mayRestore();
     const preserveScroll = isAsideV2(surface) && surface.scrollTop !== null;
-    if (restore) setComposerText(surface.composer, trimmed);
+    if (restore && !active.asideAsk.restored) setComposerText(surface.composer, trimmed);
     clearAsideStream(surface);
     if (restore && !preserveScroll) surface.scrollTop = null;
     surface.busy = false;
@@ -893,10 +925,27 @@ export function stopAsideAsk(state: RuntimeState): boolean {
     || state.interactionVersion === askInteractionVersion + 1) {
     active.stopInteractionVersion = state.interactionVersion;
   }
+  const question = surface.inflightQuestion;
+  const ask = active.asideAsk;
+  if (ask !== undefined
+    && active.stopInteractionVersion === state.interactionVersion
+    && question !== null
+    && question === ask.question
+    && surface.composer === ask.composer
+    && surface.streamText.trim().length === 0
+    && surface.composer.text.length === 0) {
+    setComposerText(surface.composer, question);
+    ask.restored = true;
+    // Match regular story Stop: return control to the draft immediately.
+    // The abort fence remains until the provider settles.
+    surface.busy = false;
+    surface.inflightQuestion = null;
+    surface.streamHidden = true;
+  }
   active.controller.abort();
   // Keep the visible prefix in place while the stopped answer settles into a
   // saved turn. Provider text that arrives after Stop remains transport-only.
-  surface.streamHidden = false;
+  if (ask?.restored !== true) surface.streamHidden = false;
   surface.presentation?.suspend();
   return true;
 }
