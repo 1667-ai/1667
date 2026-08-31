@@ -2,7 +2,6 @@ import { MAX_FACT_TEXT_CHARS } from "../../../../shared/types.js";
 import {
   canonicalFactStates,
   isFactEndState,
-  isFactStateful,
   type FactState
 } from "../../../../shared/fact-state.js";
 import { unicodeScalarLength } from "../../../../shared/unicode.js";
@@ -26,6 +25,7 @@ import {
 import { factEditorAdvancedPinned, factEditorVisibleRows } from "../../fact-editor-rows.js";
 import type { ComposerState } from "../../composer-model.js";
 import type { FactEditorSession } from "../../state.js";
+import { wrapText } from "../../wrap.js";
 import {
   renderComposerInput,
   renderComposerLayout,
@@ -66,8 +66,10 @@ export function renderFactEditorLayout(
     : [...canonicalFactStates(editor.target.base)];
   const stateLine = factEditorStateLine(editor, states);
   const advancedPinned = viewMode === "simple" && factEditorAdvancedPinned(editor);
+  const helpTarget = factEditorHelpTarget(editor);
+  const helpLines = factEditorHelpLines(editor, helpTarget, options.width);
   const headerRows = 1 + (hasName ? 1 : 0) + (scopeLine === null ? 0 : 1) + (showAdvanced ? 8 : 0)
-    + (stateLine === null ? 0 : 1);
+    + (stateLine === null ? 0 : 1) + helpLines.length;
   const body = renderComposerLayout({
     composer: editor.composer,
     fullscreen: true,
@@ -150,15 +152,29 @@ export function renderFactEditorLayout(
     body.fieldWidth,
     FACT_BUDGET_COMPOSER_SOURCE
   );
+  const withHelp = (line: FrameLine, target: FactEditorHelpTarget): FrameLine[] => [
+    line,
+    ...(helpTarget === target ? helpLines : [])
+  ];
   const header: FrameLine[] = [
-    viewHeader,
-    ...(name === null ? [] : [name]),
-    tag,
-    ...(scope === null ? [] : [scope]),
+    ...withHelp(viewHeader, "view"),
+    ...(name === null ? [] : withHelp(name, "name")),
+    ...withHelp(tag, "tag"),
+    ...(scope === null ? [] : withHelp(scope, "scope")),
     ...(showAdvanced
-      ? [activation, keys, secondary, match, scan, chain, priority, budget]
+      ? [
+          ...withHelp(activation, "activation"),
+          ...withHelp(keys, "keys"),
+          ...withHelp(secondary, "secondary"),
+          ...withHelp(match, "match"),
+          ...withHelp(scan, "scan"),
+          ...withHelp(chain, "chain"),
+          ...withHelp(priority, "priority"),
+          ...withHelp(budget, "budget")
+        ]
       : []),
-    ...(stateLine === null ? [] : [stateLine])
+    ...(stateLine === null ? [] : withHelp(stateLine, "state")),
+    ...(helpTarget === "body" ? helpLines : [])
   ];
   return {
     ...body,
@@ -200,16 +216,70 @@ function factEditorScopeLine(editor: FactEditorSession, fieldWidth: number): Fra
   }), FACT_SCOPE_COMPOSER_SOURCE, false);
   return line.map((part) => ({
     ...part,
-    hit: { kind: "action", action: "cycle-fact-scope" }
+    hit: part.hit ?? { kind: "action", action: "cycle-fact-scope" }
   }));
+}
+
+type FactEditorHelpTarget = "view" | "name" | "tag" | "scope" | "activation"
+  | "keys" | "secondary" | "match" | "scan" | "chain" | "priority" | "budget"
+  | "state" | "body";
+
+function factEditorHelpTarget(editor: FactEditorSession): FactEditorHelpTarget {
+  if (editor.chromeFocus === "view") return "view";
+  if (editor.chromeFocus === "state") return "state";
+  if (editor.chromeFocus === "scope") return "scope";
+  return editor.focus;
+}
+
+/** Show one short, selected-row explanation. The note uses the same visual
+ * treatment as Settings so every Fact option has a plain-English answer. */
+function factEditorHelpLines(
+  editor: FactEditorSession,
+  target: FactEditorHelpTarget,
+  width: number
+): FrameLine[] {
+  const inset = visibleWidth("┃     · ");
+  const measure = Math.max(1, width - inset - 1);
+  return wrapText(factEditorHelpText(editor, target), [], measure).map(({ text }) => [
+    segment("┃     ", "chrome"),
+    segment(`· ${text}`, "context note")
+  ]);
+}
+
+function factEditorHelpText(
+  editor: FactEditorSession,
+  target: FactEditorHelpTarget
+): string {
+  if (target === "view") return "Show the controls that decide when and where this Fact is used.";
+  if (target === "name") return "Optional name shown in the Facts list.";
+  if (target === "tag") return "Groups similar Facts together.";
+  if (target === "scope") return "Choose whether this Fact applies everywhere or starts from this story part.";
+  if (target === "activation") {
+    return editor.activation === "always"
+      ? "Always sends this Fact when a request is made."
+      : "Sends this Fact only when its keys match the story.";
+  }
+  if (target === "keys") return "Words or phrases that activate a keyed Fact. Separate entries with commas.";
+  if (target === "secondary") return "An optional second key list for the match rule below.";
+  if (target === "match") {
+    return editor.secondaryMode === "not"
+      ? "Needs a primary key and no matching secondary key."
+      : "Needs one primary key and one secondary key.";
+  }
+  if (target === "scan") return "How many recent story parts to check. Empty uses three parts.";
+  if (target === "chain") return "Let this Fact activate other keyed Facts.";
+  if (target === "priority") return "When the request is full, low priority Facts drop first.";
+  if (target === "budget") return "Optional token limit for this Fact. Empty means no limit.";
+  if (target === "body") return "Write the names, places, items, or rules the provider should remember.";
+  if (editor.stateCreating) return "New state starts at the story cursor. Type its text, then save.";
+  return "A state keeps one Fact text at a story point. Add one here or move the selected state here.";
 }
 
 function factEditorStateLine(
   editor: FactEditorSession,
   states: readonly FactState[]
 ): FrameLine | null {
-  const stateful = editor.stateCreating === true
-    || editor.target.base !== null && isFactStateful(editor.target.base);
+  const stateful = editor.stateCreating === true || editor.target.base !== null;
   if (!stateful) return null;
   const selected = editor.stateIndex ?? 0;
   const controls: FrameLine = [segment(
@@ -236,11 +306,19 @@ function factEditorStateLine(
         kind: "action", action: "open-state-anchor", rowId: anchor
       }));
     }
-    if (editor.stateCursorAnchorId !== undefined && editor.stateCursorAnchorId !== null) {
-      controls.push(segment(" · a re-anchor ◆ cursor", "chrome", {
-        kind: "action", action: "reanchor-state", rowId: editor.stateCursorAnchorId
+  }
+  if (editor.target.factId !== null
+    && editor.stateCursorAnchorId !== undefined && editor.stateCursorAnchorId !== null) {
+    if (!editor.stateCreating) {
+      controls.push(segment(" · s add state here ◆", "chrome", {
+        kind: "action", action: "new-state"
       }));
     }
+    controls.push(segment(" · a move here ◆", "chrome", {
+      kind: "action", action: "reanchor-state", rowId: editor.stateCursorAnchorId
+    }));
+  }
+  if (editor.stateId !== undefined && editor.stateId !== null) {
     controls.push(segment(` · ${editor.stateIsEnd === true ? "convert text" : "convert ✕"}`, "chrome", {
       kind: "action", action: "convert-state", rowId: editor.stateId
     }));

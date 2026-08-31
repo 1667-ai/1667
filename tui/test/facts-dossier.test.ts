@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
+import { ActionRuntime } from "../src/action-runtime.js";
 import { dispatch, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { canonicalFactStates } from "../../shared/fact-state.js";
@@ -11,6 +12,7 @@ import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText, plainLine } from "../src/screens/story/frame.js";
 import { createWrapCache } from "../src/wrap.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
+import { runPartAction } from "../src/story-actions.js";
 import type { StoryFact } from "../../shared/types.js";
 
 const STAMP = "2026-01-01T00:00:00.000Z";
@@ -109,6 +111,65 @@ describe("Facts scope chips and dossier", () => {
     expect(state.mode).toBe("EDITOR");
     expect(state.editor?.kind).toBe("fact");
     expect(state.editor?.kind === "fact" ? state.editor.name?.text : null).toBe("Named story-wide Fact");
+  });
+
+  test("overview edit still opens a legacy Fact without state PATCH", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    state.mode = "FACTS";
+    state.facts = {
+      cursor: 0,
+      query: "",
+      chip: 0,
+      selectedTag: null,
+      filtering: false,
+      deleteArmedId: null,
+      scopeFilter: "everywhere",
+      dossier: null
+    };
+    source.api.patchFactState = undefined;
+
+    await dispatch(
+      { action: "edit" }, state, source, createWrapCache(),
+      () => undefined, async () => undefined, () => undefined
+    );
+
+    expect(state.mode).toBe("EDITOR");
+    expect(state.editor?.kind).toBe("fact");
+  });
+
+  test("overview edit refuses a stateful Fact without state PATCH", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const template = state.payload.facts[0]!;
+    const fact = customFact(template, "overview-edit-old", "overview edit old", [
+      stateText("base", "Story-wide body."),
+      stateText("branch", "Branch body.", "p12")
+    ]);
+    state.payload = { ...state.payload, facts: [fact] };
+    state.mode = "FACTS";
+    state.facts = {
+      cursor: 0,
+      query: "",
+      chip: 0,
+      selectedTag: null,
+      filtering: false,
+      deleteArmedId: null,
+      scopeFilter: "everywhere",
+      dossier: null
+    };
+    const before = structuredClone(state.payload.facts);
+    source.api.patchFactState = undefined;
+
+    await dispatch(
+      { action: "edit" }, state, source, createWrapCache(),
+      () => undefined, async () => undefined, () => undefined
+    );
+
+    expect(state.mode).toBe("FACTS");
+    expect(state.editor).toBeNull();
+    expect(state.payload.facts).toEqual(before);
+    expect(state.toast).toBe("state editing requires a newer backend");
   });
 
   test("renders the resolution line, scope chips, and visible search-hit context", async () => {
@@ -308,6 +369,250 @@ describe("Facts scope chips and dossier", () => {
       .toBe(openedPartId);
   });
 
+  test("overview new state uses the story part that opened Facts", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const template = state.payload.facts[0]!;
+    const fact = customFact(template, "overview-new", "overview new", [
+      stateText("base", "Story-wide body."),
+      stateText("branch", "Branch body.", "p12")
+    ]);
+    state.payload = { ...state.payload, facts: [fact] };
+    const openedPartId = state.payload.path[0]!.id;
+    state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), openedPartId);
+    state.mode = "FACTS";
+    state.facts = {
+      cursor: 0,
+      query: "",
+      chip: 0,
+      selectedTag: null,
+      filtering: false,
+      deleteArmedId: null,
+      scopeFilter: "everywhere",
+      dossier: null
+    };
+
+    await dispatch(
+      { action: "new-state" }, state, source, createWrapCache(),
+      () => undefined, async () => undefined, () => undefined
+    );
+
+    expect(state.editor?.kind).toBe("fact");
+    expect(state.editor?.kind === "fact" ? state.editor.stateAnchorPartId : null)
+      .toBe(openedPartId);
+    expect(state.editor?.kind === "fact" ? state.editor.stateCursorAnchorId : null)
+      .toBe(openedPartId);
+  });
+
+  test("overview state creation refuses chapter summary and divider cursors", async () => {
+    for (const rowKind of ["chapter-summary", "chapter-divider"] as const) {
+      const source = demoAppSource();
+      const state = initialState(source, false);
+      const before = structuredClone(state.payload.facts);
+      const view = createStoryViewModel(state.payload);
+      state.focusIndex = view.rows.findIndex((row) => row.kind === rowKind);
+      expect(state.focusIndex).toBeGreaterThan(-1);
+      state.mode = "FACTS";
+      state.facts = {
+        cursor: 0,
+        query: "",
+        chip: 0,
+        selectedTag: null,
+        filtering: false,
+        deleteArmedId: null,
+        scopeFilter: "everywhere",
+        dossier: null
+      };
+
+      await dispatch(
+        { action: "new-state" }, state, source, createWrapCache(),
+        () => undefined, async () => undefined, () => undefined
+      );
+
+      expect(state.editor).toBeNull();
+      expect(state.payload.facts).toEqual(before);
+      expect(state.toast).toBe("select a story part before adding a state");
+    }
+  });
+
+  test("overview state creation fails closed on an older backend", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const fact = state.payload.facts[0]!;
+    const before = structuredClone(state.payload.facts);
+    source.api.createFactState = undefined;
+    state.mode = "FACTS";
+    state.facts = {
+      cursor: 0,
+      query: "",
+      chip: 0,
+      selectedTag: null,
+      filtering: false,
+      deleteArmedId: null,
+      scopeFilter: "everywhere",
+      dossier: null
+    };
+
+    await dispatch(
+      { action: "new-state" }, state, source, createWrapCache(),
+      () => undefined, async () => undefined, () => undefined
+    );
+
+    expect(state.editor).toBeNull();
+    expect(state.payload.facts).toEqual(before);
+    expect(state.toast).toBe("state creation requires a newer backend");
+    expect(state.payload.facts.find(({ id }) => id === fact.id)).toEqual(fact);
+  });
+
+  test("dossier state creation fails closed on an older backend", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const template = state.payload.facts[0]!;
+    const fact = customFact(template, "dossier-old", "dossier old", [
+      stateText("base", "Story-wide body."),
+      stateText("branch", "Branch body.", "p12")
+    ]);
+    state.payload = { ...state.payload, facts: [fact] };
+    state.mode = "FACTS";
+    state.facts = {
+      cursor: 0,
+      query: "",
+      chip: 0,
+      selectedTag: null,
+      filtering: false,
+      deleteArmedId: null,
+      scopeFilter: "everywhere",
+      dossier: { factId: fact.id, stateIndex: 0, diff: false }
+    };
+    const before = structuredClone(state.payload.facts);
+    source.api.createFactState = undefined;
+
+    await dispatch(
+      { action: "new-state" }, state, source, createWrapCache(),
+      () => undefined, async () => undefined, () => undefined
+    );
+
+    expect(state.editor).toBeNull();
+    expect(state.facts?.dossier).toEqual({ factId: fact.id, stateIndex: 0, diff: false });
+    expect(state.payload.facts).toEqual(before);
+    expect(state.toast).toBe("state creation requires a newer backend");
+  });
+
+  test("dossier edit refuses a stateful Fact without state PATCH", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const template = state.payload.facts[0]!;
+    const fact = customFact(template, "dossier-edit-old", "dossier edit old", [
+      stateText("base", "Story-wide body."),
+      stateText("branch", "Branch body.", "p12")
+    ]);
+    state.payload = { ...state.payload, facts: [fact] };
+    state.mode = "FACTS";
+    state.facts = {
+      cursor: 0,
+      query: "",
+      chip: 0,
+      selectedTag: null,
+      filtering: false,
+      deleteArmedId: null,
+      scopeFilter: "everywhere",
+      dossier: { factId: fact.id, stateIndex: 1, diff: false }
+    };
+    const before = structuredClone(state.payload.facts);
+    source.api.patchFactState = undefined;
+
+    await dispatch(
+      { action: "edit" }, state, source, createWrapCache(),
+      () => undefined, async () => undefined, () => undefined
+    );
+
+    expect(state.editor).toBeNull();
+    expect(state.facts?.dossier).toEqual({
+      factId: fact.id,
+      stateIndex: 1,
+      diff: false
+    });
+    expect(state.payload.facts).toEqual(before);
+    expect(state.toast).toBe("state editing requires a newer backend");
+  });
+
+  test("dossier state creation refuses chapter summary and divider cursors", async () => {
+    for (const rowKind of ["chapter-summary", "chapter-divider"] as const) {
+      const source = demoAppSource();
+      const state = initialState(source, false);
+      const template = state.payload.facts[0]!;
+      const fact = customFact(template, `dossier-row-${rowKind}`, "dossier row", [
+        stateText("base", "Story-wide body."),
+        stateText("branch", "Branch body.", "p12")
+      ]);
+      state.payload = { ...state.payload, facts: [fact] };
+      const view = createStoryViewModel(state.payload);
+      state.focusIndex = view.rows.findIndex((row) => row.kind === rowKind);
+      expect(state.focusIndex).toBeGreaterThan(-1);
+      state.mode = "FACTS";
+      state.facts = {
+        cursor: 0,
+        query: "",
+        chip: 0,
+        selectedTag: null,
+        filtering: false,
+        deleteArmedId: null,
+        scopeFilter: "everywhere",
+        dossier: { factId: fact.id, stateIndex: 0, diff: false }
+      };
+
+      await dispatch(
+        { action: "new-state" }, state, source, createWrapCache(),
+        () => undefined, async () => undefined, () => undefined
+      );
+
+      expect(state.editor).toBeNull();
+      expect(state.facts?.dossier).toEqual({
+        factId: fact.id,
+        stateIndex: 0,
+        diff: false
+      });
+      expect(state.toast).toBe("select a story part before adding a state");
+    }
+  });
+
+  test("a pending part state action fails closed on an older backend", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const anchorPartId = state.payload.path[0]!.id;
+    state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), anchorPartId);
+    source.api.createFactState = undefined;
+
+    await runPartAction("fact-new-state", state, source, {
+      cache: createWrapCache(),
+      repaint: () => undefined,
+      backend: new ActionRuntime(state, () => undefined),
+      renderer: null,
+      applyTheme: () => undefined,
+      previewTheme: () => undefined
+    });
+
+    expect(state.mode).toBe("FACTS");
+    expect(state.facts?.pendingFactAction).toEqual({
+      kind: "new-state",
+      anchorPartId
+    });
+    const before = structuredClone(state.payload.facts);
+    await dispatch(
+      { action: "open-selected" }, state, source, createWrapCache(),
+      () => undefined, async () => undefined, () => undefined
+    );
+
+    expect(state.editor).toBeNull();
+    expect(state.mode).toBe("FACTS");
+    expect(state.facts?.pendingFactAction).toEqual({
+      kind: "new-state",
+      anchorPartId
+    });
+    expect(state.payload.facts).toEqual(before);
+    expect(state.toast).toBe("state creation requires a newer backend");
+  });
+
   test("mouse dossier End State uses the story part that opened Facts", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
@@ -403,6 +708,7 @@ describe("Facts scope chips and dossier", () => {
       action: "cycle-state",
       index: 1
     });
+    expect(resolveKey(key("e"), "FACTS", { factDossier: true }).action).toBe("edit");
     expect(resolveKey(key("n"), "FACTS", { factDossier: true }).action).toBe("new-state");
     expect(resolveKey(key("x"), "FACTS", { factDossier: true }).action).toBe("end-state");
     expect(resolveKey(key("d"), "FACTS", { factDossier: true }).action).toBe("toggle-fact-diff");
@@ -427,6 +733,12 @@ describe("Facts scope chips and dossier", () => {
     expect(endHit).toBeDefined();
     expect(mouseToAction(click(endHit!.hit.left + 1, endHit!.y), state))
       .toEqual({ action: "end-state" });
+    const editHit = state.hitRows
+      .flatMap((row, y) => row?.overrides?.map((hit) => ({ hit, y })) ?? [])
+      .find(({ hit }) => hit.target.kind === "action" && hit.target.action === "edit");
+    expect(editHit).toBeDefined();
+    expect(mouseToAction(click(editHit!.hit.left + 1, editHit!.y), state))
+      .toEqual({ action: "edit" });
     expect(canonicalFactStates(fact)).toHaveLength(1);
   });
 

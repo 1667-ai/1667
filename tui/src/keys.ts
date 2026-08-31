@@ -7,7 +7,8 @@ import {
 } from "./editor-text-insertion.js";
 import { globalEditor } from "./editor-scope.js";
 import {
-  factEditorBuffer
+  factEditorBuffer,
+  factEditorChromeOwnsInput
 } from "./fact-editor-policy.js";
 import { textSurfaceKey } from "./keys-text-surface.js";
 import { openDirectComposer } from "./composer-ownership.js";
@@ -62,7 +63,7 @@ export type KeyAction =
   | "aside-go-anchor" | "aside-hop-to" | "aside-undo-delete"
   | "filter" | "cycle" | "check" | "detect-context" | "discard-pending" | "retry" | "continue"
   | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index" | "open-aside-use"
-  | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
+  | "open-chapters" | "create-chapter" | "chapter-previous" | "chapter-next"
   | "toggle-context-meter" | "open-search" | "toggle-search-case" | "open-request"
   | "complete" | "open-log" | "clear-log" | "row-action"
   | "open-probs" | "next-part" | "open-text-actions" | "import-profile" | "open-records"
@@ -134,7 +135,7 @@ export const MUTATING_ACTIONS: ReadonlySet<KeyAction> = new Set([
   "prune", "apply", "delete-tag", "edit", "write", "regenerate", "tag",
   "new-item", "duplicate-item", "rename-item", "delete-item", "discard-pending",
   "move-item-up", "move-item-down",
-  "create-chapter", "summarize-chapter", "open-aside", "open-authors-note", "save-edit", "save-edit-inplace"
+  "create-chapter", "open-aside", "open-authors-note", "save-edit", "save-edit-inplace"
 ]);
 
 /** Global-scope editor saves update local application state, not the story. */
@@ -251,6 +252,10 @@ export function pasteInto(
   if (state.mode === "EDITOR") {
     const editor = state.editor;
     if (editor === null) return false;
+    if (editor.kind === "fact" && factEditorChromeOwnsInput(editor)) {
+      state.toast = "select a Fact field before typing";
+      return true;
+    }
     const buffer = editor.kind === "fact" ? factEditorBuffer(editor) : editor;
     insertEditorText(
       state,
@@ -328,6 +333,8 @@ export interface ResolveOptions {
   factDossier?: boolean;
   /** Non-text Fact editor chrome currently owns focus. */
   factEditorChromeFocus?: "view" | "state" | "scope";
+  /** A closed Fact choice row owns the horizontal arrows, like Settings. */
+  factEditorChoiceFocus?: boolean;
   /** The open document editor targets the Author's Note, so its depth chord
    *  applies. No other editor target binds `⌥-`/`⌥=`. */
   authorsNoteEditor?: boolean;
@@ -397,7 +404,7 @@ export function asideKeyboardLayer(
 export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions = {}): ResolvedKey {
   const { confirmingPrune = false, tagChoosingStatus = false, connectionDown = false,
     overlayTyping = false, settingsSampling = false, commandsTags = false,
-    factEditor = false, factEditorChromeFocus,
+    factEditor = false, factEditorChromeFocus, factEditorChoiceFocus = false,
     factDossier = false,
     authorsNoteEditor = false, settingsPicker = false,
     settingsProfileTransfer = null,
@@ -568,8 +575,18 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
       && name === "]" && factEditorChromeFocus === "state") {
       return { action: "cycle-state", index: 1 };
     }
+    if (factEditor && factEditorChoiceFocus
+      && !key.ctrl && !key.meta && !key.option && !key.super
+      && (name === "left" || name === "right")) {
+      return { action: name === "left" ? "take-previous" : "take-next" };
+    }
     if (factEditor && factEditorChromeFocus === "state" && key.name === "return") {
       return { action: "open-state-anchor" };
+    }
+    if (factEditor && factEditorChromeFocus === "state"
+      && !key.ctrl && !key.meta && !key.option && !key.super
+      && (name === "s" || name === "n")) {
+      return { action: "new-state" };
     }
     if (factEditor && key.name === "tab") {
       return { action: "cycle", index: key.shift ? -1 : 1 };
@@ -726,7 +743,11 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "down") return { action: "focus-next" };
     if (key.name === "up") return { action: "focus-previous" };
     if (key.name === "return") return { action: "open-selected" };
-    if (key.name === "s") return { action: "summarize-chapter" };
+    if (key.name === "r") return { action: "regenerate" };
+    // Keep the former chapter-menu shortcut as a compatibility alias. The
+    // rendered control and canonical action now match the inline chapter
+    // summary control: `r` / `regenerate`.
+    if (key.name === "s") return { action: "regenerate" };
     if (key.name === "e") return { action: "rename-item" };
     if (plainShiftedLetter(key, "d")) return { action: "delete-item" };
     if (key.name === "n") return { action: "new-item" };
@@ -745,6 +766,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
       if (key.name === "up") return { action: "focus-previous" };
       if (key.name === "[") return { action: "cycle-state", index: -1 };
       if (key.name === "]") return { action: "cycle-state", index: 1 };
+      if (key.name === "e") return { action: "edit" };
       if (key.name === "n") return { action: "new-state" };
       if (key.name === "x") return { action: "end-state" };
       if (key.name === "d") return { action: "toggle-fact-diff" };

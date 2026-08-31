@@ -156,6 +156,7 @@ applies its subscription limits, terms, and data controls.
 | Open Aside | `a` |
 | Edit the Author's Note | `n` |
 | Generate a take with the same or a new prompt | `r` or `R` |
+| Summarize or refresh a chapter | `r` on a chapter marker or in Chapters |
 | Copy the selected story part or story line | `y` or `Y` |
 | Undo an added or removed chapter break | `u` |
 | Open the map, facts, chapters, or library | `m`, `f`, `c`, or `o` |

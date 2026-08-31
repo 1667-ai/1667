@@ -36,7 +36,11 @@ export function renderComposerChoiceRow(options: {
     segment("┃ ", "compose accent"),
     segment(options.focused ? "▸ " : "  ", "focus / accent"),
     segment(label, options.focused ? "prose" : "chrome"),
-    segment("‹ ", valueRole),
+    segment("‹ ", valueRole, {
+      kind: "action",
+      action: "take-previous",
+      composerSourceId: options.sourceId
+    }),
     ...(mappedValue.length === 0 ? [] : clipped || options.sourceStart === null
       ? [{
           text: mappedValue,
@@ -56,6 +60,10 @@ export function renderComposerChoiceRow(options: {
             }
           }]),
     ...(clipped ? [segment("…", valueRole)] : []),
-    segment(" ›", valueRole)
+    segment(" ›", valueRole, {
+      kind: "action",
+      action: "take-next",
+      composerSourceId: options.sourceId
+    })
   ]);
 }

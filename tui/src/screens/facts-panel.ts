@@ -51,7 +51,7 @@ export const FACTS_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
   { token: "tab", action: "cycle" }, { token: "↵ open", action: "open-selected" },
   { token: "/ filter", action: "filter" }, { token: "e edit", action: "edit" },
-  { token: "n new", action: "new-item" }, { token: "s state", action: "new-state" },
+  { token: "n new", action: "new-item" }, { token: "s new state", action: "new-state" },
   { token: "x delete", action: "delete-item" },
   { token: "esc", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
@@ -64,7 +64,7 @@ const FACTS_COMPACT_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
   { token: "tab", action: "cycle" }, { token: "↵", action: "open-selected" },
   { token: "/", action: "filter" }, { token: "e", action: "edit" },
-  { token: "n", action: "new-item" }, { token: "s state", action: "new-state" },
+  { token: "n", action: "new-item" }, { token: "s new state", action: "new-state" },
   { token: "x", action: "delete-item" }, { token: "esc", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 
@@ -72,7 +72,7 @@ const FACTS_COMPACT_CONFIRM_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
   { token: "tab", action: "cycle" }, { token: "↵", action: "open-selected" },
   { token: "/", action: "filter" }, { token: "e", action: "edit" },
-  { token: "n", action: "new-item" }, { token: "s state", action: "new-state" },
+  { token: "n", action: "new-item" }, { token: "s new state", action: "new-state" },
   { token: "x confirms", action: "delete-item" }, { token: "esc keeps", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 
@@ -84,6 +84,7 @@ const FILTER_FOOTER_ACTIONS = [
 const DOSSIER_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" },
   { token: "↓", action: "focus-next" },
+  { token: "e edit state", action: "edit" },
   { token: "↵ open", action: "open-selected" },
   { token: "[", action: "cycle-state", index: -1 },
   { token: "]", action: "cycle-state", index: 1 },
@@ -96,6 +97,7 @@ const DOSSIER_FOOTER_ACTIONS = [
 const DOSSIER_COMPACT_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" },
   { token: "↓", action: "focus-next" },
+  { token: "e", action: "edit" },
   { token: "↵", action: "open-selected" },
   { token: "[", action: "cycle-state", index: -1 },
   { token: "]", action: "cycle-state", index: 1 },
@@ -254,11 +256,11 @@ export function renderFactsPanel(
     ? "↵ done · esc done"
     : overlay.deleteArmedId === null
       ? width < 100
-        ? "↑·↓·tab·↵·/·e·n·s state·x·esc"
-        : "↑↓ · tab · ↵ open · / filter · e edit · n new · s state · x delete · esc"
+        ? "↑·↓·tab·↵·/·e·n·s new state·x·esc"
+        : "↑↓ · tab · ↵ open · / filter · e edit · n new · s new state · x delete · esc"
       : width < 100
-        ? "↑·↓·tab·↵·/·e·n·s state·x confirms·esc keeps"
-        : "↑↓ · tab · ↵ open · / filter · e edit · n new · s state · x confirms · esc keeps";
+        ? "↑·↓·tab·↵·/·e·n·s new state·x confirms·esc keeps"
+        : "↑↓ · tab · ↵ open · / filter · e edit · n new · s new state · x confirms · esc keeps";
   const activationCount = keyedFacts.length === 0
     ? ""
     : ` · ${activeKeyedCount}/${keyedFacts.length} keyed`;

@@ -4,7 +4,6 @@ import {
   canonicalFactStates,
   firstFactText,
   isFactEndState,
-  isFactStateful,
   resolveFactState
 } from "../../shared/fact-state.js";
 import { resolveAuthorsNoteDepth } from "../../shared/authors-note.js";
@@ -111,10 +110,10 @@ export function openFactEditor(
     : states.find(({ id }) => id === options.stateId);
   const stateCreating = options.stateCreating === true;
   const returnMode = options.returnMode ?? "FACTS";
-  // A single story-wide text state is the canonical lift of a legacy flat
-  // Fact. Keep that case on the original editor surface; state chrome appears
-  // only once scope or multiplicity makes it user-visible.
-  const stateful = fact !== null && isFactStateful(fact);
+  // Every saved Fact can now add a state from this editor. Keep the canonical
+  // legacy state shape until a state action or other state feature needs more
+  // history; opening the editor alone does not rewrite storage.
+  const stateful = fact !== null;
   const text = stateCreating
     ? ""
     : selectedState === undefined || isFactEndState(selectedState)
@@ -176,8 +175,9 @@ export function openFactEditor(
   openFactSession(state, editor);
 }
 
-/** Open the existing Fact on a fresh state draft. The draft uses the current
- * path's leaf as its default anchor; the editor can re-anchor before save. */
+/** Open the existing Fact on a fresh state draft. The caller supplies the
+ * current story cursor as the default anchor; the editor can re-anchor before
+ * save. */
 export function openFactStateEditor(
   state: RuntimeState,
   fact: StoryFact,

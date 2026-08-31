@@ -529,7 +529,10 @@ describe("text surfaces and palette", () => {
   });
 
   test("chapters owns TOC actions and rename text", () => {
-    expect(resolveKey(key("s"), "CHAPTERS").action).toBe("summarize-chapter");
+    expect(resolveKey(key("r"), "CHAPTERS").action).toBe("regenerate");
+    // The former shortcut remains accepted for existing keyboard muscle
+    // memory, but resolves to the same canonical action as the visible `r`.
+    expect(resolveKey(key("s"), "CHAPTERS").action).toBe("regenerate");
     expect(resolveKey(key("e"), "CHAPTERS").action).toBe("rename-item");
     expect(resolveKey(key("d"), "CHAPTERS").action).toBe("none");
     expect(resolveKey(key("D"), "CHAPTERS").action).toBe("delete-item");

@@ -81,7 +81,7 @@ const footerCases: FooterCase[] = [
     keys: [key("up"), key("down"), key("return"), key("n"), key("r"), key("/"), key("D"), key("escape")],
     setup: (state, source) => { state.mode = "LIBRARY"; state.library = { stories: source.stories, cursor: 0, query: "", prompt: null }; } },
   { name: "chapters", mode: "CHAPTERS", actions: CHAPTERS_FOOTER_ACTIONS,
-    keys: [key("return"), key("s"), key("e"), key("n"), key("D"), key("escape")],
+    keys: [key("return"), key("r"), key("e"), key("n"), key("D"), key("escape")],
     setup: (state) => { state.mode = "CHAPTERS"; state.chapters = { cursor: 0, rename: null, deleteArmedId: null }; } },
   { name: "commands", mode: "COMMANDS", actions: COMMANDS_FOOTER_ACTIONS,
     keys: [key("return"), key("up"), key("down"), key("escape")],

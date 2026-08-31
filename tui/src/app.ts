@@ -657,6 +657,12 @@ export async function handleKey(
     factEditorChromeFocus: state.editor?.kind === "fact"
       ? state.editor.chromeFocus
       : undefined,
+    factEditorChoiceFocus: state.editor?.kind === "fact"
+      && state.editor.chromeFocus === undefined
+      && (state.editor.focus === "activation"
+        || state.editor.focus === "match"
+        || state.editor.focus === "chain"
+        || state.editor.focus === "priority"),
     textActionsOpen: state.textActions !== null,
     asideLayer: state.mode === "ASIDE"
       ? asideKeyboardLayer(state.aside)

@@ -25,7 +25,14 @@ export type HitTarget =
   | { kind: "story-take"; take: number }
   /** Shortcut from story chrome into one exact Settings row. */
   | { kind: "settings-row"; row: SettingsRowId; profilePurpose?: SettingsRoutePurpose }
-  | { kind: "action"; action: KeyAction; index?: number; rowId?: string }
+  | {
+      kind: "action";
+      action: KeyAction;
+      index?: number;
+      rowId?: string;
+      /** Exact editor field for a choice arrow. */
+      composerSourceId?: string;
+    }
   /** Row control whose non-left clicks deliberately fall through to its row. */
   | {
       kind: "inline-action";

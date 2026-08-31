@@ -1218,12 +1218,12 @@ describe("hit map clickable chrome", () => {
       { name: "library", expected: "↑↓ move · ↵ open · n new · e rename · / filter · D delete · esc",
         setup: (state, source) => { state.mode = "LIBRARY"; state.library = { stories: source.stories, cursor: 0, query: "", prompt: null }; } },
       { name: "facts", expected: (width: number) => width < 100
-        ? "↑·↓·tab·↵·/·e·n·s state·x·esc"
-        : "↑↓ · tab · ↵ open · / filter · e edit · n new · s state · x delete · esc",
+        ? "↑·↓·tab·↵·/·e·n·s new state·x·esc"
+        : "↑↓ · tab · ↵ open · / filter · e edit · n new · s new state · x delete · esc",
         setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null }; } },
       { name: "facts confirm", expected: (width) => width < 100
-        ? "↑·↓·tab·↵·/·e·n·s state·x confirms·esc keeps"
-        : "↑↓ · tab · ↵ open · / filter · e edit · n new · s state · x confirms · esc keeps",
+        ? "↑·↓·tab·↵·/·e·n·s new state·x confirms·esc keeps"
+        : "↑↓ · tab · ↵ open · / filter · e edit · n new · s new state · x confirms · esc keeps",
         setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: "fact-1" }; } },
       { name: "commands", expected: "↑↓ move · ↵ run · esc close",
         setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands", returnMode: "NAV" }; } },
@@ -1234,8 +1234,8 @@ describe("hit map clickable chrome", () => {
       // Context status moved into the panel, so the footer is actions only and
       // no longer grows with `over`/`fix`.
       { name: "chapters", expected: (width) => width < 100
-        ? "↵ jump · s sum · e rename · n break · D rm · esc"
-        : "↵ jump · s summarize · e rename · n break · D remove · esc",
+        ? "↵ jump · r sum · e rename · n break · D rm · esc"
+        : "↵ jump · r summarize · e rename · n break · D remove · esc",
         setup: (state) => { state.mode = "CHAPTERS"; state.chapters = { cursor: 0, rename: null, deleteArmedId: null }; } },
       // A chapter list longer than the row budget: the panel must still show the
       // context status it moved inside to stop the footer from hiding.
@@ -1247,7 +1247,7 @@ describe("hit map clickable chrome", () => {
             id: `b${index}`, parentPartId: node.id, title: `ch ${index + 1}`, createdAt: "2022-10-25T09:00:00.000Z"
           })) };
         } },
-      { name: "chapters confirm", expected: "↵ jump · s sum · e rename · n break · D confirms · esc keeps",
+      { name: "chapters confirm", expected: "↵ jump · r sum · e rename · n break · D confirms · esc keeps",
         setup: (state) => { state.mode = "CHAPTERS"; state.chapters = { cursor: 0, rename: null, deleteArmedId: "chapter-break-1" }; } },
       { name: "settings",
         expected: "↑↓ move · ←→ choose · ↵ next · s save · c check · m simple · esc",
