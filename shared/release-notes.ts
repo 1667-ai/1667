@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.6",
+    date: "2026-08-31",
+    body: "- **This release has no additional product changes.** It contains the same\n  behavior as 0.10.6-rc.1."
+  },
+  {
     version: "0.10.6-rc.1",
     date: "2026-08-31",
     body: "- **Fact controls are easier to understand and use.** The Fact editor explains\n  each option in simple English. Choice fields use the same arrow keys and\n  clickable controls as Settings.\n- **You can add, move, and edit Fact States.** Select a story part and press\n  `s` to add a state there. Select a state and press `a` to move it to the\n  current story part. The Facts dossier can open a state for editing. Existing\n  flat Facts continue to work without a store migration.\n- **Chapter summarize now uses `r` everywhere.** The Chapters menu and inline\n  chapter controls use the same key and work with the mouse. 1667 shows model\n  progress only when progress data is available."

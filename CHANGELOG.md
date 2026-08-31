@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.6 - 2026-08-31
+
+- **This release has no additional product changes.** It contains the same
+  behavior as 0.10.6-rc.1.
+
 ## 0.10.6-rc.1 - 2026-08-31
 
 - **Fact controls are easier to understand and use.** The Fact editor explains
