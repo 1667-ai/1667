@@ -19,7 +19,7 @@ import {
   factTags,
   isSingleUnscopedTextFact
 } from "./facts-model.js";
-import { canonicalFactStates } from "../../shared/fact-state.js";
+import { canonicalFactStates, isFactStateful } from "../../shared/fact-state.js";
 import { applyTextKey, type ResolvedKey } from "./keys.js";
 import {
   openAuthorBriefEditor,
@@ -400,13 +400,20 @@ function initialFacts() {
 }
 
 /** Facts stays over the story row that opened it. The focus index is not
- * changed by the overlay, so dossier state creation can use that persisted
- * part instead of silently falling back to the active path leaf. */
+ * changed by the overlay, so state creation can use that persisted part
+ * instead of silently falling back to the active path leaf. */
 function factsOpeningPartId(state: RuntimeState): string | null {
-  const part = rowPart(createStoryViewModel(state.payload), state.focusIndex);
-  return part?.node.role === "summary"
-    ? null
-    : part?.node.id ?? state.payload.path.at(-1)?.id ?? null;
+  const view = createStoryViewModel(state.payload);
+  const persistedPartId = (candidateId: string | undefined): string | null => {
+    if (candidateId === undefined) return null;
+    const node = state.payload.nodes.find(({ id }) => id === candidateId);
+    return node === undefined || node.role === "summary" ? null : node.id;
+  };
+  if (view.rows[state.focusIndex] === undefined) {
+    return persistedPartId(state.payload.path.at(-1)?.id);
+  }
+  const part = rowPart(view, state.focusIndex);
+  return persistedPartId(part?.node.id);
 }
 
 async function factsAction(
@@ -480,10 +487,17 @@ async function factsAction(
     || resolved.action === "open-selected" && overlay.pendingFactAction !== null
       && overlay.pendingFactAction !== undefined)
     && !overlay.filtering && selected !== undefined) {
+    if (source.api.createFactState === undefined) {
+      state.toast = "state creation requires a newer backend";
+      return true;
+    }
     const pending = overlay.pendingFactAction;
     const anchorPartId = pending?.anchorPartId
-      ?? state.payload.path.at(-1)?.id
-      ?? null;
+      ?? factsOpeningPartId(state);
+    if (anchorPartId === null) {
+      state.toast = "select a story part before adding a state";
+      return true;
+    }
     openFactStateEditor(state, selected, anchorPartId);
     if (pending?.kind === "end" && state.editor?.kind === "fact") {
       state.editor.stateIsEnd = true;
@@ -536,6 +550,13 @@ async function factsAction(
       });
     }
   } else if ((resolved.action === "edit" && selected !== undefined) || resolved.action === "new-item") {
+    if (resolved.action === "edit"
+      && selected !== undefined
+      && isFactStateful(selected)
+      && source.api.patchFactState === undefined) {
+      state.toast = "state editing requires a newer backend";
+      return true;
+    }
     if (resolved.action === "edit") overlay.cursor = selectedIndex;
     const selectedStateId = resolved.action === "edit"
       && selected !== undefined
@@ -624,9 +645,22 @@ async function factsDossierAction(
       release: (currentState) => { currentState.facts = null; }
     });
   } else if (resolved.action === "edit") {
+    if (isFactStateful(fact) && source.api.patchFactState === undefined) {
+      state.toast = "state editing requires a newer backend";
+      return true;
+    }
     openFactEditor(state, fact, { stateId: states[current]!.id });
   } else if (resolved.action === "new-state" || resolved.action === "end-state") {
-    openFactStateEditor(state, fact, factsOpeningPartId(state));
+    if (source.api.createFactState === undefined) {
+      state.toast = "state creation requires a newer backend";
+      return true;
+    }
+    const anchorPartId = factsOpeningPartId(state);
+    if (anchorPartId === null) {
+      state.toast = "select a story part before adding a state";
+      return true;
+    }
+    openFactStateEditor(state, fact, anchorPartId);
     if (resolved.action === "end-state" && state.editor?.kind === "fact") {
       state.editor.stateIsEnd = true;
       setComposerText(state.editor.composer, "");

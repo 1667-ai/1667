@@ -389,7 +389,10 @@ export function mouseToAction(
     return {
       action: target.action,
       ...(target.index === undefined ? {} : { index: target.index }),
-      ...(target.rowId === undefined ? {} : { rowId: target.rowId })
+      ...(target.rowId === undefined ? {} : { rowId: target.rowId }),
+      ...(target.composerSourceId === undefined
+        ? {}
+        : { composerSourceId: target.composerSourceId })
     };
   }
   if (target.kind === "inline-action" && event.button === 0) {

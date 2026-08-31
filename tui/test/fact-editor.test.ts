@@ -12,7 +12,7 @@ import {
   factDraftToFactPatch,
   factEditorChanged
 } from "../src/fact-editor-draft.js";
-import { resetFactEditorHistory } from "../src/fact-editor-policy.js";
+import { resetFactEditorHistory, setFactEditorFocus } from "../src/fact-editor-policy.js";
 import { captureMouseActionState, mouseToAction } from "../src/mouse-actions.js";
 import { pasteInto } from "../src/keys.js";
 import { nextRequestEstimate } from "../src/request-projection.js";
@@ -194,6 +194,8 @@ describe("Fact editor", () => {
 
     await press(key("up"));
 
+    expect(editor.chromeFocus).toBe("state");
+    await press(key("up"));
     expect(editor.focus).toBe("budget");
     expect(composerPosition(editor.budget).column).toBe(0);
     await press(key("5"));
@@ -537,7 +539,7 @@ describe("Fact editor", () => {
     expect(editor.conflict).toBeNull();
   });
 
-  test("state chrome exposes a re-anchor shortcut and hides for legacy Facts", async () => {
+  test("state chrome exposes add and move actions for every saved Fact", async () => {
     const { state, press } = editorHarness();
     const fact = state.payload.facts[0]!;
     const initialAnchorPartId = state.payload.path[0]!.id;
@@ -561,7 +563,7 @@ describe("Fact editor", () => {
     const cursorAnchorPartId = editor.stateCursorAnchorId!;
     expect(cursorAnchorPartId).not.toBe(initialAnchorPartId);
     expect(frameText(renderStoryScreen(state, { width: 100, height: 24 }).lines))
-      .toContain("a re-anchor ◆ cursor");
+      .toContain("a move here ◆");
     await press(key("A"));
     expect(editor.stateAnchorPartId).toBe(initialAnchorPartId);
     await press(key("a"));
@@ -569,7 +571,297 @@ describe("Fact editor", () => {
 
     openFactEditor(state, fact);
     expect(frameText(renderStoryScreen(state, { width: 100, height: 24 }).lines))
-      .not.toContain("states");
+      .toContain("states");
+    expect(frameText(renderStoryScreen(state, { width: 100, height: 24 }).lines))
+      .toContain("s add state here ◆");
+  });
+
+  test("a legacy Fact reaches its state chrome with Up and Down", async () => {
+    const { state, press } = editorHarness();
+    const fact = state.payload.facts[0]!;
+    openFactEditor(state, fact);
+    const editor = activeFactEditor(state);
+    editor.composer.anchor = null;
+    editor.composer.cursor = 0;
+
+    await press(key("up"));
+    expect(editor.chromeFocus).toBe("state");
+    await press(key("down"));
+    expect(editor.focus).toBe("body");
+    expect(editor.chromeFocus).toBe(undefined);
+  });
+
+  test("state chrome does not route keyboard or paste input to a stale Fact field", async () => {
+    const { state, press } = editorHarness();
+    const fact = state.payload.facts[0]!;
+    openFactEditor(state, fact);
+    const editor = activeFactEditor(state);
+    setComposerText(editor.budget, "42");
+    editor.focus = "budget";
+    editor.chromeFocus = "state";
+    const body = editor.composer.text;
+
+    await press(key("x"));
+    await press(key("backspace"));
+    expect(editor.budget.text).toBe("42");
+    expect(editor.composer.text).toBe(body);
+
+    expect(pasteInto(state, "hidden input")).toBeTrue();
+    expect(editor.budget.text).toBe("42");
+    expect(editor.composer.text).toBe(body);
+    expect(state.toast).toBe("select a Fact field before typing");
+  });
+
+  test("Fact choice arrows work by mouse and by Left or Right Arrow", async () => {
+    const { source, state, cache, press } = editorHarness();
+    await press(key("f"));
+    await press(key("return"));
+    const editor = activeFactEditor(state);
+    setFactEditorFocus(editor, "activation");
+
+    const rendered = renderStoryScreen(state, { width: 100, height: 24 });
+    Object.assign(state, rendered.derived);
+    const tagRight = state.hitRows
+      .flatMap((row, y) => row?.overrides?.map((region) => ({ region, y })) ?? [])
+      .find(({ region }) => region.target.kind === "action"
+        && region.target.action === "take-next"
+        && region.target.composerSourceId === "fact-tag");
+    expect(tagRight).toBeDefined();
+    const tagAction = mouseToAction(
+      mouseClick(tagRight!.region.left, tagRight!.y), state
+    );
+    await dispatch(
+      tagAction!, state, source, cache, () => undefined, async () => undefined, () => undefined
+    );
+    expect(editor.tag.text).toBe("places");
+    expect(editor.focus).toBe("body");
+    setFactEditorFocus(editor, "activation");
+    const right = state.hitRows
+      .flatMap((row, y) => row?.overrides?.map((region) => ({ region, y })) ?? [])
+      .find(({ region }) => region.target.kind === "action"
+        && region.target.action === "take-next"
+        && region.target.composerSourceId === "fact-activation");
+    expect(right).toBeDefined();
+    const mouseAction = mouseToAction(
+      mouseClick(right!.region.left, right!.y), state
+    );
+    expect(mouseAction).toEqual({
+      action: "take-next",
+      composerSourceId: "fact-activation"
+    });
+    await dispatch(
+      mouseAction!, state, source, cache, () => undefined, async () => undefined, () => undefined
+    );
+    expect(editor.focus).toBe("activation");
+    expect(editor.activation).toBe("keyed");
+
+    await press(key("left"));
+    expect(editor.activation).toBe("always");
+
+    editor.chromeFocus = "view";
+    await press(key("right"));
+    expect(editor.activation).toBe("always");
+    editor.chromeFocus = "state";
+    await press(key("left"));
+    expect(editor.activation).toBe("always");
+    editor.chromeFocus = undefined;
+
+    const choiceSources = [
+      "fact-tag", "fact-activation", "fact-secondary-mode", "fact-recursion", "fact-priority"
+    ];
+    for (const sourceId of choiceSources) {
+      const arrows = state.hitRows
+        .flatMap((row) => row?.overrides ?? [])
+        .filter((region) => region.target.kind === "action"
+          && (region.target.action === "take-previous" || region.target.action === "take-next")
+          && region.target.composerSourceId === sourceId);
+      expect(arrows).toHaveLength(2);
+    }
+  });
+
+  test("each Fact option has a short explanation", async () => {
+    const { state, press } = editorHarness();
+    await press(key("f"));
+    await press(key("return"));
+    const editor = activeFactEditor(state);
+    const options: Array<[FactEditorSession["focus"], string]> = [
+      ["name", "Optional name shown in the Facts list."],
+      ["tag", "Groups similar Facts together."],
+      ["activation", "Always sends this Fact when a request is made."],
+      ["keys", "Words or phrases that activate a keyed Fact."],
+      ["secondary", "An optional second key list for the match rule below."],
+      ["match", "Needs one primary key and one secondary key."],
+      ["scan", "How many recent story parts to check."],
+      ["chain", "Let this Fact activate other keyed Facts."],
+      ["priority", "When the request is full, low priority Facts drop first."],
+      ["budget", "Optional token limit for this Fact."],
+      ["body", "Write the names, places, items, or rules"],
+    ];
+    for (const [focus, explanation] of options) {
+      setFactEditorFocus(editor, focus);
+      expect(frameText(renderStoryScreen(state, { width: 100, height: 24 }).lines))
+        .toContain(explanation);
+    }
+    editor.chromeFocus = "state";
+    expect(frameText(renderStoryScreen(state, { width: 100, height: 24 }).lines))
+      .toContain("A state keeps one Fact text at a story point.");
+
+    openFactEditor(state, null);
+    const newFact = activeFactEditor(state);
+    newFact.chromeFocus = "scope";
+    expect(frameText(renderStoryScreen(state, { width: 100, height: 24 }).lines))
+      .toContain("Choose whether this Fact applies everywhere");
+  });
+
+  test("the Fact editor adds a state at the cursor and moves one by mouse", async () => {
+    const { source, state, cache, press } = editorHarness();
+    const fact = state.payload.facts[0]!;
+    openFactEditor(state, fact);
+    const editor = activeFactEditor(state);
+    editor.chromeFocus = "state";
+    await press(key("s"));
+    expect(editor.stateCreating).toBeTrue();
+    expect(editor.stateAnchorPartId).toBe(editor.stateCursorAnchorId);
+    expect(editor.composer.text).toBe("");
+
+    openFactEditor(state, fact);
+    const movable = activeFactEditor(state);
+    movable.chromeFocus = "state";
+    const rendered = renderStoryScreen(state, { width: 100, height: 24 });
+    Object.assign(state, rendered.derived);
+    const move = state.hitRows
+      .flatMap((row, y) => row?.overrides?.map((region) => ({ region, y })) ?? [])
+      .find(({ region }) => region.target.kind === "action"
+        && region.target.action === "reanchor-state");
+    expect(move).toBeDefined();
+    const mouseAction = mouseToAction(
+      mouseClick(move!.region.left, move!.y), state
+    );
+    expect(mouseAction?.action).toBe("reanchor-state");
+    await dispatch(
+      mouseAction!, state, source, cache, () => undefined, async () => undefined, () => undefined
+    );
+    expect(movable.stateAnchorPartId).toBe(movable.stateCursorAnchorId);
+
+    openFactEditor(state, fact);
+    const dirty = activeFactEditor(state);
+    setComposerText(dirty.composer, "unsaved state edit");
+    dirty.chromeFocus = "state";
+    const dirtyFrame = renderStoryScreen(state, { width: 100, height: 24 });
+    Object.assign(state, dirtyFrame.derived);
+    const add = state.hitRows
+      .flatMap((row, y) => row?.overrides?.map((region) => ({ region, y })) ?? [])
+      .find(({ region }) => region.target.kind === "action" && region.target.action === "new-state");
+    expect(add).toBeDefined();
+    await dispatch(
+      mouseToAction(mouseClick(add!.region.left, add!.y), state)!,
+      state, source, cache, () => undefined, async () => undefined, () => undefined
+    );
+    expect(dirty.stateCreating).toBe(false);
+    expect(state.toast).toBe("save or cancel this state before adding another");
+  });
+
+  test("an older backend refuses state-only edits before changing the draft", async () => {
+    const { source, state, cache } = editorHarness();
+    const fact = state.payload.facts[0]!;
+    openFactEditor(state, fact);
+    const editor = activeFactEditor(state);
+    const initialAnchor = editor.stateAnchorPartId;
+    const initialEnd = editor.stateIsEnd;
+    source.api.patchFactState = undefined;
+
+    await dispatch(
+      { action: "reanchor-state" }, state, source, cache,
+      () => undefined, async () => undefined, () => undefined
+    );
+    expect(editor.stateAnchorPartId).toBe(initialAnchor);
+    expect(state.toast).toBe("state editing requires a newer backend");
+
+    state.toast = null;
+    await dispatch(
+      { action: "convert-state" }, state, source, cache,
+      () => undefined, async () => undefined, () => undefined
+    );
+    expect(editor.stateIsEnd).toBe(initialEnd);
+    expect(state.toast).toBe("state editing requires a newer backend");
+  });
+
+  test("an older backend cannot save a new state through the Fact PATCH", async () => {
+    const { source, state, press } = editorHarness();
+    const fact = state.payload.facts[0]!;
+    const before = structuredClone(state.payload.facts);
+    source.api.createFactState = undefined;
+
+    openFactStateEditor(state, fact, state.payload.path[0]!.id);
+    const editor = activeFactEditor(state);
+    setComposerText(editor.composer, "draft state");
+    await press(key("s", { sequence: SAVE_SEQUENCE, ctrl: true }));
+
+    expect(state.editor).toBe(editor);
+    expect(state.payload.facts).toEqual(before);
+    expect(state.toast).toBe("state creation requires a newer backend");
+  });
+
+  test("an older backend refuses changed persisted stateful Facts without state PATCH", async () => {
+    const { source, state, press } = editorHarness();
+    const fact = state.payload.facts[0]!;
+    const anchorPartId = state.payload.path[0]!.id;
+    const stateful = {
+      ...fact,
+      states: [
+        ...fact.states,
+        {
+          id: `${fact.id}-branch`,
+          anchorPartId,
+          text: "branch state body",
+          createdAt: fact.updatedAt,
+          updatedAt: fact.updatedAt
+        }
+      ]
+    };
+    state.payload = {
+      ...state.payload,
+      facts: [stateful, ...state.payload.facts.slice(1)]
+    };
+    const before = structuredClone(state.payload.facts);
+    let ordinaryPatches = 0;
+    const patchFact = source.api.patchFact;
+    source.api.patchFact = async (...args) => {
+      ordinaryPatches += 1;
+      return patchFact(...args);
+    };
+    source.api.patchFactState = undefined;
+
+    openFactEditor(state, stateful, { stateId: `${fact.id}-branch` });
+    const editor = activeFactEditor(state);
+    setComposerText(editor.composer, "changed branch body");
+    await press(key("s", { sequence: SAVE_SEQUENCE, ctrl: true }));
+
+    expect(ordinaryPatches).toBe(0);
+    expect(state.editor).toBe(editor);
+    expect(state.payload.facts).toEqual(before);
+    expect(state.toast).toBe("state editing requires a newer backend");
+  });
+
+  test("legacy Facts still save through ordinary PATCH without state PATCH", async () => {
+    const { source, state, press } = editorHarness();
+    const fact = state.payload.facts[0]!;
+    let ordinaryPatches = 0;
+    const patchFact = source.api.patchFact;
+    source.api.patchFact = async (...args) => {
+      ordinaryPatches += 1;
+      return patchFact(...args);
+    };
+    source.api.patchFactState = undefined;
+
+    openFactEditor(state, fact);
+    const editor = activeFactEditor(state);
+    setComposerText(editor.composer, "changed legacy body");
+    await press(key("s", { sequence: SAVE_SEQUENCE, ctrl: true }));
+
+    expect(ordinaryPatches).toBe(1);
+    expect(state.payload.facts[0]).toMatchObject({ id: fact.id });
+    expect(factText(state.payload.facts[0]!)).toBe("changed legacy body");
   });
 
   test("stateful recovery detects a dirty selected-state conflict and keeps remote text", async () => {
@@ -903,6 +1195,8 @@ describe("Fact editor", () => {
     expect(editor.focus).toBe("budget");
     expect(editor.budget.cutConfirmation).toEqual({ start: 0, end: 1, text: "5" });
     await press(key("down"));
+    expect(editor.chromeFocus).toBe("state");
+    await press(key("down"));
     expect(editor.focus).toBe("body");
     expect(editor.tag.anchor).toBe(null);
     expect(editor.tag.cutConfirmation).toBe(null);
@@ -914,6 +1208,8 @@ describe("Fact editor", () => {
     editor.composer.cutConfirmation = { start: 0, end: 5, text: "Maren" };
 
     // Move focus to budget. The body selection ownership clears immediately.
+    await press(key("up"));
+    expect(editor.chromeFocus).toBe("state");
     await press(key("up"));
     expect(editor.focus).toBe("budget");
     expect(editor.composer.anchor).toBe(null);
@@ -953,7 +1249,8 @@ describe("Fact editor", () => {
     // the text cursor within it.
     activeFactEditor(state).composer.anchor = null;
     activeFactEditor(state).composer.cursor = 0;
-    await press(key("up")); // body -> budget
+    await press(key("up")); // body -> states
+    await press(key("up")); // states -> budget
     await press(key("up")); // budget -> priority
     expect(activeFactEditor(state).focus).toBe("priority");
     await press(key("left")); // normal -> low
@@ -1091,6 +1388,28 @@ describe("Fact editor", () => {
 
     const rendered = renderStoryScreen(state, { width: 100, height: 24 });
     Object.assign(state, rendered.derived);
+    const scopeNext = state.hitRows
+      .flatMap((row, y) => row?.overrides?.map((region) => ({ region, y })) ?? [])
+      .find(({ region }) => region.target.kind === "action"
+        && region.target.action === "take-next"
+        && region.target.composerSourceId === "fact-scope");
+    expect(scopeNext).toBeDefined();
+    const scopeNextAction = mouseToAction(
+      mouseClick(scopeNext!.region.left, scopeNext!.y),
+      captureMouseActionState(state)
+    );
+    expect(scopeNextAction).toEqual({
+      action: "take-next",
+      composerSourceId: "fact-scope"
+    });
+    await dispatch(
+      scopeNextAction!, state, source, cache,
+      () => undefined, async () => undefined, () => undefined
+    );
+    expect(activeFactEditor(state).factAnchorPartId).toBeNull();
+
+    // The rest of the row keeps its forward-cycle shortcut too.
+    Object.assign(state, renderStoryScreen(state, { width: 100, height: 24 }).derived);
     const scopeRow = state.hitRows.findIndex((row) => row?.overrides?.some((region) =>
       region.target.kind === "action" && region.target.action === "cycle-fact-scope"));
     expect(scopeRow).toBeGreaterThan(-1);
@@ -1103,7 +1422,7 @@ describe("Fact editor", () => {
     );
     expect(mouseAction).toEqual({ action: "cycle-fact-scope" });
     await dispatch(mouseAction!, state, source, cache, () => undefined, async () => undefined, () => undefined);
-    expect(activeFactEditor(state).factAnchorPartId).toBeNull();
+    expect(activeFactEditor(state).factAnchorPartId).toBe(xAnchorPartId);
   });
 
   test("state chrome owns bracket walking and Enter lands on its anchor", async () => {

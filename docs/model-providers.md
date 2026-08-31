@@ -32,6 +32,10 @@ priority, and budget rows. If an advanced value is not its default value, the
 editor keeps the advanced rows visible. You can click each visible row and
 control.
 
+Select a row to see a short explanation below it. The explanation states what
+the option does and what an empty value means. Use the `‹` and `›` controls
+with the mouse or the Left and Right Arrow keys.
+
 ### Scope a Fact to a story line
 
 A Fact contains one or more Fact States. A Fact State can have an Anchor. The
@@ -45,8 +49,11 @@ each story line. This is the behavior of a Fact from an older store.
 Create a Fact from the Facts panel to make an unscoped Fact. Its Scope row lets
 you change this choice before you save. Open the actions menu on a story part
 to create a scoped Fact from that part. The same Scope row lets you make it
-unscoped. The actions menu can also add a state to a Fact or end a Fact from
-that part.
+unscoped. To add or move a state, first select its destination story part.
+Open the Fact, then select the state row. Press `s` to add a state at that
+story part. The existing state keeps its current Anchor. Type the new state
+text, then save. Press `a` to move the selected state to that story part. The
+change takes effect when you save the Fact.
 
 Select the state row, and press `[` or `]` to select the previous or next
 state. You can also click a state in the state row. An End State stops the Fact
@@ -60,8 +67,9 @@ states. It includes states on other story lines.
 
 The Fact dossier shows one Fact along the selected story line. Press `[` or
 `]` to select a state. Press `Enter` to open its Anchor. Press `n` to add a
-state at the current story part. Press `x` to add an End State there. Press
-`d` to show a derived diff. You can click each state and footer action.
+state at the current story part. Press `e` to edit the selected state. Press
+`x` to add an End State there. Press `d` to show a derived diff. You can click
+each state and footer action.
 
 In the tree view of the map, press `f` to show the Fact lens. The Fact lens
 shows the reach of one Fact on all story lines. Press `Tab` to select another

@@ -1,5 +1,5 @@
-import { graphemeCells } from "../cell-width.js";
 import { composerPosition } from "../composer-model.js";
+import { choiceArrowColumns } from "../choice-arrows.js";
 import type { HitRegion, HitTarget } from "../hit.js";
 import {
   scalarInvalidReason,
@@ -329,28 +329,20 @@ function withTick(run: string, tick: number | null, offset: number): string {
 
 /** A closed choice opens on its first cell and closes on its bracket. */
 function arrowRegions(drawn: string, valueLeft: number, index: number): HitRegion[] {
-  const cells = graphemeCells(drawn);
-  const opening = cells[0]?.text;
-  if (opening !== "‹" && opening !== "[") return [];
-  let column = 0;
-  for (const cell of cells) {
-    if (column > 0 && (cell.text === "›" || cell.text === "]")) {
-      return [
-        {
-          target: { kind: "action", action: "take-previous", index },
-          left: valueLeft,
-          right: valueLeft + 1
-        },
-        {
-          target: { kind: "action", action: "take-next", index },
-          left: valueLeft + column,
-          right: valueLeft + column + 1
-        }
-      ];
+  const columns = choiceArrowColumns(drawn, valueLeft);
+  if (columns === null) return [];
+  return [
+    {
+      target: { kind: "action", action: "take-previous", index },
+      left: columns.previous,
+      right: columns.previous + 1
+    },
+    {
+      target: { kind: "action", action: "take-next", index },
+      left: columns.next,
+      right: columns.next + 1
     }
-    column += cell.width;
-  }
-  return [];
+  ];
 }
 
 function padTo(value: string, width: number): string {

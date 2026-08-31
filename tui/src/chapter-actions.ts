@@ -94,7 +94,7 @@ export async function chaptersAction(
   else if (resolved.action === "open-selected" && selected !== null) {
     jumpToChapter(state, selected, source);
   }
-  else if (resolved.action === "summarize-chapter" && selected?.closedBy !== null && selected !== null) {
+  else if (resolved.action === "regenerate" && selected?.closedBy !== null && selected !== null) {
     await summarizeChapter(state, source, selected, context);
   } else if (resolved.action === "rename-item" && selected !== null) {
     beginRename(state, selected);

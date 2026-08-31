@@ -547,7 +547,7 @@ describe("run C overlay frames", () => {
     expect(frame).toContain("72 ✓ summary");
     expect(frame).toContain("208 raw — no summary");
     expect(frame).toContain("total 884 / 32.8k");
-    expect(frame).toContain("s summarize · e rename · n break · D remove");
+    expect(frame).toContain("r summarize · e rename · n break · D remove");
   });
 
   test("80x24 library and chapters compact without clipping useful fields", async () => {

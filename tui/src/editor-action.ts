@@ -30,6 +30,7 @@ import {
 import { blockUncertainFirstTakeRetry } from "./first-take-guard.js";
 import {
   factEditorBuffer,
+  factEditorChromeOwnsInput,
   factEditorComposerForSource,
   handleFactEditorVerticalMove,
   handleFactEditorCommand,
@@ -57,7 +58,7 @@ import {
 } from "./settings-overlay-model.js";
 import { writingPromptFieldDefinitionForRow } from "../../shared/settings-v5-writing.js";
 import { toggleFactEditorViewMode } from "./settings-view-mode.js";
-import { canonicalFactStates, firstFactText, isFactEndState } from "../../shared/fact-state.js";
+import { canonicalFactStates, firstFactText, isFactEndState, isFactStateful } from "../../shared/fact-state.js";
 
 export {
   openChapterSummaryEditor,
@@ -89,8 +90,9 @@ export async function inlineEditorAction(
   if (editor.kind === "fact" && resolved.composerSourceId !== undefined) {
     const source = factEditorComposerForSource(editor, resolved.composerSourceId);
     // Choice rows intentionally have no composer. They are still valid mouse
-    // targets because the source lookup sets their focus before this return.
-    if (source === null) return;
+    // targets because the source lookup sets their focus before the choice
+    // action continues through the Fact reducer.
+    if (source === null && resolved.action !== "take-previous" && resolved.action !== "take-next") return;
     if (resolved.action === "compose") return;
   }
 
@@ -141,8 +143,25 @@ export async function inlineEditorAction(
     return;
   }
 
+  if (editor.kind === "fact" && resolved.action === "new-state"
+    && source.api.createFactState === undefined) {
+    state.toast = "state creation requires a newer backend";
+    return;
+  }
+  if (editor.kind === "fact"
+    && (resolved.action === "reanchor-state" || resolved.action === "convert-state")
+    && source.api.patchFactState === undefined) {
+    state.toast = "state editing requires a newer backend";
+    return;
+  }
+
   // Fact header grammar owns its commands; the generic path stays target-agnostic.
   if (editor.kind === "fact" && handleFactEditorCommand(resolved, state, editor)) {
+    return;
+  }
+  if (editor.kind === "fact" && factEditorChromeOwnsInput(editor)
+    && !factEditorChromeAllows(resolved.action)) {
+    state.toast = "select a Fact field before typing";
     return;
   }
   if (editor.kind === "fact"
@@ -190,6 +209,16 @@ export async function inlineEditorAction(
   if (outcome === "save-inplace") {
     await saveInlineEditor(state, source, context, editor, "inplace");
   }
+}
+
+function factEditorChromeAllows(action: ResolvedKey["action"]): boolean {
+  return action === "cancel"
+    || action === "save-edit"
+    || action === "save-edit-inplace"
+    || action === "cursor-up"
+    || action === "cursor-down"
+    || action === "scroll-line-up"
+    || action === "scroll-line-down";
 }
 
 function closeInlineEditor(
@@ -446,11 +475,27 @@ async function saveFactEditor(
   context: ActionContext,
   editor: Extract<DocumentEditorSession, { kind: "fact" }>
 ): Promise<void> {
+  if (editor.stateCreating === true && source.api.createFactState === undefined) {
+    state.toast = "state creation requires a newer backend";
+    return;
+  }
+  if (editor.stateCreating !== true
+    && editor.target.factId !== null
+    && editor.target.base !== null
+    && isFactStateful(editor.target.base)
+    && source.api.patchFactState === undefined
+    && factEditorChanged(editor)) {
+    state.toast = "state editing requires a newer backend";
+    return;
+  }
   const stateMutationAvailable = editor.target.factId !== null
     && (editor.stateCreating === true
       ? source.api.createFactState !== undefined
       : editor.stateId !== undefined && editor.stateId !== null
-        && source.api.patchFactState !== undefined);
+        && source.api.patchFactState !== undefined
+        && (editor.target.base !== null && isFactStateful(editor.target.base)
+          || editor.stateAnchorPartId !== editor.stateInitialAnchorPartId
+          || editor.stateIsEnd !== editor.stateInitialEnds));
   if (stateMutationAvailable) {
     await saveFactStateEditor(state, source, context, editor);
     return;

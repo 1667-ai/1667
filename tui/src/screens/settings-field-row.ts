@@ -1,4 +1,3 @@
-import { graphemeCells } from "../cell-width.js";
 import { composerPosition } from "../composer-model.js";
 import {
   settingsEditDisplayComposer,
@@ -13,6 +12,7 @@ import {
   type FrameLine
 } from "./story/frame.js";
 import { raisedSegment } from "./overlay.js";
+import { choiceArrowColumns } from "../choice-arrows.js";
 
 const SETTINGS_LEAD_WIDTH = 4;
 const SETTINGS_LABEL_WIDTH = 20;
@@ -48,7 +48,7 @@ export function settingsFieldRow(
         raisedSegment(drawn, selected ? "focus / accent" : "prose")
       ],
       arrows: settingsRowHasArrows(overlay, row.id)
-        ? bracketArrows(drawn, valueLeft)
+        ? choiceArrowColumns(drawn, valueLeft)
         : null
     };
   }
@@ -74,21 +74,4 @@ export function settingsFieldRow(
 
 function settingsValueLeft(label: string): number {
   return SETTINGS_LEAD_WIDTH + Math.max(SETTINGS_LABEL_WIDTH, visibleWidth(label) + 1);
-}
-
-function bracketArrows(
-  drawn: string,
-  valueLeft: number
-): PaintedSettingsRow["arrows"] {
-  const cells = graphemeCells(drawn);
-  const opening = cells[0]?.text;
-  if (opening !== "‹" && opening !== "[") return null;
-  let column = 0;
-  for (const cell of cells) {
-    if (column > 0 && (cell.text === "›" || cell.text === "]")) {
-      return { previous: valueLeft, next: valueLeft + column };
-    }
-    column += cell.width;
-  }
-  return null;
 }

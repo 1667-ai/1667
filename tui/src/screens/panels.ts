@@ -60,7 +60,7 @@ export { SETTINGS_FOOTER_ACTIONS } from "./settings-panel-footers.js";
 export { FACTS_FOOTER_ACTIONS } from "./facts-panel.js";
 
 export const CHAPTERS_FOOTER_ACTIONS = [
-  { token: "↵", action: "open-selected" }, { token: "s sum", action: "summarize-chapter" },
+  { token: "↵", action: "open-selected" }, { token: "r sum", action: "regenerate" },
   { token: "e rename", action: "rename-item" }, { token: "n break", action: "new-item" },
   { token: "D", action: "delete-item" }, { token: "esc", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
@@ -313,10 +313,10 @@ function renderChapters(
     : overlay.rename !== null
     ? "↵ saves the title · esc keeps the old one"
     : overlay.deleteArmedId !== null
-    ? "↵ jump · s sum · e rename · n break · D confirms · esc keeps"
+    ? "↵ jump · r sum · e rename · n break · D confirms · esc keeps"
     : width < 100
-      ? "↵ jump · s sum · e rename · n break · D rm · esc"
-      : "↵ jump · s summarize · e rename · n break · D remove · esc";
+      ? "↵ jump · r sum · e rename · n break · D rm · esc"
+      : "↵ jump · r summarize · e rename · n break · D remove · esc";
   return placePanel(base, `chapters · ${model.rows.length} on this storyline`, boundedContent(content, contentWidth),
     footer, width, height, 106, { rows: state.hitRows, targets,
       // Renaming accepts only save, cancel and text: advertising the other verbs

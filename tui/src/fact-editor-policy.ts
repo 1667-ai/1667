@@ -8,8 +8,9 @@ import {
   undoComposerEditOwner,
   type ComposerState
 } from "./composer-model.js";
-import { canonicalFactStates, isFactEndState, isFactStateful } from "../../shared/fact-state.js";
+import { canonicalFactStates, isFactEndState } from "../../shared/fact-state.js";
 import { FACT_PRIORITIES, FACT_RECURSIONS, FACT_SECONDARY_MODES } from "../../shared/fact-metadata.js";
+import { MAX_FACT_STATES } from "../../shared/types.js";
 import { graphemeCells } from "./cell-width.js";
 import type { ComposerVerticalMotion } from "./composer-motion.js";
 import { factEditorChanged, factEditorStateChanged, factEditorTag } from "./fact-editor-draft.js";
@@ -123,14 +124,21 @@ export function handleFactEditorCommand(
   state: RuntimeState,
   editor: FactEditorSession
 ): boolean {
+  if (resolved.action === "new-state") {
+    editor.chromeFocus = "state";
+    beginFactStateCreation(state, editor);
+    return true;
+  }
   if (resolved.action === "cycle-fact-scope" && isNewFactEditor(editor)) {
     setFactEditorFocus(editor, "scope");
     cycleFactEditorScope(editor);
     return true;
   }
   if (editor.chromeFocus === "scope") {
-    if (resolved.action === "cycle-fact-scope") {
-      cycleFactEditorScope(editor);
+    if (resolved.action === "cycle-fact-scope"
+      || resolved.action === "take-previous"
+      || resolved.action === "take-next") {
+      cycleFactEditorScope(editor, resolved.action === "take-previous" ? -1 : 1);
       return true;
     }
     if (resolved.action === "cursor-left") {
@@ -193,6 +201,11 @@ export function handleFactEditorCommand(
     cycleFactEditorTag(state, editor, resolved.index === -1 ? -1 : 1);
     return true;
   }
+  if (editor.chromeFocus === undefined && editor.focus === "tag"
+    && (resolved.action === "take-previous" || resolved.action === "take-next")) {
+    cycleFactEditorTag(state, editor, resolved.action === "take-next" ? 1 : -1);
+    return true;
+  }
   if (resolved.action === "cycle-state") {
     editor.chromeFocus = "state";
     cycleFactEditorState(state, editor, resolved.index, resolved.rowId !== undefined);
@@ -212,9 +225,20 @@ export function handleFactEditorCommand(
     const rowId = resolved.rowId ?? editor.stateCursorAnchorId ?? undefined;
     const validCursorPart = rowId !== undefined
       && state.payload.nodes.some(({ id, role }) => id === rowId && role !== "summary");
-    if (editor.stateId !== undefined && editor.stateId !== null && validCursorPart) {
-      editor.stateAnchorPartId = rowId;
-      disarmFactEditor(editor);
+    if ((editor.stateId !== undefined && editor.stateId !== null) || editor.stateCreating === true) {
+      if (validCursorPart) {
+        const fact = editor.target.base;
+        const occupied = fact !== null && canonicalFactStates(fact).some((candidate) =>
+          candidate.id !== editor.stateId
+          && (candidate.anchorPartId ?? null) === rowId
+        );
+        if (occupied) {
+          state.toast = "this Fact already has a state here";
+          return true;
+        }
+        editor.stateAnchorPartId = rowId ?? null;
+        disarmFactEditor(editor);
+      }
     }
     return true;
   }
@@ -232,22 +256,22 @@ export function handleFactEditorCommand(
     }
     return true;
   }
-  if (editor.focus === "activation"
+  if (editor.chromeFocus === undefined && editor.focus === "activation"
     && handleChoiceRowKeys(resolved, state, "activation", () => cycleFactEditorActivation(editor))) {
     return true;
   }
-  if (editor.focus === "priority"
+  if (editor.chromeFocus === undefined && editor.focus === "priority"
     && handleChoiceRowKeys(resolved, state, "priority", (direction) => cycleFactEditorPriority(editor, direction))) {
     return true;
   }
   if (
-    editor.focus === "match"
+    editor.chromeFocus === undefined && editor.focus === "match"
     && handleChoiceRowKeys(resolved, state, "secondary match", (direction) => cycleSecondaryMode(editor, direction))
   ) {
     return true;
   }
   if (
-    editor.focus === "chain"
+    editor.chromeFocus === undefined && editor.focus === "chain"
     && handleChoiceRowKeys(resolved, state, "recursion", (direction) => cycleRecursion(editor, direction))
   ) {
     return true;
@@ -269,11 +293,11 @@ function handleChoiceRowKeys(
   label: string,
   cycle: (direction: -1 | 1) => void
 ): boolean {
-  if (resolved.action === "cursor-left") {
+  if (resolved.action === "cursor-left" || resolved.action === "take-previous") {
     cycle(-1);
     return true;
   }
-  if (resolved.action === "cursor-right" || resolved.action === "newline") {
+  if (resolved.action === "cursor-right" || resolved.action === "take-next" || resolved.action === "newline") {
     cycle(1);
     return true;
   }
@@ -376,6 +400,58 @@ function isNewFactEditor(editor: FactEditorSession): boolean {
   return editor.target.factId === null && editor.stateCreating !== true;
 }
 
+/** Start a state draft from the cursor kept by the editor's opening story
+ * row. The existing Fact remains untouched until the normal save path posts
+ * the new state, so storage format and returnMode stay unchanged. */
+function beginFactStateCreation(
+  state: RuntimeState,
+  editor: FactEditorSession
+): void {
+  const fact = editor.target.base;
+  if (editor.target.factId === null || fact === null) {
+    state.toast = "save the Fact before adding a state";
+    return;
+  }
+  if (editor.stateCreating === true) {
+    state.toast = "finish this new state before adding another";
+    return;
+  }
+  if (factEditorStateChanged(editor)) {
+    state.toast = "save or cancel this state before adding another";
+    return;
+  }
+  const states = canonicalFactStates(fact);
+  if (states.length >= MAX_FACT_STATES) {
+    state.toast = `this Fact already has the maximum of ${MAX_FACT_STATES} states`;
+    return;
+  }
+  const anchor = editor.stateCursorAnchorId;
+  const validCursor = anchor !== undefined && anchor !== null
+    && state.payload.nodes.some(({ id, role }) => id === anchor && role !== "summary");
+  if (!validCursor) {
+    state.toast = "there is no story part at the cursor";
+    return;
+  }
+  if (states.some((candidate) => (candidate.anchorPartId ?? null) === anchor)) {
+    state.toast = "this Fact already has a state here";
+    return;
+  }
+  editor.stateCreating = true;
+  editor.stateId = null;
+  editor.stateIndex = states.length;
+  editor.stateAnchorPartId = anchor;
+  editor.stateInitialId = null;
+  editor.stateInitialAnchorPartId = anchor;
+  editor.stateInitialText = "";
+  editor.stateInitialEnds = false;
+  editor.stateIsEnd = false;
+  editor.stateDeleteArmedId = null;
+  editor.title = "new fact state";
+  setComposerText(editor.composer, "");
+  setFactEditorFocus(editor, "body");
+  disarmFactEditor(editor);
+}
+
 /** The only creation-time choice. The selected anchor is metadata for the
  *  new Fact itself; states acquire their own anchors later. */
 function cycleFactEditorScope(editor: FactEditorSession, direction: -1 | 1 = 1): void {
@@ -447,8 +523,19 @@ export function factEditorComposerForSource(
 export function factEditorActiveTextComposer(
   editor: FactEditorSession
 ): ComposerState | null {
+  if (factEditorChromeOwnsInput(editor)) return null;
   const spec = factEditorRowSpec(editor.focus);
   return spec.kind === "text" ? spec.composer(editor) : null;
+}
+
+/** Non-text Fact chrome must not leave the previous text row as an implicit
+ * input owner. Keyboard and paste callers use this same ownership check. */
+export function factEditorChromeOwnsInput(
+  editor: FactEditorSession
+): boolean {
+  return editor.chromeFocus === "view"
+    || editor.chromeFocus === "state"
+    || editor.chromeFocus === "scope";
 }
 
 function factEditorRowSpec(row: FactEditorRow): FactEditorRowSpec {
@@ -535,8 +622,7 @@ export function handleFactEditorVerticalMove(
   }
   const direction = resolved.action === "cursor-up" ? -1 : 1;
   const rows = factEditorVisibleRows(editor, viewMode, isNewFactEditor(editor));
-  const stateful = editor.stateCreating === true
-    || editor.target.base !== null && isFactStateful(editor.target.base);
+  const stateful = editor.stateCreating === true || editor.target.base !== null;
   if (editor.chromeFocus === "view") {
     if (direction > 0) {
       setFactEditorFocus(editor, rows[0] ?? "body");

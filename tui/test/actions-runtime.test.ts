@@ -780,7 +780,7 @@ test("a chapter rename records nothing to undo", async () => {
 
     await press("c");
     await press("up");
-    const pending = press("s");
+    const pending = press("r");
     await Promise.resolve();
 
     expect(state.chapterSummary).toMatchObject({ chapterNumber: 2, stage: "writing" });
@@ -788,12 +788,14 @@ test("a chapter rename records nothing to undo", async () => {
     state.chapters = null;
     const frame = renderStoryScreen(state, { width: 120, height: 30 });
     expect(frameText(frame.lines)).toContain("ch 2");
-    expect(frameText(frame.lines)).toContain("model progress unavailable");
+    expect(frameText(frame.lines)).not.toContain("model progress unavailable");
     expect(frameText(frame.lines)).toContain("esc cancels");
 
     await press("escape", "\u001b");
     expect(signal?.aborted).toBeTrue();
     expect(state.chapterSummary?.stage).toBe("stopping");
+    const stoppingFrame = renderStoryScreen(state, { width: 120, height: 30 });
+    expect(frameText(stoppingFrame.lines)).toContain("stopping · waiting for backend");
     entered.resolve();
     await pending;
 
@@ -815,7 +817,7 @@ test("a chapter rename records nothing to undo", async () => {
 
     await press("c");
     await press("up");
-    const pending = press("s");
+    const pending = press("r");
     await entered.promise;
     const interactionVersion = state.interactionVersion;
     const cursor = state.chapters!.cursor;
@@ -844,7 +846,7 @@ test("a chapter rename records nothing to undo", async () => {
 
     await press("c");
     await press("up");
-    const pending = press("s");
+    const pending = press("r");
     await entered.promise;
     state.mode = "NAV";
     state.chapters = null;
@@ -877,7 +879,7 @@ test("a chapter rename records nothing to undo", async () => {
 
     await press("c");
     await press("up");
-    const pending = press("s");
+    const pending = press("r");
     await entered.promise;
     state.mode = "NAV";
     state.chapters = null;
@@ -915,7 +917,7 @@ test("a chapter rename records nothing to undo", async () => {
 
     await press("c");
     await press("up");
-    const pending = press("s");
+    const pending = press("r");
     await entered.promise;
     await press("escape", "\u001b");
     release.resolve();
@@ -956,7 +958,7 @@ test("a chapter rename records nothing to undo", async () => {
     await press("c");
     expect(state.mode).toBe("CHAPTERS");
     await press("up");
-    await press("s");
+    await press("r");
     expect(state.payload.nodes.some((node) => node.chapterBreakId === "chapter-break-2")).toBeTrue();
     await press("return", "\r");
     expect(state.mode).toBe("NAV");
@@ -964,6 +966,48 @@ test("a chapter rename records nothing to undo", async () => {
       kind: "chapter-divider",
       break: { id: "chapter-break-1" }
     });
+  });
+
+  test("chapter overlay uses the inline r summary action by mouse", async () => {
+    const { source, state, press } = harness();
+    await press("c");
+    await press("up");
+    const rendered = renderStoryScreen(state, { width: 120, height: 30, wrapCache: createWrapCache() });
+    Object.assign(state, rendered.derived);
+    const footerRow = rendered.lines.findIndex((line) => plainLine(line).includes("r sum"));
+    expect(footerRow).toBeGreaterThan(-1);
+    const footer = plainLine(rendered.lines[footerRow]!);
+    const token = "r sum";
+    const tokenColumn = visibleWidth(footer.slice(0, footer.indexOf(token)));
+    const resolved = mouseToAction(
+      { type: "down", button: 0, x: tokenColumn + 1, y: footerRow,
+        modifiers: { shift: false, alt: false, ctrl: false } } as never,
+      captureMouseActionState(state)
+    );
+    expect(resolved).toEqual({ action: "regenerate" });
+    await dispatch(resolved!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    expect(state.payload.nodes.some((node) => node.chapterBreakId === "chapter-break-2")).toBeTrue();
+  });
+
+  test("story status stays empty when summary progress is unavailable", () => {
+    const { state } = harness();
+    Reflect.deleteProperty(state, "chapterSummary");
+    const rendered = renderStoryScreen(state, { width: 120, height: 30, wrapCache: createWrapCache() });
+    expect(frameText(rendered.lines)).not.toContain("model progress unavailable");
+    expect(frameText(rendered.lines)).not.toContain("working · Chapter");
+  });
+
+  test("compact chapter summary status keeps its working marker", () => {
+    const { state } = harness();
+    state.chapterSummary = {
+      chapterNumber: 2,
+      stage: "writing",
+      controller: new AbortController()
+    };
+    const rendered = renderStoryScreen(state, { width: 80, height: 30, wrapCache: createWrapCache() });
+    const text = frameText(rendered.lines);
+    expect(text).toContain("working · ch 2");
+    expect(text).not.toContain("model progress unavailable");
   });
 
   test("enter expands and collapses a focused chapter summary", async () => {
