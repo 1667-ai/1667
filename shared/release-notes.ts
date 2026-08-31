@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.5",
+    date: "2026-08-31",
+    body: "- **This release has no additional product changes.** It contains the same\n  behavior as 0.10.5-rc.3."
+  },
+  {
     version: "0.10.5-rc.3",
     date: "2026-08-31",
     body: "- **Paste now works consistently in text inputs.** Press `Ctrl+V` or `Cmd+V`\n  in Aside, search, filters, Settings prompts, and other text fields. Multiline\n  editors keep line breaks. Single-line fields flatten them. Direct keeps image\n  paste. Right-click paste works in Aside when its prompt is available.\n- **The Fact State re-anchor control is now visible.** Focus the state controls,\n  then press `a` or click `re-anchor` to move the state to the current story\n  cursor. The control stays hidden when the Fact has no eligible state."

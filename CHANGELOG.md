@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.5 - 2026-08-31
+
+- **This release has no additional product changes.** It contains the same
+  behavior as 0.10.5-rc.3.
+
 ## 0.10.5-rc.3 - 2026-08-31
 
 - **Paste now works consistently in text inputs.** Press `Ctrl+V` or `Cmd+V`
