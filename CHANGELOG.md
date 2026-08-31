@@ -5,6 +5,19 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.6-rc.1 - 2026-08-31
+
+- **Fact controls are easier to understand and use.** The Fact editor explains
+  each option in simple English. Choice fields use the same arrow keys and
+  clickable controls as Settings.
+- **You can add, move, and edit Fact States.** Select a story part and press
+  `s` to add a state there. Select a state and press `a` to move it to the
+  current story part. The Facts dossier can open a state for editing. Existing
+  flat Facts continue to work without a store migration.
+- **Chapter summarize now uses `r` everywhere.** The Chapters menu and inline
+  chapter controls use the same key and work with the mouse. 1667 shows model
+  progress only when progress data is available.
+
 ## 0.10.5 - 2026-08-31
 
 - **This release has no additional product changes.** It contains the same
