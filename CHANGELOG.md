@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.8 - 2026-09-01
+
+- **This release has no additional product changes.** It contains the same
+  behavior as 0.10.8-rc.1.
+
 ## 0.10.8-rc.1 - 2026-09-01
 
 - **Model selectors use the same controls.** Use Left/Right or click the arrows
