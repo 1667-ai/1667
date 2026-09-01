@@ -454,7 +454,9 @@ the model requires. A saved chat connection stays on its chat protocol.
 Dry-run mode tests the interface without a provider request.
 
 Settings reads the model list from the selected provider. Use `Left Arrow` or
-`Right Arrow` to select a model. Press `Enter` to type a custom model name.
+`Right Arrow` to select the adjacent model. You can also select the on-screen
+arrows with the mouse. Press `Enter` to type a custom model name. If the model
+list is long or comes from a plan connection, `Enter` opens a searchable list.
 Settings reads the list again after you change the provider or the base URL.
 Settings selects the model when the list contains one model and the model row
 is blank. An unsaved stored API key can read the model list. Settings uses the
@@ -499,6 +501,12 @@ is unavailable, use an API-key connection. Use
 **OpenAI** or **OpenAI-compatible** with an OpenAI key for ChatGPT-compatible
 work. Use **Anthropic** with an Anthropic API key for Claude-compatible work.
 
+A stored temperature stays in the Generation Profile when you use a plan
+connection. 1667 omits temperature from ChatGPT plan requests. For Claude
+plan requests, 1667 sends temperature only when the selected model and
+reasoning mode accept it. This does not change the stored value. A later
+provider or model can use the value again.
+
 ## Use Generation Profiles and Generation Routes
 
 The rows in this section appear only in Advanced view. See
@@ -541,7 +549,9 @@ selected Generation Profile.
 Select the **alt count** row to set the token probability count. Use
 `Left Arrow` or `Right Arrow` to select `off` or a number from 1 to 20. The
 TUI checks the value against the selected protocol and preset. The TUI
-renders an unavailable row as `‹ — ›` with a short reason.
+renders an unavailable row as `—` with a short reason. An unavailable row has
+no selector action. If the profile contains a stored count, the row shows that
+count and keeps its arrows. Select either arrow to turn the stored count off.
 
 ## Sampling settings
 
@@ -573,6 +583,11 @@ or `Right Arrow` to step through these three states.
 
 `mirostat tau` and `mirostat eta` need Mirostat on. The TUI shows the reason
 "Mirostat is off." while Mirostat is off.
+
+An unavailable empty Sampling control has no selector arrows or edit action.
+The panel keeps the control visible so that you can read why it is unavailable.
+If an unavailable list contains stored values, you can open the list to edit
+or delete those values.
 
 Select `stop sequences` or `dry breakers`. Press `n` to add a string. Press
 `Enter` to edit the selected string. Press `D` two times to delete the selected

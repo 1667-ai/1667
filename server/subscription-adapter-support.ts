@@ -1,4 +1,5 @@
 import type {
+  Api,
   AnthropicOptions,
   Context,
   Model,
@@ -12,9 +13,17 @@ import type {
   ConnectionTimeoutsV2,
   GenerationEffortV2
 } from "../shared/settings-v2-types.js";
+import type { GenerationSettings } from "../shared/types.js";
 import type {
   ReasoningPolicyResolution
 } from "../shared/reasoning-capabilities.js";
+import type { StorySamplingBias } from "./sampling-phrase-bias.js";
+import {
+  isSchema4ProviderRuntime,
+  providerReasoningPolicyFor,
+  providerRuntimeFor,
+  type ProviderRuntime
+} from "./provider-runtime.js";
 import { ProviderError } from "./errors.js";
 
 export const SUBSCRIPTION_EFFECTIVE_FIELDS = [
@@ -31,6 +40,76 @@ export const SUBSCRIPTION_EFFECTIVE_FIELDS = [
   "tool_choice.type",
   "stream"
 ] as const;
+
+export interface SubscriptionReasoningResolution {
+  readonly policy: ReasoningPolicyResolution | null;
+  /** The value lowered to Pi. Null means that the subscription protocol must
+   * omit the writer's stored temperature from this request. */
+  readonly temperature: number | null;
+}
+
+/** Resolve one subscription request at the adapter boundary. The first pass
+ * asks the shared policy about the request with temperature omitted. This
+ * allows ChatGPT and Pi's Claude compatibility metadata to lower a stored
+ * temperature without making that persisted preference invalid. A second
+ * pass restores the value only when this protocol, model, and reasoning state
+ * can send it, so joint restrictions such as Claude temperature plus top p
+ * remain refusals. */
+export function subscriptionReasoningPolicyFor(
+  settings: GenerationSettings,
+  model: Pick<Model<Api>, "api" | "compat">,
+  storySampling?: StorySamplingBias
+): SubscriptionReasoningResolution {
+  const runtime = providerRuntimeFor(settings);
+  const withoutTemperature = providerReasoningPolicyFor(
+    settings,
+    storySampling,
+    { temperature: null }
+  );
+  const temperatureCanBeSent = subscriptionTemperatureCanBeSent(
+    runtime,
+    model,
+    withoutTemperature
+  );
+  if (!temperatureCanBeSent) {
+    return { policy: withoutTemperature, temperature: null };
+  }
+
+  const withTemperature = providerReasoningPolicyFor(settings, storySampling);
+  return {
+    policy: withTemperature,
+    temperature: withTemperature?.kind === "unavailable"
+      ? null
+      : settings.temperature
+  };
+}
+
+function subscriptionTemperatureCanBeSent(
+  runtime: ProviderRuntime,
+  model: Pick<Model<Api>, "api" | "compat">,
+  policy: ReasoningPolicyResolution | null
+): boolean {
+  if (runtime.protocol === "openai-codex-responses") return false;
+  if (runtime.protocol !== "anthropic-subscription-messages") return false;
+  if (runtime.capabilities.temperature === "unsupported") return false;
+  if (model.api !== "anthropic-messages") return false;
+  if ((model.compat as { readonly supportsTemperature?: boolean } | undefined)?.supportsTemperature === false) {
+    return false;
+  }
+  if (policy?.kind === "unavailable") {
+    // The subscription policy reports its own unsupported sampling after the
+    // shared Anthropic temperature/top-p check. Re-run that check with the
+    // stored temperature so the more useful joint refusal is preserved.
+    return policy.reason === "sampling-unsupported";
+  }
+  if (policy?.kind === "available") return policy.temperatureAllowed;
+  if (policy !== null) return false;
+  // Legacy profiles have no schema-4 policy. Pi enables Anthropic thinking
+  // for every non-default legacy effort, where its adapter omits temperature.
+  return isSchema4ProviderRuntime(runtime)
+    || runtime.effort === "default"
+    || runtime.effort === "off";
+}
 
 export function openAiReasoningOptions(
   effort: GenerationEffortV2,

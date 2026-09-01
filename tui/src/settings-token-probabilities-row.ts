@@ -54,12 +54,22 @@ export function tokenProbabilitiesRowState(
   };
 }
 
-/** F-2's unavailable look, matched from the sampling panel's own scalar rows:
- *  the value chip collapses to `‹ — ›` rather than showing a count the
- *  request will not carry. */
+/** An unavailable empty state is informational. A stored count keeps its
+ * selector only so the writer can turn the incompatible value off. */
 export function tokenProbabilitiesRowValue(state: TokenProbabilitiesRowState): string {
-  if (state.resolution === null || state.resolution.kind === "unavailable") return "‹ — ›";
+  if (state.resolution === null) return "—";
+  if (state.resolution.kind === "unavailable") {
+    return state.count === null ? "—" : `‹ ${state.count} ›`;
+  }
   return `‹ ${state.count === null ? "off" : state.count} ›`;
+}
+
+/** An available route cycles the full range. An unavailable route cycles only
+ * a stored count to off, so a provider change cannot strand old settings. */
+export function tokenProbabilitiesRowHasArrows(overlay: SettingsOverlayState): boolean {
+  const state = tokenProbabilitiesRowState(overlay);
+  return state.resolution?.kind === "available"
+    || state.resolution?.kind === "unavailable" && state.count !== null;
 }
 
 export function tokenProbabilitiesRowHint(state: TokenProbabilitiesRowState): string {
@@ -67,17 +77,20 @@ export function tokenProbabilitiesRowHint(state: TokenProbabilitiesRowState): st
   if (state.resolution.kind === "available") {
     return "Shows other tokens the model considered while writing.";
   }
+  const storedPrefix = state.count === null
+    ? ""
+    : `Stored count: ${state.count}. Use Left or Right to turn it off. `;
   if (state.resolution.reason === "legacy-v1") {
     return state.readOnlyReason === "successor-schema"
       ? "Newer settings schema is read-only here; update 1667."
       : "Legacy settings are read-only.";
   }
   if (state.resolution.reason === "preset-unknown") {
-    return "Alternative token data might not be available from this provider.";
+    return `${storedPrefix}Alternative token data might not be available from this provider.`;
   }
-  return state.resolution.reason === "model-refused"
+  return storedPrefix + (state.resolution.reason === "model-refused"
     ? "This model does not offer alternative token data."
-    : "This provider does not offer alternative token data.";
+    : "This provider does not offer alternative token data.");
 }
 
 /** C-09 cycler: `off` writes a profile with the key dropped, and every other
@@ -87,6 +100,7 @@ export function cycleTokenProbabilitiesControl(
   overlay: SettingsOverlayState,
   step: -1 | 1
 ): string | null {
+  if (!tokenProbabilitiesRowHasArrows(overlay)) return null;
   const next = cycleProfileField(
     overlay,
     step,

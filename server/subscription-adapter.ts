@@ -25,7 +25,6 @@ import {
   legacyGenerationEffortFor,
   isSubscriptionProviderRuntime,
   providerRuntimeFor,
-  providerReasoningPolicyFor,
   redactProviderSecrets,
   type SubscriptionProviderRuntime
 } from "./provider-runtime.js";
@@ -53,6 +52,7 @@ import {
   createRequestSignal,
   createTimeoutState,
   openAiReasoningOptions,
+  subscriptionReasoningPolicyFor,
   SUBSCRIPTION_EFFECTIVE_FIELDS
 } from "./subscription-adapter-support.js";
 import {
@@ -97,7 +97,13 @@ export async function* streamSubscription(
     );
   }
   const model = modelValue;
-  const reasoningPolicy = providerReasoningPolicyFor(settings, options.storySampling);
+  const reasoningResolution = subscriptionReasoningPolicyFor(
+    settings,
+    model,
+    options.storySampling
+  );
+  const reasoningPolicy = reasoningResolution.policy;
+  const requestTemperature = reasoningResolution.temperature;
   if (reasoningPolicy?.kind === "unavailable") {
     throw new ProviderError(reasoningPolicy.message);
   }
@@ -176,7 +182,7 @@ export async function* streamSubscription(
         signal: requestSignal.signal,
         apiKey: auth,
         maxTokens: settings.maxTokens,
-        ...(subscriptionTemperatureAllowed(settings, reasoningPolicy) ? { temperature: settings.temperature! } : {}),
+        ...(requestTemperature === null ? {} : { temperature: requestTemperature }),
         toolChoice: "none",
         timeoutMs: runtime.timeouts.totalMs,
         onPayload,
@@ -192,7 +198,7 @@ export async function* streamSubscription(
         signal: requestSignal.signal,
         apiKey: auth,
         maxTokens,
-        ...(subscriptionTemperatureAllowed(settings, reasoningPolicy) ? { temperature: settings.temperature! } : {}),
+        ...(requestTemperature === null ? {} : { temperature: requestTemperature }),
         toolChoice: "none",
         timeoutMs: runtime.timeouts.totalMs,
         onPayload,
@@ -330,15 +336,6 @@ export async function* streamSubscription(
     outputRedactor?.finish();
     await reasoning?.finish();
   }
-}
-
-function subscriptionTemperatureAllowed(
-  settings: GenerationSettings,
-  policy: ReturnType<typeof providerReasoningPolicyFor>
-): boolean {
-  if (settings.temperature === null) return false;
-  if (policy?.kind !== "available") return true;
-  return policy.temperatureAllowed;
 }
 
 async function resolveSubscriptionAuth(

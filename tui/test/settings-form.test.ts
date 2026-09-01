@@ -186,9 +186,21 @@ describe("the settings form follows C-03 and C-08", () => {
     expect(rendered).toContain("· attachments.");
     expect(settingsRows(state.settings!, state.config).find((row) => row.id === "image-input"))
       .toMatchObject({
-        value: "‹ - ›",
-        hint: "The selected protocol cannot send image attachments."
+        value: "—",
+        hint: "The selected protocol cannot send image attachments.",
+        disabled: true
       });
+    expect(settingsFooterVariants(state.settings!, false)[0]!.text).not.toContain("↵");
+    await press(key("return"));
+    expect(state.settings?.edit).toBe(null);
+
+    const view = state.settings!.view;
+    if (!view.editable) throw new Error("editable settings view missing");
+    state.settings!.view = { ...view, pendingRevision: 2 };
+    const pendingFooter = settingsFooterVariants(state.settings!, false)[0]!;
+    expect(pendingFooter.text).toContain("x discard");
+    expect(pendingFooter.text).not.toContain("↵");
+    expect(pendingFooter.actions.some((entry) => entry.action === "discard-pending")).toBeTrue();
   });
 
   test("the final setting keeps its description beside pending status", async () => {
@@ -332,10 +344,10 @@ describe("C-15 · the model option column", () => {
     withDiscoveredModels(state, 9);
     await selectRow(press, state, "model");
 
-    // C-09 caps a cycler at eight, so `←→` no longer steps the list.
-    const before = state.settings!.draft.generation.model;
+    // Enter still opens the searchable column, while the row arrows provide
+    // the same adjacent choice as Provider.
     await press(key("right"));
-    expect(state.settings!.draft.generation.model).toBe(before);
+    expect(state.settings!.draft.generation.model).toBe("model-02");
 
     await press(key("return"));
     expect(state.settings!.modelPicker).not.toBe(null);
@@ -394,10 +406,10 @@ describe("C-15 · the model option column", () => {
     });
 
     await selectRow(press, state, "model");
-    expect(settingsRowHasArrows(overlay, "model")).toBeFalse();
+    expect(settingsRowHasArrows(overlay, "model")).toBeTrue();
     const footer = settingsFooterVariants(overlay, false)[0]!;
     expect(footer.text).toContain("↵ choose");
-    expect(footer.text).not.toContain("←→ choose");
+    expect(footer.text).toContain("←→ choose");
     expect(footer.actions.some((entry) =>
       entry.token === "↵ choose" && entry.action === "open-selected"
     )).toBeTrue();
@@ -409,11 +421,16 @@ describe("C-15 · the model option column", () => {
     expect(pendingFooter.text).toContain("↵ choose");
     expect(pendingFooter.text).toContain("x discard");
     expect(pendingFooter.text).not.toContain("↵ edit");
+    expect(pendingFooter.text).not.toContain("←→ move");
+    const compactPendingFooter = settingsFooterVariants(overlay, false).at(-1)!;
+    expect(compactPendingFooter.text).toBe("↑↓ ←→ ↵ s x esc");
+    expect(compactPendingFooter.actions.filter((entry) =>
+      entry.action === "take-previous" || entry.action === "take-next"
+    ).map((entry) => entry.token)).toEqual(["←", "→"]);
     overlay.view = { ...activeView, pendingRevision: null };
 
-    const before = overlay.draft.generation.model;
     await press(key("right"));
-    expect(overlay.draft.generation.model).toBe(before);
+    expect(overlay.draft.generation.model).toBe("gpt-5.4-mini");
 
     await press(key("return"));
     expect(overlay.modelPicker).not.toBe(null);

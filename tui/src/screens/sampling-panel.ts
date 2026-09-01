@@ -3,6 +3,8 @@ import type { HitRows, HitTarget } from "../hit.js";
 import {
   boundedSamplingCursor,
   SAMPLING_LAYER_ROWS,
+  samplingListActionability,
+  type SamplingListActionability,
   samplingLayerRowIdentity,
   samplingListItemIdentity,
   type SamplingListPanel,
@@ -56,7 +58,8 @@ export function renderSamplingPanel(
     nested.panel,
     nested.edit !== null,
     nested.deleteArmedRowId != null,
-    horizontal.footerWidth
+    horizontal.footerWidth,
+    samplingSelectionActionability(settings)
   );
   return placePanel(
     dimPage(base),
@@ -171,18 +174,24 @@ function renderSamplingRow(
     return fieldRow(
       lead,
       row.row.label,
-      row.row.available ? `‹ ${row.row.value} ›` : "‹ — ›",
+      row.row.available ? `‹ ${row.row.value} ›` : "—",
       row.row.available ? row.row.hint : reasonShared ? "" : row.row.reason,
       width,
       selected,
       row.row.available ? "chrome" : "prose · dim"
     );
   }
+  const storedValues = samplingListPanelSpec(row.row.panel).values(settings);
+  const canOpen = row.row.available || storedValues.length > 0;
   return fieldRow(
     lead,
     row.row.label,
-    row.row.available ? `[${row.row.value}]` : "‹ — ›",
-    row.row.available ? "↵ open" : reasonShared ? "" : `disabled · ${row.row.reasonCompact}`,
+    canOpen ? `[${row.row.value}]` : "—",
+    row.row.available
+      ? "↵ open"
+      : canOpen
+        ? `stored · ↵ open · disabled · ${row.row.reasonCompact}`
+        : reasonShared ? "" : `disabled · ${row.row.reasonCompact}`,
     width,
     selected,
     row.row.available ? "chrome" : "prose · dim"
@@ -459,16 +468,79 @@ function samplingStatus(text: string, width: number): FrameLine[] {
   ]);
 }
 
+/** Read whether the selected control has a valid action. An unavailable list
+ * with stored values stays openable so the writer can edit or delete those
+ * values after a provider change. */
+interface SamplingFooterActionability extends SamplingListActionability {
+  readonly open: boolean;
+  readonly adjust: boolean;
+}
+
+const NO_SAMPLING_ACTIONS: SamplingFooterActionability = {
+  open: false,
+  adjust: false,
+  edit: false,
+  add: false,
+  delete: false,
+  reorder: false
+};
+
+function samplingSelectionActionability(
+  settings: NonNullable<OverlayState["settings"]>
+): SamplingFooterActionability {
+  const nested = settings.sampling;
+  if (nested === null) return NO_SAMPLING_ACTIONS;
+  try {
+    if (nested.panel === "sampling") {
+      const row = SAMPLING_LAYER_ROWS[boundedSamplingCursor(settings)]!;
+      if (row.kind === "scalar") {
+        return {
+          ...NO_SAMPLING_ACTIONS,
+          open: samplingScalarRows(settings).find((item) => item.knob === row.knob)?.available ?? false,
+          adjust: samplingScalarRows(settings).find((item) => item.knob === row.knob)?.available ?? false
+        };
+      }
+      const actions = samplingListActionability(settings, row.panel);
+      return {
+        ...actions,
+        open: actions.edit || actions.add || actions.delete || actions.reorder,
+        adjust: false
+      };
+    }
+    return {
+      ...samplingListActionability(settings, nested.panel),
+      open: false,
+      adjust: false
+    };
+  } catch {
+    return NO_SAMPLING_ACTIONS;
+  }
+}
+
 interface SamplingFooter {
   readonly text: string;
   readonly actions: ReadonlyArray<{ token: string; action: "focus-previous" | "focus-next" | "open-selected" | "new-item" | "delete-item" | "take-previous" | "take-next" | "cursor-left" | "cursor-right" | "cancel" | "commit-field" }>;
 }
 
+const SAMPLING_UNAVAILABLE_FOOTERS = [
+  { text: "↑↓ move · esc back", actions: [
+    { token: "↑", action: "focus-previous" as const },
+    { token: "↓", action: "focus-next" as const },
+    { token: "esc back", action: "cancel" as const }
+  ] },
+  { text: "↑↓ esc", actions: [
+    { token: "↑", action: "focus-previous" as const },
+    { token: "↓", action: "focus-next" as const },
+    { token: "esc", action: "cancel" as const }
+  ] }
+] as const satisfies readonly SamplingFooter[];
+
 function samplingFooter(
   panel: "sampling" | SamplingListPanel,
   editing: boolean,
   confirmingDelete: boolean,
-  width: number
+  width: number,
+  actionability: SamplingFooterActionability
 ): SamplingFooter {
   if (editing) return footerFit([
     { text: "←→ cursor · ↵ keep · esc cancel", actions: [
@@ -480,19 +552,36 @@ function samplingFooter(
       { token: "↵", action: "commit-field" }, { token: "esc", action: "cancel" }
     ] }
   ], width);
-  if (panel === "sampling") return footerFit([
-    { text: "↑↓ move · ←→ adjust · ↵ open · esc back", actions: [
-      { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
-      { token: "←", action: "take-previous" }, { token: "→", action: "take-next" },
-      { token: "↵ open", action: "open-selected" },
-      { token: "esc back", action: "cancel" }
-    ] },
-    { text: "↑↓ ←→ ↵ esc", actions: [
-      { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
-      { token: "←", action: "take-previous" }, { token: "→", action: "take-next" },
-      { token: "↵", action: "open-selected" }, { token: "esc", action: "cancel" }
-    ] }
-  ], width);
+  if (panel === "sampling") {
+    if (!actionability.open) return footerFit(SAMPLING_UNAVAILABLE_FOOTERS, width);
+    if (!actionability.adjust) return footerFit([
+      { text: "↑↓ move · ↵ open · esc back", actions: [
+        { token: "↑", action: "focus-previous" },
+        { token: "↓", action: "focus-next" },
+        { token: "↵ open", action: "open-selected" },
+        { token: "esc back", action: "cancel" }
+      ] },
+      { text: "↑↓ ↵ esc", actions: [
+        { token: "↑", action: "focus-previous" },
+        { token: "↓", action: "focus-next" },
+        { token: "↵", action: "open-selected" },
+        { token: "esc", action: "cancel" }
+      ] }
+    ], width);
+    return footerFit([
+      { text: "↑↓ move · ←→ adjust · ↵ open · esc back", actions: [
+        { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
+        { token: "←", action: "take-previous" }, { token: "→", action: "take-next" },
+        { token: "↵ open", action: "open-selected" },
+        { token: "esc back", action: "cancel" }
+      ] },
+      { text: "↑↓ ←→ ↵ esc", actions: [
+        { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
+        { token: "←", action: "take-previous" }, { token: "→", action: "take-next" },
+        { token: "↵", action: "open-selected" }, { token: "esc", action: "cancel" }
+      ] }
+    ], width);
+  }
   if (confirmingDelete) return {
     text: "D confirms · esc keeps",
     actions: [
@@ -500,7 +589,32 @@ function samplingFooter(
       { token: "esc keeps", action: "cancel" }
     ]
   };
-  const reorderable = samplingListPanelSpec(panel).reorderable;
+  if (!actionability.edit && !actionability.add && !actionability.delete && !actionability.reorder) {
+    return footerFit(SAMPLING_UNAVAILABLE_FOOTERS, width);
+  }
+  if (!actionability.add) return footerFit([
+    {
+      text: "↑↓ move · ↵ edit · D delete · esc back",
+      actions: [
+        { token: "↑", action: "focus-previous" },
+        { token: "↓", action: "focus-next" },
+        { token: "↵ edit", action: "open-selected" },
+        { token: "D delete", action: "delete-item" },
+        { token: "esc back", action: "cancel" }
+      ]
+    },
+    {
+      text: "↑↓ ↵ D esc",
+      actions: [
+        { token: "↑", action: "focus-previous" },
+        { token: "↓", action: "focus-next" },
+        { token: "↵", action: "open-selected" },
+        { token: "D", action: "delete-item" },
+        { token: "esc", action: "cancel" }
+      ]
+    }
+  ], width);
+  const reorderable = actionability.reorder;
   const actions = [
     { token: "↑", action: "focus-previous" as const },
     { token: "↓", action: "focus-next" as const },
@@ -543,6 +657,6 @@ function samplingFooter(
   ], width);
 }
 
-function footerFit(variants: SamplingFooter[], width: number): SamplingFooter {
+function footerFit(variants: readonly SamplingFooter[], width: number): SamplingFooter {
   return variants.find((variant) => visibleWidth(variant.text) <= width) ?? variants.at(-1)!;
 }

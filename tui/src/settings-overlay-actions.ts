@@ -67,6 +67,7 @@ import {
   settingsActivationFailureText,
   settingsDraftChanged,
   settingsRowHasArrows,
+  settingsRowIsNonActionable,
   settingsRowCycles,
   settingsRowIndex,
   settingsRowIds,
@@ -245,9 +246,13 @@ export async function settingsOverlayAction(
     const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
     if (settingsRowUsesServer(row) && !overlay.view.editable) {
       state.toast = settingsReadOnlyMessage(overlay.view.readOnlyReason);
+    } else if (settingsRowIsNonActionable(overlay, row)) {
+      // Informational and unavailable rows keep their value and hint, but
+      // never open an editor or claim that Enter changes them.
+      return true;
     } else if (row === "model") {
-      // C-15: past eight options the list is a column, not a cycler. Below
-      // that the row keeps opening for a typed identifier.
+      // C-15: Enter opens the searchable column for long and subscription
+      // catalogs. Short catalogs keep the custom model-name editor.
       if (modelPickerRequired(overlay)) overlay.modelPicker = { query: "", cursor: 0 };
       else beginSettingsRowEdit(overlay, state.config);
     } else if (settingsRowCycles(row)) {

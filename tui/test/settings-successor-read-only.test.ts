@@ -57,8 +57,9 @@ describe("successor read-only Settings presentation", () => {
       });
     expect(settingsRows(overlay, source.config).find((row) => row.id === "image-input"))
       .toMatchObject({
-        value: "‹ successor-owned ›",
-        hint: "newer settings are read-only · successor owns settings · update 1667"
+        value: "successor-owned",
+        hint: "newer settings are read-only · successor owns settings · update 1667",
+        disabled: true
       });
   });
 
@@ -137,8 +138,9 @@ describe("successor read-only Settings presentation", () => {
       });
     expect(settingsRows(overlay, source.config).find((row) => row.id === "image-input"))
       .toMatchObject({
-        value: "‹ - ›",
-        hint: "Shows whether this model accepts image attachments."
+        value: "—",
+        hint: "Shows whether this model accepts image attachments.",
+        disabled: true
       });
   });
 
@@ -163,14 +165,14 @@ describe("successor read-only Settings presentation", () => {
     const remediation = "newer settings are read-only · successor owns settings · update 1667";
 
     expect(row("sampling")).toMatchObject({ value: "‹ successor-owned ›", hint: remediation });
-    expect(row("reasoning")).toMatchObject({ value: "‹ open ›", dots: "", hint: remediation });
+    expect(row("reasoning")).toMatchObject({ value: "open", dots: "", hint: remediation, disabled: true });
     expect(row("keep-thoughts")).toMatchObject({ value: "‹ successor-owned ›", hint: remediation });
     expect(row("continuation-prompt")).toMatchObject({ value: "[ on ]", hint: remediation });
     expect(row("text-prompt-format")).toMatchObject({ value: "‹ successor-owned ›", hint: remediation });
     expect(row("split-think-tags")).toMatchObject({ value: "‹ successor-owned ›", hint: remediation });
     expect(row("allow-insecure-http")).toMatchObject({ value: "[ on ]" });
     expect(row("api-key")).toMatchObject({ value: "‹ successor-owned ›", hint: remediation });
-    expect(row("image-input")).toMatchObject({ value: "‹ successor-owned ›", hint: remediation });
+    expect(row("image-input")).toMatchObject({ value: "successor-owned", hint: remediation, disabled: true });
 
     const missingFields = readOnlyView(source, {
       ...successor,
@@ -182,7 +184,7 @@ describe("successor read-only Settings presentation", () => {
       source.config
     );
     expect(missingRows.find((candidate) => candidate.id === "reasoning")?.value)
-      .toBe("‹ successor-owned ›");
+      .toBe("successor-owned");
     expect(missingRows.find((candidate) => candidate.id === "continuation-prompt")?.value)
       .toBe("‹ successor-owned ›");
 
@@ -197,8 +199,9 @@ describe("successor read-only Settings presentation", () => {
     const legacyRow = (id: string) => legacyRows.find((candidate) => candidate.id === id);
     expect(legacyRow("sampling")?.value).toBe("default · [disabled · read-only]");
     expect(legacyRow("reasoning")).toMatchObject({
-      value: "‹ marker ›",
-      hint: "Controls whether model reasoning is hidden, marked, or shown."
+      value: "marker",
+      hint: "Controls whether model reasoning is hidden, marked, or shown.",
+      disabled: true
     });
     expect(legacyRow("keep-thoughts")).toMatchObject({
       value: "[ on ]",

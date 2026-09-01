@@ -32,12 +32,14 @@ import {
 } from "./settings-image-input-row.js";
 import {
   reasoningRowChoices,
+  reasoningRowHasArrows,
   reasoningRowHint,
   reasoningRowState,
   reasoningRowValue
 } from "./settings-reasoning-row.js";
 import {
   tokenProbabilitiesRowHint,
+  tokenProbabilitiesRowHasArrows,
   tokenProbabilitiesRowState,
   tokenProbabilitiesRowValue
 } from "./settings-token-probabilities-row.js";
@@ -133,8 +135,8 @@ export function settingsRows(
   const imageInput = imageInputRowState(overlay);
   const reasoningValue = successorReadOnly
     ? overlay.view.effectiveProseReasoning === undefined
-      ? "‹ successor-owned ›"
-      : `‹ ${overlay.view.effectiveProseReasoning} ›`
+      ? "successor-owned"
+      : overlay.view.effectiveProseReasoning
     : reasoningRowValue(reasoning);
   const reasoningHint = successorReadOnly ? readOnlyMessage : reasoningRowHint(reasoning);
   const rows: SettingsRowPresentation[] = [
@@ -255,8 +257,9 @@ export function settingsRows(
     },
     {
       id: "image-input", section: "model", label: "image input",
-      value: successorReadOnly ? "‹ successor-owned ›" : imageInputRowValue(imageInput),
-      hint: successorReadOnly ? readOnlyMessage : imageInputRowHint(imageInput)
+      value: successorReadOnly ? "successor-owned" : imageInputRowValue(imageInput),
+      hint: successorReadOnly ? readOnlyMessage : imageInputRowHint(imageInput),
+      disabled: true
     },
     scalarRow("temperature", "temperature", overlay, "Higher values make the writing less predictable."),
     scalarRow("max-tokens", "max tokens", overlay, "Limits the length of each response."),
@@ -290,13 +293,17 @@ export function settingsRows(
     {
       id: "token-probabilities", section: "generation", label: "alternatives",
       value: tokenProbabilitiesRowValue(tokenProbabilities),
-      hint: tokenProbabilitiesRowHint(tokenProbabilities)
+      hint: tokenProbabilitiesRowHint(tokenProbabilities),
+      ...(tokenProbabilitiesRowHasArrows(overlay) ? {} : { disabled: true as const })
     },
     {
       id: "reasoning", section: "story", label: "reasoning",
       value: reasoningValue,
-      dots: successorReadOnly ? "" : positionDots(reasoningRowChoices(overlay), reasoning.display),
-      hint: reasoningHint
+      dots: successorReadOnly || !reasoningRowHasArrows(overlay)
+        ? ""
+        : positionDots(reasoningRowChoices(overlay), reasoning.display),
+      hint: reasoningHint,
+      ...(reasoningRowHasArrows(overlay) ? {} : { disabled: true as const })
     },
     {
       id: "keep-thoughts", section: "story", label: "save thoughts",

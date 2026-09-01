@@ -108,7 +108,8 @@ export function fakeModels(
   streamFactory: (context: Context, options: Record<string, unknown>) => AsyncIterable<AssistantMessageEvent> & {
     result(): Promise<AssistantMessage>;
   },
-  authFactory: () => Promise<unknown> = async () => ({ auth: { apiKey: ACCESS } })
+  authFactory: () => Promise<unknown> = async () => ({ auth: { apiKey: ACCESS } }),
+  payloadObserver?: (payload: Record<string, unknown>) => void
 ): Models {
   return {
     getModel: () => model,
@@ -120,7 +121,9 @@ export function fakeModels(
         | undefined;
       const ensure = async (): Promise<ReturnType<typeof streamFactory>> => {
         if (delegate !== undefined) return delegate;
-        await onPayload?.(fixturePayload(model, options), model);
+        const payload = fixturePayload(model, options);
+        payloadObserver?.(payload);
+        await onPayload?.(payload, model);
         delegate = streamFactory(context, options);
         return delegate;
       };

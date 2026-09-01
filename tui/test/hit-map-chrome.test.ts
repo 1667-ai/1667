@@ -777,13 +777,17 @@ describe("hit map clickable chrome", () => {
     expect(new Set(opens.values()).size).toBe(1);
   });
 
-  test("model discovery adds exact slider arrows and mouse selection", async () => {
+  test("a large model catalog keeps exact arrows and mouse selection", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
     state.stream = null;
     const index = SETTINGS_ROW_IDS.indexOf("model");
     footerCases.at(-1)!.setup(state, source);
-    installModelChoices(state, ["qwen3-32b", "novelist-b"]);
+    installModelChoices(state, [
+      "qwen3-32b",
+      "novelist-b",
+      ...Array.from({ length: 7 }, (_, index) => `model-${index + 3}`)
+    ]);
     state.settings!.cursor = index;
     const frame = render(state, 120, 30);
 
@@ -796,6 +800,28 @@ describe("hit map clickable chrome", () => {
     expect([...line][arrows[0]!.left]).toBe("‹");
     expect([...line][arrows[1]!.left]).toBe("›");
 
+    const view = state.settings!.view;
+    if (!view.editable) throw new Error("editable settings view missing");
+    state.settings!.view = { ...view, pendingRevision: 2 };
+    const compact = render(state, 50, 30);
+    const footerRow = compact.findIndex((row) => {
+      const text = plainLine(row);
+      return text.includes("↑↓") && text.includes("←→");
+    });
+    expect(footerRow).toBeGreaterThan(-1);
+    const footerText = plainLine(compact[footerRow]!);
+    const footerArrows = [...footerText].findIndex((character, offset, characters) =>
+      character === "←" && characters[offset + 1] === "→");
+    expect(footerArrows).toBeGreaterThan(-1);
+    expect(hitAt(state.hitRows, footerArrows, footerRow)).toEqual({
+      kind: "action", action: "take-previous"
+    });
+    expect(hitAt(state.hitRows, footerArrows + 1, footerRow)).toEqual({
+      kind: "action", action: "take-next"
+    });
+
+    state.settings!.view = view;
+    render(state, 120, 30);
     const clicked = mouseToAction(click(arrows[1]!.left, selectorRow), state)!;
     await dispatch(clicked, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(state.settings?.draft.generation.model).toBe("novelist-b");

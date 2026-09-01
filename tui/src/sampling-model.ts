@@ -49,6 +49,29 @@ export interface SamplingListRow {
   readonly reasonCompact: string;
 }
 
+export interface SamplingListActionability {
+  readonly edit: boolean;
+  readonly add: boolean;
+  readonly delete: boolean;
+  readonly reorder: boolean;
+}
+
+/** Keep stored list values editable and removable after a provider change,
+ * but do not allow new or reordered values while the list is unavailable. */
+export function samplingListActionability(
+  overlay: SettingsOverlayState,
+  panel: SamplingListPanel
+): SamplingListActionability {
+  const row = samplingListRows(overlay).find((item) => item.panel === panel)!;
+  const hasStoredValues = samplingListPanelSpec(panel).values(overlay).length > 0;
+  return {
+    edit: row.available || hasStoredValues,
+    add: row.available,
+    delete: row.available || hasStoredValues,
+    reorder: row.available && samplingListPanelSpec(panel).reorderable
+  };
+}
+
 export interface SamplingScalarPresentation {
   /** Amount `←→` moves the value by, in the knob's own unit. */
   readonly step: number;
@@ -363,9 +386,11 @@ export function beginSamplingEdit(overlay: SettingsOverlayState): string | null 
     return null;
   }
   const list = samplingListRows(overlay).find((row) => row.panel === nested.panel)!;
-  if (!list.available) return `${list.label} disabled · ${list.reasonCompact}`;
   const spec = samplingListPanelSpec(nested.panel);
   const values = spec.values(overlay);
+  if (!samplingListActionability(overlay, nested.panel).edit) {
+    return `${list.label} disabled · ${list.reasonCompact}`;
+  }
   const index = boundedSamplingCursor(overlay);
   if (index >= values.length) return null;
   const initial = spec.editableText(values[index]!);

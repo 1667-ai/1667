@@ -56,13 +56,54 @@ describe("Sampling Settings user flow", () => {
     await enterSampling(state, press);
     const opened = render(state, 80, 24);
     expect(opened).toContain("┏━ sampling");
-    expect(opened).toContain("‹ — ›");
+    expect(opened).toContain("—");
+    expect(opened).not.toContain("←→ adjust");
+    expect(opened).not.toContain("↵ open");
     expect(opened).toContain("Dry run does not send provider requests.");
     expect(opened.split("\n").every((line) => visibleWidth(line) <= 80)).toBeTrue();
 
     await press(key("return"));
     expect(state.settings?.sampling?.edit).toBe(null);
     expect(state.settings?.sampling?.result).toContain("disabled · dry run");
+  });
+
+  test("an unavailable stored list stays open for cleanup", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    state.settings!.draft = {
+      ...state.settings!.draft,
+      sampling: {
+        ...state.settings!.draft.sampling,
+        logitBias: { "42": 7 }
+      }
+    };
+
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("logit-bias"));
+    const layer = render(state, 100, 36);
+    expect(layer).toContain("stored · ↵ open · disabled");
+    expect(layer).not.toContain("←→ adjust");
+
+    await press(key("return"));
+    expect(state.settings?.sampling?.panel).toBe("logit-bias");
+    const stored = render(state, 100, 36);
+    expect(stored).toContain("↵ edit");
+    expect(stored).toContain("D delete");
+    expect(stored).not.toContain("n add");
+    expect(stored).not.toContain("←→ reorder");
+
+    await press(key("return"));
+    expect(state.settings?.sampling?.edit).not.toBe(null);
+    await press(key("escape"));
+    expect(state.settings?.sampling?.edit).toBe(null);
+
+    await press(key("n"));
+    expect(state.settings?.sampling?.edit).toBe(null);
+    expect(state.settings?.sampling?.result).toContain("disabled · dry run");
+
+    await press(key("D"));
+    await press(key("D"));
+    expect(state.settings?.draft.sampling.logitBias).toEqual({});
   });
 
   test("edits a scalar and saves the sampling payload through Settings actions", async () => {
@@ -218,7 +259,7 @@ describe("Sampling Settings user flow", () => {
 
     const frame = render(state, 80, 24);
     const seedLine = frame.split("\n").find((line) => line.includes("seed"));
-    expect(seedLine).toContain("‹ — ›");
+    expect(seedLine).toContain("—");
 
     await press(key("return"));
     expect(state.settings?.sampling?.result).toBe("seed disabled · not supported by provider");
@@ -944,7 +985,7 @@ describe("Sampling Settings user flow", () => {
     const lines = render(state, 100, 48).split("\n");
 
     const dryLine = lines.find((line) => line.includes("dry multiplier"));
-    expect(dryLine).toContain("‹ — ›");
+    expect(dryLine).toContain("—");
     expect(dryLine).toContain("Provider support is unknown.");
     // A baseline OpenAI field stays available on the same route.
     const topPLine = lines.find((line) => line.includes("top p"));
