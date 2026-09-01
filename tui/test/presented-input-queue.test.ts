@@ -1,12 +1,28 @@
 import { describe, expect, test } from "bun:test";
-import type { KeyEvent } from "@opentui/core";
+import { TextRenderable, type KeyEvent } from "@opentui/core";
+import { createTestRenderer } from "@opentui/core/testing";
 import { ActionRuntime, withActionAdmission } from "../src/action-runtime.js";
 import { handleKey, initialState } from "../src/app.js";
+import { clearNativeSelectionIfMatches, storySelectionFromRendererSelection } from "../src/copy-actions.js";
 import { demoAppSource } from "../src/demo.js";
+import { createInteractiveInputAdmission } from "../src/interactive-input-admission.js";
+import { createPalette } from "../src/palette.js";
 import {
   createPresentedInputQueue,
   observeInputAdmission
 } from "../src/presented-input-queue.js";
+import {
+  capturePresentedInputSelection,
+  consumePresentedSelection,
+  guardFactsStorySelectionCapture,
+  reconcilePresentedSelection,
+  retirePresentedSelection,
+  type CapturedPresentedSelection,
+  type PresentedSelectionFrame
+} from "../src/presented-selection.js";
+import { buildStorySelectionProjection } from "../src/selection-projection.js";
+import { segment, type FrameLine } from "../src/screens/story/frame.js";
+import { createStorySurface } from "../src/story-surface.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 
 function key(name: string, sequence = name, ctrl = false): KeyEvent {
@@ -134,5 +150,235 @@ describe("presented input queue", () => {
     expect(quitRequests).toBe(0);
     expect(queue.pending).toBe(0);
     backend.dispose();
+  });
+
+  test("retains story selection when Facts opens before Ctrl-P Fact creation", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 4 });
+    const source = demoAppSource(false);
+    const state = initialState(source, false);
+    const palette = createPalette("lantern", "256");
+    const surface = createStorySurface(setup.renderer, palette);
+    const selectedText = "selected story text";
+    const frame: FrameLine[] = [[{
+      ...segment(selectedText),
+      storySource: { key: "part:selection:text", text: selectedText, start: 0 }
+    }]];
+    const width = 80;
+    surface.paint(frame, palette, {
+      fullWidth: width,
+      pageWidth: width,
+      railStart: null,
+      factLeft: null,
+      railRight: null
+    }, null);
+    await setup.renderOnce();
+
+    const page = setup.renderer.root.findDescendantById("story") as TextRenderable;
+    const projection = buildStorySelectionProjection(frame, width);
+    state.storySelectionProjection = projection;
+    setup.renderer.startSelection(page, 0, 0);
+    setup.renderer.updateSelection(page, selectedText.length, 0, { finishDragging: true });
+    expect(storySelectionFromRendererSelection(setup.renderer, projection)?.text).toBe(selectedText);
+
+    const cache = createWrapCache<ProseStyle>();
+    const backend = new ActionRuntime(state, () => undefined);
+    const inputAdmission = createInteractiveInputAdmission();
+    const queue = createPresentedInputQueue({ flush() {}, ready: () => true });
+    let latestSelectionCapture: CapturedPresentedSelection | null = null;
+    const presentedFrame = (): PresentedSelectionFrame => ({
+      version: 1,
+      storyId: state.payload.id,
+      interactive: true,
+      state: { mode: state.mode },
+      composerSelectionProjection: null,
+      storySelectionProjection: state.mode === "NAV" || state.mode === "FACTS"
+        ? state.storySelectionProjection
+        : null
+    });
+    const press = async (event: KeyEvent): Promise<void> => {
+      const previous = latestSelectionCapture;
+      const queuedSelection = capturePresentedInputSelection(
+        setup.renderer,
+        presentedFrame(),
+        previous,
+        false
+      );
+      const guardedSelection = guardFactsStorySelectionCapture(queuedSelection, previous);
+      latestSelectionCapture = guardedSelection;
+      let settled!: () => void;
+      const done = new Promise<void>((resolve) => { settled = resolve; });
+      inputAdmission.enqueueText(queue, () => {
+        const selection = reconcilePresentedSelection(guardedSelection, 1, state);
+        if (selection.kind === "stale") {
+          retirePresentedSelection(setup.renderer, guardedSelection);
+          settled();
+          return;
+        }
+        const capturedStorySelection = selection.kind === "captured"
+          ? storySelectionFromRendererSelection(selection.native, selection.story)
+          : null;
+        if (selection.kind === "captured" && selection.native !== null) {
+          clearNativeSelectionIfMatches(setup.renderer, selection.native);
+        }
+        consumePresentedSelection(guardedSelection);
+        const work = observeInputAdmission((admit) => handleKey(
+          event,
+          state,
+          source,
+          cache,
+          admit,
+          () => { admit(); return Promise.resolve(); },
+          () => undefined,
+          setup.renderer,
+          () => undefined,
+          () => undefined,
+          withActionAdmission(backend, admit),
+          capturedStorySelection
+        ), (pending) => backend.observe(pending));
+        void work.then(settled, settled);
+        return work;
+      }, () => {
+        retirePresentedSelection(setup.renderer, guardedSelection);
+        settled();
+      });
+      await done;
+      await backend.settle();
+    };
+
+    try {
+      await press(key("f"));
+      expect(state.mode).toBe("FACTS");
+      expect(state.facts?.storySelection?.text).toBe(selectedText);
+
+      await press(key("p", "\u0010", true));
+      expect(state.mode).toBe("COMMANDS");
+      expect(state.commands?.selection?.text).toBe(selectedText);
+
+      for (const character of "new Fact from selection") await press(key(character));
+      expect(state.commands?.selectedId).toBe("new-fact-from-selection");
+      await press(key("return", "\r"));
+
+      expect(state.mode).toBe("EDITOR");
+      expect(state.editor?.kind).toBe("fact");
+      expect(state.editor?.kind === "fact" ? state.editor.composer.text : null).toBe(selectedText);
+    } finally {
+      backend.dispose();
+      setup.renderer.destroy();
+    }
+  });
+
+  test("does not project a fresh Facts-panel range onto story commands", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 4 });
+    const source = demoAppSource(false);
+    const state = initialState(source, false);
+    const palette = createPalette("lantern", "256");
+    const surface = createStorySurface(setup.renderer, palette);
+    const storyText = "underlying story text";
+    const storyFrame: FrameLine[] = [[{
+      ...segment(storyText),
+      storySource: { key: "part:underlying:text", text: storyText, start: 0 }
+    }]];
+    const width = 80;
+    const layout = {
+      fullWidth: width,
+      pageWidth: width,
+      railStart: null,
+      factLeft: null,
+      railRight: null
+    };
+    surface.paint(storyFrame, palette, layout, null);
+    await setup.renderOnce();
+    state.storySelectionProjection = buildStorySelectionProjection(storyFrame, width);
+
+    const cache = createWrapCache<ProseStyle>();
+    const backend = new ActionRuntime(state, () => undefined);
+    const inputAdmission = createInteractiveInputAdmission();
+    const queue = createPresentedInputQueue({ flush() {}, ready: () => true });
+    let latestSelectionCapture: CapturedPresentedSelection | null = null;
+    const presentedFrame = (): PresentedSelectionFrame => ({
+      version: 1,
+      storyId: state.payload.id,
+      interactive: true,
+      state: { mode: state.mode },
+      composerSelectionProjection: null,
+      storySelectionProjection: state.mode === "NAV" || state.mode === "FACTS"
+        ? state.storySelectionProjection
+        : null
+    });
+    const press = async (event: KeyEvent): Promise<void> => {
+      const previous = latestSelectionCapture;
+      const queuedSelection = capturePresentedInputSelection(
+        setup.renderer,
+        presentedFrame(),
+        previous,
+        false
+      );
+      const guardedSelection = guardFactsStorySelectionCapture(queuedSelection, previous);
+      latestSelectionCapture = guardedSelection;
+      let settled!: () => void;
+      const done = new Promise<void>((resolve) => { settled = resolve; });
+      inputAdmission.enqueueText(queue, () => {
+        const selection = reconcilePresentedSelection(guardedSelection, 1, state);
+        if (selection.kind === "stale") {
+          retirePresentedSelection(setup.renderer, guardedSelection);
+          settled();
+          return;
+        }
+        const capturedStorySelection = selection.kind === "captured"
+          ? storySelectionFromRendererSelection(selection.native, selection.story)
+          : null;
+        if (selection.kind === "captured" && selection.native !== null) {
+          clearNativeSelectionIfMatches(setup.renderer, selection.native);
+        }
+        consumePresentedSelection(guardedSelection);
+        const work = observeInputAdmission((admit) => handleKey(
+          event,
+          state,
+          source,
+          cache,
+          admit,
+          () => { admit(); return Promise.resolve(); },
+          () => undefined,
+          setup.renderer,
+          () => undefined,
+          () => undefined,
+          withActionAdmission(backend, admit),
+          capturedStorySelection
+        ), (pending) => backend.observe(pending));
+        void work.then(settled, settled);
+        return work;
+      }, () => {
+        retirePresentedSelection(setup.renderer, guardedSelection);
+        settled();
+      });
+      await done;
+      await backend.settle();
+    };
+
+    try {
+      // Use the normal Facts entry key. There is no native range at this
+      // point, so the retained projection has no original selection owner.
+      await press(key("f"));
+      expect(state.mode).toBe("FACTS");
+
+      const panelText = "Facts panel cell";
+      surface.paint([[segment(panelText)]], palette, layout, null);
+      await setup.renderOnce();
+      const page = setup.renderer.root.findDescendantById("story") as TextRenderable;
+      setup.renderer.startSelection(page, 0, 0);
+      setup.renderer.updateSelection(page, panelText.length, 0, { finishDragging: true });
+      expect(setup.renderer.getSelection()).not.toBeNull();
+
+      await press(key("p", "\u0010", true));
+      expect(state.mode).toBe("COMMANDS");
+      expect(state.commands?.selection ?? null).toBeNull();
+      for (const character of "rewrite selection") await press(key(character));
+      expect(state.commands?.selectedId).not.toBe("rewrite-selection");
+      await press(key("return", "\r"));
+      expect(state.mode).not.toBe("EDITOR");
+    } finally {
+      backend.dispose();
+      setup.renderer.destroy();
+    }
   });
 });

@@ -7,6 +7,7 @@ import type { ResolvedKey } from "./keys.js";
 import { recordNotice } from "./notice-log.js";
 import { publishStories } from "./overlay-publication.js";
 import { adoptSameStoryPayload, adoptStoryState } from "./story-adoption.js";
+import { paletteSessionReturningTo, restorePaletteSession, settleModeUnderPalette } from "./palette-owner.js";
 import type { ArchiveImportPrompt, RuntimeState } from "./state.js";
 
 export function openArchiveImport(
@@ -114,7 +115,17 @@ async function applyArchiveImport(
         ? await source.api.importScenario(text)
         : await source.api.importNovelAI(text);
       if (!task.storyCurrent()) return;
+      const palette = paletteSessionReturningTo(state, "ARCHIVE");
       adoptStoryState(state, payload, context.cache);
+      if (palette !== null) {
+        // A different-story adoption clears every story-bound surface,
+        // including the palette. Keep Ctrl-P visible, with Esc returning to
+        // the settled story's NAV surface. Its captured selection names the
+        // old story and must not cross this boundary.
+        palette.selection = null;
+        palette.deleteArmedTagNodeId = null;
+        restorePaletteSession(state, palette, "NAV");
+      }
       adopted = true;
       state.toast = `new story · ${payload.nodes.length} ${countNoun(payload.nodes.length, "part")}`
         + ` · ${payload.facts.length} ${countNoun(payload.facts.length, "fact")}`;
@@ -126,8 +137,8 @@ async function applyArchiveImport(
     });
     if (ran && adopted) {
       if (state.archive === overlay) {
+        settleModeUnderPalette(state, "ARCHIVE", overlay.returnMode);
         state.archive = null;
-        state.mode = overlay.returnMode;
       }
     } else if (!ran && overlay.error === null) {
       overlay.error = "another task is running · start the import again";
@@ -147,4 +158,3 @@ function archiveRoute(value: string): "facts" | "scenario" | "story" | null {
   if (lower.endsWith(".json")) return "facts";
   return null;
 }
-

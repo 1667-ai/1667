@@ -19,6 +19,11 @@ import {
   rememberFocus
 } from "./reading-position-persist.js";
 import { abortPendingSearch, retireSearch } from "./search-request.js";
+import {
+  paletteSessionReturningTo,
+  restorePaletteSession,
+  retargetPaletteSession
+} from "./palette-owner.js";
 import type { RuntimeState } from "./state.js";
 import { followStoryViewport } from "./viewport-intent.js";
 import { reconcileWrapCache } from "./wrap-invalidation.js";
@@ -100,12 +105,17 @@ export function adoptSameStoryPayload(
   const retainedAside = state.aside?.storyId === payload.id
     ? state.aside
     : state.placement?.returnAside.storyId === payload.id
-      ? state.placement.returnAside
+    ? state.placement.returnAside
       : null;
   if (retainedAside !== null) {
     retainedAside.storyTitle = payload.title;
   }
   state.payload = payload;
+  // The page-cell map belongs to the revision that was just replaced. Clear
+  // it before the next frame so a Facts panel cannot reuse coordinates from
+  // edited prose as if they were the current story selection.
+  state.storySelectionProjection = null;
+  clearAdoptedStorySelection(state);
   const view = restoreStoryFocus(state, focus);
   reconcilePlacementStops(state, view);
 
@@ -189,6 +199,8 @@ export function reconcileStoryActions(
   if (actions === null) return;
   if (rowIndexForNode(view, actions.partId) >= 0) return;
   state.actions = null;
+  const palette = paletteSessionReturningTo(state, "ACTIONS");
+  if (palette !== null) retargetPaletteSession(state, palette, "NAV");
   if (state.mode === "ACTIONS") state.mode = "NAV";
 }
 
@@ -235,6 +247,8 @@ export function reconcileMapNavigation(state: RuntimeState, payload = state.payl
   const fallbackId = payload.path.at(-1)?.id ?? null;
   if (fallbackId === null) {
     state.map = null;
+    const palette = paletteSessionReturningTo(state, "MAP");
+    if (palette !== null) retargetPaletteSession(state, palette, "NAV");
     if (state.mode === "MAP") state.mode = "NAV";
     return;
   }
@@ -285,20 +299,39 @@ export function adoptReconciliationSnapshot(
     text !== null && text.length > 0 && text !== composer.text && drafts.indexOf(text) === index);
   const mode = state.mode;
   const quitArmed = state.quitArmed;
-  const library = mode === "LIBRARY"
+  const paletteReturnMode = mode === "COMMANDS"
+    ? state.commands?.returnMode ?? null
+    : null;
+  const library = (mode === "LIBRARY" || paletteReturnMode === "LIBRARY")
     && state.library !== null
     && state.library !== options.discardedLibrary
+    // A suspended palette has no Library owner to restore unless the user
+    // left an active prompt/filter behind. This also lets an intentional
+    // delete/fallback, whose prompt was cleared by catalog publication, fall
+    // back to NAV instead of reviving an empty Library shell.
+    && (mode !== "COMMANDS" || state.library.prompt !== null)
     ? state.library
     : null;
-  const retainedGlobalEditor = globalEditor(state);
+  const retainedGlobalEditor = globalEditor(state)
+    ?? (paletteReturnMode === "EDITOR"
+      && state.editor?.kind === "document"
+      && state.editor.target.kind === "settings-prompt"
+      && state.settings === state.editor.target.owner
+      ? state.editor
+      : null);
   const retainedSettings = state.settings?.profileTransfer === null
-    && (mode === "SETTINGS" || retainedGlobalEditor !== null)
+    && (mode === "SETTINGS"
+      || paletteReturnMode === "SETTINGS"
+      || retainedGlobalEditor !== null)
     ? state.settings
     : null;
   const editorScrollTop = state.editorScrollTop;
-  const commands = mode === "COMMANDS" && state.commands?.view === "commands"
+  const commands = mode === "COMMANDS"
     ? state.commands
     : null;
+  // A tag-manager delete arm names a node in the previous story. Preserve the
+  // palette context, but always require a fresh confirmation after adoption.
+  if (commands !== null) commands.deleteArmedTagNodeId = null;
 
   adoptStoryState(state, payload, cache);
   // Destination story keeps its stored opening focus from adoptStoryState.
@@ -315,30 +348,74 @@ export function adoptReconciliationSnapshot(
   }
   state.quitArmed = quitArmed;
 
-  if (mode === "COMPOSE") state.mode = "COMPOSE";
-  else if (retainedGlobalEditor !== null && retainedSettings !== null) {
+  if (mode === "COMPOSE") {
+    state.mode = "COMPOSE";
+  } else {
+    // Restore the underlying owner once. A palette then layers its exact
+    // session on top when that owner still has a valid return route.
+    const restoredOwner = paletteReturnMode === "COMPOSE"
+      ? "COMPOSE"
+      : restoreStoryOwner(
+        state,
+        retainedSettings,
+        retainedGlobalEditor,
+        editorScrollTop,
+        library,
+        commands !== null && paletteReturnMode === "LIBRARY"
+      );
+    if (commands !== null && restoredOwner !== null && restoredOwner === paletteReturnMode) {
+      if (restoredOwner === "COMPOSE") commands.selection = null;
+      restorePaletteSession(state, commands, restoredOwner);
+    } else if (restoredOwner !== null) {
+      state.mode = restoredOwner;
+    } else if (commands !== null) {
+      // A different-story adoption clears every story-bound surface. Keep the
+      // exact palette session visible, but never let it return to an owner that
+      // belonged to the replaced story or carry its captured selection across
+      // the boundary.
+      commands.selection = null;
+      restorePaletteSession(state, commands, "NAV");
+    } else if (mode === "KEYS") {
+      state.mode = "KEYS";
+    }
+  }
+}
+
+type RetainedStoryOwner = "COMPOSE" | "EDITOR" | "LIBRARY" | "SETTINGS";
+
+/** Restore the one story-independent or catalog owner that survived adoption. */
+function restoreStoryOwner(
+  state: RuntimeState,
+  retainedSettings: NonNullable<RuntimeState["settings"]> | null,
+  retainedGlobalEditor: RuntimeState["editor"],
+  editorScrollTop: number,
+  library: NonNullable<RuntimeState["library"]> | null,
+  discardInvalidLibrary: boolean
+): RetainedStoryOwner | null {
+  if (retainedGlobalEditor !== null && retainedSettings !== null) {
     state.settings = retainedSettings;
     state.editor = retainedGlobalEditor;
     state.editorScrollTop = editorScrollTop;
-    state.mode = "EDITOR";
+    return "EDITOR";
   }
-  else if (library !== null) {
+  if (library !== null) {
     const targetId = library.prompt?.kind === "filter"
       ? undefined
       : library.prompt?.targetId;
-    if (targetId !== undefined
-      && !library.stories.some((story) => story.id === targetId)) {
+    const targetValid = targetId === undefined
+      || library.stories.some((story) => story.id === targetId);
+    if (!targetValid) {
       library.prompt = null;
+      if (discardInvalidLibrary) return null;
     }
     state.library = library;
-    state.mode = "LIBRARY";
-  } else if (retainedSettings !== null) {
+    return "LIBRARY";
+  }
+  if (retainedSettings !== null) {
     state.settings = retainedSettings;
-    state.mode = "SETTINGS";
-  } else if (commands !== null) {
-    state.commands = commands;
-    state.mode = "COMMANDS";
-  } else if (mode === "KEYS") state.mode = "KEYS";
+    return "SETTINGS";
+  }
+  return null;
 }
 
 /** An authoritative call may settle while local input keeps moving. Revalidate
@@ -378,8 +455,11 @@ function reconcileStoryBoundIntent(
   } else {
     const returnMode = tag?.returnMode ?? "NAV";
     state.tag = null;
+    const fallbackMode = returnMode === "MAP" && state.map !== null ? "MAP" : "NAV";
+    const palette = paletteSessionReturningTo(state, "TAG");
+    if (palette !== null) retargetPaletteSession(state, palette, fallbackMode);
     if (state.mode === "TAG") {
-      state.mode = returnMode === "MAP" && state.map !== null ? "MAP" : "NAV";
+      state.mode = fallbackMode;
     }
   }
 
@@ -429,10 +509,13 @@ function reconcileStoryBoundIntent(
       state.editor = null;
       state.editorScrollTop = 0;
       state.editorScrollDetached = false;
+      const fallbackMode = editor.returnMode === "FACTS" && state.facts !== null
+        ? "FACTS"
+        : editor.returnMode === "MAP" && state.map !== null ? "MAP" : "NAV";
+      const palette = paletteSessionReturningTo(state, "EDITOR");
+      if (palette !== null) retargetPaletteSession(state, palette, fallbackMode);
       if (state.mode === "EDITOR") {
-        state.mode = editor.returnMode === "FACTS" && state.facts !== null
-          ? "FACTS"
-          : editor.returnMode === "MAP" && state.map !== null ? "MAP" : "NAV";
+        state.mode = fallbackMode;
       }
     }
   }
@@ -448,6 +531,10 @@ export function adoptStoryState(state: RuntimeState, payload: StoryPayload, cach
   flushReadingPositionPersist();
   reconcileWrapCache(cache, state.payload, payload);
   state.payload = payload;
+  // A story switch replaces the page buffer and its semantic cell map. The
+  // next NAV frame must build a fresh projection for the new story.
+  state.storySelectionProjection = null;
+  clearAdoptedStorySelection(state);
   state.uncertainFirstTakeStoryId = null;
   state.focusIndex = applyOpeningFocus(payload, state.readingPositions);
   state.mode = "NAV";
@@ -505,4 +592,16 @@ export function adoptStoryState(state: RuntimeState, payload: StoryPayload, cach
   state.quitArmed = false;
   // Returning to the guarded story with an authoritative payload may settle it.
   trySettlePlacementFromPayload(state, payload);
+}
+
+/** Invalidate every copy of a story selection at the payload boundary.
+ *  Facts keeps one copy for the panel, and the command palette keeps another
+ *  while it is open over that panel. Both describe the replaced revision. */
+function clearAdoptedStorySelection(state: RuntimeState): void {
+  if (state.facts !== null && "storySelection" in state.facts) {
+    state.facts.storySelection = null;
+  }
+  if (state.mode === "COMMANDS" && state.commands?.returnMode === "FACTS") {
+    state.commands.selection = null;
+  }
 }

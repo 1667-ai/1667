@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent, MouseEvent } from "@opentui/core";
 import { dispatch, handleKey, initialState } from "../src/app.js";
+import { createAsideSurface } from "../src/aside-surface.js";
 import { setComposerText } from "../src/composer-model.js";
 import { commandPaletteModel } from "../src/command-model.js";
 import { openRetakeComposer } from "../src/composer-ownership.js";
 import { demoAppSource } from "../src/demo.js";
+import { openAuthorsNoteEditor } from "../src/editor-action.js";
 import { captureMouseActionState, mouseToAction } from "../src/mouse-actions.js";
 import {
   reconcilePresentedMouseAction,
@@ -522,6 +524,59 @@ describe("next request viewer", () => {
       expect(state.mode).toBe("COMPOSE");
       expect(state.composer).toBe(composer);
       expect(state.retakePrompt).toBe(retakeOwner);
+    }
+  });
+
+  test("the palette restores exact Aside and editor owners after next request", async () => {
+    const cases = [
+      {
+        setup: (state: ReturnType<typeof initialState>) => {
+          const aside = createAsideSurface(state.payload.id, state.payload.title);
+          setComposerText(aside.composer, "Keep this Aside draft.");
+          state.aside = aside;
+          state.mode = "ASIDE" as const;
+          return { mode: "ASIDE" as const, owner: aside, draft: aside.composer.text };
+        }
+      },
+      {
+        setup: (state: ReturnType<typeof initialState>) => {
+          openAuthorsNoteEditor(state);
+          if (state.editor === null || state.editor.kind !== "document") {
+            throw new Error("Author's Note editor did not open");
+          }
+          setComposerText(state.editor.composer, "Keep this editor draft.");
+          return { mode: "EDITOR" as const, owner: state.editor, draft: state.editor.composer.text };
+        }
+      }
+    ];
+
+    for (const scenario of cases) {
+      const { source, state } = harness();
+      const retained = scenario.setup(state);
+      const run = (action: Parameters<typeof dispatch>[0]) => dispatch(
+        action, state, source, createWrapCache(),
+        () => undefined, async () => undefined, () => undefined
+      );
+
+      await run({ action: "open-commands" });
+      state.commands = {
+        query: "next request",
+        cursor: 0,
+        selectedId: "next-request",
+        view: "commands",
+        returnMode: retained.mode
+      };
+      await run({ action: "open-selected" });
+
+      expect(state.mode).toBe("REQUEST");
+      expect(state.request?.returnMode).toBe(retained.mode);
+      expect(state.editor ?? state.aside).toBe(retained.owner);
+      expect(state.editor?.composer.text ?? state.aside?.composer.text).toBe(retained.draft);
+
+      await run({ action: "cancel" });
+      expect(state.mode).toBe(retained.mode);
+      expect(state.editor ?? state.aside).toBe(retained.owner);
+      expect(state.editor?.composer.text ?? state.aside?.composer.text).toBe(retained.draft);
     }
   });
 

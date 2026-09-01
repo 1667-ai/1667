@@ -24,6 +24,7 @@ import type { ResolvedKey } from "./keys.js";
 import type { RuntimeState } from "./state.js";
 import { asideUseActions } from "./aside-use.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
+import { settleModeUnderPalette } from "./palette-owner.js";
 import { recordNotice } from "./notice-log.js";
 import { saveConfig } from "./config.js";
 import type { ReasoningDelta } from "./worker-pending.js";
@@ -776,7 +777,7 @@ export async function asideV2KeyAction(
       }
       surface.busy = false;
       state.aside = null;
-      state.mode = "NAV";
+      settleModeUnderPalette(state, "ASIDE", "NAV");
     }));
     return true;
   }

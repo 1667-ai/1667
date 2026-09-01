@@ -8,6 +8,8 @@ import {
   commandPaletteWindow,
   retainCommandSelection
 } from "../command-model.js";
+import { factEditorPaletteContext } from "../facts-command-catalog.js";
+import { factsOpeningPartId, factsPaletteContext } from "../facts-command-context.js";
 import {
   libraryAge,
   libraryRows,
@@ -113,6 +115,8 @@ type PanelState = Omit<OverlayState, "hitRows"> & {
   now: number;
   contextWindow?: number | null;
   stream: StreamView | null;
+  editor?: StoryScreenState["editor"];
+  map?: StoryScreenState["map"];
   abort: StoryScreenState["abort"];
 };
 
@@ -133,12 +137,17 @@ export function renderPanels(
     requestActive: generationBusy(state) || state.summary !== null || state.chapterSummary != null
   };
   let composition: FrameComposition = { lines: base, selectable: null };
-  if (state.archive !== null) {
+  // The command palette can suspend any panel without clearing its state.
+  // Route by its active mode before testing dormant panel state.
+  if (state.mode === "COMMANDS" && state.commands !== null) {
+    composition = renderCommands(dimPage(base), local, width, height);
+  }
+  else if (state.mode === "ARCHIVE" && state.archive !== null) {
     composition = renderArchiveImportPanel(
       dimPage(base), local, width, height, ARCHIVE_IMPORT_FOOTER_ACTIONS
     );
   }
-  else if (local.settings !== null && local.settings.profileTransfer !== null) {
+  else if (state.mode === "SETTINGS" && local.settings !== null && local.settings.profileTransfer !== null) {
     composition = renderProfileTransferPanel(
       dimPage(base),
       local.settings.profileTransfer,
@@ -147,29 +156,28 @@ export function renderPanels(
       height
     );
   }
-  else if (state.card !== null) {
+  else if (state.mode === "CARD" && state.card !== null) {
     composition = renderCardImportPanel(
       dimPage(base), local, width, height, CARD_IMPORT_FOOTER_ACTIONS
     );
   }
-  else if (state.image != null) {
+  else if (state.mode === "IMAGE" && state.image != null) {
     composition = renderImageAttachPanel(
       dimPage(base), local, width, height, IMAGE_ATTACH_FOOTER_ACTIONS
     );
   }
-  else if (state.actions != null) composition = renderActions(dimPage(base), local, width, height);
-  else if (state.library !== null) composition = renderLibrary(dimPage(base), local, width, height, deadlines);
-  else if (state.facts !== null) {
+  else if (state.mode === "ACTIONS" && state.actions != null) composition = renderActions(dimPage(base), local, width, height);
+  else if (state.mode === "LIBRARY" && state.library !== null) composition = renderLibrary(dimPage(base), local, width, height, deadlines);
+  else if (state.mode === "FACTS" && state.facts !== null) {
     composition = renderFactsPanel(dimPage(base), local, width, height, estimate);
   }
-  else if (state.commands !== null) composition = renderCommands(dimPage(base), local, width, height);
-  else if (state.chapters !== null) composition = renderChapters(dimPage(base), local, width, height, estimate);
-  else if (state.settings?.sampling !== null && state.settings !== null) {
+  else if (state.mode === "CHAPTERS" && state.chapters !== null) composition = renderChapters(dimPage(base), local, width, height, estimate);
+  else if (state.mode === "SETTINGS" && state.settings?.sampling !== null && state.settings !== null) {
     composition = renderSamplingPanel(base, local, width, height);
   }
-  else if (state.settings !== null) composition = renderSettingsPanel(base, local, width, height);
-  else if (state.summary !== null) composition = renderSummary(dimPage(base), local, width, height);
-  if (state.textActions !== null) {
+  else if (state.mode === "SETTINGS" && state.settings !== null) composition = renderSettingsPanel(base, local, width, height);
+  else if (state.mode === "SUMMARY" && state.summary !== null) composition = renderSummary(dimPage(base), local, width, height);
+  if (state.mode !== "COMMANDS" && state.textActions !== null) {
     composition = renderTextActionsPanel(dimPage(composition.lines), local, width, height);
   }
   if (state.connection.down) {
@@ -486,7 +494,11 @@ function renderCommands(
     commandContext(state.payload, {
       connectionDown: state.connection.down,
       requestActive: state.requestActive,
-      canRewriteSelection: canRewriteSelection(overlay.selection?.spans ?? [])
+      canRewriteSelection: canRewriteSelection(overlay.selection?.spans ?? []),
+      hasStoryPart: factsOpeningPartId(state) !== null,
+      hasStorySelection: Boolean(overlay.selection?.text?.trim()),
+      ...factEditorPaletteContext(state.editor?.kind === "fact" ? state.editor : null),
+      ...factsPaletteContext(state)
     })
   );
   const cursor = retainCommandSelection(model.selectable, overlay.selectedId, overlay.cursor).cursor;

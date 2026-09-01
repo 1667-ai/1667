@@ -212,13 +212,13 @@ export async function asideKeyAction(
       if (!isAsideV2(surface)) surface.confirmClear = true;
       return;
     }
-    context.backend.observe(context.backend.run("asking Aside", (task) =>
-      sendAsideQuestion(state, source.api, text, {
+    context.backend.observe(context.backend.run("asking Aside", async (task) => {
+      await sendAsideQuestion(state, source.api, text, {
         task,
         repaint: context.repaint,
         cache: context.cache
-      })
-    ));
+      });
+    }));
     return;
   }
   if (resolved.action === "newline") {

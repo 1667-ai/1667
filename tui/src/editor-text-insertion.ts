@@ -1,5 +1,6 @@
 import { insertComposerText, type ComposerState } from "./composer-model.js";
 import { factEditorInsert } from "./fact-editor-policy.js";
+import { factsBudgetInsert, isFactsBudgetEditor } from "./facts-budget-editor.js";
 import type { DocumentEditorSession } from "./state.js";
 
 export interface EditorTextBuffer {
@@ -38,6 +39,8 @@ export function editorInsertionPolicy(
     insert: (raw, source) =>
       editor.kind === "fact"
         ? factEditorInsert(editor, raw, source)
+        : isFactsBudgetEditor(editor)
+          ? factsBudgetInsert(raw)
         : { text: raw }
   };
 }

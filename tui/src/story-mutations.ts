@@ -16,6 +16,7 @@ import {
 import { rememberFocus } from "./reading-position-persist.js";
 import type { RuntimeState } from "./state.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
+import { settleModeUnderPalette } from "./palette-owner.js";
 import { followStoryViewport } from "./viewport-intent.js";
 
 export async function switchTake(
@@ -158,9 +159,9 @@ export async function advanceOrSaveTag(
     if (state.tag === prompt
       && prompt.name.trim() === name
       && TAG_STATUSES[prompt.statusIndex] === label) {
-      state.mode = prompt.returnMode;
       state.tag = null;
       state.toast = `${tagGlyph(label)} ${name} saved`;
+      settleModeUnderPalette(state, "TAG", prompt.returnMode);
     }
   });
 }
@@ -183,9 +184,9 @@ export async function removeTag(
       && prompt.name === submittedName
       && prompt.statusIndex === submittedStatusIndex
       && prompt.choosingStatus === submittedChoosingStatus) {
-      state.mode = prompt.returnMode;
       state.tag = null;
       state.toast = "tag deleted";
+      settleModeUnderPalette(state, "TAG", prompt.returnMode);
     }
   });
 }

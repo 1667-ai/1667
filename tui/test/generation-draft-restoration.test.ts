@@ -44,8 +44,7 @@ function context(state: RuntimeState) {
   };
 }
 
-/** NAV is the only mode that binds `open-commands` (reference-bindings.ts),
- *  so a palette session can only ever return to NAV. */
+/** These draft-restoration cases open their palette from NAV. */
 function openCommandPalette(state: RuntimeState): void {
   state.mode = "COMMANDS";
   state.commands = {

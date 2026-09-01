@@ -31,6 +31,7 @@ const {
   createAsideSurface,
   isAsideV2
 } = await import("../src/aside-surface.js");
+const { setComposerText } = await import("../src/composer-model.js");
 const { openSettingsPasteTarget } = await import("../src/settings-prompt-editor.js");
 const { handleOverlayAction } = await import("../src/overlay-actions.js");
 const { applyTerminalPaste } = await import("../src/terminal-paste.js");
@@ -212,6 +213,51 @@ describe("plain-text paste", () => {
     expect(harness.state.commands?.selectedId).toBe("theme:parchment");
     expect(harness.state.commands?.cursor).toBeGreaterThan(-1);
     expect(previews.at(-1)).toBe("parchment");
+  });
+
+  test("a deferred palette clipboard read preserves an Aside question during settlement", async () => {
+    for (const outcome of ["null", "failure"] as const) {
+      const harness = settingsHarness();
+      const surface = createAsideSurface(
+        harness.state.payload.id,
+        harness.state.payload.title
+      );
+      harness.state.aside = surface;
+      harness.state.mode = "ASIDE";
+      const question = "restore this question";
+      setComposerText(surface.composer, question);
+
+      const settle = deferred<void>();
+      harness.source.api.askAside = async () => {
+        await settle.promise;
+        if (outcome === "null") return null;
+        throw new Error("Aside failed");
+      };
+      await harness.press(key("return", { sequence: "\r" }));
+      expect(surface.busy).toBeTrue();
+
+      await harness.press(key("p", { sequence: "\u0010", ctrl: true }));
+      expect(harness.state.commands?.returnMode).toBe("ASIDE");
+
+      const readStarted = deferred<void>();
+      const read = deferred<string | null>();
+      clipboardReader = async () => {
+        readStarted.resolve();
+        return await read.promise;
+      };
+      const pasting = harness.press(key("v", { ctrl: true }));
+      await readStarted.promise;
+
+      // The Ask can settle while Ctrl+V still waits on the host clipboard.
+      settle.resolve();
+      await harness.backend.whenIdle();
+      expect(surface.composer.text).toBe(question);
+      expect(surface.busy).toBeFalse();
+
+      read.resolve(null);
+      await pasting;
+      expect(surface.composer.text).toBe(question);
+    }
   });
 
   test("a late clipboard read cannot modify a closed plain prompt", async () => {

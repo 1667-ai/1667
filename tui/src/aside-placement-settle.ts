@@ -10,6 +10,7 @@ import {
   rowPart
 } from "./model.js";
 import type { RuntimeState } from "./state.js";
+import { settleModeUnderPalette } from "./palette-owner.js";
 import { followStoryViewport } from "./viewport-intent.js";
 
 /**
@@ -22,9 +23,9 @@ export function completePlacementLanding(
   landedId: string | null,
   partNumber: number
 ): void {
+  settleModeUnderPalette(state, "PLACE", "NAV");
   state.placement = null;
   state.unresolvedPlacement = null;
-  state.mode = "NAV";
   reportPlacedPart(state, payload, landedId, partNumber, true);
 }
 
@@ -83,7 +84,9 @@ export function trySettlePlacementFromPayload(
   // Uncertain recovery: exact path text + instruction only (no stub approx).
   const landed = findSubmittedPlacementNode(payload, candidate);
   if (landed === undefined) return false;
-  const activePlacement = state.mode === "PLACE" && state.placement !== null;
+  const activePlacement = state.placement !== null
+    && (state.mode === "PLACE"
+      || state.mode === "COMMANDS" && state.commands?.returnMode === "PLACE");
   if (activePlacement) {
     completePlacementLanding(state, payload, landed.id, candidate.partNumber);
   } else {

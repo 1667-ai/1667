@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
+import type { StoryPayload } from "../../shared/types.js";
+import { ActionRuntime } from "../src/action-runtime.js";
 import { handleKey, initialState, type AppSource } from "../src/app.js";
 import { createComposer } from "../src/composer-model.js";
 import { demoAppSource } from "../src/demo.js";
@@ -7,7 +9,7 @@ import { pasteInto } from "../src/keys.js";
 import { publishStories } from "../src/overlay-publication.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
-import { createWrapCache } from "../src/wrap.js";
+import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 
 const key = (name: string, sequence = name): KeyEvent => ({
   name,
@@ -27,6 +29,14 @@ const modifiedKey = (
   ctrl: options.ctrl ?? false,
   meta: options.meta ?? false
 }) as KeyEvent;
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 function harness() {
   const source: AppSource = demoAppSource();
@@ -225,6 +235,63 @@ describe("live Library filter", () => {
     expect(renames).toBe(0);
     expect(state.library?.prompt).toBe(null);
     expect(state.toast).toBe("story changed · action cancelled");
+  });
+
+  test("cross-story library adoption clears an armed tag confirmation", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const cache = createWrapCache<ProseStyle>();
+    const backend = new ActionRuntime(state, () => undefined);
+    const pressKey = (event: KeyEvent) => handleKey(
+      event,
+      state,
+      source,
+      cache,
+      () => undefined,
+      async () => undefined,
+      () => undefined,
+      null,
+      () => undefined,
+      () => undefined,
+      backend
+    );
+
+    await pressKey(key("o"));
+    const target = source.stories.find((story) => story.id !== source.payload.id);
+    if (target === undefined) throw new Error("library fixture needs another story");
+    const targetIndex = state.library!.stories.findIndex((story) => story.id === target.id);
+    state.library!.cursor = targetIndex;
+    const entered = deferred<void>();
+    const gate = deferred<StoryPayload>();
+    const targetPayload = { ...source.payload, id: target.id, title: target.title };
+    source.api.loadStory = async () => {
+      entered.resolve();
+      return gate.promise;
+    };
+
+    const opening = pressKey(key("return", "\r"));
+    await entered.promise;
+    await pressKey(modifiedKey("p", { sequence: "\u0010", ctrl: true }));
+    const palette = state.commands;
+    if (palette === null) throw new Error("palette did not open");
+    palette.query = "tag manager";
+    palette.view = "tags";
+    const collidingTagNodeId = source.payload.tags[0]?.nodeId;
+    if (collidingTagNodeId === undefined) throw new Error("library fixture needs a tag");
+    palette.deleteArmedTagNodeId = collidingTagNodeId;
+
+    gate.resolve(targetPayload);
+    await opening;
+
+    expect(state.payload.id).toBe(target.id);
+    expect(state.commands).toBe(palette);
+    expect(state.commands?.returnMode).toBe("NAV");
+    expect(state.commands?.query).toBe("tag manager");
+    expect(state.commands?.view).toBe("tags");
+    expect(state.commands?.deleteArmedTagNodeId).toBe(null);
+
+    await pressKey(key("D"));
+    expect(state.commands?.deleteArmedTagNodeId).toBe(collidingTagNodeId);
   });
 });
 

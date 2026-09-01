@@ -1,10 +1,4 @@
 import { STARTER_LOGO_TEXT } from "../../../shared/starter-vault.js";
-import {
-  authorsNoteWarning,
-  MAX_AUTHORS_NOTE_CHARS,
-  MAX_AUTHORS_NOTE_DEPTH
-} from "../../../shared/authors-note.js";
-import { unicodeScalarLength } from "../../../shared/unicode.js";
 import { TAG_STATUSES } from "../../../shared/types.js";
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
 import { tagStatusChoice } from "../tag-presentation.js";
@@ -78,8 +72,11 @@ import {
   renderComposerLayout,
   type ComposerLayout
 } from "./story/composer.js";
+import {
+  addFactsBudgetComposerHits,
+  isFactsBudgetEditor,
+} from "../facts-budget-editor.js";
 import { storyProseMeasure, STORY_GUTTER } from "../composer-geometry.js";
-import type { ComposerStatus as ComposerChromeStatus } from "./story/composer-chrome.js";
 import { renderStatus as renderCanonicalStatus } from "./story/status.js";
 import { viewportLines, type ViewportBlock } from "./story/viewport.js";
 import {
@@ -99,6 +96,12 @@ import {
   type ComposerSelectionProjection,
   type StorySelectionProjection
 } from "../selection-projection.js";
+import {
+  authorNoteStatus,
+  composerHitTarget,
+  editorFooterHints,
+  renderFactsBudgetLayout
+} from "./story/editor-chrome.js";
 
 export interface StoryScreenOptions {
   width: number;
@@ -413,9 +416,18 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
         : state.mode === "COMPOSE"
           ? buildComposerSelectionProjection(pageSelectionLines, frameLayout.pageWidth)
           : null,
+      // FACTS is a panel over the story page. Keep the last NAV projection so
+      // a native range captured on the page still resolves when Ctrl-P opens
+      // from the rendered Facts frame. Input admission rejects a new or
+      // changed Facts range before it can use this retained coordinate map.
+      // Other full-screen owners replace the page buffer and must not inherit
+      // its coordinate map.
       storySelectionProjection: state.mode === "NAV"
         ? buildStorySelectionProjection(pageSelectionLines, frameLayout.pageWidth)
-        : null,
+        : state.mode === "FACTS"
+          || state.mode === "COMMANDS" && state.commands?.returnMode === "FACTS"
+          ? state.storySelectionProjection
+          : null,
       map: state.map,
       request: state.request,
       record: state.record
@@ -805,21 +817,6 @@ function renderFullscreenComposer(
   };
 }
 
-function editorFooterHints(editor: DocumentEditorSession): string {
-  if (editor.kind === "document"
-    && editor.target.kind === "settings-prompt") {
-    return "shift+arrows select · ctrl+c/x/v · ctrl+s keep draft · esc cancel";
-  }
-  // Part editors offer dual save; other targets and incomplete fixtures keep
-  // the single-save footer (tests may stub a minimal session without target).
-  if (editor.kind === "document" && editor.target.kind === "part") {
-    // ctrl+o is the portable same-take chord; ctrl+shift+s is an alias where
-    // the terminal reports modified keys.
-    return "shift+arrows select · ctrl+c/x/v · ctrl+s new take · ctrl+o same take · esc cancel";
-  }
-  return "shift+arrows select · ctrl+c/x/v · ctrl+s save · esc cancel";
-}
-
 function renderInlineEditor(
   state: StoryScreenState,
   view: StoryViewModel,
@@ -846,6 +843,8 @@ function renderInlineEditor(
         softWrap: state.config.wordWrap === "on",
         viewMode: state.config.factsViewMode ?? "simple"
       })
+    : isFactsBudgetEditor(host)
+      ? renderFactsBudgetLayout(host, width, height, footerNotice)
     : renderComposerLayout({
         composer: host.composer,
         fullscreen: true,
@@ -864,46 +863,6 @@ function renderInlineEditor(
   return renderEditorLayoutFrame(state, view, width, height, estimate, layout, deadlines);
 }
 
-function composerHitTarget(line: FrameLine | undefined): HitTarget {
-  const sources = new Map<string, boolean>();
-  for (const part of line ?? []) {
-    if (part.composerHitSource !== undefined) {
-      sources.set(part.composerHitSource.id, part.composerHitSource.editable);
-    }
-  }
-  if (sources.size !== 1) return { kind: "composer" };
-  const source = sources.entries().next().value;
-  if (source === undefined) return { kind: "composer" };
-  return {
-    kind: "composer",
-    composerSourceId: source[0],
-    composerEditable: source[1]
-  };
-}
-
-function authorNoteStatus(
-  host: DocumentEditorSession,
-  width: number
-): ComposerChromeStatus | undefined {
-  if (host.kind !== "document" || host.target.kind !== "authors-note") return undefined;
-  const maxWidth = Math.max(1, width - visibleWidth(`┏━ ${host.title} `) - 1);
-  if (unicodeScalarLength(host.composer.text, MAX_AUTHORS_NOTE_CHARS) > MAX_AUTHORS_NOTE_CHARS) {
-    const text = [
-      `· max is ${MAX_AUTHORS_NOTE_CHARS.toLocaleString("en-US")} Unicode scalar values`,
-      `· max is ${MAX_AUTHORS_NOTE_CHARS.toLocaleString("en-US")} scalar values`,
-      `· max is ${MAX_AUTHORS_NOTE_CHARS.toLocaleString("en-US")}`
-    ].find((candidate) => [...candidate].length <= maxWidth)
-      ?? `· max is ${MAX_AUTHORS_NOTE_CHARS.toLocaleString("en-US")}`;
-    return { text, role: "danger text" };
-  }
-  const warning = authorsNoteWarning(host.composer.text, maxWidth);
-  if (warning !== null) return { text: warning, role: "context warning" };
-  const depthShort = `depth ${host.target.depth}/${MAX_AUTHORS_NOTE_DEPTH}`;
-  const depthHint = `${depthShort} · ⌥-/= change`;
-  const text = [depthHint, depthShort].find((candidate) => [...candidate].length <= maxWidth) ?? depthShort;
-  return { text, role: "context note" };
-}
-
 function renderEditorLayoutFrame(
   state: StoryScreenState,
   view: StoryViewModel,
@@ -913,7 +872,20 @@ function renderEditorLayoutFrame(
   layout: ComposerLayout,
   deadlines?: FrameDeadlineCollector
 ): StoryScreenFrame {
-  const base = [...layout.lines, renderStoryStatus(
+  // Inline scalar editors own only a few rows. Keep the app status at the
+  // bottom of the viewport while the compact field stays at the top; full
+  // screen editors already provide their complete surface height.
+  const surfaceRows = Math.max(0, height - 1);
+  const surface = layout.fullscreen
+    ? layout.lines
+    : [
+        ...layout.lines,
+        ...Array.from(
+          { length: Math.max(0, surfaceRows - layout.lines.length) },
+          (): FrameLine => []
+        )
+      ];
+  const base = [...surface, renderStoryStatus(
     state, view, width, width < 100, estimate, deadlines
   )]
     .slice(0, height)
@@ -921,6 +893,9 @@ function renderEditorLayoutFrame(
   const hitRows: HitRows = Array.from({ length: height }, (_, row): HitRow | null => row < height - 1
     ? { target: composerHitTarget(base[row]), left: 0, right: width }
     : null);
+  if (isFactsBudgetEditor(state.editor)) {
+    for (const [row, line] of base.entries()) addFactsBudgetComposerHits(line, row, hitRows);
+  }
   // Fact editor headers and the semantic footer carry explicit controls. Add
   // their narrow targets over the broad composer rows so mouse and keyboard
   // actions share the same reducer.

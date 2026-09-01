@@ -202,10 +202,12 @@ export interface FactsOverlayState {
   scopeFilter?: "everywhere" | "this-line" | "elsewhere" | "ended";
   /** One Fact's history, rendered inside this overlay. */
   dossier?: FactsDossierState | null;
+  /** Story prose selected immediately before this Facts overlay opened. */
+  storySelection?: ProjectedStorySelection | null;
   /** Pending action from the NAV `x` menu; the next Enter chooses its Fact. */
   pendingFactAction?: {
-    kind: "new-state" | "end";
-    anchorPartId: string;
+    kind: "new-state" | "end" | "edit";
+    anchorPartId: string | null;
   } | null;
 }
 export interface CommandsOverlayState {
@@ -217,7 +219,7 @@ export interface CommandsOverlayState {
   /** Omitted predecessor/test states are unarmed. */
   deleteArmedTagNodeId?: string | null;
   /** Surface that owns the composer while the palette is open. */
-  returnMode: "NAV" | "COMPOSE";
+  returnMode: AppMode;
   /** Story selection captured at open time — the NAV projection it reads
    *  only exists for that one frame, so a later keystroke cannot rebuild it. */
   selection?: ProjectedStorySelection | null;
@@ -435,7 +437,8 @@ export interface RequestViewerState {
   cursor: number;
   /** Negative means reveal the focused message on the next render. */
   scrollTop: number;
-  returnMode: "NAV" | "COMPOSE";
+  /** Surface to restore when the read-only request document closes. */
+  returnMode: Exclude<AppMode, "COMMANDS">;
 }
 
 /** The token probability viewer (issue #291 phase 4), open on one take.

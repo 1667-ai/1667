@@ -50,6 +50,8 @@ export type HitTarget =
       /** Exact field identity for multi-buffer editors. */
       composerSourceId?: string;
       composerEditable?: boolean;
+      /** Absolute grapheme offset selected by a click in the field. */
+      composerCursor?: number;
     }
   /** Page behind an open panel: a click there dismisses the panel. */
   /** A saved Aside answer row. Right-click uses the terminal selection when

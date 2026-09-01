@@ -2283,6 +2283,95 @@ describe("Aside v2 surface", () => {
     expect(state.aside).toBeNull();
   });
 
+  test("keeps Ctrl-P open when g's Aside take switch settles", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const target = state.payload.path.at(-1)!;
+    const anchor = { partId: target.id, takeId: target.id };
+    const surface = createAsideSurface(
+      state.payload.id,
+      state.payload.title,
+      [{ id: "s", title: "session", anchor, turns: [] }],
+      null,
+      null,
+      {
+        v2: true,
+        anchor,
+        anchors: [{ ...anchor, partNumber: 13, sessionCount: 1 }]
+      }
+    );
+    if (!isAsideV2(surface)) throw new Error("expected an Aside session surface");
+    state.aside = surface;
+    state.mode = "ASIDE";
+
+    let release!: () => void;
+    const switchPending = new Promise<void>((resolve) => { release = resolve; });
+    const api = {
+      ...source.api,
+      switchLine: async () => {
+        await switchPending;
+        return state.payload;
+      }
+    } as StoryApi;
+    const sourceWithApi = { ...source, api };
+    const backend = new ActionRuntime(state, () => undefined);
+    const cache = createWrapCache<ProseStyle>();
+    const key = (name: string, options: Record<string, unknown> = {}) => ({
+      name,
+      sequence: name,
+      shift: false,
+      ctrl: false,
+      meta: false,
+      ...options
+    }) as Parameters<typeof handleKey>[0];
+    const context = {
+      source: { api, config: state.config },
+      backend,
+      cache
+    };
+
+    await asideV2KeyAction({ action: "aside-go-anchor" }, state, surface, context);
+    expect(state.backendTask?.label).toBe("switching to Aside take");
+
+    await handleKey(
+      key("p", { sequence: "\u0010", ctrl: true }),
+      state,
+      sourceWithApi,
+      cache,
+      () => undefined,
+      async () => undefined,
+      () => undefined,
+      null,
+      () => undefined,
+      () => undefined,
+      backend
+    );
+    expect(state.mode).toBe("COMMANDS");
+    expect(state.commands?.returnMode).toBe("ASIDE");
+
+    release();
+    await backend.settle();
+
+    expect(state.aside).toBeNull();
+    expect(state.mode).toBe("COMMANDS");
+    expect(state.commands?.returnMode).toBe("NAV");
+    await handleKey(
+      key("escape", { sequence: "\u001b" }),
+      state,
+      sourceWithApi,
+      cache,
+      () => undefined,
+      async () => undefined,
+      () => undefined,
+      null,
+      () => undefined,
+      () => undefined,
+      backend
+    );
+    expect(state.mode).toBe("NAV");
+    expect(state.commands).toBeNull();
+  });
+
   test("session cycling preserves an explicit unanchored target", () => {
     const { surface } = surfaceWithTurns([]);
     surface.anchor = { partId: "part-1", takeId: "take-1" };

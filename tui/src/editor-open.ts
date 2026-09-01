@@ -74,7 +74,7 @@ export interface FactEditorOpenOptions {
  * Facts keep that story-row focus while their overlay is open; the Map lens
  * owns its own selected tree node. Pending and summary rows are not valid
  * Fact anchors, so they fail closed instead of leaking a non-persisted id. */
-function factEditorCursorAnchorId(
+export function factEditorCursorAnchorId(
   state: RuntimeState,
   returnMode: FactEditorOpenOptions["returnMode"]
 ): string | null {
@@ -137,7 +137,13 @@ export function openFactEditor(
       stateAnchorPartId: stateCreating
         ? options.anchorPartId ?? null
         : selectedState?.anchorPartId ?? null,
-      stateCursorAnchorId: factEditorCursorAnchorId(state, returnMode),
+      // A newly-created state already has an explicit anchor supplied by its
+      // entry point. Keep that same anchor for later re-anchor actions; the
+      // Map may have been released while Facts was selecting the Fact.
+      stateCursorAnchorId: stateCreating && options.anchorPartId !== null
+        && options.anchorPartId !== undefined
+        ? options.anchorPartId
+        : factEditorCursorAnchorId(state, returnMode),
       stateInitialId: stateCreating ? null : selectedState?.id ?? null,
       stateInitialAnchorPartId: stateCreating
         ? options.anchorPartId ?? null
@@ -189,7 +195,11 @@ export function openFactStateEditor(
   });
 }
 
-export function openFactFromSelection(state: RuntimeState, text: string): void {
+export function openFactFromSelection(
+  state: RuntimeState,
+  text: string,
+  options: Pick<FactEditorOpenOptions, "returnMode"> = {}
+): void {
   const composer = createComposer(text);
   if (text.length > 0) composer.anchor = 0;
   const editor: Omit<FactEditorSession, "kind"> = {
@@ -213,7 +223,7 @@ export function openFactFromSelection(state: RuntimeState, text: string): void {
     initialFact: EMPTY_FACT_DRAFT,
     title: "new fact from selection",
     placeholder: "fact text…",
-    returnMode: "NAV",
+    returnMode: options.returnMode ?? "NAV",
     conflict: null
   };
   initializeFactEditorHistory(editor);
@@ -258,6 +268,17 @@ export function openAuthorBriefEditor(state: RuntimeState): void {
 /** The story's total Facts budget. Its text field follows the same "empty
  *  means unset" convention as the per-Fact budget field. */
 export function openFactsBudgetEditor(state: RuntimeState): void {
+  // The command palette is global, including while an editor is open. Keep
+  // that draft intact rather than replacing the only editor slot with a
+  // story scalar session. `runCommand` has already returned to NAV by the
+  // time this guard runs, so restore the editor route for the refusal.
+  if (state.editor !== null) {
+    state.mode = "EDITOR";
+    state.toast = state.editor.kind === "fact"
+      ? "save or cancel this Fact before opening facts budget"
+      : "save or cancel this editor before opening facts budget";
+    return;
+  }
   openStoryScalarEditor(state, "facts-budget");
 }
 
@@ -278,9 +299,13 @@ export function openBannedStringsEditor(state: RuntimeState): void {
 function openStoryScalarEditor(state: RuntimeState, field: StoryScalarField): void {
   const spec = storyScalarFieldSpec(field);
   const expected = spec.read(state.payload);
+  const composer = createComposer(expected);
+  // Numeric Settings fields select their current value when they open, so a
+  // first digit replaces it instead of silently appending to the old cap.
+  if (field === "facts-budget" && expected.length > 0) composer.anchor = 0;
   openInlineEditor(state, {
     target: { kind: "story-scalar", field, expected },
-    composer: createComposer(expected),
+    composer,
     initial: expected,
     title: spec.title,
     placeholder: spec.placeholder,

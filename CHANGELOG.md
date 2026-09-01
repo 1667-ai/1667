@@ -5,6 +5,16 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **The command palette is available from every screen.** Press `Ctrl+P` from
+  Aside, editors, menus, and full-screen panels. Close the palette to return to
+  the exact screen and input that you were using.
+- **The command palette covers all Fact controls.** Create, edit, end, move,
+  re-anchor, convert, and delete Facts and Fact States. The available commands
+  follow the selected Fact, state, story part, or map row.
+- **The Facts Budget command uses a numeric field.** Enter a token limit, clear
+  the field for no limit, and save with `Enter` or `Ctrl+S`. The field works
+  with the keyboard and mouse.
+
 ## 0.10.6 - 2026-08-31
 
 - **This release has no additional product changes.** It contains the same

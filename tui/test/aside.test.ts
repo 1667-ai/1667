@@ -396,6 +396,153 @@ describe("Aside TUI contract", () => {
     expect(state.composer.text).toBe("");
   });
 
+  test("failed /aside load keeps a newer Ctrl-P palette over the Direct draft", async () => {
+    const source = demoAppSource();
+    let startLoad!: () => void;
+    let rejectLoad!: (error: Error) => void;
+    const loading = new Promise<void>((resolve) => { startLoad = resolve; });
+    const pendingLoad = new Promise<never>((_, reject) => { rejectLoad = reject; });
+    const failingSource = {
+      ...source,
+      api: {
+        ...source.api,
+        getAside: async () => {
+          startLoad();
+          return await pendingLoad;
+        }
+      }
+    };
+    const state = initialState(failingSource, false);
+    expect(openDirectComposer(state)).toBeTrue();
+    setComposerText(state.composer, "/aside keep this draft");
+    const context = overlayContext(state);
+    const opening = composeAction(
+      { action: "send" },
+      state,
+      failingSource,
+      context,
+      { asideEntryPointsOpen: true }
+    );
+
+    await loading;
+    await handleKey(
+      key("p", { ctrl: true }),
+      state,
+      failingSource,
+      context.cache,
+      () => undefined,
+      async () => undefined,
+      () => undefined
+    );
+    const palette = state.commands;
+    expect(palette).not.toBeNull();
+    expect(state.mode).toBe("COMMANDS");
+    expect(palette?.returnMode).toBe("COMPOSE");
+
+    rejectLoad(new Error("Aside load failed"));
+    await opening;
+
+    expect(state.mode).toBe("COMMANDS");
+    expect(state.commands).toBe(palette);
+    expect(state.commands?.returnMode).toBe("COMPOSE");
+    expect(state.composer.text).toBe("/aside keep this draft");
+    await handleKey(
+      key("escape"),
+      state,
+      failingSource,
+      context.cache,
+      () => undefined,
+      async () => undefined,
+      () => undefined
+    );
+    expect(state.mode).toBe("COMPOSE");
+    expect(state.commands).toBeNull();
+    expect(state.composer.text).toBe("/aside keep this draft");
+  });
+
+  test("failed initial Direct /aside Ask restores its draft under a newer palette", async () => {
+    for (const outcome of ["null", "rejected"] as const) {
+      const source = demoAppSource();
+      let startLoad!: () => void;
+      let resolveLoad!: () => void;
+      let resolveAsk!: () => void;
+      let rejectAsk!: (error: Error) => void;
+      let markAskStarted!: () => void;
+      const loading = new Promise<void>((resolve) => { startLoad = resolve; });
+      const pendingLoad = new Promise<{ notes: never[] }>((resolve) => { resolveLoad = () => resolve({ notes: [] }); });
+      const askStarted = new Promise<void>((resolve) => { markAskStarted = resolve; });
+      const asking = new Promise<null>((resolve, reject) => {
+        resolveAsk = () => resolve(null);
+        rejectAsk = reject;
+      });
+      const sourceWithApi = {
+        ...source,
+        api: {
+          ...source.api,
+          getAside: async () => {
+            startLoad();
+            return await pendingLoad;
+          },
+          askAside: async () => {
+            markAskStarted();
+            return await asking;
+          }
+        }
+      };
+      const state = initialState(sourceWithApi, false);
+      expect(openDirectComposer(state)).toBeTrue();
+      setComposerText(state.composer, "/aside ask from Direct");
+      const context = overlayContext(state);
+      const opening = composeAction(
+        { action: "send" },
+        state,
+        sourceWithApi,
+        context,
+        { asideEntryPointsOpen: true }
+      );
+
+      await loading;
+      await handleKey(
+        key("p", { ctrl: true }),
+        state,
+        sourceWithApi,
+        context.cache,
+        () => undefined,
+        async () => undefined,
+        () => undefined
+      );
+      const palette = state.commands;
+      expect(palette).not.toBeNull();
+      expect(palette?.returnMode).toBe("COMPOSE");
+
+      resolveLoad();
+      await askStarted;
+      expect(state.mode).toBe("COMMANDS");
+      expect(palette?.returnMode).toBe("ASIDE");
+      if (outcome === "null") resolveAsk();
+      else rejectAsk(new Error("Aside ask failed"));
+      await opening;
+
+      expect(state.mode).toBe("COMMANDS");
+      expect(state.commands).toBe(palette);
+      expect(palette?.returnMode).toBe("COMPOSE");
+      expect(state.composer.text).toBe("/aside ask from Direct");
+
+      await handleKey(
+        key("escape"),
+        state,
+        sourceWithApi,
+        context.cache,
+        () => undefined,
+        async () => undefined,
+        () => undefined
+      );
+      expect(state.mode).toBe("COMPOSE");
+      expect(state.commands).toBeNull();
+      expect(state.composer.text).toBe("/aside ask from Direct");
+    }
+  });
+
   test("Aside input uses composer caret, selection projection, and copy ownership", () => {
     const source = demoAppSource();
     const state = initialState(source, false);

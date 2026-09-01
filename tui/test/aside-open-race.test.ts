@@ -102,6 +102,47 @@ describe("Aside open ownership", () => {
     expect(state.aside?.openingPartId).not.toBe(otherPart.id);
   });
 
+  test("consumes a Direct /aside draft when loading finishes under the palette", async () => {
+    for (const draft of ["/aside", "/aside ask about the open story"]) {
+      const source = demoAppSource();
+      const state = initialState(source, false);
+      expect(openDirectComposer(state)).toBeTrue();
+      setComposerText(state.composer, draft);
+
+      let resolveAside!: (document: { notes: readonly { question: string; answer: string }[] }) => void;
+      const pendingAside = new Promise<{ notes: readonly { question: string; answer: string }[] }>(
+        (resolve) => { resolveAside = resolve; }
+      );
+      const api: StoryApi = {
+        ...source.api,
+        getAside: async () => pendingAside
+      };
+      const actionContext = context(state);
+      const opening = composeAction(
+        { action: "send" },
+        state,
+        { ...source, api },
+        actionContext,
+        { asideEntryPointsOpen: true }
+      );
+      await Promise.resolve();
+
+      // Ctrl-P does not replace the submitted Direct owner. It only paints
+      // the palette over the load, so the Aside settlement can retain it.
+      await handleOverlayAction({ action: "open-commands" }, state, source, actionContext);
+      expect(state.mode).toBe("COMMANDS");
+
+      resolveAside({ notes: [] });
+      await opening;
+
+      expect(state.aside).not.toBeNull();
+      expect(state.mode).toBe("COMMANDS");
+      expect(state.commands?.returnMode).toBe("ASIDE");
+      expect(state.composer.text).toBe("");
+      actionContext.backend.dispose();
+    }
+  });
+
   test("discards an A response after recovery adopts B and keeps the Direct draft", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
