@@ -25,17 +25,15 @@ export function imageInputRowState(overlay: SettingsOverlayState): ImageInputRow
   };
 }
 
-/** F-2's unavailable look, matched from `reasoning`/`token-probabilities`:
- *  the chip collapses to `‹ - ›` whenever the resolved capability is not
- *  `"supported"`. This is the strict gate: only `"supported"` ever
- *  authorizes an image. */
+/** This row reports capability only. It never edits a profile, so neither the
+ *  available nor unavailable value is wrapped in selector chevrons. */
 export function imageInputRowValue(state: ImageInputRowState): string {
-  if (state.route === null) return "‹ - ›";
+  if (state.route === null) return "—";
   const resolution = resolveImageInputCapability({
     protocol: state.route.connection.protocol,
     remoteModelId: state.route.model.remoteId
   });
-  return resolution.support === "supported" ? "‹ available ›" : "‹ - ›";
+  return resolution.support === "supported" ? "available" : "—";
 }
 
 export function imageInputRowHint(state: ImageInputRowState): string {

@@ -2,6 +2,7 @@ import type { KeyAction } from "../keys.js";
 import {
   boundedSettingsCursor,
   settingsRowHasArrows,
+  settingsRowIsNonActionable,
   settingsRowIds
 } from "../settings-overlay-model.js";
 import { isSettingsScalarRow } from "../settings-scalar.js";
@@ -75,9 +76,9 @@ function withOpenSelectedActionLabel(
   label: string
 ): ReadonlyArray<SettingsFooter> {
   return variants.map((variant) => ({
-    text: variant.text.replace("↵ edit", label),
+    text: variant.text.replace("↵ edit", label).replace("↵ custom", label),
     actions: variant.actions.map((entry) => entry.action === "open-selected"
-      ? { ...entry, token: entry.token.replace("↵ edit", label) }
+      ? { ...entry, token: entry.token.replace("↵ edit", label).replace("↵ custom", label) }
       : entry)
   }));
 }
@@ -363,8 +364,10 @@ export const SETTINGS_TEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
   }
 ];
 
+/** Model catalogs keep the picker on Enter, but the row still owns the same
+ *  adjacent-choice arrows as Provider. */
 const SETTINGS_MODEL_PICKER_FOOTERS = withOpenSelectedActionLabel(
-  SETTINGS_TEXT_FOOTERS,
+  SETTINGS_MODEL_FOOTERS,
   "↵ choose"
 );
 
@@ -531,10 +534,120 @@ export const SETTINGS_PENDING_FOOTERS: ReadonlyArray<SettingsFooter> = [
   }
 ];
 
-const SETTINGS_PENDING_MODEL_PICKER_FOOTERS = withOpenSelectedActionLabel(
-  SETTINGS_PENDING_FOOTERS,
-  "↵ choose"
-);
+const SETTINGS_PENDING_MODEL_PICKER_FOOTERS: ReadonlyArray<SettingsFooter> = [
+  {
+    text: "↑↓ move · ←→ choose · ↵ choose · s save · c check · x discard · m mode · esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→ choose", action: "take-next" },
+      { token: "↵ choose", action: "open-selected" },
+      { token: "s save", action: "save-edit" },
+      { token: "c check", action: "check" },
+      { token: "x discard", action: "discard-pending" },
+      VIEW_MODE_TOGGLE,
+      CANCEL_SHORT
+    ]
+  },
+  {
+    text: "↑↓ · ←→ choose · ↵ choose · s · c · x · esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→ choose", action: "take-next" },
+      { token: "↵ choose", action: "open-selected" },
+      { token: "s", action: "save-edit" },
+      { token: "c", action: "check" },
+      { token: "x", action: "discard-pending" },
+      { token: "esc", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ ←→ ↵ s c x esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→", action: "take-next" },
+      { token: "↵", action: "open-selected" },
+      { token: "s", action: "save-edit" },
+      { token: "c", action: "check" },
+      { token: "x", action: "discard-pending" },
+      { token: "esc", action: "cancel" }
+    ]
+  }
+];
+
+const SETTINGS_NON_ACTIONABLE_FOOTERS: ReadonlyArray<SettingsFooter> = [
+  {
+    text: "↑↓ move · s save · c check · m mode · esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "s save", action: "save-edit" },
+      { token: "c check", action: "check" },
+      VIEW_MODE_TOGGLE,
+      CANCEL_SHORT
+    ]
+  },
+  {
+    text: "↑↓ · s · c · esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "s", action: "save-edit" },
+      { token: "c", action: "check" },
+      CANCEL_SHORT
+    ]
+  },
+  {
+    text: "↑↓ esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "esc", action: "cancel" }
+    ]
+  }
+];
+
+const SETTINGS_PENDING_NON_ACTIONABLE_FOOTERS: ReadonlyArray<SettingsFooter> = [
+  {
+    text: "↑↓ move · s save · c check · x discard · m mode · esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "s save", action: "save-edit" },
+      { token: "c check", action: "check" },
+      { token: "x discard", action: "discard-pending" },
+      VIEW_MODE_TOGGLE,
+      CANCEL_SHORT
+    ]
+  },
+  {
+    text: "↑↓ · s · c · x · esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "s", action: "save-edit" },
+      { token: "c", action: "check" },
+      { token: "x", action: "discard-pending" },
+      { token: "esc", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ s c x esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "s", action: "save-edit" },
+      { token: "c", action: "check" },
+      { token: "x", action: "discard-pending" },
+      { token: "esc", action: "cancel" }
+    ]
+  }
+];
 
 /** Which keyline this panel shows. Footer policy follows the row model, so it
  *  lives with the footers rather than as a ternary chain in the renderer. */
@@ -548,7 +661,11 @@ export function settingsFooterVariants(
   const row = settingsRowIds(overlay)[boundedSettingsCursor(overlay.cursor, overlay)]!;
   const pending = overlay.view.editable && overlay.view.pendingRevision !== null;
   let variants: ReadonlyArray<SettingsFooter>;
-  if (row === "profile") {
+  if (settingsRowIsNonActionable(overlay, row)) {
+    variants = pending
+      ? SETTINGS_PENDING_NON_ACTIONABLE_FOOTERS
+      : SETTINGS_NON_ACTIONABLE_FOOTERS;
+  } else if (row === "profile") {
     variants = pending ? SETTINGS_PENDING_PROFILE_FOOTERS : SETTINGS_PROFILE_FOOTERS;
   } else if (pending) variants = row === "model" && modelPickerRequired(overlay)
     ? SETTINGS_PENDING_MODEL_PICKER_FOOTERS

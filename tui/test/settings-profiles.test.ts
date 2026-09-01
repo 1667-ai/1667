@@ -17,6 +17,7 @@ import {
   cycleSettingsProvider,
   restoreSettingsCursor,
   settingsCursorRowIdentity,
+  settingsRowHasArrows,
   settingsRowIds
 } from "../src/settings-overlay-model.js";
 import {
@@ -764,13 +765,33 @@ describe("Generation Profile settings", () => {
     );
     await selectRow(press, state, "token-probabilities");
     const frame = frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines);
-    expect(frame).toContain("‹ — ›");
+    expect(frame).toContain("alternatives —");
     expect(frame).toContain("· Alternative token data might not be available from");
     expect(frame).toContain("· this provider.");
 
     // Cycling an unavailable row is a no-op: it never writes a count the
     // request was never going to carry.
     await press(key("right"));
+    expect(state.settings?.draft.document?.profiles.default?.tokenProbabilities).toBe(undefined);
+
+    state.settings!.draft = settingsTextDraftForDocument(
+      {
+        ...unavailable,
+        profiles: {
+          ...unavailable.profiles,
+          default: { ...unavailable.profiles.default!, tokenProbabilities: 5 }
+        }
+      },
+      undefined
+    );
+    const storedFrame = frameText(renderStoryScreen(state, {
+      width: 120,
+      height: 24,
+      wrapCache: cache
+    }).lines);
+    expect(storedFrame).toContain("alternatives ‹ 5 ›");
+    expect(storedFrame).toContain("Stored count: 5. Use Left or Right to turn it off.");
+    await press(key("left"));
     expect(state.settings?.draft.document?.profiles.default?.tokenProbabilities).toBe(undefined);
   });
 
@@ -859,22 +880,38 @@ describe("Generation Profile settings", () => {
     declareSelectedModelReturnsReasoning(state, "unsupported");
     await selectRow(press, state, "reasoning");
     const frame = frameText(renderStoryScreen(state, { width: 120, height: 24, wrapCache: cache }).lines);
-    expect(frame).toContain("‹ — ›");
+    expect(frame).toContain("reasoning    —");
     expect(frame).toContain("This route does not expose model reasoning.");
 
-    // Cycling a disabled row only ever snaps to its one available choice,
-    // `off` — the same "resets to the sole available choice" behavior the
-    // effort row's own unavailable-import test exercises above — never a
-    // fold state the route was never going to populate.
+    // An unavailable row has no selector affordance and does not mutate the
+    // profile when an arrow key is pressed.
     await press(key("right"));
-    expect(state.settings?.draft.document?.profiles.default?.reasoning).toBe("off");
+    expect(state.settings?.draft.document?.profiles.default?.reasoning).toBe(undefined);
     await press(key("left"));
-    expect(state.settings?.draft.document?.profiles.default?.reasoning).toBe("off");
+    expect(state.settings?.draft.document?.profiles.default?.reasoning).toBe(undefined);
+
+    const overlay = state.settings!;
+    const document = overlay.draft.document!;
+    overlay.draft = {
+      ...overlay.draft,
+      document: {
+        ...document,
+        profiles: {
+          ...document.profiles,
+          default: { ...document.profiles.default!, reasoning: "off" }
+        }
+      }
+    };
+    expect(settingsRowHasArrows(overlay, "reasoning")).toBeFalse();
+    const offFrame = frameText(renderStoryScreen(state, { width: 120, height: 24, wrapCache: cache }).lines);
+    const offLine = offFrame.split("\n").find((line) => line.includes("▸ reasoning"));
+    expect(offLine).toContain("reasoning    off");
+    expect(offLine).not.toContain("‹ off ›");
   });
 
   test("reasoning stays usable on a model that never declared the capability", async () => {
     // Discovery never promotes a model to "supported", so gating on that
-    // would leave this row reading `‹ — ›` on every real route.
+    // would leave this row unavailable on every real route.
     const { source, state, cache, press } = settingsHarness();
     installNetworkSettings(source);
     await openSettings(press);

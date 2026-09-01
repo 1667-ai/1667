@@ -4,10 +4,9 @@ import { settingsModelDisplayText } from "./settings-profile-controls.js";
 import { settingsSubscriptionPreset } from "./settings-subscription.js";
 import type { SettingsOverlayState } from "./state.js";
 
-/** C-09 caps a cycler at eight options. Past that the writer is stepping
- *  through a list one keypress at a time, which is the case C-15's option
- *  column exists for. */
-export const MODEL_CYCLER_CAP = 8;
+/** Open the searchable option column when a catalog is too long to scan as
+ * one short row. The row arrows still select adjacent models. */
+export const MODEL_PICKER_THRESHOLD = 8;
 
 export interface SettingsModelPicker {
   query: string;
@@ -19,7 +18,7 @@ export function modelPickerRequired(overlay: SettingsOverlayState): boolean {
   // Subscription catalogs use the same explicit picker interaction even when
   // a catalog currently fits in the short cycler. This keeps ChatGPT and
   // Claude plan model selection consistent as catalogs change.
-  return choices.length > MODEL_CYCLER_CAP
+  return choices.length > MODEL_PICKER_THRESHOLD
     || settingsSubscriptionPreset(overlay) !== null && choices.length > 0;
 }
 

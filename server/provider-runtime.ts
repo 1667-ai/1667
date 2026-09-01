@@ -122,6 +122,13 @@ export interface ResolvedProviderHeaders {
   readonly secrets: readonly string[];
 }
 
+/** Optional inputs for the canonical reasoning policy. A subscription
+ * adapter can use this to resolve a request after its protocol has lowered a
+ * stored setting away, without changing the stored setting itself. */
+export interface ProviderReasoningPolicyOptions {
+  readonly temperature?: number | null;
+}
+
 /** Runtime-only inputs resolved alongside one v2 provider connection. */
 export interface ProviderRuntimeOptions {
   readonly environment?: NodeJS.ProcessEnv;
@@ -255,7 +262,8 @@ export function providerReasoningTarget(settings: GenerationSettings): Reasoning
  * lowering until the settings runtime is upgraded. */
 export function providerReasoningPolicyFor(
   settings: GenerationSettings,
-  storySampling?: Pick<StorySamplingBias, "phraseBias" | "bannedStrings">
+  storySampling?: Pick<StorySamplingBias, "phraseBias" | "bannedStrings">,
+  options: ProviderReasoningPolicyOptions = {}
 ): ReasoningPolicyResolution | null {
   const runtime = providerRuntimeFor(settings);
   if (!isSchema4ProviderRuntime(runtime)) return null;
@@ -263,7 +271,7 @@ export function providerReasoningPolicyFor(
     target: providerReasoningTarget(settings),
     effort: runtime.effort,
     thinkingMode: runtime.thinkingMode,
-    temperature: settings.temperature,
+    temperature: options.temperature === undefined ? settings.temperature : options.temperature,
     sampling: runtime.sampling,
     tokenProbabilities: runtime.tokenProbabilities,
     ...(storySampling === undefined ? {} : {

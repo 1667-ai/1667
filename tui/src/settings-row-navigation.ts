@@ -6,12 +6,14 @@ import {
 import {
   settingsModelChoices
 } from "./settings-model-discovery.js";
-import { modelPickerRequired } from "./settings-model-picker.js";
 import { isSettingsScalarRow } from "./settings-scalar.js";
 import {
   settingsPlanRowDisabled,
   settingsSubscriptionRowVisible
 } from "./settings-subscription.js";
+import { settingsRowIsLocal } from "./settings-local-rows.js";
+import { reasoningRowHasArrows } from "./settings-reasoning-row.js";
+import { tokenProbabilitiesRowHasArrows } from "./settings-token-probabilities-row.js";
 import { settingsSimpleModeRowVisible } from "./settings-view-mode.js";
 import type { SettingsOverlayState, SettingsRowId } from "./state.js";
 
@@ -131,6 +133,23 @@ export function settingsRowCycles(row: SettingsRowId): boolean {
     || row === "utility-route";
 }
 
+/** Rows that have no action at the current draft state. Keep this policy
+ * beside the row navigation rules so the key handler, footer, and mouse hit
+ * map do not advertise different controls. An image status row is
+ * informational even when support is known; capability rows become
+ * informational when the selected route cannot answer them. Server rows in a
+ * read-only view can report their value, but they cannot accept an edit. */
+export function settingsRowIsNonActionable(
+  overlay: SettingsOverlayState,
+  row: SettingsRowId
+): boolean {
+  if (row === "image-input" || settingsPlanRowDisabled(overlay, row)) return true;
+  if (!overlay.view.editable && !settingsRowIsLocal(row)) return true;
+  if (row === "token-probabilities" && !tokenProbabilitiesRowHasArrows(overlay)) return true;
+  if (row === "reasoning" && !reasoningRowHasArrows(overlay)) return true;
+  return false;
+}
+
 /** Rows `←→` acts on: a cycler steps through its options, a C-08 scalar steps
  * through its range. Both wear brackets or chevrons, which is what the arrows
  * are anchored to. */
@@ -138,14 +157,13 @@ export function settingsRowHasArrows(
   overlay: SettingsOverlayState,
   row: SettingsRowId
 ): boolean {
-  if (settingsPlanRowDisabled(overlay, row)) return false;
+  if (settingsRowIsNonActionable(overlay, row)) return false;
   return row === "text-prompt-format" || row === "split-think-tags"
     ? overlay.draft.generation.provider === "text-completion"
     : settingsRowCycles(row)
     || isSettingsScalarRow(row)
     || isConnectionTimeoutRow(row)
-    // A cycler stops at eight; long lists and subscription catalogs use the
-    // option column instead so Enter opens one consistent picker.
-    || row === "model" && settingsModelChoices(overlay).length > 0
-      && !modelPickerRequired(overlay);
+    // Long lists and subscription catalogs still open the option column from
+    // Enter, but their row arrows remain useful for quick adjacent choices.
+    || row === "model" && settingsModelChoices(overlay).length > 0;
 }

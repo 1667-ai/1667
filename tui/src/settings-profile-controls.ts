@@ -412,7 +412,8 @@ export function profileRowHint(overlay: SettingsOverlayState): string {
 }
 
 /** The chosen model's own identifier, kept out of the chip so the chip holds
- *  one name. C-15 owns long lists and subscription catalogs. */
+ * one name. C-15 supplies a searchable column for long and subscription
+ * catalogs. */
 export function modelRowHint(overlay: SettingsOverlayState): string {
   const model = overlay.draft.generation.model;
   const choices = settingsModelChoices(overlay);

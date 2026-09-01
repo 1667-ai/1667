@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { Model } from "@earendil-works/pi-ai";
 import { ProviderError } from "../server/errors.js";
 import { streamCompletion } from "../server/providers.js";
 import {
@@ -19,16 +20,17 @@ import {
   temporaryDirectory
 } from "./subscription-adapter-test-helpers.js";
 
-test("subscription adapter lowers the canonical OpenAI off pair", async (t) => {
+test("ChatGPT plan omits an existing stored temperature from its payload", async (t) => {
   const directory = await temporaryDirectory(t, "1667-reasoning-subscription-openai-");
   const credentials = createSubscriptionCredentialStore(directory);
   await credentials.modify("openai-codex", async () => oauth(ACCESS));
   const model = modelFor("openai-codex", "openai-codex-responses");
   let seen: Record<string, unknown> | undefined;
+  let payload: Record<string, unknown> | undefined;
   const models = fakeModels(model, (_context, options) => {
     seen = options;
     return successfulStream(model, false);
-  });
+  }, undefined, (value) => { payload = value; });
   const legacy = subscriptionSettings(
     "openai-codex-responses", "openai-compatible", "openai-codex-responses",
     credentials, models
@@ -38,9 +40,83 @@ test("subscription adapter lowers the canonical OpenAI off pair", async (t) => {
     { ...legacy, model: "gpt-5.6-sol", temperature: 0.4 },
     { ...runtime, effort: "default", thinkingMode: "off" }
   );
-  await collect(streamCompletion(settings, PROMPT, new AbortController().signal));
+  assert.equal(
+    await collect(streamCompletion(settings, PROMPT, new AbortController().signal)),
+    "answer"
+  );
   assert.equal(seen?.reasoningEffort, "none");
-  assert.equal(seen?.temperature, 0.4);
+  assert.equal(seen?.temperature, undefined);
+  assert.equal("temperature" in (payload ?? {}), false);
+  assert.equal(settings.temperature, 0.4);
+});
+
+test("Claude plan lowers an existing stored temperature by model and reasoning capability", async (t) => {
+  const directory = await temporaryDirectory(t, "1667-reasoning-subscription-anthropic-temperature-");
+  const credentials = createSubscriptionCredentialStore(directory);
+  await credentials.modify("anthropic", async () => oauth(ACCESS));
+
+  for (const fixture of [
+    {
+      model: "claude-sonnet-5",
+      thinkingMode: "default" as const,
+      withThinking: true,
+      supportsTemperature: true,
+      expectedTemperature: false
+    },
+    {
+      model: "claude-opus-4-8",
+      thinkingMode: "default" as const,
+      withThinking: false,
+      supportsTemperature: false,
+      expectedTemperature: false
+    },
+    {
+      model: "claude-opus-4-6",
+      thinkingMode: "default" as const,
+      withThinking: false,
+      supportsTemperature: true,
+      expectedTemperature: true
+    }
+  ]) {
+    const model = {
+      ...modelFor("anthropic", "anthropic-messages"),
+      ...(fixture.supportsTemperature
+        ? {}
+        : { compat: { supportsTemperature: false } })
+    } as Model<"anthropic-messages">;
+    let payload: Record<string, unknown> | undefined;
+    const models = fakeModels(
+      model,
+      () => successfulStream(model, fixture.withThinking),
+      undefined,
+      (value) => { payload = value; }
+    );
+    const legacy = subscriptionSettings(
+      "anthropic-subscription-messages",
+      "anthropic",
+      "anthropic-messages",
+      credentials,
+      models
+    );
+    const runtime = providerRuntimeFor(legacy);
+    const settings = attachProviderRuntime(
+      { ...legacy, model: fixture.model, temperature: 0.4 },
+      { ...runtime, effort: "default", thinkingMode: fixture.thinkingMode }
+    );
+
+    assert.equal(
+      await collect(streamCompletion(settings, PROMPT, new AbortController().signal)),
+      "answer",
+      fixture.model
+    );
+    assert.equal(
+      "temperature" in (payload ?? {}),
+      fixture.expectedTemperature,
+      fixture.model
+    );
+    assert.equal(payload?.temperature, fixture.expectedTemperature ? 0.4 : undefined);
+    assert.equal(settings.temperature, 0.4, fixture.model);
+  }
 });
 
 test("subscription Anthropic lowering emits adaptive display without a budget", async (t) => {

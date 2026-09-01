@@ -10,6 +10,7 @@ import {
   boundedSamplingCursor,
   SAMPLING_LAYER_ROWS,
   SAMPLING_SCALAR_PRESENTATION,
+  samplingListActionability,
   samplingListRows,
   samplingScalarRows,
   samplingSelectedRowIdentity,
@@ -82,6 +83,7 @@ export async function samplingOverlayAction(
   }
   if (resolved.action === "delete-item") {
     if (nested.panel === "sampling") return;
+    if (!samplingListActionability(settings, nested.panel).delete) return;
     const rowId = samplingSelectedRowIdentity(settings);
     if (rowId === null) {
       nested.result = "no list item is selected";
@@ -105,7 +107,7 @@ export async function samplingOverlayAction(
     const step = resolved.action === "take-next" ? 1 : -1;
     if (nested.panel === "sampling") {
       stepSamplingScalar(settings, step);
-    } else {
+    } else if (samplingListActionability(settings, nested.panel).reorder) {
       // `reorderable` panels' `.move()` (tui/src/sampling-panel-spec.ts)
       // reorders; every other panel's `.move()` is a no-op `() => false`, so
       // this needs no separate reorderable check of its own.
@@ -122,7 +124,7 @@ function openSamplingSelection(state: RuntimeState): void {
     const row = SAMPLING_LAYER_ROWS[boundedSamplingCursor(settings)]!;
     if (row.kind === "list") {
       const list = samplingListRows(settings).find((item) => item.panel === row.panel)!;
-      if (!list.available) {
+      if (!list.available && samplingListPanelSpec(row.panel).values(settings).length === 0) {
         nested.result = `${list.label} disabled · ${list.reasonCompact}`;
         return;
       }

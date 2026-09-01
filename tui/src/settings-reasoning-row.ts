@@ -38,14 +38,24 @@ export function reasoningRowState(overlay: SettingsOverlayState): ReasoningRowSt
   };
 }
 
-/** F-2's unavailable look, matched from `token-probabilities`: the value
- *  chip collapses to `‹ — ›` rather than showing a fold state the route can
- *  never populate. */
+/** The unavailable state is informational. Do not wrap it in selector
+ *  chevrons, because the row has no valid value to cycle to. */
 export function reasoningRowValue(state: ReasoningRowState): string {
-  if (state.route !== null && reasoningDisplayAvailabilityForRoute(state.route, state.display).kind === "unavailable") {
-    return "‹ — ›";
-  }
-  return `‹ ${state.display} ›`;
+  if (state.route === null) return state.display;
+  if (reasoningDisplayAvailabilityForRoute(state.route, state.display).kind === "unavailable") return "—";
+  return reasoningDisplayChoicesForRoute(state.route).length > 1
+    ? `‹ ${state.display} ›`
+    : state.display;
+}
+
+/** Whether the selected route can cycle the current reasoning display. A
+ *  missing route or an unsupported display is a read-only status, not a
+ *  one-choice selector. */
+export function reasoningRowHasArrows(overlay: SettingsOverlayState): boolean {
+  const state = reasoningRowState(overlay);
+  return state.route !== null
+    && reasoningDisplayChoicesForRoute(state.route).length > 1
+    && reasoningDisplayAvailabilityForRoute(state.route, state.display).kind === "available";
 }
 
 export function reasoningRowHint(state: ReasoningRowState): string {
@@ -72,6 +82,7 @@ export function cycleReasoningControl(
   overlay: SettingsOverlayState,
   step: -1 | 1
 ): ReasoningDisplayV2 | null {
+  if (!reasoningRowHasArrows(overlay)) return null;
   return cycleProfileField(
     overlay,
     step,
