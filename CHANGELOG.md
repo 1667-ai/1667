@@ -5,6 +5,8 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.7-rc.1 - 2026-09-01
+
 - **The command palette is available from every screen.** Press `Ctrl+P` from
   Aside, editors, menus, and full-screen panels. Close the palette to return to
   the exact screen and input that you were using.
