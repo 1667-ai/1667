@@ -5,6 +5,15 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.8-rc.1 - 2026-09-01
+
+- **Model selectors use the same controls.** Use Left/Right or click the arrows
+  for discovered and subscription models. Press Enter to open the searchable
+  model list. Unavailable controls no longer show actions that do not work.
+- **Subscription requests omit unsupported temperature.** ChatGPT and Claude
+  subscription requests keep your saved temperature preference, but do not
+  send it to providers that reject the field.
+
 ## 0.10.7 - 2026-09-01
 
 - **This release has no additional product changes.** It contains the same

@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.8-rc.1",
+    date: "2026-09-01",
+    body: "- **Model selectors use the same controls.** Use Left/Right or click the arrows\n  for discovered and subscription models. Press Enter to open the searchable\n  model list. Unavailable controls no longer show actions that do not work.\n- **Subscription requests omit unsupported temperature.** ChatGPT and Claude\n  subscription requests keep your saved temperature preference, but do not\n  send it to providers that reject the field."
+  },
+  {
     version: "0.10.7",
     date: "2026-09-01",
     body: "- **This release has no additional product changes.** It contains the same\n  behavior as 0.10.7-rc.1."
