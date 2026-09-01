@@ -329,7 +329,7 @@ export function parseBudgetText(
 ): { ok: true; budgetTokens: number | undefined } | { ok: false; toast: string } {
   const trimmed = raw.trim();
   if (trimmed.length === 0) return { ok: true, budgetTokens: undefined };
-  if (!/^[0-9]+$/.test(trimmed)) {
+  if (!budgetTextIsDigitsOrEmpty(trimmed)) {
     return { ok: false, toast: `${label} must be a whole number of tokens, or empty` };
   }
   const parsed = Number(trimmed);
@@ -337,4 +337,11 @@ export function parseBudgetText(
     return { ok: false, toast: `${label} must be between 1 and ${max.toLocaleString()}` };
   }
   return { ok: true, budgetTokens: parsed };
+}
+
+/** The budget fields accept only ASCII digits while they are being edited.
+ * Keep this syntax check beside the commit parser so keyboard and paste
+ * admission cannot drift from the value that the save path accepts. */
+export function budgetTextIsDigitsOrEmpty(raw: string): boolean {
+  return raw.length === 0 || /^[0-9]+$/.test(raw);
 }

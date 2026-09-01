@@ -13,6 +13,14 @@ read_when:
 
 ## Use Facts and the context meter
 
+Press `Ctrl+P` from every surface to open the command palette. Press `Escape` to
+return to the prior surface. If the command palette is already open, `Ctrl+P`
+keeps it open.
+
+The command palette provides contextual Fact workflows. It shows the Fact
+commands that apply to the current surface, such as opening Facts, adding a
+Fact State, editing a Fact, and using the Map Fact lens.
+
 Press `e` to edit the selected Fact. Double-click a Fact to edit it. For an
 unscoped Fact with one state, `Enter` also opens the editor. For a scoped Fact
 or a Fact with multiple states, `Enter` opens the Fact dossier.
@@ -176,9 +184,14 @@ A story can hold a Facts budget: a limit on the combined estimated token
 count of every Fact in a request. When the total goes over the Facts budget,
 1667 drops the lowest-priority Facts first until the total fits.
 
-Open the command palette and select **facts budget**. Type a whole number of
-tokens, then press `Ctrl+S`. Leave the field empty and press `Ctrl+S` to
-remove the Facts budget.
+Press `Ctrl+P` and select **facts budget**. The editor shows a compact,
+Settings-style field. The field accepts digits only. Type a whole number from
+`1` to `1,000,000` tokens. Press `Enter` or `Ctrl+S` to save. An empty field
+means uncapped.
+
+Click the field to place the cursor. Click `clear` to empty the field. Click
+`enter save` or `ctrl+s save` to save. Click `esc cancel` to close without
+saving.
 
 ### See a Fact's priority
 

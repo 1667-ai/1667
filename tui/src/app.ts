@@ -83,11 +83,13 @@ import {
   isCopyShortcut,
   isInterruptShortcut,
   mouseComposerSelectionMessage,
+  storySelectionFromRendererSelection,
   syncMouseComposerSelection
 } from "./copy-actions.js";
 import {
   capturePresentedInputSelection,
   consumePresentedSelection,
+  guardFactsStorySelectionCapture,
   hasCopyablePresentedSelection,
   reconcilePresentedSelection,
   retirePresentedSelection
@@ -98,10 +100,14 @@ import {
   openTextActions,
   textActionsMenuAction
 } from "./text-actions.js";
-import { composerRangeFromProjection } from "./selection-projection.js";
+import {
+  composerRangeFromProjection,
+  type ProjectedStorySelection
+} from "./selection-projection.js";
 import { canClaimAsideComposer, claimAsideComposer } from "./aside-surface.js";
 import { pastePlainTextFromClipboard } from "./plain-text-paste.js";
 import { applyTerminalPaste } from "./terminal-paste.js";
+import { finalizeDispatch } from "./dispatch-finalization.js";
 
 export { recoveryNotice } from "./recovery-orchestration.js";
 
@@ -411,9 +417,10 @@ export async function runInteractive(source: AppSource): Promise<void> {
   onPresentationFailure = inputs.presentationFailed;
   let latestSelectionCapture: ReturnType<typeof capturePresentedInputSelection> | null = null;
   const captureQueuedSelection = () => {
-    latestSelectionCapture = capturePresentedInputSelection(
-      renderer, presentedInteraction, latestSelectionCapture, frames.failed
-    );
+    const previous = latestSelectionCapture;
+    latestSelectionCapture = guardFactsStorySelectionCapture(capturePresentedInputSelection(
+      renderer, presentedInteraction, previous, frames.failed
+    ), previous);
     return latestSelectionCapture;
   };
 
@@ -444,6 +451,21 @@ export async function runInteractive(source: AppSource): Promise<void> {
       const native = selection.kind === "captured"
         ? selection.native ?? EMPTY_NATIVE_SELECTION
         : EMPTY_NATIVE_SELECTION;
+      // The native range is cleared before dispatch. Preserve its projected
+      // story selection for Ctrl-P while it still belongs to this frame.
+      const capturedStorySelection: ProjectedStorySelection | null =
+        selection.kind === "captured"
+          ? storySelectionFromRendererSelection(selection.native, selection.story)
+          : null;
+      // A new Facts-panel drag owns the native range. It must not revive the
+      // selection retained when Facts opened from NAV.
+      if (state.mode === "FACTS"
+        && selection.kind === "captured"
+        && selection.native !== null
+        && capturedStorySelection === null
+        && state.facts !== null) {
+        state.facts.storySelection = null;
+      }
       if (copyShortcut) {
         const copied = handleMainCopyShortcut(
           native,
@@ -503,7 +525,8 @@ export async function runInteractive(source: AppSource): Promise<void> {
         renderer,
         applyTheme,
         previewTheme,
-        withActionAdmission(backend, admit)
+        withActionAdmission(backend, admit),
+        capturedStorySelection
       ), (work) => backend.observe(work));
     }, () => {
       retirePresentedSelection(renderer, queuedSelection);
@@ -562,12 +585,17 @@ export async function runInteractive(source: AppSource): Promise<void> {
       stillPresented: (captured) => captured === presentedInteraction,
       decorate: (resolved, gesture, presented) => {
         const interaction = presented as InteractivePresentedInteraction;
-        const partAction = selectionAwarePartMenuAction(
-          gesture as never,
-          resolved,
-          renderer,
-          interaction.storySelectionProjection
-        );
+        // FACTS retains the NAV projection only for the keyboard capture that
+        // proves the same native range. A fresh mouse range belongs to the
+        // panel, so it must not be translated into an underlying story span.
+        const partAction = interaction.state.mode === "FACTS"
+          ? resolved
+          : selectionAwarePartMenuAction(
+              gesture as never,
+              resolved,
+              renderer,
+              interaction.storySelectionProjection
+            );
         return selectionAwareTextMenuAction(
           gesture as never,
           partAction,
@@ -632,7 +660,8 @@ export async function handleKey(
   renderer: ActionContext["renderer"] = null,
   applyTheme: ActionContext["applyTheme"] = () => undefined,
   previewTheme: ActionContext["previewTheme"] = () => undefined,
-  backend: ActionRunner = new ActionRuntime(state, repaint)
+  backend: ActionRunner = new ActionRuntime(state, repaint),
+  capturedStorySelection: ProjectedStorySelection | null | undefined = undefined
 ): Promise<void> {
   if (isCopyShortcut(key)
     && state.mode !== "EDITOR"
@@ -678,7 +707,7 @@ export async function handleKey(
       && state.map.factLensFactId !== null
   });
   return await dispatch(resolved, state, source, wrapCache, repaint, cancelStream, requestQuit,
-    renderer, applyTheme, previewTheme, backend);
+    renderer, applyTheme, previewTheme, backend, capturedStorySelection);
 }
 
 /** Everything after key resolution — shared by the keyboard and the mouse. */
@@ -693,9 +722,20 @@ export async function dispatch(
   renderer: ActionContext["renderer"] = null,
   applyTheme: ActionContext["applyTheme"] = () => undefined,
   previewTheme: ActionContext["previewTheme"] = () => undefined,
-  backend: ActionRunner = new ActionRuntime(state, repaint)
+  backend: ActionRunner = new ActionRuntime(state, repaint),
+  capturedStorySelection: ProjectedStorySelection | null | undefined = undefined
 ): Promise<void> {
   const previousMode = state.mode;
+  const context: ActionContext = {
+    cache: wrapCache, repaint, backend, renderer, applyTheme, previewTheme
+  };
+  // Ctrl-P is a global palette escape hatch. Route it before transient menus
+  // and confirmations so those owners remain intact for Esc restoration.
+  if (resolved.action === "open-commands") {
+    await handleOverlayAction(resolved, state, source, context, capturedStorySelection);
+    finalizeDispatch(previousMode, state, renderer, repaint);
+    return;
+  }
   if (state.chapterSummary !== null && resolved.action === "cancel"
     && state.textActions === null
     && (isPlainNavigation(state) || state.mode === "CHAPTERS")) {
@@ -735,9 +775,6 @@ export async function dispatch(
     state.toast = `Chapter ${chapterWord(state.chapterSummary.chapterNumber)} summary running · esc cancels`;
     return repaint();
   }
-  const context: ActionContext = {
-    cache: wrapCache, repaint, backend, renderer, applyTheme, previewTheme
-  };
   // Recovery belongs to the connection banner, above transient part menus
   // and confirmations. Those surfaces stay open while retry runs; otherwise
   // their reducers would swallow the banner's advertised keyboard/click action.
@@ -782,6 +819,14 @@ export async function dispatch(
       sync === "uneditable"
     );
   }
+  else if (resolved.action === "paste-clipboard"
+    && await pastePlainTextFromClipboard(state, source, context)) { /* handled */ }
+  // The palette suspends the current menu/editor, so it must own every key
+  // after opening as well as the Ctrl-P opener. Otherwise an ACTIONS, prune,
+  // or text-actions owner underneath it can swallow palette typing.
+  else if (state.mode === "COMMANDS" && state.commands !== null) {
+    await handleOverlayAction(resolved, state, source, context);
+  }
   else if (state.textActions !== null) {
     const overlay = state.textActions;
     const action = textActionsMenuAction(resolved, state);
@@ -810,9 +855,7 @@ export async function dispatch(
   }
   else if (state.prune !== null) await pruneAction(resolved, state, source, context);
   else if (state.actions !== null) await actionsMenuAction(resolved, state, source, context);
-  else if (resolved.action === "paste-clipboard"
-    && await pastePlainTextFromClipboard(state, source, context)) { /* handled */ }
-  else if (await handleOverlayAction(resolved, state, source, context)) { /* handled */ }
+  else if (await handleOverlayAction(resolved, state, source, context, capturedStorySelection)) { /* handled */ }
   else if (resolved.action === "toggle-context-meter" && (state.mode === "NAV" || state.mode === "COMPOSE")) {
     state.contextMeterExpanded = !state.contextMeterExpanded;
   }
@@ -828,19 +871,7 @@ export async function dispatch(
   else if (state.mode === "EDITOR") await inlineEditorAction(resolved, state, source, context);
   else if (state.mode === "NAV" && await directChapterRowAction(resolved, state, source, context)) { /* handled */ }
   else await navAction(resolved, state, source, context, requestQuit);
-  // Native buffer offsets must not leak between the story, Direct, and the
-  // full-screen editor when their rendered document changes.
-  const previousTextSurface = previousMode === "COMPOSE"
-    || previousMode === "EDITOR"
-    || previousMode === "ASIDE";
-  const currentTextSurface = state.mode === "COMPOSE"
-    || state.mode === "EDITOR"
-    || state.mode === "ASIDE";
-  if (state.mode !== previousMode && (previousTextSurface || currentTextSurface)) {
-    renderer?.clearSelection();
-  }
-  recordSessionNotices(state);
-  repaint();
+  finalizeDispatch(previousMode, state, renderer, repaint);
 }
 
 export function initialState(source: AppSource, renderMode: boolean): RuntimeState {

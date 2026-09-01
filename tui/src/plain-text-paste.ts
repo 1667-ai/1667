@@ -1,5 +1,6 @@
 import type { AppSource } from "./app.js";
 import type { ActionContext } from "./action-context.js";
+import { noteAsidePaletteInteraction } from "./aside-actions.js";
 import { readFromClipboard } from "./clipboard.js";
 import { sanitizePastedText } from "./keys.js";
 import { handleOverlayAction } from "./overlay-actions.js";
@@ -161,6 +162,10 @@ export async function pastePlainTextFromClipboard(
 ): Promise<boolean> {
   const target = plainTextPasteTarget(state, source, context);
   if (target === null) return false;
+  // A palette paste can wait on the host clipboard while a suspended Aside
+  // Ask settles. Advance its restore fence before that await, so a null or
+  // failed response still returns the question to the Aside composer.
+  noteAsidePaletteInteraction(state);
   const interactionVersion = state.interactionVersion;
   const text = await readFromClipboard();
   if (state.interactionVersion !== interactionVersion || !target.isCurrent()) return true;

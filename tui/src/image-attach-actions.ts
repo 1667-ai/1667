@@ -12,6 +12,7 @@ import { MAX_SOURCE_IMAGE_BYTES, imageAttachmentLabel } from "../../shared/image
 import { imageInputEntryPointsOpen } from "../../shared/image-input-release.js";
 import { readImportBytes } from "../../server/import-file.js";
 import { attachDraftImage, draftImagesFor, MAX_DRAFT_IMAGES } from "./draft-image.js";
+import { settleModeUnderPalette } from "./palette-owner.js";
 import {
   currentImageInputCapability,
   imageInputRefusalMessage,
@@ -144,8 +145,8 @@ async function applyImageAttach(
       if (!task.storyCurrent() || state.composer !== composer) return;
       const images = attachDraftImage(composer, { leaseId: staged.leaseId, attachment: staged.attachment });
       if (state.image === overlay) {
+        settleModeUnderPalette(state, "IMAGE", overlay.returnMode);
         state.image = null;
-        state.mode = overlay.returnMode;
         state.toast = `attached ${imageAttachmentLabel(images.length - 1)}`;
       }
     });

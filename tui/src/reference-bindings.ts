@@ -11,6 +11,9 @@ export interface ReferenceBinding {
   sequence?: string;
   shift?: boolean;
   ctrl?: boolean;
+  /** Match in every application mode. Keep the binding's mode as its
+   *  reference owner so the keys screen and contract tests stay stable. */
+  global?: boolean;
   mapView?: MapView;
 }
 
@@ -25,7 +28,7 @@ export type ReferenceBindingLane =
 
 type BindingOptions = Partial<Pick<
   ReferenceBinding,
-  "sequence" | "shift" | "ctrl" | "mapView"
+  "sequence" | "shift" | "ctrl" | "global" | "mapView"
 >>;
 
 type BindingDefinition = Omit<ReferenceBinding, "display">;
@@ -96,7 +99,7 @@ const DEFINITIONS = {
   navOpenFacts: route("nav", "f", "NAV", "open-facts"),
   navOpenLibrary: route("nav", "o", "NAV", "open-library"),
   navOpenCommandsColon: route("nav", ":", "NAV", "open-commands"),
-  navOpenCommandsCtrlP: route("nav-chord", "p", "NAV", "open-commands", { ctrl: true }),
+  navOpenCommandsCtrlP: route("global", "p", "NAV", "open-commands", { ctrl: true, global: true }),
   navOpenSettings: route("nav", ",", "NAV", "open-settings"),
   navToggleContext: route("nav-chord", "g", "NAV", "toggle-context-meter", { ctrl: true }),
   composeToggleContext: route("compose-chord", "g", "COMPOSE", "toggle-context-meter", { ctrl: true }),
@@ -204,7 +207,7 @@ function matches(
   mode: AppMode,
   mapView: MapView
 ): boolean {
-  if (binding.mode !== mode || key.meta) return false;
+  if ((!binding.global && binding.mode !== mode) || key.meta) return false;
   if ((binding.ctrl ?? false) !== Boolean(key.ctrl)) return false;
   if (binding.mapView !== undefined && binding.mapView !== mapView) return false;
   if (binding.sequence !== undefined && binding.sequence !== key.sequence) return false;

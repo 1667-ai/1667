@@ -305,9 +305,11 @@ async function massAction(
  *  the cursor row's node in Tree/Mass — a folded "cold" row names a whole
  *  subtree, not one take, so it names nothing. Map logic, so it lives here
  *  rather than in `generation-record-actions.ts`, which just calls it. */
-export function mapCursorNodeId(state: RuntimeState): string | null {
+export function mapCursorNodeId(
+  state: Pick<RuntimeState, "payload" | "stream" | "now"> & { map?: RuntimeState["map"] }
+): string | null {
   const map = state.map;
-  if (map === null) return null;
+  if (map == null) return null;
   if (map.view === "path") return map.pathCursorId;
   const payload = mapPayload(state);
   if (map.view === "tree") {

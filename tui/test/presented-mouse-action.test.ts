@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { initialState } from "../src/app.js";
+import { dispatch, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { createStoryIndex } from "../../shared/story-model.js";
 import { childrenOf, nodeById } from "../../shared/story-tree.js";
@@ -14,6 +14,9 @@ import {
 } from "../src/presented-mouse-action.js";
 import { createStoryViewModel } from "../src/model.js";
 import { initialSettingsOverlay } from "../src/settings-overlay-model.js";
+import { renderStoryScreen } from "../src/screens/story.js";
+import { createWrapCache, type ProseStyle } from "../src/wrap.js";
+import { createGenerationRecordDetailCache } from "../src/generation-record-detail-cache.js";
 
 type State = ReturnType<typeof initialState>;
 
@@ -357,6 +360,29 @@ describe("presented mouse reconciliation", () => {
     expect(reconcile(at(1), resolved, captured, interaction(at(1), 21))).toBe(null);
   });
 
+  test("uses the painted command cursor for Tag Manager clicks over dormant Facts", () => {
+    const state = initialState(demoAppSource(), false);
+    state.mode = "COMMANDS";
+    state.commands = {
+      query: "",
+      cursor: 1,
+      selectedId: "tags",
+      view: "tags",
+      returnMode: "FACTS"
+    };
+    state.facts = {
+      cursor: 0,
+      query: "",
+      chip: 0,
+      selectedTag: null,
+      filtering: false,
+      deleteArmedId: null
+    };
+    state.hitRows = [{ target: { kind: "list", index: 1 }, left: 0, right: 20 }];
+
+    expect(mouseToAction(click, state, false)).toEqual({ action: "open-selected" });
+  });
+
   test("refuses a list row click once that row holds another entry", () => {
     // Clicking an unselected menu row only moves the cursor, but onto whatever
     // that row holds now. A selection appearing shifts the entries beneath it.
@@ -411,6 +437,248 @@ describe("presented mouse reconciliation", () => {
     const filtered = { ...state, commands: { ...state.commands, query: "theme" } } as State;
     expect(reconcile(filtered, resolved, interaction(state, 20), interaction(filtered, 21)))
       .toBe(null);
+  });
+
+  test("models the displayed PROBS and RECORD take for queued palette clicks", () => {
+    const source = demoAppSource();
+    const view = createStoryViewModel(source.payload);
+    const stale = view.parts[0];
+    const displayed = view.parts[1];
+    const summaryId = source.payload.nodes.find((node) => node.role === "summary")?.id;
+    if (stale === undefined || displayed === undefined || summaryId === undefined) {
+      throw new Error("demo story needs two parts and a summary node");
+    }
+
+    for (const owner of ["PROBS", "RECORD"] as const) {
+      const state = initialState(source, false);
+      state.stream = null;
+      state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), stale.id);
+      if (owner === "PROBS") {
+        state.probs = {
+          nodeId: displayed.id,
+          tokenIndex: 0,
+          altIndex: 0,
+          expanded: false,
+          record: null,
+          loading: false,
+          empty: null
+        };
+      } else {
+        state.record = {
+          nodeId: displayed.id,
+          returnMode: "NAV",
+          list: { status: "ready", summaries: [] },
+          eventIndex: 0,
+          entryIndex: 0,
+          scrollTop: -1,
+          detail: { status: "idle" },
+          cache: createGenerationRecordDetailCache()
+        };
+      }
+      state.mode = "COMMANDS";
+      state.commands = {
+        query: "new Fact from here",
+        cursor: 0,
+        selectedId: "new-fact-from-here",
+        view: "commands",
+        returnMode: owner
+      };
+      state.hitRows = [{ target: { kind: "list", index: 0 }, left: 0, right: 20 }];
+
+      const captured = interaction(state, 20);
+      const action = mouseToAction(click, captured.state);
+      expect(action).toEqual({ action: "open-selected" });
+      expect(reconcile(state, action!, captured, interaction(state, 21)))
+        .toEqual({ action: "open-selected" });
+
+      // A real target change removes the contextual Fact command. The queued
+      // click must not fall back to stale NAV focus or run it on the summary.
+      if (owner === "PROBS") state.probs!.nodeId = summaryId;
+      else state.record!.nodeId = summaryId;
+      expect(reconcile(state, action!, captured, interaction(state, 22))).toBe(null);
+    }
+  });
+
+  test("refuses a palette click when contextual availability replaces its selection", () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const cache = createWrapCache<ProseStyle>();
+    state.mode = "COMMANDS";
+    state.facts = {
+      cursor: 0,
+      query: "",
+      chip: 0,
+      selectedTag: null,
+      filtering: false,
+      deleteArmedId: null,
+      scopeFilter: "everywhere",
+      dossier: null
+    };
+    state.commands = {
+      query: "facts",
+      cursor: 2,
+      selectedId: "facts-filter",
+      view: "commands",
+      returnMode: "FACTS"
+    };
+    const render = () => {
+      const frame = renderStoryScreen(state, { width: 100, height: 24, wrapCache: cache });
+      Object.assign(state, frame.derived);
+    };
+
+    render();
+    const selected = state.hitRows
+      .flatMap((hit, y) => [
+        ...(hit?.target.kind === "list" && hit.target.selected === true
+          ? [{ left: hit.left, y }]
+          : []),
+        ...(hit?.overrides ?? [])
+          .filter((region) => region.target.kind === "list" && region.target.selected === true)
+          .map((region) => ({ left: region.left, y }))
+      ])
+      .at(0);
+    expect(selected).toBeDefined();
+    const event: FrozenMouseEvent = {
+      ...click,
+      x: selected!.left + 2,
+      y: selected!.y
+    };
+    const captured = interaction(state, 20);
+    const action = mouseToAction(event, captured.state);
+    expect(action).toEqual({ action: "open-selected" });
+
+    // Opening the Fact dossier removes Facts-list commands. Rendering falls
+    // back to the old cursor, so its row now contains `edit-fact`; the stored
+    // selectedId is intentionally still `facts-filter` until a reducer runs.
+    state.facts!.dossier = {
+      factId: state.payload.facts[0]!.id,
+      stateIndex: 0,
+      diff: false
+    };
+    render();
+    expect(state.commands?.selectedId).toBe("facts-filter");
+
+    const reconciled = reconcilePresentedMouseAction({
+      action: action!,
+      event,
+      captured,
+      presented: interaction(state, 21),
+      state
+    });
+    expect(reconciled).toBeNull();
+    expect(state.mode).toBe("COMMANDS");
+  });
+
+  test("refuses a palette click when its focused story row becomes a summary", () => {
+    const state = initialState(demoAppSource(), false);
+    const cache = createWrapCache<ProseStyle>();
+    const view = createStoryViewModel(state.payload);
+    const partIndex = view.rows.findIndex((row) => row.kind === "part" && row.id === "p13");
+    const summaryIndex = view.rows.findIndex((row) => row.kind === "chapter-summary");
+    expect(partIndex).toBeGreaterThan(-1);
+    expect(summaryIndex).toBeGreaterThan(-1);
+    state.mode = "COMMANDS";
+    state.focusIndex = partIndex;
+    state.commands = {
+      query: "new Fact from here",
+      cursor: 0,
+      selectedId: "new-fact-from-here",
+      view: "commands",
+      returnMode: "NAV"
+    };
+    const render = () => {
+      const frame = renderStoryScreen(state, { width: 100, height: 24, wrapCache: cache });
+      Object.assign(state, frame.derived);
+    };
+    render();
+    const selected = state.hitRows
+      .flatMap((hit, y) => [
+        ...(hit?.target.kind === "list" && hit.target.selected === true
+          ? [{ left: hit.left, y }]
+          : []),
+        ...(hit?.overrides ?? [])
+          .filter((region) => region.target.kind === "list" && region.target.selected === true)
+          .map((region) => ({ left: region.left, y }))
+      ])
+      .at(0);
+    expect(selected).toBeDefined();
+    const event: FrozenMouseEvent = {
+      ...click,
+      x: selected!.left + 2,
+      y: selected!.y
+    };
+    const captured = interaction(state, 20);
+    const action = mouseToAction(event, captured.state);
+    expect(action).toEqual({ action: "open-selected" });
+
+    state.focusIndex = summaryIndex;
+    render();
+    expect(mouseToAction(event, state)).toBeNull();
+    expect(reconcilePresentedMouseAction({
+      action: action!,
+      event,
+      captured,
+      presented: interaction(state, 21),
+      state
+    })).toBeNull();
+  });
+
+  test("executes a palette command after a repaint changes its dormant Library", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const cache = createWrapCache<ProseStyle>();
+    expect(source.stories.length).toBeGreaterThan(1);
+    state.library = { stories: source.stories, cursor: 0, query: "", prompt: null };
+    state.mode = "COMMANDS";
+    state.commands = {
+      query: "chapters",
+      cursor: 0,
+      selectedId: "chapters",
+      view: "commands",
+      returnMode: "LIBRARY"
+    };
+
+    const repaint = () => {
+      const frame = renderStoryScreen(state, { width: 100, height: 24, wrapCache: cache });
+      Object.assign(state, frame.derived);
+    };
+    repaint();
+    const selected = state.hitRows
+      .flatMap((hit, y) => [
+        ...(hit?.target.kind === "list" && hit.target.selected === true
+          ? [{ left: hit.left, y }]
+          : []),
+        ...(hit?.overrides ?? [])
+          .filter((region) => region.target.kind === "list" && region.target.selected === true)
+          .map((region) => ({ left: region.left, y }))
+      ])
+      .at(0);
+    expect(selected).toBeDefined();
+    const event: FrozenMouseEvent = {
+      ...click,
+      x: selected!.left + 2,
+      y: selected!.y
+    };
+    const captured = interaction(state, 20);
+    const action = mouseToAction(event, captured.state);
+    expect(action).toEqual({ action: "open-selected" });
+
+    // The palette stays visible while its suspended Library refreshes.
+    state.library!.cursor = 1;
+    repaint();
+    const presented = interaction(state, 21);
+    const reconciled = reconcilePresentedMouseAction({
+      action: action!, event, captured, presented, state
+    });
+    expect(reconciled).toEqual({ action: "open-selected" });
+    if (reconciled === null) throw new Error("palette click was discarded");
+
+    await dispatch(
+      reconciled, state, source, cache,
+      () => undefined, async () => undefined, () => undefined
+    );
+    expect(state.mode).toBe("CHAPTERS");
+    expect(state.library).toBeNull();
   });
 
   test("freezes the live Library query with its presented frame", () => {

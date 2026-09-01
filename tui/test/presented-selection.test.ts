@@ -11,6 +11,7 @@ import {
   capturePresentedInputSelection,
   capturePresentedSelection,
   consumePresentedSelection,
+  guardFactsStorySelectionCapture,
   hasCopyablePresentedSelection,
   reconcilePresentedSelection,
   retirePresentedSelection
@@ -61,6 +62,44 @@ test("presented selection discards a native range after semantic ownership chang
   expect(reconcilePresentedSelection(captured, 8, state).kind).toBe("stale");
   state.mode = "COMPOSE";
   expect(reconcilePresentedSelection(captured, 7, state).kind).toBe("stale");
+});
+
+test("Facts keeps only the unchanged NAV native range for its retained story projection", () => {
+  const state = initialState(demoAppSource(), false);
+  state.mode = "FACTS";
+  const storyProjection = [{ key: "part:text", text: "underlying prose", start: 0, end: 5 }];
+  const navFrame = {
+    version: 7,
+    storyId: state.payload.id,
+    interactive: true,
+    state: { mode: "NAV" as const },
+    composerSelectionProjection: null,
+    storySelectionProjection: storyProjection
+  };
+  const factsFrame = { ...navFrame, state: { mode: "FACTS" as const } };
+  let selected = nativeSelection("under", 0, 5);
+  const renderer = { getSelection: () => selected } as never;
+  const original = capturePresentedSelection(renderer, navFrame);
+  consumePresentedSelection(original);
+
+  const unchanged = guardFactsStorySelectionCapture(
+    capturePresentedSelection(renderer, factsFrame, original),
+    original
+  );
+  const retained = reconcilePresentedSelection(unchanged, 7, state);
+  expect(retained.kind).toBe("captured");
+  if (retained.kind !== "captured") throw new Error("expected retained selection");
+  expect(retained.story).toBe(storyProjection);
+
+  selected = nativeSelection("Facts row", 20, 29);
+  const changed = guardFactsStorySelectionCapture(
+    capturePresentedSelection(renderer, factsFrame, original),
+    original
+  );
+  const refused = reconcilePresentedSelection(changed, 7, state);
+  expect(refused.kind).toBe("captured");
+  if (refused.kind !== "captured") throw new Error("expected captured Facts range");
+  expect(refused.story).toBeNull();
 });
 
 test("presented selection rejects stale projections owned by a loading frame", () => {

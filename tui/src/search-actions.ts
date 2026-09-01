@@ -19,6 +19,7 @@ import {
   type SearchState
 } from "./search-model.js";
 import { adoptStoryState } from "./story-adoption.js";
+import { paletteSessionReturningTo, restorePaletteSession } from "./palette-owner.js";
 import {
   generationBusy,
   landOnNode,
@@ -155,7 +156,16 @@ async function openSearchHit(
     return;
   }
   if (hit.kind === "fact") {
-    openHitFact(hit, state, search);
+    // A vault hit can adopt a different story while Ctrl-P is suspended over
+    // Search. Adoption clears the Search object, so the normal identity fence
+    // in `openHitFact` no longer matches. Keep that palette session alive and
+    // retarget its return surface to the Facts overlay we are about to open.
+    const palette = state.mode === "COMMANDS"
+      && state.commands?.returnMode === "NAV"
+      && state.search !== search
+      ? state.commands
+      : null;
+    openHitFact(hit, state, search, palette);
     return;
   }
   const target = resolveRerouteTarget(state.payload, hit.targetId);
@@ -163,12 +173,44 @@ async function openSearchHit(
     state.toast = "that part is no longer in this story";
     return;
   }
-  if (landOnOwnLine(target, state, search, source)) return;
+  let palette = state.mode === "COMMANDS"
+    && state.commands?.returnMode === "NAV"
+    ? state.commands
+    : null;
+  if (landOnOwnLine(target, state, search, source)) {
+    if (palette !== null) {
+      // Landing normally closes Search. A palette opened while the story was
+      // loading is still the visible owner, so restore it after landing.
+      state.commands = palette;
+      state.mode = "COMMANDS";
+    }
+    return;
+  }
   const searchOrigin: RerouteOrigin = {
-    owns: (current) => current.mode === "SEARCH" && current.search === search,
-    release: (current) => { current.search = null; }
+    owns: (current) => {
+      if (palette !== null) {
+        return current.mode === "COMMANDS" && current.commands === palette;
+      }
+      // Ctrl-P can open while switchLine is settling. Capture only a palette
+      // that still returns to this exact Search; a later palette is fenced by
+      // the task's interaction epoch before this predicate is reached.
+      if (current.mode === "COMMANDS"
+        && current.commands?.returnMode === "SEARCH"
+        && current.search === search) {
+        palette = current.commands;
+        return true;
+      }
+      return current.mode === "SEARCH" && current.search === search;
+    },
+    release: (current) => {
+      if (current.search === search) current.search = null;
+      if (palette !== null && current.commands === palette) {
+        palette.returnMode = "NAV";
+      }
+    }
   };
   await rerouteToNode(state, source, context, target, searchOrigin);
+  if (palette !== null && state.commands === palette) state.mode = "COMMANDS";
 }
 
 /** Load and adopt the story a vault hit belongs to. Search keeps the screen
@@ -192,12 +234,23 @@ async function openHitStory(
       state.toast = "that part is no longer in that story";
       return;
     }
+    const palette = paletteSessionReturningTo(state, "SEARCH");
     flushReadingPositionPersist();
     adoptStoryState(state, payload, context.cache);
-    // adoptStoryState returns the app to NAV; search still owns the screen
-    // until the part it is travelling to is on the page.
-    state.mode = "SEARCH";
-    state.search = search;
+    if (palette !== null) {
+      // A different-story adoption clears every story-bound surface,
+      // including the search navigator. Keep Ctrl-P visible, with Esc
+      // returning to the settled story's NAV surface. Its captured
+      // selection names the old story and must not cross this boundary.
+      palette.selection = null;
+      palette.deleteArmedTagNodeId = null;
+      restorePaletteSession(state, palette, "NAV");
+    } else {
+      // adoptStoryState returns the app to NAV; search still owns the screen
+      // until the part it is travelling to is on the page.
+      state.mode = "SEARCH";
+      state.search = search;
+    }
     adopted = true;
   });
   return adopted;
@@ -233,8 +286,13 @@ function landOnOwnLine(
 
 /** A fact has no place on the page, so its hit opens the facts overlay with
  *  that note selected. */
-function openHitFact(hit: SearchHit, state: RuntimeState, search: SearchState): void {
-  if (state.search !== search) return;
+function openHitFact(
+  hit: SearchHit,
+  state: RuntimeState,
+  search: SearchState,
+  palette: RuntimeState["commands"] = null
+): void {
+  if (state.search !== search && palette === null) return;
   const rows = factRows(state.payload.facts, null, "");
   const cursor = rows.findIndex((fact) => fact.id === hit.targetId);
   if (cursor < 0) {
@@ -253,5 +311,12 @@ function openHitFact(hit: SearchHit, state: RuntimeState, search: SearchState): 
     dossier: null,
     ...(hit.stateId === undefined ? {} : { selectedStateId: hit.stateId })
   };
-  state.mode = "FACTS";
+  if (palette !== null) {
+    palette.returnMode = "FACTS";
+    palette.selection = null;
+    state.commands = palette;
+    state.mode = "COMMANDS";
+  } else {
+    state.mode = "FACTS";
+  }
 }

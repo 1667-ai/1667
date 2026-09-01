@@ -59,6 +59,7 @@ import { canRewriteSelection, type StorySelectionSpan } from "./selection-projec
 import type { ActionContext } from "./action-context.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import { openRewriteComposer, resolveRewriteTarget, submitRewriteComposer } from "./rewrite-action.js";
+import { retargetPaletteSession } from "./palette-owner.js";
 import {
   advanceOrSaveTag,
   confirmPrune,
@@ -321,10 +322,11 @@ export async function runPartAction(
   id: PartActionId,
   state: RuntimeState,
   source: AppSource,
-  context: ActionContext
+  context: ActionContext,
+  targetPartId?: string
 ): Promise<void> {
   const view = createStoryViewModel(state.payload, state.stream);
-  const partId = state.actions?.partId ?? rowPart(view, state.focusIndex)?.id ?? null;
+  const partId = targetPartId ?? state.actions?.partId ?? rowPart(view, state.focusIndex)?.id ?? null;
   const selectionText = state.actions?.selectionText ?? null;
   const selectionSpans = state.actions?.selectionSpans ?? [];
   closeActions(state);
@@ -673,8 +675,20 @@ export async function composeAction(
         }
         // Keep the Direct draft until the load succeeds. A failed Aside read
         // must leave the writer in COMPOSE with the exact text they entered.
+        const paletteAtStart = state.commands;
+        const restoreDirectDraft = () => {
+          const newerPalette = state.mode === "COMMANDS"
+            && state.commands !== null
+            && state.commands !== paletteAtStart
+            ? state.commands
+            : null;
+          if (newerPalette === null) state.mode = "COMPOSE";
+          else retargetPaletteSession(state, newerPalette, "COMPOSE");
+          setComposerText(state.composer, instruction);
+        };
         try {
           let opened = false;
+          let initialAskCompleted = asideParse.kind !== "open-and-ask";
           const admitted = await context.backend.run(
             asideParse.kind === "open" ? "opening Aside" : "asking Aside",
             async (task) => {
@@ -684,7 +698,7 @@ export async function composeAction(
                 task
               });
               if (opened && asideParse.kind === "open-and-ask" && state.aside !== null) {
-                await sendAsideQuestion(state, source.api, asideParse.question, {
+                initialAskCompleted = await sendAsideQuestion(state, source.api, asideParse.question, {
                   task,
                   repaint: context.repaint,
                   cache: context.cache
@@ -692,12 +706,15 @@ export async function composeAction(
               }
             }
           );
-          if (admitted && opened && state.mode === "ASIDE" && state.aside !== null) {
-            setComposerText(state.composer, "");
+          // Aside can finish loading underneath the global palette. `opened`
+          // is the ownership-fenced success signal; the visible mode may be
+          // COMMANDS with ASIDE as its return mode in that case.
+          if (admitted && opened && state.aside !== null) {
+            if (initialAskCompleted) setComposerText(state.composer, "");
+            else restoreDirectDraft();
           }
         } catch (error) {
-          state.mode = "COMPOSE";
-          setComposerText(state.composer, instruction);
+          restoreDirectDraft();
           state.toast = error instanceof Error ? error.message : String(error);
         }
         return;
@@ -806,10 +823,33 @@ export async function rerouteFromMap(
   context: ActionContext,
   nodeId = state.map?.pathCursorId ?? null
 ): Promise<void> {
+  // Ctrl-P can suspend the Map while its switchLine request is in flight. The
+  // palette does not start a new interaction, so the request still owns the
+  // landing; retarget that exact suspended surface to NAV when it settles.
+  let palette: RuntimeState["commands"] = null;
   await rerouteToNode(state, source, context, nodeId, {
-    owns: (current) => current.mode === "MAP" && current.map !== null,
-    release: (current) => { current.map = null; }
+    owns: (current) => {
+      if (palette !== null) {
+        return current.mode === "COMMANDS" && current.commands === palette;
+      }
+      if (current.mode === "COMMANDS"
+        && current.commands?.returnMode === "MAP"
+        && current.map !== null) {
+        palette = current.commands;
+        return true;
+      }
+      return current.mode === "MAP" && current.map !== null;
+    },
+    release: (current) => {
+      if (current.mode === "MAP" || palette !== null && current.commands === palette) {
+        current.map = null;
+      }
+      if (palette !== null && current.commands === palette) {
+        palette.returnMode = "NAV";
+      }
+    }
   });
+  if (palette !== null && state.commands === palette) state.mode = "COMMANDS";
 }
 
 /** Route the line through a node and land on it.

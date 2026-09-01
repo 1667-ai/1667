@@ -39,6 +39,7 @@ import {
 import type { ResolvedKey } from "./keys.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import { rebaseSelectedState } from "./editor-reconciliation.js";
+import { settleModeUnderPalette } from "./palette-owner.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import { storyScalarFieldSpec } from "./story-scalar-fields.js";
 import type {
@@ -51,7 +52,7 @@ import type { ActionContext } from "./action-context.js";
 import { textHash } from "./api.js";
 import { findCreatedTake } from "./created-take.js";
 import { rememberFocus } from "./reading-position-persist.js";
-import { setComposerText } from "./composer-model.js";
+import { moveComposerTo, setComposerText } from "./composer-model.js";
 import {
   applyWritingPromptDraft,
   settingsDraftChanged
@@ -59,11 +60,13 @@ import {
 import { writingPromptFieldDefinitionForRow } from "../../shared/settings-v5-writing.js";
 import { toggleFactEditorViewMode } from "./settings-view-mode.js";
 import { canonicalFactStates, firstFactText, isFactEndState, isFactStateful } from "../../shared/fact-state.js";
+import { isFactsBudgetEditor } from "./facts-budget-editor.js";
 
 export {
   openChapterSummaryEditor,
   openFactEditor,
   openFactStateEditor,
+  factEditorCursorAnchorId,
   openFactFromSelection,
   openAuthorsNoteEditor,
   openAuthorBriefEditor,
@@ -94,6 +97,13 @@ export async function inlineEditorAction(
     // action continues through the Fact reducer.
     if (source === null && resolved.action !== "take-previous" && resolved.action !== "take-next") return;
     if (resolved.action === "compose") return;
+  }
+
+  if (isFactsBudgetEditor(editor)
+    && resolved.action === "compose"
+    && resolved.composerCursor !== undefined) {
+    moveComposerTo(editor.composer, resolved.composerCursor);
+    return;
   }
 
   // Author's Note grammar owns the depth control, the same way the Fact
@@ -168,6 +178,12 @@ export async function inlineEditorAction(
     && handleFactEditorHistory(resolved, state, editor)) {
     return;
   }
+  // Facts Budget is a one-line scalar. Enter commits it, matching the Settings
+  // field behavior; every other document editor keeps Enter as a newline.
+  if (isFactsBudgetEditor(editor) && resolved.action === "newline") {
+    await saveInlineEditor(state, source, context, editor, "default");
+    return;
+  }
   const motion = composerMotion(
     state.config.wordWrap === "on",
     () => Math.max(1, (context.renderer?.width ?? 80) - 4)
@@ -227,25 +243,27 @@ function closeInlineEditor(
   toast?: string
 ): void {
   if (state.editor !== editor) return;
+  const nextMode = editor.returnMode === "FACTS" && state.facts !== null
+    ? "FACTS"
+    : editor.returnMode === "MAP" && state.map !== null
+    ? "MAP"
+    : editor.returnMode === "SETTINGS"
+    && editor.kind === "document"
+    && editor.target.kind === "settings-prompt"
+    && state.settings === editor.target.owner
+    ? "SETTINGS"
+    : "NAV";
+  if (nextMode === "SETTINGS"
+    && editor.kind === "document"
+    && editor.target.kind === "settings-prompt"
+    && !settingsDraftChanged(editor.target.owner)) {
+    editor.target.owner.conflict = null;
+  }
   state.textActions = null;
   state.editor = null;
   state.editorScrollTop = 0;
   state.editorScrollDetached = false;
-  if (editor.returnMode === "FACTS" && state.facts !== null) {
-    state.mode = "FACTS";
-  } else if (editor.returnMode === "MAP" && state.map !== null) {
-    state.mode = "MAP";
-  } else if (editor.returnMode === "SETTINGS"
-    && editor.kind === "document"
-    && editor.target.kind === "settings-prompt"
-    && state.settings === editor.target.owner) {
-    if (!settingsDraftChanged(editor.target.owner)) {
-      editor.target.owner.conflict = null;
-    }
-    state.mode = "SETTINGS";
-  } else {
-    state.mode = "NAV";
-  }
+  settleModeUnderPalette(state, "EDITOR", nextMode);
   if (toast !== undefined) state.toast = toast;
 }
 

@@ -1,11 +1,13 @@
 import type { KeyEvent } from "@opentui/core";
 import type { ResolvedKey } from "./keys.js";
-import type { RuntimeState } from "./state.js";
+import type { RequestViewerState, RuntimeState } from "./state.js";
+
+type RequestViewerReturnMode = RequestViewerState["returnMode"];
 
 /** Open the read-only request document without moving its owner. */
 export function openRequestViewer(
   state: RuntimeState,
-  returnMode: "NAV" | "COMPOSE" = state.mode === "COMPOSE" ? "COMPOSE" : "NAV"
+  returnMode: RequestViewerReturnMode = state.mode === "COMPOSE" ? "COMPOSE" : "NAV"
 ): void {
   state.request = { cursor: 0, scrollTop: -1, returnMode };
   state.mode = "REQUEST";

@@ -3,7 +3,14 @@ import { hitAt } from "./hit.js";
 import type { ResolvedKey } from "./keys.js";
 import { factRows } from "./facts-model.js";
 import { canonicalFactStates } from "../../shared/fact-state.js";
-import { commandContext, commandMatches, commandSelectionId } from "./command-model.js";
+import {
+  commandContext,
+  commandMatches,
+  commandSelectionId,
+  retainCommandSelection
+} from "./command-model.js";
+import { factEditorPaletteContext } from "./facts-command-catalog.js";
+import { factsOpeningPartId, factsPaletteContext } from "./facts-command-context.js";
 import { libraryRows } from "./library-model.js";
 import { searchRows, selectedSearchRow } from "./search-model.js";
 import { canRewriteSelection } from "./selection-projection.js";
@@ -255,7 +262,8 @@ function sameMouseTarget(
     && before.settingsRow === after.settingsRow
     && before.text === after.text
     && before.composerSourceId === after.composerSourceId
-    && before.composerEditable === after.composerEditable;
+    && before.composerEditable === after.composerEditable
+    && before.composerCursor === after.composerCursor;
 }
 
 function mapRowAt(
@@ -290,7 +298,10 @@ function mapRowId(state: MouseActionState, index: number | undefined): string | 
  *  Null means the row cannot be named, which reconciliation refuses. */
 function listRowIdentity(state: MouseActionState, index: number | undefined): string | null {
   if (index === undefined) return null;
-  if (state.textActions !== null) return availableTextActions(state.textActions)[index]?.id ?? null;
+  const commandsOwnRows = state.mode === "COMMANDS" && state.commands !== null;
+  if (!commandsOwnRows && state.textActions !== null) {
+    return availableTextActions(state.textActions)[index]?.id ?? null;
+  }
   if (state.mode === "ASIDE" && state.aside?.useMenu !== null
     && state.aside?.useMenu !== undefined) {
     const entry = asideUseActions(state.aside.useMenu.selectionText)[index];
@@ -298,13 +309,15 @@ function listRowIdentity(state: MouseActionState, index: number | undefined): st
       ? null
       : asideUseRowId(state.aside.useMenu.sessionId, entry.id);
   }
-  if (state.request !== null) return requestRowIdentity(state, index);
+  if (!commandsOwnRows && state.request !== null) return requestRowIdentity(state, index);
   if (state.mode === "MAP" && state.map !== null) return mapRowId(state, index);
-  if (state.search !== null) {
+  if (!commandsOwnRows && state.search !== null) {
     return searchRowIdentity(state, index);
   }
-  if (state.actions !== null) return currentPartActions(state)[index]?.id ?? null;
-  if (state.library !== null) {
+  if (!commandsOwnRows && state.actions !== null) {
+    return currentPartActions(state)[index]?.id ?? null;
+  }
+  if (!commandsOwnRows && state.library !== null) {
     return libraryRows(
       state.library.stories,
       state.library.query
@@ -320,7 +333,11 @@ function listRowIdentity(state: MouseActionState, index: number | undefined): st
       commandContext(state.payload, {
         connectionDown: state.connection.down,
         requestActive: state.requestActive ?? false,
-        canRewriteSelection: canRewriteSelection(state.commands.selection?.spans ?? [])
+        canRewriteSelection: canRewriteSelection(state.commands.selection?.spans ?? []),
+        hasStoryPart: factsOpeningPartId(state) !== null,
+        hasStorySelection: Boolean(state.commands.selection?.text?.trim()),
+        ...factEditorPaletteContext(state.editor?.kind === "fact" ? state.editor : null),
+        ...factsPaletteContext(state)
       })
     )[index];
     return match === undefined ? null : commandSelectionId(match.command);
@@ -390,7 +407,8 @@ function selectableRowsOpen(state: MouseActionState): boolean {
 }
 
 function selectedListIdentity(state: MouseActionState): string | null {
-  if (state.textActions !== null) {
+  const commandsOwnRows = state.mode === "COMMANDS" && state.commands !== null;
+  if (!commandsOwnRows && state.textActions !== null) {
     const entry = availableTextActions(state.textActions)[state.textActions.cursor];
     return entry === undefined ? null : `text-actions:${entry.id}`;
   }
@@ -401,8 +419,10 @@ function selectedListIdentity(state: MouseActionState): string | null {
       ? null
       : asideUseRowId(state.aside.useMenu.sessionId, entry.id);
   }
-  if (state.request !== null) return requestRowIdentity(state, state.request.cursor);
-  if (state.search !== null) {
+  if (!commandsOwnRows && state.request !== null) {
+    return requestRowIdentity(state, state.request.cursor);
+  }
+  if (!commandsOwnRows && state.search !== null) {
     return searchRowIdentity(state, state.search.cursor);
   }
   if (state.mode === "MAP" && state.map !== null) {
@@ -412,11 +432,11 @@ function selectedListIdentity(state: MouseActionState): string | null {
   // Name the verb, not its position: the menu's entries change composition
   // while a generation lands, so the row under an unmoved cursor can become a
   // different — and destructive — action.
-  if (state.actions !== null) {
+  if (!commandsOwnRows && state.actions !== null) {
     const entry = currentPartActions(state)[state.actions.cursor];
     return entry === undefined ? null : `actions:${state.actions.partId}:${entry.id}`;
   }
-  if (state.library !== null) {
+  if (!commandsOwnRows && state.library !== null) {
     const story = libraryRows(
       state.library.stories,
       state.library.query
@@ -431,7 +451,33 @@ function selectedListIdentity(state: MouseActionState): string | null {
       const tag = state.payload.tags[state.commands.cursor];
       return tag === undefined ? null : `tags:${tag.nodeId}`;
     }
-    return `commands:${state.commands.view}:${state.commands.selectedId ?? state.commands.cursor}`;
+    if (state.commands.view === "commands") {
+      const matches = commandMatches(
+        state.commands.query,
+        state.demo,
+        commandContext(state.payload, {
+          connectionDown: state.connection.down,
+          requestActive: state.requestActive ?? false,
+          canRewriteSelection: canRewriteSelection(state.commands.selection?.spans ?? []),
+          hasStoryPart: factsOpeningPartId(state) !== null,
+          hasStorySelection: Boolean(state.commands.selection?.text?.trim()),
+          ...factEditorPaletteContext(state.editor?.kind === "fact" ? state.editor : null),
+          ...factsPaletteContext(state)
+        })
+      );
+      // Rendering retains the command by id, then falls back to the cursor.
+      // Use that same effective selection here; selectedId can be stale until
+      // the next keyboard reducer runs after a contextual repaint.
+      const retained = retainCommandSelection(
+        matches,
+        state.commands.selectedId,
+        state.commands.cursor
+      );
+      return retained.selectedId === null
+        ? null
+        : `commands:${state.commands.view}:${retained.selectedId}`;
+    }
+    return `commands:${state.commands.view}:${state.commands.cursor}`;
   }
   if (state.facts !== null) {
     if (state.facts.dossier !== null && state.facts.dossier !== undefined) {

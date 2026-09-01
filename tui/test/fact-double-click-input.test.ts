@@ -110,6 +110,94 @@ function factsPanelState(): RuntimeState {
 }
 
 describe("Fact double-click through interactive input admission", () => {
+  test("a first command-row click runs while dormant Facts owns the return surface", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const cache = createWrapCache<ProseStyle>();
+    state.facts = {
+      cursor: 0,
+      query: "",
+      chip: 0,
+      selectedTag: null,
+      filtering: false,
+      deleteArmedId: null,
+      scopeFilter: "everywhere",
+      dossier: null
+    };
+    state.mode = "COMMANDS";
+    state.commands = {
+      query: "filter facts",
+      cursor: 0,
+      selectedId: "facts-filter",
+      view: "commands",
+      returnMode: "FACTS"
+    };
+    Object.assign(state, renderStoryScreen(state, {
+      width: 120,
+      height: 30,
+      wrapCache: cache
+    }).derived);
+
+    const selected = state.hitRows
+      .flatMap((hit, y) => [
+        ...(hit?.target.kind === "list" && hit.target.selected === true
+          ? [{ left: hit.left, y }]
+          : []),
+        ...(hit?.overrides ?? [])
+          .filter((region) => region.target.kind === "list" && region.target.selected === true)
+          .map((region) => ({ left: region.left, y }))
+      ])
+      .at(0);
+    expect(selected).toBeDefined();
+    const event: FactClick = {
+      type: "down",
+      button: 0,
+      x: selected!.left + 2,
+      y: selected!.y,
+      modifiers: { shift: false, alt: false, ctrl: false }
+    };
+    const presented: PresentedInteraction = {
+      version: 1,
+      frameToken: 1,
+      interactive: true,
+      storyId: state.payload.id,
+      state: captureMouseActionState(state)
+    };
+    const queue = createPresentedInputQueue({ flush() {}, ready: () => true });
+    const admission = createInteractiveInputAdmission();
+    const actions: string[] = [];
+    admission.enqueueMouse(queue, event, {
+      presented,
+      frameFailed: false,
+      requestInputRecovery() {},
+      run: (action, queuedEvent, captured) => {
+        const reconciled = reconcilePresentedMouseAction({
+          action,
+          event: queuedEvent,
+          captured,
+          presented,
+          state
+        });
+        if (reconciled === null) return;
+        actions.push(reconciled.action);
+        return dispatch(
+          reconciled,
+          state,
+          source,
+          cache,
+          () => undefined,
+          async () => undefined,
+          () => undefined
+        );
+      }
+    });
+    await drainMicrotasks();
+
+    expect(actions).toEqual(["open-selected"]);
+    expect(state.mode).toBe("FACTS");
+    expect(state.facts?.filtering).toBeTrue();
+  });
+
   test("uninterrupted double-click opens the exact Fact editor", async () => {
     let now = 1_000;
     const { source, state, enqueueMouse } = createFactsAdmission({ now: () => now });

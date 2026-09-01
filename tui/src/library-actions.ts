@@ -17,6 +17,7 @@ import {
   forgetStoryReadingPosition
 } from "./reading-position-persist.js";
 import { adoptReconciliationSnapshot, adoptSameStoryPayload, adoptStoryState } from "./story-adoption.js";
+import { paletteSessionReturningTo, restorePaletteSession } from "./palette-owner.js";
 import type { RuntimeState, TextPrompt } from "./state.js";
 
 export interface OpenLibraryOptions {
@@ -132,7 +133,19 @@ export async function libraryAction(
       const payload = await source.api.loadStory(selected.id);
       if (task.interactionCurrent() && state.library === overlay) {
         flushReadingPositionPersist();
+        const palette = paletteSessionReturningTo(state, "LIBRARY");
+        const differentStory = payload.id !== state.payload.id;
         adoptStory(state, payload, context);
+        if (palette !== null) {
+          // A different-story adoption clears every story-bound surface,
+          // including the palette. Keep Ctrl-P visible, with Esc returning to
+          // the settled story's NAV surface.
+          if (differentStory) {
+            palette.selection = null;
+            palette.deleteArmedTagNodeId = null;
+          }
+          restorePaletteSession(state, palette, "NAV");
+        }
       }
     });
   }
@@ -158,7 +171,16 @@ export async function createNewStory(
       adoptReconciliationSnapshot(state, payload, context.cache);
       adopted = true;
     } else if (overlay !== null && task.interactionCurrent() && state.library === overlay) {
+      const palette = paletteSessionReturningTo(state, "LIBRARY");
       adoptStory(state, payload, context);
+      if (palette !== null) {
+        // A new story clears every story-bound surface, including the
+        // library. Keep Ctrl-P visible, with Esc returning to the settled
+        // story's NAV surface. Its captured selection names the old story.
+        palette.selection = null;
+        palette.deleteArmedTagNodeId = null;
+        restorePaletteSession(state, palette, "NAV");
+      }
       adopted = true;
     }
     if (adopted) {
@@ -271,12 +293,21 @@ async function deleteStory(
         if (!task.owns()) return;
       }
       publishStories(state, source, stories);
-      if (task.interactionCurrent()) adoptStoryState(state, next, context.cache);
+      const palette = paletteSessionReturningTo(state, "LIBRARY");
+      if (task.interactionCurrent() && palette === null) adoptStoryState(state, next, context.cache);
       else {
         adoptReconciliationSnapshot(state, next, context.cache,
           state.library === overlay && overlay.prompt === prompt
             ? { discardedLibrary: overlay }
             : {});
+      }
+      if (palette !== null) {
+        // Deleting the open story changes stories. Keep Ctrl-P visible, with
+        // Esc returning to the fallback story's NAV surface. Its captured
+        // selection names the deleted story and must not cross this boundary.
+        palette.selection = null;
+        palette.deleteArmedTagNodeId = null;
+        restorePaletteSession(state, palette, "NAV");
       }
       state.toast = `deleted ${target.title}`;
       return;

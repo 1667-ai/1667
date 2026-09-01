@@ -3,6 +3,7 @@ import { imageInputEntryPointsOpen } from "../../shared/image-input-release.js";
 import { asideEntryPointsOpen } from "../../shared/aside-release.js";
 import { THEME_NAMES, type ThemeName } from "./config.js";
 import { fuzzyMatch } from "./fuzzy.js";
+import { FACT_COMMAND_DEFINITIONS } from "./facts-command-catalog.js";
 import {
   SETTINGS_COMMAND_DEFINITIONS,
   type SettingsCommandId,
@@ -13,7 +14,18 @@ export type CommandSectionId = "suggested" | "story" | "take" | "view" | "system
 export type CommandId =
   | "export" | "summary" | "tag-line"
   | "switch-story" | "rename-story" | "folder" | "autoname" | "import-card" | "import-archive"
-  | "authors-note" | "author-brief" | "facts-budget" | "phrase-bias" | "banned-strings"
+  | "authors-note" | "author-brief" | "facts" | "new-fact" | "new-fact-from-here"
+  | "new-fact-from-selection" | "edit-fact" | "new-fact-state" | "end-fact-here"
+  | "facts-open-selected" | "facts-filter" | "facts-cycle-tag" | "facts-clear-filter"
+  | "facts-cycle-scope" | "facts-delete"
+  | "facts-move-up" | "facts-move-down" | "facts-open-anchor" | "facts-edit-state"
+  | "facts-dossier-previous-state" | "facts-dossier-next-state" | "facts-toggle-diff"
+  | "facts-budget" | "phrase-bias" | "banned-strings"
+  | "fact-editor-toggle-view" | "fact-editor-previous-state" | "fact-editor-next-state"
+  | "fact-editor-new-state" | "fact-editor-open-anchor" | "fact-editor-reanchor-state"
+  | "fact-editor-convert-state" | "fact-editor-delete-state"
+  | "map-open-fact-lens" | "map-cycle-fact-lens" | "map-close-fact-lens"
+  | "map-open-fact-lens-anchor" | "map-edit-fact-lens"
   | "aside"
   | "direct-take" | "retake" | "rewrite-selection" | "prune" | "attach-image"
   | "tags" | "chapters" | "chapter" | "prompts"
@@ -83,6 +95,33 @@ export interface CommandPaletteContext {
   canRewriteSelection: boolean;
   /** Test seam for release-gated commands. Production uses the build switch. */
   asideEntryPointsOpen?: boolean;
+  /** A story part is focused and can be used as a Fact anchor. */
+  hasStoryPart?: boolean;
+  /** A story selection captured at palette open time can seed a new Fact. */
+  hasStorySelection?: boolean;
+  /** The suspended editor is a Fact editor. */
+  factEditor?: boolean;
+  /** The Fact editor owns a persisted state strip. */
+  factEditorStateful?: boolean;
+  /** The Fact editor currently has a selectable saved/created state. */
+  factEditorHasState?: boolean;
+  /** The Fact editor is creating a state draft. */
+  factEditorStateCreating?: boolean;
+  /** The selected Fact State has a story anchor that can be opened. */
+  factEditorCanOpenAnchor?: boolean;
+  /** The selected Fact State can be deleted through the existing reducer. */
+  factEditorCanDeleteState?: boolean;
+  /** Facts list/dossier is the suspended panel behind the palette. */
+  factsPanel?: boolean;
+  factsDossier?: boolean;
+  factsFiltering?: boolean;
+  factsHasFilter?: boolean;
+  factsSelected?: boolean;
+  factsCanMoveUp?: boolean;
+  factsCanMoveDown?: boolean;
+  /** The map owns the suspended Fact lens. */
+  mapTree?: boolean;
+  mapFactLens?: boolean;
 }
 
 const DEFAULT_CONTEXT: CommandPaletteContext = {
@@ -90,7 +129,24 @@ const DEFAULT_CONTEXT: CommandPaletteContext = {
   requestActive: false,
   hasProse: true,
   lineTagged: false,
-  canRewriteSelection: false
+  canRewriteSelection: false,
+  hasStoryPart: false,
+  hasStorySelection: false,
+  factEditor: false,
+  factEditorStateful: false,
+  factEditorHasState: false,
+  factEditorStateCreating: false,
+  factEditorCanOpenAnchor: false,
+  factEditorCanDeleteState: false,
+  factsPanel: false,
+  factsDossier: false,
+  factsFiltering: false,
+  factsHasFilter: false,
+  factsSelected: false,
+  factsCanMoveUp: false,
+  factsCanMoveDown: false,
+  mapTree: false,
+  mapFactLens: false
 };
 
 const SECTIONS: ReadonlyArray<{ id: CommandSectionId; label: string }> = [
@@ -115,7 +171,8 @@ const COMMANDS: readonly PaletteCommand[] = [
   { id: "import-card", section: "story", name: "import character card", description: "add a card's fields as Facts", mutating: true },
   { id: "authors-note", section: "story", name: "author's note", description: "steer the next passage with style, tone, or current truth", shortcut: "n", mutating: true },
   { id: "author-brief", section: "story", name: "author brief", description: "override the machine-wide author brief for this story", mutating: true },
-  { id: "facts-budget", section: "story", name: "facts budget", description: "cap the combined estimated tokens every Fact spends in a request", mutating: true },
+  ...FACT_COMMAND_DEFINITIONS,
+  { id: "facts-budget", section: "story", name: "facts budget", description: "cap the combined estimated tokens every Fact spends in a request", mutating: true, requires: (context) => context.factEditor !== true },
   { id: "phrase-bias", section: "story", name: "phrase bias", description: "bias phrases for this story only, adding to the profile's own", mutating: true },
   { id: "banned-strings", section: "story", name: "banned strings", description: "ban strings for this story only, adding to the profile's own", mutating: true },
   {
@@ -179,6 +236,23 @@ export function commandContext(
     requestActive: boolean;
     canRewriteSelection: boolean;
     asideEntryPointsOpen?: boolean;
+    hasStoryPart?: boolean;
+    hasStorySelection?: boolean;
+    factEditor?: boolean;
+    factEditorStateful?: boolean;
+    factEditorHasState?: boolean;
+    factEditorStateCreating?: boolean;
+    factEditorCanOpenAnchor?: boolean;
+    factEditorCanDeleteState?: boolean;
+    factsPanel?: boolean;
+    factsDossier?: boolean;
+    factsFiltering?: boolean;
+    factsHasFilter?: boolean;
+    factsSelected?: boolean;
+    factsCanMoveUp?: boolean;
+    factsCanMoveDown?: boolean;
+    mapTree?: boolean;
+    mapFactLens?: boolean;
   }
 ): CommandPaletteContext {
   const leafId = payload.path.at(-1)?.id ?? null;
@@ -188,7 +262,24 @@ export function commandContext(
     hasProse: payload.path.length > 0,
     lineTagged: leafId !== null && payload.tags.some((tag) => tag.nodeId === leafId),
     canRewriteSelection: context.canRewriteSelection,
-    asideEntryPointsOpen: context.asideEntryPointsOpen
+    asideEntryPointsOpen: context.asideEntryPointsOpen,
+    hasStoryPart: context.hasStoryPart ?? payload.path.length > 0,
+    hasStorySelection: context.hasStorySelection ?? false,
+    factEditor: context.factEditor ?? false,
+    factEditorStateful: context.factEditorStateful ?? false,
+    factEditorHasState: context.factEditorHasState ?? false,
+    factEditorStateCreating: context.factEditorStateCreating ?? false,
+    factEditorCanOpenAnchor: context.factEditorCanOpenAnchor ?? false,
+    factEditorCanDeleteState: context.factEditorCanDeleteState ?? false,
+    factsPanel: context.factsPanel ?? false,
+    factsDossier: context.factsDossier ?? false,
+    factsFiltering: context.factsFiltering ?? false,
+    factsHasFilter: context.factsHasFilter ?? false,
+    factsSelected: context.factsSelected ?? false,
+    factsCanMoveUp: context.factsCanMoveUp ?? false,
+    factsCanMoveDown: context.factsCanMoveDown ?? false,
+    mapTree: context.mapTree ?? false,
+    mapFactLens: context.mapFactLens ?? false
   };
 }
 

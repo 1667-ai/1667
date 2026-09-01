@@ -68,6 +68,31 @@ export function capturePresentedInputSelection(
   return capturePresentedSelection(renderer, frame, previous);
 }
 
+/** Facts keeps the last NAV story projection under its panel so the original
+ * native range can still open a palette command. A new or changed range on
+ * the Facts frame must not map panel cells onto unrelated prose underneath. */
+export function guardFactsStorySelectionCapture(
+  captured: CapturedPresentedSelection,
+  previous: CapturedPresentedSelection | null
+): CapturedPresentedSelection {
+  const frame = captured.frame;
+  if (captured === previous || frame?.state.mode !== "FACTS"
+    || frame.storySelectionProjection === null || captured.native === null) {
+    return captured;
+  }
+  const priorNavNative = previous?.frame?.state.mode === "NAV"
+    ? previous.native
+    : null;
+  if (priorNavNative !== null && priorNavNative !== undefined
+    && sameNativeSelection(priorNavNative, captured.native)) {
+    return captured;
+  }
+  return {
+    ...captured,
+    frame: { ...frame, storySelectionProjection: null }
+  };
+}
+
 export function consumePresentedSelection(captured: CapturedPresentedSelection): void {
   if (captured.disposition === "active") captured.disposition = "consumed";
 }

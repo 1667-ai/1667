@@ -7,6 +7,7 @@ import { readImportBytes } from "../../server/import-file.js";
 import type { ResolvedKey } from "./keys.js";
 import { recordNotice } from "./notice-log.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
+import { settleModeUnderPalette } from "./palette-owner.js";
 import type { CardImportPrompt, RuntimeState } from "./state.js";
 import { fidelityReport } from "../../shared/fidelity.js";
 
@@ -99,8 +100,8 @@ async function applyCardImport(
     // closure has run.
     const finishedPlan = plan as CardImportPlan | null;
     if (ran && adopted && finishedPlan !== null && state.card === overlay) {
+      settleModeUnderPalette(state, "CARD", overlay.returnMode);
       state.card = null;
-      state.mode = overlay.returnMode;
       const headline = `imported ${describeCardImport(finishedPlan)}`;
       if (finishedPlan.fidelity.length === 0) {
         state.toast = headline;
@@ -122,4 +123,3 @@ async function applyCardImport(
     overlay.error = errorMessage(error);
   }
 }
-

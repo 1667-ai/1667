@@ -17,13 +17,18 @@ export type MouseGesture = Pick<
  *  under an open menu or list are derived from the story, and reconciliation
  *  has to compare the row, not its index. */
 export type MouseActionState = Pick<RuntimeState,
-  | "mode" | "focusIndex" | "hitRows" | "map" | "payload" | "stream" | "demo" | "lineClipboard"
+  | "mode" | "focusIndex" | "hitRows" | "map" | "payload" | "stream" | "now" | "demo" | "lineClipboard"
   | "connection" | "composer" | "editor"
   | "actions" | "textActions" | "library" | "facts" | "commands" | "chapters" | "settings"
   | "search"
   | "request"
   | "aside"
 > & {
+  /** The displayed take identity for viewers that can sit beneath the
+   *  command palette. A queued command row only needs this one field to
+   *  rebuild its contextual availability. */
+  probs: { nodeId: string } | null;
+  record: { nodeId: string } | null;
   /** Derived exactly as the panel renderer derives it, since the palette's
    *  rows — and therefore their indexes — depend on it. Optional so live
    *  `RuntimeState` still satisfies this type; a captured snapshot always
@@ -96,10 +101,14 @@ export function createFactDoubleClickGate(
       }
       if (event.type === "drag" || event.type === "scroll") previous = null;
       if (event.type !== "down") return resolved;
-      const target = event.button === 0 && state.facts !== null
+      if (state.mode !== "FACTS" || state.facts === null) {
+        previous = null;
+        return resolved;
+      }
+      const target = event.button === 0
         ? hitAt(state.hitRows, event.x, event.y)
         : null;
-      if (state.facts?.dossier !== null && state.facts?.dossier !== undefined) {
+      if (state.facts.dossier !== null && state.facts.dossier !== undefined) {
         return resolved;
       }
       if (target?.kind !== "list") {
@@ -193,6 +202,7 @@ export function captureMouseActionState(state: RuntimeState): MouseActionState {
     // snapshot.
     payload: state.payload,
     stream: state.stream,
+    now: state.now,
     lineClipboard: state.lineClipboard === null ? null : { ...state.lineClipboard },
     demo: state.demo,
     composer: state.composer,
@@ -201,6 +211,8 @@ export function captureMouseActionState(state: RuntimeState): MouseActionState {
     // the frame that drew it saw.
     connection: state.connection,
     requestActive: generationBusy(state) || state.summary !== null || state.chapterSummary != null,
+    probs: state.probs === null ? null : { nodeId: state.probs.nodeId },
+    record: state.record === null ? null : { nodeId: state.record.nodeId },
     map: state.map === null ? null : {
       ...state.map,
       rowIds: [...state.map.rowIds],
@@ -434,10 +446,18 @@ export function mouseToAction(
       && target.composerSourceId !== undefined) {
       return {
         action: "compose",
-        composerSourceId: target.composerSourceId
+        composerSourceId: target.composerSourceId,
+        ...(target.composerCursor === undefined
+          ? {}
+          : { composerCursor: target.composerCursor })
       };
     }
-    return { action: "compose" };
+    return {
+      action: "compose",
+      ...(target.composerCursor === undefined
+        ? {}
+        : { composerCursor: target.composerCursor })
+    };
   }
   if (target.kind === "part") {
     // Carry the row identity its neighbours carry: an index alone cannot
@@ -476,6 +496,7 @@ export function mouseToAction(
 
 /** Where the open overlay's cursor sits, for click-again-to-run. */
 function listCursor(state: MouseActionState): number | null {
+  if (state.mode === "COMMANDS" && state.commands !== null) return state.commands.cursor;
   if (state.textActions !== null) return state.textActions.cursor;
   if (state.request !== null) return state.request.cursor;
   if (state.actions !== null) return state.actions.cursor;

@@ -160,13 +160,21 @@ applies its subscription limits, terms, and data controls.
 | Copy the selected story part or story line | `y` or `Y` |
 | Undo an added or removed chapter break | `u` |
 | Open the map, facts, chapters, or library | `m`, `f`, `c`, or `o` |
-| Open commands | `Ctrl+P` or `:` |
+| Open commands | `Ctrl+P` from any surface or `:` |
 | Open the request viewer | `Ctrl+R` |
 | Open the token probability viewer | `l` |
 | Open settings or the key reference | `,` or `?` |
 | Quit | `q` |
 
 The `q` key also quits when Aside is open.
+
+Press `Ctrl+P` from every surface to open the command palette. Press `Escape` to
+return to the prior surface. If the command palette is already open, `Ctrl+P`
+keeps it open.
+
+The command palette provides contextual Fact workflows. It shows the Fact
+commands that apply to the current surface, such as opening Facts, adding a
+Fact State, editing a Fact, and using the Map Fact lens.
 
 The keys `h`, `j`, `k`, and `l` do not move between story parts. `l` opens
 the token probability viewer instead. In the map, `l` follows or opens the

@@ -37,6 +37,7 @@ import {
 import { noteCursorAfterHistoryScroll } from "./aside-note-scroll.js";
 import type { RuntimeState } from "./state.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
+import { retargetPaletteSession } from "./palette-owner.js";
 import { createTextPresentation, drainTextPresentation } from "./text-presentation.js";
 import { createStoryViewModel, rowPart } from "./model.js";
 import { persistablePartId } from "./reading-position.js";
@@ -552,6 +553,24 @@ export function noteAsideDisplayScroll(state: RuntimeState): void {
   }
 }
 
+/** Keep an in-flight Ask's restore fence behind palette-only interaction.
+ * The palette suspends Aside, so its typing, movement, and Escape do not edit
+ * the cleared question. A real Aside composer interaction still advances the
+ * shared epoch and remains fenced normally. */
+export function noteAsidePaletteInteraction(state: RuntimeState): void {
+  const active = state.abort?.kind === "generation" ? state.abort : null;
+  if (state.mode !== "COMMANDS"
+    || state.commands?.returnMode !== "ASIDE"
+    || state.aside?.busy !== true
+    || active?.asideAsk === undefined
+    || active.askInteractionVersion === undefined) return;
+  if (active.stopInteractionVersion !== null) {
+    active.stopInteractionVersion = state.interactionVersion;
+    return;
+  }
+  active.askInteractionVersion = state.interactionVersion;
+}
+
 export async function openAside(
   state: RuntimeState,
   api: StoryApi,
@@ -567,6 +586,9 @@ export async function openAside(
   }
   const requestedStoryId = state.payload.id;
   const requestedInteractionVersion = state.interactionVersion;
+  // Ctrl-P can open while the read is pending. Capture the palette identity
+  // now so a palette created during this load can survive the settlement.
+  const paletteSessionAtOpen = state.commands;
   // Capture before the load await so a focus change while getAside is pending
   // cannot move Placement's initial stop off the Part the writer invoked on.
   // Summary/divider NAV rows have no rowPart; persistablePartId maps them to a
@@ -653,8 +675,21 @@ export async function openAside(
       openingPartId
     );
   }
-  state.mode = "ASIDE";
-  state.commands = null;
+  // A newer Ctrl-P session may have opened while the document was loading.
+  // Keep that session visible and make Escape return to the newly opened
+  // Aside. A normal open, or the original palette with no replacement, still
+  // enters Aside directly.
+  const newerPalette = state.commands !== null
+    && state.commands !== paletteSessionAtOpen
+    ? state.commands
+    : null;
+  if (newerPalette !== null) {
+    retargetPaletteSession(state, newerPalette, "ASIDE");
+    state.mode = "COMMANDS";
+  } else {
+    state.mode = "ASIDE";
+    state.commands = null;
+  }
   return true;
 }
 
@@ -736,11 +771,11 @@ export async function sendAsideQuestion(
   api: StoryApi,
   question: string,
   options: AsideAskOptions = {}
-): Promise<void> {
+): Promise<boolean> {
   const surface = state.aside;
-  if (surface === null || surface.busy || state.abort !== null) return;
+  if (surface === null || surface.busy || state.abort !== null) return false;
   const trimmed = question.trim();
-  if (trimmed.length === 0) return;
+  if (trimmed.length === 0) return false;
   const owns = options.task?.owns ?? (() => true);
   const storyCurrent = options.task?.storyCurrent ?? (() => true);
   const interactionCurrent = options.task?.interactionCurrent ?? (() => true);
@@ -847,9 +882,9 @@ export async function sendAsideQuestion(
         controller.signal
       );
     }
-    if (!current()) return;
+    if (!current()) return false;
     if (surface.presentation !== undefined) await drainTextPresentation(surface.presentation);
-    if (!current()) return;
+    if (!current()) return false;
     if (result === null) {
       // Cancelled or stopped: return the question to the input.
       const restore = mayRestore();
@@ -858,7 +893,7 @@ export async function sendAsideQuestion(
       clearAsideStream(surface);
       if (restore && !preserveScroll) surface.scrollTop = null;
       surface.busy = false;
-      return;
+      return false;
     }
     const preserveScroll = isAsideV2(surface) && surface.scrollTop !== null;
     applyAsideResult(surface, result);
@@ -891,8 +926,9 @@ export async function sendAsideQuestion(
     if (controller.signal.aborted) {
       state.toast = "Aside stopped · answer kept";
     }
+    return true;
   } catch (error) {
-    if (!current()) return;
+    if (!current()) return false;
     const restore = mayRestore();
     const preserveScroll = isAsideV2(surface) && surface.scrollTop !== null;
     if (restore && !active.asideAsk.restored) setComposerText(surface.composer, trimmed);
@@ -900,6 +936,7 @@ export async function sendAsideQuestion(
     if (restore && !preserveScroll) surface.scrollTop = null;
     surface.busy = false;
     state.toast = error instanceof Error ? error.message : String(error);
+    return false;
   } finally {
     if (state.abort === active) state.abort = null;
     if (current()) repaint();

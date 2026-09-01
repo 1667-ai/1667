@@ -241,8 +241,11 @@ describe("run C overlay frames", () => {
     expect(grouped).toContain("direct take");
     expect(grouped).toContain("generation settings");
     expect(grouped).not.toContain("acknowledge unknown");
-    expect(grouped).toContain(`theme: ${NEW_INSTALL_THEME}`);
     expect(grouped).toContain("↑↓ move · ↵ run · esc close");
+
+    const themed = await renderOnce(demoAppSource(), 120, 36, ":theme");
+    expect(themed).toContain("System");
+    expect(themed).toContain(`theme: ${NEW_INSTALL_THEME}`);
 
     const filtered = await renderOnce(demoAppSource(), 120, 36, ":sum");
     expect(filtered).toContain("Search  sum");

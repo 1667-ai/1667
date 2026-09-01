@@ -9,6 +9,7 @@ import type { ActionContext } from "./action-context.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import { createTextPresentation, drainTextPresentation } from "./text-presentation.js";
+import { settleModeUnderPalette } from "./palette-owner.js";
 
 type SummaryActionContext = Pick<ActionContext, "backend" | "cache" | "repaint">;
 
@@ -102,8 +103,7 @@ export async function startSummary(
         state.toast = narrowedTo === null ? "◈ summary take saved" : narrowedSummaryToast(requestedPath, stretch, narrowedTo);
       }
       rememberFocus(state, source);
-      state.summary = null;
-      state.mode = "NAV";
+      settleSummarySurface(state, summary);
     } catch (error) {
       if (controller.signal.aborted) {
         await reloadAfterStop(state, source, task.storyId, task.storyCurrent, context.cache);
@@ -117,8 +117,7 @@ export async function startSummary(
       }
       summary.presentation?.dispose();
       if (state.summary === summary) {
-        state.summary = null;
-        if (state.mode === "SUMMARY") state.mode = "NAV";
+        settleSummarySurface(state, summary);
       }
       context.repaint();
     }
@@ -132,8 +131,18 @@ export function cancelSummary(state: RuntimeState): void {
   summary.controller.abort();
   summary.presentation?.dispose();
   state.summary = null;
-  state.mode = "NAV";
+  // A palette opened over Summary remains visible while the request settles.
+  // Release its Summary owner now so a command chosen during cancellation
+  // returns to a real post-summary surface.
+  settleModeUnderPalette(state, "SUMMARY", "NAV");
   state.toast = SUMMARY_STOPPING_TOAST;
+}
+
+/** Release Summary ownership without stranding a palette opened over it. */
+function settleSummarySurface(state: RuntimeState, summary: SummaryOverlayState): void {
+  if (state.summary !== summary) return;
+  state.summary = null;
+  settleModeUnderPalette(state, "SUMMARY", "NAV");
 }
 
 async function reloadAfterStop(

@@ -68,7 +68,8 @@ export type KeyAction =
   | "complete" | "open-log" | "clear-log" | "row-action"
   | "open-probs" | "next-part" | "open-text-actions" | "import-profile" | "open-records"
   | "toggle-view-mode" | "cycle-state" | "cycle-fact-scope" | "convert-state" | "reanchor-state"
-  | "delete-state" | "open-state-anchor" | "new-state" | "end-state" | "toggle-fact-diff";
+  | "delete-state" | "open-state-anchor" | "new-state" | "end-state" | "clear-filter"
+  | "toggle-fact-diff";
 
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
@@ -94,6 +95,8 @@ export interface ResolvedKey {
   /** Exact field under a context-menu click in a multi-buffer editor. */
   composerSourceId?: string;
   composerEditable?: boolean;
+  /** Absolute grapheme offset selected by a click in the field. */
+  composerCursor?: number;
   /** Extend an editor/composer selection instead of only moving its caret. */
   extendSelection?: boolean;
   /** Absolute cursor placement (mouse clicks). */
@@ -413,9 +416,8 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     libraryRenaming = false,
     mapView = "path", mapFactLens = false } = options;
   const globalReference = resolveReferenceBinding("global", key, mode, mapView);
-  if (globalReference !== null || key.name === "escape") {
-    return { action: "cancel" };
-  }
+  if (globalReference !== null) return { action: globalReference.action };
+  if (key.name === "escape") return { action: "cancel" };
   if (mode === "ASIDE"
     && !key.ctrl && !key.meta && !key.option && !key.super
     && key.name === "q") {
@@ -423,7 +425,10 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     // is open. The menu is an interaction aid, not a separate application.
     return { action: "quit" };
   }
-  if (textActionsOpen) {
+  // Ctrl-P suspends transient menus by changing the visible mode to
+  // COMMANDS. Let the palette own its query and Enter even while the captured
+  // text-actions menu remains available for Escape restoration.
+  if (textActionsOpen && mode !== "COMMANDS") {
     if (key.name === "down") return { action: "focus-next" };
     if (key.name === "up") return { action: "focus-previous" };
     if (key.name === "return") return { action: "apply" };
@@ -453,7 +458,9 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "return") return { action: "apply" };
     return { action: "none" };
   }
-  if (confirmingPrune) {
+  // The global palette has priority over a captured prune confirmation. Its
+  // cleanup is identity-fenced when the selected command returns to the owner.
+  if (confirmingPrune && mode !== "COMMANDS") {
     return { action: plainShiftedLetter(key, "d") ? "prune" : "none" };
   }
   if (mode === "REQUEST") return resolveRequestViewerKey(key);

@@ -58,8 +58,14 @@ The release publishes packages for macOS, Linux, and Windows x64. See
 ## Use the TUI
 
 Use the arrow keys to move between story parts and sibling takes. Press
-`Ctrl+P` or `:` to open the command palette. Press `?` for the complete key
-reference.
+`Ctrl+P` from every surface to open the command palette. In the story view,
+`:` also opens it. Press `Escape` to return to the prior surface. If the
+command palette is already open, `Ctrl+P` keeps it open. Press `?` for the
+complete key reference.
+
+The command palette provides contextual Fact workflows. It shows the Fact
+commands that apply to the current surface, such as opening Facts, adding a
+Fact State, editing a Fact, and using the Map Fact lens.
 
 Press `Ctrl+R` to open the request viewer. The request viewer shows the next
 request plan in provider order. It shows each message and its estimated token

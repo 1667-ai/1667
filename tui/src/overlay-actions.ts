@@ -3,14 +3,11 @@ import {
   commandMatches,
   commandQueryCursor,
   retainCommandSelection,
-  type CommandMatch,
-  type PaletteCommand
+  type CommandMatch
 } from "./command-model.js";
+import { factEditorPaletteContext } from "./facts-command-catalog.js";
 import { connectionFailed, connectionSucceeded } from "./connection.js";
 import { createComposer, setComposerText } from "./composer-model.js";
-import { writeExportFile, writeStoryExport } from "./export-file.js";
-import { exportGenerationProfile } from "../../server/import-profile-export.js";
-import { selectSettingsRoute } from "../../shared/settings-route.js";
 import {
   boundedFactCursor,
   boundedFactSelection,
@@ -35,17 +32,13 @@ import {
   landOnNode,
   openTag,
   rerouteToNode,
-  runPartAction,
-  streamLive
 } from "./story-actions.js";
 import { openDirectComposer } from "./composer-ownership.js";
-import { createUnusedTakesPrunePlan } from "./prune-model.js";
 import { chaptersAction, createBreakAtFocus, openChapters } from "./chapter-actions.js";
 import { createStoryViewModel, lastPartRowIndex, rowPart } from "./model.js";
-import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
-import { cancelSummary, startSummary } from "./summary-action.js";
-import { openAside } from "./aside-actions.js";
+import { cancelSummary } from "./summary-action.js";
+import { noteAsidePaletteInteraction, openAside } from "./aside-actions.js";
 import { openAsideUseMenuFromMouse } from "./aside-use.js";
 import {
   cancelPlacement,
@@ -68,6 +61,8 @@ import { openSearch } from "./search-actions.js";
 import { cardImportAction, openCardImport } from "./card-import-actions.js";
 import { archiveImportAction, openArchiveImport } from "./archive-import-actions.js";
 import { imageAttachAction, openImageAttach } from "./image-attach-actions.js";
+import { factsOpeningPartId, factsPaletteContext } from "./facts-command-context.js";
+import { runPaletteCommand } from "./palette-command-runner.js";
 import { publishStories } from "./overlay-publication.js";
 import { retryBackendState } from "./recovery-orchestration.js";
 import {
@@ -115,11 +110,48 @@ export async function handleOverlayAction(
   resolved: ResolvedKey,
   state: RuntimeState,
   source: AppSource,
-  context: OverlayActionContext
+  context: OverlayActionContext,
+  capturedStorySelection: ProjectedStorySelection | null | undefined = undefined
 ): Promise<boolean> {
   // Top-level navigation owns quit even while an overlay is open. Let the
   // dispatch tail call `navAction`, which invokes the app's quit callback.
   if (resolved.action === "quit") return false;
+  if (resolved.action === "open-commands") {
+    // Ctrl-P is a global escape hatch. Do not nest a second palette, and do
+    // not clear any transient menu/editor that must be restored on Esc.
+    if (state.mode === "COMMANDS" && state.commands !== null) return true;
+    // The NAV projection this reads is only built for that one frame, so the
+    // selection has to be captured now — a later keystroke cannot rebuild it.
+    const factsSelection = state.mode === "FACTS"
+      ? state.facts?.storySelection
+      : undefined;
+    const retainedFactsSelection = factsSelection ?? null;
+    const selection = state.mode === "FACTS"
+      ? capturedStorySelection !== undefined
+        ? capturedStorySelection ?? retainedFactsSelection
+        : factsSelection !== undefined
+          ? retainedFactsSelection
+          : context.renderer === null
+            ? null
+            : storySelectionFromRendererSelection(context.renderer, state.storySelectionProjection)
+      : capturedStorySelection !== undefined
+        ? capturedStorySelection
+        : context.renderer === null
+          ? null
+          : storySelectionFromRendererSelection(context.renderer, state.storySelectionProjection);
+    state.commands = {
+      query: "",
+      view: "commands",
+      deleteArmedTagNodeId: null,
+      returnMode: state.mode === "COMMANDS" ? "NAV" : state.mode,
+      selection,
+      ...retainCommandSelection(liveCommandMatches(
+        state, "", selection, context.asideEntryPointsOpen
+      ), null, 0)
+    };
+    state.mode = "COMMANDS";
+    return true;
+  }
   if (resolved.action === "retry") { await reconnect(state, source, context); return true; }
   if (resolved.action === "open-aside") {
     await openAside(state, source.api, {
@@ -194,31 +226,15 @@ export async function handleOverlayAction(
   }
   if (resolved.action === "open-library") { await openLibrary(state, source, context); return true; }
   if (resolved.action === "open-facts") {
-    state.facts = initialFacts();
+    state.facts = {
+      ...initialFacts(),
+      storySelection: capturedStorySelection === undefined ? null : capturedStorySelection
+    };
     if (resolved.index !== undefined) {
       const cursor = Math.max(0, Math.min(state.payload.facts.length - 1, resolved.index));
       state.facts.cursor = cursor;
     }
     state.mode = "FACTS";
-    return true;
-  }
-  if (resolved.action === "open-commands") {
-    // The NAV projection this reads is only built for that one frame, so the
-    // selection has to be captured now — a later keystroke cannot rebuild it.
-    const selection = context.renderer === null
-      ? null
-      : storySelectionFromRendererSelection(context.renderer, state.storySelectionProjection);
-    state.commands = {
-      query: "",
-      view: "commands",
-      deleteArmedTagNodeId: null,
-      returnMode: state.mode === "COMPOSE" ? "COMPOSE" : "NAV",
-      selection,
-      ...retainCommandSelection(liveCommandMatches(
-        state, "", selection, context.asideEntryPointsOpen
-      ), null, 0)
-    };
-    state.mode = "COMMANDS";
     return true;
   }
   if (resolved.action === "open-settings") {
@@ -399,23 +415,6 @@ function initialFacts() {
   };
 }
 
-/** Facts stays over the story row that opened it. The focus index is not
- * changed by the overlay, so state creation can use that persisted part
- * instead of silently falling back to the active path leaf. */
-function factsOpeningPartId(state: RuntimeState): string | null {
-  const view = createStoryViewModel(state.payload);
-  const persistedPartId = (candidateId: string | undefined): string | null => {
-    if (candidateId === undefined) return null;
-    const node = state.payload.nodes.find(({ id }) => id === candidateId);
-    return node === undefined || node.role === "summary" ? null : node.id;
-  };
-  if (view.rows[state.focusIndex] === undefined) {
-    return persistedPartId(state.payload.path.at(-1)?.id);
-  }
-  const part = rowPart(view, state.focusIndex);
-  return persistedPartId(part?.node.id);
-}
-
 async function factsAction(
   resolved: ResolvedKey,
   state: RuntimeState,
@@ -452,6 +451,17 @@ async function factsAction(
   else if (resolved.action === "focus-index") overlay.cursor = boundedFactCursor(resolved.index ?? overlay.cursor, rows.length);
   else if (resolved.action === "focus-previous") overlay.cursor = boundedFactCursor(overlay.cursor - 1, rows.length);
   else if (resolved.action === "filter") overlay.filtering = true;
+  else if (resolved.action === "clear-filter") {
+    overlay.query = "";
+    overlay.selectedTag = null;
+    overlay.filtering = false;
+    overlay.chip = 0;
+    overlay.selectedStateId = undefined;
+    Object.assign(
+      overlay,
+      boundedFactSelection(state.payload.facts, overlay, "", pathIds, scopeFilter)
+    );
+  }
   else if (resolved.action === "cycle") {
     overlay.chip = resolved.index === undefined
       ? (overlay.chip + 1) % tags.length
@@ -483,25 +493,49 @@ async function factsAction(
       )
     );
   }
+  else if (resolved.action === "end-state") {
+    overlay.pendingFactAction = {
+      kind: "end",
+      anchorPartId: factsOpeningPartId(state)
+    };
+    overlay.filtering = false;
+    state.toast = "select a Fact · enter opens an end state";
+  }
+  else if (resolved.action === "new-state" && overlay.filtering) {
+    overlay.pendingFactAction = {
+      kind: "new-state",
+      anchorPartId: factsOpeningPartId(state)
+    };
+    overlay.filtering = false;
+    state.toast = "select a Fact · enter opens a new state";
+  }
   else if ((resolved.action === "new-state"
     || resolved.action === "open-selected" && overlay.pendingFactAction !== null
       && overlay.pendingFactAction !== undefined)
     && !overlay.filtering && selected !== undefined) {
-    if (source.api.createFactState === undefined) {
-      state.toast = "state creation requires a newer backend";
-      return true;
-    }
     const pending = overlay.pendingFactAction;
-    const anchorPartId = pending?.anchorPartId
-      ?? factsOpeningPartId(state);
-    if (anchorPartId === null) {
-      state.toast = "select a story part before adding a state";
-      return true;
-    }
-    openFactStateEditor(state, selected, anchorPartId);
-    if (pending?.kind === "end" && state.editor?.kind === "fact") {
-      state.editor.stateIsEnd = true;
-      setComposerText(state.editor.composer, "");
+    if (pending?.kind === "edit") {
+      if (isFactStateful(selected) && source.api.patchFactState === undefined) {
+        state.toast = "state editing requires a newer backend";
+        return true;
+      }
+      openFactEditor(state, selected);
+    } else {
+      if (source.api.createFactState === undefined) {
+        state.toast = "state creation requires a newer backend";
+        return true;
+      }
+      const anchorPartId = pending?.anchorPartId
+        ?? factsOpeningPartId(state);
+      if (anchorPartId === null) {
+        state.toast = "select a story part before adding a state";
+        return true;
+      }
+      openFactStateEditor(state, selected, anchorPartId);
+      if (pending?.kind === "end" && state.editor?.kind === "fact") {
+        state.editor.stateIsEnd = true;
+        setComposerText(state.editor.composer, "");
+      }
     }
     overlay.pendingFactAction = null;
   }
@@ -638,12 +672,33 @@ async function factsDossierAction(
       landOnNode(state, source, targetId);
       return true;
     }
+    // Ctrl-P can suspend the dossier while its switchLine request is in
+    // flight. Keep that exact palette session visible after landing, with
+    // Escape returning to the settled story instead of the stale dossier.
+    let palette: RuntimeState["commands"] = null;
     await rerouteToNode(state, source, context, targetId, {
-      owns: (currentState) => currentState.mode === "FACTS"
-        && currentState.facts === overlay
-        && currentState.facts.dossier === dossier,
-      release: (currentState) => { currentState.facts = null; }
+      owns: (currentState) => {
+        if (palette !== null) {
+          return currentState.mode === "COMMANDS" && currentState.commands === palette;
+        }
+        if (currentState.mode === "COMMANDS"
+          && currentState.commands?.returnMode === "FACTS"
+          && currentState.facts === overlay) {
+          palette = currentState.commands;
+          return true;
+        }
+        return currentState.mode === "FACTS"
+          && currentState.facts === overlay
+          && currentState.facts.dossier === dossier;
+      },
+      release: (currentState) => {
+        if (currentState.facts === overlay) currentState.facts = null;
+        if (palette !== null && currentState.commands === palette) {
+          palette.returnMode = "NAV";
+        }
+      }
     });
+    if (palette !== null && state.commands === palette) state.mode = "COMMANDS";
   } else if (resolved.action === "edit") {
     if (isFactStateful(fact) && source.api.patchFactState === undefined) {
       state.toast = "state editing requires a newer backend";
@@ -700,6 +755,7 @@ async function moveFact(
 
 async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source: AppSource, context: OverlayActionContext): Promise<boolean> {
   const overlay = state.commands!;
+  noteAsidePaletteInteraction(state);
   if (overlay.view === "tags") {
     if (resolved.action === "cancel") {
       if (overlay.deleteArmedTagNodeId != null) {
@@ -770,7 +826,12 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
   }
   else if (resolved.action === "open-selected") {
     const command = matches[overlay.cursor]?.command;
-    if (command !== undefined) await runCommand(command, state, source, context);
+    if (command !== undefined) await runPaletteCommand(command, state, source, context, {
+      factsAction,
+      initialFacts,
+      reconnect,
+      rewriteRequestNotProjectedToast: REWRITE_REQUEST_NOT_PROJECTED_TOAST
+    });
   }
   // Live theme preview: highlighting a theme command shows it immediately;
   // leaving the highlight (or the palette) reverts to the saved theme.
@@ -789,154 +850,7 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
   return true;
 }
 
-async function runCommand(command: PaletteCommand, state: RuntimeState, source: AppSource, context: OverlayActionContext): Promise<void> {
-  // Both refusals belong here, ahead of the `state.mode = "NAV"` below: a
-  // command that refuses after that commit strands whatever surface the
-  // palette was opened from, the trap the next-request branch documents.
-  if ((command.mutating === true && generationBusy(state))
-    || (command.blockedByLiveStream === true && streamLive(state))) {
-    state.toast = "stream running · esc stops it first";
-    return;
-  }
-  if (command.id === "tags") { state.commands!.view = "tags"; state.commands!.cursor = 0; return; }
-  const returnMode = state.commands!.returnMode;
-  const selection = state.commands!.selection ?? null;
-  state.commands = null;
-  state.mode = "NAV";
-  if (command.id === "next-request") {
-    if (state.retakePrompt?.intent.kind === "rewrite") {
-      // The unconditional `state.mode = "NAV"` above assumed every command
-      // either runs or falls through to a toast in NAV; this one refuses
-      // instead, so it has to put the writer back where the palette found
-      // them — otherwise the rewrite composer is still open in `retakePrompt`
-      // but no longer visible, stranded behind a NAV screen.
-      state.mode = returnMode;
-      state.toast = REWRITE_REQUEST_NOT_PROJECTED_TOAST;
-    } else {
-      openRequestViewer(state, returnMode);
-    }
-  }
-  else if (command.id === "token-probabilities") await openTokenProbabilities(state, source, context);
-  else if (command.id === "generation-records") await openGenerationRecordViewer(state, source, context);
-  else if (command.id === "tag-line") openTag(state);
-  else if (command.id === "authors-note") openAuthorsNoteEditor(state);
-  else if (command.id === "author-brief") openAuthorBriefEditor(state);
-  else if (command.id === "facts-budget") openFactsBudgetEditor(state);
-  else if (command.id === "phrase-bias") openPhraseBiasEditor(state);
-  else if (command.id === "banned-strings") openBannedStringsEditor(state);
-  else if (command.id === "aside") await openAside(state, source.api, {
-    entryPointsOpen: context.asideEntryPointsOpen
-  });
-  else if (command.id === "switch-story") await openLibrary(state, source, context);
-  else if (command.id === "rename-story") {
-    const targetId = state.payload.id;
-    const title = state.payload.title;
-    await openLibrary(state, source, context, {
-      selectedStoryId: targetId,
-      prompt: { kind: "rename", composer: createComposer(title), targetId }
-    });
-  }
-  else if (command.id === "direct-take") openDirectComposer(state);
-  else if (command.id === "retake") await runPartAction("retake", state, source, context);
-  else if (command.id === "rewrite-selection") {
-    // The palette's own filtering already requires a captured selection, but
-    // that only means one existed at open time — re-resolve it against the
-    // live story exactly as the part-actions menu does.
-    if (selection === null) {
-      state.toast = "highlight story text before rewriting it";
-    } else if (state.connection.down) {
-      state.toast = "offline · reading still works";
-    } else {
-      const partId = partIdFromTextSelection(selection.spans);
-      const resolved = partId === null
-        ? { error: "highlight story text before rewriting it" }
-        : resolveRewriteTarget(state.payload, partId, selection.spans);
-      if ("error" in resolved) state.toast = resolved.error;
-      else openRewriteComposer(state, resolved);
-    }
-  }
-  else if (command.id === "export") {
-    const title = state.payload.title;
-    await context.backend.run("exporting story", async (task) => {
-      const exported = await source.api.exportMarkdown(task.storyId);
-      if (!task.owns()) return;
-      const file = await writeStoryExport({
-        directory: source.exportDirectory,
-        title,
-        markdown: exported.markdown
-      });
-      if (task.interactionCurrent()) {
-        state.toast = exported.fidelity.length === 0
-          ? `exported ${file}`
-          : `exported ${file} · ${exported.fidelity.join("; ")}`;
-      }
-    });
-  } else if (command.id === "export-profile") {
-    if (!source.settingsView.editable) {
-      state.toast = "Generation Profiles require settings format 2";
-      return;
-    }
-    const document = source.settingsView.document;
-    const profileId = selectSettingsRoute(document, "prose").profileId;
-    await context.backend.run("exporting Generation Profile", async (task) => {
-      try {
-        const archive = exportGenerationProfile(document as never, profileId);
-        const file = await writeExportFile({
-          directory: source.exportDirectory,
-          title: document.profiles[profileId]!.name,
-          extension: archive.extension,
-          content: archive.text
-        });
-        if (!task.interactionCurrent()) return;
-        state.toast = `exported ${file} · connection data omitted`;
-        recordNotice(state.notices, "toast", `exported Generation Profile · ${archive.fidelity.join("; ")}`);
-      } catch (error) {
-        if (task.interactionCurrent()) {
-          state.toast = `could not export Generation Profile · ${error instanceof Error ? error.message : String(error)}`;
-        }
-      }
-    });
-  } else if (command.id === "summary") await startSummary(state, source, context);
-  else if (command.id === "chapters") openChapters(state);
-  else if (command.id === "chapter") {
-    state.focusIndex = lastPartRowIndex(createStoryViewModel(state.payload));
-    rememberFocus(state, source);
-    await createBreakAtFocus(state, source, context);
-  }
-  else if (command.id === "autoname") {
-    await context.backend.run("naming story", async (task) => {
-      const payload = await source.api.autonameStory(task.storyId);
-      if (!task.storyCurrent()) return;
-      adoptSameStoryPayload(state, payload, context.cache);
-      if (!task.owns()) return;
-      const stories = await source.api.listStories();
-      if (!task.owns()) return;
-      publishStories(state, source, stories);
-      if (task.interactionCurrent()) state.toast = `story named ${payload.title}`;
-    });
-  } else if (command.id === "prune") {
-    const plan = createUnusedTakesPrunePlan(state.payload);
-    if (plan === null) state.toast = "nothing to prune · every leaf is protected";
-    else state.prune = plan;
-  } else if (command.id === "prompts") { state.showInstructions = !state.showInstructions; state.toast = `directions ${state.showInstructions ? "shown" : "hidden"}`; }
-  else if (command.settingsTarget !== undefined || command.id === "settings") {
-    await openSettingsOverlay(state, source, context, command.settingsTarget);
-    await synchronizeSettingsModelDiscovery(state, source, context);
-  }
-  else if (command.id === "theme" && command.theme !== undefined) {
-    context.applyTheme(command.theme);
-    state.toast = `theme · ${command.theme}`;
-  }
-  else if (command.id === "reconnect") await reconnect(state, source, context);
-  else if (command.id === "folder") state.toast = source.storyFolder;
-  else if (command.id === "import-card") openCardImport(state, returnMode);
-  else if (command.id === "import-archive") openArchiveImport(state, returnMode);
-  else if (command.id === "attach-image") openImageAttach(state, source, returnMode);
-  else if (command.id === "disconnect" && state.demo) {
-    state.connection = connectionFailed(connectionSucceeded(), new Error("demo disconnect"), state.now);
-    state.toast = "simulated connection loss";
-  }
-}
+
 
 function liveCommandMatches(
   state: RuntimeState,
@@ -951,7 +865,11 @@ function liveCommandMatches(
       connectionDown: state.connection.down,
       requestActive: generationBusy(state) || state.summary !== null || state.chapterSummary != null,
       canRewriteSelection: canRewriteSelection(selection?.spans ?? []),
-      asideEntryPointsOpen: asideOpen
+      asideEntryPointsOpen: asideOpen,
+      hasStoryPart: factsOpeningPartId(state) !== null,
+      hasStorySelection: selection !== null && selection.text.trim().length > 0,
+      ...factEditorPaletteContext(state.editor?.kind === "fact" ? state.editor : null),
+      ...factsPaletteContext(state)
     })
   );
 }
