@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.7-rc.1",
+    date: "2026-09-01",
+    body: "- **The command palette is available from every screen.** Press `Ctrl+P` from\n  Aside, editors, menus, and full-screen panels. Close the palette to return to\n  the exact screen and input that you were using.\n- **The command palette covers all Fact controls.** Create, edit, end, move,\n  re-anchor, convert, and delete Facts and Fact States. The available commands\n  follow the selected Fact, state, story part, or map row.\n- **The Facts Budget command uses a numeric field.** Enter a token limit, clear\n  the field for no limit, and save with `Enter` or `Ctrl+S`. The field works\n  with the keyboard and mouse."
+  },
+  {
     version: "0.10.6",
     date: "2026-08-31",
     body: "- **This release has no additional product changes.** It contains the same\n  behavior as 0.10.6-rc.1."
