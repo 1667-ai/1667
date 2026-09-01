@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.7 - 2026-09-01
+
+- **This release has no additional product changes.** It contains the same
+  behavior as 0.10.7-rc.1.
+
 ## 0.10.7-rc.1 - 2026-09-01
 
 - **The command palette is available from every screen.** Press `Ctrl+P` from
