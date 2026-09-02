@@ -87,6 +87,7 @@ function appSource(
       schemaVersion: 1,
       theme: "lantern",
       factsRail: "auto",
+      apparatus: "off",
       composeFocus: "off",
       asideThoughts: "hide",
       wordWrap: "on",

@@ -5,6 +5,10 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **An optional Apparatus shows inactive take previews.** Turn it on in the
+  experimental Settings group. Press `1` and a shown letter to select a take.
+  The experiment is off by default.
+
 ## 0.10.8 - 2026-09-01
 
 - **This release has no additional product changes.** It contains the same

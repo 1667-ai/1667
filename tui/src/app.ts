@@ -26,6 +26,7 @@ import {
 import { captureMouseActionState } from "./mouse-actions.js";
 import { createInteractiveInputAdmission } from "./interactive-input-admission.js";
 import { createStoryViewModel, lastPartRowIndex, rowIndexForPathIndex } from "./model.js";
+import { resolveApparatusKey } from "./apparatus-key.js";
 import { chapterWord } from "./chapter-model.js";
 import { openingFocusIndex, readingPartIdFor, type ReadingPositions } from "./reading-position.js";
 import { bindLiveReadingPositionState } from "./reading-position-persist.js";
@@ -176,7 +177,7 @@ async function captureRenderOnce(
       await cancelRenderStream();
     }
     const pending = handleKey(keyFromCharacter(character), state, source, cache, () => undefined,
-      cancelRenderStream, () => undefined, null, applyThemeInFrame, () => undefined, backend);
+      cancelRenderStream, () => undefined, setup.renderer, applyThemeInFrame, () => undefined, backend);
     // Summary streaming is the one render-once fixture intentionally captured
     // mid-task. Interactive callers already observe the dispatcher Promise.
     if (state.abort?.kind === "summary") backend.observe(pending);
@@ -673,6 +674,7 @@ export async function handleKey(
     if (isInterruptShortcut(key)) requestQuit();
     return;
   }
+  const apparatusResolution = resolveApparatusKey(key, state, renderer?.width);
   const resolved = resolveKey(key, state.mode, {
     confirmingPrune: state.prune !== null,
     tagChoosingStatus: state.tag?.choosingStatus ?? false,
@@ -706,7 +708,8 @@ export async function handleKey(
       && state.map.factLensFactId !== undefined
       && state.map.factLensFactId !== null
   });
-  return await dispatch(resolved, state, source, wrapCache, repaint, cancelStream, requestQuit,
+  const routed = apparatusResolution ?? resolved;
+  return await dispatch(routed, state, source, wrapCache, repaint, cancelStream, requestQuit,
     renderer, applyTheme, previewTheme, backend, capturedStorySelection);
 }
 
@@ -921,6 +924,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     textActions: null,
     hitRows: [],
     viewScroll: null,
+    apparatusArmedNodeId: null,
     viewScrollDelta: 0,
     lastViewportStart: 0,
     composerScrollTop: 0,

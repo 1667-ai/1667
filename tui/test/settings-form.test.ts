@@ -55,9 +55,11 @@ describe("the settings form follows C-03 and C-08", () => {
   test("groups the form under section rules and lines its columns up", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
-    const rendered = screen(state);
+    const rendered = screen(state, 120, 42);
 
     expect(rendered).toContain("── app ");
+    expect(rendered).toContain("── experimental ");
+    expect(rendered).toContain("apparatus    [ off ]");
     expect(rendered).toContain("── prompt ");
     expect(rendered).toContain("── connection ");
     expect(rendered).toContain("── generation ");

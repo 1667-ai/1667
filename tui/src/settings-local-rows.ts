@@ -6,7 +6,7 @@ import type { SettingsRowId } from "./state.js";
  *  that never saves. This module holds no other state so that both can import
  *  it without depending on each other. */
 export const LOCAL_CONFIG_ROWS = [
-  "theme", "compose-focus", "word-wrap", "aside-thoughts", "update-checks"
+  "theme", "apparatus", "compose-focus", "word-wrap", "aside-thoughts", "update-checks"
 ] as const;
 
 export type LocalConfigRow = typeof LOCAL_CONFIG_ROWS[number];

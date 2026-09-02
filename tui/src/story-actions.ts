@@ -187,6 +187,12 @@ export async function navAction(
     else await context.backend.run("generating prose", (task) =>
       generate(state, source, context.cache, context.repaint, "", null, null, task));
   }
+  else if (resolved.action === "arm-apparatus") {
+    const part = rowPart(view, state.focusIndex);
+    if (part !== null && (resolved.rowId === undefined || resolved.rowId === part.id)) {
+      state.apparatusArmedNodeId = part.id;
+    }
+  }
   else if (resolved.action === "quit") return requestQuit();
   else if (resolved.action === "open-map") openMap(state);
   else if (resolved.action === "open-keys") {
@@ -240,6 +246,8 @@ export async function navAction(
     queueThoughtLoad(state, source, context, createStoryViewModel(state.payload, state.stream));
   }
   else if (resolved.action === "take-at" && resolved.take !== undefined) {
+    const focused = rowPart(createStoryViewModel(state.payload, state.stream), state.focusIndex);
+    if (resolved.rowId !== undefined && focused?.id !== resolved.rowId) return;
     await switchTakeAt(state, source, resolved.take, context);
     queueThoughtLoad(state, source, context, createStoryViewModel(state.payload, state.stream));
   }

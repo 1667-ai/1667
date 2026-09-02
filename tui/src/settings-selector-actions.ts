@@ -66,6 +66,13 @@ export async function cycleSettingsRow(
         context,
         THEME_NAMES[(index + step + THEME_NAMES.length) % THEME_NAMES.length]!
       );
+    } else if (row === "apparatus") {
+      applySettingsLocalToggle(
+        state,
+        source,
+        "apparatus",
+        state.config.apparatus === "on" ? "off" : "on"
+      );
     } else if (row === "compose-focus") {
       applySettingsLocalToggle(
         state,
@@ -167,17 +174,19 @@ export function applySettingsTheme(
 export function applySettingsLocalToggle(
   state: RuntimeState,
   source: AppSource,
-  row: "compose-focus" | "word-wrap",
+  row: "apparatus" | "compose-focus" | "word-wrap",
   value: "on" | "off"
 ): void {
-  state.config = row === "compose-focus"
-    ? { ...state.config, composeFocus: value }
-    : { ...state.config, wordWrap: value };
+  state.config = row === "apparatus"
+    ? { ...state.config, apparatus: value }
+    : row === "compose-focus"
+      ? { ...state.config, composeFocus: value }
+      : { ...state.config, wordWrap: value };
   source.config = state.config;
   if (!state.demo) saveConfig(state.config);
-  const label = row === "compose-focus"
-    ? "compose focus"
-    : "word wrap";
+  const label = row === "apparatus"
+    ? "apparatus"
+    : row === "compose-focus" ? "compose focus" : "word wrap";
   state.toast = `${label} · ${value}`;
 }
 

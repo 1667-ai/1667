@@ -11,6 +11,7 @@ import type { RuntimeState, SettingsOverlayState, SettingsRowId } from "./state.
  *  field-definition table so simple/advanced visibility cannot drift. */
 const SETTINGS_SIMPLE_ROW_IDS: ReadonlySet<SettingsRowId> = new Set([
   "theme",
+  "apparatus",
   "update-checks",
   ...WRITING_PROMPT_FIELD_DEFINITIONS
     .filter((entry) => entry.view === "simple")

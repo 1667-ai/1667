@@ -43,6 +43,7 @@ export interface SettingsCommandCatalogEntry {
  * intentional: it turns a missing row into a compile-time error. */
 export const SETTINGS_COMMAND_CATALOG = {
   theme: { name: "theme", description: "change the application colors" },
+  apparatus: { name: "apparatus", description: "turn on the experimental apparatus" },
   "compose-focus": { name: "focus mode", description: "dim the story while writing" },
   "word-wrap": { name: "word wrap", description: "keep whole words together on wrapped lines" },
   "aside-thoughts": { name: "aside Thoughts", description: "show or hide render-only Aside thoughts" },

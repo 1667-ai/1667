@@ -115,7 +115,7 @@ export {
 
 /** Rows that live in the user config rather than a server-backed settings
  *  revision. One list backs every "is this row local?" test in the overlay,
- *  instead of each site naming the same three rows by hand. */
+ *  instead of each site naming the local rows by hand. */
 
 
 export {
@@ -170,6 +170,7 @@ export function settingsRowEditValue(
   row: SettingsInlineRow
 ): string {
   if (row === "theme") return config.theme;
+  if (row === "apparatus") return config.apparatus;
   if (row === "compose-focus") return config.composeFocus;
   if (row === "word-wrap") return config.wordWrap;
   if (row === "aside-thoughts") return config.asideThoughts;
@@ -247,7 +248,7 @@ export function applySettingsRowEdit(
   overlay: SettingsOverlayState,
   config: UserConfig
 ): { kind: "theme"; value: ThemeName }
-  | { kind: "local"; row: "compose-focus" | "word-wrap"; value: "on" | "off" }
+  | { kind: "local"; row: "apparatus" | "compose-focus" | "word-wrap"; value: "on" | "off" }
   | { kind: "aside-thoughts"; value: "show" | "hide" }
   | { kind: "draft" }
   | { kind: "error"; message: string } {
@@ -268,9 +269,11 @@ export function applySettingsRowEdit(
     overlay.edit = null;
     return { kind: "theme", value: value as ThemeName };
   }
-  if (edit.row === "compose-focus" || edit.row === "word-wrap") {
+  if (edit.row === "apparatus" || edit.row === "compose-focus" || edit.row === "word-wrap") {
     if (value !== "on" && value !== "off") {
-      const label = edit.row === "compose-focus" ? "compose focus" : "word wrap";
+      const label = edit.row === "apparatus"
+        ? "apparatus"
+        : edit.row === "compose-focus" ? "compose focus" : "word wrap";
       return { kind: "error", message: `${label} must be on or off` };
     }
     overlay.edit = null;

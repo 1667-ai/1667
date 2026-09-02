@@ -35,6 +35,7 @@ import type { AsideSurfaceState } from "./aside-surface.js";
 
 export type KeyAction =
   | "focus-next" | "focus-previous" | "take-next" | "take-previous" | "take-at"
+  | "arm-apparatus"
   | "undo" | "top" | "leaf" | "toggle-instructions" | "toggle-prompt" | "toggle-thought" | "compose"
   | "cancel" | "quit" | "send" | "send-as-take" | "newline" | "history-previous"
   | "save-edit" | "save-edit-inplace" | "commit-field"

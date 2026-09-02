@@ -26,7 +26,9 @@ import {
   beginSettingsPasteEdit,
   SETTINGS_ROW_IDS,
   settingsDraftChanged,
+  settingsRows,
   settingsRowCycles,
+  settingsRowIds,
   settingsRowIsNonActionable
 } from "../src/settings-overlay-model.js";
 import {
@@ -232,6 +234,28 @@ describe("inline settings menu", () => {
     await press(key("return"));
     expect(state.settings?.edit).toBe(null);
     expect(state.config.composeFocus).toBe("off");
+  });
+
+  test("the experimental apparatus selector is visible in simple mode and updates immediately", async () => {
+    const { source, state, press } = harness(undefined, { settingsViewMode: "simple" });
+    await openSettings(press);
+
+    expect(settingsRowIds(state.settings!)).toContain("apparatus");
+    expect(settingsRows(state.settings!, state.config)
+      .find((row) => row.id === "apparatus"))
+      .toMatchObject({
+        label: "apparatus",
+        value: "[ off ]",
+        hint: "Shows take previews below the focused story part."
+      });
+
+    await selectRow(press, state, "apparatus");
+    await press(key("return"));
+
+    expect(state.settings?.edit).toBe(null);
+    expect(state.config.apparatus).toBe("on");
+    expect(source.config.apparatus).toBe("on");
+    expect(state.toast).toBe("apparatus · on");
   });
 
   test("Aside Thoughts is a persisted show or hide selector", async () => {

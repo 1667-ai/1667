@@ -87,7 +87,7 @@ test("simple mode shows only the intended rows, and advanced mode shows every ro
   // Default demo settings use dry-run, so base-url/api-key stay visible in
   // simple mode too — they are hidden only by the fixed-subscription rule.
   expect(settingsRowIds(overlay)).toEqual([
-    "theme", "update-checks", "default-author-brief", "default-continue-direction",
+    "theme", "update-checks", "apparatus", "default-author-brief", "default-continue-direction",
     "provider", "base-url", "api-key", "model", "context-window"
   ]);
 
