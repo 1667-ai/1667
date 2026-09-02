@@ -102,6 +102,8 @@ import {
   editorFooterHints,
   renderFactsBudgetLayout
 } from "./story/editor-chrome.js";
+import { deriveApparatusSeam } from "../apparatus-model.js";
+import { renderApparatusBand } from "./story/apparatus-band.js";
 
 export interface StoryScreenOptions {
   width: number;
@@ -229,11 +231,26 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
     if (layout.stickyPrompt !== null) {
       stickyPrompts.set(rowIndex, layout.stickyPrompt);
     }
+    const apparatus = state.config.apparatus === "on"
+      && row.kind === "part"
+      && rowIndex === state.focusIndex
+      ? renderApparatusBand(
+        deriveApparatusSeam(state.payload, row),
+        row,
+        measure,
+        narrow,
+        state.apparatusArmedNodeId === row.id
+      )
+      : null;
     blocks.push({
       partId: row.id,
       partIndex: rowIndex,
-      height: layout.height + 1,
-      render: () => [...layout.render(), []]
+      height: layout.height + 1 + (apparatus?.height ?? 0),
+      render: () => [
+        ...layout.render(),
+        [],
+        ...(apparatus?.lines ?? [])
+      ]
     });
     const placementMarker = placementMarkerAfterRow(
       state.placement,

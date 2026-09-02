@@ -25,6 +25,7 @@ export const SETTINGS_ROW_IDS = [
   "word-wrap",
   "aside-thoughts",
   "update-checks",
+  "apparatus",
   ...WRITING_PROMPT_ROW_IDS,
   "provider",
   "text-prompt-format",
@@ -110,9 +111,10 @@ export function boundedSettingsCursor(
  * value's brackets are click targets. Everything else is free text the row
  * editor owns. One spelling of the set, read by the panel and the key handler.
  * Deliberately not the inverse of `settingsRowUsesServer`: provider cycles and
- * is server-backed, while theme and compose focus cycle and are local. */
+ * is server-backed, while the user-config rows cycle locally. */
 export function settingsRowCycles(row: SettingsRowId): boolean {
   return row === "theme"
+    || row === "apparatus"
     || row === "compose-focus"
     || row === "word-wrap"
     || row === "aside-thoughts"

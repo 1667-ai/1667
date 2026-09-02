@@ -60,6 +60,8 @@ export interface UserConfig {
   schemaVersion: 1;
   theme: ThemeName;
   factsRail: "auto" | "off";
+  /** Whether the experimental apparatus is enabled. */
+  apparatus: "on" | "off";
   composeFocus: "on" | "off";
   /** Whether Aside thought text is visible while reading or chatting. */
   asideThoughts: "show" | "hide";
@@ -87,6 +89,7 @@ const DEFAULTS: UserConfig = {
   // install gets `NEW_INSTALL_THEME` when `loadConfigWithStatus` finds no file.
   theme: "lantern",
   factsRail: "auto",
+  apparatus: "off",
   composeFocus: "off",
   asideThoughts: "hide",
   wordWrap: "on",
@@ -114,6 +117,10 @@ function normalizedComposeFocus(value: unknown): UserConfig["composeFocus"] {
   return value === true || value === "on" ? "on" : "off";
 }
 
+function normalizedApparatus(value: unknown): UserConfig["apparatus"] {
+  return value === "on" ? "on" : "off";
+}
+
 function normalizedAsideThoughts(value: unknown): UserConfig["asideThoughts"] {
   return value === "show" ? "show" : "hide";
 }
@@ -139,6 +146,7 @@ export function normalizeUserConfig(value: unknown): UserConfig {
   const rawUpdates = record(raw.updates);
   const theme = raw.theme;
   const factsRail = configValue(raw, "factsRail", "facts_rail");
+  const apparatus = raw.apparatus;
   const composeFocus = configValue(raw, "composeFocus", "compose_focus");
   const asideThoughts = configValue(raw, "asideThoughts", "aside_thoughts");
   const wordWrap = configValue(raw, "wordWrap", "word_wrap");
@@ -152,6 +160,7 @@ export function normalizeUserConfig(value: unknown): UserConfig {
     schemaVersion: 1,
     theme: THEME_NAMES.includes(theme as ThemeName) ? theme as ThemeName : DEFAULTS.theme,
     factsRail: factsRail === "off" ? "off" : "auto",
+    apparatus: normalizedApparatus(apparatus),
     composeFocus: normalizedComposeFocus(composeFocus),
     asideThoughts: normalizedAsideThoughts(asideThoughts),
     wordWrap: normalizedWordWrap(wordWrap),

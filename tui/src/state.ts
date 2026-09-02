@@ -231,6 +231,7 @@ export interface ChaptersOverlayState {
 }
 export type SettingsRowId =
   | "theme"
+  | "apparatus"
   | "compose-focus"
   | "word-wrap"
   | "aside-thoughts"
@@ -824,6 +825,8 @@ export interface StoryScreenState extends OverlayState {
   typewriter: boolean;
   /** Free viewport scroll (ctrl+d/u); null = follow the focused part. */
   viewScroll: number | null;
+  /** One-shot apparatus promotion fence, scoped to the focused node. */
+  apparatusArmedNodeId?: string | null;
   /** Relative scroll awaiting the next complete cold-frame derivation. */
   viewScrollDelta: number;
   /** Where the last complete frame's viewport started. */

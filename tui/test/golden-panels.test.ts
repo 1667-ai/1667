@@ -348,9 +348,10 @@ describe("run C overlay frames", () => {
     const clean = await renderOnce(demoAppSource(), 120, 36, ",");
     expect(clean).not.toContain("revision");
 
-    // Four downs reach provider in Simple view. Right changes its value.
+    // Five downs reach provider in Simple view. Right changes its value.
     const dirty = await renderWithKeys(demoAppSource(), 120, 36, [
       key(","),
+      key("down"),
       key("down"),
       key("down"),
       key("down"),

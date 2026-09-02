@@ -75,6 +75,7 @@ import { draftWriting } from "./settings-writing-draft.js";
  * the rule is the section heading, and clicking it jumps there. */
 export const SETTINGS_SECTIONS = [
   { id: "app", label: "app" },
+  { id: "experimental", label: "experimental" },
   { id: "prompt", label: "prompt" },
   { id: "connection", label: "connection" },
   { id: "model", label: "model" },
@@ -165,6 +166,11 @@ export function settingsRows(
       id: "update-checks", section: "app", label: "update checks",
       value: `[ ${config.updates.mode === "notify" ? "on" : "off"} ]`,
       hint: "Checks for a newer version. Sends no story or account data."
+    },
+    {
+      id: "apparatus", section: "experimental", label: "apparatus",
+      value: `[ ${config.apparatus} ]`,
+      hint: "Shows take previews below the focused story part."
     },
     ...writingPromptRows(overlay),
     {
