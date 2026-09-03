@@ -7,8 +7,8 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## 0.10.9-rc.2 - 2026-09-03
 
-- **The Apparatus has a clear closing edge.** A labeled rule separates inactive
-  take previews from the next story part.
+- **The Apparatus is easier to use.** A labeled rule separates inactive take
+  previews from the next story part. Click a preview to select that take.
 
 ## 0.10.9-rc.1 - 2026-09-02
 

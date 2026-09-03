@@ -13,7 +13,7 @@ export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
     version: "0.10.9-rc.2",
     date: "2026-09-03",
-    body: "- **The Apparatus has a clear closing edge.** A labeled rule separates inactive\n  take previews from the next story part."
+    body: "- **The Apparatus is easier to use.** A labeled rule separates inactive take\n  previews from the next story part. Click a preview to select that take."
   },
   {
     version: "0.10.9-rc.1",
