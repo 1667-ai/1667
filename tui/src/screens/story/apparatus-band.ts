@@ -45,7 +45,7 @@ export function renderApparatusBand(
       segment(armed ? "letter selects take" : "1 + letter selects take", "focus / accent")
     ], measure, narrow)
   ];
-  lines.push(...shown.map((doorway) => doorwayLine(doorway, measure, narrow)));
+  lines.push(...shown.map((doorway) => doorwayLine(doorway, part.id, measure, narrow)));
   if (remaining > 0) {
     lines.push(bandLine([
       segment(`+ ${remaining} more takes`, "brass dim"),
@@ -58,7 +58,12 @@ export function renderApparatusBand(
   return { height: lines.length, lines };
 }
 
-function doorwayLine(doorway: ApparatusDoorway, measure: number, narrow: boolean): FrameLine {
+function doorwayLine(
+  doorway: ApparatusDoorway,
+  rowId: string,
+  measure: number,
+  narrow: boolean
+): FrameLine {
   const label = doorway.label ?? "—";
   const preview = doorway.preview.replace(/\s+/gu, " ").trim();
   const text = preview.length === 0 ? "⟨not yet generated⟩" : `"${preview}"`;
@@ -69,10 +74,11 @@ function doorwayLine(doorway: ApparatusDoorway, measure: number, narrow: boolean
   const suffix = continuation;
   const previewWidth = Math.max(1, measure - visibleWidth(prefix) - visibleWidth(suffix));
   const previewText = truncate(text, previewWidth);
+  const hit = { kind: "story-take" as const, take: doorway.takeIndex, rowId };
   return bandLine([
-    segment(prefix, "chrome"),
-    segment(previewText, doorway.label === null ? "brass dim" : "prose · dim"),
-    segment(suffix, "brass dim")
+    segment(prefix, "chrome", hit),
+    segment(previewText, doorway.label === null ? "brass dim" : "prose · dim", hit),
+    segment(suffix, "brass dim", hit)
   ], measure, narrow);
 }
 

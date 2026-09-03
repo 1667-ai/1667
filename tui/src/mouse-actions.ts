@@ -479,7 +479,11 @@ export function mouseToAction(
   if (target.kind === "take" && event.button === 0) return { action: "apply", index: target.row, take: target.take };
   if (target.kind === "map-view" && event.button === 0) return { action: "set-map-view", view: target.view };
   if (target.kind === "story-take" && event.button === 0 && state.mode === "NAV") {
-    return { action: "take-at", take: target.take };
+    return {
+      action: "take-at",
+      take: target.take,
+      ...(target.rowId === undefined ? {} : { rowId: target.rowId })
+    };
   }
   if (target.kind === "list" && event.button === 0) {
     const identity = target.rowId === undefined ? {} : { rowId: target.rowId };

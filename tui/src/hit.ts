@@ -21,8 +21,8 @@ export type HitTarget =
   | { kind: "chip"; index: number; group?: "tag" | "scope" }
   | { kind: "take"; row: number; take: number }
   | { kind: "map-view"; view: MapView }
-  /** Exact sibling control in the focused story-part gutter. */
-  | { kind: "story-take"; take: number }
+  /** Exact sibling control in the focused story-part surface. */
+  | { kind: "story-take"; take: number; rowId?: string }
   /** Shortcut from story chrome into one exact Settings row. */
   | { kind: "settings-row"; row: SettingsRowId; profilePurpose?: SettingsRoutePurpose }
   | {

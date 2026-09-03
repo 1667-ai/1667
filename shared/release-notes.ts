@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.9-rc.2",
+    date: "2026-09-03",
+    body: "- **The Apparatus is easier to use.** A labeled rule separates inactive take\n  previews from the next story part. Click a preview to select that take."
+  },
+  {
     version: "0.10.9-rc.1",
     date: "2026-09-02",
     body: "- **An optional Apparatus shows inactive take previews.** Turn it on in the\n  experimental Settings group. Press `1` and a shown letter to select a take.\n  The experiment is off by default."

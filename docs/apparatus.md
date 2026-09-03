@@ -20,5 +20,7 @@ take text. A closing rule separates the Apparatus from the next story part.
 Press `1` to select the shown site. Then press a shown letter to select that
 take. An invalid second key cancels the selection.
 
+Click an inactive take preview to select that take.
+
 Use the experiment to compare this view with the story map. Report whether the
 Apparatus makes take selection faster or more difficult.

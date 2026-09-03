@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { CliRenderer, KeyEvent } from "@opentui/core";
 import type { NodeStub } from "../../shared/types.js";
-import { handleKey, initialState } from "../src/app.js";
+import { dispatch, handleKey, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
+import { mouseToAction } from "../src/mouse-actions.js";
 import { createStoryViewModel, rowPart } from "../src/model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
-import { frameText, visibleWidth } from "../src/screens/story/frame.js";
+import { frameText, plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 
 function key(name: string, sequence = name): KeyEvent {
@@ -127,6 +128,34 @@ describe("apparatus beta surface", () => {
     await press("b", state, source, 80);
     expect(state.apparatusArmedNodeId).toBeNull();
     expect(rowPart(createStoryViewModel(state.payload), state.focusIndex)?.id).toBe("p12-t1");
+  });
+
+  test("promotes a shown doorway preview by mouse click", async () => {
+    const source = apparatusSource();
+    const state = initialState(source, false);
+    const rendered = renderStoryScreen(state, { width: 120, height: 80 });
+    Object.assign(state, rendered.derived);
+    const preview = '"Ashe left the compass closed';
+    const row = rendered.lines.findIndex((line) => plainLine(line).includes(preview));
+    expect(row).toBeGreaterThan(-1);
+    const hit = state.hitRows[row]?.overrides?.find(({ target }) =>
+      target.kind === "story-take" && target.take === 1
+    );
+    expect(hit).toBeDefined();
+    expect(hit?.target).toEqual({ kind: "story-take", take: 1, rowId: "p12" });
+
+    const action = mouseToAction({
+      type: "down", button: 0,
+      x: hit!.left + Math.floor((hit!.right - hit!.left) / 2), y: row,
+      modifiers: { shift: false, alt: false, ctrl: false }
+    } as never, state);
+    expect(action).toEqual({ action: "take-at", take: 1, rowId: "p12" });
+    await dispatch(action!, state, source, createWrapCache<ProseStyle>(),
+      () => undefined, async () => undefined, () => undefined);
+
+    expect(rowPart(createStoryViewModel(state.payload), state.focusIndex)?.id).toBe("p12-t1");
+    expect(frameText(renderStoryScreen(state, { width: 120, height: 80 }).lines))
+      .toContain("Ashe left the compass closed");
   });
 
   test("promotes the fourth doorway shown at wide width", async () => {
