@@ -5,6 +5,9 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **The Apparatus has a clear closing edge.** A labeled rule separates inactive
+  take previews from the next story part.
+
 ## 0.10.9-rc.1 - 2026-09-02
 
 - **An optional Apparatus shows inactive take previews.** Turn it on in the

@@ -15,7 +15,7 @@ The Apparatus is a beta experiment. It is off by default. Open Settings. Set
 
 The active take stays in the story text. The Apparatus shows only inactive
 takes. Each row contains a stored preview. The row does not contain the full
-take text.
+take text. A closing rule separates the Apparatus from the next story part.
 
 Press `1` to select the shown site. Then press a shown letter to select that
 take. An invalid second key cancels the selection.

@@ -52,6 +52,9 @@ export function renderApparatusBand(
       ...(armed ? [] : [segment(" · m opens map", "chrome")])
     ], measure, narrow));
   }
+  lines.push(bandLine([
+    segment("── end apparatus ──", "chrome")
+  ], measure, narrow));
   return { height: lines.length, lines };
 }
 

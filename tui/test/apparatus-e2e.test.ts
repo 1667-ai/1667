@@ -67,9 +67,18 @@ describe("apparatus beta surface", () => {
     expect(text).toContain("apparatus · ¶12 · site 1 · negative · 5 takes");
     expect(text).toContain("active take omitted · stored previews");
     expect(text).toContain('1  b  "Ashe left the compass closed');
+    expect(text).toContain("── end apparatus ──");
     expect(text).not.toContain("variant");
     expect(text).not.toContain("witness");
     expect(text).not.toContain("sigla");
+  });
+
+  test("ends the apparatus before the next story part", () => {
+    const source = apparatusSource();
+    const state = initialState(source, false);
+    const text = frameText(renderStoryScreen(state, { width: 120, height: 80 }).lines);
+
+    expect(text).toMatch(/── end apparatus ──\s*\n\s*» continue/u);
   });
 
   test("bounds the band at 80 columns", () => {
@@ -81,6 +90,7 @@ describe("apparatus beta surface", () => {
     expect(lines.every((line) => visibleWidth(line.map((part) => part.text).join("")) <= 80)).toBeTrue();
     expect(frameText(lines)).toContain("apparatus · ¶12");
     expect(frameText(lines)).toContain("+ 2 more takes · m opens map");
+    expect(frameText(lines)).toContain("── end apparatus ──");
   });
 
   test("promotes a labeled doorway and consumes an invalid chord key", async () => {
