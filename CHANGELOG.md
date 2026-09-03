@@ -5,6 +5,8 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.10.9-rc.2 - 2026-09-03
+
 - **The Apparatus has a clear closing edge.** A labeled rule separates inactive
   take previews from the next story part.
 
