@@ -652,6 +652,10 @@ function offActiveFactStory(): Story {
     }
   ];
   story.activeRootId = "root";
+  story.facts[0]!.states[0] = {
+    ...story.facts[0]!.states[0]!,
+    anchorPartId: "off-active"
+  };
   return story;
 }
 
