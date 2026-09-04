@@ -141,12 +141,13 @@ stable block placed after volatility begins; provider adapters and the TUI
 context meter both consume the same model.
 
 The complete v0.8.0 continuation prompt is the compatibility baseline for
-local models. Keep this baseline for Continue and Retake until the [Gemma
-prompt quality gate](prompt-quality-gate.md) passes. A wire-shape test does
-not prove style continuity. The quality gate covers the prompt plan. It does
-not cover prompt-cache or request-adapter changes. The deterministic HTTP
-integration test in `test/model-connection-e2e.test.ts` protects the transport
-wire for those changes.
+local models. Use this baseline to review Continue and Retake changes. The
+[Gemma prompt quality replay](prompt-quality-gate.md) is optional and does not
+block a release. A wire-shape test does not prove style continuity. The replay
+covers the prompt plan. It does not cover prompt-cache or request-adapter
+changes. The deterministic HTTP integration test in
+`test/model-connection-e2e.test.ts` protects the transport wire for those
+changes.
 
 The experimental `late-cache-stable` continuation prompt layout is optional.
 The setting is off when the Generation Profile omits it. The compatibility

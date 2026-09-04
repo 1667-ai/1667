@@ -215,11 +215,12 @@ real model finds real contradictions.
 
 Add an eval under `evals/` beside the Gemma replay. The fixture is a short
 story with planted contradictions and the Facts that they contradict. The eval
-records found, missed, and dropped findings for each model. Run it on one local
-model and one hosted model before the first release that has the check. Use
-Gemma through KoboldCpp as the local model, because it is the compatibility
-baseline in the [prompt quality gate](../prompt-quality-gate.md). Run the eval
-again after each change to the contract text.
+records found, missed, and dropped findings for each model. Model evaluations
+are optional and do not block a release. When practical, run the eval on one
+local model and one hosted model. Use Gemma through KoboldCpp as the local
+model, because it is the compatibility baseline in the
+[prompt quality review](../prompt-quality-gate.md). Run the eval again when you
+change the contract text and a suitable model is available.
 
 ## Reject invented findings
 
@@ -287,6 +288,6 @@ One request for each part means a long story line costs real money and time.
 - [Generation boundaries](../generation-boundaries.md)
 - [Facts, context, and model providers](../model-providers.md)
 - [Story storage](../story-storage.md)
-- [Prompt quality gate](../prompt-quality-gate.md)
+- [Prompt quality review](../prompt-quality-gate.md)
 - [Configurable prompts](configurable-prompts.md)
 - [Technical terms](../technical-terms.md)
