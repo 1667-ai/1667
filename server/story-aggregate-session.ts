@@ -48,12 +48,14 @@ import {
   formatV10,
   formatV12,
   formatV14,
+  formatV16,
   MAX_DELETED_STORY_MANIFEST_BYTES,
   parseStoryManifestBytes,
   STORY_SCHEMA_VERSION_V8,
   STORY_SCHEMA_VERSION_V10,
   STORY_SCHEMA_VERSION_V12,
   STORY_SCHEMA_VERSION_V14,
+  STORY_SCHEMA_VERSION_V16,
   storySummaryV6FromContent
 } from "./story-v6-codec.js";
 import type {
@@ -68,6 +70,10 @@ import {
   type LeafObjectKind
 } from "./story-objects.js";
 import type { AsideDocument, AsideSessionDocument } from "../shared/aside.js";
+import {
+  hashFactConsistencyRun,
+  type FactConsistencyRun
+} from "../shared/fact-consistency-types.js";
 
 const MANIFEST_FILE = "manifest.json";
 const NEXT_MANIFEST_FILE = `${MANIFEST_FILE}.next`;
@@ -125,7 +131,9 @@ type PresentStorySlot = Extract<
       | "v12-live"
       | "v12-deleted"
       | "v14-live"
-      | "v14-deleted";
+      | "v14-deleted"
+      | "v16-live"
+      | "v16-deleted";
   }
 >;
 
@@ -143,6 +151,10 @@ export interface PrepareStoryContentOptions {
   /** Threaded straight through to `encodeStoryBundle` for Aside activation
    *  (`resolveAsideActivation()`, shared/aside-release.ts). */
   readonly asideActivation?: boolean;
+  /** The immutable Fact consistency leaf to publish with this content. The
+   *  caller must also place its hash on `story.factConsistencyRunId`; keeping
+   *  both values together prevents a manifest from pointing at another run. */
+  readonly factConsistencyRun?: FactConsistencyRun;
 }
 
 /** A generation record source-revision graph this session hash-verified,
@@ -267,6 +279,24 @@ export class StoryAggregateSession {
     return await objects.readAsideDocument(documentId);
   }
 
+  /** Read the Fact consistency leaf while this aggregate owns its I/O. */
+  async readFactConsistencyRun(runId: string): Promise<FactConsistencyRun> {
+    const objects = new StoryObjectStore(this.bundleDir);
+    await objects.init();
+    return await objects.readFactConsistencyRun(runId);
+  }
+
+  /** Materialize a Fact consistency leaf while this aggregate owns its I/O.
+   * The caller can then durably lease the hash before publishing the manifest. */
+  async materializeFactConsistencyRun(run: FactConsistencyRun): Promise<ObjectHash> {
+    await this.ensureCleanupPending();
+    const objects = new StoryObjectStore(this.bundleDir);
+    await objects.init();
+    const hash = await objects.storeFactConsistencyRun(run);
+    await objects.flush();
+    return hash;
+  }
+
   async prepareContent(
     story: Story,
     options: PrepareStoryContentOptions = {}
@@ -322,6 +352,13 @@ export class StoryAggregateSession {
       undefined,
       { activation: options.activation, asideActivation: options.asideActivation }
     );
+    if (options.factConsistencyRun !== undefined) {
+      const runHash = hashFactConsistencyRun(options.factConsistencyRun);
+      if (story.factConsistencyRunId !== runHash) {
+        throw new ServiceError(400, "Fact consistency run identity does not match story content");
+      }
+      await objects.storeFactConsistencyRun(options.factConsistencyRun);
+    }
     await objects.flush();
     const nextLive = liveObjectIds(content);
     await objects.verifyGraph(nextLive);
@@ -500,7 +537,8 @@ export function requirePresentStorySlot(
     !resolveAsideActivation(asideActivation)
     && (slot.kind === "v10-live" || slot.kind === "v10-deleted"
       || slot.kind === "v12-live" || slot.kind === "v12-deleted"
-      || slot.kind === "v14-live" || slot.kind === "v14-deleted")
+      || slot.kind === "v14-live" || slot.kind === "v14-deleted"
+      || slot.kind === "v16-live" || slot.kind === "v16-deleted")
     && !options.allowRecovery
   ) {
     throw new ServiceError(
@@ -514,6 +552,7 @@ export function requirePresentStorySlot(
 /** Pick the envelope serializer by the schema version the content already
  *  carries (`server/story-v6-reducer.ts` decides that version). */
 function formatManifestEnvelope(manifest: StoryEnvelopeManifest): string {
+  if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V16) return formatV16(manifest);
   if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V14) return formatV14(manifest);
   if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V12) return formatV12(manifest);
   if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V10) return formatV10(manifest);
@@ -528,8 +567,13 @@ function persistedSlotFromManifest(
   manifestBytes: Buffer
 ): Extract<
   StoredStorySlot,
-  { kind: "v6-live" | "v6-deleted" | "v8-live" | "v8-deleted" | "v10-live" | "v10-deleted" | "v12-live" | "v12-deleted" | "v14-live" | "v14-deleted" }
+    { kind: "v6-live" | "v6-deleted" | "v8-live" | "v8-deleted" | "v10-live" | "v10-deleted" | "v12-live" | "v12-deleted" | "v14-live" | "v14-deleted" | "v16-live" | "v16-deleted" }
 > {
+  if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V16) {
+    return manifest.kind === "live"
+      ? { kind: "v16-live", manifest, manifestBytes }
+      : { kind: "v16-deleted", manifest, manifestBytes };
+  }
   if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V14) {
     return manifest.kind === "live"
       ? { kind: "v14-live", manifest, manifestBytes }

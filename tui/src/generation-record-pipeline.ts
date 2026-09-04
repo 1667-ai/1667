@@ -107,7 +107,8 @@ const OPERATION_WORD: Readonly<Record<PromptOperation, string>> = {
   rewrite: "rewrite",
   title: "title",
   summary: "summary",
-  aside: "aside"
+  aside: "aside",
+  "fact-check": "Fact check"
 };
 
 export function generationRecordOperationLabel(operation: PromptOperation): string {

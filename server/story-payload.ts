@@ -63,6 +63,9 @@ export function buildStoryPayload(
     ...(story.asideDocumentId !== undefined && story.asideDocumentId !== null
       ? { hasAside: true as const }
       : {}),
+    ...(story.factConsistencyRunId !== undefined && story.factConsistencyRunId !== null
+      ? { hasFactConsistencyRun: true as const }
+      : {}),
     ...(asideRefs.length > 0 || virtualLegacySessionId !== null
       ? { hasAsideSessions: true as const }
       : {}),

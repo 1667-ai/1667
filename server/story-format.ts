@@ -52,6 +52,7 @@ import { assertStrictV7Manifest } from "./story-v7-strict.js";
 import { assertStrictV9Manifest } from "./story-v9-strict.js";
 import { assertStrictV11Manifest } from "./story-v11-strict.js";
 import { assertStrictV13Manifest } from "./story-v13-strict.js";
+import { assertStrictV15Manifest } from "./story-v15-strict.js";
 import { cloneAsideSessionRef, type AsideSessionRef } from "../shared/aside-session-index.js";
 
 export { HASH_PATTERN, StoryFormatError, requireHash } from "./story-format-facts.js";
@@ -59,6 +60,7 @@ export {
   liveObjectIds,
   manifestGenerationRecordIds,
   manifestImageIds,
+  manifestFactConsistencyIds,
   manifestReasoningIds,
   manifestTokenProbabilityIds
 } from "./story-format-nodes.js";
@@ -328,6 +330,14 @@ export interface StoryManifestV13 extends Omit<StoryManifestV11, "schemaVersion"
   facts: StoredFactV13[];
 }
 
+/** V15 content: V13 plus the required pointer to one latest Fact consistency
+ * run leaf. V13 remains frozen for predecessor compatibility. */
+export const STORY_FACT_CONSISTENCY_SCHEMA_VERSION = 15 as const;
+export interface StoryManifestV15 extends Omit<StoryManifestV13, "schemaVersion"> {
+  schemaVersion: typeof STORY_FACT_CONSISTENCY_SCHEMA_VERSION;
+  factConsistencyRunId: ObjectHash;
+}
+
 export interface TextRevisionV1 {
   format: typeof REVISION_FORMAT | typeof STORYTAVERN_REVISION_FORMAT;
   schemaVersion: typeof REVISION_SCHEMA_VERSION;
@@ -467,7 +477,7 @@ export function serializeManifest(manifest: StoryManifestV5): string {
  *  Every direct write to a story's manifest file goes through
  *  `serializeManifest` instead, which accepts only `StoryManifestV5`. */
 export function serializeManifestContent(
-  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13
+  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13 | StoryManifestV15
 ): string {
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
@@ -480,7 +490,7 @@ export function serializeManifestContent(
  *  corrupting the story it was trying to save. Mirrors `requireV6Manifest`
  *  (`server/story-v6-codec.ts`) one schema pair down. */
 export function requireV5Manifest(
-  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13,
+  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13 | StoryManifestV15,
   context: string
 ): StoryManifestV5 {
   if (manifest.schemaVersion !== STORY_SCHEMA_VERSION) {
@@ -535,6 +545,15 @@ export function parseManifestV13(raw: string, expectedId: string): StoryManifest
   return parsed.manifest;
 }
 
+/** Parse the Fact consistency successor content payload deliberately. */
+export function parseManifestV15(raw: string, expectedId: string): StoryManifestV15 {
+  const parsed = parseManifestWithVersion(raw, expectedId);
+  if (parsed.manifest.schemaVersion !== STORY_FACT_CONSISTENCY_SCHEMA_VERSION) {
+    throw new StoryFormatError(`Expected a V${STORY_FACT_CONSISTENCY_SCHEMA_VERSION} story manifest for ${expectedId}`);
+  }
+  return parsed.manifest;
+}
+
 /** A discriminated union, not one loosely-typed pair of fields: tying
  * `manifest` to the exact `sourceSchemaVersion` that produced it is what lets
  * a caller that already checked `sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION`
@@ -559,6 +578,10 @@ export type ParsedManifestVersion =
   | {
       manifest: StoryManifestV13;
       sourceSchemaVersion: typeof STORY_FACT_STATE_SCHEMA_VERSION;
+    }
+  | {
+      manifest: StoryManifestV15;
+      sourceSchemaVersion: typeof STORY_FACT_CONSISTENCY_SCHEMA_VERSION;
     };
 
 /** Parse and normalize while retaining the on-disk version for migration-only
@@ -612,6 +635,7 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
       && value.schemaVersion !== STORY_ASIDE_SCHEMA_VERSION
       && value.schemaVersion !== STORY_ASIDE_SESSION_SCHEMA_VERSION
       && value.schemaVersion !== STORY_FACT_STATE_SCHEMA_VERSION
+      && value.schemaVersion !== STORY_FACT_CONSISTENCY_SCHEMA_VERSION
     )
   ) {
     throw new StoryFormatError(`Unsupported story format in ${expectedId}`);
@@ -631,6 +655,9 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
   if (value.schemaVersion === STORY_FACT_STATE_SCHEMA_VERSION) {
     assertStrictV13Manifest(value, expectedId, value.format);
   }
+  if (value.schemaVersion === STORY_FACT_CONSISTENCY_SCHEMA_VERSION) {
+    assertStrictV15Manifest(value, expectedId, value.format);
+  }
   const id = stringField(value, "id");
   if (id !== expectedId) throw new StoryFormatError(`Story id mismatch: expected ${expectedId}, found ${id}`);
   const origin = optionalOrigin(value.origin);
@@ -639,8 +666,10 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
     || sourceSchemaVersion === STORY_SUCCESSOR_SCHEMA_VERSION
     || sourceSchemaVersion === STORY_ASIDE_SCHEMA_VERSION
     || sourceSchemaVersion === STORY_ASIDE_SESSION_SCHEMA_VERSION
-    || sourceSchemaVersion === STORY_FACT_STATE_SCHEMA_VERSION;
+    || sourceSchemaVersion === STORY_FACT_STATE_SCHEMA_VERSION
+    || sourceSchemaVersion === STORY_FACT_CONSISTENCY_SCHEMA_VERSION;
   const parsedStored = sourceSchemaVersion === STORY_FACT_STATE_SCHEMA_VERSION
+    || sourceSchemaVersion === STORY_FACT_CONSISTENCY_SCHEMA_VERSION
     ? {
         kind: "fact-state" as const,
         value: parseV4ManifestWithFacts(
@@ -715,7 +744,8 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
   // exact `sourceSchemaVersion` that produced it. See the comment on
   // `ParsedManifestVersion`.
   if (parsedStored.kind === "fact-state") {
-    if (sourceSchemaVersion !== STORY_FACT_STATE_SCHEMA_VERSION) {
+    if (sourceSchemaVersion !== STORY_FACT_STATE_SCHEMA_VERSION
+      && sourceSchemaVersion !== STORY_FACT_CONSISTENCY_SCHEMA_VERSION) {
       throw new StoryFormatError("Fact State payload has an incompatible source schema");
     }
     const asideDocumentId = value.asideDocumentId === null
@@ -723,6 +753,24 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
       : requireHash(stringField(value, "asideDocumentId"), "asideDocumentId");
     const asideSessionRefs = value.asideSessionRefs as AsideSessionRef[];
     const asideUnanchoredSessionRefs = value.asideUnanchoredSessionRefs as AsideSessionRef[];
+    if (sourceSchemaVersion === STORY_FACT_CONSISTENCY_SCHEMA_VERSION) {
+      const parsed: StoryManifestV15 = {
+        ...commonWithoutFacts,
+        schemaVersion: STORY_FACT_CONSISTENCY_SCHEMA_VERSION,
+        facts: parsedStored.value.facts,
+        asideDocumentId,
+        asideSessionRefs: cloneAsideSessionRefs(asideSessionRefs),
+        asideUnanchoredSessionRefs: cloneAsideSessionRefs(asideUnanchoredSessionRefs, true),
+        factConsistencyRunId: requireHash(
+          stringField(value, "factConsistencyRunId"),
+          "factConsistencyRunId"
+        )
+      };
+      return {
+        manifest: origin === undefined ? parsed : { ...parsed, origin },
+        sourceSchemaVersion: STORY_FACT_CONSISTENCY_SCHEMA_VERSION
+      };
+    }
     const parsed: StoryManifestV13 = {
       ...commonWithoutFacts,
       schemaVersion: STORY_FACT_STATE_SCHEMA_VERSION,
@@ -733,10 +781,11 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
     };
     return {
       manifest: origin === undefined ? parsed : { ...parsed, origin },
-      sourceSchemaVersion
+      sourceSchemaVersion: STORY_FACT_STATE_SCHEMA_VERSION
     };
   }
-  if (sourceSchemaVersion === STORY_FACT_STATE_SCHEMA_VERSION) {
+  if (sourceSchemaVersion === STORY_FACT_STATE_SCHEMA_VERSION
+    || sourceSchemaVersion === STORY_FACT_CONSISTENCY_SCHEMA_VERSION) {
     throw new StoryFormatError("Fact State source schema has a predecessor payload");
   }
   const predecessorStored = parsedStored.value;

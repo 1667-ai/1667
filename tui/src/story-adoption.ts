@@ -15,6 +15,11 @@ import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import { createPrunePlan, createUnusedTakesPrunePlan } from "./prune-model.js";
 import { applyOpeningFocus } from "./reading-position.js";
 import {
+  factConsistencyRunForStory,
+  retainFactConsistencyFailure,
+  takeFactConsistencyFailureForStory
+} from "./fact-consistency-guard.js";
+import {
   flushReadingPositionPersist,
   rememberFocus
 } from "./reading-position-persist.js";
@@ -573,6 +578,24 @@ export function adoptStoryState(state: RuntimeState, payload: StoryPayload, cach
   state.library = null;
   state.facts = null;
   state.commands = null;
+  if (changingStory) {
+    const retainedFact = state.factConsistency;
+    if (retainedFact !== null && retainedFact !== undefined) {
+      retainFactConsistencyFailure(state, retainedFact);
+    }
+    const returningFactRun = factConsistencyRunForStory(state, payload.id)
+      ?? takeFactConsistencyFailureForStory(state, payload.id);
+    if (returningFactRun === null) {
+      state.factConsistency = null;
+    } else {
+      returningFactRun.returnMode = "NAV";
+      state.factConsistency = returningFactRun;
+      if (returningFactRun.surface.phase === "confirm"
+        && returningFactRun.surface.failure !== undefined) {
+        state.toast = "Fact consistency failed · " + returningFactRun.surface.failure;
+      }
+    }
+  }
   state.card = null;
   state.archive = null;
   state.settings = null;

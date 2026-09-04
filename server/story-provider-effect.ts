@@ -43,6 +43,10 @@ import {
   type AsideAnchor,
   type AsideSessionDocument
 } from "../shared/aside.js";
+import {
+  hashFactConsistencyRun,
+  type FactConsistencyRun
+} from "../shared/fact-consistency-types.js";
 import type { AsideSessionRef } from "../shared/aside-session-index.js";
 import {
   setPendingAsideDocument,
@@ -161,6 +165,14 @@ export interface ChapterSummaryEffect {
   readonly generationRecord: GenerationRecord;
 }
 
+/** Publish one bounded Fact consistency result as the latest story leaf.
+ * The run stays in memory until terminal content preparation stores it. */
+export interface FactConsistencyEffect {
+  readonly kind: "fact-consistency";
+  readonly run: FactConsistencyRun;
+  readonly cancelled?: AbortSignal;
+}
+
 interface AsideStoryEffectBase {
   readonly kind: "aside";
   readonly cancelled?: AbortSignal;
@@ -228,6 +240,7 @@ export type ProviderStoryEffect =
   | RewriteNodeEffect
   | SummaryTakeEffect
   | ChapterSummaryEffect
+  | FactConsistencyEffect
   | AsideStoryEffect;
 
 export interface ProviderStoryEffectByMethod {
@@ -238,11 +251,12 @@ export interface ProviderStoryEffectByMethod {
   readonly createSummaryTake: SummaryTakeEffect;
   readonly askAside: AsideStoryEffect;
   readonly retakeAside: AsideStoryEffect;
+  readonly checkFactConsistency: FactConsistencyEffect;
 }
 
 type ProviderStoryEffectValueForKind<
   Kind extends ProviderStoryEffect["kind"]
-> = Kind extends "autoname" | "continue" | "chapter-summary" | "aside"
+> = Kind extends "autoname" | "continue" | "chapter-summary" | "fact-consistency" | "aside"
     ? Story
     : Kind extends "rewrite" | "summary-take"
       ? StoryNode
@@ -291,6 +305,8 @@ export async function applyProviderStoryEffect(
       return await applySummaryTake(story, effect, hydratePath);
     case "chapter-summary":
       return applyChapterSummary(story, effect);
+    case "fact-consistency":
+      return applyFactConsistency(story, effect);
     case "aside":
       return applyAside(story, effect);
     default: {
@@ -298,6 +314,16 @@ export async function applyProviderStoryEffect(
       return exhaustive;
     }
   }
+}
+
+function applyFactConsistency(
+  story: Story,
+  effect: FactConsistencyEffect
+): AppliedProviderStoryEffect<Story> {
+  requireNotCancelled(effect.cancelled, "Fact consistency check was cancelled");
+  const runHash = hashFactConsistencyRun(effect.run);
+  story.factConsistencyRunId = runHash;
+  return { changed: true, value: story };
 }
 
 function applyAside(

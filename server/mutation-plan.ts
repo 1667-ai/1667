@@ -2,6 +2,7 @@ import type {
   MutatingWorkerMethod
 } from "../shared/worker-protocol.js";
 import type { GenerationSettings, Story, StoryPayload } from "../shared/types.js";
+import type { FactConsistencyRun } from "../shared/fact-consistency-types.js";
 import type { CardImportPlan } from "../shared/card-import.js";
 import type { LorebookImport } from "../shared/lorebook-entry.js";
 import type { BindGenerationIntent } from "./generation-http.js";
@@ -59,6 +60,7 @@ interface MutationEntityNamespaces {
   retakeAside: never;
   asideSessionMutation: never;
   clearAside: never;
+  checkFactConsistency: "fact-consistency-run";
 }
 
 export type MutationEntityNamespace<M extends MutatingWorkerMethod> = MutationEntityNamespaces[M];
@@ -80,6 +82,15 @@ export type MutationImportPlan<M extends MutatingWorkerMethod> =
 export interface ImportPlanCustody<Plan> {
   stored(): Plan | null;
   record(plan: Plan): Promise<void>;
+}
+
+/** Compact durable identity for a Fact consistency run. The receipt stores
+ * this pointer before story publication, so recovery can keep the run leaf
+ * live without copying its finding text into the receipt. */
+export interface FactConsistencyRunPointer {
+  readonly storyId: string;
+  readonly runId: string;
+  readonly runHash: string;
 }
 
 export function importPlanCustody<
@@ -106,6 +117,8 @@ export interface MutationPlan<M extends MutatingWorkerMethod> extends MutationPr
   ): Promise<RemovedChapterBreak>;
   storedImportPlan(): MutationImportPlan<M> | null;
   recordImportPlan(value: MutationImportPlan<M>): Promise<void>;
+  storedFactConsistencyRun(): FactConsistencyRunPointer | null;
+  recordFactConsistencyRun(storyId: string, run: FactConsistencyRun): Promise<void>;
   providerStarted(): Promise<void>;
   reconcileStory(
     stories: StoryStore,
@@ -146,6 +159,8 @@ export interface MutationPlanStorage {
   ): Promise<RemovedChapterBreak>;
   storedImportPlan(): unknown;
   recordImportPlan(value: unknown): Promise<void>;
+  storedFactConsistencyRun(): FactConsistencyRunPointer | null;
+  recordFactConsistencyRun(storyId: string, run: FactConsistencyRun): Promise<void>;
   providerStarted(): Promise<void>;
   providerRecoveryRequired(): never;
 }
@@ -165,6 +180,8 @@ export function createMutationPlan<M extends MutatingWorkerMethod>(
     storedImportPlan: () =>
       storage.storedImportPlan() as MutationImportPlan<M> | null,
     recordImportPlan: (value) => storage.recordImportPlan(value),
+    storedFactConsistencyRun: () => storage.storedFactConsistencyRun(),
+    recordFactConsistencyRun: (storyId, run) => storage.recordFactConsistencyRun(storyId, run),
     providerStarted: () => {
       if (recoveryMode === "provider-uncertain") {
         return storage.providerRecoveryRequired();

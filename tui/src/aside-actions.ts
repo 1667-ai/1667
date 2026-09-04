@@ -45,6 +45,7 @@ import { truncate } from "./screens/story/frame.js";
 import { wrapText, type ProseStyle, type WrapCache } from "./wrap.js";
 import type { ReasoningDelta } from "./worker-pending.js";
 import { asideHopAnchorIndex } from "./aside-hop.js";
+import { blockFactConsistencyCheck } from "./fact-consistency-guard.js";
 
 export interface AsideHistoryLayout {
   header: string[];
@@ -772,6 +773,7 @@ export async function sendAsideQuestion(
   question: string,
   options: AsideAskOptions = {}
 ): Promise<boolean> {
+  if (blockFactConsistencyCheck(state)) return false;
   const surface = state.aside;
   if (surface === null || surface.busy || state.abort !== null) return false;
   const trimmed = question.trim();

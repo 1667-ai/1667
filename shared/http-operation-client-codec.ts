@@ -170,7 +170,8 @@ function isHttpOperationLifetime(
     || value === "local"
     || value === "transfer"
     || value === "provider-check"
-    || value === "generation";
+    || value === "generation"
+    || value === "fact-consistency";
 }
 
 function isHttpOperationState(

@@ -61,6 +61,24 @@ export function assertStoryAggregateVersion(
   parseStoryAggregateVersion(value, label);
 }
 
+/** Return whether `candidate` is known not to predate `current`. V6 revisions
+ * are ordered. V5 hashes have no ordering, so different hashes are treated as
+ * incomparable and never replace one another. */
+export function storyAggregateVersionIsAtLeast(
+  candidate: StoryAggregateVersion,
+  current: StoryAggregateVersion
+): boolean {
+  if (candidate.kind === "v6" && current.kind === "v6") {
+    return BigInt(candidate.revision) >= BigInt(current.revision);
+  }
+  if (candidate.kind === "v6") return current.kind !== "v6";
+  if (current.kind === "v6") return false;
+  if (candidate.kind === "v5" && current.kind === "v5") {
+    return candidate.manifestHash === current.manifestHash;
+  }
+  return current.kind === "absent";
+}
+
 function requireExactKeys(
   value: Record<string, unknown>,
   expected: readonly string[],

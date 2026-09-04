@@ -145,6 +145,21 @@ session counts. It does not contain session IDs, questions, answers, or Thoughts
 Notes and Aside turns never enter Write prompts. See [Technical
 terms](technical-terms.md).
 
+A story can also hold Fact consistency runs. Each run is a bounded,
+content-addressed object. The run records the checked story line, each checked
+story part, each selected take, the verified findings, and the number of
+rejected findings.
+
+The story payload contains only Fact consistency presence data. It does not
+contain finding text. 1667 loads a run when the writer opens its findings.
+Fact consistency runs stay separate from Aside documents. Fact consistency
+findings never enter Write prompts.
+
+A new run replaces the story pointer to the previous run. A receipt that can
+replay the previous run keeps that run live. Object cleanup can remove the run
+after its receipt is no longer retained. A run does not contain raw provider
+output or a model Thought.
+
 ## Project lock
 
 One writer can own a project. An advisory lock on `.1667/lock` enforces this

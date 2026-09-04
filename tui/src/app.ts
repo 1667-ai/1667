@@ -54,6 +54,7 @@ import {
 import { renderStoryScreen } from "./screens/story.js";
 import { frameStyledText } from "./screens/story/frame.js";
 import type { RuntimeState, StreamView } from "./state.js";
+import { requestQuitForState } from "./fact-consistency-guard.js";
 import { createStorySurface } from "./story-surface.js";
 import { createComposer } from "./composer-model.js";
 import { mapAction } from "./map-actions.js";
@@ -111,6 +112,7 @@ import { applyTerminalPaste } from "./terminal-paste.js";
 import { finalizeDispatch } from "./dispatch-finalization.js";
 
 export { recoveryNotice } from "./recovery-orchestration.js";
+export { requestQuitForState };
 
 /** Exactly one backend behind `api` — the live server or the demo fixture
  *  adapter. Nothing below this type ever branches on which one it is. */
@@ -386,17 +388,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
     else requestGenerationStop(state, repaint);
   };
   const requestQuit = () => {
-    if (state.stream === null && state.abort === null) return quit();
-    if (!state.quitArmed) {
-      state.quitArmed = true;
-      state.toast = state.chapterSummary !== null
-        ? "chapter summary running · press Ctrl+C again to stop and quit"
-        : "streaming · press Ctrl+C again to discard and quit";
-      repaint();
-      return;
-    }
-    state.abort?.controller.abort();
-    quit();
+    requestQuitForState(state, repaint, quit);
   };
 
   // Keyboard/paste input belongs to a presented semantic frame. If cold
@@ -954,6 +946,8 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     pendingGenerationDraft: null,
     pendingUpdateNotice: null,
     composerClaimEpoch: 0,
+    factConsistencyRunsInFlight: new Set(),
+    factConsistencyFailuresByStory: new Map(),
     quitArmed: false,
     interactionVersion: 0,
     backendTask: null,

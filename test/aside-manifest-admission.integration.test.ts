@@ -8,7 +8,8 @@ import { askAsideSession, retakeAsideSession } from "../server/aside-session-htt
 import { formatV12, formatV14, storySummaryV6FromContent } from "../server/story-v6-codec.js";
 import type { LiveStoryManifestV12 } from "../server/story-v12-types.js";
 import type { LiveStoryManifestV14 } from "../server/story-v14-types.js";
-import type { StoryManifestV11, StoryManifestV13 } from "../server/story-format.js";
+import type { LiveStoryManifestV16 } from "../server/story-v16-types.js";
+import type { StoryManifestV11, StoryManifestV13, StoryManifestV15 } from "../server/story-format.js";
 import type { Story } from "../shared/types.js";
 import type { ProviderStoryRuntime } from "../server/story-mutation-runtime.js";
 import type { PromptCacheRuntime } from "../server/provider-cache-policy.js";
@@ -99,6 +100,23 @@ function v14FactStory(asideSessionRefs: Story["asideSessionRefs"] = []): Story {
     chapterBreaks: [],
     asideSessionRefs,
     asideUnanchoredSessionRefs: []
+  };
+}
+
+function v16FactManifest(
+  asideSessionRefs: StoryManifestV15["asideSessionRefs"] = []
+): LiveStoryManifestV16 {
+  const predecessor = v14FactManifest(asideSessionRefs);
+  const content: StoryManifestV15 = {
+    ...predecessor.content,
+    schemaVersion: 15,
+    factConsistencyRunId: HASH
+  };
+  return {
+    ...predecessor,
+    schemaVersion: 16,
+    content,
+    summary: storySummaryV6FromContent(content)
   };
 }
 
@@ -706,6 +724,75 @@ test("V14 Fact State manifests use the V14 projection for Ask and retake admissi
   };
   const retakeStory = v14FactStory([existingRef]);
   const retakeManifest = v14FactManifest([existingRef]);
+  const retakeStories = {
+    asideManifest: retakeManifest,
+    asideMutationId: MUTATION_ID,
+    loadForMutation: async () => retakeStory,
+    hydratePath: async () => undefined,
+    commitProviderEffect: async () => { throw new Error("provider must not run"); }
+  } as unknown as ProviderStoryRuntime<"retakeAside">;
+  await assert.rejects(
+    retakeAsideSession(
+      retakeStory.id,
+      { sessionId: existingRef.id, turnIndex: 0, anchor: null },
+      retakeStories,
+      settings,
+      {} as PromptCacheRuntime,
+      async () => {},
+      signal,
+      {
+        entryPointsOpen: true,
+        loadSession: async () => ({
+          schemaVersion: 2,
+          anchor: null,
+          title: "Existing",
+          turns: [{ q: "Earlier?", a: "Earlier answer." }]
+        }),
+        commitSession: async () => {}
+      }
+    ),
+    /settings reached after admission/
+  );
+});
+
+test("V16 Fact consistency manifests preserve V15 content for Ask and retake admission", async () => {
+  const settings = {
+    loadGeneration: async () => {
+      throw new Error("settings reached after admission");
+    }
+  } as never;
+  const signal = new AbortController().signal;
+  const askStory = v14FactStory();
+  const askManifest = v16FactManifest();
+  const askStories = {
+    asideManifest: askManifest,
+    asideMutationId: MUTATION_ID,
+    loadForMutation: async () => askStory,
+    hydratePath: async () => undefined,
+    commitProviderEffect: async () => { throw new Error("provider must not run"); }
+  } as unknown as ProviderStoryRuntime<"askAside">;
+  await assert.rejects(
+    askAsideSession(
+      askStory.id,
+      { sessionId: "ask-v16", anchor: null, question: "What matters?" },
+      askStories,
+      settings,
+      {} as PromptCacheRuntime,
+      async () => {},
+      signal,
+      { entryPointsOpen: true, loadSession: async () => null, commitSession: async () => {} }
+    ),
+    /settings reached after admission/
+  );
+
+  const existingRef = {
+    id: "existing-v16",
+    documentId: HASH,
+    anchor: null,
+    turnCount: 1
+  };
+  const retakeStory = v14FactStory([existingRef]);
+  const retakeManifest = v16FactManifest([existingRef]);
   const retakeStories = {
     asideManifest: retakeManifest,
     asideMutationId: MUTATION_ID,

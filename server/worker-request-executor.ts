@@ -396,6 +396,10 @@ async function invokeReadOnly(
     case "searchStories": return await service.searchStories(input, signal);
     case "loadStory":
       return await service.loadStory(requireString(input.id, "id"));
+    case "planFactConsistency":
+      return await service.planFactConsistency(input);
+    case "getFactConsistencyRun":
+      return await service.getFactConsistencyRun(requireString(input.storyId, "storyId"));
     case "getUnknownOutcomeStatus":
       return await service.getUnknownOutcomeStatus(
         requireString(input.storyId, "storyId"),

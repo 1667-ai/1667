@@ -1,6 +1,6 @@
 import type { StoryImageAttachment } from "./image-attachment.js";
 
-export type PromptOperation = "continue" | "rewrite" | "title" | "summary" | "aside";
+export type PromptOperation = "continue" | "rewrite" | "title" | "summary" | "aside" | "fact-check";
 export type PromptRole = "system" | "user" | "assistant";
 
 export interface ChatMessage {

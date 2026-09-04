@@ -75,7 +75,7 @@ export type KeyAction =
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
   | "SEARCH" | "REQUEST" | "CARD" | "ARCHIVE" | "IMAGE" | "LOG" | "PROBS" | "RECORD"
-  | "ASIDE" | "PLACE";
+  | "ASIDE" | "PLACE" | "FACT-CONSISTENCY";
 
 export interface ResolvedKey {
   action: KeyAction;
@@ -704,6 +704,13 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "down") return { action: "focus-next" };
     if (key.name === "up") return { action: "focus-previous" };
     if (key.name === "return") return { action: "apply" };
+    return { action: "none" };
+  }
+  if (mode === "FACT-CONSISTENCY") {
+    if (key.name === "down") return { action: "focus-next" };
+    if (key.name === "up") return { action: "focus-previous" };
+    if (key.name === "return") return { action: "open-selected" };
+    if (key.name === "f") return { action: "open-facts" };
     return { action: "none" };
   }
   // The reference can outgrow a short terminal, so it scrolls with the same

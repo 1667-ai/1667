@@ -47,20 +47,17 @@ import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js"
 import { MAX_SESSION_REFS_PER_BUCKET } from "./story-v11-strict.js";
 import {
   parseManifestV11,
-  parseManifestV13,
   serializeManifestContent,
-  type StoryManifestV11,
-  type StoryManifestV13
+  type StoryManifestV11
 } from "./story-format.js";
 import {
   formatV12,
-  formatV14,
   STORY_SCHEMA_VERSION_V14
 } from "./story-v6-codec.js";
 import type { StoryEnvelopeManifest } from "./story-v6-types.js";
 import type { LiveStoryManifestV12 } from "./story-v12-types.js";
-import type { LiveStoryManifestV14 } from "./story-v14-types.js";
 import { MAX_STORY_MANIFEST_BYTES } from "./story-v5-strict.js";
+import { assertVersionedAsideSessionManifestFits } from "./aside-session-manifest-admission.js";
 import {
   asideSessionRefById,
   effectiveAsideSessionAnchor,
@@ -501,8 +498,9 @@ function assertAsideSessionManifestFits(
   projectedRef?: AsideSessionRef
 ): void {
   if (manifest === undefined || manifest.kind !== "live") return;
-  if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V14) {
-    assertV14AsideSessionManifestFits(
+  if (manifest.schemaVersion === 16
+    || manifest.schemaVersion === STORY_SCHEMA_VERSION_V14) {
+    assertVersionedAsideSessionManifestFits(
       manifest,
       mutationId,
       sessionId,
@@ -587,87 +585,6 @@ function assertAsideSessionManifestFits(
   // admission calculation aligned with the bare content size gate as well as
   // the canonical V12 envelope gate above.
   parseManifestV11(contentText, manifest.id);
-}
-
-/** V14 carries the same Aside reference buckets in its V13 content, but the
- * predecessor V11/V12 projection cannot represent its Fact State fields. */
-function assertV14AsideSessionManifestFits(
-  manifest: LiveStoryManifestV14,
-  mutationId: string | undefined,
-  sessionId: string,
-  anchor: AsideAnchor | null,
-  sourceAsideDocumentId?: string,
-  turnCount = 1,
-  projectedRef?: AsideSessionRef
-): void {
-  const source = manifest.content;
-  const anchoredRefs = source.asideSessionRefs;
-  const unanchoredRefs = source.asideUnanchoredSessionRefs;
-  const placeholder = projectedRef ?? {
-    id: sessionId,
-    documentId: "0".repeat(64),
-    anchor: anchor === null ? null : { ...anchor },
-    ...(sourceAsideDocumentId === undefined ? {} : { sourceAsideDocumentId }),
-    turnCount
-  };
-  const nextAnchoredRefs = anchoredRefs.filter((ref) => ref.id !== sessionId);
-  const nextUnanchoredRefs = unanchoredRefs.filter((ref) => ref.id !== sessionId);
-  if (placeholder.anchor === null) nextUnanchoredRefs.push(placeholder);
-  else nextAnchoredRefs.push(placeholder);
-  const content: StoryManifestV13 = {
-    ...source,
-    schemaVersion: 13,
-    asideSessionRefs: nextAnchoredRefs,
-    asideUnanchoredSessionRefs: nextUnanchoredRefs
-  };
-  const contentText = serializeManifestContent(content);
-  if (Buffer.byteLength(contentText, "utf8") > MAX_STORY_MANIFEST_BYTES) {
-    throw new HttpError(
-      422,
-      "This story manifest cannot hold another Aside session.",
-      "content_too_large"
-    );
-  }
-  const terminalEnvelope = mutationId === undefined
-    ? {
-        ...manifest,
-        schemaVersion: STORY_SCHEMA_VERSION_V14,
-        content
-      } as LiveStoryManifestV14
-    : {
-        ...manifest,
-        schemaVersion: STORY_SCHEMA_VERSION_V14,
-        revision: nextRevision(manifest.revision),
-        previousManifestHash: "0".repeat(64),
-        unresolvedProvider: null,
-        lastTransaction: {
-          receiptKind: "user" as const,
-          mutationId,
-          phase: "prepared" as const
-        },
-        content
-      } as LiveStoryManifestV14;
-  let envelopeText: string;
-  try {
-    envelopeText = formatV14(terminalEnvelope);
-  } catch (error) {
-    if (error instanceof Error && /manifest exceeds.*size limit|manifest replacement exceeds/u.test(error.message)) {
-      throw new HttpError(
-        422,
-        "This story manifest cannot hold another Aside session.",
-        "content_too_large"
-      );
-    }
-    throw error;
-  }
-  if (Buffer.byteLength(envelopeText, "utf8") > MAX_STORY_MANIFEST_BYTES) {
-    throw new HttpError(
-      422,
-      "This story manifest cannot hold another Aside session.",
-      "content_too_large"
-    );
-  }
-  parseManifestV13(contentText, manifest.id);
 }
 
 function projectExistingAsideSessionRef(

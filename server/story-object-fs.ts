@@ -16,7 +16,8 @@ import { StoryFormatError, sha256, type ObjectHash } from "./story-format.js";
  * (shared/reasoning.ts); an images object is one Normalized Image's raw
  * bytes (shared/image-attachment.ts), hashed and stored with no JSON codec;
  * an aside object is one story's bounded Side Note document
- * (shared/aside.ts). */
+ * (shared/aside.ts); a fact-consistency object is one bounded machine report
+ * (shared/fact-consistency-types.ts). */
 export type ObjectKind =
   | "chunks"
   | "revisions"
@@ -24,7 +25,8 @@ export type ObjectKind =
   | "generation-records"
   | "reasoning"
   | "images"
-  | "aside";
+  | "aside"
+  | "fact-consistency";
 
 /** The on-disk extension for one object kind, kept as the single table every
  * writer and reader shares. `objectFilename` below, `objectPath`
@@ -40,7 +42,8 @@ export const OBJECT_EXTENSIONS: Record<ObjectKind, string> = {
   "generation-records": ".json",
   reasoning: ".json",
   images: ".bin",
-  aside: ".json"
+  aside: ".json",
+  "fact-consistency": ".json"
 };
 
 export class SweepCancelled extends Error {}

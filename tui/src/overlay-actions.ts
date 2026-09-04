@@ -92,6 +92,8 @@ import {
   generationRecordAction,
   openGenerationRecordViewer
 } from "./generation-record-actions.js";
+import { factConsistencyOverlayAction } from "./fact-consistency-runtime.js";
+import { factConsistencyRunAvailable } from "./fact-consistency-guard.js";
 import type { FactsOverlayState, RuntimeState } from "./state.js";
 import type { ActionContext } from "./action-context.js";
 
@@ -226,16 +228,40 @@ export async function handleOverlayAction(
   }
   if (resolved.action === "open-library") { await openLibrary(state, source, context); return true; }
   if (resolved.action === "open-facts") {
+    const factConsistencyReturn = state.mode === "FACT-CONSISTENCY"
+      && state.factConsistency?.surface.phase === "results"
+      ? "FACT-CONSISTENCY" as const
+      : undefined;
+    let factIndex = resolved.index;
+    if (state.mode === "FACT-CONSISTENCY") {
+      const surface = state.factConsistency?.surface;
+      if (surface?.phase !== "results") return true;
+      const finding = surface.run.findings[surface.cursor];
+      if (finding === undefined) {
+        state.toast = "select a finding first";
+        return true;
+      }
+      factIndex = state.payload.facts.findIndex(({ id }) => id === finding.factId);
+      if (factIndex < 0) {
+        state.toast = "the finding's Fact is no longer available";
+        return true;
+      }
+    }
     state.facts = {
       ...initialFacts(),
-      storySelection: capturedStorySelection === undefined ? null : capturedStorySelection
+      storySelection: capturedStorySelection === undefined ? null : capturedStorySelection,
+      ...(factConsistencyReturn === undefined ? {} : { returnMode: factConsistencyReturn })
     };
-    if (resolved.index !== undefined) {
-      const cursor = Math.max(0, Math.min(state.payload.facts.length - 1, resolved.index));
+    if (factIndex !== undefined) {
+      const cursor = Math.max(0, Math.min(state.payload.facts.length - 1, factIndex));
       state.facts.cursor = cursor;
     }
     state.mode = "FACTS";
     return true;
+  }
+  if (state.mode === "FACT-CONSISTENCY" && state.factConsistency !== null
+    && state.factConsistency !== undefined) {
+    return await factConsistencyOverlayAction(resolved, state, source, context);
   }
   if (resolved.action === "open-settings") {
     await openSettingsOverlay(
@@ -446,7 +472,15 @@ async function factsAction(
   if (resolved.action === "cancel") {
     if (overlay.deleteArmedId !== null) overlay.deleteArmedId = null;
     else if (overlay.filtering) overlay.filtering = false;
-    else { state.facts = null; state.mode = "NAV"; }
+    else {
+      const returnMode = overlay.returnMode === "FACT-CONSISTENCY"
+        && state.factConsistency !== null
+        && state.factConsistency !== undefined
+        ? "FACT-CONSISTENCY"
+        : "NAV";
+      state.facts = null;
+      state.mode = returnMode;
+    }
   } else if (resolved.action === "focus-next") overlay.cursor = boundedFactCursor(overlay.cursor + 1, rows.length);
   else if (resolved.action === "focus-index") overlay.cursor = boundedFactCursor(resolved.index ?? overlay.cursor, rows.length);
   else if (resolved.action === "focus-previous") overlay.cursor = boundedFactCursor(overlay.cursor - 1, rows.length);
@@ -867,6 +901,8 @@ function liveCommandMatches(
       canRewriteSelection: canRewriteSelection(selection?.spans ?? []),
       asideEntryPointsOpen: asideOpen,
       hasStoryPart: factsOpeningPartId(state) !== null,
+      hasFactConsistencyRun: state.payload.hasFactConsistencyRun === true
+        || factConsistencyRunAvailable(state),
       hasStorySelection: selection !== null && selection.text.trim().length > 0,
       ...factEditorPaletteContext(state.editor?.kind === "fact" ? state.editor : null),
       ...factsPaletteContext(state)

@@ -323,3 +323,16 @@ The newest Aside turn uses the same Retake keys as a story part. Press `r` to
 use the saved question again. Press `R` to edit the saved question before the
 Retake. Press `Esc` in the Aside prompt to return to the turns. Press `Esc`
 again to exit Aside.
+
+## Fact consistency boundary
+
+The Fact consistency check is a read-only utility operation. It uses the
+`utility` Generation Profile. Each request contains one selected take and the
+Fact States that apply at that story part.
+
+The check does not send the Author Brief, the Author's Note, story phrase
+bias, banned strings, or Side Notes. It does not send other story parts.
+
+Fact consistency findings never enter Write prompts. Continue, Direct,
+Retake, Rewrite, title, and summary builders cannot read a Fact consistency
+run. Only the Fact consistency result reader can load its findings.

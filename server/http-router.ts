@@ -80,6 +80,7 @@ import { parseWorkerContinueImages } from "./worker-continue-target.js";
 import {
   maybeHandleAsideApi
 } from "./aside-http-route.js";
+import { maybeHandleFactConsistencyApi } from "./fact-consistency-http-route.js";
 export interface HttpRouterContext {
   readonly authRecord: HttpAuthRecord;
   readonly dataDirectoryIdentity: HttpDataDirectoryIdentity | null;
@@ -301,6 +302,19 @@ async function handleApi(
       mutate,
       operation,
       errorReporter: context.errorReporter
+  })) {
+    return;
+  }
+  if (head === "stories" && id !== undefined
+    && await maybeHandleFactConsistencyApi({
+      storyId: id,
+      sub,
+      subId,
+      method,
+      response,
+      service,
+      jsonBody,
+      mutate: (input) => mutate("checkFactConsistency", input)
     })) {
     return;
   }

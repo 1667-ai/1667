@@ -79,7 +79,8 @@ export function resolveHttpOperationReservation(
   if (requested !== null
     && requested <= 10_000
     && (policy.lifetime === "provider-check"
-      || policy.lifetime === "generation")) {
+      || policy.lifetime === "generation"
+      || policy.lifetime === "fact-consistency")) {
     throw new ServiceError(
       400,
       "Provider operation deadlines must exceed the 10-second commit allowance",

@@ -263,6 +263,29 @@ export class StoryService extends StoryServiceRuntime {
     );
   }
 
+  async planFactConsistency(input: unknown): Promise<{
+    partCount: number;
+    requestCount: number;
+    planToken: string;
+  }> {
+    this.ensureOpen();
+    return await this.storyFactConsistency.plan(input);
+  }
+
+  async checkFactConsistency(
+    input: unknown,
+    signal: AbortSignal,
+    options: import("./story-service-fact-consistency.js").FactConsistencyCheckOptions = {}
+  ): Promise<import("../shared/worker-protocol.js").WorkerOutput<"checkFactConsistency">> {
+    this.ensureOpen();
+    return await this.storyFactConsistency.check(input, signal, options);
+  }
+
+  async getFactConsistencyRun(id: string, runHash?: string) {
+    this.ensureOpen();
+    return await this.storyFactConsistency.getRun(id, runHash);
+  }
+
   /** One take's stored token probabilities. Throws a 404 — distinguishably by
    *  message — when the story, the take, or the take's stored record is
    *  missing. */

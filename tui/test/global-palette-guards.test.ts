@@ -56,7 +56,8 @@ const APP_MODES = Object.keys({
   PROBS: true,
   RECORD: true,
   ASIDE: true,
-  PLACE: true
+  PLACE: true,
+  "FACT-CONSISTENCY": true
 } satisfies Record<AppMode, true>) as AppMode[];
 
 function ctrlP(): KeyEvent {

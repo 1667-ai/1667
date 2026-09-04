@@ -23,6 +23,7 @@ import { createComposer, insertComposerText } from "./composer-model.js";
 import { composerSurfaceAction } from "./composer-surface-action.js";
 import { SINGLE_LINE_COMPOSER_MOTION } from "./composer-motion.js";
 import type { ChapterSummaryOverlayState } from "./state.js";
+import { blockFactConsistencyCheck } from "./fact-consistency-guard.js";
 
 type ChapterActionContext = Pick<ActionContext, "backend" | "cache" | "renderer" | "repaint">;
 
@@ -299,6 +300,7 @@ async function summarizeChapter(
   chapter: StoryChapter,
   context: ChapterActionContext
 ): Promise<void> {
+  if (blockFactConsistencyCheck(state)) return;
   const breakId = chapter.closedBy?.id;
   if (breakId === undefined) return void (state.toast = "current chapter stays raw until it ends");
   const refreshed = chapter.summary !== null;

@@ -78,17 +78,31 @@ export function resolveFactState(
   fact: Pick<StoryFact, "states">,
   requestPath: readonly { readonly id: string }[]
 ): FactStateResolution {
-  const states = canonicalFactStates(fact);
   const positions = new Map(requestPath.map((part, index) => [part.id, index] as const));
+  return resolveFactStateAtPathPosition(fact, positions, requestPath.length - 1);
+}
+
+/** Resolve a Fact against one position in a known path. The caller can build
+ * the full path index once and advance the prefix boundary for each part.
+ * This preserves `resolveFactState` semantics without rebuilding a Map for
+ * every Fact and prefix. */
+export function resolveFactStateAtPathPosition(
+  fact: Pick<StoryFact, "states">,
+  pathPositions: ReadonlyMap<string, number>,
+  pathPosition: number
+): FactStateResolution {
+  const states = canonicalFactStates(fact);
   let selected: FactState | undefined;
   let selectedDepth = -1;
   for (const state of states) {
-    const pathPosition = state.anchorPartId === undefined
+    const anchorPosition = state.anchorPartId === undefined
       ? undefined
-      : positions.get(state.anchorPartId);
+      : pathPositions.get(state.anchorPartId);
     const depth = state.anchorPartId === undefined
       ? 0
-      : pathPosition === undefined ? -1 : pathPosition + 1;
+      : anchorPosition === undefined || anchorPosition > pathPosition
+        ? -1
+        : anchorPosition + 1;
     if (depth < 0 || depth <= selectedDepth) continue;
     selected = state;
     selectedDepth = depth;

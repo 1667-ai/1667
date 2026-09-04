@@ -1,18 +1,22 @@
+import {
+  storyAggregateVersionIsAtLeast,
+  type StoryAggregateVersion
+} from "../../shared/story-aggregate-version.js";
 import type {
   StoryPayload,
   StorySummary
 } from "../../shared/types.js";
-import type {
-  StoryAggregateVersion
-} from "../../shared/story-aggregate-version.js";
 
 /** Incarnation-local optimistic-concurrency tokens for HTTP story mutations. */
 export class HttpStoryVersions {
   private readonly versions = new Map<string, StoryAggregateVersion>();
 
   rememberPayload(payload: StoryPayload): StoryPayload {
-    if (payload.aggregateVersion !== undefined) {
-      this.versions.set(payload.id, payload.aggregateVersion);
+    const candidate = payload.aggregateVersion;
+    const held = this.versions.get(payload.id);
+    if (candidate !== undefined
+      && (held === undefined || storyAggregateVersionIsAtLeast(candidate, held))) {
+      this.versions.set(payload.id, candidate);
     }
     return payload;
   }
@@ -22,9 +26,7 @@ export class HttpStoryVersions {
       const candidate = summary.aggregateVersion;
       if (candidate === undefined) continue;
       const held = this.versions.get(summary.id);
-      if (held === undefined
-        || held.kind !== "v6"
-        || (candidate.kind === "v6" && candidate.revision >= held.revision)) {
+      if (held === undefined || storyAggregateVersionIsAtLeast(candidate, held)) {
         this.versions.set(summary.id, candidate);
       }
     }

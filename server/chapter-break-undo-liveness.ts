@@ -11,20 +11,23 @@ import { readUnsealedFile } from "./vault-file-read.js";
 
 export const MUTATION_RECEIPT_DIRECTORY = "mutation-receipts";
 
-/** Receipts persist indefinitely, so a story's directory can accumulate many
- *  of them; bound hydration's concurrent reads instead of opening every file
- *  at once (matches the small, explicit IO ceilings elsewhere, e.g.
- *  `story-objects.ts`'s `TEXT_IO_CONCURRENCY`). */
+/** Receipt replay keeps run leaves live for the receipt retention period, so a
+ *  story's directory can accumulate many receipts; bound hydration's
+ *  concurrent reads instead of opening every file at once (matches the small,
+ *  explicit IO ceilings elsewhere, e.g. `story-objects.ts`'s
+ *  `TEXT_IO_CONCURRENCY`). */
 const HYDRATE_IO_CONCURRENCY = 8;
 
 /** The narrow read StoryStore needs from the receipt store: the Generation
  *  Record ids a durable chapter-break removal receipt still holds live for
  *  one story. Injected so StoryStore never learns receipt paths or codecs. */
 export type ChapterBreakUndoLiveness = (storyId: string) => readonly ObjectHash[];
+export type FactConsistencyRunLiveness = (storyId: string) => readonly ObjectHash[];
 
 /** Isolated StoryStore callers (most tests, offline tooling) have no receipt
  *  store to ask, and never exercise chapter-break undo: nothing is live. */
 export const NO_CHAPTER_BREAK_UNDO_LIVENESS: ChapterBreakUndoLiveness = () => [];
+export const NO_FACT_CONSISTENCY_RUN_LIVENESS: FactConsistencyRunLiveness = () => [];
 
 /** Story-indexed view of Generation Record ids held live by a durable
  *  chapter-break removal receipt: its pre-commit artifact lease, or a
@@ -37,6 +40,10 @@ export const NO_CHAPTER_BREAK_UNDO_LIVENESS: ChapterBreakUndoLiveness = () => []
  *  every other story. */
 export class ChapterBreakLivenessIndex {
   private readonly byStory = new Map<string, Set<ObjectHash>>();
+  private readonly factConsistencyByStory = new Map<
+    string,
+    Map<ObjectHash, FactConsistencyRunLease>
+  >();
 
   async hydrate(
     dir: string,
@@ -76,6 +83,26 @@ export class ChapterBreakLivenessIndex {
    *  call for every receipt save, of every method: a receipt with no such
    *  artifact or result simply contributes nothing. */
   observe(receipt: MutationReceipt): void {
+    const factConsistency = receipt.result?.type === "fact-consistency"
+      ? { storyId: receipt.result.id, runHash: receipt.result.runHash }
+      : receipt.artifact?.kind === "fact-consistency-run"
+        ? { storyId: receipt.artifact.storyId, runHash: receipt.artifact.runHash }
+        : undefined;
+    if (factConsistency?.runHash !== undefined) {
+      const leases = this.factConsistencyByStory.get(factConsistency.storyId)
+        ?? new Map<ObjectHash, FactConsistencyRunLease>();
+      const storyId = factConsistency.storyId;
+      const runHash = factConsistency.runHash;
+      leases.set(runHash as ObjectHash, {
+        runHash: runHash as ObjectHash,
+        createdAt: receipt.createdAt,
+        mutationId: receipt.mutationId
+      });
+      // A completed worker receipt remains replayable for the same retention
+      // period as every other receipt. Keep every receipt-owned run live so
+      // cleanup cannot break an older exact replay when a story has many runs.
+      this.factConsistencyByStory.set(storyId, leases);
+    }
     const result = receipt.result?.type === "chapter-break-removed" ? receipt.result : undefined;
     const artifact = receipt.artifact?.kind === "chapter-break-removal" ? receipt.artifact : undefined;
     const storyId = artifact?.storyId ?? result?.id;
@@ -92,6 +119,30 @@ export class ChapterBreakLivenessIndex {
   liveGenerationRecordIds(storyId: string): readonly ObjectHash[] {
     return [...(this.byStory.get(storyId) ?? [])];
   }
+
+  /** Keep every receipt-owned Fact consistency run readable for completed-
+   *  receipt replay, even after newer runs replace the story pointer. */
+  liveFactConsistencyRunIds(storyId: string): readonly ObjectHash[] {
+    return [...(this.factConsistencyByStory.get(storyId)?.values() ?? [])]
+      .sort(compareFactConsistencyLeases)
+      .map((lease) => lease.runHash);
+  }
+}
+
+interface FactConsistencyRunLease {
+  readonly runHash: ObjectHash;
+  readonly createdAt: string;
+  readonly mutationId: string;
+}
+
+function compareFactConsistencyLeases(
+  left: FactConsistencyRunLease,
+  right: FactConsistencyRunLease
+): number {
+  const leftTime = Date.parse(left.createdAt);
+  const rightTime = Date.parse(right.createdAt);
+  if (leftTime !== rightTime) return leftTime - rightTime;
+  return left.mutationId.localeCompare(right.mutationId);
 }
 
 function isErrorCode(error: unknown, code: string): boolean {

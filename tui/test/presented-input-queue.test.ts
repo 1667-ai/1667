@@ -29,6 +29,16 @@ function key(name: string, sequence = name, ctrl = false): KeyEvent {
   return { name, sequence, shift: false, ctrl, meta: false } as KeyEvent;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 async function drainMicrotasks(): Promise<void> {
   for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
 }
@@ -150,6 +160,86 @@ describe("presented input queue", () => {
     expect(quitRequests).toBe(0);
     expect(queue.pending).toBe(0);
     backend.dispose();
+  });
+
+  test("releases the presented-input queue while a Fact check runs", async () => {
+    const source = demoAppSource(false);
+    const state = initialState(source, false);
+    const cache = createWrapCache<ProseStyle>();
+    const backend = new ActionRuntime(state, () => undefined);
+    const queue = createPresentedInputQueue({ flush() {}, ready: () => true });
+    const originalCheck = source.api.checkFactConsistency!;
+    const result = deferred<Awaited<ReturnType<typeof originalCheck>>>();
+    source.api.checkFactConsistency = async () => result.promise;
+    let repaints = 0;
+
+    const enqueueKey = (event: KeyEvent) => {
+      let admitted!: () => void;
+      let rejected!: (error: unknown) => void;
+      let dispatch!: Promise<void>;
+      const admission = new Promise<void>((resolve, reject) => {
+        admitted = resolve;
+        rejected = reject;
+      });
+      queue.enqueue(() => {
+        const pending = observeInputAdmission((admit) => {
+          dispatch = handleKey(
+            event,
+            state,
+            source,
+            cache,
+            () => { repaints += 1; admit(); },
+            () => { admit(); return Promise.resolve(); },
+            () => undefined,
+            null,
+            undefined,
+            undefined,
+            withActionAdmission(backend, admit)
+          );
+          return dispatch;
+        }, (work) => backend.observe(work));
+        void pending.then(admitted, rejected);
+        return pending;
+      });
+      return { admission, dispatch: () => dispatch };
+    };
+
+    try {
+      await enqueueKey(key("p", "\u0010", true)).dispatch();
+      await enqueueKey(key("return")).dispatch();
+      const repaintsBeforeCheck = repaints;
+      const checking = enqueueKey(key("return"));
+      await checking.admission;
+      expect(repaints).toBeGreaterThan(repaintsBeforeCheck);
+      expect(state.factConsistency?.surface.phase).toBe("running");
+
+      const escape = enqueueKey(key("escape"));
+      await escape.admission;
+      expect(state.mode).toBe("NAV");
+      expect(state.factConsistency?.surface.phase).toBe("running");
+
+      const direct = enqueueKey(key("return"));
+      await direct.admission;
+      await direct.dispatch();
+      expect(state.mode).toBe("COMPOSE");
+      for (const character of "draft while checking") {
+        const typed = enqueueKey(key(character));
+        await typed.admission;
+        await typed.dispatch();
+      }
+      expect(state.composer.text).toBe("draft while checking");
+
+      result.resolve(await originalCheck({
+        storyId: state.payload.id,
+        focusedPartId: state.payload.path[0]!.id,
+        scope: "chapter",
+        planToken: "0".repeat(64)
+      }));
+      await checking.dispatch();
+      expect(state.factConsistency?.surface.phase).toBe("results");
+    } finally {
+      backend.dispose();
+    }
   });
 
   test("retains story selection when Facts opens before Ctrl-P Fact creation", async () => {

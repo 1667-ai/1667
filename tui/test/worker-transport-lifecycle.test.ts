@@ -12,6 +12,7 @@ import {
   type WorkerOperationId
 } from "../../shared/worker-protocol.js";
 import { createFailureEnvelope } from "../../shared/failure-envelope.js";
+import { FACT_CONSISTENCY_OPERATION_DEADLINE_MS } from "../../shared/fact-consistency-types.js";
 import { MutationOutbox } from "../../server/mutation-outbox.js";
 import {
   BackendRestartRequiredError,
@@ -58,6 +59,28 @@ describe("embedded worker transport lifecycle", () => {
       expect(await secondCall).toEqual([]);
     } finally {
       await backend.dispose();
+    }
+  });
+
+  test("gives a complete Fact consistency run its extended provider deadline", async () => {
+    const worker = new FakeWorker(true);
+    const transport = new WorkerTransport({ worker, readyTimeoutMs: 100 });
+    await transport.start();
+    try {
+      const pending = transport.call("checkFactConsistency", {
+        storyId: "story",
+        focusedPartId: "part",
+        scope: "chapter",
+        planToken: "0".repeat(64)
+      });
+      const request = await waitForRequest(worker, "checkFactConsistency");
+      expect(request.deadlineMs - Date.now()).toBeGreaterThan(
+        FACT_CONSISTENCY_OPERATION_DEADLINE_MS - 1_000
+      );
+      worker.message({ type: "result", id: request.id, value: {} });
+      await pending;
+    } finally {
+      await transport.dispose();
     }
   });
 

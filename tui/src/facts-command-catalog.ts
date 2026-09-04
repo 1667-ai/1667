@@ -5,6 +5,28 @@ import type { FactEditorSession } from "./state.js";
  * and search; this catalog owns the Fact vocabulary and context gates. */
 export const FACT_COMMAND_DEFINITIONS: readonly PaletteCommand[] = [
   {
+    id: "check-chapter-against-facts", section: "story", name: "check chapter against Facts",
+    description: "find contradictions in the focused chapter without changing prose",
+    blockedByLiveStream: true,
+    requires: (context) => context.hasStoryPart === true
+      && context.hasFacts === true && context.factEditor !== true,
+    searchTerms: ["check chapter", "fact consistency", "contradictions chapter"]
+  },
+  {
+    id: "check-story-line-against-facts", section: "story", name: "check story line against Facts",
+    description: "find contradictions in the selected story line without changing prose",
+    blockedByLiveStream: true,
+    requires: (context) => context.hasStoryPart === true
+      && context.hasFacts === true && context.factEditor !== true,
+    searchTerms: ["check story line", "fact consistency", "contradictions line"]
+  },
+  {
+    id: "show-fact-findings", section: "story", name: "show Fact findings",
+    description: "reopen the latest Fact consistency findings",
+    requires: (context) => context.hasFactConsistencyRun === true && context.factEditor !== true,
+    searchTerms: ["show fact findings", "fact findings", "fact consistency results"]
+  },
+  {
     id: "facts", section: "story", name: "facts overview", description: "open the Facts manager and inspect story memory",
     requires: (context) => context.factEditor !== true,
     searchTerms: ["facts", "fact manager", "manage facts", "fact overview"]

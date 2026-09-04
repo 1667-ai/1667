@@ -57,6 +57,12 @@ import {
   type AsideSessionDocument
 } from "../shared/aside.js";
 import {
+  MAX_FACT_CONSISTENCY_RUN_BYTES,
+  parseFactConsistencyRun,
+  serializeFactConsistencyRun,
+  type FactConsistencyRun
+} from "../shared/fact-consistency-types.js";
+import {
   drainPromises,
   isErrorCode,
   isLinkFallback,
@@ -68,47 +74,15 @@ import {
   verifyExactObject,
   type ObjectKind
 } from "./story-object-fs.js";
+import {
+  LEAF_LIVE_ID_LABELS,
+  LEAF_OBJECT_KINDS,
+  type LeafObjectKind,
+  type LiveStoryObjectIds
+} from "./story-object-kinds.js";
 
 export type { ObjectKind } from "./story-object-fs.js";
-/** The object kinds that are leaves: no nested graph to enumerate, unlike a
- *  revision's chunks — a bare id is the whole story for either kind.
- *  Generation records are not a leaf: a record can reference further
- *  revision ids of its own, so it keeps its own mark-phase handling in
- *  `sweep`/`verifyGraph` below instead of joining this list. The next side
- *  record that fits the true-leaf shape is a one-line addition here plus a
- *  `store`/`read` pair on the store below; `sweep`, `verifyGraph`, and
- *  `readObject` need no further changes.
- *
- *  `images` joined this list once a manifest could name an Image Object
- *  (`nodes[].imageAttachments[].objectId`, server/story-format-nodes.ts).
- *  Unlike the other two kinds, an image can also be live through a Draft
- *  Lease that names no manifest node yet; the caller (server/stories.ts's
- *  `unionLiveWithPins`) folds those lease-sourced ids into `live.leaves.images`
- *  before calling `sweep` below, so this one list still protects every image
- *  an object store method needs to protect.
- *
- *  `aside` is the one story-level Side Note document
- *  (`asideDocumentId` on the V9 content payload). */
-export const LEAF_OBJECT_KINDS = ["probabilities", "reasoning", "images", "aside"] as const;
-export type LeafObjectKind = typeof LEAF_OBJECT_KINDS[number];
-/** The label `requireHash` reports for one leaf kind's live id, kept apart
- *  from `COMMITTED_ID_LABELS` below: that one names a *committed* id, this
- *  one a *live* id, and the two read differently in a thrown message. */
-const LEAF_LIVE_ID_LABELS: Record<LeafObjectKind, string> = {
-  probabilities: "live token probabilities id",
-  reasoning: "live reasoning id",
-  images: "live image id",
-  aside: "live aside document id"
-};
-/** Every hash a save must protect from a concurrent sweep: the live
- *  revision graph, per leaf kind the live leaf objects, and the live
- *  Generation Record objects. Kept as one object, not positional lists, so a
- *  call site can never update one without the others. */
-export interface LiveStoryObjectIds {
-  readonly revisions: readonly ObjectHash[];
-  readonly leaves: Readonly<Record<LeafObjectKind, readonly ObjectHash[]>>;
-  readonly generationRecords: readonly ObjectHash[];
-}
+export { LEAF_OBJECT_KINDS, type LeafObjectKind, type LiveStoryObjectIds } from "./story-object-kinds.js";
 const OBJECT_IO_CONCURRENCY = 16;
 const REVISION_IO_CONCURRENCY = 4;
 const TEXT_IO_CONCURRENCY = 4;
@@ -123,7 +97,8 @@ const OBJECT_MAX_BYTES: Record<ObjectKind, number> = {
   reasoning: MAX_REASONING_BYTES,
   images: MAX_IMAGE_OBJECT_BYTES,
   "generation-records": MAX_GENERATION_RECORD_BYTES,
-  aside: MAX_ASIDE_DOCUMENT_BYTES
+  aside: MAX_ASIDE_DOCUMENT_BYTES,
+  "fact-consistency": MAX_FACT_CONSISTENCY_RUN_BYTES
 };
 const OBJECT_TEMP_PATTERN = exactStringPattern(
   "\\.1667-([a-f0-9]{64})-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\\.tmp"
@@ -140,7 +115,8 @@ const COMMITTED_ID_LABELS: Record<ObjectKind, string> = {
   reasoning: "committed reasoning id",
   images: "committed image id",
   "generation-records": "committed generation record id",
-  aside: "committed aside document id"
+  aside: "committed aside document id",
+  "fact-consistency": "committed fact consistency run id"
 };
 
 export interface StoryObjectStoreOptions {
@@ -177,7 +153,8 @@ export class StoryObjectStore {
     reasoning: new Set(),
     images: new Set(),
     "generation-records": new Set(),
-    aside: new Set()
+    aside: new Set(),
+    "fact-consistency": new Set()
   };
   private readonly pendingObjects: Record<ObjectKind, Map<ObjectHash, Promise<void>>> = {
     chunks: new Map(),
@@ -186,7 +163,8 @@ export class StoryObjectStore {
     reasoning: new Map(),
     images: new Map(),
     "generation-records": new Map(),
-    aside: new Map()
+    aside: new Map(),
+    "fact-consistency": new Map()
   };
   private readonly knownRevisions = new Map<ObjectHash, TextRevisionV1>();
   /** Every live generation record's own referenced revision ids, cached by
@@ -212,7 +190,8 @@ export class StoryObjectStore {
     reasoning: new Set(),
     images: new Set(),
     "generation-records": new Set(),
-    aside: new Set()
+    aside: new Set(),
+    "fact-consistency": new Set()
   };
   private readonly dirtyShards = new Set<string>();
   private firstWriteBarrier: Promise<void> | null = null;
@@ -236,7 +215,8 @@ export class StoryObjectStore {
       this.withKind("reasoning", true, async () => undefined),
       this.withKind("images", true, async () => undefined),
       this.withKind("generation-records", true, async () => undefined),
-      this.withKind("aside", true, async () => undefined)
+      this.withKind("aside", true, async () => undefined),
+      this.withKind("fact-consistency", true, async () => undefined)
     ]);
   }
 
@@ -347,6 +327,27 @@ export class StoryObjectStore {
   async readAsideSessionDocument(hash: ObjectHash): Promise<AsideSessionDocument> {
     const bytes = await this.readObject("aside", hash);
     return parseAsideSessionDocument(bytes.toString("utf8"), hash);
+  }
+
+  /** One bounded Fact consistency run, kept separate from the Aside object
+   * family even though both are read-only machine-facing records. */
+  async storeFactConsistencyRun(
+    run: FactConsistencyRun,
+    reuseFrom?: StoryObjectStore
+  ): Promise<ObjectHash> {
+    const bytes = Buffer.from(serializeFactConsistencyRun(run), "utf8");
+    if (bytes.byteLength > MAX_FACT_CONSISTENCY_RUN_BYTES) {
+      throw new StoryFormatError("Fact consistency run exceeds its size limit");
+    }
+    const hash = sha256(bytes);
+    await this.putObject("fact-consistency", hash, bytes, reuseFrom);
+    return hash;
+  }
+
+  /** Bounded, hash-verified read of one latest Fact consistency run. */
+  async readFactConsistencyRun(hash: ObjectHash): Promise<FactConsistencyRun> {
+    const bytes = await this.readObject("fact-consistency", hash);
+    return parseFactConsistencyRun(bytes.toString("utf8"), hash);
   }
 
   /** One Generation Record event, content-addressed like a probabilities

@@ -220,6 +220,7 @@ export class StoryDraftImageStore {
       || slot.kind === "v10-deleted"
       || slot.kind === "v12-deleted"
       || slot.kind === "v14-deleted"
+      || slot.kind === "v16-deleted"
     ) {
       throw new HttpError(404, `Story not found: ${storyId}`);
     }

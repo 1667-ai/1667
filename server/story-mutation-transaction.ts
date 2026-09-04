@@ -36,7 +36,8 @@ import {
   hashStoryV8ManifestBytes,
   hashStoryV10ManifestBytes,
   hashStoryV12ManifestBytes,
-  hashStoryV14ManifestBytes
+  hashStoryV14ManifestBytes,
+  hashStoryV16ManifestBytes
 } from "./story-manifest-hash.js";
 import { canonicalJson } from "./canonical-json.js";
 import {
@@ -45,10 +46,12 @@ import {
   formatV10,
   formatV12,
   formatV14,
+  formatV16,
   STORY_SCHEMA_VERSION_V8,
   STORY_SCHEMA_VERSION_V10,
   STORY_SCHEMA_VERSION_V12,
-  STORY_SCHEMA_VERSION_V14
+  STORY_SCHEMA_VERSION_V14,
+  STORY_SCHEMA_VERSION_V16
 } from "./story-v6-codec.js";
 import type { StoryEnvelopeManifest } from "./story-v6-types.js";
 import { StoryDurabilityError } from "./story-lifecycle.js";
@@ -712,6 +715,9 @@ export function storyResult(
 }
 
 export function hashStoryManifest(manifest: StoryEnvelopeManifest): string {
+  if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V16) {
+    return hashStoryV16ManifestBytes(Buffer.from(formatV16(manifest), "utf8"));
+  }
   if (manifest.schemaVersion === STORY_SCHEMA_VERSION_V14) {
     return hashStoryV14ManifestBytes(Buffer.from(formatV14(manifest), "utf8"));
   }

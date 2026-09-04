@@ -28,6 +28,9 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   searchStories: "local",
   createStory: "local",
   loadStory: "local",
+  planFactConsistency: "local",
+  checkFactConsistency: "fact-consistency",
+  getFactConsistencyRun: "transfer",
   getUnknownOutcomeStatus: "local",
   previewChapterBreakRemoval: "local",
   renameStory: "local",
@@ -132,7 +135,7 @@ export function httpOperationPolicy(
 export function callerCancellationForLifetime(
   lifetime: HttpOperationLifetime
 ): HttpCallerCancellationStrategy {
-  return lifetime === "generation"
+  return lifetime === "generation" || lifetime === "fact-consistency"
     ? "operation-first"
     : "transport-first";
 }
@@ -213,6 +216,17 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     if (httpMethod === "GET") return "loadStory";
     if (httpMethod === "PATCH") return "renameStory";
     if (httpMethod === "DELETE") return "deleteStory";
+  }
+  if (sub === "fact-consistency") {
+    if (subId === undefined && parts.length === 5 && httpMethod === "GET") {
+      return "getFactConsistencyRun";
+    }
+    if (subId === "plan" && parts.length === 6 && httpMethod === "POST") {
+      return "planFactConsistency";
+    }
+    if (subId === "check" && parts.length === 6 && httpMethod === "POST") {
+      return "checkFactConsistency";
+    }
   }
   if (sub === "export" && parts.length === 5
     && httpMethod === "GET") return "exportMarkdown";

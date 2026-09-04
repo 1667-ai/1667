@@ -10,6 +10,7 @@ import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import { createTextPresentation, drainTextPresentation } from "./text-presentation.js";
 import { settleModeUnderPalette } from "./palette-owner.js";
+import { blockFactConsistencyCheck } from "./fact-consistency-guard.js";
 
 type SummaryActionContext = Pick<ActionContext, "backend" | "cache" | "repaint">;
 
@@ -21,6 +22,7 @@ export async function startSummary(
   source: AppSource,
   context: SummaryActionContext
 ): Promise<void> {
+  if (blockFactConsistencyCheck(state)) return;
   if (state.abort !== null || state.stream !== null) {
     state.toast = "stream running · esc stops it first";
     return;

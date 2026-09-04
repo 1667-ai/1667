@@ -51,10 +51,15 @@ import {
   type StoredImportPlan
 } from "./mutation-receipt-codec.js";
 import {
+  hashFactConsistencyRun,
+  type FactConsistencyRun
+} from "../shared/fact-consistency-types.js";
+import {
   createMutationPlan,
   mutationPreflightPlan,
   type MutationPlan,
   type MutationPreflightPlan,
+  type FactConsistencyRunPointer,
   type MutationRecoveryMode
 } from "./mutation-plan.js";
 import {
@@ -90,6 +95,11 @@ export class MutationReceiptStore {
     private readonly resolveAsideSession?: (
       storyId: string,
       sessionId: string
+    ) => Promise<unknown>,
+    private readonly resolveFactConsistency?: (
+      storyId: string,
+      runId: string,
+      runHash?: ObjectHash
     ) => Promise<unknown>
   ) {
     this.failureTerminalizer = new MutationReceiptFailureTerminalizer(
@@ -118,6 +128,11 @@ export class MutationReceiptStore {
    *  current by `save`, never by scanning the receipt directory. */
   liveGenerationRecordIds(storyId: string): readonly ObjectHash[] {
     return this.chapterBreakLiveness.liveGenerationRecordIds(storyId);
+  }
+
+  /** Fact consistency run objects held by completed-receipt replay. */
+  liveFactConsistencyRunIds(storyId: string): readonly ObjectHash[] {
+    return this.chapterBreakLiveness.liveFactConsistencyRunIds(storyId);
   }
 
   async inspect(
@@ -278,6 +293,39 @@ export class MutationReceiptStore {
           };
           await this.save(receipt);
         },
+        storedFactConsistencyRun: (): FactConsistencyRunPointer | null => {
+          const artifact = receipt.artifact;
+          if (artifact?.kind !== "fact-consistency-run") return null;
+          return {
+            storyId: artifact.storyId,
+            runId: artifact.runId,
+            runHash: artifact.runHash
+          };
+        },
+        recordFactConsistencyRun: async (storyId: string, run: FactConsistencyRun) => {
+          if (method !== "checkFactConsistency"
+            || storyIdFromInput(input) !== storyId) {
+            throw corruptMutationReceipt(mutationId);
+          }
+          const runHash = hashFactConsistencyRun(run);
+          const existingArtifact = receipt.artifact;
+          if (existingArtifact !== undefined) {
+            if (existingArtifact.kind !== "fact-consistency-run"
+              || existingArtifact.storyId !== storyId
+              || existingArtifact.runId !== run.runId
+              || existingArtifact.runHash !== runHash) {
+              throw corruptMutationReceipt(mutationId);
+            }
+            return;
+          }
+          receipt.artifact = {
+            kind: "fact-consistency-run",
+            storyId,
+            runId: run.runId,
+            runHash
+          };
+          await this.save(receipt);
+        },
         providerStarted: async () => {
           if (receipt.state === "provider_started") return;
           receipt.state = "provider_started";
@@ -362,6 +410,14 @@ export class MutationReceiptStore {
         }
         return await this.resolveAsideDocument(result.id);
       }
+      case "fact-consistency": {
+        if (this.resolveFactConsistency === undefined) {
+          throw corruptMutationReceipt(receipt.mutationId);
+        }
+        return result.runHash === undefined
+          ? await this.resolveFactConsistency(result.id, result.runId)
+          : await this.resolveFactConsistency(result.id, result.runId, result.runHash);
+      }
       case "aside-session": {
         if (this.resolveAsideSession === undefined) {
           throw corruptMutationReceipt(receipt.mutationId);
@@ -444,6 +500,14 @@ function removalStoryId(method: MutatingWorkerMethod, input: unknown): string | 
   }
   const storyId = (input as Record<string, unknown>).storyId;
   return typeof storyId === "string" ? storyId : undefined;
+}
+
+function storyIdFromInput(input: unknown): string | undefined {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    return undefined;
+  }
+  const storyId = (input as Record<string, unknown>).storyId;
+  return typeof storyId === "string" && storyId.length > 0 ? storyId : undefined;
 }
 
 export function mutationFingerprint(

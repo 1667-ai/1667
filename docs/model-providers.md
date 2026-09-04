@@ -150,6 +150,28 @@ In Library or Facts, press `/` to start a filter. The list changes when you
 type. A Fact search checks its Fact Name, tag, and all text states. Press
 `Enter` to close the filter.
 
+### Check prose against Facts
+
+Select a story part, and open the command palette. Select **check chapter
+against Facts** to check the focused chapter. Select **check story line against
+Facts** to check the complete selected story line.
+
+1667 shows the number of eligible story parts before it starts the check. A
+story part is eligible when one or more Fact States apply to it. The check can
+send one or more utility requests for each eligible selected take. 1667 uses
+more requests when it must split a large set of Fact States. It marks a story
+part as unchecked without a request when that story part alone does not fit.
+
+The findings show the Fact Name, the exact prose quote, and the contradiction.
+Select a finding to open its story part. Press `f` to open the related Fact.
+A stale mark means that the checked take is no longer selected. It can also
+mean that the selected take no longer contains the quote.
+
+The findings list identifies each story part that 1667 could not check. It
+also shows the number of findings that 1667 rejected. Open the command palette
+to reopen the newest results. Reopening results does not send a model request.
+The check does not change prose or Facts.
+
 ### Arrange Facts
 
 Facts appear in a request in the order that they appear in the Facts panel.

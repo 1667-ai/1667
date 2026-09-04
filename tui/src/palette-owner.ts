@@ -171,7 +171,8 @@ export function releasePaletteOwner(
     && state.map === owner.surface
     && ((state.record?.returnMode === "MAP")
       || (state.tag?.returnMode === "MAP")
-      || (state.editor?.returnMode === "MAP"))) return;
+      || (state.editor?.returnMode === "MAP")
+      || (state.factConsistency?.returnMode === "MAP"))) return;
   // A Settings prompt editor is a child of the captured Settings overlay.
   // Keep that exact owner so the prompt can still save its draft.
   if (returnMode === "SETTINGS"

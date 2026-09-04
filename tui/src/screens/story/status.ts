@@ -122,33 +122,37 @@ export function renderStatus(
     : summaryStage === null
       ? `working · ch ${state.chapterSummary.chapterNumber}${summaryCancel}`
       : `ch ${state.chapterSummary.chapterNumber} · ${summaryStage}${summaryCancel}`;
+  const factConsistencyStatus = state.factConsistency?.surface.phase === "running"
+    && state.factConsistency.input.storyId === state.payload.id
+    ? "working · Fact consistency"
+    : null;
   const backendStatus = summaryStatus === null
-    ? state.backendTask === null
-      ? null
-      : `working · ${truncate(state.backendTask.label, narrow ? 18 : 28)}`
+    ? state.backendTask !== null
+      ? `working · ${truncate(state.backendTask.label, narrow ? 18 : 28)}`
+      : factConsistencyStatus
     : `${summaryStatus}${summaryCancel}`;
   let narrowRight = summaryNarrowStatus !== null
     ? summaryNarrowStatus
-    : state.backendTask === null
+    : backendStatus === null
     ? `${chapterPrefix}${requestMeter}${centered}`
     : `${backendStatus} · ${requestMeter}${centered}`;
   // On the canonical 80-column frame the complete request value outranks the
   // duplicate chapter label and a backend task's descriptive label. Never let
   // generic left-side clipping cut a numeric meter in half.
   const minimumLeftWidth = visibleWidth(modeBlock.text) + 2 + visibleWidth(plainLine(location));
-  const priorityLeftWidth = state.backendTask === null
+  const priorityLeftWidth = backendStatus === null
     ? visibleWidth(plainLine(left))
     : minimumLeftWidth;
   if (priorityLeftWidth + visibleWidth(narrowRight) + 2 > width) {
     narrowRight = summaryNarrowStatus !== null
       ? summaryNarrowStatus
-      : state.backendTask === null
+      : backendStatus === null
       ? `${requestMeter}${centered}`
       : `working · ${requestMeter}${centered}`;
   }
   if (minimumLeftWidth + visibleWidth(narrowRight) + 2 > width && centered.length > 0) {
     narrowRight = summaryNarrowStatus !== null ? `working${summaryCancel}`
-      : state.backendTask === null ? requestMeter : `working · ${requestMeter}`;
+      : backendStatus === null ? requestMeter : `working · ${requestMeter}`;
   }
   if (minimumLeftWidth + visibleWidth(narrowRight) + 2 > width) {
     narrowRight = summaryNarrowStatus !== null ? summaryCancel.slice(3) || "working" : requestMeter;

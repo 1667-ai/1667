@@ -617,6 +617,14 @@ async function* streamDryRun(
   // authorizes images (shared/image-input-capabilities.ts), so any image on
   // this prompt is refused here rather than silently dropped.
   assertImageContextAdmitted(prompt);
+  if (prompt.operation === "fact-check") {
+    if (outcome !== undefined) {
+      outcome.finishReason = "stop";
+      outcome.providerTerminal = true;
+    }
+    yield* dryRunFactConsistency(prompt);
+    return;
+  }
   requireLogitBiasFamilyAvailable(settings, "dry-run", storySampling);
   if (options.generationRecord !== undefined) options.generationRecord.effective = dryRunEffectiveParameters();
   // Fabricated reasoning, obviously synthetic and short, so the reasoning
@@ -674,6 +682,25 @@ async function* streamDryRun(
 /** Short and obviously fabricated: dry-run reasoning exists to exercise the
  * reasoning path, never to look like a real thought. */
 const DRY_RUN_REASONING_TEXT = "(dry-run) weighing two openings before picking one.";
+
+/** Keep the dry-run provider useful for every plain-text operation contract.
+ * The placeholder uses a short literal excerpt, so the shared validator can
+ * exercise the same marker and quote checks as a real response. */
+function* dryRunFactConsistency(prompt: PromptPlan): Generator<string> {
+  const source = textBlocksOf(prompt)
+    .find((block) => block.kind === "source")?.text
+    .replace(/^Selected take:\n/u, "")
+    .trim() ?? "";
+  const marker = textBlocksOf(prompt)
+    .find((block) => block.kind === "completion-marker")?.text
+    .match(/\[\[fact-consistency-complete-[a-f0-9]+\]\]/u)?.[0]
+    ?? "[[fact-consistency-complete-dry-run]]";
+  const candidate = source.split(/(?<=[.!?])\s/u)[0] ?? source;
+  const quote = candidate === source && source.length > 1
+    ? source.slice(0, -1)
+    : candidate;
+  yield `FACT: 1\nQUOTE: ${quote}\nSTATEMENT: Dry-run placeholder.\n${marker}`;
+}
 
 // Rewrite and summary operations never carry an image block (Image Input
 // stays out of scope for both). An image block has no `.text`, so narrow it

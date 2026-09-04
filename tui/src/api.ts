@@ -41,6 +41,17 @@ import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 import type { TokenProbabilityRecord } from "../../shared/token-probabilities.js";
 import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../../shared/generation-record.js";
 import type { ReasoningRecord } from "../../shared/reasoning.js";
+import type {
+  FactConsistencyInput,
+  FactConsistencyCheckInput,
+  FactConsistencyPlan,
+  FactConsistencyCheckResult
+} from "./fact-consistency-api.js";
+import {
+  decodeFactConsistencyPlanResponse,
+  decodeFactConsistencyCheckResponse,
+  decodeFactConsistencyRunResponse
+} from "./fact-consistency-api.js";
 
 import type {
   TagStatus,
@@ -95,7 +106,10 @@ import {
 } from "../../shared/http-operation-protocol.js";
 import { isWorkerMutationMethod } from "../../shared/worker-protocol.js";
 import { resolveHttpApiRoute } from "../../shared/http-operation-policy.js";
-import type { StoryAggregateVersion } from "../../shared/story-aggregate-version.js";
+import {
+  storyAggregateVersionIsAtLeast,
+  type StoryAggregateVersion
+} from "../../shared/story-aggregate-version.js";
 import type { ProviderRecoveryContext } from "../../shared/provider-recovery.js";
 import type { StoryCatalogPage } from "../../shared/story-catalog.js";
 import type { SearchRequest, SearchResponse } from "../../shared/story-search.js";
@@ -157,6 +171,8 @@ export {
 const HTTP_REQUEST_TIMEOUT_MS = 15_000;
 export const HTTP_GENERATION_REQUEST_TIMEOUT_MS =
   HTTP_OPERATION_LIFETIME_MS.generation;
+export const HTTP_FACT_CONSISTENCY_REQUEST_TIMEOUT_MS =
+  HTTP_OPERATION_LIFETIME_MS["fact-consistency"];
 export const HTTP_GENERATION_RECORD_READ_TIMEOUT_MS =
   HTTP_OPERATION_LIFETIME_MS.transfer;
 export interface ContinueTarget {
@@ -362,6 +378,11 @@ export interface StoryApi {
   /** Idempotently remove one Draft Lease. Releasing an absent or already
    *  expired lease succeeds with no error. Not a story mutation. */
   releaseStoryImage(storyId: string, leaseId: string): Promise<void>;
+  /** Fact consistency is optional for predecessor embedders. The live
+   * adapters expose all three methods once the matching worker is present. */
+  planFactConsistency?(input: FactConsistencyInput): Promise<FactConsistencyPlan>;
+  checkFactConsistency?(input: FactConsistencyCheckInput): Promise<FactConsistencyCheckResult>;
+  getFactConsistencyRun?(storyId: string): Promise<import("../../shared/fact-consistency-types.js").FactConsistencyRun | null>;
 
   continueStory(
     storyId: string,
@@ -943,6 +964,35 @@ export function createApi(
       "GET",
       `/api/stories/${storyId}/nodes/${nodeId}/reasoning`,
       decodeReasoningResponse
+    ),
+    planFactConsistency: (input) => request(
+      "POST",
+      `/api/stories/${input.storyId}/fact-consistency/plan`,
+      decodeFactConsistencyPlanResponse,
+      { focusedPartId: input.focusedPartId, scope: input.scope }
+    ),
+    checkFactConsistency: async (input) => runProviderMutation(input.storyId, async () => {
+      const result = await request(
+        "POST",
+        `/api/stories/${input.storyId}/fact-consistency/check`,
+        decodeFactConsistencyCheckResponse,
+        {
+          focusedPartId: input.focusedPartId,
+          scope: input.scope,
+          planToken: input.planToken
+        },
+        HTTP_FACT_CONSISTENCY_REQUEST_TIMEOUT_MS,
+        await expectedVersion(input.storyId)
+      );
+      versions.rememberPayload(result.payload);
+      return result;
+    }),
+    getFactConsistencyRun: (storyId) => request(
+      "GET",
+      `/api/stories/${storyId}/fact-consistency`,
+      decodeFactConsistencyRunResponse,
+      undefined,
+      HTTP_GENERATION_REQUEST_TIMEOUT_MS
     ),
     getAside: (storyId) => request(
       "GET",

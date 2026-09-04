@@ -128,6 +128,9 @@ read_when:
 | Aside turn | One saved question, answer, and optional Thought in an Aside session |
 | Aside session | One bounded chat that belongs to one story take or to the unanchored bucket |
 | Aside document | A content-addressed object that stores a legacy Side Note list or one Aside session |
+| Fact consistency check | A read-only utility operation that reports prose that contradicts an applicable Fact State |
+| Fact consistency finding | One verified prose quote and its contradiction with one applicable Fact |
+| Fact consistency run | One content-addressed record of a completed Fact consistency check |
 | Placement mode | The mode where the writer selects a story position for Side Note text |
 
 Add a term to this table before you use it in another document.

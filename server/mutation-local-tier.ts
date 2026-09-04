@@ -46,6 +46,10 @@ export async function runLocalTierMutation<
     storedImportPlan: () => null,
     recordImportPlan: async () => {
       throw localTierViolation(method, "import-plan custody");
+    },
+    storedFactConsistencyRun: () => null,
+    recordFactConsistencyRun: async () => {
+      throw localTierViolation(method, "Fact consistency run custody");
     }
   });
   try {

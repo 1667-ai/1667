@@ -10,6 +10,7 @@ import {
 import { MAX_SOURCE_IMAGE_BYTES } from "../shared/image-attachment.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
 import {
+  ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION,
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
   PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION,
   WORKER_PROTOCOL_VERSION,
@@ -202,7 +203,7 @@ function logicalRequestBody(
     case "retakeAside":
       if (
         protocolVersion !== undefined
-        && protocolVersion < WORKER_PROTOCOL_VERSION
+        && protocolVersion < ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION
         && input.question !== undefined
       ) {
         throw new ServiceError(
@@ -242,6 +243,9 @@ function logicalRequestBody(
     case "getGenerationRecords":
     case "getGenerationRecord":
     case "getReasoning":
+    case "planFactConsistency":
+    case "checkFactConsistency":
+    case "getFactConsistencyRun":
     case "pasteStoryLine":
     case "stageStoryImage":
       return undefined;

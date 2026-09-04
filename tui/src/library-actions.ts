@@ -11,6 +11,10 @@ import {
   setLibraryQuery,
   typedTitleMatches
 } from "./library-model.js";
+import {
+  forgetFactConsistencyFailure,
+  retireFactConsistencyRunsForDeletedStory
+} from "./fact-consistency-guard.js";
 import { publishStories } from "./overlay-publication.js";
 import {
   flushReadingPositionPersist,
@@ -272,7 +276,14 @@ async function deleteStory(
   await context.backend.run("deleting story", async (task) => {
     const deletedOpenStory = target.id === task.storyId;
     await source.api.deleteStory(target.id);
+    // Keep an in-flight provider request fenced until it settles, but make
+    // sure its late failure cannot be retained for the deleted story.
+    retireFactConsistencyRunsForDeletedStory(state, target.id);
     if (!task.owns()) return;
+    forgetFactConsistencyFailure(state, target.id);
+    if (state.factConsistency?.input.storyId === target.id) {
+      state.factConsistency = null;
+    }
     forgetStoryReadingPosition(state, source, target.id);
     // Successful delete proves the story is gone. Drop its Placement guard so
     // adoptStoryState of a fallback story cannot leave it blocking survivors.
