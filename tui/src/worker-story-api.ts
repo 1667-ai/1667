@@ -3,7 +3,10 @@ import type {
   WorkerMethod,
   WorkerOutput
 } from "../../shared/worker-protocol.js";
-import type { StoryAggregateVersion } from "../../shared/story-aggregate-version.js";
+import {
+  storyAggregateVersionIsAtLeast,
+  type StoryAggregateVersion
+} from "../../shared/story-aggregate-version.js";
 import type { ProviderRecoveryContext } from "../../shared/provider-recovery.js";
 import {
   textHash,
@@ -31,6 +34,11 @@ import {
   parseAsideSessionMutationResponse
 } from "../../shared/aside-transport-codec.js";
 import type { ReasoningDelta } from "./worker-pending.js";
+import {
+  decodeFactConsistencyCheckResponse,
+  decodeFactConsistencyPlanResponse,
+  decodeFactConsistencyRunResponse
+} from "./fact-consistency-api.js";
 
 export interface StoryWorkerTransport {
   call<M extends WorkerMethod>(
@@ -108,8 +116,11 @@ function materializeSaveSettingsCommand(
 export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): StoryApi {
   const versions = new Map<string, StoryAggregateVersion>();
   const rememberPayload = (payload: StoryPayload): StoryPayload => {
-    if (payload.aggregateVersion !== undefined) {
-      versions.set(payload.id, payload.aggregateVersion);
+    const candidate = payload.aggregateVersion;
+    const held = versions.get(payload.id);
+    if (candidate !== undefined
+      && (held === undefined || storyAggregateVersionIsAtLeast(candidate, held))) {
+      versions.set(payload.id, candidate);
     }
     return payload;
   };
@@ -118,9 +129,7 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       if (summary.aggregateVersion !== undefined) {
         const held = versions.get(summary.id);
         if (held === undefined
-          || held.kind !== "v6"
-          || (summary.aggregateVersion.kind === "v6"
-            && summary.aggregateVersion.revision >= held.revision)) {
+          || storyAggregateVersionIsAtLeast(summary.aggregateVersion, held)) {
           versions.set(summary.id, summary.aggregateVersion);
         }
       }
@@ -463,6 +472,23 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       await transport.call("getGenerationRecord", { storyId, nodeId, recordId }),
     getReasoning: async (storyId, nodeId) =>
       await transport.call("getReasoning", { storyId, nodeId }),
+    planFactConsistency: async (input) => decodeFactConsistencyPlanResponse(
+      await transport.call("planFactConsistency", input)
+    ),
+    checkFactConsistency: async (input) => {
+      const result = decodeFactConsistencyCheckResponse(
+        await transport.call(
+          "checkFactConsistency",
+          input,
+          { expectedAggregateVersion: await expectedVersion(input.storyId) }
+        )
+      );
+      rememberPayload(result.payload);
+      return result;
+    },
+    getFactConsistencyRun: async (storyId) => decodeFactConsistencyRunResponse(
+      await transport.call("getFactConsistencyRun", { storyId })
+    ),
     getAside: async (storyId) => {
       const result = await transport.call("getAside", { storyId });
       const legacy = legacyAside(result);

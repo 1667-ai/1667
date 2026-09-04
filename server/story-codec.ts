@@ -28,6 +28,7 @@ import { countWords } from "../shared/story-text.js";
 import {
   STORY_ASIDE_SCHEMA_VERSION,
   STORY_ASIDE_SESSION_SCHEMA_VERSION,
+  STORY_FACT_CONSISTENCY_SCHEMA_VERSION,
   STORY_FACT_STATE_SCHEMA_VERSION,
   STORY_FORMAT,
   STORY_SCHEMA_VERSION,
@@ -40,6 +41,7 @@ import {
   parseManifestV9,
   parseManifestV11,
   parseManifestV13,
+  parseManifestV15,
   serializeManifestContent,
   validateNodeAttribution,
   validateNodeImageAttachments,
@@ -54,6 +56,7 @@ import {
   type StoryManifestV9,
   type StoryManifestV11,
   type StoryManifestV13,
+  type StoryManifestV15,
   type TextRevisionV1
 } from "./story-format.js";
 import { resolveAsideActivation } from "../shared/aside-release.js";
@@ -143,6 +146,7 @@ function storyHasAsideSessions(story: Story): boolean {
  * and clocks copied from the Fact. Names are V13 metadata, so a set name also
  * requires the V13/V14 pair to prevent silent loss. */
 function storyHasFactStateFeatures(story: Story): boolean {
+  if (story.factConsistencyRunId !== undefined && story.factConsistencyRunId !== null) return true;
   return story.facts.some((fact) => {
     let name: string | undefined;
     try {
@@ -161,7 +165,7 @@ export async function encodeStoryBundle(
   reuseFrom?: StoryObjectStore,
   snapshot?: StoryRevisionSnapshot,
   options: EncodeStoryBundleOptions = {}
-): Promise<StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13> {
+): Promise<StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13 | StoryManifestV15> {
   const imageActivation = resolveImageInputActivation(options.activation) && storyHasImageAttachments(story);
   const hadAsideSessions = storyHasAsideSessions(story);
   const factStateActivation = storyHasFactStateFeatures(story);
@@ -499,6 +503,21 @@ export async function encodeStoryBundle(
   };
   if (factStateActivation) {
     const facts = encodeFactStateFacts();
+    if (story.factConsistencyRunId !== undefined && story.factConsistencyRunId !== null) {
+      const manifest: StoryManifestV15 = {
+        ...manifestPrefix,
+        facts,
+        ...manifestTail,
+        schemaVersion: STORY_FACT_CONSISTENCY_SCHEMA_VERSION,
+        asideDocumentId,
+        asideSessionRefs: anchoredAsideSessionRefs,
+        asideUnanchoredSessionRefs: unanchoredAsideSessionRefs,
+        factConsistencyRunId: story.factConsistencyRunId
+      };
+      const parsed = parseManifestV15(serializeManifestContent(manifest), story.id);
+      for (const sessionId of storedAsideSessionIds) clearPendingAsideSessionDocument(story, sessionId);
+      return parsed;
+    }
     const manifest: StoryManifestV13 = {
       ...manifestPrefix,
       facts,
@@ -556,7 +575,7 @@ export async function encodeStoryBundle(
 }
 
 export async function decodeStoryBundle(
-  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13,
+  manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13 | StoryManifestV15,
   bundleDir: string,
   options: { activeOnly?: boolean } = {}
 ): Promise<DecodedStoryBundle> {
@@ -702,6 +721,9 @@ export async function decodeStoryBundle(
       : { factsBudgetTokens: manifest.factsBudgetTokens }),
     ...("asideDocumentId" in manifest
       ? { asideDocumentId: manifest.asideDocumentId }
+      : {}),
+    ...( "factConsistencyRunId" in manifest
+      ? { factConsistencyRunId: manifest.factConsistencyRunId }
       : {}),
     ...( "asideSessionRefs" in manifest
       ? {

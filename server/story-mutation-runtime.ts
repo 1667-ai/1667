@@ -5,7 +5,6 @@ import type { StoryEnvelopeManifest } from "./story-v6-types.js";
 import { hydrateStoryNodes } from "./story-codec.js";
 import {
   applyProviderStoryEffect,
-  type ProviderStoryEffect,
   type ProviderStoryEffectByMethod,
   type ProviderStoryEffectValue
 } from "./story-provider-effect.js";
@@ -52,8 +51,10 @@ export interface ProviderStoryRuntime<
 
 /** Typed provider view used outside a story claim. The outer receipt
  * transaction performs the one authoritative V6 publication. */
-export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
-  private preparedEffect: PreparedProviderStoryEffect | null = null;
+export class ScopedProviderStoryRuntime<
+  Method extends ProviderMutationMethod = ProviderMutationMethod
+> implements ProviderStoryRuntime<Method> {
+  private preparedEffect: PreparedProviderStoryEffect<ProviderStoryEffectByMethod[Method]> | null = null;
   private declaredImageObjectIds: readonly string[] = [];
   private declaredDraftLeaseIds: readonly string[] = [];
   private declaredAsideSessionResolution: {
@@ -71,7 +72,7 @@ export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
     readonly asideMutationId?: string
   ) {}
 
-  get effect(): PreparedProviderStoryEffect | null {
+  get effect(): PreparedProviderStoryEffect<ProviderStoryEffectByMethod[Method]> | null {
     return this.preparedEffect;
   }
 
@@ -124,21 +125,28 @@ export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
     await hydrateStoryNodes(story, pathTo(story, nodeId).map((node) => node.id));
   }
 
-  async commitProviderEffect<Effect extends ProviderStoryEffect>(
+  async commitProviderEffect<Effect extends ProviderStoryEffectByMethod[Method]>(
     id: string,
     effect: Effect
+  ): Promise<ProviderStoryEffectValue<Effect>> {
+    const prepared = prepareProviderStoryEffect(effect);
+    return await this.commitPreparedProviderEffect(id, prepared);
+  }
+
+  async commitPreparedProviderEffect<Effect extends ProviderStoryEffectByMethod[Method]>(
+    id: string,
+    effect: PreparedProviderStoryEffect<Effect>
   ): Promise<ProviderStoryEffectValue<Effect>> {
     this.requireStory(id);
     if (this.preparedEffect !== null) {
       throw new Error("Provider runtime prepared more than one story effect");
     }
-    const prepared = prepareProviderStoryEffect(effect);
     const applied = await applyProviderStoryEffect(
       this.story,
-      prepared,
+      effect,
       async (story, nodeId) => await this.hydratePath(story, nodeId)
     );
-    this.preparedEffect = prepared;
+    this.preparedEffect = effect;
     return applied.value;
   }
 

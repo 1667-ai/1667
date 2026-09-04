@@ -50,6 +50,8 @@ import type { PromptProjectionIdentity } from "./request-context.js";
 import type { StoryScalarField } from "./story-scalar-fields.js";
 import type { DraftImage } from "./draft-image.js";
 import type { TextPresentation } from "./text-presentation.js";
+import type { FactConsistencySurface } from "./fact-consistency-actions.js";
+import type { FactConsistencyInput } from "./fact-consistency-api.js";
 
 export type BackendTaskKind = "action" | "connection-reconcile" | "explicit-retry";
 
@@ -204,6 +206,8 @@ export interface FactsOverlayState {
   dossier?: FactsDossierState | null;
   /** Story prose selected immediately before this Facts overlay opened. */
   storySelection?: ProjectedStorySelection | null;
+  /** Fact consistency keeps its results alive underneath the Facts viewer. */
+  returnMode?: "NAV" | "MAP" | "FACT-CONSISTENCY";
   /** Pending action from the NAV `x` menu; the next Enter chooses its Fact. */
   pendingFactAction?: {
     kind: "new-state" | "end" | "edit";
@@ -432,6 +436,22 @@ export interface ChapterSummaryOverlayState {
   chapterNumber: number;
   stage: "writing" | "stopping";
   controller: AbortController;
+}
+
+/** Latest Fact consistency surface. The run remains after a finding jump so
+ * the renderer can mark it stale when the selected takes change. */
+export interface FactConsistencyOverlayState {
+  surface: FactConsistencySurface;
+  input: FactConsistencyInput;
+  returnMode: "NAV" | "COMPOSE" | "MAP";
+  /** True while the initial part-count request is still settling. Enter
+   * keeps the confirmation visible until that request has finished. */
+  planPending?: boolean;
+  /** The last exact-plan attempt failed or was refused. Enter retries the
+   * plan before it can start provider work. */
+  planFailure?: string;
+  /** The owning story was deleted while the provider request was in flight. */
+  storyDeleted?: boolean;
 }
 
 export interface RequestViewerState {
@@ -710,6 +730,8 @@ export interface OverlayState {
   summary: SummaryOverlayState | null;
   chapterSummary: ChapterSummaryOverlayState | null;
   connection: ConnectionState;
+  /** Optional for predecessor embedders that do not expose Fact checks. */
+  factConsistency?: FactConsistencyOverlayState | null;
 }
 
 /** Everything the story screen renders from. */
@@ -925,6 +947,11 @@ export interface RuntimeState extends StoryScreenState {
   pendingUpdateNotice: string | null;
   /** Monotonic fence for explicit Direct/retake editor claims. */
   composerClaimEpoch: number;
+  /** Fact consistency provider checks that have not settled yet. Entries are
+   * overlay identities so a hidden run remains tracked across story changes. */
+  factConsistencyRunsInFlight?: Set<FactConsistencyOverlayState>;
+  /** Retryable Fact consistency failures retained while another story is open. */
+  factConsistencyFailuresByStory?: Map<string, FactConsistencyOverlayState>;
   quitArmed: boolean;
   /** Changes once per user reducer; async completions use it to avoid
    * restoring launch-time focus, mode, or overlays after later input. */

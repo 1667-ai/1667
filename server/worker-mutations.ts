@@ -11,6 +11,7 @@ import {
   normalizeAuthorBrief
 } from "../shared/author-brief.js";
 import {
+  ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION,
   LEGACY_WORKER_PROTOCOL_VERSION,
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
   WORKER_PROTOCOL_VERSION,
@@ -64,6 +65,7 @@ import {
   reorderFact
 } from "./story-facts.js";
 import { canonicalFactStates, sameFactStateValue } from "../shared/fact-state.js";
+import { hashFactConsistencyRun } from "../shared/fact-consistency-types.js";
 import { nodeRewriteId } from "./story-node-text.js";
 import { storyAutonameId } from "./story-metadata.js";
 import { hasCommittedGeneration } from "./story-nodes.js";
@@ -853,6 +855,50 @@ const MUTATIONS: MutationRegistry = {
         ));
     }
   }),
+  checkFactConsistency: define<"checkFactConsistency">({
+    parse: (value) => {
+      const input = requireRecord(value, "checkFactConsistency input");
+      const scope = input.scope;
+      if (scope !== "chapter" && scope !== "story-line") {
+        throw badInput("scope must be chapter or story-line");
+      }
+      return {
+        storyId: requireString(input.storyId, "storyId"),
+        focusedPartId: requireString(input.focusedPartId, "focusedPartId"),
+        scope,
+        planToken: requireString(input.planToken, "planToken")
+      };
+    },
+    storyId: (input) => input.storyId,
+    execute: async (service, input, plan, context) => {
+      const runId = plan.entityId("fact-consistency-run");
+      const retained = plan.recoveryMode === "new"
+        ? null
+        : plan.storedFactConsistencyRun();
+      if (plan.recoveryMode !== "new") {
+        const run = await service.getFactConsistencyRun(
+          input.storyId
+        );
+        const committedHash = run === null ? null : hashFactConsistencyRun(run);
+        if (run?.runId === runId
+          && (retained === null || committedHash === retained.runHash)
+          && plan.generationAction(true) === "return-committed") {
+          return {
+            run,
+            payload: await loadMutationPayload(service, input.storyId)
+          };
+        }
+      }
+      return await service.checkFactConsistency(input, context.signal, {
+        runId,
+        mutationRequest: context.storyMutationRequest,
+        providerStarted: () => plan.providerStarted(),
+        bindIntent: (settings, details) => plan.bindGenerationIntent(settings, details),
+        replayRunHash: retained?.runHash,
+        recordRun: (run) => plan.recordFactConsistencyRun(input.storyId, run)
+      });
+    }
+  }),
   importSillyTavern: define<"importSillyTavern">({
     parse: (value) => requiredStrings<"importSillyTavern">(value, "importSillyTavern", "jsonl"),
     storyId: (_input, plan) => plan.entityId("story"),
@@ -1153,7 +1199,7 @@ const MUTATIONS: MutationRegistry = {
       );
       if (
         protocolVersion !== undefined
-        && protocolVersion < WORKER_PROTOCOL_VERSION
+        && protocolVersion < ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION
         && parsed.question !== undefined
       ) {
         throw badInput("Edited Aside retakes require worker protocol 13");

@@ -29,8 +29,13 @@ import {
   type StoryManifestV7,
   type StoryManifestV9,
   type StoryManifestV11,
-  type StoryManifestV13
+  type StoryManifestV13,
+  type StoryManifestV15
 } from "./story-format.js";
+import {
+  FACT_CONSISTENCY_HASH_PATTERN,
+  type FactConsistencyRun
+} from "../shared/fact-consistency-types.js";
 import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
 import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../shared/generation-record.js";
 import { resolveGenerationRecord } from "./generation-record-resolve.js";
@@ -125,6 +130,8 @@ import type { DraftImageReference, StoryImageAttachment } from "../shared/image-
 import type { NormalizedImage } from "./image-normalize.js";
 import {
   NO_CHAPTER_BREAK_UNDO_LIVENESS,
+  NO_FACT_CONSISTENCY_RUN_LIVENESS,
+  type FactConsistencyRunLiveness,
   type ChapterBreakUndoLiveness
 } from "./chapter-break-undo-liveness.js";
 
@@ -138,7 +145,7 @@ export const GENERATION_RECORD_GRAPH_CACHE_CAPACITY = 64;
 
 type ResolvedStory = Extract<
   StoredStorySlot,
-  { kind: "legacy" | "v5" | "v6-live" | "v8-live" | "v10-live" | "v12-live" | "v14-live" }
+  { kind: "legacy" | "v5" | "v6-live" | "v8-live" | "v10-live" | "v12-live" | "v14-live" | "v16-live" }
 >;
 type SweepObjects = (bundleDir: string, live: LiveStoryObjectIds, signal: AbortSignal) => Promise<boolean>;
 type WriteManifest = (file: string, data: string) => Promise<CommitResult>;
@@ -152,6 +159,8 @@ export interface StoryStoreOptions {
   readonly writeManifest?: WriteManifest;
   readonly generationRecordGraphCacheCapacity?: number;
   readonly liveGenerationRecordIds?: ChapterBreakUndoLiveness;
+  /** Fact consistency run objects held by completed-receipt replay. */
+  readonly liveFactConsistencyRunIds?: FactConsistencyRunLiveness;
   /** Whether a session this store opens may reopen a successor-schema story
    *  for mutation, and whether a write through the V8 envelope — the only
    *  shape that can actually carry successor content — may produce one.
@@ -182,6 +191,7 @@ export class StoryStore {
   private readonly sweep: SweepObjects;
   private readonly writeManifest: WriteManifest;
   private readonly liveGenerationRecordIds: ChapterBreakUndoLiveness;
+  private readonly liveFactConsistencyRunIds: FactConsistencyRunLiveness;
   readonly imageInputActivation?: boolean;
   readonly asideActivation?: boolean;
 
@@ -192,6 +202,7 @@ export class StoryStore {
     this.sweep = options.sweep ?? sweepObjects;
     this.writeManifest = options.writeManifest ?? writeDurableAtomic;
     this.liveGenerationRecordIds = options.liveGenerationRecordIds ?? NO_CHAPTER_BREAK_UNDO_LIVENESS;
+    this.liveFactConsistencyRunIds = options.liveFactConsistencyRunIds ?? NO_FACT_CONSISTENCY_RUN_LIVENESS;
     this.imageInputActivation = options.imageInputActivation;
     this.asideActivation = options.asideActivation;
     this.cleanupQueue = new BoundedCleanupQueue(
@@ -443,7 +454,7 @@ export class StoryStore {
         ...buildStoryCatalogSummary(slot.manifest),
         aggregateVersion: aggregateVersionFromSlot(slot)
       };
-      if (slot.kind === "v6-live" || slot.kind === "v8-live" || slot.kind === "v10-live" || slot.kind === "v12-live" || slot.kind === "v14-live") return {
+      if (slot.kind === "v6-live" || slot.kind === "v8-live" || slot.kind === "v10-live" || slot.kind === "v12-live" || slot.kind === "v14-live" || slot.kind === "v16-live") return {
         ...storySummaryFromLiveEnvelope(slot.manifest),
         aggregateVersion: aggregateVersionFromSlot(slot)
       };
@@ -554,6 +565,52 @@ export class StoryStore {
     });
   }
 
+  /** Read the latest run named by the current story manifest, or a retained
+   *  run object named by a completed mutation receipt. */
+  async loadFactConsistencyRun(
+    id: string,
+    runHash?: string
+  ): Promise<FactConsistencyRun | null> {
+    return await this.withIo(id, async () => {
+      let slot: ResolvedStory;
+      try {
+        slot = await this.resolveUnlocked(id);
+      } catch (error) {
+        if (error instanceof HttpError && error.status === 404) return null;
+        throw error;
+      }
+      if (slot.kind === "legacy") return null;
+      const manifest = slot.kind === "v5" ? slot.manifest : slot.manifest.content;
+      const objectId = runHash ?? (
+        "factConsistencyRunId" in manifest
+          ? manifest.factConsistencyRunId
+          : undefined
+      );
+      if (objectId === undefined || objectId === null) return null;
+      if (!FACT_CONSISTENCY_HASH_PATTERN.test(objectId)) {
+        throw new HttpError(400, "Fact consistency run hash is invalid");
+      }
+      return await new StoryObjectStore(this.bundlePath(id)).readFactConsistencyRun(
+        objectId
+      );
+    });
+  }
+
+  /** Materialize a run leaf before its outer mutation receipt leases the
+   * hash. The callback runs under this story's aggregate I/O claim, so
+   * cleanup cannot collect the leaf between those two durable writes. */
+  async materializeFactConsistencyRun(
+    id: string,
+    run: FactConsistencyRun,
+    afterMaterialized?: () => void | Promise<void>
+  ): Promise<ObjectHash> {
+    return await this.withAggregateSession(id, async (session) => {
+      const hash = await session.materializeFactConsistencyRun(run);
+      await afterMaterialized?.();
+      return hash;
+    });
+  }
+
   async mutate(
     id: string,
     mutation: (story: Story) => void | typeof STORY_UNCHANGED | Promise<void | typeof STORY_UNCHANGED>
@@ -617,6 +674,33 @@ export class StoryStore {
       const story = await this.loadUnlocked(id);
       await this.schedulePendingCleanup(id);
       return story;
+    });
+  }
+
+  /** Load the structure needed to plan a Fact consistency check. Successor
+   * bundles keep non-active take text as stubs, so the caller can reject an
+   * overlong line before hydrating only its selected path. */
+  async loadForFactConsistency(id: string): Promise<Story> {
+    return (await this.loadForFactConsistencyWithVersion(id)).story;
+  }
+
+  async loadForFactConsistencyWithVersion(id: string): Promise<{
+    story: Story;
+    aggregateVersion: StoryAggregateVersion | null;
+  }> {
+    return await this.withIo(id, async () => {
+      const slot = await this.resolveUnlocked(id);
+      const story = slot.kind === "legacy"
+        ? slot.story
+        : await this.hydrateManifest(
+          slot.kind === "v5" ? slot.manifest : slot.manifest.content,
+          this.bundlePath(id)
+        );
+      await this.schedulePendingCleanup(id);
+      return {
+        story,
+        aggregateVersion: slot.kind === "legacy" ? null : aggregateVersionFromSlot(slot)
+      };
     });
   }
 
@@ -900,6 +984,7 @@ export class StoryStore {
       || slot.kind === "v10-deleted"
       || slot.kind === "v12-deleted"
       || slot.kind === "v14-deleted"
+      || slot.kind === "v16-deleted"
     ) {
       throw new HttpError(404, `Story not found: ${id}`);
     }
@@ -1112,7 +1197,7 @@ export class StoryStore {
   }
 
   private async hydrateManifest(
-    manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13,
+    manifest: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13 | StoryManifestV15,
     bundleDir: string
   ): Promise<Story> {
     const decoded = await decodeStoryBundle(manifest, bundleDir, { activeOnly: true });
@@ -1170,10 +1255,18 @@ export class StoryStore {
         if (live === null) return;
         const pinned = this.providerSnapshotPins.get(id);
         const undoGenerationRecords = this.liveGenerationRecordIds(id);
+        const receiptFactConsistencyRuns = this.liveFactConsistencyRunIds(id);
         const beganWithPins = pinned !== undefined;
         const liveWithUndo: LiveStoryObjectIds = {
           ...live,
-          generationRecords: [...new Set([...live.generationRecords, ...undoGenerationRecords])]
+          leaves: {
+            ...live.leaves,
+            "fact-consistency": [...new Set([
+              ...live.leaves["fact-consistency"],
+              ...receiptFactConsistencyRuns
+            ])]
+          },
+          generationRecords: [...new Set([...live.generationRecords, ...undoGenerationRecords])],
         };
         const protectedIds = unionLiveWithPins(liveWithUndo, pinned ?? emptyProviderSnapshotPins(), liveImageIds);
         const completed = await this.sweep(bundleDir, protectedIds, signal);
@@ -1225,7 +1318,9 @@ function aggregateVersionFromSlot(
         | "v12-live"
         | "v12-deleted"
         | "v14-live"
-        | "v14-deleted";
+        | "v14-deleted"
+        | "v16-live"
+        | "v16-deleted";
     }
   >
 ): StoryAggregateVersion {

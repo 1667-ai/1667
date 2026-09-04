@@ -13,16 +13,19 @@ import {
   parseStoryManifestBytes,
   STORY_SCHEMA_VERSION_V6,
   STORY_SCHEMA_VERSION_V8,
-  STORY_SCHEMA_VERSION_V14
+  STORY_SCHEMA_VERSION_V14,
+  STORY_SCHEMA_VERSION_V16
 } from "../server/story-v6-codec.js";
 import { StoryStore } from "../server/stories.js";
 import type { StoryImageAttachment } from "../shared/image-attachment.js";
 import type { Story } from "../shared/types.js";
+import type { FactConsistencyRun } from "../shared/fact-consistency-types.js";
 import {
   FIXED_NOW,
   hasServiceError,
   OTHER_FINGERPRINT,
   OTHER_MUTATION_ID,
+  providerOperation,
   request,
   requestFor,
   setup,
@@ -269,4 +272,51 @@ test("Q activation off: a V14 Fact State document refuses mutation and still rea
   );
   const readable = await predecessor.load(STORY_ID);
   assert.equal(readable.facts[0]?.name, "Named fact");
+});
+
+test("Q activation off: a V16 Fact consistency document refuses mutation and still reads", async (t) => {
+  const fixture = await setup(t, "1667-q-successor-refusal-v16-");
+  const run: FactConsistencyRun = {
+    format: "1667-fact-consistency-run",
+    schemaVersion: 1,
+    runId: "fact-run-v16",
+    scope: "story-line",
+    anchor: { partId: "root", takeId: "root" },
+    checkedAt: "2026-01-01T00:00:00.000Z",
+    provider: { profile: "utility", preset: "dry-run", model: "dry-run" },
+    storyLineTakeIds: [],
+    parts: [],
+    droppedFindings: 0
+  };
+  await fixture.mutations.runProviderOperation(
+    request(fixture.v5Hash),
+    "checkFactConsistency",
+    providerOperation(
+      async (stories, start) => {
+        await start();
+        await stories.commitProviderEffect(STORY_ID, {
+          kind: "fact-consistency",
+          run
+        });
+        return run;
+      },
+      () => run
+    )
+  );
+  const before = parseStoryManifestBytes(await readFile(fixture.manifestFile), STORY_ID);
+  assert.equal(before.kind, "v16-live");
+  if (before.kind !== "v16-live") return;
+  assert.equal(before.manifest.schemaVersion, STORY_SCHEMA_VERSION_V16);
+
+  const predecessor = new StoryStore(
+    path.join(fixture.dataDir, "stories"),
+    { asideActivation: false }
+  );
+  await predecessor.init();
+  await assert.rejects(
+    predecessor.withAggregateSession(STORY_ID, async () => {}),
+    hasServiceError("story_manifest_requires_successor")
+  );
+  const readable = await predecessor.load(STORY_ID);
+  assert.equal(readable.id, STORY_ID);
 });

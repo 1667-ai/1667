@@ -3,6 +3,7 @@ import type { FailureEnvelope } from "./failure-envelope.js";
 import type { HttpRecoveryWarning } from "./http-protocol.js";
 import type { StoryAggregateVersion } from "./story-aggregate-version.js";
 import type { WorkerMethod } from "./worker-protocol.js";
+import { FACT_CONSISTENCY_OPERATION_DEADLINE_MS } from "./fact-consistency-types.js";
 
 export const HTTP_OPERATION_SESSION_HEADER = "x-1667-operation-session";
 export const HTTP_OPERATION_TICKET_HEADER = "x-1667-operation-ticket";
@@ -31,7 +32,8 @@ export type HttpOperationLifetime =
   | "local"
   | "transfer"
   | "provider-check"
-  | "generation";
+  | "generation"
+  | "fact-consistency";
 
 export const HTTP_OPERATION_LIFETIME_MS: Readonly<
   Record<HttpOperationLifetime, number>
@@ -40,7 +42,8 @@ export const HTTP_OPERATION_LIFETIME_MS: Readonly<
   local: 30_000,
   transfer: 120_000,
   "provider-check": 180_000,
-  generation: 30 * 60_000
+  generation: 30 * 60_000,
+  "fact-consistency": FACT_CONSISTENCY_OPERATION_DEADLINE_MS
 });
 
 export type HttpOperationState =

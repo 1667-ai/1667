@@ -706,7 +706,13 @@ test("story objects reject symlinked roots and shards before writes or sweep", a
   await assert.rejects(
     objects.sweep({
       revisions: [],
-      leaves: { probabilities: [], reasoning: [], images: [], aside: [] },
+      leaves: {
+        probabilities: [],
+        reasoning: [],
+        images: [],
+        aside: [],
+        "fact-consistency": []
+      },
       generationRecords: []
     }),
     /Unsafe chunks object shard/

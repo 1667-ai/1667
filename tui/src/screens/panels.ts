@@ -57,6 +57,7 @@ import { renderCardImportPanel } from "./card-import-panel.js";
 import { renderArchiveImportPanel } from "./archive-import-panel.js";
 import { renderImageAttachPanel } from "./image-attach-panel.js";
 import { renderProfileTransferPanel } from "./profile-transfer-panel.js";
+import { renderFactConsistencyPanel } from "./fact-consistency-panel.js";
 
 export { SETTINGS_FOOTER_ACTIONS } from "./settings-panel-footers.js";
 export { FACTS_FOOTER_ACTIONS } from "./facts-panel.js";
@@ -141,6 +142,14 @@ export function renderPanels(
   // Route by its active mode before testing dormant panel state.
   if (state.mode === "COMMANDS" && state.commands !== null) {
     composition = renderCommands(dimPage(base), local, width, height);
+  }
+  else if (state.mode === "FACT-CONSISTENCY" && local.factConsistency != null) {
+    composition = renderFactConsistencyPanel(
+      base,
+      local.factConsistency.surface,
+      local.payload,
+      { width, height }
+    );
   }
   else if (state.mode === "ARCHIVE" && state.archive !== null) {
     composition = renderArchiveImportPanel(
@@ -488,6 +497,16 @@ function renderCommands(
           : TAG_DELETE_CONFIRM_FOOTER_ACTIONS
       });
   }
+  // Keep this state check local to the hot renderer. Importing the shared
+  // guard here makes Bun deoptimize every story repaint.
+  const retainedFactConsistency = state.factConsistency;
+  const retainedFactSurface = retainedFactConsistency?.surface;
+  const hasFactConsistencyRun = state.payload.hasFactConsistencyRun === true
+    || (retainedFactConsistency?.input.storyId === state.payload.id
+      && (retainedFactSurface?.phase === "running"
+        || retainedFactSurface?.phase === "results"
+        || retainedFactSurface?.phase === "confirm"
+          && retainedFactSurface.failure !== undefined));
   const model = commandPaletteModel(
     overlay.query,
     state.demo,
@@ -496,6 +515,7 @@ function renderCommands(
       requestActive: state.requestActive,
       canRewriteSelection: canRewriteSelection(overlay.selection?.spans ?? []),
       hasStoryPart: factsOpeningPartId(state) !== null,
+      hasFactConsistencyRun,
       hasStorySelection: Boolean(overlay.selection?.text?.trim()),
       ...factEditorPaletteContext(state.editor?.kind === "fact" ? state.editor : null),
       ...factsPaletteContext(state)

@@ -15,6 +15,7 @@ export type CommandId =
   | "export" | "summary" | "tag-line"
   | "switch-story" | "rename-story" | "folder" | "autoname" | "import-card" | "import-archive"
   | "authors-note" | "author-brief" | "facts" | "new-fact" | "new-fact-from-here"
+  | "check-chapter-against-facts" | "check-story-line-against-facts" | "show-fact-findings"
   | "new-fact-from-selection" | "edit-fact" | "new-fact-state" | "end-fact-here"
   | "facts-open-selected" | "facts-filter" | "facts-cycle-tag" | "facts-clear-filter"
   | "facts-cycle-scope" | "facts-delete"
@@ -97,6 +98,10 @@ export interface CommandPaletteContext {
   asideEntryPointsOpen?: boolean;
   /** A story part is focused and can be used as a Fact anchor. */
   hasStoryPart?: boolean;
+  /** The story has at least one Fact that a check can resolve. */
+  hasFacts?: boolean;
+  /** This story advertises one latest persisted Fact consistency run. */
+  hasFactConsistencyRun?: boolean;
   /** A story selection captured at palette open time can seed a new Fact. */
   hasStorySelection?: boolean;
   /** The suspended editor is a Fact editor. */
@@ -131,6 +136,8 @@ const DEFAULT_CONTEXT: CommandPaletteContext = {
   lineTagged: false,
   canRewriteSelection: false,
   hasStoryPart: false,
+  hasFacts: false,
+  hasFactConsistencyRun: false,
   hasStorySelection: false,
   factEditor: false,
   factEditorStateful: false,
@@ -237,6 +244,8 @@ export function commandContext(
     canRewriteSelection: boolean;
     asideEntryPointsOpen?: boolean;
     hasStoryPart?: boolean;
+    hasFacts?: boolean;
+    hasFactConsistencyRun?: boolean;
     hasStorySelection?: boolean;
     factEditor?: boolean;
     factEditorStateful?: boolean;
@@ -264,6 +273,8 @@ export function commandContext(
     canRewriteSelection: context.canRewriteSelection,
     asideEntryPointsOpen: context.asideEntryPointsOpen,
     hasStoryPart: context.hasStoryPart ?? payload.path.length > 0,
+    hasFacts: context.hasFacts ?? payload.facts.length > 0,
+    hasFactConsistencyRun: context.hasFactConsistencyRun ?? payload.hasFactConsistencyRun === true,
     hasStorySelection: context.hasStorySelection ?? false,
     factEditor: context.factEditor ?? false,
     factEditorStateful: context.factEditorStateful ?? false,
@@ -402,6 +413,11 @@ function suggestedCommands(context: CommandPaletteContext): CommandId[] {
   if (context.requestActive) return ["export"];
   if (context.connectionDown) return ["reconnect", "export"];
   return [
+    ...(context.hasFactConsistencyRun
+      ? ["show-fact-findings" as const]
+      : context.hasStoryPart && context.hasFacts
+        ? ["check-chapter-against-facts" as const]
+        : []),
     ...(context.hasProse ? ["summary" as const] : []),
     ...(context.hasProse && !context.lineTagged
       ? ["tag-line" as const]

@@ -24,7 +24,8 @@ export function emptyProviderSnapshotPins(): ProviderSnapshotPins {
     reasoning: new Map(),
     images: new Map(),
     "generation-records": new Map(),
-    aside: new Map()
+    aside: new Map(),
+    "fact-consistency": new Map()
   };
 }
 

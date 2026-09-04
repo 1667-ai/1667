@@ -40,6 +40,7 @@ import { storyAggregateVersion } from "./story-aggregate-state.js";
 import { buildStoryPayload } from "./story-payload.js";
 import { StoryReaper } from "./story-reaper.js";
 import { StoryServiceChapters } from "./story-service-chapters.js";
+import { StoryServiceFactConsistency } from "./story-service-fact-consistency.js";
 import { StoryServiceGeneration } from "./story-service-generation.js";
 import { StoryServiceLocal } from "./story-service-local.js";
 import { StoryStore } from "./stories.js";
@@ -118,6 +119,7 @@ export abstract class StoryServiceRuntime {
   protected storyLocal!: StoryServiceLocal;
   protected storyGeneration!: StoryServiceGeneration;
   protected storyChapters!: StoryServiceChapters;
+  protected storyFactConsistency!: StoryServiceFactConsistency;
 
   private readonly dataLock: RuntimeDataDirectoryLock | null;
   private readonly externalMutationRecovery: boolean;
@@ -398,6 +400,8 @@ export abstract class StoryServiceRuntime {
         // initialized.
         liveGenerationRecordIds: (storyId) =>
           this.mutationReceipts.liveGenerationRecordIds(storyId),
+        liveFactConsistencyRunIds: (storyId) =>
+          this.mutationReceipts.liveFactConsistencyRunIds(storyId),
         asideActivation: this.asideActivation
       }
     );
@@ -435,6 +439,13 @@ export abstract class StoryServiceRuntime {
       ensureOpen: () => this.ensureOpen(),
       cancellable: async (signal, work) =>
         await this.cancellable(signal, work)
+    });
+    this.storyFactConsistency = new StoryServiceFactConsistency({
+      stories: this.stories,
+      settings: this.settings,
+      storyMutations: this.storyMutations,
+      promptCache: this.promptCache,
+      cancellable: async (signal, work) => await this.cancellable(signal, work)
     });
     this.storySearch = new StorySearch(this.stories);
     this.storyChapters = new StoryServiceChapters({
@@ -495,7 +506,21 @@ export abstract class StoryServiceRuntime {
             payload: buildStoryPayload(story, storyAggregateVersion(session.snapshot))
           };
         }
-      )
+      ),
+      async (storyId, runId, runHash) => {
+        const run = await this.stories.loadFactConsistencyRun(storyId, runHash);
+        if (run === null || run.runId !== runId) {
+          throw new Error("Fact consistency run is no longer available");
+        }
+        const loaded = await this.stories.loadVersioned(storyId);
+        return {
+          run,
+          payload: buildStoryPayload(
+            loaded.story,
+            loaded.aggregateVersion ?? undefined
+          )
+        };
+      }
     );
   }
 

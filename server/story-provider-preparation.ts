@@ -97,6 +97,10 @@ export function prepareProviderStoryEffect(
       } = effect as AsideStoryEffect;
       return rest;
     }
+    case "fact-consistency": {
+      const { cancelled: _cancelled, ...rest } = effect;
+      return rest;
+    }
     default: {
       const exhaustive: never = effect;
       return exhaustive;

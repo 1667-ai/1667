@@ -5,6 +5,10 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **You can check prose against Facts.** Run a chapter check or a story-line
+  check from the command palette. 1667 reports verified contradictions and
+  changes no prose.
+
 ## 0.10.9-rc.2 - 2026-09-03
 
 - **The Apparatus is easier to use.** A labeled rule separates inactive take

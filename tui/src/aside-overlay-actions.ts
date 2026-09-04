@@ -37,6 +37,7 @@ import {
   type AsideSurfaceState
 } from "./aside-surface.js";
 import { asideV2KeyAction } from "./aside-v2-actions.js";
+import { blockFactConsistencyCheck } from "./fact-consistency-guard.js";
 
 type AsideOverlayContext = ActionContext;
 
@@ -199,6 +200,7 @@ export async function asideKeyAction(
     return;
   }
   if (resolved.action === "send") {
+    if (surface.composer.text.trim() !== "/clear" && blockFactConsistencyCheck(state)) return;
     if (surface.busy) return;
     if (!isAsideV2(surface) && surface.confirmClear) {
       context.backend.observe(context.backend.run("clearing Aside", (task) =>

@@ -6,12 +6,13 @@ import type {
   StoryManifestV5,
   StoryManifestV7,
   StoryManifestV9,
-  StoryManifestV11
-  , StoryManifestV13
+  StoryManifestV11,
+  StoryManifestV13,
+  StoryManifestV15
 } from "./story-format.js";
 
 export function buildStorySummary(
-  source: Story | StoryManifestV4 | StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13
+  source: Story | StoryManifestV4 | StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13 | StoryManifestV15
 ): StorySummary {
   if ("schemaVersion" in source) {
     const path = activePath(source);
@@ -41,7 +42,7 @@ export function buildStorySummary(
  * the active-line word count for format compatibility. Catalogs show the
  * words stored across all prose branches. */
 export function buildStoryCatalogSummary(
-  source: Story | StoryManifestV4 | StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13
+  source: Story | StoryManifestV4 | StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13 | StoryManifestV15
 ): StorySummary {
   return {
     ...buildStorySummary(source),
@@ -50,7 +51,7 @@ export function buildStoryCatalogSummary(
 }
 
 function catalogWordCount(
-  source: Story | StoryManifestV4 | StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13
+  source: Story | StoryManifestV4 | StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13 | StoryManifestV15
 ): number {
   if (!("schemaVersion" in source)) {
     return source.nodes.reduce(

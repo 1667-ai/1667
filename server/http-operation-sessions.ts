@@ -330,7 +330,8 @@ export class HttpOperationSessionStore {
     } else if (operation.state === "running") {
       this.requestCancellation(
         operation,
-        operation.lifetime === "generation"
+        (operation.lifetime === "generation"
+          || operation.lifetime === "fact-consistency")
           ? new GenerationCancelledError()
           : new Error("HTTP operation canceled"),
         "user"

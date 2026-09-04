@@ -6,10 +6,12 @@ import {
   MAX_STORED_TITLE_CHARS
 } from "../shared/types.js";
 import {
+  ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION,
   PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION,
-  PRE_FACT_STATES_WORKER_PROTOCOL_VERSION,
   PRE_ASIDE_WORKER_PROTOCOL_VERSION,
   PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION,
+  PRE_FACT_CONSISTENCY_WORKER_PROTOCOL_VERSION,
+  PRE_FACT_STATES_WORKER_PROTOCOL_VERSION,
   PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION,
   PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION,
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
@@ -74,10 +76,13 @@ test("protocol-v10 mutation inputs survive the Aside protocol bump", () => {
   }, id);
 
   assert.equal(parsed.protocolVersion, PRE_ASIDE_WORKER_PROTOCOL_VERSION);
-  assert.equal(WORKER_PROTOCOL_VERSION, PRE_FACT_STATES_WORKER_PROTOCOL_VERSION + 1);
+  assert.equal(
+    WORKER_PROTOCOL_VERSION,
+    PRE_FACT_CONSISTENCY_WORKER_PROTOCOL_VERSION + 1
+  );
 });
 
-test("pre-v14 Aside retakes retain the prior request shape", () => {
+test("edited Aside retakes use their fixed protocol-13 introduction threshold", () => {
   const input = {
     storyId: "story",
     sessionId: "session",
@@ -127,6 +132,26 @@ test("pre-v14 Aside retakes retain the prior request shape", () => {
     ),
     { ...input, question: "New prompt" }
   );
+  assert.equal(ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION, PRE_FACT_STATES_WORKER_PROTOCOL_VERSION);
+  for (const protocolVersion of [
+    ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION,
+    PRE_FACT_CONSISTENCY_WORKER_PROTOCOL_VERSION,
+    WORKER_PROTOCOL_VERSION
+  ]) {
+    assert.doesNotThrow(() => validateWorkerRequestSize(
+      "retakeAside",
+      { ...input, question: "New prompt" },
+      protocolVersion
+    ));
+    assert.deepEqual(
+      parseWorkerMutation(
+        "retakeAside",
+        { ...input, question: "New prompt" },
+        protocolVersion
+      ),
+      { ...input, question: "New prompt" }
+    );
+  }
 });
 
 test("worker message parser admits the v2 Aside mutation methods", () => {

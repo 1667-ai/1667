@@ -21,6 +21,7 @@ import { demoAppSource } from "../src/demo.js";
 import { hitAt, type HitRows } from "../src/hit.js";
 import { panelHorizontalGeometry } from "../src/screens/overlay.js";
 import { renderPanels } from "../src/screens/panels.js";
+import { createStoryViewModel, lastPartRowIndex } from "../src/model.js";
 import { plainLine, visibleWidth, type FrameLine } from "../src/screens/story/frame.js";
 import { nextRequestEstimate } from "../src/request-projection.js";
 
@@ -93,7 +94,7 @@ describe("grouped command palette model", () => {
     const ready = commandContext(source.payload, { connectionDown: false, requestActive: false, canRewriteSelection: false });
     expect(ready.lineTagged).toBeTrue();
     expect(commandPaletteModel("", false, ready).sections[0]!.matches.map((match) => match.command.id))
-      .toEqual(["summary", "export"]);
+      .toEqual(["check-chapter-against-facts", "summary", "export"]);
 
     const active = commandPaletteModel("", false, { ...ready, requestActive: true });
     expect(active.sections[0]!.matches.map((match) => match.command.id)).toEqual(["export"]);
@@ -232,10 +233,12 @@ describe("grouped command palette rendering", () => {
     expect(searchRow.some((segment) => segment.text === " " && segment.background === "focus / accent")).toBeTrue();
 
     const headerRow = lines.findIndex((line) => plainLine(line).includes("Suggested"));
-    const selectedRow = lines.findIndex((line) => plainLine(line).includes("summary take"));
-    const tagRow = lines.findIndex((line) => plainLine(line).includes("tag this line"));
+    const selectedRow = lines.findIndex((line) => plainLine(line).includes("check chapter against Fac"));
+    const summaryRow = lines.findIndex((line) => plainLine(line).includes("summary take"));
+    const visibleCommandRow = lines.findIndex((line) => plainLine(line).includes("export markdown"));
     expect(hitAt(hits, 30, headerRow)).toEqual({ kind: "panel" });
     expect(hitAt(hits, 30, selectedRow)).toEqual({ kind: "list", index: 0, selected: true });
+    expect(hitAt(hits, 30, summaryRow)).toEqual({ kind: "list", index: 1, selected: false });
     const selectedWidth = lines[selectedRow]!
       .filter((segment) => segment.background === "focus / accent")
       .reduce((sum, segment) => sum + visibleWidth(segment.text), 0);
@@ -244,9 +247,9 @@ describe("grouped command palette rendering", () => {
 
     // Measure the content band, not the whole panel: the frame's closing edge
     // sits outside it.
-    const panelText = plainLine(lines[tagRow]!)
+    const panelText = plainLine(lines[visibleCommandRow]!)
       .slice(horizontal.contentLeft, horizontal.contentLeft + horizontal.contentWidth);
-    expect(panelText.trimEnd().endsWith("t")).toBeTrue();
+    expect(panelText).not.toContain("┃");
   });
 
   test("keeps the selected Settings command visible at 80×24", () => {
@@ -289,7 +292,7 @@ function renderCommands(
     payload: source.payload,
     mode: "COMMANDS" as const,
     tag: null,
-    focusIndex: source.payload.path.length - 1,
+    focusIndex: lastPartRowIndex(createStoryViewModel(source.payload)),
     now: 1_667_000_000_000,
     contextWindow: source.settings.contextWindow,
     stream: null,

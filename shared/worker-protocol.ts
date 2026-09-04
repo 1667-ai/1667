@@ -64,6 +64,10 @@ import type {
   AsideSessionMutationResponse
 } from "./aside-transport.js";
 import type { AsideAnchor } from "./aside-session.js";
+import type {
+  FactConsistencyRun,
+  FactConsistencyScope
+} from "./fact-consistency-types.js";
 export {
   isDiagnosticReference,
   type DiagnosticReference
@@ -78,8 +82,13 @@ export const PRE_FACT_ORDER_PRIORITY_BUDGET_WORKER_PROTOCOL_VERSION = 9;
 export const PRE_ASIDE_WORKER_PROTOCOL_VERSION = 10;
 export const PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION = 11;
 export const PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION = 12;
+/** First worker protocol that accepts an edited Aside retake question. */
+export const ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION =
+  PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION + 1;
 export const PRE_FACT_STATES_WORKER_PROTOCOL_VERSION = 13;
-export const WORKER_PROTOCOL_VERSION = 14;
+/** Last worker protocol before the Fact consistency routes and result payload. */
+export const PRE_FACT_CONSISTENCY_WORKER_PROTOCOL_VERSION = 14;
+export const WORKER_PROTOCOL_VERSION = 15;
 /** Exact provider recovery changes the status and acknowledgement inputs. */
 export const MUTATION_INPUT_PROTOCOL_VERSION = WORKER_PROTOCOL_VERSION;
 export const WORKER_BUILD_IDENTITY = AI_1667_BUILD_IDENTITY;
@@ -122,6 +131,7 @@ export function isCurrentWorkerInputProtocolVersion(
     || value === PRE_SETTINGS_SCHEMA5_WORKER_PROTOCOL_VERSION
     || value === PRE_ASIDE_REPROMPT_WORKER_PROTOCOL_VERSION
     || value === PRE_FACT_STATES_WORKER_PROTOCOL_VERSION
+    || value === PRE_FACT_CONSISTENCY_WORKER_PROTOCOL_VERSION
     || value === WORKER_PROTOCOL_VERSION;
 }
 
@@ -140,6 +150,23 @@ export interface WorkerMethodContract {
   searchStories: { input: SearchRequest; output: SearchResponse };
   createStory: { input: { title?: string }; output: StoryPayload };
   loadStory: { input: { id: string }; output: StoryPayload };
+  planFactConsistency: {
+    input: { storyId: string; focusedPartId: string; scope: FactConsistencyScope };
+    output: { partCount: number; requestCount: number; planToken: string };
+  };
+  checkFactConsistency: {
+    input: {
+      storyId: string;
+      focusedPartId: string;
+      scope: FactConsistencyScope;
+      planToken: string;
+    };
+    output: { run: FactConsistencyRun; payload: StoryPayload };
+  };
+  getFactConsistencyRun: {
+    input: { storyId: string };
+    output: FactConsistencyRun | null;
+  };
   getUnknownOutcomeStatus: {
     input: {
       storyId: string;
@@ -410,7 +437,7 @@ export type MutatingWorkerMethod =
   | "putBookmark" | "deleteBookmark" | "createFact" | "patchFact" | "deleteFact" | "createFactState" | "patchFactState" | "deleteFactState" | "reorderFact"
   | "createChapterBreak" | "renameChapterBreak" | "removeChapterBreak" | "restoreChapterBreak" | "summarizeChapter"
   | "importSillyTavern" | "importMarkdown" | "importNovelAI" | "importScenario" | "importLorebook" | "importCard" | "continueStory" | "rewriteNode" | "commitPartialRewrite" | "createSummaryTake"
-  | "askAside" | "clearAside" | "asideSessionMutation" | "retakeAside";
+  | "askAside" | "clearAside" | "asideSessionMutation" | "retakeAside" | "checkFactConsistency";
 
 export const STREAM_METHODS: ReadonlySet<WorkerMethod> = new Set([
   "continueStory", "rewriteNode", "createSummaryTake", "askAside", "retakeAside"
@@ -420,7 +447,8 @@ export const STREAM_METHODS: ReadonlySet<WorkerMethod> = new Set([
  * response is unary rather than delta-streamed. */
 export const GENERATION_METHODS: ReadonlySet<WorkerMethod> = new Set([
   ...STREAM_METHODS,
-  "summarizeChapter"
+  "summarizeChapter",
+  "checkFactConsistency"
 ]);
 
 export const PROVIDER_CHECK_METHODS: ReadonlySet<WorkerMethod> = new Set([
@@ -443,7 +471,7 @@ export const MUTATING_METHODS: ReadonlySet<MutatingWorkerMethod> = new Set([
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "createFactState", "patchFactState", "deleteFactState", "reorderFact",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "importCard", "continueStory", "rewriteNode", "commitPartialRewrite", "createSummaryTake",
-  "askAside", "clearAside", "asideSessionMutation", "retakeAside"
+  "askAside", "clearAside", "asideSessionMutation", "retakeAside", "checkFactConsistency"
 ]);
 
 export function isMutatingWorkerMethod(method: WorkerMethod): method is MutatingWorkerMethod {
@@ -689,6 +717,7 @@ export type WorkerToMainMessage =
 
 const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "listStories", "listStoriesPage", "searchStories", "createStory", "loadStory",
+  "planFactConsistency", "checkFactConsistency", "getFactConsistencyRun",
   "getUnknownOutcomeStatus", "previewChapterBreakRemoval",
   "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "setPhraseBias", "setBannedStrings", "autonameStory",
   "acknowledgeUnknownOutcomes", "deleteStory",

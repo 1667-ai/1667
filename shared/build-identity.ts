@@ -82,10 +82,12 @@ export const AI_1667_PRODUCT = "1667" as const;
  * carries branch-scoped Fact States, including the required `states` field,
  * state mutation routes, and effective-path projections. A v28 client against
  * a v27 server would otherwise receive a Fact with no state history and could
- * write a state mutation that the older server cannot apply. */
-export const HTTP_API_PROTOCOL_VERSION = 28;
-export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 28;
-export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 28;
+ * write a state mutation that the older server cannot apply. v29 adds the Fact
+ * consistency routes and payload presence field. A v29 client must not send a
+ * paid check to a server that cannot store or reopen its result. */
+export const HTTP_API_PROTOCOL_VERSION = 29;
+export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 29;
+export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 29;
 
 export type ArtifactTarget = "source" | BuiltArtifactTarget;
 

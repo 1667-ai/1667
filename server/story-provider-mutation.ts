@@ -40,6 +40,7 @@ import { applyProviderStoryEffect } from "./story-provider-effect.js";
 import {
   ScopedProviderStoryRuntime
 } from "./story-mutation-runtime.js";
+import type { PreparedProviderStoryEffect } from "./story-provider-preparation.js";
 import {
   providerOutcomeUnknown,
   requireUnacknowledgedProviderReceipt,
@@ -64,6 +65,7 @@ import {
 } from "./story-mutation-transaction.js";
 import { reduceStoryV6 } from "./story-v6-reducer.js";
 import type { StoryStore } from "./stories.js";
+import type { ProviderPointer } from "./story-v6-types.js";
 import { storyRecoveryAdmission } from "./story-aside-recovery.js";
 import type { AsideAnchor } from "../shared/aside-session.js";
 import { isChapterSummary } from "../shared/story-tree.js";
@@ -132,6 +134,7 @@ export class StoryProviderMutationStore {
         method,
         receipt,
         operation.replayValue,
+        operation.recoverStarted,
         recoveryAdmission.allowed
       );
       return { request, storyId, opened };
@@ -141,6 +144,29 @@ export class StoryProviderMutationStore {
         ...admitted.opened.commit,
         value: admitted.opened.value
       };
+    }
+
+    if (admitted.opened.kind === "recovering") {
+      const { request, storyId } = admitted;
+      const { story, manifest, started, value, effect } = admitted.opened;
+      const runtime = new ScopedProviderStoryRuntime<Method>(
+        story,
+        manifest,
+        request.mutationId
+      );
+      await runtime.commitPreparedProviderEffect(storyId, effect);
+      const committed = await runTerminalStoryPhase(
+        this.coordinator,
+        request,
+        async () => await this.commitTerminal(
+          storyId,
+          request,
+          method,
+          started,
+          runtime
+        )
+      );
+      return { ...committed, value };
     }
 
     const { request, storyId } = admitted;
@@ -161,7 +187,7 @@ export class StoryProviderMutationStore {
     let pinnedImageObjectIds: readonly string[] = [];
     try {
       try {
-        const runtime = new ScopedProviderStoryRuntime(story, manifest, request.mutationId);
+        const runtime = new ScopedProviderStoryRuntime<Method>(story, manifest, request.mutationId);
         let started: StartedMutationRecord | null = null;
         let startedPromise: Promise<StartedMutationRecord> | null = null;
         const startProvider = async (): Promise<void> => {
@@ -288,14 +314,15 @@ export class StoryProviderMutationStore {
   }
 
   /** Recovery, idempotency and version admission, all before provider bytes. */
-  private async open<Value>(
+  private async open<Method extends ProviderMutationMethod, Value>(
     storyId: string,
     request: MutationCoordinatorRequest<StoryMutationTarget>,
-    method: ProviderMutationMethod,
+    method: Method,
     receipt: StoryMutationReceipt,
     replayValue: ProviderStoryReplay<Value>,
+    recoverStarted: ProviderStoryRun<Method, Value>["recoverStarted"],
     allowRecovery: boolean
-  ): Promise<ProviderStoryAdmission<Value>> {
+  ): Promise<ProviderStoryAdmission<Method, Value>> {
     const pin: { release: (() => void) | null } = { release: null };
     try {
       return await this.stories.withAggregateSession(storyId, async (session) => {
@@ -334,8 +361,27 @@ export class StoryProviderMutationStore {
         );
         requireUnacknowledgedProviderReceipt(current, request, method);
         const unresolved = session.snapshot.manifest.unresolvedProvider;
+        if (allowRecovery && current.started !== null && recoverStarted !== undefined) {
+          if (unresolved === null) {
+            throw providerOutcomeUnknown(request.mutationId);
+          }
+          if (unresolved.mutationId !== request.mutationId
+            || unresolved.fingerprintHash !== request.fingerprint) {
+            await this.rejectUnresolvedProviderConflict(request, unresolved);
+          }
+          const recovered = await recoverStarted(session);
+          const story = await session.loadLive();
+          return {
+            kind: "recovering",
+            story,
+            manifest: session.snapshot.manifest,
+            started: current.started,
+            value: recovered.value,
+            effect: recovered.effect
+          };
+        }
         if (unresolved !== null) {
-          throw providerOutcomeUnknown(unresolved.mutationId);
+          await this.rejectUnresolvedProviderConflict(request, unresolved);
         }
         if (current.started !== null) {
           throw providerOutcomeUnknown(request.mutationId);
@@ -398,7 +444,9 @@ export class StoryProviderMutationStore {
       }
       if (receipt.started !== null) throw providerOutcomeUnknown(request.mutationId);
       const unresolved = session.snapshot.manifest.unresolvedProvider;
-      if (unresolved !== null) throw providerOutcomeUnknown(unresolved.mutationId);
+      if (unresolved !== null) {
+        await this.rejectUnresolvedProviderConflict(request, unresolved);
+      }
       if (session.snapshot.manifest.kind !== "live") {
         throw new GenerationResultError(
           409,
@@ -485,12 +533,38 @@ export class StoryProviderMutationStore {
     });
   }
 
-  private async commitTerminal(
+  /** A different provider operation must not turn an active Fact consistency
+   * check into an unknown-outcome recovery prompt. The check owns the
+   * unresolved pointer until its terminal publication.
+   */
+  private async rejectUnresolvedProviderConflict(
+    request: MutationCoordinatorRequest<StoryMutationTarget>,
+    unresolved: ProviderPointer
+  ): Promise<never> {
+    if (unresolved.mutationId !== request.mutationId) {
+      const receipt = await this.ledger.loadStoryReceipt(
+        request.scope,
+        unresolved.mutationId
+      );
+      const method = receipt.started?.method ?? receipt.prepared?.method;
+      if (method === "checkFactConsistency") {
+        throw new ServiceError(
+          409,
+          "Fact consistency is running. Wait for the check to finish before starting another provider request.",
+          "resource_busy"
+        );
+      }
+    }
+    // Preserve the existing same-mutation and non-Fact recovery semantics.
+    throw providerOutcomeUnknown(unresolved.mutationId);
+  }
+
+  private async commitTerminal<Method extends ProviderMutationMethod>(
     storyId: string,
     request: MutationCoordinatorRequest<StoryMutationTarget>,
-    method: ProviderMutationMethod,
+    method: Method,
     started: StartedMutationRecord,
-    runtime: ScopedProviderStoryRuntime
+    runtime: ScopedProviderStoryRuntime<Method>
   ): Promise<Pick<
     ProviderStoryMutationCommit<never>,
     "story" | "result" | "aggregateVersion"
@@ -514,6 +588,7 @@ export class StoryProviderMutationStore {
           request,
           method,
           started,
+          effect,
           { kind: "success", story }
         );
         return {
@@ -529,6 +604,7 @@ export class StoryProviderMutationStore {
           request,
           method,
           started,
+          null,
           { kind: "error", code: terminal.code }
         );
         throw terminal.error;
@@ -569,6 +645,7 @@ export class StoryProviderMutationStore {
         request,
         method,
         started,
+        null,
         { kind: "error", code }
       );
     });
@@ -607,6 +684,7 @@ export class StoryProviderMutationStore {
     request: MutationCoordinatorRequest<StoryMutationTarget>,
     method: ProviderMutationMethod,
     started: StartedMutationRecord,
+    effect: PreparedProviderStoryEffect | null,
     outcome:
       | { kind: "success"; story: Story }
       | { kind: "error"; code: PreparedDomainError }
@@ -618,7 +696,10 @@ export class StoryProviderMutationStore {
     const replacement = outcome.kind === "success"
       ? await session.prepareContent(outcome.story, {
         activation: this.stories.imageInputActivation,
-        asideActivation: this.stories.asideActivation
+        asideActivation: this.stories.asideActivation,
+        ...(effect?.kind === "fact-consistency"
+          ? { factConsistencyRun: effect.run }
+          : {})
       })
       : null;
     const provider = {

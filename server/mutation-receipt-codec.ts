@@ -24,6 +24,12 @@ import {
   type StoredServiceError
 } from "./service-error-policy.js";
 import { exactStringPattern } from "./story-wire-patterns.js";
+import {
+  assertFactConsistencyRun,
+  hashFactConsistencyRun,
+  FACT_CONSISTENCY_HASH_PATTERN,
+  type FactConsistencyRun
+} from "../shared/fact-consistency-types.js";
 
 const FINGERPRINT_PATTERN = exactStringPattern("[0-9a-f]{64}");
 const CONTEXT_KEY_PATTERN = exactStringPattern("[a-z][a-z0-9-]{0,63}");
@@ -31,6 +37,7 @@ const CONTEXT_KEY_PATTERN = exactStringPattern("[a-z][a-z0-9-]{0,63}");
 type StoredResult =
   | { type: "story"; id: string; factStatesRemoved?: number }
   | { type: "aside"; id: string }
+  | { type: "fact-consistency"; id: string; runId: string; runHash?: string }
   | { type: "aside-session"; storyId: string; sessionId: string }
   | { type: "chapter-break-created"; id: string; breakId: string }
   | {
@@ -80,6 +87,13 @@ export interface MutationReceipt {
         kind: "import-plan";
         fingerprint: string;
         value: StoredImportPlan;
+      }
+    | {
+        /** Compact pre-publication lease for a Fact consistency leaf. */
+        kind: "fact-consistency-run";
+        storyId: string;
+        runId: string;
+        runHash: string;
       };
   result?: StoredResult;
   failure?: StoredServiceError;
@@ -118,6 +132,22 @@ export function encodeMutationResult(
     }
     if (value === null) return { type: "value", value: null };
     return { type: "aside", id: storyId };
+  }
+  if (method === "checkFactConsistency") {
+    const storyId = storyIdFromInput(input);
+    if (storyId === null || !isFactConsistencyResult(value)) {
+      throw new ServiceError(
+        500,
+        "Fact consistency mutation receipt has no story target",
+        "internal"
+      );
+    }
+    return {
+      type: "fact-consistency",
+      id: storyId,
+      runId: value.run.runId,
+      runHash: hashFactConsistencyRun(value.run)
+    };
   }
   if (isStoryPayload(value)) {
     return {
@@ -260,6 +290,22 @@ export function parseMutationReceipt(
       && receipt.method !== "asideSessionMutation") {
       throw corruptMutationReceipt(mutationId);
     }
+    if (receipt.method === "checkFactConsistency"
+      && receipt.result.type !== "fact-consistency") {
+      throw corruptMutationReceipt(mutationId);
+    }
+    if (receipt.result.type === "fact-consistency"
+      && receipt.method !== "checkFactConsistency") {
+      throw corruptMutationReceipt(mutationId);
+    }
+    if (receipt.result.type === "fact-consistency"
+      && receipt.artifact?.kind === "fact-consistency-run"
+      && (receipt.artifact.storyId !== receipt.result.id
+        || receipt.artifact.runId !== receipt.result.runId
+        || (receipt.result.runHash !== undefined
+          && receipt.artifact.runHash !== receipt.result.runHash))) {
+      throw corruptMutationReceipt(mutationId);
+    }
   }
   const decodedFailure = receipt.state === "failed"
     ? decodeFailureEnvelope(receipt.failure)
@@ -372,6 +418,23 @@ function isStoryPayload(value: unknown): value is StoryPayload {
     && Array.isArray((value as StoryPayload).path);
 }
 
+function isFactConsistencyResult(
+  value: unknown
+): value is { readonly run: FactConsistencyRun; readonly payload: StoryPayload } {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const result = value as { readonly run?: unknown; readonly payload?: unknown };
+  if (!(result.run !== null
+    && typeof result.run === "object"
+    && !Array.isArray(result.run)
+    && isStoryPayload(result.payload))) return false;
+  try {
+    assertFactConsistencyRun(result.run);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isChapterBreakCreatedResult(
   value: unknown
 ): value is { payload: StoryPayload; breakId: string } {
@@ -412,6 +475,14 @@ function isStoredResult(value: unknown): value is StoredResult {
           && result.factStatesRemoved >= 0));
   }
   if (result.type === "aside") return typeof result.id === "string";
+  if (result.type === "fact-consistency") {
+    return typeof result.id === "string"
+      && typeof result.runId === "string"
+      && result.runId.length > 0
+      && (result.runHash === undefined
+        || (typeof result.runHash === "string"
+          && FACT_CONSISTENCY_HASH_PATTERN.test(result.runHash)));
+  }
   if (result.type === "aside-session") {
     return typeof result.storyId === "string"
       && result.storyId.length > 0
@@ -439,6 +510,14 @@ function isStoredArtifact(
   method: WorkerMethod | undefined
 ): boolean {
   if (value === undefined) return true;
+  if (value.kind === "fact-consistency-run") {
+    return method === "checkFactConsistency"
+      && typeof value.storyId === "string"
+      && value.storyId.length > 0
+      && typeof value.runId === "string"
+      && value.runId.length > 0
+      && FACT_CONSISTENCY_HASH_PATTERN.test(value.runHash);
+  }
   if (value.kind === "import-plan") {
     if ((method !== "importLorebook" && method !== "importCard")
       || !isMutationFingerprint(value.fingerprint)

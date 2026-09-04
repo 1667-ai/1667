@@ -37,6 +37,7 @@ import { MAX_SESSION_REFS_PER_BUCKET } from "../server/story-v11-strict.js";
 import {
   STORY_ASIDE_SCHEMA_VERSION,
   STORY_ASIDE_SESSION_SCHEMA_VERSION,
+  STORY_FACT_CONSISTENCY_SCHEMA_VERSION,
   STORY_SUCCESSOR_SCHEMA_VERSION
 } from "../server/story-format.js";
 import {
@@ -213,6 +214,7 @@ export function storyManifestSchema(): Schema {
     },
     StrictV11Payload: asideSessionContentSchema(STORY_ASIDE_SESSION_SCHEMA_VERSION, "StoredNodeV7"),
     StrictV13Payload: asideSessionContentSchema(13, "StoredNodeV7", "StoredFactV13"),
+    StrictV15Payload: factConsistencyContentSchema(STORY_FACT_CONSISTENCY_SCHEMA_VERSION, "StoredNodeV7"),
     ProviderPointer: closed({ mutationId: ref("MutationId"), fingerprintHash: ref("Hash256") }),
     StartedUserTransactionPointer: closed({
       receiptKind: { const: "user" }, mutationId: ref("MutationId"), phase: { const: "started" }
@@ -241,12 +243,14 @@ export function storyManifestSchema(): Schema {
     LiveV12: liveV6Schema(STORY_SCHEMA_VERSION_V12, "StrictV11Payload"),
     DeletedV12: deletedV6Schema(STORY_SCHEMA_VERSION_V12),
     LiveV14: liveV6Schema(14, "StrictV13Payload"),
-    DeletedV14: deletedV6Schema(14)
+    DeletedV14: deletedV6Schema(14),
+    LiveV16: liveV6Schema(16, "StrictV15Payload"),
+    DeletedV16: deletedV6Schema(16)
   };
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     $id: "https://1667.invalid/schema/story-manifest-p2.json",
-    title: "1667 strict V5, V6, V7, V8, V9, V10, V11, V12, V13, and V14 story manifests",
+    title: "1667 strict V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, and V16 story manifests",
     oneOf: [
       ref("StrictV5Payload"),
       ref("LiveV6"),
@@ -262,7 +266,10 @@ export function storyManifestSchema(): Schema {
       ref("DeletedV12"),
       ref("StrictV13Payload"),
       ref("LiveV14"),
-      ref("DeletedV14")
+      ref("DeletedV14"),
+      ref("StrictV15Payload"),
+      ref("LiveV16"),
+      ref("DeletedV16")
     ],
     $defs: definitions
   };
@@ -416,6 +423,24 @@ function asideSessionContentSchema(schemaVersion: number, nodeRef: string, factR
       asideUnanchoredSessionRefs: unanchoredRefs
     },
     required: [...base.required, "asideSessionRefs", "asideUnanchoredSessionRefs"]
+  };
+}
+
+/** V15 content: V11 plus the required pointer to its separate, bounded Fact
+ * consistency run object. The pointer is content-addressed and never embeds
+ * findings in the story payload. */
+function factConsistencyContentSchema(schemaVersion: number, nodeRef: string): Schema {
+  const base = asideSessionContentSchema(schemaVersion, nodeRef, "StoredFactV13") as Schema & {
+    properties: Record<string, Schema>;
+    required: string[];
+  };
+  return {
+    ...base,
+    properties: {
+      ...base.properties,
+      factConsistencyRunId: ref("Hash256")
+    },
+    required: [...base.required, "factConsistencyRunId"]
   };
 }
 

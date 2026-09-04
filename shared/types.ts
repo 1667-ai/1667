@@ -369,6 +369,9 @@ export interface StoryPayload {
   hasAside?: true;
   /** Presence only for the additive v2 session store. */
   hasAsideSessions?: true;
+  /** Presence only for the latest Fact consistency run. Findings are read
+   * through the dedicated run endpoint and never travel with this payload. */
+  hasFactConsistencyRun?: true;
   /**
    * Take-scoped Aside session counts for READ. The anchor ids are immutable
    * story node ids; the ordinal fields are display projections only.
@@ -454,6 +457,7 @@ export function assertPromptReadyStoryPayload(value: unknown): asserts value is 
   assertAuthorBrief(candidate.authorBrief);
   assertStoryPhraseBias(candidate.phraseBias);
   assertStoryBannedStrings(candidate.bannedStrings);
+  optionalLiteral(candidate, "hasFactConsistencyRun", true, "story payload");
   if (candidate.asidePresence !== undefined) {
     assertStoryAsidePresence(candidate.asidePresence);
   }
@@ -815,6 +819,9 @@ export interface Story {
   asideSessionRefs?: readonly AsideSessionRef[];
   /** Text-free refs for pruned or migrated unanchored sessions. */
   asideUnanchoredSessionRefs?: readonly AsideSessionRef[];
+  /** Content-addressed latest Fact consistency run id. The run body stays in
+   * its own object leaf and is never carried by StoryPayload. */
+  factConsistencyRunId?: string | null;
 }
 
 function assertAuthorsNote(value: unknown): void {

@@ -24,6 +24,7 @@ import {
 } from "../../shared/worker-protocol.js";
 import { LifecycleRetry } from "../../shared/lifecycle-retry.js";
 import { sameBuildIdentity } from "../../shared/build-identity.js";
+import { FACT_CONSISTENCY_OPERATION_DEADLINE_MS } from "../../shared/fact-consistency-types.js";
 import { resolveDataDirectory } from "../../server/data-directory.js";
 import { ServiceError } from "../../server/errors.js";
 import {
@@ -338,7 +339,7 @@ export class WorkerTransport {
         ? null
         : readTimeoutMs;
       const deadlineAfterMs = GENERATION_METHODS.has(method)
-        ? this.options.streamDeadlineMs ?? WORKER_STREAM_DEADLINE_MS
+        ? this.options.streamDeadlineMs ?? defaultGenerationDeadline(method)
         : mutating
           ? this.options.mutationDeadlineMs ?? WORKER_MUTATION_DEADLINE_MS
           : readTimeoutMs;
@@ -597,7 +598,7 @@ export class WorkerTransport {
     if (!this.lifecycle.acceptingRequests) return Promise.reject(new Error("Embedded backend stopped during mutation recovery"));
     const stream = STREAM_METHODS.has(record.method);
     const deadlineAfterMs = GENERATION_METHODS.has(record.method)
-      ? this.options.streamDeadlineMs ?? WORKER_STREAM_DEADLINE_MS
+      ? this.options.streamDeadlineMs ?? defaultGenerationDeadline(record.method)
       : this.options.mutationDeadlineMs ?? WORKER_MUTATION_DEADLINE_MS;
     const registered = this.pending.open<void>({
       method: record.method,
@@ -721,6 +722,12 @@ export class WorkerTransport {
       this.fail(error instanceof Error ? error : new Error(String(error)), false);
     }
   }
+}
+
+function defaultGenerationDeadline(method: WorkerMethod): number {
+  return method === "checkFactConsistency"
+    ? FACT_CONSISTENCY_OPERATION_DEADLINE_MS
+    : WORKER_STREAM_DEADLINE_MS;
 }
 
 function createDefaultWorker(): Worker {

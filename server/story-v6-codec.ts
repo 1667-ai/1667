@@ -7,6 +7,7 @@ import {
   STORY_ASIDE_SCHEMA_VERSION,
   STORY_ASIDE_SESSION_SCHEMA_VERSION,
   STORY_FACT_STATE_SCHEMA_VERSION,
+  STORY_FACT_CONSISTENCY_SCHEMA_VERSION,
   STORY_FORMAT,
   STORY_SUCCESSOR_SCHEMA_VERSION,
   STORYTAVERN_STORY_FORMAT,
@@ -17,6 +18,8 @@ import {
   type StoryManifestV11,
   type StoryManifestV13
 } from "./story-format.js";
+import type { StoryManifestV15 } from "./story-format.js";
+import { assertStrictV15Manifest } from "./story-v15-strict.js";
 import { hasLegacyTopLevelSchemaVersion } from "./json-schema-version.js";
 import { buildStoryCatalogSummary, buildStorySummary } from "./story-summary.js";
 import {
@@ -63,6 +66,11 @@ import type {
   LiveStoryManifestV14,
   StoryManifestV14
 } from "./story-v14-types.js";
+import type {
+  DeletedStoryManifestV16,
+  LiveStoryManifestV16,
+  StoryManifestV16
+} from "./story-v16-types.js";
 import {
   boundedString,
   closedRecord,
@@ -91,6 +99,8 @@ export const STORY_SCHEMA_VERSION_V10 = 10;
 export const STORY_SCHEMA_VERSION_V12 = 12;
 /** The branch-scoped Fact State envelope. It wraps an exact V13 payload. */
 export const STORY_SCHEMA_VERSION_V14 = 14;
+/** The Fact consistency envelope wraps the V15 content payload. */
+export const STORY_SCHEMA_VERSION_V16 = 16 as const;
 
 const LIVE = closedShape([
   "format", "schemaVersion", "kind", "id", "revision", "previousManifestHash", "content", "summary",
@@ -117,6 +127,21 @@ export function parseStoryManifestBytes(bytes: Uint8Array, expectedId: string): 
     return { kind: "v5", manifest: parsed.manifest, sourceSchemaVersion: parsed.sourceSchemaVersion };
   }
   const value = parseJson(text, expectedId);
+  if (isV16Candidate(value)) {
+    if (value.kind === "deleted" && bytes.byteLength > MAX_DELETED_STORY_MANIFEST_BYTES) {
+      throw new StoryFormatError(
+        `Deleted story manifest exceeds its ${MAX_DELETED_STORY_MANIFEST_BYTES}-byte size limit`
+      );
+    }
+    const manifest = parseV16(value, expectedId);
+    assertNfcJsonStrings(value, `story ${expectedId} manifest`);
+    if (canonicalJson(value) !== text) {
+      throw new StoryFormatError(`Story ${expectedId} V${STORY_SCHEMA_VERSION_V16} manifest is not canonical JSON`);
+    }
+    return manifest.kind === "live"
+      ? { kind: "v16-live", manifest }
+      : { kind: "v16-deleted", manifest };
+  }
   if (isV14Candidate(value)) {
     if (value.kind === "deleted" && bytes.byteLength > MAX_DELETED_STORY_MANIFEST_BYTES) {
       throw new StoryFormatError(
@@ -203,6 +228,11 @@ export function parseStoryManifestBytes(bytes: Uint8Array, expectedId: string): 
         `Story ${expectedId} Fact State content must be wrapped in a V${STORY_SCHEMA_VERSION_V14} envelope`
       );
     }
+    if (parsed.sourceSchemaVersion === STORY_FACT_CONSISTENCY_SCHEMA_VERSION) {
+      throw new StoryFormatError(
+        `Story ${expectedId} Fact consistency content must be wrapped in a V${STORY_SCHEMA_VERSION_V16} envelope`
+      );
+    }
     return { kind: "v5", manifest: parsed.manifest, sourceSchemaVersion: parsed.sourceSchemaVersion };
   }
   if (value.kind === "deleted" && bytes.byteLength > MAX_DELETED_STORY_MANIFEST_BYTES) {
@@ -272,6 +302,16 @@ export function formatV14(manifest: StoryManifestV14): string {
   return text;
 }
 
+/** The Fact consistency counterpart of `formatV14`, for V15 content. */
+export function formatV16(manifest: StoryManifestV16): string {
+  const text = canonicalJson(manifest);
+  const parsed = parseStoryManifestText(text, manifest.id);
+  if (parsed.kind !== "v16-live" && parsed.kind !== "v16-deleted") {
+    throw new StoryFormatError(`Expected a V${STORY_SCHEMA_VERSION_V16} story manifest`);
+  }
+  return text;
+}
+
 /** Narrow a write-path result back to the plain V6 envelope for a caller that
  *  never produces the successor content payload, so it can keep the older,
  *  more specific type instead of holding `StoryEnvelopeManifest` everywhere.
@@ -301,7 +341,7 @@ export function storySummaryFromLiveEnvelope(manifest: LiveStoryEnvelopeManifest
 }
 
 export function storySummaryV6FromContent(
-  content: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13
+  content: StoryManifestV5 | StoryManifestV7 | StoryManifestV9 | StoryManifestV11 | StoryManifestV13 | StoryManifestV15
 ): StorySummaryV6 {
   const summary = buildStorySummary(content);
   return {
@@ -345,6 +385,12 @@ function parseV14(value: Record<string, unknown>, expectedId: string): StoryMani
   throw new StoryFormatError(`Story ${expectedId} V${STORY_SCHEMA_VERSION_V14} kind must be live or deleted`);
 }
 
+function parseV16(value: Record<string, unknown>, expectedId: string): StoryManifestV16 {
+  if (value.kind === "live") return parseLive16(value, expectedId);
+  if (value.kind === "deleted") return parseDeleted16(value, expectedId);
+  throw new StoryFormatError(`Story ${expectedId} V${STORY_SCHEMA_VERSION_V16} kind must be live or deleted`);
+}
+
 function parseLive(value: unknown, expectedId: string): LiveStoryManifestV6 {
   return parseLiveEnvelope(value, expectedId, LIVE_V6);
 }
@@ -363,6 +409,10 @@ function parseLive12(value: unknown, expectedId: string): LiveStoryManifestV12 {
 
 function parseLive14(value: unknown, expectedId: string): LiveStoryManifestV14 {
   return parseLiveEnvelope(value, expectedId, LIVE_V14);
+}
+
+function parseLive16(value: unknown, expectedId: string): LiveStoryManifestV16 {
+  return parseLiveEnvelope(value, expectedId, LIVE_V16);
 }
 
 function parseDeleted(value: unknown, expectedId: string): DeletedStoryManifestV6 {
@@ -385,6 +435,10 @@ function parseDeleted14(value: unknown, expectedId: string): DeletedStoryManifes
   return parseDeletedEnvelope(value, expectedId, STORY_SCHEMA_VERSION_V14);
 }
 
+function parseDeleted16(value: unknown, expectedId: string): DeletedStoryManifestV16 {
+  return parseDeletedEnvelope(value, expectedId, STORY_SCHEMA_VERSION_V16);
+}
+
 /** The content version each envelope version must wrap: version 6 wraps an
  *  exact V5 payload, version 8 wraps an exact image-successor payload, and
  *  version 10 wraps an exact Aside payload. This map ties
@@ -395,10 +449,11 @@ export interface LiveEnvelopeContentByVersion {
   readonly 10: StoryManifestV9;
   readonly 12: StoryManifestV11;
   readonly 14: StoryManifestV13;
+  readonly 16: StoryManifestV15;
 }
 
 /** Pairs an envelope's schema version with the content version it must wrap. */
-export interface LiveEnvelopeSpec<V extends 6 | 8 | 10 | 12 | 14> {
+export interface LiveEnvelopeSpec<V extends 6 | 8 | 10 | 12 | 14 | 16> {
   readonly schemaVersion: V;
   readonly requireContent: (content: ParsedManifestVersion) => LiveEnvelopeContentByVersion[V];
 }
@@ -461,12 +516,24 @@ const LIVE_V14: LiveEnvelopeSpec<14> = {
   }
 };
 
+const LIVE_V16: LiveEnvelopeSpec<16> = {
+  schemaVersion: STORY_SCHEMA_VERSION_V16,
+  requireContent: (content) => {
+    if (content.sourceSchemaVersion !== STORY_FACT_CONSISTENCY_SCHEMA_VERSION) {
+      throw new StoryFormatError(
+        `V${STORY_SCHEMA_VERSION_V16} content must contain an exact V${STORY_FACT_CONSISTENCY_SCHEMA_VERSION} payload`
+      );
+    }
+    return content.manifest;
+  }
+};
+
 /**
  * The one live-envelope parser for every schema version. A schema version
  * identifies one document shape, so `LIVE` and every scalar/pointer parser
  * below are shared as-is; only `spec` changes between versions.
  */
-function parseLiveEnvelope<V extends 6 | 8 | 10 | 12 | 14>(
+function parseLiveEnvelope<V extends 6 | 8 | 10 | 12 | 14 | 16>(
   value: unknown,
   expectedId: string,
   spec: LiveEnvelopeSpec<V>
@@ -509,7 +576,7 @@ function parseLiveEnvelope<V extends 6 | 8 | 10 | 12 | 14>(
  *  typing that parameter as `V` (rather than as the union `6 | 8`) is what
  *  makes the returned object literal assignable to `DeletedStoryEnvelope<V>`
  *  without a cast. */
-function parseDeletedEnvelope<V extends 6 | 8 | 10 | 12 | 14>(
+function parseDeletedEnvelope<V extends 6 | 8 | 10 | 12 | 14 | 16>(
   value: unknown,
   expectedId: string,
   schemaVersion: V
@@ -534,7 +601,7 @@ function parseDeletedEnvelope<V extends 6 | 8 | 10 | 12 | 14>(
   };
 }
 
-function parseCommonLiterals(manifest: Record<string, unknown>, schemaVersion: 6 | 8 | 10 | 12 | 14): void {
+function parseCommonLiterals(manifest: Record<string, unknown>, schemaVersion: 6 | 8 | 10 | 12 | 14 | 16): void {
   if (manifest.format !== STORY_FORMAT
     && manifest.format !== STORYTAVERN_STORY_FORMAT) {
     throw new StoryFormatError("manifest.format is invalid");
@@ -594,7 +661,7 @@ function preparedTransactionPointer(value: unknown): PreparedUserTransactionPoin
   return pointer;
 }
 
-function assertSummaryMatchesContent<V extends 6 | 8 | 10 | 12 | 14>(
+function assertSummaryMatchesContent<V extends 6 | 8 | 10 | 12 | 14 | 16>(
   manifest: LiveStoryEnvelope<V, LiveEnvelopeContentByVersion[V]>
 ): void {
   const expected = storySummaryV6FromContent(manifest.content);
@@ -615,7 +682,7 @@ function assertSummaryMatchesContent<V extends 6 | 8 | 10 | 12 | 14>(
  *  parameterized, a V8 document that broke this invariant raised a message
  *  that named V6, because the V8 parser called a copy of this check that
  *  still hardcoded the V6 wording. */
-function assertRevisionPredecessor(schemaVersion: 6 | 8 | 10 | 12 | 14, revision: Revision20, previous: Hash256 | null): void {
+function assertRevisionPredecessor(schemaVersion: 6 | 8 | 10 | 12 | 14 | 16, revision: Revision20, previous: Hash256 | null): void {
   if ((revision === REVISION_ONE) !== (previous === null)) {
     throw new StoryFormatError(
       `V${schemaVersion} revision 1 must have no predecessor and later revisions must have one`
@@ -705,4 +772,9 @@ function isV12Candidate(value: unknown): value is Record<string, unknown> {
 function isV14Candidate(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     && (value as Record<string, unknown>).schemaVersion === STORY_SCHEMA_VERSION_V14;
+}
+
+function isV16Candidate(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    && (value as Record<string, unknown>).schemaVersion === STORY_SCHEMA_VERSION_V16;
 }

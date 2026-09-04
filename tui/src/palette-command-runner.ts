@@ -44,6 +44,15 @@ import { recordNotice } from "./notice-log.js";
 import { openTokenProbabilities } from "./token-probabilities-actions.js";
 import { openGenerationRecordViewer } from "./generation-record-actions.js";
 import { openRequestViewer } from "./request-viewer-actions.js";
+import {
+  openFactConsistencyCheck,
+  showFactConsistencyFindings
+} from "./fact-consistency-runtime.js";
+import {
+  blockFactConsistencyCheck,
+  factConsistencyBlocksPaletteCommand,
+  factConsistencyCheckRunning
+} from "./fact-consistency-guard.js";
 import { mapAction } from "./map-actions.js";
 import { factsOpeningPartId } from "./facts-command-context.js";
 import { runPaletteMapRetake } from "./palette-map-retake.js";
@@ -114,7 +123,8 @@ const PALETTE_DESTINATION_COMMANDS: ReadonlySet<CommandId> = new Set([
   "generation-records", "tag-line", "authors-note", "author-brief", "facts-budget",
   "phrase-bias", "banned-strings", "aside", "switch-story", "rename-story",
   "direct-take", "retake", "rewrite-selection", "summary", "chapters", "chapter",
-  "import-card", "import-archive", "attach-image", "settings", "reconnect", "prune"
+  "import-card", "import-archive", "attach-image", "settings", "reconnect", "prune",
+  "check-chapter-against-facts", "check-story-line-against-facts", "show-fact-findings"
 ]);
 
 export async function runPaletteCommand(
@@ -138,6 +148,13 @@ export async function runPaletteCommand(
   }
   const paletteSession = state.commands!;
   const returnMode = state.commands!.returnMode;
+  if (factConsistencyCheckRunning(state)
+    && factConsistencyBlocksPaletteCommand(command.id)) {
+    state.commands = null;
+    state.mode = returnMode;
+    blockFactConsistencyCheck(state);
+    return;
+  }
   const dormantOwner = capturePaletteOwner(state, returnMode);
   if (returnMode === "SETTINGS"
     && settingsPaletteHasUnsavedWork(state)
@@ -279,7 +296,21 @@ export async function runPaletteCommand(
   // A command that does not open another surface returns to its exact owner.
   // Surface-changing commands below select their own mode as needed.
   state.mode = returnMode;
-  if (command.id === "facts") {
+  if (command.id === "show-fact-findings") {
+    const shown = await showFactConsistencyFindings(state, source, context, returnMode);
+    if (!shown && state.toast === null) state.toast = "Fact findings are not available";
+  }
+  else if (command.id === "check-chapter-against-facts"
+    || command.id === "check-story-line-against-facts") {
+    await openFactConsistencyCheck(
+      state,
+      source,
+      context,
+      command.id === "check-chapter-against-facts" ? "chapter" : "story-line",
+      returnMode
+    );
+  }
+  else if (command.id === "facts") {
     state.facts ??= deps.initialFacts();
     state.mode = "FACTS";
   }

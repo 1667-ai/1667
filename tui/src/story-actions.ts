@@ -46,6 +46,7 @@ import { partHasThought } from "./reasoning-model.js";
 import { ensureThoughtLoaded } from "./reasoning-actions.js";
 import { generate, generationBusy } from "./generation-action.js";
 import { blockUncertainRootCreation } from "./first-take-guard.js";
+import { blockFactConsistencyCheck } from "./fact-consistency-guard.js";
 import {
   partActionRequiresPersistedTarget,
   partActions,
@@ -181,6 +182,7 @@ export async function navAction(
   }
   else if (resolved.action === "new-item") await createNewStory(state, source, context);
   else if (resolved.action === "continue") {
+    if (blockFactConsistencyCheck(state)) return;
     if (generationBusy(state)) state.toast = "stream running · esc stops it first";
     else if (state.connection.down) state.toast = "offline · reading still works";
     else if (blockUncertainRootCreation(state)) return;
@@ -362,6 +364,7 @@ export async function runPartAction(
     return;
   }
   if (id === "continue" || id === "retake") {
+    if (blockFactConsistencyCheck(state)) return;
     if (generationBusy(state)) {
       state.toast = "stream running · esc stops it first";
       return;
@@ -663,6 +666,10 @@ export async function composeAction(
     // rewrite composer; everywhere else in COMPOSE it resolves but is simply
     // unbound, same as any other unadvertised chord — not worth a toast.
     if (resolved.action === "send-as-take" && rewriteSession === null) return;
+    // Fact consistency owns provider capacity for the story while it runs.
+    // Check before any other submission gate so Direct, Retake, and Rewrite
+    // drafts all stay intact and show the same clear reason.
+    if (blockFactConsistencyCheck(state)) return;
     if (generationBusy(state)) {
       state.toast = "stream running · esc stops it first · draft kept";
       return;

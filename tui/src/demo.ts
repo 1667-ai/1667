@@ -58,6 +58,7 @@ import { NEW_INSTALL_THEME, normalizeUserConfig } from "./config.js";
 import { demoResolveSamplingBias } from "./demo-token-ids.js";
 import { discoverDemoModels } from "./demo-model-discovery.js";
 import { streamFake } from "./fake-stream.js";
+import { createDemoFactConsistencyStore } from "./demo-fact-consistency.js";
 import {
   createDemoChapterBreak,
   DEMO_SUMMARY_TEXT,
@@ -728,9 +729,11 @@ export function demoStoryApi(demo: DemoController): StoryApi {
   const unavailable = (feature: string) => { throw new Error(`${feature} is not available in the demo fixture`); };
   let settingsView = structuredClone(DEMO_SETTINGS_VIEW);
   const asideDocuments = new Map<string, AsideDocument>();
+  const factConsistency = createDemoFactConsistencyStore();
   const openStory = (id: string): StoryPayload => {
     demo.openStory(id);
-    return demo.setAsidePresence(asideDocuments.has(id));
+    const payload = demo.setAsidePresence(asideDocuments.has(id));
+    return factConsistency.projectPresence(payload);
   };
   return {
     listStories: async () => demo.listStories(),
@@ -746,6 +749,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     acknowledgeUnknownOutcomes: async () => demo.autonameStory(),
     deleteStory: async (id) => {
       asideDocuments.delete(id);
+      factConsistency.forget(id);
       demo.deleteStory();
       return { ok: true };
     },
@@ -753,6 +757,11 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     getGenerationRecords: async () => [],
     getGenerationRecord: async () => unavailable("Generation records"),
     getReasoning: async () => unavailable("A thought"),
+    planFactConsistency: async (input) =>
+      factConsistency.planFactConsistency(demo.payload(), input),
+    checkFactConsistency: async (input) =>
+      factConsistency.checkFactConsistency(demo.payload(), input, DEMO_SETTINGS.model),
+    getFactConsistencyRun: async (storyId) => factConsistency.getFactConsistencyRun(storyId),
     getAside: async (storyId) => structuredClone(
       asideDocuments.get(storyId) ?? emptyAsideDocument()
     ),

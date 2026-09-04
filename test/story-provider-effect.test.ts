@@ -139,13 +139,54 @@ test("provider effects are exhaustively operation-specific", () => {
       model: "m",
       generationRecord: generationRecordFixture("chapter-summary", "summary")
     },
+    "fact-consistency": {
+      kind: "fact-consistency",
+      run: {
+        format: "1667-fact-consistency-run",
+        schemaVersion: 1,
+        runId: "run",
+        scope: "story-line",
+        anchor: { partId: "root", takeId: "root" },
+        checkedAt: AT,
+        provider: { profile: "utility", preset: "default", model: "m" },
+        storyLineTakeIds: ["root"],
+        parts: [],
+        droppedFindings: 0
+      }
+    },
     aside: {
       kind: "aside",
       expectedAsideDocumentId: undefined,
       document: { schemaVersion: 1, notes: [{ question: "Why?", answer: "Because." }] }
     }
   } satisfies Record<ProviderStoryEffect["kind"], ProviderStoryEffect>;
-  assert.equal(Object.keys(effects).length, 6);
+  assert.equal(Object.keys(effects).length, 7);
+});
+
+test("Fact consistency preparation freezes cancellation before terminal replay", async () => {
+  const controller = new AbortController();
+  const prepared = prepareProviderStoryEffect({
+    kind: "fact-consistency",
+    run: {
+      format: "1667-fact-consistency-run",
+      schemaVersion: 1,
+      runId: "run",
+      scope: "story-line",
+      anchor: { partId: "root", takeId: "root" },
+      checkedAt: AT,
+      provider: { profile: "utility", preset: "default", model: "m" },
+      storyLineTakeIds: ["root"],
+      parts: [],
+      droppedFindings: 0
+    },
+    cancelled: controller.signal
+  });
+  controller.abort();
+
+  assert.equal("cancelled" in prepared, false);
+  const current = story([node("root", null, "Opening.")]);
+  await applyProviderStoryEffect(current, prepared, hydrate);
+  assert.match(current.factConsistencyRunId ?? "", /^[a-f0-9]{64}$/u);
 });
 
 test("aside assigns its content id before serialization", async () => {

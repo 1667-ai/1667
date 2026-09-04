@@ -14,6 +14,8 @@ export const STORY_V10_HASH_DOMAIN = "story-v10\0";
 export const STORY_V12_HASH_DOMAIN = "story-v12\0";
 /** The branch-scoped Fact State envelope's hash domain. */
 export const STORY_V14_HASH_DOMAIN = "story-v14\0";
+/** The Fact consistency envelope's hash domain. */
+export const STORY_V16_HASH_DOMAIN = "story-v16\0";
 export const MUTATION_STARTED_RECORD_HASH_DOMAIN = "mutation-started-v1\0";
 export const MUTATION_PREPARED_RECORD_HASH_DOMAIN = "mutation-prepared-v1\0";
 
@@ -45,6 +47,11 @@ export function hashStoryV12ManifestBytes(bytes: Uint8Array): Hash256 {
 /** Hash exact canonical V14 manifest bytes; callers are responsible for canonical validation. */
 export function hashStoryV14ManifestBytes(bytes: Uint8Array): Hash256 {
   return hashDomainSeparatedBytes(STORY_V14_HASH_DOMAIN, bytes);
+}
+
+/** Hash exact canonical V16 manifest bytes; callers are responsible for canonical validation. */
+export function hashStoryV16ManifestBytes(bytes: Uint8Array): Hash256 {
+  return hashDomainSeparatedBytes(STORY_V16_HASH_DOMAIN, bytes);
 }
 
 /** Hash exact canonical started-record bytes; this helper never rewrites the record. */

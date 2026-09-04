@@ -44,6 +44,7 @@ import {
   asideHopTarget,
   orderAsideAnchors
 } from "./aside-hop.js";
+import { blockFactConsistencyCheck, factConsistencyCheckRunning } from "./fact-consistency-guard.js";
 
 type AsideContext = {
   readonly source: { api: StoryApi; config: RuntimeState["config"] };
@@ -521,6 +522,13 @@ export async function asideV2KeyAction(
   context: AsideContext
 ): Promise<boolean> {
   if (!isAsideV2(surface)) return false;
+  const startsProviderWork = resolved.action === "aside-retake"
+    || resolved.action === "aside-retake-with-prompt"
+    || resolved.action === "send" && surface.composer.text.trim() !== "/clear";
+  if (startsProviderWork && factConsistencyCheckRunning(state)) {
+    blockFactConsistencyCheck(state);
+    return true;
+  }
   if (!surface.busy && resolved.action === "cancel" && surface.retakePrompt !== null) {
     closeAsideRetakePrompt(surface);
     surface.focus = currentAsideTurns(surface).length > 0 ? "turns" : "composer";
