@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.10.9",
+    date: "2026-09-04",
+    body: "- **You can check prose against Facts.** Run a chapter check or a story-line\n  check from the command palette. 1667 reports verified contradictions and\n  changes no prose."
+  },
+  {
     version: "0.10.9-rc.2",
     date: "2026-09-03",
     body: "- **The Apparatus is easier to use.** A labeled rule separates inactive take\n  previews from the next story part. Click a preview to select that take."
