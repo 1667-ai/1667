@@ -22,6 +22,7 @@ import {
   OTHER_FINGERPRINT,
   OTHER_MUTATION_ID,
   providerOperation,
+  request,
   requestFor,
   setup,
   STORY_ID,
@@ -33,7 +34,7 @@ providerTest("Fact consistency requires the confirmed plan and rejects plan drif
     throw new Error("a stale or missing plan must not reach the provider");
   });
   const fixture = await setup(t, "1667-fact-consistency-plan-binding-");
-  await fixture.stories.save(factStory(20, 1));
+  await seedFactStory(fixture, factStory(20, 1));
   const service = factConsistencyService(fixture, modelSettings(model.baseUrl));
   const input = {
     storyId: STORY_ID,
@@ -53,9 +54,12 @@ providerTest("Fact consistency requires the confirmed plan and rejects plan drif
   );
 
   const plan = await service.plan(input);
-  const story = await fixture.stories.load(STORY_ID);
-  story.nodes[0]!.text = "The changed prose invalidates the confirmed plan.";
-  await fixture.stories.save(story);
+  const version = (await fixture.stories.loadVersioned(STORY_ID)).aggregateVersion!;
+  await fixture.mutations.runLocal(
+    requestFor(OTHER_MUTATION_ID, OTHER_FINGERPRINT, version),
+    "editNode",
+    (story) => { story.nodes[0]!.text = "The changed prose invalidates the confirmed plan."; }
+  );
   await assert.rejects(
     service.check({ ...input, planToken: plan.planToken }, new AbortController().signal),
     (error: unknown) => {
@@ -76,7 +80,7 @@ providerTest("Fact consistency splits whole Fact States and keeps one run", asyn
     stream(response, [`NONE\n${marker}`]);
   });
   const fixture = await setup(t, "1667-fact-consistency-provider-");
-  await fixture.stories.save(factStory(400, 2));
+  await seedFactStory(fixture, factStory(400, 2));
   const settings = {
     ...modelSettings(model.baseUrl),
     temperature: 0.9,
@@ -118,7 +122,7 @@ providerTest("Fact consistency rejects an overlong line before provider admissio
     stream(response, [`NONE\n${completionMarker("unused")}`]);
   });
   const fixture = await setup(t, "1667-fact-consistency-line-limit-");
-  await fixture.stories.save(factStory(20, 1, MAX_FACT_CONSISTENCY_LINE_TAKES + 1));
+  await seedFactStory(fixture, factStory(20, 1, MAX_FACT_CONSISTENCY_LINE_TAKES + 1));
   const service = factConsistencyService(fixture, modelSettings(model.baseUrl));
 
   await assert.rejects(
@@ -143,7 +147,7 @@ providerTest("Fact consistency rejects excessive provider work before provider a
     stream(response, [`NONE\n${completionMarker("unused")}`]);
   });
   const fixture = await setup(t, "1667-fact-consistency-request-limit-");
-  await fixture.stories.save(factStory(20, 1, MAX_FACT_CONSISTENCY_PROVIDER_REQUESTS + 1));
+  await seedFactStory(fixture, factStory(20, 1, MAX_FACT_CONSISTENCY_PROVIDER_REQUESTS + 1));
   const service = factConsistencyService(fixture, modelSettings(model.baseUrl));
 
   await assert.rejects(
@@ -170,7 +174,7 @@ providerTest("Fact consistency skips an overlong part before provider dispatch",
   const fixture = await setup(t, "1667-fact-consistency-part-limit-");
   const story = factStory(20, 1);
   story.nodes[0]!.text = "x".repeat(MAX_FACT_CONSISTENCY_PART_CHARS + 1);
-  await fixture.stories.save(story);
+  await seedFactStory(fixture, story);
   const service = factConsistencyService(fixture, modelSettings(model.baseUrl));
   const input = {
     storyId: STORY_ID,
@@ -196,7 +200,7 @@ providerTest("Fact consistency hydrates an off-active selected take before promp
     stream(response, [`NONE\n${completionMarker(prompt)}`]);
   });
   const fixture = await setup(t, "1667-fact-consistency-off-active-provider-");
-  await fixture.stories.save(offActiveFactStory());
+  await seedFactStory(fixture, offActiveFactStory());
   const service = factConsistencyService(fixture, modelSettings(model.baseUrl));
   const input = {
     storyId: STORY_ID,
@@ -222,7 +226,7 @@ providerTest("a missing completion marker leaves the part unchecked", async (t) 
     ]);
   });
   const fixture = await setup(t, "1667-fact-consistency-marker-");
-  await fixture.stories.save(factStory(20, 1));
+  await seedFactStory(fixture, factStory(20, 1));
   const service = factConsistencyService(fixture, modelSettings(model.baseUrl));
   const input = {
     storyId: STORY_ID,
@@ -247,7 +251,7 @@ providerTest("all Fact consistency provider failures fail without committing a r
     response.writeHead(503).end("provider unavailable");
   });
   const fixture = await setup(t, "1667-fact-consistency-provider-errors-");
-  await fixture.stories.save(factStory(20, 1, 2));
+  await seedFactStory(fixture, factStory(20, 1, 2));
   const service = factConsistencyService(fixture, modelSettings(model.baseUrl));
   const input = {
     storyId: STORY_ID,
@@ -282,7 +286,7 @@ providerTest("mixed Fact consistency provider results commit successful parts", 
     response.writeHead(503).end("provider unavailable");
   });
   const fixture = await setup(t, "1667-fact-consistency-mixed-provider-results-");
-  await fixture.stories.save(factStory(20, 1, 2));
+  await seedFactStory(fixture, factStory(20, 1, 2));
   const service = factConsistencyService(fixture, modelSettings(model.baseUrl));
   const input = {
     storyId: STORY_ID,
@@ -307,7 +311,7 @@ providerTest("concurrent parts await one durable provider-start publication", as
     stream(response, [`NONE\n${completionMarker(requestPrompt(body))}`]);
   });
   const fixture = await setup(t, "1667-fact-consistency-start-");
-  await fixture.stories.save(factStory(20, 1, 2));
+  await seedFactStory(fixture, factStory(20, 1, 2));
   const service = factConsistencyService(fixture, modelSettings(model.baseUrl));
   const input = {
     storyId: STORY_ID,
@@ -349,7 +353,7 @@ providerTest("a different provider operation is busy while Fact consistency runs
   t.after(() => releaseProvider());
 
   const fixture = await setup(t, "1667-fact-consistency-provider-busy-");
-  await fixture.stories.save(factStory(20, 1));
+  await seedFactStory(fixture, factStory(20, 1));
   const service = factConsistencyService(fixture, modelSettings(model.baseUrl));
   const input = {
     storyId: STORY_ID,
@@ -434,7 +438,7 @@ providerTest("a different provider operation is busy at Fact consistency publish
   t.after(() => releaseProvider());
 
   const fixture = await setup(t, "1667-fact-consistency-publish-busy-");
-  await fixture.stories.save(factStory(20, 1));
+  await seedFactStory(fixture, factStory(20, 1));
   const service = factConsistencyService(fixture, modelSettings(model.baseUrl));
   const version = (await fixture.stories.loadVersioned(STORY_ID)).aggregateVersion!;
   let reportAdmission!: () => void;
@@ -521,6 +525,22 @@ function factConsistencyService(
     promptCache: new PromptCacheRuntime(),
     cancellable: async (signal, work) => await work(signal)
   });
+}
+
+async function seedFactStory(
+  fixture: Awaited<ReturnType<typeof setup>>,
+  story: Story
+): Promise<void> {
+  await fixture.mutations.runLocal(
+    request(fixture.v5Hash),
+    "createFact",
+    (current) => {
+      current.title = story.title;
+      current.nodes = story.nodes;
+      current.activeRootId = story.activeRootId;
+      current.facts = story.facts;
+    }
+  );
 }
 
 function factStory(factTextChars: number, factCount: number, partCount = 1): Story {
