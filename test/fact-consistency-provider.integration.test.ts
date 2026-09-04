@@ -11,6 +11,7 @@ import {
   MAX_FACT_CONSISTENCY_PART_CHARS,
   MAX_FACT_CONSISTENCY_LINE_TAKES
 } from "../shared/fact-consistency-types.js";
+import { createDurableMutationId } from "../shared/durable-mutation-id.js";
 import { MAX_FACT_CONSISTENCY_PROVIDER_REQUESTS } from "../server/fact-consistency-bounds.js";
 import {
   fakeModel,
@@ -19,6 +20,7 @@ import {
   stream
 } from "./provider-http-fixture.js";
 import {
+  FIXED_NOW,
   OTHER_FINGERPRINT,
   OTHER_MUTATION_ID,
   providerOperation,
@@ -98,10 +100,10 @@ providerTest("Fact consistency splits whole Fact States and keeps one run", asyn
   assert.equal(plan.requestCount, 2);
   assert.match(plan.planToken, /^[a-f0-9]{64}$/u);
 
-  const result = await service.check({
+  const result = await runFactConsistencyCheck(service, fixture, {
     ...input,
     planToken: plan.planToken
-  }, new AbortController().signal);
+  });
 
   assert.equal(model.requests.length, 2);
   for (const request of model.requests) {
@@ -185,9 +187,10 @@ providerTest("Fact consistency skips an overlong part before provider dispatch",
   const plan = await service.plan(input);
   assert.equal(plan.partCount, 1);
   assert.equal(plan.requestCount, 0);
-  const result = await service.check(
-    { ...input, planToken: plan.planToken },
-    new AbortController().signal
+  const result = await runFactConsistencyCheck(
+    service,
+    fixture,
+    { ...input, planToken: plan.planToken }
   );
   assert.equal(model.requests.length, 0);
   assert.match(result.run.parts[0]!.uncheckedReason ?? "", /size limit/u);
@@ -209,9 +212,10 @@ providerTest("Fact consistency hydrates an off-active selected take before promp
   };
   const plan = await service.plan(input);
 
-  const result = await service.check(
-    { ...input, planToken: plan.planToken },
-    new AbortController().signal
+  const result = await runFactConsistencyCheck(
+    service,
+    fixture,
+    { ...input, planToken: plan.planToken }
   );
 
   assert.equal(model.requests.length, 1);
@@ -235,9 +239,10 @@ providerTest("a missing completion marker leaves the part unchecked", async (t) 
   };
   const plan = await service.plan(input);
 
-  const result = await service.check(
-    { ...input, planToken: plan.planToken },
-    new AbortController().signal
+  const result = await runFactConsistencyCheck(
+    service,
+    fixture,
+    { ...input, planToken: plan.planToken }
   );
 
   assert.equal(result.run.parts.length, 1);
@@ -261,9 +266,10 @@ providerTest("all Fact consistency provider failures fail without committing a r
   const plan = await service.plan(input);
 
   await assert.rejects(
-    service.check(
-      { ...input, planToken: plan.planToken },
-      new AbortController().signal
+    runFactConsistencyCheck(
+      service,
+      fixture,
+      { ...input, planToken: plan.planToken }
     ),
     (error: unknown) => {
       assert.ok(error instanceof ProviderError);
@@ -295,9 +301,10 @@ providerTest("mixed Fact consistency provider results commit successful parts", 
   };
   const plan = await service.plan(input);
 
-  const result = await service.check(
-    { ...input, planToken: plan.planToken },
-    new AbortController().signal
+  const result = await runFactConsistencyCheck(
+    service,
+    fixture,
+    { ...input, planToken: plan.planToken }
   );
 
   assert.equal(model.requests.length, 2);
@@ -324,12 +331,17 @@ providerTest("concurrent parts await one durable provider-start publication", as
   let reportStart!: () => void;
   const startEntered = new Promise<void>((resolve) => { reportStart = resolve; });
 
-  const running = service.check({ ...input, planToken: plan.planToken }, new AbortController().signal, {
-    providerStarted: async () => {
-      reportStart();
-      await startGate;
+  const running = runFactConsistencyCheck(
+    service,
+    fixture,
+    { ...input, planToken: plan.planToken },
+    {
+      providerStarted: async () => {
+        reportStart();
+        await startGate;
+      }
     }
-  });
+  );
   await startEntered;
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(model.requests.length, 0);
@@ -361,7 +373,11 @@ providerTest("a different provider operation is busy while Fact consistency runs
     scope: "story-line" as const
   };
   const plan = await service.plan(input);
-  const check = service.check({ ...input, planToken: plan.planToken }, new AbortController().signal);
+  const check = runFactConsistencyCheck(
+    service,
+    fixture,
+    { ...input, planToken: plan.planToken }
+  );
   await requestSeen;
 
   await assert.rejects(
@@ -467,7 +483,11 @@ providerTest("a different provider operation is busy at Fact consistency publish
     scope: "story-line" as const
   };
   const plan = await service.plan(input);
-  const check = service.check({ ...input, planToken: plan.planToken }, new AbortController().signal);
+  const check = runFactConsistencyCheck(
+    service,
+    fixture,
+    { ...input, planToken: plan.planToken }
+  );
   await requestSeen;
   releaseCompetitor();
   await assert.rejects(competing, (error: unknown) => {
@@ -524,6 +544,23 @@ function factConsistencyService(
     storyMutations: fixture.mutations,
     promptCache: new PromptCacheRuntime(),
     cancellable: async (signal, work) => await work(signal)
+  });
+}
+
+async function runFactConsistencyCheck(
+  service: StoryServiceFactConsistency,
+  fixture: Awaited<ReturnType<typeof setup>>,
+  input: Parameters<StoryServiceFactConsistency["check"]>[0],
+  options: Parameters<StoryServiceFactConsistency["check"]>[2] = {}
+) {
+  const aggregateVersion = (await fixture.stories.loadVersioned(STORY_ID)).aggregateVersion!;
+  return await service.check(input, new AbortController().signal, {
+    mutationRequest: requestFor(
+      createDurableMutationId(FIXED_NOW.getTime()),
+      OTHER_FINGERPRINT,
+      aggregateVersion
+    ),
+    ...options
   });
 }
 
