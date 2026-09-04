@@ -25,5 +25,5 @@ node --import tsx evals/fact-consistency/cli.ts \
 ```
 
 Keep the reports outside the repository. Compare the totals before you change
-the prompt contract. Run one local model and one hosted model before a release
-that first contains the check.
+the prompt contract. These model evaluations are optional. They do not block a
+release. When practical, run one local model and one hosted model.

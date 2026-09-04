@@ -1,12 +1,12 @@
 ---
-summary: Gemma continuation incident record and prompt quality replay gate
+summary: Gemma continuation incident record and optional prompt quality replay
 read_when:
   - changing the Continue or Retake prompt plan
   - reviewing a model-quality regression
   - preparing a release candidate with generation changes
 ---
 
-# Prompt quality gate
+# Prompt quality review
 
 ## Technical terms
 
@@ -54,16 +54,18 @@ conditioning.
 
 Commit `d2dba3a` added a mode-independent Continue contract. Commit `3ad49f0`
 continued that repair. Commit `dc6d632` restored the v0.8.0 continuation prompt
-shape. These code and wire tests do not replace the Gemma replay.
+shape. A Gemma replay can add model-quality evidence to these code and wire
+tests.
 
 ## Compatibility baseline
 
 The complete v0.8.0 continuation prompt is the compatibility baseline for
 local models. This baseline applies to Continue and Retake review.
 
-Keep the v0.8.0 prompt shape until a replacement passes the Gemma replay gate.
-Do not use cache reuse as evidence that a model will keep the established
-style.
+Use the v0.8.0 prompt shape as the comparison baseline. When practical, run a
+Gemma replay before you replace it. The replay is optional and does not block a
+release. Do not use cache reuse as evidence that a model will keep the
+established style.
 
 The default continuation prompt layout is the compatibility baseline. A
 Generation Profile can enable one approved experimental layout. A missing
@@ -87,10 +89,11 @@ changes. The deterministic HTTP integration test in
 `test/model-connection-e2e.test.ts` protects the Continue transport wire. Add
 the applicable integration test for a different adapter or cache change.
 
-## Gemma replay gate
+## Gemma replay
 
-Run the replay before a new Continue or Retake prompt plan reaches a release
-candidate. Use the frozen story fixture in
+When a suitable local model is available, run the replay before you release a
+new Continue or Retake prompt plan. A missing replay does not block a release.
+Use the frozen story fixture in
 `evals/gemma-prompt-quality/fixture.ts` for every comparison.
 Follow the [replay instructions](../evals/gemma-prompt-quality/README.md).
 
@@ -192,5 +195,5 @@ judged an output correctly.
 
 Normal CI parses the compact evidence and rebuilds the deterministic request
 bodies. Normal CI does not start KoboldCpp or run Gemma 4 31B. CI does not
-prove replay provenance. A release owner must complete and review the replay
-before the prompt-plan change ships.
+prove replay provenance. When a release includes new replay evidence, the
+release owner must review that evidence before the prompt-plan change ships.
