@@ -3,9 +3,9 @@ name: CI
 # Public repositories get unlimited standard-runner minutes, so the allowance
 # that ran out no longer applies. Timeouts still stop wedged jobs. The serial
 # gate needs 25 minutes for the runtime, TUI, standalone, and filesystem lanes.
-# Packaged-platform jobs keep the 15-minute limit, except Darwin targets.
-# macOS dependency installs can leave too little time for the complete test and
-# package lanes, so darwin-arm64 gets 20 minutes and darwin-x64 gets 25 minutes.
+# Packaged-platform jobs keep the 15-minute limit, except the arm64 targets and
+# darwin-x64. Dependency installs can leave too little time for the complete
+# arm64 lanes, so they get 20 minutes. darwin-x64 keeps 25 minutes.
 on:
   pull_request:
   push:
@@ -200,7 +200,7 @@ jobs:
       matrix:
         target: ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64", "windows-x64"]
     runs-on: ${{ fromJSON('{"darwin-arm64":"macos-15","darwin-x64":"macos-15-intel","linux-arm64":"ubuntu-24.04-arm","linux-x64":"ubuntu-24.04","windows-x64":"windows-2025"}')[matrix.target] }}
-    timeout-minutes: ${{ matrix.target == 'darwin-x64' && 25 || matrix.target == 'darwin-arm64' && 20 || 15 }}
+    timeout-minutes: ${{ matrix.target == 'darwin-x64' && 25 || endsWith(matrix.target, 'arm64') && 20 || 15 }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
