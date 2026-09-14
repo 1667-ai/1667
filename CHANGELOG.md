@@ -5,6 +5,15 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.11.0-beta.1 - 2026-09-14
+
+- **1667 has a desktop app.** Open a project and use the writing tools,
+  Facts, chapters, Aside, and Settings on macOS, Windows, or Linux.
+- **Desktop updates support stable and beta channels.** Select a channel in
+  the desktop app to check for its next update.
+- **The TUI keeps your draft after a revision conflict.** It loads the stored
+  story before you retry the edit.
+
 ## 0.10.9 - 2026-09-04
 
 - **You can check prose against Facts.** Run a chapter check or a story-line

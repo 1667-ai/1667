@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.11.0-beta.1",
+    date: "2026-09-14",
+    body: "- **1667 has a desktop app.** Open a project and use the writing tools,\n  Facts, chapters, Aside, and Settings on macOS, Windows, or Linux.\n- **Desktop updates support stable and beta channels.** Select a channel in\n  the desktop app to check for its next update.\n- **The TUI keeps your draft after a revision conflict.** It loads the stored\n  story before you retry the edit."
+  },
+  {
     version: "0.10.9",
     date: "2026-09-04",
     body: "- **You can check prose against Facts.** Run a chapter check or a story-line\n  check from the command palette. 1667 reports verified contradictions and\n  changes no prose."

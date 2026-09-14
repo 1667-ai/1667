@@ -16,6 +16,7 @@ import {
   releaseRunTimestamp,
   verifyReleaseAttestations
 } from "../scripts/release-npm-ci.js";
+import { testNodeExecutable } from "./test-node-executable.js";
 
 const VERSION = "1.2.3";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
@@ -34,7 +35,7 @@ test("CI attestation verification checks the exact retained file set", async (t)
     writeFile(path.join(inputs, "a"), "a"),
     writeFile(path.join(nested, "b"), "b"),
     writeFile(gh, [
-      `#!${process.execPath}`,
+      `#!${testNodeExecutable()}`,
       `require("node:fs").appendFileSync(${JSON.stringify(log)},`
         + " `${JSON.stringify(process.argv.slice(2))}\\n`);",
       "if (process.argv[2] === \"api\") process.stdout.write(\"2026-07-28T10:20:30Z\\n\");",

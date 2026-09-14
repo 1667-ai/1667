@@ -1376,11 +1376,14 @@ describe("embedded backend worker", () => {
     await dataLock.acquire();
     const worker = new Worker(new URL("../../server/worker.ts", import.meta.url), { type: "module" });
     try {
+      const starting = nextMessageOfType(worker, "starting");
+      const ready = nextMessageOfType(worker, "ready");
+      await starting;
       worker.postMessage({ type: "bootstrap", dataDir, externalDataLock: true });
-      const ready = await nextMessageOfType(worker, "ready");
+      const readyMessage = await ready;
       let operationSequence = 0n;
       const operationId = () => ({
-        workerInstanceId: ready.workerInstanceId,
+        workerInstanceId: readyMessage.workerInstanceId,
         sequence: ++operationSequence
       });
       const deadlineMs = Date.now() + 60_000;

@@ -1,6 +1,20 @@
 import { createHash } from "node:crypto";
 import type { ChatMessage } from "./prompt-plan.js";
 import {
+  COUNTED_TOKENIZE_SOURCE_VALUES,
+  TOKEN_COUNT_FALLBACK_VALUES,
+  TOKENIZE_SOURCE_CONTRACTS,
+  type TokenCountFallback,
+  type TokenizeSourceKind
+} from "./tokenize-source-contract.js";
+export {
+  COUNTED_TOKENIZE_SOURCE_VALUES,
+  TOKEN_COUNT_FALLBACK_VALUES,
+  TOKENIZE_SOURCE_CONTRACTS,
+  type TokenCountFallback,
+  type TokenizeSourceKind
+} from "./tokenize-source-contract.js";
+import {
   isOfficialAnthropicBaseUrl,
   isOfficialOpenAiBaseUrl
 } from "./settings-provider-defaults.js";
@@ -14,13 +28,6 @@ import type {
  * there is no single tokenizer, so each preset names its own source. A preset
  * with no source keeps the four-characters-per-token estimate.
  */
-export type TokenizeSourceKind =
-  | "bundled-openai"
-  | "anthropic-count-tokens"
-  | "llama-cpp-tokenize"
-  | "koboldcpp-tokencount"
-  | "none";
-
 /**
  * How much of the rendered request a count covers. The views must never present
  * one grade as another:
@@ -57,16 +64,6 @@ const NO_SOURCE: TokenizeSource = { kind: "none", grade: "estimate", perMessage:
  * wire decoder read it, so a source cannot arrive from the backend claiming a
  * grade or a per-message split that it is not able to produce.
  */
-export const TOKENIZE_SOURCE_CONTRACTS = {
-  "bundled-openai": { grade: "exact", perMessage: true },
-  "anthropic-count-tokens": { grade: "exact", perMessage: false },
-  "llama-cpp-tokenize": { grade: "near-exact", perMessage: false },
-  "koboldcpp-tokencount": { grade: "near-exact", perMessage: false }
-} as const satisfies Record<
-  Exclude<TokenizeSourceKind, "none">,
-  { readonly grade: "exact" | "near-exact"; readonly perMessage: boolean }
->;
-
 function sourceFor(kind: Exclude<TokenizeSourceKind, "none">): TokenizeSource {
   return { kind, ...TOKENIZE_SOURCE_CONTRACTS[kind] };
 }
@@ -104,20 +101,6 @@ export function tokenizeSourceFor(
   if (preset === "koboldcpp") return sourceFor("koboldcpp-tokencount");
   return NO_SOURCE;
 }
-
-/** Why a count fell back to the estimate. No reason reaches an error surface. */
-export const TOKEN_COUNT_FALLBACK_VALUES = ["no-source", "too-large", "probe-failed"] as const;
-export type TokenCountFallback = (typeof TOKEN_COUNT_FALLBACK_VALUES)[number];
-
-/** The sources a counted answer can name. Wire decoders test membership here
- * rather than re-spelling the union, so a new source cannot reach the views
- * through a decoder that still refuses it. */
-export const COUNTED_TOKENIZE_SOURCE_VALUES = [
-  "bundled-openai",
-  "anthropic-count-tokens",
-  "llama-cpp-tokenize",
-  "koboldcpp-tokencount"
-] as const satisfies readonly Exclude<TokenizeSourceKind, "none">[];
 
 /**
  * The counted request, or the statement that it stays estimated. A failed probe

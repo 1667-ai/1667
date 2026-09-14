@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
+    "rootDir": "..",
+    "outDir": "app",
+    "resolveJsonModule": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "declaration": false,
+    "sourceMap": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "../server/**/*.ts",
+    "../host/**/*.ts",
+    "../client/**/*.ts",
+    "../shared/**/*.ts"
+  ],
+  "exclude": [
+    "../test",
+    "../tui"
+  ]
+}

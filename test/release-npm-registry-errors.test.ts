@@ -21,6 +21,7 @@ import {
   type NpmPublicationPackage
 } from "../scripts/release-npm-publisher.js";
 import { RELEASE_LAUNCHER_PACKAGE } from "../shared/release-targets.js";
+import { testNodeExecutable } from "./test-node-executable.js";
 
 const VERSION = "1.2.3";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
@@ -167,7 +168,7 @@ function registryFor(
   // deadline measures polls and not the real npm starts that each poll makes.
   let now = 0;
   return new NpmReleaseRegistry({
-    npm: { nodeExecutable: process.execPath, npmCli },
+    npm: { nodeExecutable: testNodeExecutable(), npmCli },
     sourceCommit: COMMIT,
     sourceRef: SOURCE_REF,
     visibilityTimeoutMs: 1_000,

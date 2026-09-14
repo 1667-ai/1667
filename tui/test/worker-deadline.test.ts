@@ -54,15 +54,18 @@ describe("embedded worker deadlines", () => {
 
     const worker = new Worker(new URL("../../server/worker.ts", import.meta.url), { type: "module" });
     try {
+      const starting = nextMessageOfType(worker, "starting");
+      const ready = nextMessageOfType(worker, "ready");
+      await starting;
       worker.postMessage({ type: "bootstrap", dataDir, externalDataLock: true });
-      const ready = await nextMessageOfType(worker, "ready");
-      expect(ready).toMatchObject({
+      const readyMessage = await ready;
+      expect(readyMessage).toMatchObject({
         protocolVersion: WORKER_PROTOCOL_VERSION,
         buildIdentity: WORKER_BUILD_IDENTITY
       });
       let sequence = 0n;
       const operationId = (): WorkerOperationId => ({
-        workerInstanceId: ready.workerInstanceId,
+        workerInstanceId: readyMessage.workerInstanceId,
         sequence: ++sequence
       });
 
@@ -249,11 +252,14 @@ describe("embedded worker deadlines", () => {
 
     const worker = new Worker(new URL("../../server/worker.ts", import.meta.url), { type: "module" });
     try {
+      const starting = nextMessageOfType(worker, "starting");
+      const ready = nextMessageOfType(worker, "ready");
+      await starting;
       worker.postMessage({ type: "bootstrap", dataDir, externalDataLock: true });
-      const ready = await nextMessageOfType(worker, "ready");
+      const readyMessage = await ready;
       let sequence = 0n;
       const operationId = (): WorkerOperationId => ({
-        workerInstanceId: ready.workerInstanceId,
+        workerInstanceId: readyMessage.workerInstanceId,
         sequence: ++sequence
       });
       const created = await request(worker, {

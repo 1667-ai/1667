@@ -17,6 +17,7 @@ import {
   expectedGitHubReleaseAssetNames,
   expectedInstallerNames
 } from "../scripts/release-publication-assets.js";
+import { testNodeExecutable } from "./test-node-executable.js";
 
 const RELEASE_GH_FIXTURE = fileURLToPath(
   new URL("fixtures/release-gh.cjs", import.meta.url)
@@ -98,7 +99,7 @@ export async function writeFakeReleaseGh(
   };
   await writeFile(`${executable}.scenario.json`, JSON.stringify(scenario));
   await writeFile(executable, [
-    `#!${process.execPath}`,
+    `#!${testNodeExecutable()}`,
     `require(${JSON.stringify(RELEASE_GH_FIXTURE)});`,
     ""
   ].join("\n"));

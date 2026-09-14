@@ -46,6 +46,7 @@ import {
   type NpmPublicationRegistry,
   type NpmPublicationWriteGuard
 } from "../scripts/release-npm-publisher.js";
+import { testNodeExecutable } from "./test-node-executable.js";
 
 const VERSION = "1.2.3";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
@@ -85,7 +86,7 @@ test("native observation binds the reported identity to executable bytes", async
   };
   const executable = path.join(root, "1667");
   await writeFile(executable, [
-    `#!${process.execPath}`,
+    `#!${testNodeExecutable()}`,
     `process.stdout.write(${JSON.stringify(JSON.stringify(identity))});`,
     ""
   ].join("\n"));
@@ -288,7 +289,7 @@ test("registry publication refuses an ambient npm token", () => {
   try {
     assert.throws(() => new NpmReleaseRegistry({
       npm: {
-        nodeExecutable: process.execPath,
+        nodeExecutable: testNodeExecutable(),
         npmCli: fileURLToPath(import.meta.url)
       },
       sourceCommit: COMMIT,
@@ -306,7 +307,7 @@ test("registry polling retries unsettled responses but stops on a digest refusal
   let sleeps = 0;
   const registry = new NpmReleaseRegistry({
     npm: {
-      nodeExecutable: process.execPath,
+      nodeExecutable: testNodeExecutable(),
       npmCli: fileURLToPath(import.meta.url)
     },
     sourceCommit: COMMIT,
@@ -376,7 +377,7 @@ test("registry verification waits for the channel tag and audits package bytes",
     ""
   ].join("\n"));
   const registry = new NpmReleaseRegistry({
-    npm: { nodeExecutable: process.execPath, npmCli },
+    npm: { nodeExecutable: testNodeExecutable(), npmCli },
     sourceCommit: COMMIT,
     sourceRef: SOURCE_REF,
     visibilityTimeoutMs: 1_000,
@@ -652,7 +653,7 @@ test("a prerelease publishes to beta and verifies against beta", async (t) => {
   ].join("\n"));
 
   const registry = new NpmReleaseRegistry({
-    npm: { nodeExecutable: process.execPath, npmCli },
+    npm: { nodeExecutable: testNodeExecutable(), npmCli },
     sourceCommit: COMMIT,
     sourceRef: SOURCE_REF,
     visibilityTimeoutMs: 1_000,
